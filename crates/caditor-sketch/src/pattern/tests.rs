@@ -603,3 +603,164 @@ fn an_ellipse_turns_about_a_centre_with_its_minor_radius_held() {
     assert!(quarter.center.distance(Point2::new(0.0, 20.0)) < EXACT);
     assert!((quarter.center + quarter.major).distance(Point2::new(0.0, 28.0)) < EXACT);
 }
+
+fn quarter_arc(sketch: &mut Sketch) -> EntityId {
+    sketch.add_arc(
+        Point2::new(20.0, 5.0),
+        Point2::new(25.0, 5.0),
+        Point2::new(20.0, 10.0),
+    )
+}
+
+fn slanted_arc(sketch: &mut Sketch) -> EntityId {
+    sketch.add_arc(
+        Point2::new(20.0, 5.0),
+        Point2::new(23.0, 9.0),
+        Point2::new(16.0, 8.0),
+    )
+}
+
+fn slanted_elliptical_arc(sketch: &mut Sketch) -> EntityId {
+    sketch.add_elliptical_arc(
+        Point2::new(20.0, 30.0),
+        Point2::new(28.0, 30.0),
+        3.0,
+        Point2::new(20.0 + 8.0 * 0.5_f64.cos(), 30.0 + 3.0 * 0.5_f64.sin()),
+        Point2::new(20.0 + 8.0 * 2.0_f64.cos(), 30.0 + 3.0 * 2.0_f64.sin()),
+    )
+}
+
+fn assert_repeats_without_redundancy(
+    build: fn(&mut Sketch) -> EntityId,
+    pattern: impl Fn(&mut Sketch, EntityId) -> Vec<EntityId>,
+) {
+    let mut sketch = Sketch::new(Plane::XY);
+    let curve = build(&mut sketch);
+    let free = solve(&sketch).solution.degrees_of_freedom();
+
+    let copies = pattern(&mut sketch, curve);
+    let solved = solve(&sketch);
+
+    assert!(!copies.is_empty());
+    assert_clean(&solved);
+    assert_eq!(solved.solution.degrees_of_freedom(), free);
+}
+
+#[test]
+fn a_rectangular_pattern_of_an_arc_adds_no_redundant_tie() {
+    for build in [quarter_arc, slanted_arc] {
+        assert_repeats_without_redundancy(build, |sketch, arc| {
+            sketch
+                .rectangular_pattern(&[arc], &across(4, 40.0))
+                .unwrap()
+        });
+        assert_repeats_without_redundancy(build, |sketch, arc| {
+            let pattern = RectangularPattern {
+                first: row(3, 40.0, 30.0),
+                second: Some(row(2, 25.0, 120.0)),
+            };
+            sketch.rectangular_pattern(&[arc], &pattern).unwrap()
+        });
+    }
+}
+
+#[test]
+fn a_rectangular_pattern_of_an_elliptical_arc_adds_no_redundant_tie() {
+    assert_repeats_without_redundancy(slanted_elliptical_arc, |sketch, arc| {
+        sketch
+            .rectangular_pattern(&[arc], &across(4, 40.0))
+            .unwrap()
+    });
+    assert_repeats_without_redundancy(slanted_elliptical_arc, |sketch, arc| {
+        let pattern = RectangularPattern {
+            first: row(3, 40.0, 30.0),
+            second: Some(row(2, 25.0, 120.0)),
+        };
+        sketch.rectangular_pattern(&[arc], &pattern).unwrap()
+    });
+}
+
+#[test]
+fn a_circular_pattern_of_an_arc_or_an_elliptical_arc_adds_no_redundant_tie() {
+    for build in [quarter_arc, slanted_arc, slanted_elliptical_arc] {
+        assert_repeats_without_redundancy(build, |sketch, arc| {
+            sketch
+                .circular_pattern(&[arc], EntityId::ORIGIN, &turns(5))
+                .unwrap()
+        });
+        assert_repeats_without_redundancy(build, |sketch, arc| {
+            let centre = sketch.add_point(Point2::new(3.0, -4.0));
+            sketch
+                .add_constraint(Constraint::Fix {
+                    point: centre,
+                    at: Point2::new(3.0, -4.0),
+                })
+                .unwrap();
+            let pattern = CircularPattern {
+                count: 3,
+                spread: Spread::Total(degrees(100.0)),
+            };
+            sketch.circular_pattern(&[arc], centre, &pattern).unwrap()
+        });
+    }
+}
+
+fn half_ellipse(sketch: &mut Sketch) -> EntityId {
+    sketch.add_elliptical_arc(
+        Point2::new(20.0, 30.0),
+        Point2::new(28.0, 30.0),
+        3.0,
+        Point2::new(28.0, 30.0),
+        Point2::new(12.0, 30.0),
+    )
+}
+
+fn ellipse_quarter_from_its_axis(sketch: &mut Sketch) -> EntityId {
+    sketch.add_elliptical_arc(
+        Point2::new(20.0, 30.0),
+        Point2::new(28.0, 30.0),
+        3.0,
+        Point2::new(28.0, 30.0),
+        Point2::new(20.0, 33.0),
+    )
+}
+
+fn arc_about_the_origin(sketch: &mut Sketch) -> EntityId {
+    let arc = sketch.add_arc(
+        Point2::new(0.0, 0.0),
+        Point2::new(10.0, 0.0),
+        Point2::new(0.0, 10.0),
+    );
+    let Some(Entity::Arc { center: centre, .. }) = sketch.entity(arc).cloned() else {
+        panic!("expected an arc");
+    };
+    sketch
+        .add_constraint(Constraint::Coincident(centre, EntityId::ORIGIN))
+        .unwrap();
+    arc
+}
+
+#[test]
+fn an_arc_centred_on_the_pattern_centre_is_turned_without_redundancy() {
+    assert_repeats_without_redundancy(arc_about_the_origin, |sketch, arc| {
+        sketch
+            .circular_pattern(&[arc], EntityId::ORIGIN, &turns(4))
+            .unwrap()
+    });
+}
+
+#[test]
+fn an_elliptical_arc_with_ends_on_its_major_axis_repeats_without_redundancy() {
+    for build in [half_ellipse, ellipse_quarter_from_its_axis] {
+        assert_repeats_without_redundancy(build, |sketch, arc| {
+            sketch
+                .rectangular_pattern(&[arc], &across(3, 40.0))
+                .unwrap()
+        });
+        assert_repeats_without_redundancy(build, |sketch, arc| {
+            sketch
+                .circular_pattern(&[arc], EntityId::ORIGIN, &turns(3))
+                .unwrap()
+        });
+    }
+}

@@ -287,3 +287,36 @@ fn an_ellipse_on_the_mirror_line_is_its_own_image() {
         Err(MirrorError::NothingToMirror { .. })
     ));
 }
+
+#[test]
+fn mirrored_arcs_and_elliptical_arcs_add_no_redundancy_and_no_freedom() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let mirror = sketch.add_line(Point2::new(0.0, 0.0), Point2::new(10.0, 4.0));
+    sketch.set_construction(mirror, true).unwrap();
+    let arc = sketch.add_arc(
+        Point2::new(20.0, 5.0),
+        Point2::new(23.0, 9.0),
+        Point2::new(16.0, 8.0),
+    );
+    let slanted = sketch.add_elliptical_arc(
+        Point2::new(20.0, 30.0),
+        Point2::new(28.0, 30.0),
+        3.0,
+        Point2::new(20.0 + 8.0 * 0.5_f64.cos(), 30.0 + 3.0 * 0.5_f64.sin()),
+        Point2::new(20.0 + 8.0 * 2.0_f64.cos(), 30.0 + 3.0 * 2.0_f64.sin()),
+    );
+    let half = sketch.add_elliptical_arc(
+        Point2::new(20.0, 50.0),
+        Point2::new(28.0, 50.0),
+        3.0,
+        Point2::new(28.0, 50.0),
+        Point2::new(12.0, 50.0),
+    );
+    let free = solve(&sketch).solution.degrees_of_freedom();
+
+    sketch.mirror(&[arc, slanted, half], mirror).unwrap();
+    let solved = solve(&sketch);
+
+    assert_clean(&solved);
+    assert_eq!(solved.solution.degrees_of_freedom(), free);
+}

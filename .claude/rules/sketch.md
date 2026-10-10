@@ -209,6 +209,12 @@ every constraint still true of it. Joints are judged by a `TOLERANCE` relative t
     `Angle` holding the step: the total over count minus one, or 360° over the count), created
     once per point and instance; the origin as centre gets a point `Coincident` with it to start
     the lines from, since a line cannot end on a reference.
+  - A point that a curve already holds on its own circle or ellipse (an arc's end; an
+    elliptical arc's end that does not set the minor radius, which is the one farther from the
+    major axis, both when both lie on it) is tied by one row, not two, or none when two curves
+    hold it (`implied_gradients`, `kept_rows`): the row whose direction (an axis of the shift, or
+    the ray from the centre and its square) is least along the curve's gradient there, so the
+    curve fixes the coordinate the tie leaves free and no tie is reported redundant.
   - No constraint among the copied items is copied: a copy tied point by point is already as
     constrained as its original (its dimensions, parallels, tangents and the like hold because
     the shape does), so repeating them would make a whole copy redundant, as with mirror. A `Fix`
