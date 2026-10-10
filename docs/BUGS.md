@@ -34,6 +34,11 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   offers it and it is deleted after `SET_ASIDE_KEPT_SECONDS`. A plain snapshot is the last saved
   state by definition: when the model file's head digest equals the header's `on_disk`, load the
   file as the base, replay the entries and report it; a `RebasedSnapshot` keeps today's handling.
+- [medium · easy] A recovery offer vanishes when discarding it fails: `Event::Discarded` removes
+  the journal from `recoverable` before looking at the error, so the journal stays on disk and the
+  notice says so, but the card is gone and Recover unsaved work is unavailable until the next
+  launch, the only way back in this session for an untitled journal. Keep the candidate on an
+  error and say its changes are still there to restore.
 - [medium · easy] Quitting while an export runs drops it silently: `Files::request(Intent::Quit)`
   only abandons an open in flight, `run` closes storage and quits without asking
   `Exporter::is_running` or the image export, and their threads die with the process, leaving
@@ -47,6 +52,10 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   chunk with valid checksums; release builds wrap and fail as before. Refuse a payload that is not
   exactly one frame (`ZSTD_findFrameCompressedSize`) and pin three frames beside the two-frame
   test.
+- [low · easy] Forget recent and the other recent-list edits post success at once, while the write
+  runs on the files worker and a failed `RecentFiles::save_changes` is only logged, so the next
+  launch lists the models again with nothing said. Report it on the files-worker event path, as a
+  failed preferences save already is.
 - [low · easy] The read-back before a save's rename checks records only: `binary::reads_back`
   checks chunk checksums and the head and records digests, never decoding the delta written for
   the state the save replaces, nor deltas rewritten by thinning, so a compressor defect there would
@@ -121,6 +130,12 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   changing `k` from 2 to 4 reuses the cached point though Parameters shows the new `half`; tests
   miss it because their `evaluate` helper builds a fresh `Recompute`. Fingerprint from the
   overlaid values of the feature's view, or add every parameter the derived ones reach.
+- [high · medium] Scale model leaves every other configuration at the old size: `Document::scaled`
+  rewrites parameters, feature lengths and saved views but never reads `configurations`, and a
+  parameter edit copies its new expression into the active row only, so switching to another
+  configuration afterwards rebuilds the part unscaled. Rewrite the inactive rows' length cells with
+  the same rescaler in the scale transaction (one `SetConfigurations`), leaving angles, counts,
+  suppression and the active row alone.
 - [high · hard] An edge reference keeps only the piece that kept its curve's id when an upstream
   sketch edit splits the edge, silently: the 10×8×4 block of `blend_tests` with its front and left
   top edges filleted 1 mm, whose front sketch line is then notched (lines from (4, 0) to (4, 2),
@@ -133,6 +148,23 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   edge along the same curve between the same cap and the faces of its `Collinear` pieces, or the
   feature marked as having lost part of its choice with a fix
   (`blend_tests::a_notch_trimmed_into_a_filleted_edge_keeps_both_pieces_rounded`, ignored).
+- [medium · easy] Curve pattern and Point pattern pattern the last body when the selection names
+  something else: `sketch_pattern_tools` falls back to the last standing body whenever no tree
+  row is chosen and no selected item has a body, and `Pickable::body` is a face, edge or vertex
+  only, so a selected datum axis, principal plane or centre of mass patterns the last body (along
+  a guessed sketch when none is selected). Linear pattern falls back only on an empty selection;
+  do the same here, still falling through for a selection of sketch geometry alone.
+- [medium · easy] Plane and Point make a datum on XY or at the origin when the selection holds
+  nothing they can use: `datum_tools::why_unusable` returns nothing for a sketch region, a sketch
+  constraint, a centre of mass or a body item picked while sketching, and with nothing gathered a
+  plane starts on XY and a point at the origin, opened as if built on the selection. Axis already
+  refuses that selection; refuse in its words when the selection is not empty.
+- [medium · easy] A parameter used only as a body's density reads as unused: `used_parameters`
+  collects `feature.kind.parameters()` rather than `Feature::parameters`, so the Parameters panel
+  draws it unused and Delete unused parameters includes it; the removal is refused (removal reads
+  the density), the atomic apply keeps every other unused parameter too, and the success notice
+  posted after it replaces the refusal. Collect `Feature::parameters` and inform only once the
+  apply is accepted.
 - [medium · easy] A Split, or a Move that copies, cannot be edited once something uses its body:
   `SetFeatureKind` keeps a body only for imports and new-body solids and primitives, so any other
   kind whose id another feature's `bodies_used` holds is refused as `BodyInUse`, though
@@ -153,6 +185,12 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   deleted (and inlining and pasting miss it), after which switching back fails as
   `MissingParameter`; a pasted fillet keeps the source model's raw id. `document.md` says the extra
   expression counts among the feature's; make the four read `form` whatever the kind.
+- [medium · medium] Configuration cells are not uses of a parameter: neither `used_parameters`
+  nor `remove_parameter` reads them, and `inline_parameter` rewrites the live model only, so a
+  parameter named only in an inactive configuration, or inlined out of the live model while a cell
+  still names it, can be deleted, after which switching to that configuration fails as a missing
+  parameter and rolls back. Count `Configurations::parameters_named` in both and inline stored
+  cells too, dropping a cell whose column is the removed parameter.
 - [medium · medium] Reported by the user: a Remove extrusion typed far past the body (100000 mm, to
   cut through without measuring) does not cut, so the exact depth must be found. Not reproduced in
   `caditor-document` on a flat plate (one side, 10 mm to 999999 mm, volumes right), so the cause
@@ -197,6 +235,10 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Application
 
+- [medium · easy] A file dialog that dies reads as a cancel: the portal's response stream ending
+  and zenity exiting with no status are both returned as a cancel (`portal/xdg.rs`, beside the real
+  cancel status 1), and a cancel clears `after_save`, so a save meant to continue into quit, new or
+  open is dropped without a word. Return `DialogError` for both, keeping status 1 a cancel.
 - [medium · easy] Reload import from its file and Replace from file touch the file on the UI
   thread: `kept_source` calls `is_file` and `replace_import` calls `import::is_model` (which opens
   and reads a file whose extension is unknown) before the import thread starts, so an import whose
@@ -212,6 +254,9 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   check, and a trial's verdict up to `PATIENCE` later applies the transaction it was built with,
   so Ctrl+Z pressed in that window is overwritten on top and its redo dropped. Carry the revision
   in `Finished` and in `Trials::Running` and drop a stale result with a notice.
+- [low · easy] A parameter import that left rows out still shows the success notice: Apply always
+  posts `Notice::success`, so a partial import reads as complete beside the refused rows' text.
+  Use a warning whenever a row was refused.
 - [low · easy] Two caches miss the units: the offers' `Basis` holds only the length unit while
   `Offers::size` writes sweeps and half angles in the angle unit, and `scene_description::Key`
   holds no unit while it speaks lengths, so switching degrees to radians, or the length unit,
@@ -229,6 +274,11 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Sketching
 
+- [medium · easy] Filleting or chamfering a corner held by two coincident points turns a disabled
+  dimension back on: `merge_point` removes each constraint on the discarded point and inserts it on
+  the kept one, while `remove_constraint` clears the inactive flag and the label offset and the
+  insert restores neither, so the solver enforces a value the user had switched off. Keep both
+  across the move, and pin a disabled distance on the second corner point.
 - [medium · hard] Offset keeps one offset curve per original, so an offset that would drop a curve
   is refused: a 30×20 rounded rectangle (2 mm tangent corner arcs) offset inward by 2 mm or more is
   `Collapses` on its first arc, where an arc shrinking to nothing should leave a sharp corner and
@@ -238,6 +288,11 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   its outline's offset by the wall thickness meets both. `Chain::outline` (`offset.rs`) would drop
   a vanishing arc, or the run of curves a closing notch uses up, and re-meet the neighbours,
   leaving out the dropped curves' constraints as trim does.
+- [low · easy] Trim, extend, split, break, fillet and chamfer drop the placed label of every
+  dimension they keep: `trim::restructure` restores each kept constraint's inactive flag but not
+  its label offset, which `remove_constraint` drops, and `move_constraints` copies the flag onto
+  the far piece without the offset, so labels jump back to their automatic place. Carry the offset
+  beside the flag.
 
 ## Sketch solver
 
@@ -286,11 +341,21 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Viewer
 
+- [medium · easy] A sectioned body with a see-through face caps through it in the pick pass:
+  `fs_mesh_sectioned` discards a face whose alpha is zero before drawing a cap, but
+  `fs_mesh_pick_sectioned` caps every back face with pick id 0, and a see-through face stays on the
+  opaque instance at alpha 0 (`scene.rs`), so the colour pass shows the face through a hole in the
+  cap while a click there selects nothing. Discard zero alpha before the cap in the pick shader.
 - [medium · easy] The axis triad in the corner of the 3D view draws in fixed colours:
   `view_cube::show_axis_triad` takes `Axis::rgb()` (the dark canvas's red, green and blue) for its
   lines and letters, never `ScenePalette::axis`, so on the light canvas its Y reads at about 1.7:1
   and high contrast never reaches it, and its letters have no backdrop, against `ux.md`. Draw it
   from the palette, put the letters on `canvas::backdrop` and add it to the palette checks.
+- [medium · medium] Painting or listing under the pointer on a section cap takes the hidden far
+  wall: `through.rs` `hits_through` lists every triangle on the kept side of the plane with no
+  back-face or cap test and painting keeps the first, while a click on the same pixel hits the
+  cap's id 0 and selects nothing. For a closed mesh, treat a back-facing hit behind the ray's
+  section entry as the cap and drop it and what lies behind it; open meshes keep their far side.
 - [low · medium · blocked by: wgpu's GL backend] On GL and other devices without texture view
   formats the multisample resolve still averages in gamma space. A resolve of its own (a pass
   reading the samples through a `texture_multisampled_2d` and averaging them in linear light) was
