@@ -60,7 +60,9 @@ packages are reproducible: the same archive gives the same bytes (`SOURCE_DATE_E
 tagged commit's time). `packaging/check-packages.sh [--install] ARCHIVE` checks them: checksums,
 metadata, exactly the archive's files in each, the menu entry, and that the program of each runs
 and reports the archive's version; `--install` also installs the `.deb` with `apt-get` as root
-and removes it again, so it belongs in a disposable container. CI runs both on every push.
+and removes it again, so it belongs in a disposable container. After installing it expects every
+file of the package on disk except those dpkg's own `path-exclude` settings leave out (minimal
+Ubuntu images, the CI container among them, drop `/usr/share/doc` but its copyright files). CI runs both on every push.
 
 - The `.deb` is written with `ar` and `tar` (format 2.0, `xz` members, which every dpkg since 2010
   reads) without `dpkg-deb`. Its `Depends` are `libc6` at the highest glibc version the program

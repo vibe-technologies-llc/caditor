@@ -41,8 +41,9 @@ jobs:
       - name: Add an unprivileged user, since root ignores file modes the tests rely on
         run: |
           useradd --uid 1001 --create-home --home-dir "$BUILDER_HOME" builder
+          install -d -m 700 -o builder -g builder /run/user/1001
           printf '%s\n' '#!/bin/sh' \
-            "exec runuser -u builder -- env HOME=$BUILDER_HOME PATH=$BUILDER_HOME/.cargo/bin:\$PATH \"\$@\"" \
+            "exec runuser -u builder -- env HOME=$BUILDER_HOME XDG_RUNTIME_DIR=/run/user/1001 PATH=$BUILDER_HOME/.cargo/bin:\$PATH \"\$@\"" \
             > /usr/local/bin/as-builder
           chmod +x /usr/local/bin/as-builder
 

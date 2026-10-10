@@ -48,7 +48,9 @@ paths:
   kernel and sketch stress tests and the large STEP import benchmark (`app-tests.md`) in release. `random_placements_of_every_fixture` asserts that every
   boolean of its seed succeeds, so a kernel change that breaks one fails the job.
 - The check job runs cargo as the unprivileged `builder` user (`as-builder`), since root ignores the
-  file modes the unreadable-file tests rely on. It fails if the tests leave any change or untracked
+  file modes the unreadable-file tests rely on, with a runtime directory of its own
+  (`XDG_RUNTIME_DIR=/run/user/1001`), since Mesa's Vulkan stack probes for a Wayland display on
+  every instance and libwayland prints an error each time when the variable is unset. It fails if the tests leave any change or untracked
   file in the checkout, so a test writing beside the sources instead of a `TempDir` is caught.
 - `deny.toml` resolves both release targets, Linux and Windows.
 - Ubuntu 22.04's `desktop-file-validate` rejects keys newer than its spec; `caditor.desktop` uses

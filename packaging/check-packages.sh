@@ -136,6 +136,30 @@ diff "$work/expected-appimage" "$work/found" >"$work/difference" \
 reported=$(APPIMAGE_EXTRACT_AND_RUN=1 "$appimage" --version)
 [ "$reported" = "caditor $version" ] || fail "the .AppImage reports '$reported', not 'caditor $version'"
 
+dpkg_installs() {
+    kept=true
+    for config in /etc/dpkg/dpkg.cfg.d/* /etc/dpkg/dpkg.cfg; do
+        [ -f "$config" ] || continue
+        while IFS= read -r line || [ -n "$line" ]; do
+            case "$line" in
+                path-exclude=* | path-exclude\ *)
+                    pattern=${line#path-exclude?}
+                    case "$1" in
+                        $pattern) kept=false ;;
+                    esac
+                    ;;
+                path-include=* | path-include\ *)
+                    pattern=${line#path-include?}
+                    case "$1" in
+                        $pattern) kept=true ;;
+                    esac
+                    ;;
+            esac
+        done <"$config"
+    done
+    [ "$kept" = true ]
+}
+
 if [ "$install_deb" = true ]; then
     [ "$(id -u)" -eq 0 ] || fail "--install needs root"
     command -v apt-get >/dev/null 2>&1 || fail "--install needs apt-get"
@@ -143,7 +167,9 @@ if [ "$install_deb" = true ]; then
     installed=$(caditor --version)
     [ "$installed" = "caditor $version" ] || fail "the installed program reports '$installed', not 'caditor $version'"
     sed 's|^|/|' "$work/expected" | while IFS= read -r file; do
-        [ -f "$file" ] || fail "installing the .deb did not install $file"
+        if dpkg_installs "$file"; then
+            [ -f "$file" ] || fail "installing the .deb did not install $file"
+        fi
     done
     apt-get remove -y caditor >/dev/null
     sed 's|^|/|' "$work/expected" | while IFS= read -r file; do
