@@ -1338,3 +1338,41 @@ fn a_notch_s_back_edge_is_rounded_after_or_with_its_rounded_sides() {
     assert!(volume(&all_at_once) > volume(&notched) + spandrel(1.5) * (15.0 + 2.0 * 8.0));
     assert!(farthest_from_axis(&then_back) <= 40.0 + 1e-3);
 }
+
+fn box_with_rounded_corners() -> Solid {
+    let body = cuboid(Vector3::new(40.0, 30.0, 20.0));
+    let corners: Vec<EdgeId> = [(0.0, 0.0), (40.0, 0.0), (40.0, 30.0), (0.0, 30.0)]
+        .into_iter()
+        .map(|(x, y)| edge_through(&body, (x, y, 10.0)))
+        .collect();
+    run(&body, &corners, fillet(5.0))
+}
+
+#[test]
+#[ignore = "roadmap: a rim fillet past half the corner radius makes revolution faces"]
+fn a_tray_whose_rim_fillet_passes_half_its_corner_radius_still_shells() {
+    let rounded = box_with_rounded_corners();
+    let rim = edges_where(&rounded, |middle| middle.z.abs() < 1e-9);
+    let tray = run(&rounded, &rim, fillet(3.0));
+    let top = face_through(&tray, (20.0, 15.0, 20.0));
+
+    let shelled = crate::shell::shell(&tray, &[top], 1.0, 60);
+
+    assert!(shelled.is_ok(), "{shelled:?}");
+}
+
+#[test]
+#[ignore = "roadmap: an edge ending at a corner two earlier blends share cannot be blended"]
+fn vertical_edges_are_rounded_after_the_top_rim_is_chamfered() {
+    let body = cuboid(Vector3::new(40.0, 30.0, 20.0));
+    let rim = edges_where(&body, |middle| (middle.z - 20.0).abs() < 1e-9);
+    let chamfered = run(&body, &rim, BlendShape::Chamfer { distance: 1.0 });
+    let corners: Vec<EdgeId> = [(0.0, 0.0), (40.0, 0.0), (40.0, 30.0), (0.0, 30.0)]
+        .into_iter()
+        .map(|(x, y)| edge_through(&chamfered, (x, y, 10.0)))
+        .collect();
+
+    let rounded = blend(&chamfered, &corners, fillet(3.0), 51);
+
+    assert!(rounded.is_ok(), "{rounded:?}");
+}

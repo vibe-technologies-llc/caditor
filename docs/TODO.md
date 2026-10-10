@@ -107,6 +107,16 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Sketch solver and expressions
 
+- [medium · medium] A drag pulled past where the geometry can reach stops instead of following:
+  a two-link arm (10 mm lines from the origin, joined end to end, each held by a `Distance`) whose
+  hand is dragged from (19.9, 0) to (25, 0) or (30, 5) is `Unsolvable` from both `solve_dragging`
+  and `solve_geometry_from` (the path `drag_solver.rs` takes), so the viewport says
+  `DRAG_BLOCKED` and the arm stays bent where the last good frame left it, however far the
+  pointer jumped, rather than straightening toward the pointer. `sketch-solver.md` says dragged
+  targets fall back to `STIFF` when holding them cannot work; that fallback does not take here
+  (`solve/mod.rs`, `solve_with`, then diagnosis finding no conflict), and the drag should end at
+  the least-squares pose
+  (`solve::tests::an_arm_dragged_past_its_reach_straightens_toward_the_pointer`, ignored).
 - [medium · hard] A drag frame solves geometry only (`solve_geometry_from`, no rank or
   degrees-of-freedom analysis), but the dragged part is still never memoised and the solve itself is
   the cost: dragging an end of a fully dimensioned chain of 2,000 lines to a point it cannot reach
@@ -145,10 +155,27 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   `viewport::DRAG_DRAWS_FROM_PRESS`) could draw a tangent arc from it, the release placing its end and the
   chain carrying on with lines afterwards, as Fusion's line tool does; the chain's anchors
   (`ChainStep`) already let the two tools share one chain.
+- [medium · medium] Sketch fillet and chamfer take only two curves ending at one point
+  (`Sketch::corner_between` is `NotJoined` otherwise): two lines that cross, or stop short of each
+  other, cannot be rounded in one step, as other sketchers do by trimming or extending both to the
+  touching points, and a line with a circle is `NotLineOrArc`, so the usual lever outline (two
+  circles, two lines, a fillet where each line meets the boss circle) needs every circle trimmed
+  to an arc and every line joined to it first. `fillet.rs` would take the corner at the crossing
+  of the two carriers nearest the picks and trim or extend each curve to the touching point, a
+  circle becoming the arc on the picked side.
 - [medium · hard] Tools missing: a pattern of sketch geometry along a path (copies tied to the
   path would need a vector-equality or along-the-curve spacing the solver lacks), and text (a
   font, a height, bold and italic, set along a curve, its letters becoming closed regions that
   extrude).
+- [medium · hard] Offset keeps one offset curve per original, so an offset that would drop a curve
+  is refused: a 30×20 rounded rectangle (2 mm tangent corner arcs) offset inward by 2 mm or more is
+  `Collapses` on its first arc, where an arc shrinking to nothing should leave a sharp corner and
+  the lines meet beyond it, and an outline with a notch narrower than twice the distance (a 30×20
+  rectangle with a 2 mm wide, 2 mm deep notch in its top, offset outward 1.5 mm) is `UsedUp` on a
+  notch wall, where the notch should close up. The inner wall of a moulded or printed box drawn as
+  its outline's offset by the wall thickness meets both. `Chain::outline` (`offset.rs`) would drop
+  a vanishing arc, or the run of curves a closing notch uses up, and re-meet the neighbours,
+  leaving out the dropped curves' constraints as trim does.
 - [low · hard] An ellipse's offset is a free fit-point spline that does not follow the ellipse:
   holding it would need a constraint keeping each fit point on the ellipse's normal at its own
   parameter (a `Distance` from the ellipse lets every fit point slide along the offset and would
@@ -195,6 +222,19 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   cannot be made with it. Choosing a sketch line or axis to draw about (a Sketch menu toggle, as
   SolidWorks's dynamic mirror) could add each finished shape's mirror image with its `Symmetric`
   constraints in the shape's own transaction, as Mirror does afterwards (`mirroring.rs`).
+- [low · easy] Trim cuts at the reference axes as at any curve (`Cutter::Axis`), so a circle
+  centred on the X axis, as a lever's pivot on the origin or a slot along the axis is, loses only
+  the quarter between a tangent line's touching point and the axis when its inside is picked: the
+  first click leaves an arc ending on the axis, held there by a `Coincident` with it, and a second
+  click takes the rest. The same slot drawn off the axis trims in one click per end with every end
+  joined to its line. Open decision for `trim.rs`: whether an axis should cut only a curve that no
+  other curve cuts, or never.
+- [low · medium] Horizontal and Vertical distance take only two points (`check_constraint` is
+  `WrongKind` for a line or a circle): a point's horizontal distance from a vertical line, or a
+  vertical distance from a point to a horizontal line or between two circles, must be dimensioned
+  to one of the line's ends or a centre, so it measures from whichever end was picked rather than
+  from the line. A point to a line along an axis would be the point's offset from where the line
+  crosses the axis-parallel through it, and a circle's its centre's.
 - [low · hard] No reference image: a photo or scan cannot be placed on a sketch plane, scaled by two
   points (or calibrated by a known distance), given an opacity, locked and traced, as a part
   copied from an existing object or a drawing needs.
@@ -212,6 +252,30 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Modelling features
 
+- [high · hard] An edge reference keeps only the piece that kept its curve's id when an upstream
+  sketch edit splits the edge, silently: the 10×8×4 block of `blend_tests` with its front and left
+  top edges filleted 1 mm, whose front sketch line is then notched (lines from (4, 0) to (4, 2),
+  (6, 2) and (6, 0), the front line trimmed between them), recomputes with no failure and only one
+  piece of the front edge rounded (301.52 against 300.66 with both). Trim gives the split-off piece
+  fresh ids, so its side face and the edge along it have new names, and `EdgeReference` resolves
+  to the edge on the original curve's face alone (`pieces.rs` gathers the pieces of an edge split
+  within its faces, not an edge whose face became two faces of sibling curves). The UX rule that
+  an early sketch edit never silently rewires later features needs the reference widened to every
+  edge along the same curve between the same cap and the faces of its `Collinear` pieces, or the
+  feature marked as having lost part of its choice with a fix
+  (`blend_tests::a_notch_trimmed_into_a_filleted_edge_keeps_both_pieces_rounded`, ignored).
+- [medium · medium] A rim fillet whose rounded corners have less than twice its radius makes faces
+  no later shell can take and offset face cannot move: a 40×30×20 box with its vertical edges
+  filleted 5 mm and its bottom or top rim then filleted 2.6 mm or more refuses a shell, worded
+  "The walls cannot follow Bottom rim face: faces swept from splines cannot be offset yet" though
+  nothing was drawn with a spline, while a 2.4 mm rim fillet shells. Each corner's fillet face is
+  a torus whose tube is wider than its distance from the axis (3 against 2 mm), which
+  `build/revolve.rs` sweeps as the `Revolution` of the arc's rational spline (`prepare`, a circle
+  reaching its axis), and `shell` and `offset_faces` offset only elementary surfaces. A tray or
+  enclosure with 5 mm corners and a 3 mm rim fillet is an everyday part. A revolution of an exact
+  arc offsets exactly as the revolution of the concentric arc (or `Torus` could hold a tube past
+  its axis distance), and the shell's words should name the fillet as a face it cannot offset
+  (`blend::tests::a_tray_whose_rim_fillet_passes_half_its_corner_radius_still_shells`, ignored).
 - [medium · hard] Offset face moves planes, cylinders, cones, spheres and tori only: a spline,
   extrusion or revolution face becomes its offset surface (which needs a surface fitted within
   tolerance), and a fillet moved beside a plane that stays is refused rather than re-blended.
@@ -309,6 +373,20 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   narrowed to nothing should vanish. Fillets fail more corners than chamfers: a concave edge with
   the convex edge rising from its end (`AfterFill(TooLarge)`) and a notch's floor edge with its
   wall edges (`Boolean(Invalid(PcurveEnds))`).
+- [medium · hard] An edge ending at a corner that two earlier blends share cannot be blended at all:
+  a 40×30×20 box whose four top edges were chamfered 1 mm (mitred corners) or filleted 2 mm
+  (spherical corners) refuses every fillet or chamfer of its vertical edges, of any size, as
+  `UnsupportedEnd` at the top vertex, worded "The fillet cannot be closed off where the edge
+  between Base side from Line 2 and Base side from Line 5 ends. Also choose the edges that
+  continue from it, or leave it out", though the edges continuing from it belong to the earlier
+  feature and cannot be chosen. With one top edge blended the verticals at its ends take a chamfer
+  or a smaller fillet, but a fillet larger than the top one (3 mm under a 2 mm fillet) is
+  `TooLarge`, its foot on the side face crossing the end of the top fillet. Top edges first, then
+  the verticals, is an order other modellers take routinely. The end needs closing against the
+  earlier blend's corner faces (`blend/mod.rs`, ends at a vertex whose faces are neither one flat
+  face nor a round face to clip by); until then the remedy should say to move the feature above
+  the one that blended the corner
+  (`blend::tests::vertical_edges_are_rounded_after_the_top_rim_is_chamfered`, ignored).
 - [medium · hard] Shell: no spline, extrusion or revolution faces, only flat faces open, one
   thickness for the whole body and always inward: no thickness per face, and no wall growing
   outward or to both sides of the faces.
@@ -321,6 +399,10 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 - [medium · hard] Patterns stop short of what other modellers repeat: a curve pattern follows only
   the curves of one sketch, never a chain of model edges (a 3D path, the copies then turning with
   its tangent and normal), and a pattern repeats features or whole bodies but never chosen faces.
+  A feature pattern or mirror never repeats a fillet, chamfer or shell (`repeatable_on` takes only
+  extrusions, revolves and primitives adding or removing, and holes), so a filleted boss repeated
+  by its features comes out with bare copies, and filleting every copy afterwards leaves the copies
+  a raised count adds unfilleted.
   Every copy is the original's tool placed again, never recomputed where it lands (a copy of an
   extrusion up to next stops where the original did, not on the face it meets), and one pattern
   cannot chain a shift, a turn and a mirror.

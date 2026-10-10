@@ -2017,3 +2017,39 @@ fn closed_chains_report_freedoms_and_redundancies_alike_by_dense_and_sparse_elim
     assert!(freedoms.contains(&0));
     assert!(freedoms.iter().any(|freedom| *freedom > 0));
 }
+
+#[test]
+#[ignore = "roadmap: a drag past what the geometry can reach is unsolvable instead of following"]
+fn an_arm_dragged_past_its_reach_straightens_toward_the_pointer() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let upper = sketch.add_line(Point2::ZERO, Point2::new(9.95, 0.999));
+    let lower = sketch.add_line(Point2::new(9.95, 0.999), Point2::new(19.9, 0.0));
+    let (shoulder, elbow) = ends(&sketch, upper);
+    let (joint, hand) = ends(&sketch, lower);
+    add(
+        &mut sketch,
+        Constraint::Coincident(shoulder, EntityId::ORIGIN),
+    );
+    add(&mut sketch, Constraint::Coincident(elbow, joint));
+    for (from, to) in [(shoulder, elbow), (joint, hand)] {
+        add(
+            &mut sketch,
+            Constraint::Distance {
+                from,
+                to,
+                value: mm(10.0),
+            },
+        );
+    }
+
+    let solved = drag(
+        &sketch,
+        &[crate::Drag::Point {
+            point: hand,
+            to: Point2::new(25.0, 0.0),
+        }],
+    );
+
+    assert!(at(&solved, hand).distance(Point2::new(20.0, 0.0)) < 1e-3);
+    assert!(at(&solved, elbow).distance(Point2::new(10.0, 0.0)) < 1e-3);
+}

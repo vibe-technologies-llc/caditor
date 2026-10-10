@@ -1027,3 +1027,40 @@ fn a_chamfer_takes_two_distances_or_a_distance_and_an_angle() {
     );
     assert!(error.remedy.contains("flip the chamfer"));
 }
+
+#[test]
+#[ignore = "roadmap: a filleted edge split by a later sketch edit keeps only one piece"]
+fn a_notch_trimmed_into_a_filleted_edge_keeps_both_pieces_rounded() {
+    let mut model = model();
+    let outline = match &model.document.feature(model.base).unwrap().kind {
+        FeatureKind::Solid(SolidFeature::Extrude(extrude)) => extrude.sketch,
+        _ => panic!("the base is an extrusion"),
+    };
+    let before = match &model.document.feature(outline).unwrap().kind {
+        FeatureKind::Sketch(definition) => definition.sketch.clone(),
+        _ => panic!("the outline is a sketch"),
+    };
+    let mut after = before.clone();
+    after.add_line(Point2::new(4.0, 0.0), Point2::new(4.0, 2.0));
+    after.add_line(Point2::new(4.0, 2.0), Point2::new(6.0, 2.0));
+    after.add_line(Point2::new(6.0, 2.0), Point2::new(6.0, 0.0));
+    let front = after
+        .entities()
+        .find(|(_, entity)| matches!(entity, caditor_sketch::Entity::Line { .. }))
+        .map(|(id, _)| id)
+        .unwrap();
+    after.trim(front, Point2::new(5.0, 0.0)).unwrap();
+    let mut transaction = model.document.transaction("Notch");
+    transaction.reshape_sketch(outline, &before, &after);
+    model.document.apply(transaction.finish()).unwrap();
+
+    let evaluation = evaluate(&model.document, &mut model.engine);
+    let notched = rounded_volume(4.0, 1.0) - 2.0 * 2.0 * 4.0 + 2.0 * spandrel(1.0);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    let found = volume(&evaluation, model.base);
+    assert!(
+        (found - notched).abs() < 0.02,
+        "volume {found} instead of {notched}"
+    );
+}
