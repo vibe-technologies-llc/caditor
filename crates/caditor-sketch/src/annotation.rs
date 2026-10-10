@@ -1,5 +1,6 @@
-use std::{collections::BTreeMap, f64::consts::FRAC_1_SQRT_2, ops::RangeInclusive};
+use std::{f64::consts::FRAC_1_SQRT_2, ops::RangeInclusive};
 
+use ahash::AHashMap;
 use caditor_geometry::{Point2, Vector2};
 
 use crate::{ArcGeometry, Constraint, EntityId, Reference, Sketch};
@@ -448,7 +449,7 @@ struct Cell {
 pub struct Obstacles {
     cell: f64,
     footprints: Vec<(Footprint, (i64, i64))>,
-    cells: BTreeMap<(i64, i64), Cell>,
+    cells: AHashMap<(i64, i64), Cell>,
 }
 
 impl Obstacles {
@@ -456,7 +457,7 @@ impl Obstacles {
         Self {
             cell,
             footprints: Vec::new(),
-            cells: BTreeMap::new(),
+            cells: AHashMap::new(),
         }
     }
 

@@ -1,7 +1,4 @@
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    sync::Arc,
-};
+use std::{collections::BTreeMap, sync::Arc};
 
 use caditor_document::{FeatureId, FeatureState, Transaction};
 use caditor_expression::{Dimension, Expression, Quantity};
@@ -15,8 +12,9 @@ use egui::{
 };
 
 use crate::{
-    annotation_layout::{self, DimensionLayout, GlyphKind, LabelFrame, Reach, Thinning},
+    annotation_layout::{self, DimensionLayout, GlyphKind, GlyphSite, LabelFrame, Reach, Thinning},
     appearance, canvas,
+    feature_tree::count,
     field::{self, DimensionTarget},
     model::{Action, Model},
     selection::{Pickable, Selection},
@@ -36,7 +34,10 @@ const GLYPH_HIT_SIZE: f32 = 16.0;
 const DOT_RADIUS: f32 = 3.5;
 const RING_WIDTH: f32 = 1.5;
 const OPEN_END_RADIUS: f32 = 6.0;
-const RING_MERGE: f32 = OPEN_END_RADIUS / 2.0;
+const RING_MERGE: f64 = OPEN_END_RADIUS as f64 / 2.0;
+const RING_CLUSTER_CELL: f64 = OPEN_END_RADIUS as f64 * 4.0;
+const MOST_RINGS_PER_CELL: usize = 4;
+const CLUSTER_RADIUS: f32 = OPEN_END_RADIUS + 3.0;
 const BEYOND_RADIUS: f32 = 7.0;
 const BEYOND_DASH: f32 = 4.0;
 const SYMBOL_HALF: f32 = 4.0;
@@ -74,6 +75,9 @@ const COLLAPSED_SPACING: f64 = 8.0;
 const MAX_MEASURED_TEXTS: usize = 1 << 16;
 const EDIT_HINT: &str = "Double-click to change it, or drag its label to move it.";
 const COLLAPSED_HINT: &str = "Click to show its label, or double-click to change it.";
+const CLUSTERED_ENDS_HELP: &str = "here, too close together to ring one by one at this zoom: \
+                                   curve ends joined to nothing. Zoom in to tell them apart, and \
+                                   join them to close the outline.";
 pub const MOVE_LABEL_TRANSACTION: &str = "Move dimension label";
 const NO_LABEL_TO_MOVE: &str = "Select one dimension alone to move its label";
 
@@ -117,6 +121,18 @@ struct DimensionMark {
     text: String,
     standing: Standing,
     label: Option<Rect>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct RingCluster {
+    center: Vector2,
+    ends: usize,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+struct OpenEndMarks {
+    rings: Vec<Vector2>,
+    clusters: Vec<RingCluster>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -205,6 +221,7 @@ enum Hover {
     Collapsed(ConstraintId),
     Glyph(ConstraintId),
     Beyond(Vec<ConstraintId>),
+    OpenEnds(usize),
 }
 
 impl Hover {
@@ -226,6 +243,12 @@ impl Hover {
             }
             Self::Glyph(constraint) => sketch.describe_constraint(*constraint),
             Self::Beyond(hidden) => beyond_description(sketch, hidden),
+            Self::OpenEnds(ends) => {
+                format!(
+                    "{} {CLUSTERED_ENDS_HELP}",
+                    count(*ends, "open end", "open ends")
+                )
+            }
         }
     }
 }
@@ -312,6 +335,7 @@ impl LabelTexts {
 #[derive(Debug, Clone)]
 struct GlyphGroup {
     anchor: EntityId,
+    site: Option<GlyphSite>,
     items: Vec<GlyphItem>,
 }
 
@@ -416,7 +440,11 @@ impl Measures {
             dimensions,
             groups: groups
                 .into_iter()
-                .map(|(anchor, items)| GlyphGroup { anchor, items })
+                .map(|(anchor, items)| GlyphGroup {
+                    anchor,
+                    site: GlyphSite::of(shown, anchor),
+                    items,
+                })
                 .collect(),
             centre,
             open_ends,
@@ -468,7 +496,7 @@ struct Marks {
     dimensions: Vec<DimensionMark>,
     collapsed: Vec<CollapsedMark>,
     glyphs: Vec<GlyphMark>,
-    open_ends: Vec<Vector2>,
+    open_ends: OpenEndMarks,
     beyond: Vec<[Vector2; 2]>,
 }
 
@@ -482,7 +510,7 @@ impl Marks {
         texts: &mut LabelTexts,
     ) -> Self {
         let [definition, shown] = sketches;
-        let screen = &key.screen;
+        let screen = &key.screen.projector();
         let view = Vector2::new(f64::from(key.rect.width()), f64::from(key.rect.height()));
         let (kept, thinned): (Vec<_>, Vec<_>) = measures
             .dimensions
@@ -577,23 +605,21 @@ impl Marks {
                 blocked.add(footprint(key.rect, rect.expand(GLYPH_CLEARANCE)));
             }
             let screen_centre = measures.centre.and_then(|centre| screen.to_screen(centre));
-            place_glyphs(&measures.groups, shown, &key, screen_centre, blocked)
+            place_glyphs(&measures.groups, screen, &key, screen_centre, blocked)
         } else {
             Vec::new()
         };
         let in_view = |at: &Vector2| at.x >= 0.0 && at.y >= 0.0 && at.x <= view.x && at.y <= view.y;
-        let mut spaced = BTreeSet::new();
-        collapsed.retain(|mark: &CollapsedMark| {
-            let cell = (mark.center / COLLAPSED_SPACING).floor();
-            in_view(&mark.center) && spaced.insert((cell.x as i64, cell.y as i64))
-        });
+        let mut spaced = ScreenCells::over(view, COLLAPSED_SPACING);
+        collapsed.retain(|mark: &CollapsedMark| in_view(&mark.center) && spaced.take(mark.center));
         collapsed.sort_by_key(|mark| mark.constraint);
-        let open_ends = merged(
+        let open_ends = open_end_marks(
             measures
                 .open_ends
                 .iter()
                 .filter_map(|end| screen.to_screen(*end))
                 .filter(in_view),
+            view,
         );
         let beyond = measures
             .beyond
@@ -620,19 +646,110 @@ impl Marks {
     }
 }
 
-fn merged(rings: impl Iterator<Item = Vector2>) -> Vec<Vector2> {
-    let mut taken = BTreeSet::new();
-    rings
-        .filter(|at| {
-            let cell = (at / f64::from(RING_MERGE)).floor();
-            taken.insert((cell.x as i64, cell.y as i64))
-        })
-        .collect()
+struct ScreenGrid {
+    cells_per_point: f64,
+    columns: usize,
+    rows: usize,
+}
+
+impl ScreenGrid {
+    fn over(view: Vector2, cell: f64) -> Self {
+        let cells_per_point = cell.recip();
+        let span = |length: f64| (length.max(0.0) * cells_per_point) as usize + 1;
+        Self {
+            cells_per_point,
+            columns: span(view.x),
+            rows: span(view.y),
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.columns.saturating_mul(self.rows)
+    }
+
+    fn index(&self, at: Vector2) -> Option<usize> {
+        let cell = at * self.cells_per_point;
+        let inside = cell.x >= 0.0 && cell.y >= 0.0;
+        let (column, row) = (cell.x as usize, cell.y as usize);
+        (inside && column < self.columns && row < self.rows).then(|| row * self.columns + column)
+    }
+}
+
+struct ScreenCells {
+    grid: ScreenGrid,
+    taken: Vec<u64>,
+}
+
+impl ScreenCells {
+    fn over(view: Vector2, cell: f64) -> Self {
+        let grid = ScreenGrid::over(view, cell);
+        Self {
+            taken: vec![0; grid.len().div_ceil(64)],
+            grid,
+        }
+    }
+
+    fn take(&mut self, at: Vector2) -> bool {
+        let Some(index) = self.grid.index(at) else {
+            return false;
+        };
+        let Some(word) = self.taken.get_mut(index / 64) else {
+            return false;
+        };
+        let bit = 1_u64 << (index % 64);
+        let free = *word & bit == 0;
+        *word |= bit;
+        free
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct RingTally {
+    rings: usize,
+    ends: usize,
+    sum: Vector2,
+}
+
+fn open_end_marks(ends: impl Iterator<Item = Vector2>, view: Vector2) -> OpenEndMarks {
+    let mut fine = ScreenCells::over(view, RING_MERGE);
+    let coarse = ScreenGrid::over(view, RING_CLUSTER_CELL);
+    let mut tallies = vec![RingTally::default(); coarse.len()];
+    let mut rings = Vec::new();
+    for at in ends {
+        let Some((cell, tally)) = coarse
+            .index(at)
+            .and_then(|cell| Some((cell, tallies.get_mut(cell)?)))
+        else {
+            continue;
+        };
+        tally.ends += 1;
+        tally.sum += at;
+        if fine.take(at) {
+            tally.rings += 1;
+            rings.push((at, cell));
+        }
+    }
+    let dense = |tally: &RingTally| tally.rings > MOST_RINGS_PER_CELL;
+    OpenEndMarks {
+        rings: rings
+            .into_iter()
+            .filter(|(_, cell)| !tallies.get(*cell).is_some_and(dense))
+            .map(|(at, _)| at)
+            .collect(),
+        clusters: tallies
+            .iter()
+            .filter(|tally| dense(tally))
+            .map(|tally| RingCluster {
+                center: tally.sum / tally.ends as f64,
+                ends: tally.ends,
+            })
+            .collect(),
+    }
 }
 
 fn place_glyphs(
     groups: &[GlyphGroup],
-    shown: &Sketch,
+    screen: &impl Screen,
     key: &ViewKey,
     screen_centre: Option<Vector2>,
     mut blocked: Obstacles,
@@ -652,7 +769,7 @@ fn place_glyphs(
         );
     let mut glyphs = Vec::new();
     for (group, thinning) in ordered {
-        let Some(anchor) = annotation_layout::glyph_anchor(shown, group.anchor, &key.screen) else {
+        let Some(anchor) = group.site.and_then(|site| site.on_screen(screen)) else {
             continue;
         };
         let collapsible = thinning == Thinning::WhenCrowded
@@ -869,14 +986,27 @@ pub struct Annotations {
 }
 
 struct Placed {
-    pickable: Pickable,
+    pickable: Option<Pickable>,
     hit: Rect,
     key: MarkKey,
     hover: Hover,
     label: Option<(Vector2, LabelFrame)>,
 }
 
-type MarkKey = (ConstraintId, Option<EntityId>);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum MarkKey {
+    Constraint(ConstraintId, Option<EntityId>),
+    OpenEnds(usize),
+}
+
+impl MarkKey {
+    fn constraint(self) -> Option<ConstraintId> {
+        match self {
+            Self::Constraint(constraint, _) => Some(constraint),
+            Self::OpenEnds(_) => None,
+        }
+    }
+}
 
 fn annotation_id(feature: FeatureId, key: MarkKey) -> Id {
     Id::new(("sketch-annotation", feature, key))
@@ -910,7 +1040,9 @@ impl PointerReach {
     fn reaches(&self, feature: FeatureId, target: &Placed) -> bool {
         let near = target.hit.expand(POINTER_REACH);
         self.pointers.iter().any(|pointer| near.contains(*pointer))
-            || (target.label.is_some() && self.dragged == Some(target.key.0))
+            || (target.label.is_some()
+                && self.dragged.is_some()
+                && self.dragged == target.key.constraint())
             || self
                 .focused
                 .is_some_and(|focused| focused == annotation_id(feature, target.key))
@@ -955,6 +1087,21 @@ impl Annotations {
             .flat_map(|marks| &marks.collapsed)
             .map(|mark| (mark.constraint, mark.center))
             .collect()
+    }
+
+    #[cfg(test)]
+    pub fn open_end_rings(&self) -> (Vec<Vector2>, Vec<(Vector2, usize)>) {
+        self.marks.as_ref().map_or_else(Default::default, |marks| {
+            (
+                marks.open_ends.rings.clone(),
+                marks
+                    .open_ends
+                    .clusters
+                    .iter()
+                    .map(|cluster| (cluster.center, cluster.ends))
+                    .collect(),
+            )
+        })
     }
 
     #[cfg(test)]
@@ -1117,9 +1264,9 @@ impl Annotations {
             .iter()
             .filter_map(|mark| {
                 mark.label.map(|rect| Placed {
-                    pickable: pickable(mark.constraint),
+                    pickable: Some(pickable(mark.constraint)),
                     hit: rect,
-                    key: (mark.constraint, None),
+                    key: MarkKey::Constraint(mark.constraint, None),
                     hover: Hover::Dimension(mark.constraint),
                     label: mark.frame.map(|frame| {
                         let centre = rect.center() - surface.rect.min;
@@ -1131,25 +1278,42 @@ impl Annotations {
                 })
             })
             .chain(marks.collapsed.iter().map(|mark| Placed {
-                pickable: pickable(mark.constraint),
+                pickable: Some(pickable(mark.constraint)),
                 hit: Rect::from_center_size(
                     to_pos(surface.rect, mark.center),
                     egui::Vec2::splat(COLLAPSED_HIT_SIZE),
                 ),
-                key: (mark.constraint, None),
+                key: MarkKey::Constraint(mark.constraint, None),
                 hover: Hover::Collapsed(mark.constraint),
                 label: None,
             }))
             .chain(marks.glyphs.iter().map(|mark| Placed {
-                pickable: pickable(mark.constraint),
+                pickable: Some(pickable(mark.constraint)),
                 hit: Rect::from_center_size(
                     to_pos(surface.rect, mark.center),
                     egui::Vec2::splat(GLYPH_HIT_SIZE),
                 ),
-                key: (mark.constraint, Some(mark.anchor)),
+                key: MarkKey::Constraint(mark.constraint, Some(mark.anchor)),
                 hover: mark.hover.clone(),
                 label: None,
-            }));
+            }))
+            .chain(
+                marks
+                    .open_ends
+                    .clusters
+                    .iter()
+                    .enumerate()
+                    .map(|(index, cluster)| Placed {
+                        pickable: None,
+                        hit: Rect::from_center_size(
+                            to_pos(surface.rect, cluster.center),
+                            egui::Vec2::splat(CLUSTER_RADIUS * 2.0),
+                        ),
+                        key: MarkKey::OpenEnds(index),
+                        hover: Hover::OpenEnds(cluster.ends),
+                        label: None,
+                    }),
+            );
         if surface.interactive
             && let Some(definition) = model
                 .document()
@@ -1214,7 +1378,10 @@ impl Annotations {
             let tint = color(mark.constraint, mark.standing);
             match &mark.hover {
                 Hover::Beyond(hidden) => paint_beyond(&painter, center, hidden.len(), tint),
-                Hover::Dimension(_) | Hover::Collapsed(_) | Hover::Glyph(_) => {
+                Hover::Dimension(_)
+                | Hover::Collapsed(_)
+                | Hover::Glyph(_)
+                | Hover::OpenEnds(_) => {
                     paint_glyph(&painter, center, mark.kind, tint);
                     if let Some(frame) = framed(mark.standing) {
                         let glyph = Rect::from_center_size(center, egui::Vec2::splat(GLYPH_SIZE));
@@ -1233,12 +1400,14 @@ impl Annotations {
             ));
             painter.circle_stroke(at, BEYOND_RADIUS, Stroke::new(RING_WIDTH, chrome.muted));
         }
-        for end in &marks.open_ends {
-            painter.circle_stroke(
-                to_pos(surface.rect, *end),
-                OPEN_END_RADIUS,
-                Stroke::new(RING_WIDTH, chrome.warning),
-            );
+        let ring = Stroke::new(RING_WIDTH, chrome.warning);
+        for end in &marks.open_ends.rings {
+            painter.circle_stroke(to_pos(surface.rect, *end), OPEN_END_RADIUS, ring);
+        }
+        for cluster in &marks.open_ends.clusters {
+            let center = to_pos(surface.rect, cluster.center);
+            painter.circle_stroke(center, OPEN_END_RADIUS, ring);
+            painter.circle_stroke(center, CLUSTER_RADIUS, ring);
         }
         self.show_field(ui, model, surface, &marks, actions);
         self.marks = Some(marks);
@@ -1292,26 +1461,43 @@ impl Annotations {
         if !hit.is_positive() {
             return;
         }
-        let sense = if target.label.is_some() {
-            Sense::click_and_drag()
-        } else {
-            Sense::CLICK
+        let sense = match (target.pickable, target.label) {
+            (Some(_), Some(_)) => Sense::click_and_drag(),
+            (Some(_), None) => Sense::CLICK,
+            (None, _) => Sense::hover(),
         };
         let response = ui.interact(hit, annotation_id(surface.feature, target.key), sense);
+        if let Some(pickable) = target.pickable {
+            self.pick(ui, surface, &target, pickable, &response, selection);
+        }
+        response.on_hover_ui(|ui| {
+            ui.label(target.hover.describe(definition));
+        });
+    }
+
+    fn pick(
+        &mut self,
+        ui: &Ui,
+        surface: &Surface<'_>,
+        target: &Placed,
+        pickable: Pickable,
+        response: &egui::Response,
+        selection: &mut Selection,
+    ) {
         if response.hovered() {
-            self.hovered = Some(target.pickable);
+            self.hovered = Some(pickable);
         }
         if let (Some((label, frame)), Pickable::SketchConstraint { constraint, .. }) =
-            (target.label, target.pickable)
+            (target.label, pickable)
         {
-            self.drag_label(surface, &response, constraint, label, frame);
+            self.drag_label(surface, response, constraint, label, frame);
         }
         if response.clicked() {
             let toggle = ui.input(|input| input.modifiers.shift || input.modifiers.command);
             if toggle {
-                selection.toggle(target.pickable);
+                selection.toggle(pickable);
             } else {
-                selection.replace_with(target.pickable);
+                selection.replace_with(pickable);
             }
         }
         if matches!(target.hover, Hover::Dimension(_) | Hover::Collapsed(_))
@@ -1319,13 +1505,10 @@ impl Annotations {
             && let Pickable::SketchConstraint {
                 feature,
                 constraint,
-            } = target.pickable
+            } = pickable
         {
             self.open(feature, constraint);
         }
-        response.on_hover_ui(|ui| {
-            ui.label(target.hover.describe(definition));
-        });
     }
 
     fn drag_label(
@@ -1752,23 +1935,55 @@ mod tests {
 
     #[test]
     fn open_end_rings_closer_than_half_their_radius_merge_into_one() {
-        let rings = merged(
+        let marks = open_end_marks(
             [
                 Vector2::new(10.0, 10.0),
                 Vector2::new(11.0, 10.5),
                 Vector2::new(30.0, 10.0),
                 Vector2::new(10.0, 30.0),
+                Vector2::new(-1.0, 10.0),
+                Vector2::new(10.0, 400.0),
             ]
             .into_iter(),
+            Vector2::new(200.0, 100.0),
         );
 
         assert_eq!(
-            rings,
-            vec![
-                Vector2::new(10.0, 10.0),
-                Vector2::new(30.0, 10.0),
-                Vector2::new(10.0, 30.0),
-            ]
+            marks,
+            OpenEndMarks {
+                rings: vec![
+                    Vector2::new(10.0, 10.0),
+                    Vector2::new(30.0, 10.0),
+                    Vector2::new(10.0, 30.0),
+                ],
+                clusters: Vec::new(),
+            }
+        );
+    }
+
+    #[test]
+    fn open_end_rings_crowding_a_cell_become_one_ring_counting_its_ends() {
+        let crowded = (0..6).flat_map(|step| {
+            let at = Vector2::new(100.0 + 3.5 * f64::from(step), 52.0);
+            [at, at + Vector2::new(0.5, 0.5)]
+        });
+        let apart = [Vector2::new(10.0, 10.0), Vector2::new(30.0, 10.0)];
+
+        let marks = open_end_marks(apart.into_iter().chain(crowded), Vector2::new(200.0, 100.0));
+
+        assert_eq!(marks.rings, apart.to_vec());
+        assert_eq!(marks.clusters.len(), 1);
+        assert_eq!(marks.clusters[0].ends, 12);
+        assert!(
+            marks.clusters[0]
+                .center
+                .distance(Vector2::new(109.0, 52.25))
+                < 1e-9
+        );
+        assert!(
+            Hover::OpenEnds(12)
+                .describe(&Sketch::new(caditor_geometry::Plane::XY))
+                .starts_with("12 open ends here")
         );
     }
 }

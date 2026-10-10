@@ -404,6 +404,10 @@ paths:
 - `View::unproject` gives nothing for a non-finite depth or result, so a NaN read back from a pick
   never becomes a hit; `Camera::orbit`, `pan` and `zoom` ignore non-finite pivots, anchors and
   drags.
+- `View::plane_projection` folds the view's rotation, eye, field of view and size, and a scale,
+  into an affine map of one plane's coordinates to the camera's frame (`PlaneProjection`), so
+  projecting many points of a plane costs a few multiplications each rather than `View::project`'s
+  rotation and tangent per point; a test holds it to `View::project` in both projections.
 
 ## Picking
 
