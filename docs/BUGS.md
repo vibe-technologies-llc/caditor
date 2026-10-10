@@ -16,14 +16,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [low · easy] Quitting while a sketch or face drawing export, a parameter file export or a
   template save runs still drops it: only `Exporter` and `ImageExporter` are waited for
   (`Files::exports_running`), the other writers have no running flag to ask.
-- [medium · easy] Three concatenated zstd frames still reach the port's history underflow that
-  `SPARE_ROOM` was meant to rule out (`zstd.md`): a frame filling the recorded size, one filling
-  the spare byte and a third holding sequences start the third on an empty output, where
-  `totalHistorySize` is computed before the port's empty-output guard, so builds with overflow
-  checks (tests, fuzzing, `cargo run`) can abort inside `extern "C"` on a crafted `VersionData`
-  chunk with valid checksums; release builds wrap and fail as before. Refuse a payload that is not
-  exactly one frame (`ZSTD_findFrameCompressedSize`) and pin three frames beside the two-frame
-  test.
 - [low · easy] Forget recent and the other recent-list edits post success at once, while the write
   runs on the files worker and a failed `RecentFiles::save_changes` is only logged, so the next
   launch lists the models again with nothing said. Report it on the files-worker event path, as a

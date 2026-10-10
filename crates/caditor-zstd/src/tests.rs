@@ -196,7 +196,29 @@ fn frames_holding_more_than_they_record_after_a_prefix_are_errors_not_panics() {
         prefix
     );
     assert!(decompress_after(&empty, &prefix, 1 << 20).is_err());
-    assert!(decompress_after(&twice, &prefix, 1 << 20).is_err());
+    assert!(matches!(
+        decompress_after(&twice, &prefix, 1 << 20),
+        Err(ZstdError::NotOneFrame { .. })
+    ));
+}
+
+#[test]
+fn three_frames_starting_the_last_on_a_full_output_are_refused_before_decoding() {
+    let prefix = sample_of(10, 4 << 20);
+    let frame = compress_after(&prefix.clone(), &prefix, Level::BALANCED).unwrap();
+    let spare_byte = compress(b"x", Level::FAST).unwrap();
+    let thrice = [frame.as_slice(), &spare_byte, &frame].concat();
+    let not_one_frame = ZstdError::NotOneFrame {
+        frame: frame.len(),
+        total: thrice.len(),
+    };
+
+    assert_eq!(content_size(&thrice), Ok(prefix.len() as u64));
+    assert_eq!(
+        decompress_after(&thrice, &prefix, prefix.len()),
+        Err(not_one_frame.clone())
+    );
+    assert_eq!(decompress(&thrice, prefix.len()), Err(not_one_frame));
 }
 
 #[test]

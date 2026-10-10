@@ -10,8 +10,9 @@ use libzstd_rs_sys::{
     ZSTD_CCtx, ZSTD_CCtx_refPrefix, ZSTD_CCtx_setParameter, ZSTD_CONTENTSIZE_ERROR,
     ZSTD_CONTENTSIZE_UNKNOWN, ZSTD_DCtx, ZSTD_DCtx_refPrefix, ZSTD_DCtx_setParameter,
     ZSTD_WINDOWLOG_MAX_64, ZSTD_WINDOWLOG_MIN, ZSTD_cParameter, ZSTD_compress2, ZSTD_compressBound,
-    ZSTD_createCCtx, ZSTD_createDCtx, ZSTD_dParameter, ZSTD_decompressDCtx, ZSTD_freeCCtx,
-    ZSTD_freeDCtx, ZSTD_getFrameContentSize, ZSTD_isError, ZSTD_maxCLevel, ZSTD_minCLevel,
+    ZSTD_createCCtx, ZSTD_createDCtx, ZSTD_dParameter, ZSTD_decompressDCtx,
+    ZSTD_findFrameCompressedSize, ZSTD_freeCCtx, ZSTD_freeDCtx, ZSTD_getFrameContentSize,
+    ZSTD_isError, ZSTD_maxCLevel, ZSTD_minCLevel,
 };
 
 mod code {
@@ -63,6 +64,8 @@ pub enum ZstdError {
     NotAFrame,
     #[error("the frame does not record the size of its content")]
     UnknownSize,
+    #[error("the data holds {total} bytes but its first frame ends after {frame}")]
+    NotOneFrame { frame: usize, total: usize },
     #[error("the frame holds {size} bytes, more than the {limit} allowed")]
     TooLarge { size: u64, limit: usize },
     #[error("the frame decoded to {actual} bytes instead of the {expected} it records")]
@@ -108,6 +111,7 @@ pub fn decompress(frame: &[u8], limit: usize) -> Result<Vec<u8>, ZstdError> {
 
 pub fn decompress_after(frame: &[u8], prefix: &[u8], limit: usize) -> Result<Vec<u8>, ZstdError> {
     let size = content_size(frame)?;
+    single_frame(frame)?;
     let expected = usize::try_from(size)
         .ok()
         .filter(|size| *size <= limit)
@@ -123,6 +127,19 @@ pub fn content_size(frame: &[u8]) -> Result<u64, ZstdError> {
         ZSTD_CONTENTSIZE_UNKNOWN => Err(ZstdError::UnknownSize),
         size => Ok(size),
     }
+}
+
+fn single_frame(data: &[u8]) -> Result<(), ZstdError> {
+    #[allow(unsafe_code)]
+    let length = unsafe { ZSTD_findFrameCompressedSize(data.as_ptr().cast(), data.len()) };
+    let frame = checked(length)?;
+    if frame != data.len() {
+        return Err(ZstdError::NotOneFrame {
+            frame,
+            total: data.len(),
+        });
+    }
+    Ok(())
 }
 
 fn window_log(span: usize) -> c_int {
