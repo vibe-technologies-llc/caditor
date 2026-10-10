@@ -485,6 +485,7 @@ mod tests {
             kind: BlendKind::Fillet,
             body,
             edges: Vec::new(),
+            groups: Vec::new(),
             size: millimetres(2.0),
             form: ChamferForm::Equal,
             flipped: false,
