@@ -112,16 +112,15 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   the cost: dragging an end of a fully dimensioned chain of 2,000 lines to a point it cannot reach
   takes seconds a frame in a release build, where a chain joined only by `Coincident` takes tens of
   milliseconds.
-- [medium · hard] Conflict diagnosis confirms each constraint of a conflict with a damped
-  Gauss–Newton descent over the whole part, so a conflict running through a part of a few hundred
-  lines (a chain of 300 with its far end fixed out of reach) still runs out of `DIAGNOSIS_WORK` and
-  is reported as not solving. Each confirmation there already converges in one step, but the set
-  found holds all 600 distances and coincidences and each step is charged its ~900 equations, so
-  trimming alone needs ~540,000 units against the ~430,000 left: the cost is quadratic in the
-  conflict's size whatever the descent does. One factorisation of the Jacobian at the set's
-  least-squares point (its left null vector gives every witness as a step through one
-  pseudo-inverse column), checked against the residuals and charged by that work, would make each
-  confirmation cheap; a confirmation that does not converge falls back to the descent.
+- [medium · hard] Before naming a conflict, diagnosis descends on it from the drawn shape and from
+  the closest witness, and damped Gauss–Newton crawls on a set that cannot hold: near its
+  least-squares point the Jacobian is nearly singular, so the line search cuts each step back and
+  it gains about 1%, too much to count as stalled. On a chain of 300 lines with its far end fixed
+  out of reach those two descents (three attempts each, most running all 100 iterations) take about
+  370,000 of the 500,000 units of `DIAGNOSIS_WORK`, against about 90,000 for the search and 26,000
+  for trimming, leaving about 14,000, so a longer chain would run out there and be reported as not
+  solving. A step regularised along the near-null direction (Levenberg–Marquardt, or the
+  factorisation trimming already makes) would reach the minimum in a few steps.
 - [medium · hard] A sketch solved from a degenerate start can fail to solve again from its own
   result: a spline with four coincident control points, tangent to a zero-size arc on one of them,
   with a zero distance from that arc to the spline's first point. `sketch_solve` finds such cases

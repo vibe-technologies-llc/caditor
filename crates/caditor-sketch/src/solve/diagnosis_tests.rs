@@ -7,8 +7,9 @@ use crate::{
     Constraint, ConstraintId, Entity, EntityId, Sketch, SketchError, Solved,
     solve::{
         diagnosis::{DIAGNOSIS_WORK, diagnose_failure},
-        numeric::{STIFF, Solver},
+        numeric::{Failure, STIFF, Solver, components},
         system::System,
+        witness::Factored,
     },
 };
 
@@ -337,9 +338,7 @@ fn an_incircle_given_too_large_a_radius_names_what_sizes_the_triangle() {
     );
 }
 
-#[test]
-fn a_conflict_spanning_a_whole_part_of_over_a_hundred_entities_is_named_within_the_budget() {
-    let chain = out_of_reach(40);
+fn with_failure<T>(chain: &Chain, then: impl FnOnce(&Solver<'_>, &[Failure]) -> T) -> T {
     let dimensions = chain.sketch.evaluate(&no_parameters).unwrap();
     let system = System::build(&chain.sketch, &dimensions).unwrap();
     let stiff = BTreeSet::new();
@@ -352,10 +351,21 @@ fn a_conflict_spanning_a_whole_part_of_over_a_hundred_entities_is_named_within_t
     let every: Vec<usize> = (0..system.equations.len()).collect();
     let mut values = system.values.clone();
     let failed = solver.solve(&every, &mut values).unwrap();
+    then(&solver, &failed)
+}
 
-    let tenth = diagnose_failure(&chain.sketch, &solver, &failed, DIAGNOSIS_WORK / 10).unwrap_err();
-    let hundredth =
-        diagnose_failure(&chain.sketch, &solver, &failed, DIAGNOSIS_WORK / 100).unwrap_err();
+fn diagnosed(chain: &Chain, work: usize) -> SketchError {
+    with_failure(chain, |solver, failed| {
+        diagnose_failure(&chain.sketch, solver, failed, work).unwrap_err()
+    })
+}
+
+#[test]
+fn a_conflict_spanning_a_whole_part_of_over_a_hundred_entities_is_named_within_the_budget() {
+    let chain = out_of_reach(40);
+
+    let tenth = diagnosed(&chain, DIAGNOSIS_WORK / 10);
+    let hundredth = diagnosed(&chain, DIAGNOSIS_WORK / 100);
 
     assert_eq!(chain.sketch.entities().len(), 3 * 40);
     assert_eq!(chain.spanning().len(), 2 * 40);
@@ -366,6 +376,59 @@ fn a_conflict_spanning_a_whole_part_of_over_a_hundred_entities_is_named_within_t
         }
     );
     assert_eq!(hundredth, chain.unsolvable());
+}
+
+#[test]
+fn one_factorisation_steps_to_a_solution_without_each_constraint_the_conflict_needs() {
+    let chain = out_of_reach(40);
+    let constraints: Vec<ConstraintId> = chain.sketch.constraints().map(|(id, _)| id).collect();
+
+    let stepped = with_failure(&chain, |solver, failed| {
+        let failure = &failed[0];
+        let mut at = solver.system.values.clone();
+        for (variable, value) in failure.component.variables.iter().zip(&failure.settled.end) {
+            at[*variable] = *value;
+        }
+        let factored = Factored::at(solver, &failure.component, &at);
+        let mut stepped = Vec::new();
+        for constraint in &constraints {
+            let mut free = || Ok::<(), ()>(());
+            let Some(values) = factored.without(solver, *constraint, &mut free).unwrap() else {
+                continue;
+            };
+            let rest: Vec<usize> = failure
+                .component
+                .equations
+                .iter()
+                .copied()
+                .filter(|index| solver.system.equations[*index].owner != Some(*constraint))
+                .collect();
+            let parts = components(solver.system, &rest, &values);
+            assert!(parts.iter().all(|part| solver.holds(part, &values)));
+            stepped.push(*constraint);
+        }
+        stepped
+    });
+
+    assert_eq!(constraints.len(), 2 * 40 + 41);
+    assert_eq!(stepped, chain.spanning());
+}
+
+#[test]
+#[ignore = "diagnoses a conflict through three hundred lines, best run in release"]
+fn a_conflict_through_a_chain_of_three_hundred_lines_is_named_within_the_budget() {
+    let chain = out_of_reach(300);
+
+    let named = diagnosed(&chain, DIAGNOSIS_WORK);
+
+    assert_eq!(chain.spanning().len(), 2 * 300);
+    assert!(
+        named
+            == SketchError::Conflict {
+                constraints: chain.spanning()
+            },
+        "{named:?}"
+    );
 }
 
 #[test]

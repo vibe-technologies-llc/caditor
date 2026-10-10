@@ -148,7 +148,8 @@ jobs:
       - name: Time the diagnosis of conflicts across hundreds of entities
         run: |
           cargo test --release --locked -p caditor-sketch -- --ignored --exact \
-            solve::diagnosis_tests::a_conflict_across_hundreds_of_entities_is_named_within_seconds
+            solve::diagnosis_tests::a_conflict_across_hundreds_of_entities_is_named_within_seconds \
+            solve::diagnosis_tests::a_conflict_through_a_chain_of_three_hundred_lines_is_named_within_the_budget
 
       - name: Time a large STEP import from reading to every body shown
         run: |

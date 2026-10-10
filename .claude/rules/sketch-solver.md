@@ -158,6 +158,19 @@ paths:
   cannot hold when its own probe and every descent from the drawn shape (also with spline
   parameters mid-range and held) and from the closest witnesses are conclusive; any descent that
   converges means it holds (remembered, the search runs again); otherwise it is inconclusive.
+- Trimming tries a step before a descent (`witness.rs`): the set's failing part is linearised and
+  factored once at its probe's least-squares end (`sparse::Triangular` over the normalised rows,
+  solved through the semi-normal equations, `Triangular::normal_solution`). A constraint's witness
+  is that point moved through the pseudo-inverse columns of its own rows, weighted so the
+  linearisation of the rest holds (the misfit along the left null space lands on the removed rows)
+  and, where that leaves a choice, the step is shortest; chord steps through the same factor with
+  fresh residuals follow (at most `CHORD_STEPS`, each halving what the rest leaves) until every
+  part of the rest holds within its own tolerance. Only a constraint whose step does not get there
+  falls back to a descent, and dropping one factors the smaller set again. The factorisation is
+  charged as one step on the set and each solve through it `1/SOLVES_PER_STEP` of one, about its
+  time in a debug build: the 600 confirmations of a 300-line chain cost about 26,000 units where
+  descents needed about 540,000 (an ignored test in `diagnosis_tests.rs`, run by the nightly stress
+  job; a quick one checks that the step confirms exactly the constraints a 40-line chain needs).
 - Only a set judged unable to hold is reported, minimal by its witnesses; recompute reports it as
   the feature's error with `FeatureError.constraints` and `FixTarget::Constraint`.
 - Every failed part is diagnosed on its own budget, newest first, up to `DIAGNOSED_PARTS` (the rest

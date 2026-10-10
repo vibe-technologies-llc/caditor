@@ -31,7 +31,7 @@ pub(crate) fn row(gradient: &Gradient, variables: &[usize]) -> Row {
         .collect()
 }
 
-fn norm(row: &Row) -> f64 {
+pub(crate) fn norm(row: &Row) -> f64 {
     row.iter()
         .map(|(_, value)| value * value)
         .sum::<f64>()
@@ -193,6 +193,63 @@ impl Triangular {
 
     pub fn rank(&self) -> usize {
         self.rank
+    }
+
+    pub fn normal_solution(&self, gradient: &[f64]) -> Vec<f64> {
+        let width = self.rows.len();
+        let mut forward: Vec<f64> = self
+            .columns
+            .iter()
+            .map(|column| gradient.get(*column).copied().unwrap_or(0.0))
+            .collect();
+        for position in 0..width {
+            let Some(load) = forward.get(position).copied() else {
+                continue;
+            };
+            let pivot = match self.rows.get(position) {
+                Some(Some(row)) => row.first().map(|(_, diagonal)| (row, load / diagonal)),
+                _ => None,
+            };
+            let entry = pivot.map_or(0.0, |(_, entry)| entry);
+            if let Some(slot) = forward.get_mut(position) {
+                *slot = entry;
+            }
+            let Some((row, entry)) = pivot.filter(|(_, entry)| *entry != 0.0) else {
+                continue;
+            };
+            tally::add(row.len());
+            for (later, value) in row.iter().skip(1) {
+                if let Some(slot) = forward.get_mut(*later) {
+                    *slot -= value * entry;
+                }
+            }
+        }
+        let mut solution = vec![0.0; width];
+        for position in (0..width).rev() {
+            let Some(Some(row)) = self.rows.get(position) else {
+                continue;
+            };
+            let Some((_, diagonal)) = row.first() else {
+                continue;
+            };
+            tally::add(row.len());
+            let sum: f64 = row
+                .iter()
+                .skip(1)
+                .map(|(later, entry)| entry * solution.get(*later).copied().unwrap_or(0.0))
+                .sum();
+            let load = forward.get(position).copied().unwrap_or(0.0);
+            if let Some(slot) = solution.get_mut(position) {
+                *slot = (load - sum) / diagonal;
+            }
+        }
+        let mut by_column = vec![0.0; width];
+        for (column, entry) in self.columns.iter().zip(solution) {
+            if let Some(slot) = by_column.get_mut(*column) {
+                *slot = entry;
+            }
+        }
+        by_column
     }
 
     pub fn fixed_columns(
