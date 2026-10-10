@@ -73,6 +73,7 @@ const COLLAPSED_HIT_SIZE: f32 = 10.0;
 const COLLAPSED_SPACING: f64 = 8.0;
 const MAX_MEASURED_TEXTS: usize = 1 << 16;
 const EDIT_HINT: &str = "Double-click to change it, or drag its label to move it.";
+const COLLAPSED_HINT: &str = "Click to show its label, or double-click to change it.";
 pub const MOVE_LABEL_TRANSACTION: &str = "Move dimension label";
 const NO_LABEL_TO_MOVE: &str = "Select one dimension alone to move its label";
 
@@ -201,6 +202,7 @@ struct GlyphItem {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Hover {
     Dimension(ConstraintId),
+    Collapsed(ConstraintId),
     Glyph(ConstraintId),
     Beyond(Vec<ConstraintId>),
 }
@@ -214,6 +216,13 @@ impl Hover {
                     .map(|constraint| sketch.describe(constraint))
                     .unwrap_or_default();
                 format!("{described}. {EDIT_HINT}")
+            }
+            Self::Collapsed(constraint) => {
+                let described = sketch
+                    .constraint(*constraint)
+                    .map(|constraint| sketch.describe(constraint))
+                    .unwrap_or_default();
+                format!("{described}. {COLLAPSED_HINT}")
             }
             Self::Glyph(constraint) => sketch.describe_constraint(*constraint),
             Self::Beyond(hidden) => beyond_description(sketch, hidden),
@@ -1128,7 +1137,7 @@ impl Annotations {
                     egui::Vec2::splat(COLLAPSED_HIT_SIZE),
                 ),
                 key: (mark.constraint, None),
-                hover: Hover::Dimension(mark.constraint),
+                hover: Hover::Collapsed(mark.constraint),
                 label: None,
             }))
             .chain(marks.glyphs.iter().map(|mark| Placed {
@@ -1205,7 +1214,7 @@ impl Annotations {
             let tint = color(mark.constraint, mark.standing);
             match &mark.hover {
                 Hover::Beyond(hidden) => paint_beyond(&painter, center, hidden.len(), tint),
-                Hover::Dimension(_) | Hover::Glyph(_) => {
+                Hover::Dimension(_) | Hover::Collapsed(_) | Hover::Glyph(_) => {
                     paint_glyph(&painter, center, mark.kind, tint);
                     if let Some(frame) = framed(mark.standing) {
                         let glyph = Rect::from_center_size(center, egui::Vec2::splat(GLYPH_SIZE));
@@ -1305,7 +1314,7 @@ impl Annotations {
                 selection.replace_with(target.pickable);
             }
         }
-        if matches!(target.hover, Hover::Dimension(_))
+        if matches!(target.hover, Hover::Dimension(_) | Hover::Collapsed(_))
             && response.double_clicked()
             && let Pickable::SketchConstraint {
                 feature,
