@@ -10,6 +10,7 @@ use jiff::{Timestamp, tz::TimeZone};
 use crate::{
     appearance, icons,
     model::{Model, display_name},
+    version_preview::{self, Preview, Started},
     widgets::{self, DialogWidth, Tone},
 };
 
@@ -24,6 +25,8 @@ pub enum HistoryCommand {
     Hide,
     Restore(usize),
     Keep { index: usize, kept: bool },
+    Preview(usize),
+    StopPreview,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -33,11 +36,13 @@ enum Listing {
     Failed(String),
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Default)]
 pub struct VersionHistory {
     shown: Option<(PathBuf, Listing)>,
     restoring: Option<usize>,
     keeping: Option<usize>,
+    preview: Option<Preview>,
+    preview_ticket: u64,
 }
 
 impl VersionHistory {
@@ -53,6 +58,7 @@ impl VersionHistory {
         self.shown = None;
         self.restoring = None;
         self.keeping = None;
+        self.stop_preview();
     }
 
     pub fn path(&self) -> Option<&PathBuf> {
@@ -67,6 +73,63 @@ impl VersionHistory {
                 Ok(history) => Listing::Loaded(history),
                 Err(error) => Listing::Failed(error.to_string()),
             };
+        }
+        let still_listed = match (&self.shown, &self.preview) {
+            (Some((_, Listing::Loaded(history))), Some(preview)) => {
+                history.versions.iter().any(|version| {
+                    version.index == preview.index
+                        && version.available
+                        && version.state == preview.saved
+                })
+            }
+            _ => false,
+        };
+        if !still_listed {
+            self.stop_preview();
+        }
+    }
+
+    pub fn start_preview(&mut self, index: usize) -> Option<(PathBuf, Started)> {
+        let (path, Listing::Loaded(history)) = self.shown.as_ref()? else {
+            return None;
+        };
+        let version = history
+            .versions
+            .iter()
+            .find(|version| version.index == index && version.available)?;
+        let path = path.clone();
+        let saved = version.state.clone();
+        self.stop_preview();
+        self.preview_ticket = self.preview_ticket.wrapping_add(1);
+        let (preview, started) = Preview::start(index, saved, self.preview_ticket);
+        self.preview = Some(preview);
+        Some((path, started))
+    }
+
+    pub fn stop_preview(&mut self) {
+        if let Some(preview) = self.preview.take() {
+            preview.stop();
+        }
+    }
+
+    pub fn preview_mut(&mut self, ticket: u64) -> Option<&mut Preview> {
+        self.preview
+            .as_mut()
+            .filter(|preview| preview.ticket == ticket)
+    }
+
+    pub fn preview(&self) -> Option<&Preview> {
+        self.preview.as_ref()
+    }
+
+    pub fn compare_preview(&mut self, model: &Model) {
+        let same_file = self.path().map(PathBuf::as_path) == model.path();
+        if let Some(preview) = &mut self.preview {
+            preview.compare(
+                model.document(),
+                same_file,
+                (model.session(), model.revision()),
+            );
         }
     }
 
@@ -113,6 +176,13 @@ impl VersionHistory {
             for version in &mut history.versions {
                 version.available &= version.index != index;
             }
+            if self
+                .preview
+                .as_ref()
+                .is_some_and(|preview| preview.index == index)
+            {
+                self.stop_preview();
+            }
         }
     }
 }
@@ -149,12 +219,13 @@ pub fn dialog(
 ) -> Option<HistoryCommand> {
     let (path, listing) = history.shown.as_ref()?;
     let name = display_name(Some(path));
-    let response = widgets::dialog(ctx, "version-history", TITLE, DialogWidth::Medium, |ui| {
+    let response = widgets::dialog(ctx, "version-history", TITLE, DialogWidth::Wide, |ui| {
         ui.label(widgets::muted(
             format!(
                 "Every save keeps the state it replaces inside “{name}”, so you can go back to \
                  it even after closing caditor. Restoring is one change that Undo reverses. Old \
-                 versions are thinned out as they age, except the ones you keep."
+                 versions are thinned out as they age, except the ones you keep. Preview shows \
+                 what a version holds before you restore it."
             ),
             ui,
         ));
@@ -229,6 +300,10 @@ fn versions(
                             }
                         },
                         |ui| {
+                            let previewed = history
+                                .preview
+                                .as_ref()
+                                .is_some_and(|preview| preview.index == version.index);
                             if !version.available {
                                 widgets::status_pill(ui, Tone::Error, "Damaged")
                                     .on_hover_text(DAMAGED);
@@ -238,6 +313,27 @@ fn versions(
                                 widgets::spinner(ui);
                             } else {
                                 let idle = history.restoring.is_none() && history.keeping.is_none();
+                                let (label, hover, wanted) = if previewed {
+                                    (
+                                        version_preview::HIDE,
+                                        "Close the preview of this version",
+                                        HistoryCommand::StopPreview,
+                                    )
+                                } else {
+                                    (
+                                        version_preview::SHOW,
+                                        "Show what this version holds and how it differs from \
+                                         the model now, without changing anything",
+                                        HistoryCommand::Preview(version.index),
+                                    )
+                                };
+                                if ui
+                                    .add(widgets::button(label))
+                                    .on_hover_text(hover)
+                                    .clicked()
+                                {
+                                    command = Some(wanted);
+                                }
                                 if ui
                                     .add_enabled(idle, widgets::button("Restore"))
                                     .on_hover_text(
@@ -278,6 +374,11 @@ fn versions(
                 }
             });
     });
+    if let Some(preview) = &history.preview
+        && let Some(chosen) = version_preview::show(ui, preview)
+    {
+        command = Some(chosen);
+    }
     command
 }
 

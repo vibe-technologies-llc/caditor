@@ -76,9 +76,23 @@ pub fn history(path: &Path) -> Result<History, LoadError> {
 }
 
 pub fn load_version(path: &Path, index: usize) -> Result<Loaded, LoadError> {
+    load_version_cancellable(path, index, &CancelToken::never())
+}
+
+pub fn load_version_cancellable(
+    path: &Path,
+    index: usize,
+    cancel: &CancelToken,
+) -> Result<Loaded, LoadError> {
     let bytes = read_file(path).map_err(|error| LoadError::Unreadable(ReadFailure::of(&error)))?;
-    binary::load_version(&bytes, index)
-        .and_then(|loaded| with_origins_completed(loaded, &CancelToken::never()))
+    if cancel.is_cancelled() {
+        return Err(LoadError::Cancelled);
+    }
+    let loaded = binary::load_version(&bytes, index)?;
+    if cancel.is_cancelled() {
+        return Err(LoadError::Cancelled);
+    }
+    with_origins_completed(loaded, cancel)
 }
 
 fn with_origins_completed(mut loaded: Loaded, cancel: &CancelToken) -> Result<Loaded, LoadError> {

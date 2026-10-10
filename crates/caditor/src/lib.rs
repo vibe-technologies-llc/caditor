@@ -170,6 +170,7 @@ mod undo_history;
 mod units;
 mod upload_badge;
 mod variants;
+mod version_preview;
 mod view_aids;
 mod view_cube;
 mod view_history;

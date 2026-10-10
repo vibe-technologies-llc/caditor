@@ -26,7 +26,7 @@ use caditor_file::{
 };
 use caditor_render::{ImageError, SurfaceSize};
 use caditor_sketch::Sketch;
-use egui::{Sides, Ui};
+use egui::{ColorImage, Sides, Ui};
 use parking_lot::Mutex;
 
 use self::{
@@ -57,6 +57,8 @@ use crate::{
     preferences::PreferencesCommand,
     samples::Sample,
     sketch_placement::FaceChoice,
+    snapshot::Snapshot,
+    version_preview::{self, Picture, PictureFailure, Prepared, PreviewFailure, Started},
     widgets::{self, DialogWidth, MenuEntry, Tone},
 };
 
@@ -634,6 +636,14 @@ enum Event {
         path: PathBuf,
         state: SavedState,
         result: Result<Loaded, LoadError>,
+    },
+    PreviewPrepared {
+        ticket: u64,
+        result: Result<Box<Prepared>, PreviewFailure>,
+    },
+    PreviewDrawn {
+        ticket: u64,
+        result: Result<Arc<ColorImage>, PictureFailure>,
     },
     Imported {
         path: PathBuf,
@@ -1232,6 +1242,8 @@ impl Files {
                 )),
             },
             HistoryCommand::Hide => self.history.close(),
+            HistoryCommand::Preview(index) => self.preview_version(index, model),
+            HistoryCommand::StopPreview => self.history.stop_preview(),
             HistoryCommand::Keep { index, kept } => {
                 if let Some(path) = self.history.start_keeping(index)
                     && !model.keep_version(path, index, kept)
@@ -1255,6 +1267,77 @@ impl Files {
                         },
                     );
                 }
+            }
+        }
+    }
+
+    fn preview_version(&mut self, index: usize, model: &Model) {
+        let Some((path, started)) = self.history.start_preview(index) else {
+            return;
+        };
+        let Started {
+            ticket,
+            cancel,
+            progress,
+        } = started;
+        self.spawn_own(
+            "preview",
+            move || Event::PreviewPrepared {
+                ticket,
+                result: version_preview::prepare(&path, index, &progress, &cancel).map(Box::new),
+            },
+            move || Event::PreviewPrepared {
+                ticket,
+                result: Err(PreviewFailure::Crashed),
+            },
+        );
+        self.history.compare_preview(model);
+    }
+
+    fn preview_prepared(
+        &mut self,
+        ticket: u64,
+        result: Result<Box<Prepared>, PreviewFailure>,
+        model: &Model,
+    ) {
+        if let Some(preview) = self.history.preview_mut(ticket) {
+            preview.prepared(result.map(|prepared| *prepared));
+            self.history.compare_preview(model);
+        }
+    }
+
+    #[cfg(test)]
+    pub fn version_preview(&self) -> Option<&version_preview::Preview> {
+        self.history.preview()
+    }
+
+    pub fn preview_picture(&self) -> Option<&Snapshot> {
+        self.history.preview()?.waiting_picture()
+    }
+
+    pub fn preview_rendered(&mut self, rows: Result<ReadPixels, ImageError>) {
+        let Some(ticket) = self.history.preview().map(|preview| preview.ticket) else {
+            return;
+        };
+        let Some(preview) = self.history.preview_mut(ticket) else {
+            return;
+        };
+        match rows {
+            Err(ImageError::Busy) => {}
+            Err(error) => preview.set_picture(Picture::Failed(PictureFailure::Drawing(error))),
+            Ok(rows) => {
+                preview.set_picture(Picture::Drawing);
+                self.spawn_own(
+                    "preview",
+                    move || Event::PreviewDrawn {
+                        ticket,
+                        result: version_preview::read_picture(rows),
+                    },
+                    move || Event::PreviewDrawn {
+                        ticket,
+                        result: Err(PictureFailure::Crashed),
+                    },
+                );
             }
         }
     }
@@ -1393,6 +1476,7 @@ impl Files {
             self.handle(event, model, editing);
         }
         self.import_next(model);
+        self.history.compare_preview(model);
         changed
     }
 
@@ -1542,6 +1626,17 @@ impl Files {
                 state,
                 result,
             } => self.version_loaded(&path, &state, result, model),
+            Event::PreviewPrepared { ticket, result } => {
+                self.preview_prepared(ticket, result, model);
+            }
+            Event::PreviewDrawn { ticket, result } => {
+                if let Some(preview) = self.history.preview_mut(ticket) {
+                    preview.set_picture(match result {
+                        Ok(image) => Picture::Drawn(image),
+                        Err(failure) => Picture::Failed(failure),
+                    });
+                }
+            }
             Event::Imported {
                 path,
                 session,

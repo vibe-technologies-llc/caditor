@@ -12,6 +12,7 @@ paths:
   - "crates/caditor/src/import.rs"
   - "crates/caditor/src/import_panel.rs"
   - "crates/caditor/src/history.rs"
+  - "crates/caditor/src/version_preview.rs"
   - "crates/caditor/src/preferences.rs"
   - "crates/caditor/src/graphics.rs"
   - "crates/caditor/src/units.rs"
@@ -296,8 +297,33 @@ paths:
 ## Version history
 
 - File › Version history lists the file's versions newest first, read on the files worker, each
-  with Restore and Keep; a damaged one shows a "Damaged" `status_pill` with the reason on hover
-  and neither button. It has no footer.
+  with Restore, Keep and Preview; a damaged one shows a "Damaged" `status_pill` with the reason on
+  hover and no button. It has no footer and is `DialogWidth::Wide`, room for the preview.
+- Preview (`HistoryCommand::Preview`, a button per row reached by Tab; `version_preview.rs`) shows
+  a card under the list with what the version holds: a picture of its bodies, its feature and body
+  counts, the features that fail in it and the parts that could not be read (warning callouts),
+  and how it differs from the model now by stable id (`Changes::between`: features not in the
+  model now, added since, changed since with a rename shown as "(now “…”)", and parameters
+  changed since, each list cut at `MAX_NAMED`), else "The same as the model now.", plus Restore
+  this version. It never touches the document or the undo history. The version is read
+  (`caditor_file::load_version_cancellable`), recomputed with display data and meshed
+  (`snapshot::take_unless`) on a `preview` thread (`Files::spawn_own`), the card showing a spinner,
+  the stage ("Recomputing the version: 3 of 7 features…", `version_preview::Progress`) and Cancel
+  (`HistoryCommand::StopPreview`). Choosing another version, Hide preview, closing the dialog or a
+  listing where the version is gone or changed raises its `CancelToken`, and a result carrying an
+  older ticket is dropped. A version that cannot be read fails in words (`PreviewFailure`), as do
+  a picture that cannot be meshed or drawn (`PictureFailure`), the rest of the card still shown.
+- The picture is drawn like the 3MF thumbnail: the prepared `Snapshot` (initial viewpoint fitted
+  to the version's bodies, no grid or highlights) waits in the preview until the session draws it
+  at `PICTURE_SIZE` with `Renderer::render_image` on the viewport background
+  (`Files::preview_picture`, `preview_rendered`; a busy renderer leaves it waiting for a later
+  frame), its bands are read on a `preview` thread into an egui texture (`read_picture`), named for
+  screen readers. Thumbnails are computed on demand, not stored at save time: a saved picture would
+  cost every save a render and a format change, while any version that can be restored can be
+  recomputed.
+- The comparison follows the model: `Files::poll` compares again whenever its session or revision
+  changes (`VersionHistory::compare_preview`), and says it is not compared while another model is
+  open.
 - Keep / Stop keeping marks a version so the age-based thinning never removes it
   (`file-format.md`); a kept version shows the `icons::KEPT_VERSION` icon and the word "Kept", not
   colour alone. The mark is stored in the file, so it is a file-level change applied at once on the

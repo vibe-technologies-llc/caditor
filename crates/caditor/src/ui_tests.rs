@@ -64,7 +64,7 @@ use crate::{
     toggles::ToggleStates,
     toolbar, trimming, typed_point,
     units::LengthUnit,
-    view_cube, widgets, window_frame,
+    version_preview, view_cube, widgets, window_frame,
 };
 
 mod cancel_and_parameters;
@@ -467,6 +467,7 @@ impl Harness {
         }
         self.render_image();
         self.render_thumbnail();
+        self.render_preview();
         self.model
             .mesh_before(self.workspace.editing.context().solid);
         self.model.request_regions(self.workspace.editing.feature());
@@ -509,6 +510,20 @@ impl Harness {
             width,
             height,
             pixels: Some([90, 120, 200, 255].repeat(width as usize * height as usize)),
+            sent: Vec::new(),
+        })));
+    }
+
+    fn render_preview(&mut self) {
+        let Some(picture) = self.files.preview_picture() else {
+            return;
+        };
+        let size = version_preview::PICTURE_SIZE;
+        assert!(picture.pixels_per_point > 0.0);
+        self.files.preview_rendered(Ok(Box::new(SolidRows {
+            width: size.width,
+            height: size.height,
+            pixels: Some([27, 28, 31, 255].repeat(size.width as usize * size.height as usize)),
             sent: Vec::new(),
         })));
     }

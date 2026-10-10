@@ -408,8 +408,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   the window); it needs an exported xdg-foreign handle, which winit does not offer and the raw
   Wayland connection would need `unsafe` to reach (a third `unsafe` crate, as `windows.md` keeps
   for Win32). X11 names the window already.
-- [medium · hard] Version history shows when a version was saved and after which change, but no
-  preview of what it holds.
 - [medium · hard] Pasting features cannot carry a feature that picks faces or edges of another
   copied feature (a fillet copied with its extrusion): face and edge names are digests over the
   feature id, so the copy is left out with the reason. Renaming them needs each picked face or edge

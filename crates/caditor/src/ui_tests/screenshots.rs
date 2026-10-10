@@ -42,7 +42,7 @@ use crate::{
     scale_tools,
     section::SectionTool,
     selection::{Pickable, Selection},
-    shell_tools, shortcut_editor, sketch_toolbar, view_cube,
+    shell_tools, shortcut_editor, sketch_toolbar, version_preview, view_cube,
 };
 
 const OUTPUT: &str = "CADITOR_SCREENSHOTS";
@@ -1208,6 +1208,11 @@ fn dialog_scenes(gpu: &Gpu, out: &Path, look: Look) {
         harness.shows("Restore")
     });
     shoot(&mut model, gpu, out, "history", look);
+    model.click(version_preview::SHOW);
+    model.wait_until("the preview is ready", |harness| {
+        harness.shows("Restore this version")
+    });
+    shoot(&mut model, gpu, out, "history-preview", look);
     close_dialog(&mut model);
 
     model.edit_width("55 mm");

@@ -81,6 +81,7 @@ use crate::{
     toggles::ToggleStates,
     toolbar::{self, ToolbarContext},
     undo_history,
+    version_preview::PICTURE_SIZE,
     viewport::ViewportState,
     window_frame::{self, Chrome},
 };
@@ -1826,6 +1827,19 @@ impl Session {
                 }
             };
             files.thumbnail_rendered(rows);
+        }
+        let preview = files.preview_picture().map(|picture| {
+            self.renderer.render_image(&ImageRequest {
+                size: PICTURE_SIZE,
+                view: &picture.view,
+                scene: &picture.scene,
+                pixels_per_point: picture.pixels_per_point,
+                background: Background::Viewport,
+            })
+        });
+        if let Some(started) = preview {
+            files
+                .preview_rendered(started.map(|bands| Box::new(RenderedRows(bands)) as ReadPixels));
         }
         self.renderer.advance_image();
     }

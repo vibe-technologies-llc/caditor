@@ -49,7 +49,10 @@ pub use crate::{
         read_mesh_file, read_step_file, read_step_file_reporting,
     },
     journal::JournalEntry,
-    load::{LoadError, Loaded, MAX_RECORDS, decode, history, load, load_cancellable, load_version},
+    load::{
+        LoadError, Loaded, MAX_RECORDS, decode, history, load, load_cancellable, load_version,
+        load_version_cancellable,
+    },
     logs::{LOGS_KEPT, MAX_LOG_SIZE, SessionLog, ended_unexpectedly, mark_reported, prune_logs},
     parameters::{
         MAX_PARAMETER_ROWS, MAX_PARAMETERS_FILE, PARAMETERS_EXTENSION, ParameterFileError,

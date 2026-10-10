@@ -33,6 +33,9 @@ paths:
 - A constraint trial (`app-sketching.md`) is waited for at the end of each harness frame
   (`Model::finish_checking_constraints`), so a constraint button's result is in the document by
   the next check as if applied at once.
+- The version preview's picture is answered like the 3MF thumbnail: `Harness::render_preview`
+  hands `Files::preview_rendered` solid rows of `PICTURE_SIZE`, so a test waits for
+  `Preview::is_drawn` without a GPU.
 - Slow file work is staged with test-only seams on `Files`: `read_models_with` swaps the reader an
   import thread calls and `load_models_with` the loader an open thread calls
   (`ui_tests/import_jobs.rs` blocks either until released or cancelled).
