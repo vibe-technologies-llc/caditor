@@ -6,7 +6,7 @@ use std::{
 
 use caditor_expression::{Expression, ParameterId, ParseError};
 use caditor_kernel::FaceReference;
-use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch};
+use caditor_sketch::Sketch;
 
 use crate::{
     attachment::{FaceAttachment, SketchAttachment, SketchFeature},
@@ -150,26 +150,7 @@ impl FeatureKind {
 
     pub fn approximate_size(&self) -> usize {
         let owned = match self {
-            Self::Sketch(sketch) => {
-                let entities = sketch.sketch.entities().len();
-                let constraints = sketch.sketch.constraints().len();
-                let owned_by_entities: usize = sketch
-                    .sketch
-                    .entities()
-                    .map(|(_, entity)| entity.heap_size())
-                    .sum();
-                let owned_by_constraints: usize = sketch
-                    .sketch
-                    .constraints()
-                    .map(|(_, constraint)| constraint.heap_size())
-                    .sum();
-                entities * (size_of::<EntityId>() + size_of::<Entity>())
-                    + constraints * (size_of::<ConstraintId>() + size_of::<Constraint>())
-                    + owned_by_entities
-                    + owned_by_constraints
-                    + sketch.projections.len()
-                        * (size_of::<EntityId>() + size_of::<ProjectionSource>())
-            }
+            Self::Sketch(sketch) => sketch.heap_size(),
             Self::Solid(solid) => solid.heap_size(),
             Self::Blend(blend) => blend.heap_size(),
             Self::Shell(shell) => {

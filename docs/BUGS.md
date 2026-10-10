@@ -127,11 +127,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   face nor a round face to clip by); until then the remedy should say to move the feature above
   the one that blended the corner
   (`blend::tests::vertical_edges_are_rounded_after_the_top_rim_is_chamfered`, ignored).
-- [low · easy] Undo undercounts a sketch's size: `FeatureKind::approximate_size` for a sketch counts
-  entities, constraints and projections but not its `uses` map, `inactive`, `labels`,
-  `construction` and `projected` sets or the attachment's neighbour names, so deleting a sketch of
-  100,000 imported curves keeps several megabytes past `MAX_UNDO_BYTES`. Give `Sketch` a
-  `heap_size` covering every map.
 
 
 ## Application

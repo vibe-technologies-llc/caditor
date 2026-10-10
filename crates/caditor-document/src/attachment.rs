@@ -113,6 +113,13 @@ impl SketchAttachment {
             Self::Datum(_) | Self::Frame { .. } => None,
         }
     }
+
+    pub fn heap_size(&self) -> usize {
+        match self {
+            Self::Face(attachment) => attachment.face.heap_size(),
+            Self::Datum(_) | Self::Frame { .. } => 0,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -141,6 +148,18 @@ impl SketchFeature {
 }
 
 impl SketchFeature {
+    pub fn heap_size(&self) -> usize {
+        let Self {
+            sketch,
+            attachment,
+            projections,
+        } = self;
+
+        sketch.heap_size()
+            + attachment.as_ref().map_or(0, SketchAttachment::heap_size)
+            + projections.len() * (size_of::<EntityId>() + size_of::<ProjectionSource>())
+    }
+
     pub fn projected_bodies(&self) -> impl Iterator<Item = FeatureId> + '_ {
         self.projections.values().filter_map(ProjectionSource::body)
     }

@@ -306,8 +306,9 @@ impl Editor {
 #[cfg(test)]
 mod tests {
     use caditor_expression::{BinaryOperator, Expression, ParameterId};
+    use caditor_geometry::{Plane, Point2};
     use caditor_kernel::Solid;
-    use caditor_sketch::{Entity, EntityId};
+    use caditor_sketch::{Entity, EntityId, Sketch};
 
     use super::*;
     use crate::{
@@ -377,6 +378,30 @@ mod tests {
 
         assert!(many >= none + 10_000 * size_of::<EntityId>());
         assert!(long >= short + 1_000 * size_of::<Expression>());
+    }
+
+    fn sketch_of_construction_lines(lines: usize, construction: bool) -> Transaction {
+        let mut sketch = Sketch::new(Plane::XY);
+        for index in 0..lines {
+            let y = index as f64;
+            let line = sketch.add_line(Point2::new(0.0, y), Point2::new(1.0, y));
+            sketch.set_construction(line, construction).unwrap();
+        }
+        Transaction::single(
+            "Sketch",
+            Edit::SetFeatureKind {
+                id: FeatureId::from_raw(1),
+                kind: FeatureKind::Sketch(sketch.into()),
+            },
+        )
+    }
+
+    #[test]
+    fn a_transaction_counts_the_sets_and_use_counts_of_a_sketch() {
+        let plain = sketch_of_construction_lines(1_000, false).approximate_size();
+        let constructed = sketch_of_construction_lines(1_000, true).approximate_size();
+
+        assert!(constructed >= plain + 1_000 * size_of::<EntityId>());
     }
 
     #[test]

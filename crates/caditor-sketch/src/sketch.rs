@@ -194,6 +194,33 @@ impl Sketch {
         }
     }
 
+    pub fn heap_size(&self) -> usize {
+        let Self {
+            plane: _,
+            entities,
+            constraints,
+            inactive,
+            labels,
+            construction,
+            projected,
+            uses,
+            next_id: _,
+        } = self;
+
+        entities.len() * (size_of::<EntityId>() + size_of::<Entity>())
+            + entities.values().map(Entity::heap_size).sum::<usize>()
+            + constraints.len() * (size_of::<ConstraintId>() + size_of::<Constraint>())
+            + constraints
+                .values()
+                .map(Constraint::heap_size)
+                .sum::<usize>()
+            + inactive.len() * size_of::<ConstraintId>()
+            + labels.len() * (size_of::<ConstraintId>() + size_of::<Vector2>())
+            + construction.len() * size_of::<EntityId>()
+            + projected.len() * size_of::<EntityId>()
+            + uses.len() * (size_of::<EntityId>() + size_of::<usize>())
+    }
+
     pub fn plane(&self) -> Plane {
         self.plane
     }
@@ -2446,5 +2473,71 @@ mod tests {
         );
         sketch.remove_constraint(length).unwrap();
         assert_eq!(sketch.label_offsets().len(), 0);
+    }
+
+    const MANY: usize = 100;
+
+    fn dimensioned_lines() -> (Sketch, Vec<EntityId>, Vec<ConstraintId>) {
+        let mut sketch = Sketch::new(Plane::XY);
+        let mut lines = Vec::new();
+        let mut dimensions = Vec::new();
+        for index in 0..MANY {
+            let y = index as f64;
+            let line = sketch.add_line(Point2::new(0.0, y), Point2::new(10.0, y));
+            let (start, end) = endpoints(&sketch, line);
+            let dimension = sketch
+                .add_constraint(Constraint::Distance {
+                    from: start,
+                    to: end,
+                    value: Expression::number(10.0),
+                })
+                .unwrap();
+            lines.push(line);
+            dimensions.push(dimension);
+        }
+        (sketch, lines, dimensions)
+    }
+
+    #[test]
+    fn the_heap_size_of_a_sketch_counts_the_use_counts_of_its_entities() {
+        let (sketch, ..) = dimensioned_lines();
+
+        let entities = sketch.entities.len() * (size_of::<EntityId>() + size_of::<Entity>());
+        let constraints =
+            sketch.constraints.len() * (size_of::<ConstraintId>() + size_of::<Constraint>());
+        let uses = sketch.uses.len() * (size_of::<EntityId>() + size_of::<usize>());
+
+        assert!(sketch.uses.len() >= 2 * MANY);
+        assert!(sketch.heap_size() >= entities + constraints + uses);
+    }
+
+    #[test]
+    fn the_heap_size_of_a_sketch_grows_with_its_flags_and_label_offsets() {
+        let (mut sketch, lines, dimensions) = dimensioned_lines();
+
+        let plain = sketch.heap_size();
+        for line in &lines {
+            sketch.set_construction(*line, true).unwrap();
+        }
+        let constructed = sketch.heap_size();
+        for dimension in &dimensions {
+            sketch.set_active(*dimension, false).unwrap();
+        }
+        let inactive = sketch.heap_size();
+        for dimension in &dimensions {
+            sketch
+                .set_label_offset(*dimension, Some(Vector2::X))
+                .unwrap();
+        }
+        let labelled = sketch.heap_size();
+        for line in &lines {
+            sketch.set_projected(*line, true).unwrap();
+        }
+        let projected = sketch.heap_size();
+
+        assert!(constructed >= plain + MANY * size_of::<EntityId>());
+        assert!(inactive >= constructed + MANY * size_of::<ConstraintId>());
+        assert!(labelled >= inactive + MANY * size_of::<Vector2>());
+        assert!(projected >= labelled + MANY * size_of::<EntityId>());
     }
 }
