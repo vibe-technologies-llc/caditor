@@ -1,6 +1,6 @@
 use caditor_document::{
-    Datum, Document, Evaluation, FeatureId, FeatureResult, ModelScale, ScaleSummary, ScaledValues,
-    Transaction,
+    Datum, DisplacedFeature, Document, Evaluation, FeatureId, FeatureResult, ModelScale,
+    ScaleSummary, ScaledValues, Transaction, principal_words,
 };
 use caditor_expression::format_number;
 use caditor_geometry::Point3;
@@ -38,12 +38,20 @@ pub enum Centre {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+struct Displacement {
+    revision: u64,
+    centre: Point3,
+    moved: Vec<DisplacedFeature>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct ScaleDraft {
     pub factor: String,
     pub centre: Centre,
     pub values: ScaledValues,
     problem: Option<String>,
     focus_pending: bool,
+    displaced: Option<Displacement>,
 }
 
 impl Default for ScaleDraft {
@@ -54,6 +62,7 @@ impl Default for ScaleDraft {
             values: ScaledValues::Plain,
             problem: None,
             focus_pending: true,
+            displaced: None,
         }
     }
 }
@@ -149,6 +158,63 @@ pub fn scaling(model: &Model, draft: &ScaleDraft) -> Result<(Transaction, String
     Ok((scaled.transaction, summary))
 }
 
+fn listed(parts: &[String]) -> String {
+    match parts {
+        [] => String::new(),
+        [only] => only.clone(),
+        [first @ .., last] => format!("{} and {last}", first.join(", ")),
+    }
+}
+
+pub fn moving_words(moved: &[DisplacedFeature]) -> Option<String> {
+    if moved.is_empty() {
+        return None;
+    }
+    let users: Vec<String> = moved
+        .iter()
+        .map(|feature| {
+            let geometry: Vec<String> = feature
+                .geometry
+                .iter()
+                .copied()
+                .map(principal_words)
+                .collect();
+            format!("{} ({})", feature.name, listed(&geometry))
+        })
+        .collect();
+    Some(format!(
+        "The principal planes, axes and origin stay where they are, so scaling about this centre \
+         moves {} onto new datums standing where that geometry lands.",
+        listed(&users)
+    ))
+}
+
+fn displaced<'a>(model: &Model, draft: &'a mut ScaleDraft) -> &'a [DisplacedFeature] {
+    let centre = match draft.centre {
+        Centre::Origin => Some(Point3::ZERO),
+        Centre::Datum(feature) => centre_point(model.evaluation(), feature),
+    };
+    let Some(centre) = centre else {
+        return &[];
+    };
+    let revision = model.revision();
+    let current = draft
+        .displaced
+        .as_ref()
+        .is_some_and(|known| known.revision == revision && known.centre == centre);
+    if !current {
+        draft.displaced = Some(Displacement {
+            revision,
+            centre,
+            moved: model.document().displaced_by_scale(centre),
+        });
+    }
+    draft
+        .displaced
+        .as_ref()
+        .map_or(&[], |known| known.moved.as_slice())
+}
+
 pub fn summary(factor: f64, summary: &ScaleSummary) -> String {
     let counted = |count: usize, one: &str, many: &str| match count {
         1 => format!("1 {one}"),
@@ -176,6 +242,19 @@ pub fn summary(factor: f64, summary: &ScaleSummary) -> String {
         "no longer matches a standard size, so the size was cleared.",
         "no longer match a standard size, so the sizes were cleared.",
     ));
+    if !summary.moved.is_empty() {
+        let moved: Vec<String> = summary
+            .moved
+            .iter()
+            .map(|feature| feature.name.clone())
+            .collect();
+        parts.push(format!(
+            "{} now {} {}, standing where the principal geometry landed.",
+            listed(&moved),
+            if moved.len() == 1 { "uses" } else { "use" },
+            listed(&summary.datums)
+        ));
+    }
     parts.extend(said(
         &summary.threads,
         "keeps its thread size; check that it still fits.",
@@ -189,6 +268,10 @@ pub fn dialog(ctx: &egui::Context, model: &Model, draft: &mut ScaleDraft) -> Opt
         ui.label(widgets::muted(EXPLANATION, ui));
         ui.add_space(SPACE_S);
         let entered = fields(ui, model, draft);
+        if let Some(moving) = moving_words(displaced(model, draft)) {
+            ui.add_space(SPACE_S);
+            widgets::callout(ui, Tone::Info, |ui| ui.label(moving));
+        }
         if let Some(problem) = &draft.problem {
             ui.add_space(SPACE_S);
             widgets::callout(ui, Tone::Error, |ui| ui.label(problem));

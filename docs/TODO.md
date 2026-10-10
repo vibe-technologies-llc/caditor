@@ -199,10 +199,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 - [low · medium] 3MF exports carry no cosmetic thread: naming one needs object metadata
   (`metadatagroup`) under a name in a namespace of caditor's own, and that namespace's URI, kept
   for good once files carry it, has not been chosen.
-- [low · medium] Scale model refuses a centre off principal geometry a feature uses (a mirror
-  across the YZ plane, a revolve or circular pattern about the Z axis, a coordinate system at the
-  origin), since that geometry cannot move with the model; scaling about such a point would need
-  the feature moved onto a datum standing where the principal geometry lands.
 - [medium · hard] An end up to the next face or a curved face follows curved or several faces
   only on one side and without an offset (two sides or an offset need one flat face). An end
   cannot end on a whole body (where the profile last leaves it); an extrusion along a direction

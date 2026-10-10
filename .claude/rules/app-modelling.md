@@ -608,8 +608,10 @@ paths:
   Scale model builds `Document::scaled` (`scale_model::scaling`) and applies it as one undoable
   change with a notice summing up what changed, what was left to follow parameters, which holes
   lost their standard size and which threads to check; a refusal (no factor, a length, zero or
-  less, 1, a centre a feature's principal geometry does not hold) stays in the dialog as an error
-  callout and nothing is applied.
+  less, 1) stays in the dialog as an error callout and nothing is applied. While the centre is
+  off principal geometry some features use, an info callout (`moving_words`, from
+  `displaced_by_scale` cached per revision and centre) names each feature and the geometry it
+  uses before anything is applied, and the notice says which datums they now use.
 
 ## Configurations
 

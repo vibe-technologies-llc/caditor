@@ -60,9 +60,19 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   (an unattached sketch's plane, a datum plane offset from a principal plane, a datum point from
   the origin, a primitive's place on a principal plane, a scale's centre, an import's offsets, a
   move turning about the origin) also take the shift a centre off the origin brings, so the
-  centre stays put; geometry a feature uses that cannot move (a principal plane, axis or the
-  origin not holding the centre, `Anchor`) refuses the scale as `CentreOffPrincipal` naming the
-  feature. Saved views follow (target mapped, distance multiplied).
+  centre stays put. Principal geometry a feature places itself by (a mirror's or split's plane,
+  a revolve's, circular pattern's or move's axis, an up-to plane, a primitive's plane, a datum's
+  references, a frame's or points pattern's origin, a mate's targets; `anchored`, one mutable
+  walk that both the check and the rewrite use) cannot move, so when it does not hold the centre
+  (`displaced_by_scale`, which the app shows beforehand) the same transaction inserts datums at
+  the top of the tree standing where it lands and points those references at them: a datum
+  point "Origin, scaled" at the origin's image and, for planes and axes, a coordinate system
+  "Axes and planes, scaled" with the world's orientation on that point, whose planes, axes and
+  origin are the exact images (frame origins included, so a primitive on one drops the in-plane
+  shift); a sketch projecting a principal plane gets a datum plane "<plane>, scaled" instead,
+  since a projection cannot name a frame's plane. Names are numbered when taken;
+  `ScaleSummary::moved` and `datums` list what moved and what was added. Saved views follow
+  (target mapped, distance multiplied).
 - `ScaledValues::Plain` scales parameter-free values and named values (owned length parameters
   with no parameters of their own); a value using any other parameter is left to follow it and
   listed in `ScaleSummary::kept`. `AndParameters` also rewrites every parameter in evaluation
