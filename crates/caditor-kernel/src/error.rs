@@ -14,8 +14,6 @@ pub enum GeometryError {
     BelowResolution(f64),
     #[error("a size of {0} mm is beyond the largest of {MAX_SIZE} mm")]
     BeyondMaximum(f64),
-    #[error("the torus tube radius {minor} is not smaller than its ring radius {major}")]
-    SelfIntersectingTorus { major: f64, minor: f64 },
     #[error("the cone half angle {0} is not strictly between zero and a right angle")]
     ConeAngle(f64),
     #[error("a B-spline of degree {0} is not supported")]

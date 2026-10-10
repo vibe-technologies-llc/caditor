@@ -264,18 +264,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   edge along the same curve between the same cap and the faces of its `Collinear` pieces, or the
   feature marked as having lost part of its choice with a fix
   (`blend_tests::a_notch_trimmed_into_a_filleted_edge_keeps_both_pieces_rounded`, ignored).
-- [medium · medium] A rim fillet whose rounded corners have less than twice its radius makes faces
-  no later shell can take and offset face cannot move: a 40×30×20 box with its vertical edges
-  filleted 5 mm and its bottom or top rim then filleted 2.6 mm or more refuses a shell, worded
-  "The walls cannot follow Bottom rim face: faces swept from splines cannot be offset yet" though
-  nothing was drawn with a spline, while a 2.4 mm rim fillet shells. Each corner's fillet face is
-  a torus whose tube is wider than its distance from the axis (3 against 2 mm), which
-  `build/revolve.rs` sweeps as the `Revolution` of the arc's rational spline (`prepare`, a circle
-  reaching its axis), and `shell` and `offset_faces` offset only elementary surfaces. A tray or
-  enclosure with 5 mm corners and a 3 mm rim fillet is an everyday part. A revolution of an exact
-  arc offsets exactly as the revolution of the concentric arc (or `Torus` could hold a tube past
-  its axis distance), and the shell's words should name the fillet as a face it cannot offset
-  (`blend::tests::a_tray_whose_rim_fillet_passes_half_its_corner_radius_still_shells`, ignored).
 - [medium · hard] Offset face moves planes, cylinders, cones, spheres and tori only: a spline,
   extrusion or revolution face becomes its offset surface (which needs a surface fitted within
   tolerance), and a fillet moved beside a plane that stays is refused rather than re-blended.

@@ -760,6 +760,34 @@ fn spindle_tori_are_read_as_the_apple_or_the_lemon() {
 }
 
 #[test]
+fn a_torus_whose_tube_passes_its_axis_is_written_as_the_apple_and_read_back() {
+    let rimmed = fixtures::spindle_rimmed();
+    let text = write_step(
+        &[StepBody {
+            name: "Rimmed",
+            solid: &rimmed,
+            colour: None,
+            opacity: None,
+            layer: None,
+            threads: &[],
+            faces: &[],
+        }],
+        "Rimmed",
+        SystemTime::UNIX_EPOCH,
+    )
+    .unwrap();
+
+    let read = round_trip("rimmed", &rimmed);
+
+    let degenerate = text.matches("DEGENERATE_TOROIDAL_SURFACE(").count();
+
+    assert!(degenerate >= 1, "{text}");
+    assert_eq!(text.matches("TOROIDAL_SURFACE(").count(), degenerate);
+    assert_eq!(text.matches(",2.0,3.0,.T.)").count(), degenerate, "{text}");
+    assert_same_shape("rimmed", &rimmed, &read);
+}
+
+#[test]
 fn horn_tori_are_read_as_the_whole_tube_turned_about_the_point_it_touches() {
     use std::f64::consts::PI;
 

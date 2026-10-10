@@ -23,7 +23,10 @@ paths:
   region bounded by those curves), the source face index for the shell's inner solid.
 - A circle reaches the revolution axis when its gap is within the revolve's tolerance, so a circle
   tangent to a slanted axis makes a horn torus with a pole, never a `Torus` whose radii differ by
-  rounding. Faces on extrusion and revolution surfaces get exact straight pcurves; the rest are
+  rounding. An arc whose circle passes the axis but which itself stays clear of it by more than the
+  tolerance (`nearest_to_axis`) is an exact spindle `Torus`, so a rim fillet wider than half its
+  rounded corner stays a torus a shell or offset face can move; one ending on the axis, or a
+  circle centred behind it, is the `Revolution` of its rational arc. Faces on extrusion and revolution surfaces get exact straight pcurves; the rest are
   fitted.
 - The start cap is the one at the extent's start (the sketch plane for `one_side`) whichever way
   the sweep runs, so flipping the direction keeps every name.

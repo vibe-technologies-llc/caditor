@@ -300,18 +300,10 @@ pub struct Torus {
 
 impl Torus {
     pub fn new(frame: Plane, major_radius: f64, minor_radius: f64) -> Result<Self, GeometryError> {
-        let major_radius = size(major_radius)?;
-        let minor_radius = size(minor_radius)?;
-        if minor_radius >= major_radius {
-            return Err(GeometryError::SelfIntersectingTorus {
-                major: major_radius,
-                minor: minor_radius,
-            });
-        }
         Ok(Self {
             frame: checked_frame(frame)?,
-            major_radius,
-            minor_radius,
+            major_radius: size(major_radius)?,
+            minor_radius: size(minor_radius)?,
         })
     }
 

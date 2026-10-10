@@ -1,4 +1,4 @@
-use std::f64::consts::PI;
+use std::f64::consts::{FRAC_1_SQRT_2, PI};
 
 use caditor_geometry::{Plane, Point3, RigidTransform, Vector3};
 
@@ -1349,16 +1349,43 @@ fn box_with_rounded_corners() -> Solid {
 }
 
 #[test]
-#[ignore = "roadmap: a rim fillet past half the corner radius makes revolution faces"]
 fn a_tray_whose_rim_fillet_passes_half_its_corner_radius_still_shells() {
     let rounded = box_with_rounded_corners();
+
     let rim = edges_where(&rounded, |middle| middle.z.abs() < 1e-9);
     let tray = run(&rounded, &rim, fillet(3.0));
     let top = face_through(&tray, (20.0, 15.0, 20.0));
+    let across = (2.0 + 3.0 * FRAC_1_SQRT_2) * FRAC_1_SQRT_2;
+    let corner = face_through(
+        &tray,
+        (5.0 - across, 5.0 - across, 3.0 - 3.0 * FRAC_1_SQRT_2),
+    );
+    let shelled = crate::shell::shell(&tray, &[top], 1.0, 60)
+        .unwrap_or_else(|error| panic!("the tray: {error}"));
 
-    let shelled = crate::shell::shell(&tray, &[top], 1.0, 60);
+    assert!(matches!(
+        tray.face(corner).map(|face| face.surface()),
+        Some(Surface::Torus(_))
+    ));
+    check(
+        "the tray",
+        &tray,
+        rounded_tray_volume([40.0, 30.0, 20.0], 5.0, 3.0),
+    );
+    check(
+        "the shelled tray",
+        &shelled,
+        rounded_tray_volume([40.0, 30.0, 20.0], 5.0, 3.0)
+            - rounded_tray_volume([38.0, 28.0, 19.0], 4.0, 2.0),
+    );
+}
 
-    assert!(shelled.is_ok(), "{shelled:?}");
+fn rounded_tray_volume([length, width, height]: [f64; 3], corner: f64, rim: f64) -> f64 {
+    let centroid_in = rim * (5.0 / 6.0 - PI / 4.0) / (1.0 - PI / 4.0);
+    let rim_path = 2.0 * (length - 2.0 * corner)
+        + 2.0 * (width - 2.0 * corner)
+        + 2.0 * PI * (corner - centroid_in);
+    (length * width - (4.0 - PI) * corner * corner) * height - spandrel(rim) * rim_path
 }
 
 #[test]

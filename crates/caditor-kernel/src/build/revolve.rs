@@ -279,7 +279,8 @@ fn prepare(frame: &Frame, piece: &Piece) -> Result<Prepared, SweepError> {
         Curve2::Circle(circle) => {
             let center_distance = axis.signed_distance(circle.center());
             if center_distance.abs() <= frame.tolerance
-                || circle.radius() + frame.tolerance < center_distance
+                || (center_distance > frame.tolerance
+                    && nearest_to_axis(frame, circle, piece.range()) > frame.tolerance)
             {
                 Ok(Prepared {
                     piece: piece.clone(),
@@ -307,6 +308,12 @@ fn prepare(frame: &Frame, piece: &Piece) -> Result<Prepared, SweepError> {
             })
         }
     }
+}
+
+fn nearest_to_axis(frame: &Frame, circle: &Circle2, range: Interval) -> f64 {
+    let toward_axis = circle.center() - frame.axis.direction().perp() * circle.radius();
+    let [nearest, _, _] = circle.evaluate(circle.closest_parameter(toward_axis, range));
+    frame.axis.signed_distance(nearest)
 }
 
 pub(super) fn ellipse_spline(
