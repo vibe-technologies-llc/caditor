@@ -316,7 +316,10 @@ impl FeatureKind {
             Self::Combine(combine) => used.extend(combine.tools()),
             Self::Mirror(mirror) => used.extend(mirror.plane.body()),
             Self::Split(split) => used.extend(split.along.body()),
-            Self::SplitFace(split) => used.extend(split.along.body()),
+            Self::SplitFace(split) => {
+                used.extend(split.along.body());
+                used.extend(split.direction_body());
+            }
             Self::Primitive(primitive) => used.extend(primitive.plane.body()),
             Self::Sketch(sketch) => used.extend(sketch.projected_bodies()),
             Self::Hole(hole) => used.extend(hole.end_body()),
@@ -368,11 +371,11 @@ impl FeatureKind {
             Self::Pattern(pattern) => pattern.axis_datums(),
             Self::Move(movement) => movement.axis_datum().into_iter().collect(),
             Self::Mate(mate) => mate.axis_datums(),
+            Self::SplitFace(split) => split.direction_datum().into_iter().collect(),
             Self::Sketch(_)
             | Self::Blend(_)
             | Self::Shell(_)
             | Self::OffsetFace(_)
-            | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Combine(_)
             | Self::Mirror(_)
@@ -410,6 +413,7 @@ impl FeatureKind {
                 .plane()
                 .and_then(|plane| plane.frame())
                 .into_iter()
+                .chain(split.direction_frame())
                 .collect(),
             Self::Mate(mate) => mate.frames(),
             Self::Primitive(primitive) => primitive.plane.frame().into_iter().collect(),
@@ -461,7 +465,12 @@ impl FeatureKind {
             Self::Move(movement) => movement.axis_sketch().into_iter().collect(),
             Self::Mate(mate) => mate.sketches(),
             Self::Split(split) => split.along.sketch().into_iter().collect(),
-            Self::SplitFace(split) => split.along.sketch().into_iter().collect(),
+            Self::SplitFace(split) => split
+                .along
+                .sketch()
+                .into_iter()
+                .chain(split.direction_sketch())
+                .collect(),
             Self::Sketch(_)
             | Self::Blend(_)
             | Self::Shell(_)

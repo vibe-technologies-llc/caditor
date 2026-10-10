@@ -3389,6 +3389,7 @@ fn split_face_model(
             body: base,
             faces: vec![top],
             along,
+            direction: None,
         }),
     );
     document.apply(transaction.finish()).unwrap();
@@ -3412,6 +3413,55 @@ fn split_faces_are_saved_and_loaded_as_a_record_of_their_own() {
     assert_eq!(loaded.document, document);
 
     let kind = document.feature(split).unwrap().kind.clone();
+    let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: split, kind });
+    let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+    let record = through_binary(&text);
+    assert_eq!(format::restore_transaction(record), Some(transaction));
+}
+
+#[test]
+fn a_split_face_carried_along_an_axis_is_a_kind_older_readers_report() {
+    use caditor_document::{AxisReference, PrincipalAxis, SplitAlong};
+    let (mut document, split) = split_face_model(|document, _| {
+        let outline = document
+            .features()
+            .find(|feature| feature.name == "Outline")
+            .unwrap();
+        SplitAlong::Sketch(outline.id())
+    });
+    let mut kind = document.feature(split).unwrap().kind.clone();
+    if let FeatureKind::SplitFace(definition) = &mut kind {
+        definition.direction = Some(Box::new(AxisReference::Principal(PrincipalAxis::X)));
+    }
+    document
+        .apply(Transaction::single(
+            "Slant",
+            Edit::SetFeatureKind {
+                id: split,
+                kind: kind.clone(),
+            },
+        ))
+        .unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let older = decode_text(&text.replace("split_face_along", "split_face_alonk"));
+    let damaged = decode_text(&text.replacen("\"direction\":{", "\"direction\":{\"x\":0,", 1));
+
+    assert!(text.contains("\"split_face_along\":{\"direction\":"));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert!(older.document.feature(split).is_none());
+    assert!(!older.issues.is_empty());
+    let restored = damaged.document.feature(split).unwrap();
+    assert!(restored.kind.split_face().unwrap().direction.is_none());
+    assert_eq!(
+        damaged.issues,
+        [
+            "The edge or axis “Split face 1” carries its curves along could not be read, so it \
+             carries them square to their sketch."
+        ]
+    );
     let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: split, kind });
     let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
     let record = through_binary(&text);

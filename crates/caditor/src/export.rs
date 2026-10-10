@@ -11,8 +11,8 @@ use std::{
 };
 
 use caditor_document::{
-    BodyAppearance, CancelToken, ConfigurationId, Document, Evaluation, FeatureId, FeatureResult,
-    ModelProperties, Rgb, placed_threads,
+    BodyAppearance, CancelToken, ConfigurationId, Document, Evaluation, FaceSplits, FeatureId,
+    FeatureResult, ModelProperties, Rgb, placed_threads,
 };
 use caditor_file::{
     ExportBody, ExportError, ExportFace, ExportFormat, ExportThread, Exported, Look, MeshOptions,
@@ -185,12 +185,12 @@ pub struct ExportSource {
     pub faces: Vec<ExportFace>,
 }
 
-fn face_looks(appearance: &BodyAppearance, solid: &Solid) -> Vec<ExportFace> {
+fn face_looks(appearance: &BodyAppearance, solid: &Solid, splits: &FaceSplits) -> Vec<ExportFace> {
     if appearance.faces.is_empty() {
         return Vec::new();
     }
-    let colours = appearance.face_colours(solid);
-    let opacities = appearance.face_opacities(solid);
+    let colours = appearance.face_colours(solid, splits);
+    let opacities = appearance.face_opacities(solid, splits);
     solid
         .faces()
         .enumerate()
@@ -217,7 +217,11 @@ impl ExportSource {
             look: feature.and_then(|feature| OwnedLook::of(&feature.appearance)),
             group: feature.and_then(|feature| feature.group.clone()),
             faces: match (feature, result.solid()) {
-                (Some(feature), Some(shown)) => face_looks(&feature.appearance, &shown.solid),
+                (Some(feature), Some(shown)) => face_looks(
+                    &feature.appearance,
+                    &shown.solid,
+                    &document.face_splits(body),
+                ),
                 _ => Vec::new(),
             },
             threads: placed_threads(document, evaluation)

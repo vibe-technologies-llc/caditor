@@ -11723,6 +11723,72 @@ fn split_face_divides_the_selected_face_along_a_sketch_curve_and_takes_clicked_f
 }
 
 #[test]
+fn split_face_carries_its_sketch_along_a_chosen_line_from_its_panel() {
+    let mut harness = Harness::new();
+    let (plate, top) = extruded_plate(&mut harness);
+    let mut line = Sketch::new(Plane::XY);
+    let entity = line.add_line(Point2::new(20.0, -10.0), Point2::new(20.0, 50.0));
+    let part_line = harness.add_sketch(line);
+    let mut slanted = Sketch::new(Plane::XZ);
+    let slope = slanted.add_line(Point2::new(0.0, 0.0), Point2::new(5.0, 10.0));
+    let slant = harness.add_sketch(slanted);
+    harness.select([
+        top,
+        Pickable::SketchEntity {
+            feature: part_line,
+            entity,
+        },
+    ]);
+    harness.use_tool_with(Key::K, Modifiers::ALT | Modifiers::SHIFT);
+    harness.settle();
+    let split = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the split face is open");
+    let on_top_at = |harness: &Harness, x: f64| {
+        harness
+            .model
+            .evaluation()
+            .body(plate)
+            .unwrap()
+            .vertices()
+            .any(|(_, vertex)| {
+                let point = vertex.point();
+                (point.z - 10.0).abs() < 1e-6 && (point.x - x).abs() < 1e-6
+            })
+    };
+    assert!(harness.shows("Carried"));
+    assert!(on_top_at(&harness, 20.0));
+
+    harness.select([Pickable::SketchEntity {
+        feature: slant,
+        entity: slope,
+    }]);
+    open_combo(&mut harness, "Carried");
+    harness.click_lowest("Along an edge or axis");
+    harness.settle();
+    assert_eq!(
+        split_face_of(&harness, split).direction(),
+        Some(&caditor_document::AxisReference::Sketch {
+            sketch: slant,
+            entity: slope,
+        })
+    );
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+    assert_eq!(face_count(&harness, plate), 7);
+    assert!(on_top_at(&harness, 25.0));
+    assert!(!on_top_at(&harness, 20.0));
+    assert!(harness.shows("Along"));
+
+    open_combo(&mut harness, "Carried");
+    harness.click_lowest("Square to the sketch");
+    harness.settle();
+    assert_eq!(split_face_of(&harness, split).direction(), None);
+    assert!(on_top_at(&harness, 20.0));
+}
+
+#[test]
 fn the_offset_face_command_needs_faces_of_a_body_and_takes_every_selected_one() {
     let mut harness = Harness::new();
     let (plate, top) = extruded_plate(&mut harness);

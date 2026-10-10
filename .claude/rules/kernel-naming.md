@@ -40,7 +40,9 @@ paths:
 - A split face's pieces (`split_faces`, `kernel-operations.md`) are `FaceName::split` of the
   split feature, the original name and the side of the tool they lie on (`SplitPiece`), keeping
   the original's origin; several pieces on one side share the name and are told apart by their
-  neighbours. Edges of a chosen face are renamed `between` their faces.
+  neighbours. Edges of a chosen face are renamed `between` their faces. A face colour finds the
+  pieces of the face it names by computing these names forward from the split features
+  (`FaceSplits`, `document.md`), since a digest cannot be read back to its original.
 - Boolean fragments of a split face keep its name and origin; pieces keep their edge's name and new
   edges are `between` their two faces, before the plan disambiguates duplicates. A pattern renames
   a copy's faces, then its edges from those faces.

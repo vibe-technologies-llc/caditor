@@ -1,9 +1,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use caditor_expression::{Dimension, EvalError, Expression, ParameterId, format_number};
-use caditor_kernel::{FaceId, FaceName, FaceReference, Solid};
+use caditor_kernel::{FaceId, FaceName, FaceReference, Solid, SplitPiece};
 
-use crate::values::ParameterValues;
+use crate::{
+    document::{Document, FeatureId},
+    values::ParameterValues,
+};
 
 pub const MAX_MATERIAL_NAME_CHARS: usize = 80;
 pub const MAX_BODY_NAME_CHARS: usize = 120;
@@ -13,6 +16,8 @@ pub const OPACITY_STEPS: [u8; 3] = [75, 50, 25];
 pub const MAX_DENSITY: f64 = 100.0;
 pub const DEFAULT_BODY_COLOUR: Rgb = Rgb::new(150, 162, 180);
 const GRAMS_PER_CUBIC_MILLIMETRE_AT_UNIT_DENSITY: f64 = 1e-3;
+const SPLIT_PASSES: usize = 2;
+const SPLIT_PIECES: [SplitPiece; 2] = [SplitPiece::Inside, SplitPiece::Outside];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Rgb {
@@ -66,6 +71,55 @@ pub struct FaceColour {
     pub opacity: Option<u8>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct FaceSplits {
+    splits: Vec<(u64, BTreeSet<FaceName>)>,
+}
+
+impl FaceSplits {
+    pub fn names_from(&self, name: FaceName) -> BTreeSet<FaceName> {
+        let mut names = BTreeSet::from([name]);
+        for (feature, chosen) in &self.splits {
+            let mut round: Vec<FaceName> = names
+                .iter()
+                .copied()
+                .filter(|name| chosen.contains(name))
+                .collect();
+            for _ in 0..SPLIT_PASSES {
+                round = round
+                    .iter()
+                    .flat_map(|name| {
+                        SPLIT_PIECES.map(|piece| FaceName::split(*feature, *name, piece))
+                    })
+                    .collect();
+                names.extend(round.iter().copied());
+            }
+        }
+        names
+    }
+}
+
+impl Document {
+    pub fn face_splits(&self, body: FeatureId) -> FaceSplits {
+        FaceSplits {
+            splits: self
+                .features()
+                .filter(|feature| !feature.suppressed)
+                .filter_map(|feature| {
+                    let split = feature
+                        .kind
+                        .split_face()
+                        .filter(|split| split.body == body)?;
+                    Some((
+                        feature.id().raw(),
+                        split.faces.iter().map(FaceReference::name).collect(),
+                    ))
+                })
+                .collect(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum DensityError {
     #[error("the density cannot be worked out, since {0}")]
@@ -106,21 +160,21 @@ impl BodyAppearance {
                 .sum::<usize>()
     }
 
-    pub fn face_colours(&self, solid: &Solid) -> BTreeMap<FaceId, Rgb> {
-        self.face_looks(solid)
+    pub fn face_colours(&self, solid: &Solid, splits: &FaceSplits) -> BTreeMap<FaceId, Rgb> {
+        self.face_looks(solid, splits)
             .into_iter()
             .map(|(face, coloured)| (face, coloured.colour))
             .collect()
     }
 
-    pub fn face_opacities(&self, solid: &Solid) -> BTreeMap<FaceId, u8> {
-        self.face_looks(solid)
+    pub fn face_opacities(&self, solid: &Solid, splits: &FaceSplits) -> BTreeMap<FaceId, u8> {
+        self.face_looks(solid, splits)
             .into_iter()
             .filter_map(|(face, coloured)| coloured.opacity.map(|opacity| (face, opacity)))
             .collect()
     }
 
-    fn face_looks(&self, solid: &Solid) -> BTreeMap<FaceId, &FaceColour> {
+    fn face_looks(&self, solid: &Solid, splits: &FaceSplits) -> BTreeMap<FaceId, &FaceColour> {
         let mut named: BTreeMap<FaceName, Vec<FaceId>> = BTreeMap::new();
         if !self.faces.is_empty() {
             for (id, face) in solid.faces() {
@@ -129,16 +183,20 @@ impl BodyAppearance {
         }
         let mut looks = BTreeMap::new();
         for coloured in &self.faces {
-            match named.get(&coloured.face.name()) {
-                Some(faces) => {
-                    for face in faces {
-                        looks.insert(*face, coloured);
-                    }
+            let found: Vec<FaceId> = splits
+                .names_from(coloured.face.name())
+                .iter()
+                .filter_map(|name| named.get(name))
+                .flatten()
+                .copied()
+                .collect();
+            if found.is_empty() {
+                if let Ok(face) = coloured.face.resolve(solid) {
+                    looks.insert(face, coloured);
                 }
-                None => {
-                    if let Ok(face) = coloured.face.resolve(solid) {
-                        looks.insert(face, coloured);
-                    }
+            } else {
+                for face in found {
+                    looks.insert(face, coloured);
                 }
             }
         }

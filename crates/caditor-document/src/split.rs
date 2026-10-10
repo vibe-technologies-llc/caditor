@@ -1,9 +1,10 @@
 use std::collections::BTreeSet;
 
-use caditor_geometry::{Aabb2, Plane, Point2, Vector2};
+use caditor_geometry::{Aabb2, Plane, Point2, Vector2, Vector3};
 use caditor_kernel::{
     BooleanError, BooleanOperation, LINEAR_RESOLUTION, LinearExtent, Profile, ProfileCurve,
-    ProfileError, ProfileShape, Selection, Solid, SweepError, boolean, extrude,
+    ProfileError, ProfileShape, Region, Selection, Solid, SweepError, boolean, extrude,
+    extrude_along,
 };
 use caditor_sketch::Sketch;
 
@@ -412,7 +413,14 @@ struct Heights {
     across: Aabb2,
 }
 
-fn heights(solid: &Solid, plane: &Plane) -> Option<Heights> {
+fn slant(plane: &Plane, direction: Option<Vector3>) -> Vector3 {
+    direction
+        .map(|direction| direction / direction.dot(plane.normal()))
+        .filter(|slant| slant.is_finite())
+        .unwrap_or_else(|| plane.normal())
+}
+
+fn heights(solid: &Solid, plane: &Plane, slant: Vector3) -> Option<Heights> {
     let bounds = solid.bounding_box()?;
     let margin = bounds.diagonal() * HALF_SPACE_REACH + HALF_SPACE_MARGIN;
     let local: Vec<(Point2, f64)> = bounds
@@ -420,9 +428,11 @@ fn heights(solid: &Solid, plane: &Plane) -> Option<Heights> {
         .iter()
         .map(|corner| {
             let offset = *corner - plane.origin();
+            let height = offset.dot(plane.normal());
+            let foot = offset - slant * height;
             (
-                Point2::new(offset.dot(plane.x_axis()), offset.dot(plane.y_axis())),
-                offset.dot(plane.normal()),
+                Point2::new(foot.dot(plane.x_axis()), foot.dot(plane.y_axis())),
+                height,
             )
         })
         .collect();
@@ -454,7 +464,7 @@ pub(crate) fn half_space_solid(
         high,
         margin,
         across,
-    } = heights(solid, plane).ok_or(HalfSpaceError::NoExtent)?;
+    } = heights(solid, plane, plane.normal()).ok_or(HalfSpaceError::NoExtent)?;
     if high <= LINEAR_RESOLUTION || low >= -LINEAR_RESOLUTION {
         return Err(HalfSpaceError::Misses);
     }
@@ -670,64 +680,180 @@ pub fn is_open_chain(sketch: &Sketch) -> bool {
     chain(&profile_curves(sketch)).is_ok()
 }
 
+fn ends_of(curve: &ProfileCurve) -> Option<[Point2; 2]> {
+    if matches!(curve.shape, ProfileShape::Circle { .. }) {
+        return None;
+    }
+    let (path, range) = curve.curve().ok()?;
+    let first = path.evaluate(range.start()).point;
+    let last = path.evaluate(range.end()).point;
+    (first.distance(last) > LINEAR_RESOLUTION).then_some([first, last])
+}
+
+fn component_of(parents: &mut [usize], index: usize) -> usize {
+    let mut root = index;
+    while let Some(parent) = parents.get(root).copied().filter(|parent| *parent != root) {
+        root = parent;
+    }
+    let mut at = index;
+    while let Some(slot) = parents.get_mut(at).filter(|parent| **parent != root) {
+        at = std::mem::replace(slot, root);
+    }
+    root
+}
+
+pub(crate) struct MixedCurves {
+    pub chain: Vec<ProfileCurve>,
+    pub outlines: Vec<ProfileCurve>,
+}
+
+pub(crate) fn mixed_curves(sketch: &Sketch) -> Option<MixedCurves> {
+    let curves = profile_curves(sketch);
+    let mut points: Vec<(usize, Point2)> = curves
+        .iter()
+        .enumerate()
+        .filter_map(|(index, curve)| Some((index, ends_of(curve)?)))
+        .flat_map(|(index, ends)| ends.map(|point| (index, point)))
+        .collect();
+    points.sort_by(|one, other| one.1.x.total_cmp(&other.1.x));
+    let mut parents: Vec<usize> = (0..curves.len()).collect();
+    let mut joined = vec![false; points.len()];
+    for (at, (index, point)) in points.iter().enumerate() {
+        let partners = points
+            .iter()
+            .enumerate()
+            .skip(at + 1)
+            .take_while(|(_, (_, near))| near.x - point.x <= LINEAR_RESOLUTION)
+            .filter(|(_, (_, near))| near.distance(*point) <= LINEAR_RESOLUTION);
+        for (other_at, (partner, _)) in partners {
+            for end in [at, other_at] {
+                if let Some(flag) = joined.get_mut(end) {
+                    *flag = true;
+                }
+            }
+            let root = component_of(&mut parents, *index);
+            let other = component_of(&mut parents, *partner);
+            if let Some(parent) = parents.get_mut(other) {
+                *parent = root;
+            }
+        }
+    }
+    let mut free = vec![false; curves.len()];
+    for ((index, _), joined) in points.iter().zip(&joined) {
+        if !joined && let Some(open) = free.get_mut(*index) {
+            *open = true;
+        }
+    }
+    let roots: Vec<usize> = (0..curves.len())
+        .map(|index| component_of(&mut parents, index))
+        .collect();
+    let open: BTreeSet<usize> = roots
+        .iter()
+        .zip(&free)
+        .filter(|(_, free)| **free)
+        .map(|(root, _)| *root)
+        .collect();
+    let [open_root] = open.into_iter().collect::<Vec<usize>>()[..] else {
+        return None;
+    };
+    let mut chain = Vec::new();
+    let mut outlines = Vec::new();
+    for (root, curve) in roots.into_iter().zip(curves) {
+        if root == open_root {
+            chain.push(curve);
+        } else {
+            outlines.push(curve);
+        }
+    }
+    (!outlines.is_empty() && self::chain(&chain).is_ok()).then_some(MixedCurves { chain, outlines })
+}
+
 pub(crate) fn swept_half_space(
     solid: &Solid,
     sketch: &Sketch,
     flipped: bool,
     feature: u64,
 ) -> Result<Solid, SweptError> {
-    let plane = sketch.plane();
-    let Heights {
-        low,
-        high,
-        margin,
-        across,
-    } = heights(solid, &plane).ok_or(SweptError::NoExtent)?;
-    let mut curves = profile_curves(sketch);
-    let path = chain(&curves)?;
-    let bounds = across.union(path.bounds.expanded(margin));
-    let perimeter = Perimeter::new(&bounds);
-    let start = perimeter
-        .exit(&bounds, &path.start)
-        .ok_or(SweptError::Degenerate)?;
-    let finish = perimeter
-        .exit(&bounds, &path.finish)
-        .ok_or(SweptError::Degenerate)?;
-    let corners = perimeter.walk(finish, start, !flipped);
-    let closure = [(path.start.point, start.1), (path.finish.point, finish.1)]
-        .into_iter()
-        .chain(corners.iter().copied().zip(corners.iter().copied().skip(1)))
-        .filter(|(from, to)| from.distance(*to) > LINEAR_RESOLUTION);
-    for (entity, (from, to)) in CLOSURE_ENTITIES.iter().zip(closure) {
-        curves.push(ProfileCurve::line(*entity, from, to));
-    }
-    let profile = Profile::new(&curves).map_err(|error| match error {
-        ProfileError::NoClosedProfile { .. } => SweptError::CrossesItself,
-        other => SweptError::Profile(other),
-    })?;
-    if profile.regions().len() != 1 {
-        return Err(SweptError::CrossesItself);
-    }
-    let extent = LinearExtent::new(low - margin, high + margin).map_err(SweptError::Sweep)?;
-    extrude(&plane, profile.regions(), extent, feature).map_err(SweptError::Sweep)
+    let sweep = Sweep {
+        plane: sketch.plane(),
+        direction: None,
+        feature,
+    };
+    sweep.half_space(solid, profile_curves(sketch), flipped)
 }
 
-pub(crate) fn swept_outlines(
-    solid: &Solid,
-    sketch: &Sketch,
-    feature: u64,
-) -> Result<Solid, SweptError> {
-    let plane = sketch.plane();
-    let Heights {
-        low, high, margin, ..
-    } = heights(solid, &plane).ok_or(SweptError::NoExtent)?;
-    let curves = profile_curves(sketch);
-    if curves.is_empty() {
-        return Err(SweptError::NoCurves);
+pub(crate) struct Sweep {
+    pub plane: Plane,
+    pub direction: Option<Vector3>,
+    pub feature: u64,
+}
+
+impl Sweep {
+    fn extruded(&self, regions: &[Region], extent: LinearExtent) -> Result<Solid, SweptError> {
+        match self.direction {
+            Some(direction) => extrude_along(&self.plane, regions, extent, direction, self.feature),
+            None => extrude(&self.plane, regions, extent, self.feature),
+        }
+        .map_err(SweptError::Sweep)
     }
-    let regions = Profile::new(&curves)
-        .and_then(|profile| profile.select(&Selection::EvenDepth))
-        .map_err(SweptError::Profile)?;
-    let extent = LinearExtent::new(low - margin, high + margin).map_err(SweptError::Sweep)?;
-    extrude(&plane, &regions, extent, feature).map_err(SweptError::Sweep)
+
+    pub(crate) fn half_space(
+        &self,
+        solid: &Solid,
+        mut curves: Vec<ProfileCurve>,
+        flipped: bool,
+    ) -> Result<Solid, SweptError> {
+        let Heights {
+            low,
+            high,
+            margin,
+            across,
+        } = heights(solid, &self.plane, slant(&self.plane, self.direction))
+            .ok_or(SweptError::NoExtent)?;
+        let path = chain(&curves)?;
+        let bounds = across.union(path.bounds.expanded(margin));
+        let perimeter = Perimeter::new(&bounds);
+        let start = perimeter
+            .exit(&bounds, &path.start)
+            .ok_or(SweptError::Degenerate)?;
+        let finish = perimeter
+            .exit(&bounds, &path.finish)
+            .ok_or(SweptError::Degenerate)?;
+        let corners = perimeter.walk(finish, start, !flipped);
+        let closure = [(path.start.point, start.1), (path.finish.point, finish.1)]
+            .into_iter()
+            .chain(corners.iter().copied().zip(corners.iter().copied().skip(1)))
+            .filter(|(from, to)| from.distance(*to) > LINEAR_RESOLUTION);
+        for (entity, (from, to)) in CLOSURE_ENTITIES.iter().zip(closure) {
+            curves.push(ProfileCurve::line(*entity, from, to));
+        }
+        let profile = Profile::new(&curves).map_err(|error| match error {
+            ProfileError::NoClosedProfile { .. } => SweptError::CrossesItself,
+            other => SweptError::Profile(other),
+        })?;
+        if profile.regions().len() != 1 {
+            return Err(SweptError::CrossesItself);
+        }
+        let extent = LinearExtent::new(low - margin, high + margin).map_err(SweptError::Sweep)?;
+        self.extruded(profile.regions(), extent)
+    }
+
+    pub(crate) fn outlines(
+        &self,
+        solid: &Solid,
+        curves: &[ProfileCurve],
+    ) -> Result<Solid, SweptError> {
+        let Heights {
+            low, high, margin, ..
+        } = heights(solid, &self.plane, slant(&self.plane, self.direction))
+            .ok_or(SweptError::NoExtent)?;
+        if curves.is_empty() {
+            return Err(SweptError::NoCurves);
+        }
+        let regions = Profile::new(curves)
+            .and_then(|profile| profile.select(&Selection::EvenDepth))
+            .map_err(SweptError::Profile)?;
+        let extent = LinearExtent::new(low - margin, high + margin).map_err(SweptError::Sweep)?;
+        self.extruded(&regions, extent)
+    }
 }

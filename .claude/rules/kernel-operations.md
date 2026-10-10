@@ -163,8 +163,9 @@ paths:
   (`between`, or `seam` of a face using it twice; `assemble` takes the per-piece names), the
   `Plan` disambiguating repeats, so a later feature holds a piece by name.
 - The document builds the tool: a plane's half-space block, an open sketch chain's swept half
-  space, closed sketch outlines swept through the body (`split::swept_outlines`) or another body
-  as it stands (`document.md`).
+  space, closed sketch outlines swept through the body (`split::Sweep`, square to the sketch or
+  along a direction through `extrude_along`) or another body as it stands; a sketch mixing a
+  chain with outlines calls `split_faces` twice (`document.md`).
 
 ## Interference (`boolean/interference.rs`)
 

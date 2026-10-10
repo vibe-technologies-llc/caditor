@@ -1,22 +1,28 @@
-use caditor_document::{Document, Feature, Resolution, SolidResult, SplitFace};
+use caditor_document::{
+    Document, Feature, Resolution, SolidResult, SplitFace, capitalized, describe_axis,
+};
 use caditor_kernel::FaceId;
 use egui::{Id, Ui};
 
 use crate::{
     bodies,
     editing::EditingCommand,
-    feature_fields::{self, Choice, Picker},
+    feature_fields::{self, Choice, Picker, Shown},
     feature_tree::count,
     model::{Action, Model},
-    reference_picking::Slot,
+    reference_picking::{self, Picking, Slot},
     reference_rows::{ReferenceRows, RowCache},
     selection::Selection,
     split_face_tools, split_tools, widgets,
 };
 
 pub const DESCRIPTION: &str = "Divides the chosen faces along a plane, a sketch's curves carried \
-                               straight through them or another body, without changing the \
-                               shape, so a piece can take its own colour, draft or fillet";
+                               through them or another body, without changing the shape, so a \
+                               piece can take its own colour, draft or fillet";
+pub const CARRIED: &str = "Carried";
+pub const SQUARE: &str = "Square to the sketch";
+pub const ALONG: &str = "Along an edge or axis";
+const DIRECTION_HOVER: &str = "Carry the curves along the selected edge, axis or line instead";
 const PICK_HOVER: &str =
     "Split along the selected plane, flat face, sketch curve or other body instead";
 const NO_SHAPE_YET: &str = "A face of a body that has no shape yet";
@@ -143,15 +149,8 @@ fn along_rows(ui: &mut Ui, row: &FacesRow<'_>, actions: &mut Vec<Action>) {
             .map(|along| Choice {
                 label: split_tools::describe(document, &along),
                 selected: split.along == along,
-                change: split_face_tools::change(
-                    model,
-                    id,
-                    SplitFace {
-                        along,
-                        ..split.clone()
-                    },
-                )
-                .map(Action::Apply),
+                change: split_face_tools::change(model, id, split.with_along(along))
+                    .map(Action::Apply),
             })
             .collect()
     });
@@ -176,6 +175,89 @@ fn along_rows(ui: &mut Ui, row: &FacesRow<'_>, actions: &mut Vec<Action>) {
     ui.end_row();
 }
 
+fn direction_rows(ui: &mut Ui, row: &FacesRow<'_>, actions: &mut Vec<Action>) {
+    let FacesRow {
+        model,
+        selection,
+        feature,
+        split,
+        ..
+    } = *row;
+    if split.along.sketch().is_none() {
+        return;
+    }
+    let id = feature.id();
+    let along = split.direction();
+    let square = SplitFace {
+        direction: None,
+        ..split.clone()
+    };
+    widgets::caption(ui, CARRIED);
+    let chosen = feature_fields::combo(
+        ui,
+        Id::new(("split-face-direction", id)),
+        if along.is_some() { ALONG } else { SQUARE },
+        || {
+            vec![
+                Choice {
+                    label: SQUARE.to_owned(),
+                    selected: along.is_none(),
+                    change: split_face_tools::change(model, id, square.clone()).map(Action::Apply),
+                },
+                Choice {
+                    label: ALONG.to_owned(),
+                    selected: along.is_some(),
+                    change: Ok(
+                        match split_face_tools::direction_change(model, selection, id, split) {
+                            Ok(transaction) => Action::Apply(transaction),
+                            Err(_) => Action::Editing(EditingCommand::Pick(Picking::new(
+                                id,
+                                Slot::SplitDirection,
+                            ))),
+                        },
+                    ),
+                },
+            ]
+        },
+    );
+    ui.end_row();
+    actions.extend(chosen);
+    let picking = reference_picking::current(ui.ctx())
+        .is_some_and(|picking| picking.is_for(id, Slot::SplitDirection));
+    let shown = match along {
+        Some(axis) => Shown::Named(capitalized(&describe_axis(model.document(), axis))),
+        None if picking => Shown::NoneChosen,
+        None => return,
+    };
+    let picker = Picker {
+        feature: id,
+        slot: Slot::SplitDirection,
+        selected: feature_fields::offered_change(
+            ui.ctx(),
+            model,
+            selection,
+            (id, Slot::SplitDirection),
+            || split_face_tools::direction_change(model, selection, id, split),
+        ),
+        hover: DIRECTION_HOVER,
+    };
+    let removed = feature_fields::reference_row(
+        ui,
+        model,
+        "Along",
+        shown,
+        picker,
+        along.map(|_| "Carry the curves square to the sketch again"),
+        actions,
+    );
+    if removed {
+        actions.push(feature_fields::applied(
+            &feature.name,
+            split_face_tools::change(model, id, square),
+        ));
+    }
+}
+
 pub fn show(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mut Vec<Action>) {
     let FacesRow {
         model,
@@ -187,6 +269,7 @@ pub fn show(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mut
         feature_fields::description_row(ui, DESCRIPTION);
         faces_row(ui, row, cache, actions);
         along_rows(ui, row, actions);
+        direction_rows(ui, row, actions);
         feature_fields::feature_row(ui, model.document(), "Body", split.body);
     });
 }

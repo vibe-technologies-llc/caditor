@@ -2302,8 +2302,9 @@ fn face_looks(document: &Document, evaluation: &Evaluation, body: FeatureId) -> 
     let Some(shown) = bodies::shown(evaluation, body) else {
         return FaceLooks::default();
     };
-    let coloured = appearance.face_colours(&shown.solid);
-    let see_through = appearance.face_opacities(&shown.solid);
+    let splits = document.face_splits(body);
+    let coloured = appearance.face_colours(&shown.solid, &splits);
+    let see_through = appearance.face_opacities(&shown.solid, &splits);
     let keys = bodies::face_keys(&shown.solid);
     FaceLooks {
         colours: keys
