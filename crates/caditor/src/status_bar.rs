@@ -411,7 +411,7 @@ fn notice(ui: &mut Ui, model: &Model, hovers: &Hovers, actions: &mut Vec<Action>
         return;
     };
     let tone = notice.kind.tone();
-    widgets::icon_label(ui, tone.icon(), tone.color(appearance::tokens(ui)));
+    widgets::icon_label(ui, tone.icon(), tone.color(&appearance::tokens(ui)));
     let text = notice_text(ui, notice);
     let buttons_id = Id::new("status-notice-buttons");
     let buttons = widgets::remembered_width(ui, buttons_id)

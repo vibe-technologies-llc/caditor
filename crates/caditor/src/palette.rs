@@ -613,7 +613,7 @@ fn detail(ui: &mut Ui, entry: Option<&Entry>) {
         widgets::icon_label(
             &mut child,
             Tone::Warning.icon(),
-            Tone::Warning.color(tokens),
+            Tone::Warning.color(&tokens),
         );
         tokens.text
     };

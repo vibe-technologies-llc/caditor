@@ -119,8 +119,8 @@ pub fn show(ctx: &Context, area: Rect, hovered: &[HoveredFile], situation: Situa
         Vec::new()
     };
     let verdict = verdict(&paths, situation);
-    let tokens = appearance::tokens_for(&ctx.global_style().visuals);
-    let color = verdict.tone.color(tokens);
+    let tokens = appearance::tokens_of(ctx);
+    let color = verdict.tone.color(&tokens);
     ctx.layer_painter(LayerId::new(
         Order::Foreground,
         Id::new("drop-target-frame"),

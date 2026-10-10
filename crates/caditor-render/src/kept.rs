@@ -5,6 +5,7 @@ const COPY_TRIANGLE_CORNERS: u32 = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Shown {
+    pub background: wgpu::Color,
     pub rect: Option<ViewportRect>,
     pub grid: bool,
 }
@@ -190,7 +191,8 @@ mod tests {
     }
 
     #[test]
-    fn a_kept_view_is_reused_only_once_its_frame_was_submitted_for_the_same_rect_and_grid() {
+    fn a_kept_view_is_reused_only_once_its_frame_was_submitted_for_the_same_rect_grid_and_background()
+     {
         let rect = ViewportRect {
             x: 0.0,
             y: 0.0,
@@ -198,6 +200,7 @@ mod tests {
             height: 80.0,
         };
         let shown = Shown {
+            background: crate::viewport::BACKGROUND,
             rect: Some(rect),
             grid: true,
         };
@@ -216,6 +219,10 @@ mod tests {
             grid: false,
             ..shown
         });
+        let on_another_background = holding.holds(Shown {
+            background: wgpu::Color::WHITE,
+            ..shown
+        });
         holding.drawn(moved);
         holding.abandon_unsubmitted();
         holding.after_submit();
@@ -225,6 +232,7 @@ mod tests {
         assert!(submitted);
         assert!(!elsewhere);
         assert!(!without_grid);
+        assert!(!on_another_background);
         assert!(!abandoned);
     }
 }

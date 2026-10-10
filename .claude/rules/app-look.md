@@ -3,6 +3,8 @@ paths:
   - "crates/caditor/src/fonts.rs"
   - "crates/caditor/src/font_fallbacks.rs"
   - "crates/caditor/src/appearance.rs"
+  - "crates/caditor/src/themes.rs"
+  - "crates/caditor/src/files/themes.rs"
   - "crates/caditor/src/icons.rs"
   - "crates/caditor/src/icon_font.rs"
   - "crates/caditor/src/widgets.rs"
@@ -66,33 +68,80 @@ paths:
   a glyph string and the icons scale, theme and read like the rest. Painted shapes were set aside
   because tool buttons, menus, the palette, tree rows and accessible names all carry icons as text.
   A new icon is a `Mark` list in `ICONS` and a constant; `fonts.rs` tests that each one renders.
-- `appearance.rs` holds the theme as `Tokens` for dark, light and both high-contrast variants,
-  builds each egui `Style` from them and tests every text pairing, control outline, focus ring
-  and button kind against its background in all four. Panels read colours from
-  `appearance::tokens(ui)` or the visuals, never fixed values. Design constants (spacing,
+- Themes are data. `appearance.rs` holds the `Tokens` sets (`DARK`, `LIGHT`, `MIDNIGHT`,
+  `GRAPHITE`, `PAPER` and the two high-contrast sets), each colour named by a `Token` whose `key`
+  a theme file uses, and builds each egui `Style` from a `Skin` (tokens, lightness, contrast and
+  the 3D view's `Canvas`). The contrast rules are one table run at runtime (`appearance::check`,
+  `required_pairs`): every text pairing, control outline, focus ring and button kind against its
+  background, 4.5:1 for text and 7:1 for body text in high contrast, 3:1 for outlines;
+  `field_border` and `focus` against every surface a field sits on, `danger` 3:1 against panels
+  and dialogs with `text_on_accent` 4.5:1 on every accent and danger fill. A failure is a
+  `ContrastFailure` naming the pair in words with its keys, colours and ratio. Tests run it on
+  every shipped set and on the visuals built from them. Design constants (spacing,
   `CONTROL_HEIGHT`, radii, `BORDER_WIDTH`, `FOCUS_WIDTH`) live there too.
-- `field_border` meets 3:1 against every surface a field sits on; `danger` fills carry white text
-  at 4.5:1 and 3:1 against panels and dialogs. `tokens_for` finds the token set from the visuals'
-  panel fill and theme.
-- The 3D view keeps a dark canvas in every theme; `canvas.rs` is its chrome and defines its colours
-  once (text, hover, selection, error, warning, prompt, snap, ...). `scene.rs` converts them for
-  highlighted geometry so a hovered or selected line and its label share one colour. Labels sit on
-  the translucent `BACKDROP` (`canvas::label`, `canvas::Label`); the typed-point field uses the
-  opaque `PANEL`. A test holds every canvas colour to 4.5:1 (body 7:1) over the backdrop on black,
-  white and the hover colour, key caps and canvas controls in every state, and the view cube's
-  labels on each cell state.
-- Geometry in the 3D view takes its colours and weights from `scene_palette.rs`: `STANDARD`, and
-  `HIGH_CONTRAST` while High contrast is on. Its tests hold every high-contrast line and point
-  colour to 3:1 against the canvas (`caditor_render::BACKGROUND`) and the dimmed body colour,
-  edges and hovered or selected faces to 3:1 on the default body colour (so selected faces are a
-  dark blue and hovered ones a dark amber there), and check that the standard palette keeps one
-  form for every sketch state. `Highlight::emphasis` widens hovered geometry by one
+- `app::apply_appearance` resolves the preference (`themes::Appearance::resolve`) into `Skins`,
+  one per egui theme (Follow the system fills dark and light, a named theme both with its own and
+  sets egui's preference to its lightness), installs the styles and publishes the skins in egui
+  temp data (`appearance::publish`), where `appearance::tokens(ui)`, `tokens_of(ctx)`, `skin` and
+  `is_high_contrast` find them by the visuals' `dark_mode`; without a published skin (tests that
+  set a style directly) they fall back to the built-in set recognised by its panel fill. Panels
+  read colours from these or the visuals, never fixed values.
+- `themes.rs` holds the choice (`Theme`: System, the shipped ones, `User(key)`), the `Accent`
+  (the theme's own, or a hue from which `with_accent` derives accent, hover, pressed, accent
+  text, subtle, surface and focus by stepping each colour until it keeps its pairs readable) and
+  the `ViewChoice` (with the theme, dark or light). An accent is offered on a theme only when the
+  derived set passes `check`; high contrast replaces the theme's colours and accent with the
+  high-contrast set of its lightness and keeps the view choice. User themes are JSON files in the
+  config directory's `themes` folder (`caditor_file::read_themes`, at most `MAX_THEME_FILES` of
+  `MAX_THEME_FILE` bytes): `name`, `base` (dark or light, whose tokens fill what the file leaves
+  out), `view` (dark or light) and `colours` by token key as `#rrggbb` (`#rrggbbaa` only for the
+  shadow). `themes::sort` builds and checks each on the files worker (`Files::list_themes`, at
+  startup, when Preferences opens and on Reload themes) into `UserThemes`; a file that cannot be
+  read, names an unknown colour or base, writes a colour badly, repeats another's name or fails a
+  contrast pair is a `Refusal` shown in Preferences in words. A chosen user theme that is missing
+  or refused once listed keeps the last look applied (`Workspace::usable_look`) and posts one
+  warning naming why (`Unusable::words`); before the first listing it waits silently on the
+  default.
+- The theme picker (`preferences.rs`, Appearance › Theme) is a wrapping grid of
+  `widgets::theme_card`s, one per shipped and loaded theme: a miniature drawn from the theme as it
+  would be with the current accent, contrast and view (`ThemeSample`: title bar, side panel with
+  text lines and an accent button, the 3D view's canvas with its grid and a body; Follow the
+  system shows dark and light halves), its name and, when chosen, an accent outline, a check and
+  semibold name. Each card is a button named by the theme and marked toggled when chosen
+  (`theme_card_id`), reached by Tab and moved between with the arrow keys (egui's spatial focus),
+  Enter or Space choosing it; choosing applies at once, so the whole window is the live preview.
+  Accents are `widgets::swatch`es named "Accent: …", disabled with the reason when high contrast
+  is on or the accent would not stay readable.
+- The 3D view's lightness follows the resolved skin (`Skin::canvas`): `apply_appearance`
+  publishes it for the frame (`canvas::set_canvas`), the viewport takes it
+  (`ViewportState::set_canvas`, part of the scene cache's revisions) and the session hands its
+  `Canvas::background` to the renderer after each frame's actions (`Renderer::set_background`).
+  `canvas.rs` is its chrome: a `Chrome` of every colour (backdrop, panel, text, hover, selection,
+  error, warning, prompt, snap, key caps, controls, view cube), `DARK_CHROME` and `LIGHT_CHROME`,
+  read through `canvas::chrome(ctx)`. Labels sit on the translucent backdrop (`canvas::label`,
+  `canvas::Label`); the typed-point field uses the opaque panel. Tests hold every colour of both
+  chromes to 4.5:1 (body 7:1) over the backdrop on black, white and the hover colour, 7:1 on the
+  opaque panel, key caps and canvas controls in every state, and the view cube's labels on each
+  cell state.
+- Geometry in the 3D view takes its colours and weights from `scene_palette.rs`, one palette per
+  contrast and canvas (`Contrast::palette(canvas)`: `STANDARD`, `HIGH_CONTRAST`,
+  `LIGHT_STANDARD`, `LIGHT_HIGH_CONTRAST`), markers and handles included (snap, measurement,
+  problem, unchecked, handle colours, from the chrome). A hollow point's `hole` is the canvas; the
+  halo of the centre of mass, comb and isocurves is `outline` (the canvas on a dark one, black on
+  the light one, which no light colour could hold to 3:1 on a body). The scene highlights of the
+  light canvas are a little lighter than its chrome's label colours, which must reach 7:1 on the
+  white label panel, so those halos can still frame them. Tests hold, for both canvases, every
+  high-contrast line and point colour to 3:1 against the canvas (`Canvas::colour`) and the dimmed
+  body colour, edges and hovered or selected faces to 3:1 on the default body colour (so selected
+  faces are a dark blue and hovered ones a dark amber there), every marker, band and comb colour
+  to 3:1 on the canvas, and check that the standard palettes keep one form for every sketch
+  state. `Highlight::emphasis` widens hovered geometry by one
   `HIGHLIGHT_EXTRA_WIDTH` and selected geometry by the palette's `selection_widening` (1 in
   standard, 2 in high contrast); the high-contrast palette also dashes the edges of a failed or
   outdated body (`scene::body_health`), outside sketch editing.
 - `canvas::set_contrast` publishes the contrast to egui temp data each frame (from `app.rs`), and
-  `paint_backdrop` draws labels on the opaque `PANEL` in high contrast, where every label colour
-  meets 7:1, and on the translucent `BACKDROP` otherwise.
+  `paint_backdrop` draws labels on the chrome's opaque panel in high contrast, where every label
+  colour meets 7:1, and on its translucent backdrop otherwise (`Chrome::backdrop`).
 - Key hints (`canvas::Hints`) are `Key: action` text, items three spaces apart, laid out as key
   caps (alternatives joined by " or ") beside a muted action, plain where the part before ": " is
   not keys. Each key, "or" and action is its own text, so tests use `shows_hint`.

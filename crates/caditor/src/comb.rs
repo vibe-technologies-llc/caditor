@@ -345,15 +345,13 @@ impl CombDrawing {
             pick: None,
             stroke: Stroke::Solid,
         };
-        let halos = self
-            .teeth
-            .iter()
-            .map(|segment| line(*segment, palette.hole, look.tooth_width + HALO_WIDTH))
-            .chain(
-                self.envelope
-                    .iter()
-                    .map(|segment| line(*segment, palette.hole, look.envelope_width + HALO_WIDTH)),
-            );
+        let halos =
+            self.teeth
+                .iter()
+                .map(|segment| line(*segment, palette.outline, look.tooth_width + HALO_WIDTH))
+                .chain(self.envelope.iter().map(|segment| {
+                    line(*segment, palette.outline, look.envelope_width + HALO_WIDTH)
+                }));
         let teeth = self
             .teeth
             .iter()

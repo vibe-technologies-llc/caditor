@@ -15,7 +15,7 @@ use crate::{
     isocurves::IsocurveDrawing,
     manipulator::Drawn,
     scene::{self, BuiltScene, Highlight, SketchShapes, Sources},
-    scene_palette::Contrast,
+    scene_palette::{Canvas, Contrast},
     selection::Pickable,
     view_aids::ViewAids,
 };
@@ -31,6 +31,7 @@ pub struct Revisions {
     pub aids: ViewAids,
     pub analysed: u64,
     pub contrast: Contrast,
+    pub canvas: Canvas,
     pub draft: u64,
 }
 
@@ -45,6 +46,7 @@ pub struct SceneInputs<'a> {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Overlay {
     pub contrast: Contrast,
+    pub canvas: Canvas,
     pub plane: Option<Plane>,
     pub previews: Vec<Preview>,
     pub measured: Option<[Point3; 2]>,
@@ -58,28 +60,29 @@ pub struct Overlay {
 impl Overlay {
     fn batch(&self) -> Option<Arc<Batch>> {
         let mut batch = Batch::default();
+        let palette = self.contrast.palette(self.canvas);
         if let Some(plane) = self.plane {
             for preview in &self.previews {
-                scene::add_preview(&mut batch, self.contrast.palette(), plane, preview);
+                scene::add_preview(&mut batch, palette, plane, preview);
             }
         }
         if let Some([from, to]) = self.measured {
-            scene::add_measurement(&mut batch, from, to);
+            scene::add_measurement(&mut batch, palette, from, to);
         }
         for problem in &self.problems {
-            scene::add_problem(&mut batch, *problem);
+            scene::add_problem(&mut batch, palette, *problem);
         }
         for mark in &self.interference {
-            scene::add_interference(&mut batch, mark);
+            scene::add_interference(&mut batch, palette, mark);
         }
         if let Some(comb) = &self.comb {
-            comb.add_to(&mut batch, self.contrast.palette());
+            comb.add_to(&mut batch, palette);
         }
         if let Some(isocurves) = &self.isocurves {
-            isocurves.add_to(&mut batch, self.contrast.palette());
+            isocurves.add_to(&mut batch, palette);
         }
         if let Some(manipulator) = &self.manipulator {
-            manipulator.add_to(&mut batch, self.contrast.palette());
+            manipulator.add_to(&mut batch, palette);
         }
         (!batch.is_empty()).then(|| Arc::new(batch))
     }

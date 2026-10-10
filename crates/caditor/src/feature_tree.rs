@@ -669,7 +669,7 @@ fn feature_row(
                 ui.add_space(GROUP_INDENT);
             }
             let toggle = tree_row::chevron(ui, open, &feature.name);
-            widgets::icon_label(ui, icons::feature(&feature.kind), kind_color(tokens, row));
+            widgets::icon_label(ui, icons::feature(&feature.kind), kind_color(&tokens, row));
             let name = match renaming {
                 Some(renaming) => Name::Renaming(rename_field(ui, document, feature, renaming)),
                 None => {
@@ -3217,7 +3217,9 @@ mod timing {
         let definition = feature.kind.sketch().unwrap();
         let context = egui::Context::default();
         context.set_fonts(crate::fonts::definitions_with(&[]));
-        context.set_global_style(crate::appearance::style(true, false));
+        context.set_global_style(crate::appearance::style(
+            &crate::appearance::Skin::built_in(true, false),
+        ));
         let mut state = PanelState::default();
         let mut frame = || {
             let input = RawInput {

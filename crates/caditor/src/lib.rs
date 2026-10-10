@@ -160,6 +160,7 @@ mod split_tools;
 mod startup_check;
 mod status_bar;
 mod tangent_circling;
+mod themes;
 mod thread_panel;
 mod thread_tools;
 mod tidy_panel;

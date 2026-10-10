@@ -12,10 +12,11 @@ use crate::{
     manipulator::{self, Held},
     model::Model,
     move_manipulator::{
-        ABOUT_AXIS, ARROW_POINTS, Arrow, END_ON, GAP_POINTS, HIGHLIGHTED, HIT_POINTS, Handle,
-        PlaceGrip, segment_distance, step_for, within,
+        ARROW_POINTS, Arrow, END_ON, GAP_POINTS, HIT_POINTS, Handle, PlaceGrip, segment_distance,
+        step_for, within,
     },
     scene,
+    scene_palette::ScenePalette,
     units::Units,
 };
 
@@ -264,12 +265,12 @@ impl PlaceHandles {
         }
     }
 
-    pub fn add_to(&self, batch: &mut Batch, highlighted: Option<Handle>) {
+    pub fn add_to(&self, batch: &mut Batch, palette: &ScenePalette, highlighted: Option<Handle>) {
         let colour = |grip: PlaceGrip| {
             if highlighted == Some(Handle::Place(grip)) {
-                HIGHLIGHTED
+                palette.handle_highlighted
             } else {
-                ABOUT_AXIS
+                palette.handle
             }
         };
         if let Some(corners) = self.square() {

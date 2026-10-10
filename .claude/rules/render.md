@@ -331,8 +331,11 @@ paths:
   drawn ones, so body vertices and the edges of a style without them cost the colour pass nothing.
 - Markers at one place in one layer have equal depths, which `GreaterEqual` passes, so they draw in
   batch order: a smaller unpicked marker after a larger one makes a ring that still picks whole
-  (the app's hollow sketch points). `BACKGROUND`, the canvas clear colour, is public so the app
-  tests its scene colours against it.
+  (the app's hollow sketch points). `BACKGROUND`, the default canvas clear colour, is public so
+  the app tests its scene colours against it; the app sets the clear colour of its light or dark
+  view with `ViewportRenderer::set_background` (`Renderer::set_background`, kept across device
+  recovery, copied to image siblings and used for `Background::Viewport` images), and the kept
+  frame (`kept.rs`, `Shown`) holds the background it was drawn on, so a change redraws it.
 
 ## Projection
 

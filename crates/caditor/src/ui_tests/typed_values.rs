@@ -183,10 +183,10 @@ fn a_field_that_loses_focus_keeps_its_text_muted_until_typing_resumes_it() {
     harness.type_text("10, 2");
     harness.click_at(Point2::new(-10.0, -10.0));
     let kept = harness.shows(typed_point::FIELD_LABEL);
-    let muted = harness.color_of(typed_point::FIELD_LABEL) == canvas::MUTED;
+    let muted = harness.color_of(typed_point::FIELD_LABEL) == canvas::DARK_CHROME.muted;
     let waiting = harness.shows_hint(typed_point::WAITING_HINT);
     harness.type_text("0");
-    let resumed = harness.color_of(typed_point::FIELD_LABEL) == canvas::TEXT;
+    let resumed = harness.color_of(typed_point::FIELD_LABEL) == canvas::DARK_CHROME.text;
     harness.key(Key::Enter, Modifiers::NONE);
     harness.show_new_windows();
     harness.settle();

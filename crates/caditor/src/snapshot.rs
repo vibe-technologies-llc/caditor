@@ -17,7 +17,7 @@ use crate::{
     model::Waker,
     saved_views,
     scene::{self, Highlight, SketchShapes, Sources},
-    scene_palette::Contrast,
+    scene_palette::{Canvas, Contrast},
     selection::Selection,
     view_aids::ViewAids,
     viewport::initial_viewpoint,
@@ -76,6 +76,7 @@ pub fn of_bodies(
         aids: ViewAids::default(),
         analyses: &Analyses::default(),
         contrast: Contrast::default(),
+        canvas: Canvas::default(),
         draft: None,
     };
     let (width, height) = (f64::from(size.width), f64::from(size.height));

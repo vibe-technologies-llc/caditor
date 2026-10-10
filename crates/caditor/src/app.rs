@@ -24,7 +24,7 @@ use crate::{
     about,
     analysis::{self, Analysis, AnalysisCommand, AnalysisTool, Kind},
     analysis_panel::{self, AnalysisContext},
-    appearance::{self, MAX_SCALE, MIN_SCALE, SCALE_STEP},
+    appearance::{self, MAX_SCALE, MIN_SCALE, SCALE_STEP, Skin, Skins},
     body_selection, canvas,
     comb::CombTool,
     comb_panel,
@@ -69,7 +69,7 @@ use crate::{
     reference_picking,
     saved_views::{self, ViewsDraft},
     scale_model::{self, ScaleDraft},
-    scene_palette::Contrast,
+    scene_palette::{Canvas, Contrast},
     section::{self, SectionCommand, SectionTool},
     section_panel::{self, SectionContext},
     selection::{Selection, SelectionFilter},
@@ -78,6 +78,7 @@ use crate::{
     sketch_toolbar, sketch_tools,
     startup_check::StartupCheck,
     status_bar::{self, StatusContext},
+    themes::{Look, Resolved, Theme, UserThemes},
     tidy_panel,
     tidying::Tidying,
     toggles::ToggleStates,
@@ -180,7 +181,9 @@ pub struct Workspace {
     pub defender_asked: bool,
     pub(crate) frame_failures: FrameFailures,
     fallback_fonts: FallbackFonts,
-    applied_appearance: Option<Appearance>,
+    applied_appearance: Option<(Appearance, u64)>,
+    usable_look: Option<(Look, bool)>,
+    theme_noticed: Option<(Theme, u64)>,
     applied_title_bar: Option<TitleBar>,
     keyboard_was_taken: bool,
     deferred_commands: Vec<Command>,
@@ -236,6 +239,8 @@ impl Workspace {
             frame_failures: FrameFailures::default(),
             fallback_fonts: FallbackFonts::Off,
             applied_appearance: None,
+            usable_look: None,
+            theme_noticed: None,
             applied_title_bar: None,
             keyboard_was_taken: false,
             deferred_commands: Vec::new(),
@@ -314,7 +319,9 @@ impl Workspace {
             PreferencesCommand::Show => {
                 self.preferences_open = true;
                 files.perform(FileCommand::ListTemplates, model);
+                files.perform(FileCommand::ListThemes, model);
             }
+            PreferencesCommand::ReloadThemes => files.perform(FileCommand::ListThemes, model),
             PreferencesCommand::Hide => {
                 self.preferences_open = false;
                 self.restored = None;
@@ -471,7 +478,7 @@ pub fn show(
     if model.is_checking_constraints() {
         ui.ctx().request_repaint_after(constraint_trial::PATIENCE);
     }
-    match apply_appearance(ui.ctx(), workspace) {
+    match apply_appearance(ui.ctx(), workspace, files.themes(), actions) {
         Applied::FontsPending => return,
         Applied::Changed => ui.set_style(ui.ctx().global_style()),
         Applied::Unchanged => {}
@@ -761,6 +768,7 @@ pub fn show(
             analyses: viewport.analyses(),
             style: viewport.style(),
             contrast: Contrast::of(preferences.appearance.high_contrast),
+            canvas: canvas::canvas(ui.ctx()),
         };
         analysis_panel::show(ui, &context, analysis, room);
         analysis.analysis(model).ok()
@@ -829,6 +837,7 @@ pub fn show(
     let contrast = Contrast::of(preferences.appearance.high_contrast);
     viewport.set_contrast(contrast);
     canvas::set_contrast(ui.ctx(), contrast);
+    viewport.set_canvas(canvas::canvas(ui.ctx()));
     let selection_before = viewport.selection().generation();
     viewport.show(ui, model, editing, keys_free, &mut commands, actions);
     if viewport.selection().generation() != selection_before && !viewport.selection().is_empty() {
@@ -919,6 +928,7 @@ pub fn show(
             templates: files.templates(),
             switch_keys: shortcut_editor.is_none(),
             restored: restored.as_ref(),
+            themes: files.themes(),
         };
         if *preferences_open
             && let Some(command) = preferences::dialog(ui.ctx(), preferences, &view)
@@ -1166,7 +1176,30 @@ enum Applied {
     Unchanged,
 }
 
-fn apply_appearance(ctx: &egui::Context, workspace: &mut Workspace) -> Applied {
+const BUILT_IN: Resolved = Resolved {
+    skins: Skins {
+        dark: Skin {
+            tokens: appearance::DARK,
+            dark: true,
+            high_contrast: false,
+            canvas: Canvas::Dark,
+        },
+        light: Skin {
+            tokens: appearance::LIGHT,
+            dark: false,
+            high_contrast: false,
+            canvas: Canvas::Dark,
+        },
+    },
+    preference: egui::ThemePreference::System,
+};
+
+fn apply_appearance(
+    ctx: &egui::Context,
+    workspace: &mut Workspace,
+    themes: &UserThemes,
+    actions: &mut Vec<Action>,
+) -> Applied {
     let scripts_arrived = workspace.fallback_fonts.arrived();
     if !fonts::installed(ctx) {
         ctx.options_mut(|options| {
@@ -1181,17 +1214,54 @@ fn apply_appearance(ctx: &egui::Context, workspace: &mut Workspace) -> Applied {
         ctx.set_fonts(fonts::definitions_with(workspace.fallback_fonts.found()));
         ctx.request_repaint();
     }
-    let wanted = workspace.preferences.appearance;
-    if workspace.applied_appearance == Some(wanted) {
-        return Applied::Unchanged;
+    let wanted = (
+        workspace.preferences.appearance.clone(),
+        themes.generation(),
+    );
+    let changed = workspace.applied_appearance.as_ref() != Some(&wanted);
+    if changed {
+        let resolved = match wanted.0.look(themes) {
+            Ok(look) => {
+                let system = wanted.0.theme == Theme::System;
+                workspace.usable_look = Some((look, system));
+                wanted.0.resolve_look(&look, system)
+            }
+            Err(unusable) => {
+                let noticed = (wanted.0.theme.clone(), themes.generation());
+                if workspace.theme_noticed.as_ref() != Some(&noticed)
+                    && let Some(words) = unusable.words(&themes.name_of(&wanted.0.theme))
+                {
+                    actions.push(Action::Inform(Notice::warning(words)));
+                    workspace.theme_noticed = Some(noticed);
+                }
+                match workspace.usable_look {
+                    Some((look, system)) => wanted.0.resolve_look(&look, system),
+                    None => Appearance {
+                        theme: Theme::default(),
+                        ..wanted.0.clone()
+                    }
+                    .resolve(themes)
+                    .unwrap_or(BUILT_IN),
+                }
+            }
+        };
+        for (theme, skin) in [
+            (egui::Theme::Dark, &resolved.skins.dark),
+            (egui::Theme::Light, &resolved.skins.light),
+        ] {
+            ctx.set_style_of(theme, appearance::style(skin));
+        }
+        appearance::publish(ctx, resolved.skins);
+        ctx.set_theme(resolved.preference);
+        ctx.set_zoom_factor(wanted.0.scale);
+        workspace.applied_appearance = Some(wanted);
     }
-    for (theme, dark) in [(egui::Theme::Dark, true), (egui::Theme::Light, false)] {
-        ctx.set_style_of(theme, appearance::style(dark, wanted.high_contrast));
+    canvas::set_canvas(ctx, appearance::skin(ctx).canvas);
+    if changed {
+        Applied::Changed
+    } else {
+        Applied::Unchanged
     }
-    ctx.set_theme(wanted.theme.egui());
-    ctx.set_zoom_factor(wanted.scale);
-    workspace.applied_appearance = Some(wanted);
-    Applied::Changed
 }
 
 fn interface_size(
@@ -1925,6 +1995,8 @@ impl Session {
         perform(actions, model, files, &mut self.workspace);
         self.renderer
             .set_graphics(self.workspace.preferences.graphics.render());
+        self.renderer
+            .set_background(self.workspace.viewport.canvas().background());
         if !is_window_title(model, &self.title) {
             let title = window_title(model);
             self.window.set_title(&title);

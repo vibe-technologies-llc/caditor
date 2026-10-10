@@ -597,7 +597,7 @@ impl Bar<'_, '_> {
             ui.spacing_mut().item_spacing.x = HEADER_GAP;
             ui.vertical(|ui| {
                 ui.add_space(((height - BADGE_SIDE) / 2.0).max(0.0));
-                badge(ui, tokens);
+                badge(ui, &tokens);
             });
             let height_id = Id::new("sketch-bar-header-height");
             let known = widgets::remembered_width(ui, height_id);

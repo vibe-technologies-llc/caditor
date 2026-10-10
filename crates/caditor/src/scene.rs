@@ -24,13 +24,13 @@ use crate::{
     bodies::{
         self, BodyBefore, BodyFace, BodyMass, BodyMesh, BodyMeshes, FaceChoice, FaceKey, OpenChoice,
     },
-    body_appearance, canvas, datum_tools,
+    body_appearance, datum_tools,
     display::DisplayedSketches,
     display_style::DisplayStyle,
     drawing::Preview,
     editing::Context,
     interference_panel::{Mark, MarkKind},
-    scene_palette::{Contrast, Highlights, PointFill, ScenePalette, SketchState},
+    scene_palette::{Canvas, Contrast, Highlights, PointFill, ScenePalette, SketchState},
     selection::{self, Axis, Pickable, PrincipalPlane, Selection, SelectionFilter},
     view_aids::ViewAids,
     visibility,
@@ -57,11 +57,6 @@ const BODY: Color = Color::from_rgb8(
     body_appearance::DEFAULT_COLOUR.blue,
 );
 const UNMARKED_VERTEX: Color = Color::from_rgba8(0, 0, 0, 0);
-const SNAP_MARKER: Color = opaque(canvas::SNAP);
-const MEASURED: Color = opaque(canvas::MEASURE);
-const PROBLEM: Color = opaque(canvas::ERROR);
-const TOUCH: Color = opaque(canvas::MEASURE);
-const UNCHECKED: Color = opaque(canvas::WARNING);
 const HIGHLIGHT_FILL_ALPHA: f32 = 0.22;
 const HOVERED_REGION_ALPHA: f32 = 0.4;
 const DATUM_PLANE_SCALE: f64 = 0.75;
@@ -250,6 +245,7 @@ pub struct Sources<'a> {
     pub aids: ViewAids,
     pub analyses: &'a Analyses,
     pub contrast: Contrast,
+    pub canvas: Canvas,
     pub draft: Option<&'a Evaluation>,
 }
 
@@ -494,9 +490,10 @@ pub fn build(
         aids,
         analyses,
         contrast,
+        canvas,
         draft,
     } = *sources;
-    let palette = contrast.palette();
+    let palette = contrast.palette(canvas);
     let editing = context.sketch;
     let model = model_bounds(sources);
     let reference_size = reference_size(model);
@@ -1404,9 +1401,13 @@ impl Builder<'_> {
         };
         let pick = self.picks.register(pickable, PickPriority::Point);
         self.scene.markers.extend([
-            marker(self.palette.hole, diameter * CENTRE_OF_MASS_OUTLINE, pick),
+            marker(
+                self.palette.outline,
+                diameter * CENTRE_OF_MASS_OUTLINE,
+                pick,
+            ),
             marker(color, diameter, None),
-            marker(self.palette.hole, diameter * CENTRE_OF_MASS_HOLE, None),
+            marker(self.palette.outline, diameter * CENTRE_OF_MASS_HOLE, None),
             marker(color, diameter * CENTRE_OF_MASS_DOT, None),
         ]);
     }
@@ -2167,7 +2168,7 @@ pub fn add_preview(scene: &mut Batch, palette: &ScenePalette, plane: Plane, prev
     }
     for guide in &preview.guides {
         let style = CurveStyle {
-            color: SNAP_MARKER,
+            color: palette.snap,
             width: GUIDE_WIDTH,
             layer: Layer::Front,
             pick: None,
@@ -2177,7 +2178,7 @@ pub fn add_preview(scene: &mut Batch, palette: &ScenePalette, plane: Plane, prev
     }
     let snap = preview.snap.map(|position| Marker {
         position: plane.to_world(position),
-        color: SNAP_MARKER,
+        color: palette.snap,
         diameter: SNAP_MARKER_DIAMETER,
         layer: Layer::Front,
         pick: None,
@@ -2192,11 +2193,11 @@ pub fn add_preview(scene: &mut Batch, palette: &ScenePalette, plane: Plane, prev
     scene.markers.extend(snap.into_iter().chain(points));
 }
 
-pub fn add_measurement(scene: &mut Batch, from: Point3, to: Point3) {
+pub fn add_measurement(scene: &mut Batch, palette: &ScenePalette, from: Point3, to: Point3) {
     scene.lines.push(Line {
         start: from,
         end: to,
-        color: MEASURED,
+        color: palette.measured,
         width: MEASURED_WIDTH,
         layer: Layer::Front,
         pick: None,
@@ -2205,7 +2206,7 @@ pub fn add_measurement(scene: &mut Batch, from: Point3, to: Point3) {
     for position in [from, to] {
         scene.markers.push(Marker {
             position,
-            color: MEASURED,
+            color: palette.measured,
             diameter: MEASURED_END_DIAMETER,
             layer: Layer::Front,
             pick: None,
@@ -2213,21 +2214,21 @@ pub fn add_measurement(scene: &mut Batch, from: Point3, to: Point3) {
     }
 }
 
-pub fn add_problem(scene: &mut Batch, position: Point3) {
+pub fn add_problem(scene: &mut Batch, palette: &ScenePalette, position: Point3) {
     scene.markers.push(Marker {
         position,
-        color: PROBLEM,
+        color: palette.problem,
         diameter: PROBLEM_DIAMETER,
         layer: Layer::Front,
         pick: None,
     });
 }
 
-pub fn add_interference(scene: &mut Batch, mark: &Mark) {
+pub fn add_interference(scene: &mut Batch, palette: &ScenePalette, mark: &Mark) {
     let color = match mark.kind {
-        MarkKind::Overlap => PROBLEM,
-        MarkKind::Touch => TOUCH,
-        MarkKind::Unchecked => UNCHECKED,
+        MarkKind::Overlap => palette.problem,
+        MarkKind::Touch => palette.measured,
+        MarkKind::Unchecked => palette.unchecked,
     };
     scene.markers.push(Marker {
         position: mark.place,
@@ -2668,6 +2669,7 @@ mod tests {
                 aids: ViewAids::default(),
                 analyses: &Analyses::default(),
                 contrast,
+                canvas: Canvas::default(),
                 draft: None,
             },
             highlight,
@@ -2696,6 +2698,7 @@ mod tests {
                     aids: ViewAids::default(),
                     analyses: &Analyses::default(),
                     contrast: Contrast::default(),
+                    canvas: Canvas::default(),
                     draft: None,
                 },
                 pickables,
@@ -3399,6 +3402,7 @@ mod tests {
                 },
                 analyses: &Analyses::default(),
                 contrast: Contrast::default(),
+                canvas: Canvas::default(),
                 draft: None,
             };
             let context = Context {
@@ -3438,6 +3442,7 @@ mod tests {
             aids: ViewAids::default(),
             analyses: &Analyses::default(),
             contrast: Contrast::default(),
+            canvas: Canvas::default(),
             draft: None,
         };
         let built_at = |chord: f64| {
@@ -3485,6 +3490,7 @@ mod tests {
             aids: ViewAids::default(),
             analyses: &analyses,
             contrast: Contrast::default(),
+            canvas: Canvas::default(),
             draft: None,
         };
         let wanted = Faceting::within(1e-9);

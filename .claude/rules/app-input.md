@@ -368,7 +368,7 @@ paths:
   takes over again when it stops reading. Modify tools preview `TypedPoint::typing_text` the same
   way (`show_text`).
 - Losing focus without Enter or Escape (a click in the view, another widget, a shortcut) keeps
-  the text, waiting: the label in `canvas::MUTED`, the text in the theme's `text_muted` and `typed_point::WAITING_HINT` as its
+  the text, waiting: the label in the chrome's `muted`, the text in the theme's `text_muted` and `typed_point::WAITING_HINT` as its
   hint in place of the prompt, as while typing, and clicks acting at the pointer. Clicking the field, an
   opener typed (appended to the kept text, a leading `=` dropped) or Type an exact value resumes
   it; Escape in the view (first in `ViewportState::escape`), a change of edited sketch or tool

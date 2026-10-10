@@ -10,9 +10,10 @@ use crate::{
     manipulator::{self, Held},
     model::Model,
     move_manipulator::{
-        ABOUT_AXIS, ARROW_POINTS, Arrow, END_ON, GAP_POINTS, HIGHLIGHTED, HIT_POINTS, Handle,
-        Reach, segment_distance, step_for,
+        ARROW_POINTS, Arrow, END_ON, GAP_POINTS, HIT_POINTS, Handle, Reach, segment_distance,
+        step_for,
     },
+    scene_palette::ScenePalette,
     units::Units,
 };
 
@@ -241,13 +242,13 @@ impl ReachHandles {
         Some(self.arrow(reach)?.end)
     }
 
-    pub fn add_to(&self, batch: &mut Batch, highlighted: Option<Handle>) {
+    pub fn add_to(&self, batch: &mut Batch, palette: &ScenePalette, highlighted: Option<Handle>) {
         for arrow in self.arrows() {
             let (from, tip) = arrow.segment();
             let colour = if highlighted == Some(Handle::Reach(arrow.reach)) {
-                HIGHLIGHTED
+                palette.handle_highlighted
             } else {
-                ABOUT_AXIS
+                palette.handle
             };
             Arrow {
                 from,

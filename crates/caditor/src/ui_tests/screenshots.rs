@@ -71,53 +71,59 @@ impl Gpu {
 #[derive(Clone, Copy)]
 struct Look {
     name: &'static str,
-    theme: Theme,
+    theme: &'static str,
     high_contrast: bool,
     scale: f32,
 }
 
-const LOOKS: [Look; 6] = [
+const LOOKS: [Look; 7] = [
     Look {
         name: "dark",
-        theme: Theme::Dark,
+        theme: "dark",
         high_contrast: false,
         scale: 1.0,
     },
     Look {
         name: "light",
-        theme: Theme::Light,
+        theme: "light",
         high_contrast: false,
         scale: 1.0,
     },
     Look {
         name: "dark-contrast",
-        theme: Theme::Dark,
+        theme: "dark",
         high_contrast: true,
         scale: 1.0,
     },
     Look {
         name: "light-contrast",
-        theme: Theme::Light,
+        theme: "light",
         high_contrast: true,
         scale: 1.0,
     },
     Look {
         name: "dark-200",
-        theme: Theme::Dark,
+        theme: "dark",
         high_contrast: false,
         scale: 2.0,
     },
     Look {
         name: "light-150",
-        theme: Theme::Light,
+        theme: "light",
         high_contrast: false,
         scale: 1.5,
+    },
+    Look {
+        name: "paper",
+        theme: "paper",
+        high_contrast: false,
+        scale: 1.0,
     },
 ];
 
 impl Look {
     fn preferences(self, mut preferences: Preferences) -> Preferences {
-        preferences.appearance.theme = self.theme;
+        preferences.appearance.theme = Theme::from_key(self.theme).unwrap_or_default();
         preferences.appearance.high_contrast = self.high_contrast;
         preferences.appearance.scale = self.scale;
         preferences
@@ -199,6 +205,7 @@ impl Harness {
 
         let mut viewport = ViewportRenderer::new(device, FORMAT, SAMPLES);
         viewport.set_linear_resolve(true);
+        viewport.set_background(self.workspace.viewport.canvas().background());
         let request = self.workspace.viewport.request(false);
         let frame =
             request

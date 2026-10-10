@@ -15,7 +15,7 @@ use crate::{
     guide_panel, icons,
     layout::RightPanel,
     model::Model,
-    scene_palette::Contrast,
+    scene_palette::{Canvas, Contrast},
     selection::{Axis, Selection},
     units::Units,
     widgets::{self, FIELD_WIDTH, Tone},
@@ -68,6 +68,7 @@ pub struct AnalysisContext<'a> {
     pub analyses: &'a Analyses,
     pub style: DisplayStyle,
     pub contrast: Contrast,
+    pub canvas: Canvas,
 }
 
 fn swatch_colour(colour: Color) -> Color32 {
@@ -181,7 +182,7 @@ fn pull_rows(ui: &mut Ui, context: &AnalysisContext<'_>, tool: &mut AnalysisTool
 }
 
 fn legend(ui: &mut Ui, context: &AnalysisContext<'_>, analysis: FaceAnalysis) {
-    let palette = context.contrast.palette();
+    let palette = context.contrast.palette(context.canvas);
     let units: Units = context.model.units();
     let meshes = analysis::shown_meshes(context.model, context.bodies);
     if meshes.is_empty() {

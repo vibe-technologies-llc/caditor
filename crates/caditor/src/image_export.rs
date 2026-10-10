@@ -617,7 +617,7 @@ fn background_name(background: Background) -> &'static str {
 
 fn background_hint(background: Background) -> &'static str {
     match background {
-        Background::Viewport => "The dark background of the 3D view.",
+        Background::Viewport => "The background of the 3D view, dark or light as it is shown.",
         Background::Transparent => "Only the model, for placing over a page or slide.",
     }
 }

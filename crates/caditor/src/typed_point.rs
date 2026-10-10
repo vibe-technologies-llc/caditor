@@ -320,8 +320,8 @@ impl TypedPoint {
         let error = self.error.clone();
         let waiting = self.waiting && !self.focus_pending;
         let (label_color, hint) = match waiting {
-            true => (canvas::MUTED, WAITING_HINT),
-            false => (canvas::TEXT, hint),
+            true => (canvas::chrome(ctx).muted, WAITING_HINT),
+            false => (canvas::chrome(ctx).text, hint),
         };
         let inner_width = (bounds.width() - FRAME_MARGIN.sum().x).max(FIELD_WIDTH);
         let response = Area::new(id.with("area"))
@@ -330,7 +330,7 @@ impl TypedPoint {
             .fixed_pos(anchor)
             .constrain_to(bounds)
             .show(ctx, |ui| {
-                canvas_frame().show(ui, |ui| {
+                canvas_frame(ctx).show(ui, |ui| {
                     ui.set_max_width(inner_width);
                     let field = ui
                         .horizontal(|ui| {
@@ -361,11 +361,12 @@ impl TypedPoint {
                 .fixed_pos(response.response.rect.center_bottom())
                 .constrain_to(bounds)
                 .show(ctx, |ui| {
-                    canvas_frame().show(ui, |ui| {
+                    canvas_frame(ctx).show(ui, |ui| {
                         ui.set_max_width(inner_width);
                         ui.horizontal(|ui| {
-                            widgets::icon_label(ui, icons::FAILED, canvas::ERROR);
-                            canvas_text(ui, error, canvas::ERROR);
+                            let failed = canvas::chrome(ui.ctx()).error;
+                            widgets::icon_label(ui, icons::FAILED, failed);
+                            canvas_text(ui, error, failed);
                         });
                     });
                 });
@@ -404,9 +405,9 @@ impl TypedPoint {
     }
 }
 
-fn canvas_frame() -> Frame {
+fn canvas_frame(ctx: &egui::Context) -> Frame {
     Frame::new()
-        .fill(canvas::PANEL)
+        .fill(canvas::chrome(ctx).panel)
         .corner_radius(canvas::RADIUS)
         .inner_margin(FRAME_MARGIN)
 }
