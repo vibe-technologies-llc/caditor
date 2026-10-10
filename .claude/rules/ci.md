@@ -25,7 +25,9 @@ paths:
 - Tests run `--locked` with `CADITOR_REQUIRE_GPU=1` on lavapipe (without it the offscreen render
   tests skip when no adapter exists). Clippy runs `--all-features` so the `fuzzing` modules are
   linted. Also: `rust-formatter --check`, `cargo deny` on the root and fuzz workspaces, a snapshot
-  archive checked by `packaging/check-install.sh`, and a minute of fuzzing per target.
+  archive checked by `packaging/check-install.sh` and the `.deb`, `.rpm` and AppImage built from
+  it by `packaging/build-packages.sh` and checked, the `.deb` installed and removed with `apt-get`,
+  by `packaging/check-packages.sh --install`, and a minute of fuzzing per target.
 - The `stress` job runs only nightly and on demand (`schedule`, `workflow_dispatch`): the ignored
   kernel and sketch stress tests and the large STEP import benchmark (`app-tests.md`) in release. `random_placements_of_every_fixture` asserts that every
   boolean of its seed succeeds, so a kernel change that breaks one fails the job.
@@ -35,9 +37,13 @@ paths:
 - `deny.toml` resolves both release targets, Linux and Windows.
 - Ubuntu 22.04's `desktop-file-validate` rejects keys newer than its spec; `caditor.desktop` uses
   only keys it knows.
+- The AppImage runtime is a pin like the tools (`APPIMAGE_RUNTIME_VERSION` and
+  `APPIMAGE_RUNTIME_SHA256`): `build-packages.sh` reads `versions.env` itself when run outside
+  the workflows and checks the download against the sum, `bump-pins.sh` picks the newest dated
+  release of the runtime (not its rolling `continuous` one).
 - `build-release.sh` fails on any `appstreamcli` finding except `accepted_metainfo_findings`, which
-  follow from publishing no identity (`docs/RELEASING.md`). The release build attests the archive's
-  provenance (Sigstore). The release builds the MSI on Windows the same way and publishes it beside
+  follow from publishing no identity (`docs/RELEASING.md`). The release build attests the provenance (Sigstore) of
+  the archive and of the `.deb`, `.rpm` and AppImage made from it. The release builds the MSI on Windows the same way and publishes it beside
   the archive.
 
 ## Pinning and cargo-deny

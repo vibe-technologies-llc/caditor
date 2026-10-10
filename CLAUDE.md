@@ -64,8 +64,9 @@ Invariants across crates:
 
 ## Releases
 
-A `v<version>` tag builds a `.tar.zst` with an installer on Ubuntu 22.04 and a per-user MSI on
-Windows (`release.yml`) and publishes a GitHub release. `packaging/` holds the desktop entry,
+A `v<version>` tag builds a `.tar.zst` with an installer on Ubuntu 22.04, a `.deb`, an `.rpm` and
+an AppImage made from that archive, and a per-user MSI on Windows (`release.yml`) and publishes a
+GitHub release. `packaging/` holds the desktop entry,
 logo, metainfo, installer and release scripts, `packaging/windows/` the WiX source and its
 scripts; `docs/RELEASING.md` explains the choices and the steps.
 
