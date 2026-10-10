@@ -394,6 +394,11 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 - [low · medium] Open decision on kept measurements: a failed or suppressed measurement fails the
   features using its value, as a failing feature's dependents do; whether they should instead keep
   its last reading (the measured parameter's stored value already holds it) is undecided.
+- [low · medium] Fillet and Chamfer on a selected face or a whole body store the edges they
+  resolve to when the feature is made, so an edge a later upstream change adds to that face or body
+  is not rounded; storing the face or body itself (a new blend reference re-expanded to its edges on
+  each recompute, saved as a record of its own) would let the rounding follow, as Fusion's rule
+  fillets do.
 - [low · hard] Scale is uniform: a body cannot be stretched by different factors along the three
   axes (a plane stays a plane, but a cylinder becomes an elliptical one, which the kernel's
   surfaces do not have).
