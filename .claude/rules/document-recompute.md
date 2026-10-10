@@ -27,9 +27,12 @@ paths:
   through `missing_upstream`.
 - `Recompute` walks the features in tree order and reuses a cached result when the feature's
   content (by `same_content`, so a sketch's ID counter and a name do not count), the values of the
-  parameters it uses and its upstream results are unchanged. Upstream results count as unchanged
-  when they are the same `Arc` or equal in what dependents read (a sketch's plane and entities, a
-  datum's result, a solid's body and geometry), so an edit that leaves geometry alone stops there.
+  parameters it uses and its upstream results are unchanged. Those values are fingerprinted from
+  the feature's overlaid parameters (`Key::of` through `Measured::overlay`), so a parameter derived
+  from a measurement keys on its worked-out value and follows its other inputs too. Upstream
+  results count as unchanged when they are the same `Arc` or equal in what dependents read (a
+  sketch's plane and entities, a datum's result, a solid's body and geometry), so an edit that
+  leaves geometry alone stops there.
 - Features evaluate in parallel while the walk keeps committing them in tree order, so statuses,
   cache entries and their order, `recomputed`, glimpses and progress are those of a sequential
   walk. An evaluator sees only what it uses (`View`): the results of `features()` and the states

@@ -321,6 +321,40 @@ fn a_parameter_reading_a_measurement_feeds_features_below_it() {
 }
 
 #[test]
+fn a_parameter_derived_from_a_measurement_follows_its_other_inputs_through_the_cache() {
+    let mut model = model();
+    let kept = height_of_corner(&model);
+    let _ = keep(&mut model, "clearance", kept);
+    let mut transaction = model.document.transaction("Half");
+    let divisor = transaction.add_parameter("k", transaction.parse("2").unwrap());
+    let half = transaction.add_parameter("half", transaction.parse("clearance / k").unwrap());
+    model.document.apply(transaction.finish()).unwrap();
+    let reader = reader(&mut model, half);
+    let mut recompute = Recompute::default();
+    let mut run = |document: &Document| {
+        recompute.run(document, &ModelEvaluator, &CancelToken::never(), &|_, _| {})
+    };
+
+    let halved = run(&model.document);
+    model
+        .document
+        .apply(Transaction::single(
+            "k",
+            Edit::SetParameterExpression {
+                id: divisor,
+                expression: model.document.parse("4").unwrap(),
+            },
+        ))
+        .unwrap();
+    let quartered = run(&model.document);
+
+    assert!((point(&halved, reader).x - 2.0).abs() < CLOSE);
+    assert_eq!(quartered.parameters.value(half), Ok(Quantity::length(1.0)));
+    assert!((point(&quartered, reader).x - 1.0).abs() < CLOSE);
+    assert!(quartered.recomputed().contains(&reader));
+}
+
+#[test]
 fn a_failed_measurement_fails_the_features_reading_it_alone() {
     let mut model = model();
     let evaluation = evaluate(&model.document);

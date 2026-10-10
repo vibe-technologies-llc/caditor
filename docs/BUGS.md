@@ -68,14 +68,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Modelling
 
-- [high · easy] A parameter derived from a measurement keeps an old result when its other inputs
-  change: the global `ParameterValues::evaluate` makes every parameter reading a measurement
-  `Unmeasured`, `fingerprint` turns that error into `None`, and `Key::of` fingerprints the
-  feature's parameters from those global values with only the measurement in its upstream. With
-  Measurement 1 feeding `clearance`, `half = clearance / k` and a datum point offset by `half`,
-  changing `k` from 2 to 4 reuses the cached point though Parameters shows the new `half`; tests
-  miss it because their `evaluate` helper builds a fresh `Recompute`. Fingerprint from the
-  overlaid values of the feature's view, or add every parameter the derived ones reach.
 - [high · medium] Scale model leaves every other configuration at the old size: `Document::scaled`
   rewrites parameters, feature lengths and saved views but never reads `configurations`, and a
   parameter edit copies its new expression into the active row only, so switching to another

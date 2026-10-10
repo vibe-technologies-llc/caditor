@@ -655,8 +655,12 @@ impl Key {
             .map(|(used, _)| *used)
             .filter(|used| suppressed.contains(used))
             .collect();
+        let overlaid = run
+            .measured
+            .overlay(run.parameters, feature, &view.features);
+        let parameters = overlaid.as_ref().unwrap_or(run.parameters);
         Self {
-            parameters: run.parameters.fingerprint(&used_parameters),
+            parameters: parameters.fingerprint(&used_parameters),
             appearances,
             names: Names::of(
                 run.document,
