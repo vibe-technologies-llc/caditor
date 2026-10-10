@@ -30,6 +30,7 @@ const OFFSET_TOLERANCE: f64 = 10.0 * LINEAR_RESOLUTION;
 const OPENING_REACH: f64 = 2.0;
 const SMOOTH_TOLERANCE: f64 = 1e-6;
 const NAMED_WALL_FACES: usize = 4;
+const LEANING: f64 = 1e-6;
 
 pub use offset::{OffsetError, offset_faces};
 
@@ -53,6 +54,8 @@ pub enum ShellError {
     EdgeCollapses(EdgeId),
     #[error("the opening in face {0:?} could not be cut")]
     Opening(FaceId),
+    #[error("face {wall:?} leans over the opening in face {open:?}, so its wall would be cut thin")]
+    Overhang { open: FaceId, wall: FaceId },
     #[error("the offset walls do not form a valid solid")]
     Walls {
         faces: Vec<FaceId>,
@@ -321,13 +324,12 @@ fn edge_faces(solid: &Solid, edge: EdgeId) -> Vec<FaceId> {
     faces
 }
 
-fn meets_smoothly(solid: &Solid, edge: EdgeId, faces: &[FaceId]) -> bool {
-    let [first, second] = faces else {
-        return false;
-    };
-    let Some(definition) = solid.edge(edge) else {
-        return true;
-    };
+fn normals_at_middle(
+    solid: &Solid,
+    edge: EdgeId,
+    [first, second]: [FaceId; 2],
+) -> Option<[Vector3; 2]> {
+    let definition = solid.edge(edge)?;
     let middle = definition.curve().point(definition.interval().middle());
     let normal = |face: FaceId| {
         let face = solid.face(face)?;
@@ -335,10 +337,32 @@ fn meets_smoothly(solid: &Solid, edge: EdgeId, faces: &[FaceId]) -> bool {
         let uv = surface.project(middle, None);
         Some(surface.normal(uv.x, uv.y)? * face.sense().sign())
     };
-    match (normal(*first), normal(*second)) {
-        (Some(a), Some(b)) => a.cross(b).length() <= SMOOTH_TOLERANCE && a.dot(b) > 0.0,
-        _ => true,
-    }
+    Some([normal(first)?, normal(second)?])
+}
+
+fn smooth(normals: [Vector3; 2]) -> bool {
+    let [a, b] = normals;
+    a.cross(b).length() <= SMOOTH_TOLERANCE && a.dot(b) > 0.0
+}
+
+fn meets_smoothly(solid: &Solid, edge: EdgeId, faces: &[FaceId]) -> bool {
+    let [first, second] = faces else {
+        return false;
+    };
+    normals_at_middle(solid, edge, [*first, *second]).is_none_or(smooth)
+}
+
+fn leaning_over(solid: &Solid, open: FaceId, opened: &[FaceId]) -> Option<FaceId> {
+    collapse::loop_edges(solid, open)
+        .into_iter()
+        .find_map(|edge| {
+            let wall = edge_faces(solid, edge)
+                .into_iter()
+                .find(|face| !opened.contains(face))?;
+            let normals = normals_at_middle(solid, edge, [open, wall])?;
+            let [across, along] = normals;
+            (!smooth(normals) && across.dot(along) > LEANING).then_some(wall)
+        })
 }
 
 fn extendable(solid: &Solid, open: &[FaceId], voids: &BTreeSet<FaceId>) -> BTreeSet<FaceId> {
@@ -395,6 +419,14 @@ fn hollow(
     voids: &BTreeSet<FaceId>,
     feature: u64,
 ) -> Result<Hollowed, ShellError> {
+    let swept = open
+        .iter()
+        .filter(|face| !offsets.is_outward(**face) && !voids.contains(face));
+    for face in swept {
+        if let Some(wall) = leaning_over(offsets.solid, *face, open) {
+            return Err(ShellError::Overhang { open: *face, wall });
+        }
+    }
     let inner::Inner {
         solid: mut inner,
         dropped,

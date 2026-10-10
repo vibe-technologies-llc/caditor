@@ -57,6 +57,7 @@ impl From<ShellError> for OffsetError {
             ShellError::Cancelled(interrupted) => Self::Cancelled(interrupted),
             ShellError::TooThick
             | ShellError::Opening(_)
+            | ShellError::Overhang { .. }
             | ShellError::Voids(_)
             | ShellError::Boolean(_) => Self::Invalid {
                 faces: Vec::new(),

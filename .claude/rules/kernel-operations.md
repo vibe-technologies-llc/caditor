@@ -304,7 +304,13 @@ paths:
     by circles of one cone whose offset tip passes the face's offset, and a one-loop face whose
     offset edges all shrink to nothing or all but two apart from each other (a chamfer, a narrow
     top, a cone band closing into a ridge) are dropped; shrinking faces are found from the solved
-    vertices, then everything is solved again without them, round after round;
+    vertices, then everything is solved again without them, round after round. A four-sided face
+    whose edges all shrink first tries closing into a ridge along either pair of opposite edges
+    (`narrow_to_ridge`): the pair is kept when, solved again with the other pair vanishing, its
+    two edges, merged into one between the faces beyond them, neither turn over nor shrink to
+    nothing, since an opened top between the long and short sides of a bevelled box passes both
+    pairs at its own offset yet closes into a ridge below it; only when neither pair holds do all
+    four vertices merge into one;
   - a one-loop face whose kept edges form two sides apart, one a single edge and the other a chain
     (a rim split by another face's seam), is dropped only when its offset outline turns over: the
     loop's offset vertices projected onto the original surface (hinted by each coedge's pcurve
@@ -328,7 +334,10 @@ paths:
   reaching the thickness into the material.
 - Otherwise (or when that fails) every face is offset inward and a prism swept outward from the
   offset copy of each opened face is unioned before subtracting, which needs the thickness below
-  half the body in every direction.
+  half the body in every direction. The prism's sides are square to the opened face, so a closed
+  face meeting it at a sharp edge and leaning over it (its outward normal along the opened
+  face's, a chamfer round the rim) would be cut thinner than the thickness: that is
+  `ShellError::Overhang`, refused before building rather than a solid with a thin wall.
 - `ShellError::Walls` names the faces whose offsets failed to build or to settle, up to
   `NAMED_WALL_FACES`; a failure spread over more of the body names none.
 - When the outward attempt only fails to keep every wall and the inward one fails with an error
