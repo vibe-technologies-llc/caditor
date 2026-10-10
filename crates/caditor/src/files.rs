@@ -689,6 +689,19 @@ enum Event {
     },
 }
 
+impl Event {
+    fn written(&self) -> Option<(WriteKind, &Path)> {
+        match self {
+            Self::SketchExported { path, .. }
+            | Self::FaceExported { path, .. }
+            | Self::BothExported { path, .. } => Some((WriteKind::Drawing, path)),
+            Self::ParametersExported { path, .. } => Some((WriteKind::Parameters, path)),
+            Self::TemplateSaved { path, .. } => Some((WriteKind::Template, path)),
+            _ => None,
+        }
+    }
+}
+
 enum Intent {
     New,
     Empty,
@@ -739,6 +752,29 @@ impl Importing {
 
     fn token(&self) -> CancelToken {
         stop_token(&self.stopped)
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum WriteKind {
+    Drawing,
+    Parameters,
+    Template,
+}
+
+struct PendingWrite {
+    kind: WriteKind,
+    path: PathBuf,
+}
+
+impl PendingWrite {
+    fn description(&self) -> String {
+        let name = display_name(Some(&self.path));
+        match self.kind {
+            WriteKind::Drawing => format!("Writing the drawing “{name}”…"),
+            WriteKind::Parameters => format!("Writing the parameters “{name}”…"),
+            WriteKind::Template => format!("Saving the template “{name}”…"),
+        }
     }
 }
 
@@ -809,6 +845,7 @@ pub struct Files {
     events: Sender<Event>,
     inbox: Receiver<Event>,
     jobs: Option<Sender<Job>>,
+    writing: Vec<PendingWrite>,
     recent: RecentFiles,
     recoverable: Vec<Candidate>,
     recovery_open: bool,
@@ -859,6 +896,7 @@ impl Files {
             events,
             inbox,
             jobs: None,
+            writing: Vec::new(),
             recent: RecentFiles::default(),
             recoverable: Vec::new(),
             recovery_open: false,
@@ -1551,7 +1589,7 @@ impl Files {
             changed = true;
             self.handle(event, model, editing);
         }
-        if self.waiting_for_exports.is_some() && !self.exports_running() {
+        if self.waiting_for_exports.is_some() && !self.work_running() {
             self.waiting_for_exports = None;
             self.close_storage(model);
             changed = true;
@@ -1562,6 +1600,9 @@ impl Files {
     }
 
     fn handle(&mut self, event: Event, model: &mut Model, editing: &mut SketchEditing) {
+        if let Some((kind, path)) = event.written() {
+            self.finish_write(kind, path);
+        }
         match event {
             Event::ScanFailed => model.set_notice(Notice::failure(
                 "caditor could not look for unsaved work from an earlier session. It will look \
@@ -2067,7 +2108,9 @@ impl Files {
         let name = drawing_export::sources_name(model, features, choices);
         let failed = (path.clone(), name.clone());
         let nested = matches!(sheet.layout, SheetLayout::Nested(_));
-        self.spawn(
+        self.spawn_write(
+            WriteKind::Drawing,
+            path.clone(),
             move || {
                 let format = SketchFormat::of(&path).unwrap_or_default();
                 let named: Vec<NamedSketch<'_>> = sketches
@@ -2121,7 +2164,9 @@ impl Files {
         };
         let failed = (path.clone(), face.clone());
         let nested = matches!(sheet.layout, SheetLayout::Nested(_));
-        self.spawn(
+        self.spawn_write(
+            WriteKind::Drawing,
+            path.clone(),
             move || {
                 let format = SketchFormat::of(&path).unwrap_or_default();
                 let result = match named_faces(&found) {
@@ -2162,7 +2207,9 @@ impl Files {
         };
         let name = drawing_export::quoted_sketches(model, features);
         let failed = (path.clone(), name.clone());
-        self.spawn(
+        self.spawn_write(
+            WriteKind::Drawing,
+            path.clone(),
             move || {
                 let format = SketchFormat::of(&path).unwrap_or_default();
                 let named: Vec<NamedSketch<'_>> = sketches
@@ -2347,7 +2394,7 @@ impl Files {
                 }
             }
             Intent::Replace(opened) => self.finish_open(*opened, model),
-            Intent::Quit if self.exports_running() => {
+            Intent::Quit if self.work_running() => {
                 self.waiting_for_exports = Some(ExportWait::waiting());
             }
             Intent::Quit => self.close_storage(model),
@@ -2365,14 +2412,38 @@ impl Files {
         self.exporter.is_running() || self.image.is_running()
     }
 
-    fn running_exports(&self) -> Vec<String> {
+    fn work_running(&self) -> bool {
+        self.exports_running() || !self.writing.is_empty()
+    }
+
+    fn running_work(&self) -> Vec<String> {
         [
             self.exporter.running_description(),
             self.image.running_description(),
         ]
         .into_iter()
         .flatten()
+        .chain(self.writing.iter().map(PendingWrite::description))
         .collect()
+    }
+
+    fn finish_write(&mut self, kind: WriteKind, path: &Path) {
+        if let Some(index) = self
+            .writing
+            .iter()
+            .position(|write| write.kind == kind && write.path == path)
+        {
+            self.writing.remove(index);
+        }
+    }
+
+    #[cfg(test)]
+    pub fn hold_jobs(&mut self) -> Sender<()> {
+        let (release, held) = mpsc::channel();
+        self.run_job(Box::new(move || {
+            held.recv().ok();
+        }));
+        release
     }
 
     fn save(&mut self, model: &mut Model) {
@@ -2791,6 +2862,17 @@ impl Files {
                 wake();
             }
         }));
+    }
+
+    fn spawn_write(
+        &mut self,
+        kind: WriteKind,
+        path: PathBuf,
+        task: impl FnOnce() -> Event + Send + 'static,
+        failed: impl FnOnce() -> Event + Send + 'static,
+    ) {
+        self.writing.push(PendingWrite { kind, path });
+        self.spawn(task, failed);
     }
 
     fn run_job(&mut self, job: Job) {
@@ -3451,7 +3533,12 @@ pub fn show(
     if let Some((_, since)) = &files.closing {
         command = closing(&ctx, *since);
     } else if let Some(waiting) = &files.waiting_for_exports {
-        command = finishing_exports(&ctx, &files.running_exports(), waiting);
+        command = finishing_exports(
+            &ctx,
+            &files.running_work(),
+            files.exports_running(),
+            waiting,
+        );
     } else if let Some(open) = &files.opening {
         command = opening(&ctx, &open.path, open.origin);
     } else if let Some(intent) = &files.guard {
@@ -3596,11 +3683,13 @@ fn closing(ctx: &egui::Context, since: Instant) -> Option<FileCommand> {
 fn finishing_exports(
     ctx: &egui::Context,
     running: &[String],
+    cancellable: bool,
     waiting: &ExportWait,
 ) -> Option<FileCommand> {
     let waited = waiting.since.elapsed();
-    let slow = waiting.stopping && waited >= QUIT_ANYWAY_AFTER;
-    if waiting.stopping && !slow {
+    let uncancellable = waiting.stopping || !cancellable;
+    let slow = uncancellable && waited >= QUIT_ANYWAY_AFTER;
+    if uncancellable && !slow {
         ctx.request_repaint_after(QUIT_ANYWAY_AFTER.saturating_sub(waited));
     }
     dialog_parts::titled_modal(ctx, "closing-exports", "Closing…", |ui| {
@@ -3610,33 +3699,39 @@ fn finishing_exports(
                 ui.label(description);
             });
         }
-        let explanation = if waiting.stopping {
-            "Stopping the export. caditor closes as soon as it has stopped."
-        } else {
-            "caditor closes when the export is done. Cancelling it writes no file."
+        let explanation = match (cancellable, waiting.stopping) {
+            (false, _) => "caditor closes as soon as the file is written.",
+            (true, true) => "Stopping the export. caditor closes as soon as it has stopped.",
+            (true, false) => {
+                "caditor closes when the export is done. Cancelling it writes no file."
+            }
         };
         ui.label(widgets::muted(explanation, ui));
         widgets::footer_split(
             ui,
-            |ui| match (waiting.stopping, slow) {
-                (false, _) => ui
-                    .add(widgets::danger_button("Cancel export and quit"))
-                    .on_hover_text("Stop the export without writing the file, then close caditor")
-                    .clicked()
-                    .then_some(FileCommand::StopExportsAndQuit),
-                (true, true) => ui
-                    .add(widgets::danger_button("Quit anyway"))
-                    .on_hover_text(
-                        "The export is left unfinished and may leave a temporary file beside the \
-                         place it was writing to.",
-                    )
-                    .clicked()
-                    .then_some(FileCommand::QuitAnyway),
-                (true, false) => None,
+            |ui| {
+                if slow {
+                    ui.add(widgets::danger_button("Quit anyway"))
+                        .on_hover_text(
+                            "What is still being written is left unfinished and may leave a \
+                             temporary file beside the place it was writing to.",
+                        )
+                        .clicked()
+                        .then_some(FileCommand::QuitAnyway)
+                } else if uncancellable {
+                    None
+                } else {
+                    ui.add(widgets::danger_button("Cancel export and quit"))
+                        .on_hover_text(
+                            "Stop the export without writing the file, then close caditor",
+                        )
+                        .clicked()
+                        .then_some(FileCommand::StopExportsAndQuit)
+                }
             },
             |ui| {
                 ui.add(widgets::button("Don't quit"))
-                    .on_hover_text("Keep caditor open and let the export carry on")
+                    .on_hover_text("Keep caditor open and let the writing carry on")
                     .clicked()
                     .then_some(FileCommand::KeepExporting)
             },

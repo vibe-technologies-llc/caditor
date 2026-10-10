@@ -5,7 +5,8 @@ use egui::{Event, Id, Key, Modifiers, PanelState, PointerButton, Pos2};
 use tempfile::TempDir;
 
 use super::{
-    Harness, canonical, click_window_button, extruded_plate, run_from_palette, sample_document,
+    Harness, Plane, Point2, Sketch, canonical, click_window_button, extruded_plate, rectangle,
+    run_from_palette, sample_document,
 };
 use crate::{
     app::Workspace,
@@ -577,4 +578,91 @@ fn quitting_while_an_export_runs_can_be_called_off_or_stop_the_export_and_quit()
     harness.wait_until("caditor quits", |harness| harness.files.should_quit());
 
     assert!(!dir.path().join("plate.3mf").exists());
+}
+
+fn quit_while_the_replacing_write_is_held(harness: &mut Harness, running: &str) {
+    let release = harness.files.hold_jobs();
+
+    harness.click("Replace");
+    harness.command(FileCommand::Quit);
+    if harness.shows("Close without saving") {
+        harness.click("Close without saving");
+    }
+    harness.frame();
+    harness.frame();
+
+    assert!(harness.shows("Closing…"));
+    assert!(harness.shows(running));
+    assert!(!harness.shows("Cancel export and quit"));
+    assert!(!harness.files.should_quit());
+
+    release.send(()).unwrap();
+    harness.wait_until("caditor quits", |harness| harness.files.should_quit());
+}
+
+#[test]
+fn quitting_while_the_parameters_are_being_written_waits_for_the_file() {
+    let dir = TempDir::new().unwrap();
+    let written = dir.path().join("dimensions.csv");
+    fs::write(&written, b"precious").unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+
+    harness.answer_dialog(Some(dir.path().join("dimensions")));
+    run_from_palette(&mut harness, "Export parameters");
+    harness.wait_until("the replacement is confirmed", |harness| {
+        harness.shows("Replace “dimensions.csv”?")
+    });
+    quit_while_the_replacing_write_is_held(
+        &mut harness,
+        "Writing the parameters “dimensions.csv”…",
+    );
+
+    assert!(
+        fs::read_to_string(&written)
+            .unwrap()
+            .starts_with("caditor-parameters,")
+    );
+}
+
+#[test]
+fn quitting_while_a_template_is_being_saved_waits_for_the_file() {
+    let dir = TempDir::new().unwrap();
+    let folder = dir.path().join("config").join("templates");
+    let written = folder.join("Bracket.caditor");
+    fs::create_dir_all(&folder).unwrap();
+    fs::write(&written, b"precious").unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+
+    harness.answer_dialog(Some(folder.join("Bracket")));
+    run_from_palette(&mut harness, "Save as template");
+    harness.wait_until("the replacement is confirmed", |harness| {
+        harness.shows("Replace “Bracket.caditor”?")
+    });
+    quit_while_the_replacing_write_is_held(&mut harness, "Saving the template “Bracket.caditor”…");
+
+    assert_ne!(fs::read(&written).unwrap(), b"precious");
+}
+
+#[test]
+fn quitting_while_a_drawing_is_being_written_waits_for_the_file() {
+    let dir = TempDir::new().unwrap();
+    let written = dir.path().join("outline.dxf");
+    fs::write(&written, b"precious").unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    let mut sketch = Sketch::new(Plane::XY);
+    rectangle(&mut sketch, Point2::new(0.0, 0.0), Point2::new(40.0, 20.0));
+    let id = harness.add_sketch(sketch);
+    harness.settle();
+    harness.workspace.panels.choose_only(id);
+    harness.frame();
+
+    harness.answer_dialog(Some(dir.path().join("outline")));
+    run_from_palette(&mut harness, "export sketch");
+    harness.click("Export…");
+    harness.wait_until("the replacement is confirmed", |harness| {
+        harness.shows("Replace “outline.dxf”?")
+    });
+    quit_while_the_replacing_write_is_held(&mut harness, "Writing the drawing “outline.dxf”…");
+
+    assert_ne!(fs::read(&written).unwrap(), b"precious");
 }

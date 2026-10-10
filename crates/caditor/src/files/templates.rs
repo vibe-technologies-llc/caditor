@@ -12,7 +12,7 @@ use caditor_file::{
 use egui::Ui;
 
 use super::{
-    Event, FileCommand, Files, Intent, Opened, Opening, Origin, Output, Purpose,
+    Event, FileCommand, Files, Intent, Opened, Opening, Origin, Output, Purpose, WriteKind,
     internal_load_error, menu_item, submenu_label, with_extension,
 };
 use crate::{
@@ -283,7 +283,9 @@ impl Files {
     pub(super) fn save_template(&mut self, path: PathBuf, model: &Model) {
         let document = model.document().clone();
         let failed = path.clone();
-        self.spawn(
+        self.spawn_write(
+            WriteKind::Template,
+            path.clone(),
             move || Event::TemplateSaved {
                 result: save(&document, &path),
                 path,

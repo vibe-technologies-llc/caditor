@@ -13,9 +13,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   offers it and it is deleted after `SET_ASIDE_KEPT_SECONDS`. A plain snapshot is the last saved
   state by definition: when the model file's head digest equals the header's `on_disk`, load the
   file as the base, replay the entries and report it; a `RebasedSnapshot` keeps today's handling.
-- [low · easy] Quitting while a sketch or face drawing export, a parameter file export or a
-  template save runs still drops it: only `Exporter` and `ImageExporter` are waited for
-  (`Files::exports_running`), the other writers have no running flag to ask.
 
 ## Kernel
 

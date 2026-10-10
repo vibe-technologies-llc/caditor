@@ -6,7 +6,7 @@ use caditor_file::{
 };
 use egui::{Grid, ScrollArea, Ui};
 
-use super::{Event, FileCommand, Files, Purpose};
+use super::{Event, FileCommand, Files, Purpose, WriteKind};
 use crate::{
     appearance::SPACE_S,
     feature_tree::count,
@@ -75,7 +75,9 @@ impl Files {
         let text = parameters_csv(model.document(), model.parameters());
         let exported = model.document().parameters().len();
         let failed = path.clone();
-        self.spawn(
+        self.spawn_write(
+            WriteKind::Parameters,
+            path.clone(),
             move || Event::ParametersExported {
                 result: write_parameters(&path, &text),
                 path,
