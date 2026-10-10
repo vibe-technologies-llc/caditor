@@ -241,9 +241,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   Every copy is the original's tool placed again, never recomputed where it lands (a copy of an
   extrusion up to next stops where the original did, not on the face it meets), and one pattern
   cannot chain a shift, a turn and a mirror.
-- [low · easy] Scale model moves a datum plane offset from a principal plane (no rotation) only
-  along its normal when the centre is off the origin: its origin within the plane does not follow
-  the scale, so a sketch on it may be displaced within the plane (`model_scale.rs`); untested.
 - [low · medium] Split face carries a sketch only straight, square to it or along a chosen line:
   a curve cannot be wrapped onto a curved face (a stripe laid round a cylinder by its unrolled
   length), and a sketch whose open chain touches one of its closed outlines is neither one chain

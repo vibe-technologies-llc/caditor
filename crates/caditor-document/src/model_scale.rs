@@ -172,7 +172,8 @@ impl Document {
     pub fn displaced_by_scale(&self, centre: Point3) -> Vec<DisplacedFeature> {
         self.features()
             .filter_map(|feature| {
-                let geometry = displaced_geometry(&feature.kind, centre);
+                let used = !self.dependents_of(&[feature.id()]).is_empty();
+                let geometry = displaced_geometry(&feature.kind, centre, used);
                 (!geometry.is_empty()).then(|| DisplacedFeature {
                     feature: feature.id(),
                     name: feature.name.clone(),
@@ -659,8 +660,15 @@ impl Rescaler {
     fn datum(&mut self, datum: &mut Datum, name: &str) -> Result<(), ModelScaleError> {
         match datum {
             Datum::Plane(plane) => {
-                let shift = match (&plane.base, &plane.rotation) {
-                    (PlaneReference::Principal(principal), None) => {
+                let shift = match (&plane.base, &plane.rotation, self.datums.frame) {
+                    (PlaneReference::Principal(principal), None, Some(frame)) => {
+                        plane.base = PlaneReference::Frame {
+                            frame,
+                            plane: *principal,
+                        };
+                        0.0
+                    }
+                    (PlaneReference::Principal(principal), None, None) => {
                         self.shift.dot(principal.plane().normal())
                     }
                     _ => 0.0,
@@ -1132,7 +1140,7 @@ fn projected_plane(source: &ProjectionSource) -> Option<PrincipalPlane> {
     }
 }
 
-fn displaced_geometry(kind: &FeatureKind, centre: Point3) -> Vec<PrincipalGeometry> {
+fn displaced_geometry(kind: &FeatureKind, centre: Point3, used: bool) -> Vec<PrincipalGeometry> {
     let found: Vec<PrincipalGeometry> = match kind {
         FeatureKind::Sketch(sketch) => sketch
             .projections
@@ -1154,5 +1162,25 @@ fn displaced_geometry(kind: &FeatureKind, centre: Point3) -> Vec<PrincipalGeomet
             displaced.push(geometry);
         }
     }
+    if let Some(plane) = offset_from_principal(kind)
+        && used
+        && !holds(PrincipalGeometry::Origin, centre)
+    {
+        let geometry = PrincipalGeometry::Plane(plane);
+        if !displaced.contains(&geometry) {
+            displaced.push(geometry);
+        }
+    }
     displaced
+}
+
+fn offset_from_principal(kind: &FeatureKind) -> Option<PrincipalPlane> {
+    match kind {
+        FeatureKind::Datum(Datum::Plane(DatumPlane {
+            base: PlaneReference::Principal(plane),
+            rotation: None,
+            ..
+        })) => Some(*plane),
+        _ => None,
+    }
 }
