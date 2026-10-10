@@ -5,6 +5,7 @@ mod camera;
 mod culling;
 mod gpu;
 mod image;
+mod kept;
 mod mesh;
 mod offscreen;
 #[cfg(test)]
@@ -281,17 +282,10 @@ async fn configure(
         config.format = format;
     }
     config.present_mode = present_mode;
-    config.view_formats = srgb_view(adapter, config.format).into_iter().collect();
-    if try_configure(device, surface, &config).await.is_ok() {
-        return Ok(config);
-    }
-    if !config.view_formats.is_empty() {
-        config.view_formats.clear();
-        if try_configure(device, surface, &config).await.is_ok() {
-            return Ok(config);
-        }
-    }
-    Err(RenderError::ConfigureSurface)
+    try_configure(device, surface, &config)
+        .await
+        .map(|()| config)
+        .map_err(|_| RenderError::ConfigureSurface)
 }
 
 async fn try_configure(
@@ -305,21 +299,12 @@ async fn try_configure(
         None => Ok(()),
         Some(error) => {
             log::warn!(
-                "the drawing surface could not be configured with views in {:?}: {error}",
-                config.view_formats
+                "the drawing surface could not be configured as {:?}: {error}",
+                config.format
             );
             Err(error)
         }
     }
-}
-
-fn srgb_view(adapter: &wgpu::Adapter, format: wgpu::TextureFormat) -> Option<wgpu::TextureFormat> {
-    let srgb = format.add_srgb_suffix();
-    let views_allowed = adapter
-        .get_downlevel_capabilities()
-        .flags
-        .contains(wgpu::DownlevelFlags::SURFACE_VIEW_FORMATS | wgpu::DownlevelFlags::VIEW_FORMATS);
-    (views_allowed && srgb != format).then_some(srgb)
 }
 
 pub struct Renderer {
@@ -458,7 +443,7 @@ impl Renderer {
         if !self.finish_recovery()? {
             return Ok(FrameStart::Skipped);
         }
-        self.viewport.picking().abandon_unsubmitted();
+        self.viewport.abandon_unsubmitted();
         if self.needs_reconfigure || clamp_size(window_size, self.gpu.largest_side()) != self.size()
         {
             self.resize(window_size);
@@ -498,23 +483,8 @@ impl Renderer {
         let view = surface_texture
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-        let linear_view = self
-            .gpu
-            .config
-            .view_formats
-            .iter()
-            .find(|format| format.is_srgb())
-            .map(|format| {
-                surface_texture
-                    .texture
-                    .create_view(&wgpu::TextureViewDescriptor {
-                        format: Some(*format),
-                        ..Default::default()
-                    })
-            });
         let target = SurfaceTarget {
             view: &view,
-            linear_view: linear_view.as_ref(),
             width: surface_texture.texture.width(),
             height: surface_texture.texture.height(),
         };
@@ -561,7 +531,6 @@ impl Renderer {
             .submit(preceding.into_iter().chain([frame.encoder.finish()]));
         self.gpu.queue.present(frame.surface_texture);
         self.viewport
-            .picking()
             .after_submit(&self.gpu.device, &self.wake, submission);
     }
 
@@ -691,7 +660,6 @@ impl Renderer {
         config.present_mode = wgpu::PresentMode::Fifo;
         config.alpha_mode = wgpu::CompositeAlphaMode::Auto;
         config.desired_maximum_frame_latency = CONSERVATIVE_FRAME_LATENCY;
-        config.view_formats.clear();
         self.gpu.note_presentation();
         self.resize(self.size());
     }

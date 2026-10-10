@@ -7,8 +7,9 @@ use crate::{
     SurfaceSize,
     camera::{Projection, View},
     culling::ClipWindow,
-    gpu::{self, Bytes, GrowableBuffer, Pack, QuadIndices, Records},
+    gpu::{self, Bytes, GrowableBuffer, Pack, QuadIndices, Records, Wake},
     image::{self, Background, ChannelOrder, ImageRequest, Tile},
+    kept::{KeptView, Shown, ViewCopy},
     mesh::{MESH_VERTEX_STRIDE, MeshCache, MeshPool, UploadBudget},
     picking::{self, PickPrepared, PickTargets, PickWindow, Picking},
     scene::{
@@ -70,7 +71,6 @@ pub struct ViewportFrame<'a> {
 
 pub struct SurfaceTarget<'a> {
     pub view: &'a wgpu::TextureView,
-    pub linear_view: Option<&'a wgpu::TextureView>,
     pub width: u32,
     pub height: u32,
 }
@@ -207,12 +207,14 @@ impl Uniform {
         }
     }
 
-    fn write(&mut self, queue: &wgpu::Queue, bytes: &Bytes) {
-        if self.written != bytes.as_slice() {
+    fn write(&mut self, queue: &wgpu::Queue, bytes: &Bytes) -> bool {
+        let changed = self.written != bytes.as_slice();
+        if changed {
             queue.write_buffer(&self.buffer, 0, bytes.as_slice());
             self.written.clear();
             self.written.extend_from_slice(bytes.as_slice());
         }
+        changed
     }
 }
 
@@ -383,29 +385,36 @@ struct SceneTargets {
     size: TargetSize,
     multisampled_color: Option<Multisampled>,
     depth: wgpu::TextureView,
+    kept: KeptView,
 }
 
 impl SceneTargets {
     fn new(
         device: &wgpu::Device,
-        format: wgpu::TextureFormat,
-        sample_count: u32,
+        (format, sample_count): (wgpu::TextureFormat, u32),
         size: TargetSize,
+        copy: &ViewCopy,
     ) -> Self {
         let extent = wgpu::Extent3d {
             width: size.width,
             height: size.height,
             depth_or_array_layers: 1,
         };
+        let linear_format = size
+            .linear
+            .then(|| srgb_view_format(format))
+            .flatten()
+            .filter(|_| sample_count > 1);
         Self {
             size,
+            kept: KeptView::new(device, copy, format, extent, linear_format),
             multisampled_color: (sample_count > 1).then(|| {
                 Multisampled::new(
                     device,
                     "multisampled viewport color",
                     (format, sample_count),
                     extent,
-                    size.linear,
+                    linear_format.is_some(),
                 )
             }),
             depth: device
@@ -785,6 +794,7 @@ pub struct ViewportRenderer {
     fill_order: FillOrder,
     #[cfg(test)]
     work: Work,
+    copy: ViewCopy,
     mesh_pool: MeshPool,
     meshes: MeshCache,
     translucent: MeshCache,
@@ -848,6 +858,7 @@ impl ViewportRenderer {
             fill_order: FillOrder::default(),
             #[cfg(test)]
             work: Work::default(),
+            copy: ViewCopy::new(device, format),
             mesh_pool: MeshPool::default(),
             meshes,
             translucent: MeshCache::new(device),
@@ -932,6 +943,25 @@ impl ViewportRenderer {
         self.mesh_upload_bytes = bytes;
     }
 
+    pub fn after_submit(
+        &mut self,
+        device: &wgpu::Device,
+        wake: &Wake,
+        submission: wgpu::SubmissionIndex,
+    ) {
+        self.picking.after_submit(device, wake, submission);
+        if let Some(targets) = self.targets.as_mut() {
+            targets.kept.holding.after_submit();
+        }
+    }
+
+    pub fn abandon_unsubmitted(&mut self) {
+        self.picking.abandon_unsubmitted();
+        if let Some(targets) = self.targets.as_mut() {
+            targets.kept.holding.abandon_unsubmitted();
+        }
+    }
+
     pub fn draw(
         &mut self,
         device: &wgpu::Device,
@@ -940,36 +970,66 @@ impl ViewportRenderer {
         surface: &SurfaceTarget<'_>,
         viewport: Option<&ViewportFrame<'_>>,
     ) -> Faults {
-        let linear_view = surface.linear_view.filter(|_| self.linear_resolve);
         let size = TargetSize {
             width: surface.width,
             height: surface.height,
-            linear: linear_view.is_some(),
+            linear: self.linear_resolve,
         };
-        let mut faults = Faults {
-            targets: self.ensure_targets(device, size),
-            ..Faults::default()
-        };
+        let refused_targets = self.ensure_targets(device, size);
         let viewport =
             viewport.filter(|viewport| viewport.rect.width >= 1.0 && viewport.rect.height >= 1.0);
-        if let Some(viewport) = viewport {
-            let budget = UploadBudget::of(self.mesh_upload_bytes);
-            let uploaded = self.upload(device, queue, viewport, budget);
-            faults.meshes = uploaded.meshes;
-            faults.batches = uploaded.batches;
-            faults.picking = uploaded.picking;
-        }
+        let prepared = match viewport {
+            Some(viewport) => {
+                let budget = UploadBudget::of(self.mesh_upload_bytes);
+                self.upload(device, queue, viewport, budget)
+            }
+            None => Prepared::default(),
+        };
+        let faults = Faults {
+            targets: refused_targets,
+            ..prepared.faults
+        };
 
         let Some(targets) = self.targets.as_ref() else {
             clear_surface(encoder, surface);
             return faults;
         };
+        let shown = Shown {
+            rect: viewport.map(|viewport| viewport.rect),
+            grid: viewport.is_some_and(|viewport| viewport.scene.grid.is_some()),
+        };
+        let drawn = viewport.filter(|viewport| {
+            scissor_rect(viewport.rect, surface.width, surface.height).is_some()
+        });
+        let fresh = prepared.changed || !targets.kept.holding.holds(shown);
+        if fresh {
+            self.draw_view(encoder, targets, drawn, surface);
+        }
+        self.copy.draw(encoder, &targets.kept, surface.view);
+        if fresh {
+            self.note_drawn(shown);
+        }
+
+        if let Some(viewport) = drawn
+            && let Some(cursor) = viewport.pick_at
+        {
+            self.draw_pick(encoder, viewport.view, cursor);
+        }
+        faults
+    }
+
+    fn draw_view(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        targets: &SceneTargets,
+        viewport: Option<&ViewportFrame<'_>>,
+        surface: &SurfaceTarget<'_>,
+    ) {
         let attachment = ColorAttachment::of(
             targets.multisampled_color.as_ref(),
-            surface.view,
-            linear_view,
+            targets.kept.view(),
+            targets.kept.linear(),
         );
-
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("viewport"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -991,10 +1051,9 @@ impl ViewportRenderer {
             }),
             ..Default::default()
         });
-        let drawn = viewport.filter(|viewport| {
-            let Some(scissor) = scissor_rect(viewport.rect, surface.width, surface.height) else {
-                return false;
-            };
+        if let Some(viewport) = viewport
+            && let Some(scissor) = scissor_rect(viewport.rect, surface.width, surface.height)
+        {
             pass.set_viewport(
                 viewport.rect.x,
                 viewport.rect.y,
@@ -1009,17 +1068,19 @@ impl ViewportRenderer {
                 viewport.scene.grid.is_some(),
                 &ClipWindow::new(viewport.view, WHOLE_VIEW),
             );
-            true
-        });
+        }
         drop(pass);
         attachment.resolve(encoder);
+    }
 
-        if let Some(viewport) = drawn
-            && let Some(cursor) = viewport.pick_at
-        {
-            self.draw_pick(encoder, viewport.view, cursor);
+    fn note_drawn(&mut self, shown: Shown) {
+        if let Some(targets) = self.targets.as_mut() {
+            targets.kept.holding.drawn(shown);
         }
-        faults
+        #[cfg(test)]
+        {
+            self.work.view_passes += 1;
+        }
     }
 
     pub fn set_linear_resolve(&mut self, allowed: bool) {
@@ -1053,6 +1114,7 @@ impl ViewportRenderer {
             fill_order: FillOrder::default(),
             #[cfg(test)]
             work: Work::default(),
+            copy: self.copy.clone(),
             mesh_pool: self.mesh_pool.sibling(),
             meshes: self.meshes.sibling(device),
             translucent: self.translucent.sibling(device),
@@ -1095,6 +1157,7 @@ impl ViewportRenderer {
         };
         if self
             .upload(device, queue, &frame, UploadBudget::UNLIMITED)
+            .faults
             .any()
         {
             return None;
@@ -1301,7 +1364,7 @@ impl ViewportRenderer {
             return false;
         }
         let (targets, error) = gpu::scoped(device, || {
-            SceneTargets::new(device, self.format, self.sample_count, size)
+            SceneTargets::new(device, (self.format, self.sample_count), size, &self.copy)
         });
         match error {
             None => {
@@ -1327,7 +1390,7 @@ impl ViewportRenderer {
         queue: &wgpu::Queue,
         viewport: &ViewportFrame<'_>,
         mut budget: UploadBudget,
-    ) -> Faults {
+    ) -> Prepared {
         let mut faults = Faults::default();
         let view = viewport.view;
         let scene = viewport.scene;
@@ -1345,7 +1408,7 @@ impl ViewportRenderer {
             (self.shading, scene.reflection, &scene.section),
             (WHOLE_VIEW, Strokes::Finished),
         );
-        self.view_uniform.write(queue, &self.staging);
+        let mut changed = self.view_uniform.write(queue, &self.staging);
         let prepared = viewport.pick_at.map(|cursor| {
             (
                 cursor,
@@ -1371,7 +1434,7 @@ impl ViewportRenderer {
         }
         if let Some(grid) = &scene.grid {
             grid_uniform(&mut self.staging, grid, view);
-            self.grid_uniform.write(queue, &self.staging);
+            changed |= self.grid_uniform.write(queue, &self.staging);
         }
 
         let anchor = anchored.anchor;
@@ -1395,10 +1458,24 @@ impl ViewportRenderer {
             &mut budget,
         ));
         self.mesh_pool.sweep();
-        let (changed, refused_batches) = self.upload_batches(device, queue, &scene.batches, anchor);
+        changed |= [
+            &self.meshes,
+            &self.translucent,
+            &self.overlay,
+            &self.flat,
+            &self.reflective,
+        ]
+        .into_iter()
+        .any(MeshCache::changed)
+            || self.silhouettes.changed();
+        let (batches_changed, refused_batches) =
+            self.upload_batches(device, queue, &scene.batches, anchor);
         faults.batches = refused_batches;
-        self.order_fills(Facing::of(view), changed);
-        faults
+        let reordered = self.order_fills(Facing::of(view), batches_changed);
+        Prepared {
+            faults,
+            changed: changed || batches_changed || reordered,
+        }
     }
 
     fn anchor_for(&mut self, view: &View) -> Point3 {
@@ -1461,10 +1538,10 @@ impl ViewportRenderer {
         (changed, refused)
     }
 
-    fn order_fills(&mut self, facing: Facing, changed: bool) {
+    fn order_fills(&mut self, facing: Facing, changed: bool) -> bool {
         let order = &mut self.fill_order;
         if !changed && order.sorted_for == Some(facing) {
-            return;
+            return false;
         }
         order.spans.clear();
         order.spans.extend(
@@ -1479,6 +1556,7 @@ impl ViewportRenderer {
         {
             self.work.sorts += 1;
         }
+        true
     }
 
     #[cfg(test)]
@@ -1535,6 +1613,13 @@ pub struct Work {
     pub uploads: usize,
     pub sorts: usize,
     pub pipeline_builds: usize,
+    pub view_passes: usize,
+}
+
+#[derive(Debug, Default)]
+struct Prepared {
+    faults: Faults,
+    changed: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

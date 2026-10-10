@@ -83,6 +83,33 @@ impl<T: OfMesh> ByMesh<T> {
     }
 }
 
+#[derive(Debug, Default)]
+pub(crate) struct DrawnOrder {
+    keys: Vec<usize>,
+    changed: bool,
+}
+
+impl DrawnOrder {
+    pub(crate) fn note<T: OfMesh>(&mut self, drawn: &[T], rewritten: bool) {
+        let same = self.keys.len() == drawn.len()
+            && self
+                .keys
+                .iter()
+                .zip(drawn)
+                .all(|(key, item)| *key == mesh_key(item.mesh()));
+        self.changed = rewritten || !same;
+        if !same {
+            self.keys.clear();
+            self.keys
+                .extend(drawn.iter().map(|item| mesh_key(item.mesh())));
+        }
+    }
+
+    pub(crate) fn changed(&self) -> bool {
+        self.changed
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -104,5 +131,31 @@ mod tests {
         assert_eq!(rest.len(), 1);
         assert!(Arc::ptr_eq(&rest[0], &all[2]));
         assert!(by_mesh.take(&meshes(1)[0]).is_none());
+    }
+
+    #[test]
+    fn the_drawn_order_changes_with_a_rewrite_a_new_mesh_a_dropped_one_or_a_new_order() {
+        let all = meshes(3);
+        let mut order = DrawnOrder::default();
+
+        order.note(&all, false);
+        let first = order.changed();
+        order.note(&all, false);
+        let again = order.changed();
+        order.note(&all, true);
+        let rewritten = order.changed();
+        order.note(&all[..2], false);
+        let dropped = order.changed();
+        order.note(&[Arc::clone(&all[1]), Arc::clone(&all[0])], false);
+        let swapped = order.changed();
+        order.note(&[Arc::clone(&all[1]), Arc::clone(&all[0])], false);
+        let settled = order.changed();
+
+        assert!(first);
+        assert!(!again);
+        assert!(rewritten);
+        assert!(dropped);
+        assert!(swapped);
+        assert!(!settled);
     }
 }
