@@ -1,6 +1,6 @@
 use caditor_expression::{EvalError, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2};
-use caditor_sketch::{Constraint, Drag, Entity, EntityId, Sketch, SplineKind};
+use caditor_sketch::{Constraint, Drag, Entity, EntityId, FitSpacing, Sketch, SplineKind};
 use libfuzzer_sys::arbitrary::{Result, Unstructured};
 
 use crate::{angle, length, point};
@@ -70,6 +70,11 @@ fn shape(input: &mut Unstructured, sketch: &mut Sketch) -> Result<Option<EntityI
                 },
                 1 => SplineKind::Fit {
                     closed: input.arbitrary()?,
+                    spacing: if input.arbitrary()? {
+                        FitSpacing::Centripetal
+                    } else {
+                        FitSpacing::Even
+                    },
                 },
                 _ => SplineKind::Conic {
                     rho: input.arbitrary()?,
