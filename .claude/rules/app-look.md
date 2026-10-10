@@ -586,6 +586,9 @@ paths:
   (`reaching_the_corner`), so a maximized window closes from the corner of the screen; a framed
   window's resize strips still win along its edge. A gap of `SPACE_S` on each side of the separator
   keeps the window buttons apart from the search field.
+- On Windows the maximize button's rectangle goes to `caditor-windows` each frame it changes, so
+  hovering it offers Snap Layouts (`windows.md`); the non-client hover and press that replace
+  egui's pointer there come back as `window_frame::NonClientPointer`.
 - When neither maximized nor full screen, a square outline marks the edge (the window is opaque,
   so rounding would leave corners showing) and thin foreground strips along it, with larger
   corners resizing diagonally, set the resize cursor and start `BeginResize`.

@@ -42,6 +42,18 @@ so call sites stay platform-free.
     replaced with one that calls back on `WM_ENDSESSION` and chains to winit's): each keeps one
     callback in a static. User32 subclassing, not comctl32's `SetWindowSubclass`, so binaries
     without the Common Controls v6 manifest (tests) still load.
+  - `on_maximize_button` and `set_maximize_button`: a second subclass procedure on the main window,
+    chained like the session one with its own statics, so Snap Layouts appear on caditor's own maximize
+    button. The app reports the button's rectangle in physical client pixels (`ButtonRect`, from
+    egui points times `pixels_per_point`) whenever it changes, `None` while there is no such button
+    (full screen, the system title bar). Inside it `WM_NCHITTEST` answers `HTMAXBUTTON`, and because
+    non-client messages no longer reach the client area as mouse moves the procedure also takes
+    `WM_NCMOUSEMOVE` (arming `TrackMouseEvent` with `TME_NONCLIENT | TME_LEAVE`),
+    `WM_NCMOUSELEAVE`, `WM_NCLBUTTONDOWN`, `WM_NCLBUTTONDBLCLK` and `WM_NCLBUTTONUP` on the button
+    itself, without chaining so `DefWindowProc` never runs its caption-button loop. It reports a
+    `ButtonState` (idle, hovered, pressed) to a callback, and a release on the button after a press
+    on it maximises or restores with `ShowWindow`. Everywhere else the message chains on, so winit
+    keeps the resize and move behaviour and the corner close, which are client-area egui widgets.
   - `attach_parent_console`: a release build is a GUI-subsystem program, so `--version`, `--help`
     and `--export` print only after attaching to the console that started it.
   - `DialogParent`: an HWND as `HasWindowHandle` and `HasDisplayHandle`, for rfd.
@@ -97,7 +109,11 @@ so call sites stay platform-free.
   caditor never reads or changes Defender's settings.
 - Windows prefers Direct3D 12, then Vulkan, then OpenGL (`caditor-render` `BACKEND_ORDER`).
 - The window gets a class name, a drop shadow while undecorated and a taskbar icon. The built-in
-  title bar drags with `StartDrag`, so Aero Snap works; Snap Layouts on the maximize button do not.
+  title bar drags with `StartDrag`, so Aero Snap works. The maximize button's rectangle is handed to `set_maximize_button` after each
+  frame (`Session::follow_maximize_button`), which gives Snap Layouts, and the `ButtonState` it
+  reports is kept in `window_frame::NonClientPointer` and requests a redraw, so egui draws the
+  button hovered or pressed although the pointer is not in the client area; its tooltip does not
+  show.
 - `build.rs` builds `caditor.ico` from the committed PNG renders (PNG entries in an ICO) and embeds
   it with `packaging/windows/caditor.exe.manifest` (PerMonitorV2, long paths, Common Controls v6)
   and version information through `winresource`, using `rc.exe`, or `llvm-rc` when

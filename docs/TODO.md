@@ -472,13 +472,10 @@ Linux is the primary platform and Windows the only other one; macOS is not a goa
 
 - [medium · medium] Windows has been built and tested only in CI (`windows`, `package-windows`)
   and run under wine: no one has used it on a real Windows desktop yet. Check by hand the built-in
-  title bar (dragging, Aero Snap, resize strips, double-click, the corner close, mixed-DPI
-  monitors), the rfd dialogs owned by the window, sign-out flushing the journal, the MSI from
+  title bar (dragging, Aero Snap, Snap Layouts on the maximize button, resize strips,
+  double-click, the corner close, mixed-DPI monitors), the rfd dialogs owned by the window, sign-out flushing the journal, the MSI from
   SmartScreen to uninstall, and a model and its journal on a USB stick (FAT32/exFAT, no POSIX
   rename) and on a network share.
-- [low · medium] On Windows, hovering caditor's own maximize button does not offer Snap Layouts:
-  that needs the button to answer `WM_NCHITTEST` with `HTMAXBUTTON`, which winit does not expose,
-  so it would be another `caditor-windows` subclass hook.
 - [low · medium · blocked by: the project's decision to publish no maintainer identity] The MSI
   and `caditor.exe` are not code-signed, so SmartScreen warns on first run; signing needs a
   certificate tied to an identity.
