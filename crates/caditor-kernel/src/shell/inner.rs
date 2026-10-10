@@ -911,9 +911,67 @@ fn settled_layout(offsets: &Offsets<'_>, collapses: &mut Collapses) -> Result<La
             return Ok(layout);
         }
         unsettled = shrinking.keys().copied().collect();
+        let peaks: Vec<(FaceId, BTreeSet<EdgeId>, [BTreeSet<EdgeId>; 2])> = shrinking
+            .iter()
+            .filter_map(|(face, across)| {
+                Some((*face, across.clone(), ridges(solid, *face, across)?))
+            })
+            .collect();
         collapses.add_shrinking(shrinking);
+        for (face, every, choices) in peaks {
+            narrow_to_ridge(offsets, collapses, face, every, choices)?;
+        }
     }
     Err(ShellError::walls_at(unsettled))
+}
+
+fn ridges(solid: &Solid, face: FaceId, across: &BTreeSet<EdgeId>) -> Option<[BTreeSet<EdgeId>; 2]> {
+    let [only] = solid.face(face)?.loops() else {
+        return None;
+    };
+    let edges: Vec<EdgeId> = solid
+        .face_loop(*only)?
+        .coedges()
+        .iter()
+        .filter_map(|id| Some(solid.coedge(*id)?.edge()))
+        .collect();
+    let [first, second, third, fourth] = edges[..] else {
+        return None;
+    };
+    let distinct: BTreeSet<EdgeId> = edges.iter().copied().collect();
+    (distinct.len() == edges.len() && distinct == *across).then(|| {
+        [
+            BTreeSet::from([first, third]),
+            BTreeSet::from([second, fourth]),
+        ]
+    })
+}
+
+fn narrow_to_ridge(
+    offsets: &Offsets<'_>,
+    collapses: &mut Collapses,
+    face: FaceId,
+    every: BTreeSet<EdgeId>,
+    choices: [BTreeSet<EdgeId>; 2],
+) -> Result<(), ShellError> {
+    let solid = offsets.solid;
+    for vanishing in choices {
+        let ridge: Vec<EdgeId> = every.difference(&vanishing).copied().collect();
+        collapses.add_shrinking(BTreeMap::from([(face, vanishing)]));
+        let holds = match Layout::new(offsets, collapses) {
+            Ok(trial) => {
+                let reversed = trial.reversed_edges(solid);
+                ridge.iter().all(|edge| !reversed.contains(edge))
+            }
+            Err(error @ ShellError::Cancelled(_)) => return Err(error),
+            Err(_) => false,
+        };
+        if holds {
+            return Ok(());
+        }
+    }
+    collapses.add_shrinking(BTreeMap::from([(face, every)]));
+    Ok(())
 }
 
 pub(super) fn inner_solid(offsets: &Offsets<'_>, naming: Naming) -> Result<Inner, ShellError> {

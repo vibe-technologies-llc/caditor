@@ -10,3 +10,6 @@ view), and sets the **Thickness**. Typing it previews the result before you pres
 
 Only flat faces can be opened. The walls grow inward from the body's faces, so its outside stays
 as it was.
+Faces leaning over an opening, such as a chamfer around it, keep their thickness up to the
+opening; when the thickness would close the opening or cut such a wall thinner, the shell names
+the face and asks for a smaller thickness instead.

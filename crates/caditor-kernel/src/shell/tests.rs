@@ -1205,7 +1205,7 @@ fn a_chamfered_box_keeps_every_face_its_walls_leave_room_for() {
         let bevelled = blend(&solid, &every, BlendShape::Chamfer { distance: 1.0 }, 5).unwrap();
         let top = face_facing(&bevelled, Vector3::Z, Point3::new(5.0, 5.0, size.z));
         let outer = bevelled_planes(size, 1.0);
-        for thickness in [0.5, 1.5, 2.0] {
+        for thickness in [0.5, 1.5, 2.0, 2.5] {
             let cavity: Vec<(Vector3, f64)> = outer
                 .iter()
                 .map(|(normal, offset)| {
@@ -1233,4 +1233,27 @@ fn a_chamfered_box_keeps_every_face_its_walls_leave_room_for() {
             assert_eq!(cavity_faces, walls, "{name}");
         }
     }
+}
+
+#[test]
+fn an_opening_under_leaning_walls_is_refused_rather_than_cut_straight() {
+    let solid = cuboid(Vector3::new(10.0, 14.0, 10.0));
+    let every: Vec<EdgeId> = solid.edges().map(|(id, _)| id).collect();
+    let bevelled = blend(&solid, &every, BlendShape::Chamfer { distance: 1.0 }, 5).unwrap();
+    let top = face_facing(&bevelled, Vector3::Z, Point3::new(5.0, 5.0, 10.0));
+
+    let closed_over = shell(&bevelled, &[top], 3.0, 70);
+    let inward = Offsets::walls(&bevelled, 2.5, &BTreeSet::new());
+    let swept = hollow(&inward, &[top], &BTreeSet::new(), 70);
+
+    assert!(
+        closed_over.is_err(),
+        "{:?}",
+        closed_over.map(|result| volume(&result))
+    );
+    assert!(
+        matches!(swept, Err(ShellError::Overhang { open, .. }) if open == top),
+        "{:?}",
+        swept.map(|hollowed| volume(&hollowed.solid))
+    );
 }

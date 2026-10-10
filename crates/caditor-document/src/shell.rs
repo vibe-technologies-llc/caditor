@@ -202,6 +202,15 @@ impl Context<'_> {
                 ),
                 "Enter a smaller thickness, or leave this face closed.".to_owned(),
             ),
+            ShellError::Overhang { open, wall } => self.error(
+                format!(
+                    "{} leans over the opening in {}, so cutting the opening at this thickness \
+                     would leave its wall thinner than the rest.",
+                    capitalized(&self.describe_face(solid, *wall)),
+                    self.describe_face(solid, *open)
+                ),
+                "Enter a smaller thickness.".to_owned(),
+            ),
             ShellError::Walls { faces, edge } => {
                 let mut names: Vec<String> = Vec::with_capacity(faces.len());
                 for face in faces {
