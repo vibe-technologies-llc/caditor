@@ -8,6 +8,7 @@ use crate::{
     appearance::{SPACE_M, SPACE_S},
     body_appearance::{DEFAULT_COLOUR_NAME, SWATCHES},
     commands::Command,
+    completion,
     dialog_parts::BodyRoom,
     field, icons,
     model::Model,
@@ -342,6 +343,7 @@ fn cell(
                 .and_then(Setting::expression)
                 .map(|expression| document.expression_text(expression))
                 .unwrap_or_default();
+            completion::editing_parameter(ui, cell_id(row.id, value), id);
             let response = field::value_field(
                 ui,
                 cell_id(row.id, value),

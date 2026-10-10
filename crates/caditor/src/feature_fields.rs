@@ -7,7 +7,7 @@ use caditor_kernel::MAX_TAPER_DEGREES;
 use egui::{ComboBox, Id, Label, RichText, TextWrapMode, Ui, WidgetText};
 
 use crate::{
-    appearance, datum_tools,
+    appearance, completion, datum_tools,
     editing::EditingCommand,
     field::{self, Expected},
     icons,
@@ -172,6 +172,9 @@ pub fn expression_row_drafting(
         current: quantity.expression,
     };
     let validate = |text: &str| named.transaction(text, parse, &change);
+    if let Some(held) = document.owned_parameter(&owner, quantity.expression) {
+        completion::editing_parameter(ui, quantity.id, held.id());
+    }
     let (committed, error, draft) = ui
         .horizontal_wrapped(|ui| {
             let field = field::value_field(

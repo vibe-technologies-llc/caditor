@@ -24,6 +24,7 @@ mod comb_panel;
 mod combine_panel;
 mod combine_tools;
 mod commands;
+mod completion;
 mod configuration_export;
 mod configurations;
 mod constraint_trial;

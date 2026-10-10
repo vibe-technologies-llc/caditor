@@ -19,7 +19,7 @@ use crate::{
     blend_tools::{self, FormChoice},
     bodies_tree, combine_panel,
     commands::{Command, CommandFrame},
-    datum_panel,
+    completion, datum_panel,
     drawing_export::{self, DrawingSource},
     editing::{self, EditingCommand, Opened, SketchEditing},
     feature_clipboard, feature_groups,
@@ -3212,6 +3212,9 @@ fn dimension_field(
         constraint,
     };
     let mut error = None;
+    if let Some(held) = document.owned_parameter(&target.owner(), expression) {
+        completion::editing_parameter(ui, focus.field_id(), held.id());
+    }
     ui.horizontal(|ui| {
         ui.add_space(SPACE_L);
         let field = field::value_field(

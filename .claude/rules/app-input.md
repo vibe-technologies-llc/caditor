@@ -42,6 +42,35 @@ paths:
   (`stepping::Refusal::message`) as an inline error until the text changes. The arrows are taken
   from the frame's events (`field::take_step`) ahead of the text edit, so they never move its
   cursor; Ctrl and Alt with them are left to the text edit.
+- Value fields complete parameter names (`completion.rs`). `completion::publish` builds, once per
+  revision, evaluation and unit while some widget has focus, the candidates (every parameter,
+  measured and model parameters included, by name with its shown value) and the model's
+  `DependencyGraph`, published in egui temp data. While the field is edited, the identifier before
+  the caret (`completion::token_at`: it starts with a letter or `_`, so units glued to a number and
+  the name in `name = …` are never completed) is matched case-insensitively, names starting with it
+  before names containing it, at most `MAX_SHOWN`, leaving out an exact match and, for a field
+  that edits a parameter (`completion::editing_parameter`, set by the parameter table, the
+  configuration cells and the named value rows, which know the parameter they hold), any name
+  that is that parameter or would depend on it (`DependencyGraph::cycle`). The list is an `Area`
+  under the field (`completion::list`): a `ListBox` named `LIST_NAME` of `ListBoxOption`s
+  "name, value" with bounds, selection and position, the field carrying `has_popup`, `expanded`
+  and the active descendant. The field keeps focus throughout. While the list is open (known from
+  last frame's `Suggesting`) Up and Down choose a row and no longer step the value, Tab inserts the
+  first or chosen one, Enter only the one chosen with the arrows (else it commits as always) and
+  Escape closes the list until the identifier changes; the keys are taken from the frame's events
+  before the text edit, and the edit's `EventFilter` (`completion::filter`) claims Tab and Escape
+  while open so egui neither moves focus nor drops it. Insertion replaces the identifier and
+  puts the caret after it, as the draft changes like typing.
+- Clicks are decided at the press but egui drops the focus at the click's release, so a press on a
+  row of the list, or on a sketch dimension in the view, makes the field hold focus until the
+  pointer is up (`pointer_holds`, `FieldResponse::left` stays false, focus requested again). A
+  press on a row inserts the name. While a value field has focus, the annotation under the pointer
+  offers its dimension's text each frame (`completion::offer_insertion`: the parameter's name, else
+  the value expression, bracketed unless it is a name, literal or call; offers expire after two
+  passes, so the pointer must rest on the label before pressing) and the press inserts it at the
+  caret or over the selection, spaced from a name before it, and marks the press taken
+  (`completion::mark_taken`); the label's click then does not select (`take_click`), the app
+  forgetting a mark left unused once the button is up (`forget_taken_click`).
 
 ## Keyboard focus
 
