@@ -3,7 +3,11 @@ use caditor_geometry::{Plane, Point2};
 use caditor_sketch::Sketch;
 
 use super::{Harness, extruded_plate, pattern_of, run_from_palette, volume_about};
-use crate::{model::Action, pattern_panel};
+use crate::{
+    model::Action,
+    pattern_panel,
+    selection::{Axis, Pickable, PrincipalPlane},
+};
 
 #[test]
 fn patterns_along_a_sketch_curve_and_at_its_points_come_from_the_palette_and_their_panels() {
@@ -61,4 +65,38 @@ fn patterns_along_a_sketch_curve_and_at_its_points_come_from_the_palette_and_the
     harness.perform(Action::Undo);
     harness.settle();
     assert!(volume_about(&harness, plate, 28000.0));
+}
+
+#[test]
+fn sketch_driven_patterns_refuse_a_selection_naming_no_body_and_no_sketch() {
+    let mut harness = Harness::new();
+    extruded_plate(&mut harness);
+    let mut line = Sketch::new(Plane::XY);
+    line.add_line(Point2::new(0.0, 0.0), Point2::new(200.0, 0.0));
+    harness.add_sketch(line);
+    let mut points = Sketch::new(Plane::XY);
+    points.add_point(Point2::new(100.0, 100.0));
+    harness.add_sketch(points);
+    let features = harness.document().features().count();
+
+    for (selected, query) in [
+        (Pickable::Axis(Axis::Y), "curve pattern"),
+        (Pickable::Plane(PrincipalPlane::Xz), "curve pattern"),
+        (Pickable::Axis(Axis::Y), "point pattern"),
+        (Pickable::Plane(PrincipalPlane::Xz), "point pattern"),
+    ] {
+        harness.select([selected]);
+        run_from_palette(&mut harness, query);
+        harness.settle();
+
+        assert_eq!(harness.document().features().count(), features);
+        assert!(harness.workspace.editing.solid().is_none());
+        assert!(
+            harness
+                .model
+                .notice()
+                .is_some_and(|notice| notice.text.contains("Select a face, edge or vertex")),
+            "{query} with {selected:?}"
+        );
+    }
 }

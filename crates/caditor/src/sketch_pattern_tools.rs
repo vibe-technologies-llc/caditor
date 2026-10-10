@@ -6,7 +6,7 @@ use caditor_expression::Expression;
 use caditor_sketch::Sketch;
 
 use crate::{
-    body_selection, datum_tools,
+    datum_tools,
     model::Model,
     move_tools,
     pattern_tools::{self, PatternSource, Shape},
@@ -130,6 +130,15 @@ pub fn selected_sketch(
     Ok(Some(*sketch))
 }
 
+fn holds_only_sketch_geometry(selection: &Selection) -> bool {
+    selection.iter().all(|pickable| {
+        matches!(
+            pickable,
+            Pickable::SketchEntity { .. } | Pickable::SketchRegion { .. }
+        )
+    })
+}
+
 pub fn source(
     model: &Model,
     selection: &Selection,
@@ -140,7 +149,7 @@ pub fn source(
     let before = document.bar_index();
     let (body, repeated) = match pattern_tools::repeatable(document, rows) {
         Some(repeating) => repeating,
-        None if tree.is_empty() && body_selection::bodies_in(selection).is_empty() => (
+        None if tree.is_empty() && holds_only_sketch_geometry(selection) => (
             document.bodies_standing().last().copied().ok_or(NO_BODY)?,
             Vec::new(),
         ),

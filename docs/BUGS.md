@@ -86,12 +86,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   edge along the same curve between the same cap and the faces of its `Collinear` pieces, or the
   feature marked as having lost part of its choice with a fix
   (`blend_tests::a_notch_trimmed_into_a_filleted_edge_keeps_both_pieces_rounded`, ignored).
-- [medium · easy] Curve pattern and Point pattern pattern the last body when the selection names
-  something else: `sketch_pattern_tools` falls back to the last standing body whenever no tree
-  row is chosen and no selected item has a body, and `Pickable::body` is a face, edge or vertex
-  only, so a selected datum axis, principal plane or centre of mass patterns the last body (along
-  a guessed sketch when none is selected). Linear pattern falls back only on an empty selection;
-  do the same here, still falling through for a selection of sketch geometry alone.
 - [medium · easy] Plane and Point make a datum on XY or at the origin when the selection holds
   nothing they can use: `datum_tools::why_unusable` returns nothing for a sketch region, a sketch
   constraint, a centre of mass or a body item picked while sketching, and with nothing gathered a

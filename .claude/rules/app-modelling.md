@@ -796,9 +796,10 @@ paths:
   Switching between linear and circular clears the instances left out.
 - Curve pattern and Point pattern (`Command::CurvePattern`, `PointPattern`; Model › Patterns
   and the palette, no default key and not on the ribbon, which they would widen past one row) take
-  the body as Linear and Circular do, except that a selection holding only sketch geometry leaves
-  the body to the last one standing, and a sketch (`sketch_pattern_tools::source`): the one whose
-  curves, points or regions are selected (several sketches, one made after the bar, or one that
+  the body as Linear and Circular do, except that a selection of sketch geometry alone, like an
+  empty one, leaves the body to the last one standing (anything else naming no body, such as an
+  axis, a plane or a centre of mass, is refused), and a sketch (`sketch_pattern_tools::source`):
+  the one whose curves, points or regions are selected (several sketches, one made after the bar, or one that
   does not fit are refused in words), else the last sketch above the bar that no later feature
   uses and that fits (`guess`): its curves one chain (`is_curve_path`) for a curve pattern, at
   least one lone point for a point pattern. A curve pattern starts with 4 copies spread evenly,
