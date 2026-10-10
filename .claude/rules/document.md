@@ -686,10 +686,12 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 - With `faces` (`Mirror::mirroring_faces`, `FaceReference`s resolved on the body as it stands at
   the mirror like a split face's, pieces of one face accepted, a lost or tied one failing it) and
   no mirrored features (`mirrors_faces`), it reflects the region the faces bound: kernel
-  `enclose_faces` closes them flat across their openings into a tool, placed as copy
+  `enclose_faces` closes them across their openings (flat, or with a patch of the round face
+  a pocket was cut into or a boss stands on) into a tool, placed as copy
   `MIRROR_IMAGE` and cut from the body where the faces bounded a cavity (`Bounds::Cavity`, kept as
   `cuts`) or joined where they bounded material (kept as `joins`); `keep_original` is then
-  ignored. Faces whose openings are not flat, do not run in separate loops or close into no valid
+  ignored. Faces whose openings lie neither in one plane nor on a face beside them, lie on a
+  freeform face, run around a round face, do not run in separate loops or close into no valid
   solid fail it alone in words asking for every face around the pocket or boss. The faces' origin
   features are its `origin_features`, so it follows edits to them, and healing visits each face.
 - `Scale { body, factor, center, frame }` resizes its body about a point (`Solid::mapped`),

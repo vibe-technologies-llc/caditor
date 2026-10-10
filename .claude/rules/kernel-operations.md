@@ -277,17 +277,27 @@ paths:
 
 - `enclose_faces(solid, faces, feature)` turns chosen faces of a solid into a closed tool: valid
   or an `EnclosureError`. Their open edges (used by a chosen face and an unchosen one) are
-  chained into loops, each of which must lie in one plane (the plane of an unchosen flat face
-  beside it, else one fitted to its edges, within `LINEAR_RESOLUTION`; `NotFlat` otherwise); a
-  vertex where two open edges start is `OpenBoundary`. Loops in one plane are nested by
-  containment into flat cap faces, an even depth an outer loop and an odd one a hole that must
-  wind against it (`Openings` otherwise). The chosen faces are copied with their surfaces, names,
-  origins and pcurves (settled), the caps added with fitted pcurves, named
-  `FaceName::closure(feature, edge names)` and given the origin of the unchosen face beside
-  them. A shell meshing inside out (`SolidBuilder::inside_out`) means the faces bound a cavity:
-  every face and loop is turned over and the result is `Bounds::Cavity`; otherwise
-  `Bounds::Material`. Validation catches the rest (a lone flat face closing on itself) as
-  `Build`.
+  chained into loops; a vertex where two open edges start is `OpenBoundary`. Each loop takes the
+  first support that holds it within `LINEAR_RESOLUTION`: the plane of an unchosen flat face beside
+  it, the surface of an unchosen curved face beside it (the face a pocket was cut into or a boss
+  stands on), else a plane fitted to its edges; none is `NotFlat`. A curved support must be a
+  cylinder, cone, sphere or torus (`NotElementary` for extrusions, revolutions and splines), and a
+  loop that does not close in its uv (running around the cylinder, or around a pole) is
+  `AroundSurface`, since a patch of the surface cannot fill it.
+- Loops on one support (in one plane, or on one surface by `same_surface` with the same face
+  sense) are nested by containment, in the plane's frame or in the surface's uv (each loop's
+  samples projected in a chain, then shifted by whole periods next to the first loop), into cap
+  faces, an even depth an outer loop and an odd one a hole that must wind against it (`Openings`
+  otherwise). A flat cap's normal follows its outer loop's winding. A curved cap is a patch of the
+  neighbour's surface with that face's sense reversed, since the opening's loop runs as the
+  neighbour's own hole loop did; an outer loop winding the other way in uv is `Openings`.
+- The chosen faces are copied with their surfaces, names, origins and pcurves (settled), the caps
+  added with pcurves fitted in their surface's uv (`SolidBuilder::add_loop`, which places a loop
+  across a seam in one piece), named `FaceName::closure(feature, edge names)` and given the
+  origin of the unchosen face beside them. A shell meshing inside out (`SolidBuilder::inside_out`)
+  means the faces bound a cavity: every face and loop is turned over and the result is
+  `Bounds::Cavity`; otherwise `Bounds::Material`. Validation catches the rest (a lone flat face
+  closing on itself) as `Build`.
 
 # Shell (`shell/`)
 

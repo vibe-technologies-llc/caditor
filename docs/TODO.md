@@ -187,9 +187,10 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   hole in the wrong place or a fillet to remove means remodelling it from scratch. Direct edits
   become features of their own, named from the faces they move, so they stay parametric and
   undoable.
-- [low · medium] Mirror faces closes the chosen faces only with flat faces across their openings:
-  a set whose opening is not flat (a pocket cut into a curved face, a boss on a cylinder) is
-  refused, since closing it needs the surface the opening lies on extended across it.
+- [low · medium] Mirror faces closes an opening only in one plane or on one elementary face beside
+  it: an opening on an extrusion, revolution or spline face, one running all the way around a
+  round face (a collar or a groove), or one spanning several curved faces is refused, since
+  closing it needs a freeform patch, a ring face or a surface fitted across it.
 - [medium · hard] An end up to the next face or a curved face follows curved or several faces
   only on one side and without an offset (two sides or an offset need one flat face). An end
   cannot end on a whole body (where the profile last leaves it); an extrusion along a direction
