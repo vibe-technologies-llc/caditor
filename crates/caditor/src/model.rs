@@ -537,6 +537,11 @@ impl Model {
         self.display.meshing.masses_measured()
     }
 
+    #[cfg(test)]
+    pub fn masses_pending(&self) -> bool {
+        self.display.meshing.is_measuring()
+    }
+
     pub fn undo_label(&self) -> Option<&str> {
         self.editor.undo_label()
     }

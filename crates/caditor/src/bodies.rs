@@ -878,6 +878,7 @@ enum Done {
 struct Tasks {
     converts: VecDeque<Arc<FeatureResult>>,
     measures: VecDeque<Arc<MassSlot>>,
+    measuring: usize,
     idle: usize,
     started: usize,
     closed: bool,
@@ -910,9 +911,13 @@ impl Pool {
         if tasks.closed {
             return false;
         }
+        let measure = matches!(task, Task::Measure(_));
         match task {
             Task::Convert(source) => tasks.converts.push_back(source),
-            Task::Measure(slot) => tasks.measures.push_back(slot),
+            Task::Measure(slot) => {
+                tasks.measures.push_back(slot);
+                tasks.measuring += 1;
+            }
         }
         let spawn = tasks.waiting() > tasks.idle && tasks.started < self.limit;
         if spawn {
@@ -933,7 +938,11 @@ impl Pool {
                 log::error!("could not start a body mesh worker: {error}");
                 let mut tasks = self.tasks.lock();
                 tasks.started = tasks.started.saturating_sub(1);
-                tasks.started > 0
+                let served = tasks.started > 0;
+                if measure && !served {
+                    tasks.measuring = tasks.measuring.saturating_sub(1);
+                }
+                served
             }
         }
     }
@@ -1054,6 +1063,13 @@ impl BodyMeshing {
         self.measured
     }
 
+    #[cfg(test)]
+    pub fn is_measuring(&self) -> bool {
+        self.converter
+            .as_ref()
+            .is_some_and(|converter| converter.pool.tasks.lock().measuring > 0)
+    }
+
     pub fn request(&mut self, source: &Arc<FeatureResult>, wake: impl FnOnce() -> Waker) {
         let meshed = source.solid().is_some_and(|solid| solid.mesh().is_some());
         let at = address(source);
@@ -1088,6 +1104,8 @@ impl BodyMeshing {
                     }
                 }
                 Done::Measured => {
+                    let mut tasks = converter.pool.tasks.lock();
+                    tasks.measuring = tasks.measuring.saturating_sub(1);
                     self.measured = self.measured.wrapping_add(1);
                     arrived = true;
                 }

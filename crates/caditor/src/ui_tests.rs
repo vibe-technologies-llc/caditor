@@ -589,6 +589,7 @@ impl Harness {
     fn computing(&self) -> bool {
         matches!(self.model.status(), RecomputeStatus::Running { .. })
             || self.model.bodies_pending()
+            || self.model.masses_pending()
     }
 
     fn wait_until(&mut self, what: &str, done: impl Fn(&Self) -> bool) {
@@ -1624,6 +1625,7 @@ fn saving_from_the_close_prompt_writes_the_file_then_quits() {
     let root = canonical(&dir);
     let mut harness = Harness::with_directories(Some(root.as_path()));
     harness.edit_width("45 mm");
+    assert!(harness.model.flush_journal(FILE_TIMEOUT));
     let untitled_journals = std::fs::read_dir(root.as_path().join("recovery"))
         .unwrap()
         .count();
@@ -1633,6 +1635,7 @@ fn saving_from_the_close_prompt_writes_the_file_then_quits() {
     harness.command(FileCommand::Quit);
     harness.click("Save as…");
     harness.wait_until("the model is saved", |harness| harness.files.should_quit());
+    assert!(harness.files.wait_for_jobs(FILE_TIMEOUT));
 
     let path = root.as_path().join("bracket.caditor");
     let saved = caditor_file::load(&path).unwrap();
@@ -13173,6 +13176,8 @@ fn the_welcome_lists_recent_files_opens_one_and_clears_them() {
     earlier.command(FileCommand::OpenPath(path.clone()));
     earlier.wait_until("the file is open", |harness| harness.model.path().is_some());
     assert!(earlier.files.wait_for_jobs(FILE_TIMEOUT));
+    let closing = earlier.model.close().unwrap();
+    assert!(closing.wait(FILE_TIMEOUT));
     drop(earlier);
 
     let mut harness = Harness::first_run(dir.path());
@@ -17666,8 +17671,7 @@ fn centres_of_mass_are_markers_in_the_view_that_can_be_picked_and_measured() {
     assert!(!marked(&mut harness));
 
     run_from_palette(&mut harness, "show or hide centres of mass");
-    harness.frame();
-    harness.frame();
+    harness.settle();
 
     assert!(marked(&mut harness));
 

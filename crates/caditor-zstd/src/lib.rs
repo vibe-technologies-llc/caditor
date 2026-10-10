@@ -34,6 +34,7 @@ mod code {
 }
 
 const LONG_MATCHING_ON: c_int = 1;
+const SPARE_ROOM: usize = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Level(i32);
@@ -260,7 +261,7 @@ impl Decompressor {
             };
             checked(code)?;
         }
-        let mut content = vec![0_u8; expected];
+        let mut content = vec![0_u8; expected.saturating_add(SPARE_ROOM)];
         #[allow(unsafe_code)]
         let written = unsafe {
             ZSTD_decompressDCtx(
@@ -275,6 +276,7 @@ impl Decompressor {
         if actual != expected {
             return Err(ZstdError::WrongSize { expected, actual });
         }
+        content.truncate(expected);
         Ok(content)
     }
 }

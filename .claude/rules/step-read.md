@@ -46,7 +46,9 @@ paths:
   reader gives.
 - Cancellation: `read_step` and `read_step_copies` poll the kernel interrupt (`kernel.md`) before
   parsing and before each solid, answering `ReadError::Cancelled`; nothing installs an interrupt
-  by default, so an uncancelled read never sees it.
+  by default, so an uncancelled read never sees it. A body's build polls it before each looser
+  healing and before trying without its unreadable faces (`healed`, `build_one`), since a
+  cancelled build fails like any other and each retry rebuilds and may mesh the whole body again.
 - Solids are built in parallel (`Builds::of`, `built_together`): each distinct solid (one per
   shells and units) is a job, shared out over up to the available parallelism of scoped threads
   that each keep their own geometry memo per units and install the caller's interrupt

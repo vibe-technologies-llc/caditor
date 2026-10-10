@@ -24,8 +24,7 @@ fn breaking_the_selected_line_cuts_it_at_every_crossing_in_one_undoable_step() {
     harness.settle();
     assert!(harness.shows_containing(sketch_tools::NOTHING_TO_BREAK));
     assert!(harness.sketch(feature).same_content(&before));
-    harness.key(Key::Escape, Modifiers::NONE);
-    harness.frame();
+    assert!(!harness.workspace.palette.is_open());
 
     harness.select(entity_pickables(feature, &[across]));
     run_from_palette(&mut harness, BREAK);

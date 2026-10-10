@@ -82,16 +82,19 @@ pub enum FacetedError {
 pub fn faceted_solids(mesh: &TriangleMesh) -> Result<FacetedSolids, FacetedError> {
     let mut repairs = MeshRepairs::default();
     let (welded, welded_sources) = weld(mesh, &mut repairs)?;
+    interrupt::check()?;
     let (mut triangles, cleaned) = clean(&welded.positions, &welded.triangles, &mut repairs);
     if triangles.is_empty() {
         return Err(FacetedError::NoTriangles);
     }
+    interrupt::check()?;
     let mut sources: Vec<Option<usize>> = cleaned
         .into_iter()
         .map(|kept| welded_sources.get(kept).copied())
         .collect();
     repairs.filled_holes = fill_holes(&mut triangles);
     sources.resize(triangles.len(), None);
+    interrupt::check()?;
     let positions = welded.positions;
     let shells = shells(&positions, &triangles, &sources, &mut repairs)?;
     if shells.is_empty() {
