@@ -84,13 +84,15 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   Shells whose volume and placement could be known without meshing, and lumps of a many-lump body
   that the tool does not reach (a union touching one of 300 separated blocks takes 18 ms), are not
   carried yet.
-- [medium · medium] A strip's reach is a share of its points, not a distance, so splitting a
-  large face into more strips shrinks the reach below the triangles bridging between holes: the
-  top of a plate with 113 holes keeps 95% of its triangles in six strips but 82% in thirteen with
-  a quarter-strip reach, and on this many-core machine six strips stay fastest. A reach sized from
-  the face's expected triangle sizes would let more strips pay. The remaining exact in-circle
-  predicates (under a tenth of tessellation time) are on cocircular boundary samples of
-  mirror-symmetric holes, which no helper reaches.
+- [low · hard] More strips than six do not pay on the top of a plate with 113 holes (6,784
+  points) on 16 threads of 8 cores, though a reach sized by the face's widest gap now keeps 95% of
+  its triangles in twelve: each strip triangulates its core and a reach of about the widest empty
+  disc each side, so twelve strips triangulate about two and a half times the face's points, and
+  the serial steps (sorting along x with the gap estimate beside it, then the remainder, about
+  0.3 ms together) bound the face at about 1.4 ms against 3 ms whole. Hard because a remainder made
+  in parallel would need its own decomposition, and a narrower reach loses the triangles bridging
+  between holes. The remaining exact in-circle predicates (under a tenth of tessellation time) are
+  on cocircular boundary samples of mirror-symmetric holes, which no helper reaches.
 - [low · hard] `SolidResult::cuts`/`joins` keep every tool solid with every history entry,
   though only patterns, mirrors and an open feature read them; a removal's tool shares little
   with the result, since a difference reverses the tool's kept faces and their pcurves (an

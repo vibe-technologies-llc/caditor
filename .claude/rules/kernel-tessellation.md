@@ -72,12 +72,23 @@ paths:
 - A face of at least `SPLIT_POINTS` points holding at least a `DOMINANT_SHARE`th of the body's
   positions placed before it (`pieces::allowed`) is triangulated in pieces (`pieces.rs`), so the
   largest face no longer bounds the body's time alone. The mapped plane is cut into vertical strips
-  of equal point counts (one per `POINTS_PER_PIECE`, at most `MAX_PIECES`), each triangulated on a
-  thread of its own (`parallel.rs`) from the points within its reach and every loop segment
-  overlapping it, with the helpers of the holes lying wholly within the reach. A reach widens its
-  core by about a `REACH_SHARE`th of a strip's points each side, its edge moved within
-  `SLACK_SHARE` of that to where the fewest holes straddle it, then to the widest gap between
-  points, so its edge rarely cuts a hole whose samples would meet the exact predicates.
+  of equal point counts, each triangulated on a thread of its own (`parallel.rs`) from the points
+  within its reach, every loop segment overlapping it, and every hole whose span meets the reach
+  whole, with its helper, so a reach edge never leaves a hole's cocircular samples to the exact
+  predicates. A reach is a distance, not a share of points: it widens the core each side by
+  `REACH_GAPS` of the face's widest gap, its edge moved within `EDGE_SLACK` of that to where the
+  fewest holes straddle it, then to the nearest gap between points. The widest gap (`gaps.rs`) is
+  the radius of the largest disc empty of points and loop segments centred inside the face, read
+  from an occupancy grid of about one cell per point (points and loop segments mark cells, a scan
+  of row crossings keeps the cells inside the outer loop and outside the holes, a two-pass chamfer
+  measures each cell's distance to a marked one), plus `CELL_ERROR` cells so it never falls short;
+  it is computed beside the sort of the points along x (`parallel::both`), taking about 0.12 ms on
+  the plate top below. Strips number one per `POINTS_PER_PIECE` points, at most `MAX_PIECES`, and
+  no more than leave each core `STRIP_REACHES` reaches wide, so a face of fine features is cut
+  finely and one of wide gaps coarsely. A cut sits `CUT_SHARE` of the way between two neighbouring
+  points, not halfway: a mirror-symmetric face puts its cut on its axis otherwise, where the
+  circumcentres of the cocircular cells straddling it lie, and every such triangle failed the
+  strict check below.
 - A strip keeps a triangle inside the face (parity spread among its triangles within the reach,
   seeded by a vertical ray cast against those segments) whose circumcircle stays within its reach,
   which makes it a triangle of the whole face's constrained Delaunay triangulation, and which it
@@ -96,10 +107,16 @@ paths:
   decision ignores the thread count, so one thread makes the same mesh; and any trouble (a
   remainder constraint that would split, a kept triangle on a helper) triangulates the face whole
   instead. On the 6,784-point top of a plate with 113 holes six strips keep 6,686 of its 7,008
-  triangles, leaving the remainder 0.2 ms: the fans along its long straight sides, whose
-  circumcircles leave every strip, and triangles bridging between holes wider than a reach
-  (`a_large_face_triangulated_in_pieces_is_covered_once_without_gaps`, at least nine tenths kept,
-  on staggered and mirror-symmetric plates).
+  triangles and twelve keep 6,654 (a reach a quarter of a strip's points kept 82% in thirteen),
+  leaving the remainder about 0.2 ms: the fans along its long straight sides, whose circumcircles
+  leave every strip
+  (`a_large_face_triangulated_in_pieces_is_covered_once_without_gaps` and
+  `a_reach_sized_by_the_widest_gap_keeps_the_triangles_of_narrow_strips`, at least nine tenths
+  kept, on staggered and mirror-symmetric plates, the latter in sixteen strips narrower than two
+  reaches). On 16 threads of 8 cores six strips still take that face from 3 ms to about 1.4 ms
+  (the share-sized reach took 1.3 ms) and more strips do not pay, since each strip triangulates its
+  core and two reaches; on a face of 44,000 points with an interior lattice sixteen strips each
+  triangulate a quarter fewer points than with the share-sized reach, 5.1 ms against 5.3 ms.
 - A face makes a `FacePatch` (`patch.rs`): its interior points, its vertices, each on a boundary
   position or one of its own interior points, and its triangles in its own indices. Patches are
   placed in face order, numbering positions, vertices and triangles exactly as one thread would
