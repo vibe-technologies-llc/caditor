@@ -1,6 +1,7 @@
 use caditor_document::{AxisReference, Datum, DatumAxis, FeatureId};
 
 use crate::{
+    blend_tools::{self, EdgeSource},
     combine_tools::{self, BodyPair},
     datum_tools,
     editing::SketchEditing,
@@ -17,6 +18,7 @@ use crate::{
     shell_tools::{self, FaceSource},
     sketch_pattern_tools,
     sketch_placement::{self, SketchTarget},
+    solid_tools::{self, FaceProfile, Sweep},
     split_face_tools::{self, SplitFaceSource},
     split_tools::{self, SplitSource},
     thread_tools::{self, ThreadSource},
@@ -49,6 +51,9 @@ pub struct Offers {
     pub datum_axis: Result<DatumAxis, &'static str>,
     pub datum_point: Result<Datum, &'static str>,
     pub coordinate_system: Result<Datum, &'static str>,
+    pub blend: Result<EdgeSource, &'static str>,
+    pub extrude_faces: Option<Result<FaceProfile, &'static str>>,
+    pub revolve_faces: Option<Result<FaceProfile, &'static str>>,
     pub shell: Result<FaceSource, &'static str>,
     pub offset_face: Result<FaceSource, &'static str>,
     pub split_face: Result<SplitFaceSource, &'static str>,
@@ -89,14 +94,18 @@ impl Offers {
         let document = model.document();
         let evaluation = model.evaluation();
         let end = document.bar_index();
-        let model_axes = selection
+        let model_axes: Vec<(Pickable, AxisReference)> = selection
             .in_pick_order()
             .into_iter()
             .filter_map(|pickable| {
                 Some((pickable, datum_tools::axis_reference(model, pickable, end)?))
             })
             .collect();
+        let faces =
+            |sweep| solid_tools::faces_to_sweep(model, selection, editing, sweep, &model_axes);
         Self {
+            extrude_faces: faces(Sweep::Extrude),
+            revolve_faces: faces(Sweep::Revolve),
             sketch_target: sketch_placement::sketch_target(model, selection),
             pattern: pattern_tools::source(model, selection, tree, rows),
             curve_pattern: sketch_pattern_tools::source(
@@ -116,6 +125,7 @@ impl Offers {
             datum_axis: datum_tools::axis_from_selection(model, selection, end),
             datum_point: datum_tools::point_from_selection(model, selection, end),
             coordinate_system: datum_tools::frame_from_selection(model, selection, end),
+            blend: blend_tools::selected_edges(model, selection, tree),
             shell: shell_tools::selected_faces(model, selection),
             offset_face: offset_face_tools::selected_faces(model, selection),
             split_face: split_face_tools::source(model, selection),

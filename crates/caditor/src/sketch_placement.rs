@@ -93,17 +93,10 @@ pub fn is_flat(model: &Model, choice: FaceChoice) -> bool {
     })
 }
 
-pub const NO_FACE_TO_LOOK_AT: &str = "Select one flat face of a body to look straight at it";
-
 pub fn outward_direction(model: &Model, choice: FaceChoice) -> Option<Vector3> {
     let shown = bodies::shown(model.evaluation(), choice.body)?;
     let face = bodies::find_face(shown, choice.face)?;
     face_plane(&shown.solid, face).map(|plane| plane.normal())
-}
-
-pub fn face_to_look_at(model: &Model, selection: &Selection) -> Result<Vector3, &'static str> {
-    let choice = selected_face(selection).ok_or(NO_FACE_TO_LOOK_AT)?;
-    outward_direction(model, choice).ok_or(NOT_FLAT)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

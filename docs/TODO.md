@@ -285,12 +285,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   hole in the wrong place or a fillet to remove means remodelling it from scratch. Direct edits
   become features of their own, named from the faces they move, so they stay parametric and
   undoable.
-- [medium · easy] Fillet and Chamfer take only edges (`blend_tools::selected_edges` refuses faces
-  with "Select the edges of a body first"), so rounding every edge of a face or of a whole body
-  goes through Select the edges around the selected faces first. Selected faces could give their
-  boundary edges and a body chosen in the tree every edge of it (`body_selection::face_boundary`,
-  as that command uses), so filleting a face's edges is one step as in Fusion, Onshape and
-  SolidWorks; the edges are captured as they are, as a selection of them is.
 - [medium · medium] Only extrusion and revolve ends, a hole's depth, an offset face's distance, a
   datum plane's offset and the move and placement handles drag in the view
   (`manipulator::Manipulator`, `length_handles::Measured`): a fillet's radius, a chamfer's
@@ -317,11 +311,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   (its projection's centre `Coincident` with the point), so the hole follows those edges when the
   body changes; Add another hole could place a further point on the face by a click, as Fusion's
   hole places several.
-- [low · easy] Revolve takes only a sketch: a flat face of a body selected with an axis or straight
-  edge is refused (`NOTHING_TO_REVOLVE`), though Extrude turns one selected face into a hidden
-  sketch of its boundary (`solid_tools::create_on_face`). Revolve could do the same with the face
-  and the axis picked with it, and both could take several coplanar faces of one body as one
-  profile rather than one face (`sketch_placement::selected_face`).
 - [low · medium] Primitives and patterns have no size handles: a box's width, depth and height, a
   cylinder's radius and height and the other primitives' sizes are only typed, while only their
   position drags (`place_handles.rs`), and a linear pattern's spacing and count or a circular
@@ -503,13 +492,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Viewer
 
-- [low · easy] Look straight at the selected face takes only a flat face and always looks along its
-  outward normal (`sketch_placement::face_to_look_at`): pressed again it changes nothing, and a
-  principal or datum plane, a sketch not being edited, a round face or a straight edge cannot be
-  looked at. Pressed while the view already faces it, it (and Look at sketch) could turn the view a
-  quarter turn about the normal, as SolidWorks's Normal To and Onshape's View normal to do, and it
-  could take a plane or a sketch (its solved plane), a round face (along its axis) or a straight
-  edge (along it).
 - [low · medium · blocked by: wgpu's GL backend] On GL and other devices without texture view
   formats the multisample resolve still averages in gamma space. A resolve of its own (a pass
   reading the samples through a `texture_multisampled_2d` and averaging them in linear light) was

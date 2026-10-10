@@ -72,6 +72,7 @@ mod configurations;
 mod coordinate_systems;
 mod custom_colours;
 mod dimension_labels;
+mod face_tools;
 mod feature_panels;
 mod feature_tree_choice;
 mod files_and_history;
@@ -12492,7 +12493,10 @@ fn the_command_palette_runs_what_fits_the_context_and_explains_the_rest() {
     assert!(harness.workspace.palette.is_open());
 
     harness.type_text("fillet");
-    assert!(harness.shows("Fillet is not available: Select the edges of a body first."));
+    assert!(harness.shows(&format!(
+        "Fillet is not available: {}.",
+        crate::blend_tools::NOTHING_TO_BLEND
+    )));
     harness.key(Key::Enter, Modifiers::NONE);
     harness.show_new_windows();
     assert!(harness.workspace.palette.is_open());

@@ -4,15 +4,16 @@ use caditor_document::{
     AxisReference, BodyOperation, Document, Edit, Evaluation, Extrude, ExtrudeExtent, Feature,
     FeatureId, FeatureKind, FeatureResult, RegionChoice, Revolve, RevolveAxis, RevolveExtent,
     SketchAttachment, SketchFeature, SketchRegion, SolidFeature, SolidStart, Transaction, Wall,
-    describe_axis, profile_curve, sketch_regions,
+    describe_axis, face_plane, profile_curve, sketch_regions,
 };
 use caditor_expression::{Expression, Unit};
-use caditor_geometry::Point2;
-use caditor_kernel::{RegionKey, WallSide};
+use caditor_geometry::{Plane, Point2};
+use caditor_kernel::{ANGULAR_RESOLUTION, LINEAR_RESOLUTION, RegionKey, WallSide};
 use caditor_sketch::{Entity, EntityId, Reference, Sketch};
 
 use crate::{
-    bodies, body_selection,
+    bodies::{self, FaceKey},
+    body_selection,
     editing::{self, EditingCommand, SketchEditing},
     last_values::{Remembered, Starts},
     model::{Action, Model, Notice},
@@ -31,15 +32,22 @@ const OUTLINE_SEGMENT_ANGLE: f64 = 0.02;
 const OUTLINE_GAP: f64 = 1e-6;
 pub const NOT_FLAT_TO_EXTRUDE: &str =
     "The selected face is curved; only a flat face can be extruded";
+pub const NOT_FLAT_TO_REVOLVE: &str =
+    "The selected face is curved; only a flat face can be revolved";
+pub const NOT_IN_ONE_PLANE: &str =
+    "The selected faces do not lie in one plane; select flat faces of one plane only";
+pub const FACES_OF_SEVERAL_BODIES: &str =
+    "Faces of several bodies are selected; select faces of one body only";
+pub const NO_AXIS_FOR_FACE: &str =
+    "Select the axis, straight edge or round face to revolve the face about as well";
 pub const NOTHING_TO_EXTRUDE: &str =
-    "Select one flat face of a body to extrude it, or the curves of a sketch";
+    "Select flat faces of one plane of a body to extrude them, or the curves of a sketch";
 pub const SEVERAL_SKETCHES: &str =
     "Curves of several sketches are selected; select the curves of one sketch only";
 pub const SEVERAL_BODIES: &str =
     "Faces of several bodies are selected; select faces of the one body to add to";
-pub const NOTHING_TO_REVOLVE: &str =
-    "Select the curves of a sketch to revolve, with the axis to turn them about";
-const NO_OUTLINE: &str = "The selected face has no edges to extrude it by";
+pub const NOTHING_TO_REVOLVE: &str = "Select the curves of a sketch or flat faces of a body to revolve, with the axis to turn them about";
+const NO_OUTLINE: &str = "The selected faces have no edges to sweep them by";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Sweep {
@@ -210,11 +218,29 @@ pub fn may_guess_sketch(sweep: Sweep, selection: &Selection, lone_axis: bool) ->
     selection.is_empty() || (sweep == Sweep::Revolve && lone_axis && selection.len() == 1)
 }
 
-pub fn face_to_extrude(
+#[derive(Debug, Clone, PartialEq)]
+pub struct FaceProfile {
+    pub body: FeatureId,
+    pub faces: Vec<FaceKey>,
+    pub axis: Option<AxisReference>,
+}
+
+impl FaceProfile {
+    fn first(&self) -> Option<FaceChoice> {
+        self.faces.first().map(|face| FaceChoice {
+            body: self.body,
+            face: *face,
+        })
+    }
+}
+
+pub fn faces_to_sweep(
     model: &Model,
     selection: &Selection,
     editing: &SketchEditing,
-) -> Option<Result<FaceChoice, &'static str>> {
+    sweep: Sweep,
+    axes: &[(Pickable, AxisReference)],
+) -> Option<Result<FaceProfile, &'static str>> {
     let sketch_chosen = selection.iter().any(|pickable| {
         matches!(
             pickable,
@@ -224,28 +250,98 @@ pub fn face_to_extrude(
     if editing.feature().is_some() || sketch_chosen {
         return None;
     }
-    let face = sketch_placement::selected_face(selection)?;
-    Some(if sketch_placement::is_flat(model, face) {
-        Ok(face)
-    } else {
-        Err(NOT_FLAT_TO_EXTRUDE)
+    let picked = selection.in_pick_order();
+    let axis = match sweep {
+        Sweep::Extrude => None,
+        Sweep::Revolve => picked.iter().rev().find_map(|pickable| {
+            axes.iter()
+                .find(|(candidate, _)| candidate == pickable)
+                .filter(|_| {
+                    FaceChoice::of(*pickable)
+                        .is_none_or(|face| !sketch_placement::is_flat(model, face))
+                })
+        }),
+    };
+    let faces: Vec<FaceChoice> = picked
+        .iter()
+        .filter(|pickable| axis.is_none_or(|(candidate, _)| candidate != *pickable))
+        .filter_map(|pickable| FaceChoice::of(*pickable))
+        .collect();
+    if faces.is_empty() {
+        return None;
+    }
+    Some(face_profile(
+        model,
+        &faces,
+        axis.map(|(_, axis)| axis.clone()),
+        sweep,
+    ))
+}
+
+fn face_profile(
+    model: &Model,
+    faces: &[FaceChoice],
+    axis: Option<AxisReference>,
+    sweep: Sweep,
+) -> Result<FaceProfile, &'static str> {
+    let not_flat = match sweep {
+        Sweep::Extrude => NOT_FLAT_TO_EXTRUDE,
+        Sweep::Revolve => NOT_FLAT_TO_REVOLVE,
+    };
+    let body = faces.first().map(|face| face.body).ok_or(NO_OUTLINE)?;
+    if faces.iter().any(|face| face.body != body) {
+        return Err(FACES_OF_SEVERAL_BODIES);
+    }
+    let shown = bodies::shown(model.evaluation(), body).ok_or(NO_OUTLINE)?;
+    let planes = faces
+        .iter()
+        .map(|face| {
+            bodies::find_face(shown, face.face)
+                .and_then(|id| face_plane(&shown.solid, id))
+                .ok_or(not_flat)
+        })
+        .collect::<Result<Vec<Plane>, _>>()?;
+    if let Some((first, rest)) = planes.split_first()
+        && !rest.iter().all(|plane| same_plane(first, plane))
+    {
+        return Err(NOT_IN_ONE_PLANE);
+    }
+    if sweep == Sweep::Revolve && axis.is_none() {
+        return Err(NO_AXIS_FOR_FACE);
+    }
+    Ok(FaceProfile {
+        body,
+        faces: faces.iter().map(|face| face.face).collect(),
+        axis,
     })
 }
 
-pub fn create_on_face(
+fn same_plane(first: &Plane, second: &Plane) -> bool {
+    first.normal().cross(second.normal()).length() <= ANGULAR_RESOLUTION
+        && first.normal().dot(second.normal()) > 0.0
+        && first.signed_distance(second.origin()).abs() <= LINEAR_RESOLUTION
+}
+
+pub fn create_on_faces(
     model: &Model,
-    face: FaceChoice,
+    sweep: Sweep,
+    profile: &FaceProfile,
 ) -> Result<(Transaction, FeatureId, String), &'static str> {
     let document = model.document();
-    let (attachment, plane) = sketch_placement::attachment_at(model, face, document.bar_index())?;
-    let shown = bodies::shown(model.evaluation(), face.body).ok_or(NO_OUTLINE)?;
-    let id = bodies::find_face(shown, face.face).ok_or(NO_OUTLINE)?;
-    let outline = projecting::face_projections(shown, face.body, id, &plane);
+    let first = profile.first().ok_or(NO_OUTLINE)?;
+    let (attachment, plane) = sketch_placement::attachment_at(model, first, document.bar_index())?;
+    let shown = bodies::shown(model.evaluation(), profile.body).ok_or(NO_OUTLINE)?;
+    let ids = profile
+        .faces
+        .iter()
+        .map(|face| bodies::find_face(shown, *face).ok_or(NO_OUTLINE))
+        .collect::<Result<Vec<_>, _>>()?;
+    let outline = projecting::face_projections(shown, profile.body, &ids, &plane);
     if outline.is_empty() {
         return Err(NO_OUTLINE);
     }
     let sketch_name = editing::next_sketch_name(document);
-    let name = editing::next_feature_name(document, Sweep::Extrude.label());
+    let name = editing::next_feature_name(document, sweep.label());
     let mut transaction = document.transaction(format!("Create {name}"));
     let sketch = transaction.add_feature(
         sketch_name.clone(),
@@ -258,32 +354,53 @@ pub fn create_on_face(
     for (source, edges) in &outline {
         transaction.add_projection(sketch, source.clone(), edges);
     }
-    let feature = transaction.add_feature(
-        name.clone(),
-        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+    let operation = BodyOperation::Add(profile.body);
+    let solid = match (sweep, &profile.axis) {
+        (Sweep::Extrude, _) => SolidFeature::Extrude(Extrude {
             sketch,
             regions: RegionChoice::All,
             extent: ExtrudeExtent::one_side(
                 Starts::of(model).length(Remembered::ExtrudeDistance, DEFAULT_DISTANCE),
                 false,
             ),
-            operation: BodyOperation::Add(face.body),
+            operation,
             start: None,
             other_bodies: Vec::new(),
             taper: None,
             wall: None,
             direction: None,
-        })),
-    );
+        }),
+        (Sweep::Revolve, Some(axis)) => SolidFeature::Revolve(Revolve {
+            sketch,
+            regions: RegionChoice::All,
+            axis: RevolveAxis::Model(axis.clone()),
+            extent: RevolveExtent::Full,
+            operation,
+            start: None,
+            other_bodies: Vec::new(),
+            side: None,
+            wall: None,
+        }),
+        (Sweep::Revolve, None) => return Err(NO_AXIS_FOR_FACE),
+    };
+    let feature = transaction.add_feature(name.clone(), FeatureKind::Solid(solid));
+    let faces = match profile.faces.len() {
+        1 => "face",
+        _ => "faces",
+    };
+    let action = match sweep {
+        Sweep::Extrude => "extrudes",
+        Sweep::Revolve => "revolves",
+    };
     let told = format!(
-        "{name} extrudes the selected face out of its body, following its edges through \
+        "{name} {action} the selected {faces} out of its body, following the edges through \
          {sketch_name}. Edit {sketch_name} to change the outline."
     );
     Ok((transaction.finish(), feature, told))
 }
 
-pub fn create_on_face_actions(model: &Model, face: FaceChoice) -> Vec<Action> {
-    match create_on_face(model, face) {
+pub fn create_on_faces_actions(model: &Model, sweep: Sweep, profile: &FaceProfile) -> Vec<Action> {
+    match create_on_faces(model, sweep, profile) {
         Ok((transaction, feature, told)) => vec![
             Action::Apply(transaction),
             Action::Editing(EditingCommand::OpenSolid(feature)),
@@ -291,7 +408,7 @@ pub fn create_on_face_actions(model: &Model, face: FaceChoice) -> Vec<Action> {
         ],
         Err(reason) => vec![Action::Inform(Notice::warning(format!(
             "{}: {reason}.",
-            Sweep::Extrude.label()
+            sweep.label()
         )))],
     }
 }

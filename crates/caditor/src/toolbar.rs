@@ -1,4 +1,4 @@
-use caditor_document::{BlendKind, Datum, PrimitiveKind, describe_axis};
+use caditor_document::{BlendKind, Datum, Document, PrimitiveKind, describe_axis};
 use egui::{Frame, Id, Response, Ui, Vec2};
 
 use crate::{
@@ -19,7 +19,7 @@ use crate::{
     selection::Selection,
     shell_tools,
     sketch_placement::SketchTarget,
-    solid_tools::{self, Sweep},
+    solid_tools::{self, FaceProfile, Sweep},
     split_face_tools, split_tools, thread_tools,
     viewport::CHOOSE_PLANE_PROMPT,
     widgets::ToolButton,
@@ -33,7 +33,6 @@ pub const MEASURE_LABEL: &str = "Measure";
 pub const INTERFERENCE_LABEL: &str = "Interference";
 const NO_SKETCH_TO_SWEEP: &str =
     "Draw a sketch with a closed outline first, or select the curves of one already swept";
-const EXTRUDE_FACE_HELP: &str = "Extrude the selected face out of its body";
 const MEASURE_HOVER: &str =
     "Measure the selection: distances, angles, lengths, areas and the mass properties of bodies";
 const INTERFERENCE_HOVER: &str = "Find where bodies overlap or touch, with the volume they share";
@@ -259,6 +258,21 @@ fn sketch_buttons(
     }
 }
 
+fn face_sweep_help(document: &Document, sweep: Sweep, profile: &FaceProfile) -> String {
+    let faces = match profile.faces.len() {
+        1 => "face".to_owned(),
+        count => format!("{count} faces"),
+    };
+    match (sweep, &profile.axis) {
+        (Sweep::Extrude, _) => format!("Extrude the selected {faces} out of its body"),
+        (Sweep::Revolve, Some(axis)) => format!(
+            "Revolve the selected {faces} about {}",
+            describe_axis(document, axis)
+        ),
+        (Sweep::Revolve, None) => format!("Revolve the selected {faces}"),
+    }
+}
+
 fn solid_buttons(
     ui: &mut Ui,
     model: &Model,
@@ -267,7 +281,6 @@ fn solid_buttons(
     actions: &mut Vec<Action>,
 ) {
     let document = model.document();
-    let face = solid_tools::face_to_extrude(model, context.selection, context.editing);
     let lone_axis = context.selection.len() == 1 && !context.offers.model_axes.is_empty();
     for sweep in Sweep::ALL {
         let command = match sweep {
@@ -287,7 +300,11 @@ fn solid_buttons(
                 solid_tools::with_model_axis(source, context.selection, &context.offers.model_axes)
             })
         });
-        let face = face.filter(|_| sweep == Sweep::Extrude);
+        let face = match sweep {
+            Sweep::Extrude => &context.offers.extrude_faces,
+            Sweep::Revolve => &context.offers.revolve_faces,
+        };
+        let face = face.as_ref().map(Result::as_ref);
         let missing = match sweep {
             _ if may_guess => NO_SKETCH_TO_SWEEP,
             Sweep::Extrude => solid_tools::NOTHING_TO_EXTRUDE,
@@ -295,14 +312,16 @@ fn solid_buttons(
         };
         let available = match (face, source.as_ref()) {
             (Some(Ok(_)), _) => Ok(()),
-            (Some(Err(reason)), _) | (None, Err(&reason)) => Err(reason),
+            (Some(Err(&reason)), _) | (None, Err(&reason)) => Err(reason),
             (None, Ok(Some(_))) => Ok(()),
             (None, Ok(None)) => Err(missing),
         };
         let invoked = commands.invoke(command, &available);
         let help = match (face, source.as_ref()) {
-            (Some(Ok(_)), _) => Ok(commands.with_keys(command, EXTRUDE_FACE_HELP)),
-            (Some(Err(reason)), _) | (None, Err(&reason)) => Err(reason.to_owned()),
+            (Some(Ok(profile)), _) => {
+                Ok(commands.with_keys(command, &face_sweep_help(document, sweep, profile)))
+            }
+            (Some(Err(&reason)), _) | (None, Err(&reason)) => Err(reason.to_owned()),
             (None, Ok(Some(source))) => {
                 let sketch = document
                     .feature(source.sketch)
@@ -333,8 +352,8 @@ fn solid_buttons(
             continue;
         }
         match (face, &source) {
-            (Some(Ok(face)), _) => {
-                actions.extend(solid_tools::create_on_face_actions(model, face));
+            (Some(Ok(profile)), _) => {
+                actions.extend(solid_tools::create_on_faces_actions(model, sweep, profile));
             }
             (None, Ok(Some(source))) => actions.extend(solid_tools::create_actions(
                 document,
@@ -396,14 +415,14 @@ fn blend_buttons(
     commands: &mut CommandFrame<'_>,
     actions: &mut Vec<Action>,
 ) {
-    let source = blend_tools::selected_edges(context.selection);
+    let source = &context.offers.blend;
     for kind in blend_tools::KINDS {
         let command = match kind {
             BlendKind::Fillet => Command::Fillet,
             BlendKind::Chamfer => Command::Chamfer,
         };
-        let invoked = commands.invoke(command, &source);
-        let help = match &source {
+        let invoked = commands.invoke(command, source);
+        let help = match source {
             Ok(source) => Ok(commands.with_keys(
                 command,
                 &format!(
@@ -419,7 +438,7 @@ fn blend_buttons(
         };
         let response = tool(ui, command, kind.title(), &help);
         if (response.clicked() || invoked)
-            && let Ok(source) = &source
+            && let Ok(source) = source
         {
             actions.extend(blend_tools::create_actions(
                 model.document(),

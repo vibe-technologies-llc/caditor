@@ -39,6 +39,7 @@ use crate::{
     hole_tools,
     interference_panel::{Mark, MarkKind},
     isocurves::IsocurveDrawing,
+    look_at::{self, LookTarget},
     manipulator::{Manipulating, Manipulator},
     measure::MeasuredLine,
     measurement_tools,
@@ -65,7 +66,7 @@ use crate::{
     shape_modes::ShapeMode,
     shell_tools,
     sketch_drag::{self, BoxMode, Grab, Moving, ScreenArea, Transform, Transforming},
-    sketch_placement::{self, DatumTarget, FaceChoice},
+    sketch_placement::{DatumTarget, FaceChoice},
     sketch_status, sketch_toolbar, sketch_tools,
     snap::{Hold, Pointer, Screen},
     snapshot, solid_tools, split_face_tools, toggles,
@@ -318,7 +319,7 @@ pub struct ViewportState {
     last_pick: Option<PickKey>,
     requested_viewpoint: Option<Viewpoint>,
     edited: Option<FeatureId>,
-    face_edited_sketch: bool,
+    face_edited_sketch: Option<SketchFacing>,
     checked_availability: Option<Availability>,
     sketch_cursor: Option<Point2>,
     drawing: Drawing,
@@ -364,7 +365,7 @@ pub struct ViewportState {
     comb: Option<Arc<CombDrawing>>,
     isocurves: Option<Arc<IsocurveDrawing>>,
     framed_place: Option<Point3>,
-    look_from: Option<Vector3>,
+    look_from: Option<LookTarget>,
     scenes: SceneCache,
     description: SceneDescription,
     filter: SelectionFilter,
@@ -518,7 +519,7 @@ impl ViewportState {
             last_pick: None,
             requested_viewpoint: None,
             edited: None,
-            face_edited_sketch: false,
+            face_edited_sketch: None,
             checked_availability: None,
             sketch_cursor: None,
             drawing: Drawing::default(),
@@ -1005,7 +1006,7 @@ impl ViewportState {
             context.sketch.is_none() && context.solid.is_none() && !context.choosing_plane;
         if edited != self.edited {
             self.edited = edited;
-            self.face_edited_sketch = edited.is_some();
+            self.face_edited_sketch = edited.map(|_| SketchFacing::Entering);
             self.last_pick = None;
         }
         self.bodies.update(evaluation, &display.meshing);
@@ -1180,16 +1181,19 @@ impl ViewportState {
             self.camera = Camera::new(view.fitted(built.fit_all()));
             self.camera.set_projection(self.navigation.projection);
             self.needs_initial_fit = false;
-        } else if self.face_edited_sketch {
-            going = built
-                .edited
-                .map(|sketch| (facing(&self.camera, &heading, &sketch), FitAsked::ByUser));
-            self.face_edited_sketch = false;
-        } else if let Some(direction) = self.look_from {
+        } else if let Some(asked) = self.face_edited_sketch.take() {
+            going = built.edited.map(|sketch| {
+                let facing = match asked {
+                    SketchFacing::Entering => entering(&self.camera, &heading, &sketch),
+                    SketchFacing::Again => facing(&self.camera, &heading, &sketch),
+                };
+                (facing, FitAsked::ByUser)
+            });
+        } else if let Some(target) = self.look_from {
             going = built
                 .bounds_of(&sources, self.selection.iter())
                 .map(|bounds| {
-                    let looking = looking_at(&self.camera, &heading, direction, bounds);
+                    let looking = looking_at(&self.camera, &heading, target, bounds);
                     (looking, FitAsked::ByUser)
                 });
         } else if let Some(place) = self.framed_place {
@@ -2528,13 +2532,13 @@ impl ViewportState {
         self.view_commands(model, commands, actions);
         let facing = editing.feature().ok_or(NOT_IN_A_SKETCH);
         if commands.invoke(Command::LookAtSketch, &facing) && facing.is_ok() {
-            self.face_edited_sketch = true;
+            self.face_edited_sketch = Some(SketchFacing::Again);
         }
-        let looking = sketch_placement::face_to_look_at(model, &self.selection);
+        let looking = look_at::look_target(model, &self.selection);
         if commands.invoke(Command::LookAtFace, &looking)
-            && let Ok(direction) = looking
+            && let Ok(target) = looking
         {
-            self.look_from = Some(direction);
+            self.look_from = Some(target);
         }
         self.selection_commands(model, editing, commands, actions);
         for step in CameraMove::ALL {
@@ -4907,7 +4911,13 @@ fn pick_action(
     Some(command.map(Action::Editing).into_iter().collect())
 }
 
-fn facing(camera: &Camera, heading: &View, sketch: &EditedSketch) -> Viewpoint {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SketchFacing {
+    Entering,
+    Again,
+}
+
+fn entering(camera: &Camera, heading: &View, sketch: &EditedSketch) -> Viewpoint {
     let size = heading.size();
     let facing = Viewpoint::facing(
         &sketch.plane,
@@ -4919,11 +4929,18 @@ fn facing(camera: &Camera, heading: &View, sketch: &EditedSketch) -> Viewpoint {
         .fitted(sketch.bounds)
 }
 
-fn looking_at(camera: &Camera, heading: &View, direction: Vector3, bounds: Aabb) -> Viewpoint {
+fn facing(camera: &Camera, heading: &View, sketch: &EditedSketch) -> Viewpoint {
+    looking_at(
+        camera,
+        heading,
+        LookTarget::Plane(sketch.plane),
+        sketch.bounds,
+    )
+}
+
+fn looking_at(camera: &Camera, heading: &View, target: LookTarget, bounds: Aabb) -> Viewpoint {
     let size = heading.size();
-    let destination =
-        Viewpoint::looking_from(direction, bounds.center(), heading.viewpoint().distance)
-            .unwrap_or(*heading.viewpoint());
+    let destination = target.viewpoint(heading.viewpoint(), bounds.center());
     camera.view_from(destination, size.x, size.y).fitted(bounds)
 }
 

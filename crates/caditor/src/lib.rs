@@ -81,6 +81,7 @@ mod layout;
 mod length_handles;
 mod logging;
 mod logo;
+mod look_at;
 mod manipulator;
 mod mate_panel;
 mod mate_tools;

@@ -10,6 +10,10 @@ panel, {command:model.use_selected_axis} or Choose in the view changes it.
 The **Sketch** row has a button beside it to edit the sketch revolved, and
 {command:model.edit_sketch} does the same from a face the revolve made.
 
+With flat faces of one body selected that lie in one plane, and an axis, straight edge or round
+face selected with them, Revolve turns those faces about it and adds the result to their body,
+through a hidden sketch that follows their edges.
+
 ## Extent
 
 - **Full turn**, **One side** by an angle, **Symmetric** both ways, or **Two sides** each with its

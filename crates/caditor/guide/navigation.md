@@ -27,8 +27,10 @@ input mode, since none of them uses the middle button's double-click for anythin
 - {command:view.fit} frames the selection, the rows chosen in the tree, or everything.
 - {command:view.isometric}, {command:view.front}, {command:view.top} and the other standard views
   turn the view smoothly to look from that side.
-- {command:view.look_at_face} looks straight at the one selected flat face, and inside a sketch
-  {command:view.look_at_sketch} faces its plane again.
+- {command:view.look_at_face} looks straight at what is selected: a flat face, a principal or
+  datum plane or a sketch from its front, a round face along its axis and a straight edge or axis
+  along it. Inside a sketch {command:view.look_at_sketch} faces its plane again. Pressed while the
+  view already looks that way, either turns the view a quarter turn.
 
 A key pressed while the view is still turning carries on from where the view is going, so
 pressing {command:view.front} and then {command:view.fit} ends looking from the front.

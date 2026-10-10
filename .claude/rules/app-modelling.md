@@ -111,7 +111,7 @@ paths:
   line or axis picked last (`solid_tools::with_model_axis`), and a pattern's direction ignores
   edges and faces of the patterned body when an axis outside it is selected.
 - What a command drops from a mixed selection is said in a notice: a fillet or chamfer keeps
-  edges, a shell faces (`body_selection::left_out_words`), and the body card says when selected
+  edges and faces, a shell faces (`body_selection::left_out_words`), and the body card says when selected
   faces of other bodies are not coloured (`body_appearance::other_faces_note`).
 - The tree's commands that take the selection (Place sketch, Use selected axis, Up to selected,
   Start at selected, Mirror across selected, Split along selected, the datum and pattern Use
@@ -197,11 +197,16 @@ paths:
 
 ## Extrude and Revolve
 
-- Extrude with one flat face of a body selected (no sketch edited, no sketch geometry selected;
-  an open feature does not matter) extrudes that face: one transaction creates a hidden sketch on the face holding
-  its boundary edges projected (`projecting::face_projections`, so the outline follows the face),
-  and an extrusion of it added to that body outward, with a notice naming the sketch
-  (`solid_tools::create_on_face`); a curved face is refused in words. A selected face never falls
+- Extrude with flat faces of one body selected that lie in one plane (no sketch edited, no sketch
+  geometry selected; an open feature does not matter) extrudes them: one transaction creates a
+  hidden sketch on the first face picked holding the boundary edges of them all projected, each
+  shared edge once (`projecting::face_projections`, so the outline follows the faces), and an
+  extrusion of it added to that body outward, with a notice naming the sketch
+  (`solid_tools::create_on_faces`). Revolve does the same with the faces and the axis, straight
+  edge or round face picked last with them (`FaceProfile::axis`), a full turn about it as
+  `RevolveAxis::Model`, and refuses faces without one (`NO_AXIS_FOR_FACE`). A curved face, faces
+  of two bodies or faces of two planes are refused in words (`solid_tools::faces_to_sweep`, worked
+  out with the offers as `Offers::extrude_faces` and `revolve_faces`). A selected face never falls
   through to the last sketch.
 - Otherwise they take the edited sketch, else the selection's sketch (curves of two sketches are
   refused, `SEVERAL_SKETCHES`); only with nothing selected (for Revolve, nothing but the axis it
@@ -313,13 +318,17 @@ paths:
 ## Fillets, chamfers and shells
 
 - Fillet, Chamfer and Shell take the selected edges (or flat faces) of one body and create a
-  feature that opens. The edges and flat faces of the body before the feature
+  feature that opens. Fillet and Chamfer also take selected faces of the body, each standing for
+  its boundary edges, and a lone body chosen in the tree for every edge of it
+  (`blend_tools::selected_edges`, `Offers::blend`; seams left out, each edge once); the edges are
+  captured as they stand, as a selection of edges is, so edges a later change adds to such a face
+  are not taken. The edges and flat faces of the body before the feature
   (`BodyMeshes::body_before`) are `Pickable::BlendEdge` and `Pickable::ShellFace`, drawn as in
   Preview while open, and a click toggles one. The
   panel lists the edges or faces in words (a split edge as its pieces).
 - Choose in the view on a fillet or chamfer first adds the edges selected in the view of its
-  body (`blend_tools::with_selected_edges`, one undoable change, edges already in a chosen chain
-  skipped), then opens it, so those and the edges it held show chosen and a click leaves one out.
+  body and the edges around its selected faces (`blend_tools::with_selected_edges`, one undoable
+  change, edges already in a chosen chain skipped), then opens it, so those and the edges it held show chosen and a click leaves one out.
   A shell's and an offset face's Choose in the view do the same with the selected faces of its
   body (`shell_tools::with_selected_faces`, flat faces only, and
   `offset_face_tools::with_selected_faces`; faces already chosen skipped), the panels taking the
