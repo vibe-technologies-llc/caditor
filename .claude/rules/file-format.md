@@ -404,9 +404,9 @@ paths:
   that is no split face loads without it, reported. One splitting along the surface of a face is
   a `split_face_surface` record: `feature`, the `split_face` record splitting along the YZ plane,
   and `face`, an attachment record; an unreadable face leaves it along the YZ plane, reported.
-  One wrapping its sketch round a cylinder is a `split_face_wrapped` record holding `feature`,
-  the `split_face` record it would be carrying square, since an older reader would sweep the
-  outlines straight; an inner record that is no split face loads without it, reported.
+  One wrapping its sketch round a cylinder or cone is a `split_face_wrapped` record holding
+  `feature`, the `split_face` record it would be carrying square, since an older reader would
+  sweep the curves straight; an inner record that is no split face loads without it, reported.
 - A `primitive` feature record holds `shape` (`box` with `length`, `width`, `height`; `cylinder`
   with `diameter`, `height`; `sphere` with `diameter`; `torus` with `diameter`, `tube`; `cone` with
   `bottom`, `top`, `height`; `wedge` with `length`, `width`, `height`, `top`; `prism` with `sides`,

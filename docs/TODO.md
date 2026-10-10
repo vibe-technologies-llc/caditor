@@ -234,10 +234,15 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   Every copy is the original's tool placed again, never recomputed where it lands (a copy of an
   extrusion up to next stops where the original did, not on the face it meets), and one pattern
   cannot chain a shift, a turn and a mirror.
-- [low · medium] Split face wraps only closed outlines, only onto faces of one cylinder and only
-  within once round it: an open chain cannot be wrapped (a helical stripe running round more than
-  once, a band whose ends meet after one turn), and nothing wraps onto a cone (by its unrolled
-  sector) or a sphere.
+- [low · hard] Split face wraps closed outlines only within once round a cylinder or cone, and a
+  wrapped open chain may not run right round and back to the edge of the faces it started from:
+  a helical stripe drawn as one outline running round more than once, a band whose ends meet
+  after one turn and a chain turning back after going round all need a tool that crosses the seam
+  of the unrolled window in one piece (its two edges glued into one solid, the caps then whole
+  rings), which the window's separate regions cannot build; a sketch of two or more open chains
+  (a stripe between two helices) is refused too. Spheres stay refused in words: a sphere has no
+  flat unrolling, so wrapping onto one first needs a chosen projection (stereographic, equal area
+  or along its axis) and the distortion it brings, a design decision before any kernel work.
 - [low · medium] A kept measurement reads no position (a point's coordinate along an axis) and no
   mass property (a body's volume, mass or centre of mass, which come from `BodyMass` on the app's
   meshing pool, not from recompute). Open decision: a failed or suppressed measurement fails the

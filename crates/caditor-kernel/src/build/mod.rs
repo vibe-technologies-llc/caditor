@@ -8,6 +8,9 @@ mod taper_tests;
 #[cfg(test)]
 mod tests;
 mod wrap;
+mod wrap_cut;
+#[cfg(test)]
+mod wrap_cut_tests;
 #[cfg(test)]
 mod wrap_tests;
 
@@ -25,6 +28,7 @@ pub use self::{
     revolve::revolve,
     taper::{MAX_TAPER_DEGREES, extrude_tapered},
     wrap::{WrapError, wrap_regions},
+    wrap_cut::wrap_chain,
 };
 use crate::{
     error::GeometryError,

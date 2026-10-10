@@ -771,13 +771,16 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   plane fails it in words naming the axis and the sketch. Its body, datum, frame and sketch count
   as used like a move axis's (`direction_body` and the rest), its origins among the feature's, and
   healing keeps it.
-- `Wrapped` wraps the sketch's closed outlines (even depth) round the cylinder the chosen faces
-  lie on (kernel `wrap_regions`): every chosen face must be cylindrical and on one cylinder (same
-  axis line and radius within `tolerance.rs`), and the sketch plane must run along its axis.
-  A face that is not cylindrical (named by origin), faces of several cylinders, a plane across
-  the axis, open curves (one chain, a mixed sketch or no closed profile) and outlines reaching
-  farther round than the circumference fail it in words, the last two with the fix on the
-  sketch.
+- `Wrapped` wraps the sketch's curves round the cylinder or cone the chosen faces lie on: every
+  chosen face must be on one such surface (a cylinder's axis line and radius, a cone's apex,
+  opening and half angle, within `tolerance.rs`; `on_one_unrolled_surface`, which the app asks
+  too), and the sketch plane must run along its axis. Closed outlines (even depth) go to kernel
+  `wrap_regions`, one open chain to `wrap_chain` (a cut along it), and a mixed sketch takes both
+  passes as above. A face neither cylindrical nor conical (named by origin, a sphere said to have
+  no flat unrolling), faces of several surfaces, a plane across the axis, faces with no common
+  seam, outlines farther round than once (in mm round a cylinder, degrees round a cone), curves
+  past a cone's apex, a chain end running straight round, a chain crossing itself or closing round
+  to the same edge fail it in words, those of the sketch with the fix on the sketch.
 - A tool crossing none of the chosen faces fails it in words naming the plane, curve or body;
   splitting along its own body, a sketch's problems and kernel failures (through `trouble.rs`)
   fail it alone.

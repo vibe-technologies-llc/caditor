@@ -81,7 +81,7 @@ fn wrapped_patch(plane: &Plane, curves: &[ProfileCurve], pieces: usize) -> f64 {
     let body = rod();
     let (wall, cylinder) = wall_of(&body);
     let original = body.face(wall).unwrap().name();
-    let tool = wrap_regions(plane, &regions(curves), &cylinder, TOOL).unwrap();
+    let tool = wrap_regions(plane, &regions(curves), &Surface::Cylinder(cylinder), TOOL).unwrap();
     assert_eq!(tool.validate(), Ok(()));
 
     let split = split_faces(&body, &[wall], &tool, SPLIT).unwrap();
@@ -147,7 +147,7 @@ fn a_plane_across_the_axis_cannot_be_wrapped() {
     let wrapped = wrap_regions(
         &Plane::XY,
         &regions(&rectangle(5, (1.0, 1.0), (2.0, 2.0))),
-        &cylinder,
+        &Surface::Cylinder(cylinder),
         TOOL,
     );
 
@@ -166,12 +166,9 @@ fn an_outline_longer_than_once_round_is_refused() {
             (10.0, -0.5 * round),
             (20.0, 0.5 * round + 1.0),
         )),
-        &cylinder,
+        &Surface::Cylinder(cylinder),
         TOOL,
     );
 
-    assert!(matches!(
-        wrapped,
-        Err(WrapError::BeyondFullTurn { circumference, .. }) if (circumference - round).abs() < 1e-9
-    ));
+    assert!(matches!(wrapped, Err(WrapError::BeyondFullTurn { turns }) if turns > 1.0));
 }

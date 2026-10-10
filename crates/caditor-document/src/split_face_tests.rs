@@ -1,7 +1,7 @@
 use caditor_expression::{Expression, ParameterId};
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
 use caditor_kernel::{
-    FaceReference, LINEAR_RESOLUTION, SamplingTolerance, Solid, Surface, face_area,
+    FaceId, FaceReference, LINEAR_RESOLUTION, SamplingTolerance, Solid, Surface, face_area,
 };
 use caditor_sketch::Sketch;
 
@@ -426,25 +426,52 @@ fn tangent_sketch(offset: f64) -> Sketch {
 }
 
 fn rod(sketch: Sketch, faces: impl Fn(&Solid) -> Vec<FaceReference>) -> Rod {
+    wrapped_on(false, sketch, faces)
+}
+
+fn cone(sketch: Sketch, faces: impl Fn(&Solid) -> Vec<FaceReference>) -> Rod {
+    wrapped_on(true, sketch, faces)
+}
+
+fn wrapped_on(conical: bool, sketch: Sketch, faces: impl Fn(&Solid) -> Vec<FaceReference>) -> Rod {
     let mut document = Document::default();
     let mut transaction = document.transaction("Build");
-    let mut outline = Sketch::new(Plane::XY);
-    outline.add_circle(Point2::new(0.0, 0.0), 10.0);
-    let outline = transaction.add_feature("Outline", FeatureKind::from(outline));
-    let base = transaction.add_feature(
-        "Rod",
-        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
-            sketch: outline,
-            regions: RegionChoice::All,
-            extent: ExtrudeExtent::one_side(transaction.parse("30 mm").unwrap(), false),
-            operation: BodyOperation::NewBody,
-            start: None,
-            other_bodies: Vec::new(),
-            taper: None,
-            wall: None,
-            direction: None,
-        })),
-    );
+    let base = if conical {
+        let mm = |text: &str| Expression::parse_stored(text).unwrap();
+        transaction.add_feature(
+            "Cone",
+            FeatureKind::Primitive(Primitive {
+                shape: PrimitiveShape::Cone {
+                    bottom: mm("24 mm"),
+                    top: mm("12 mm"),
+                    height: mm("30 mm"),
+                },
+                plane: PlaneReference::Principal(PrincipalPlane::Xy),
+                at: [mm("0 mm"), mm("0 mm")],
+                anchor: PrimitiveAnchor::BaseCentre,
+                reversed: false,
+                operation: BodyOperation::NewBody,
+            }),
+        )
+    } else {
+        let mut outline = Sketch::new(Plane::XY);
+        outline.add_circle(Point2::new(0.0, 0.0), 10.0);
+        let outline = transaction.add_feature("Outline", FeatureKind::from(outline));
+        transaction.add_feature(
+            "Rod",
+            FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+                sketch: outline,
+                regions: RegionChoice::All,
+                extent: ExtrudeExtent::one_side(transaction.parse("30 mm").unwrap(), false),
+                operation: BodyOperation::NewBody,
+                start: None,
+                other_bodies: Vec::new(),
+                taper: None,
+                wall: None,
+                direction: None,
+            })),
+        )
+    };
     let label = transaction.add_feature("Label", FeatureKind::from(sketch));
     document.apply(transaction.finish()).unwrap();
     let mut engine = Recompute::default();
@@ -472,7 +499,7 @@ fn rod(sketch: Sketch, faces: impl Fn(&Solid) -> Vec<FaceReference>) -> Rod {
 fn walls(solid: &Solid) -> Vec<FaceReference> {
     solid
         .faces()
-        .filter(|(_, face)| matches!(face.surface(), Surface::Cylinder(_)))
+        .filter(|(_, face)| matches!(face.surface(), Surface::Cylinder(_) | Surface::Cone(_)))
         .map(|(id, _)| FaceReference::capture(solid, id).unwrap())
         .collect()
 }
@@ -543,16 +570,17 @@ fn a_wrapped_split_of_a_flat_face_fails_in_words() {
     let error = failure(&evaluation, rod.split);
 
     assert!(
-        error
-            .reason
-            .ends_with("is not cylindrical, so the curves of Label cannot be wrapped onto it."),
+        error.reason.ends_with(
+            "is neither cylindrical nor conical, so the curves of Label cannot be wrapped onto \
+                 it."
+        ),
         "{}",
         error.reason
     );
 }
 
 #[test]
-fn a_wrapped_open_curve_or_a_long_outline_fails_in_words() {
+fn a_wrapped_curve_round_the_axis_or_a_long_outline_fails_in_words() {
     let mut open = tangent_sketch(10.0);
     open.add_line(Point2::new(5.0, -20.0), Point2::new(5.0, 20.0));
     let mut long = tangent_sketch(10.0);
@@ -578,12 +606,95 @@ fn a_wrapped_open_curve_or_a_long_outline_fails_in_words() {
 
     assert_eq!(
         reasons[0],
-        "Only closed outlines can be wrapped onto a cylinder, and the curves of Label are not \
-         all closed."
+        "An end of the curve of Label runs straight round the cylinder, so carried on it never \
+         leaves the faces."
     );
     assert!(
         reasons[1].starts_with("The outlines of Label reach 63.83"),
         "{}",
         reasons[1]
     );
+}
+
+fn wall_count(rod: &mut Rod) -> usize {
+    let evaluation = evaluate(&rod.document, &mut rod.engine);
+    assert_eq!(
+        evaluation.failed_count(),
+        0,
+        "{:?}",
+        evaluation.failures().next()
+    );
+    evaluation
+        .body(rod.base)
+        .unwrap()
+        .faces()
+        .filter(|(_, face)| matches!(face.surface(), Surface::Cylinder(_) | Surface::Cone(_)))
+        .count()
+}
+
+#[test]
+fn a_wrapped_open_chain_cuts_the_wall_along_a_helix() {
+    let round = std::f64::consts::TAU * 10.0;
+    let rise = 2.0 * round / 30.0;
+    let mut sketch = tangent_sketch(10.0);
+    sketch.add_line(
+        Point2::new(-5.0, 0.5 * round - 5.0 * rise),
+        Point2::new(35.0, 0.5 * round + 35.0 * rise),
+    );
+    let mut rod = rod(sketch, walls);
+
+    assert!(wall_count(&mut rod) >= 3);
+}
+
+#[test]
+fn a_wrapped_chain_and_outline_cut_the_wall_twice() {
+    let mut sketch = tangent_sketch(10.0);
+    label(&mut sketch);
+    sketch.add_line(Point2::new(22.0, 5.0), Point2::new(40.0, 5.0));
+    let mut rod = rod(sketch, walls);
+
+    assert!(wall_count(&mut rod) >= 3);
+}
+
+#[test]
+fn outlines_and_chains_wrap_round_a_cone() {
+    let mut outline =
+        Sketch::new(Plane::from_frame(Point3::new(0.0, 9.0, 0.0), Vector3::Y, Vector3::Z).unwrap());
+    label(&mut outline);
+    let mut chain =
+        Sketch::new(Plane::from_frame(Point3::new(0.0, 9.0, 0.0), Vector3::Y, Vector3::Z).unwrap());
+    chain.add_line(Point2::new(-5.0, 2.0), Point2::new(35.0, 2.0));
+
+    let counts: Vec<usize> = [outline, chain]
+        .into_iter()
+        .map(|sketch| wall_count(&mut cone(sketch, walls)))
+        .collect();
+
+    assert!(counts.iter().all(|count| *count >= 2), "{counts:?}");
+}
+
+#[test]
+fn only_faces_of_one_cylinder_or_cone_lie_on_one_unrolled_surface() {
+    let found: Vec<(bool, bool)> = [false, true]
+        .into_iter()
+        .map(|conical| {
+            let mut sketch = tangent_sketch(10.0);
+            label(&mut sketch);
+            let mut model = wrapped_on(conical, sketch, walls);
+            let evaluation = evaluate(&model.document, &mut model.engine);
+            let solid = evaluation.body(model.base).unwrap();
+            let curved: Vec<FaceId> = solid
+                .faces()
+                .filter(|(_, face)| !matches!(face.surface(), Surface::Plane(_)))
+                .map(|(id, _)| id)
+                .collect();
+            let every: Vec<FaceId> = solid.faces().map(|(id, _)| id).collect();
+            (
+                on_one_unrolled_surface(solid, &curved),
+                on_one_unrolled_surface(solid, &every),
+            )
+        })
+        .collect();
+
+    assert_eq!(found, vec![(true, false), (true, false)]);
 }
