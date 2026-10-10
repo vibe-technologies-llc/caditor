@@ -6,7 +6,7 @@ use caditor_kernel::{
     FaceForm, FaceReference, MeasureError, Solid, VertexName, face_form, interruptible,
     vertex_names,
 };
-use caditor_sketch::Sketch;
+use caditor_sketch::{Constraint, ConstraintId, Entity, Sketch};
 
 use crate::*;
 
@@ -272,6 +272,70 @@ fn reading_a_measurement_above_it_is_refused_naming_the_cycle() {
         "{refusal}"
     );
     assert_eq!(model.document.dependents_of(&[measurement]), vec![reader]);
+}
+
+fn swept_sketch(model: &Model) -> FeatureId {
+    let base = model.document.feature(model.base).unwrap();
+    let FeatureKind::Solid(SolidFeature::Extrude(extrude)) = &base.kind else {
+        panic!("the base is an extrusion");
+    };
+    extrude.sketch
+}
+
+#[test]
+fn a_sketch_dimension_cannot_read_a_measurement_of_the_feature_sweeping_it() {
+    let mut model = model();
+    let kept = height_of_corner(&model);
+    let (_, gap) = keep(&mut model, "clearance", kept);
+    let outline = swept_sketch(&model);
+
+    let mut transaction = model.document.transaction("Dimension");
+    let from = transaction.add_sketch_entity(outline, Entity::Point(Point2::new(20.0, 0.0)));
+    let to = transaction.add_sketch_entity(outline, Entity::Point(Point2::new(30.0, 0.0)));
+    let dimension = transaction.add_sketch_constraint(
+        outline,
+        Constraint::Distance {
+            from,
+            to,
+            value: millimetres(10.0),
+        },
+    );
+    model.document.apply(transaction.finish()).unwrap();
+
+    let set = model.document.apply(Transaction::single(
+        "Set",
+        Edit::SetDimension {
+            feature: outline,
+            constraint: dimension,
+            value: Expression::Parameter(gap),
+        },
+    ));
+    let added = model.document.apply(Transaction::single(
+        "Add",
+        Edit::AddSketchConstraint {
+            feature: outline,
+            id: ConstraintId::from_raw(500),
+            constraint: Constraint::Distance {
+                from,
+                to,
+                value: Expression::Parameter(gap),
+            },
+            inactive: false,
+            label: None,
+        },
+    ));
+
+    assert!(matches!(
+        set,
+        Err(EditError::MeasurementBelowUser { ref feature, ref measurement, .. })
+            if feature == "Outline" && measurement == "Measurement 1"
+    ));
+    assert!(matches!(
+        added,
+        Err(EditError::MeasurementBelowUser { ref feature, ref measurement, .. })
+            if feature == "Outline" && measurement == "Measurement 1"
+    ));
+    assert!(evaluate(&model.document).feature(outline).unwrap().state == FeatureState::UpToDate);
 }
 
 #[test]

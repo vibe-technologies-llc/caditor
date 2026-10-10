@@ -1694,13 +1694,14 @@ impl Document {
         Ok(())
     }
 
-    fn check_measurement_order(&self, feature: &Feature, index: usize) -> Result<(), EditError> {
-        let used = feature.kind.parameters();
-        if used.is_empty() && feature.kind.measurement().is_none() {
-            return Ok(());
-        }
+    pub(crate) fn check_measurements_above(
+        &self,
+        user: &str,
+        id: FeatureId,
+        used: impl IntoIterator<Item = ParameterId>,
+        index: usize,
+    ) -> Result<(), EditError> {
         let measured = Measured::of(self);
-        let id = feature.id();
         for parameter in used {
             let below = measured
                 .measurements_read(parameter)
@@ -1712,9 +1713,20 @@ impl Document {
                 });
             if let Some(measurement) = below {
                 let through = self.reading_path(parameter, measurement);
-                return Err(self.below_user(&feature.name, through, measurement));
+                return Err(self.below_user(user, through, measurement));
             }
         }
+        Ok(())
+    }
+
+    fn check_measurement_order(&self, feature: &Feature, index: usize) -> Result<(), EditError> {
+        let used = feature.kind.parameters();
+        if used.is_empty() && feature.kind.measurement().is_none() {
+            return Ok(());
+        }
+        let measured = Measured::of(self);
+        let id = feature.id();
+        self.check_measurements_above(&feature.name, id, used, index)?;
         let Some(parameter) = feature
             .kind
             .measurement()

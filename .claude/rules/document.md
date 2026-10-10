@@ -1040,7 +1040,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   evaluation order), keeping those derived parameters' expressions. A feature using a measured or
   derived parameter depends on its measurements (`dependencies_of`, which `dependents_of`,
   `MoveFeature` and the app's Uses and Used by take), so a move past one is refused like any
-  dependency. Edits refuse a feature at or above a measurement it reads, an expression change
+  dependency. Edits refuse a feature at or above a measurement it reads (a sketch's `SetDimension`
+  and `AddSketchConstraint` too), an expression change
   making a parameter read a measurement some feature using it (`reading_users`) does not stand
   below, and a measurement placed below a feature reading its parameter, each as
   `MeasurementBelowUser` naming the chain as a path ("Base → half → clearance → Measurement 1 →

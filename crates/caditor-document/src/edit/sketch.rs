@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use caditor_expression::Expression;
+use caditor_expression::{Expression, ParameterId};
 use caditor_geometry::{Plane, Vector2};
 use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch, SketchError};
 
@@ -487,6 +487,7 @@ impl Document {
         value: Expression,
     ) -> Result<Edit, EditError> {
         self.check_references(&value)?;
+        self.check_sketch_reads(feature, value.parameters())?;
         let (name, sketch) = self.sketch_mut(feature)?;
         let previous = sketch
             .set_dimension(constraint, value)
@@ -654,6 +655,7 @@ impl Document {
     ) -> Result<Edit, EditError> {
         if let Some(value) = constraint.dimension() {
             self.check_references(value)?;
+            self.check_sketch_reads(feature, value.parameters())?;
         }
         let (name, sketch) = self.sketch_mut(feature)?;
         sketch
@@ -726,6 +728,16 @@ impl Document {
             inactive,
             label,
         })
+    }
+
+    fn check_sketch_reads(
+        &self,
+        feature: FeatureId,
+        used: impl IntoIterator<Item = ParameterId>,
+    ) -> Result<(), EditError> {
+        let index = self.feature_position(feature)?;
+        let sketch = self.feature(feature).ok_or(EditError::MissingFeature)?;
+        self.check_measurements_above(&sketch.name, feature, used, index)
     }
 
     fn sketch_mut(&mut self, id: FeatureId) -> Result<(String, &mut Sketch), EditError> {
