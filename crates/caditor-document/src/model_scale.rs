@@ -1,4 +1,7 @@
-use std::collections::BTreeMap;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 use caditor_expression::{
     BinaryOperator, Dimension, EvalError, Expression, ParameterId, Quantity, Unit, format_number,
@@ -10,24 +13,30 @@ use crate::{
     attachment::SketchFeature,
     blend::ChamferForm,
     datum::{
-        AxisReference, Datum, PlaneReference, PlaneThrough, PointBy, PointReference, PrincipalAxis,
-        PrincipalPlane,
+        AxisReference, Datum, DatumAxis, DatumFrame, DatumPlane, DatumPoint, PlaneReference,
+        PlaneThrough, PointBy, PointReference, PrincipalGeometry, PrincipalPlane,
     },
-    document::{Document, Feature, FeatureKind},
+    document::{Document, Feature, FeatureId, FeatureKind},
     edit::{Edit, Transaction},
-    hole::{HoleShape, HoleStyle},
+    hole::{HoleDepth, HoleShape, HoleStyle},
+    mate::{AngleSides, AxisMate, FaceAxisMate, Mate, MatePair, PointMate, PointTarget},
     movement::{MoveAxis, Pivot, TurnCentre},
     pattern::PatternKind,
     primitive::SizeRule,
     projection::ProjectionSource,
     scaling::{MAX_SCALE_FACTOR, MIN_SCALE_FACTOR},
-    solid::{ExtrudeEnd, ExtrudeExtent, RevolveAxis, SolidFeature, SolidStart},
+    solid::{
+        Extrude, ExtrudeEnd, ExtrudeExtent, Revolve, RevolveAxis, RevolveExtent, SolidFeature,
+        SolidStart,
+    },
     thread::ThreadLength,
     values::{ParameterValues, evaluation_order},
 };
 
 const CENTRE_TOLERANCE: f64 = 1e-9;
 const AGREEMENT: f64 = 1e-9;
+const SCALED_ORIGIN: &str = "Origin, scaled";
+const SCALED_FRAME: &str = "Axes and planes, scaled";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ScaledValues {
@@ -51,6 +60,16 @@ pub struct ScaleSummary {
     pub kept: Vec<String>,
     pub cleared_standards: Vec<String>,
     pub threads: Vec<String>,
+    pub moved: Vec<DisplacedFeature>,
+    pub datums: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DisplacedFeature {
+    pub feature: FeatureId,
+    pub name: String,
+    pub geometry: Vec<PrincipalGeometry>,
+    projects: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -74,11 +93,6 @@ pub enum ModelScaleError {
     FactorIsOne,
     #[error("The centre is not a usable point.")]
     CentreNotUsable,
-    #[error(
-        "{feature} uses {geometry}, which stays where it is, so scaling about a point off it \
-         would part {feature} from the rest of the model."
-    )]
-    CentreOffPrincipal { feature: String, geometry: String },
     #[error("A value of {name} would grow too long to store once scaled.")]
     TooLong { name: String },
 }
@@ -92,9 +106,6 @@ impl ModelScaleError {
                     .to_owned()
             }
             Self::CentreNotUsable => "Choose the origin or another point.".to_owned(),
-            Self::CentreOffPrincipal { geometry, .. } => {
-                format!("Scale about a point on {geometry}, such as the origin.")
-            }
             Self::TooLong { name } => {
                 format!("Shorten the expressions of {name}, or scale only plain values.")
             }
@@ -117,22 +128,23 @@ impl Document {
         let similarity = Similarity::scaling(scale.centre, factor)
             .filter(|_| scale.centre.is_finite())
             .ok_or(ModelScaleError::CentreNotUsable)?;
-        if scale.centre.length() > CENTRE_TOLERANCE {
-            for feature in self.features() {
-                check_anchors(feature, scale.centre)?;
-            }
-        }
+        let shift = similarity.apply_point(Point3::ZERO);
+        let displaced = self.displaced_by_scale(scale.centre);
+        let placed = placed_datums(self, &displaced, shift);
         let mut rescaler = Rescaler {
             factor,
-            shift: similarity.apply_point(Point3::ZERO),
+            centre: scale.centre,
+            shift,
             similarity,
+            datums: placed.datums,
             values: scale.values,
             old: ParameterValues::evaluate(self),
             scaled: BTreeMap::new(),
             new: BTreeMap::new(),
             summary: ScaleSummary::default(),
         };
-        let mut edits = rescaler.parameters(self)?;
+        let mut edits = placed.edits;
+        edits.extend(rescaler.parameters(self)?);
         for feature in self.features() {
             let changed = match &feature.kind {
                 FeatureKind::Sketch(sketch) => rescaler.sketch(feature, sketch)?,
@@ -146,6 +158,8 @@ impl Document {
             edits.extend(changed);
         }
         edits.extend(rescaler.views(self));
+        rescaler.summary.moved = displaced;
+        rescaler.summary.datums = placed.names;
         Ok(ScaledModel {
             transaction: Transaction::new(
                 format!("Scale model by {}", format_number(factor)),
@@ -154,12 +168,28 @@ impl Document {
             summary: rescaler.summary,
         })
     }
+
+    pub fn displaced_by_scale(&self, centre: Point3) -> Vec<DisplacedFeature> {
+        self.features()
+            .filter_map(|feature| {
+                let geometry = displaced_geometry(&feature.kind, centre);
+                (!geometry.is_empty()).then(|| DisplacedFeature {
+                    feature: feature.id(),
+                    name: feature.name.clone(),
+                    geometry,
+                    projects: feature.kind.sketch().is_some(),
+                })
+            })
+            .collect()
+    }
 }
 
 struct Rescaler {
     factor: f64,
+    centre: Point3,
     shift: Vector3,
     similarity: Similarity,
+    datums: ScaledDatums,
     values: ScaledValues,
     old: ParameterValues,
     scaled: BTreeMap<ParameterId, i8>,
@@ -407,9 +437,15 @@ impl Rescaler {
                     reach: reach * self.factor,
                 },
                 ProjectionSource::PrincipalPlane { plane, reach } => {
-                    ProjectionSource::PrincipalPlane {
-                        plane: *plane,
-                        reach: reach * self.factor,
+                    match self.datums.planes.get(plane) {
+                        Some(datum) => ProjectionSource::DatumPlane {
+                            datum: *datum,
+                            reach: reach * self.factor,
+                        },
+                        None => ProjectionSource::PrincipalPlane {
+                            plane: *plane,
+                            reach: reach * self.factor,
+                        },
                     }
                 }
                 ProjectionSource::Edge { .. }
@@ -477,14 +513,17 @@ impl Rescaler {
                     }
                 }
                 let shifts = match &primitive.plane {
-                    PlaneReference::Principal(plane) => {
+                    PlaneReference::Principal(plane)
+                        if holds(PrincipalGeometry::Plane(*plane), self.centre) =>
+                    {
                         let plane = plane.plane();
                         [
                             self.shift.dot(plane.x_axis()),
                             self.shift.dot(plane.y_axis()),
                         ]
                     }
-                    PlaneReference::Datum(_)
+                    PlaneReference::Principal(_)
+                    | PlaneReference::Datum(_)
                     | PlaneReference::Face(_)
                     | PlaneReference::Frame { .. } => [0.0; 2],
                 };
@@ -584,6 +623,7 @@ impl Rescaler {
             | FeatureKind::SplitFace(_)
             | FeatureKind::Remove(_) => {}
         }
+        self.retarget(&mut kind);
         Ok(if kind == feature.kind {
             Vec::new()
         } else {
@@ -592,6 +632,17 @@ impl Rescaler {
                 kind,
             }]
         })
+    }
+
+    fn retarget(&self, kind: &mut FeatureKind) {
+        for reference in anchored(kind) {
+            if reference
+                .geometry()
+                .is_some_and(|geometry| !holds(geometry, self.centre))
+            {
+                reference.retarget(&self.datums);
+            }
+        }
     }
 
     fn end(&mut self, end: &mut ExtrudeEnd, name: &str) -> Result<(), ModelScaleError> {
@@ -704,141 +755,362 @@ fn literal_unit(expression: &Expression) -> Option<Option<Unit>> {
     }
 }
 
-enum Anchor {
-    Origin,
-    Axis(PrincipalAxis),
-    Plane(PrincipalPlane),
-}
-
-impl Anchor {
-    fn holds(&self, centre: Point3) -> bool {
-        match self {
-            Self::Origin => centre.length() <= CENTRE_TOLERANCE,
-            Self::Axis(axis) => centre.cross(axis.direction()).length() <= CENTRE_TOLERANCE,
-            Self::Plane(plane) => centre.dot(plane.plane().normal()).abs() <= CENTRE_TOLERANCE,
+fn holds(geometry: PrincipalGeometry, centre: Point3) -> bool {
+    match geometry {
+        PrincipalGeometry::Origin => centre.length() <= CENTRE_TOLERANCE,
+        PrincipalGeometry::Axis(axis) => {
+            centre.cross(axis.direction()).length() <= CENTRE_TOLERANCE
         }
-    }
-
-    fn name(&self) -> String {
-        match self {
-            Self::Origin => "the origin".to_owned(),
-            Self::Axis(axis) => format!("the {}", axis.name()),
-            Self::Plane(plane) => format!("the {}", plane.name()),
+        PrincipalGeometry::Plane(plane) => {
+            centre.dot(plane.plane().normal()).abs() <= CENTRE_TOLERANCE
         }
     }
 }
 
-fn plane_anchor(plane: &PlaneReference) -> Option<Anchor> {
-    match plane {
-        PlaneReference::Principal(plane) => Some(Anchor::Plane(*plane)),
-        PlaneReference::Datum(_) | PlaneReference::Face(_) | PlaneReference::Frame { .. } => None,
+pub fn principal_words(geometry: PrincipalGeometry) -> String {
+    match geometry {
+        PrincipalGeometry::Origin => "the origin".to_owned(),
+        PrincipalGeometry::Axis(axis) => format!("the {}", axis.name()),
+        PrincipalGeometry::Plane(plane) => format!("the {}", plane.name()),
     }
 }
 
-fn axis_anchor(axis: &AxisReference) -> Option<Anchor> {
-    match axis {
-        AxisReference::Principal(axis) => Some(Anchor::Axis(*axis)),
-        AxisReference::Datum(_)
-        | AxisReference::Edge { .. }
-        | AxisReference::Face { .. }
-        | AxisReference::Sketch { .. }
-        | AxisReference::Frame { .. } => None,
+fn unused_name(document: &Document, stem: &str) -> String {
+    let taken = |name: &str| document.features().any(|feature| feature.name == name);
+    if !taken(stem) {
+        return stem.to_owned();
+    }
+    (2..=document.features().len() + 2)
+        .map(|number| format!("{stem} {number}"))
+        .find(|name| !taken(name))
+        .unwrap_or_else(|| format!("{stem} {}", document.next_feature_id()))
+}
+
+fn millimetres(value: f64) -> Expression {
+    Expression::measure(value, Unit::Millimetre)
+}
+
+#[derive(Debug, Default)]
+struct ScaledDatums {
+    origin: Option<FeatureId>,
+    frame: Option<FeatureId>,
+    planes: BTreeMap<PrincipalPlane, FeatureId>,
+}
+
+struct DatumPlacing<'a> {
+    document: &'a Document,
+    next_id: u64,
+    edits: Vec<Edit>,
+    names: Vec<String>,
+}
+
+impl DatumPlacing<'_> {
+    fn insert(&mut self, stem: &str, datum: Datum) -> FeatureId {
+        let id = FeatureId::from_raw(self.next_id);
+        self.next_id = self.next_id.saturating_add(1);
+        let name = unused_name(self.document, stem);
+        self.edits.push(Edit::InsertFeature {
+            index: self.edits.len(),
+            feature: Arc::new(Feature::new(id, name.clone(), FeatureKind::Datum(datum))),
+        });
+        self.names.push(name);
+        id
     }
 }
 
-fn point_anchor(point: &PointReference) -> Option<Anchor> {
-    matches!(point, PointReference::Origin).then_some(Anchor::Origin)
+struct PlacedDatums {
+    datums: ScaledDatums,
+    edits: Vec<Edit>,
+    names: Vec<String>,
 }
 
-fn start_anchor(start: Option<&SolidStart>) -> Option<Anchor> {
+fn placed_datums(
+    document: &Document,
+    displaced: &[DisplacedFeature],
+    shift: Vector3,
+) -> PlacedDatums {
+    let projected: BTreeSet<PrincipalPlane> = displaced
+        .iter()
+        .filter(|moved| moved.projects)
+        .flat_map(|moved| &moved.geometry)
+        .filter_map(|geometry| match geometry {
+            PrincipalGeometry::Plane(plane) => Some(*plane),
+            PrincipalGeometry::Origin | PrincipalGeometry::Axis(_) => None,
+        })
+        .collect();
+    let held = || {
+        displaced
+            .iter()
+            .filter(|moved| !moved.projects)
+            .flat_map(|moved| &moved.geometry)
+    };
+    let framed = held().any(|geometry| *geometry != PrincipalGeometry::Origin);
+    let at_origin = framed || held().any(|geometry| *geometry == PrincipalGeometry::Origin);
+    let mut placing = DatumPlacing {
+        document,
+        next_id: document.next_feature_id(),
+        edits: Vec::new(),
+        names: Vec::new(),
+    };
+    let mut datums = ScaledDatums::default();
+    if at_origin {
+        let origin = placing.insert(
+            SCALED_ORIGIN,
+            Datum::Point(DatumPoint {
+                base: PointReference::Origin,
+                offset: [shift.x, shift.y, shift.z].map(millimetres),
+            }),
+        );
+        datums.origin = Some(origin);
+        if framed {
+            datums.frame = Some(placing.insert(
+                SCALED_FRAME,
+                Datum::Frame(Box::new(DatumFrame {
+                    origin: PointReference::Datum(origin),
+                    ..DatumFrame::world()
+                })),
+            ));
+        }
+    }
+    for plane in projected {
+        let id = placing.insert(
+            &format!("{}, scaled", plane.name()),
+            Datum::Plane(DatumPlane {
+                base: PlaneReference::Principal(plane),
+                rotation: None,
+                offset: millimetres(shift.dot(plane.plane().normal())),
+            }),
+        );
+        datums.planes.insert(plane, id);
+    }
+    PlacedDatums {
+        datums,
+        edits: placing.edits,
+        names: placing.names,
+    }
+}
+
+enum Anchored<'a> {
+    Plane(&'a mut PlaneReference),
+    Axis(&'a mut AxisReference),
+    Point(&'a mut PointReference),
+}
+
+impl Anchored<'_> {
+    fn geometry(&self) -> Option<PrincipalGeometry> {
+        match self {
+            Self::Plane(PlaneReference::Principal(plane)) => Some(PrincipalGeometry::Plane(*plane)),
+            Self::Axis(AxisReference::Principal(axis)) => Some(PrincipalGeometry::Axis(*axis)),
+            Self::Point(PointReference::Origin) => Some(PrincipalGeometry::Origin),
+            Self::Plane(_) | Self::Axis(_) | Self::Point(_) => None,
+        }
+    }
+
+    fn retarget(self, datums: &ScaledDatums) {
+        match (self, datums.frame, datums.origin) {
+            (Self::Plane(reference), Some(frame), _) => {
+                if let PlaneReference::Principal(plane) = *reference {
+                    *reference = PlaneReference::Frame { frame, plane };
+                }
+            }
+            (Self::Axis(reference), Some(frame), _) => {
+                if let AxisReference::Principal(axis) = *reference {
+                    *reference = AxisReference::Frame { frame, axis };
+                }
+            }
+            (Self::Point(reference), _, Some(origin)) => {
+                if matches!(reference, PointReference::Origin) {
+                    *reference = PointReference::Datum(origin);
+                }
+            }
+            (Self::Plane(_) | Self::Axis(_), None, _) | (Self::Point(_), _, None) => {}
+        }
+    }
+}
+
+fn ends(extent: &mut ExtrudeExtent) -> Vec<&mut ExtrudeEnd> {
+    match extent {
+        ExtrudeExtent::OneSide { end, .. } => vec![end],
+        ExtrudeExtent::TwoSides { forward, backward } => vec![forward, backward],
+        ExtrudeExtent::Symmetric { .. } => Vec::new(),
+    }
+}
+
+fn start_anchored(start: &mut Option<SolidStart>) -> Option<Anchored<'_>> {
     match start {
-        Some(SolidStart::Plane(plane)) => plane_anchor(plane),
+        Some(SolidStart::Plane(plane)) => Some(Anchored::Plane(plane)),
         Some(SolidStart::Distance(_)) | None => None,
     }
 }
 
-fn end_anchor(end: &ExtrudeEnd) -> Option<Anchor> {
-    match end {
-        ExtrudeEnd::UpToFace { target, .. } => plane_anchor(target),
-        ExtrudeEnd::Distance(_)
-        | ExtrudeEnd::ThroughAll
-        | ExtrudeEnd::UpToNext { .. }
-        | ExtrudeEnd::UpToSurface { .. } => None,
+fn axis_pair(axes: &mut AxisMate) -> Vec<Anchored<'_>> {
+    vec![
+        Anchored::Axis(&mut axes.axis),
+        Anchored::Axis(&mut axes.target),
+    ]
+}
+
+fn mate_anchored(mate: &mut Mate) -> Vec<Anchored<'_>> {
+    match &mut mate.pair {
+        MatePair::Faces(faces) => vec![Anchored::Plane(&mut faces.target)],
+        MatePair::Axes(axes) => axis_pair(axes),
+        MatePair::FaceAxis(both) => {
+            let FaceAxisMate { faces, axes } = &mut **both;
+            std::iter::once(Anchored::Plane(&mut faces.target))
+                .chain(axis_pair(axes))
+                .collect()
+        }
+        MatePair::Angle(angle) => match &mut angle.sides {
+            AngleSides::Faces(faces) => vec![Anchored::Plane(&mut faces.target)],
+            AngleSides::Axes(axes) => axis_pair(axes),
+        },
+        MatePair::Tangent(pair) => vec![Anchored::Plane(&mut pair.target)],
+        MatePair::Point(mated) => {
+            let PointMate { point, target } = &mut **mated;
+            let target = match target {
+                PointTarget::Point(target) => Anchored::Point(target),
+                PointTarget::Plane(target) => Anchored::Plane(target),
+            };
+            vec![Anchored::Point(point), target]
+        }
     }
 }
 
-fn anchors(kind: &FeatureKind) -> Vec<Anchor> {
+fn datum_anchored(datum: &mut Datum) -> Vec<Anchored<'_>> {
+    match datum {
+        Datum::Plane(plane) => match &mut plane.rotation {
+            Some(rotation) => vec![
+                Anchored::Plane(&mut plane.base),
+                Anchored::Axis(&mut rotation.axis),
+            ],
+            None => Vec::new(),
+        },
+        Datum::Point(_) => Vec::new(),
+        Datum::Frame(frame) => vec![Anchored::Point(&mut frame.origin)],
+        Datum::PlaneThrough(through) => match through {
+            PlaneThrough::Points(points) => points.iter_mut().map(Anchored::Point).collect(),
+            PlaneThrough::Midway(first, second) => {
+                vec![Anchored::Plane(first), Anchored::Plane(second)]
+            }
+            PlaneThrough::AxisAndPoint(axis, point) | PlaneThrough::NormalTo(axis, point) => {
+                vec![Anchored::Axis(axis), Anchored::Point(point)]
+            }
+            PlaneThrough::Tangent(tangent) | PlaneThrough::TangentAt(tangent) => {
+                vec![Anchored::Point(&mut tangent.toward)]
+            }
+            PlaneThrough::Lines(first, second) => {
+                vec![Anchored::Axis(first), Anchored::Axis(second)]
+            }
+            PlaneThrough::SquareToCurve(_) => Vec::new(),
+        },
+        Datum::Axis(axis) => match axis {
+            DatumAxis::Along(along) => vec![Anchored::Axis(along)],
+            DatumAxis::Intersection(first, second) => {
+                vec![Anchored::Plane(first), Anchored::Plane(second)]
+            }
+            DatumAxis::Points(first, second) => {
+                vec![Anchored::Point(first), Anchored::Point(second)]
+            }
+            DatumAxis::NormalTo(plane, point) => {
+                vec![Anchored::Plane(plane), Anchored::Point(point)]
+            }
+            DatumAxis::SquareToFace(tangent) => vec![Anchored::Point(&mut tangent.toward)],
+        },
+        Datum::PointBy(by) => match by {
+            PointBy::LinesCross(first, second) => {
+                vec![Anchored::Axis(first), Anchored::Axis(second)]
+            }
+            PointBy::AxisAndPlane(axis, plane) => {
+                vec![Anchored::Axis(axis), Anchored::Plane(plane)]
+            }
+            PointBy::ThreePlanes(planes) => planes.iter_mut().map(Anchored::Plane).collect(),
+            PointBy::Along(_) | PointBy::EdgeMiddle { .. } | PointBy::FaceCentre { .. } => {
+                Vec::new()
+            }
+        },
+    }
+}
+
+fn extrude_anchored(extrude: &mut Extrude) -> Vec<Anchored<'_>> {
+    let Extrude {
+        extent,
+        start,
+        direction,
+        ..
+    } = extrude;
+    ends(extent)
+        .into_iter()
+        .filter_map(|end| match end {
+            ExtrudeEnd::UpToFace { target, .. } => Some(Anchored::Plane(target)),
+            ExtrudeEnd::Distance(_)
+            | ExtrudeEnd::ThroughAll
+            | ExtrudeEnd::UpToNext { .. }
+            | ExtrudeEnd::UpToSurface { .. } => None,
+        })
+        .chain(start_anchored(start))
+        .chain(direction.as_deref_mut().map(Anchored::Axis))
+        .collect()
+}
+
+fn revolve_anchored(revolve: &mut Revolve) -> Vec<Anchored<'_>> {
+    let Revolve {
+        axis,
+        start,
+        extent,
+        ..
+    } = revolve;
+    let axis = match axis {
+        RevolveAxis::Model(axis) => Some(Anchored::Axis(axis)),
+        RevolveAxis::Sketch(_) => None,
+    };
+    let target = match extent {
+        RevolveExtent::UpTo { target, .. } => Some(Anchored::Plane(target)),
+        RevolveExtent::Full
+        | RevolveExtent::OneSide { .. }
+        | RevolveExtent::Symmetric { .. }
+        | RevolveExtent::TwoSides { .. } => None,
+    };
+    axis.into_iter()
+        .chain(start_anchored(start))
+        .chain(target)
+        .collect()
+}
+
+fn anchored(kind: &mut FeatureKind) -> Vec<Anchored<'_>> {
     match kind {
-        FeatureKind::Sketch(sketch) => sketch
-            .projections
-            .values()
-            .filter_map(|source| match source {
-                ProjectionSource::PrincipalPlane { plane, .. } => Some(Anchor::Plane(*plane)),
-                _ => None,
-            })
-            .collect(),
-        FeatureKind::Solid(SolidFeature::Extrude(extrude)) => {
-            let ends = match &extrude.extent {
-                ExtrudeExtent::OneSide { end, .. } => vec![end],
-                ExtrudeExtent::TwoSides { forward, backward } => vec![forward, backward],
-                ExtrudeExtent::Symmetric { .. } => Vec::new(),
-            };
-            ends.into_iter()
-                .filter_map(end_anchor)
-                .chain(start_anchor(extrude.start.as_ref()))
-                .chain(extrude.direction.as_deref().and_then(axis_anchor))
-                .collect()
-        }
-        FeatureKind::Solid(SolidFeature::Revolve(revolve)) => {
-            let axis = match &revolve.axis {
-                RevolveAxis::Model(axis) => axis_anchor(axis),
-                RevolveAxis::Sketch(_) => None,
-            };
-            axis.into_iter()
-                .chain(start_anchor(revolve.start.as_ref()))
-                .chain(revolve.extent.target().and_then(plane_anchor))
-                .collect()
-        }
-        FeatureKind::Primitive(primitive) => plane_anchor(&primitive.plane).into_iter().collect(),
-        FeatureKind::Move(movement) => movement
-            .about
-            .axis()
-            .and_then(axis_anchor)
-            .into_iter()
-            .collect(),
-        FeatureKind::Mate(mate) => mate
-            .planes()
-            .into_iter()
-            .filter_map(plane_anchor)
-            .chain(mate.axis_references().into_iter().filter_map(axis_anchor))
-            .chain(mate.points().into_iter().filter_map(point_anchor))
-            .collect(),
-        FeatureKind::Mirror(mirror) => plane_anchor(&mirror.plane).into_iter().collect(),
+        FeatureKind::Solid(SolidFeature::Extrude(extrude)) => extrude_anchored(extrude),
+        FeatureKind::Solid(SolidFeature::Revolve(revolve)) => revolve_anchored(revolve),
+        FeatureKind::Primitive(primitive) => vec![Anchored::Plane(&mut primitive.plane)],
+        FeatureKind::Move(movement) => match &mut movement.about {
+            TurnCentre::Axis(turn) => vec![Anchored::Axis(&mut turn.axis)],
+            TurnCentre::Origin | TurnCentre::Body => Vec::new(),
+        },
+        FeatureKind::Mate(mate) => mate_anchored(mate),
+        FeatureKind::Mirror(mirror) => vec![Anchored::Plane(&mut mirror.plane)],
         FeatureKind::Split(split) => split
             .along
-            .plane()
-            .and_then(plane_anchor)
+            .plane_mut()
+            .map(Anchored::Plane)
             .into_iter()
             .collect(),
         FeatureKind::SplitFace(split) => split
             .along
-            .plane()
-            .and_then(plane_anchor)
+            .plane_mut()
+            .map(Anchored::Plane)
             .into_iter()
             .collect(),
-        FeatureKind::Pattern(pattern) => match &pattern.kind {
-            PatternKind::Circular(circular) => axis_anchor(&circular.axis).into_iter().collect(),
-            PatternKind::Points(points) => point_anchor(&points.base).into_iter().collect(),
+        FeatureKind::Pattern(pattern) => match &mut pattern.kind {
+            PatternKind::Circular(circular) => vec![Anchored::Axis(&mut circular.axis)],
+            PatternKind::Points(points) => vec![Anchored::Point(&mut points.base)],
             PatternKind::Linear { .. } | PatternKind::Curve(_) => Vec::new(),
         },
-        FeatureKind::Datum(datum) => datum_anchors(datum),
-        FeatureKind::Hole(hole) => hole
-            .depth
-            .target()
-            .and_then(plane_anchor)
-            .into_iter()
-            .collect(),
-        FeatureKind::Blend(_)
+        FeatureKind::Datum(datum) => datum_anchored(datum),
+        FeatureKind::Hole(hole) => match &mut hole.depth {
+            HoleDepth::UpToFace { target, .. } => vec![Anchored::Plane(target)],
+            HoleDepth::Blind(_) | HoleDepth::ThroughAll | HoleDepth::UpToNext { .. } => Vec::new(),
+        },
+        FeatureKind::Sketch(_)
+        | FeatureKind::Blend(_)
         | FeatureKind::Shell(_)
         | FeatureKind::OffsetFace(_)
         | FeatureKind::Combine(_)
@@ -849,36 +1121,38 @@ fn anchors(kind: &FeatureKind) -> Vec<Anchor> {
     }
 }
 
-fn datum_anchors(datum: &Datum) -> Vec<Anchor> {
-    match datum {
-        Datum::Plane(plane) => match &plane.rotation {
-            Some(rotation) => plane_anchor(&plane.base)
-                .into_iter()
-                .chain(axis_anchor(&rotation.axis))
-                .collect(),
-            None => Vec::new(),
-        },
-        Datum::Point(_) => Vec::new(),
-        Datum::Frame(frame) => point_anchor(&frame.origin).into_iter().collect(),
-        Datum::PlaneThrough(_) | Datum::Axis(_) | Datum::PointBy(_) => datum
-            .planes()
-            .into_iter()
-            .filter_map(plane_anchor)
-            .chain(datum.axes().into_iter().filter_map(axis_anchor))
-            .chain(datum.points().into_iter().filter_map(point_anchor))
-            .collect(),
+fn projected_plane(source: &ProjectionSource) -> Option<PrincipalPlane> {
+    match source {
+        ProjectionSource::PrincipalPlane { plane, .. } => Some(*plane),
+        ProjectionSource::Edge { .. }
+        | ProjectionSource::Vertex { .. }
+        | ProjectionSource::SketchEntity { .. }
+        | ProjectionSource::Section { .. }
+        | ProjectionSource::DatumPlane { .. } => None,
     }
 }
 
-fn check_anchors(feature: &Feature, centre: Point3) -> Result<(), ModelScaleError> {
-    match anchors(&feature.kind)
-        .into_iter()
-        .find(|anchor| !anchor.holds(centre))
-    {
-        Some(anchor) => Err(ModelScaleError::CentreOffPrincipal {
-            feature: feature.name.clone(),
-            geometry: anchor.name(),
-        }),
-        None => Ok(()),
+fn displaced_geometry(kind: &FeatureKind, centre: Point3) -> Vec<PrincipalGeometry> {
+    let found: Vec<PrincipalGeometry> = match kind {
+        FeatureKind::Sketch(sketch) => sketch
+            .projections
+            .values()
+            .filter_map(projected_plane)
+            .map(PrincipalGeometry::Plane)
+            .collect(),
+        _ => {
+            let mut copy = kind.clone();
+            anchored(&mut copy)
+                .iter()
+                .filter_map(Anchored::geometry)
+                .collect()
+        }
+    };
+    let mut displaced = Vec::new();
+    for geometry in found {
+        if !holds(geometry, centre) && !displaced.contains(&geometry) {
+            displaced.push(geometry);
+        }
     }
+    displaced
 }

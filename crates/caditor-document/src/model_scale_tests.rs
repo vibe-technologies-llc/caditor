@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 use caditor_expression::{Expression, ParameterId};
-use caditor_geometry::{Plane, Point2, Point3, Vector2};
+use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
 use caditor_kernel::{EdgeReference, FaceName, SamplingTolerance, Solid, WallSide};
 use caditor_sketch::{Constraint, ConstraintId, Entity, Sketch};
 
@@ -422,8 +422,135 @@ fn scaling_about_a_point_keeps_that_point_in_place() {
     assert_eq!(datum_offset(&model.document, model.datum), "10 mm");
 }
 
+fn image(centre: Point3, point: Point3) -> Point3 {
+    centre + (point - centre) * 2.0
+}
+
 #[test]
-fn a_centre_off_the_principal_geometry_a_feature_uses_is_refused_in_words() {
+fn a_centre_off_principal_geometry_moves_its_users_onto_datums_where_it_lands() {
+    let mut model = model();
+    let mut transaction = model.document.transaction("Users");
+    let block = transaction.add_feature(
+        "Block",
+        FeatureKind::Primitive(Primitive {
+            shape: PrimitiveShape::Box {
+                length: transaction.parse("2 mm").unwrap(),
+                width: transaction.parse("3 mm").unwrap(),
+                height: transaction.parse("4 mm").unwrap(),
+            },
+            plane: PlaneReference::Principal(PrincipalPlane::Xz),
+            at: [
+                transaction.parse("20 mm").unwrap(),
+                transaction.parse("1 mm").unwrap(),
+            ],
+            anchor: PrimitiveAnchor::Corner,
+            reversed: false,
+            operation: BodyOperation::NewBody,
+        }),
+    );
+    transaction.add_feature(
+        "Mirror 1",
+        FeatureKind::Mirror(Mirror {
+            body: model.base,
+            plane: PlaneReference::Principal(PrincipalPlane::Yz),
+            keep_original: true,
+            mirrored: Vec::new(),
+        }),
+    );
+    let axis = transaction.add_feature(
+        "Axis 1",
+        FeatureKind::Datum(Datum::Axis(DatumAxis::Along(AxisReference::Principal(
+            PrincipalAxis::Z,
+        )))),
+    );
+    let frame = transaction.add_feature(
+        "Frame 1",
+        FeatureKind::Datum(Datum::Frame(Box::new(DatumFrame::world()))),
+    );
+    model.document.apply(transaction.finish()).unwrap();
+    let original = model.document.clone();
+    let before = evaluate(&model.document);
+    let centre = Point3::new(5.0, 3.0, 2.0);
+
+    let scaled = model
+        .document
+        .scaled(&scale(2.0, centre, ScaledValues::AndParameters))
+        .unwrap();
+    let moved: Vec<(&str, Vec<PrincipalGeometry>)> = scaled
+        .summary
+        .moved
+        .iter()
+        .map(|moved| (moved.name.as_str(), moved.geometry.clone()))
+        .collect();
+
+    assert_eq!(
+        moved,
+        vec![
+            ("Block", vec![PrincipalGeometry::Plane(PrincipalPlane::Xz)]),
+            (
+                "Mirror 1",
+                vec![PrincipalGeometry::Plane(PrincipalPlane::Yz)]
+            ),
+            ("Axis 1", vec![PrincipalGeometry::Axis(PrincipalAxis::Z)]),
+            ("Frame 1", vec![PrincipalGeometry::Origin]),
+        ]
+    );
+    assert_eq!(
+        scaled.summary.datums,
+        vec![
+            "Origin, scaled".to_owned(),
+            "Axes and planes, scaled".to_owned()
+        ]
+    );
+
+    let inverse = model.document.apply(scaled.transaction).unwrap();
+    let after = evaluate(&model.document);
+    let names: Vec<&str> = model
+        .document
+        .features()
+        .take(2)
+        .map(|feature| feature.name.as_str())
+        .collect();
+    let landed = image(centre, Point3::ZERO);
+    let axis_ray = after
+        .feature(axis)
+        .and_then(|status| status.result.as_deref())
+        .and_then(FeatureResult::datum)
+        .and_then(DatumResult::axis)
+        .unwrap();
+    let frame_plane = after
+        .feature(frame)
+        .and_then(|status| status.result.as_deref())
+        .and_then(FeatureResult::datum)
+        .and_then(DatumResult::frame)
+        .unwrap();
+
+    assert_eq!(after.failed_count(), 0);
+    assert_eq!(names, ["Origin, scaled", "Axes and planes, scaled"]);
+    for body in [model.base, block] {
+        let (low, high) = bounds(&before, body);
+        let (scaled_low, scaled_high) = bounds(&after, body);
+        let expected = (image(centre, low), image(centre, high));
+        assert!(
+            near(scaled_low, expected.0.to_array()),
+            "{scaled_low:?} {expected:?}"
+        );
+        assert!(
+            near(scaled_high, expected.1.to_array()),
+            "{scaled_high:?} {expected:?}"
+        );
+    }
+    assert!((axis_ray.direction() - Vector3::Z).length() < 1e-9);
+    assert!((axis_ray.origin() - landed).cross(Vector3::Z).length() < 1e-9);
+    assert!(near(frame_plane.origin(), landed.to_array()));
+
+    model.document.apply(inverse).unwrap();
+
+    assert!(model.document.same_content(&original));
+}
+
+#[test]
+fn a_centre_on_the_principal_geometry_adds_no_datum() {
     let mut model = model();
     let mut transaction = model.document.transaction("Mirror");
     transaction.add_feature(
@@ -437,23 +564,53 @@ fn a_centre_off_the_principal_geometry_a_feature_uses_is_refused_in_words() {
     );
     model.document.apply(transaction.finish()).unwrap();
 
-    let refused =
-        model
-            .document
-            .scaled(&scale(2.0, Point3::new(5.0, 0.0, 0.0), ScaledValues::Plain));
-    let along_it =
-        model
-            .document
-            .scaled(&scale(2.0, Point3::new(0.0, 5.0, 0.0), ScaledValues::Plain));
+    let along_it = model
+        .document
+        .scaled(&scale(2.0, Point3::new(0.0, 5.0, 0.0), ScaledValues::Plain))
+        .unwrap();
 
-    assert_eq!(
-        refused.err(),
-        Some(ModelScaleError::CentreOffPrincipal {
-            feature: "Mirror 1".to_owned(),
-            geometry: "the YZ plane".to_owned(),
-        })
+    assert!(along_it.summary.moved.is_empty());
+    assert!(along_it.summary.datums.is_empty());
+    assert!(
+        model
+            .document
+            .displaced_by_scale(Point3::new(0.0, 5.0, 0.0))
+            .is_empty()
     );
-    assert!(along_it.is_ok());
+}
+
+#[test]
+fn a_projected_principal_plane_moves_onto_a_datum_plane_where_it_lands() {
+    let mut model = model();
+    let mut transaction = model.document.transaction("Sketch");
+    let sketch = transaction.add_feature("Side", FeatureKind::from(Sketch::new(Plane::XZ)));
+    let source = ProjectionSource::PrincipalPlane {
+        plane: PrincipalPlane::Xy,
+        reach: 20.0,
+    };
+    let outline = datum_outline(&Plane::XY, &Plane::XZ, 20.0).unwrap();
+    let line = transaction.add_projection(sketch, source, &outline);
+    model.document.apply(transaction.finish()).unwrap();
+
+    let scaled = model
+        .document
+        .scaled(&scale(2.0, Point3::new(0.0, 0.0, 5.0), ScaledValues::Plain))
+        .unwrap();
+    model.document.apply(scaled.transaction).unwrap();
+    let after = evaluate(&model.document);
+    let solved = after
+        .feature(sketch)
+        .and_then(|status| status.result.as_deref())
+        .and_then(FeatureResult::sketch)
+        .map(|result| result.geometry.clone())
+        .unwrap();
+    let (start, end) = solved.line_endpoints(line).unwrap();
+    let height = |point: Point2| solved.plane().to_world(point).z;
+
+    assert_eq!(scaled.summary.datums, vec!["XY plane, scaled".to_owned()]);
+    assert_eq!(after.failed_count(), 0);
+    assert!((height(start) + 5.0).abs() < 1e-9, "{}", height(start));
+    assert!((height(end) + 5.0).abs() < 1e-9, "{}", height(end));
 }
 
 #[test]

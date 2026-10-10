@@ -100,7 +100,10 @@ pub use crate::{
     mate_placement::Round,
     mirror::{MIRROR_IMAGE, Mirror},
     model_parameters::{MAX_VALUE_LABEL_CHARS, ParameterOwner, value_label},
-    model_scale::{ModelScale, ModelScaleError, ScaleSummary, ScaledModel, ScaledValues},
+    model_scale::{
+        DisplacedFeature, ModelScale, ModelScaleError, ScaleSummary, ScaledModel, ScaledValues,
+        principal_words,
+    },
     movement::{AxisTurn, BodyPlacement, Move, MoveAxis, Pivot, TurnCentre},
     offset_face::OffsetFace,
     origins::complete_origins,
