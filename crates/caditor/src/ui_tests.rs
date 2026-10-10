@@ -3489,6 +3489,53 @@ fn fail_a_frame(harness: &mut Harness) -> app::AfterFailedFrame {
 }
 
 #[test]
+fn a_failed_frame_during_a_sketch_drag_drops_the_drag_and_shows_the_committed_sketch() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::ZERO, Point2::new(40.0, 0.0));
+    let (start, end) = line_ends(&sketch, line);
+    sketch
+        .add_constraint(Constraint::Coincident(start, EntityId::ORIGIN))
+        .unwrap();
+    let feature = edit_free_sketch(&mut harness, sketch);
+    let committed = harness.shown(feature);
+
+    let grabbed = harness.hover_pickable(
+        Plane::XY,
+        Point2::new(40.0, 0.0),
+        Pickable::SketchEntity {
+            feature,
+            entity: end,
+        },
+    );
+    let target = harness.on_screen(Point2::new(30.0, 12.0));
+    harness.events.push(Event::PointerButton {
+        pos: grabbed,
+        button: PointerButton::Primary,
+        pressed: true,
+        modifiers: Modifiers::NONE,
+    });
+    harness.frame();
+    for step in 1..=4 {
+        harness.events.push(Event::PointerMoved(
+            grabbed + (target - grabbed) * (step as f32 / 4.0),
+        ));
+        harness.frame();
+    }
+    harness.wait_until("the drag is shown", |harness| {
+        harness.shown(feature).point(end) != committed.point(end)
+    });
+    assert!(harness.model.is_dragging());
+
+    let step = fail_a_frame(&mut harness);
+
+    assert_eq!(step, app::AfterFailedFrame::ResetInterface);
+    assert!(!harness.model.is_dragging());
+    assert_eq!(harness.shown(feature), committed);
+    assert_eq!(harness.sketch(feature), &committed);
+}
+
+#[test]
 fn a_failed_frame_resets_the_interface_and_a_second_in_a_row_suppresses_every_feature() {
     let mut harness = Harness::new();
     let before = harness.model.document().clone();

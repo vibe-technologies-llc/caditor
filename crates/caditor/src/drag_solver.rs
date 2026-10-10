@@ -281,6 +281,14 @@ impl SketchDragging {
         }
     }
 
+    pub fn cancel_held(&mut self) -> bool {
+        let held = self.active.as_ref().is_some_and(|active| !active.finishing);
+        if held {
+            self.cancel();
+        }
+        held
+    }
+
     pub fn cancel(&mut self) {
         if let (Some(active), Some(worker)) = (self.active.take(), &self.worker) {
             worker.abandon_before(active.drag.saturating_add(1));

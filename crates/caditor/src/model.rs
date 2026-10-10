@@ -990,6 +990,18 @@ impl Model {
         self.dragged(polled);
     }
 
+    #[cfg(test)]
+    pub fn is_dragging(&self) -> bool {
+        self.display.dragging.is_dragging()
+    }
+
+    pub fn abandon_held_drag(&mut self) {
+        if self.display.dragging.cancel_held() {
+            self.drag_blocked = false;
+            self.display.sketches.stop_showing_dragged();
+        }
+    }
+
     fn dragged(&mut self, polled: Polled) -> bool {
         let Polled {
             shown,

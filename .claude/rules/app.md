@@ -138,7 +138,9 @@ paths:
   accessibility event) is caught in `App::contained` after the hook flushed the journal. The window
   gets a fresh egui context, `after_failed_frame` drops transient state (selection, tools, sketch
   editing, palette, dialogs, except prompts guarding unsaved work) and a notice says so; the
-  model and undo history stay. A second failed frame in a row suppresses every feature as one
+  model and undo history stay. A sketch drag still held is cancelled (`Model::abandon_held_drag`),
+  so the sketch is shown at its committed positions; a constraint trial in flight is kept, being
+  a user's edit rather than interface state. A second failed frame in a row suppresses every feature as one
   undoable change, saying how to find the culprit; `GIVE_UP_AFTER_FAILED_FRAMES` in a row exits with
   the journal kept, so the next start offers it. The recovery card's Restore suppressed is the
   same restore followed by suppressing every feature.

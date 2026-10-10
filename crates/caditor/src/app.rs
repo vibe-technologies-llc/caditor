@@ -1437,6 +1437,7 @@ pub(crate) fn after_failed_frame(
 ) -> AfterFailedFrame {
     let step = workspace.frame_failures.failed();
     workspace.after_failed_frame();
+    model.abandon_held_drag();
     files.close_dialogs(model);
     match step {
         AfterFailedFrame::SuppressFeatures if model.suppress_every_feature() => {

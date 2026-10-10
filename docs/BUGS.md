@@ -129,14 +129,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   (`blend::tests::vertical_edges_are_rounded_after_the_top_rim_is_chamfered`, ignored).
 
 
-## Application
-
-- [low · easy] A frame that panics mid-drag leaves the drag shown: `after_failed_frame` resets the
-  interface but never sends `DragCommand::Cancel` (Escape and `Model::switch_to` do), and
-  `Display::evaluated` clears only a released drag, so the sketch stays at its uncommitted
-  positions for snapping, Measure and region picks until the next edit, and the worker's drag
-  carries on from the old start.
-
 ## Sketching
 
 - [medium · easy] Filleting or chamfering a corner held by two coincident points turns a disabled
