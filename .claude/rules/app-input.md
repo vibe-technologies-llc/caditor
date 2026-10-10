@@ -247,18 +247,34 @@ paths:
   it. Show the context menu (`Command::ContextMenu`, Shift+F10, palette; egui has no Menu key)
   opens it at the keyboard highlight, else the selection's middle on screen
   (`screen_centre_of`, `BuiltScene::bounds_of`), else the view's centre, applying the same rule
-  to the highlight. What it lists is a `view_menu::Place` fixed when it opens: the model (an
-  item, or empty space: fit, previous view, standard views, show all, paste features, selection
-  filter), the edited sketch (the selection's constraint offers inline up to
-  `MOST_INLINE_CONSTRAINTS`, else under Constrain, then construction, split, break, delete, move,
-  rotate or scale, cut, copy, paste, select, Smart dimension, Finish sketch), or a shape being
+  to the highlight. What it lists is a `view_menu::Place` fixed when it opens, with what the
+  selection holds then (`view_menu::Held`, worked out once at opening: faces, edges, body
+  geometry, whole bodies, sketch geometry, a plane or flat face to sketch on, and the one feature
+  that made every selected item, `viewport::feature_of`, or a lone whole body's own): the model
+  (an item: Edit, then the tools that take the selection (`Held::tools`: New sketch on a plane or
+  flat face, Fillet and Chamfer on edges, Extrude, Hole, Offset face, Shell, Split face, Thread
+  and Mirror faces on faces, Extrude and Revolve on sketch geometry), then the body tools (Move,
+  Copy, Mirror, both patterns, Split, Scale, Combine) inline for whole bodies or when no other
+  tool fits, else under Body, then Suppress, Rename and Delete named after the feature that made
+  the selection (`view_menu::FEATURE_COMMANDS`; choosing one chooses that feature's tree row
+  first, `ViewportState::take_row_to_choose`, so the tree's own command acts on it next frame,
+  Delete ending "…" when it will ask), then hide, look, fit, measure, select, list, appearance
+  and copy; or empty space: fit, previous view, standard views, show all, paste features,
+  selection filter), the edited sketch (the selection's constraint offers inline up to
+  `MOST_INLINE_CONSTRAINTS`, else under Constrain, then construction, split, break, delete, the
+  sketch tools that take the selection under Modify (Offset, Mirror, both patterns, Sketch
+  fillet and chamfer, Tangent circle), move, rotate or scale, cut, copy, paste, select, Smart
+  dimension, Finish sketch), or a shape being
   drawn (Take back the last point, Reverse the arc, Finish the shape, Cancel the shape, Type an
   exact value; `Command::TakeBackPoint`, `FinishShape`, `CancelShape`, as Backspace, Enter and
   Escape do mid-shape), with the open feature's Reverse, Cancel and Finish editing on top. Every
   entry is a `Command` drawn by `menu_bar::MenuEntries` from this frame's offers and keymap, as
   the menu bar's are, so a disabled entry says why on hover and shows its keys; entries that only
-  apply sometimes (Look at face, the selection growers, split, break, Reverse) are left out
-  rather than disabled. It is drawn after the frame's commands finish (`ViewportState::show_menu`),
+  apply sometimes (the tools, Look at face, the selection growers, split, break, Reverse) are left
+  out rather than disabled, the tools also when the selection holds nothing they take. It opens
+  downward from its spot, moved up and left by the size it measured the frame before
+  (`widgets::measured_menu`, `menu_opening_down`), so a tall menu stays on screen instead of egui
+  flipping it above the spot. It is drawn after the frame's commands finish (`ViewportState::show_menu`),
   first one frame later so the offers follow a selection the click changed, then with its first
   available entry focused so arrows move and Enter runs it; a chosen command runs next frame
   through `Workspace::deferred_commands` (List everything under the pointer at the menu's spot,

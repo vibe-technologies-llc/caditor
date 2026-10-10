@@ -438,6 +438,16 @@ impl<'a> MenuEntries<'a> {
 
     pub fn titled_item(&mut self, ui: &mut Ui, command: Command, title: &str) {
         let availability = self.availability(command);
+        self.titled_item_with(ui, command, title, availability);
+    }
+
+    pub fn titled_item_with(
+        &mut self,
+        ui: &mut Ui,
+        command: Command,
+        title: &str,
+        availability: Result<(), Cow<'static, str>>,
+    ) {
         let keys = self.keys(command);
         let response = ui.add_enabled_ui(availability.is_ok(), |ui| {
             widgets::menu_item(ui, icons::command(command), title, keys)

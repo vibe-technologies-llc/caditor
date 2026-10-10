@@ -254,7 +254,9 @@ paths:
 - Every menu, submenu, context menu and corner menu runs its contents through
   `widgets::fitted_menu`: as tall as the room below its top (at least half the window, which egui
   then moves up), scrolling past that, so no menu runs off the screen at any interface size
-  (`every_menu_stays_on_screen_at_the_largest_interface_size`).
+  (`every_menu_stays_on_screen_at_the_largest_interface_size`). The 3D view's context menu, which
+  egui would flip above its spot and then let grow past the top, measures itself instead
+  (`widgets::measured_menu`) and opens downward from a spot moved to fit (`menu_opening_down`).
 - A menu of commands draws its entries through `menu_bar::MenuEntries` (availability from the
   offers, the reason on hover of a disabled entry, the bound keys beside it, checkmarks from
   `ToggleStates`), shared by the menu bar and the 3D view's context menu (`app-input.md`), which

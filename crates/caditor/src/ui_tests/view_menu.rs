@@ -8,6 +8,7 @@ use super::{
     run_from_palette, sketch_entity, viewport_centre,
 };
 use crate::{
+    body_selection::{self, Kind},
     model::Action,
     preferences::{InputMode, PreferenceChange, PreferencesCommand},
     selection::Pickable,
@@ -292,6 +293,7 @@ fn the_menu_key_opens_it_at_the_selection_with_its_first_entry_focused_for_the_a
     let second = harness.focused();
     press(&mut harness, Key::Enter, Modifiers::NONE);
     harness.frame();
+    harness.settle();
 
     assert_eq!(
         opened,
@@ -305,8 +307,113 @@ fn the_menu_key_opens_it_at_the_selection_with_its_first_entry_focused_for_the_a
     assert!(centre_of_bottom.distance(rect.center()) > 10.0);
     assert!(first.is_some());
     assert!(second.is_some() && second != first);
-    assert!(!visibility::is_shown(harness.document(), plate.extrude));
+    assert!(harness.workspace.editing.active().is_some());
     assert_eq!(menu(&harness), None);
+}
+
+#[test]
+fn a_face_offers_the_tools_that_take_it_and_suppressing_the_feature_that_made_it() {
+    let mut harness = Harness::new();
+    let plate = plate(&mut harness);
+
+    hover_top(&mut harness, &plate);
+    right_click(&mut harness, plate.spot);
+    let offered = [
+        "New sketch",
+        "Extrude",
+        "Offset face",
+        "Shell",
+        "Split face",
+    ]
+    .map(|name| has_entry(&harness, name));
+    let left_out = ["Fillet", "Chamfer"].map(|name| has_entry(&harness, name));
+    let body = has_entry(&harness, view_menu::BODY_TOOLS);
+    let feature = ["Rename Extrude 1", "Delete Extrude 1"].map(|name| has_entry(&harness, name));
+    let menus = open_menus(&harness);
+    choose(&mut harness, "Suppress Extrude 1");
+    harness.settle();
+
+    for shown in menus {
+        assert!(SCREEN.contains_rect(shown), "{shown:?}");
+    }
+    assert_eq!(offered, [true; 5]);
+    assert_eq!(left_out, [false; 2]);
+    assert!(body);
+    assert_eq!(feature, [true; 2]);
+    assert!(
+        harness
+            .document()
+            .feature(plate.extrude)
+            .unwrap()
+            .suppressed
+    );
+    assert_eq!(menu(&harness), None);
+}
+
+#[test]
+fn an_edge_offers_fillet_and_chamfer_and_choosing_one_opens_it_on_the_edge() {
+    let mut harness = Harness::new();
+    let plate = plate(&mut harness);
+    let edge = harness
+        .built()
+        .picks
+        .pickables()
+        .find(|pickable| matches!(pickable, Pickable::Edge { body, .. } if *body == plate.extrude))
+        .expect("an edge of the plate is pickable");
+    let face = Plane::from_frame(Point3::new(0.0, 0.0, 10.0), Vector3::Z, Vector3::X).unwrap();
+
+    let spot = harness.hover_pickable(face, Point2::new(20.0, 0.0), edge);
+    right_click(&mut harness, spot);
+    let picked = selected(&harness);
+    let offered = ["Fillet", "Chamfer"].map(|name| has_entry(&harness, name));
+    let left_out = ["Shell", "Offset face", "New sketch"].map(|name| has_entry(&harness, name));
+    choose(&mut harness, "Fillet");
+    harness.settle();
+    let opened = harness
+        .workspace
+        .editing
+        .solid()
+        .and_then(|id| harness.document().feature(id))
+        .map(|feature| feature.name.clone());
+
+    assert_eq!(picked, vec![edge]);
+    assert_eq!(offered, [true; 2]);
+    assert_eq!(left_out, [false; 3]);
+    assert_eq!(opened.as_deref(), Some("Fillet 1"));
+}
+
+#[test]
+fn a_whole_body_offers_the_body_tools_rather_than_the_face_tools() {
+    let mut harness = Harness::new();
+    let plate = plate(&mut harness);
+    let faces = body_selection::whole_bodies(&harness.model, &[plate.extrude], Kind::Faces);
+    harness.select(faces);
+
+    hover_top(&mut harness, &plate);
+    right_click(&mut harness, plate.spot);
+    let offered = ["Move body", "Copy body", "Scale body"].map(|name| has_entry(&harness, name));
+    let left_out =
+        ["Shell", "Offset face", view_menu::BODY_TOOLS].map(|name| has_entry(&harness, name));
+    let feature = has_entry(&harness, "Suppress Extrude 1");
+
+    assert_eq!(offered, [true; 3]);
+    assert_eq!(left_out, [false; 3]);
+    assert!(feature);
+}
+
+#[test]
+fn renaming_from_the_menu_renames_the_feature_that_made_the_face() {
+    let mut harness = Harness::new();
+    let plate = plate(&mut harness);
+
+    hover_top(&mut harness, &plate);
+    right_click(&mut harness, plate.spot);
+    choose(&mut harness, "Rename Extrude 1");
+    harness.frame();
+    harness.frame();
+
+    assert_eq!(harness.workspace.panels.chosen(), vec![plate.extrude]);
+    assert!(harness.workspace.panels.renaming.is_some());
 }
 
 #[test]
@@ -342,6 +449,7 @@ fn in_a_sketch_the_menu_constrains_the_curve_clicked_and_mid_shape_it_finishes_t
     right_click(&mut harness, spot);
     let opened = menu(&harness);
     let picked = selected(&harness);
+    let modify = has_entry(&harness, view_menu::MODIFY);
     if !has_entry(&harness, "Horizontal") {
         choose(&mut harness, view_menu::CONSTRAIN);
     }
@@ -364,6 +472,7 @@ fn in_a_sketch_the_menu_constrains_the_curve_clicked_and_mid_shape_it_finishes_t
 
     assert_eq!(opened, Some(Place::Sketch { on_item: true }));
     assert_eq!(picked, vec![sketch_entity(feature, line)]);
+    assert!(modify);
     assert_eq!(horizontal, 1);
     assert_eq!(mid_shape, Some(Place::Shape));
     assert!(take_back);
