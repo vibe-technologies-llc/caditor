@@ -3,7 +3,7 @@ use std::{
     collections::{BTreeSet, VecDeque},
     path::{Path, PathBuf},
     sync::Arc,
-    time::{Instant, SystemTime},
+    time::{Duration, Instant, SystemTime},
 };
 
 use caditor_document::{
@@ -1235,6 +1235,11 @@ impl Model {
             entries,
             Some(journal),
         );
+    }
+
+    pub fn flush_journal(&self, timeout: Duration) -> bool {
+        let flusher = self.services.panic_flush.lock().clone();
+        flusher.is_some_and(|flusher| flusher.flush(timeout))
     }
 
     pub fn close(&mut self) -> Option<Closing> {

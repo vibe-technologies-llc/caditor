@@ -2148,6 +2148,11 @@ impl Files {
 
     fn offer(&mut self, recovered: Recovered, open_file_on_discard: bool) {
         self.recovery_open = true;
+        log::info!(
+            "recovery offered for {} with {} recoverable changes",
+            recovered.journal.display(),
+            recovered.changes()
+        );
         if let Some(existing) = self
             .recoverable
             .iter_mut()

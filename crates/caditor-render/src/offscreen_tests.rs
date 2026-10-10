@@ -1,7 +1,7 @@
 use std::{
     borrow::Cow,
     sync::{
-        Arc,
+        Arc, OnceLock,
         atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     time::{Duration, Instant},
@@ -47,6 +47,12 @@ fn no_wake() -> crate::gpu::Wake {
 
 const REQUIRE_GPU: &str = "CADITOR_REQUIRE_GPU";
 
+static LINEAR_RESOLVE: OnceLock<bool> = OnceLock::new();
+
+fn linear_resolve() -> bool {
+    LINEAR_RESOLVE.get().copied().unwrap_or(true)
+}
+
 fn gpu() -> Option<(wgpu::Device, wgpu::Queue)> {
     gpu_with(wgpu::Limits::default())
 }
@@ -64,15 +70,42 @@ fn gpu_with(limits: wgpu::Limits) -> Option<(wgpu::Device, wgpu::Queue)> {
 }
 
 fn device(limits: wgpu::Limits) -> Option<(wgpu::Device, wgpu::Queue)> {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+    let instance =
+        wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
     let adapter =
         pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
             .ok()?;
+    LINEAR_RESOLVE.get_or_init(|| gpu::resolves_linearly(&adapter));
     pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
         required_limits: limits,
         ..wgpu::DeviceDescriptor::default()
     }))
     .ok()
+}
+
+#[test]
+fn the_backend_asked_for_by_the_environment_is_the_one_the_tests_run_on() {
+    let Some(requested) = std::env::var("WGPU_BACKEND").ok() else {
+        return;
+    };
+    let expected = match requested.to_ascii_lowercase().as_str() {
+        "gl" | "opengl" | "gles" => wgpu::Backend::Gl,
+        "vulkan" | "vk" => wgpu::Backend::Vulkan,
+        _ => return,
+    };
+    let instance =
+        wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
+    let adapter =
+        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()));
+    let Ok(adapter) = adapter else {
+        assert!(
+            std::env::var_os(REQUIRE_GPU).is_none(),
+            "{requested} was asked for and {REQUIRE_GPU} says the offscreen tests must run"
+        );
+        return;
+    };
+
+    assert_eq!(adapter.get_info().backend, expected);
 }
 
 fn scene() -> Scene {
@@ -150,7 +183,7 @@ fn render(
 
 fn viewport_renderer(device: &wgpu::Device, sample_count: u32) -> ViewportRenderer {
     let mut renderer = ViewportRenderer::new(device, FORMAT, sample_count);
-    renderer.set_linear_resolve(true);
+    renderer.set_linear_resolve(linear_resolve());
     renderer
 }
 
@@ -496,7 +529,8 @@ fn a_downlevel_device_without_vertex_storage_draws_and_picks_faces() {
 
 #[test]
 fn a_lost_device_is_reported_and_a_new_one_draws() {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+    let instance =
+        wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
     let Some(lost) = opened_device(&instance) else {
         return;
     };
@@ -1702,6 +1736,9 @@ fn multisampled_edges_resolve_in_linear_light_and_opaque_colours_keep_their_byte
     let Some((device, queue)) = gpu() else {
         return;
     };
+    if !linear_resolve() {
+        return;
+    }
     let canvas = [
         crate::viewport::BACKGROUND.r,
         crate::viewport::BACKGROUND.g,
@@ -2717,7 +2754,8 @@ fn partly_covered_pixels(rendered: &Rendered) -> usize {
 
 #[test]
 fn every_offered_anti_aliasing_level_smooths_edges_and_keeps_front_geometry_and_picks_exact() {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+    let instance =
+        wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
     let Some(opened) = opened_device(&instance) else {
         return;
     };

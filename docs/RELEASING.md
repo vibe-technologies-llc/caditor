@@ -48,6 +48,9 @@ The binary links only glibc and `libgcc_s`; Vulkan, OpenGL, Wayland and X11 libr
 at run time. It needs the glibc it was built against or newer, so published archives are built
 on Ubuntu 22.04 (glibc 2.35) by the release workflow, never on a developer's machine: an
 archive built on a rolling distribution runs only on systems as new as it.
+`packaging/check-binary.sh PROGRAM` holds the program to this: its needed libraries are glibc and
+`libgcc_s` only, `ldd` finds them all, and the highest glibc symbol version is at most 2.35
+(`CADITOR_MAX_GLIBC` names another limit, to preview an archive built on a newer system).
 
 `packaging/build-packages.sh ARCHIVE` makes the `.deb`, `.rpm` and `.AppImage` from the archive
 itself, not from a second build, so each holds the archive's program, menu entry, icons, metainfo,
@@ -119,7 +122,11 @@ fresh checksums; commit its diff once CI passes on it.
    file, the menu entry and the program, uninstalls it, and checks that a failed install leaves
    nothing behind and that an upgrade failing midway leaves the earlier install as it was
    (`install.sh` copies every file to a `.caditor-new` name beside its target and renames them
-   into place only once every copy succeeded). CI runs both on every push.
+   into place only once every copy succeeded). It also runs `check-binary.sh` on the installed
+   program and, when `Xvfb` is installed (always in CI, `CADITOR_REQUIRE_DISPLAY=1`),
+   `packaging/check-run.sh`, which starts the program under it on Mesa's software Vulkan driver
+   with `CADITOR_STARTUP_CHECK=1` to a first frame and a journalled edit, kills it with SIGKILL and
+   starts it again to see the recovery offered. CI runs both on every push.
    `packaging/build-packages.sh target/dist/caditor-<version>-snapshot-linux-x86_64.tar.zst` then
    builds the `.deb`, `.rpm` and `.AppImage` beside it (it also needs `rpm`, `squashfs-tools`,
    `xz` and `binutils`), and `packaging/check-packages.sh` on the same archive checks them.

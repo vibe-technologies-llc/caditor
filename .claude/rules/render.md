@@ -48,7 +48,9 @@ paths:
   default and unless `WGPU_POWER_PREF` says otherwise, so a
   CAD window does not wake a discrete GPU, then every other adapter that can present, ranked by
   `adapter_rank`: device type, then `BACKEND_ORDER` (Vulkan, OpenGL; Direct3D 12 first on
-  Windows). `WGPU_BACKEND` limits the backends tried. Each adapter gets its own limits, then defaults, then WebGL2-level ones.
+  Windows). `WGPU_BACKEND` limits the backends tried, also by `OffscreenRenderer` and the offscreen tests
+  (`new_without_display_handle_from_env`), so CI runs them on GL (`ci.md`); a test that needs a
+  Vulkan-only capability, the linear resolve, reads `linear_resolve()` and skips without it. Each adapter gets its own limits, then defaults, then WebGL2-level ones.
 - Nothing uses storage buffers, so downlevel and GL devices draw everything. The surface is
   clamped to the largest texture side and is a plain 8-bit format, never a float or snorm one an
   HDR setup lists first. Offered MSAA levels (`gpu::offered_msaa`) need surface and

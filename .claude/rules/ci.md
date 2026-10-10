@@ -28,6 +28,22 @@ paths:
   archive checked by `packaging/check-install.sh` and the `.deb`, `.rpm` and AppImage built from
   it by `packaging/build-packages.sh` and checked, the `.deb` installed and removed with `apt-get`,
   by `packaging/check-packages.sh --install`, and a minute of fuzzing per target.
+- The check job also runs the offscreen render tests (`caditor-render`'s `offscreen_tests`) with
+  `WGPU_BACKEND=gl`, `LIBGL_ALWAYS_SOFTWARE=1` and `CADITOR_REQUIRE_GPU=1` on Mesa's llvmpipe through
+  surfaceless EGL, since `packaging/INSTALL.md` promises OpenGL; a test of the same file asserts the
+  adapter is the backend asked for, so the step cannot pass on Vulkan by accident. Two tests that
+  fail on GL are skipped by name (`docs/TODO.md`).
+- The package and release jobs install Xvfb and the Mesa drivers (`.github/linux-display.sh`, which
+  also removes them again before `check-packages.sh --install`, so the `.deb` still has to bring
+  its own libraries) and run `check-install.sh` with `CADITOR_REQUIRE_DISPLAY=1`. Besides the
+  files and the menu entry it runs `check-binary.sh` (the program's `NEEDED` libraries are glibc
+  and `libgcc_s` only, `ldd` resolves them all, and the highest `GLIBC_` symbol is at most 2.35,
+  `CADITOR_MAX_GLIBC` to preview on a newer system) and `check-run.sh`: the installed program
+  starts under Xvfb on lavapipe (`VK_ICD_FILENAMES`, `WGPU_BACKEND=vulkan`) with a state directory
+  of its own and `CADITOR_STARTUP_CHECK=1`, logs its first frame and its journalled edit
+  (`app.md`), is killed with SIGKILL, leaves a journal, and a second start logs the recovery offer
+  with the change. Both scripts also run on their own: without `CADITOR_REQUIRE_DISPLAY`,
+  `check-install.sh` skips the start when Xvfb is missing.
 - The `stress` job runs only nightly and on demand (`schedule`, `workflow_dispatch`): the ignored
   kernel and sketch stress tests and the large STEP import benchmark (`app-tests.md`) in release. `random_placements_of_every_fixture` asserts that every
   boolean of its seed succeeds, so a kernel change that breaks one fails the job.

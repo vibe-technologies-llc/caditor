@@ -75,6 +75,7 @@ use crate::{
     selection_sets::{self, SetsDraft},
     shortcut_editor::{self, ShortcutEditor},
     sketch_toolbar, sketch_tools,
+    startup_check::StartupCheck,
     status_bar::{self, StatusContext},
     tidy_panel,
     tidying::Tidying,
@@ -1330,6 +1331,7 @@ pub struct App {
     session: Option<Session>,
     fatal_error: Option<anyhow::Error>,
     proxy: EventLoopProxy<AppEvent>,
+    startup_check: StartupCheck,
 }
 
 impl App {
@@ -1350,6 +1352,7 @@ impl App {
             session: None,
             fatal_error: None,
             proxy,
+            startup_check: StartupCheck::from_environment(),
         }
     }
 
@@ -1498,6 +1501,7 @@ impl App {
             WindowEvent::RedrawRequested => {
                 session.redraw(&mut self.model, &mut self.files);
                 session.workspace.frame_failures.drawn();
+                self.startup_check.after_frame(&mut self.model, &self.files);
             }
             WindowEvent::DroppedFile(path) => {
                 session.dropped.push(path);

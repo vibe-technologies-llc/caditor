@@ -78,6 +78,21 @@ jobs:
           CADITOR_REQUIRE_GPU: "1"
         run: as-builder cargo test --workspace --locked
 
+      - name: Install the OpenGL drivers
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libegl-mesa0 libegl1 libgl1-mesa-dri libgles2
+
+      - name: Run the offscreen render tests on the OpenGL backend
+        env:
+          CADITOR_REQUIRE_GPU: "1"
+          WGPU_BACKEND: gl
+          LIBGL_ALWAYS_SOFTWARE: "1"
+        run: |
+          as-builder cargo test --locked -p caditor-render --lib offscreen_tests -- \
+            --skip a_viewport_away_from_the_corner_draws_and_picks_inside_its_rect_only \
+            --skip an_unchanged_frame_copies_the_kept_view_and_every_change_draws_it_again
+
       - name: Check that the tests left the checkout clean
         run: |
           status=$(as-builder git status --porcelain --untracked-files=all)
@@ -244,8 +259,16 @@ jobs:
       - name: Build a snapshot archive
         run: packaging/build-release.sh --snapshot
 
-      - name: Install and uninstall the snapshot
+      - name: Install a virtual display and software graphics drivers
+        run: .github/linux-display.sh install
+
+      - name: Install and uninstall the snapshot, and start and kill it under the display
+        env:
+          CADITOR_REQUIRE_DISPLAY: "1"
         run: packaging/check-install.sh target/dist/caditor-*-snapshot-linux-x86_64.tar.zst
+
+      - name: Remove the display and graphics libraries again, so the .deb brings its own
+        run: .github/linux-display.sh remove
 
       - name: Build the snapshot .deb, .rpm and AppImage
         run: packaging/build-packages.sh target/dist/caditor-*-snapshot-linux-x86_64.tar.zst
