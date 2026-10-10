@@ -8,9 +8,11 @@ use std::{
 use tempfile::TempDir;
 
 use crate::{
-    FileId, HIDDEN_ATTRIBUTE, boot_id, cluster_size, duplicate_extents,
+    ButtonRect, FileId, HIDDEN_ATTRIBUTE, boot_id, cluster_size, duplicate_extents,
     files::{verbatim_for_tests, without_verbatim_for_tests},
-    final_path, machine_guid, move_file_durably, process_running, replace_file,
+    final_path, machine_guid,
+    maximize::client_point,
+    move_file_durably, process_running, replace_file,
 };
 
 #[test]
@@ -159,4 +161,25 @@ fn a_volume_without_block_cloning_reports_an_error_and_one_with_it_a_cluster_siz
             assert!(duplicate_extents(&open, &target, 0, 0, 65536).is_err());
         }
     }
+}
+
+#[test]
+fn a_button_holds_its_top_left_edges_and_not_its_bottom_right_ones() {
+    let button = ButtonRect::new(100, 4, 140, 36);
+
+    assert!(button.contains(100, 4));
+    assert!(button.contains(139, 35));
+    assert!(!button.contains(140, 20));
+    assert!(!button.contains(120, 36));
+    assert!(!button.contains(99, 20));
+    assert!(!button.contains(120, 3));
+}
+
+#[test]
+fn a_hit_test_position_keeps_the_sign_of_each_half() {
+    let lparam = ((-20_i16 as u16 as isize) << 16) | (-1280_i16 as u16 as isize);
+
+    let point = client_point(lparam);
+
+    assert_eq!((point.x, point.y), (-1280, -20));
 }

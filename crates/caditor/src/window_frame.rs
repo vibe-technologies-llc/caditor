@@ -1,3 +1,5 @@
+use std::sync::atomic::{AtomicU8, Ordering};
+
 use egui::{
     Align, Area, Context, CornerRadius, CursorIcon, Id, LayerId, Layout, Order, PointerButton,
     Rect, Response, Sense, Stroke, StrokeKind, Ui, UiBuilder, Vec2, ViewportCommand, WidgetInfo,
@@ -28,6 +30,72 @@ const CONTROL_SIZE: Vec2 = vec2(40.0, CONTROL_HEIGHT);
 const CONTROL_GAP: f32 = SPACE_XS;
 const BAR_RECT_KEY: &str = "title-bar-rect";
 const CONTROLS_ROW_KEY: &str = "title-bar-controls-row";
+const MAXIMIZE_BUTTON_KEY: &str = "title-bar-maximize-button";
+
+static NON_CLIENT_POINTER: AtomicU8 = AtomicU8::new(0);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum NonClientPointer {
+    #[default]
+    Away,
+    Over,
+    Down,
+}
+
+impl NonClientPointer {
+    #[cfg(any(windows, test))]
+    fn code(self) -> u8 {
+        match self {
+            Self::Away => 0,
+            Self::Over => 1,
+            Self::Down => 2,
+        }
+    }
+
+    fn from_code(code: u8) -> Self {
+        match code {
+            1 => Self::Over,
+            2 => Self::Down,
+            _ => Self::Away,
+        }
+    }
+}
+
+#[cfg(windows)]
+pub fn set_non_client_pointer(pointer: NonClientPointer) {
+    NON_CLIENT_POINTER.store(pointer.code(), Ordering::Release);
+}
+
+fn non_client_pointer() -> NonClientPointer {
+    NonClientPointer::from_code(NON_CLIENT_POINTER.load(Ordering::Acquire))
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    Close,
+    Maximize,
+    Plain,
+}
+
+#[cfg(any(windows, test))]
+pub fn physical_bounds(rect: Rect, pixels_per_point: f32) -> [i32; 4] {
+    [
+        (rect.min.x * pixels_per_point).round() as i32,
+        (rect.min.y * pixels_per_point).round() as i32,
+        (rect.max.x * pixels_per_point).round() as i32,
+        (rect.max.y * pixels_per_point).round() as i32,
+    ]
+}
+
+#[cfg(windows)]
+pub fn take_maximize_button(ctx: &Context) -> Option<Rect> {
+    let key = Id::new(MAXIMIZE_BUTTON_KEY);
+    ctx.data_mut(|data| {
+        let rect = data.get_temp::<Rect>(key);
+        data.remove::<Rect>(key);
+        rect
+    })
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WindowState {
@@ -214,7 +282,7 @@ pub fn controls(
 ) {
     ui.spacing_mut().item_spacing.x = CONTROL_GAP;
     let close = commands.with_keys(Command::Quit, CLOSE);
-    if control(ui, icons::CLOSE, CLOSE, &close, true).clicked() {
+    if control(ui, icons::CLOSE, CLOSE, &close, Kind::Close).clicked() {
         actions.push(Action::File(FileCommand::Quit));
     }
     if state.fullscreen {
@@ -224,7 +292,7 @@ pub fn controls(
             icons::LEAVE_FULL_SCREEN,
             LEAVE_FULL_SCREEN,
             &hover,
-            false,
+            Kind::Plain,
         )
         .clicked()
         {
@@ -234,11 +302,11 @@ pub fn controls(
         return;
     }
     let (glyph, name) = maximize_button(state);
-    if control(ui, glyph, name, name, false).clicked() {
+    if control(ui, glyph, name, name, Kind::Maximize).clicked() {
         ui.ctx()
             .send_viewport_cmd(ViewportCommand::Maximized(!state.maximized));
     }
-    if control(ui, icons::MINIMIZE, MINIMIZE, MINIMIZE, false).clicked() {
+    if control(ui, icons::MINIMIZE, MINIMIZE, MINIMIZE, Kind::Plain).clicked() {
         ui.ctx().send_viewport_cmd(ViewportCommand::Minimized(true));
     }
 }
@@ -259,7 +327,8 @@ fn reaching_the_corner(ui: &mut Ui, button: &Response) -> Response {
     button.union(corner).with_new_rect(rect)
 }
 
-fn control(ui: &mut Ui, glyph: &str, name: &str, hover: &str, closes: bool) -> Response {
+fn control(ui: &mut Ui, glyph: &str, name: &str, hover: &str, kind: Kind) -> Response {
+    let closes = kind == Kind::Close;
     let tokens = appearance::tokens(ui);
     let (rect, response) = ui.allocate_exact_size(CONTROL_SIZE, Sense::click());
     let response = if closes {
@@ -268,9 +337,16 @@ fn control(ui: &mut Ui, glyph: &str, name: &str, hover: &str, closes: bool) -> R
         response
     };
     response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, ui.is_enabled(), name));
+    let non_client = if kind == Kind::Maximize {
+        ui.ctx()
+            .data_mut(|data| data.insert_temp(Id::new(MAXIMIZE_BUTTON_KEY), rect));
+        non_client_pointer()
+    } else {
+        NonClientPointer::Away
+    };
     if ui.is_rect_visible(rect) {
-        let pressed = response.is_pointer_button_down_on();
-        let hovered = response.hovered();
+        let pressed = response.is_pointer_button_down_on() || non_client == NonClientPointer::Down;
+        let hovered = response.hovered() || non_client != NonClientPointer::Away;
         let fill = match (closes, pressed, hovered) {
             (true, true, _) => tokens.danger_pressed,
             (true, false, true) => tokens.danger,
@@ -444,6 +520,26 @@ fn cursor(direction: ResizeDirection) -> CursorIcon {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_maximize_button_is_reported_in_physical_pixels() {
+        let rect = Rect::from_min_max(pos2(100.5, 4.0), pos2(140.5, 36.0));
+
+        assert_eq!(physical_bounds(rect, 1.0), [101, 4, 141, 36]);
+        assert_eq!(physical_bounds(rect, 1.5), [151, 6, 211, 54]);
+        assert_eq!(physical_bounds(rect, 2.0), [201, 8, 281, 72]);
+    }
+
+    #[test]
+    fn the_pointer_over_the_system_button_survives_its_code() {
+        for pointer in [
+            NonClientPointer::Away,
+            NonClientPointer::Over,
+            NonClientPointer::Down,
+        ] {
+            assert_eq!(NonClientPointer::from_code(pointer.code()), pointer);
+        }
+    }
 
     #[test]
     fn the_border_resizes_towards_the_nearest_side_and_corners_diagonally() {

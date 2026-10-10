@@ -78,6 +78,12 @@ impl Overlay {
         }
     }
 
+    #[cfg(windows)]
+    pub fn maximize_button_bounds(&self) -> Option<[i32; 4]> {
+        crate::window_frame::take_maximize_button(&self.context)
+            .map(|rect| crate::window_frame::physical_bounds(rect, self.context.pixels_per_point()))
+    }
+
     pub fn on_window_event(&mut self, window: &Window, event: &winit::event::WindowEvent) -> bool {
         self.state.on_window_event(window, event).repaint
     }

@@ -1649,13 +1649,14 @@ fn named_for_the_platform(attributes: WindowAttributes) -> WindowAttributes {
 }
 
 #[cfg(windows)]
-fn own_the_window(window: &Window) {
+fn own_the_window(window: &Arc<Window>) {
     use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
     match window.window_handle().map(|handle| handle.as_raw()) {
         Ok(RawWindowHandle::Win32(handle)) => {
             crate::portal::own_dialogs(handle.hwnd);
             crate::crash::flush_when_the_session_ends(handle.hwnd);
+            offer_snap_layouts(handle.hwnd, Arc::clone(window));
         }
         _ => log::warn!(
             "the window has no Win32 handle, so file dialogs and signing out are not tied to it"
@@ -1663,8 +1664,26 @@ fn own_the_window(window: &Window) {
     }
 }
 
+#[cfg(windows)]
+fn offer_snap_layouts(hwnd: std::num::NonZeroIsize, window: Arc<Window>) {
+    use caditor_windows::ButtonState;
+
+    let follow = move |state: ButtonState| {
+        let pointer = match state {
+            ButtonState::Idle => window_frame::NonClientPointer::Away,
+            ButtonState::Hovered => window_frame::NonClientPointer::Over,
+            ButtonState::Pressed => window_frame::NonClientPointer::Down,
+        };
+        window_frame::set_non_client_pointer(pointer);
+        window.request_redraw();
+    };
+    if let Err(error) = caditor_windows::on_maximize_button(hwnd, follow) {
+        log::warn!("the maximize button does not offer Snap Layouts: {error}");
+    }
+}
+
 #[cfg(unix)]
-fn own_the_window(window: &Window) {
+fn own_the_window(window: &Arc<Window>) {
     use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
     let parent = match window.window_handle().map(|handle| handle.as_raw()) {
@@ -1729,6 +1748,8 @@ struct Session {
     layout_stored: Layout,
     layout_changed_at: Option<Instant>,
     pick_fallback_at: Option<Instant>,
+    #[cfg(windows)]
+    maximize_button: Option<caditor_windows::ButtonRect>,
 }
 
 impl Session {
@@ -1783,6 +1804,8 @@ impl Session {
             layout_stored: layout,
             layout_changed_at: None,
             pick_fallback_at: None,
+            #[cfg(windows)]
+            maximize_button: None,
         })
     }
 
@@ -1818,6 +1841,17 @@ impl Session {
             .preferences
             .graphics
             .frame_interval(&self.workspace.hardware)
+    }
+
+    #[cfg(windows)]
+    fn follow_maximize_button(&mut self) {
+        let [left, top, right, bottom] = self.overlay.maximize_button_bounds().unwrap_or_default();
+        let wanted = (left < right && top < bottom)
+            .then(|| caditor_windows::ButtonRect::new(left, top, right, bottom));
+        if wanted != self.maximize_button {
+            caditor_windows::set_maximize_button(wanted);
+            self.maximize_button = wanted;
+        }
     }
 
     fn request_redraw(&mut self) {
@@ -1985,6 +2019,8 @@ impl Session {
         let ui = self.overlay.run(&self.window, |ui| {
             show(ui, view_model, view_files, workspace, &mut actions);
         });
+        #[cfg(windows)]
+        self.follow_maximize_button();
         if !self.dropped.is_empty() {
             actions.push(Action::File(FileCommand::Drop {
                 paths: std::mem::take(&mut self.dropped),
