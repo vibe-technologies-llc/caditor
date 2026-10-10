@@ -182,11 +182,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Viewer
 
-- [medium · easy] The axis triad in the corner of the 3D view draws in fixed colours:
-  `view_cube::show_axis_triad` takes `Axis::rgb()` (the dark canvas's red, green and blue) for its
-  lines and letters, never `ScenePalette::axis`, so on the light canvas its Y reads at about 1.7:1
-  and high contrast never reaches it, and its letters have no backdrop, against `ux.md`. Draw it
-  from the palette, put the letters on `canvas::backdrop` and add it to the palette checks.
 - [medium · medium] Painting or listing under the pointer on a section cap takes the hidden far
   wall: `through.rs` `hits_through` lists every triangle on the kept side of the plane with no
   back-face or cap test and painting keeps the first, while a click on the same pixel hits the

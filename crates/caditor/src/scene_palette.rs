@@ -255,11 +255,16 @@ impl ScenePalette {
             Axis::Z => z,
         }
     }
-}
 
-const fn axis_color(axis: [u8; 3]) -> Color {
-    let [red, green, blue] = axis;
-    Color::from_rgb8(red, green, blue)
+    pub fn axis_colour(&self, axis: Axis) -> egui::Color32 {
+        let colour = self.axis(axis);
+        let channel = |value: f32| (value * 255.0).round().clamp(0.0, 255.0) as u8;
+        egui::Color32::from_rgb(
+            channel(colour.red),
+            channel(colour.green),
+            channel(colour.blue),
+        )
+    }
 }
 
 const LINE_HIGHLIGHTS: Highlights = Highlights {
@@ -288,11 +293,11 @@ pub const STANDARD: ScenePalette = ScenePalette {
     plane_fill: Color::from_rgba8(120, 150, 200, 22),
     plane_edge: Color::from_rgba8(140, 170, 215, 150),
     axes: [
-        axis_color(Axis::X.rgb()),
-        axis_color(Axis::Y.rgb()),
-        axis_color(Axis::Z.rgb()),
+        Color::from_rgb8(246, 116, 116),
+        Color::from_rgb8(112, 196, 88),
+        Color::from_rgb8(96, 156, 245),
     ],
-    sketch_horizontal_axis: Color::from_rgb8(226, 84, 84),
+    sketch_horizontal_axis: Color::from_rgb8(246, 116, 116),
     sketch_vertical_axis: Color::from_rgb8(112, 196, 88),
     lines: LINE_HIGHLIGHTS,
     faces: LINE_HIGHLIGHTS,
@@ -391,11 +396,11 @@ pub const HIGH_CONTRAST: ScenePalette = ScenePalette {
     plane_fill: Color::from_rgba8(150, 180, 225, 34),
     plane_edge: Color::from_rgb8(150, 180, 225),
     axes: [
-        Color::from_rgb8(255, 110, 110),
+        Color::from_rgb8(255, 125, 125),
         Color::from_rgb8(120, 220, 100),
         Color::from_rgb8(110, 170, 255),
     ],
-    sketch_horizontal_axis: Color::from_rgb8(255, 110, 110),
+    sketch_horizontal_axis: Color::from_rgb8(255, 125, 125),
     sketch_vertical_axis: Color::from_rgb8(120, 220, 100),
     lines: LINE_HIGHLIGHTS,
     faces: FACE_HIGHLIGHTS_ON_A_BODY,
@@ -501,12 +506,12 @@ pub const LIGHT_STANDARD: ScenePalette = ScenePalette {
     plane_fill: Color::from_rgba8(60, 100, 170, 22),
     plane_edge: Color::from_rgba8(50, 90, 160, 170),
     axes: [
-        Color::from_rgb8(196, 50, 50),
-        Color::from_rgb8(46, 132, 36),
-        Color::from_rgb8(40, 100, 210),
+        Color::from_rgb8(178, 38, 38),
+        Color::from_rgb8(30, 110, 20),
+        Color::from_rgb8(30, 85, 195),
     ],
-    sketch_horizontal_axis: Color::from_rgb8(196, 50, 50),
-    sketch_vertical_axis: Color::from_rgb8(46, 132, 36),
+    sketch_horizontal_axis: Color::from_rgb8(178, 38, 38),
+    sketch_vertical_axis: Color::from_rgb8(30, 110, 20),
     lines: LIGHT_LINE_HIGHLIGHTS,
     faces: LIGHT_LINE_HIGHLIGHTS,
     under_constrained: Look::plain(Color::from_rgb8(40, 44, 54), Color::from_rgb8(20, 22, 28)),
@@ -591,12 +596,12 @@ pub const LIGHT_HIGH_CONTRAST: ScenePalette = ScenePalette {
     plane_fill: Color::from_rgba8(40, 80, 160, 34),
     plane_edge: Color::from_rgb8(30, 70, 150),
     axes: [
-        Color::from_rgb8(170, 20, 20),
-        Color::from_rgb8(20, 110, 10),
+        Color::from_rgb8(160, 16, 16),
+        Color::from_rgb8(10, 95, 0),
         Color::from_rgb8(20, 70, 190),
     ],
-    sketch_horizontal_axis: Color::from_rgb8(170, 20, 20),
-    sketch_vertical_axis: Color::from_rgb8(20, 110, 10),
+    sketch_horizontal_axis: Color::from_rgb8(160, 16, 16),
+    sketch_vertical_axis: Color::from_rgb8(10, 95, 0),
     lines: LIGHT_LINE_HIGHLIGHTS,
     faces: FACE_HIGHLIGHTS_ON_A_BODY,
     under_constrained: Look::formed(
@@ -842,6 +847,42 @@ mod tests {
             assert_visible(what, color, canvas);
         }
         assert!(contrast_ratio(over(palette.grid, canvas), canvas) > 1.4);
+    }
+
+    #[test]
+    fn the_axis_triad_holds_its_lines_to_the_canvas_and_its_letters_to_the_label_backdrop() {
+        for contrast in [Contrast::Standard, Contrast::High] {
+            for canvas in Canvas::ALL {
+                let palette = contrast.palette(canvas);
+                let chrome = canvas.chrome();
+                let backdrop = chrome.backdrop(contrast);
+                let readable = match contrast {
+                    Contrast::Standard => 4.5,
+                    Contrast::High => 7.0,
+                };
+                let below = match contrast {
+                    Contrast::Standard => vec![
+                        Color32::BLACK,
+                        Color32::WHITE,
+                        chrome.hovered,
+                        canvas.colour(),
+                    ],
+                    Contrast::High => vec![canvas.colour()],
+                };
+                for axis in Axis::ALL {
+                    assert_visible(axis.name(), palette.axis(axis), canvas.colour());
+                    let letter = palette.axis_colour(axis);
+                    for below in &below {
+                        let ratio = contrast_ratio(letter, below.blend(backdrop));
+                        assert!(
+                            ratio >= readable,
+                            "{} letter on the {contrast:?} {canvas:?} backdrop over {below:?} is {ratio:.2}:1",
+                            axis.name()
+                        );
+                    }
+                }
+            }
+        }
     }
 
     #[test]

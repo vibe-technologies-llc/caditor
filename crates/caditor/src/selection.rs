@@ -111,14 +111,6 @@ impl Axis {
         }
     }
 
-    pub const fn rgb(self) -> [u8; 3] {
-        match self {
-            Self::X => [226, 84, 84],
-            Self::Y => [112, 196, 88],
-            Self::Z => [84, 144, 238],
-        }
-    }
-
     pub fn letter(self) -> &'static str {
         match self {
             Self::X => "X",

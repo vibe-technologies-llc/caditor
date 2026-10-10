@@ -4654,7 +4654,7 @@ impl ViewportState {
             Some(CubeAction::Home) => self.look_from(StandardView::Isometric, home),
             None => {}
         }
-        view_cube::show_axis_triad(ui, rect, orientation);
+        view_cube::show_axis_triad(ui, rect, orientation, self.contrast.palette(self.canvas));
         if self.uploading {
             upload_badge::show(ui, rect);
         }

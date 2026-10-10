@@ -1,10 +1,10 @@
 use caditor_geometry::{Rotation3, Vector3};
 use egui::{
-    Align2, Color32, CursorIcon, EventFilter, Key, PointerButton, Pos2, Rect, Sense, Shape, Stroke,
-    Ui, Vec2, WidgetInfo, WidgetType, pos2, vec2,
+    Align2, CursorIcon, EventFilter, Key, PointerButton, Pos2, Rect, Sense, Shape, Stroke, Ui,
+    Vec2, WidgetInfo, WidgetType, pos2, vec2,
 };
 
-use crate::{canvas, commands::Command, icons, selection::Axis};
+use crate::{canvas, commands::Command, icons, scene_palette::ScenePalette, selection::Axis};
 
 pub const NAME: &str = "View cube";
 pub const HOME_NAME: &str = "Isometric view";
@@ -377,7 +377,7 @@ fn neighbour(projector: &Projector, current: Vector3, step: Vec2) -> Option<Vect
 pub const TRIAD_WIDTH: f32 =
     MARGIN + TRIAD_OFFSET + TRIAD_LENGTH * TRIAD_LABEL_REACH + TRIAD_LABEL_ROOM;
 
-pub fn show_axis_triad(ui: &Ui, viewport: Rect, orientation: Rotation3) {
+pub fn show_axis_triad(ui: &Ui, viewport: Rect, orientation: Rotation3, palette: &ScenePalette) {
     let projector = Projector {
         to_view: orientation.inverse(),
         center: pos2(
@@ -394,12 +394,12 @@ pub fn show_axis_triad(ui: &Ui, viewport: Rect, orientation: Rotation3) {
 
     let painter = ui.painter();
     for (_, axis) in axes {
-        let [red, green, blue] = axis.rgb();
-        let color = Color32::from_rgb(red, green, blue);
+        let color = palette.axis_colour(axis);
         let tip = projector.project(axis.direction());
         let label = projector.project(axis.direction() * f64::from(TRIAD_LABEL_REACH));
         painter.line_segment([projector.center, tip], Stroke::new(TRIAD_STROKE, color));
-        painter.text(
+        canvas::label(
+            painter,
             label,
             Align2::CENTER_CENTER,
             axis.letter(),
@@ -459,8 +459,38 @@ fn contains(corners: &[Pos2; 4], point: Pos2) -> bool {
 mod tests {
     use caditor_geometry::Point3;
     use caditor_render::Viewpoint;
+    use egui::{Color32, RawInput, epaint::Shape};
 
     use super::*;
+    use crate::scene_palette::{Canvas, Contrast};
+
+    fn triad_shapes(contrast: Contrast, canvas: Canvas) -> Vec<Shape> {
+        let context = egui::Context::default();
+        context.set_fonts(crate::fonts::definitions_with(&[]));
+        canvas::set_contrast(&context, contrast);
+        canvas::set_canvas(&context, canvas);
+        let viewport = Rect::from_min_size(pos2(0.0, 0.0), vec2(800.0, 600.0));
+        let orientation = Viewpoint::looking_from(Vector3::new(1.0, -1.0, 1.0), Point3::ZERO, 1.0)
+            .unwrap()
+            .orientation;
+        let mut shapes = Vec::new();
+        for _ in 0..2 {
+            let mut output = context.run_ui(
+                RawInput {
+                    screen_rect: Some(viewport),
+                    ..RawInput::default()
+                },
+                |ui| show_axis_triad(ui, viewport, orientation, contrast.palette(canvas)),
+            );
+            output.textures_delta.clear();
+            shapes = output
+                .shapes
+                .into_iter()
+                .map(|clipped| clipped.shape)
+                .collect();
+        }
+        shapes
+    }
 
     fn projector_looking_from(direction: Vector3) -> Projector {
         let viewpoint = Viewpoint::looking_from(direction, Point3::ZERO, 1.0).unwrap();
@@ -587,5 +617,47 @@ mod tests {
             texts.hover(Vector3::new(1.0, -1.0, 0.0)),
             "View from front and right"
         );
+    }
+
+    #[test]
+    fn the_axis_triad_draws_its_lines_and_letters_from_the_scene_palette_on_the_label_backdrop() {
+        for contrast in [Contrast::Standard, Contrast::High] {
+            for canvas in Canvas::ALL {
+                let palette = contrast.palette(canvas);
+                let backdrop = canvas.chrome().backdrop(contrast);
+                let shapes = triad_shapes(contrast, canvas);
+
+                let mut lines: Vec<Color32> = shapes
+                    .iter()
+                    .filter_map(|shape| match shape {
+                        Shape::LineSegment { stroke, .. } => Some(stroke.color),
+                        _ => None,
+                    })
+                    .collect();
+                let mut letters: Vec<Color32> = shapes
+                    .iter()
+                    .filter_map(|shape| match shape {
+                        Shape::Text(text) => Some(text.fallback_color),
+                        _ => None,
+                    })
+                    .collect();
+                let backdrops = shapes
+                    .iter()
+                    .filter(|shape| matches!(shape, Shape::Rect(rect) if rect.fill == backdrop))
+                    .count();
+                let mut expected: Vec<Color32> = Axis::ALL
+                    .into_iter()
+                    .map(|axis| palette.axis_colour(axis))
+                    .collect();
+
+                lines.sort_by_key(|colour| colour.to_array());
+                letters.sort_by_key(|colour| colour.to_array());
+                expected.sort_by_key(|colour| colour.to_array());
+
+                assert_eq!(lines, expected, "{contrast:?} {canvas:?} lines");
+                assert_eq!(letters, expected, "{contrast:?} {canvas:?} letters");
+                assert_eq!(backdrops, 3, "{contrast:?} {canvas:?} backdrops");
+            }
+        }
     }
 }

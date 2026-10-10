@@ -137,7 +137,11 @@ paths:
   body colour, edges and hovered or selected faces to 3:1 on the default body colour (so selected
   faces are a dark blue and hovered ones a dark amber there), every marker, band and comb colour
   to 3:1 on the canvas, and check that the standard palettes keep one form for every sketch
-  state. `Highlight::emphasis` widens hovered geometry by one
+  state. The axis triad in the corner (`view_cube::show_axis_triad`) draws its lines and letters
+  in the palette's `axes` and sets each letter on the label backdrop; the palette's axis colours
+  are also held to 4.5:1 (7:1 in high contrast) over that backdrop on black, white and the hover
+  colour, which is why the standard dark red and blue are lighter and the light ones darker than
+  a plain hue. `Highlight::emphasis` widens hovered geometry by one
   `HIGHLIGHT_EXTRA_WIDTH` and selected geometry by the palette's `selection_widening` (1 in
   standard, 2 in high contrast); the high-contrast palette also dashes the edges of a failed or
   outdated body (`scene::body_health`), outside sketch editing.

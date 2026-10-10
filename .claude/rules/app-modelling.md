@@ -637,7 +637,7 @@ paths:
   then shown only while not zero. Nothing else is chosen in the view while it is open.
 - While a move is open (and nothing is being chosen in the view) a manipulator stands at the centre
   of the moved body's box, following its preview (`move_manipulator.rs`): an arrow along each
-  world axis in the axis colours (`selection::Axis::rgb`) and a square for each plane, drawn on the
+  world axis in the axis colours (`ScenePalette::axis`) and a square for each plane, drawn on the
   front layer in the overlay batch at a constant size in points (`ARROW_POINTS`), an arrow pointing
   at the eye or a square seen edge-on left out. Hit-testing is on the UI thread in screen space
   (`MoveHandles::hit`, arrows within `HIT_POINTS` winning over squares), so it needs no pick; the
