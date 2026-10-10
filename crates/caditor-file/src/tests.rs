@@ -9,7 +9,7 @@ use caditor_document::{
     CancelToken, Document, Edit, Editor, FaceAttachment, FeatureId, FeatureKind, PlaneReference,
     PrincipalPlane, RollbackBar, SketchAttachment, Transaction,
 };
-use caditor_expression::{Expression, Unit};
+use caditor_expression::{Dimension, EvalError, Expression, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
 use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, FitSpacing, Sketch, SplineKind};
 use tempfile::TempDir;
@@ -489,6 +489,65 @@ fn content_from_a_newer_version_is_reported_and_the_rest_is_kept() {
     );
     let base_sketch = loaded.document.features().next().unwrap();
     assert_eq!(**document.features().next().as_ref().unwrap(), *base_sketch);
+}
+
+#[test]
+fn a_power_after_a_unit_keeps_its_value_through_loading_and_saving() {
+    let values = |document: &Document| -> Vec<Quantity> {
+        document
+            .parameters()
+            .iter()
+            .map(|parameter| {
+                parameter
+                    .expression
+                    .evaluate(&|_| Err(EvalError::ParameterMissing))
+                    .unwrap()
+            })
+            .collect()
+    };
+    let area = |square_millimetres| Quantity::new(square_millimetres, Dimension::AREA);
+    let saved_by_older_versions = [
+        parameter_line(0, "10 mm^2"),
+        r#"{"parameter":{"expression":"10 mm²","id":1,"name":"q"}}"#.to_owned(),
+        r#"{"parameter":{"expression":"2 cm^3","id":2,"name":"r"}}"#.to_owned(),
+    ];
+
+    let loaded = decode_lines(&saved_by_older_versions);
+    let mut typed = Document::default();
+    let mut transaction = typed.transaction("Typed");
+    transaction.add_parameter("square", transaction.parse("10 mm^2").unwrap());
+    transaction.add_parameter("squared", transaction.parse("(10 mm)^2").unwrap());
+    typed.apply(transaction.finish()).unwrap();
+
+    assert!(loaded.issues.is_empty(), "{:?}", loaded.issues);
+    assert_eq!(
+        values(&loaded.document),
+        [
+            area(100.0),
+            area(10.0),
+            Quantity::new(8000.0, Dimension::VOLUME)
+        ]
+    );
+
+    let saved = crate::encode(&loaded.document).unwrap();
+    let records = records_as_json(&saved);
+    let reloaded = decode(&saved).unwrap();
+    let typed_reloaded = decode(&crate::encode(&typed).unwrap()).unwrap();
+
+    assert!(
+        records
+            .iter()
+            .any(|record| record.contains(r#""(10 mm)^2""#))
+    );
+    assert!(
+        records
+            .iter()
+            .any(|record| record.contains(r#""(2 cm)^3""#))
+    );
+    assert_eq!(reloaded.document, loaded.document);
+    assert_eq!(values(&reloaded.document), values(&loaded.document));
+    assert_eq!(typed_reloaded.document, typed);
+    assert_eq!(values(&typed), [area(10.0), area(100.0)]);
 }
 
 #[test]

@@ -676,6 +676,10 @@ impl Expression {
         }
     }
 
+    fn ends_in_unit(&self) -> bool {
+        matches!(self, Self::Measure(..) | Self::WithUnit(..))
+    }
+
     fn write(&self, text: &mut String, style: &Style<'_>) {
         match self {
             Self::Number(value) => text.push_str(&(style.number)(*value)),
@@ -712,7 +716,7 @@ impl Expression {
                 let own = operator.precedence();
                 let (left_parens, right_parens) = match operator {
                     BinaryOperator::Power => (
-                        left.precedence() <= Precedence::Power,
+                        left.precedence() <= Precedence::Power || left.ends_in_unit(),
                         right.precedence() < Precedence::Negation,
                     ),
                     BinaryOperator::Add

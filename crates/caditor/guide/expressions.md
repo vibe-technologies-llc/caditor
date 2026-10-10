@@ -5,7 +5,8 @@ a unit, parameter names, operators and functions.
 
 ## Units
 
-- Lengths: `um` (or `µm`), `mm`, `cm` and `m`. Areas and volumes: `mm²`, `mm³` and so on.
+- Lengths: `um` (or `µm`), `mm`, `cm` and `m`. Areas and volumes: `mm²`, `mm³` and so on, or
+  `mm^2` and `mm^3`: `10 mm^2` is ten square millimetres, while `(10 mm)^2` is a hundred.
 - Angles: `deg` (or `°`) and `rad`.
 
 caditor uses SI units only. A plain number typed into a length field means the length unit chosen

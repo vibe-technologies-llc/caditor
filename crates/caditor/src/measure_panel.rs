@@ -1056,6 +1056,7 @@ mod tests {
         let area = parameter_expression(Value::Area(1234.5678), units).unwrap();
         let read_back =
             caditor_expression::Expression::parse_stored(&area.to_text(&|_| None::<&str>));
+        let typed_back = caditor_expression::Expression::parse("12.345678 cm^2", &|_| None);
 
         assert_eq!(text(Value::Length(25.4)).as_deref(), Some("2.54 cm"));
         assert_eq!(
@@ -1066,7 +1067,8 @@ mod tests {
             text(Value::Area(1234.5678)).as_deref(),
             Some("12.345678 cm²")
         );
-        assert_eq!(read_back.ok(), Some(area));
+        assert_eq!(read_back.ok().as_ref(), Some(&area));
+        assert_eq!(typed_back.ok(), Some(area));
         assert_eq!(text(Value::Position(Point3::ZERO)), None);
         assert_eq!(
             parameter_stem("Angle between the lines"),

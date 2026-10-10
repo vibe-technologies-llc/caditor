@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 use crate::{
-    ParameterId,
+    Dimension, ParameterId,
     expression::{Arity, BinaryOperator, Constant, Expression, Function, STORED_REFERENCE},
     quantity::Unit,
 };
@@ -66,6 +66,11 @@ pub enum ParseErrorKind {
     DecimalComma(String),
     #[error("'{found}' is not a name; write {suggestion} for a power")]
     PowerSpelling { found: String, suggestion: String },
+    #[error(
+        "'{found}' is not a unit; only a length takes a power, 2 or 3, as in 10 mm^2 for an \
+         area. Write {suggestion} for a power of the whole value"
+    )]
+    UnitPower { found: String, suggestion: String },
 }
 
 const PLURAL_LENGTH: usize = 3;
@@ -104,7 +109,7 @@ pub(crate) fn unit_with_power(name: &str) -> Option<(Unit, i8)> {
         },
     };
     let unit = Unit::from_symbol(stem)?;
-    (exponent == 1 || unit.dimension() == crate::Dimension::LENGTH).then_some((unit, exponent))
+    (exponent == 1 || unit.dimension() == Dimension::LENGTH).then_some((unit, exponent))
 }
 
 fn power_spelling(name: &str, resolve: &dyn Fn(&str) -> Option<ParameterId>) -> Option<String> {
@@ -117,9 +122,8 @@ fn power_spelling(name: &str, resolve: &dyn Fn(&str) -> Option<ParameterId>) -> 
     let last = characters.next_back()?;
     let stem = characters.as_str();
     if let Some(power) = superscript(last)
-        && unit_with_power(stem).is_some_and(|(unit, exponent)| {
-            exponent == 1 && unit.dimension() == crate::Dimension::LENGTH
-        })
+        && unit_with_power(stem)
+            .is_some_and(|(unit, exponent)| exponent == 1 && unit.dimension() == Dimension::LENGTH)
     {
         return Some(format!("{stem}{power}"));
     }
@@ -358,6 +362,23 @@ fn deepened(depth: usize, right: &Expression, span: Range<usize>) -> Result<usiz
     Ok(deeper)
 }
 
+struct BoundUnit {
+    unit: Unit,
+    exponent: i8,
+    span: Range<usize>,
+}
+
+impl BoundUnit {
+    fn applied_to(self, atom: Expression) -> Expression {
+        match atom {
+            Expression::Number(value) if self.exponent == 1 => {
+                Expression::Measure(value, self.unit)
+            }
+            other => Expression::WithUnit(Box::new(other), self.unit, self.exponent),
+        }
+    }
+}
+
 struct Parser<'a> {
     text: &'a str,
     tokens: Vec<Token>,
@@ -519,12 +540,19 @@ impl Parser<'_> {
     }
 
     fn power(&mut self) -> Result<Expression, ParseError> {
-        let base = self.primary()?;
-        let Some(caret) = self
+        let start = self
             .peek()
-            .filter(|token| token.kind == TokenKind::Caret)
-            .cloned()
-        else {
+            .map(|token| token.span.start)
+            .unwrap_or_default();
+        let atom = self.atom()?;
+        let base = match self.unit_after()? {
+            None => atom,
+            Some(bound) if self.references == References::ByName && self.caret().is_some() => {
+                return self.unit_power(atom, bound, start);
+            }
+            Some(bound) => bound.applied_to(atom),
+        };
+        let Some(caret) = self.caret() else {
             return Ok(base);
         };
         self.advance();
@@ -532,9 +560,49 @@ impl Parser<'_> {
         Ok(Expression::binary(BinaryOperator::Power, base, exponent))
     }
 
-    fn primary(&mut self) -> Result<Expression, ParseError> {
-        let atom = self.atom()?;
-        self.unit_after(atom)
+    fn caret(&self) -> Option<Token> {
+        self.peek()
+            .filter(|token| token.kind == TokenKind::Caret)
+            .cloned()
+    }
+
+    fn unit_power(
+        &mut self,
+        atom: Expression,
+        bound: BoundUnit,
+        start: usize,
+    ) -> Result<Expression, ParseError> {
+        let caret = self.advance().map(|token| token.span).unwrap_or_default();
+        let exponent = self.nested(caret.clone(), Self::unary)?;
+        let end = self
+            .position
+            .checked_sub(1)
+            .and_then(|last| self.tokens.get(last))
+            .map_or(caret.end, |token| token.span.end);
+        let squared_or_cubed = match exponent {
+            Expression::Number(2.0) => Some(2),
+            Expression::Number(3.0) => Some(3),
+            _ => None,
+        };
+        match squared_or_cubed {
+            Some(power) if bound.exponent == 1 && bound.unit.dimension() == Dimension::LENGTH => {
+                Ok(Expression::WithUnit(Box::new(atom), bound.unit, power))
+            }
+            _ => {
+                let text = |range: Range<usize>| self.text.get(range).unwrap_or_default();
+                Err(ParseError {
+                    kind: ParseErrorKind::UnitPower {
+                        found: text(bound.span.start..end).to_owned(),
+                        suggestion: format!(
+                            "({}){}",
+                            text(start..bound.span.end),
+                            text(bound.span.end..end)
+                        ),
+                    },
+                    span: bound.span.start..end,
+                })
+            }
+        }
     }
 
     fn atom(&mut self) -> Result<Expression, ParseError> {
@@ -570,13 +638,13 @@ impl Parser<'_> {
         }
     }
 
-    fn unit_after(&mut self, atom: Expression) -> Result<Expression, ParseError> {
+    fn unit_after(&mut self) -> Result<Option<BoundUnit>, ParseError> {
         let Some(Token {
             kind: TokenKind::Name(name),
             span,
         }) = self.peek().cloned()
         else {
-            return Ok(atom);
+            return Ok(None);
         };
         let Some((unit, exponent)) = unit_with_power(&name) else {
             let known = Function::from_name(&name).is_some()
@@ -599,7 +667,7 @@ impl Parser<'_> {
                     },
                     span,
                 }),
-                _ => Ok(atom),
+                _ => Ok(None),
             };
         };
         if self.references == References::ByName && matches!(unit, Unit::Inch | Unit::Foot) {
@@ -612,10 +680,11 @@ impl Parser<'_> {
             });
         }
         self.advance();
-        Ok(match atom {
-            Expression::Number(value) if exponent == 1 => Expression::Measure(value, unit),
-            other => Expression::WithUnit(Box::new(other), unit, exponent),
-        })
+        Ok(Some(BoundUnit {
+            unit,
+            exponent,
+            span,
+        }))
     }
 
     fn name(&mut self, name: &str, span: Range<usize>) -> Result<Expression, ParseError> {

@@ -125,8 +125,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   with a zero distance from that arc to the spline's first point. `sketch_solve` finds such cases
   within minutes once it requires `solve_from` of a solved geometry to succeed; it does not yet (it
   discards that result), so the property is unchecked.
-- [low · medium] `10 mm^2` means (10 mm)², since a power binds to the measure before it; stored text
-  relies on that reading, so changing it needs a new spelling or a format change.
 
 ## Sketching
 

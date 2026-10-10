@@ -645,6 +645,9 @@ mod tests {
             ("-2 mm", "-2 mm"),
             ("(-2) mm", "(-2) mm"),
             ("2 mm²", "2 mm²"),
+            ("2 mm^2", "2 mm²"),
+            ("(2 mm)^2", "(2 mm)^2"),
+            ("(width mm²)^2", "(width mm²)^2"),
             ("width < 2 mm", "width < 2 mm"),
             (
                 "if(width >= height, width, height)",
@@ -753,6 +756,100 @@ mod tests {
         assert_eq!(evaluate("2 mm³"), Ok(Quantity::new(2.0, Dimension::VOLUME)));
         assert_eq!(evaluate("pi rad"), Ok(Quantity::angle(180.0)));
         assert_eq!(evaluate("mod(-1, 360) deg"), Ok(Quantity::angle(359.0)));
+    }
+
+    #[test]
+    fn a_typed_power_on_a_unit_raises_the_unit_and_brackets_raise_the_measure() {
+        let area = |value| Ok(Quantity::new(value, Dimension::AREA));
+
+        assert_eq!(evaluate("10 mm^2"), area(10.0));
+        assert_eq!(evaluate("10 mm ^ 2"), area(10.0));
+        assert_eq!(evaluate("3 cm^2"), area(300.0));
+        assert_eq!(
+            evaluate("2 mm^3"),
+            Ok(Quantity::new(2.0, Dimension::VOLUME))
+        );
+        assert_eq!(evaluate("(10 mm)^2"), area(100.0));
+        assert_eq!(evaluate("width mm^2 / 1 mm"), area(40.0));
+        assert_eq!(evaluate("-10 mm^2"), area(-10.0));
+        assert_eq!(evaluate("2 * 5 mm^2 + 1"), area(11.0));
+        assert_eq!(parse("10 mm^2"), parse("10 mm²"));
+        assert_eq!(parse("10 mm^(3)"), parse("10 mm³"));
+    }
+
+    #[test]
+    fn a_power_no_unit_can_take_points_to_brackets() {
+        let refused = |text: &str| parse(text).unwrap_err();
+
+        assert_eq!(
+            refused("10 deg^2").kind,
+            ParseErrorKind::UnitPower {
+                found: "deg^2".to_owned(),
+                suggestion: "(10 deg)^2".to_owned()
+            }
+        );
+        assert_eq!(
+            refused("(1 + 2) mm ^ 4").to_string(),
+            "'mm ^ 4' is not a unit; only a length takes a power, 2 or 3, as in 10 mm^2 for an \
+             area. Write ((1 + 2) mm) ^ 4 for a power of the whole value"
+        );
+        assert_eq!(refused("(1 + 2) mm ^ 4").span, 8..14);
+        assert!(matches!(
+            refused("10 mm²^2").kind,
+            ParseErrorKind::UnitPower { .. }
+        ));
+        assert!(matches!(
+            refused("10 mm^2^2").kind,
+            ParseErrorKind::UnitPower { .. }
+        ));
+        assert!(matches!(
+            refused("10 mm^-2").kind,
+            ParseErrorKind::UnitPower { .. }
+        ));
+        assert!(matches!(
+            refused("10 mm^width").kind,
+            ParseErrorKind::UnitPower { .. }
+        ));
+    }
+
+    #[test]
+    fn stored_text_keeps_reading_a_power_after_a_unit_as_a_power_of_the_measure() {
+        let stored = |text: &str| {
+            Expression::parse_stored(text)
+                .unwrap()
+                .evaluate(&value_of)
+                .unwrap()
+        };
+
+        assert_eq!(stored("10 mm^2"), Quantity::new(100.0, Dimension::AREA));
+        assert_eq!(stored("2 deg^2"), Quantity::new(4.0, Dimension::new(0, 2)));
+        assert_eq!(stored("2 mm^3"), Quantity::new(8.0, Dimension::VOLUME));
+        assert_eq!(stored("10 mm²"), Quantity::new(10.0, Dimension::AREA));
+    }
+
+    #[test]
+    fn a_power_of_a_measure_is_written_in_brackets_reading_alike_typed_and_stored() {
+        let old = [
+            ("10 mm^2", "(10 mm)^2"),
+            ("-2 cm^3", "-(2 cm)^3"),
+            ("(2 + 1) mm^2", "((2 + 1) mm)^2"),
+            ("$0 mm^2", "($0 mm)^2"),
+            ("2 deg ^ 2", "(2 deg)^2"),
+            ("3 mm² ^ 2", "(3 mm²)^2"),
+        ];
+
+        for (stored, rewritten) in old {
+            let expression = Expression::parse_stored(stored).unwrap();
+            let typed = expression.to_text(&name_of);
+
+            assert_eq!(expression.to_stored_text(), rewritten);
+            assert_eq!(Expression::parse_stored(rewritten).unwrap(), expression);
+            assert_eq!(
+                parse(&typed).unwrap().evaluate(&value_of),
+                expression.evaluate(&value_of),
+                "{typed}"
+            );
+        }
     }
 
     #[test]
