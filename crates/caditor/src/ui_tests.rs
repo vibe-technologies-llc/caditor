@@ -91,6 +91,7 @@ mod repeating_and_growing;
 mod scale_model;
 mod screenshots;
 mod sections;
+mod selecting_alike;
 mod selection_sets;
 mod selection_targets;
 mod shaped_sweeps;

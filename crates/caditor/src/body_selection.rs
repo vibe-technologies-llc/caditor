@@ -7,6 +7,7 @@ use crate::{
     bodies::{self, FaceKey},
     model::Model,
     selection::{Pickable, Selection, SelectionFilter},
+    similar::{self, Shape},
     visibility,
 };
 
@@ -32,6 +33,10 @@ pub const NO_FEATURE_FACES: &str = "The selected faces share their feature with 
 pub const NO_LOOP_PAIR_SELECTED: &str =
     "Select an edge and one of the faces it bounds first to select its loop";
 pub const NO_LOOP: &str = "The selected edge is on no loop of the selected faces";
+pub const NO_SIMILAR_SELECTED: &str =
+    "Select a face or an edge first to select the ones of the same kind and size";
+pub const NO_SIMILAR: &str =
+    "No other shown face or edge is the same kind and size as the selected ones";
 
 fn counted(count: usize, one: &str, several: &str) -> Option<String> {
     match count {
@@ -461,4 +466,88 @@ pub fn loops_of(model: &Model, selection: &Selection) -> Vec<Pickable> {
         })
         .flatten()
         .collect()
+}
+
+pub fn offer_similar(selection: &Selection) -> Result<(), &'static str> {
+    selection
+        .iter()
+        .any(|pickable| matches!(Kind::of(pickable), Some(Kind::Faces | Kind::Edges)))
+        .then_some(())
+        .ok_or(NO_SIMILAR_SELECTED)
+}
+
+pub struct Similar {
+    pub found: Vec<Pickable>,
+    pub words: Option<String>,
+}
+
+fn matched_words(
+    model: &Model,
+    count: usize,
+    kinds: [&str; 2],
+    shapes: &[Shape],
+) -> Option<String> {
+    let [one, several] = kinds;
+    let counted = counted(count, one, several)?;
+    Some(match shapes {
+        [only] => format!("{counted} of {}", only.words(model)),
+        shapes => format!("{counted} of {} shapes", shapes.len()),
+    })
+}
+
+pub fn similar_to(model: &Model, selection: &Selection) -> Similar {
+    let evaluation = model.evaluation();
+    let face_shapes = similar::distinct(selected_faces(selection).into_iter().filter_map(
+        |(body, key)| {
+            let result = bodies::shown(evaluation, body)?;
+            let face = bodies::find_face(result, key)?;
+            Shape::of_face(model, body, &result.solid, face)
+        },
+    ));
+    let edge_shapes =
+        similar::distinct(selected_edges(model, selection).into_iter().filter_map(
+            |(body, edge)| Shape::of_edge(&bodies::shown(evaluation, body)?.solid, edge),
+        ));
+
+    let mut matching: Vec<Pickable> = Vec::new();
+    let mut faces = 0;
+    let mut edges = 0;
+    for (body, result) in shown_bodies(model) {
+        if !face_shapes.is_empty() {
+            for (face, key) in bodies::face_keys(&result.solid) {
+                let like = Shape::of_face(model, body, &result.solid, face)
+                    .is_some_and(|shape| similar::any_matches(&face_shapes, &shape));
+                if like {
+                    faces += 1;
+                    matching.push(Pickable::Face { body, face: key });
+                }
+            }
+        }
+        if !edge_shapes.is_empty() {
+            for (edge, _) in result.solid.edges() {
+                let like = Shape::of_edge(&result.solid, edge)
+                    .is_some_and(|shape| similar::any_matches(&edge_shapes, &shape));
+                if like {
+                    let named = pickable_edges(body, result, [edge]);
+                    edges += named.len();
+                    matching.extend(named);
+                }
+            }
+        }
+    }
+
+    let words: Vec<String> = [
+        matched_words(model, faces, ["face", "faces"], &face_shapes),
+        matched_words(model, edges, ["edge", "edges"], &edge_shapes),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    Similar {
+        found: matching
+            .into_iter()
+            .filter(|pickable| !selection.contains(*pickable))
+            .collect(),
+        words: (!words.is_empty()).then(|| words.join(" and ")),
+    }
 }

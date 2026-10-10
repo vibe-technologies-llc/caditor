@@ -72,6 +72,7 @@ pub struct StatusContext<'a> {
     pub uploading: bool,
     pub files: &'a Files,
     pub offers: &'a Offers,
+    pub between: Option<&'a str>,
     pub appearance: &'a Appearance,
     pub filter: SelectionFilter,
 }
@@ -167,7 +168,7 @@ fn trailing(
             filter(ui, context.filter, actions);
             divider(ui);
         }
-        if let Some(size) = &context.offers.size {
+        if let Some(size) = context.offers.size.as_deref().or(context.between) {
             ui.label(RichText::new(size).color(appearance::tokens(ui).text_muted));
             divider(ui);
         }

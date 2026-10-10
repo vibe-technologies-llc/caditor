@@ -560,6 +560,7 @@ impl Menus<'_> {
                     Command::SelectFaceEdges,
                     Command::SelectLoop,
                     Command::SelectFeatureFaces,
+                    Command::SelectSimilar,
                     Command::SelectInverse,
                     Command::SelectBody,
                 ],

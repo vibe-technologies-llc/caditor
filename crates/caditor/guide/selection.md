@@ -50,6 +50,9 @@ When items lie behind each other, hold the mouse button still for half a second,
   such as a boss as a whole.
 - {command:select.loop} replaces an edge and a face it bounds with the edges of that face's loop
   holding the edge.
+- {command:select.similar} adds every face or edge of the shown bodies of the same kind and size as
+  the selected ones: the walls of holes of one radius, round faces of one radius, flat faces of one
+  area, edges of one length, and says what it matched.
 - {command:select.inverse} selects the faces, edges or vertices of the kind selected, or of the
   selection filter, that are not selected now.
 

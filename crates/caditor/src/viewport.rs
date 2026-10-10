@@ -3056,6 +3056,20 @@ impl ViewportState {
                 self.selection.replace_with_all(edges);
             }
         }
+        let alike = body_selection::outside_sketch(
+            in_sketch,
+            body_selection::offer_similar(&self.selection),
+        );
+        if commands.invoke(Command::SelectSimilar, &alike) && alike.is_ok() {
+            let similar = body_selection::similar_to(model, &self.selection);
+            match similar.words {
+                Some(words) if !similar.found.is_empty() => {
+                    actions.push(Action::Inform(Notice::info(format!("Selected {words}"))));
+                }
+                _ => actions.push(Action::Inform(Notice::info(body_selection::NO_SIMILAR))),
+            }
+            self.selection.extend(similar.found);
+        }
         let whole = body_selection::outside_sketch(
             in_sketch,
             body_selection::offer_whole_bodies(&self.selection),

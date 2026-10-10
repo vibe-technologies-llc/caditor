@@ -275,6 +275,7 @@ pub fn command(command: Command) -> &'static str {
         Command::SelectInverse => phosphor::SELECTION_INVERSE,
         Command::SelectFeatureFaces => phosphor::SELECTION_FOREGROUND,
         Command::SelectLoop => phosphor::CIRCLE_NOTCH,
+        Command::SelectSimilar => phosphor::SELECTION_PLUS,
         Command::ShowAll => SHOW,
         Command::TogglePrincipal => PRINCIPAL_GROUP,
         Command::ToggleSketches => SKETCH,

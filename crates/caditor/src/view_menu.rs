@@ -74,10 +74,11 @@ const SKETCH_MODIFYING: [Tool; 7] = [
     Tool::TangentCircle,
 ];
 pub const CLOSE_FEATURE: &str = "Finish editing";
-const GROWING: [(Command, &str); 7] = [
+const GROWING: [(Command, &str); 8] = [
     (Command::SelectBody, "The whole body"),
     (Command::SelectFeatureFaces, "The faces of the same feature"),
     (Command::SelectLoop, "The loop of the edge"),
+    (Command::SelectSimilar, "Faces or edges like these"),
     (Command::SelectInverse, "Invert the selection"),
     (Command::SelectTangentEdges, "Tangent edges"),
     (Command::SelectTangentFaces, "Tangent faces"),

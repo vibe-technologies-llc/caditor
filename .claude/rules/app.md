@@ -237,6 +237,13 @@ paths:
   when mass properties arrive (`Model::masses_measured`), since
   areas and sizes read the converted body (a face's area falls back to its mesh triangles,
   marked ≈, until then).
+- Two selected items (`measure::is_pair`) get their reading in the status bar in the size's place
+  (`StatusContext::between`, `pair_reading::PairReading`): "Distance 12.5 mm" and, where the pair
+  has one, "Angle 90°", read from the Between them card of a `Readout` that a `Measurements` of
+  its own works out on its worker, in the world frame, whether or not Measure is open. It is
+  refreshed each frame, which restarts only when the selection, revision, evaluation or masses
+  change, forgets its readout when the selection is not a pair, and keeps the previous reading
+  until the new one arrives. A pair Measure cannot read shows nothing.
 - `Selection::generation` is globally unique per content change, so caches key on it rather than
   cloning and comparing the set: the offers, the scene cache's highlight key, the check that
   clears the tree's selected row when the view's selection changes, Measure, the panels' Use

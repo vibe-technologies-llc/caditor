@@ -60,6 +60,7 @@ use crate::{
     offers::SelectionOffers,
     onboarding::{self, HintChoice, WelcomeChoice},
     overlay::Overlay,
+    pair_reading::PairReading,
     palette::Palette,
     panels::{self, PanelState},
     parameter_table,
@@ -190,6 +191,7 @@ pub struct Workspace {
     keyboard_was_taken: bool,
     deferred_commands: Vec<Command>,
     repetition: Repetition,
+    pair_reading: PairReading,
     awaiting_paste: Option<Command>,
     copied: Option<String>,
     session: u64,
@@ -248,6 +250,7 @@ impl Workspace {
             keyboard_was_taken: false,
             deferred_commands: Vec::new(),
             repetition: Repetition::default(),
+            pair_reading: PairReading::default(),
             awaiting_paste: None,
             copied: None,
             session: 0,
@@ -273,6 +276,7 @@ impl Workspace {
         self.scale_model = None;
         self.last_offers.clear();
         self.selection_offers = SelectionOffers::default();
+        self.pair_reading = PairReading::default();
         self.measure = MeasureTool::default();
         self.interference = InterferenceTool::default();
         self.analysis = AnalysisTool::default();
@@ -557,6 +561,7 @@ pub fn show(
         keyboard_was_taken,
         deferred_commands,
         repetition,
+        pair_reading,
         awaiting_paste,
         copied,
         ..
@@ -569,6 +574,7 @@ pub fn show(
         editing,
         (&tree_bodies, &chosen_rows),
     );
+    let between = pair_reading.refresh(model, viewport.selection());
     let situation = Situation {
         editing_sketch: editing.active().is_some(),
         drawing: viewport.is_drawing(),
@@ -672,6 +678,7 @@ pub fn show(
         uploading: viewport.is_uploading(),
         files,
         offers,
+        between: between.as_deref(),
         appearance: &preferences.appearance,
         filter: if viewport.filter_applies() {
             viewport.filter()

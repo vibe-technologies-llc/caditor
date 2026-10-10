@@ -539,24 +539,12 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   field has focus, a click on a dimension label in the view or a value in the Parameters panel could
   insert its parameter's name (naming the value first when it has none, as `field::NamedField`
   does), as SolidWorks inserts a dimension clicked while an equation is typed.
-- [medium · medium] No Select similar: every hole of one size, every fillet face of one radius or
-  every face of the same shape is selected by clicking each one. Select similar (Edit menu,
-  palette, the context menu's Select submenu) could add from the shown bodies the faces of the same
-  surface kind and size as the selected ones (a cylinder of the same radius, a plane parallel to
-  it, a torus of the same radii), from a hole's wall every hole of the same diameter and depth
-  (`body_selection::hole_of` per hole), and for edges those of the same kind and length or radius,
-  beside the other growers in `body_selection.rs` with the same cheap availability check.
 - [medium · hard] Pasting features cannot carry a feature that picks faces or edges of another
   copied feature (a fillet copied with its extrusion): face and edge names are digests over the
   feature id, so the copy is left out with the reason. Renaming them needs each picked face or edge
   found again in the copy's recomputed result (by matching it in the original's) before the paste
   is applied. Pasted features also take no group, and a copy from another model keeps none of its
   references outside the copied set.
-- [low · medium] The status bar reads the size of one selected item (`Offers::size`) but nothing for
-  two: the distance between two points, edges or faces, or the angle between two flat faces or
-  straight edges, still needs Measure open. While two items are selected and Measure is closed,
-  the status bar could show the Between them distance or angle beside the selection, measured by
-  `Measurements` on its worker as Measure does, as SolidWorks's status bar shows it.
 - [low · hard] No automation: nothing can be driven by a script or macro, as Fusion's scripts and
   add-ins do, to make repetitive geometry, run a batch over files or add a tool. An interface
   would go through `Action`s and `Transaction`s like the UI, so scripts cannot break the model's

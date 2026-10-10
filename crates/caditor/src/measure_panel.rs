@@ -152,7 +152,7 @@ pub struct MeasureContext<'a> {
     pub tree_bodies: &'a [FeatureId],
 }
 
-fn value_text(value: Value, accuracy: Accuracy, unit: Units) -> String {
+pub fn value_text(value: Value, accuracy: Accuracy, unit: Units) -> String {
     let text = match value {
         Value::Length(length) => unit.measured_length(length),
         Value::Area(area) => unit.measured_area(area),
