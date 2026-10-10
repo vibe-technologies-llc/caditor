@@ -18221,7 +18221,9 @@ fn trim_and_extend_act_on_the_keyboard_highlight() {
     harness.click_at(Point2::new(10.0, 45.0));
     assert_eq!(
         harness.model.notice().unwrap().text,
-        format!("Trim: {spline_label} cannot be trimmed; only lines, circles and arcs can.")
+        format!(
+            "Trim: {spline_label} cannot be trimmed; only lines, circles, arcs and ellipses can."
+        )
     );
 
     run_from_palette(&mut harness, "extend a line");

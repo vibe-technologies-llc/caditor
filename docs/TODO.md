@@ -134,13 +134,17 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   them; chord-length parameters would need the knots, and the solver's spline handles, to follow
   the points. A point held on a closed spline stops at its seam, its parameter clamped to one
   turn, and DXF fit-point splines still import as control splines (`BSpline::through`).
-- [low · medium] Ellipses and elliptical arcs are drawn, constrained (point on, concentric, level
-  or upright axis, tangent to a line, both radii) and swept, but cannot be trimmed, extended,
-  split, broken, offset, filleted, mirrored or patterned (a copy needs its minor radius held equal
-  to the original's, which no constraint does), take no tangent with a circle, arc, spline or
-  another ellipse, no distance, `Equal` or midpoint, offer snaps only at their own points (not
-  the other ends of their axes or an arc's middle), project into other sketches as splines,
-  and their radii are left out of exported drawing dimensions.
+- [low · medium] Ellipses and elliptical arcs cannot be extended, offset or filleted; take a
+  tangent with a circle or arc only where the two share a point (elsewhere it needs a parameter
+  along the ellipse, as splines have) and none with a spline or another ellipse; take no distance
+  to a point, line or curve; project into other sketches as splines; and a point snapped to the end
+  of a slanted ellipse's minor axis is kept on the ellipse but not at the end, the sketch having
+  no constraint for a point on the line through the centre square to the axis.
+- [low · easy] A rectangular pattern of an arc or elliptical arc reports one of its copies' ties
+  redundant: every point of a copy is tied by two one-row constraints, but the copy's end lying on
+  its circle (an elliptical arc's second end on its ellipse) already follows from the others, so
+  one tie per copy adds no rank. Tying only the coordinate of that end the curve leaves free would
+  avoid it.
 - [medium · hard] A spline is only the control points it was drawn with: a point has no tangent or
   curvature handle to set the direction and pull of the curve there, which would be stored as
   constraints on the point rather than as positions so the solver and dimensions keep reading

@@ -11,5 +11,12 @@ Both share the Curve button with the spline. They have no key of their own; use 
 Sketch menu or {command:palette}.
 
 A [Smart dimension](dimensions) on an ellipse adds its major and minor radii. Horizontal and
-Vertical level its major axis. Ellipses cut other curves when trimming, but are not trimmed
-themselves.
+Vertical level its major axis. Equal gives ellipses the same radii, Midpoint puts a point at the
+middle of an elliptical arc, and Tangent makes a line touch an ellipse, or a circle or arc touch it
+where the two share a point. Drawing snaps to the far end of the major axis, the ends of the minor
+axis and the middle of an elliptical arc.
+
+[Trim](trim-and-extend) opens an ellipse into an elliptical arc and shortens or splits an
+elliptical arc; [splitting and breaking](sketch-editing) work on elliptical arcs, and
+[Mirror](sketch-mirror) and the [patterns](sketch-patterns) copy ellipses with their radii held.
+Ellipses cannot yet be extended, offset or rounded by a sketch fillet.

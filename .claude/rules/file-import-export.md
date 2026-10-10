@@ -286,7 +286,8 @@ paths:
   parallel to the measured gap, offset away from the sketch's middle with extension lines (two
   lines are measured from the end of one farther along the other, so the dimension sits outside),
   horizontal and vertical distances along X or Y, radius and diameter as a leader through the
-  centre (`R`, `⌀`), angles as an arc at the lines' vertex, arc sweep and length as an arc beyond
+  centre (`R`, `⌀`), an ellipse's major and minor radii as an `R` leader from its centre along
+  that axis, angles as an arc at the lines' vertex, arc sweep and length as an arc beyond
   the arc (`°`, `⌒`); values in millimetres to three decimals and degrees to two. Placement does
   not use the canvas's lanes or obstacle avoidance (`caditor`'s `annotation_layout.rs`, which this
   crate cannot reach), so crowded labels may overlap. Every source

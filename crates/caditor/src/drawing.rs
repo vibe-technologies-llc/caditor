@@ -642,6 +642,7 @@ fn point_target(snap: Snap) -> Option<EntityId> {
         | Target::Extension(_)
         | Target::Midpoint(_)
         | Target::Quadrant { .. }
+        | Target::AxisEnd { .. }
         | Target::Tangent(_)
         | Target::Intersection(..)
         | Target::Centre { .. }
@@ -2640,6 +2641,7 @@ fn round_under(sketch: &Sketch, start: Placement) -> Option<(EntityId, Point2)> 
         Target::Pending(_)
         | Target::Extension(_)
         | Target::Midpoint(_)
+        | Target::AxisEnd { .. }
         | Target::Intersection(..)
         | Target::Centre { .. }
         | Target::Centroid(_) => return None,
@@ -2773,6 +2775,7 @@ fn aligned_on(
         Target::Point(_)
         | Target::Midpoint(_)
         | Target::Quadrant { .. }
+        | Target::AxisEnd { .. }
         | Target::Tangent(_)
         | Target::Intersection(..)
         | Target::Centre { .. }

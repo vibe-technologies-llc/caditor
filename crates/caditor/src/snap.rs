@@ -63,6 +63,14 @@ impl Side {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AxisEnd {
+    FarMajor,
+    MinorUpright,
+    MinorLevel,
+    MinorSlanted,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Target {
     Pending(usize),
     Point(EntityId),
@@ -73,6 +81,12 @@ pub enum Target {
         curve: EntityId,
         centre: EntityId,
         side: Side,
+    },
+    AxisEnd {
+        curve: EntityId,
+        centre: EntityId,
+        major: EntityId,
+        end: AxisEnd,
     },
     Tangent(EntityId),
     Intersection(EntityId, EntityId),
@@ -99,6 +113,18 @@ impl Target {
             Self::Midpoint(line) => format!("Midpoint of {}", sketch.entity_label(line)),
             Self::Quadrant { curve, side, .. } => {
                 format!("{} of {}", side.name(), sketch.entity_label(curve))
+            }
+            Self::AxisEnd { curve, end, .. } => {
+                let label = sketch.entity_label(curve);
+                match end {
+                    AxisEnd::FarMajor => format!("Far end of the major axis of {label}"),
+                    AxisEnd::MinorUpright | AxisEnd::MinorLevel => {
+                        format!("End of the minor axis of {label}")
+                    }
+                    AxisEnd::MinorSlanted => {
+                        format!("End of the minor axis of {label}, kept on it but not at the end")
+                    }
+                }
             }
             Self::Tangent(curve) => format!("Tangent to {}", sketch.entity_label(curve)),
             Self::Centre { outline, .. } => {
@@ -138,6 +164,27 @@ impl Target {
                     Constraint::VerticalPoints(point, centre)
                 },
             ],
+            Self::AxisEnd {
+                curve,
+                centre,
+                major,
+                end,
+            } => match end {
+                AxisEnd::FarMajor => vec![Constraint::Symmetric {
+                    first: major,
+                    second: point,
+                    about: centre,
+                }],
+                AxisEnd::MinorUpright => vec![
+                    Constraint::Coincident(point, curve),
+                    Constraint::VerticalPoints(point, centre),
+                ],
+                AxisEnd::MinorLevel => vec![
+                    Constraint::Coincident(point, curve),
+                    Constraint::HorizontalPoints(point, centre),
+                ],
+                AxisEnd::MinorSlanted => vec![Constraint::Coincident(point, curve)],
+            },
             Self::Centre {
                 corners: (first, second),
                 ..
@@ -161,6 +208,12 @@ impl Target {
         let involved = match self {
             Self::Pending(_) => Vec::new(),
             Self::Quadrant { curve, centre, .. } => vec![curve, centre],
+            Self::AxisEnd {
+                curve,
+                centre,
+                major,
+                ..
+            } => vec![curve, centre, major],
             Self::Centre {
                 outline,
                 corners: (first, second),
@@ -183,6 +236,7 @@ impl Target {
             | Self::Point(_)
             | Self::Midpoint(_)
             | Self::Quadrant { .. }
+            | Self::AxisEnd { .. }
             | Self::Tangent(_)
             | Self::Intersection(..)
             | Self::Centre { .. }
@@ -199,6 +253,7 @@ impl Target {
             | Self::Extension(_)
             | Self::Midpoint(_)
             | Self::Quadrant { .. }
+            | Self::AxisEnd { .. }
             | Self::Tangent(_)
             | Self::Centre { .. }
             | Self::Centroid(_) => None,
@@ -213,6 +268,7 @@ impl Target {
             | Self::Extension(entity)
             | Self::Midpoint(entity)
             | Self::Quadrant { curve: entity, .. }
+            | Self::AxisEnd { curve: entity, .. }
             | Self::Tangent(entity)
             | Self::Intersection(entity, _)
             | Self::Centroid(entity)
@@ -267,7 +323,8 @@ pub fn resolve(
                         POINT_TOLERANCE,
                     )
                 })
-                .or_else(|| nearest(quadrants(sketch), POINT_TOLERANCE)),
+                .or_else(|| nearest(quadrants(sketch), POINT_TOLERANCE))
+                .or_else(|| nearest(axis_ends(sketch), POINT_TOLERANCE)),
             Accept::Points | Accept::OnCircle { .. } => None,
         })
         .or_else(|| match accept {
@@ -325,6 +382,7 @@ pub fn held(
             let mut curve_like = curves(sketch, pointer.sketch);
             point_like.extend(intersections(sketch, &curve_like, screen, pointer));
             point_like.extend(quadrants(sketch));
+            point_like.extend(axis_ends(sketch));
             curve_like.extend(extensions(sketch, lookup.extended, pointer.sketch));
             curve_like
         }
@@ -363,6 +421,7 @@ fn grid_crossing_on(sketch: &Sketch, snapped: Snapped, spacing: f64) -> Option<S
         | Target::Point(_)
         | Target::Midpoint(_)
         | Target::Quadrant { .. }
+        | Target::AxisEnd { .. }
         | Target::Tangent(_)
         | Target::Intersection(..)
         | Target::Centre { .. }
@@ -595,11 +654,14 @@ fn midpoints(sketch: &Sketch) -> Vec<Snapped> {
                     let arc = sketch.arc(id)?;
                     arc.point_at(arc.start_angle + arc.sweep / 2.0)
                 }
+                Entity::EllipticalArc { .. } => {
+                    let ellipse = sketch.ellipse(id)?;
+                    ellipse.point_at(ellipse.start + ellipse.sweep / 2.0)
+                }
                 Entity::Point(_)
                 | Entity::Circle { .. }
                 | Entity::Spline { .. }
-                | Entity::Ellipse { .. }
-                | Entity::EllipticalArc { .. } => return None,
+                | Entity::Ellipse { .. } => return None,
             };
             Some(Snapped {
                 position,
@@ -643,6 +705,50 @@ fn quadrants(sketch: &Sketch) -> Vec<Snapped> {
         })
         .collect()
 }
+
+fn axis_ends(sketch: &Sketch) -> Vec<Snapped> {
+    sketch
+        .entities()
+        .flat_map(|(curve, entity)| {
+            let (Entity::Ellipse { center, major, .. }
+            | Entity::EllipticalArc { center, major, .. }) = *entity
+            else {
+                return Vec::new();
+            };
+            let Some(ellipse) = sketch.ellipse(curve) else {
+                return Vec::new();
+            };
+            let across = ellipse.axis().perp() * ellipse.minor_radius;
+            let slack = AXIS_TOLERANCE * ellipse.major_radius();
+            let minor = if ellipse.major.y.abs() <= slack {
+                AxisEnd::MinorUpright
+            } else if ellipse.major.x.abs() <= slack {
+                AxisEnd::MinorLevel
+            } else {
+                AxisEnd::MinorSlanted
+            };
+            [
+                (AxisEnd::FarMajor, ellipse.center - ellipse.major),
+                (minor, ellipse.center + across),
+                (minor, ellipse.center - across),
+            ]
+            .into_iter()
+            .filter(|(_, at)| ellipse.within_sweep(ellipse.parameter_of(*at)).is_some())
+            .map(|(end, position)| Snapped {
+                position,
+                target: Target::AxisEnd {
+                    curve,
+                    centre: center,
+                    major,
+                    end,
+                },
+            })
+            .collect()
+        })
+        .collect()
+}
+
+const AXIS_TOLERANCE: f64 = 1e-9;
 
 pub fn tangents_from(
     sketch: &Sketch,
@@ -1167,6 +1273,7 @@ pub fn crossing_along(
         | Target::Point(_)
         | Target::Midpoint(_)
         | Target::Quadrant { .. }
+        | Target::AxisEnd { .. }
         | Target::Tangent(_)
         | Target::Intersection(..)
         | Target::Centre { .. }
@@ -1973,6 +2080,69 @@ pub mod tests {
                 &[],
                 &[],
             ),
+            None
+        );
+    }
+
+    #[test]
+    fn the_other_ends_of_an_ellipse_axes_and_the_middle_of_an_elliptical_arc_are_snap_targets() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let ellipse = sketch.add_ellipse(Point2::new(50.0, 20.0), Point2::new(60.0, 20.0), 4.0);
+        let (centre, major) = (point_of(&sketch, ellipse, 0), point_of(&sketch, ellipse, 1));
+        let slanted = sketch.add_ellipse(Point2::new(0.0, 50.0), Point2::new(6.0, 58.0), 3.0);
+        let arc_centre = Point2::new(-50.0, 30.0);
+        let arc = sketch.add_elliptical_arc(
+            arc_centre,
+            arc_centre + Vector2::new(10.0, 0.0),
+            4.0,
+            arc_centre + Vector2::new(10.0, 0.0),
+            arc_centre + Vector2::new(-10.0, 0.0),
+        );
+
+        let far = resolve_at(&sketch, Point2::new(40.3, 20.2)).unwrap();
+        let below = resolve_at(&sketch, Point2::new(50.2, 16.2)).unwrap();
+        let across = resolve_at(&sketch, Point2::new(0.0 - 2.4, 50.0 + 1.8)).unwrap();
+        let middle = resolve_at(&sketch, arc_centre + Vector2::new(0.2, 4.1)).unwrap();
+
+        assert_eq!(far.position, Point2::new(40.0, 20.0));
+        assert_eq!(
+            far.target,
+            Target::AxisEnd {
+                curve: ellipse,
+                centre,
+                major,
+                end: AxisEnd::FarMajor,
+            }
+        );
+        assert_eq!(
+            far.target.joins(EntityId::from_raw(99)),
+            vec![Constraint::Symmetric {
+                first: major,
+                second: EntityId::from_raw(99),
+                about: centre,
+            }]
+        );
+        assert!((below.position - Point2::new(50.0, 16.0)).length() < 1e-9);
+        assert_eq!(
+            below.target.joins(EntityId::from_raw(99)),
+            vec![
+                Constraint::Coincident(EntityId::from_raw(99), ellipse),
+                Constraint::VerticalPoints(EntityId::from_raw(99), centre),
+            ]
+        );
+        assert!(matches!(
+            across.target,
+            Target::AxisEnd {
+                curve,
+                end: AxisEnd::MinorSlanted,
+                ..
+            } if curve == slanted
+        ));
+        assert!(across.target.label(&sketch).contains("not at the end"));
+        assert_eq!(middle.target, Target::Midpoint(arc));
+        assert!((middle.position - (arc_centre + Vector2::new(0.0, 4.0))).length() < 1e-9);
+        assert_eq!(
+            resolve_at(&sketch, arc_centre + Vector2::new(0.2, -3.9)).map(|snapped| snapped.target),
             None
         );
     }

@@ -138,3 +138,60 @@ fn a_point_off_the_curve_or_at_its_end_and_a_circle_are_refused() {
         Err(SplitError::NotLineOrArc { .. })
     ));
 }
+
+fn elliptic(sketch: &Sketch, curve: EntityId) -> (EntityId, EntityId, EntityId, EntityId) {
+    match sketch.entity(curve) {
+        Some(Entity::EllipticalArc {
+            center,
+            major,
+            start,
+            end,
+            ..
+        }) => (*center, *major, *start, *end),
+        other => panic!("expected an elliptical arc, found {other:?}"),
+    }
+}
+
+#[test]
+fn an_elliptical_arc_splits_into_two_arcs_of_one_ellipse() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let at = |angle: f64| Point2::new(10.0 * angle.cos(), 4.0 * angle.sin());
+    let arc =
+        sketch.add_elliptical_arc(Point2::ZERO, Point2::new(10.0, 0.0), 4.0, at(0.3), at(2.8));
+    let point = sketch.add_point(at(1.2));
+    sketch
+        .add_constraint(Constraint::Coincident(point, arc))
+        .unwrap();
+    let freedom = solve(&sketch).solution.degrees_of_freedom();
+
+    let piece = sketch.split_at(arc, point).unwrap();
+    let solved = solve(&sketch);
+    let (center, major, _, end) = elliptic(&sketch, arc);
+    let (piece_center, piece_major, piece_start, _) = elliptic(&sketch, piece);
+
+    assert_eq!((center, major), (piece_center, piece_major));
+    assert_eq!((end, piece_start), (point, point));
+    assert!(!has(&sketch, &Constraint::Equal(arc, piece)));
+    assert!(solved.solution.redundancies().is_empty());
+    assert_eq!(solved.solution.degrees_of_freedom(), freedom);
+}
+
+#[test]
+fn an_elliptical_arc_split_on_its_major_axis_keeps_one_minor_radius_by_equal() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let at = |angle: f64| Point2::new(10.0 * angle.cos(), 4.0 * angle.sin());
+    let arc =
+        sketch.add_elliptical_arc(Point2::ZERO, Point2::new(10.0, 0.0), 4.0, at(2.0), at(4.0));
+    let point = sketch.add_point(Point2::new(-10.0, 0.0));
+    sketch
+        .add_constraint(Constraint::Coincident(point, arc))
+        .unwrap();
+    let freedom = solve(&sketch).solution.degrees_of_freedom();
+
+    let piece = sketch.split_at(arc, point).unwrap();
+    let solved = solve(&sketch);
+
+    assert!(has(&sketch, &Constraint::Equal(arc, piece)));
+    assert!(solved.solution.redundancies().is_empty());
+    assert_eq!(solved.solution.degrees_of_freedom(), freedom);
+}

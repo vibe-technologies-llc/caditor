@@ -86,7 +86,7 @@ impl ConstraintTool {
     pub fn description(self) -> &'static str {
         match self {
             Self::Coincident => "Join two points, or put a point on a curve",
-            Self::Midpoint => "Put a point at the middle of a line or arc",
+            Self::Midpoint => "Put a point at the middle of a line, arc or elliptical arc",
             Self::Concentric => {
                 "Give circles, arcs and ellipses one centre, or put a point at their centre"
             }
@@ -109,7 +109,8 @@ impl ConstraintTool {
                  and bending alike, so the joint shows no kink in its curvature"
             }
             Self::Equal => {
-                "Give lines and splines the same length, or circles and arcs the same radius"
+                "Give lines and splines the same length, circles and arcs the same radius, or \
+                 ellipses the same radii"
             }
             Self::Symmetric => "Mirror two points, lines, circles or arcs about a line or a point",
             Self::Distance => {
@@ -139,7 +140,7 @@ impl ConstraintTool {
             Self::Coincident => {
                 "Select two or more points, or points and one line, circle, arc or spline"
             }
-            Self::Midpoint => "Select a point and a line or arc",
+            Self::Midpoint => "Select a point and a line, arc or elliptical arc",
             Self::Concentric => {
                 "Select two or more circles, arcs or ellipses, or a point and one of them"
             }
@@ -154,10 +155,14 @@ impl ConstraintTool {
             }
             Self::Angle => "Select two lines, a line and an arc sharing an end, or one arc",
             Self::Tangent => {
-                "Select a line, circle or arc, and one or more circles, arcs or splines to touch it"
+                "Select a line, circle or arc, and one or more circles, arcs, splines or ellipses to \
+                 touch it"
             }
             Self::Curvature => "Select a spline and the line, arc or spline at one of its ends",
-            Self::Equal => "Select two or more lines or splines, or two or more circles or arcs",
+            Self::Equal => {
+                "Select two or more lines or splines, two or more circles or arcs, or two or more \
+                 ellipses"
+            }
             Self::Symmetric => {
                 "Select two points, lines, circles or arcs, and the line or point to mirror them \
                  about"
@@ -230,8 +235,8 @@ impl ConstraintTool {
                 .or_else(|| onto_one_curve(items, Constraint::Coincident)),
             (
                 Self::Midpoint,
-                &[(point, Point), (curve, Line | Circular)]
-                | &[(curve, Line | Circular), (point, Point)],
+                &[(point, Point), (curve, Line | Circular | Elliptic)]
+                | &[(curve, Line | Circular | Elliptic), (point, Point)],
             ) => Some(vec![Constraint::Midpoint { point, curve }]),
             (
                 Self::Concentric,
@@ -265,6 +270,7 @@ impl ConstraintTool {
             }
             (Self::Equal, _) => chained(items, Line, Constraint::Equal)
                 .or_else(|| chained(items, Circular, Constraint::Equal))
+                .or_else(|| chained(items, Elliptic, Constraint::Equal))
                 .or_else(|| equal_lengths(items)),
             (Self::Symmetric, _) => symmetric(definition, shown, items),
             (Self::Distance, &[(line, Line)]) => {
@@ -2030,10 +2036,11 @@ mod tests {
     }
 }
 
-pub const NOTHING_TO_SPLIT: &str =
-    "Select a point lying on a line or arc, with that curve when the point lies on several";
+pub const NOTHING_TO_SPLIT: &str = "Select a point lying on a line, arc or elliptical arc, with \
+                                    that curve when the point lies on several";
 pub const SPLIT_TITLE: &str = "Split curve";
-pub const NOTHING_TO_BREAK: &str = "Select the lines and arcs to break at their crossings";
+pub const NOTHING_TO_BREAK: &str =
+    "Select the lines, arcs and elliptical arcs to break at their crossings";
 pub const BREAK_TITLE: &str = "Break curves";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2066,7 +2073,11 @@ impl SplitChange {
                     .filter(|curve| {
                         matches!(
                             sketch.entity(*curve),
-                            Some(Entity::Line { .. } | Entity::Arc { .. })
+                            Some(
+                                Entity::Line { .. }
+                                    | Entity::Arc { .. }
+                                    | Entity::EllipticalArc { .. }
+                            )
                         )
                     })
                     .collect();
@@ -2111,7 +2122,9 @@ impl BreakChange {
                 !id.is_reference()
                     && matches!(
                         sketch.entity(*id),
-                        Some(Entity::Line { .. } | Entity::Arc { .. })
+                        Some(
+                            Entity::Line { .. } | Entity::Arc { .. } | Entity::EllipticalArc { .. }
+                        )
                     )
             })
             .collect();

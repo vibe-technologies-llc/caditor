@@ -13,8 +13,9 @@ dragging them says so beside the pointer.
 
 ## Splitting and breaking
 
-- {command:sketch.split_curve} cuts a line or arc at a selected point on it.
-- {command:sketch.break_curves} breaks the selected lines and arcs at every crossing.
+- {command:sketch.split_curve} cuts a line, arc or elliptical arc at a selected point on it.
+- {command:sketch.break_curves} breaks the selected lines, arcs and elliptical arcs at every
+  crossing.
 - [Trim and Extend](trim-and-extend) cut away or lengthen pieces with a click.
 
 ## Copy and paste

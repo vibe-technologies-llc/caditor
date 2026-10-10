@@ -123,6 +123,20 @@ impl Style {
                 format!("{ARC_LENGTH_SIGN}{}", length(value)),
             ),
             Constraint::Sweep { arc, .. } => self.along_arc(sketch.arc(arc)?, degrees(value)),
+            Constraint::MajorRadius { ellipse, .. } | Constraint::MinorRadius { ellipse, .. } => {
+                let shape = sketch.ellipse(ellipse)?;
+                let toward = match constraint {
+                    Constraint::MajorRadius { .. } => shape.axis(),
+                    _ => shape.axis().perp(),
+                };
+                Some(self.radial(
+                    shape.center,
+                    value,
+                    toward,
+                    Measured::Radius,
+                    format!("{RADIUS_PREFIX}{}", length(value)),
+                ))
+            }
             _ => None,
         }
     }

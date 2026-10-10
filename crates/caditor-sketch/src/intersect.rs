@@ -164,6 +164,14 @@ pub(crate) fn on_ellipse_sweep(ellipse: &EllipseGeometry, point: Point2, toleran
     offset <= ellipse.sweep + slack || offset >= TAU - slack
 }
 
+pub(crate) fn ellipse_ellipse(
+    along: &EllipseGeometry,
+    other: &EllipseGeometry,
+    tolerance: f64,
+) -> Vec<Point2> {
+    ellipse_roots(along, |point| ellipse_level(other, point), tolerance)
+}
+
 fn ellipse_roots(
     ellipse: &EllipseGeometry,
     signed: impl Fn(Point2) -> f64,
