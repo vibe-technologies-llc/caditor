@@ -13,6 +13,7 @@ use crate::{
     files::templates::{self, Templates},
     graphics::{self, CurveQuality, FrameLimit, Graphics, Hardware},
     icons,
+    last_values::{LastValues, Remembered},
     layout::{PanelLayout, WindowPlacement},
     model::Notice,
     onboarding::{Hint, Onboarding},
@@ -345,6 +346,7 @@ pub struct Preferences {
     pub default_template: Option<String>,
     pub palette_recent: Vec<Command>,
     pub recent_colours: Vec<Rgb>,
+    pub last_values: LastValues,
     loaded_keymap: Keymap,
     raw: Settings,
 }
@@ -416,6 +418,7 @@ pub enum PreferencesCommand {
     Change(PreferenceChange),
     Preview(PreferenceChange),
     RememberRecent(Vec<Command>),
+    RememberLast(Vec<(Remembered, String)>),
     Undo,
 }
 
@@ -521,6 +524,7 @@ impl Preferences {
             default_template: templates::default_template(&raw),
             palette_recent: palette_recent(&raw),
             recent_colours: recent_colours(&raw),
+            last_values: LastValues::from_settings(&raw),
             loaded_keymap: Keymap::from_settings(&raw),
             raw,
         }
@@ -563,6 +567,7 @@ impl Preferences {
                 .collect();
             settings.set_texts(RECENT_COLOURS_KEY, &hexes);
         }
+        self.last_values.write(&mut settings);
         settings
     }
 

@@ -13,6 +13,8 @@ one lights it in the view. Edges that continue smoothly are taken together as a 
   **Measure from the other face** swaps which face takes the first distance. The same choices are
   {command:model.chamfer_equal}, {command:model.chamfer_two_distances},
   {command:model.chamfer_distance_angle} and {command:model.flip_chamfer}.
+- A new fillet or chamfer starts from the radius, distances and form last used on one, kept
+  between sessions; a value naming a parameter the model lacks falls back to the usual 1 mm.
 - Typing a value previews it before you press Enter; when it cannot be made, the reason shows under
   the field and the body before it stays shown.
 

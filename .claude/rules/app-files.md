@@ -386,6 +386,11 @@ paths:
   empty, so older files and older caditors keep working) and written only when there are any;
   Restore defaults leaves them alone. `apply_preferences` hands them to `Model::recent_colours`,
   which the body card reads (`app-look.md`).
+- The starting values of new features (`Preferences::last_values`, `last_values::LastValues`, keys
+  `modelling.last.<slot>` such as `modelling.last.fillet_size`, `app-modelling.md`) hold the text
+  as typed, set by `PreferencesCommand::RememberLast` from each applied edit. A missing or empty
+  key is no value, so older files and older caditors keep working; Restore defaults leaves them
+  alone. `apply_preferences` hands them to `Model::last_values`.
 - `Workspace` owns the `Preferences`; `Model` carries the length unit; `app::apply_preferences`
   hands the model its share at startup and after every change, and the session passes graphics
   settings to the renderer after each frame's actions (`Renderer::set_graphics`).

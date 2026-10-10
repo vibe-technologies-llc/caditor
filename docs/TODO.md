@@ -220,25 +220,12 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   hole in the wrong place or a fillet to remove means remodelling it from scratch. Direct edits
   become features of their own, named from the faces they move, so they stay parametric and
   undoable.
-- [medium · easy] New features always start from the `DEFAULT_*` constants of their `*_tools.rs`
-  (a 1 mm fillet, a 6 by 10 mm hole, a 1 mm shell, a 10 mm extrusion), so filleting a part with 3 mm
-  fillets one set of edges at a time means typing 3 each time. The last value committed for each
-  (a fillet's radius, a chamfer's form and distances, a shell's thickness, a hole's size, fit,
-  style and depth kind, a pattern's counts) could be kept while caditor runs, as Sketch fillet
-  keeps `LastSizes` and Spur gear its `GearSettings`, and start the next one of its kind, as typed
-  (a parameter only while the model still has it).
 - [medium · easy] Fillet and Chamfer take only edges (`blend_tools::selected_edges` refuses faces
   with "Select the edges of a body first"), so rounding every edge of a face or of a whole body
   goes through Select the edges around the selected faces first. Selected faces could give their
   boundary edges and a body chosen in the tree every edge of it (`body_selection::face_boundary`,
   as that command uses), so filleting a face's edges is one step as in Fusion, Onshape and
   SolidWorks; the edges are captured as they are, as a selection of them is.
-- [medium · easy] An extrusion's or revolve's panel names its sketch in a combo but cannot open it
-  (`solid_panel::sketch_row`), so changing the profile of an extrusion made from a face, whose
-  sketch is hidden, means finding that sketch in the tree. The row could offer Edit the sketch as
-  the hole panel does (`hole_panel::EDIT_SKETCH`), and Edit the sketch of the selected face
-  (palette, the view's context menu) could enter the sketch of the feature that made the face
-  (`viewport::feature_of`) directly, as SolidWorks's Edit Sketch on a face does.
 - [medium · medium] Only extrusion and revolve ends, a hole's depth, an offset face's distance, a
   datum plane's offset and the move and placement handles drag in the view
   (`manipulator::Manipulator`, `length_handles::Measured`): a fillet's radius, a chamfer's

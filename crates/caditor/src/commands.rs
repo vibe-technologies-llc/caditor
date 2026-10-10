@@ -236,6 +236,7 @@ pub enum Command {
     RollbackUp,
     RollbackDown,
     EditFeature,
+    EditSketch,
     CloseFeature,
     CancelFeature,
     DetachSketch,
@@ -719,6 +720,7 @@ plain_commands! {
     RollbackUp,
     RollbackDown,
     EditFeature,
+    EditSketch,
     CloseFeature,
     CancelFeature,
     DetachSketch,
@@ -1016,6 +1018,7 @@ impl Command {
             Self::RollbackUp => "model.rollback_up",
             Self::RollbackDown => "model.rollback_down",
             Self::EditFeature => "model.edit_feature",
+            Self::EditSketch => "model.edit_sketch",
             Self::CloseFeature => "model.close_feature",
             Self::CancelFeature => "model.cancel_feature",
             Self::DetachSketch => "model.detach_sketch",
@@ -1255,6 +1258,7 @@ impl Command {
             Self::RollbackUp => "Move the rollback bar up",
             Self::RollbackDown => "Move the rollback bar down",
             Self::EditFeature => "Edit feature",
+            Self::EditSketch => "Edit the sketch",
             Self::CloseFeature => "Finish editing feature",
             Self::CancelFeature => "Cancel the changes to the feature",
             Self::DetachSketch => "Detach sketch",
@@ -1515,6 +1519,7 @@ impl Command {
             | Self::RollbackUp
             | Self::RollbackDown
             | Self::EditFeature
+            | Self::EditSketch
             | Self::CloseFeature
             | Self::CancelFeature
             | Self::DetachSketch
@@ -1800,6 +1805,7 @@ impl Command {
             | Self::SavedViews
             | Self::SetHomeView
             | Self::ResetHomeView
+            | Self::EditSketch
             | Self::CloseFeature
             | Self::CancelFeature
             | Self::DetachSketch

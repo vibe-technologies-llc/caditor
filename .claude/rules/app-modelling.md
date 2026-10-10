@@ -128,7 +128,20 @@ paths:
 - A suppressed or rolled-back feature cannot be opened or edited: `SketchEditing` refuses it,
   `SketchEditing::sync` closes an edited sketch or open feature that becomes one, and the tree's
   Edit says why.
-- Starting values are the `DEFAULT_*` constants of each `*_tools.rs`.
+- Starting values are the `DEFAULT_*` constants of each `*_tools.rs`, except those a user has set
+  before: `last_values::Remembered` names the slots (fillet and chamfer size, the chamfer's form
+  and second distance or angle, shell thickness, hole diameter and blind depth, an extrusion's
+  distance, the linear and circular pattern counts). `app::perform` hands every applied
+  transaction to `last_values::changes`, which keeps the slots a `SetFeatureKind` changed (a
+  feature inserted by a tool changes nothing, so opening and cancelling a feature never
+  overwrites a remembered value), and `PreferencesCommand::RememberLast` stores their text with
+  the parameter names the document has then (a value held by a feature's own named parameter
+  stores that parameter's expression, since the parameter belongs to its feature). The creators
+  (`blend_tools::create`, `shell_tools::create`, `solid_tools::create`, `hole_tools::new_hole`,
+  `pattern_tools::kind_for`) take a `last_values::Starts`, resolved from `Model::last_values`
+  against the current document (`Starts::of`): a text that no longer parses, evaluates, has the
+  slot's dimension or is above zero (it names a parameter the model lacks, say) gives way to the
+  default for that slot alone.
 
 ## Cancelling an open feature
 

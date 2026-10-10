@@ -11,6 +11,7 @@ use crate::{
     body_selection::face_boundary,
     editing,
     hole_tools::{self, TITLE},
+    last_values::Starts,
     model::Model,
     sketch_placement::{self, FaceChoice},
 };
@@ -148,7 +149,7 @@ pub fn create(
     }
     let feature = transaction.add_feature(
         name.clone(),
-        hole_tools::new_hole(placed, face.body, model.length_unit()),
+        hole_tools::new_hole(placed, face.body, &Starts::of(model)),
     );
     let told = format!(
         "{name} is drilled square into the curved face. Click where it goes on the face, or \

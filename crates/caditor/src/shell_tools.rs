@@ -9,9 +9,9 @@ use crate::{
     bodies::{self, FaceKey},
     body_selection,
     editing::{self, EditingCommand},
+    last_values::{Remembered, Starts},
     model::{Action, Model, Notice},
     selection::{Pickable, Selection},
-    units::LengthUnit,
 };
 
 pub const DEFAULT_THICKNESS: f64 = 1.0;
@@ -60,7 +60,7 @@ pub fn create(
     document: &Document,
     evaluation: &Evaluation,
     source: &FaceSource,
-    unit: LengthUnit,
+    starts: &Starts,
 ) -> Result<(Transaction, FeatureId), &'static str> {
     let shown = bodies::shown(evaluation, source.body)
         .ok_or("The body has no shape yet; recompute the model, then try again")?;
@@ -79,7 +79,7 @@ pub fn create(
         FeatureKind::Shell(Shell {
             body: source.body,
             open,
-            thickness: unit.default_length(DEFAULT_THICKNESS),
+            thickness: starts.length(Remembered::ShellThickness, DEFAULT_THICKNESS),
         }),
     );
     Ok((transaction.finish(), feature))
@@ -89,9 +89,9 @@ pub fn create_actions(
     document: &Document,
     evaluation: &Evaluation,
     source: &FaceSource,
-    unit: LengthUnit,
+    starts: &Starts,
 ) -> Vec<Action> {
-    match create(document, evaluation, source, unit) {
+    match create(document, evaluation, source, starts) {
         Ok((transaction, feature)) => {
             let told = body_selection::left_out_words(&source.left_out).map(|words| {
                 Action::Inform(Notice::warning(format!(

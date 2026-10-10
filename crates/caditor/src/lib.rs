@@ -76,6 +76,7 @@ mod interference;
 mod interference_panel;
 mod isocurve_panel;
 mod isocurves;
+mod last_values;
 mod layout;
 mod length_handles;
 mod logging;

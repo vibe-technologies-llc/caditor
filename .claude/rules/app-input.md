@@ -192,7 +192,12 @@ paths:
   tree's primary row, else the feature of the one item selected in the view (a face's origin, an
   edge's latest face origin, a datum, coordinate system or sketch curve or region's own;
   `viewport::feature_of`, which double-clicking also uses), else the open feature; it refuses a
-  suppressed or rolled-back feature with the reason.
+  suppressed or rolled-back feature with the reason. Edit the sketch (`Command::EditSketch`,
+  `feature_tree::sketch_change`) takes the same target and enters its sketch: the feature's own
+  sketch, an extrusion's, revolve's or hole's, so a selected face opens the sketch whose profile
+  made it; any other feature (a fillet's face) refuses in words, and the view's context menu
+  offers it only when it applies. The extrusion and revolve panels' Sketch row has the button too
+  (`solid_panel::sketch_row`).
 - Window commands (minimize, maximize or restore, full screen) are egui viewport commands
   (`window_frame::commands`); closing the window is Quit.
 - Viewport commands cover measure, standard views, looking straight at the one selected flat face

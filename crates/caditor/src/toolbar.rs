@@ -7,7 +7,9 @@ use crate::{
     datum_tools,
     editing::{EditingCommand, SketchEditing},
     feature_tree::count,
-    hole_tools, icons, mate_tools, mirror_tools,
+    hole_tools, icons,
+    last_values::Starts,
+    mate_tools, mirror_tools,
     model::{Action, Model},
     move_tools,
     offers::Offers,
@@ -338,7 +340,7 @@ fn solid_buttons(
                 document,
                 sweep,
                 solid_tools::with_selected_outline(model, sweep, source.clone(), context.selection),
-                model.length_unit(),
+                &Starts::of(model),
             )),
             (Some(Err(_)), _) | (None, Err(_) | Ok(None)) => {}
         }
@@ -424,7 +426,7 @@ fn blend_buttons(
                 model.evaluation(),
                 kind,
                 source,
-                model.length_unit(),
+                &Starts::of(model),
             ));
         }
     }
@@ -539,7 +541,7 @@ fn shell_button(
             model.document(),
             model.evaluation(),
             source,
-            model.length_unit(),
+            &Starts::of(model),
         ));
     }
 }

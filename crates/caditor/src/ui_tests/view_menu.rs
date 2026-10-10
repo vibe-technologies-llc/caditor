@@ -290,6 +290,7 @@ fn the_menu_key_opens_it_at_the_selection_with_its_first_entry_focused_for_the_a
     let first = harness.focused();
     press(&mut harness, Key::ArrowDown, Modifiers::NONE);
     let second = harness.focused();
+    press(&mut harness, Key::ArrowDown, Modifiers::NONE);
     press(&mut harness, Key::Enter, Modifiers::NONE);
     harness.frame();
 

@@ -5,6 +5,8 @@
 it along a curve of a sketch, and {command:model.point_pattern} places a copy at each lone point of
 a sketch.
 
+A new linear or circular pattern starts from the count last used on one, kept between sessions.
+
 ## What is repeated
 
 - Select a face, edge or vertex of the body, or choose it in the tree, to repeat the whole body.

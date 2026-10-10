@@ -7,6 +7,9 @@ The axis is the line, construction line, sketch axis, datum axis, principal axis
 round face selected last; select it together with the sketch before choosing Revolve. In the
 panel, {command:model.use_selected_axis} or Choose in the view changes it.
 
+The **Sketch** row has a button beside it to edit the sketch revolved, and
+{command:model.edit_sketch} does the same from a face the revolve made.
+
 ## Extent
 
 - **Full turn**, **One side** by an angle, **Symmetric** both ways, or **Two sides** each with its

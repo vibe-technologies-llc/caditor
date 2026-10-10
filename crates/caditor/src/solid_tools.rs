@@ -14,6 +14,7 @@ use caditor_sketch::{Entity, EntityId, Reference, Sketch};
 use crate::{
     bodies, body_selection,
     editing::{self, EditingCommand, SketchEditing},
+    last_values::{Remembered, Starts},
     model::{Action, Model, Notice},
     projecting, scene,
     selection::{self, Pickable, Selection},
@@ -263,7 +264,7 @@ pub fn create_on_face(
             sketch,
             regions: RegionChoice::All,
             extent: ExtrudeExtent::one_side(
-                model.length_unit().default_length(DEFAULT_DISTANCE),
+                Starts::of(model).length(Remembered::ExtrudeDistance, DEFAULT_DISTANCE),
                 false,
             ),
             operation: BodyOperation::Add(face.body),
@@ -494,8 +495,9 @@ pub fn create(
     document: &Document,
     sweep: Sweep,
     source: SweepSource,
-    unit: LengthUnit,
+    starts: &Starts,
 ) -> (Transaction, FeatureId) {
+    let unit = starts.unit();
     let name = editing::next_feature_name(document, sweep.label());
     let wall = match source.regions {
         RegionChoice::All => open_profile_wall(document, source.sketch, unit),
@@ -516,7 +518,7 @@ pub fn create(
                 sketch: source.sketch,
                 regions: source.regions.clone(),
                 extent: ExtrudeExtent::one_side(
-                    unit.default_length(DEFAULT_DISTANCE),
+                    starts.length(Remembered::ExtrudeDistance, DEFAULT_DISTANCE),
                     into_the_body,
                 ),
                 operation,
@@ -556,9 +558,9 @@ pub fn create_actions(
     document: &Document,
     sweep: Sweep,
     source: SweepSource,
-    unit: LengthUnit,
+    starts: &Starts,
 ) -> Vec<Action> {
-    let (transaction, feature) = create(document, sweep, source, unit);
+    let (transaction, feature) = create(document, sweep, source, starts);
     vec![
         Action::Apply(transaction),
         Action::Editing(EditingCommand::OpenSolid(feature)),
@@ -812,7 +814,7 @@ mod tests {
                 regions: RegionChoice::All,
                 body: None,
             },
-            LengthUnit::Millimetre,
+            &Starts::defaults(LengthUnit::Millimetre),
         );
         document.apply(transaction).unwrap();
         let (transaction, second) = create(
@@ -824,7 +826,7 @@ mod tests {
                 regions: RegionChoice::All,
                 body: None,
             },
-            LengthUnit::Millimetre,
+            &Starts::defaults(LengthUnit::Millimetre),
         );
         assert_eq!(transaction.label(), "Create Revolve 1");
         document.apply(transaction).unwrap();

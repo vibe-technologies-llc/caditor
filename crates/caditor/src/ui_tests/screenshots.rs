@@ -31,6 +31,7 @@ use crate::{
     history::HistoryCommand,
     hole_tools,
     image_export::ImageCommand,
+    last_values::Starts,
     mirror_tools,
     model::{Action, Notice},
     move_tools,
@@ -959,7 +960,7 @@ fn feature_panel_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) 
             model.model.evaluation(),
             BlendKind::Fillet,
             &source,
-            model.model.length_unit(),
+            &Starts::of(&model.model),
         );
         perform_all(model, actions);
         if let Some(fillet) = model.workspace.editing.solid() {
@@ -976,7 +977,7 @@ fn feature_panel_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) 
             model.document(),
             model.model.evaluation(),
             &source,
-            model.model.length_unit(),
+            &Starts::of(&model.model),
         )
         .ok()
         .map(|_| source)
@@ -986,7 +987,7 @@ fn feature_panel_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) 
             model.document(),
             model.model.evaluation(),
             &source,
-            model.model.length_unit(),
+            &Starts::of(&model.model),
         );
         perform_all(model, actions);
         shoot_open(model, gpu, out, "panel-shell", look);

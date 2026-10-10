@@ -45,4 +45,11 @@ edge, sketch line or axis you select, measuring the distance along it.
 - **Fill**: Solid fills the regions; **Thin wall** makes a wall of the sketch's curves with a
   thickness, inside, outside or centred. A sketch of open curves starts as a thin wall.
 
+The **Sketch** row names the sketch swept, with a button beside it to edit that sketch; so does
+{command:model.edit_sketch} on a face the extrusion made.
+
+A new extrusion starts from the distance last set on one, and every other tool that starts from a
+value (fillet, chamfer, shell, hole, pattern counts) likewise from the last one used, kept between
+sessions; a value naming a parameter the model lacks falls back to the usual starting value.
+
 All distances and angles take [expressions](expressions). See also [Revolve](revolve).

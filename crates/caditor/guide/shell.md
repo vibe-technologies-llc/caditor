@@ -8,6 +8,9 @@ selected colour. **Choose in the view** in the panel first opens the faces of th
 then. The panel lists them, each with a button to close it again (hovering one lights it in the
 view), and sets the **Thickness**. Typing it previews the result before you press Enter.
 
+A new shell starts from the thickness last used on one, kept between sessions (a thickness naming
+a parameter the model lacks falls back to 1 mm).
+
 Only flat faces can be opened. The walls grow inward from the body's faces, so its outside stays
 as it was.
 Faces leaning over an opening, such as a chamfer around it, keep their thickness up to the
