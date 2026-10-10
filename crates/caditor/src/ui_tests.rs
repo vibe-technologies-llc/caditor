@@ -21008,3 +21008,116 @@ fn the_thread_command_refuses_a_flat_face_and_several_faces() {
     harness.settle();
     assert!(no_thread(&harness));
 }
+
+fn add_round(
+    harness: &mut Harness,
+    name: &str,
+    shape: caditor_document::PrimitiveShape,
+    at: [f64; 2],
+    reversed: bool,
+) -> FeatureId {
+    use caditor_document::{PlaneReference, Primitive, PrimitiveAnchor, PrincipalPlane};
+    let mut transaction = harness.document().transaction("Add a round body");
+    let body = transaction.add_feature(
+        name,
+        FeatureKind::Primitive(Primitive {
+            shape,
+            plane: PlaneReference::Principal(PrincipalPlane::Xy),
+            at: at.map(|value| Expression::measure(value, Unit::Millimetre)),
+            anchor: PrimitiveAnchor::BaseCentre,
+            reversed,
+            operation: BodyOperation::NewBody,
+        }),
+    );
+    harness.perform(Action::Apply(transaction.finish()));
+    harness.settle();
+    body
+}
+
+#[test]
+fn a_body_is_split_along_the_surface_of_a_curved_face_of_another_body() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    let whole = harness.body_volume(plate);
+    let height = whole / 1600.0;
+    add_round(
+        &mut harness,
+        "Rod",
+        caditor_document::PrimitiveShape::Cylinder {
+            diameter: Expression::measure(10.0, Unit::Millimetre),
+            height: Expression::measure(5.0, Unit::Millimetre),
+        },
+        [20.0, 20.0],
+        true,
+    );
+    let plate_edge = harness
+        .built()
+        .picks
+        .pickables()
+        .find(|pickable| matches!(pickable, Pickable::Edge { body, .. } if *body == plate))
+        .expect("an edge of the plate is pickable");
+    let wall = pickable_described(&mut harness, "Rod › Rod wall");
+
+    harness.select([plate_edge, wall]);
+    harness.use_tool_with(Key::K, Modifiers::ALT);
+    harness.settle();
+    let split = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the split is open");
+
+    assert_eq!(harness.model.undo_label(), Some("Create Split 1"));
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+    assert!(harness.shows("The surface of Rod wall"));
+    let inside = PI * 25.0 * height;
+    let roughly = |harness: &Harness, body: FeatureId, expected: f64| {
+        let found = harness.body_volume(body);
+        assert!(
+            (found - expected).abs() < 2e-2 * expected,
+            "{found} {expected}"
+        );
+    };
+    roughly(&harness, split, inside);
+    roughly(&harness, plate, whole - inside);
+
+    harness.click(split_panel::KEEP_OTHER_SIDE);
+    harness.settle();
+    roughly(&harness, plate, inside);
+}
+
+#[test]
+fn a_flat_face_is_mated_resting_on_a_sphere_of_another_body_from_the_palette() {
+    let mut harness = Harness::new();
+    let peg = add_peg(&mut harness);
+    add_round(
+        &mut harness,
+        "Ball",
+        caditor_document::PrimitiveShape::Sphere {
+            diameter: Expression::measure(10.0, Unit::Millimetre),
+        },
+        [100.0, 0.0],
+        false,
+    );
+    let bottom = pickable_described(&mut harness, "Peg › Peg start face");
+    let ball = pickable_described(&mut harness, "Ball › Ball surface");
+
+    harness.select([bottom, ball]);
+    run_from_palette(&mut harness, "mate body");
+    harness.settle();
+
+    assert_eq!(harness.model.undo_label(), Some("Create Mate 1"));
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+    assert!(harness.shows("Flat face"));
+    assert!(harness.shows("Rests on"));
+    let (low, high) = plate_bounds(&harness, peg);
+    assert!(
+        (low.z - 10.0).abs() < 1e-6 && (high.z - 15.0).abs() < 1e-6,
+        "{low:?} {high:?}"
+    );
+
+    harness.click(mate_panel::OTHER_SIDE);
+    harness.settle();
+    let (low, _) = plate_bounds(&harness, peg);
+    assert!(low.z.abs() < 1e-6, "{low:?}");
+}

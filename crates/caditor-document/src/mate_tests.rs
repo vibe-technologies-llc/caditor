@@ -605,3 +605,97 @@ fn a_point_mate_puts_a_corner_on_a_point_or_onto_a_plane() {
         BTreeSet::from([model.peg, model.plate])
     );
 }
+
+fn rest_peg_on(model: &mut Model, face: FaceReference, round: FaceAttachment, flipped: bool) {
+    let pair = MatePair::FaceOnRound(Box::new(FaceOnRound { face, round }));
+    add_mate(model, pair, flipped);
+}
+
+#[test]
+fn a_flat_face_rests_on_a_sphere_of_another_body_on_either_side() {
+    let mut model = model();
+    let (ball_body, ball_face) = round_body(&mut model, ball(), 50.0);
+    let bottom = peg_face(&model, -Vector3::Z, Point3::ZERO);
+    let round = FaceAttachment {
+        body: ball_body,
+        face: ball_face,
+    };
+    rest_peg_on(&mut model, bottom, round, false);
+
+    let evaluation = evaluate(&model.document, &mut Recompute::default());
+
+    assert_eq!(
+        evaluation.failed_count(),
+        0,
+        "{:?}",
+        evaluation.failures().next()
+    );
+    let (low, high) = bounds(&evaluation, model.peg);
+    assert!((low.z - 5.0).abs() < 1e-6, "{low:?}");
+    assert!((high.z - 11.0).abs() < 1e-6, "{high:?}");
+    assert!((low.x - 20.0).abs() < 1e-6, "{low:?}");
+    let mate = model.document.features().last().unwrap();
+    assert!(mate.kind.bodies_used().contains(&ball_body));
+
+    let mut below = self::model();
+    let (ball_body, ball_face) = round_body(&mut below, ball(), 50.0);
+    let bottom = peg_face(&below, -Vector3::Z, Point3::ZERO);
+    let round = FaceAttachment {
+        body: ball_body,
+        face: ball_face,
+    };
+    rest_peg_on(&mut below, bottom, round, true);
+
+    let evaluation = evaluate(&below.document, &mut Recompute::default());
+
+    let (low, _) = bounds(&evaluation, below.peg);
+    assert!((low.z + 5.0).abs() < 1e-6, "{low:?}");
+}
+
+#[test]
+fn a_flat_face_rests_along_a_cylinder_of_another_body() {
+    let mut model = model();
+    let rod = PrimitiveShape::Cylinder {
+        diameter: Expression::parse_stored("4 mm").unwrap(),
+        height: Expression::parse_stored("10 mm").unwrap(),
+    };
+    let (rod_body, rod_face) = round_body(&mut model, rod, 50.0);
+    let side = peg_face(&model, -Vector3::Y, Point3::ZERO);
+    let round = FaceAttachment {
+        body: rod_body,
+        face: rod_face,
+    };
+    rest_peg_on(&mut model, side, round, false);
+
+    let evaluation = evaluate(&model.document, &mut Recompute::default());
+
+    assert_eq!(
+        evaluation.failed_count(),
+        0,
+        "{:?}",
+        evaluation.failures().next()
+    );
+    let (low, high) = bounds(&evaluation, model.peg);
+    assert!((low.y - 2.0).abs() < 1e-6, "{low:?}");
+    assert!((high.y - 7.0).abs() < 1e-6, "{high:?}");
+    assert!((low.z).abs() < 1e-6, "{low:?}");
+}
+
+#[test]
+fn a_flat_face_resting_on_a_face_that_is_not_round_fails_naming_it() {
+    let mut model = model();
+    let bottom = peg_face(&model, -Vector3::Z, Point3::ZERO);
+    let round = match plate_top(&model) {
+        PlaneReference::Face(attachment) => attachment,
+        other => panic!("expected a face, found {other:?}"),
+    };
+    rest_peg_on(&mut model, bottom, round, false);
+
+    let evaluation = evaluate(&model.document, &mut Recompute::default());
+
+    let reason = first_failure(&evaluation);
+    assert!(
+        reason.contains("which it rests on, is no longer a whole cylinder or sphere"),
+        "{reason}"
+    );
+}

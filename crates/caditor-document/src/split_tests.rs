@@ -1,5 +1,8 @@
+use std::f64::consts::PI;
+
 use caditor_expression::Expression;
 use caditor_geometry::{Plane, Point2};
+use caditor_kernel::{FaceReference, Surface};
 use caditor_sketch::Sketch;
 
 use crate::{
@@ -342,4 +345,248 @@ fn a_body_cannot_be_split_along_itself() {
 
     let (_, error) = evaluation.failures().next().unwrap();
     assert!(error.reason.contains("cannot be split along itself"));
+}
+
+fn round_tool(shape: PrimitiveShape, anchor: PrimitiveAnchor, reversed: bool) -> Primitive {
+    Primitive {
+        shape,
+        plane: PlaneReference::Principal(PrincipalPlane::Xy),
+        at: [
+            Expression::parse_stored("0 mm").unwrap(),
+            Expression::parse_stored("0 mm").unwrap(),
+        ],
+        anchor,
+        reversed,
+        operation: BodyOperation::NewBody,
+    }
+}
+
+fn split_plate_along_surface(
+    tool: Primitive,
+    curved: fn(&Surface) -> bool,
+    flipped: bool,
+) -> (Document, FeatureId, FeatureId) {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    let plate = block(
+        &mut transaction,
+        "Plate",
+        (-10.0, -5.0),
+        (10.0, 5.0),
+        "4 mm",
+    );
+    let round = transaction.add_feature("Round", FeatureKind::Primitive(tool));
+    document.apply(transaction.finish()).unwrap();
+    let evaluation = evaluate(&document, &mut Recompute::default());
+    let solid = evaluation.body(round).unwrap();
+    let (id, _) = solid
+        .faces()
+        .find(|(_, face)| curved(face.surface()))
+        .unwrap();
+    let face = FaceAttachment {
+        body: round,
+        face: FaceReference::capture(solid, id).unwrap(),
+    };
+    let mut transaction = document.transaction("Split");
+    let split = transaction.add_feature(
+        "Split 1",
+        FeatureKind::Split(Split {
+            body: plate,
+            along: SplitAlong::Surface(face),
+            flipped,
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    (document, plate, split)
+}
+
+fn near_volume(found: f64, expected: f64) -> bool {
+    (found - expected).abs() < 2e-3 * expected
+}
+
+fn rod() -> Primitive {
+    round_tool(
+        PrimitiveShape::Cylinder {
+            diameter: Expression::parse_stored("6 mm").unwrap(),
+            height: Expression::parse_stored("2 mm").unwrap(),
+        },
+        PrimitiveAnchor::BaseCentre,
+        true,
+    )
+}
+
+#[test]
+fn a_cylindrical_face_of_another_body_splits_along_its_whole_cylinder_keeping_the_side_it_faces() {
+    let (document, plate, split) = split_plate_along_surface(
+        rod(),
+        |surface| matches!(surface, Surface::Cylinder(_)),
+        false,
+    );
+
+    let evaluation = evaluate(&document, &mut Recompute::default());
+
+    assert_eq!(
+        evaluation.failed_count(),
+        0,
+        "{:?}",
+        evaluation.failures().next()
+    );
+    let inside = PI * 9.0 * 4.0;
+    assert!(near_volume(volume(&evaluation, plate), 800.0 - inside));
+    assert!(near_volume(volume(&evaluation, split), inside));
+    let kind = &document.feature(split).unwrap().kind;
+    assert!(kind.bodies_used().len() == 2);
+
+    let (document, plate, split) = split_plate_along_surface(
+        rod(),
+        |surface| matches!(surface, Surface::Cylinder(_)),
+        true,
+    );
+
+    let evaluation = evaluate(&document, &mut Recompute::default());
+
+    assert!(near_volume(volume(&evaluation, plate), inside));
+    assert!(near_volume(volume(&evaluation, split), 800.0 - inside));
+}
+
+#[test]
+fn a_spherical_and_a_conical_face_split_along_their_whole_surfaces() {
+    let ball = round_tool(
+        PrimitiveShape::Sphere {
+            diameter: Expression::parse_stored("8 mm").unwrap(),
+        },
+        PrimitiveAnchor::Centre,
+        false,
+    );
+    let (document, plate, split) =
+        split_plate_along_surface(ball, |surface| matches!(surface, Surface::Sphere(_)), true);
+
+    let evaluation = evaluate(&document, &mut Recompute::default());
+
+    assert_eq!(
+        evaluation.failed_count(),
+        0,
+        "{:?}",
+        evaluation.failures().next()
+    );
+    let cap = 2.0 / 3.0 * PI * 64.0;
+    assert!(near_volume(volume(&evaluation, plate), cap));
+    assert!(near_volume(volume(&evaluation, split), 800.0 - cap));
+
+    let cone = round_tool(
+        PrimitiveShape::Cone {
+            bottom: Expression::parse_stored("4 mm").unwrap(),
+            top: Expression::parse_stored("0 mm").unwrap(),
+            height: Expression::parse_stored("4 mm").unwrap(),
+        },
+        PrimitiveAnchor::BaseCentre,
+        true,
+    );
+    let (document, plate, split) =
+        split_plate_along_surface(cone, |surface| matches!(surface, Surface::Cone(_)), false);
+
+    let evaluation = evaluate(&document, &mut Recompute::default());
+
+    assert_eq!(
+        evaluation.failed_count(),
+        0,
+        "{:?}",
+        evaluation.failures().next()
+    );
+    let frustum = PI * 4.0 / 3.0 * (16.0 + 8.0 + 4.0);
+    assert!(near_volume(volume(&evaluation, plate), 800.0 - frustum));
+    assert!(near_volume(volume(&evaluation, split), frustum));
+}
+
+#[test]
+fn a_surface_that_misses_the_body_fails_the_split_alone_in_words() {
+    let far = Primitive {
+        at: [
+            Expression::parse_stored("40 mm").unwrap(),
+            Expression::parse_stored("0 mm").unwrap(),
+        ],
+        ..rod()
+    };
+    let (document, plate, split) = split_plate_along_surface(
+        far,
+        |surface| matches!(surface, Surface::Cylinder(_)),
+        false,
+    );
+
+    let evaluation = evaluate(&document, &mut Recompute::default());
+
+    let (failed, error) = evaluation.failures().next().unwrap();
+    assert_eq!(failed, split);
+    assert!(
+        error.reason.starts_with("The surface of Round wall"),
+        "{}",
+        error.reason
+    );
+    assert!(evaluation.body(plate).is_some());
+}
+
+#[test]
+fn a_split_face_divides_faces_along_the_surface_of_a_curved_face() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    let plate = block(
+        &mut transaction,
+        "Plate",
+        (-10.0, -5.0),
+        (10.0, 5.0),
+        "4 mm",
+    );
+    let round = transaction.add_feature("Round", FeatureKind::Primitive(rod()));
+    document.apply(transaction.finish()).unwrap();
+    let evaluation = evaluate(&document, &mut Recompute::default());
+    let capture = |body: FeatureId, wanted: &dyn Fn(&Surface, f64) -> bool| {
+        let solid = evaluation.body(body).unwrap();
+        let (id, _) = solid
+            .faces()
+            .find(|(_, face)| wanted(face.surface(), face.sense().sign()))
+            .unwrap();
+        FaceReference::capture(solid, id).unwrap()
+    };
+    let wall = capture(round, &|surface, _| matches!(surface, Surface::Cylinder(_)));
+    let top = capture(plate, &|surface, sign| match surface {
+        Surface::Plane(plane) => plane.frame().normal().z * sign > 0.5,
+        _ => false,
+    });
+    let faces_before = evaluation.body(plate).unwrap().faces().count();
+    let mut transaction = document.transaction("Split face");
+    let split = transaction.add_feature(
+        "Split face 1",
+        FeatureKind::SplitFace(SplitFace {
+            body: plate,
+            faces: vec![top],
+            along: SplitAlong::Surface(FaceAttachment {
+                body: round,
+                face: wall,
+            }),
+            direction: None,
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+
+    let evaluation = evaluate(&document, &mut Recompute::default());
+
+    assert_eq!(
+        evaluation.failed_count(),
+        0,
+        "{:?}",
+        evaluation.failures().next()
+    );
+    assert_eq!(
+        evaluation.body(plate).unwrap().faces().count(),
+        faces_before + 1
+    );
+    assert!(near_volume(volume(&evaluation, plate), 800.0));
+    assert!(
+        document
+            .feature(split)
+            .unwrap()
+            .kind
+            .bodies_used()
+            .contains(&round)
+    );
 }

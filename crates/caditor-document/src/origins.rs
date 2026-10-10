@@ -91,7 +91,10 @@ fn may_hold_references(kind: &FeatureKind) -> bool {
         FeatureKind::Mirror(mirror) => {
             matches!(mirror.plane, PlaneReference::Face(_)) || !mirror.faces.is_empty()
         }
-        FeatureKind::Split(split) => matches!(split.along.plane(), Some(PlaneReference::Face(_))),
+        FeatureKind::Split(split) => {
+            matches!(split.along.plane(), Some(PlaneReference::Face(_)))
+                || split.along.surface().is_some()
+        }
         FeatureKind::Primitive(primitive) => matches!(primitive.plane, PlaneReference::Face(_)),
         FeatureKind::Move(movement) => movement.about.axis().is_some(),
         FeatureKind::Mate(_) => true,

@@ -973,6 +973,7 @@ fn mate_anchored(mate: &mut Mate) -> Vec<Anchored<'_>> {
             AngleSides::Axes(axes) => axis_pair(axes),
         },
         MatePair::Tangent(pair) => vec![Anchored::Plane(&mut pair.target)],
+        MatePair::FaceOnRound(_) => Vec::new(),
         MatePair::Point(mated) => {
             let PointMate { point, target } = &mut **mated;
             let target = match target {

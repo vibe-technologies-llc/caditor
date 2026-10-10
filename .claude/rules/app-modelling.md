@@ -571,22 +571,26 @@ paths:
 - Split body (Alt+K, Model menu, palette, a body's right-click menu; not on the ribbon, which it
   would widen past one row) takes the body the same way and creates a `Split` along what is
   selected (`split_tools::source`, `source_for` from the Bodies group): a plane or flat face chosen
-  as Mirror's is, else curves or regions of one sketch made before it, else, with faces or edges
-  of exactly two bodies and no tree rows, the first picked is split along the second; nothing
-  chosen splits along the YZ plane. It opens the split; its panel mirrors Mirror's: the Split along
+  as Mirror's is, else curves or regions of one sketch made before it, else exactly one selected
+  curved face (`chosen_surface`, through `sketch_placement::surface_at`) as a `SplitAlong::Surface`
+  with the body beside it split, else, with faces or edges of exactly two bodies and no tree rows,
+  the first picked is split along the second; nothing chosen splits along the YZ plane. It opens the split; its panel mirrors Mirror's: the Split along
   combo lists the principal planes, every other body standing before the split and every earlier
   sketch that is one open chain (`is_open_chain`), worded by `split_tools::describe` ("The curve
-  of Sketch 2"); Use selected, Choose in the view (slot `SplitPlane`) and the palette's Split
-  along selected take a plane or flat face, a sketch curve, or a face or edge of another earlier
-  body (`along_change`). Keep the other side and rows naming the body and the split-off body
+  of Sketch 2", "The surface of Rod wall"); Use selected, Choose in the view (slot `SplitPlane`)
+  and the palette's Split along selected take a plane or flat face, a sketch curve, one curved
+  face (its surface), or an edge of another earlier body (`along_change`); Split face takes the
+  same through `chosen_along`. Keep the other side and rows naming the body and the split-off body
   follow. While open both bodies show as previews.
 - Mate body (Model menu, palette; no ribbon button or default key) takes picks in pick order
   (`mate_tools::source`), resolved at the bar, the first on the body to move: two picks make a
   faces mate (a flat face of the body, then a flat face of another body or a plane,
   `datum_tools::plane_reference`), an axes mate (an axis of the body, a straight edge or round
   face, then any axis, `axis_reference`), a tangent mate (a cylindrical or spherical face of the
-  body, `moving_round`, then a plane) or a point mate (a corner, round edge or sphere of the body,
-  then a point, `point_reference`, or else a plane), tried in that order; four picks, two on the
+  body, `moving_round`, then a plane), a flat face resting on a round one (a flat face of the
+  body, then a cylindrical or spherical face of another body, `round_target`; panel rows Flat
+  face and Rests on) or a point mate (a corner, round edge or sphere of the body, then a point,
+  `point_reference`, or else a plane), tried in that order; four picks, two on the
   body (a flat face and an axis) and two off it (a plane and an axis), in any order within each
   pair, make a flush and concentric mate. Mate body at an angle (Model menu, palette) takes the
   same two flat faces or axes and makes an angle mate at 90 deg (`angle_source`). The moving body

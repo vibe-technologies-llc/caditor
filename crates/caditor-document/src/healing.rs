@@ -19,6 +19,7 @@ use crate::{
         ExtrudeEnd, ExtrudeExtent, RegionChoice, RevolveAxis, RevolveExtent, SolidFeature,
         SolidStart,
     },
+    split::SplitAlong,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -159,11 +160,7 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
                 visitor.face(mirror.body, face, &what);
             }
         }
-        FeatureKind::Split(split) => {
-            if let Some(plane) = split.along.plane_mut() {
-                visit_plane(plane, "the face it splits along", visitor);
-            }
-        }
+        FeatureKind::Split(split) => visit_split_along(&mut split.along, visitor),
         FeatureKind::Primitive(primitive) => {
             visit_plane(&mut primitive.plane, "the face it stands on", visitor);
         }
@@ -199,9 +196,7 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
                 };
                 visitor.face(split.body, face, &what);
             }
-            if let Some(plane) = split.along.plane_mut() {
-                visit_plane(plane, "the face it splits along", visitor);
-            }
+            visit_split_along(&mut split.along, visitor);
             if let Some(direction) = split.direction.as_deref_mut() {
                 visit_axis(direction, "direction", visitor);
             }
@@ -404,6 +399,18 @@ fn visit_mate(mate: &mut Mate, visitor: &mut impl ReferenceVisitor) {
             );
             visit_plane(&mut tangent.target, "the face it rests on", visitor);
         }
+        MatePair::FaceOnRound(resting) => {
+            visitor.face(
+                body,
+                &mut resting.face,
+                "the flat face it rests on the round face",
+            );
+            visitor.face(
+                resting.round.body,
+                &mut resting.round.face,
+                "the round face it rests on",
+            );
+        }
         MatePair::Point(point) => {
             visit_point(&mut point.point, "point to mate", visitor);
             match &mut point.target {
@@ -411,6 +418,16 @@ fn visit_mate(mate: &mut Mate, visitor: &mut impl ReferenceVisitor) {
                 PointTarget::Plane(plane) => visit_plane(plane, "the face it mates onto", visitor),
             }
         }
+    }
+}
+
+fn visit_split_along(along: &mut SplitAlong, visitor: &mut impl ReferenceVisitor) {
+    const WHAT: &str = "the face it splits along";
+    if let Some(plane) = along.plane_mut() {
+        visit_plane(plane, WHAT, visitor);
+    }
+    if let Some(surface) = along.surface_mut() {
+        visitor.face(surface.body, &mut surface.face, WHAT);
     }
 }
 

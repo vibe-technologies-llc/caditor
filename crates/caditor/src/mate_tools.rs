@@ -1,7 +1,7 @@
 use caditor_document::{
-    AngleMate, AngleSides, AxisMate, AxisReference, Document, Edit, FaceAxisMate, FaceMate,
-    FacePair, FeatureId, FeatureKind, Mate, MatePair, PlaneReference, PointMate, PointReference,
-    PointTarget, Transaction, round_face,
+    AngleMate, AngleSides, AxisMate, AxisReference, Document, Edit, FaceAttachment, FaceAxisMate,
+    FaceMate, FaceOnRound, FacePair, FeatureId, FeatureKind, Mate, MatePair, PlaneReference,
+    PointMate, PointReference, PointTarget, Transaction, round_face,
 };
 use caditor_kernel::FaceReference;
 
@@ -18,8 +18,8 @@ use crate::{
 const NAME: &str = "Mate";
 const DEFAULT_ANGLE_DEGREES: f64 = 90.0;
 const NO_PAIR: &str = "Select a flat face, axis, round face or corner of the body to move, then \
-                       the face, plane, axis or point to mate it onto; or a flat face and an axis \
-                       of the body, then a face and an axis to mate them onto";
+                       the face, plane, axis, round face or point to mate it onto; or a flat face \
+                       and an axis of the body, then a face and an axis to mate them onto";
 const NO_ANGLE_PAIR: &str = "Select a flat face or axis of the body to move, then the face, plane \
                              or axis to set its angle to";
 const SAME_BODY: &str =
@@ -33,6 +33,8 @@ const NO_TARGET_PLANE: &str =
     "Select a flat face of another body, or a plane, made before this feature";
 const NO_TARGET_AXIS: &str =
     "Select an axis, or a straight edge or round face of another body, made before this feature";
+const NO_TARGET_ROUND: &str = "Select a cylindrical or spherical face of another body, made \
+                               before this feature";
 const NO_TARGET_POINT: &str = "Select a point, corner, flat face or plane made before this \
                                feature, not on the body that moves";
 const NO_SECOND_PART: &str = "This mate holds one pair; only a flush and concentric mate also \
@@ -90,6 +92,11 @@ fn moving_round(
     Some((body, reference))
 }
 
+fn round_target(model: &Model, pickable: Pickable, index: usize) -> Option<FaceAttachment> {
+    let (body, face) = moving_round(model, pickable, index)?;
+    Some(FaceAttachment { body, face })
+}
+
 fn moving_point(
     model: &Model,
     pickable: Pickable,
@@ -134,6 +141,13 @@ fn one_pair(
         datum_tools::plane_reference(model, second, index),
     ) {
         return Some((body, MatePair::Tangent(Box::new(FacePair { face, target }))));
+    }
+    if let (Some((body, face)), Some(round)) = (
+        moving_face(model, first, index),
+        round_target(model, second, index),
+    ) {
+        let resting = FaceOnRound { face, round };
+        return Some((body, MatePair::FaceOnRound(Box::new(resting))));
     }
     let (body, point) = moving_point(model, first, index)?;
     let target = point_target(model, second, index)?;
@@ -397,12 +411,19 @@ fn moved_pair(
             point: picks.first(moving_point, NO_POINT)?.1,
             ..point.as_ref().clone()
         })),
+        (MatePair::FaceOnRound(resting), MatePart::Main) => {
+            MatePair::FaceOnRound(Box::new(FaceOnRound {
+                face: picks.face()?,
+                ..resting.as_ref().clone()
+            }))
+        }
         (
             MatePair::Faces(_)
             | MatePair::Axes(_)
             | MatePair::Angle(_)
             | MatePair::Tangent(_)
-            | MatePair::Point(_),
+            | MatePair::Point(_)
+            | MatePair::FaceOnRound(_),
             MatePart::Axis,
         ) => return Err(NO_SECOND_PART),
     })
@@ -448,12 +469,19 @@ fn target_pair(
             target: picks.first(point_target, NO_TARGET_POINT)?,
             ..point.as_ref().clone()
         })),
+        (MatePair::FaceOnRound(resting), MatePart::Main) => {
+            MatePair::FaceOnRound(Box::new(FaceOnRound {
+                round: picks.first(round_target, NO_TARGET_ROUND)?,
+                ..resting.as_ref().clone()
+            }))
+        }
         (
             MatePair::Faces(_)
             | MatePair::Axes(_)
             | MatePair::Angle(_)
             | MatePair::Tangent(_)
-            | MatePair::Point(_),
+            | MatePair::Point(_)
+            | MatePair::FaceOnRound(_),
             MatePart::Axis,
         ) => return Err(NO_SECOND_PART),
     })

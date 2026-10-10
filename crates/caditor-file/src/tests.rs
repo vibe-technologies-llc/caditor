@@ -7466,6 +7466,79 @@ fn a_split_with_a_damaged_plane_loads_along_the_yz_plane_and_says_so() {
     assert!(restored.flipped);
 }
 
+fn surface_face() -> caditor_document::FaceAttachment {
+    use caditor_kernel::{FaceName, FaceOrigin, FaceReference};
+    caditor_document::FaceAttachment {
+        body: FeatureId::from_raw(999),
+        face: FaceReference::new(
+            FaceName::from_digest(0xfeed),
+            Some(FaceOrigin::EndCap { feature: 1 }),
+            [FaceName::from_digest(3)],
+        ),
+    }
+}
+
+#[test]
+fn splits_along_the_surface_of_a_face_are_a_kind_older_readers_report() {
+    use caditor_document::{Split, SplitAlong};
+    let (mut document, base, _) = solid_model();
+    let mut transaction = document.transaction("Split");
+    let split = transaction.add_feature(
+        "Split 1",
+        FeatureKind::Split(Split {
+            body: base,
+            along: SplitAlong::Surface(surface_face()),
+            flipped: true,
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+
+    assert!(text.contains("\"split_surface\":{"));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+
+    let kind = document.feature(split).unwrap().kind.clone();
+    let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: split, kind });
+    let journal = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+    assert_eq!(
+        format::restore_transaction(through_binary(&journal)),
+        Some(transaction)
+    );
+
+    let older = decode_text(&text.replace("\"split_surface\":", "\"unknown_split\":"));
+    assert_eq!(
+        older.issues,
+        [
+            "The feature “Split 1” is a kind this version of caditor does not know \
+             (unknown_split), so it was left out. It may come from a newer version."
+        ]
+    );
+}
+
+#[test]
+fn a_split_face_along_the_surface_of_a_face_wraps_its_split_face_record() {
+    use caditor_document::SplitAlong;
+    let (document, split) = split_face_model(|_, _| SplitAlong::Surface(surface_face()));
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+
+    assert!(text.contains("\"split_face_surface\":{"));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+
+    let kind = document.feature(split).unwrap().kind.clone();
+    let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: split, kind });
+    let journal = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+    assert_eq!(
+        format::restore_transaction(through_binary(&journal)),
+        Some(transaction)
+    );
+}
+
 #[test]
 fn splits_along_a_body_or_a_sketch_are_a_record_kind_of_their_own() {
     use caditor_document::{Move, Split, SplitAlong, TurnCentre};
@@ -7654,6 +7727,17 @@ fn every_new_mate() -> Vec<(caditor_document::MatePair, &'static str, bool)> {
             false,
         ),
         (MatePair::Tangent(Box::new(pair)), "tangent_mate", true),
+        (
+            MatePair::FaceOnRound(Box::new(caditor_document::FaceOnRound {
+                face: faces.face.clone(),
+                round: caditor_document::FaceAttachment {
+                    body: FeatureId::from_raw(999),
+                    face: faces.face.clone(),
+                },
+            })),
+            "face_on_round_mate",
+            true,
+        ),
         (
             MatePair::Point(Box::new(PointMate {
                 point: PointReference::Origin,

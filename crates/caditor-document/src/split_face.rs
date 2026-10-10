@@ -4,7 +4,9 @@ use caditor_geometry::{Plane, Vector3};
 use caditor_kernel::{FaceId, FaceName, FaceReference, FaceSplitError, Solid, split_faces};
 
 use crate::{
+    attachment::FaceAttachment,
     datum::{AxisReference, Resolver, capitalized, describe_axis, feature_name},
+    describe::describe_surface,
     document::{Feature, FeatureId},
     origins,
     pieces::{Resolution, Unresolved, pieces_of_one_face, tally},
@@ -14,6 +16,7 @@ use crate::{
         HalfSpaceError, MixedCurves, SplitAlong, Sweep, SweptError, half_space_solid,
         is_open_chain, mixed_curves,
     },
+    surface_tool::{SurfaceToolError, surface_tool},
     tolerance, trouble,
 };
 
@@ -184,6 +187,16 @@ impl Context<'_> {
         }
     }
 
+    fn surface_failure(&self, face: &FaceAttachment, error: SurfaceToolError) -> Failure {
+        if matches!(error, SurfaceToolError::Misses) {
+            return self.misses();
+        }
+        match error.words(self.resolver.inputs.document, face) {
+            Some(words) => self.error(words.reason, &words.remedy),
+            None => self.unbuildable(&error),
+        }
+    }
+
     fn swept_failure(&self, sketch: FeatureId, error: SweptError) -> Failure {
         let name = feature_name(self.resolver.inputs.document, sketch);
         let (reason, remedy) = match error {
@@ -224,6 +237,7 @@ fn tool_words(inputs: &Inputs<'_>, along: &SplitAlong) -> String {
         SplitAlong::Sketch(sketch) => {
             format!("The curve of {}", feature_name(inputs.document, *sketch))
         }
+        SplitAlong::Surface(face) => capitalized(&describe_surface(inputs.document, face)),
     }
 }
 
@@ -341,6 +355,12 @@ fn tool<'a>(
         )),
         SplitAlong::Body(tool) => context.resolver.body(*tool).map(Tool::Body),
         SplitAlong::Sketch(sketch) => sketch_tool(context, definition, solid, *sketch),
+        SplitAlong::Surface(face) => {
+            let holder = context.resolver.body(face.body)?;
+            surface_tool(holder, &face.face, solid, false, feature)
+                .map(|made| Tool::Made(made.solid))
+                .map_err(|error| context.surface_failure(face, error))
+        }
     }
 }
 
