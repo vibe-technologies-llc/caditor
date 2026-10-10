@@ -710,6 +710,34 @@ fn a_section_cuts_bodies_and_lines_away_caps_the_cut_and_picks_neither() {
 }
 
 #[test]
+fn a_mesh_that_is_not_closed_is_cut_without_a_cap_so_its_far_side_is_seen_and_picked() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let view = looking_down(150.0, f64::from(SIZE), f64::from(SIZE));
+    let on_cap = view.project(Point3::new(5.0, 10.0, 0.0)).unwrap();
+    let open = |closed: bool| {
+        let mut scene = sectioned_box(CutFace::Filled, Vector3::Z);
+        scene.meshes[0].mesh = Arc::new(box_mesh(20.0).with_closed(closed));
+        scene
+    };
+
+    let closed = render(&device, &queue, &view, &open(true), on_cap);
+    let sheet = render(&device, &queue, &view, &open(false), on_cap);
+
+    assert!(closed.pick.hits.is_empty(), "{:?}", closed.pick.hits);
+    assert!(
+        !sheet.pick.hits.is_empty(),
+        "the far side of the sheet was capped"
+    );
+    let [red, green, blue, _] = pixel(&sheet, on_cap);
+    assert!(
+        green > 40 && green > red * 2 && green > blue * 2,
+        "the far side was {red} {green} {blue}"
+    );
+}
+
+#[test]
 fn faces_a_section_keeps_draw_as_before_seen_from_an_angle() {
     let Some((device, queue)) = gpu() else {
         return;

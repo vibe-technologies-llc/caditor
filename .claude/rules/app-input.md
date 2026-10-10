@@ -281,6 +281,9 @@ paths:
   right a window taking what lies wholly inside, right to left a crossing box taking what it
   touches, replacing the selection (Shift or Ctrl adds). It takes faces (Everything or Faces),
   edges, vertices or the curves of shown sketches by the selection filter, of shown bodies only.
+  Sketch curves go through `sectioned_screen::SectionedScreen`: a point a section plane cuts away
+  is left out and a curve counts by the part the planes keep (`Screen::kept`, `kept_span`), so
+  a curve cut away entirely is never taken, as picking never takes it.
   Faces count by their triangles facing the camera, so faces turned away are left out, and only
   when one of those triangles is seen (a corner or its middle, `triangle_is_seen`). Faces, edges and
   vertices hidden behind a shown body are left out: `box_selection::Occlusion` rasterises the

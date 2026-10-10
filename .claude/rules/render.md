@@ -272,11 +272,16 @@ paths:
   back face. The pick pass writes id 0 there with the plane's depth value, so a cap hides what
   lies behind it, picks nothing and gives the orbit pivot on the cut. These shaders write
   `frag_depth`, so they take no pipeline depth bias and add the face slope bias themselves; plain
-  pipelines draw when there is no section, keeping early depth testing then. Caps assume closed
-  solids; translucent and overlay meshes are only cut, never capped.
+  pipelines draw when there is no section, keeping early depth testing then. Only a closed mesh
+  is capped (`ShadedMesh::is_closed`, `with_closed` clears it, set by the app from the solid's
+  edges all having two uses; the placement uniform carries it and `vs_mesh` raises `CAPPABLE` in
+  the instance flags), so the far side of a sheet that is no closed solid is drawn and picked as
+  an ordinary face; translucent and overlay meshes are only cut, never capped.
 - `Scene::hits_through` skips hits on sectioned geometry beyond a plane (`is_cut_away`), so the
   pick list, paint selection and Measure only reach what is shown (offscreen and `through.rs`
   tests).
+- `kept_span` gives the part of a segment the planes keep as a parameter interval, for callers that
+  clip curves to what is shown (box selection of sketch curves, `sectioned_screen.rs`).
 
 ## Lines, markers and sizes
 

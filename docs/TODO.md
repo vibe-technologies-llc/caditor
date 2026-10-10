@@ -362,9 +362,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Viewer
 
-- [low · medium] Section caps are drawn from back faces, so a sheet that is not a closed solid
-  (an imported open shell) shows its far side capped as if cut, and box selection of sketch curves
-  still takes curves a section plane cuts away.
 - [low · medium] Translucent lines keep square ends, so a translucent polyline still notches where
   its segments meet at an angle; joining them without blending twice needs mitred joins built
   from the neighbouring segments, which instances do not know.

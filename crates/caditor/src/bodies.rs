@@ -282,6 +282,10 @@ pub struct BodyMesh {
     mass: Arc<MassSlot>,
 }
 
+fn is_closed(solid: &Solid) -> bool {
+    solid.edges().all(|(_, edge)| edge.coedges().len() >= 2)
+}
+
 impl BodyMesh {
     fn of(source: &Arc<FeatureResult>, pool: Weak<Pool>) -> Option<Self> {
         let solid = source.solid()?;
@@ -348,7 +352,7 @@ impl BodyMesh {
             .collect();
         Self {
             source: Arc::clone(source),
-            mesh: Arc::new(shaded),
+            mesh: Arc::new(shaded.with_closed(is_closed(solid))),
             faces,
             edges,
             vertices,
@@ -1221,6 +1225,19 @@ mod tests {
             assert_eq!(shared, copied_mesh(mesh, &faces), "{sample:?}");
             assert_eq!(*shown.mesh, shared, "{sample:?}");
             assert_eq!(shown.faces.len(), faces.len());
+        }
+    }
+
+    #[test]
+    fn the_meshes_of_valid_solids_are_closed_so_a_section_caps_them() {
+        for sample in Sample::ALL {
+            let document = sample.document().unwrap();
+            let evaluation = evaluate(&mut Recompute::default(), &document);
+            let (_, source) = only_body(&evaluation);
+
+            let mesh = BodyMesh::of(&source, Weak::new()).unwrap();
+
+            assert!(mesh.mesh.is_closed(), "{sample:?}");
         }
     }
 

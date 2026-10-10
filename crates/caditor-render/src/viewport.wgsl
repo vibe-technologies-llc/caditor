@@ -40,6 +40,7 @@ const GRID_DEPTH_BIAS: f32 = 0.99998;
 const BEHIND: u32 = 0u;
 const IN_FRONT: u32 = 1u;
 const SECTIONED: u32 = 2u;
+const CAPPABLE: u32 = 4u;
 const MAX_SECTION_PLANES: u32 = 6u;
 const FACE_SLOPE_BIAS: f32 = 2.0;
 const CAP_DEPTH_BIAS: f32 = 1.0002;
@@ -414,7 +415,7 @@ fn vs_mesh(vertex: MeshVertex) -> Varyings {
     out.depth = view_depth(relative);
     out.relative = relative;
     out.normal = turned(vertex.normal);
-    out.sectioned = SECTIONED;
+    out.sectioned = SECTIONED | select(0u, CAPPABLE, mesh.faces_columns.z != 0u);
     return out;
 }
 
@@ -716,7 +717,7 @@ fn sectioned(in: Varyings) -> Sectioned {
     let distance = abs(fract(across + 0.5) - 0.5) / width;
     let line = clamp(HATCH_WIDTH_POINTS * pixels_per_point() * 0.5 + 0.5 - distance, 0.0, 1.0);
     let hatched = select(0.0, line, dot(hatch.xyz, hatch.xyz) > 0.0);
-    let capped = back && cap.found;
+    let capped = back && cap.found && (in.sectioned & CAPPABLE) != 0u;
     return Sectioned(is_cut_away(in.relative), capped, cap, select(face_depth, cap_depth(in.relative), capped), hatched);
 }
 

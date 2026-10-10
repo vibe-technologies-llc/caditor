@@ -132,6 +132,7 @@ mod scene_description;
 mod scene_palette;
 mod section;
 mod section_panel;
+mod sectioned_screen;
 mod selection;
 mod selection_sets;
 mod shape_modes;

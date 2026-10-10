@@ -137,6 +137,26 @@ pub fn is_cut_away(section: &[SectionPlane], point: Point3, slack: f64) -> bool 
         .any(|plane| plane.cuts_away(point, slack))
 }
 
+pub fn kept_span(
+    section: &[SectionPlane],
+    from: Point3,
+    to: Point3,
+    slack: f64,
+) -> Option<(f64, f64)> {
+    let mut span = (0.0_f64, 1.0_f64);
+    for plane in section.iter().take(MAX_SECTION_PLANES) {
+        let start = plane.plane.signed_distance(from) - slack;
+        let end = plane.plane.signed_distance(to) - slack;
+        match (start <= 0.0, end <= 0.0) {
+            (true, true) => {}
+            (false, false) => return None,
+            (true, false) => span.1 = span.1.min(start / (start - end)),
+            (false, true) => span.0 = span.0.max(start / (start - end)),
+        }
+    }
+    (span.0 <= span.1).then_some(span)
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Line {
     pub start: Point3,

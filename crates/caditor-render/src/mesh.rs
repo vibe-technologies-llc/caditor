@@ -121,6 +121,7 @@ pub struct ShadedMesh {
     storage: Storage,
     face_count: usize,
     curved: usize,
+    closed: bool,
 }
 
 impl PartialEq for ShadedMesh {
@@ -134,6 +135,7 @@ impl PartialEq for ShadedMesh {
             && self.bounds == other.bounds
             && self.face_count == other.face_count
             && self.curved == other.curved
+            && self.closed == other.closed
             && self.vertex_count() == other.vertex_count()
             && self.indices() == other.indices()
             && same_vertices()
@@ -203,6 +205,7 @@ impl ShadedMesh {
             storage,
             face_count,
             curved: 0,
+            closed: true,
         };
         mesh.curved = mesh.curved_triangles(0).count();
         mesh
@@ -222,6 +225,15 @@ impl ShadedMesh {
 
     fn vertices_in(&self, range: Range<usize>) -> impl Iterator<Item = GpuVertex> + '_ {
         range.filter_map(|index| self.vertex(u32::try_from(index).ok()?))
+    }
+
+    pub fn with_closed(mut self, closed: bool) -> Self {
+        self.closed = closed;
+        self
+    }
+
+    pub fn is_closed(&self) -> bool {
+        self.closed
     }
 
     pub fn face_count(&self) -> usize {
@@ -343,6 +355,7 @@ impl ShadedMesh {
                 storage: Storage::Owned { vertices, indices },
                 face_count: pieces.len(),
                 curved: self.curved,
+                closed: self.closed,
             },
             pieces,
         }
@@ -1017,7 +1030,7 @@ impl GpuMesh {
             .vec4(placed.offset, 0.0)
             .u32(self.layout.faces)
             .u32(self.layout.columns)
-            .u32(0)
+            .u32(u32::from(self.mesh.closed))
             .u32(0)
             .vec4(turn_x, 0.0)
             .vec4(turn_y, 0.0)

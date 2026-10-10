@@ -55,6 +55,7 @@ use crate::{
     scene_description::{Item, SceneDescription},
     scene_palette::Contrast,
     section::{self, SectionCommand},
+    sectioned_screen::SectionedScreen,
     selection::{Pickable, Selection, SelectionFilter},
     selection_sets,
     shape_modes::ShapeMode,
@@ -1956,21 +1957,30 @@ impl ViewportState {
         let evaluation = model.evaluation();
         let scale = f64::from(self.pixels_per_point);
         let mut caught: Vec<Pickable> = match Catch::of(self.active_filter()) {
-            Catch::SketchGeometry => document
-                .active_features()
-                .filter(|feature| visibility::is_shown(document, feature.id()))
-                .filter_map(|feature| Some((feature.id(), model.displayed_sketch(feature)?)))
-                .flat_map(|(feature, sketch)| {
-                    let screen = SketchScreen {
-                        view,
-                        plane: sketch.plane(),
-                        pixels_per_point: scale,
-                    };
-                    sketch_drag::within(&sketch, &screen, area, self.scenes.faceting())
-                        .into_iter()
-                        .map(move |entity| Pickable::SketchEntity { feature, entity })
-                })
-                .collect(),
+            Catch::SketchGeometry => {
+                let section = self.scenes.section();
+                let slack = section_slack(view.viewpoint().distance);
+                document
+                    .active_features()
+                    .filter(|feature| visibility::is_shown(document, feature.id()))
+                    .filter_map(|feature| Some((feature.id(), model.displayed_sketch(feature)?)))
+                    .flat_map(|(feature, sketch)| {
+                        let screen = SectionedScreen {
+                            screen: SketchScreen {
+                                view,
+                                plane: sketch.plane(),
+                                pixels_per_point: scale,
+                            },
+                            plane: sketch.plane(),
+                            section,
+                            slack,
+                        };
+                        sketch_drag::within(&sketch, &screen, area, self.scenes.faceting())
+                            .into_iter()
+                            .map(move |entity| Pickable::SketchEntity { feature, entity })
+                    })
+                    .collect()
+            }
             catch => {
                 let section = self.scenes.section();
                 let slack = section_slack(view.viewpoint().distance);
