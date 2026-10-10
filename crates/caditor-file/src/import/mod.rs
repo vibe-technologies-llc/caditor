@@ -11,6 +11,8 @@ mod svg;
 #[cfg(test)]
 mod svg_tests;
 #[cfg(test)]
+mod svg_text_tests;
+#[cfg(test)]
 mod tests;
 mod zip_read;
 
@@ -18,6 +20,7 @@ use std::{collections::BTreeSet, path::Path};
 
 use caditor_document::CancelToken;
 use caditor_geometry::{Point2, Vector2};
+use caditor_kernel::interruptible;
 use caditor_step::ReadError;
 
 pub use crate::import::{
@@ -30,7 +33,7 @@ pub use crate::import::{
         read_step_file_reporting,
     },
     sketch::{DrawingImport, SketchTarget, drawing_transaction},
-    svg::{SVG_EXTENSIONS, parse_svg},
+    svg::{SVG_EXTENSIONS, TextOutlines, parse_svg},
 };
 use crate::{read::read_file, reason::ReadFailure};
 
@@ -240,7 +243,11 @@ pub fn read_dxf(path: &Path, cancel: &CancelToken) -> Result<Drawing, ImportErro
     Ok(drawing)
 }
 
-pub fn read_drawing(path: &Path, cancel: &CancelToken) -> Result<Drawing, ImportError> {
+pub fn read_drawing(
+    path: &Path,
+    text_outlines: TextOutlines<'_>,
+    cancel: &CancelToken,
+) -> Result<Drawing, ImportError> {
     let bytes = read_file(path).map_err(|error| ImportError::Reading(ReadFailure::of(&error)))?;
     ensure_going(cancel)?;
     let named = |extensions: &[&str]| {
@@ -253,7 +260,7 @@ pub fn read_drawing(path: &Path, cancel: &CancelToken) -> Result<Drawing, Import
     let is_svg =
         named(&SVG_EXTENSIONS) || (!named(&[DXF_EXTENSION]) && svg::looks_like_svg(&bytes));
     let drawing = if is_svg {
-        parse_svg(&bytes)
+        interruptible(cancel.interrupt(), || parse_svg(&bytes, text_outlines))
     } else {
         parse_dxf(&bytes)
     }?;

@@ -66,7 +66,9 @@ paths:
   decoded (the five named entities, character references and the DOCTYPE's own text entities,
   which Illustrator uses for `xmlns`; an entity holding markup, nested past `MAX_ENTITY_DEPTH` or
   expanding past `MAX_ENTITY_WORK` is damage), text content kept only inside `style` elements
-  (text decoded like attributes, CDATA as is). Past
+  (text decoded like attributes, CDATA as is, joined) and inside `text`, `tspan`, `textPath` and
+  `a` as pieces placed between the children (`Node::content`), since text layout needs their
+  order. Past
   `MAX_DRAWING_ELEMENTS` elements the file is `ImportError::TooManyElements`. Damage ends reading
   where it is found: the elements before it are kept with their open ancestors and a note names
   the line; damage before the root element is `DamagedAt`.
@@ -127,10 +129,55 @@ paths:
   drawn inside itself is left out as reusing itself. Markers are drawn even on an element left
   out for having neither stroke nor fill, as browsers draw them; overflow clipping is not
   applied. A `switch` draws its
-  first child without conditions. `text`, `image` and `foreignObject` are counted as left out,
+  first child without conditions. `image` and `foreignObject` are counted as left out,
   other unknown SVG elements named in a note, definitions, styles and metadata skipped silently,
   and elements of other namespaces (Inkscape's, Sodipodi's) ignored. Shapes whose numbers overflow are left out and counted; the curve, point and empty limits
   are DXF's.
+- Text becomes the outlines of its letters, given a font: `parse_svg` and `read_drawing` take
+  `TextOutlines`, `InFont(bytes)` or `LeftOut`. The font is handed in rather than bundled by
+  `caditor-file`, so Inter, which the app already embeds for its interface (`caditor`'s
+  `fonts::INTER`, the variable `InterVariable.ttf`), is carried once; the app passes it for every
+  drawing import, and anything importing headless must pass the same bytes to get the same
+  letters. Without font data, or with bytes `ttf-parser` cannot read, each `text` is counted as
+  left out as before.
+- Layout (`lettering.rs`): the `text` element's content and its `tspan` and `a` children are
+  gathered into letters, each with its inherited style; whitespace is collapsed as CSS's normal
+  white space does (newlines and tabs are spaces, runs of spaces one, leading and trailing ones
+  dropped) unless `xml:space="preserve"`; a `tspan` with `display: none` adds no letters, one
+  hidden or unpainted keeps its room but draws nothing. `x`, `y`, `dx`, `dy` lists (lengths, units
+  and percentages of the viewport) and `rotate` (its last angle repeating to the element's end)
+  apply per letter from each element's first letter, a descendant overriding its ancestors, as
+  SVG 2 resolves them. A letter with an absolute `x` or `y` starts a chunk, and each chunk is
+  shifted by `text-anchor` of its first letter over the extent of its advances. The pen moves by
+  each glyph's advance plus `letter-spacing` (and `word-spacing` after a space; lengths or em),
+  with the font's pair kerning (the GPOS `kern` lookups of the Latin, else default, script, pair
+  adjustments of both formats, at the default instance) between two letters of the same weight
+  unless the second is placed absolutely.
+- Text style (`text_style.rs`) cascades like the other properties: `font-size` (lengths, em, ex,
+  rem, percentages of the parent's, the keywords, `larger` and `smaller`; 16 px when unset),
+  `font-family`, `font-weight` (keywords, `bolder` and `lighter` as CSS steps them, 1 to 1000),
+  `font-style`, `text-anchor`, `letter-spacing`, `word-spacing` and the `font` shorthand (style and
+  weight words, then a size with an optional line height, then the families; a system font name
+  is ignored). Every family is drawn in Inter: a first family other than Inter or a generic
+  sans-serif is named in one note listing them (at most `MAX_NAMED_ELEMENTS`). The weight sets the
+  font's `wght` axis, clamped to its range (100 to 900 for Inter); italic and oblique text is
+  drawn upright and counted in a note, since only the upright face is carried. A character the
+  font has no glyph for takes the advance of its missing glyph, draws nothing and is counted;
+  `textPath` is left out and counted.
+- Glyphs (`font.rs`) are read in font units at each weight (one `ttf_parser::Face` per weight,
+  outlines cached per weight and glyph), scaled by size over units per em with y flipped, turned
+  by the letter's rotation, placed at its position and taken through the element's transforms;
+  their quadratic and cubic segments become the same exact Bézier splines and lines `path` makes.
+  A variable font keeps overlapping contours (Inter's `e` is one contour whose bar crosses its
+  bowl; `t`, `f` and `k` overlap pieces), which the sketch's even-depth regions would read as
+  notches, so `overlap.rs` merges each glyph first: its segments build a kernel `Profile`, the
+  faces whose anchor has a non-zero winding over the original contours (sampled 32 steps per
+  Bézier) are selected as lumps, and each loop's pieces become lines and Bézier pieces (de
+  Casteljau over the piece's range) meeting exactly at the loop's junctions. A glyph the profile
+  cannot build keeps its contours as drawn. Letters of different glyphs that overlap one another
+  are not merged. `read_drawing` installs its `CancelToken` as the kernel interrupt around
+  `parse_svg`, so merging stops when the import is cancelled. Letters are charged like shapes, and
+  past `MAX_READ_CURVES` a glyph is counted without being merged.
 
 ## STEP import (`import/model.rs`)
 

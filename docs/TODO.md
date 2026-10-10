@@ -329,12 +329,11 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Drawing import and export
 
-- [low · medium] SVG import leaves text out with a note rather than importing it as outlines. The
-  only font in the workspace, Inter, is bundled by the `caditor` crate (`assets/fonts`), out of
-  `caditor-file`'s reach, and turning text into outlines also needs a font parser (`ttf-parser` is
-  already in the lock file through egui) plus text layout: `tspan`, per-glyph x and y lists,
-  `text-anchor`, font size and family through the cascade. Decide whether the app hands the font
-  to the import or `caditor-file` bundles its own.
+- [low · medium] SVG text comes in as outlines in Inter's upright face only: italic text is drawn
+  upright, `textPath` is left out, vertical writing modes, `textLength`, `baseline-shift` and
+  shaping beyond pair kerning (ligatures, marks, right-to-left scripts) are not applied, and
+  letters of different glyphs that overlap are not merged into one outline. Inter's italic
+  (`InterVariable-Italic.ttf`) would have to be bundled beside the upright face.
 - [low · medium] Drawing export places dimensions by a fixed offset from the sketch's middle
   without the canvas's lanes or obstacle avoidance, so crowded sketches overlap their labels. The
   canvas's layout lives in `caditor`'s `annotation_layout.rs`, which `caditor-file` cannot call

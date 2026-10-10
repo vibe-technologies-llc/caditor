@@ -1,10 +1,14 @@
 mod css;
+mod font;
+mod lettering;
+mod overlap;
 mod path;
 mod shapes;
 mod sizing;
 mod style;
 mod syntax;
 mod text;
+mod text_style;
 mod xml;
 
 use std::{
@@ -23,6 +27,7 @@ use crate::{
         model::unpacked,
         svg::{
             css::{MAX_STYLE_RULES, StyleSheet, without_comments},
+            font::Typeface,
             path::{Outline, Vertex},
             shapes::{Axis, fitted, length, nested_viewport, outline_of, symbol_viewport},
             sizing::{Sizing, sizing},
@@ -81,7 +86,13 @@ const NOT_DRAWN: [&str; 30] = [
     "solidcolor",
 ];
 
-pub fn parse_svg(bytes: &[u8]) -> Result<Drawing, ImportError> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextOutlines<'f> {
+    InFont(&'f [u8]),
+    LeftOut,
+}
+
+pub fn parse_svg(bytes: &[u8], text_outlines: TextOutlines<'_>) -> Result<Drawing, ImportError> {
     let unpacked_bytes;
     let bytes = if is_packed(bytes) {
         unpacked_bytes = unpacked(bytes)?;
@@ -101,10 +112,14 @@ pub fn parse_svg(bytes: &[u8]) -> Result<Drawing, ImportError> {
         XmlError::TooManyElements => ImportError::TooManyElements,
         XmlError::Damaged { line } => ImportError::DamagedAt(line),
     })?;
-    read_tree(&tree, notes)
+    read_tree(&tree, notes, text_outlines)
 }
 
-fn read_tree(tree: &Tree<'_>, mut notes: Vec<String>) -> Result<Drawing, ImportError> {
+fn read_tree(
+    tree: &Tree<'_>,
+    mut notes: Vec<String>,
+    text_outlines: TextOutlines<'_>,
+) -> Result<Drawing, ImportError> {
     let damaged_at = tree.damaged_at;
     let Some(root) = tree.root() else {
         return Err(ImportError::NotSvg);
@@ -120,7 +135,11 @@ fn read_tree(tree: &Tree<'_>, mut notes: Vec<String>) -> Result<Drawing, ImportE
     notes.extend(sizing.note.clone());
     let style_text = style_text(tree, namespace);
     let sheet = StyleSheet::parse(&style_text);
-    let mut walker = Walker::new(tree, namespace, &sheet);
+    let typeface = match text_outlines {
+        TextOutlines::InFont(data) => Typeface::parse(data),
+        TextOutlines::LeftOut => None,
+    };
+    let mut walker = Walker::new(tree, namespace, &sheet, typeface);
     walker.walk(root, &sizing)?;
     let mut drawing = flatten(
         &walker.shapes,
@@ -170,18 +189,20 @@ enum Kind {
     Viewport,
     Drawn,
     Use,
+    Text,
     LeftOut(&'static str, &'static str),
     NotDrawn,
     Unsupported,
 }
 
 impl Kind {
-    fn of(name: &str) -> Self {
+    fn of(name: &str, outlines_text: bool) -> Self {
         match name {
             "g" | "a" | "switch" => Self::Group,
             "svg" => Self::Viewport,
             "path" | "rect" | "circle" | "ellipse" | "line" | "polyline" | "polygon" => Self::Drawn,
             "use" => Self::Use,
+            "text" if outlines_text => Self::Text,
             "text" => Self::LeftOut("text", "texts"),
             "image" => Self::LeftOut("image", "images"),
             "foreignObject" => Self::LeftOut("embedded object", "embedded objects"),
@@ -195,7 +216,10 @@ impl Kind {
     }
 
     fn is_geometry(self) -> bool {
-        matches!(self, Self::Group | Self::Viewport | Self::Drawn | Self::Use)
+        matches!(
+            self,
+            Self::Group | Self::Viewport | Self::Drawn | Self::Use | Self::Text
+        )
     }
 }
 
@@ -221,6 +245,10 @@ struct Tally {
     too_deep: usize,
     missing: usize,
     unusable: usize,
+    substituted_families: BTreeSet<String>,
+    italic: usize,
+    missing_letters: usize,
+    on_path: usize,
 }
 
 struct Walker<'a, 't> {
@@ -242,10 +270,16 @@ struct Walker<'a, 't> {
     expanded: usize,
     beyond_the_limit: usize,
     tally: Tally,
+    typeface: Option<Typeface<'a>>,
 }
 
 impl<'a, 't> Walker<'a, 't> {
-    fn new(tree: &'a Tree<'t>, namespace: Option<&'a str>, sheet: &'a StyleSheet<'a>) -> Self {
+    fn new(
+        tree: &'a Tree<'t>,
+        namespace: Option<&'a str>,
+        sheet: &'a StyleSheet<'a>,
+        typeface: Option<Typeface<'a>>,
+    ) -> Self {
         let mut ids = UntrustedMap::new();
         for node in tree.nodes() {
             if let Some(id) = node.attribute("id") {
@@ -272,6 +306,7 @@ impl<'a, 't> Walker<'a, 't> {
             expanded: 0,
             beyond_the_limit: 0,
             tally: Tally::default(),
+            typeface,
         };
         if let Some(root) = root {
             walker.layer_parent = walker.find_layer_parent(root).id();
@@ -284,7 +319,8 @@ impl<'a, 't> Walker<'a, 't> {
     }
 
     fn kind(&self, node: Node<'_, '_>) -> Option<Kind> {
-        self.is_svg(node).then(|| Kind::of(node.name()))
+        self.is_svg(node)
+            .then(|| Kind::of(node.name(), self.typeface.is_some()))
     }
 
     fn find_layer_parent(&mut self, root: Node<'a, 't>) -> Node<'a, 't> {
@@ -425,7 +461,7 @@ impl<'a, 't> Walker<'a, 't> {
                 }
                 return Ok(());
             }
-            Kind::Group | Kind::Viewport | Kind::Drawn | Kind::Use => {}
+            Kind::Group | Kind::Viewport | Kind::Drawn | Kind::Use | Kind::Text => {}
         }
         if context.depth >= MAX_NESTING {
             self.tally.too_deep += 1;
@@ -455,6 +491,7 @@ impl<'a, 't> Walker<'a, 't> {
                 self.children(node, &inner)
             }
             Kind::Drawn => self.drawn(node, &inner),
+            Kind::Text => self.text(node, &inner),
             Kind::Use => self.used(node, inner),
             _ => self.children(node, &inner),
         }
@@ -537,14 +574,7 @@ impl<'a, 't> Walker<'a, 't> {
         if context.style.unpainted() {
             self.tally.unpainted += 1;
         } else {
-            self.charge(outline.shapes.len())?;
-            let room = MAX_READ_CURVES.saturating_sub(self.shapes.len());
-            let beyond = outline.shapes.len().saturating_sub(room);
-            self.beyond_the_limit = self.beyond_the_limit.saturating_add(beyond);
-            let affine = context.matrix.affine();
-            for shape in outline.shapes.iter().take(room) {
-                self.push(shape.transformed(&affine), context)?;
-            }
+            self.place(&outline.shapes, &context.matrix, context)?;
         }
         if MARKED.contains(&node.name()) && context.style.markers.any() {
             self.markers(&outline.vertices, context)?;
@@ -656,6 +686,23 @@ impl<'a, 't> Walker<'a, 't> {
         };
         self.marker_styles.insert(marker.id(), style);
         style
+    }
+
+    fn place(
+        &mut self,
+        shapes: &[Shape],
+        matrix: &Matrix,
+        context: &Context<'a>,
+    ) -> Result<(), ImportError> {
+        self.charge(shapes.len())?;
+        let room = MAX_READ_CURVES.saturating_sub(self.shapes.len());
+        let beyond = shapes.len().saturating_sub(room);
+        self.beyond_the_limit = self.beyond_the_limit.saturating_add(beyond);
+        let affine = matrix.affine();
+        for shape in shapes.iter().take(room) {
+            self.push(shape.transformed(&affine), context)?;
+        }
+        Ok(())
     }
 
     fn push(&mut self, shape: Shape, context: &Context<'a>) -> Result<(), ImportError> {
@@ -774,6 +821,32 @@ impl<'a, 't> Walker<'a, 't> {
             "shapes with numbers too large to draw",
             "left out.",
         );
+        count(
+            tally.on_path,
+            "text laid along a path",
+            "texts laid along a path",
+            "left out, since caditor sets text only along a line.",
+        );
+        count(
+            tally.missing_letters,
+            "character Inter has no letter for",
+            "characters Inter has no letter for",
+            "left out.",
+        );
+        count(
+            tally.italic,
+            "text in italic",
+            "texts in italic",
+            "drawn upright, since caditor carries only Inter's upright letters.",
+        );
+        if !tally.substituted_families.is_empty() {
+            let families: Vec<String> = tally.substituted_families.into_iter().collect();
+            notes.push(format!(
+                "Text set in {} was drawn in Inter, the font caditor carries, so its letters \
+                 differ in shape and width from the drawing's.",
+                list(&families)
+            ));
+        }
         let sheet = self.sheet;
         if sheet.unread_selectors > 0 {
             drawing.notes.push(format!(

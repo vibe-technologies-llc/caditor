@@ -7,13 +7,19 @@ use tempfile::TempDir;
 
 use crate::{
     export::{Construction, SketchFormat, export_sketch},
-    import::{Drawing, DrawingCurve, DrawingOptions, ImportError, parse_svg, read_drawing},
+    import::{
+        self, Drawing, DrawingCurve, DrawingOptions, ImportError, TextOutlines, read_drawing,
+    },
 };
 
 const SVG_OPEN: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" width="100mm" height="100mm" viewBox="0 0 100 100">"#;
 
 fn svg(body: &str) -> Vec<u8> {
     format!("{SVG_OPEN}{body}</svg>").into_bytes()
+}
+
+fn parse_svg(bytes: &[u8]) -> Result<Drawing, ImportError> {
+    import::parse_svg(bytes, TextOutlines::LeftOut)
 }
 
 fn read(body: &str) -> Drawing {
@@ -648,7 +654,7 @@ fn a_sketch_exported_as_svg_reads_back_in_place() {
         &CancelToken::never(),
     )
     .unwrap();
-    let drawing = read_drawing(&path, &CancelToken::never()).unwrap();
+    let drawing = read_drawing(&path, TextOutlines::LeftOut, &CancelToken::never()).unwrap();
 
     assert_curves_close(
         &drawing.curves,
@@ -684,11 +690,11 @@ fn drawings_are_told_apart_by_extension_and_content() {
     std::fs::write(&wrong, b"\x89PNG\r\n\x1a\n").unwrap();
 
     for path in [&named, &unnamed, &packed] {
-        let drawing = read_drawing(path, &CancelToken::never()).unwrap();
+        let drawing = read_drawing(path, TextOutlines::LeftOut, &CancelToken::never()).unwrap();
         assert_eq!(drawing.curves.len(), 1, "{}", path.display());
     }
     assert_eq!(
-        read_drawing(&wrong, &CancelToken::never()),
+        read_drawing(&wrong, TextOutlines::LeftOut, &CancelToken::never()),
         Err(ImportError::NotSvg)
     );
 }

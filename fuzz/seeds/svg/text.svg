@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120mm" height="40mm" viewBox="0 0 120 40">
+  <style>.label { font: bold 8px 'Helvetica Neue', sans-serif; letter-spacing: 0.1em }</style>
+  <text x="60" y="20" font-size="12" text-anchor="middle" xml:space="preserve">Aeo  B<tspan dx="2 1" dy="-1" font-style="italic">ag</tspan></text>
+  <text class="label" x="5 15 25" y="35" rotate="10 -5" transform="rotate(-3 5 35)">fit<tspan x="40" text-anchor="end" font-weight="300">Ve</tspan></text>
+</svg>

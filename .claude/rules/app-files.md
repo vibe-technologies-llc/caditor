@@ -217,7 +217,9 @@ paths:
 ## Import
 
 - Import picks a DXF or SVG drawing (`DRAWING_IMPORT_EXTENSIONS`; `read_drawing` tells them apart
-  by extension, else by content), a STEP model or a mesh, and reads it on its own thread. A drawing
+  by extension, else by content, and is handed the embedded Inter, `fonts::INTER`, as
+  `TextOutlines::InFont` so an SVG's text comes in as letter outlines), a STEP model or a mesh,
+  and reads it on its own thread. A drawing
   becomes one change to the edited sketch if the command was given there, else
   to a new sketch named after the file, which is entered. A STEP model becomes one change adding
   an import feature per body.

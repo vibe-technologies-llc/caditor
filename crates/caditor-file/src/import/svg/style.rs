@@ -1,7 +1,8 @@
 use crate::import::svg::{
     css::{Declaration, StyleSheet, inline_declarations},
     syntax::{Length, Matrix, transform_list},
-    xml::Node,
+    text_style::{TextProperties, TextStyle},
+    xml::{Node, XML_NAMESPACE},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -36,6 +37,7 @@ pub(super) struct Properties<'a> {
     pub marker_middle: Option<MarkerChoice<'a>>,
     pub marker_end: Option<MarkerChoice<'a>>,
     pub clipped: bool,
+    pub text: TextProperties<'a>,
 }
 
 impl<'a> Properties<'a> {
@@ -44,7 +46,7 @@ impl<'a> Properties<'a> {
         found.extend(inline_declarations(
             node.attribute("style").unwrap_or_default(),
         ));
-        let cascaded = |names: &[&str]| {
+        let declared = |names: &[&str]| {
             found
                 .iter()
                 .filter(|(_, declaration)| {
@@ -53,8 +55,9 @@ impl<'a> Properties<'a> {
                         .any(|name| declaration.name.eq_ignore_ascii_case(name))
                 })
                 .max_by_key(|(precedence, _)| *precedence)
-                .map(|(_, Declaration { value, .. })| *value)
+                .map(|(_, declaration)| *declaration)
         };
+        let cascaded = |names: &[&str]| declared(names).map(|Declaration { value, .. }| value);
         let property =
             |name: &str| cascaded(&[name]).or_else(|| node.attribute(name).map(str::trim));
         let marker = |name: &str| {
@@ -88,6 +91,11 @@ impl<'a> Properties<'a> {
             marker_middle: marker("marker-mid"),
             marker_end: marker("marker-end"),
             clipped,
+            text: TextProperties::of(
+                property,
+                |name| declared(&[name, "font"]),
+                node.attribute_in(XML_NAMESPACE, "space"),
+            ),
         }
     }
 }
@@ -100,6 +108,7 @@ pub(super) struct Inherited<'a> {
     pub fill: Option<bool>,
     pub stroke_width: Option<Length>,
     pub markers: Markers<'a>,
+    pub text: TextStyle<'a>,
 }
 
 impl Default for Inherited<'_> {
@@ -111,6 +120,7 @@ impl Default for Inherited<'_> {
             fill: None,
             stroke_width: None,
             markers: Markers::default(),
+            text: TextStyle::default(),
         }
     }
 }
@@ -133,6 +143,7 @@ impl<'a> Inherited<'a> {
                 middle: chosen(properties.marker_middle, self.markers.middle),
                 end: chosen(properties.marker_end, self.markers.end),
             },
+            text: self.text.under(&properties.text),
         }
     }
 
