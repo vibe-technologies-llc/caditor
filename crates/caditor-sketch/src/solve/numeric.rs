@@ -5,6 +5,8 @@ use std::{
 
 use nalgebra::{DMatrix, DVector, SVD};
 
+mod reach;
+
 use crate::{
     id::{ConstraintId, EntityId},
     solve::{
@@ -712,18 +714,7 @@ impl Solver<'_> {
             .collect();
         let mut fraction = 1.0;
         for _ in 0..LINE_SEARCH_STEPS {
-            for ((variable, delta), start) in component.variables.iter().zip(step).zip(&start) {
-                if let Some(slot) = values.get_mut(*variable) {
-                    let moved = start + fraction * delta;
-                    *slot = if self.system.wrapping_parameters.contains(variable) {
-                        moved.rem_euclid(1.0)
-                    } else if self.system.parameter_variables.contains(variable) {
-                        moved.clamp(0.0, 1.0)
-                    } else {
-                        moved
-                    };
-                }
-            }
+            self.place(component, &start, step, fraction, values);
             let candidate = self.squared_residuals(part, values);
             if self.admissible(part, values) && candidate.is_finite() && candidate < current {
                 return Some(candidate / current);
@@ -732,6 +723,28 @@ impl Solver<'_> {
         }
         self.restore(component, &start, values);
         None
+    }
+
+    fn place(
+        &self,
+        component: &Component,
+        start: &[f64],
+        step: &[f64],
+        fraction: f64,
+        values: &mut [f64],
+    ) {
+        for ((variable, delta), start) in component.variables.iter().zip(step).zip(start) {
+            if let Some(slot) = values.get_mut(*variable) {
+                let moved = start + fraction * delta;
+                *slot = if self.system.wrapping_parameters.contains(variable) {
+                    moved.rem_euclid(1.0)
+                } else if self.system.parameter_variables.contains(variable) {
+                    moved.clamp(0.0, 1.0)
+                } else {
+                    moved
+                };
+            }
+        }
     }
 
     fn linearize(&self, part: &Part<'_>, values: &[f64]) -> (Vec<Vec<f64>>, Vec<f64>) {

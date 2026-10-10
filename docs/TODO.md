@@ -107,16 +107,11 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Sketch solver and expressions
 
-- [medium · medium] A drag pulled past where the geometry can reach stops instead of following:
-  a two-link arm (10 mm lines from the origin, joined end to end, each held by a `Distance`) whose
-  hand is dragged from (19.9, 0) to (25, 0) or (30, 5) is `Unsolvable` from both `solve_dragging`
-  and `solve_geometry_from` (the path `drag_solver.rs` takes), so the viewport says
-  `DRAG_BLOCKED` and the arm stays bent where the last good frame left it, however far the
-  pointer jumped, rather than straightening toward the pointer. `sketch-solver.md` says dragged
-  targets fall back to `STIFF` when holding them cannot work; that fallback does not take here
-  (`solve/mod.rs`, `solve_with`, then diagnosis finding no conflict), and the drag should end at
-  the least-squares pose
-  (`solve::tests::an_arm_dragged_past_its_reach_straightens_toward_the_pointer`, ignored).
+- [low · medium] A drag past reach ends at the closest least-squares pose only in parts of at
+  most `DENSE_LIMIT` variables (`numeric/reach.rs` uses a dense SVD of the null space and one
+  Jacobian per free direction); a larger part keeps the `STIFF` solve's pose, or the last frame's
+  when that fails, so a long chain dragged past its reach stops instead of following. A sparse
+  null-space basis, or Hessian-vector products inside CGLS, would lift the limit.
 - [medium · hard] A drag frame solves geometry only (`solve_geometry_from`, no rank or
   degrees-of-freedom analysis), but the dragged part is still never memoised and the solve itself is
   the cost: dragging an end of a fully dimensioned chain of 2,000 lines to a point it cannot reach
