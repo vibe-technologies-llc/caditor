@@ -18,7 +18,12 @@ paths:
   `windows-sys`, `rfd`); a new backend or feature is added only when code uses it. wgpu has
   `dx12` for Windows; jiff has `tzdb-bundle-platform`, which bundles the time zone database only
   where the system has none (Windows).
+- `wayland-client` takes `system` (libwayland-client's backend) and `dlopen`: `caditor-wayland`
+  works on winit's own Wayland connection, and only the system backend can adopt a foreign
+  `wl_display` (the pure-Rust backend owns its socket). winit already loads that library at run
+  time through the same backend, so nothing new is linked or loaded.
 - A dependency only one platform uses goes in the member's `[target.'cfg(unix)'.dependencies]` or
-  `[target.'cfg(windows)'.dependencies]` (`rustix`, `xattr`, `signal-hook`, `zbus` on Unix;
-  `caditor-windows`, `rfd` on Windows). A build dependency stays unconditional, since `cfg` there
-  would test the host: `build.rs` checks `CARGO_CFG_TARGET_OS` instead.
+  `[target.'cfg(windows)'.dependencies]` (`rustix`, `xattr`, `signal-hook`, `zbus`,
+  `caditor-wayland` on Unix; `caditor-windows`, `rfd` on Windows). A build dependency stays
+  unconditional, since `cfg` there would test the host: `build.rs` checks `CARGO_CFG_TARGET_OS`
+  instead.

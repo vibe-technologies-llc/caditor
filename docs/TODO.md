@@ -402,9 +402,10 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 - [medium · medium] On Wayland the portal file dialog request passes an empty parent window, so the
   dialog is not tied to caditor's and can open behind it (Stop waiting in the status bar recovers
-  the window); it needs an exported xdg-foreign handle, which winit does not offer and the raw
-  Wayland connection would need `unsafe` to reach (a third `unsafe` crate, as `windows.md` keeps
-  for Win32). X11 names the window already.
+  the window); it needs an `xdg-foreign` handle (`zxdg_exporter_v2.export_toplevel`) exported on
+  winit's connection, which winit does not offer: `caditor-wayland`'s `WindowConnection` reaches
+  that connection and the window's surface safely (`wayland.md`), so what remains is binding the
+  exporter there and handing the handle to `portal::own_dialogs`. X11 names the window already.
 - [medium · hard] Pasting features cannot carry a feature that picks faces or edges of another
   copied feature (a fillet copied with its extrusion): face and edge names are digests over the
   feature id, so the copy is left out with the reason. Renaming them needs each picked face or edge
@@ -426,15 +427,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   or the network unasked).
 - [low · hard] One document per process.
 - [low · hard] No localisation.
-- [medium · hard · blocked by: winit 0.30 has no drag and drop on Wayland (0.31 is only a beta)]
-  Dropping files on the window, and the outline and card that say what the drop would do
-  (`drop_target.rs`), work only under X11 and Windows: on Wayland nothing is reported while files
-  are dragged over the window and a drop does nothing, so importing there goes through the file
-  dialog alone. Move to a winit that reports `HoveredFile` and `DroppedFile` on Wayland, or take the
-  `wl_data_device` events directly (which needs `unsafe` access to the raw connection, as the
-  portal parent window above does), and test that a drag over the window shows the card and a drop
-  imports on a Wayland session. Dragging a file from the file manager onto the window is how most
-  people expect to import, so this is the way in that most needs to work everywhere.
 
 ## Technical drawings
 

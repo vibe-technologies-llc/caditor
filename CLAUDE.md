@@ -40,12 +40,13 @@ inside the workspace.
 | `caditor-sketch` | 2D sketches on a `Plane`: entities, constraints and its own solver. | expression, geometry |
 | `caditor-kernel` | Own B-rep kernel (no truck, no OpenCascade): curves, surfaces, topology, tessellation, naming, profiles, booleans, blends, shells, patterns. | geometry |
 | `caditor-step` | STEP (ISO 10303-21, AP214) writing and reading of kernel solids. | kernel, geometry |
-| `caditor-zstd` | Safe wrapper over the pure-Rust zstd port; one of the two crates with `unsafe`. | none |
-| `caditor-windows` | Safe wrappers over the Win32 calls nothing else offers safely; the other crate with `unsafe`, empty off Windows. | none |
+| `caditor-zstd` | Safe wrapper over the pure-Rust zstd port; one of the three crates with `unsafe`. | none |
+| `caditor-windows` | Safe wrappers over the Win32 calls nothing else offers safely; a crate with `unsafe`, empty off Windows. | none |
+| `caditor-wayland` | Safe Wayland protocol work on winit's own connection (files dragged onto the window); the third crate with `unsafe`, empty off Unix. | none |
 | `caditor-document` | The parametric model: parameters, feature tree, transactions, undo, recompute worker. | expression, geometry, kernel, sketch |
 | `caditor-file` | Persistence: binary container, version history, recovery journal, preferences, DXF/SVG/STEP import, STL/3MF/STEP/PNG export. | document and everything it uses, step, zstd, windows |
 | `caditor-render` | wgpu viewport, camera, GPU picking, image export; no winit or document dependency. | geometry |
-| `caditor` | The winit/egui application: UI, commands, sketch editing, file workflow. | all but step and zstd |
+| `caditor` | The winit/egui application: UI, commands, sketch editing, file workflow. | all but step and zstd (wayland on Unix, windows on Windows) |
 
 Platform code is a pair of `cfg(unix)` and `cfg(windows)` items behind one interface; Windows
 specifics (the Win32 boundary, paths, saving, locks, dialogs, the MSI) are in `windows.md`.
@@ -86,7 +87,7 @@ its page of the user guide (`crates/caditor/guide/`, `app.md`).
 | --- | --- |
 | `ux.md`, `reliability.md` | UX requirements and the FreeCAD failure modes to avoid; crash and data-loss policy (always loaded). |
 | `rust-style.md`, `dependencies.md`, `ci.md` | Formatting, imports, collections, `unsafe`; dependency declaration; CI, cargo-deny, fuzzing. |
-| `expression.md`, `zstd.md`, `windows.md` | Quantities, units and the expression language; the zstd wrapper's `unsafe` boundary; Windows: the Win32 boundary, files, app and MSI. |
+| `expression.md`, `zstd.md`, `windows.md`, `wayland.md` | Quantities, units and the expression language; the zstd wrapper's `unsafe` boundary; Windows: the Win32 boundary, files, app and MSI; the Wayland boundary and files dropped on Wayland. |
 | `sketch.md`, `sketch-solver.md` | Sketch entities, constraints and operations; the solver, DOF and conflict diagnosis. |
 | `kernel.md`, `kernel-tessellation.md`, `kernel-naming.md`, `kernel-profile.md`, `kernel-intersect.md`, `kernel-operations.md` | Kernel base (tolerances, curves, surfaces, topology); tessellation; topology names and references; profile regions; intersections; extrude, revolve, booleans, blends, shells, patterns. |
 | `step-write.md`, `step-read.md` | STEP writing; the Part 21 parser and `read_step`. |

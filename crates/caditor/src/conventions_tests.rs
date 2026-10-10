@@ -4,7 +4,7 @@ use std::{
 };
 
 const SKIPPED_DIRECTORIES: [&str; 4] = ["target", "corpus", "artifacts", "coverage"];
-const UNSAFE_CRATES: [&str; 2] = ["caditor-windows", "caditor-zstd"];
+const UNSAFE_CRATES: [&str; 3] = ["caditor-wayland", "caditor-windows", "caditor-zstd"];
 
 fn repository() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")

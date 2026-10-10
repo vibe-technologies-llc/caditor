@@ -33,6 +33,7 @@ use crate::{
     constraint_trial, defender, drawing_export, drop_target,
     editing::{self, EditingCommand, SketchEditing, Tool},
     feature_tree,
+    file_drops::FileDrops,
     files::{self, FileCommand, Files},
     font_fallbacks::FallbackFonts,
     fonts, gear_panel,
@@ -1397,6 +1398,14 @@ impl ApplicationHandler<AppEvent> for App {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        let drops = self
+            .session
+            .as_mut()
+            .map(|session| session.file_drops.events())
+            .unwrap_or_default();
+        for event in drops {
+            self.contained(event_loop, |app| app.handle_window_event(event_loop, event));
+        }
         if let Some(session) = &mut self.session {
             let now = Instant::now();
             session.check_pick_fallback(now);
@@ -1635,6 +1644,7 @@ struct Session {
     next_repaint: Option<Instant>,
     pacer: FramePacer,
     dropped: Vec<PathBuf>,
+    file_drops: FileDrops,
     hidden_until: Option<Instant>,
     failed_frames: u32,
     title: String,
@@ -1667,6 +1677,7 @@ impl Session {
         .context("could not start the renderer")?;
         let layout = (preferences.window, preferences.panels);
         let mut overlay = Overlay::new(&window, &renderer);
+        let file_drops = FileDrops::attach(&window, waker_factory(proxy.clone())());
         overlay.enable_accessibility(event_loop, &window, proxy);
         own_the_window(&window);
         window.set_visible(true);
@@ -1685,6 +1696,7 @@ impl Session {
             next_repaint: None,
             pacer: FramePacer::default(),
             dropped: Vec::new(),
+            file_drops,
             hidden_until: None,
             failed_frames: 0,
             title: title.to_owned(),
