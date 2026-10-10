@@ -30,8 +30,10 @@ paths:
   instead.
 - The crates egui spends the UI tests' time in are built optimised in the dev profile
   (`[profile.dev.package.*]` with `opt-level = 3`, as for `nalgebra`, `spade` and `robust`):
+  `egui` and `emath` (layout and widgets, which an unoptimised build spent about 8 ms a frame in),
   `epaint` and its glyph stack (`skrifa`, `read-fonts`, `font-types`, `harfrust`, `vello_cpu`,
-  `vello_common`, `fearless_simd`, the Unicode tables). An unoptimised debug build spent most of
-  every UI test rasterising the font, so a test cost 0.7 s before it did anything; a frame is now
-  a few milliseconds and the whole UI suite takes about 200 s on one thread instead of about 15
-  minutes. A new crate showing up at the top of a profile of the UI tests joins the list.
+  `vello_common`, `fearless_simd`, the Unicode tables), and the PNG encoder (`png`, `fdeflate`,
+  `miniz_oxide`, `flate2`, `crc32fast`, `simd-adler32`), which the image export test runs on
+  megapixel pictures. An unoptimised debug build spent most of every UI test rasterising the font,
+  so a test cost 0.7 s before it did anything; a frame is now about a millisecond and a half. A new
+  crate showing up at the top of a profile of the UI tests joins the list.
