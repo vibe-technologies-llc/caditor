@@ -455,6 +455,7 @@ fn a_centre_off_principal_geometry_moves_its_users_onto_datums_where_it_lands() 
             plane: PlaneReference::Principal(PrincipalPlane::Yz),
             keep_original: true,
             mirrored: Vec::new(),
+            faces: Vec::new(),
         }),
     );
     let axis = transaction.add_feature(
@@ -560,6 +561,7 @@ fn a_centre_on_the_principal_geometry_adds_no_datum() {
             plane: PlaneReference::Principal(PrincipalPlane::Yz),
             keep_original: true,
             mirrored: Vec::new(),
+            faces: Vec::new(),
         }),
     );
     model.document.apply(transaction.finish()).unwrap();

@@ -654,6 +654,13 @@ fn mirror_button(
         actions.extend(mirror_tools::create_actions(model, source));
     }
 
+    let faces = &context.offers.mirror_faces;
+    if commands.invoke(Command::MirrorFaces, faces)
+        && let Ok(faces) = faces
+    {
+        actions.extend(mirror_tools::create_faces_actions(model, faces));
+    }
+
     let split = &context.offers.split;
     if commands.invoke(Command::Split, split)
         && let Ok(split) = split

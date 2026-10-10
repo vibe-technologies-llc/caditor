@@ -60,7 +60,11 @@ fn distance_row(
 const NO_SHAPE_YET: &str = "A face of a body that has no shape yet";
 const GONE: &str = "A face that is no longer there";
 
-fn face_row(document: &Document, input: &SolidResult, resolution: &Resolution<FaceId>) -> String {
+pub fn face_row(
+    document: &Document,
+    input: &SolidResult,
+    resolution: &Resolution<FaceId>,
+) -> String {
     match resolution {
         Resolution::One(face) => bodies::describe_face_id(document, input, *face),
         Resolution::Pieces(pieces) => match pieces.first().and_then(|face| input.solid.face(*face))

@@ -7,9 +7,10 @@ use egui::{Id, Key, Modifiers};
 
 use super::{
     CAMERA_SETTLE, Harness, choose, datum_of, datum_plane_of, extruded_plate, pattern_of,
-    rectangle, volume_about,
+    rectangle, run_from_palette, volume_about,
 };
 use crate::{
+    bodies,
     feature_fields::{
         self, ABOVE_ZERO, ABOVE_ZERO_OR_REVERSE, CHOOSE_IN_VIEW, MISSING_BODY, REVERSE_DIRECTION,
         TURN,
@@ -730,6 +731,103 @@ fn a_hole_chosen_in_the_tree_is_mirrored_onto_its_body_instead_of_the_whole_body
     harness.perform(Action::Undo);
     harness.settle();
     assert_eq!(mirrored_features(&harness, mirror), vec![hole]);
+    assert!(volume_about(&harness, plate, 16000.0 - 2.0 * drilled));
+}
+
+fn drilled_plate(harness: &mut Harness) -> (FeatureId, FeatureId) {
+    let mut outline = Sketch::new(Plane::XY);
+    rectangle(
+        &mut outline,
+        Point2::new(-20.0, 0.0),
+        Point2::new(20.0, 40.0),
+    );
+    harness.add_sketch(outline);
+    harness.select([]);
+    harness.click("Extrude");
+    harness.settle();
+    let plate = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the extrusion is open");
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.settle();
+    let top = Plane::from_frame(Point3::new(0.0, 0.0, 10.0), Vector3::Z, Vector3::X).unwrap();
+    let mut points = Sketch::new(top);
+    points.add_point(Point2::new(8.0, 20.0));
+    harness.add_sketch(points);
+    harness.select([]);
+    harness.click("Hole");
+    harness.settle();
+    let hole = harness.workspace.editing.solid().expect("the hole is open");
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.settle();
+    (plate, hole)
+}
+
+fn faces_made_by(harness: &Harness, body: FeatureId, made_by: FeatureId) -> Vec<Pickable> {
+    let shown = bodies::shown(harness.model.evaluation(), body).unwrap();
+    bodies::face_keys(&shown.solid)
+        .into_iter()
+        .filter(|(id, _)| {
+            shown
+                .solid
+                .face(*id)
+                .and_then(|face| face.origin())
+                .is_some_and(|origin| origin.feature() == made_by.raw())
+        })
+        .map(|(_, face)| Pickable::Face { body, face })
+        .collect()
+}
+
+fn mirrored_face_count(harness: &Harness, feature: FeatureId) -> usize {
+    harness
+        .document()
+        .feature(feature)
+        .and_then(|feature| feature.kind.mirror())
+        .map(|mirror| mirror.faces.len())
+        .unwrap()
+}
+
+#[test]
+fn a_hole_s_faces_are_mirrored_from_the_palette_and_chosen_again_in_the_panel() {
+    let mut harness = Harness::new();
+    let (plate, hole) = drilled_plate(&mut harness);
+    let drilled = std::f64::consts::PI * 9.0 * 10.0;
+    let walls = faces_made_by(&harness, plate, hole);
+
+    harness.select(walls.clone());
+    run_from_palette(&mut harness, "mirror faces");
+    harness.settle();
+    let mirror = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the mirror is open");
+
+    assert_eq!(harness.model.undo_label(), Some("Create Mirror faces 1"));
+    assert_eq!(mirrored_face_count(&harness, mirror), walls.len());
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+    assert!(volume_about(&harness, plate, 16000.0 - 2.0 * drilled));
+    assert!(harness.shows(mirror_panel::FACES_DESCRIPTION));
+    assert!(!harness.shows(mirror_panel::KEEP_ORIGINAL));
+
+    let removals = walls.len();
+    for _ in 0..removals {
+        harness.click_button("Stop mirroring this face");
+        harness.settle();
+    }
+    assert_eq!(mirrored_face_count(&harness, mirror), 0);
+    assert!(harness.shows(mirror_panel::WHOLE_BODY));
+    assert!(harness.shows(mirror_panel::KEEP_ORIGINAL));
+
+    harness.click(mirror_panel::KEEP_ORIGINAL);
+    harness.settle();
+    harness.select(walls.clone());
+    harness.frame();
+    harness.click(mirror_panel::MIRROR_SELECTED_FACES);
+    harness.settle();
+    assert_eq!(mirrored_face_count(&harness, mirror), walls.len());
     assert!(volume_about(&harness, plate, 16000.0 - 2.0 * drilled));
 }
 

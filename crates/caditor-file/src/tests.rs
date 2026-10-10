@@ -3911,6 +3911,67 @@ fn a_mirror_of_features_is_a_kind_older_readers_report_and_reads_back() {
 }
 
 #[test]
+fn a_mirror_of_faces_is_a_kind_older_readers_report_and_reads_back() {
+    use caditor_document::Mirror;
+    use caditor_kernel::{FaceName, FaceOrigin, FaceReference};
+    let (mut document, base, _) = solid_model();
+    let wall = |digest| {
+        FaceReference::new(
+            FaceName::from_digest(digest),
+            Some(FaceOrigin::EndCap { feature: 1 }),
+            [FaceName::from_digest(2)],
+        )
+    };
+    let mut transaction = document.transaction("Mirror faces");
+    let mirror = transaction.add_feature(
+        "Mirror 1",
+        FeatureKind::Mirror(
+            Mirror::new(base, PlaneReference::Principal(PrincipalPlane::Xz))
+                .mirroring_faces(vec![wall(0xbeef), wall(0xcafe)]),
+        ),
+    );
+    document.apply(transaction.finish()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let older = decode_text(&text.replace("face_mirror", "mirror_of_faces"));
+    let damaged =
+        decode_text(&text.replacen("0000000000000000000000000000beef", "not a digest", 1));
+    let not_a_mirror = decode_text(&text.replace(
+        "\"feature\":{\"mirror\":{\"body\":",
+        "\"feature\":{\"remove\":{\"body\":",
+    ));
+    let kind = document.feature(mirror).unwrap().kind.clone();
+    let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: mirror, kind });
+    let journaled = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+
+    assert!(text.contains("\"face_mirror\":{\"faces\":"));
+    assert!(text.contains("\"feature\":{\"mirror\":{\"body\":"));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert!(older.document.feature(mirror).is_none());
+    assert!(!older.issues.is_empty());
+    assert_eq!(
+        damaged.issues,
+        ["Some faces mirrored by “Mirror 1” could not be read and were left out."]
+    );
+    let restored = damaged.document.feature(mirror).unwrap();
+    assert_eq!(restored.kind.mirror().unwrap().faces.len(), 1);
+    assert!(
+        not_a_mirror
+            .issues
+            .iter()
+            .any(|issue| issue.contains("listed faces to mirror, but it is not a mirror")),
+        "{:?}",
+        not_a_mirror.issues
+    );
+    assert_eq!(
+        format::restore_transaction(through_binary(&journaled)),
+        Some(transaction)
+    );
+}
+
+#[test]
 fn a_move_turning_about_its_body_centre_is_a_kind_older_readers_report_and_reads_back() {
     use caditor_document::{Move, TurnCentre};
     let (mut document, base, _) = solid_model();
@@ -7160,6 +7221,7 @@ fn mirrored_model(plane: PlaneReference, keep_original: bool) -> (Document, Feat
             plane,
             keep_original,
             mirrored: Vec::new(),
+            faces: Vec::new(),
         }),
     );
     document.apply(transaction.finish()).unwrap();

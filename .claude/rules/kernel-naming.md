@@ -43,6 +43,8 @@ paths:
   neighbours. Edges of a chosen face are renamed `between` their faces. A face colour finds the
   pieces of the face it names by computing these names forward from the split features
   (`FaceSplits`, `document.md`), since a digest cannot be read back to its original.
+- A closing face of `enclose_faces` is `FaceName::closure` of the feature and the sorted, deduped
+  names of the edges around it.
 - Boolean fragments of a split face keep its name and origin; pieces keep their edge's name and new
   edges are `between` their two faces, before the plan disambiguates duplicates. A pattern renames
   a copy's faces, then its edges from those faces.

@@ -198,7 +198,7 @@ pub fn command(command: Command) -> &'static str {
         Command::Combine => COMBINE,
         Command::Move => MOVE,
         Command::CopyBody => COPY_BODY,
-        Command::Mirror => MIRROR,
+        Command::Mirror | Command::MirrorFaces => MIRROR,
         Command::Split => SPLIT,
         Command::Mate | Command::MateAngle => MATE,
         Command::Scale => SCALE,
@@ -312,6 +312,7 @@ pub fn command(command: Command) -> &'static str {
         | Command::ExtrudeUpToSelected
         | Command::StartAtSelected
         | Command::MirrorAcrossSelected
+        | Command::MirrorSelectedFaces
         | Command::SplitAlongSelected
         | Command::DatumUseSelected
         | Command::DatumTurnAboutSelected

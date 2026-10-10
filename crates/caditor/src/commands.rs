@@ -244,6 +244,7 @@ pub enum Command {
     ClearChosenRegions,
     StartAtSelected,
     MirrorAcrossSelected,
+    MirrorSelectedFaces,
     SplitAlongSelected,
     DatumUseSelected,
     DatumTurnAboutSelected,
@@ -276,6 +277,7 @@ pub enum Command {
     Messages,
     Mate,
     MateAngle,
+    MirrorFaces,
 }
 
 impl Command {
@@ -723,6 +725,7 @@ plain_commands! {
     ClearChosenRegions,
     StartAtSelected,
     MirrorAcrossSelected,
+    MirrorSelectedFaces,
     SplitAlongSelected,
     DatumUseSelected,
     DatumTurnAboutSelected,
@@ -751,6 +754,7 @@ plain_commands! {
     HideTips,
     Mate,
     MateAngle,
+    MirrorFaces,
 }
 
 impl Command {
@@ -1016,6 +1020,7 @@ impl Command {
             Self::ClearChosenRegions => "model.clear_chosen_regions",
             Self::StartAtSelected => "model.start_at_selected",
             Self::MirrorAcrossSelected => "model.mirror_across_selected",
+            Self::MirrorSelectedFaces => "model.mirror_selected_faces",
             Self::SplitAlongSelected => "model.split_along_selected",
             Self::DatumUseSelected => "model.datum_use_selected",
             Self::DatumTurnAboutSelected => "model.datum_turn_about_selected",
@@ -1048,6 +1053,7 @@ impl Command {
             Self::Messages => "help.messages",
             Self::Mate => "model.mate",
             Self::MateAngle => "model.mate_angle",
+            Self::MirrorFaces => "model.mirror_faces",
         }
     }
 
@@ -1251,6 +1257,7 @@ impl Command {
             Self::ClearChosenRegions => "Clear the chosen regions",
             Self::StartAtSelected => "Start extrusion or revolution at selected face or plane",
             Self::MirrorAcrossSelected => "Mirror across selected face or plane",
+            Self::MirrorSelectedFaces => "Mirror the selected faces",
             Self::SplitAlongSelected => "Split along selected plane, face, curve or body",
             Self::DatumUseSelected => "Base datum on selection",
             Self::DatumTurnAboutSelected => "Turn datum plane about selected axis",
@@ -1283,6 +1290,7 @@ impl Command {
             Self::Messages => "Recent messages",
             Self::Mate => "Mate body",
             Self::MateAngle => "Mate body at an angle",
+            Self::MirrorFaces => "Mirror faces",
         };
         fixed.to_owned()
     }
@@ -1467,6 +1475,7 @@ impl Command {
             | Self::Split
             | Self::Mate
             | Self::MateAngle
+            | Self::MirrorFaces
             | Self::Scale
             | Self::BodyAppearance
             | Self::RenameBody
@@ -1507,6 +1516,7 @@ impl Command {
             | Self::ClearChosenRegions
             | Self::StartAtSelected
             | Self::MirrorAcrossSelected
+            | Self::MirrorSelectedFaces
             | Self::SplitAlongSelected
             | Self::DatumUseSelected
             | Self::DatumTurnAboutSelected
@@ -1786,6 +1796,7 @@ impl Command {
             | Self::ExtrudeUpToSelected
             | Self::StartAtSelected
             | Self::MirrorAcrossSelected
+            | Self::MirrorSelectedFaces
             | Self::SplitAlongSelected
             | Self::DatumUseSelected
             | Self::DatumTurnAboutSelected
@@ -1814,6 +1825,7 @@ impl Command {
             | Self::Messages
             | Self::Mate
             | Self::MateAngle
+            | Self::MirrorFaces
             | Self::UndoHistory
             | Self::SelectFree
             | Self::SelectOpenEnds

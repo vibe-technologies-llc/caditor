@@ -61,6 +61,7 @@ const MODEL_BODIES: [&[Command]; 2] = [
         Command::Move,
         Command::CopyBody,
         Command::Mirror,
+        Command::MirrorFaces,
         Command::Split,
         Command::Scale,
         Command::Mate,

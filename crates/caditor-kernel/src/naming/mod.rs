@@ -21,6 +21,7 @@ const IMPORTED_FACE: u8 = 0x07;
 const PATTERN_FACE: u8 = 0x08;
 const SIDE_BEHIND_FACE: u8 = 0x09;
 const SPLIT_FACE: u8 = 0x0a;
+const CLOSURE_FACE: u8 = 0x0b;
 const EDGE_BETWEEN: u8 = 0x10;
 const EDGE_BETWEEN_AT: u8 = 0x11;
 const SEAM_EDGE: u8 = 0x12;
@@ -125,6 +126,19 @@ impl FaceName {
         digest.u64(feature);
         digest.u128(original.0);
         digest.byte(piece.tag());
+        Self(digest.finish())
+    }
+
+    pub fn closure(feature: u64, edges: impl IntoIterator<Item = EdgeName>) -> Self {
+        let mut edges: Vec<EdgeName> = edges.into_iter().collect();
+        edges.sort_unstable();
+        edges.dedup();
+        let mut digest = Digest::new(CLOSURE_FACE);
+        digest.u64(feature);
+        digest.count(edges.len());
+        for edge in edges {
+            digest.u128(edge.0);
+        }
         Self(digest.finish())
     }
 

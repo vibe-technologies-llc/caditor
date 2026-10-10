@@ -319,7 +319,11 @@ paths:
   is a `feature_mirror` record: `feature`, the `mirror` record it would be mirroring the body, and
   `mirrored`, the ids of the features it reflects in tree order, since an older reader would
   mirror the whole body; an inner record that is no mirror loads without them, reported, and a
-  repeated id is kept once. A `scale` record holds `body`, the stored text of
+  repeated id is kept once. One mirroring the region chosen faces bound is a `face_mirror`
+  record: `feature`, the `mirror` record, and `faces` (face records), since an older reader would
+  mirror the whole body; an unreadable face is left out, reported, a mirror left with none
+  mirrors the whole body, reported, and an inner record that is no mirror loads without them,
+  reported. A `scale` record holds `body`, the stored text of
   `factor` (unreadable: 1) and of the three `center` lengths (unreadable: 0 mm).
 - A feature record carries `appearance` only when a body has one: `colour` as `#rrggbb`,
   `material`, `density` as stored text, the body's own `name`, `opacity` (a percent) and `faces`

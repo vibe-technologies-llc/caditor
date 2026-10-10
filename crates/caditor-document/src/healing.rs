@@ -149,6 +149,15 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
         FeatureKind::Combine(_) | FeatureKind::Scale(_) | FeatureKind::Remove(_) => {}
         FeatureKind::Mirror(mirror) => {
             visit_plane(&mut mirror.plane, "the face it mirrors across", visitor);
+            let count = mirror.faces.len();
+            for (index, face) in mirror.faces.iter_mut().enumerate() {
+                let what = if count == 1 {
+                    "its mirrored face".to_owned()
+                } else {
+                    format!("mirrored face {} of {count}", index + 1)
+                };
+                visitor.face(mirror.body, face, &what);
+            }
         }
         FeatureKind::Split(split) => {
             if let Some(plane) = split.along.plane_mut() {

@@ -253,6 +253,7 @@ pub(crate) enum FeatureKindRecord {
     AngleMate(Box<AngleMateRecord>),
     TangentMate(Box<TangentMateRecord>),
     PointMate(Box<PointMateRecord>),
+    FaceMirror(Box<FaceMirrorRecord>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -458,6 +459,12 @@ pub(crate) struct FeatureMirrorRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct FaceMirrorRecord {
+    pub feature: FeatureKindRecord,
+    pub faces: Vec<Lenient<FaceRecord>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum PrimitiveShapeRecord {
     Box {
@@ -658,7 +665,7 @@ pub(crate) struct RevolveOneSideRecord {
 
 pub(crate) const FEATURE_FIELDS: [&str; 3] = ["hidden", "appearance", "group"];
 
-pub(crate) const FEATURE_KINDS: [&str; 69] = [
+pub(crate) const FEATURE_KINDS: [&str; 70] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -728,6 +735,7 @@ pub(crate) const FEATURE_KINDS: [&str; 69] = [
     "tangent_mate",
     "point_mate",
     "split_face_along",
+    "face_mirror",
 ];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2943,6 +2951,16 @@ fn mirror_record(mirror: &Mirror) -> FeatureKindRecord {
         plane: Lenient::Read(plane_reference_record(&mirror.plane)),
         keep_original: mirror.keep_original,
     });
+    if mirror.mirrors_faces() {
+        return FeatureKindRecord::FaceMirror(Box::new(FaceMirrorRecord {
+            feature: record,
+            faces: mirror
+                .faces
+                .iter()
+                .map(|face| Lenient::Read(face_record(face)))
+                .collect(),
+        }));
+    }
     if !mirror.mirrors_features() {
         return record;
     }
@@ -4454,6 +4472,19 @@ fn restore_kind(
                 _ => issues.push(format!(
                     "“{name}” listed features to mirror, but it is not a mirror, so they were \
                      left out."
+                )),
+            }
+            kind
+        }
+        FeatureKindRecord::FaceMirror(mirroring) => {
+            let mut kind = restore_kind(&mirroring.feature, name, texts, issues);
+            match &mut kind {
+                FeatureKind::Mirror(mirror) => {
+                    mirror.faces = restore_mirrored_faces(&mirroring.faces, name, issues);
+                }
+                _ => issues.push(format!(
+                    "“{name}” listed faces to mirror, but it is not a mirror, so they were left \
+                     out."
                 )),
             }
             kind
@@ -6049,6 +6080,7 @@ fn restore_mirror(record: &MirrorRecord, feature: &str, issues: &mut Vec<String>
         plane,
         keep_original: record.keep_original,
         mirrored: Vec::new(),
+        faces: Vec::new(),
     }
 }
 
@@ -6556,6 +6588,32 @@ fn restore_offset_face(
         distance,
         tangent: record.tangent,
     }
+}
+
+fn restore_mirrored_faces(
+    records: &[Lenient<FaceRecord>],
+    feature: &str,
+    issues: &mut Vec<String>,
+) -> Vec<FaceReference> {
+    let faces: Vec<FaceReference> = records
+        .iter()
+        .filter_map(|face| match face {
+            Lenient::Read(face) => {
+                restore_face(&face.face, face.origin, face.copy, &face.neighbours)
+            }
+            Lenient::Unreadable(_) => None,
+        })
+        .collect();
+    if faces.is_empty() {
+        issues.push(format!(
+            "The faces “{feature}” mirrors could not be read, so it mirrors the whole body."
+        ));
+    } else if faces.len() < records.len() {
+        issues.push(format!(
+            "Some faces mirrored by “{feature}” could not be read and were left out."
+        ));
+    }
+    faces
 }
 
 fn restore_split_face(

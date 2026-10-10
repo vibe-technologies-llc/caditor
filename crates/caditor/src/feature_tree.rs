@@ -2164,6 +2164,17 @@ fn mirror_change(
     }
 }
 
+fn mirror_faces_change(
+    model: &Model,
+    selection: &Selection,
+    feature: &Feature,
+) -> Result<Transaction, String> {
+    match feature.kind.mirror() {
+        Some(mirror) => mirror_tools::faces_change(model, selection, feature.id(), mirror),
+        None => Err(format!("{} is not a mirror", feature.name)),
+    }
+}
+
 fn split_change(
     model: &Model,
     selection: &Selection,
@@ -2447,7 +2458,7 @@ fn feature_commands(
         actions.push(Action::Apply(transaction));
     }
     let target = chosen.open.or(current);
-    let changes: [(Command, FeatureChange<'_>); 17] = [
+    let changes: [(Command, FeatureChange<'_>); 18] = [
         (Command::PlaceSketch, &|feature| {
             place_change(model, selection, feature)
         }),
@@ -2465,6 +2476,9 @@ fn feature_commands(
         }),
         (Command::MirrorAcrossSelected, &|feature| {
             mirror_change(model, selection, feature)
+        }),
+        (Command::MirrorSelectedFaces, &|feature| {
+            mirror_faces_change(model, selection, feature)
         }),
         (Command::SplitAlongSelected, &|feature| {
             split_change(model, selection, feature)
