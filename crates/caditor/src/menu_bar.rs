@@ -530,6 +530,11 @@ impl Menus<'_> {
                 let title = step_title(command, step, self.availability(command).is_ok());
                 self.titled_item(ui, command, &title);
             }
+            let repeat = match self.entries.detail(Command::RepeatLast) {
+                Some(last) => Command::RepeatLast.title_with(last),
+                None => Command::RepeatLast.title(),
+            };
+            self.titled_item(ui, Command::RepeatLast, &repeat);
             self.item(ui, Command::UndoHistory);
             ui.separator();
             self.item(ui, Command::DeleteSelection);
@@ -542,6 +547,9 @@ impl Menus<'_> {
                     Command::SelectTangentFaces,
                     Command::SelectHole,
                     Command::SelectFaceEdges,
+                    Command::SelectLoop,
+                    Command::SelectFeatureFaces,
+                    Command::SelectInverse,
                     Command::SelectBody,
                 ],
             );

@@ -69,7 +69,7 @@ fn value_row(ui: &mut Ui, model: &Model, value: &Value<'_>, expression: &mut Exp
     let document = model.document();
     let parameters = model.parameters();
     let units = model.units();
-    let field = field::commit_field(
+    let field = field::value_field(
         ui,
         value.id,
         &document.expression_text(expression),

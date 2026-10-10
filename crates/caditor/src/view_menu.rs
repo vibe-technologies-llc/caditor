@@ -31,8 +31,11 @@ pub const DELETE: &str = "Delete";
 pub const CONSTRUCTION: &str = "Construction geometry";
 pub const CANCEL_FEATURE: &str = "Cancel the changes";
 pub const CLOSE_FEATURE: &str = "Finish editing";
-const GROWING: [(Command, &str); 4] = [
+const GROWING: [(Command, &str); 7] = [
     (Command::SelectBody, "The whole body"),
+    (Command::SelectFeatureFaces, "The faces of the same feature"),
+    (Command::SelectLoop, "The loop of the edge"),
+    (Command::SelectInverse, "Invert the selection"),
     (Command::SelectTangentEdges, "Tangent edges"),
     (Command::SelectTangentFaces, "Tangent faces"),
     (Command::SelectHole, "The whole hole"),
@@ -170,15 +173,31 @@ fn contents(ui: &mut Ui, place: Place, entries: &mut MenuEntries<'_>) {
             if feature_open {
                 open_feature(ui, entries);
             }
+            repeat(ui, entries);
             if on_item {
                 model_item(ui, entries);
             } else {
                 model_space(ui, entries, selected);
             }
         }
-        Place::Sketch { on_item } => sketch(ui, entries, on_item),
+        Place::Sketch { on_item } => {
+            repeat(ui, entries);
+            sketch(ui, entries, on_item);
+        }
         Place::Shape => shape(ui, entries),
     }
+}
+
+fn repeat(ui: &mut Ui, entries: &mut MenuEntries<'_>) {
+    if !entries.is_available(Command::RepeatLast) {
+        return;
+    }
+    let title = match entries.detail(Command::RepeatLast) {
+        Some(last) => Command::RepeatLast.title_with(last),
+        None => Command::RepeatLast.title(),
+    };
+    entries.titled_item(ui, Command::RepeatLast, &title);
+    ui.separator();
 }
 
 fn open_feature(ui: &mut Ui, entries: &mut MenuEntries<'_>) {

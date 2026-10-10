@@ -24,6 +24,14 @@ pub const NO_HOLE_FACE_SELECTED: &str =
 pub const NO_HOLE: &str = "The selected faces are not the round wall of a hole";
 pub const NO_FACE_SELECTED: &str = "Select a face first to select the edges around it";
 pub const NO_FACE_EDGES: &str = "The selected faces have no edge to select";
+pub const NOTHING_TO_INVERT: &str =
+    "Everything of that kind is selected already, so there is nothing to invert to";
+pub const NO_FEATURE_FACE_SELECTED: &str =
+    "Select a face first to select every face of the feature that made it";
+pub const NO_FEATURE_FACES: &str = "The selected faces share their feature with no other face";
+pub const NO_LOOP_PAIR_SELECTED: &str =
+    "Select an edge and one of the faces it bounds first to select its loop";
+pub const NO_LOOP: &str = "The selected edge is on no loop of the selected faces";
 
 fn counted(count: usize, one: &str, several: &str) -> Option<String> {
     match count {
@@ -344,6 +352,112 @@ pub fn face_edges(model: &Model, selection: &Selection) -> Vec<Pickable> {
                 result,
                 face_boundary(&result.solid, face),
             ))
+        })
+        .flatten()
+        .collect()
+}
+
+pub fn invert(
+    model: &Model,
+    selection: &Selection,
+    kind: Kind,
+    filter: SelectionFilter,
+) -> Vec<Pickable> {
+    if filter == SelectionFilter::Bodies {
+        let chosen = bodies_in(selection);
+        return shown_bodies(model)
+            .filter(|(body, _)| !chosen.contains(body))
+            .flat_map(|(body, result)| everything_of(body, result, Kind::Faces))
+            .collect();
+    }
+    select_all(model, kind)
+        .into_iter()
+        .filter(|pickable| !selection.contains(*pickable))
+        .collect()
+}
+
+pub fn offer_feature_faces(selection: &Selection) -> Result<(), &'static str> {
+    selection
+        .iter()
+        .any(|pickable| Kind::of(pickable) == Some(Kind::Faces))
+        .then_some(())
+        .ok_or(NO_FEATURE_FACE_SELECTED)
+}
+
+pub fn feature_faces(model: &Model, selection: &Selection) -> Vec<Pickable> {
+    let selected = selected_faces(selection);
+    let bodies: BTreeSet<FeatureId> = selected.iter().map(|(body, _)| *body).collect();
+    bodies
+        .into_iter()
+        .filter_map(|body| Some((body, bodies::shown(model.evaluation(), body)?)))
+        .flat_map(|(body, result)| {
+            let makers: BTreeSet<FeatureId> = selected
+                .iter()
+                .filter(|(owner, _)| *owner == body)
+                .filter_map(|(_, key)| bodies::face_origin(result, *key))
+                .map(bodies::origin_feature)
+                .collect();
+            bodies::face_keys(&result.solid)
+                .into_iter()
+                .filter(|(face, _)| {
+                    result
+                        .solid
+                        .face(*face)
+                        .and_then(|face| face.origin())
+                        .map(bodies::origin_feature)
+                        .is_some_and(|maker| makers.contains(&maker))
+                })
+                .map(|(_, face)| Pickable::Face { body, face })
+                .collect::<Vec<_>>()
+        })
+        .filter(|pickable| !selection.contains(*pickable))
+        .collect()
+}
+
+pub fn offer_loop(selection: &Selection) -> Result<(), &'static str> {
+    let has = |kind| {
+        selection
+            .iter()
+            .any(|pickable| Kind::of(pickable) == Some(kind))
+    };
+    (has(Kind::Edges) && has(Kind::Faces))
+        .then_some(())
+        .ok_or(NO_LOOP_PAIR_SELECTED)
+}
+
+fn loops_holding(solid: &Solid, face: FaceId, edge: EdgeId) -> Vec<Vec<EdgeId>> {
+    let Some(face) = solid.face(face) else {
+        return Vec::new();
+    };
+    face.loops()
+        .iter()
+        .filter_map(|id| solid.face_loop(*id))
+        .map(|face_loop| {
+            face_loop
+                .coedges()
+                .iter()
+                .filter_map(|id| solid.coedge(*id))
+                .map(|coedge| coedge.edge())
+                .collect::<Vec<_>>()
+        })
+        .filter(|edges| edges.contains(&edge))
+        .collect()
+}
+
+pub fn loops_of(model: &Model, selection: &Selection) -> Vec<Pickable> {
+    let faces = selected_faces(selection);
+    selected_edges(model, selection)
+        .into_iter()
+        .filter_map(|(body, edge)| {
+            let result = bodies::shown(model.evaluation(), body)?;
+            let edges: Vec<EdgeId> = faces
+                .iter()
+                .filter(|(owner, _)| *owner == body)
+                .filter_map(|(_, key)| bodies::find_face(result, *key))
+                .flat_map(|face| loops_holding(&result.solid, face, edge))
+                .flatten()
+                .collect();
+            Some(pickable_edges(body, result, edges))
         })
         .flatten()
         .collect()

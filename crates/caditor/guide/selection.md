@@ -41,6 +41,12 @@ When items lie behind each other, hold the mouse button still for half a second,
 - {command:select.tangent_edges} and {command:select.tangent_faces} add what continues smoothly.
 - {command:select.face_edges} replaces faces with the edges around them.
 - {command:select.hole} takes every wall of a hole, and {command:select.body} the whole body.
+- {command:select.feature_faces} adds every face made by the feature that made the selected faces,
+  such as a boss as a whole.
+- {command:select.loop} replaces an edge and a face it bounds with the edges of that face's loop
+  holding the edge.
+- {command:select.inverse} selects the faces, edges or vertices of the kind selected, or of the
+  selection filter, that are not selected now.
 
 ## Selection sets
 

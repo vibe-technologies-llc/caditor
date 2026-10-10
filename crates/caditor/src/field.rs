@@ -4,13 +4,14 @@ use caditor_document::{Document, Edit, FeatureId, ParameterOwner, ParameterValue
 use caditor_expression::{Dimension, Expression, Naming};
 use caditor_sketch::{Constraint, ConstraintId, DimensionError};
 use egui::{
-    Align, Id, Key, Margin, Response, Stroke, StrokeKind, TextEdit, Ui,
+    Align, Event, Id, Key, Margin, Response, Stroke, StrokeKind, TextEdit, Ui,
     text::{CCursor, CCursorRange},
     vec2,
 };
 
 use crate::{
     appearance::WIDGET_RADIUS,
+    stepping::{self, Direction, Refusal},
     units::{Units, attach_unit},
     widgets,
 };
@@ -44,12 +45,72 @@ pub fn busy<K: Ord>(ui: &Ui, fields: impl IntoIterator<Item = (K, Id)>) -> BTree
     })
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Step {
+    direction: Direction,
+    big: bool,
+}
+
+fn take_step(ui: &Ui) -> Option<Step> {
+    ui.input_mut(|input| {
+        let mut taken = None;
+        input.events.retain(|event| {
+            let Event::Key {
+                key,
+                pressed: true,
+                modifiers,
+                ..
+            } = event
+            else {
+                return true;
+            };
+            let direction = match key {
+                Key::ArrowUp => Direction::Up,
+                Key::ArrowDown => Direction::Down,
+                _ => return true,
+            };
+            if modifiers.command || modifiers.alt {
+                return true;
+            }
+            taken = Some(Step {
+                direction,
+                big: modifiers.shift,
+            });
+            false
+        });
+        taken
+    })
+}
+
 pub fn commit_field<T>(
     ui: &mut Ui,
     id: Id,
     stored: &str,
     width: f32,
     focus: bool,
+    validate: impl FnOnce(&str) -> Result<T, String>,
+) -> FieldResponse<T> {
+    field(ui, id, stored, width, focus, false, validate)
+}
+
+pub fn value_field<T>(
+    ui: &mut Ui,
+    id: Id,
+    stored: &str,
+    width: f32,
+    focus: bool,
+    validate: impl FnOnce(&str) -> Result<T, String>,
+) -> FieldResponse<T> {
+    field(ui, id, stored, width, focus, true, validate)
+}
+
+fn field<T>(
+    ui: &mut Ui,
+    id: Id,
+    stored: &str,
+    width: f32,
+    focus: bool,
+    stepping: bool,
     validate: impl FnOnce(&str) -> Result<T, String>,
 ) -> FieldResponse<T> {
     let editing = ui.memory(|memory| memory.has_focus(id));
@@ -59,6 +120,21 @@ pub fn commit_field<T>(
     let mut text = draft
         .as_ref()
         .map_or_else(|| stored.to_owned(), |draft| draft.text.clone());
+    let mut stepped = false;
+    let mut refusal: Option<Refusal> = None;
+    if stepping
+        && editing
+        && let Some(requested) = take_step(ui)
+    {
+        match stepping::step(&text, requested.direction, requested.big) {
+            Ok(next) => {
+                select_all(ui.ctx(), id, &next);
+                text = next;
+                stepped = true;
+            }
+            Err(reason) => refusal = Some(reason),
+        }
+    }
     let response = widgets::text_field(ui, |ui| {
         ui.add(
             TextEdit::singleline(&mut text)
@@ -76,11 +152,19 @@ pub fn commit_field<T>(
     if arrived(ui, id, response.has_focus()) && text == stored {
         select_all(ui.ctx(), id, &text);
     }
-    let edited = response.changed().then(|| text.trim().to_owned());
-    if response.changed() {
+    let changed = response.changed() || stepped;
+    let edited = changed.then(|| text.trim().to_owned());
+    if changed {
         draft = Some(Draft {
             text: text.clone(),
             error: None,
+            stored: stored.to_owned(),
+        });
+    }
+    if let Some(reason) = refusal {
+        draft = Some(Draft {
+            text: text.clone(),
+            error: Some(reason.message().to_owned()),
             stored: stored.to_owned(),
         });
     }

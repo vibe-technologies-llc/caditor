@@ -677,7 +677,7 @@ impl Panel<'_> {
         let model = self.model;
         let field = ui
             .horizontal(|ui| {
-                let field = field::commit_field(
+                let field = field::value_field(
                     ui,
                     Id::new(("body-density", self.body)),
                     &stored,

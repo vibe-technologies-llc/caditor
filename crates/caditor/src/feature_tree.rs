@@ -3181,7 +3181,7 @@ fn dimension_field(
     let mut error = None;
     ui.horizontal(|ui| {
         ui.add_space(SPACE_L);
-        let field = field::commit_field(
+        let field = field::value_field(
             ui,
             focus.field_id(),
             &field::value_text(document, &target.owner(), expression),

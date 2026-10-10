@@ -3006,6 +3006,46 @@ impl ViewportState {
                 self.selection.replace_with_all(around);
             }
         }
+        let inverse = body_selection::outside_sketch(
+            in_sketch,
+            body_selection::offer_select_all(model, &self.selection, self.active_filter()),
+        );
+        if commands.invoke(Command::SelectInverse, &inverse)
+            && let Ok(kind) = inverse
+        {
+            let flipped =
+                body_selection::invert(model, &self.selection, kind, self.active_filter());
+            if flipped.is_empty() {
+                actions.push(Action::Inform(Notice::info(
+                    body_selection::NOTHING_TO_INVERT,
+                )));
+            } else {
+                self.selection.replace_with_all(flipped);
+            }
+        }
+        let made_together = body_selection::outside_sketch(
+            in_sketch,
+            body_selection::offer_feature_faces(&self.selection),
+        );
+        if commands.invoke(Command::SelectFeatureFaces, &made_together) && made_together.is_ok() {
+            let faces = body_selection::feature_faces(model, &self.selection);
+            if faces.is_empty() {
+                actions.push(Action::Inform(Notice::info(
+                    body_selection::NO_FEATURE_FACES,
+                )));
+            }
+            self.selection.extend(faces);
+        }
+        let ring =
+            body_selection::outside_sketch(in_sketch, body_selection::offer_loop(&self.selection));
+        if commands.invoke(Command::SelectLoop, &ring) && ring.is_ok() {
+            let edges = body_selection::loops_of(model, &self.selection);
+            if edges.is_empty() {
+                actions.push(Action::Inform(Notice::info(body_selection::NO_LOOP)));
+            } else {
+                self.selection.replace_with_all(edges);
+            }
+        }
         let whole = body_selection::outside_sketch(
             in_sketch,
             body_selection::offer_whole_bodies(&self.selection),

@@ -557,3 +557,31 @@ fn a_thread_is_moved_to_another_round_face_with_use_selected() {
         Some(format!("Edit {}", harness.document().feature(thread).unwrap().name).as_str())
     );
 }
+
+#[test]
+fn up_and_down_step_a_plain_distance_and_preview_it_but_leave_an_expression_alone() {
+    let mut harness = Harness::new();
+    let extrude = open_extrusion(&mut harness);
+    let volume = |side: f64| 40.0 * 40.0 * side;
+
+    harness.draft_into_field(distance_field(extrude), "12.5 mm");
+    harness.key(Key::ArrowUp, Modifiers::NONE);
+    harness.frame();
+    harness.wait_until("the stepped distance is previewed", |harness| {
+        draft_volume(harness, extrude).is_some_and(|found| (found - volume(12.6)).abs() < 1.0)
+    });
+
+    harness.key(Key::ArrowDown, Modifiers::SHIFT);
+    harness.frame();
+    harness.wait_until("the big step down is previewed", |harness| {
+        draft_volume(harness, extrude).is_some_and(|found| (found - volume(11.6)).abs() < 1.0)
+    });
+
+    harness.draft_into_field(distance_field(extrude), "2 * 3");
+    harness.key(Key::ArrowUp, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+
+    assert!(harness.shows_containing(crate::stepping::Refusal::NotPlain.message()));
+    assert_eq!(harness.model.undo_label(), Some("Create Extrude 1"));
+}

@@ -31,6 +31,17 @@ paths:
   value. Text left invalid keeps its cursor, so the mistake can be mended.
 - Feature values and sketch dimensions are `field::NamedField`s, so `name = expression` names the
   value (`app-modelling.md`).
+- Value fields (`field::value_field`, which every feature value, sketch dimension, parameter
+  expression, section and analysis value and configuration cell uses; names, colours and exports
+  keep `commit_field`) step with Up and Down while focused: `stepping::step` adds or takes away one
+  unit of the last digit of a plain number (Shift ten), in integers so 0.1 steps never drift, with
+  its length or angle unit kept as typed (`mm`, `cm`, `m`, `um`, `°`, `deg`, `rad`) and the sign
+  crossing zero. The stepped text is the field's draft and reaches the caller as `edited` like
+  typing, so an open feature previews it. Anything else, an expression, a name or `name = value`,
+  an unknown suffix or an empty field, is left alone and the field shows the refusal's words
+  (`stepping::Refusal::message`) as an inline error until the text changes. The arrows are taken
+  from the frame's events (`field::take_step`) ahead of the text edit, so they never move its
+  cursor; Ctrl and Alt with them are left to the text edit.
 
 ## Keyboard focus
 
@@ -74,6 +85,17 @@ paths:
   callout as Add ("F is used by Undo. Reset Fit view and move it there?") before
   `Keymap::reset` takes them. Reset all asks first, then offers Undo through
   `Workspace::restored` (`app-files.md`).
+- Repeat the last command (`Command::RepeatLast`, F4, Edit menu, palette, the view's context menu
+  at its top) runs again the last command that ran and `Command::is_repeatable` accepts: the
+  modelling tools and datums, the sketch tools, constraints and sketch edits, never a view, file or
+  selection command. `CommandFrame::invoke` records each command it triggered and found available
+  (`CommandFrame::ran`); `repeating::Repetition::settle`, run in `app::show` after the frame's
+  commands finish, keeps the newest repeatable one in `Workspace::repetition` and adds the offer
+  for `RepeatLast` itself, with the last command's own offer title as its detail ("Repeat Fillet")
+  and its availability, so it reads the selection and context of the frame it runs in. Triggering
+  it puts the last command into `Workspace::deferred_commands` for the next frame, where its own
+  `invoke` decides and refuses with its own reason; with nothing to repeat or the command not
+  offered in this context it is refused at once in words (`repeating::NOTHING_TO_REPEAT`).
 - `app::show` runs `commands::dispatch` each frame and hands a `CommandFrame` to toolbars and
   viewport. Exact modifiers win (extra Shift or Alt are ignored only for punctuation keys);
   sketch-scope bindings win while a sketch is edited; Backspace and Delete are left to drawing
@@ -257,8 +279,9 @@ paths:
   Escape do mid-shape), with the open feature's Reverse, Cancel and Finish editing on top. Every
   entry is a `Command` drawn by `menu_bar::MenuEntries` from this frame's offers and keymap, as
   the menu bar's are, so a disabled entry says why on hover and shows its keys; entries that only
-  apply sometimes (Look at face, the selection growers, split, break, Reverse) are left out
-  rather than disabled. It is drawn after the frame's commands finish (`ViewportState::show_menu`),
+  apply sometimes (Repeat, named "Repeat <command>" at the top of the model and sketch places,
+  Look at face, the selection growers, split, break, Reverse) are left out rather than disabled.
+  It is drawn after the frame's commands finish (`ViewportState::show_menu`),
   first one frame later so the offers follow a selection the click changed, then with its first
   available entry focused so arrows move and Enter runs it; a chosen command runs next frame
   through `Workspace::deferred_commands` (List everything under the pointer at the menu's spot,
@@ -319,8 +342,15 @@ paths:
   (`select.hole`, Edit menu, palette) adds what `hole_faces` reaches from a selected wall; the edges around
   faces replace the faces with every loop's edges. Select the whole body (`select.body`, Edit menu,
   palette) replaces the selection with every face, edge or vertex (by the filter or the kind
-  selected, faces otherwise) of the bodies the selection touches. An empty result is an info
-  notice. Their
+  selected, faces otherwise) of the bodies the selection touches. Invert the selection
+  (`select.inverse`, Ctrl+Shift+I by default) replaces it with the shown bodies' faces, edges or
+  vertices of the kind selected (or the filter's) that were not selected, by whole bodies with the
+  Bodies filter (`body_selection::invert`). Select the faces of the same feature
+  (`select.feature_faces`) adds, per body of the selected faces, every face whose `FaceOrigin`
+  names the feature that made a selected one (`bodies::origin_feature`). Select the loop of the
+  selected edge (`select.loop`) needs an edge and a face of its body selected and replaces the
+  selection with the edges of each loop of such a face that holds the edge (`loops_of`). An empty
+  result is an info notice. Their
   availability is a cheap check on the selection, and the work runs only when triggered.
 
 - The display style (`DisplayStyle`, commands `view.style_*`, View › Display style) is shaded with

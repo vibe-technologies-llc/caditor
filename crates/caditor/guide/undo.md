@@ -5,6 +5,9 @@ hiding and restoring an older version alike.
 
 - {command:edit.undo} takes back the last change and {command:edit.redo} brings it back. The Edit
   menu names the step each would take, such as Undo Extrude 1 distance.
+- {command:edit.repeat} runs the last modelling or sketch command again, such as Fillet, a datum
+  plane or a hole, on whatever is selected now. The Edit menu, the palette and the view's
+  right-click menu name it, such as Repeat Fillet.
 - {command:model.cancel_feature} undoes every step made since the open feature was opened, and
   closes it ([the feature tree](feature-tree)).
 - {command:edit.undo_history} lists the steps Undo and Redo hold, with Now beside the change the

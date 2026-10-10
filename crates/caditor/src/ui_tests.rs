@@ -85,6 +85,7 @@ mod panel_fields;
 mod parameter_files;
 mod pick_list;
 mod primitives;
+mod repeating_and_growing;
 mod scale_model;
 mod screenshots;
 mod sections;
