@@ -69,7 +69,9 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   point "Origin, scaled" at the origin's image and, for planes and axes, a coordinate system
   "Axes and planes, scaled" with the world's orientation on that point, whose planes, axes and
   origin are the exact images (frame origins included, so a primitive on one drops the in-plane
-  shift); a sketch projecting a principal plane gets a datum plane "<plane>, scaled" instead,
+  shift); a datum plane offset from a principal plane that something uses (a sketch on it) is
+  displaced by any centre off the origin, since its origin within the plane must follow the
+  scale too, so it is rebased on the frame's plane with its offset only scaled; a sketch projecting a principal plane gets a datum plane "<plane>, scaled" instead,
   since a projection cannot name a frame's plane. Names are numbered when taken;
   `ScaleSummary::moved` and `datums` list what moved and what was added. Saved views follow
   (target mapped, distance multiplied).

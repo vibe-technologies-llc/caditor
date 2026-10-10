@@ -415,6 +415,10 @@ paths:
   such a change lays every one out; a row wanted for focus or with a busy field (`CardRow::Live`)
   is always laid out. A run of skipped rows reserves its space in one allocation
   (`feature_tree::Reserved`), so only rows near view format a description or a value.
+- Revealing a row or its edited card (`scroll_into_view`) scrolls it into view by the least
+  distance, except a card taller than the visible panel, which aligns its top, so the status and
+  count pills (N redundant constraints, open ends) above its sections are never the part scrolled
+  away.
 - Kind icons are tinted by category (sketches accent, bodies and modifiers text, datums muted;
   inactive or hidden rows muted). A failure shows once, as the status icon and its callout, never
   by recolouring the icon or name; an outdated row the same with a Recompute button. A row a

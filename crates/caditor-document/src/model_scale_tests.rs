@@ -704,3 +704,43 @@ fn saved_views_follow_the_model() {
     assert!(near(kept.target, [10.0, 8.0, 4.0]));
     assert!((kept.distance - 100.0).abs() < 1e-9);
 }
+
+#[test]
+fn a_sketch_on_an_offset_datum_plane_lands_on_the_scaled_points_for_a_centre_off_the_plane() {
+    let mut model = model();
+    let placed = Plane::from_frame(Point3::new(0.0, 0.0, 5.0), Vector3::Z, Vector3::X).unwrap();
+    let mut sketch = Sketch::new(placed);
+    let corner = sketch.add_point(Point2::new(3.0, 2.0));
+    let far = sketch.add_point(Point2::new(-4.0, 7.0));
+    let mut transaction = model.document.transaction("Sketch");
+    let held = transaction.add_feature(
+        "On plane",
+        FeatureKind::Sketch(SketchFeature::on_datum(sketch, model.datum)),
+    );
+    model.document.apply(transaction.finish()).unwrap();
+    let centre = Point3::new(5.0, 3.0, 2.0);
+    let before = evaluate(&model.document);
+    let world = |evaluation: &Evaluation, point| {
+        let solved = evaluation
+            .feature(held)
+            .and_then(|status| status.result.as_deref())
+            .and_then(FeatureResult::sketch)
+            .map(|result| result.geometry.clone())
+            .unwrap();
+        solved.plane().to_world(solved.point(point).unwrap())
+    };
+
+    let scaled = model
+        .document
+        .scaled(&scale(2.0, centre, ScaledValues::Plain))
+        .unwrap();
+    model.document.apply(scaled.transaction).unwrap();
+    let after = evaluate(&model.document);
+
+    assert_eq!(after.failed_count(), 0);
+    for point in [corner, far] {
+        let expected = image(centre, world(&before, point));
+        let found = world(&after, point);
+        assert!(near(found, expected.to_array()), "{found:?} {expected:?}");
+    }
+}

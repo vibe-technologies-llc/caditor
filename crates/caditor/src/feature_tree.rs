@@ -790,7 +790,8 @@ fn feature_row(
 
 fn scroll_into_view(ui: &Ui, rect: Rect) {
     if !ui.ctx().will_discard() {
-        ui.scroll_to_rect(rect, None);
+        let taller_than_view = rect.height() > ui.clip_rect().height();
+        ui.scroll_to_rect(rect, taller_than_view.then_some(Align::TOP));
     }
 }
 
