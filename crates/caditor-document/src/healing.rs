@@ -198,7 +198,7 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
                 visitor.face(split.body, face, &what);
             }
             visit_split_along(&mut split.along, visitor);
-            if let Some(direction) = split.direction.as_deref_mut() {
+            if let Some(direction) = split.carry.direction_mut() {
                 visit_axis(direction, "direction", visitor);
             }
         }

@@ -1,6 +1,8 @@
 use caditor_expression::{Expression, ParameterId};
-use caditor_geometry::{Plane, Point2, Vector3};
-use caditor_kernel::{FaceReference, LINEAR_RESOLUTION, SamplingTolerance, Solid, Surface};
+use caditor_geometry::{Plane, Point2, Point3, Vector3};
+use caditor_kernel::{
+    FaceReference, LINEAR_RESOLUTION, SamplingTolerance, Solid, Surface, face_area,
+};
 use caditor_sketch::Sketch;
 
 use crate::*;
@@ -102,7 +104,7 @@ fn model(along: impl FnOnce(&mut TransactionBuilder) -> SplitAlong) -> Model {
             body: base,
             faces,
             along,
-            direction: None,
+            carry: SplitCarry::Square,
         }),
     );
     document.apply(transaction.finish()).unwrap();
@@ -289,7 +291,7 @@ fn a_direction_carries_the_curve_slanted_through_the_body() {
         SplitAlong::Sketch(sketch)
     });
     let mut split = split_of(&model);
-    split.direction = slant.map(Box::new);
+    split.carry = SplitCarry::Along(Box::new(slant.unwrap()));
     set_split(&mut model, split);
 
     let evaluation = evaluate(&model.document, &mut model.engine);
@@ -326,7 +328,7 @@ fn a_direction_along_the_sketch_plane_fails_the_split_in_words() {
         SplitAlong::Sketch(sketch)
     });
     let mut split = split_of(&model);
-    split.direction = Some(Box::new(AxisReference::Principal(PrincipalAxis::X)));
+    split.carry = SplitCarry::Along(Box::new(AxisReference::Principal(PrincipalAxis::X)));
     set_split(&mut model, split);
 
     let evaluation = evaluate(&model.document, &mut model.engine);
@@ -372,4 +374,216 @@ fn a_mixed_sketch_whose_outline_misses_the_faces_still_splits_along_the_chain() 
 
     assert_eq!(evaluation.failed_count(), 0);
     assert_eq!(top_faces(evaluation.body(model.base).unwrap()).len(), 2);
+}
+
+type Segment = ((f64, f64), (f64, f64));
+
+fn square_with(extra: &[Segment]) -> Sketch {
+    let mut sketch = rectangle((-3.0, -1.0), (-1.0, 1.0));
+    for (from, to) in extra {
+        sketch.add_line(Point2::new(from.0, from.1), Point2::new(to.0, to.1));
+    }
+    sketch
+}
+
+#[test]
+fn an_open_chain_running_on_from_a_corner_of_an_outline_splits_along_both() {
+    let mut model = model(|transaction| {
+        let sketch = square_with(&[((-1.0, 1.0), (6.0, 8.0))]);
+        let sketch = transaction.add_feature("Part line", FeatureKind::from(sketch));
+        SplitAlong::Sketch(sketch)
+    });
+
+    let evaluation = evaluate(&model.document, &mut model.engine);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert_eq!(top_faces(evaluation.body(model.base).unwrap()).len(), 4);
+}
+
+#[test]
+fn an_open_chain_passing_through_a_corner_of_an_outline_splits_along_both() {
+    let mut model = model(|transaction| {
+        let sketch = square_with(&[((-1.0, 1.0), (6.0, 8.0)), ((-1.0, 1.0), (-8.0, 8.0))]);
+        let sketch = transaction.add_feature("Part line", FeatureKind::from(sketch));
+        SplitAlong::Sketch(sketch)
+    });
+
+    let evaluation = evaluate(&model.document, &mut model.engine);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert_eq!(top_faces(evaluation.body(model.base).unwrap()).len(), 3);
+}
+
+struct Rod {
+    document: Document,
+    engine: Recompute,
+    base: FeatureId,
+    split: FeatureId,
+}
+
+fn tangent_sketch(offset: f64) -> Sketch {
+    Sketch::new(Plane::from_frame(Point3::new(0.0, offset, 0.0), Vector3::Y, Vector3::Z).unwrap())
+}
+
+fn rod(sketch: Sketch, faces: impl Fn(&Solid) -> Vec<FaceReference>) -> Rod {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    let mut outline = Sketch::new(Plane::XY);
+    outline.add_circle(Point2::new(0.0, 0.0), 10.0);
+    let outline = transaction.add_feature("Outline", FeatureKind::from(outline));
+    let base = transaction.add_feature(
+        "Rod",
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch: outline,
+            regions: RegionChoice::All,
+            extent: ExtrudeExtent::one_side(transaction.parse("30 mm").unwrap(), false),
+            operation: BodyOperation::NewBody,
+            start: None,
+            other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
+            direction: None,
+        })),
+    );
+    let label = transaction.add_feature("Label", FeatureKind::from(sketch));
+    document.apply(transaction.finish()).unwrap();
+    let mut engine = Recompute::default();
+    let evaluation = evaluate(&document, &mut engine);
+    let faces = faces(evaluation.body(base).unwrap());
+    let mut transaction = document.transaction("Split face");
+    let split = transaction.add_feature(
+        "Split face 1",
+        FeatureKind::SplitFace(SplitFace {
+            body: base,
+            faces,
+            along: SplitAlong::Sketch(label),
+            carry: SplitCarry::Wrapped,
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    Rod {
+        document,
+        engine,
+        base,
+        split,
+    }
+}
+
+fn walls(solid: &Solid) -> Vec<FaceReference> {
+    solid
+        .faces()
+        .filter(|(_, face)| matches!(face.surface(), Surface::Cylinder(_)))
+        .map(|(id, _)| FaceReference::capture(solid, id).unwrap())
+        .collect()
+}
+
+fn label(sketch: &mut Sketch) {
+    let corners = [
+        Point2::new(10.0, -5.0),
+        Point2::new(22.0, -5.0),
+        Point2::new(22.0, 5.0),
+        Point2::new(10.0, 5.0),
+    ];
+    for index in 0..4 {
+        sketch.add_line(corners[index], corners[(index + 1) % 4]);
+    }
+}
+
+#[test]
+fn a_wrapped_outline_lays_a_patch_of_its_own_size_round_a_cylinder() {
+    let mut sketch = tangent_sketch(10.0);
+    label(&mut sketch);
+    let mut rod = rod(sketch, walls);
+
+    let evaluation = evaluate(&rod.document, &mut rod.engine);
+    let solid = evaluation.body(rod.base).unwrap();
+    let areas: Vec<f64> = solid
+        .faces()
+        .filter(|(_, face)| matches!(face.surface(), Surface::Cylinder(_)))
+        .map(|(id, _)| face_area(solid, id).unwrap().unwrap())
+        .collect();
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert_eq!(areas.len(), 2);
+    assert!(
+        areas.iter().any(|area| (area - 120.0).abs() < 1e-3),
+        "{areas:?}"
+    );
+}
+
+#[test]
+fn a_wrapped_sketch_across_the_axis_fails_the_split_in_words() {
+    let mut sketch = Sketch::new(Plane::XY);
+    label(&mut sketch);
+    let mut rod = rod(sketch, walls);
+
+    let evaluation = evaluate(&rod.document, &mut rod.engine);
+    let error = failure(&evaluation, rod.split);
+
+    assert_eq!(
+        error.reason,
+        "Label does not lie on a plane along the axis of the chosen faces, so its curves cannot \
+         be wrapped round them."
+    );
+}
+
+#[test]
+fn a_wrapped_split_of_a_flat_face_fails_in_words() {
+    let mut sketch = tangent_sketch(10.0);
+    label(&mut sketch);
+    let mut rod = rod(sketch, |solid| {
+        solid
+            .faces()
+            .filter(|(_, face)| matches!(face.surface(), Surface::Plane(_)))
+            .map(|(id, _)| FaceReference::capture(solid, id).unwrap())
+            .collect()
+    });
+
+    let evaluation = evaluate(&rod.document, &mut rod.engine);
+    let error = failure(&evaluation, rod.split);
+
+    assert!(
+        error
+            .reason
+            .ends_with("is not cylindrical, so the curves of Label cannot be wrapped onto it."),
+        "{}",
+        error.reason
+    );
+}
+
+#[test]
+fn a_wrapped_open_curve_or_a_long_outline_fails_in_words() {
+    let mut open = tangent_sketch(10.0);
+    open.add_line(Point2::new(5.0, -20.0), Point2::new(5.0, 20.0));
+    let mut long = tangent_sketch(10.0);
+    let round = std::f64::consts::TAU * 10.0;
+    let corners = [
+        Point2::new(10.0, -0.5 * round),
+        Point2::new(12.0, -0.5 * round),
+        Point2::new(12.0, 0.5 * round + 1.0),
+        Point2::new(10.0, 0.5 * round + 1.0),
+    ];
+    for index in 0..4 {
+        long.add_line(corners[index], corners[(index + 1) % 4]);
+    }
+
+    let reasons: Vec<String> = [open, long]
+        .into_iter()
+        .map(|sketch| {
+            let mut rod = rod(sketch, walls);
+            let evaluation = evaluate(&rod.document, &mut rod.engine);
+            failure(&evaluation, rod.split).reason
+        })
+        .collect();
+
+    assert_eq!(
+        reasons[0],
+        "Only closed outlines can be wrapped onto a cylinder, and the curves of Label are not \
+         all closed."
+    );
+    assert!(
+        reasons[1].starts_with("The outlines of Label reach 63.83"),
+        "{}",
+        reasons[1]
+    );
 }

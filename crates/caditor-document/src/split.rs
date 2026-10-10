@@ -772,63 +772,128 @@ pub(crate) struct MixedCurves {
 
 pub(crate) fn mixed_curves(sketch: &Sketch) -> Option<MixedCurves> {
     let curves = profile_curves(sketch);
-    let mut points: Vec<(usize, Point2)> = curves
-        .iter()
-        .enumerate()
-        .filter_map(|(index, curve)| Some((index, ends_of(curve)?)))
-        .flat_map(|(index, ends)| ends.map(|point| (index, point)))
-        .collect();
-    points.sort_by(|one, other| one.1.x.total_cmp(&other.1.x));
-    let mut parents: Vec<usize> = (0..curves.len()).collect();
-    let mut joined = vec![false; points.len()];
-    for (at, (index, point)) in points.iter().enumerate() {
-        let partners = points
-            .iter()
-            .enumerate()
-            .skip(at + 1)
-            .take_while(|(_, (_, near))| near.x - point.x <= LINEAR_RESOLUTION)
-            .filter(|(_, (_, near))| near.distance(*point) <= LINEAR_RESOLUTION);
-        for (other_at, (partner, _)) in partners {
-            for end in [at, other_at] {
-                if let Some(flag) = joined.get_mut(end) {
-                    *flag = true;
-                }
-            }
-            let root = component_of(&mut parents, *index);
-            let other = component_of(&mut parents, *partner);
-            if let Some(parent) = parents.get_mut(other) {
-                *parent = root;
+    let links = curve_links(&curves);
+    let mut slots_at = vec![0_usize; 2 * curves.len()];
+    for [first, second] in links.iter().flatten() {
+        for node in [first, second] {
+            if let Some(count) = slots_at.get_mut(*node) {
+                *count += 1;
             }
         }
     }
-    let mut free = vec![false; curves.len()];
-    for ((index, _), joined) in points.iter().zip(&joined) {
-        if !joined && let Some(open) = free.get_mut(*index) {
-            *open = true;
+    let mut parents: Vec<usize> = (0..slots_at.len()).collect();
+    for [first, second] in links.iter().flatten() {
+        let root = component_of(&mut parents, *first);
+        let other = component_of(&mut parents, *second);
+        if let Some(parent) = parents.get_mut(other) {
+            *parent = root;
         }
     }
-    let roots: Vec<usize> = (0..curves.len())
-        .map(|index| component_of(&mut parents, index))
-        .collect();
-    let open: BTreeSet<usize> = roots
+    let open: BTreeSet<usize> = links
         .iter()
-        .zip(&free)
-        .filter(|(_, free)| **free)
-        .map(|(root, _)| *root)
+        .flatten()
+        .flat_map(|ends| ends.iter().copied())
+        .filter(|node| slots_at.get(*node) == Some(&1))
+        .map(|node| component_of(&mut parents, node))
         .collect();
     let [open_root] = open.into_iter().collect::<Vec<usize>>()[..] else {
         return None;
     };
+    let in_open: Vec<bool> = links
+        .iter()
+        .map(|ends| ends.is_some_and(|[node, _]| component_of(&mut parents, node) == open_root))
+        .collect();
+    let bridges = bridges(&links, &in_open);
     let mut chain = Vec::new();
     let mut outlines = Vec::new();
-    for (root, curve) in roots.into_iter().zip(curves) {
-        if root == open_root {
+    for ((curve, open), bridge) in curves.into_iter().zip(in_open).zip(bridges) {
+        if open && bridge {
             chain.push(curve);
         } else {
             outlines.push(curve);
         }
     }
     (!outlines.is_empty() && self::chain(&chain).is_ok()).then_some(MixedCurves { chain, outlines })
+}
+
+fn curve_links(curves: &[ProfileCurve]) -> Vec<Option<[usize; 2]>> {
+    let mut points: Vec<(usize, Point2)> = curves
+        .iter()
+        .enumerate()
+        .filter_map(|(index, curve)| Some((index, ends_of(curve)?)))
+        .flat_map(|(index, [first, last])| [(2 * index, first), (2 * index + 1, last)])
+        .collect();
+    points.sort_by(|one, other| one.1.x.total_cmp(&other.1.x));
+    let mut nodes: Vec<usize> = (0..2 * curves.len()).collect();
+    for (at, (slot, point)) in points.iter().enumerate() {
+        let partners = points
+            .iter()
+            .skip(at + 1)
+            .take_while(|(_, near)| near.x - point.x <= LINEAR_RESOLUTION)
+            .filter(|(_, near)| near.distance(*point) <= LINEAR_RESOLUTION);
+        for (partner, _) in partners {
+            let root = component_of(&mut nodes, *slot);
+            let other = component_of(&mut nodes, *partner);
+            if let Some(parent) = nodes.get_mut(other) {
+                *parent = root;
+            }
+        }
+    }
+    let joined: BTreeSet<usize> = points.iter().map(|(slot, _)| *slot / 2).collect();
+    (0..curves.len())
+        .map(|index| {
+            joined.contains(&index).then(|| {
+                [
+                    component_of(&mut nodes, 2 * index),
+                    component_of(&mut nodes, 2 * index + 1),
+                ]
+            })
+        })
+        .collect()
+}
+
+fn bridges(links: &[Option<[usize; 2]>], considered: &[bool]) -> Vec<bool> {
+    let edges: Vec<(usize, [usize; 2])> = links
+        .iter()
+        .zip(considered)
+        .enumerate()
+        .filter_map(|(index, (ends, considered))| (*considered).then_some((index, (*ends)?)))
+        .collect();
+    let reaches_without = |skipped: usize, from: usize, to: usize| {
+        let mut seen = BTreeSet::from([from]);
+        let mut pending = vec![from];
+        while let Some(node) = pending.pop() {
+            if node == to {
+                return true;
+            }
+            for (index, [first, second]) in &edges {
+                if *index == skipped {
+                    continue;
+                }
+                let next = if *first == node {
+                    *second
+                } else if *second == node {
+                    *first
+                } else {
+                    continue;
+                };
+                if seen.insert(next) {
+                    pending.push(next);
+                }
+            }
+        }
+        false
+    };
+    let mut found = vec![false; links.len()];
+    for (index, [first, second]) in &edges {
+        if first != second
+            && !reaches_without(*index, *first, *second)
+            && let Some(flag) = found.get_mut(*index)
+        {
+            *flag = true;
+        }
+    }
+    found
 }
 
 pub(crate) fn swept_half_space(

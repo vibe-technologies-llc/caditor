@@ -156,7 +156,7 @@ pub use crate::{
         Wall, body_part, body_parts, displayed_start_offset, profile_curve, sketch_regions,
     },
     split::{HalfSpaceError, Split, SplitAlong, SweptError, is_open_chain},
-    split_face::SplitFace,
+    split_face::{SplitCarry, SplitFace},
     thread::{
         Bore, BoreError, PlacedThread, Thread, ThreadLength, ThreadPlacement, ThreadResult,
         hole_thread, placed_threads,

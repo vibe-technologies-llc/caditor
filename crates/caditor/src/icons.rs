@@ -324,6 +324,7 @@ pub fn command(command: Command) -> &'static str {
             blend(BlendKind::Chamfer)
         }
         Command::FlipChamfer => phosphor::ARROWS_LEFT_RIGHT,
+        Command::WrapSplitCurves => phosphor::CYLINDER,
         Command::ReverseDirection => phosphor::ARROW_U_DOWN_LEFT,
         Command::FilterFeatures => SEARCH,
         Command::AddParameter => ADD,

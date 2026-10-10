@@ -60,6 +60,20 @@ paths:
   `TaperTooSteep`, and a piece used up, an arc shrunk to nothing, corners that no longer meet, a
   loop turned over or loops crossing at a cap `TaperCloses` (naming the pieces' entities when
   known).
+- `wrap_regions(plane, regions, cylinder, feature)` (`wrap.rs`) wraps a plane's regions onto a
+  cylinder by arc length, for a split face's tool: the plane must run along the axis
+  (`AcrossAxis` otherwise); a point keeps its distance along the axis and its distance across it,
+  from the foot of the axis on the plane, becomes a length round the cylinder, the side of the
+  axis the plane lies on (its normal's for a plane through the axis) staying in front, so the
+  map is locally the identity and a decal is never mirrored. The result is an extrusion's
+  topology between coaxial cylinders at a quarter of the radius inside and outside it (their
+  frames turned so the seam lies opposite the outlines): each piece's side is a ruled spline
+  surface, cubic along the curve at stations no farther apart than `STEP_ANGLE` round the axis
+  and straight radially, overhanging both cylinders by `WALL_OVERHANG` so the rims lie inside its
+  domain; rims are `IntersectionCurve`s of side and cylinder, the joints exact radial lines, every
+  pcurve fitted, and a closed piece (a circle) is halved first, since a periodic side cannot be
+  intersected reliably. Outlines reaching round within `OVERLAP_GAP` of the circumference are
+  `BeyondFullTurn`; a piece needing more than `MAX_STATIONS` stations `TooIntricate`.
 - `heights(plane, regions, target)` gives the least and most signed height of a target plane over
   the profile, which the document uses to tell a plane ahead from one behind or across.
 - `next_face(solid, plane, regions, reversed)` casts rays from the regions' triangle centroids
@@ -165,8 +179,9 @@ paths:
   `Plan` disambiguating repeats, so a later feature holds a piece by name.
 - The document builds the tool: a plane's half-space block, an open sketch chain's swept half
   space, closed sketch outlines swept through the body (`split::Sweep`, square to the sketch or
-  along a direction through `extrude_along`) or another body as it stands; a sketch mixing a
-  chain with outlines calls `split_faces` twice (`document.md`).
+  along a direction through `extrude_along`) or wrapped round a cylinder (`wrap_regions`), or
+  another body as it stands; a sketch mixing a chain with outlines calls `split_faces` twice
+  (`document.md`).
 
 ## Interference (`boolean/interference.rs`)
 

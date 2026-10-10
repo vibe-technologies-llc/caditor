@@ -7,6 +7,9 @@ mod taper;
 mod taper_tests;
 #[cfg(test)]
 mod tests;
+mod wrap;
+#[cfg(test)]
+mod wrap_tests;
 
 use std::f64::consts::TAU;
 
@@ -21,6 +24,7 @@ pub use self::{
     },
     revolve::revolve,
     taper::{MAX_TAPER_DEGREES, extrude_tapered},
+    wrap::{WrapError, wrap_regions},
 };
 use crate::{
     error::GeometryError,
