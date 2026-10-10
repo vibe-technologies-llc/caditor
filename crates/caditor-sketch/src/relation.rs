@@ -125,7 +125,11 @@ impl Sketch {
             | Constraint::AxisDiameter {
                 point: a, axis: b, ..
             } => Subject::Spacing(ordered(a, b)),
-            Constraint::Midpoint { point, curve } => Subject::Pair(kind, [point, curve]),
+            Constraint::Midpoint { point, curve }
+            | Constraint::OnMinorAxis {
+                point,
+                ellipse: curve,
+            } => Subject::Pair(kind, [point, curve]),
             Constraint::Symmetric {
                 first,
                 second,

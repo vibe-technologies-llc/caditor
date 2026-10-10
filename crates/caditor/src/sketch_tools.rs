@@ -168,8 +168,8 @@ impl ConstraintTool {
                  about"
             }
             Self::Distance => {
-                "Select one line or arc, two of points, lines and circles, or a spline and a \
-                 point, line or circle"
+                "Select one line or arc, two of points, lines and circles, or a spline or ellipse \
+                 and a point, line or circle"
             }
             Self::HorizontalDistance | Self::VerticalDistance => "Select two points or one line",
             Self::Radius => "Select one or more circles, arcs or ellipses",
@@ -303,7 +303,9 @@ impl ConstraintTool {
                 | &[(to, Circular), (from, Point)]
                 | &[(from, Line | Circular), (to, Line | Circular)]
                 | &[(from, Shape::Spline), (to, Line | Circular)]
-                | &[(from, Line | Circular), (to, Shape::Spline)],
+                | &[(from, Line | Circular), (to, Shape::Spline)]
+                | &[(from, Point | Line | Circular), (to, Elliptic)]
+                | &[(from, Elliptic), (to, Point | Line | Circular)],
             ) => Some(vec![measured(shown, |value| Constraint::Distance {
                 from,
                 to,

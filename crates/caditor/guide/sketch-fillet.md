@@ -1,11 +1,11 @@
 # Sketch fillet and chamfer
 
-{command:sketch.fillet} rounds the corner where two lines or arcs meet with an arc tangent to
-both. Click near the corner, then move the pointer to set the radius and click, or type the radius
-and press Enter.
+{command:sketch.fillet} rounds the corner where two lines, arcs or elliptical arcs meet with an
+arc tangent to both. Click near the corner, then move the pointer to set the radius and click, or
+type the radius and press Enter.
 
-To round several corners at once, select them first: the points at the corners, or the lines and
-arcs meeting there (select a whole outline to round all its corners). Starting the tool takes every
+To round several corners at once, select them first: the points at the corners, or the curves
+meeting there (select a whole outline to round all its corners). Starting the tool takes every
 corner in the selection, says how many it takes and what it left out and why, and one radius rounds
 them all in one step that one undo takes back. Clicking more corners before setting the radius adds
 them.

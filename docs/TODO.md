@@ -134,12 +134,11 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   path would need a vector-equality or along-the-curve spacing the solver lacks), and text (a
   font, a height, bold and italic, set along a curve, its letters becoming closed regions that
   extrude).
-- [low · medium] Ellipses and elliptical arcs cannot be extended, offset or filleted; take a
-  tangent with a circle or arc only where the two share a point (elsewhere it needs a parameter
-  along the ellipse, as splines have) and none with a spline or another ellipse; take no distance
-  to a point, line or curve; project into other sketches as splines; and a point snapped to the end
-  of a slanted ellipse's minor axis is kept on the ellipse but not at the end, the sketch having
-  no constraint for a point on the line through the centre square to the axis.
+- [low · medium] Ellipses take no tangent or distance with a spline or another ellipse (each
+  would need a parameter on both curves, as `SplinesMeet` has for two splines), are refused by
+  Offset (an offset would be a spline within a tolerance that no constraint keeps at the
+  distance), and a chamfer by a distance and an angle from an elliptical arc is refused, since
+  `Angle` takes no ellipse.
 - [medium · hard] A spline is only the control points it was drawn with: a point has no tangent or
   curvature handle to set the direction and pull of the curve there, which would be stored as
   constraints on the point rather than as positions so the solver and dimensions keep reading

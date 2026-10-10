@@ -214,6 +214,7 @@ pub fn measured(sketch: &Sketch, constraint: &Constraint) -> Option<Measured> {
         | Constraint::Curvature(..)
         | Constraint::Equal(..)
         | Constraint::Midpoint { .. }
+        | Constraint::OnMinorAxis { .. }
         | Constraint::Concentric(..)
         | Constraint::Collinear(..)
         | Constraint::Symmetric { .. }
@@ -222,6 +223,12 @@ pub fn measured(sketch: &Sketch, constraint: &Constraint) -> Option<Measured> {
 }
 
 fn point_to_curve(sketch: &Sketch, point: Point2, curve: EntityId) -> Option<Measured> {
+    if sketch.is_elliptic(curve) {
+        return Some(Measured::Points(
+            point,
+            sketch.closest_on_ellipse(curve, point)?,
+        ));
+    }
     if let Some(line) = LineSpan::of(sketch, curve) {
         return Some(Measured::PointToLine(point, line));
     }
@@ -247,6 +254,16 @@ fn curve_to_curve(sketch: &Sketch, from: EntityId, to: EntityId) -> Option<Measu
     };
     if let Some((on_spline, on_other)) = spline_gap {
         return Some(Measured::Points(on_spline, on_other));
+    }
+    let ellipse_gap = if sketch.is_elliptic(from) {
+        sketch.ellipse_gap(from, to)
+    } else if sketch.is_elliptic(to) {
+        sketch.ellipse_gap(to, from)
+    } else {
+        None
+    };
+    if let Some((on_ellipse, on_other)) = ellipse_gap {
+        return Some(Measured::Points(on_ellipse, on_other));
     }
     match (sketch.circle(from), sketch.circle(to)) {
         (None, None) => {

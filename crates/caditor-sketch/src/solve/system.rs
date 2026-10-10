@@ -161,6 +161,14 @@ impl System {
         }
         let joints = OnceCell::new();
         for (id, constraint) in sketch.active_constraints() {
+            if let Some((_, start)) = system.ellipse_parameter_start(sketch, &joints, constraint)? {
+                let index = system.values.len();
+                system.values.push(start);
+                system.parameter_variables.insert(index);
+                system.wrapping_parameters.insert(index);
+                system.parameters.insert(id, vec![index]);
+                continue;
+            }
             let starts = system.parameter_start(sketch, &joints, constraint)?;
             if !starts.is_empty() {
                 let indices = starts
@@ -358,20 +366,25 @@ impl System {
         &self,
         sketch: &Sketch,
         joints: &Joints,
-        constraint: &Constraint,
+        id: ConstraintId,
         circle: EntityId,
         ellipse: EntityId,
-    ) -> Result<Form, SketchError> {
-        let point = joints
-            .joint(sketch, circle, ellipse)
-            .ok_or_else(|| not_joined(sketch, constraint, circle, ellipse))?;
+    ) -> Result<Vec<Form>, SketchError> {
+        let Some(point) = joints.joint(sketch, circle, ellipse) else {
+            return self.ellipse_circle_contact(
+                sketch,
+                (ellipse, circle),
+                self.parameter_of(id)?,
+                0.0,
+            );
+        };
         let (circle, point) = (self.circle(sketch, circle)?, self.point(point)?);
-        Ok(Form::EllipseTouchCircle {
+        Ok(vec![Form::EllipseTouchCircle {
             fallback: self.initial_direction(circle.center, point),
             circle,
             point,
             ellipse: self.ellipse(sketch, ellipse)?,
-        })
+        }])
     }
 
     fn equal_ellipses(
@@ -411,6 +424,7 @@ impl System {
             side: self.initial_side(ellipse.center, &line),
             line,
             ellipse,
+            value: 0.0,
         })
     }
 
@@ -423,7 +437,7 @@ impl System {
         fallback_direction(to.at(&self.values) - from.at(&self.values))
     }
 
-    fn initial_side(&self, point: PointHandle, line: &LineHandle) -> f64 {
+    pub(super) fn initial_side(&self, point: PointHandle, line: &LineHandle) -> f64 {
         let start = line.start.at(&self.values);
         let direction = fallback_direction(line.end.at(&self.values) - start);
         let side = direction.perp_dot(point.at(&self.values) - start);
@@ -502,6 +516,10 @@ impl System {
             Constraint::Vertical(line) => vec![Form::Vertical(self.line(sketch, line)?)],
             Constraint::HorizontalPoints(a, b) => vec![Form::SameY(self.point(a)?, self.point(b)?)],
             Constraint::VerticalPoints(a, b) => vec![Form::SameX(self.point(a)?, self.point(b)?)],
+            Constraint::OnMinorAxis { point, ellipse } => vec![Form::OnMinorAxis {
+                point: self.point(point)?,
+                axis: self.line(sketch, ellipse)?,
+            }],
             Constraint::Midpoint { point, curve } => match sketch.entity(curve) {
                 Some(&Entity::EllipticalArc { start, end, .. }) => {
                     let (point, ellipse) = (self.point(point)?, self.ellipse(sketch, curve)?);
@@ -659,11 +677,11 @@ impl System {
                 }
                 (Role::Circular, Role::Elliptic) => {
                     let joints = joints.get_or_init(|| Joints::of(sketch));
-                    vec![self.ellipse_circle_tangent(sketch, joints, constraint, a, b)?]
+                    self.ellipse_circle_tangent(sketch, joints, id, a, b)?
                 }
                 (Role::Elliptic, Role::Circular) => {
                     let joints = joints.get_or_init(|| Joints::of(sketch));
-                    vec![self.ellipse_circle_tangent(sketch, joints, constraint, b, a)?]
+                    self.ellipse_circle_tangent(sketch, joints, id, b, a)?
                 }
                 _ => return Err(not_applicable(a, b)),
             },
@@ -726,6 +744,30 @@ impl System {
                     }
                     (Role::Line | Role::Circular, Role::Spline) => {
                         self.spline_gap(sketch, (to, from), self.parameter_of(id)?, value)?
+                    }
+                    (Role::Point, Role::Elliptic) => {
+                        self.ellipse_distance(sketch, (from, to), self.parameter_of(id)?, value)?
+                    }
+                    (Role::Elliptic, Role::Point) => {
+                        self.ellipse_distance(sketch, (to, from), self.parameter_of(id)?, value)?
+                    }
+                    (Role::Circular, Role::Elliptic) => self.ellipse_circle_contact(
+                        sketch,
+                        (to, from),
+                        self.parameter_of(id)?,
+                        value,
+                    )?,
+                    (Role::Elliptic, Role::Circular) => self.ellipse_circle_contact(
+                        sketch,
+                        (from, to),
+                        self.parameter_of(id)?,
+                        value,
+                    )?,
+                    (Role::Line, Role::Elliptic) => {
+                        vec![self.ellipse_line_gap(sketch, (to, from), value)?]
+                    }
+                    (Role::Elliptic, Role::Line) => {
+                        vec![self.ellipse_line_gap(sketch, (from, to), value)?]
                     }
                     (Role::Point, Role::Line) => vec![self.line_distance(sketch, from, to, value)?],
                     (Role::Line, Role::Point) => vec![self.line_distance(sketch, to, from, value)?],
@@ -1079,10 +1121,6 @@ pub(crate) fn arc_joint(sketch: &Sketch, arc: EntityId, other: EntityId) -> Opti
     Joints::of(sketch).arc_joint(sketch, arc, other)
 }
 
-pub(crate) fn share_a_point(sketch: &Sketch, first: EntityId, second: EntityId) -> bool {
-    Joints::of(sketch).joint(sketch, first, second).is_some()
-}
-
 pub(super) struct Joints {
     parents: BTreeMap<EntityId, EntityId>,
     on_curve: BTreeMap<EntityId, BTreeSet<EntityId>>,
@@ -1117,7 +1155,12 @@ impl Joints {
         joints
     }
 
-    fn joint(&self, sketch: &Sketch, first: EntityId, second: EntityId) -> Option<EntityId> {
+    pub(super) fn joint(
+        &self,
+        sketch: &Sketch,
+        first: EntityId,
+        second: EntityId,
+    ) -> Option<EntityId> {
         let on_second: BTreeSet<EntityId> = self
             .points_on(sketch, second)
             .into_iter()

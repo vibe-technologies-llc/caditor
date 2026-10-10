@@ -149,6 +149,15 @@ struct EllipsePartials {
     minor: f64,
 }
 
+struct EllipseAt {
+    frame: EllipseFrame,
+    cos: f64,
+    sin: f64,
+    point: Point2,
+    tangent: Vector2,
+    bend: Vector2,
+}
+
 impl EllipseHandle {
     pub(crate) fn minor_circle(&self) -> CircleHandle {
         CircleHandle {
@@ -174,6 +183,58 @@ impl EllipseHandle {
             },
             axis,
         }
+    }
+
+    fn at(&self, values: &[f64], context: &Context, parameter: usize) -> EllipseAt {
+        let frame = self.frame(values, context);
+        let (sin, cos) = (TAU * value(values, parameter)).sin_cos();
+        let (unit, across) = (frame.axis.unit, frame.axis.unit.perp());
+        let radial = unit * (frame.major * cos) + across * (frame.minor * sin);
+        EllipseAt {
+            point: self.center.at(values) + radial,
+            tangent: (across * (frame.minor * cos) - unit * (frame.major * sin)) * TAU,
+            bend: -radial * (TAU * TAU),
+            frame,
+            cos,
+            sin,
+        }
+    }
+
+    fn push_point(
+        &self,
+        values: &[f64],
+        context: &Context,
+        at: &EllipseAt,
+        gradient: &mut Gradient,
+        partial: Vector2,
+    ) {
+        let (a, b) = (at.frame.major, at.frame.minor);
+        let unit = at.frame.axis.unit;
+        self.center.push(gradient, partial);
+        let partials = EllipsePartials {
+            axis: partial * (a * at.cos) - partial.perp() * (b * at.sin),
+            major: at.cos * partial.dot(unit),
+            minor: at.sin * partial.dot(unit.perp()),
+        };
+        self.push(values, context, &at.frame, gradient, &partials);
+    }
+
+    fn push_tangent(
+        &self,
+        values: &[f64],
+        context: &Context,
+        at: &EllipseAt,
+        gradient: &mut Gradient,
+        partial: Vector2,
+    ) {
+        let (a, b) = (at.frame.major, at.frame.minor);
+        let unit = at.frame.axis.unit;
+        let partials = EllipsePartials {
+            axis: (-partial * (a * at.sin) - partial.perp() * (b * at.cos)) * TAU,
+            major: -TAU * at.sin * partial.dot(unit),
+            minor: TAU * at.cos * partial.dot(unit.perp()),
+        };
+        self.push(values, context, &at.frame, gradient, &partials);
     }
 
     fn push(
@@ -589,6 +650,7 @@ pub(crate) enum Form {
         line: LineHandle,
         ellipse: EllipseHandle,
         side: f64,
+        value: f64,
     },
     EllipseTouch {
         line: LineHandle,
@@ -610,6 +672,38 @@ pub(crate) enum Form {
         point: PointHandle,
         terms: Arc<[(PointHandle, f64)]>,
         along: Vector2,
+    },
+    EllipseFoot {
+        point: PointHandle,
+        ellipse: EllipseHandle,
+        parameter: usize,
+        fallback: Vector2,
+    },
+    EllipseDistance {
+        point: PointHandle,
+        ellipse: EllipseHandle,
+        parameter: usize,
+        fallback: Vector2,
+        side: f64,
+        value: f64,
+    },
+    EllipseOnCircle {
+        ellipse: EllipseHandle,
+        parameter: usize,
+        circle: CircleHandle,
+        fallback: Vector2,
+        side: f64,
+        value: f64,
+    },
+    EllipseAcrossRadius {
+        ellipse: EllipseHandle,
+        parameter: usize,
+        circle: CircleHandle,
+        fallbacks: (Vector2, Vector2),
+    },
+    OnMinorAxis {
+        point: PointHandle,
+        axis: LineHandle,
     },
 }
 
@@ -653,7 +747,10 @@ impl Form {
             | Self::ArcLength { value, .. }
             | Self::SplineOnLine { value, .. }
             | Self::SplineOnCircle { value, .. }
-            | Self::SplineDistance { value, .. } => Some(value),
+            | Self::SplineDistance { value, .. }
+            | Self::EllipseTangent { value, .. }
+            | Self::EllipseDistance { value, .. }
+            | Self::EllipseOnCircle { value, .. } => Some(value),
             Self::SameX(a, b) => fixed_coordinate(a, b, |position| position.x),
             Self::SameY(a, b) => fixed_coordinate(a, b, |position| position.y),
             Self::OnLine { .. }
@@ -682,10 +779,12 @@ impl Form {
             | Self::EndCurvature { .. }
             | Self::MatchedCurvature(..)
             | Self::OnEllipse { .. }
-            | Self::EllipseTangent { .. }
             | Self::EllipseTouch { .. }
             | Self::EllipseMiddle { .. }
             | Self::EllipseTouchCircle { .. }
+            | Self::EllipseFoot { .. }
+            | Self::EllipseAcrossRadius { .. }
+            | Self::OnMinorAxis { .. }
             | Self::Through { .. } => None,
         }
     }
@@ -712,7 +811,91 @@ impl Form {
                 line,
                 ellipse,
                 side,
-            } => ellipse_tangent(&line, &ellipse, side, values, context, gradient),
+                value,
+            } => ellipse_tangent(&line, &ellipse, (side, value), values, context, gradient),
+            Self::OnMinorAxis { point, axis } => {
+                let direction = axis.direction(values, context);
+                let offset = point.at(values) - axis.start.at(values);
+                point.push(gradient, direction.unit);
+                axis.start.push(gradient, -direction.unit);
+                axis.push_vector(gradient, direction.back_from_unit(offset));
+                direction.unit.dot(offset)
+            }
+            Self::EllipseFoot {
+                point,
+                ellipse,
+                parameter,
+                fallback,
+            } => {
+                let at = ellipse.at(values, context, parameter);
+                let along = Direction::of(at.tangent, fallback, context);
+                let offset = point.at(values) - at.point;
+                let turning = along.back_from_unit(offset);
+                point.push(gradient, along.unit);
+                ellipse.push_point(values, context, &at, gradient, -along.unit);
+                ellipse.push_tangent(values, context, &at, gradient, turning);
+                gradient.push((parameter, turning.dot(at.bend) - along.unit.dot(at.tangent)));
+                along.unit.dot(offset)
+            }
+            Self::EllipseDistance {
+                point,
+                ellipse,
+                parameter,
+                fallback,
+                side,
+                value,
+            } => {
+                let at = ellipse.at(values, context, parameter);
+                let along = Direction::of(at.tangent, fallback, context);
+                let offset = point.at(values) - at.point;
+                let normal = along.unit.perp() * side;
+                let turning = along.back_from_unit(-offset.perp() * side);
+                point.push(gradient, normal);
+                ellipse.push_point(values, context, &at, gradient, -normal);
+                ellipse.push_tangent(values, context, &at, gradient, turning);
+                gradient.push((parameter, turning.dot(at.bend) - normal.dot(at.tangent)));
+                normal.dot(offset) - value
+            }
+            Self::EllipseOnCircle {
+                ellipse,
+                parameter,
+                circle,
+                fallback,
+                side,
+                value,
+            } => {
+                let at = ellipse.at(values, context, parameter);
+                let direction =
+                    Direction::of(at.point - circle.center.at(values), fallback, context);
+                let outward = direction.unit * side;
+                ellipse.push_point(values, context, &at, gradient, outward);
+                gradient.push((parameter, outward.dot(at.tangent)));
+                circle.center.push(gradient, -outward);
+                circle.push_radius(values, context, gradient, -side);
+                (direction.length - circle.radius(values)) * side - value
+            }
+            Self::EllipseAcrossRadius {
+                ellipse,
+                parameter,
+                circle,
+                fallbacks: (radial_fallback, tangent_fallback),
+            } => {
+                let at = ellipse.at(values, context, parameter);
+                let radial = Direction::of(
+                    at.point - circle.center.at(values),
+                    radial_fallback,
+                    context,
+                );
+                let tangent = Direction::of(at.tangent, tangent_fallback, context);
+                let scale = context.scale;
+                let across = radial.back_from_unit(tangent.unit * scale);
+                let turning = tangent.back_from_unit(radial.unit * scale);
+                ellipse.push_point(values, context, &at, gradient, across);
+                circle.center.push(gradient, -across);
+                ellipse.push_tangent(values, context, &at, gradient, turning);
+                gradient.push((parameter, across.dot(at.tangent) + turning.dot(at.bend)));
+                radial.unit.dot(tangent.unit) * scale
+            }
             Self::EllipseTouch {
                 line,
                 point,
@@ -1284,7 +1467,7 @@ fn on_ellipse(
 fn ellipse_tangent(
     line: &LineHandle,
     ellipse: &EllipseHandle,
-    side: f64,
+    (side, gap): (f64, f64),
     values: &[f64],
     context: &Context,
     gradient: &mut Gradient,
@@ -1314,7 +1497,7 @@ fn ellipse_tangent(
             },
         );
     }
-    distance - side * reach
+    distance - side * (reach + gap)
 }
 
 fn ellipse_touch(
@@ -1797,11 +1980,13 @@ mod tests {
                 line: line(6, 8),
                 ellipse: ellipse(0, 2, 11),
                 side: 1.0,
+                value: 0.0,
             },
             Form::EllipseTangent {
                 line: line(12, 4),
                 ellipse: ellipse(14, 2, 10),
                 side: -1.0,
+                value: 0.75,
             },
             Form::EllipseTouch {
                 line: line(4, 6),
@@ -1861,6 +2046,57 @@ mod tests {
                 point: point(14),
                 terms: Arc::from([(point(0), 0.25), (point(4), 0.5), (point(8), 0.25)]),
                 along: Vector2::Y,
+            },
+            Form::EllipseFoot {
+                point: point(12),
+                ellipse: ellipse(0, 2, 10),
+                parameter: 16,
+                fallback: Vector2::X,
+            },
+            Form::OnMinorAxis {
+                point: point(14),
+                axis: line(4, 8),
+            },
+            Form::EllipseDistance {
+                point: point(14),
+                ellipse: ellipse(4, 8, 11),
+                parameter: 17,
+                fallback: Vector2::Y,
+                side: -1.0,
+                value: 0.75,
+            },
+            Form::EllipseOnCircle {
+                ellipse: ellipse(0, 2, 10),
+                parameter: 17,
+                circle: circle(12, 11),
+                fallback: Vector2::X,
+                side: 1.0,
+                value: 0.0,
+            },
+            Form::EllipseOnCircle {
+                ellipse: ellipse(4, 6, 11),
+                parameter: 16,
+                circle: arc(12, 14),
+                fallback: Vector2::X,
+                side: -1.0,
+                value: 0.5,
+            },
+            Form::EllipseAcrossRadius {
+                ellipse: ellipse(0, 2, 10),
+                parameter: 16,
+                circle: arc(12, 14),
+                fallbacks: (Vector2::X, Vector2::Y),
+            },
+            Form::EllipseAcrossRadius {
+                ellipse: EllipseHandle {
+                    center: PointHandle::Fixed(Point2::new(0.5, -0.25)),
+                    major: point(6),
+                    minor: RadiusHandle::Fixed(2.0),
+                    fallback: Vector2::X,
+                },
+                parameter: 17,
+                circle: circle(8, 11),
+                fallbacks: (Vector2::X, Vector2::Y),
             },
         ]
     }

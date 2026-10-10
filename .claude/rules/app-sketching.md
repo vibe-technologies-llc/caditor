@@ -316,8 +316,9 @@ paths:
   frame the tool aims through the displayed sketch, previews the result and puts its words, or
   why not, where hover descriptions go. Trim and Extend aim at splines too, so they can be refused
   in words. Ellipses and elliptical arcs are Trim's targets like lines, circles and arcs
-  (`trimming::is_trimmable`, the keyboard's steps and the trim path included); Extend refuses
-  them in words. The sketch axes and collinear or co-circular overlaps cut and bound them like any
+  (`trimming::is_trimmable`, the keyboard's steps and the trim path included); Extend takes the
+  ends of elliptical arcs (its targets skip their centre and axis points) and refuses whole
+  ellipses in words. The sketch axes and collinear or co-circular overlaps cut and bound them like any
   curve (`sketch.md`): the words name "Vertical axis" or the overlapping curve, the preview marks
   the cuts and the axis or overlapping curve is highlighted; the axes themselves are never aimed
   at.
@@ -392,7 +393,8 @@ paths:
   undoable "Draw blend curve" transaction, refused in a notice otherwise.
 - Sketch fillet is named so, to keep it apart from the model's Fillet. It first takes its corners:
   started with a selection, every selected point that is a corner (`Sketch::corner_at`) and every
-  corner where two selected lines or arcs meet (`Sketch::fillet_corners`), duplicates dropped
+  corner where two selected lines, arcs or elliptical arcs meet (`Sketch::fillet_corners`),
+  duplicates dropped
   (`filleting::gathered`), the words saying "Round 4 corners" and how many selected items were
   left out with the first one's reason (a point that is no corner, a curve meeting no other
   selected one); else the curve end under the pointer, refused in words when it is no corner. A
@@ -445,9 +447,9 @@ paths:
   a horizontal or vertical points constraint with its centre. The far end of a major axis is held
   by a `Symmetric` of the axis point and the new point about the centre; a minor axis end by a
   `Coincident` with the ellipse and, when the major axis is level or upright, a vertical or
-  horizontal points constraint with the centre (`AxisEnd::MinorUpright`, `MinorLevel`). On a
-  slanted ellipse (`MinorSlanted`) nothing keeps it at the end, since the sketch has no
-  constraint for a point on a line through the centre square to the axis, and the label says so.
+  horizontal points constraint with the centre (`AxisEnd::MinorUpright`, `MinorLevel`), on a
+  slanted ellipse (`MinorSlanted`) an `OnMinorAxis` with it, so the point stays at the end
+  however the ellipse turns.
 - A line's end within `POINT_TOLERANCE` of where a line from its start would touch a circle, arc,
   ellipse or elliptical arc (`snap::tangents_from`, the two tangent points from outside it, within
   an arc's sweep; an ellipse's found on the unit circle it scales to) lands
@@ -600,8 +602,9 @@ paths:
   for a lone arc, beyond it within its sweep its length, inside it its sweep, outside its sweep its
   radius. A lone ellipse or elliptical arc adds its major and minor radii (`MajorRadius`,
   `MinorRadius`, the one already held left out), as the Radius tool does with one selected; an
-  ellipse picked with anything else is refused in words, its centre and axis points dimensioning
-  the rest. A lone conic takes its rho (`Constraint::Rho`, through the Radius candidates,
+  ellipse picked with a point, line, circle or arc takes the distance between them (drawn between
+  `Sketch::ellipse_gap`'s points), with anything else it is refused in words, its centre and axis
+  points dimensioning the rest. A lone conic takes its rho (`Constraint::Rho`, through the Radius candidates,
   labelled `rho` and laid out from the middle of its chord to the point it passes there), never
   added as a reference, since rho is no freedom the other constraints could take up
   (`sketch_tools::determines`). A point and a construction line also wait for placement (`dimensioning::about_axis`):

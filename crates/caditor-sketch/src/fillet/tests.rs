@@ -666,3 +666,122 @@ fn a_line_and_an_arc_are_chamfered_by_a_distance_and_an_angle_held_at_the_line()
     );
     assert!(solve(&sketch).solution.redundancies().is_empty());
 }
+
+fn elliptic_ends(sketch: &Sketch, curve: EntityId) -> (EntityId, EntityId) {
+    match sketch.entity(curve) {
+        Some(Entity::EllipticalArc { start, end, .. }) => (*start, *end),
+        other => panic!("expected an elliptical arc, found {other:?}"),
+    }
+}
+
+fn gap_to_ellipse(sketch: &Sketch, ellipse: EntityId, point: Point2) -> f64 {
+    sketch
+        .closest_on_ellipse(ellipse, point)
+        .unwrap()
+        .distance(point)
+}
+
+fn line_on_elliptical_arc(corner_at_start: bool) -> (Sketch, EntityId, EntityId) {
+    let mut sketch = Sketch::new(Plane::XY);
+    let arc = sketch.add_elliptical_arc(
+        Point2::ZERO,
+        Point2::new(10.0, 0.0),
+        4.0,
+        Point2::new(10.0, 0.0),
+        Point2::new(0.0, 4.0),
+    );
+    let (start, end) = elliptic_ends(&sketch, arc);
+    let (line, joint) = if corner_at_start {
+        (
+            sketch.add_line(Point2::new(10.0, 0.0), Point2::new(20.0, 0.0)),
+            start,
+        )
+    } else {
+        (
+            sketch.add_line(Point2::new(0.0, 4.0), Point2::new(0.0, 14.0)),
+            end,
+        )
+    };
+    let (line_start, _) = ends(&sketch, line);
+    sketch
+        .add_constraint(Constraint::Coincident(line_start, joint))
+        .unwrap();
+    (sketch, line, arc)
+}
+
+#[test]
+fn a_line_meeting_an_elliptical_arc_is_rounded_by_an_arc_tangent_to_both() {
+    for corner_at_start in [true, false] {
+        let (mut sketch, line, ellipse) = line_on_elliptical_arc(corner_at_start);
+        let freedom = solve(&sketch).solution.degrees_of_freedom();
+        let corner = sketch.corner_between(ellipse, line).unwrap();
+
+        let rounding = sketch.fillet(&corner, 1.5, mm(1.5)).unwrap();
+
+        let fillet = sketch.arc(rounding).unwrap();
+        let (start, end) = sketch.line_endpoints(line).unwrap();
+        let line_gap = (fillet.center - start)
+            .perp_dot((end - start).normalize())
+            .abs();
+        assert!((fillet.radius - 1.5).abs() < EXACT);
+        assert!((line_gap - 1.5).abs() < EXACT, "{line_gap}");
+        assert!((gap_to_ellipse(&sketch, ellipse, fillet.center) - 1.5).abs() < 1e-6);
+        assert!(has(&sketch, &Constraint::Tangent(ellipse, rounding)));
+        let solved = solve(&sketch);
+        assert_clean(&solved);
+        assert_eq!(solved.solution.degrees_of_freedom(), freedom);
+        let moved = solved.geometry.arc(rounding).unwrap();
+        assert!(moved.center.distance(fillet.center) < 1e-6);
+    }
+}
+
+#[test]
+fn an_elliptical_arc_too_short_for_the_radius_is_refused_and_one_is_chamfered_along_it() {
+    let (mut sketch, line, ellipse) = line_on_elliptical_arc(true);
+    let corner = sketch.corner_between(line, ellipse).unwrap();
+
+    assert!(matches!(
+        sketch.rounding(&corner, 40.0),
+        Err(FilletError::TooLarge { .. })
+    ));
+
+    sketch.chamfer(&corner, &equal(2.0)).unwrap();
+    let (start, _) = elliptic_ends(&sketch, ellipse);
+    let touch = sketch.point(start).unwrap();
+    assert!((touch.distance(Point2::new(10.0, 0.0)) - 2.0).abs() < EXACT);
+    assert!(gap_to_ellipse(&sketch, ellipse, touch) < EXACT);
+    assert_clean(&solve(&sketch));
+}
+
+#[test]
+fn a_corner_of_two_elliptical_arcs_is_rounded_tangent_to_both() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let first = sketch.add_elliptical_arc(
+        Point2::ZERO,
+        Point2::new(10.0, 0.0),
+        4.0,
+        Point2::new(10.0, 0.0),
+        Point2::new(0.0, 4.0),
+    );
+    let second = sketch.add_elliptical_arc(
+        Point2::new(10.0, -5.0),
+        Point2::new(16.0, -5.0),
+        5.0,
+        Point2::new(10.0, 0.0),
+        Point2::new(4.0, -5.0),
+    );
+    let (corner, _) = elliptic_ends(&sketch, first);
+    let (other, _) = elliptic_ends(&sketch, second);
+    sketch
+        .add_constraint(Constraint::Coincident(corner, other))
+        .unwrap();
+    let found = sketch.corner_between(first, second).unwrap();
+
+    let rounding = sketch.fillet(&found, 1.0, mm(1.0)).unwrap();
+
+    let fillet = sketch.arc(rounding).unwrap();
+    for ellipse in [first, second] {
+        assert!((gap_to_ellipse(&sketch, ellipse, fillet.center) - 1.0).abs() < 1e-6);
+    }
+    assert_clean(&solve(&sketch));
+}

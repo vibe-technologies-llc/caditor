@@ -1116,7 +1116,7 @@ impl Command {
             Self::IntersectBody => "Intersect the whole body of the highlighted face",
             Self::SketchTool(Tool::Select) => "Select tool",
             Self::SketchTool(Tool::Trim) => "Trim sketch curves",
-            Self::SketchTool(Tool::Extend) => "Extend a line or arc",
+            Self::SketchTool(Tool::Extend) => "Extend a line, arc or elliptical arc",
             Self::SketchTool(Tool::Offset) => "Offset sketch curves",
             Self::SketchTool(Tool::Mirror) => "Mirror sketch geometry",
             Self::SketchTool(Tool::RectangularPattern) => "Repeat sketch geometry in a grid",

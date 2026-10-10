@@ -404,7 +404,7 @@ fn construction_curves_cut_and_pieces_stay_construction() {
 }
 
 #[test]
-fn ellipses_cut_other_curves_but_cannot_be_split_whole_or_extended() {
+fn ellipses_cut_other_curves_but_cannot_be_split_or_extended_whole() {
     let mut sketch = Sketch::new(Plane::XY);
     let ellipse = sketch.add_ellipse(Point2::new(20.0, 0.0), Point2::new(28.0, 0.0), 3.0);
     let arc = sketch.add_elliptical_arc(
@@ -417,9 +417,15 @@ fn ellipses_cut_other_curves_but_cannot_be_split_whole_or_extended() {
     let line = sketch.add_line(Point2::ZERO, Point2::new(40.0, 0.0));
 
     assert!(matches!(
-        sketch.extend(arc, Point2::new(5.0, 30.0)),
-        Err(ExtendError::NotExtendable { .. })
+        sketch.extend(ellipse, Point2::new(28.0, 0.0)),
+        Err(ExtendError::Closed { .. })
     ));
+    assert_eq!(
+        sketch
+            .extension(arc, Point2::new(0.0, 32.0))
+            .map(|extension| extension.target),
+        Ok(EntityId::VERTICAL_AXIS)
+    );
     let on_ellipse = sketch.add_point(Point2::new(20.0, 3.0));
     assert!(matches!(
         sketch.check_split(ellipse, on_ellipse),
@@ -450,6 +456,30 @@ fn upright(sketch: &mut Sketch, x: f64) -> EntityId {
 fn top_arc(sketch: &mut Sketch) -> EntityId {
     let at = |angle: f64| AWAY + Point2::new(10.0 * angle.cos(), 4.0 * angle.sin());
     sketch.add_elliptical_arc(AWAY, AWAY + Point2::new(10.0, 0.0), 4.0, at(0.3), at(2.8))
+}
+
+#[test]
+fn an_elliptical_arc_extends_round_its_ellipse_to_the_nearest_crossing_at_either_end() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let arc = top_arc(&mut sketch);
+    let (start, end) = elliptic_ends(&sketch, arc);
+    let far = upright(&mut sketch, -9.8);
+    let near = upright(&mut sketch, 9.8);
+
+    let extension = sketch.extend(arc, at(&sketch, end)).unwrap();
+    assert_eq!(extension.target, far);
+    let reached = at(&sketch, end);
+    assert!((reached.x - (AWAY.x - 9.8)).abs() < 1e-9);
+    assert!(reached.y > AWAY.y);
+    assert!(has(&sketch, &Constraint::Coincident(end, far)));
+
+    let extension = sketch.extend(arc, at(&sketch, start)).unwrap();
+    assert_eq!(extension.target, near);
+    assert!((at(&sketch, start).x - (AWAY.x + 9.8)).abs() < 1e-9);
+    let shape = sketch.ellipse(arc).unwrap();
+    assert!((shape.minor_radius - 4.0).abs() < EXACT);
+    assert!((shape.point_at(shape.end()).distance(reached)) < 1e-9);
+    assert_solves_in_place(&sketch);
 }
 
 #[test]

@@ -21,10 +21,10 @@ use crate::{
 };
 
 pub const CORNER_PROMPT: &str =
-    "Click the corner to round, where two lines or arcs meet, or drag from it";
+    "Click the corner to round, where two lines, arcs or elliptical arcs meet, or drag from it";
 pub const RADIUS_PROMPT: &str = "Click where the fillet should pass, or type its radius";
 pub const CHAMFER_CORNER_PROMPT: &str =
-    "Click the corner to cut, where two lines or arcs meet, or drag from it";
+    "Click the corner to cut, where two lines, arcs or elliptical arcs meet, or drag from it";
 pub const DISTANCE_PROMPT: &str = "Click where the chamfer should pass, or type how far from the corner it cuts: 5, or 5, 3 for a different distance on each curve, or 5 < 45 for a distance and an angle";
 pub const TRANSACTION: &str = "Fillet corner";
 pub const CHAMFER_TRANSACTION: &str = "Chamfer corner";
@@ -37,7 +37,8 @@ const TYPE_DISTANCE: &str = "Type a distance, two distances, or a distance < ang
 const CHOOSE_ANOTHER: &str = "Esc: choose another corner";
 const NO_CORNER_HIGHLIGHTED: &str =
     "Highlight a corner first, with Highlight the next item in the view";
-const NOTHING_TO_ROUND: &str = "The sketch has no corner where two lines or arcs meet";
+const NOTHING_TO_ROUND: &str =
+    "The sketch has no corner where two lines, arcs or elliptical arcs meet";
 const CHOOSE_FIRST: &str = "Choose the corner first";
 const SAME_CORNER: f64 = 1e-6;
 pub const FIELD: ValueField = ValueField {
@@ -527,7 +528,12 @@ impl Filleting {
     pub fn steppable(&self, sketch: &Sketch) -> Result<(), &'static str> {
         let curves = sketch
             .entities()
-            .filter(|(_, entity)| matches!(entity, Entity::Line { .. } | Entity::Arc { .. }))
+            .filter(|(_, entity)| {
+                matches!(
+                    entity,
+                    Entity::Line { .. } | Entity::Arc { .. } | Entity::EllipticalArc { .. }
+                )
+            })
             .take(2)
             .count();
         if curves == 2 {
@@ -616,7 +622,7 @@ fn gathered(sketch: &Sketch, selected: &[EntityId]) -> (Vec<Corner>, Option<Left
     for curve in curves {
         if !corners.iter().any(|corner| corner.curves.contains(&curve)) {
             refused.push(format!(
-                "{} meets no other selected line or arc at a corner",
+                "{} meets no other selected line, arc or elliptical arc at a corner",
                 sketch.entity_label(curve)
             ));
         }

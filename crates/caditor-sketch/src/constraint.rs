@@ -91,6 +91,10 @@ pub enum Constraint {
         conic: EntityId,
         value: Expression,
     },
+    OnMinorAxis {
+        point: EntityId,
+        ellipse: EntityId,
+    },
 }
 
 impl Constraint {
@@ -125,6 +129,7 @@ impl Constraint {
             Self::MajorRadius { .. } => "Major radius",
             Self::MinorRadius { .. } => "Minor radius",
             Self::Rho { .. } => "Rho",
+            Self::OnMinorAxis { .. } => "On minor axis",
         }
     }
 
@@ -153,6 +158,10 @@ impl Constraint {
             | Self::Curvature(a, b)
             | Self::Equal(a, b)
             | Self::Midpoint { point: a, curve: b }
+            | Self::OnMinorAxis {
+                point: a,
+                ellipse: b,
+            }
             | Self::Concentric(a, b)
             | Self::Collinear(a, b)
             | Self::Distance { from: a, to: b, .. }
@@ -198,6 +207,7 @@ impl Constraint {
             | Self::Concentric(..)
             | Self::Collinear(..)
             | Self::Symmetric { .. }
+            | Self::OnMinorAxis { .. }
             | Self::Fix { .. } => None,
         }
     }
@@ -269,6 +279,7 @@ impl Constraint {
             | Self::Concentric(..)
             | Self::Collinear(..)
             | Self::Symmetric { .. }
+            | Self::OnMinorAxis { .. }
             | Self::Fix { .. } => None,
         }
     }
@@ -307,6 +318,10 @@ impl Constraint {
             | Self::Curvature(a, b)
             | Self::Equal(a, b)
             | Self::Midpoint { point: a, curve: b }
+            | Self::OnMinorAxis {
+                point: a,
+                ellipse: b,
+            }
             | Self::Concentric(a, b)
             | Self::Collinear(a, b)
             | Self::Distance { from: a, to: b, .. }

@@ -118,11 +118,8 @@ impl Target {
                 let label = sketch.entity_label(curve);
                 match end {
                     AxisEnd::FarMajor => format!("Far end of the major axis of {label}"),
-                    AxisEnd::MinorUpright | AxisEnd::MinorLevel => {
+                    AxisEnd::MinorUpright | AxisEnd::MinorLevel | AxisEnd::MinorSlanted => {
                         format!("End of the minor axis of {label}")
-                    }
-                    AxisEnd::MinorSlanted => {
-                        format!("End of the minor axis of {label}, kept on it but not at the end")
                     }
                 }
             }
@@ -183,7 +180,13 @@ impl Target {
                     Constraint::Coincident(point, curve),
                     Constraint::HorizontalPoints(point, centre),
                 ],
-                AxisEnd::MinorSlanted => vec![Constraint::Coincident(point, curve)],
+                AxisEnd::MinorSlanted => vec![
+                    Constraint::Coincident(point, curve),
+                    Constraint::OnMinorAxis {
+                        point,
+                        ellipse: curve,
+                    },
+                ],
             },
             Self::Centre {
                 corners: (first, second),
@@ -2138,7 +2141,16 @@ pub mod tests {
                 ..
             } if curve == slanted
         ));
-        assert!(across.target.label(&sketch).contains("not at the end"));
+        assert_eq!(
+            across.target.joins(EntityId::from_raw(99)),
+            vec![
+                Constraint::Coincident(EntityId::from_raw(99), slanted),
+                Constraint::OnMinorAxis {
+                    point: EntityId::from_raw(99),
+                    ellipse: slanted,
+                },
+            ]
+        );
         assert_eq!(middle.target, Target::Midpoint(arc));
         assert!((middle.position - (arc_centre + Vector2::new(0.0, 4.0))).length() < 1e-9);
         assert_eq!(

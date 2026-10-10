@@ -131,6 +131,18 @@ pub enum Outline {
         points: Vec<Point2>,
         kind: SplineKind,
     },
+    Ellipse {
+        center: Point2,
+        major: Point2,
+        minor_radius: f64,
+    },
+    EllipticalArc {
+        center: Point2,
+        major: Point2,
+        minor_radius: f64,
+        start: Point2,
+        end: Point2,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -168,6 +180,7 @@ enum Shape {
     Arc,
     Spline(usize, SplineForm),
     Ellipse,
+    EllipticalArc,
 }
 
 impl Shape {
@@ -178,7 +191,8 @@ impl Shape {
             Entity::Circle { .. } => Self::Circle,
             Entity::Arc { .. } => Self::Arc,
             Entity::Spline { points, kind } => Self::Spline(points.len(), SplineForm::of(*kind)),
-            Entity::Ellipse { .. } | Entity::EllipticalArc { .. } => Self::Ellipse,
+            Entity::Ellipse { .. } => Self::Ellipse,
+            Entity::EllipticalArc { .. } => Self::EllipticalArc,
         }
     }
 }
@@ -191,6 +205,41 @@ impl Outline {
             Self::Circle { .. } => Shape::Circle,
             Self::Arc { .. } => Shape::Arc,
             Self::Spline { points, kind } => Shape::Spline(points.len(), SplineForm::of(*kind)),
+            Self::Ellipse { .. } => Shape::Ellipse,
+            Self::EllipticalArc { .. } => Shape::EllipticalArc,
+        }
+    }
+
+    fn elliptical(
+        ellipse: &EllipseGeometry,
+        local: impl Fn(Point2) -> Point2,
+        same_turn: bool,
+    ) -> Self {
+        let center = local(ellipse.center);
+        let major = local(ellipse.center + ellipse.major);
+        let minor_radius = ellipse.minor_radius;
+        if ellipse.is_full() {
+            return Self::Ellipse {
+                center,
+                major,
+                minor_radius,
+            };
+        }
+        let (start, end) = (
+            local(ellipse.point_at(ellipse.start)),
+            local(ellipse.point_at(ellipse.end())),
+        );
+        let (start, end) = if same_turn {
+            (start, end)
+        } else {
+            (end, start)
+        };
+        Self::EllipticalArc {
+            center,
+            major,
+            minor_radius,
+            start,
+            end,
         }
     }
 
@@ -341,6 +390,39 @@ fn curve_outline(
                 Outline::through(&sampled(PROJECTED_SPLINE_POINTS))?
             }
         }
+        Curve::Ellipse(ellipse)
+            if edges.len() == 1
+                && tolerance::parallel(ellipse.frame().normal(), plane.normal()) =>
+        {
+            let frame = ellipse.frame();
+            let interval = first.interval();
+            let whole =
+                first.is_closed() && interval.length() >= TAU - tolerance::DIRECTION_TOLERANCE;
+            let center = local(ellipse.center());
+            let major_end = local(ellipse.center() + frame.x_axis() * ellipse.major_radius());
+            if whole {
+                Outline::Ellipse {
+                    center,
+                    major: major_end,
+                    minor_radius: ellipse.minor_radius(),
+                }
+            } else {
+                let (start, end) = (*ends.first()?, *ends.get(1)?);
+                let counter_clockwise = frame.normal().dot(plane.normal()) > 0.0;
+                let (start, end) = if counter_clockwise {
+                    (start, end)
+                } else {
+                    (end, start)
+                };
+                Outline::EllipticalArc {
+                    center,
+                    major: major_end,
+                    minor_radius: ellipse.minor_radius(),
+                    start,
+                    end,
+                }
+            }
+        }
         _ if edges.len() == 1 => Outline::through(&sampled(PROJECTED_SPLINE_POINTS))?,
         _ => return None,
     };
@@ -411,7 +493,11 @@ fn sketch_entity_outline(
         },
         Entity::Ellipse { .. } | Entity::EllipticalArc { .. } => {
             let ellipse = source.ellipse(entity)?;
-            Outline::through(&ellipse_samples(&ellipse, PROJECTED_SPLINE_POINTS, &local))?
+            if aligned {
+                Outline::elliptical(&ellipse, local, same_turn)
+            } else {
+                Outline::through(&ellipse_samples(&ellipse, PROJECTED_SPLINE_POINTS, &local))?
+            }
         }
     };
     let spline = source.spline(entity);
@@ -490,6 +576,44 @@ impl TransactionBuilder<'_> {
                     Entity::Spline {
                         points,
                         kind: *kind,
+                    },
+                )
+            }
+            Outline::Ellipse {
+                center,
+                major,
+                minor_radius,
+            } => {
+                let center = point(self, *center);
+                let major = point(self, *major);
+                self.add_sketch_entity(
+                    feature,
+                    Entity::Ellipse {
+                        center,
+                        major,
+                        minor_radius: *minor_radius,
+                    },
+                )
+            }
+            Outline::EllipticalArc {
+                center,
+                major,
+                minor_radius,
+                start,
+                end,
+            } => {
+                let center = point(self, *center);
+                let major = point(self, *major);
+                let start = point(self, *start);
+                let end = point(self, *end);
+                self.add_sketch_entity(
+                    feature,
+                    Entity::EllipticalArc {
+                        center,
+                        major,
+                        minor_radius: *minor_radius,
+                        start,
+                        end,
                     },
                 )
             }
@@ -713,6 +837,62 @@ fn place(sketch: &mut Sketch, entity: EntityId, outline: &Outline) -> Result<(),
                     .map_err(|_| ())?;
             }
             Ok(())
+        }
+        (
+            Entity::Ellipse { center, major, .. },
+            Outline::Ellipse {
+                center: at,
+                major: toward,
+                minor_radius,
+            },
+        ) => {
+            set_point(sketch, center, *at)?;
+            set_point(sketch, major, *toward)?;
+            sketch
+                .replace_entity(
+                    entity,
+                    Entity::Ellipse {
+                        center,
+                        major,
+                        minor_radius: *minor_radius,
+                    },
+                )
+                .map(|_| ())
+                .map_err(|_| ())
+        }
+        (
+            Entity::EllipticalArc {
+                center,
+                major,
+                start,
+                end,
+                ..
+            },
+            Outline::EllipticalArc {
+                center: at,
+                major: toward,
+                minor_radius,
+                start: from,
+                end: to,
+            },
+        ) => {
+            set_point(sketch, center, *at)?;
+            set_point(sketch, major, *toward)?;
+            set_point(sketch, start, *from)?;
+            set_point(sketch, end, *to)?;
+            sketch
+                .replace_entity(
+                    entity,
+                    Entity::EllipticalArc {
+                        center,
+                        major,
+                        minor_radius: *minor_radius,
+                        start,
+                        end,
+                    },
+                )
+                .map(|_| ())
+                .map_err(|_| ())
         }
         _ => Err(()),
     }

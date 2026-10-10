@@ -846,6 +846,7 @@ pub fn glyphs_of(sketch: &Sketch, constraint: &Constraint) -> Vec<(EntityId, Gly
         Constraint::HorizontalPoints(a, b) => on_each(GlyphKind::Horizontal, [a, b]),
         Constraint::VerticalPoints(a, b) => on_each(GlyphKind::Vertical, [a, b]),
         Constraint::Midpoint { point, .. } => vec![(point, GlyphKind::Midpoint)],
+        Constraint::OnMinorAxis { point, .. } => vec![(point, GlyphKind::Perpendicular)],
         Constraint::Concentric(a, b) => on_each(GlyphKind::Concentric, [a, b]),
         Constraint::Collinear(a, b) => on_each(GlyphKind::Collinear, [a, b]),
         Constraint::Symmetric { first, second, .. } => {

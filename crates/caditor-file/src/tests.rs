@@ -1442,6 +1442,16 @@ fn ellipses_and_their_radii_round_trip_and_older_readers_report_them() {
             value: Expression::Measure(3.0, Unit::Millimetre),
         })
         .unwrap();
+    let top = sketch.add_point(Point2::new(1.0, 6.0));
+    sketch
+        .add_constraint(Constraint::Coincident(top, ellipse))
+        .unwrap();
+    sketch
+        .add_constraint(Constraint::OnMinorAxis {
+            point: top,
+            ellipse,
+        })
+        .unwrap();
     sketch.set_construction(arc, true).unwrap();
     transaction.add_feature("Oval", FeatureKind::from(sketch));
     document.apply(transaction.finish()).unwrap();
@@ -1452,7 +1462,8 @@ fn ellipses_and_their_radii_round_trip_and_older_readers_report_them() {
         &text
             .replace("\"elliptical_arc\"", "\"elliptical_curl\"")
             .replace("\"ellipse\"", "\"eclipse\"")
-            .replace("\"major_radius\"", "\"major_reach\""),
+            .replace("\"major_radius\"", "\"major_reach\"")
+            .replace("\"on_minor_axis\"", "\"on_minor_ray\""),
     );
 
     assert!(text.contains("\"minor_radius\":4.0"), "{text}");
@@ -1466,6 +1477,7 @@ fn ellipses_and_their_radii_round_trip_and_older_readers_report_them() {
     );
     assert!(reported.contains("(elliptical_curl)"), "{reported}");
     assert!(reported.contains("(major_reach)"), "{reported}");
+    assert!(reported.contains("(on_minor_ray)"), "{reported}");
 }
 
 #[test]

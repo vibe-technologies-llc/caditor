@@ -60,7 +60,7 @@ fn a_sketch_fillet_rounds_every_selected_corner_in_one_undoable_step_and_names_w
     assert!(harness.shows(filleting::RADIUS_PROMPT));
     assert!(harness.shows_containing("Round 4 corners"));
     assert!(harness.shows_containing(&format!(
-        "1 selected item left out: {lone_label} is not where two lines or arcs meet"
+        "1 selected item left out: {lone_label} is not where two lines, arcs or elliptical arcs meet"
     )));
 
     type_point(&mut harness, "3");
