@@ -7,7 +7,7 @@ use std::{
 
 use crate::interrupt;
 
-const FACES_PER_THREAD: usize = 8;
+pub(crate) const FACES_PER_THREAD: usize = 8;
 
 pub(crate) fn available_threads() -> usize {
     thread::available_parallelism().map_or(1, NonZeroUsize::get)
@@ -16,9 +16,10 @@ pub(crate) fn available_threads() -> usize {
 pub(crate) fn each_in_order<T: Send>(
     count: usize,
     most_threads: usize,
+    least_each: usize,
     make: impl Fn(usize) -> T + Sync,
 ) -> Vec<T> {
-    let threads = most_threads.min(count.div_ceil(FACES_PER_THREAD));
+    let threads = most_threads.min(count.div_ceil(least_each.max(1)));
     if threads <= 1 {
         return (0..count).map(make).collect();
     }

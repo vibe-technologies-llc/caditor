@@ -3,6 +3,7 @@ use std::{
     fmt,
     num::NonZeroUsize,
     panic::{self, AssertUnwindSafe},
+    slice,
     sync::{
         Arc, OnceLock, Weak,
         atomic::{AtomicBool, Ordering},
@@ -136,7 +137,7 @@ pub struct BodyFace {
 #[derive(Debug, Clone, PartialEq)]
 pub struct BodyEdge {
     pub name: EdgeName,
-    pub points: Vec<Point3>,
+    polyline: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -329,15 +330,12 @@ impl BodyMesh {
         let edges = mesh
             .edges()
             .iter()
-            .filter(|polyline| !is_seam(solid, polyline.edge))
-            .filter_map(|polyline| {
+            .enumerate()
+            .filter(|(_, polyline)| !is_seam(solid, polyline.edge))
+            .filter_map(|(index, polyline)| {
                 Some(BodyEdge {
                     name: solid.edge(polyline.edge)?.name(),
-                    points: polyline
-                        .positions
-                        .iter()
-                        .filter_map(|position| mesh.position(*position))
-                        .collect(),
+                    polyline: index,
                 })
             })
             .collect();
@@ -395,11 +393,45 @@ impl BodyMesh {
             .and_then(|face| face.bounds)
     }
 
-    pub fn edge_points(&self, name: EdgeName) -> Option<&[Point3]> {
+    pub fn edge_points(&self, name: EdgeName) -> Option<EdgePoints<'_>> {
         self.edges
             .iter()
             .find(|edge| edge.name == name)
-            .map(|edge| edge.points.as_slice())
+            .map(|edge| self.points(edge))
+    }
+
+    pub fn points(&self, edge: &BodyEdge) -> EdgePoints<'_> {
+        let mesh = self.source.solid().and_then(SolidResult::mesh);
+        let positions = mesh
+            .and_then(|mesh| mesh.edges().get(edge.polyline))
+            .map_or(&[][..], |polyline| polyline.positions.as_slice());
+        EdgePoints {
+            mesh,
+            positions: positions.iter(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct EdgePoints<'a> {
+    mesh: Option<&'a Mesh>,
+    positions: slice::Iter<'a, u32>,
+}
+
+impl EdgePoints<'_> {
+    pub fn segments(self) -> impl Iterator<Item = (Point3, Point3)> {
+        self.clone().zip(self.skip(1))
+    }
+}
+
+impl Iterator for EdgePoints<'_> {
+    type Item = Point3;
+
+    fn next(&mut self) -> Option<Point3> {
+        let mesh = self.mesh?;
+        self.positions
+            .by_ref()
+            .find_map(|position| mesh.position(*position))
     }
 }
 
@@ -1242,6 +1274,43 @@ mod tests {
             assert_eq!(shared, copied_mesh(mesh, &faces), "{sample:?}");
             assert_eq!(*shown.mesh, shared, "{sample:?}");
             assert_eq!(shown.faces.len(), faces.len());
+        }
+    }
+
+    #[test]
+    fn body_edges_read_their_points_from_the_kernel_mesh() {
+        for sample in Sample::ALL {
+            let document = sample.document().unwrap();
+            let evaluation = evaluate(&mut Recompute::default(), &document);
+            let (_, source) = only_body(&evaluation);
+            let solid = &source.solid().unwrap().solid;
+            let mesh = source.solid().unwrap().mesh().unwrap();
+
+            let shown = BodyMesh::of(&source, Weak::new()).unwrap();
+            let polylines: Vec<_> = mesh
+                .edges()
+                .iter()
+                .filter(|polyline| !is_seam(solid, polyline.edge))
+                .collect();
+
+            assert_eq!(shown.edges.len(), polylines.len(), "{sample:?}");
+            for (edge, polyline) in shown.edges.iter().zip(polylines) {
+                let expected: Vec<Point3> = polyline
+                    .positions
+                    .iter()
+                    .map(|position| mesh.position(*position).unwrap())
+                    .collect();
+                let points: Vec<Point3> = shown.points(edge).collect();
+                let segments: Vec<(Point3, Point3)> = shown.points(edge).segments().collect();
+
+                assert_eq!(edge.name, solid.edge(polyline.edge).unwrap().name());
+                assert_eq!(points, expected, "{sample:?}");
+                assert_eq!(segments.len(), expected.len() - 1);
+                assert_eq!(
+                    shown.edge_points(edge.name).unwrap().collect::<Vec<_>>(),
+                    expected
+                );
+            }
         }
     }
 

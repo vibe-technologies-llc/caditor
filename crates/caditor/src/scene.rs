@@ -1297,7 +1297,7 @@ impl Builder<'_> {
             };
             self.scene
                 .lines
-                .extend(edge_lines(&edge.points, &placed, drawn));
+                .extend(edge_lines(mesh.points(edge).segments(), &placed, drawn));
             if shows_hidden_edges && color.alpha > 0.0 {
                 let hidden = EdgeStroke {
                     layer: Layer::Hidden,
@@ -1307,7 +1307,7 @@ impl Builder<'_> {
                 };
                 self.scene
                     .lines
-                    .extend(edge_lines(&edge.points, &placed, hidden));
+                    .extend(edge_lines(mesh.points(edge).segments(), &placed, hidden));
             }
         }
         if color.is_none() && !pickable_edges {
@@ -1435,17 +1435,14 @@ impl Builder<'_> {
             placement: None,
         });
         for edge in &cut.edges {
-            let segments = edge.points.windows(2).filter_map(|pair| match pair {
-                [start, end] => Some(Line {
-                    start: *start,
-                    end: *end,
-                    color: self.palette.cut_preview_edge,
-                    width: self.palette.body_edge_width,
-                    layer: Layer::Front,
-                    pick: None,
-                    stroke: Stroke::Solid,
-                }),
-                _ => None,
+            let segments = cut.points(edge).segments().map(|(start, end)| Line {
+                start,
+                end,
+                color: self.palette.cut_preview_edge,
+                width: self.palette.body_edge_width,
+                layer: Layer::Front,
+                pick: None,
+                stroke: Stroke::Solid,
             });
             self.scene.lines.extend(segments);
         }
@@ -1496,17 +1493,14 @@ impl Builder<'_> {
         for edge in &mesh.edges {
             self.scene
                 .lines
-                .extend(edge.points.windows(2).filter_map(|pair| match pair {
-                    [start, end] => Some(Line {
-                        start: *start,
-                        end: *end,
-                        color: self.palette.body_edge,
-                        width: self.palette.body_edge_width,
-                        layer: Layer::Model,
-                        pick: None,
-                        stroke: Stroke::Solid,
-                    }),
-                    _ => None,
+                .extend(mesh.points(edge).segments().map(|(start, end)| Line {
+                    start,
+                    end,
+                    color: self.palette.body_edge,
+                    width: self.palette.body_edge_width,
+                    layer: Layer::Model,
+                    pick: None,
+                    stroke: Stroke::Solid,
                 }));
         }
         if let OpenChoice::Faces {
@@ -1527,17 +1521,14 @@ impl Builder<'_> {
             .iter()
             .filter(|edge| !before.contains(&edge.name))
         {
-            let segments = edge.points.windows(2).filter_map(|pair| match pair {
-                [start, end] => Some(Line {
-                    start: *start,
-                    end: *end,
-                    color: self.palette.lines.selected,
-                    width: self.palette.body_edge_width + CHOSEN_EDGE_EXTRA_WIDTH,
-                    layer: Layer::Model,
-                    pick: None,
-                    stroke: Stroke::Solid,
-                }),
-                _ => None,
+            let segments = result.points(edge).segments().map(|(start, end)| Line {
+                start,
+                end,
+                color: self.palette.lines.selected,
+                width: self.palette.body_edge_width + CHOSEN_EDGE_EXTRA_WIDTH,
+                layer: Layer::Model,
+                pick: None,
+                stroke: Stroke::Solid,
             });
             self.scene.lines.extend(segments);
         }
@@ -1693,18 +1684,19 @@ impl Builder<'_> {
                 }
                 None => (self.palette.body_edge, self.palette.body_edge_width, None),
             };
-            let segments = edge.points.windows(2).filter_map(|pair| match pair {
-                [start, end] => Some(Line {
-                    start: *start,
-                    end: *end,
+            let segments = open
+                .before
+                .points(edge)
+                .segments()
+                .map(|(start, end)| Line {
+                    start,
+                    end,
                     color,
                     width,
                     layer: Layer::Model,
                     pick,
                     stroke: Stroke::Solid,
-                }),
-                _ => None,
-            });
+                });
             self.scene.lines.extend(segments);
         }
     }
@@ -1930,9 +1922,11 @@ impl Builder<'_> {
                         pick: None,
                         dashed: dashed || layer == Layer::Hidden,
                     };
-                    self.scene
-                        .lines
-                        .extend(edge_lines(&points, &|point| point, stroke));
+                    self.scene.lines.extend(edge_lines(
+                        points.iter().copied().zip(points.iter().copied().skip(1)),
+                        &|point| point,
+                        stroke,
+                    ));
                 }
             }
         }
@@ -2100,32 +2094,29 @@ struct EdgeStroke {
 }
 
 fn edge_lines<'a>(
-    points: &'a [Point3],
+    segments: impl Iterator<Item = (Point3, Point3)> + 'a,
     placed: &'a impl Fn(Point3) -> Point3,
     stroke: EdgeStroke,
 ) -> impl Iterator<Item = Line> + 'a {
     let mut along = 0.0;
-    points.windows(2).filter_map(move |pair| match pair {
-        [start, end] => {
-            let line_stroke = if stroke.dashed {
-                Stroke::Dashed {
-                    along: along as f32,
-                }
-            } else {
-                Stroke::Solid
-            };
-            along += start.distance(*end);
-            Some(Line {
-                start: placed(*start),
-                end: placed(*end),
-                color: stroke.color,
-                width: stroke.width,
-                layer: stroke.layer,
-                pick: stroke.pick,
-                stroke: line_stroke,
-            })
+    segments.map(move |(start, end)| {
+        let line_stroke = if stroke.dashed {
+            Stroke::Dashed {
+                along: along as f32,
+            }
+        } else {
+            Stroke::Solid
+        };
+        along += start.distance(end);
+        Line {
+            start: placed(start),
+            end: placed(end),
+            color: stroke.color,
+            width: stroke.width,
+            layer: stroke.layer,
+            pick: stroke.pick,
+            stroke: line_stroke,
         }
-        _ => None,
     })
 }
 
@@ -2475,7 +2466,7 @@ fn pickable_points(sources: &Sources<'_>, pickable: Pickable, reference_size: f6
         Pickable::Edge { body, edge } => bodies
             .get(body)
             .and_then(|mesh| mesh.edge_points(edge))
-            .map(<[Point3]>::to_vec)
+            .map(Iterator::collect)
             .unwrap_or_default(),
         Pickable::Vertex { body, vertex } => bodies
             .get(body)
@@ -2507,7 +2498,7 @@ fn pickable_points(sources: &Sources<'_>, pickable: Pickable, reference_size: f6
             .body_before()
             .filter(|open| open.feature == feature)
             .and_then(|open| open.before.edge_points(edge))
-            .map(<[Point3]>::to_vec)
+            .map(Iterator::collect)
             .unwrap_or_default(),
         Pickable::Region { feature, region } => selection::swept_regions(document, evaluation, feature)
             .map(|(sketch, regions)| region_points(document, evaluation, sketch, regions, region))

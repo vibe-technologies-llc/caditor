@@ -5,7 +5,7 @@ use caditor_geometry::{Point3, Vector2};
 use caditor_kernel::Mesh;
 
 use crate::{
-    bodies::{BodyMesh, face_keys},
+    bodies::{BodyMesh, EdgePoints, face_keys},
     selection::{Pickable, SelectionFilter},
     sketch_drag::{BoxMode, ScreenArea},
 };
@@ -178,7 +178,7 @@ pub fn within_body<S: Fn(Point3) -> Option<Seen>>(
         Catch::Edges => mesh
             .edges
             .iter()
-            .filter(|edge| polyline_caught(&edge.points, looking, area))
+            .filter(|edge| polyline_caught(mesh.points(edge), looking, area))
             .map(|edge| Pickable::Edge {
                 body,
                 edge: edge.name,
@@ -202,16 +202,13 @@ pub fn within_body<S: Fn(Point3) -> Option<Seen>>(
 }
 
 fn samples<S: Fn(Point3) -> Option<Seen>>(
-    points: &[Point3],
+    points: EdgePoints<'_>,
     looking: &Looking<'_, S>,
 ) -> Vec<Point3> {
     let screen = |point: Point3| (looking.seen)(point).map(|seen| seen.at);
-    let mut sampled = Vec::with_capacity(points.len());
-    for pair in points.windows(2) {
-        let [from, to] = [pair.first(), pair.get(1)].map(|point| point.copied());
-        let (Some(from), Some(to)) = (from, to) else {
-            continue;
-        };
+    let last = points.clone().last();
+    let mut sampled = Vec::new();
+    for (from, to) in points.segments() {
         let span = screen(from)
             .zip(screen(to))
             .map_or(1.0, |(start, end)| start.distance(end));
@@ -220,12 +217,12 @@ fn samples<S: Fn(Point3) -> Option<Seen>>(
             .clamp(1.0, MAX_SEGMENT_SAMPLES) as usize;
         sampled.extend((0..steps).map(|step| from.lerp(to, step as f64 / steps as f64)));
     }
-    sampled.extend(points.last().copied());
+    sampled.extend(last);
     sampled
 }
 
 fn polyline_caught<S: Fn(Point3) -> Option<Seen>>(
-    points: &[Point3],
+    points: EdgePoints<'_>,
     looking: &Looking<'_, S>,
     area: &ScreenArea,
 ) -> bool {

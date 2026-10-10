@@ -1,10 +1,7 @@
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet};
 
 use caditor_geometry::{Aabb2, Point2, Vector3};
-use spade::{
-    ConstrainedDelaunayTriangulation, Point2 as PlanePoint, Triangulation,
-    handles::{FixedFaceHandle, FixedVertexHandle, InnerTag},
-};
+use spade::Point2 as PlanePoint;
 
 use crate::{
     coordinates::distance_to_segment,
@@ -13,10 +10,10 @@ use crate::{
     sense::Sense,
     surface::Surface,
     tessellation::{
-        EdgeSampling, POLL_EVERY, TessellationError,
+        EdgeSampling, POLL_EVERY, TessellationError, constrained,
         density::{Density, density},
-        insertion::insertion_order,
-        patch::{FacePatch, PatchPosition, PatchVertex},
+        patch::{FacePatch, PatchPosition, PatchShape, PatchVertex},
+        pieces,
     },
     tolerance::{LINEAR_RESOLUTION, SamplingTolerance},
     topology::{EdgeId, Face, FaceId, Solid},
@@ -30,8 +27,6 @@ const MAX_GAP_PIECES: f64 = 4096.0;
 const NORMAL_NUDGE: f64 = 1e-3;
 const MAX_POLE_EDGE_PIECES: usize = 1024;
 const PARALLEL_ENDS: f64 = 1e-6;
-
-type Cdt = ConstrainedDelaunayTriangulation<PlanePoint<f64>>;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct BoundaryPoint {
@@ -120,6 +115,7 @@ pub(crate) struct Budget {
     pub placed: usize,
     pub tolerance: SamplingTolerance,
     pub density: Option<Density>,
+    pub threads: usize,
 }
 
 pub(crate) fn triangulate(
@@ -157,7 +153,14 @@ pub(crate) fn triangulate(
         }
         points.add_interior(uv)?;
     }
-    points.triangulate()?.emit(surface, face.sense(), grid_size)
+    let shape = PatchShape {
+        grid: grid_size,
+        points: points.points.len(),
+        in_pieces: pieces::allowed(points.points.len(), budget.placed),
+    };
+    points
+        .triangulate(shape, budget.threads)?
+        .emit(surface, face.sense(), shape)
 }
 
 pub(crate) struct PoleSampling {
@@ -558,135 +561,51 @@ impl<'a> FacePoints<'a> {
         self.insert(LocalPoint { uv, position: None }).map(|_| ())
     }
 
-    fn triangulate(self) -> Result<FaceTriangulation, TessellationError> {
-        let order = insertion_order(&self.mapped);
-        let mut cdt = Cdt::new();
-        let mut handles: Vec<Option<FixedVertexHandle>> = vec![None; self.points.len()];
-        for (inserted, index) in order.iter().enumerate() {
-            if inserted.is_multiple_of(POLL_EVERY) {
-                interrupt::check()?;
-            }
-            let (Some(point), Some(slot)) = (self.mapped.get(*index), handles.get_mut(*index))
-            else {
-                return Err(TessellationError::Triangulation(self.face));
-            };
-            let handle = cdt
-                .insert(*point)
-                .map_err(|_| TessellationError::Triangulation(self.face))?;
-            if handle.index() != inserted {
-                return Err(TessellationError::Triangulation(self.face));
-            }
-            *slot = Some(handle);
-        }
-        let handle = |index: &usize| {
-            handles
-                .get(*index)
-                .copied()
-                .flatten()
-                .ok_or(TessellationError::Triangulation(self.face))
+    fn triangulate(
+        self,
+        shape: PatchShape,
+        threads: usize,
+    ) -> Result<FaceTriangulation, TessellationError> {
+        let segments = constrained::segments(&self.loops);
+        let pieced = if shape.in_pieces {
+            pieces::triangles(self.face, &self.mapped, &segments, threads)?
+        } else {
+            None
         };
-        for indices in &self.loops {
-            let corners = indices.len();
-            for (index, from) in indices.iter().enumerate() {
-                if index.is_multiple_of(POLL_EVERY) {
-                    interrupt::check()?;
-                }
-                let Some(to) = indices.get((index + 1) % corners) else {
-                    continue;
-                };
-                let (from, to) = (handle(from)?, handle(to)?);
-                if from == to || cdt.exists_constraint(from, to) {
-                    continue;
-                }
-                if cdt.try_add_constraint(from, to).is_empty() {
-                    return Err(TessellationError::SelfIntersectingBoundary(self.face));
-                }
-            }
-        }
-        let mut points = Vec::with_capacity(order.len());
-        for index in &order {
-            points.push(
-                *self
-                    .points
-                    .get(*index)
-                    .ok_or(TessellationError::Triangulation(self.face))?,
-            );
-        }
+        let triangles = match pieced {
+            Some(triangles) => triangles,
+            None => constrained::whole(self.face, &self.mapped, &segments)?,
+        };
         Ok(FaceTriangulation {
             face: self.face,
-            cdt,
-            points,
+            points: self.points,
+            triangles,
         })
     }
 }
 
 struct FaceTriangulation {
     face: FaceId,
-    cdt: Cdt,
     points: Vec<LocalPoint>,
+    triangles: Vec<[usize; 3]>,
 }
 
 impl FaceTriangulation {
-    fn inside_faces(&self) -> Vec<bool> {
-        let mut parity: Vec<Option<bool>> = vec![None; self.cdt.num_all_faces()];
-        let mut pending: VecDeque<FixedFaceHandle<InnerTag>> = VecDeque::new();
-        for face in self.cdt.inner_faces() {
-            for edge in face.adjacent_edges() {
-                if !edge.rev().face().is_outer() {
-                    continue;
-                }
-                let inside = self.cdt.is_constraint_edge(edge.fix().as_undirected());
-                if let Some(slot) = parity.get_mut(face.fix().index())
-                    && slot.is_none()
-                {
-                    *slot = Some(inside);
-                    pending.push_back(face.fix());
-                }
-            }
-        }
-        while let Some(fixed) = pending.pop_front() {
-            let face = self.cdt.face(fixed);
-            let here = parity
-                .get(fixed.index())
-                .copied()
-                .flatten()
-                .unwrap_or(false);
-            for edge in face.adjacent_edges() {
-                let Some(neighbour) = edge.rev().face().as_inner() else {
-                    continue;
-                };
-                let crossing = self.cdt.is_constraint_edge(edge.fix().as_undirected());
-                if let Some(slot) = parity.get_mut(neighbour.fix().index())
-                    && slot.is_none()
-                {
-                    *slot = Some(here != crossing);
-                    pending.push_back(neighbour.fix());
-                }
-            }
-        }
-        parity
-            .into_iter()
-            .map(|inside| inside.unwrap_or(false))
-            .collect()
-    }
-
     fn emit(
         self,
         surface: &Surface,
         sense: Sense,
-        grid: usize,
+        shape: PatchShape,
     ) -> Result<FacePatch, TessellationError> {
-        let inside = self.inside_faces();
         let mut corners: Vec<Option<u32>> = vec![None; self.points.len()];
         let mut patch = FacePatch {
-            grid,
+            shape,
             ..FacePatch::default()
         };
-        for face in self.cdt.inner_faces() {
-            if !inside.get(face.fix().index()).copied().unwrap_or(false) {
-                continue;
+        for (step, [a, b, c]) in self.triangles.iter().copied().enumerate() {
+            if step.is_multiple_of(POLL_EVERY) {
+                interrupt::check()?;
             }
-            let [a, b, c] = face.vertices().map(|vertex| vertex.fix().index());
             let triangle = match sense {
                 Sense::Same => [a, b, c],
                 Sense::Reversed => [a, c, b],
