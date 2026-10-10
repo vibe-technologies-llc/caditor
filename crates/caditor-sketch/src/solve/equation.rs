@@ -202,6 +202,7 @@ pub(crate) struct SplineHandle {
     pub degree: usize,
     pub knots: Vec<f64>,
     pub weights: Option<Vec<f64>>,
+    pub periodic: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -320,7 +321,7 @@ impl SplineHandle {
     fn length(&self, values: &[f64], gradient: &mut Gradient, factor: f64) -> f64 {
         let count = self.points.len();
         let mut total = 0.0;
-        for (parameter, weight) in length_nodes(count) {
+        for (parameter, weight) in length_nodes(self.degree, &self.knots, count) {
             let [_, (first, slopes), _] = self.basis(parameter);
             let tangent = slopes
                 .iter()
@@ -338,6 +339,11 @@ impl SplineHandle {
     }
 
     pub(crate) fn basis(&self, parameter: f64) -> [(usize, Vec<f64>); 3] {
+        let parameter = if self.periodic {
+            parameter.rem_euclid(1.0)
+        } else {
+            parameter
+        };
         rational_basis(
             self.degree,
             &self.knots,
@@ -1502,6 +1508,7 @@ mod tests {
             degree,
             knots,
             weights: None,
+            periodic: false,
         })
     }
 
@@ -1511,6 +1518,7 @@ mod tests {
             degree: 2,
             knots: crate::curve::CONIC_KNOTS.to_vec(),
             weights: Some(vec![1.0, 2.5, 1.0]),
+            periodic: false,
         })
     }
 
@@ -1523,6 +1531,7 @@ mod tests {
             degree,
             knots,
             weights: None,
+            periodic: true,
         })
     }
 

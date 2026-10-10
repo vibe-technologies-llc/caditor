@@ -134,11 +134,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   path would need a vector-equality or along-the-curve spacing the solver lacks), and text (a
   font, a height, bold and italic, set along a curve, its letters becoming closed regions that
   extrude).
-- [low · medium] Fit-point splines pass their points at evenly spaced parameters
-  (`BSpline::interpolate`, `interpolate_closed`), so unevenly spaced fit points overshoot between
-  them; chord-length parameters would need the knots, and the solver's spline handles, to follow
-  the points. A point held on a closed spline stops at its seam, its parameter clamped to one
-  turn, and DXF fit-point splines still import as control splines (`BSpline::through`).
 - [low · medium] Ellipses and elliptical arcs cannot be extended, offset or filleted; take a
   tangent with a circle or arc only where the two share a point (elsewhere it needs a parameter
   along the ellipse, as splines have) and none with a spline or another ellipse; take no distance

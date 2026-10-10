@@ -34,6 +34,7 @@ pub(crate) use crate::solve::{
     system::{arc_joint, share_a_point},
 };
 use crate::{
+    entity::{Entity, SplineKind},
     id::{ConstraintId, EntityId},
     sketch::{DimensionValues, Sketch, SketchError},
     solve::{
@@ -44,6 +45,43 @@ use crate::{
         system::System,
     },
 };
+
+const SPACING_ROUNDS: usize = 8;
+const KNOT_SETTLING: f64 = 1e-10;
+
+fn spaced_fit_variables(sketch: &Sketch, system: &System) -> Vec<usize> {
+    sketch
+        .entities()
+        .filter_map(|(_, entity)| match entity {
+            Entity::Spline { points, kind } if kind.is_centripetal() => Some(points),
+            _ => None,
+        })
+        .flatten()
+        .filter_map(|point| system.points.get(point))
+        .flat_map(|x| [*x, x + 1])
+        .collect()
+}
+
+fn respaced(sketch: &Sketch, system: &System, values: &[f64]) -> Option<Sketch> {
+    let spaced: Vec<EntityId> = sketch
+        .entities()
+        .filter(|(_, entity)| entity.spline_kind().is_some_and(SplineKind::is_centripetal))
+        .map(|(id, _)| id)
+        .collect();
+    if spaced.is_empty() {
+        return None;
+    }
+    let moved = sketch.with_values(system, values);
+    spaced
+        .iter()
+        .any(
+            |spline| match (sketch.fit_layout(*spline), moved.fit_layout(*spline)) {
+                (Some(before), Some(after)) => !before.settled_against(&after, KNOT_SETTLING),
+                _ => false,
+            },
+        )
+        .then_some(moved)
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum EntityState {
@@ -266,61 +304,75 @@ impl Sketch {
         F: Fn(ParameterId) -> Result<Quantity, EvalError>,
     {
         let dimensions = self.evaluate(value_of)?;
-        let mut system = System::build(self, &dimensions)?;
-        let mut stiff = BTreeSet::new();
-        let targets: Vec<(usize, f64)> = drags
-            .iter()
-            .flat_map(|drag| drag.targets(&system))
-            .collect();
-        for (variable, target) in targets {
-            if let Some(slot) = system.values.get_mut(variable)
-                && target.is_finite()
-            {
-                *slot = target;
-                stiff.insert(variable);
-            }
-        }
-
-        let parts = Parts::of(&system);
-        let recall = Recall::new(&system, &dimensions, parts.drawn(), &stiff, previous);
-        let mut start = system.values.clone();
-        recall.start_from(&mut start);
-
-        let frozen = Solver {
-            system: &system,
-            cancelled,
-            stiff: &stiff,
-            stiffness: FROZEN,
-        };
-        let mut values = start.clone();
-        let held = !stiff.is_empty()
-            && frozen
-                .solve_parts(&parts.at(&system, &values), &mut values)?
-                .is_empty();
-        let solver = Solver {
-            stiffness: STIFF,
-            ..frozen
-        };
-        if !held {
-            values = start;
-            let failed = solver.solve_parts(&parts.at(&system, &values), &mut values)?;
-            if !failed.is_empty() {
-                for found in diagnose_failure(self, &solver, &failed, DIAGNOSIS_WORK)? {
-                    found.apply(&mut values);
+        let mut current: Cow<'_, Sketch> = Cow::Borrowed(self);
+        let mut round = 0;
+        loop {
+            let mut system = System::build(&current, &dimensions)?;
+            let mut stiff = BTreeSet::new();
+            let targets: Vec<(usize, f64)> = drags
+                .iter()
+                .flat_map(|drag| drag.targets(&system))
+                .collect();
+            for (variable, target) in targets {
+                if let Some(slot) = system.values.get_mut(variable)
+                    && target.is_finite()
+                {
+                    *slot = target;
+                    stiff.insert(variable);
                 }
             }
+            if round > 0 {
+                stiff.extend(spaced_fit_variables(&current, &system));
+            }
+
+            let parts = Parts::of(&system);
+            let recall = Recall::new(&system, &dimensions, parts.drawn(), &stiff, previous);
+            let mut start = system.values.clone();
+            recall.start_from(&mut start);
+
+            let frozen = Solver {
+                system: &system,
+                cancelled,
+                stiff: &stiff,
+                stiffness: FROZEN,
+            };
+            let mut values = start.clone();
+            let held = !stiff.is_empty()
+                && frozen
+                    .solve_parts(&parts.at(&system, &values), &mut values)?
+                    .is_empty();
+            let solver = Solver {
+                stiffness: STIFF,
+                ..frozen
+            };
+            if !held {
+                values = start;
+                let failed = solver.solve_parts(&parts.at(&system, &values), &mut values)?;
+                if !failed.is_empty() {
+                    for found in diagnose_failure(&current, &solver, &failed, DIAGNOSIS_WORK)? {
+                        found.apply(&mut values);
+                    }
+                }
+            }
+            if round < SPACING_ROUNDS
+                && let Some(respaced) = respaced(&current, &system, &values)
+            {
+                current = Cow::Owned(respaced);
+                round += 1;
+                continue;
+            }
+            return Ok(finish(Finished {
+                dimensions,
+                system: &system,
+                solver: &solver,
+                parts: parts.at(&system, &values),
+                values,
+                recall,
+            })?);
         }
-        Ok(finish(Finished {
-            dimensions,
-            system: &system,
-            solver: &solver,
-            parts: parts.at(&system, &values),
-            values,
-            recall,
-        })?)
     }
 
-    fn with_values(&self, system: &System, values: &[f64]) -> Self {
+    pub(crate) fn with_values(&self, system: &System, values: &[f64]) -> Self {
         let mut geometry = self.clone();
         for (point, x) in &system.points {
             geometry.set_point(*point, Point2::new(value(values, *x), value(values, x + 1)));

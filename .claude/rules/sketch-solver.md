@@ -64,13 +64,22 @@ paths:
   the interpolation of the fit points, and the fit points are held on the curve at their
   parameters by implicit `Form::Through` equations (the point minus the basis-weighted control
   points): an open one shares its end points with its fit points and holds the inner ones, a
-  closed one holds every fit point at the knots `i / n`. The equations determine the hidden
-  points, so the spline counts two degrees of freedom per fit point, and its fit points take
-  constraints and dimensions like any point.
+  closed one holds every fit point. Its knots and parameters are the `FitLayout` of the fit points
+  where the solve starts (`i / n` and uniform knots for an evenly spaced one). The equations
+  determine the hidden points, so the spline counts two degrees of freedom per fit point, and its
+  fit points take constraints and dimensions like any point.
+- A centripetal spline's knots depend on where its fit points are, which no equation
+  differentiates, so `solve_with` solves in rounds: when the solved fit points give knots more
+  than `KNOT_SETTLING` from those the round started with (`respaced`), it solves again from the
+  solved sketch, with the fit points of centripetal splines held stiff (`spaced_fit_variables`,
+  frozen first like dragged points), so the rest takes up the change and the knots settle the
+  next round; at most `SPACING_ROUNDS` rounds, the last one's system finishing the solve. A point
+  on the spline then lies on the curve the sketch draws (a test moves the fit points under it).
 - A spline's ends (`SplineEnd`, its end point and which end) take their legs from the handle
   (`end_legs`), so a tangent or curvature at a fit-point spline's end uses its hidden control
-  points and a conic's end curvature its weights (`end_factor` times `w_end w_after / w_next²`).
-  Closed splines have no ends.
+  points and a conic's end curvature its weights (`end_factor` of the handle's knots at that end,
+  times `w_end w_after / w_next²`). Closed splines have no ends; their handles are `periodic`, the
+  basis taking the parameter round one turn (`rem_euclid`).
 - A conic's weights come from its active `Rho` dimension when it has one, else from its stored
   rho, and a memo key holds every weighted spline's weights among its entities (`Key::weights`),
   since rho is no variable and would not otherwise reach the key.
@@ -83,7 +92,9 @@ paths:
   spline to a line or circle get a parameter of their own along the spline: an extra variable after
   the geometry's, counted in the degrees of freedom, never perturbed, clamped to the spline's range
   (a point held beyond the end of a spline that cannot move is a conflict), kept in the `SolveMemo`
-  (`System::parameters` lists each constraint's, named by constraint and position).
+  (`System::parameters` lists each constraint's, named by constraint and position). On a closed
+  spline it wraps instead (`System::wrapping_parameters`: never pushed against a bound, taken
+  modulo one turn after each step), so a point slides across the seam.
 - A distance from a spline to a line or circle is the tangency forms offset by the value
   (`Form::SplineOnLine` and `SplineOnCircle` carry a side, taken from the start, and the value;
   a tangency is side 1, value 0), with `SplineAlongLine` or `SplineAcrossRadius` keeping the
@@ -92,7 +103,8 @@ paths:
   nearest pair of samples, refined by Newton on the squared distance): `Form::SplinesMeet` along x
   and y and `Form::SplinesAlong`, their tangents parallel, three equations for two parameters.
 - Equal lengths with a spline (`Form::SameLength` of `LengthOf::Line` or `Spline`) differentiate
-  the Gauss–Legendre sum of the speed node by node.
+  the Gauss–Legendre sum of the speed node by node, five nodes in every knot span of the handle
+  (`length_nodes`), as `BSpline::length` sums it.
 - An angle to an arc is `Form::Angle` on the radius from the centre to the joint, turned by a
   right angle (counter-clockwise at the arc's start, clockwise at its end) through the target value.
 - It starts at the closest point (or the stationary point of the distance to the other curve),
@@ -128,7 +140,7 @@ paths:
 
 ## Curvature at a spline's end
 
-- A clamped spline's curvature at its end is `end_factor(count)` (from its knots) times the cross
+- A clamped spline's curvature at its end is `end_factor` (from its knots at that end) times the cross
   product of its first two legs over the first leg's length cubed, at either end with the legs
   taken from that end; a test checks it against the spline's own derivatives.
 - `Curvature` with a line holds the first two legs parallel; with a circle or arc,

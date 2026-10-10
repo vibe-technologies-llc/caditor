@@ -33,6 +33,7 @@ pub(crate) struct System {
     pub radius_variables: BTreeSet<usize>,
     pub parameters: BTreeMap<ConstraintId, Vec<usize>>,
     pub parameter_variables: BTreeSet<usize>,
+    pub wrapping_parameters: BTreeSet<usize>,
     pub entity_variables: BTreeMap<EntityId, Vec<usize>>,
     pub spans: Vec<(EntityId, PointHandle, PointHandle)>,
     pub spans_at_variable: BTreeMap<usize, Vec<usize>>,
@@ -93,6 +94,7 @@ impl System {
             fixed_radii,
             parameters: BTreeMap::new(),
             parameter_variables: BTreeSet::new(),
+            wrapping_parameters: BTreeSet::new(),
             entity_variables: BTreeMap::new(),
             spans: Vec::new(),
             spans_at_variable: BTreeMap::new(),
@@ -163,10 +165,17 @@ impl System {
             if !starts.is_empty() {
                 let indices = starts
                     .into_iter()
-                    .map(|start| {
+                    .map(|(spline, start)| {
                         let index = system.values.len();
                         system.values.push(start);
                         system.parameter_variables.insert(index);
+                        if system
+                            .splines
+                            .get(&spline)
+                            .is_some_and(|handle| handle.periodic)
+                        {
+                            system.wrapping_parameters.insert(index);
+                        }
                         index
                     })
                     .collect();

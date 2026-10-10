@@ -10,7 +10,7 @@ use caditor_document::{
 use caditor_expression::Expression;
 use caditor_geometry::{Plane, Point2, Vector2};
 use caditor_kernel::{MAX_SPLINE_DEGREE, SamplingTolerance};
-use caditor_sketch::{ArcGeometry, BSpline, Constraint, Entity, Sketch};
+use caditor_sketch::{ArcGeometry, BSpline, Constraint, Entity, Sketch, SplineKind};
 
 use crate::import::{
     Drawing, DrawingCurve, DrawingOptions, DrawingUnit, ImportError, MAX_DRAWING_CURVES,
@@ -558,7 +558,15 @@ fn uniform_cubic_splines_are_kept_exactly_and_others_are_fitted() {
             _ => None,
         })
         .collect();
-    assert_eq!(splines.len(), 3);
+    let fitted: Vec<(&Vec<Point2>, bool)> = drawing
+        .curves
+        .iter()
+        .filter_map(|curve| match curve {
+            DrawingCurve::FitSpline { fit_points, closed } => Some((fit_points, *closed)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(splines.len(), 2);
     let expected: Vec<Point2> = control.iter().map(|(x, y)| Point2::new(*x, *y)).collect();
     assert_eq!(*splines[0], expected);
 
@@ -567,9 +575,10 @@ fn uniform_cubic_splines_are_kept_exactly_and_others_are_fitted() {
         let point = arc.point_at(step as f64 / 100.0);
         assert!((point.length() - 10.0).abs() < 1e-4, "{point}");
     }
-    let through = BSpline::clamped(splines[2].clone()).unwrap();
-    assert!(near(through.point_at(0.0), Point2::new(0.0, 20.0)));
-    assert!(near(through.point_at(1.0), Point2::new(15.0, 25.0)));
+    let through: Vec<Point2> = [(0.0, 20.0), (5.0, 25.0), (10.0, 20.0), (15.0, 25.0)]
+        .map(|(x, y)| Point2::new(x, y))
+        .to_vec();
+    assert_eq!(fitted, vec![(&through, false)]);
 
     let notes = drawing.notes.join("\n");
     assert!(
@@ -577,9 +586,60 @@ fn uniform_cubic_splines_are_kept_exactly_and_others_are_fitted() {
         "{notes}"
     );
     assert!(
-        notes.contains("1 spline given only by points on the curve was rebuilt"),
+        notes.contains(
+            "1 spline given only by points on the curve was drawn through the same points as \
+             fit-point splines"
+        ),
         "{notes}"
     );
+}
+
+#[test]
+fn a_closed_spline_given_by_fit_points_imports_as_a_closed_fit_point_spline() {
+    let mut closed = vec![pair(0, "SPLINE"), pair(8, "0"), pair(70, 11), pair(71, 3)];
+    for (x, y) in [
+        (0.0, 0.0),
+        (20.0, 0.0),
+        (25.0, 15.0),
+        (5.0, 20.0),
+        (0.0, 0.0),
+    ] {
+        closed.extend([pair(11, x), pair(21, y)]);
+    }
+    let bytes = text(vec![header(Some(4)), section("ENTITIES", vec![closed])]);
+
+    let drawing = parse_dxf(&bytes).unwrap();
+    let document = Document::default();
+    let import = drawing_transaction(
+        &document,
+        &drawing,
+        SketchTarget::New {
+            name: "Outline".to_owned(),
+            plane: Plane::XY,
+        },
+        "Import",
+    );
+    let mut imported = document.clone();
+    imported.apply(import.transaction).unwrap();
+    let kinds: Vec<SplineKind> = sketch(&imported, import.sketch)
+        .entities()
+        .filter_map(|(_, entity)| entity.spline_kind())
+        .collect();
+
+    assert_eq!(
+        drawing.curves,
+        vec![DrawingCurve::FitSpline {
+            fit_points: vec![
+                Point2::new(0.0, 0.0),
+                Point2::new(20.0, 0.0),
+                Point2::new(25.0, 15.0),
+                Point2::new(5.0, 20.0),
+            ],
+            closed: true,
+        }]
+    );
+    assert_eq!(kinds, vec![SplineKind::fit(true)]);
+    assert_eq!(import.joints, 0);
 }
 
 #[test]
@@ -2179,9 +2239,12 @@ fn a_spline_with_bad_control_data_uses_its_fit_points_or_is_left_out() {
         })
         .collect();
 
-    assert_eq!(splines.len(), 1);
-    let through = BSpline::clamped(splines[0].clone()).unwrap();
-    assert!(near(through.point_at(0.0), Point2::new(0.0, 20.0)));
+    assert!(splines.is_empty());
+    assert!(drawing.curves.iter().any(|curve| matches!(
+        curve,
+        DrawingCurve::FitSpline { fit_points, closed: false }
+            if fit_points.first() == Some(&Point2::new(0.0, 20.0))
+    )));
     assert!(
         drawing.notes.join(" ").contains("could not be read"),
         "{:?}",

@@ -25,7 +25,7 @@ use caditor_kernel::{
     BoundaryPiece, EdgeName, EdgeReference, FaceCopy, FaceName, FaceOrigin, FaceReference,
     RegionKey, RegionReference, Side, Solid, VertexName, WallSide,
 };
-use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch, SplineKind};
+use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, FitSpacing, Sketch, SplineKind};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwned};
 use serde_json::Value;
 
@@ -1445,6 +1445,12 @@ pub(crate) enum EntityKindRecord {
     ClosedFitSpline {
         fit_points: Vec<u64>,
     },
+    CentripetalFitSpline {
+        fit_points: Vec<u64>,
+    },
+    ClosedCentripetalFitSpline {
+        fit_points: Vec<u64>,
+    },
     Conic {
         start: u64,
         apex: u64,
@@ -1467,7 +1473,7 @@ pub(crate) enum EntityKindRecord {
 
 const DEFAULT_THREAD_DIAMETER: f64 = 8.0;
 
-const ENTITY_KINDS: [&str; 11] = [
+const ENTITY_KINDS: [&str; 13] = [
     "point",
     "line",
     "circle",
@@ -1476,6 +1482,8 @@ const ENTITY_KINDS: [&str; 11] = [
     "closed_spline",
     "fit_spline",
     "closed_fit_spline",
+    "centripetal_fit_spline",
+    "closed_centripetal_fit_spline",
     "conic",
     "ellipse",
     "elliptical_arc",
@@ -3698,12 +3706,34 @@ fn entity_kind_record(entity: &Entity) -> EntityKindRecord {
                 (SplineKind::Control { closed: true }, _) => EntityKindRecord::ClosedSpline {
                     control_points: raw,
                 },
-                (SplineKind::Fit { closed: false }, _) => {
-                    EntityKindRecord::FitSpline { fit_points: raw }
-                }
-                (SplineKind::Fit { closed: true }, _) => {
-                    EntityKindRecord::ClosedFitSpline { fit_points: raw }
-                }
+                (
+                    SplineKind::Fit {
+                        closed: false,
+                        spacing: FitSpacing::Even,
+                    },
+                    _,
+                ) => EntityKindRecord::FitSpline { fit_points: raw },
+                (
+                    SplineKind::Fit {
+                        closed: true,
+                        spacing: FitSpacing::Even,
+                    },
+                    _,
+                ) => EntityKindRecord::ClosedFitSpline { fit_points: raw },
+                (
+                    SplineKind::Fit {
+                        closed: false,
+                        spacing: FitSpacing::Centripetal,
+                    },
+                    _,
+                ) => EntityKindRecord::CentripetalFitSpline { fit_points: raw },
+                (
+                    SplineKind::Fit {
+                        closed: true,
+                        spacing: FitSpacing::Centripetal,
+                    },
+                    _,
+                ) => EntityKindRecord::ClosedCentripetalFitSpline { fit_points: raw },
                 (SplineKind::Conic { rho }, &[start, apex, end]) => EntityKindRecord::Conic {
                     start,
                     apex,
@@ -6985,11 +7015,25 @@ fn restore_entity(record: &EntityKindRecord) -> Entity {
         },
         EntityKindRecord::FitSpline { fit_points } => Entity::Spline {
             points: fit_points.iter().copied().map(entity).collect(),
-            kind: SplineKind::Fit { closed: false },
+            kind: SplineKind::Fit {
+                closed: false,
+                spacing: FitSpacing::Even,
+            },
         },
         EntityKindRecord::ClosedFitSpline { fit_points } => Entity::Spline {
             points: fit_points.iter().copied().map(entity).collect(),
-            kind: SplineKind::Fit { closed: true },
+            kind: SplineKind::Fit {
+                closed: true,
+                spacing: FitSpacing::Even,
+            },
+        },
+        EntityKindRecord::CentripetalFitSpline { fit_points } => Entity::Spline {
+            points: fit_points.iter().copied().map(entity).collect(),
+            kind: SplineKind::fit(false),
+        },
+        EntityKindRecord::ClosedCentripetalFitSpline { fit_points } => Entity::Spline {
+            points: fit_points.iter().copied().map(entity).collect(),
+            kind: SplineKind::fit(true),
         },
         EntityKindRecord::Conic {
             start,

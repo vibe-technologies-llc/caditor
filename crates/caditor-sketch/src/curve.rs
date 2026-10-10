@@ -305,6 +305,42 @@ impl BSpline {
         Self::clamped(kept)
     }
 
+    pub(crate) fn periodic_on(control_points: &[Point2], knots: Vec<f64>) -> Option<Self> {
+        let count = control_points.len();
+        if count < MIN_CLOSED_POINTS {
+            return None;
+        }
+        let degree = MAX_SPLINE_DEGREE;
+        let mut points: Vec<Point2> = (0..count + degree)
+            .filter_map(|index| control_points.get(index % count).copied())
+            .collect();
+        let mut knots = knots;
+        for end in [0.0, 1.0] {
+            for _ in 1..degree {
+                (knots, points) = inserted(degree, &knots, &points, end)?;
+            }
+        }
+        let skipped = degree - 1;
+        let kept = points
+            .get(skipped..points.len().checked_sub(skipped)?)?
+            .to_vec();
+        let clamped: Vec<f64> = std::iter::repeat_n(0.0, degree + 1)
+            .chain(
+                knots
+                    .iter()
+                    .copied()
+                    .filter(|knot| *knot > 0.0 && *knot < 1.0),
+            )
+            .chain(std::iter::repeat_n(1.0, degree + 1))
+            .collect();
+        (clamped.len() == kept.len() + degree + 1).then_some(Self {
+            control_points: kept,
+            degree,
+            knots: clamped,
+            weights: None,
+        })
+    }
+
     pub fn interpolate_closed(points: &[Point2]) -> Option<Self> {
         Self::periodic(&periodic_through(points)?)
     }
@@ -398,7 +434,8 @@ impl BSpline {
     }
 
     pub fn length(&self) -> f64 {
-        length_nodes(self.control_points.len())
+        length_nodes(self.degree, &self.knots, self.control_points.len())
+            .into_iter()
             .map(|(parameter, weight)| {
                 let [tangent, _] = self.derivatives(parameter);
                 tangent.length() * weight
@@ -696,16 +733,17 @@ pub(crate) fn basis_derivatives(
     )
 }
 
-pub(crate) fn length_nodes(count: usize) -> impl Iterator<Item = (f64, f64)> {
-    let degree = MAX_SPLINE_DEGREE.min(count.saturating_sub(1));
-    let spans = count.saturating_sub(degree).max(1);
-    let width = 1.0 / spans as f64;
-    (0..spans).flat_map(move |span| {
-        GAUSS_LEGENDRE.iter().map(move |&(abscissa, weight)| {
-            let parameter = (span as f64 + (1.0 + abscissa) / 2.0) * width;
-            (parameter, weight * width / 2.0)
+pub(crate) fn length_nodes(degree: usize, knots: &[f64], count: usize) -> Vec<(f64, f64)> {
+    (degree..count)
+        .filter_map(|span| Some((*knots.get(span)?, *knots.get(span + 1)?)))
+        .filter(|(low, high)| high > low)
+        .flat_map(|(low, high)| {
+            let width = high - low;
+            GAUSS_LEGENDRE.iter().map(move |&(abscissa, weight)| {
+                (low + width * (1.0 + abscissa) / 2.0, weight * width / 2.0)
+            })
         })
-    })
+        .collect()
 }
 
 pub(crate) fn clamped_knots(count: usize) -> (usize, Vec<f64>) {

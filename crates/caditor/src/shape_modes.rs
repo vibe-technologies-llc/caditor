@@ -49,9 +49,7 @@ impl SplineMode {
             Self::Control | Self::ClosedControl => SplineKind::Control {
                 closed: closed || self.closes(),
             },
-            Self::Fit | Self::ClosedFit => SplineKind::Fit {
-                closed: closed || self.closes(),
-            },
+            Self::Fit | Self::ClosedFit => SplineKind::fit(closed || self.closes()),
         }
     }
 

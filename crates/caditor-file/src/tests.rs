@@ -11,7 +11,7 @@ use caditor_document::{
 };
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
-use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch, SplineKind};
+use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, FitSpacing, Sketch, SplineKind};
 use tempfile::TempDir;
 
 use super::{
@@ -1479,8 +1479,20 @@ fn closed_fit_point_and_conic_splines_round_trip_and_older_readers_report_them()
         Point2::new(20.0, -2.0),
     ];
     sketch.add_spline_of(&through, SplineKind::Control { closed: true });
-    sketch.add_spline_of(&through, SplineKind::Fit { closed: false });
-    sketch.add_spline_of(&through, SplineKind::Fit { closed: true });
+    sketch.add_spline_of(
+        &through,
+        SplineKind::Fit {
+            closed: false,
+            spacing: FitSpacing::Even,
+        },
+    );
+    sketch.add_spline_of(
+        &through,
+        SplineKind::Fit {
+            closed: true,
+            spacing: FitSpacing::Even,
+        },
+    );
     let conic = sketch.add_spline_of(&through, SplineKind::Conic { rho: 0.3 });
     sketch.add_spline(&through);
     sketch
@@ -1508,6 +1520,42 @@ fn closed_fit_point_and_conic_splines_round_trip_and_older_readers_report_them()
     let reported = older.issues.join(" ");
     assert!(reported.contains("(shut_spline)"), "{reported}");
     assert!(reported.contains("(cone)"), "{reported}");
+}
+
+#[test]
+fn centripetal_fit_splines_round_trip_and_older_readers_report_them() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Splines");
+    let mut sketch = Sketch::new(Plane::XY);
+    let through = [
+        Point2::new(0.0, 0.0),
+        Point2::new(1.0, 4.0),
+        Point2::new(30.0, -2.0),
+    ];
+    sketch.add_spline_of(&through, SplineKind::fit(false));
+    sketch.add_spline_of(&through, SplineKind::fit(true));
+    transaction.add_feature("Curves", FeatureKind::from(sketch));
+    document.apply(transaction.finish()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let older = decode_text(
+        &text
+            .replace(
+                "\"closed_centripetal_fit_spline\"",
+                "\"shut_smooth_spline\"",
+            )
+            .replace("\"centripetal_fit_spline\"", "\"smooth_spline\""),
+    );
+
+    assert!(text.contains("\"centripetal_fit_spline\""), "{text}");
+    assert!(text.contains("\"closed_centripetal_fit_spline\""), "{text}");
+    assert!(!text.contains("\"fit_spline\""), "{text}");
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    let reported = older.issues.join(" ");
+    assert!(reported.contains("(smooth_spline)"), "{reported}");
+    assert!(reported.contains("(shut_smooth_spline)"), "{reported}");
 }
 
 #[test]

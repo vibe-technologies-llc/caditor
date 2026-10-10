@@ -5,10 +5,10 @@ use caditor_geometry::{Point2, Vector2};
 use crate::{
     constraint::Constraint,
     curve::{
-        BSpline, CONIC_DEGREE, CONIC_KNOTS, clamped_knots, conic_weight, periodic_knots,
-        periodic_through,
+        BSpline, CONIC_DEGREE, CONIC_KNOTS, MAX_SPLINE_DEGREE, clamped_knots, conic_weight,
+        periodic_knots,
     },
-    entity::{Entity, Role, SplineKind},
+    entity::{Entity, FitSpacing, Role, SplineKind},
     id::{ConstraintId, EntityId},
     sketch::{Sketch, SketchError},
     solve::{
@@ -18,6 +18,7 @@ use crate::{
         },
         system::{Joints, System},
     },
+    spacing::{FitLayout, fit_controls},
 };
 
 const SAMPLES_PER_SPAN: usize = 16;
@@ -36,22 +37,29 @@ impl System {
         sketch: &Sketch,
         joints: &OnceCell<Joints>,
         constraint: &Constraint,
-    ) -> Result<Vec<f64>, SketchError> {
+    ) -> Result<Vec<(EntityId, f64)>, SketchError> {
         let role = |entity: EntityId| sketch.role(entity);
+        let along = |spline: EntityId, starts: Vec<f64>| -> Vec<(EntityId, f64)> {
+            starts.into_iter().map(|start| (spline, start)).collect()
+        };
         match *constraint {
             Constraint::Coincident(a, b) | Constraint::Distance { from: a, to: b, .. } => {
                 match (role(a), role(b)) {
-                    (Some(Role::Point), Some(Role::Spline)) => self.closest_start(sketch, a, b),
-                    (Some(Role::Spline), Some(Role::Point)) => self.closest_start(sketch, b, a),
+                    (Some(Role::Point), Some(Role::Spline)) => {
+                        Ok(along(b, self.closest_start(sketch, a, b)?))
+                    }
+                    (Some(Role::Spline), Some(Role::Point)) => {
+                        Ok(along(a, self.closest_start(sketch, b, a)?))
+                    }
                     (Some(Role::Spline), Some(Role::Line | Role::Circular))
                         if matches!(constraint, Constraint::Distance { .. }) =>
                     {
-                        Ok(vec![self.touching_start(sketch, a, b)?])
+                        Ok(vec![(a, self.touching_start(sketch, a, b)?)])
                     }
                     (Some(Role::Line | Role::Circular), Some(Role::Spline))
                         if matches!(constraint, Constraint::Distance { .. }) =>
                     {
-                        Ok(vec![self.touching_start(sketch, b, a)?])
+                        Ok(vec![(b, self.touching_start(sketch, b, a)?)])
                     }
                     _ => Ok(Vec::new()),
                 }
@@ -65,13 +73,13 @@ impl System {
                         }
                         let (first, second) = (self.curve(sketch, a)?, self.curve(sketch, b)?);
                         let (one, other) = closest_pair(&first, &second);
-                        Ok(vec![one, other])
+                        Ok(vec![(a, one), (b, other)])
                     }
                     (Some(Role::Spline), Some(Role::Line | Role::Circular)) => {
-                        self.tangent_start(sketch, joints, a, b)
+                        Ok(along(a, self.tangent_start(sketch, joints, a, b)?))
                     }
                     (Some(Role::Line | Role::Circular), Some(Role::Spline)) => {
-                        self.tangent_start(sketch, joints, b, a)
+                        Ok(along(b, self.tangent_start(sketch, joints, b, a)?))
                     }
                     _ => Ok(Vec::new()),
                 }
@@ -361,7 +369,9 @@ impl System {
                 .collect::<Result<Vec<_>, _>>()?;
             let handle = match *kind {
                 SplineKind::Control { closed: false } => clamped_handle(handles),
-                SplineKind::Control { closed: true } => periodic_handle(&handles),
+                SplineKind::Control { closed: true } => {
+                    periodic_handle(&handles, periodic_knots(handles.len()).1)
+                }
                 SplineKind::Conic { rho } => {
                     let driven = self.rhos.get(&id).copied().unwrap_or(rho);
                     let weight = conic_weight(driven).ok_or(SketchError::InvalidRho)?;
@@ -370,26 +380,41 @@ impl System {
                         degree: CONIC_DEGREE,
                         knots: CONIC_KNOTS.to_vec(),
                         weights: Some(vec![1.0, weight, 1.0]),
+                        periodic: false,
                     }
                 }
-                SplineKind::Fit { closed } => self.fit_handle(id, &handles, closed),
+                SplineKind::Fit { closed, spacing } => {
+                    self.fit_handle(id, &handles, closed, spacing)
+                }
             };
             self.splines.insert(id, Arc::new(handle));
         }
         Ok(())
     }
 
-    fn fit_handle(&mut self, id: EntityId, fits: &[PointHandle], closed: bool) -> SplineHandle {
+    fn fit_handle(
+        &mut self,
+        id: EntityId,
+        fits: &[PointHandle],
+        closed: bool,
+        spacing: FitSpacing,
+    ) -> SplineHandle {
         let positions: Vec<Point2> = fits.iter().map(|fit| fit.at(&self.values)).collect();
-        if !closed && fits.len() <= 2 {
-            return clamped_handle(fits.to_vec());
-        }
-        let starts = if closed {
-            periodic_through(&positions)
+        let layout = if !closed && fits.len() <= 2 {
+            None
         } else {
-            BSpline::interpolate(&positions).map(|spline| spline.control_points().to_vec())
-        }
-        .unwrap_or_else(|| positions.clone());
+            FitLayout::of(&positions, closed, spacing)
+                .map(|layout| (layout, spacing))
+                .or_else(|| {
+                    FitLayout::of(&positions, closed, FitSpacing::Even)
+                        .map(|layout| (layout, FitSpacing::Even))
+                })
+        };
+        let Some((layout, spacing)) = layout else {
+            return clamped_handle(fits.to_vec());
+        };
+        let starts =
+            fit_controls(&positions, closed, spacing, &layout).unwrap_or_else(|| positions.clone());
         let hidden_range = if closed {
             0..fits.len()
         } else {
@@ -408,20 +433,21 @@ impl System {
         }
         self.hidden.insert(id, hidden);
         let handle = if closed {
-            periodic_handle(&controls)
+            periodic_handle(&controls, layout.knots)
         } else {
-            clamped_handle(controls)
+            SplineHandle {
+                points: controls,
+                degree: layout.degree,
+                knots: layout.knots,
+                weights: None,
+                periodic: false,
+            }
         };
-        let last = fits.len().saturating_sub(1).max(1) as f64;
-        for (index, fit) in fits.iter().enumerate() {
-            let parameter = if closed {
-                index as f64 / fits.len() as f64
-            } else if index == 0 || index + 1 == fits.len() {
+        for (index, (fit, parameter)) in fits.iter().zip(&layout.parameters).enumerate() {
+            if !closed && (index == 0 || index + 1 == fits.len()) {
                 continue;
-            } else {
-                index as f64 / last
-            };
-            let [(first, weights), _, _] = handle.basis(parameter);
+            }
+            let [(first, weights), _, _] = handle.basis(*parameter);
             let terms: Arc<[(PointHandle, f64)]> = weights
                 .iter()
                 .zip(handle.points.iter().skip(first))
@@ -448,12 +474,13 @@ fn clamped_handle(points: Vec<PointHandle>) -> SplineHandle {
         degree,
         knots,
         weights: None,
+        periodic: false,
     }
 }
 
-fn periodic_handle(points: &[PointHandle]) -> SplineHandle {
+fn periodic_handle(points: &[PointHandle], knots: Vec<f64>) -> SplineHandle {
     let count = points.len();
-    let (degree, knots) = periodic_knots(count);
+    let degree = MAX_SPLINE_DEGREE;
     SplineHandle {
         points: (0..count + degree)
             .filter_map(|index| points.get(index % count.max(1)).copied())
@@ -461,6 +488,7 @@ fn periodic_handle(points: &[PointHandle]) -> SplineHandle {
         degree,
         knots,
         weights: None,
+        periodic: true,
     }
 }
 
@@ -509,12 +537,20 @@ fn spline_ends(sketch: &Sketch, spline: EntityId) -> Vec<SplineEnd> {
     ]
 }
 
-pub(super) fn end_factor(count: usize) -> f64 {
-    let (degree, knots) = clamped_knots(count);
+pub(super) fn end_factor(degree: usize, knots: &[f64], from_start: bool) -> f64 {
     if degree < 2 {
         return 0.0;
     }
-    let knot = |index: usize| knots.get(index).copied().unwrap_or(f64::NAN);
+    let last = knots.len().saturating_sub(1);
+    let knot = |index: usize| {
+        if from_start {
+            knots.get(index).copied().unwrap_or(f64::NAN)
+        } else {
+            last.checked_sub(index)
+                .and_then(|mirrored| knots.get(mirrored))
+                .map_or(f64::NAN, |knot| 1.0 - knot)
+        }
+    };
     let order = degree as f64;
     let first = order / (knot(degree + 1) - knot(1));
     let second = order / (knot(degree + 2) - knot(2));
@@ -633,7 +669,10 @@ impl System {
                 .unwrap_or(1.0)
         };
         let factor = after.map_or(0.0, |(_, after_index)| {
-            end_factor(count) * weight(own_index) * weight(after_index) / weight(next_index).powi(2)
+            end_factor(handle.degree, &handle.knots, end.from_start)
+                * weight(own_index)
+                * weight(after_index)
+                / weight(next_index).powi(2)
         });
         Ok(EndLegs {
             end: own,

@@ -21,6 +21,7 @@ use std::{collections::BTreeSet, path::Path};
 use caditor_document::CancelToken;
 use caditor_geometry::{Point2, Vector2};
 use caditor_kernel::interruptible;
+use caditor_sketch::SplineKind;
 use caditor_step::ReadError;
 
 pub use crate::import::{
@@ -65,6 +66,10 @@ pub enum DrawingCurve {
     Spline {
         control_points: Vec<Point2>,
     },
+    FitSpline {
+        fit_points: Vec<Point2>,
+        closed: bool,
+    },
     Ellipse {
         center: Point2,
         major: Vector2,
@@ -81,6 +86,11 @@ impl DrawingCurve {
             Self::Spline { control_points } => {
                 Some((*control_points.first()?, *control_points.last()?))
             }
+            Self::FitSpline {
+                fit_points,
+                closed: false,
+            } => Some((*fit_points.first()?, *fit_points.last()?)),
+            Self::FitSpline { closed: true, .. } => None,
             Self::Ellipse { ends, .. } => *ends,
         }
     }
@@ -102,6 +112,12 @@ impl DrawingCurve {
                 ]
             }
             Self::Spline { control_points } => control_points.clone(),
+            Self::FitSpline { fit_points, closed } => {
+                SplineKind::fit(*closed).curve(fit_points).map_or_else(
+                    || fit_points.clone(),
+                    |curve| curve.control_points().to_vec(),
+                )
+            }
             Self::Ellipse {
                 center,
                 major,

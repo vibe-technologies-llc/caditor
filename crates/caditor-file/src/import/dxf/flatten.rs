@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 use caditor_geometry::{Point2, Point3, Vector2};
-use caditor_sketch::BSpline;
+use caditor_sketch::{BSpline, SplineKind};
 
 use crate::import::{
     Drawing, DrawingCurve,
@@ -20,11 +20,14 @@ const MIN_SAMPLES: usize = 64;
 const MAX_SAMPLES: usize = 16_384;
 const RELATIVE_FLATNESS: f64 = 1e-9;
 const KNOT_TOLERANCE: f64 = 1e-9;
+const MAX_FIT_POINTS: usize = MAX_FIT_CONTROL_POINTS;
+const MIN_CLOSED_FIT_POINTS: usize = 3;
 
 #[derive(Default)]
 struct Tally {
     splines: usize,
     rebuilt: usize,
+    fit_point_splines: usize,
     collapsed: usize,
     deviation: f64,
 }
@@ -155,6 +158,11 @@ fn flatten_shape(shape: &Shape, tolerance: f64, tally: &mut Tally) -> Option<Dra
             }
             let mut points: Vec<Point2> = fit.points.iter().map(|point| point2(*point)).collect();
             points.dedup();
+            if fit.closed && points.len() > MIN_CLOSED_FIT_POINTS && points.first() == points.last()
+            {
+                points.pop();
+            }
+            let closed = fit.closed && points.len() >= MIN_CLOSED_FIT_POINTS;
             match points.as_slice() {
                 [] | [_] => {
                     tally.collapsed += 1;
@@ -164,6 +172,15 @@ fn flatten_shape(shape: &Shape, tolerance: f64, tally: &mut Tally) -> Option<Dra
                     start: *start,
                     end: *end,
                 }),
+                _ if points.len() <= MAX_FIT_POINTS
+                    && SplineKind::fit(closed).curve(&points).is_some() =>
+                {
+                    tally.fit_point_splines += 1;
+                    Some(DrawingCurve::FitSpline {
+                        fit_points: points,
+                        closed,
+                    })
+                }
                 _ => {
                     let Some(fit) = BSpline::through(&points, tolerance, MAX_FIT_CONTROL_POINTS)
                     else {
@@ -298,6 +315,14 @@ impl Tally {
                 "{} given only by points on the curve {} rebuilt through the same points.",
                 counted(self.rebuilt, "spline", "splines"),
                 were(self.rebuilt)
+            ));
+        }
+        if self.fit_point_splines > 0 {
+            notes.push(format!(
+                "{} given only by points on the curve {} drawn through the same points as \
+                 fit-point splines, which keep those points to edit.",
+                capitalized(&counted(self.fit_point_splines, "spline", "splines")),
+                were(self.fit_point_splines)
             ));
         }
         if self.collapsed > 0 {

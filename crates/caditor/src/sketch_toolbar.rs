@@ -25,7 +25,8 @@ use crate::{
     sketch_drag::{self, Moving},
     sketch_status::{self, SketchSummary, StatusRequest},
     sketch_tools::{
-        self, ActivityChange, BreakChange, ConstraintTool, ConstructionChange, SplitChange,
+        self, ActivityChange, BreakChange, ConstraintTool, ConstructionChange, RespaceChange,
+        SplitChange,
     },
     units::Units,
     widgets::{self, ToolButton},
@@ -270,6 +271,7 @@ pub fn show(
     let construction = ConstructionChange::of(definition, &selected);
     let split = SplitChange::of(&shown, &selected);
     let breaking = BreakChange::of(&shown, &selected);
+    let respacing = RespaceChange::of(&shown, &selected);
     let activity = ActivityChange::of(
         definition,
         &sketch_tools::selected_constraints(selection, feature.id()),
@@ -299,6 +301,7 @@ pub fn show(
         activity: activity.as_ref(),
         split: split.as_ref().map(|_| ()).map_err(String::clone),
         breaking: breaking.as_ref().map(|_| ()).map_err(String::clone),
+        respacing: respacing.as_ref().map(|_| ()).map_err(String::clone),
         deletable: if deletable.is_empty() {
             Err(NOTHING_TO_DELETE.to_owned())
         } else {
@@ -392,6 +395,14 @@ pub fn show(
             Err(reason) => Action::Inform(Notice::warning(reason)),
         });
     }
+    if request.respacing
+        && let Ok(change) = &respacing
+    {
+        actions.push(match change.transaction(model, feature.id()) {
+            Ok(transaction) => Action::Apply(transaction),
+            Err(reason) => Action::Inform(Notice::warning(reason)),
+        });
+    }
     if request.delete && !deletable.is_empty() {
         let label = deletable.label(definition);
         actions.push(Action::Apply(sketch_tools::remove_items(
@@ -439,6 +450,7 @@ struct Request {
     activity: bool,
     split: bool,
     breaking: bool,
+    respacing: bool,
     delete: bool,
     finish: bool,
 }
@@ -491,6 +503,7 @@ struct Bar<'a, 'b> {
     activity: Option<&'a ActivityChange>,
     split: Result<(), String>,
     breaking: Result<(), String>,
+    respacing: Result<(), String>,
     deletable: Result<(), String>,
     moving: Result<(), String>,
     select_all: Result<(), String>,
@@ -863,6 +876,12 @@ impl Bar<'_, '_> {
         }
         if self.commands.invoke(Command::BreakCurves, &self.breaking) {
             self.request.breaking = true;
+        }
+        if self
+            .commands
+            .invoke(Command::RespaceFitSplines, &self.respacing)
+        {
+            self.request.respacing = true;
         }
         for tool in OFF_RIBBON {
             self.off_ribbon_tool(tool);

@@ -51,8 +51,11 @@ paths:
   with the minor axis a quarter turn counter-clockwise from the major). Nothing keeps the minor
   radius below the major one; exports take the longer as the major axis.
 - A `Spline` is its points and a `SplineKind`: `Control` (the points are control points), `Fit`
-  (the curve passes through them) or `Conic` (start, apex, end and a rho), the first two open or
-  `closed`. `Sketch::spline` gives the curve of any kind as a clamped `BSpline`
+  (the curve passes through them, with a `FitSpacing`) or `Conic` (start, apex, end and a rho),
+  the first two open or `closed`. New fit-point splines are `FitSpacing::Centripetal`
+  (`SplineKind::fit`); `Even` is the parameters at even steps that fit-point splines had before,
+  kept so stored sketches read back to the shape they were saved with, and
+  `Sketch::respace_fit_spline` turns one into a centripetal one, keeping its points. `Sketch::spline` gives the curve of any kind as a clamped `BSpline`
   (`sketch::spline_through`), so drawing, intersections, profiles and exports need not know the
   kind. A closed spline is periodic (smooth all round, no ends: `Entity::spline_ends` is none, so
   it has no open ends and joins nothing at an end) and needs three points (`TooFewClosedPoints`);
@@ -60,7 +63,10 @@ paths:
   rational quadratic whose middle weight is `rho / (1 - rho)`, so it passes the point rho of the
   way from the chord's middle to the apex (below 0.5 an ellipse, 0.5 a parabola, above a
   hyperbola). `same_structure` compares the kind's form, not rho, which changes like a radius.
-  Every kind is affine-invariant, so mirror, patterns and copies map its points and keep the kind.
+  Control splines, conics and evenly spaced fit splines are affine-invariant and centripetal fit
+  splines similarity-invariant, so mirror, patterns, copies and uniform scaling map the points and
+  keep the kind; only a non-uniform map (an oblique projection, a skewed DXF block) bends a
+  centripetal spline between its mapped points.
 - `insert_entity` and `insert_constraint` take explicit IDs and check references, for loading.
 - Uses of each entity are counted incrementally, so refusing to remove a used one never scans the
   sketch and undoing a large import stays fast. The sketch never cascades a removal; the document's
@@ -408,10 +414,22 @@ every constraint still true of it. Joints are judged by a `TOLERANCE` relative t
 - Curves are drawn as polylines within a chord tolerance (`Faceting`, bounded counts per turn and
   `MAX_SEGMENTS`); `Faceting::within` accepts any value (NaN or below zero as the finest). Trim
   pieces and extensions are faceted the same way.
-- Sketch splines are clamped, uniform knots, degree `min(MAX_SPLINE_DEGREE, points - 1)`, exact
-  derivatives, banded elimination (`banded.rs`). `BSpline::fit` approximates a dense polyline
-  within a tolerance, `interpolate` passes through points at evenly spaced parameters (what an
-  open fit-point spline is), `through` follows unevenly spaced points without loops.
+- Sketch splines are clamped, degree `min(MAX_SPLINE_DEGREE, points - 1)`, exact derivatives,
+  banded elimination (`banded.rs`); control splines have uniform knots. `BSpline::fit`
+  approximates a dense polyline within a tolerance, `interpolate` passes through points at evenly
+  spaced parameters (an evenly spaced open fit-point spline), `through` follows unevenly spaced
+  points without loops.
+- A centripetal fit-point spline (`spacing.rs`, `FitLayout`) passes its points at parameters
+  stepping by the square root of the distance between them (`centripetal_parameters`, each step
+  at least `SHORTEST_GAP_SHARE` of the mean, so repeated points stay solvable): chord length
+  bulges the long gap beside a tight cluster and even steps loop and backtrack, while centripetal
+  steps do neither (tests in `spacing.rs`). Open (`interpolate_centripetal`), the knots are the
+  averages of the parameters (`averaged_knots`) and the control points the banded collocation;
+  closed (`interpolate_closed_centripetal`), the periodic cubic has its knots at the parameters
+  round the loop (`looped`), solved directly as a cyclic system (`periodic_through_knots`: the
+  middle basis on the diagonal, the band totally positive, the last two unknowns a border closed
+  by a 2×2 Schur complement), then clamped at the seam by `BSpline::periodic_on`, the
+  non-uniform form of `periodic`.
 - `BSpline::periodic` is the uniform cubic over the points taken round in a loop (knots
   `periodic_knots`), clamped at its seam by knot insertion into the equivalent clamped spline of
   `points + 3` control points over the same parameter, so its ends meet with equal first and

@@ -1204,6 +1204,8 @@ fn bulge_segment(start: Point2, end: Point2, bulge: f64, elevation: f64) -> Opti
     })
 }
 
+const CLOSED_SPLINE: i64 = 1;
+
 fn spline(record: &Record) -> Option<Vec<Shape>> {
     let control_points = record.points(10);
     let weights = record.reals(41);
@@ -1217,11 +1219,10 @@ fn spline(record: &Record) -> Option<Vec<Shape>> {
     }
     let fit_points = record.points(11);
     (fit_points.len() >= 2).then(|| {
-        vec![Shape::Interpolated(FitPoints::new(
-            fit_points,
-            record.point(12),
-            record.point(13),
-        ))]
+        vec![Shape::Interpolated(
+            FitPoints::new(fit_points, record.point(12), record.point(13))
+                .closing(record.flags(70) & CLOSED_SPLINE != 0),
+        )]
     })
 }
 

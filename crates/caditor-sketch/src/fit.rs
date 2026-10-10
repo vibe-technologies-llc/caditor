@@ -219,7 +219,7 @@ pub(crate) fn least_squares(
     BSpline::clamped(control_points)
 }
 
-fn collocate(
+pub(crate) fn collocate(
     degree: usize,
     knots: &[f64],
     points: &[Point2],
@@ -240,7 +240,7 @@ fn collocate(
     Some(solved.iter().map(|[x, y]| Point2::new(*x, *y)).collect())
 }
 
-fn averaged_knots(parameters: &[f64], degree: usize) -> Vec<f64> {
+pub(crate) fn averaged_knots(parameters: &[f64], degree: usize) -> Vec<f64> {
     let count = parameters.len();
     let interior = (1..count - degree).map(|first| {
         parameters

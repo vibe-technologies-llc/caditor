@@ -2,7 +2,7 @@ use std::{collections::BTreeMap, f64::consts::PI};
 
 use caditor_document::{Document, FeatureId, FeatureKind, Transaction, TransactionBuilder};
 use caditor_geometry::{Plane, Point2};
-use caditor_sketch::{ArcGeometry, Constraint, Entity, EntityId, Sketch};
+use caditor_sketch::{ArcGeometry, Constraint, Entity, EntityId, Sketch, SplineKind};
 
 use crate::import::{Drawing, DrawingCurve, MAX_DRAWING_CURVES};
 
@@ -192,6 +192,30 @@ fn add_curve(
                 ends.extend([(*first, *start), (*last, *end)]);
             }
             builder.add_sketch_entity_as(sketch, Entity::spline(ids), construction);
+        }
+        DrawingCurve::FitSpline { fit_points, closed } => {
+            let ids: Vec<EntityId> = fit_points
+                .iter()
+                .map(|position| point(builder, *position))
+                .collect();
+            if !closed
+                && let (Some(first), Some(last), Some(start), Some(end)) = (
+                    ids.first(),
+                    ids.last(),
+                    fit_points.first(),
+                    fit_points.last(),
+                )
+            {
+                ends.extend([(*first, *start), (*last, *end)]);
+            }
+            builder.add_sketch_entity_as(
+                sketch,
+                Entity::Spline {
+                    points: ids,
+                    kind: SplineKind::fit(*closed),
+                },
+                construction,
+            );
         }
     }
 }

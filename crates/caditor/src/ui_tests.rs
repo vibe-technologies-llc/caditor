@@ -16,7 +16,7 @@ use caditor_file::{
 use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
 use caditor_kernel::MeshQuality;
 use caditor_render::{Background, GraphicsInfo, ImageError, Msaa, Shading};
-use caditor_sketch::{Constraint, Entity, EntityId, Sketch, SplineKind};
+use caditor_sketch::{Constraint, Entity, EntityId, FitSpacing, Sketch, SplineKind};
 use egui::{
     Color32, Event, Id, Key, Modifiers, PointerButton, Pos2, RawInput, Rect, Shape,
     ViewportCommand, ViewportId, ViewportIdMap, ViewportInfo,
@@ -7381,13 +7381,60 @@ fn a_fit_point_spline_closes_on_its_first_point_and_passes_every_point() {
     let Some(Entity::Spline { points, kind }) = sketch.entity(spline) else {
         panic!("expected a spline");
     };
-    assert_eq!(*kind, SplineKind::Fit { closed: true });
+    assert_eq!(*kind, SplineKind::fit(true));
     assert_eq!(points.len(), 4);
-    let curve = sketch.spline(spline).unwrap();
-    for (index, expected) in clicked.iter().enumerate() {
-        let at = curve.point_at(index as f64 / clicked.len() as f64);
-        assert!(near(at, *expected), "{at} is not {expected}");
+    for expected in clicked {
+        let at = sketch.closest_on_curve(spline, expected).unwrap();
+        assert!(near(at, expected), "{at} is not {expected}");
     }
+}
+
+#[test]
+fn respacing_an_evenly_spaced_fit_spline_keeps_its_points_and_stops_the_overshoot() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let through = [
+        Point2::new(0.0, 0.0),
+        Point2::new(1.0, 0.0),
+        Point2::new(2.0, 0.0),
+        Point2::new(30.0, 0.0),
+    ];
+    let spline = sketch.add_spline_of(
+        &through,
+        SplineKind::Fit {
+            closed: false,
+            spacing: FitSpacing::Even,
+        },
+    );
+    let feature = harness.add_sketch(sketch);
+    harness.edit(feature);
+
+    harness.select([Pickable::SketchEntity {
+        feature,
+        entity: spline,
+    }]);
+    run_from_palette(&mut harness, "Respace the selected fit-point splines");
+    harness.settle();
+
+    assert_eq!(
+        harness.model.undo_label(),
+        Some("Respace fit-point splines")
+    );
+    let sketch = harness.sketch(feature);
+    assert_eq!(
+        sketch.entity(spline).and_then(Entity::spline_kind),
+        Some(SplineKind::fit(false))
+    );
+    let backtracking = |curve: &caditor_sketch::BSpline| {
+        (0..1000)
+            .map(|step| {
+                let at = |index: i32| curve.point_at(f64::from(index) / 1000.0).x;
+                (at(step) - at(step + 1)).max(0.0)
+            })
+            .sum::<f64>()
+    };
+    assert!(backtracking(&sketch.spline(spline).unwrap()) < 1e-9);
+    assert!(backtracking(&caditor_sketch::BSpline::interpolate(&through).unwrap()) > 0.1);
 }
 
 #[test]

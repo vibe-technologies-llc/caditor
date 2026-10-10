@@ -1413,10 +1413,7 @@ fn closed_splines_and_a_conic_closed_by_its_chord_extrude_into_bodies() {
         Point2::new(25.0, 15.0),
         Point2::new(5.0, 20.0),
     ];
-    for kind in [
-        SplineKind::Control { closed: true },
-        SplineKind::Fit { closed: true },
-    ] {
+    for kind in [SplineKind::Control { closed: true }, SplineKind::fit(true)] {
         let mut sketch = Sketch::new(Plane::XY);
         sketch.add_spline_of(&outline, kind);
         let (document, body) = single_body(

@@ -246,6 +246,7 @@ pub(in crate::import) struct FitPoints {
     pub points: Vec<Point3>,
     pub start_tangent: Option<Vector3>,
     pub end_tangent: Option<Vector3>,
+    pub closed: bool,
 }
 
 impl FitPoints {
@@ -259,7 +260,12 @@ impl FitPoints {
             points,
             start_tangent: direction(start_tangent),
             end_tangent: direction(end_tangent),
+            closed: false,
         }
+    }
+
+    pub fn closing(self, closed: bool) -> Self {
+        Self { closed, ..self }
     }
 
     pub fn has_tangents(&self) -> bool {
@@ -275,6 +281,7 @@ impl FitPoints {
                 .collect(),
             start_tangent: self.start_tangent.map(|tangent| transform.vector(tangent)),
             end_tangent: self.end_tangent.map(|tangent| transform.vector(tangent)),
+            closed: self.closed,
         }
     }
 

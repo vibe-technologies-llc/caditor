@@ -9,7 +9,7 @@ use caditor_geometry::{Plane, Point2, Vector2};
 use crate::{
     constraint::{Constraint, DimensionError},
     curve::{ArcGeometry, BSpline, EllipseGeometry, Faceting},
-    entity::{Entity, Role, SplineKind},
+    entity::{Entity, FitSpacing, Role, SplineKind},
     id::{ConstraintId, EntityId, FIRST_UNSTORABLE_ID, Reference},
     solve::{arc_joint, joined_at_end, not_joined, share_a_point, spline_gap, straight_spline},
 };
@@ -18,8 +18,32 @@ pub(crate) fn spline_through(positions: &[Point2], kind: SplineKind) -> Option<B
     match (kind, positions) {
         (SplineKind::Control { closed: false }, _) => BSpline::clamped(positions.to_vec()),
         (SplineKind::Control { closed: true }, _) => BSpline::periodic(positions),
-        (SplineKind::Fit { closed: false }, _) => BSpline::interpolate(positions),
-        (SplineKind::Fit { closed: true }, _) => BSpline::interpolate_closed(positions),
+        (
+            SplineKind::Fit {
+                closed,
+                spacing: FitSpacing::Even,
+            },
+            _,
+        ) => {
+            if closed {
+                BSpline::interpolate_closed(positions)
+            } else {
+                BSpline::interpolate(positions)
+            }
+        }
+        (
+            SplineKind::Fit {
+                closed,
+                spacing: FitSpacing::Centripetal,
+            },
+            _,
+        ) => {
+            if closed {
+                BSpline::interpolate_closed_centripetal(positions)
+            } else {
+                BSpline::interpolate_centripetal(positions)
+            }
+        }
         (SplineKind::Conic { rho }, &[start, apex, end]) => BSpline::conic(start, apex, end, rho),
         (SplineKind::Conic { .. }, _) => None,
     }
@@ -1130,6 +1154,25 @@ impl Sketch {
         self.entities
             .insert(id, entity)
             .ok_or(SketchError::NoSuchEntity(id))
+    }
+
+    pub fn respace_fit_spline(&mut self, id: EntityId) -> Result<bool, SketchError> {
+        self.check_editable(id)?;
+        let label = self.entity_label(id);
+        match self.entities.get_mut(&id) {
+            Some(Entity::Spline {
+                kind: SplineKind::Fit { spacing, .. },
+                ..
+            }) => {
+                Ok(std::mem::replace(spacing, FitSpacing::Centripetal) != FitSpacing::Centripetal)
+            }
+            Some(_) => Err(SketchError::WrongKind {
+                entity: id,
+                found: label,
+                needed: "a fit-point spline",
+            }),
+            None => Err(SketchError::NoSuchEntity(id)),
+        }
     }
 
     pub fn remove_constraint(&mut self, id: ConstraintId) -> Result<Constraint, SketchError> {
