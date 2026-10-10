@@ -91,14 +91,15 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   with 113 holes), and strips are cut at point quantiles rather than where the face is narrow
   (through a row of holes), so past about six strips they keep little. Spade's exact in-circle
   predicates on the cocircular samples of round holes are a quarter of all tessellation time.
-- [medium · medium] Successive solids share pcurve samples and curve data through `Arc`, but the
-  result history still measures each entry's solid in full (`Solid::approximate_size`), so with
-  a hole drilled 144 times the entries measure 277 MB where their pcurve samples hold 3.6 MB of
-  the 263 MB counted, and `EARLIER_RESULTS_BUDGET` drops earlier entries long before memory
-  needs it; a measure counting each shared buffer once across the history would fix it.
-  `SolidResult::cuts`/`joins` also keep every tool solid with every entry, though only patterns,
-  mirrors and an open feature read them; a removal's tool shares little with the result, since a
-  difference reverses the tool's kept faces and their pcurves.
+- [low · hard] `SolidResult::cuts`/`joins` keep every tool solid with every history entry,
+  though only patterns, mirrors and an open feature read them; a removal's tool shares little
+  with the result, since a difference reverses the tool's kept faces and their pcurves (an
+  addition's tool shares its kept faces' geometry, which the history counts once). Dropping them
+  needs the feature's key to say whether anything wants its tools: a later pattern or mirror
+  repeating it, and the feature open in the app, whose tools `Recomputer::mesh` meshes on request
+  without recomputing. Adding a pattern or opening a hole would then evaluate the feature again
+  and, as `same_shapes` compares tools, everything below it; the tools are usually a few faces
+  next to the body, so this waits for a model where they weigh.
 - [low · hard] The face grid is graded per direction but still a tensor product, so a bump divides
   the whole rows and columns through it, and curvature is sampled only on the lattice, so a feature
   narrower than a lattice span is refined only if a checked cell lands on it. Cells split where

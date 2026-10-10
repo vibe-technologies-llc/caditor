@@ -7,6 +7,7 @@ use crate::{
     bspline::{BSpline, CUBIC_WIDTH, MAX_SPLINE_DEGREE, NARROW_WIDTH, WIDE_WIDTH, clamped_domain},
     error::GeometryError,
     interval::Interval,
+    shared::SharedBuffer,
     surface::{Pole, SurfaceDerivatives, SurfaceSide, projection::periodic_near},
     tolerance::LINEAR_RESOLUTION,
 };
@@ -193,19 +194,25 @@ struct Basis<const WIDTH: usize> {
 }
 
 impl BSplineSurface {
-    pub(crate) fn heap_size(&self) -> usize {
-        size_of_val(&*self.u_knots)
-            + size_of_val(&*self.v_knots)
-            + size_of_val(&*self.control_points)
-            + self
-                .weights
-                .as_ref()
-                .map_or(0, |weights| size_of_val(&**weights))
-            + size_of::<SampleGrid>()
-            + size_of_val(self.grid.samples.as_slice())
-            + size_of_val(self.grid.blocks.as_slice())
-            + size_of_val(self.spans.spans.as_slice())
-            + self.spans.tree.heap_size()
+    pub(crate) fn shared_buffers(&self, found: &mut dyn FnMut(SharedBuffer)) {
+        found(SharedBuffer::slice(&self.u_knots));
+        found(SharedBuffer::slice(&self.v_knots));
+        found(SharedBuffer::slice(&self.control_points));
+        if let Some(weights) = &self.weights {
+            found(SharedBuffer::slice(weights));
+        }
+        found(SharedBuffer::of(
+            &self.grid,
+            size_of::<SampleGrid>()
+                + size_of_val(self.grid.samples.as_slice())
+                + size_of_val(self.grid.blocks.as_slice()),
+        ));
+        found(SharedBuffer::of(
+            &self.spans,
+            size_of::<SpanIndex>()
+                + size_of_val(self.spans.spans.as_slice())
+                + self.spans.tree.heap_size(),
+        ));
     }
 
     pub fn new(

@@ -21,6 +21,7 @@ use crate::{
     interval::{Domain, Interval},
     mapping::Affine,
     parametric::{self, Parametric},
+    shared::SharedBuffer,
     tolerance::SamplingTolerance,
 };
 
@@ -64,11 +65,11 @@ pub enum Curve {
 }
 
 impl Curve {
-    pub fn heap_size(&self) -> usize {
+    pub fn shared_buffers(&self, found: &mut dyn FnMut(SharedBuffer)) {
         match self {
-            Self::Line(_) | Self::Circle(_) | Self::Ellipse(_) => 0,
-            Self::BSpline(spline) => spline.heap_size(),
-            Self::Intersection(curve) => curve.heap_size(),
+            Self::Line(_) | Self::Circle(_) | Self::Ellipse(_) => {}
+            Self::BSpline(spline) => spline.shared_buffers(found),
+            Self::Intersection(curve) => curve.shared_buffers(found),
         }
     }
 

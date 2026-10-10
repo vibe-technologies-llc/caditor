@@ -639,6 +639,7 @@ dependencies = [
 name = "caditor-document"
 version = "0.1.0"
 dependencies = [
+ "ahash",
  "caditor-expression",
  "caditor-geometry",
  "caditor-kernel",

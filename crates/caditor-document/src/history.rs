@@ -1,6 +1,7 @@
 use std::{collections::BTreeMap, sync::Arc};
 
-use caditor_kernel::DisplayMesh;
+use ahash::AHashMap;
+use caditor_kernel::{DisplayMesh, SharedBuffer};
 
 use crate::{
     document::FeatureId,
@@ -14,14 +15,57 @@ const SKETCH_ENTITY_BYTES: usize = 160;
 #[derive(Debug, Clone)]
 struct Kept {
     entry: Arc<CacheEntry>,
-    bytes: usize,
+    held: Arc<[usize]>,
     used: u64,
 }
 
-impl Kept {
-    fn demote(&mut self) -> usize {
-        self.bytes = self.entry.result.as_deref().map_or(0, result_bytes);
-        self.bytes
+#[derive(Debug, Clone, Copy)]
+struct Holding {
+    holders: usize,
+    bytes: usize,
+}
+
+#[derive(Debug, Clone, Default)]
+struct Holdings {
+    buffers: AHashMap<usize, Holding>,
+    bytes: usize,
+}
+
+impl Holdings {
+    fn hold(&mut self, kept: &mut Kept) {
+        let mut found = Vec::new();
+        if let Some(result) = &kept.entry.result {
+            result_buffers(result, &mut |buffer| found.push(buffer));
+        }
+        found.sort_unstable_by_key(|buffer| buffer.address());
+        found.dedup_by_key(|buffer| buffer.address());
+        for buffer in &found {
+            let holding = self
+                .buffers
+                .entry(buffer.address())
+                .or_insert_with(|| Holding {
+                    holders: 0,
+                    bytes: buffer.bytes(),
+                });
+            if holding.holders == 0 {
+                self.bytes += holding.bytes;
+            }
+            holding.holders += 1;
+        }
+        kept.held = found.iter().map(|buffer| buffer.address()).collect();
+    }
+
+    fn release(&mut self, kept: &mut Kept) {
+        for address in std::mem::take(&mut kept.held).iter() {
+            let Some(holding) = self.buffers.get_mut(address) else {
+                continue;
+            };
+            holding.holders = holding.holders.saturating_sub(1);
+            if holding.holders == 0 {
+                self.bytes = self.bytes.saturating_sub(holding.bytes);
+                self.buffers.remove(address);
+            }
+        }
     }
 }
 
@@ -30,7 +74,7 @@ pub(crate) struct ResultHistory {
     features: BTreeMap<FeatureId, Vec<Kept>>,
     clock: u64,
     budget: Option<usize>,
-    earlier_bytes: usize,
+    earlier: Holdings,
 }
 
 impl ResultHistory {
@@ -71,11 +115,11 @@ impl ResultHistory {
         let kept = self.features.get_mut(&feature)?;
         let at = kept.iter().position(|kept| matches(kept.entry.as_ref()))?;
         if at > 0 {
-            if let Some(found) = kept.get(at) {
-                self.earlier_bytes = self.earlier_bytes.saturating_sub(found.bytes);
+            if let Some(found) = kept.get_mut(at) {
+                self.earlier.release(found);
             }
             if let Some(latest) = kept.first_mut() {
-                self.earlier_bytes += latest.demote();
+                self.earlier.hold(latest);
             }
         }
         kept.get_mut(..=at)?.rotate_right(1);
@@ -88,48 +132,45 @@ impl ResultHistory {
         self.clock += 1;
         let kept = self.features.entry(feature).or_default();
         if let Some(latest) = kept.first_mut() {
-            self.earlier_bytes += latest.demote();
+            self.earlier.hold(latest);
         }
         kept.insert(
             0,
             Kept {
                 entry: Arc::new(entry),
-                bytes: 0,
+                held: Arc::default(),
                 used: self.clock,
             },
         );
-        let dropped: usize = kept
-            .drain(RESULTS_KEPT_PER_FEATURE.min(kept.len())..)
-            .map(|kept| kept.bytes)
-            .sum();
-        self.earlier_bytes = self.earlier_bytes.saturating_sub(dropped);
+        for mut dropped in kept.drain(RESULTS_KEPT_PER_FEATURE.min(kept.len())..) {
+            self.earlier.release(&mut dropped);
+        }
         self.trim();
     }
 
     fn trim(&mut self) {
         let budget = self.budget.unwrap_or(EARLIER_RESULTS_BUDGET);
-        if self.earlier_bytes <= budget {
+        if self.earlier.bytes <= budget {
             return;
         }
-        let mut earlier: Vec<(u64, FeatureId, usize)> = self
+        let mut earlier: Vec<(u64, FeatureId)> = self
             .features
             .iter()
-            .flat_map(|(feature, kept)| {
-                kept.iter()
-                    .skip(1)
-                    .map(move |kept| (kept.used, *feature, kept.bytes))
-            })
+            .flat_map(|(feature, kept)| kept.iter().skip(1).map(move |kept| (kept.used, *feature)))
             .collect();
         earlier.sort_unstable();
-        for (used, feature, bytes) in earlier {
-            if self.earlier_bytes <= budget {
+        for (used, feature) in earlier {
+            if self.earlier.bytes <= budget {
                 break;
             }
-            if let Some(kept) = self.features.get_mut(&feature) {
-                let mut first = true;
-                kept.retain(|kept| std::mem::take(&mut first) || kept.used != used);
-                self.earlier_bytes = self.earlier_bytes.saturating_sub(bytes);
-            }
+            let Some(kept) = self.features.get_mut(&feature) else {
+                continue;
+            };
+            let Some(at) = kept.iter().skip(1).position(|kept| kept.used == used) else {
+                continue;
+            };
+            let mut dropped = kept.remove(at + 1);
+            self.earlier.release(&mut dropped);
         }
     }
 
@@ -141,19 +182,20 @@ impl ResultHistory {
 
     pub(crate) fn clear(&mut self) {
         self.features.clear();
-        self.earlier_bytes = 0;
+        self.earlier = Holdings::default();
     }
 
     pub(crate) fn retain(&mut self, alive: impl Fn(&FeatureId) -> bool) {
-        let mut dropped = 0;
+        let earlier = &mut self.earlier;
         self.features.retain(|feature, kept| {
             let keep = alive(feature);
             if !keep {
-                dropped += kept.iter().skip(1).map(|kept| kept.bytes).sum::<usize>();
+                for dropped in kept.iter_mut().skip(1) {
+                    earlier.release(dropped);
+                }
             }
             keep
         });
-        self.earlier_bytes = self.earlier_bytes.saturating_sub(dropped);
     }
 
     #[cfg(test)]
@@ -181,33 +223,65 @@ impl ResultHistory {
 
     #[cfg(test)]
     pub(crate) fn earlier_bytes(&self) -> usize {
-        self.earlier_bytes
+        self.earlier.bytes
     }
 
     #[cfg(test)]
     pub(crate) fn measured_earlier_bytes(&self) -> usize {
+        let mut counted = ahash::AHashSet::new();
+        let mut bytes = 0;
+        for result in self
+            .features
+            .values()
+            .flat_map(|kept| kept.iter().skip(1))
+            .filter_map(|kept| kept.entry.result.as_ref())
+        {
+            result_buffers(result, &mut |buffer| {
+                if counted.insert(buffer.address()) {
+                    bytes += buffer.bytes();
+                }
+            });
+        }
+        bytes
+    }
+
+    #[cfg(test)]
+    pub(crate) fn earlier_bytes_in_full(&self) -> usize {
         self.features
             .values()
             .flat_map(|kept| kept.iter().skip(1))
-            .map(|kept| kept.entry.result.as_deref().map_or(0, result_bytes))
+            .filter_map(|kept| kept.entry.result.as_ref())
+            .map(|result| {
+                let mut bytes = 0;
+                result_buffers(result, &mut |buffer| bytes += buffer.bytes());
+                bytes
+            })
             .sum()
     }
 }
 
-fn result_bytes(result: &FeatureResult) -> usize {
+fn result_buffers(result: &Arc<FeatureResult>, found: &mut dyn FnMut(SharedBuffer)) {
+    found(SharedBuffer::of(result, owned_bytes(result)));
+    if let FeatureResult::Solid(solid) = result.as_ref() {
+        solid.solid.shared_buffers(found);
+        for part in solid
+            .others()
+            .iter()
+            .chain(solid.cuts())
+            .chain(solid.joins())
+        {
+            result_buffers(part, found);
+        }
+    }
+}
+
+fn owned_bytes(result: &FeatureResult) -> usize {
     match result {
         FeatureResult::Solid(solid) => {
-            solid.solid.approximate_size()
+            solid.solid.owned_size()
                 + solid
                     .display_mesh()
                     .map_or(0, DisplayMesh::approximate_size)
-                + solid
-                    .others()
-                    .iter()
-                    .chain(solid.cuts())
-                    .chain(solid.joins())
-                    .map(|part| result_bytes(Arc::as_ref(part)))
-                    .sum::<usize>()
         }
         FeatureResult::Sketch(sketch) => {
             size_of_val(sketch) + sketch.geometry.entities().len() * SKETCH_ENTITY_BYTES

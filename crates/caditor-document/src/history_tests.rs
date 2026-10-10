@@ -1,9 +1,13 @@
 use std::sync::Arc;
 
 use caditor_expression::{Expression, ParameterId};
-use caditor_geometry::Plane;
+use caditor_geometry::{Plane, Point2};
+use caditor_sketch::Sketch;
 
-use crate::{solid_tests::rectangle, *};
+use crate::{
+    solid_tests::{extrude, rectangle},
+    *,
+};
 
 struct Model {
     document: Document,
@@ -157,4 +161,79 @@ fn retrying_failures_in_a_draft_copy_leaves_the_original_cache_alone() {
     ));
     assert!(retried.recomputed().contains(&model.base));
     assert!(!again.recomputed().contains(&model.base));
+}
+
+fn drilled_plate(holes: usize) -> (Document, ParameterId, Vec<FeatureId>) {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    let depth = transaction.add_parameter("depth", transaction.parse("6 mm").unwrap());
+    let outline = transaction.add_feature(
+        "Outline",
+        FeatureKind::from(rectangle(Plane::XY, (0.0, 0.0), (40.0, 40.0))),
+    );
+    let plate = transaction.add_feature(
+        "Plate",
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch: outline,
+            regions: RegionChoice::All,
+            extent: ExtrudeExtent::one_side(Expression::Parameter(depth), false),
+            operation: BodyOperation::NewBody,
+            start: None,
+            other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
+            direction: None,
+        })),
+    );
+    let mut states = vec![plate];
+    for index in 0..holes {
+        let mut sketch = Sketch::new(Plane::XY);
+        let column = (index % 6) as f64;
+        let row = (index / 6) as f64;
+        sketch.add_circle(Point2::new(5.0 + 6.0 * column, 5.0 + 6.0 * row), 1.5);
+        let circle = transaction.add_feature(format!("Circle {index}"), FeatureKind::from(sketch));
+        states.push(transaction.add_feature(
+            format!("Hole {index}"),
+            extrude(circle, "20 mm", false, BodyOperation::Remove(plate)),
+        ));
+    }
+    document.apply(transaction.finish()).unwrap();
+    (document, depth, states)
+}
+
+#[test]
+fn earlier_results_count_the_geometry_their_solids_share_once() {
+    let (mut document, depth, states) = drilled_plate(12);
+    let mut engine = Recompute::default();
+    let first = evaluate(&document, &mut engine);
+    let deeper = document.parse("7 mm").unwrap();
+    let undo = document
+        .apply(Transaction::single(
+            "Depth",
+            Edit::SetParameterExpression {
+                id: depth,
+                expression: deeper,
+            },
+        ))
+        .unwrap();
+    let changed = evaluate(&document, &mut engine);
+
+    let (held, measured) = engine.earlier_results_held();
+    let in_full = engine.earlier_results_in_full();
+    assert_eq!(changed.failed_count(), 0);
+    assert!(
+        states
+            .iter()
+            .all(|state| changed.recomputed().contains(state))
+    );
+    assert_eq!(held, measured);
+    assert!(2 * held < in_full, "{held} of {in_full}");
+
+    document.apply(undo).unwrap();
+    let undone = evaluate(&document, &mut engine);
+    let body = |evaluation: &Evaluation| evaluation.body_result(states[0]).cloned().unwrap();
+    let (held, measured) = engine.earlier_results_held();
+    assert!(Arc::ptr_eq(&body(&first), &body(&undone)));
+    assert_eq!(held, measured);
+    assert!(2 * held < engine.earlier_results_in_full());
 }

@@ -13,6 +13,7 @@ use crate::{
     intersect::solve::{Contact, contact_direction, refine_on_plane},
     interval::Interval,
     numeric::integrate,
+    shared::SharedBuffer,
     surface::{Surface, periodic_near},
     tolerance::{INTERSECTION_TOLERANCE, LINEAR_RESOLUTION},
 };
@@ -137,11 +138,16 @@ struct Traced {
 }
 
 impl IntersectionCurve {
-    pub(crate) fn heap_size(&self) -> usize {
-        size_of_val(&*self.surfaces)
-            + self.surfaces.iter().map(Surface::heap_size).sum::<usize>()
-            + size_of_val(&*self.nodes)
-            + self.index.heap_size()
+    pub(crate) fn shared_buffers(&self, found: &mut dyn FnMut(SharedBuffer)) {
+        found(SharedBuffer::of(
+            &self.surfaces,
+            size_of_val(&*self.surfaces),
+        ));
+        for surface in self.surfaces.iter() {
+            surface.shared_buffers(found);
+        }
+        found(SharedBuffer::slice(&self.nodes));
+        found(SharedBuffer::of(&self.index, self.index.heap_size()));
     }
 
     pub fn new(

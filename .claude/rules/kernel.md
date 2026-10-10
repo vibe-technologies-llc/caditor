@@ -121,7 +121,11 @@ paths:
   no shift, `refined_within` that inserts no sample, `BSpline::map_points` and `with_points`
   keeping the knots and weights, `Solid::mapped` keeping every pcurve whose edge and uv maps are
   identities, as a turn's or a shift's are). `Solid::approximate_size` counts shared data in full
-  in each solid holding it.
+  in each solid holding it; `owned_size` is the solid's own arrays and `shared_buffers` reports
+  each `Arc` it reaches (pcurve samples, spline knots, points and weights, a spline surface's
+  net, grid and span index, an intersection curve's surfaces, nodes and index, a swept surface's
+  span index) as a `SharedBuffer` of address and bytes, so a caller holding many solids can count
+  each buffer once.
 - A face's first loop is its outer one; loops run counter-clockwise about the face normal. A face
   wrapping a periodic surface has a seam edge used twice in its loop, opposite senses, one period
   apart in uv.

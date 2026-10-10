@@ -10,6 +10,7 @@ use crate::{
     interval::Interval,
     parametric::Parametric,
     sense::Sense,
+    shared::SharedBuffer,
     surface::Surface,
     tolerance::{LINEAR_RESOLUTION, PCURVE_TOLERANCE},
 };
@@ -56,6 +57,10 @@ impl PartialEq for Pcurve {
 impl Pcurve {
     pub fn heap_size(&self) -> usize {
         size_of_val(&*self.samples)
+    }
+
+    pub fn shared_buffers(&self, found: &mut dyn FnMut(SharedBuffer)) {
+        found(SharedBuffer::slice(&self.samples));
     }
 
     pub fn new(samples: Vec<PcurveSample>, tolerance: f64) -> Result<Self, PcurveError> {
