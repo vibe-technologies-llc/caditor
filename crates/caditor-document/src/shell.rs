@@ -195,6 +195,15 @@ impl Context<'_> {
                 ),
                 "Enter a smaller thickness.".to_owned(),
             ),
+            ShellError::ClosesBesideClosing { face, beyond } => self.error(
+                format!(
+                    "{} and {} beside it both close up at this thickness, so their walls have \
+                     nowhere to meet.",
+                    capitalized(&self.describe_face(solid, *face)),
+                    self.describe_face(solid, *beyond)
+                ),
+                "Enter a smaller thickness.".to_owned(),
+            ),
             ShellError::Opening(face) => self.error(
                 format!(
                     "The opening in {} could not be cut at this thickness.",

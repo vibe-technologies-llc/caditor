@@ -52,6 +52,10 @@ pub enum ShellError {
     Corner(VertexId),
     #[error("the wall along edge {0:?} shrinks to nothing")]
     EdgeCollapses(EdgeId),
+    #[error(
+        "face {face:?} closes up under the thickness beside face {beyond:?}, which goes as well"
+    )]
+    ClosesBesideClosing { face: FaceId, beyond: FaceId },
     #[error("the opening in face {0:?} could not be cut")]
     Opening(FaceId),
     #[error("face {wall:?} leans over the opening in face {open:?}, so its wall would be cut thin")]

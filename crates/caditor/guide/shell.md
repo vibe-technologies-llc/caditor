@@ -13,3 +13,6 @@ as it was.
 Faces leaning over an opening, such as a chamfer around it, keep their thickness up to the
 opening; when the thickness would close the opening or cut such a wall thinner, the shell names
 the face and asks for a smaller thickness instead.
+A face narrower than the walls it lies between, such as a small chamfer, closes up and leaves the
+cavity, its neighbours' walls meeting where it was. When two such faces lie side by side, the shell
+names them and asks for a smaller thickness.
