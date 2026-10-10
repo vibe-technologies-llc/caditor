@@ -4,12 +4,14 @@ use caditor_document::{
     Transaction, capitalized, circle_sizes, describe_plane, hole_thread, pitch_text,
 };
 use caditor_expression::{Dimension, Expression};
-use egui::{Id, Label, Ui};
+use caditor_sketch::ConstraintId;
+use egui::{Id, Label, RichText, Ui};
 
 use crate::{
     editing::EditingCommand,
     feature_fields::{self, Choice, Picker, Quantity, REVERSE_DIRECTION, Rule, Segment, Shown},
     field, hole_on_curve,
+    hole_placement::{self, Anchor, EdgeDistance, PlacedHole},
     hole_tools::{self, DEFAULT_STEP_DIAMETER, Kind},
     icons,
     model::{Action, Model},
@@ -52,6 +54,25 @@ const EDIT_SKETCH_HOVER: &str = "Show and edit the sketch holding the hole's poi
                                  dimension them or add more holes";
 const PLACE_HOVER: &str = "Drill the hole on the selected flat face instead, at its middle";
 const NOT_ON_A_FACE: &str = "Not on a face";
+pub const MEASURED_FROM: &str = "Measured from";
+pub const EDGE_DISTANCE: &str = "Distance";
+pub const CONCENTRIC_WITH: &str = "Concentric with";
+pub const PLACE_BY: &str = "Place by";
+pub const MEASURE_SELECTED: &str = "From the selected edge";
+pub const MEASURE_CHOOSE: &str = "From an edge";
+pub const CENTRE_SELECTED: &str = "Concentric with the selected edge";
+pub const CENTRE_CHOOSE: &str = "Concentric";
+pub const ADD_HOLE: &str = "Add another hole";
+pub const STOP_ADDING: &str = "Stop adding holes";
+const MEASURE_HOVER: &str = "Measure the hole from the selected straight edge, so it keeps its \
+                             distance when the body changes";
+const CENTRE_HOVER: &str = "Centre the hole on the selected round edge, so it follows the edge \
+                            when the body changes";
+const ADD_HOLE_HOVER: &str = "Click further spots on the face to drill more holes of this size \
+                              and depth";
+const FREE_WORDS: &str = "Placed by its position";
+const ONE_EDGE_WORDS: &str = "Measured from an edge";
+const CONCENTRIC_WORDS: &str = "Concentric with an edge";
 
 fn depth_label(depth: &HoleDepth) -> &'static str {
     match depth {
@@ -690,24 +711,14 @@ impl Panel<'_> {
 
     fn placement_rows(&mut self, ui: &mut Ui) {
         let document = self.model.document();
-        let Some(point) = hole_tools::lone_point(document, self.hole) else {
+        let lone = hole_tools::lone_point(document, self.hole);
+        let mounted = hole_on_curve::mount(document, self.hole);
+        let placement = hole_placement::read(document, self.hole).filter(|_| mounted.is_none());
+        if lone.is_none() && placement.is_none() {
             return;
-        };
+        }
         let id = self.id();
         widgets::caption(ui, PLACED_ON);
-        let picker = Picker {
-            feature: id,
-            slot: Slot::HolePlace,
-            selected: feature_fields::offered_change(
-                ui.ctx(),
-                self.model,
-                self.selection,
-                (id, Slot::HolePlace),
-                || hole_tools::place_change(self.model, self.selection, id, self.hole),
-            ),
-            hover: PLACE_HOVER,
-        };
-        let mounted = hole_on_curve::mount(document, self.hole);
         let text = match mounted.and_then(|mount| hole_on_curve::face_words(document, mount)) {
             Some(words) => capitalized(&words),
             None => document
@@ -720,19 +731,161 @@ impl Panel<'_> {
         };
         ui.vertical(|ui| {
             ui.add(Label::new(text).wrap());
-            feature_fields::reference_picker(ui, self.model, picker, self.actions);
+            if lone.is_some() {
+                let picker = Picker {
+                    feature: id,
+                    slot: Slot::HolePlace,
+                    selected: feature_fields::offered_change(
+                        ui.ctx(),
+                        self.model,
+                        self.selection,
+                        (id, Slot::HolePlace),
+                        || hole_tools::place_change(self.model, self.selection, id, self.hole),
+                    ),
+                    hover: PLACE_HOVER,
+                };
+                feature_fields::reference_picker(ui, self.model, picker, self.actions);
+            }
+            if placement.is_some() {
+                self.add_hole_button(ui);
+            }
         });
         ui.end_row();
-        if mounted.is_some() {
+        let Some(placement) = placement else {
+            return;
+        };
+        let several = placement.holes.len() > 1;
+        for (index, placed) in placement.holes.iter().enumerate() {
+            self.hole_rows(ui, index + 1, several, placed);
+        }
+    }
+
+    fn hole_rows(&mut self, ui: &mut Ui, number: usize, several: bool, placed: &PlacedHole) {
+        let document = self.model.document();
+        let id = self.id();
+        if several {
+            widgets::caption(ui, &format!("Hole {number}"));
+            let words = match &placed.anchor {
+                Anchor::Free => FREE_WORDS.to_owned(),
+                Anchor::Edges(edges) if edges.len() == 1 => ONE_EDGE_WORDS.to_owned(),
+                Anchor::Edges(edges) => format!("Measured from {} edges", edges.len()),
+                Anchor::Concentric(_) => CONCENTRIC_WORDS.to_owned(),
+            };
+            let hover = format!("Remove hole {number}");
+            if widgets::removable_row(ui, widgets::muted(words, ui), &hover) {
+                self.actions.push(feature_fields::applied(
+                    &self.feature.name,
+                    hole_placement::removed(document, id, self.hole, placed.point),
+                ));
+            }
+            ui.end_row();
+        }
+        match &placed.anchor {
+            Anchor::Free => self.position_rows(ui, placed),
+            Anchor::Edges(edges) => {
+                for distance in edges {
+                    self.edge_rows(ui, number, distance);
+                }
+            }
+            Anchor::Concentric(held) => {
+                widgets::caption(ui, CONCENTRIC_WITH);
+                let words = hole_placement::edge_words(self.model, self.hole.sketch, held);
+                let hover = format!("Stop centring hole {number} on this edge");
+                if widgets::removable_row(ui, RichText::new(words), &hover) {
+                    self.release(held.constraint);
+                }
+                ui.end_row();
+            }
+        }
+        let measured = match &placed.anchor {
+            Anchor::Free => Some(0),
+            Anchor::Edges(edges) => Some(edges.len()),
+            Anchor::Concentric(_) => None,
+        };
+        widgets::caption(ui, PLACE_BY);
+        ui.vertical(|ui| {
+            if measured.is_some_and(|count| count < hole_placement::MAX_EDGES) {
+                self.anchor_button(
+                    ui,
+                    Slot::HoleEdge(placed.point),
+                    [MEASURE_SELECTED, MEASURE_CHOOSE],
+                    MEASURE_HOVER,
+                );
+            }
+            self.anchor_button(
+                ui,
+                Slot::HoleConcentric(placed.point),
+                [CENTRE_SELECTED, CENTRE_CHOOSE],
+                CENTRE_HOVER,
+            );
+        });
+        ui.end_row();
+    }
+
+    fn release(&mut self, constraint: ConstraintId) {
+        let document = self.model.document();
+        self.actions.push(feature_fields::applied(
+            &self.feature.name,
+            hole_placement::released(document, self.id(), self.hole, constraint),
+        ));
+    }
+
+    fn anchor_button(
+        &mut self,
+        ui: &mut Ui,
+        slot: Slot,
+        [selected, choose]: [&str; 2],
+        hover: &str,
+    ) {
+        let id = self.id();
+        let picking =
+            reference_picking::current(ui.ctx()).filter(|picking| picking.is_for(id, slot));
+        if let Some(picking) = picking {
+            let prompt = format!("{}.", reference_picking::prompt(self.model, picking));
+            ui.label(widgets::muted(prompt, ui));
+            let stop = widgets::small_button(ui, icons::CLOSE, feature_fields::STOP_CHOOSING);
+            if ui.add(stop).clicked() {
+                self.actions
+                    .push(Action::Editing(EditingCommand::StopPicking));
+            }
             return;
         }
+        let offered = feature_fields::offered_change(
+            ui.ctx(),
+            self.model,
+            self.selection,
+            (id, slot),
+            || reference_picking::change(self.model, id, slot, self.selection),
+        );
+        match offered {
+            Ok(transaction) => {
+                let button = widgets::small_button(ui, icons::USE_SELECTED, selected);
+                if ui.add(button).on_hover_text(hover).clicked() {
+                    self.actions.push(Action::Apply(transaction));
+                }
+            }
+            Err(_) => {
+                let picking = Picking::new(id, slot);
+                let button = widgets::small_button(ui, icons::CHOOSE_IN_VIEW, choose);
+                let prompt = reference_picking::prompt(self.model, picking);
+                if ui.add(button).on_hover_text(prompt).clicked() {
+                    self.actions
+                        .push(Action::Editing(EditingCommand::Pick(picking)));
+                }
+            }
+        }
+    }
+
+    fn position_rows(&mut self, ui: &mut Ui, placed: &PlacedHole) {
+        let document = self.model.document();
+        let id = self.id();
         let unit = self.model.length_unit();
         for (index, caption) in feature_fields::POSITION_CAPTIONS.into_iter().enumerate() {
-            let along = if index == 0 { point.at.x } else { point.at.y };
+            let along = if index == 0 { placed.at.x } else { placed.at.y };
             let expression = unit.measured(along);
             let quantity = Quantity {
                 feature: id,
-                id: Id::new(("hole-position", id, index)),
+                id: Id::new(("hole-position", id, placed.point, index)),
                 expression: &expression,
                 dimension: Dimension::LENGTH,
                 rule: Rule::Any,
@@ -748,17 +901,71 @@ impl Panel<'_> {
                         .evaluate_expression(&value)
                         .map_err(|error| field::sentence(&error.to_string()))?
                         .value;
-                    let mut at = point.at;
+                    let mut at = placed.at;
                     if index == 0 {
                         at.x = millimetres;
                     } else {
                         at.y = millimetres;
                     }
-                    hole_tools::moved(document, id, self.hole, at)
-                        .and_then(|transaction| field::checked(document, transaction))
+                    hole_placement::moved(document, id, self.hole, placed.point, at)
                 },
             );
             self.actions.extend(drafting.into_actions(id));
+        }
+    }
+
+    fn edge_rows(&mut self, ui: &mut Ui, number: usize, distance: &EdgeDistance) {
+        let document = self.model.document();
+        let id = self.id();
+        widgets::caption(ui, MEASURED_FROM);
+        let words = hole_placement::edge_words(self.model, self.hole.sketch, &distance.held);
+        let hover = format!("Stop measuring hole {number} from this edge");
+        if widgets::removable_row(ui, RichText::new(words), &hover) {
+            self.release(distance.held.constraint);
+        }
+        ui.end_row();
+        let constraint = distance.held.constraint;
+        let quantity = Quantity {
+            feature: id,
+            id: Id::new(("hole-edge-distance", id, constraint)),
+            expression: &distance.value,
+            dimension: Dimension::LENGTH,
+            rule: Rule::ZeroOrMore,
+        };
+        let drafting = feature_fields::expression_row_drafting(
+            ui,
+            self.model,
+            EDGE_DISTANCE,
+            quantity,
+            |value| hole_placement::distance_change(document, id, self.hole, constraint, value),
+        );
+        self.actions.extend(drafting.into_actions(id));
+    }
+
+    fn add_hole_button(&mut self, ui: &mut Ui) {
+        let id = self.id();
+        let picking = reference_picking::current(ui.ctx())
+            .filter(|picking| picking.is_for(id, Slot::HoleAdd));
+        match picking {
+            Some(picking) => {
+                let prompt = format!("{}.", reference_picking::prompt(self.model, picking));
+                ui.label(widgets::muted(prompt, ui));
+                let stop = widgets::small_button(ui, icons::CLOSE, STOP_ADDING);
+                if ui.add(stop).clicked() {
+                    self.actions
+                        .push(Action::Editing(EditingCommand::StopPicking));
+                }
+            }
+            None => {
+                let add = widgets::small_button(ui, icons::ADD, ADD_HOLE);
+                if ui.add(add).on_hover_text(ADD_HOLE_HOVER).clicked() {
+                    self.actions
+                        .push(Action::Editing(EditingCommand::Pick(Picking::new(
+                            id,
+                            Slot::HoleAdd,
+                        ))));
+                }
+            }
         }
     }
 

@@ -295,9 +295,9 @@ pub fn create_on_face(
         new_hole(placed, face.body, &Starts::of(model)),
     );
     let told = format!(
-        "{name} is drilled in the middle of the face, as far from its edges as it can be. Type \
-         its Position or choose another spot in the view from its panel; edit {sketch_name} to \
-         dimension its point or add more points for more holes."
+        "{name} is drilled in the middle of the face, as far from its edges as it can be. From \
+         its panel, type its Position, measure it from edges, centre it on a round edge or add \
+         more holes on the face; {sketch_name} holds its points."
     );
     Ok((transaction.finish(), feature, told))
 }
@@ -309,7 +309,17 @@ pub fn face_middle(model: &Model, face: FaceChoice, plane: &Plane) -> Option<Poi
 }
 
 pub fn middle_of(solid: &Solid, id: FaceId, plane: &Plane) -> Option<Point2> {
-    let segments: Vec<[Point2; 2]> = face_boundary(solid, id)
+    deepest_point(&boundary_segments(solid, id, plane))
+}
+
+pub fn clear_spot(solid: &Solid, id: FaceId, plane: &Plane, taken: &[Point2]) -> Option<Point2> {
+    let mut segments = boundary_segments(solid, id, plane);
+    segments.extend(taken.iter().map(|point| [*point, *point]));
+    deepest_point(&segments)
+}
+
+fn boundary_segments(solid: &Solid, id: FaceId, plane: &Plane) -> Vec<[Point2; 2]> {
+    face_boundary(solid, id)
         .into_iter()
         .filter_map(|edge| solid.edge(edge))
         .flat_map(|edge| {
@@ -329,8 +339,7 @@ pub fn middle_of(solid: &Solid, id: FaceId, plane: &Plane) -> Option<Point2> {
                 })
                 .collect::<Vec<_>>()
         })
-        .collect();
-    deepest_point(&segments)
+        .collect()
 }
 
 fn deepest_point(boundary: &[[Point2; 2]]) -> Option<Point2> {

@@ -1,11 +1,12 @@
 use caditor_document::{Datum, FeatureId, FeatureKind, PatternKind, SolidFeature, Transaction};
+use caditor_sketch::EntityId;
 use egui::{Context, Id};
 
 use crate::{
     datum_panel::{self, FramePart},
     datum_tools,
     editing::EditingCommand,
-    hole_panel, hole_tools,
+    hole_panel, hole_placement, hole_tools,
     mate_tools::{self, MatePart},
     measurement_tools::{self, MeasuredPart},
     mirror_tools,
@@ -56,6 +57,9 @@ pub enum Slot {
     ScaleCentre,
     ThreadFace,
     MeasuredItem(MeasuredPart),
+    HoleEdge(EntityId),
+    HoleConcentric(EntityId),
+    HoleAdd,
 }
 
 pub const MAX_HELD: usize = 2;
@@ -143,6 +147,12 @@ pub fn prompt(model: &Model, picking: Picking) -> String {
         Slot::HoleTarget => "Click a flat face or plane to drill up to".to_owned(),
         Slot::HolePlace => {
             "Click a flat face where the hole goes, or press Escape to leave it where it is"
+                .to_owned()
+        }
+        Slot::HoleEdge(_) => "Click a straight edge to measure the hole from".to_owned(),
+        Slot::HoleConcentric(_) => "Click a round edge to centre the hole on".to_owned(),
+        Slot::HoleAdd => {
+            "Click the face where each further hole goes, or press Escape to stop adding them"
                 .to_owned()
         }
         Slot::ExtrudeDirection => "Click a straight edge, an axis or a sketch line to extrude \
@@ -285,6 +295,15 @@ pub fn change(
         }
         (Slot::HolePlace, FeatureKind::Hole(hole)) => {
             hole_tools::place_change(model, selection, feature, hole)
+        }
+        (Slot::HoleEdge(point), FeatureKind::Hole(hole)) => {
+            hole_placement::edge_change(model, selection, feature, hole, point)
+        }
+        (Slot::HoleConcentric(point), FeatureKind::Hole(hole)) => {
+            hole_placement::concentric_change(model, selection, feature, hole, point)
+        }
+        (Slot::HoleAdd, FeatureKind::Hole(hole)) => {
+            hole_placement::add_change(model, selection, feature, hole)
         }
         (Slot::MirrorPlane, FeatureKind::Mirror(mirror)) => {
             mirror_tools::plane_change(model, selection, feature, mirror)
