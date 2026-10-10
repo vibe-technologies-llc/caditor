@@ -645,6 +645,13 @@ pub(crate) enum Form {
         side: f64,
         value: f64,
     },
+    LineOffset {
+        point: PointHandle,
+        line: LineHandle,
+        along: Vector2,
+        side: f64,
+        value: f64,
+    },
     CircleGap {
         first: CircleHandle,
         second: CircleHandle,
@@ -852,6 +859,7 @@ impl Form {
             | Self::LineDistance { value, .. }
             | Self::Radius { value, .. }
             | Self::Offset { value, .. }
+            | Self::LineOffset { value, .. }
             | Self::CircleDistance { value, .. }
             | Self::CircleGap { value, .. }
             | Self::LineGap { value, .. }
@@ -1549,6 +1557,21 @@ impl Form {
                 from.push(gradient, -along * side);
                 side * along.dot(to.at(values) - from.at(values)) - value
             }
+            Self::LineOffset {
+                point,
+                line,
+                along,
+                side,
+                value,
+            } => {
+                let direction = line.direction(values, context);
+                let offset = point.at(values) + along * (side * value) - line.start.at(values);
+                let normal = direction.unit.perp();
+                point.push(gradient, normal);
+                line.start.push(gradient, -normal);
+                line.push_vector(gradient, direction.back_from_unit(-offset.perp()));
+                direction.unit.perp_dot(offset)
+            }
             Self::CircleDistance {
                 point,
                 circle,
@@ -2066,6 +2089,20 @@ mod tests {
                 along: Vector2::Y,
                 side: -1.0,
                 value: 1.25,
+            },
+            Form::LineOffset {
+                point: point(8),
+                line: line(0, 2),
+                along: Vector2::X,
+                side: -1.0,
+                value: 1.5,
+            },
+            Form::LineOffset {
+                point: circle(6, 10).center,
+                line: line(2, 4),
+                along: Vector2::Y,
+                side: 1.0,
+                value: 0.75,
             },
             Form::CircleDistance {
                 point: point(0),

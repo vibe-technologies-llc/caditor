@@ -11,8 +11,12 @@ use crate::{
     intersect::{self, Carrier, Shape},
     pattern::Dimensioned,
     sketch::{Sketch, SketchError},
-    trim::{keeps_length, keeps_sweep},
+    trim::{ExtendError, keeps_length, keeps_sweep},
 };
+
+mod crossing;
+
+pub use crossing::Pick;
 
 const TOLERANCE: f64 = 1e-7;
 const SMOOTH_ANGLE: f64 = 1e-6;
@@ -60,6 +64,17 @@ pub enum FilletError {
     NoFit { first: String, second: String },
     #[error("{label} follows the geometry it was projected from, so its corner cannot be rounded")]
     Projected { entity: EntityId, label: String },
+    #[error("{label} is picked twice; pick two different curves")]
+    SameCurve { entity: EntityId, label: String },
+    #[error("{first} and {second} never meet, even extended")]
+    NeverMeet { first: String, second: String },
+    #[error(
+        "{label} must already meet the other curve at an end; only lines, arcs and circles are \
+         trimmed or extended to meet"
+    )]
+    NotCrossable { entity: EntityId, label: String },
+    #[error(transparent)]
+    Held(ExtendError),
     #[error(transparent)]
     Edit(SketchError),
 }

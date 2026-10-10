@@ -1,4 +1,5 @@
 pub mod annotation;
+mod axis_offset;
 mod banded;
 mod beyond;
 mod blend;
@@ -36,7 +37,7 @@ pub use crate::{
     constraint::{Constraint, DimensionError, MAX_LENGTH},
     curve::{ArcGeometry, BSpline, EllipseGeometry, Faceting, conic_weight},
     entity::{Entity, FitSpacing, MAX_RHO, MIN_RHO, SplineKind},
-    fillet::{Bevel, ChamferSize, Corner, FilletError, Rounding},
+    fillet::{Bevel, ChamferSize, Corner, FilletError, Pick, Rounding},
     fit::FittedSpline,
     gear::{
         DrawnGear, GearCentre, GearCircles, GearError, GearOutline, GearPiece, MAX_PRESSURE_ANGLE,

@@ -89,6 +89,13 @@ paths:
   a gap of crossing curves is zero. An angle measures from its first line's direction (or its
   reverse when `reversed`, which the UI sets so a chain's corner is measured inside it) to its
   second's.
+- `HorizontalDistance` and `VerticalDistance` take two points, a point or circle and a line, or
+  two circles or arcs (never two lines; `NotApplicable`). A circle or arc counts as its centre and
+  a line as where it crosses the axis-parallel through the other item (`Sketch::axis_offset_ends`
+  gives the two measured points, for `measured`, the canvas and drawing export): the solver holds
+  the other item, moved by the value along the axis on its drawn side, on the line
+  (`Form::LineOffset`, a signed distance from the line, so it stays finite when the line turns
+  level). A line running along the measuring axis is refused (`RunsAlong`).
 - `AxisDiameter { point, axis }` is a point's distance from a line held as the diameter across it,
   as a lathe drawing dimensions a revolved profile: its value and `Sketch::measured` are twice the
   distance, the solver holds the point at half the value on its drawn side (`Form::LineDistance`),
@@ -281,6 +288,19 @@ every constraint still true of it. Joints are judged by a `TOLERANCE` relative t
   ellipse. `fillet` adds the arc `Tangent` to both with a `Radius` dimension and keeps the corner
   point as a sharp held on both carriers by `Coincident`, so dimensions, fixes and symmetry on the
   corner still hold.
+- Two lines, arcs or circles not meeting at an end are joined first (`fillet/crossing.rs`):
+  `join_at_crossing` takes a `Pick` on each (the curve and a point on it), the corner at the
+  crossing of their carriers nearest the picks (`NeverMeet` when there is none, `SameCurve`), and
+  replaces the end on the far side of the corner from the pick with one shared point there, as
+  trim does (`keeps_length`/`keeps_sweep`, distance dimensions between the old ends dropped, an
+  old end no curve uses removed). An end that has to move outward is checked as extend checks it
+  (`Held`); an arc whose crossing lies off it extends its nearer free end. A circle becomes the arc
+  from the corner to the carriers' other crossing on the picked side, that end held on the other
+  curve by `Coincident`, so a later join on the same circle (a lever's second line) extends it
+  round. Curves already meeting at the corner are left alone; an elliptical arc is `NotCrossable`.
+  `crossing_picks` gives picks for two selected curves: the crossing nearest both drawn curves, a
+  line's or arc's longer part, a circle's side making the blunter corner with the other curve
+  (two circles: each its side away from the other's centre).
 - Chamfer (`fillet.rs`, same corners): a `ChamferSize` is one distance for both curves (`Equal`),
   a distance on each (`Distances`) or a distance on the first and the angle of the cut
   (`DistanceAndAngle`), each a `Dimensioned` (typed expression and its value). `bevel` finds the

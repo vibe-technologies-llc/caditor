@@ -142,6 +142,13 @@ pub enum SketchError {
     NoLength { entity: EntityId, label: String },
     #[error("{label} is a point, and only curves can be construction geometry")]
     PointAsConstruction { entity: EntityId, label: String },
+    #[error("{label} is {level}, so a {kind} cannot be measured from it")]
+    RunsAlong {
+        entity: EntityId,
+        label: String,
+        level: &'static str,
+        kind: &'static str,
+    },
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -459,11 +466,9 @@ impl Sketch {
             Constraint::AxisDiameter { point, axis, .. } => {
                 2.0 * self.distance_to_line(self.point(point)?, axis)?
             }
-            Constraint::HorizontalDistance { from, to, .. } => {
-                (self.point(to)?.x - self.point(from)?.x).abs()
-            }
-            Constraint::VerticalDistance { from, to, .. } => {
-                (self.point(to)?.y - self.point(from)?.y).abs()
+            Constraint::HorizontalDistance { .. } | Constraint::VerticalDistance { .. } => {
+                let (from, to, along) = self.axis_offset_ends(constraint)?;
+                along.dot(to - from).abs()
             }
             Constraint::Angle {
                 from, to, reversed, ..
@@ -928,12 +933,14 @@ impl Sketch {
                 self.expect(line, &[Role::Line, Role::Elliptic], "a line or an ellipse")?;
                 self.check_not_only_reference(&entities)
             }
-            Constraint::HorizontalPoints(a, b)
-            | Constraint::VerticalPoints(a, b)
-            | Constraint::HorizontalDistance { from: a, to: b, .. }
-            | Constraint::VerticalDistance { from: a, to: b, .. } => {
+            Constraint::HorizontalPoints(a, b) | Constraint::VerticalPoints(a, b) => {
                 self.expect(a, &[Role::Point], "a point")?;
                 self.expect(b, &[Role::Point], "a point")?;
+                self.check_not_only_reference(&entities)
+            }
+            Constraint::HorizontalDistance { from: a, to: b, .. }
+            | Constraint::VerticalDistance { from: a, to: b, .. } => {
+                self.check_axis_offset(constraint, a, b)?;
                 self.check_not_only_reference(&entities)
             }
             Constraint::Perpendicular(a, b)
@@ -1430,6 +1437,45 @@ impl Sketch {
                 found: self.entity_label(entity),
                 needed,
             })
+        }
+    }
+
+    fn check_axis_offset(
+        &self,
+        constraint: &Constraint,
+        a: EntityId,
+        b: EntityId,
+    ) -> Result<(), SketchError> {
+        const MEASURED: [Role; 3] = [Role::Point, Role::Line, Role::Circular];
+        const NEEDED: &str = "a point, a line, a circle or an arc";
+        let first = self.expect(a, &MEASURED, NEEDED)?;
+        let second = self.expect(b, &MEASURED, NEEDED)?;
+        if first == Role::Line && second == Role::Line {
+            return Err(SketchError::NotApplicable {
+                constraint: constraint.kind_name(),
+                first: self.entity_label(a),
+                second: self.entity_label(b),
+            });
+        }
+        let Some(along) = constraint.measuring_axis() else {
+            return Ok(());
+        };
+        let (level, kind) = if along == Vector2::X {
+            ("horizontal", "horizontal distance")
+        } else {
+            ("vertical", "vertical distance")
+        };
+        match [(a, first), (b, second)]
+            .into_iter()
+            .find(|(line, role)| *role == Role::Line && self.runs_along(*line, along))
+        {
+            Some((line, _)) => Err(SketchError::RunsAlong {
+                entity: line,
+                label: self.entity_label(line),
+                level,
+                kind,
+            }),
+            None => Ok(()),
         }
     }
 

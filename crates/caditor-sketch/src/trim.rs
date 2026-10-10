@@ -1165,7 +1165,11 @@ impl Sketch {
         Ok(())
     }
 
-    fn drop_length_dimensions(&mut self, a: EntityId, b: EntityId) -> Result<(), SketchError> {
+    pub(crate) fn drop_length_dimensions(
+        &mut self,
+        a: EntityId,
+        b: EntityId,
+    ) -> Result<(), SketchError> {
         let at_a = self.joined_points(a);
         let at_b = self.joined_points(b);
         let between: BTreeSet<ConstraintId> = at_a
@@ -1315,7 +1319,7 @@ impl Sketch {
         Ok(())
     }
 
-    fn drop_if_unused(&mut self, point: EntityId) -> Result<(), SketchError> {
+    pub(crate) fn drop_if_unused(&mut self, point: EntityId) -> Result<(), SketchError> {
         if self.entity(point).is_none() || !self.entities_using(point).is_empty() {
             return Ok(());
         }
@@ -1339,7 +1343,7 @@ impl Sketch {
         Ok(())
     }
 
-    fn check_free_end(&self, curve: EntityId, end: EntityId) -> Result<(), ExtendError> {
+    pub(crate) fn check_free_end(&self, curve: EntityId, end: EntityId) -> Result<(), ExtendError> {
         let label = || self.entity_label(curve);
         if let Some(other) = self
             .entities_using(end)

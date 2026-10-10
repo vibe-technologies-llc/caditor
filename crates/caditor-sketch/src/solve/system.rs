@@ -805,11 +805,26 @@ impl System {
             Constraint::AxisDiameter { point, axis, .. } => {
                 vec![self.line_distance(sketch, point, axis, dimension()? / 2.0)?]
             }
-            Constraint::HorizontalDistance { from, to, .. } => {
-                self.offset(self.point(from)?, self.point(to)?, Vector2::X, dimension()?)
-            }
-            Constraint::VerticalDistance { from, to, .. } => {
-                self.offset(self.point(from)?, self.point(to)?, Vector2::Y, dimension()?)
+            Constraint::HorizontalDistance { from, to, .. }
+            | Constraint::VerticalDistance { from, to, .. } => {
+                let along = constraint
+                    .measuring_axis()
+                    .ok_or_else(|| not_applicable(from, to))?;
+                match (role(from)?, role(to)?) {
+                    (Role::Line, Role::Line) => return Err(not_applicable(from, to)),
+                    (Role::Line, _) => {
+                        vec![self.line_offset(sketch, to, from, along, dimension()?)?]
+                    }
+                    (_, Role::Line) => {
+                        vec![self.line_offset(sketch, from, to, along, dimension()?)?]
+                    }
+                    _ => self.offset(
+                        self.offset_anchor(sketch, from)?,
+                        self.offset_anchor(sketch, to)?,
+                        along,
+                        dimension()?,
+                    ),
+                }
             }
             Constraint::Angle {
                 from, to, reversed, ..
@@ -907,6 +922,37 @@ impl System {
             side: if drawn < 0.0 { -1.0 } else { 1.0 },
             value,
         }]
+    }
+
+    fn offset_anchor(&self, sketch: &Sketch, id: EntityId) -> Result<PointHandle, SketchError> {
+        match sketch.role(id) {
+            Some(Role::Circular) => Ok(self.circle(sketch, id)?.center),
+            _ => self.point(id),
+        }
+    }
+
+    fn line_offset(
+        &self,
+        sketch: &Sketch,
+        anchor: EntityId,
+        line: EntityId,
+        along: Vector2,
+        value: f64,
+    ) -> Result<Form, SketchError> {
+        let (point, line) = (
+            self.offset_anchor(sketch, anchor)?,
+            self.line(sketch, line)?,
+        );
+        let start = line.start.at(&self.values);
+        let direction = fallback_direction(line.end.at(&self.values) - start);
+        let reach = direction.perp_dot(start - point.at(&self.values)) / direction.perp_dot(along);
+        Ok(Form::LineOffset {
+            point,
+            line,
+            along,
+            side: if reach < 0.0 { -1.0 } else { 1.0 },
+            value,
+        })
     }
 
     fn circle_distance(

@@ -1,5 +1,5 @@
 use caditor_expression::{EvalError, Expression, ParameterId, Quantity, Unit};
-use caditor_geometry::{Plane, Point2};
+use caditor_geometry::{Plane, Point2, Vector2};
 
 use crate::{
     Constraint, ConstraintId, Entity, EntityId, EntityState, Redundancy, Sketch, SketchError,
@@ -367,6 +367,144 @@ fn horizontal_and_vertical_distances_keep_their_drawn_side() {
     let solved = solve(&sketch).unwrap();
     assert_near(at(&solved, to), Point2::new(2.0, 7.0));
     assert_eq!(solved.solution.degrees_of_freedom(), 0);
+}
+
+#[test]
+fn a_horizontal_distance_measures_from_where_a_line_crosses_the_level_through_the_point() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::ZERO, Point2::new(10.0, 10.0));
+    fix_line(&mut sketch, line);
+    let point = sketch.add_point(Point2::new(8.0, 3.0));
+    let across = Constraint::HorizontalDistance {
+        from: point,
+        to: line,
+        value: mm(2.0),
+    };
+    assert_eq!(sketch.measured(&across), Some(5.0));
+    assert_eq!(
+        sketch.axis_offset_ends(&across),
+        Some((Point2::new(8.0, 3.0), Point2::new(3.0, 3.0), Vector2::X))
+    );
+    let across = add(&mut sketch, across);
+    add(
+        &mut sketch,
+        Constraint::VerticalDistance {
+            from: EntityId::ORIGIN,
+            to: point,
+            value: mm(3.0),
+        },
+    );
+
+    let solved = solve(&sketch).unwrap();
+
+    assert_near(at(&solved, point), Point2::new(5.0, 3.0));
+    assert_eq!(solved.solution.degrees_of_freedom(), 0);
+    assert_eq!(solved.solution.dimension(across), Some(2.0));
+    assert!(solved.solution.redundancies().is_empty());
+}
+
+#[test]
+fn circles_are_measured_horizontally_and_vertically_from_their_centres() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let first = sketch.add_circle(Point2::new(1.0, 1.0), 2.0);
+    let second = sketch.add_circle(Point2::new(9.0, 4.0), 1.0);
+    let point = sketch.add_point(Point2::new(-4.0, 6.0));
+    let anchor = center(&sketch, first);
+    fix(&mut sketch, anchor);
+    add(
+        &mut sketch,
+        Constraint::HorizontalDistance {
+            from: first,
+            to: second,
+            value: mm(20.0),
+        },
+    );
+    add(
+        &mut sketch,
+        Constraint::VerticalDistance {
+            from: second,
+            to: first,
+            value: mm(5.0),
+        },
+    );
+    add(
+        &mut sketch,
+        Constraint::VerticalDistance {
+            from: point,
+            to: first,
+            value: mm(7.0),
+        },
+    );
+    add(
+        &mut sketch,
+        Constraint::HorizontalDistance {
+            from: point,
+            to: EntityId::VERTICAL_AXIS,
+            value: mm(6.0),
+        },
+    );
+
+    let solved = solve(&sketch).unwrap();
+
+    assert_near(at(&solved, center(&sketch, second)), Point2::new(21.0, 6.0));
+    assert_near(at(&solved, point), Point2::new(-6.0, 8.0));
+    assert!(solved.solution.redundancies().is_empty());
+}
+
+#[test]
+fn a_line_running_along_the_measuring_direction_or_two_lines_are_refused() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let level = sketch.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
+    let slanted = sketch.add_line(Point2::ZERO, Point2::new(10.0, 4.0));
+    let point = sketch.add_point(Point2::new(3.0, 5.0));
+    let spline = sketch.add_spline(&[Point2::ZERO, Point2::new(1.0, 2.0)]);
+
+    let along = sketch.add_constraint(Constraint::HorizontalDistance {
+        from: point,
+        to: level,
+        value: mm(1.0),
+    });
+    assert!(matches!(along, Err(SketchError::RunsAlong { .. })));
+    assert_eq!(
+        along.unwrap_err().to_string(),
+        format!(
+            "{} is horizontal, so a horizontal distance cannot be measured from it",
+            sketch.entity_label(level)
+        )
+    );
+    assert!(matches!(
+        sketch.add_constraint(Constraint::VerticalDistance {
+            from: point,
+            to: EntityId::VERTICAL_AXIS,
+            value: mm(1.0),
+        }),
+        Err(SketchError::RunsAlong { .. })
+    ));
+    assert!(matches!(
+        sketch.add_constraint(Constraint::VerticalDistance {
+            from: level,
+            to: slanted,
+            value: mm(1.0),
+        }),
+        Err(SketchError::NotApplicable { .. })
+    ));
+    assert!(matches!(
+        sketch.add_constraint(Constraint::VerticalDistance {
+            from: point,
+            to: spline,
+            value: mm(1.0),
+        }),
+        Err(SketchError::WrongKind { .. })
+    ));
+    assert!(
+        sketch
+            .add_constraint(Constraint::VerticalDistance {
+                from: point,
+                to: level,
+                value: mm(5.0),
+            })
+            .is_ok()
+    );
 }
 
 #[test]
