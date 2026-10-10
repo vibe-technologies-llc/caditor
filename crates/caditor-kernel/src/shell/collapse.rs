@@ -158,6 +158,13 @@ impl Collapses {
         );
     }
 
+    pub(super) fn shrinking(&self) -> impl Iterator<Item = (FaceId, &BTreeSet<EdgeId>)> {
+        self.0.iter().filter_map(|(face, collapse)| match collapse {
+            Collapse::Shrinks(across) => Some((*face, across)),
+            _ => None,
+        })
+    }
+
     pub(super) fn faces(&self) -> BTreeSet<FaceId> {
         self.0.keys().copied().collect()
     }

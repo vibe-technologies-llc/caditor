@@ -305,6 +305,16 @@ paths:
     offset edges all shrink to nothing or all but two apart from each other (a chamfer, a narrow
     top, a cone band closing into a ridge) are dropped; shrinking faces are found from the solved
     vertices, then everything is solved again without them, round after round;
+  - a one-loop face whose kept edges form two sides apart, one a single edge and the other a chain
+    (a rim split by another face's seam), is dropped only when its offset outline turns over: the
+    loop's offset vertices projected onto the original surface (hinted by each coedge's pcurve
+    start) enclose a uv area of the opposite sign or none (`Layout::outline_inverts`), since
+    counting chains alone closes faces of a chamfered box that survive. Such a dropped face is a
+    `Band`: each joint of the chain is solved on the offset of the face beyond the single edge as
+    well (a vertex of two offset surfaces, held by a seam plane when its own faces leave it free),
+    each chain edge becomes its own edge between its live face and that face, and the single edge
+    maps to the chain's pieces in order. Two chains, or a single edge whose far face also drops,
+    are still refused;
   - vanishing edges merge their vertices; a merged vertex must lie strictly inside the offset of
     each face that shrank away there, and beyond an opened face offset outward, so the cavity still
     opens through it, else the edge shrinking to nothing is reported;
