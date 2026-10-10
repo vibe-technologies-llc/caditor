@@ -3397,6 +3397,40 @@ fn unsaved_work_can_be_restored_with_every_feature_suppressed_and_brought_back_b
     assert_eq!(harness.model.undo_label(), Some("Edit width"));
 }
 
+#[cfg(unix)]
+#[test]
+fn a_discard_that_fails_keeps_the_recovery_offer_and_says_the_changes_can_still_be_restored() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = TempDir::new().unwrap();
+    let editor = crashed_with_a_width_change(dir.path());
+    let recovery = dir.path().join("recovery");
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    harness.wait_until("recovery is offered", |harness| {
+        harness.shows("Recover unsaved work")
+    });
+
+    std::fs::set_permissions(&recovery, std::fs::Permissions::from_mode(0o500)).unwrap();
+    harness.click("Discard…");
+    harness.click("Discard");
+    harness.wait_until("the failure is reported", |harness| {
+        harness.model.notice().is_some()
+    });
+    std::fs::set_permissions(&recovery, std::fs::Permissions::from_mode(0o700)).unwrap();
+
+    let notice = harness.model.notice().unwrap().text.clone();
+    assert!(notice.starts_with("Could not discard the recovered changes"));
+    assert!(notice.ends_with("where you can restore them."));
+    assert!(harness.files.has_recoverable());
+    assert!(harness.shows("Recover unsaved work"));
+    assert!(harness.shows("1 unsaved change, last one just now"));
+
+    harness.click("Restore");
+
+    assert_eq!(harness.model.document(), editor.document());
+    assert!(!harness.files.has_recoverable());
+}
+
 fn fail_a_frame(harness: &mut Harness) -> app::AfterFailedFrame {
     app::after_failed_frame(
         &mut harness.workspace,

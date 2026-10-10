@@ -56,6 +56,8 @@ paths:
   open the same way (with a notice saying so) before the unsaved-changes prompt is raised, so the
   prompt is never hidden behind the opening dialog and a load finishing later cannot replace the
   model the prompt is about.
+- A recovery offer leaves the list only when its discard succeeded; a failed discard keeps the card
+  and says the changes are still there to restore.
 - Save As appends `.caditor`, checks the target on the worker (refused while open in another
   window or holding unrecovered changes) and asks before replacing a file the dialog did not name.
 - A save over a file another program changed (`Report::ChangedOnDisk`) asks: Save a copy primary,

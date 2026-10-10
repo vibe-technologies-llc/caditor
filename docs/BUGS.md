@@ -13,11 +13,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   offers it and it is deleted after `SET_ASIDE_KEPT_SECONDS`. A plain snapshot is the last saved
   state by definition: when the model file's head digest equals the header's `on_disk`, load the
   file as the base, replay the entries and report it; a `RebasedSnapshot` keeps today's handling.
-- [medium · easy] A recovery offer vanishes when discarding it fails: `Event::Discarded` removes
-  the journal from `recoverable` before looking at the error, so the journal stays on disk and the
-  notice says so, but the card is gone and Recover unsaved work is unavailable until the next
-  launch, the only way back in this session for an untitled journal. Keep the candidate on an
-  error and say its changes are still there to restore.
 - [medium · easy] Quitting while an export runs drops it silently: `Files::request(Intent::Quit)`
   only abandons an open in flight, `run` closes storage and quits without asking
   `Exporter::is_running` or the image export, and their threads die with the process, leaving

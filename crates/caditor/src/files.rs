@@ -1586,22 +1586,30 @@ impl Files {
                 session,
                 result,
             } => self.parameters_read(path, session, result, model),
-            Event::Discarded { journal, error } => {
-                let index = self
+            Event::Discarded {
+                journal,
+                error: Some(error),
+            } => {
+                log::warn!("could not discard {}: {error}", journal.display());
+                model.set_notice(Notice::failure(format!(
+                    "Could not discard the recovered changes: {error}. They are still offered \
+                     under Recover unsaved work, where you can restore them."
+                )));
+            }
+            Event::Discarded {
+                journal,
+                error: None,
+            } => {
+                let candidate = self
                     .recoverable
                     .iter()
-                    .position(|candidate| candidate.recovered.journal == journal);
-                let candidate = index.map(|index| self.recoverable.remove(index));
-                match (error, candidate) {
-                    (Some(error), _) => model.set_notice(Notice::failure(format!(
-                        "Could not discard the recovered changes: {error}."
-                    ))),
-                    (None, Some(candidate)) if candidate.open_file_on_discard => {
-                        if let Some(file) = candidate.recovered.file {
-                            self.request(Intent::Open(Some(file)), model);
-                        }
-                    }
-                    (None, _) => {}
+                    .position(|candidate| candidate.recovered.journal == journal)
+                    .map(|index| self.recoverable.remove(index));
+                if let Some(candidate) =
+                    candidate.filter(|candidate| candidate.open_file_on_discard)
+                    && let Some(file) = candidate.recovered.file
+                {
+                    self.request(Intent::Open(Some(file)), model);
                 }
             }
             Event::Exported {
