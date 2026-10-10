@@ -26,6 +26,9 @@ pub enum DialogError {
     #[error("the desktop portal's file dialog failed ({0})")]
     Portal(zbus::Error),
     #[cfg(unix)]
+    #[error("the desktop portal closed the file dialog without an answer")]
+    PortalClosed,
+    #[cfg(unix)]
     #[error("the desktop portal chose “{0}”, which is not a local file")]
     NotALocalFile(String),
     #[cfg(unix)]
@@ -34,6 +37,9 @@ pub enum DialogError {
     #[cfg(unix)]
     #[error("zenity's file dialog failed with exit status {0}")]
     ZenityFailed(i32),
+    #[cfg(unix)]
+    #[error("zenity's file dialog was killed (signal {0:?})")]
+    ZenityKilled(Option<i32>),
     #[error("could not start the file dialog's thread ({0})")]
     Thread(io::Error),
 }
@@ -47,9 +53,12 @@ impl DialogError {
                  xdg-desktop-portal-gtk or xdg-desktop-portal-kde), or zenity, then try again."
             }
             #[cfg(unix)]
-            Self::Portal(_) | Self::NotALocalFile(_) | Self::Zenity(_) | Self::ZenityFailed(_) => {
-                TRY_AGAIN
-            }
+            Self::Portal(_)
+            | Self::PortalClosed
+            | Self::NotALocalFile(_)
+            | Self::Zenity(_)
+            | Self::ZenityFailed(_)
+            | Self::ZenityKilled(_) => TRY_AGAIN,
             Self::Thread(_) => TRY_AGAIN,
         };
         format!("The file dialog could not be shown: {self}.{remedy}")

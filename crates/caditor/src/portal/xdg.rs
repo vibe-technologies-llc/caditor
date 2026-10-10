@@ -2,9 +2,12 @@ use std::{
     collections::BTreeMap,
     ffi::OsString,
     io,
-    os::unix::ffi::{OsStrExt, OsStringExt},
+    os::unix::{
+        ffi::{OsStrExt, OsStringExt},
+        process::ExitStatusExt,
+    },
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::{Command, ExitStatus, Stdio},
     sync::{
         OnceLock,
         atomic::{AtomicU64, Ordering},
@@ -140,11 +143,18 @@ fn through_portal(request: &FileRequest) -> Result<Option<PathBuf>, DialogError>
             .and_then(|proxy| proxy.receive_signal(RESPONSE))
             .map_err(DialogError::Portal)?
     };
-    let Some(message) = responses.next() else {
-        return Ok(None);
-    };
-    let (code, results): (u32, BTreeMap<String, OwnedValue>) =
-        message.body().deserialize().map_err(DialogError::Portal)?;
+    let response = responses
+        .next()
+        .map(|message| message.body().deserialize())
+        .transpose()
+        .map_err(DialogError::Portal)?;
+    portal_choice(response)
+}
+
+fn portal_choice(
+    response: Option<(u32, BTreeMap<String, OwnedValue>)>,
+) -> Result<Option<PathBuf>, DialogError> {
+    let (code, results) = response.ok_or(DialogError::PortalClosed)?;
     if code != SUCCESS {
         return Ok(None);
     }
@@ -262,18 +272,21 @@ fn through_zenity(request: &FileRequest) -> Option<Result<Option<PathBuf>, Dialo
         Err(error) if error.kind() == io::ErrorKind::NotFound => return None,
         Err(error) => return Some(Err(DialogError::Zenity(error))),
     };
-    let chosen = match output.status.code() {
+    Some(zenity_choice(output.status, output.stdout))
+}
+
+fn zenity_choice(status: ExitStatus, mut stdout: Vec<u8>) -> Result<Option<PathBuf>, DialogError> {
+    match status.code() {
         Some(0) => {
-            let mut path = output.stdout;
-            while path.last().is_some_and(|byte| *byte == b'\n') {
-                path.pop();
+            while stdout.last().is_some_and(|byte| *byte == b'\n') {
+                stdout.pop();
             }
-            Ok((!path.is_empty()).then(|| PathBuf::from(OsString::from_vec(path))))
+            Ok((!stdout.is_empty()).then(|| PathBuf::from(OsString::from_vec(stdout))))
         }
-        Some(ZENITY_CANCELLED) | None => Ok(None),
+        Some(ZENITY_CANCELLED) => Ok(None),
         Some(code) => Err(DialogError::ZenityFailed(code)),
-    };
-    Some(chosen)
+        None => Err(DialogError::ZenityKilled(status.signal())),
+    }
 }
 
 fn zenity_start(directory: Option<&Path>, file_name: Option<&str>) -> Option<PathBuf> {
@@ -363,6 +376,67 @@ mod tests {
         let parent = ParentWindow::Wayland("wayland:d5c30dbd".to_owned());
 
         assert_eq!(parent.identifier(), "wayland:d5c30dbd");
+    }
+
+    fn status_of_exit(code: i32) -> ExitStatus {
+        ExitStatus::from_raw(code << 8)
+    }
+
+    fn status_of_signal(signal: i32) -> ExitStatus {
+        ExitStatus::from_raw(signal)
+    }
+
+    fn uris_response(code: u32, uris: &[&str]) -> (u32, BTreeMap<String, OwnedValue>) {
+        let uris = Value::from(uris.iter().map(|uri| (*uri).to_owned()).collect::<Vec<_>>());
+        let results = BTreeMap::from([("uris".to_owned(), OwnedValue::try_from(uris).unwrap())]);
+        (code, results)
+    }
+
+    #[test]
+    fn a_portal_that_closes_without_a_response_is_an_error_not_a_cancel() {
+        let closed = portal_choice(None);
+
+        assert!(matches!(closed, Err(DialogError::PortalClosed)));
+        assert!(closed.unwrap_err().notice().contains("Try again"));
+    }
+
+    #[test]
+    fn a_portal_answers_with_a_path_or_a_cancel() {
+        assert_eq!(
+            portal_choice(Some(uris_response(0, &["file:///tmp/a.caditor"]))).unwrap(),
+            Some(PathBuf::from("/tmp/a.caditor"))
+        );
+        assert_eq!(portal_choice(Some(uris_response(1, &[]))).unwrap(), None);
+        assert_eq!(portal_choice(Some(uris_response(0, &[]))).unwrap(), None);
+    }
+
+    #[test]
+    fn zenity_exiting_with_status_one_is_a_cancel() {
+        assert_eq!(zenity_choice(status_of_exit(1), Vec::new()).unwrap(), None);
+    }
+
+    #[test]
+    fn zenity_printing_a_path_chooses_it() {
+        assert_eq!(
+            zenity_choice(status_of_exit(0), b"/tmp/a.caditor\n".to_vec()).unwrap(),
+            Some(PathBuf::from("/tmp/a.caditor"))
+        );
+    }
+
+    #[test]
+    fn zenity_exiting_with_another_status_is_an_error() {
+        assert!(matches!(
+            zenity_choice(status_of_exit(5), Vec::new()),
+            Err(DialogError::ZenityFailed(5))
+        ));
+    }
+
+    #[test]
+    fn zenity_killed_by_a_signal_is_an_error_not_a_cancel() {
+        let killed = zenity_choice(status_of_signal(9), Vec::new());
+
+        assert!(matches!(killed, Err(DialogError::ZenityKilled(Some(9)))));
+        assert!(killed.unwrap_err().notice().contains("Try again"));
     }
 
     #[test]

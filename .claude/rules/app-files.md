@@ -37,7 +37,10 @@ paths:
   `caditor-wayland` exports on winit's connection (`wayland.md`) and `window_export.rs` hands over
   once the compositor has answered, passing none before that or when the compositor lacks the
   protocol. A dialog that cannot be shown is a
-  `DialogError` whose `notice` says what to install, never a silent Cancel.
+  `DialogError` whose `notice` says what to install, never a silent Cancel; so is a dialog that dies
+  (the portal's response stream ending, `PortalClosed`; zenity killed by a signal, `ZenityKilled`),
+  only the portal's cancel response and zenity's status 1 being a cancel, which is what clears a
+  save waiting to continue into quit, new or open.
 - While a native dialog is open (`Files::picking`, a ticket and its purpose) the window is blocked
   and the status bar says it is waiting, with Stop waiting (and Esc) abandoning the pick as a
   cancel would; whatever that dialog answers later carries an old ticket and is ignored.

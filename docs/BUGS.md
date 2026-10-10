@@ -131,10 +131,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Application
 
-- [medium · easy] A file dialog that dies reads as a cancel: the portal's response stream ending
-  and zenity exiting with no status are both returned as a cancel (`portal/xdg.rs`, beside the real
-  cancel status 1), and a cancel clears `after_save`, so a save meant to continue into quit, new or
-  open is dropped without a word. Return `DialogError` for both, keeping status 1 a cancel.
 - [medium · easy] Reload import from its file and Replace from file touch the file on the UI
   thread: `kept_source` calls `is_file` and `replace_import` calls `import::is_model` (which opens
   and reads a file whose extension is unknown) before the import thread starts, so an import whose
