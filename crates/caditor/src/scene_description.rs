@@ -9,7 +9,7 @@ use crate::{
     model::Model,
     scene,
     sketch_status::{self, SketchSummary},
-    units::LengthUnit,
+    units::{LengthUnit, Units},
     visibility,
 };
 
@@ -23,6 +23,7 @@ const FACES_AT_MOST: usize = 64;
 struct Key {
     revision: u64,
     evaluation: u64,
+    units: Units,
     edited: Option<FeatureId>,
 }
 
@@ -67,6 +68,7 @@ impl SceneDescription {
         let key = Key {
             revision: model.revision(),
             evaluation: model.evaluation_generation(),
+            units: model.units(),
             edited,
         };
         if self

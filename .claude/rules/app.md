@@ -221,7 +221,8 @@ paths:
 ## Offers
 
 - `offers.rs` works out what the selection offers the toolbar and status bar only when the
-  selection, the model revision, its evaluation, the length unit or the edited sketch and opened
+  selection, the model revision, its evaluation, the units (length and angle, since sweeps and half
+  angles are written in the angle unit) or the edited sketch and opened
   feature change, not every frame (the Hole tool's start is one of the offers). It
   describes only the first `MAX_DESCRIBED` items and counts the rest (the status bar's tooltip
   ends "and N more"), since describing an item can scan its body.
@@ -586,7 +587,7 @@ paths:
   attached, then shown. The status bar notice and the failed-features pill are live regions
   (`widgets::announced`: assertive for an error, polite otherwise). The viewport is named "3D
   view" and described in words (`scene_description.rs`, rebuilt only when the revision, the
-  evaluation or the edited sketch changes): the shown bodies, sketches and datums by name and
+  evaluation, the units or the edited sketch changes): the shown bodies, sketches and datums by name and
   count and how many bodies are hidden, the first `NAMED_AT_MOST` bodies with their size and
   lowest corner, sketches with the plane they face and datums with where they lie (a plane as a
   sketch's, an axis along its direction through a point, a point at its position;

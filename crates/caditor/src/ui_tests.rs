@@ -8370,6 +8370,51 @@ fn what_the_selection_offers_is_worked_out_when_it_or_the_model_changes_not_ever
 }
 
 #[test]
+fn a_changed_angle_or_length_unit_works_the_selection_size_out_again() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let arc = sketch.add_arc(
+        Point2::new(0.0, 0.0),
+        Point2::new(10.0, 0.0),
+        Point2::new(0.0, 10.0),
+    );
+    let feature = harness.add_sketch(sketch);
+    harness.frame();
+    harness.select([Pickable::SketchEntity {
+        feature,
+        entity: arc,
+    }]);
+    let size = |harness: &mut Harness| {
+        harness
+            .workspace
+            .selection_offers
+            .refresh(
+                &harness.model,
+                harness.workspace.viewport.selection(),
+                &harness.workspace.editing,
+                (&[], &[]),
+            )
+            .size
+            .clone()
+            .unwrap_or_default()
+    };
+
+    let degrees = size(&mut harness);
+    harness
+        .model
+        .set_angle_unit(crate::units::AngleUnit::Radian);
+    let radians = size(&mut harness);
+    harness.model.set_length_unit(LengthUnit::Centimetre);
+    let centimetres = size(&mut harness);
+
+    assert!(degrees.contains("Sweep 90.0°"), "{degrees}");
+    assert!(radians.contains("Sweep 1.571 rad"), "{radians}");
+    assert!(radians.contains("R 10.000 mm"), "{radians}");
+    assert!(centimetres.contains("R 1.0000 cm"), "{centimetres}");
+    assert!(centimetres.contains("Sweep 1.571 rad"), "{centimetres}");
+}
+
+#[test]
 fn a_large_selection_is_counted_whole_but_described_and_measured_only_in_part() {
     let mut harness = Harness::new();
     let mut lines = Sketch::new(Plane::XY);
@@ -9066,6 +9111,29 @@ fn the_3d_view_tells_screen_readers_what_it_shows() {
     assert!(editing.starts_with("Editing Base sketch: "), "{editing}");
     assert!(editing.contains("constraint"), "{editing}");
     assert!(editing.contains("; its points span x from "), "{editing}");
+}
+
+#[test]
+fn the_3d_view_is_described_again_in_a_changed_unit() {
+    let mut harness = Harness::new();
+    extruded_plate(&mut harness);
+    harness.context.enable_accesskit();
+    harness.frame();
+    let millimetres = harness.view_description().unwrap_or_default();
+
+    harness.model.set_length_unit(LengthUnit::Centimetre);
+    harness.frame();
+    harness.frame();
+    let centimetres = harness.view_description().unwrap_or_default();
+
+    assert!(
+        millimetres.contains("(40 mm by 40 mm by 10 mm"),
+        "{millimetres}"
+    );
+    assert!(
+        centimetres.contains("(4 cm by 4 cm by 1 cm"),
+        "{centimetres}"
+    );
 }
 
 #[test]

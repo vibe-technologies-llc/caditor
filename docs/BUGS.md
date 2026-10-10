@@ -131,11 +131,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Application
 
-- [low · easy] Two caches miss the units: the offers' `Basis` holds only the length unit while
-  `Offers::size` writes sweeps and half angles in the angle unit, and `scene_description::Key`
-  holds no unit while it speaks lengths, so switching degrees to radians, or the length unit,
-  leaves the status bar and the 3D view's description stale until the selection or model
-  changes. Key them on `Units`.
 - [low · easy] The 3D view's description can read "-0": `scene_description.rs` trims
   `format!("{:.3}")` without the `-0` guard `caditor-expression`'s `format_number` has, so a
   direction component of -0.0002 is spoken "along -0, 0.707, 0.707". Nine copies of that trimming

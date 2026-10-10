@@ -22,7 +22,7 @@ use crate::{
     split_face_tools::{self, SplitFaceSource},
     split_tools::{self, SplitSource},
     thread_tools::{self, ThreadSource},
-    units::LengthUnit,
+    units::Units,
 };
 
 pub const MAX_DESCRIBED: usize = 12;
@@ -34,7 +34,7 @@ struct Basis {
     rows: Vec<FeatureId>,
     revision: u64,
     evaluation: u64,
-    unit: LengthUnit,
+    units: Units,
     meshing: bool,
     edited: Option<FeatureId>,
     opened: Option<FeatureId>,
@@ -173,7 +173,7 @@ impl SelectionOffers {
             rows: rows.to_vec(),
             revision: model.revision(),
             evaluation: model.evaluation_generation(),
-            unit: model.length_unit(),
+            units: model.units(),
             meshing: model.bodies_pending(),
             edited: editing.feature(),
             opened: editing.solid(),
