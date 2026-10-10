@@ -141,7 +141,7 @@ impl Sketch {
         match entity {
             Entity::Line { start, end } => {
                 let moved = self.far_constraints(curve, start, end);
-                let moved_ids: Vec<ConstraintId> = moved.iter().map(|(id, _, _)| *id).collect();
+                let moved_ids: Vec<ConstraintId> = moved.iter().map(|(id, _)| *id).collect();
                 let directions: Vec<Constraint> = self
                     .constraints_using(curve)
                     .into_iter()
@@ -173,7 +173,7 @@ impl Sketch {
             }
             Entity::Arc { center, start, end } => {
                 let moved = self.far_constraints(curve, start, end);
-                let moved_ids: Vec<ConstraintId> = moved.iter().map(|(id, _, _)| *id).collect();
+                let moved_ids: Vec<ConstraintId> = moved.iter().map(|(id, _)| *id).collect();
                 self.restructure(
                     curve,
                     Entity::Arc {
@@ -204,7 +204,7 @@ impl Sketch {
             } => {
                 let on_axis = self.lies_on_major_axis(curve, point);
                 let moved = self.far_constraints(curve, start, end);
-                let moved_ids: Vec<ConstraintId> = moved.iter().map(|(id, _, _)| *id).collect();
+                let moved_ids: Vec<ConstraintId> = moved.iter().map(|(id, _)| *id).collect();
                 self.restructure(
                     curve,
                     Entity::EllipticalArc {

@@ -1,7 +1,7 @@
 use caditor_expression::{EvalError, Expression, ParameterId, Quantity, Unit};
-use caditor_geometry::{Plane, Point2};
+use caditor_geometry::{Plane, Point2, Vector2};
 
-use crate::{Constraint, Entity, EntityId, Sketch, Solved, SplitError};
+use crate::{Constraint, ConstraintId, Entity, EntityId, Sketch, Solved, SplitError};
 
 const EXACT: f64 = 1e-7;
 
@@ -194,4 +194,68 @@ fn an_elliptical_arc_split_on_its_major_axis_keeps_one_minor_radius_by_equal() {
     assert!(has(&sketch, &Constraint::Equal(arc, piece)));
     assert!(solved.solution.redundancies().is_empty());
     assert_eq!(solved.solution.degrees_of_freedom(), freedom);
+}
+
+const PLACED_LABEL: Vector2 = Vector2::new(3.0, -7.0);
+
+fn arc_with_a_placed_radius_and_angle() -> (Sketch, EntityId, EntityId, EntityId, ConstraintId) {
+    let mut sketch = Sketch::new(Plane::XY);
+    let arc = sketch.add_arc(Point2::ZERO, Point2::new(10.0, 0.0), Point2::new(0.0, 10.0));
+    let (_, arc_end) = ends(&sketch, arc);
+    let line = sketch.add_line(Point2::new(0.0, 10.0), Point2::new(-20.0, 10.0));
+    let (line_start, _) = ends(&sketch, line);
+    sketch
+        .add_constraint(Constraint::Coincident(arc_end, line_start))
+        .unwrap();
+    let radius = sketch
+        .add_constraint(Constraint::Radius {
+            entity: arc,
+            value: Expression::Measure(10.0, Unit::Millimetre),
+        })
+        .unwrap();
+    sketch.set_label_offset(radius, Some(PLACED_LABEL)).unwrap();
+    let angle = sketch
+        .add_constraint(Constraint::Angle {
+            from: arc,
+            to: line,
+            reversed: false,
+            value: Expression::Measure(180.0, Unit::Degree),
+        })
+        .unwrap();
+    sketch.set_label_offset(angle, Some(PLACED_LABEL)).unwrap();
+    let half = std::f64::consts::FRAC_1_SQRT_2 * 10.0;
+    let point = sketch.add_point(Point2::new(half, half));
+    sketch
+        .add_constraint(Constraint::Coincident(point, arc))
+        .unwrap();
+    (sketch, arc, line, point, radius)
+}
+
+#[test]
+fn a_dimension_kept_across_a_split_keeps_its_placed_label() {
+    let (mut sketch, arc, _, point, radius) = arc_with_a_placed_radius_and_angle();
+
+    sketch.split_at(arc, point).unwrap();
+
+    assert!(matches!(
+        sketch.constraint(radius),
+        Some(Constraint::Radius { .. })
+    ));
+    assert_eq!(sketch.label_offset(radius), Some(PLACED_LABEL));
+}
+
+#[test]
+fn a_dimension_moved_to_the_far_piece_of_a_split_keeps_its_placed_label() {
+    let (mut sketch, arc, line, point, _) = arc_with_a_placed_radius_and_angle();
+
+    let piece = sketch.split_at(arc, point).unwrap();
+
+    let moved: Vec<Option<Vector2>> = sketch
+        .constraints()
+        .filter(|(_, constraint)| {
+            matches!(constraint, Constraint::Angle { from, to, .. } if *from == piece && *to == line)
+        })
+        .map(|(id, _)| sketch.label_offset(id))
+        .collect();
+    assert_eq!(moved, vec![Some(PLACED_LABEL)]);
 }

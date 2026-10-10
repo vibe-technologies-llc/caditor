@@ -8,7 +8,7 @@ use crate::{
     entity::Entity,
     id::{ConstraintId, EntityId, Reference},
     intersect::{self, Carrier, Shape},
-    sketch::{Sketch, SketchError},
+    sketch::{DetachedConstraint, Sketch, SketchError},
 };
 
 const TOLERANCE: f64 = 1e-7;
@@ -903,7 +903,7 @@ impl Sketch {
                 let near_end = self.add_point(first.position);
                 let far_start = self.add_point(second.position);
                 let moved = self.far_constraints(curve, start, end);
-                let moved_ids: Vec<ConstraintId> = moved.iter().map(|(id, _, _)| *id).collect();
+                let moved_ids: Vec<ConstraintId> = moved.iter().map(|(id, _)| *id).collect();
                 let directions: Vec<Constraint> = self
                     .constraints_using(curve)
                     .into_iter()
@@ -979,7 +979,7 @@ impl Sketch {
                 let far_start = self.add_point(second.position);
                 let center_at = self.point(center).ok_or(SketchError::NotAPoint(center))?;
                 let moved = self.far_constraints(curve, start, end);
-                let moved_ids: Vec<ConstraintId> = moved.iter().map(|(id, _, _)| *id).collect();
+                let moved_ids: Vec<ConstraintId> = moved.iter().map(|(id, _)| *id).collect();
                 let arc = Entity::Arc {
                     center,
                     start,
@@ -1087,7 +1087,7 @@ impl Sketch {
                 let near_end = self.add_point(first.position);
                 let far_start = self.add_point(second.position);
                 let moved = self.far_constraints(curve, start, end);
-                let moved_ids: Vec<ConstraintId> = moved.iter().map(|(id, _, _)| *id).collect();
+                let moved_ids: Vec<ConstraintId> = moved.iter().map(|(id, _)| *id).collect();
                 let arc = Entity::EllipticalArc {
                     center,
                     major,
@@ -1145,10 +1145,9 @@ impl Sketch {
         let construction = self.is_construction(curve);
         let mut kept = Vec::new();
         for id in self.constraints_using(curve) {
-            let inactive = !self.is_active(id);
-            let constraint = self.remove_constraint(id)?;
-            if !moved.contains(&id) && keeps(&constraint) {
-                kept.push((id, constraint, inactive));
+            let detached = self.detach_constraint(id)?;
+            if !moved.contains(&id) && keeps(&detached.constraint) {
+                kept.push((id, detached));
             }
         }
         self.remove_unused_entity(curve)?;
@@ -1156,11 +1155,8 @@ impl Sketch {
         if construction {
             self.set_construction(curve, true)?;
         }
-        for (id, constraint, inactive) in kept {
-            self.insert_constraint(id, constraint)?;
-            if inactive {
-                self.set_active(id, false)?;
-            }
+        for (id, detached) in kept {
+            self.attach_constraint(id, detached)?;
         }
         Ok(())
     }
@@ -1227,15 +1223,12 @@ impl Sketch {
 
     pub(crate) fn move_constraints(
         &mut self,
-        moved: Vec<(ConstraintId, Constraint, bool)>,
+        moved: Vec<(ConstraintId, DetachedConstraint)>,
         from: EntityId,
         to: EntityId,
     ) -> Result<(), SketchError> {
-        for (_, constraint, inactive) in moved {
-            let id = self.add_constraint(constraint.with_entity_replaced(from, to))?;
-            if inactive {
-                self.set_active(id, false)?;
-            }
+        for (_, detached) in moved {
+            self.add_detached_constraint(detached.with_entity_replaced(from, to))?;
         }
         Ok(())
     }
@@ -1245,12 +1238,12 @@ impl Sketch {
         curve: EntityId,
         near: EntityId,
         far: EntityId,
-    ) -> Vec<(ConstraintId, Constraint, bool)> {
+    ) -> Vec<(ConstraintId, DetachedConstraint)> {
         self.constraints_using(curve)
             .into_iter()
-            .filter_map(|id| Some((id, self.constraint(id)?.clone(), !self.is_active(id))))
-            .filter(|(_, constraint, _)| {
-                let other = match constraint {
+            .filter_map(|id| Some((id, self.copy_constraint(id)?)))
+            .filter(|(_, detached)| {
+                let other = match &detached.constraint {
                     Constraint::Tangent(a, b)
                     | Constraint::Curvature(a, b)
                     | Constraint::Parallel(a, b)

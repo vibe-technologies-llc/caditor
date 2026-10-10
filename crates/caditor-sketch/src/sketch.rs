@@ -1291,6 +1291,14 @@ impl Sketch {
         Ok(removed)
     }
 
+    pub(crate) fn copy_constraint(&self, id: ConstraintId) -> Option<DetachedConstraint> {
+        Some(DetachedConstraint {
+            constraint: self.constraint(id)?.clone(),
+            active: self.is_active(id),
+            label: self.label_offset(id),
+        })
+    }
+
     pub(crate) fn detach_constraint(
         &mut self,
         id: ConstraintId,
@@ -1310,12 +1318,40 @@ impl Sketch {
         id: ConstraintId,
         detached: DetachedConstraint,
     ) -> Result<(), SketchError> {
-        self.insert_constraint(id, detached.constraint)?;
-        if !detached.active {
+        let DetachedConstraint {
+            constraint,
+            active,
+            label,
+        } = detached;
+        self.insert_constraint(id, constraint)?;
+        self.carry_constraint_state(id, active, label)
+    }
+
+    pub(crate) fn add_detached_constraint(
+        &mut self,
+        detached: DetachedConstraint,
+    ) -> Result<ConstraintId, SketchError> {
+        let DetachedConstraint {
+            constraint,
+            active,
+            label,
+        } = detached;
+        let id = self.add_constraint(constraint)?;
+        self.carry_constraint_state(id, active, label)?;
+        Ok(id)
+    }
+
+    fn carry_constraint_state(
+        &mut self,
+        id: ConstraintId,
+        active: bool,
+        label: Option<Vector2>,
+    ) -> Result<(), SketchError> {
+        if !active {
             self.set_active(id, false)?;
         }
-        if detached.label.is_some() {
-            self.set_label_offset(id, detached.label)?;
+        if label.is_some() {
+            self.set_label_offset(id, label)?;
         }
         Ok(())
     }

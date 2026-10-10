@@ -140,11 +140,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   its outline's offset by the wall thickness meets both. `Chain::outline` (`offset.rs`) would drop
   a vanishing arc, or the run of curves a closing notch uses up, and re-meet the neighbours,
   leaving out the dropped curves' constraints as trim does.
-- [low · easy] Trim, extend, split, break, fillet and chamfer drop the placed label of every
-  dimension they keep: `trim::restructure` restores each kept constraint's inactive flag but not
-  its label offset, which `remove_constraint` drops, and `move_constraints` copies the flag onto
-  the far piece without the offset, so labels jump back to their automatic place. Carry the offset
-  beside the flag.
 
 ## Sketch solver
 

@@ -19,9 +19,11 @@ paths:
   `contradicting` read `active_constraints()` only, so an inactive constraint no longer holds, never
   conflicts or counts as redundant, and a new one is not refused for restating it. A dimension
   left inactive is a reference: its displayed value is `Sketch::measured` of the solved geometry.
-  Removing a constraint forgets the flag; trim keeps it on the constraints it rebuilds, and the
-  fillet and chamfer carry it, with the label offset, to the kept corner point when they merge the
-  other (`detach_constraint`, `attach_constraint`).
+  Removing a constraint forgets the flag and the label offset; whatever takes a kept constraint
+  out and puts it back carries both with it (`detach_constraint`, `attach_constraint`,
+  `add_detached_constraint`, `DetachedConstraint`): trim, split and break through `restructure`
+  and `move_constraints` (the constraints that follow the far piece), and the fillet and chamfer
+  when they merge the corner's second point into the kept one.
 - A dimension can carry a label offset (`Sketch::set_label_offset`, a map beside the constraints,
   part of `same_content` so moving a label is an undoable change): where its label was placed, in
   millimetres along and across a frame the app derives from the measured geometry

@@ -1,7 +1,9 @@
 use caditor_expression::{EvalError, Expression, ParameterId, Quantity, Unit};
-use caditor_geometry::{Plane, Point2};
+use caditor_geometry::{Plane, Point2, Vector2};
 
-use crate::{Constraint, Entity, EntityId, ExtendError, Sketch, Solved, TrimError, Trimmed};
+use crate::{
+    Constraint, ConstraintId, Entity, EntityId, ExtendError, Sketch, Solved, TrimError, Trimmed,
+};
 
 const EXACT: f64 = 1e-9;
 
@@ -1094,4 +1096,77 @@ fn a_trim_at_an_overlap_that_is_refused_leaves_the_sketch_as_it_was() {
     ));
 
     assert_eq!(sketch, before);
+}
+
+const PLACED_LABEL: Vector2 = Vector2::new(3.0, -7.0);
+
+fn placed(sketch: &mut Sketch, constraint: Constraint) -> ConstraintId {
+    let id = sketch.add_constraint(constraint).unwrap();
+    sketch.set_label_offset(id, Some(PLACED_LABEL)).unwrap();
+    id
+}
+
+fn labelled(sketch: &Sketch, matching: impl Fn(&Constraint) -> bool) -> Vec<Option<Vector2>> {
+    sketch
+        .constraints()
+        .filter(|(_, constraint)| matching(constraint))
+        .map(|(id, _)| sketch.label_offset(id))
+        .collect()
+}
+
+#[test]
+fn a_dimension_kept_across_a_trim_keeps_its_placed_label() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let arc = sketch.add_arc(
+        Point2::new(30.0, 30.0),
+        Point2::new(40.0, 30.0),
+        Point2::new(20.0, 30.0),
+    );
+    let radius = placed(
+        &mut sketch,
+        Constraint::Radius {
+            entity: arc,
+            value: mm(10.0),
+        },
+    );
+    sketch.add_line(Point2::new(25.0, 20.0), Point2::new(25.0, 50.0));
+    sketch.add_line(Point2::new(35.0, 20.0), Point2::new(35.0, 50.0));
+
+    sketch.trim(arc, Point2::new(30.0, 40.0)).unwrap();
+
+    assert!(matches!(
+        sketch.constraint(radius),
+        Some(Constraint::Radius { .. })
+    ));
+    assert_eq!(sketch.label_offset(radius), Some(PLACED_LABEL));
+}
+
+#[test]
+fn a_dimension_moved_to_the_far_piece_of_a_trim_keeps_its_placed_label() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::ZERO, Point2::new(30.0, 0.0));
+    let (_, end) = ends(&sketch, line);
+    let leaning = sketch.add_line(Point2::new(30.0, 0.0), Point2::new(30.0, 20.0));
+    let (leaning_start, _) = ends(&sketch, leaning);
+    sketch
+        .add_constraint(Constraint::Coincident(end, leaning_start))
+        .unwrap();
+    placed(
+        &mut sketch,
+        Constraint::Angle {
+            from: line,
+            to: leaning,
+            reversed: false,
+            value: Expression::Measure(90.0, Unit::Degree),
+        },
+    );
+    vertical(&mut sketch, 10.0);
+    vertical(&mut sketch, 20.0);
+
+    let Trimmed::Split { piece } = sketch.trim(line, Point2::new(15.0, 0.1)).unwrap() else {
+        panic!("the line splits");
+    };
+
+    let on_piece = |constraint: &Constraint| matches!(constraint, Constraint::Angle { from, .. } if *from == piece);
+    assert_eq!(labelled(&sketch, on_piece), vec![Some(PLACED_LABEL)]);
 }
