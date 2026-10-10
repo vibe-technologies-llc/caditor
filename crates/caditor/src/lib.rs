@@ -184,6 +184,7 @@ mod view_menu;
 mod viewport;
 mod visibility;
 mod widgets;
+mod window_export;
 mod window_frame;
 
 use std::{path::PathBuf, process::ExitCode};

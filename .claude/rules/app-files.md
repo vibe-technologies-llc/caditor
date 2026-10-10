@@ -33,8 +33,10 @@ paths:
   through the XDG desktop portal over `zbus` (pure Rust, no `libdbus`) and falls back to `zenity`,
   `portal/windows.rs` through rfd, owned by the main window. On X11 the portal request names the
   main window as its parent (`x11:<id>`, `portal::own_dialogs` at startup) so the dialog stays
-  above it; on Wayland it passes none, since that needs an `xdg-foreign` handle exported on winit's
-  connection, which `caditor-wayland` reaches (`wayland.md`) but does not export yet. A dialog that cannot be shown is a
+  above it; on Wayland it names it by an `xdg-foreign` handle (`wayland:<handle>`) that
+  `caditor-wayland` exports on winit's connection (`wayland.md`) and `window_export.rs` hands over
+  once the compositor has answered, passing none before that or when the compositor lacks the
+  protocol. A dialog that cannot be shown is a
   `DialogError` whose `notice` says what to install, never a silent Cancel.
 - While a native dialog is open (`Files::picking`, a ticket and its purpose) the window is blocked
   and the status bar says it is waiting, with Stop waiting (and Esc) abandoning the pick as a

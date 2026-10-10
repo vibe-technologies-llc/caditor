@@ -25,3 +25,4 @@ raw-window-handle = { workspace = true, features = ["std"] }
 rustix = { workspace = true, features = ["event", "std", "system"] }
 thiserror.workspace = true
 wayland-client = { workspace = true, features = ["dlopen", "system"] }
+wayland-protocols.workspace = true

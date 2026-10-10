@@ -40,15 +40,17 @@ const MISSING: [&str; 4] = [
 static NEXT_TOKEN: AtomicU64 = AtomicU64::new(0);
 static OWNER: OnceLock<ParentWindow> = OnceLock::new();
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ParentWindow {
     X11(u64),
+    Wayland(String),
 }
 
 impl ParentWindow {
-    fn identifier(self) -> String {
+    fn identifier(&self) -> String {
         match self {
             Self::X11(window) => format!("x11:{window:x}"),
+            Self::Wayland(identifier) => identifier.clone(),
         }
     }
 }
@@ -354,6 +356,13 @@ mod tests {
     #[test]
     fn an_x11_parent_is_named_by_its_window_id_in_hexadecimal() {
         assert_eq!(ParentWindow::X11(0x3a0_0007).identifier(), "x11:3a00007");
+    }
+
+    #[test]
+    fn a_wayland_parent_is_named_by_its_exported_handle() {
+        let parent = ParentWindow::Wayland("wayland:d5c30dbd".to_owned());
+
+        assert_eq!(parent.identifier(), "wayland:d5c30dbd");
     }
 
     #[test]

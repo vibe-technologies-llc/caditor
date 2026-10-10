@@ -84,6 +84,7 @@ use crate::{
     undo_history,
     version_preview::PICTURE_SIZE,
     viewport::ViewportState,
+    window_export::WindowExport,
     window_frame::{self, Chrome},
 };
 
@@ -1407,6 +1408,7 @@ impl ApplicationHandler<AppEvent> for App {
             self.contained(event_loop, |app| app.handle_window_event(event_loop, event));
         }
         if let Some(session) = &mut self.session {
+            session.window_export.poll();
             let now = Instant::now();
             session.check_pick_fallback(now);
             session.redraw_when_due(now);
@@ -1645,6 +1647,7 @@ struct Session {
     pacer: FramePacer,
     dropped: Vec<PathBuf>,
     file_drops: FileDrops,
+    window_export: WindowExport,
     hidden_until: Option<Instant>,
     failed_frames: u32,
     title: String,
@@ -1680,6 +1683,7 @@ impl Session {
         let file_drops = FileDrops::attach(&window, waker_factory(proxy.clone())());
         overlay.enable_accessibility(event_loop, &window, proxy);
         own_the_window(&window);
+        let window_export = WindowExport::attach(&window);
         window.set_visible(true);
         let mut workspace = Workspace::with_preferences(preferences);
         workspace.fallback_fonts = fallback_fonts;
@@ -1697,6 +1701,7 @@ impl Session {
             pacer: FramePacer::default(),
             dropped: Vec::new(),
             file_drops,
+            window_export,
             hidden_until: None,
             failed_frames: 0,
             title: title.to_owned(),

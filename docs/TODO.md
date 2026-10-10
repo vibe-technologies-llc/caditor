@@ -400,12 +400,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Application
 
-- [medium · medium] On Wayland the portal file dialog request passes an empty parent window, so the
-  dialog is not tied to caditor's and can open behind it (Stop waiting in the status bar recovers
-  the window); it needs an `xdg-foreign` handle (`zxdg_exporter_v2.export_toplevel`) exported on
-  winit's connection, which winit does not offer: `caditor-wayland`'s `WindowConnection` reaches
-  that connection and the window's surface safely (`wayland.md`), so what remains is binding the
-  exporter there and handing the handle to `portal::own_dialogs`. X11 names the window already.
 - [medium · hard] Pasting features cannot carry a feature that picks faces or edges of another
   copied feature (a fillet copied with its extrusion): face and edge names are digests over the
   feature id, so the copy is left out with the reason. Renaming them needs each picked face or edge

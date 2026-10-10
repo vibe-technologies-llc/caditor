@@ -19,6 +19,8 @@ pub enum AttachError {
     Globals(#[from] wayland_client::globals::GlobalError),
     #[error("the compositor offers no drag and drop: {0}")]
     NoDataDeviceManager(#[from] wayland_client::globals::BindError),
+    #[error("the compositor cannot export the window: {0}")]
+    NoExporter(wayland_client::globals::BindError),
     #[error("the Wayland connection failed: {0}")]
     Connection(#[from] wayland_client::backend::WaylandError),
 }
