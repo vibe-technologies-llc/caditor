@@ -744,6 +744,42 @@ fn a_section_cuts_bodies_and_lines_away_caps_the_cut_and_picks_neither() {
 }
 
 #[test]
+fn a_see_through_face_is_not_capped_in_the_pick_pass_so_a_click_reaches_what_is_shown_behind_it() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let view = looking_down(150.0, f64::from(SIZE), f64::from(SIZE));
+    let through_hole = view.project(Point3::new(5.0, 10.0, 0.0)).unwrap();
+    let below = PickId::from_index(24).unwrap();
+    let mut scene = sectioned_box(CutFace::Filled, Vector3::Z);
+    scene.meshes[0].faces[5].color = Color::from_rgb8(40, 200, 40).with_alpha(0.0);
+    scene.meshes.push(MeshInstance {
+        mesh: Arc::new(box_mesh(20.0)),
+        faces: (0..6)
+            .map(|index| FaceStyle {
+                color: Color::from_rgb8(200, 40, 40),
+                pick: PickId::from_index(20 + index),
+            })
+            .collect(),
+        placement: RigidTransform::translation(Vector3::new(0.0, 0.0, -50.0)),
+    });
+
+    let rendered = render(&device, &queue, &view, &scene, through_hole);
+
+    let [red, green, blue, _] = pixel(&rendered, through_hole);
+    assert!(
+        red > 40 && red > green * 2 && red > blue * 2,
+        "the box behind the see-through face was {red} {green} {blue}"
+    );
+    assert_eq!(
+        rendered.pick.hits.first().map(|hit| hit.id),
+        Some(below),
+        "{:?}",
+        rendered.pick.hits
+    );
+}
+
+#[test]
 fn a_mesh_that_is_not_closed_is_cut_without_a_cap_so_its_far_side_is_seen_and_picked() {
     let Some((device, queue)) = gpu() else {
         return;

@@ -182,11 +182,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Viewer
 
-- [medium · easy] A sectioned body with a see-through face caps through it in the pick pass:
-  `fs_mesh_sectioned` discards a face whose alpha is zero before drawing a cap, but
-  `fs_mesh_pick_sectioned` caps every back face with pick id 0, and a see-through face stays on the
-  opaque instance at alpha 0 (`scene.rs`), so the colour pass shows the face through a hole in the
-  cap while a click there selects nothing. Discard zero alpha before the cap in the pick shader.
 - [medium · easy] The axis triad in the corner of the 3D view draws in fixed colours:
   `view_cube::show_axis_triad` takes `Axis::rgb()` (the dark canvas's red, green and blue) for its
   lines and letters, never `ScenePalette::axis`, so on the light canvas its Y reads at about 1.7:1

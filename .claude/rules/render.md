@@ -327,7 +327,10 @@ paths:
   `CAP_DEPTH_BIAS` so the back faces' edges (lines at their smaller bias) stay hidden behind it;
   moving it onto the plane instead would let it win over front faces between the plane and the
   back face. The pick pass writes id 0 there with the plane's depth value, so a cap hides what
-  lies behind it, picks nothing and gives the orbit pivot on the cut. These shaders write
+  lies behind it, picks nothing and gives the orbit pivot on the cut. A face of no alpha is
+  discarded before any cap in both passes (the colour shader and the pick one test the same
+  condition first), so a see-through face leaves no hole in a cap that picks nothing; its own pick
+  comes from the translucent instance. These shaders write
   `frag_depth`, so they take no pipeline depth bias and add the face slope bias themselves; plain
   pipelines draw when there is no section, keeping early depth testing then. Only a closed mesh
   is capped (`ShadedMesh::is_closed`, `with_closed` clears it, set by the app from the solid's

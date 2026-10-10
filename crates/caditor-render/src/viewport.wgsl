@@ -1065,7 +1065,7 @@ struct SectionedPick {
 @fragment
 fn fs_mesh_pick_sectioned(in: Varyings) -> SectionedPick {
     let section = sectioned(in);
-    if section.cut {
+    if in.color.a <= 0.0 || section.cut {
         discard;
     }
     if section.capped {
