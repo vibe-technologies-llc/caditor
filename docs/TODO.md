@@ -377,13 +377,13 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Interface performance
 
-- [low · medium] Annotations are laid out only near the view and kept until the view or sketch
-  changes (`annotations::Marks`), but a camera move zoomed out over a dense sketch still places
-  every glyph in view against crowded `Obstacles`: about 350 ms a frame for the `large_sketch`
-  benchmark (5,000 dimensions, 3,000 glyph constraints) in a release build, and a still frame
-  there still paints and hit-tests every mark in view (about 10 ms). Glyphs could thin out or
-  give up early when their surroundings are full. A sketch card always lays out redundant rows
-  and rows wanting focus, whose height varies.
+- [low · medium] A camera move zoomed out over `large_sketch` (5,000 dimensions, 3,000 glyph
+  constraints) still lays out every dimension near the view before thinning the labels
+  (`annotations::Marks`): about 12 ms a frame in a release build, most of it measuring each
+  label's layout and text. Thinning could test a label's neighbourhood before laying it out, as
+  glyphs do. Marks smaller than a few pixels on screen (a dimension of a feature a pixel wide) are
+  still drawn while there is room; collapsing them would need a rule that keeps a zero-length
+  dimension findable.
 - [medium · hard] The cached scene is one batch: any change to its content (each drag solution, an
   edit, an evaluation, a new faceting level) facets every drawn sketch again, and a hover or
   selection change restyles and uploads all of it, over a millisecond to rebuild and about half of

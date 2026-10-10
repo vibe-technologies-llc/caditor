@@ -2914,17 +2914,23 @@ fn sketch_body(
             widgets::reveal_section(ui.ctx(), &id);
         }
         widgets::section(ui, &id, title, Some(listed.len()), None, |ui| {
+            let basis = RowBasis {
+                revision: model.revision(),
+                evaluation: model.evaluation_generation(),
+                width: ui.available_width(),
+            };
             let mut reserved = Reserved::default();
             for (constraint, definition) in listed {
-                let plain = is_plain_constraint(&card, state, constraint, definition);
+                let row = card_row(&card, state, constraint, definition);
                 let dimension = definition.dimension().is_some();
-                let known = if dimension {
-                    state.plain_dimension_height
-                } else {
-                    state.plain_constraint_height
+                let key = (feature.id(), constraint);
+                let known = match (row, dimension) {
+                    (CardRow::Plain, false) => state.plain_constraint_height,
+                    (CardRow::Plain, true) => state.plain_dimension_height,
+                    (CardRow::Varied, _) => state.varied_row_heights.get(basis, key),
+                    (CardRow::Live, _) => None,
                 };
-                if plain
-                    && let Some(height) = known
+                if let Some(height) = known
                     && !reserved.near_view(ui, height)
                 {
                     reserved.add(height);
@@ -2934,10 +2940,11 @@ fn sketch_body(
                 let top = ui.cursor().min.y;
                 constraint_row(ui, &card, state, actions, constraint, definition);
                 let height = ui.cursor().min.y - top - ui.spacing().item_spacing.y;
-                match (plain, dimension) {
-                    (false, _) => {}
-                    (true, false) => state.plain_constraint_height = Some(height),
-                    (true, true) => state.plain_dimension_height = Some(height),
+                match (row, dimension) {
+                    (CardRow::Live, _) => {}
+                    (CardRow::Varied, _) => state.varied_row_heights.record(basis, key, height),
+                    (CardRow::Plain, false) => state.plain_constraint_height = Some(height),
+                    (CardRow::Plain, true) => state.plain_dimension_height = Some(height),
                 }
             }
             reserved.allocate(ui);
@@ -2980,29 +2987,70 @@ impl Reserved {
     }
 }
 
-fn is_plain_constraint(
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CardRow {
+    Plain,
+    Varied,
+    Live,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct RowBasis {
+    revision: u64,
+    evaluation: u64,
+    width: f32,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct RowHeights {
+    basis: Option<RowBasis>,
+    heights: BTreeMap<(FeatureId, ConstraintId), f32>,
+}
+
+impl RowHeights {
+    fn get(&self, basis: RowBasis, row: (FeatureId, ConstraintId)) -> Option<f32> {
+        self.basis
+            .filter(|kept| *kept == basis)
+            .and_then(|_| self.heights.get(&row).copied())
+    }
+
+    fn record(&mut self, basis: RowBasis, row: (FeatureId, ConstraintId), height: f32) {
+        if self.basis != Some(basis) {
+            self.heights.clear();
+            self.basis = Some(basis);
+        }
+        self.heights.insert(row, height);
+    }
+}
+
+fn card_row(
     card: &SketchCard<'_>,
     state: &PanelState,
     constraint: ConstraintId,
     definition: &Constraint,
-) -> bool {
+) -> CardRow {
     let feature = card.feature.id();
-    let idle_dimension = definition.dimension().is_none_or(|_| {
-        !card.busy.contains(&constraint)
-            && !state.wants_focus(Focus::Dimension {
+    let live_dimension = definition.dimension().is_some()
+        && (card.busy.contains(&constraint)
+            || state.wants_focus(Focus::Dimension {
                 feature,
                 constraint,
-            })
+            }));
+    let wanted = state.wants_focus(Focus::Constraint {
+        feature,
+        constraint,
     });
-    idle_dimension
-        && card
-            .solution
-            .and_then(|solution| solution.redundancy(constraint))
-            .is_none()
-        && !state.wants_focus(Focus::Constraint {
-            feature,
-            constraint,
-        })
+    if live_dimension || wanted {
+        CardRow::Live
+    } else if card
+        .solution
+        .and_then(|solution| solution.redundancy(constraint))
+        .is_some()
+    {
+        CardRow::Varied
+    } else {
+        CardRow::Plain
+    }
 }
 
 fn constraint_row(

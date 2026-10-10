@@ -20369,6 +20369,47 @@ fn constraint_rows_far_out_of_view_are_not_laid_out() {
 }
 
 #[test]
+fn redundant_constraint_rows_far_out_of_view_are_not_laid_out_once_measured() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let mut lines = Vec::new();
+    for index in 0..200 {
+        let y = f64::from(index);
+        let line = sketch.add_line(Point2::new(0.0, y), Point2::new(10.0, y + 0.5));
+        sketch.add_constraint(Constraint::Horizontal(line)).unwrap();
+        lines.push(line);
+    }
+    let feature = harness.add_sketch(sketch);
+    let mut transaction = harness.document().transaction("Restate every constraint");
+    for line in lines {
+        transaction.add_sketch_constraint(
+            feature,
+            Constraint::Parallel(EntityId::HORIZONTAL_AXIS, line),
+        );
+    }
+    harness.perform(Action::Apply(transaction.finish()));
+    harness.settle();
+    harness.context.enable_accesskit();
+    harness.edit(feature);
+    harness.frame();
+    harness.frame();
+    let delete_buttons = harness
+        .accessible
+        .iter()
+        .filter(|(_, node)| {
+            node.role() == Role::Button && node.label() == Some("Delete this constraint")
+        })
+        .count();
+
+    let redundant = crate::sketch_status::up_to_date_solution(harness.model.evaluation(), feature)
+        .map(|solution| solution.redundancies().len());
+
+    assert_eq!(redundant, Some(200));
+    assert!(delete_buttons > 0);
+    assert!(delete_buttons < 100, "{delete_buttons}");
+}
+
+#[test]
 fn a_point_held_past_the_end_of_its_line_is_counted_and_explained() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);

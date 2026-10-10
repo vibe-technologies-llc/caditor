@@ -661,7 +661,8 @@ paths:
 ## Open ends
 
 - The edited sketch's open ends (`SketchResult::open_ends` of its up-to-date result) are ringed in
-  `canvas::WARNING` over the view (`annotations.rs`, only those in view), counted beside the
+  `canvas::WARNING` over the view (`annotations.rs`, only those in view, one ring per
+  `RING_MERGE` square of the screen, so ends closer than that share a ring), counted beside the
   sketch's status (Status pills, its hover saying to join them) and in the 3D view's
   description, so an outline that will not close is seen while drawing rather than when the
   extrusion fails.
@@ -715,7 +716,13 @@ paths:
   geometry with one dimension alone selected (`annotations::label_to_move`) opens the same "Move
   to" field at the label (`@` for an offset) and moves it there.
 - Glyphs keep clear of dimension labels and of each other (`annotation_layout::place_glyphs` over
-  `Obstacles`); when nothing is free the least covered place wins. An entity's anchor is clipped to
+  `Obstacles`); when nothing is free the least covered place wins, but only while it is covered by
+  at most `MOST_GLYPH_COVER` of its area, and a group whose unshifted places (both sides, or a
+  point's four quadrants) lie in cells already `FULL_CELL_SHARE` covered is left out without
+  trying any (`Thinning::WhenCrowded`), so a zoomed-out dense sketch shows as many glyphs as fit
+  and never walks crowded places. A group anchored on a selected entity of the sketch, or holding
+  a selected or keyboard-highlighted constraint, is placed first and always (`Thinning::Never`,
+  `ViewKey::kept` and `forced`), so what the user chose is still found. An entity's anchor is clipped to
   the view first (`within_view`; off-screen entities get no glyphs, a line is anchored at the middle
   of its visible part), and the places tried are generated lazily from the middle out, at most
   `MAX_GLYPH_SHIFTS` steps each way, so zooming in never makes a frame walk a line's full length.
@@ -741,16 +748,23 @@ paths:
   origin, and with a placed label the label and the square it swings an arc through) projects
   within `DIMENSION_OFFSET`, its lanes, `ANGLE_RADIUS` and `LABEL_REACH` of the view is laid out
   (`Reach::near_view`; a corner that does not project counts as near), so obstacle avoidance
-  sees every label that can reach a shown glyph. Selected dimensions of the sketch, the one
-  edited inline and the one waiting for its field are laid out wherever they are, so Move to and
-  Focus::Dimension still reach an off-screen label. The ignored
+  sees every label that can reach a shown glyph. Selected dimensions of the sketch, the
+  keyboard-highlighted one, the one dragged, the one edited inline and the one waiting for its
+  field are laid out first and wherever they are, so Move to and Focus::Dimension still reach an
+  off-screen label; any other label that labels laid out before it already cover by more than
+  `MOST_LABEL_COVER` of its area is left out with its dimension (`Obstacles::mostly_cover`), so a
+  pile of labels zoomed out thins to the readable ones. The ignored
   `frame_costs_on_a_large_sketch_and_a_large_model` (`viewport.rs`) times annotations idle and
   with the camera moving, zoomed out over `large_sketch` (5,000 dimensions, 3,000 glyph
   constraints) and zoomed in on a corner, and `sketch_card_costs_on_a_large_sketch`
   (`feature_tree.rs`) its sketch card.
 - Labels and glyphs are `Pickable::SketchConstraint`: hover highlights the entities, click selects
   (Shift or Ctrl toggles), Delete removes selected constraints and entities in one transaction.
-  They are painted but not interactive while a drawing tool is active.
+  They are painted but not interactive while a drawing tool is active. Only the marks within
+  `POINTER_REACH` of the pointer (hover, press and interaction positions), the label being dragged
+  and a mark holding focus are handed to egui each frame (`PointerReach`); egui hit-tests against
+  the previous frame's widgets, so the reach is wide enough that a mark is registered before the
+  press that lands on it. Keyboard users reach marks through the highlight commands, never Tab.
 - Double-clicking a label opens an inline `commit_field` with the value selected, as does a new
   dimension or any `Focus::Dimension` of the edited sketch, which the app takes from the panels
   and hands to the viewport, waiting until the dimension can be drawn.
