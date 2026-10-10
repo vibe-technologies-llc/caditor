@@ -11158,6 +11158,89 @@ fn a_body_is_mated_face_to_face_from_the_palette_and_its_panel_sets_the_distance
     assert!(volume_about(&harness, plate, 16000.0));
 }
 
+#[test]
+fn a_body_is_mated_at_an_angle_and_by_a_corner_from_the_palette() {
+    let mut harness = Harness::new();
+    let (_, top) = extruded_plate(&mut harness);
+    let peg = add_peg(&mut harness);
+    let bottom = pickable_described(&mut harness, "Peg › Peg start face");
+
+    harness.select([bottom, top]);
+    run_from_palette(&mut harness, "mate body at an angle");
+    harness.settle();
+    let mate = harness.workspace.editing.solid().expect("the mate is open");
+    assert_eq!(harness.model.undo_label(), Some("Create Mate 1"));
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+    assert!(harness.shows(mate_panel::ANGLE));
+    let (low, high) = plate_bounds(&harness, peg);
+    assert!((high.z - low.z - 5.0).abs() > 1.0, "{low:?} {high:?}");
+
+    harness.type_into_field(Id::new(("mate-field", "angle", mate)), "0 deg");
+    harness.settle();
+    assert_eq!(harness.model.undo_label(), Some("Edit Mate 1"));
+    let (low, high) = plate_bounds(&harness, peg);
+    assert!((high.z - low.z - 5.0).abs() < 1e-6, "{low:?} {high:?}");
+    assert!((low.x - 30.0).abs() < 1e-6, "{low:?}");
+
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.settle();
+    let corner = vertex_at(
+        &harness,
+        peg,
+        caditor_geometry::Point3::new(30.0, 10.0, 0.0),
+    );
+    harness.select([corner, top]);
+    run_from_palette(&mut harness, "mate body");
+    harness.settle();
+    assert_eq!(harness.model.undo_label(), Some("Create Mate 2"));
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+    assert!(harness.shows("Point to mate"));
+    let (low, _) = plate_bounds(&harness, peg);
+    assert!((low.z - 10.0).abs() < 1e-6, "{low:?}");
+    assert!((low.x - 30.0).abs() < 1e-6, "{low:?}");
+}
+
+fn upright_edge_at(harness: &Harness, body: FeatureId, x: f64, y: f64) -> Pickable {
+    let solid = harness.model.evaluation().body(body).unwrap();
+    let edge = solid
+        .edges()
+        .find(|(_, edge)| {
+            let middle = edge.curve().point(edge.interval().middle());
+            (middle.x - x).abs() < 1e-6 && (middle.y - y).abs() < 1e-6
+        })
+        .map(|(_, edge)| edge.name())
+        .expect("the body has an upright edge there");
+    Pickable::Edge { body, edge }
+}
+
+#[test]
+fn four_picks_mate_a_body_flush_and_concentric_in_one_feature() {
+    let mut harness = Harness::new();
+    let (plate, top) = extruded_plate(&mut harness);
+    let peg = add_peg(&mut harness);
+    let bottom = pickable_described(&mut harness, "Peg › Peg start face");
+    let peg_edge = upright_edge_at(&harness, peg, 30.0, 10.0);
+    let plate_edge = upright_edge_at(&harness, plate, 40.0, 40.0);
+
+    harness.select([bottom, peg_edge, top, plate_edge]);
+    run_from_palette(&mut harness, "mate body");
+    harness.settle();
+
+    assert_eq!(harness.model.undo_label(), Some("Create Mate 1"));
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+    assert!(harness.shows(mate_panel::AXIS_TO_MATE));
+    assert!(harness.shows(mate_panel::ONTO_AXIS));
+    let (low, high) = plate_bounds(&harness, peg);
+    assert!(
+        (low - caditor_geometry::Point3::new(40.0, 40.0, 10.0)).length() < 1e-6,
+        "{low:?}"
+    );
+    assert!(
+        (high - caditor_geometry::Point3::new(70.0, 60.0, 15.0)).length() < 1e-6,
+        "{high:?}"
+    );
+}
+
 fn extruded(harness: &mut Harness, min: Point2, max: Point2) -> FeatureId {
     let mut sketch = Sketch::new(Plane::XY);
     rectangle(&mut sketch, min, max);

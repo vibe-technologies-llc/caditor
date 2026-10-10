@@ -5,7 +5,9 @@ use crate::{
     datum_panel::{self, FramePart},
     datum_tools,
     editing::EditingCommand,
-    hole_panel, hole_tools, mate_tools, mirror_tools,
+    hole_panel, hole_tools,
+    mate_tools::{self, MatePart},
+    mirror_tools,
     model::{Action, Model, Notice},
     move_tools,
     pattern_tools::{self, Reference},
@@ -44,8 +46,8 @@ pub enum Slot {
     DatumRotation,
     MoveAxis,
     PrimitivePlace,
-    MateMoving,
-    MateTarget,
+    MateMoving(MatePart),
+    MateTarget(MatePart),
     FrameOrigin,
     FrameAxis,
     FramePlane,
@@ -150,8 +152,16 @@ pub fn prompt(model: &Model, picking: Picking) -> String {
             "Click a flat face or plane parallel to the sketch to start from".to_owned()
         }
         Slot::MirrorPlane => "Click a plane or flat face to mirror across".to_owned(),
-        Slot::MateMoving => "Click the face or axis of the moving body to mate".to_owned(),
-        Slot::MateTarget => "Click the face, plane or axis to mate onto".to_owned(),
+        Slot::MateMoving(MatePart::Main) => {
+            "Click the face, axis or point of the moving body to mate".to_owned()
+        }
+        Slot::MateMoving(MatePart::Axis) => {
+            format!("Click {AXIS} of the moving body to line up")
+        }
+        Slot::MateTarget(MatePart::Main) => {
+            "Click the face, plane, axis or point to mate onto".to_owned()
+        }
+        Slot::MateTarget(MatePart::Axis) => format!("Click {AXIS} to line the body up on"),
         Slot::SplitPlane => {
             "Click a plane, flat face, sketch curve or another body to split along".to_owned()
         }
@@ -309,11 +319,11 @@ pub fn change(
         (Slot::PrimitivePlace, FeatureKind::Primitive(primitive)) => {
             primitive_tools::place_change(model, selection, feature, primitive)
         }
-        (Slot::MateMoving, FeatureKind::Mate(mate)) => {
-            mate_tools::moving_change(model, selection, feature, mate)
+        (Slot::MateMoving(part), FeatureKind::Mate(mate)) => {
+            mate_tools::moving_change(model, selection, feature, mate, part)
         }
-        (Slot::MateTarget, FeatureKind::Mate(mate)) => {
-            mate_tools::target_change(model, selection, feature, mate)
+        (Slot::MateTarget(part), FeatureKind::Mate(mate)) => {
+            mate_tools::target_change(model, selection, feature, mate, part)
         }
         (Slot::ScaleCentre, FeatureKind::Scale(scale)) => {
             scale_tools::centre_change(model, selection, feature, scale)

@@ -429,6 +429,7 @@ impl FeatureKind {
         match self {
             Self::Datum(datum) => datum.point_datums(),
             Self::Pattern(pattern) => pattern.point_datums(),
+            Self::Mate(mate) => mate.point_datums(),
             Self::Sketch(_)
             | Self::Solid(_)
             | Self::Blend(_)
@@ -438,7 +439,6 @@ impl FeatureKind {
             | Self::Primitive(_)
             | Self::Combine(_)
             | Self::Move(_)
-            | Self::Mate(_)
             | Self::Mirror(_)
             | Self::Split(_)
             | Self::Scale(_)

@@ -1,6 +1,6 @@
 use caditor_document::{
-    Document, FeatureId, MAX_CONE_ANGLE, MAX_PATTERN_INSTANCES, MAX_PRISM_SIDES, MIN_PRISM_SIDES,
-    ParameterOwner, Transaction,
+    Document, FeatureId, MAX_CONE_ANGLE, MAX_MATE_ANGLE_DEGREES, MAX_PATTERN_INSTANCES,
+    MAX_PRISM_SIDES, MIN_PRISM_SIDES, ParameterOwner, Transaction,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_kernel::MAX_TAPER_DEGREES;
@@ -49,6 +49,7 @@ pub enum Rule {
     ConeAngle,
     ChamferAngle,
     Taper,
+    MateAngle,
 }
 
 impl Rule {
@@ -98,6 +99,12 @@ impl Rule {
                 ));
             }
             Self::Taper => None,
+            Self::MateAngle if !(0.0..=MAX_MATE_ANGLE_DEGREES).contains(&value) => {
+                return Err(format!(
+                    "Enter an angle from 0° to {MAX_MATE_ANGLE_DEGREES}°"
+                ));
+            }
+            Self::MateAngle => None,
         };
         refusal.map_or(Ok(()), |refusal| Err(refusal.to_owned()))
     }

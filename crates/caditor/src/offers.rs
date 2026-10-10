@@ -63,6 +63,7 @@ pub struct Offers {
     pub point_pattern: Result<PatternSource, &'static str>,
     pub thread: Result<ThreadSource, &'static str>,
     pub mate: Result<MateSource, &'static str>,
+    pub mate_angle: Result<MateSource, &'static str>,
     pub hole: Result<HoleStart, &'static str>,
     pub described: Vec<String>,
     pub selected: usize,
@@ -125,6 +126,7 @@ impl Offers {
             scale: scale_tools::selected_body(model, selection, tree),
             thread: thread_tools::selected_face(model, selection),
             mate: mate_tools::source(model, selection),
+            mate_angle: mate_tools::angle_source(model, selection),
             hole: hole_tools::start(model, selection, editing),
             described: selection
                 .iter()

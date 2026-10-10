@@ -19,6 +19,7 @@ mod import;
 mod inlining;
 mod lookahead;
 mod mate;
+mod mate_placement;
 mod mirror;
 mod model_parameters;
 mod model_scale;
@@ -92,7 +93,11 @@ pub use crate::{
     },
     hole_standard::{FinePitch, HeatSetInsert, HoleFit, HoleStandard, MetricSize, pitch_text},
     import::Import,
-    mate::{AxisMate, FaceMate, Mate, MatePair},
+    mate::{
+        AngleMate, AngleSides, AxisMate, FaceAxisMate, FaceMate, FacePair, MAX_MATE_ANGLE_DEGREES,
+        Mate, MatePair, PointMate, PointTarget, RoundFaceError, round_face,
+    },
+    mate_placement::Round,
     mirror::{MIRROR_IMAGE, Mirror},
     model_parameters::{MAX_VALUE_LABEL_CHARS, ParameterOwner, value_label},
     model_scale::{ModelScale, ModelScaleError, ScaleSummary, ScaledModel, ScaledValues},

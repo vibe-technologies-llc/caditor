@@ -7327,7 +7327,11 @@ fn mated_model(pair: caditor_document::MatePair, flipped: bool) -> (Document, Fe
 }
 
 fn faces_mate(distance: &str) -> caditor_document::MatePair {
-    caditor_document::MatePair::Faces(Box::new(caditor_document::FaceMate {
+    caditor_document::MatePair::Faces(Box::new(face_mate(distance)))
+}
+
+fn face_mate(distance: &str) -> caditor_document::FaceMate {
+    caditor_document::FaceMate {
         face: caditor_kernel::FaceReference::new(
             caditor_kernel::FaceName::from_digest(0x0123_4567_89ab_cdef_0011_2233_4455_6677),
             None,
@@ -7335,7 +7339,7 @@ fn faces_mate(distance: &str) -> caditor_document::MatePair {
         ),
         target: PlaneReference::Principal(PrincipalPlane::Xz),
         distance: Expression::parse_stored(distance).unwrap(),
-    }))
+    }
 }
 
 #[test]
@@ -7389,6 +7393,158 @@ fn a_mate_with_an_unreadable_target_and_distance_loads_with_fallbacks_and_says_s
     let faces = restored.faces().unwrap();
     assert_eq!(faces.target, PlaneReference::Principal(PrincipalPlane::Xy));
     assert_eq!(faces.distance.to_stored_text(), "0 mm");
+}
+
+fn every_new_mate() -> Vec<(caditor_document::MatePair, &'static str, bool)> {
+    use caditor_document::{
+        AngleMate, AngleSides, AxisMate, AxisReference, FaceAxisMate, FacePair, MatePair,
+        PointMate, PointReference, PointTarget, PrincipalAxis,
+    };
+    let faces = face_mate("1.5 mm");
+    let axes = AxisMate {
+        axis: AxisReference::Principal(PrincipalAxis::X),
+        target: AxisReference::Principal(PrincipalAxis::Z),
+    };
+    let pair = FacePair {
+        face: faces.face.clone(),
+        target: faces.target.clone(),
+    };
+    vec![
+        (
+            MatePair::FaceAxis(Box::new(FaceAxisMate {
+                faces: faces.clone(),
+                axes: axes.clone(),
+            })),
+            "face_axis_mate",
+            true,
+        ),
+        (
+            MatePair::Angle(Box::new(AngleMate {
+                sides: AngleSides::Faces(pair.clone()),
+                angle: Expression::parse_stored("30 deg").unwrap(),
+            })),
+            "angle_mate",
+            false,
+        ),
+        (
+            MatePair::Angle(Box::new(AngleMate {
+                sides: AngleSides::Axes(axes),
+                angle: Expression::parse_stored("45 deg").unwrap(),
+            })),
+            "angle_mate",
+            false,
+        ),
+        (MatePair::Tangent(Box::new(pair)), "tangent_mate", true),
+        (
+            MatePair::Point(Box::new(PointMate {
+                point: PointReference::Origin,
+                target: PointTarget::Plane(PlaneReference::Principal(PrincipalPlane::Yz)),
+            })),
+            "point_mate",
+            false,
+        ),
+        (
+            MatePair::Point(Box::new(PointMate {
+                point: PointReference::Origin,
+                target: PointTarget::Point(PointReference::Origin),
+            })),
+            "point_mate",
+            false,
+        ),
+    ]
+}
+
+#[test]
+fn every_kind_of_mate_is_saved_and_loaded_and_older_versions_report_the_new_ones() {
+    for (pair, kind, flipped) in every_new_mate() {
+        let (document, mate) = mated_model(pair, flipped);
+
+        let text = encode(&document).unwrap();
+        let loaded = decode_text(&text);
+
+        assert!(text.contains(&format!("\"{kind}\":{{")), "{kind}");
+        assert_eq!(loaded.issues, Vec::<String>::new(), "{kind}");
+        assert_eq!(loaded.document, document, "{kind}");
+
+        let kind_record = document.feature(mate).unwrap().kind.clone();
+        let transaction = Transaction::single(
+            "Edit",
+            Edit::SetFeatureKind {
+                id: mate,
+                kind: kind_record,
+            },
+        );
+        let journal = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+        let record = through_binary(&journal);
+        assert_eq!(format::restore_transaction(record), Some(transaction));
+
+        let older = decode_text(&text.replace(&format!("\"{kind}\":"), "\"unknown_mate\":"));
+        assert_eq!(
+            older.issues,
+            [
+                "The feature “Mate 1” is a kind this version of caditor does not know \
+              (unknown_mate), so it was left out. It may come from a newer version."
+            ]
+        );
+    }
+}
+
+#[test]
+fn a_point_mate_with_unreadable_points_and_an_angle_mate_with_no_angle_load_and_say_so() {
+    use caditor_document::{
+        AngleMate, AngleSides, AxisMate, AxisReference, MatePair, PointMate, PointReference,
+        PointTarget, PrincipalAxis,
+    };
+    let points = MatePair::Point(Box::new(PointMate {
+        point: PointReference::Origin,
+        target: PointTarget::Point(PointReference::Origin),
+    }));
+    let (document, mate) = mated_model(points, false);
+    let text = encode(&document)
+        .unwrap()
+        .replace("\"point\":\"origin\"", "\"point\":\"nowhere\"");
+
+    let loaded = decode_text(&text);
+
+    assert_eq!(
+        loaded.issues,
+        [
+            "The point “Mate 1” mates could not be read, so it is the origin.",
+            "The point “Mate 1” mates onto could not be read, so it is the origin."
+        ]
+    );
+    assert_eq!(
+        loaded
+            .document
+            .feature(mate)
+            .unwrap()
+            .kind
+            .mate()
+            .unwrap()
+            .points(),
+        vec![&PointReference::Origin, &PointReference::Origin]
+    );
+
+    let angle = MatePair::Angle(Box::new(AngleMate {
+        sides: AngleSides::Axes(AxisMate {
+            axis: AxisReference::Principal(PrincipalAxis::X),
+            target: AxisReference::Principal(PrincipalAxis::Y),
+        }),
+        angle: Expression::parse_stored("30 deg").unwrap(),
+    }));
+    let (document, mate) = mated_model(angle, false);
+    let text = encode(&document)
+        .unwrap()
+        .replace("\"angle\":\"30 deg\"", "\"angle\":\"30 (\"");
+
+    let loaded = decode_text(&text);
+
+    assert_eq!(
+        loaded.issues,
+        ["The angle of “Mate 1” could not be read, so it was set to 90 deg."]
+    );
+    let restored = loaded.document.feature(mate).unwrap().kind.mate().unwrap();
+    assert_eq!(restored.angle().unwrap().to_stored_text(), "90 deg");
 }
 
 fn scaled_model(factor: &str) -> (Document, FeatureId) {

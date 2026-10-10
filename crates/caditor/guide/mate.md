@@ -1,15 +1,31 @@
 # Mate
 
-{command:model.mate} moves a body so that one of its faces lies flush on another face or plane, or
-one of its axes lines up with another axis. It has no button or key; use the Model menu or
-{command:palette}.
+{command:model.mate} moves a body by its geometry and keeps it there when that geometry changes.
+It has no button or key; use the Model menu or {command:palette}. Select the body's part first,
+then what it goes onto:
 
-Select, in this order, a flat face of the body to move and then the face or plane to mate it to; or
-a straight edge or round face of the body and then another axis.
+- a flat face of the body, then another body's face or a plane: the faces lie **flush**, or at a
+  distance;
+- a straight edge or round face of the body, then another axis: the axes line up
+  (**concentric**);
+- a flat face and an axis of the body, then a face and an axis to mate them onto (four picks):
+  **flush and concentric** in one mate, as a bolt sits in a hole;
+- a cylindrical or spherical face of the body, then a face or plane: the round face **rests on**
+  the plane, a cylinder laid down along it;
+- a corner, round edge or sphere of the body, then a point or corner, or a face or plane: the
+  **point** lands on the other point, or on the plane.
 
-The panel shows both choices, each with Use selected and Choose in the view, a **Distance** to
-leave between faces (previewed as you type), and whether the face points the same way or the
-other way, which {command:model.reverse_direction} also flips.
+{command:model.mate_angle} takes a flat face or axis of the body and then a face, plane or axis,
+and turns the body until the two stand at an **Angle**, 90 deg to begin with. At 0 deg two faces
+face each other, as when flush; the body turns about the line where their planes meet, so a hinged
+part keeps its hinge.
 
-A mate keeps its kind: to change from faces to axes, make another mate. See also
+The panel shows each choice with Use selected and Choose in the view, a **Distance** to leave
+between faces, the **Angle** of an angle mate (both previewed as you type), and, where the mate
+has a side, whether the face points the same way, the axis the other way or the round face rests
+on the other side, which {command:model.reverse_direction} also flips. An angle or point mate has
+no side to flip.
+
+A mate keeps its kind: to change from faces to axes, make another mate. When what it uses is
+gone or no longer fits, the mate is marked in the tree and says what to choose instead. See also
 [Move and copy](move-and-copy).

@@ -600,23 +600,45 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   `Feature::body` is the move itself) from the placed copy; a copy others use cannot stop being
   one.
 
-### Mate (`mate.rs`)
+### Mate (`mate.rs`, `mate_placement.rs`)
 
-- `Mate { body, pair, flipped }` places an existing body by its geometry: `MatePair::Faces` (a
-  `FaceReference` of the body, which must resolve to one plane, a `PlaneReference` target and a
-  length expression `distance`) or `MatePair::Axes` (two `AxisReference`s, the first normally an
-  edge or round face of the body). References are resolved at the mate's place, the moving ones
-  on the body as it stands before it, so the mate follows its target on every recompute.
+- `Mate { body, pair, flipped }` places an existing body by its geometry. `MatePair` is one of:
+  `Faces` (a `FaceMate`: a `FaceReference` of the body, which must resolve to one plane, a
+  `PlaneReference` target and a length expression `distance`); `Axes` (an `AxisMate`: two
+  `AxisReference`s, the first normally an edge or round face of the body); `FaceAxis` (both at
+  once, flush and concentric); `Angle` (an `AngleMate`: `AngleSides::Faces`, a `FacePair` of a
+  flat face and a plane, or `AngleSides::Axes`, and an angle expression from 0 to
+  `MAX_MATE_ANGLE_DEGREES`); `Tangent` (a `FacePair` whose face is a cylindrical or spherical face
+  of the body, `round_face`, pieces of one surface accepted); `Point` (a `PointMate`: a
+  `PointReference` on the body and a `PointTarget`, another point or a plane). References are
+  resolved at the mate's place, the moving ones on the body as it stands before it, so the mate
+  follows its target on every recompute.
 - Faces: the body turns about its box centre by the least turn taking the face's outward normal
   opposite the target's (the same way when `flipped`; a half turn uses the face's x axis), then
   shifts along the target normal until the face lies `distance` beyond the target plane, so it
   keeps its place across the plane. Axes: the body turns about the point of its axis nearest its
   box centre by the least turn onto the target's direction (reversed when `flipped`), then shifts
   square to the target so the lines coincide.
+- Face and axis: the axes are lined up first, the direction chosen so the face ends opposite the
+  target plane (the same way when `flipped`), then the body slides along the target axis until
+  the face lies `distance` beyond the plane, measured along its normal; an axis running along the
+  plane fails in words (`Unplaced::AxisAlongPlane`). It is one feature where two mates in a row
+  would let the second undo the first.
+- Angle: only a turn, by the least turn bringing the angle between the face's outward normal and
+  the reverse of the target's normal (0 is facing, as flush) or between the two axis directions
+  to the angle. Faces turn about the line where the two planes meet, nearest the box centre, so
+  that line stays put (about the box centre when parallel); axes turn about the point of the
+  moving axis nearest the target axis. An angle outside 0 to 180 deg fails in words.
+- Tangent: a cylinder first turns, about the point of its axis nearest the box centre, by the
+  least turn laying its axis along the plane; then the body shifts along the plane's normal until
+  the axis or sphere centre lies its radius from the plane on the side the normal faces (the other
+  side when `flipped`). Point: the body shifts so the point lands on the target point, or along
+  the plane's normal onto the plane. Angle and point mates have no side (`Mate::flips`).
 - It modifies its body like a move (`modifies_body`, state before kept), keeps every name
-  (`Solid::transformed`), and its target bodies, datums and sketches count as used like a move
-  axis's; healing visits the moving face and both references. A lost, split or curved moving face
-  fails it naming the face; a placement too far fails it in words.
+  (`Solid::transformed`), and its target bodies, datums (plane, axis and point), frames and
+  sketches count as used like a move axis's; healing visits the moving face and every reference.
+  A lost, split or curved moving face (a lost or flat round face for a tangent) fails it naming
+  the face; a placement too far fails it in words. Only the distance scales with the model.
 
 ### Mirror and scale (`mirror.rs`, `scaling.rs`)
 

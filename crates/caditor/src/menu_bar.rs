@@ -64,6 +64,7 @@ const MODEL_BODIES: [&[Command]; 2] = [
         Command::Split,
         Command::Scale,
         Command::Mate,
+        Command::MateAngle,
         Command::ScaleModel,
         Command::Configurations,
     ],

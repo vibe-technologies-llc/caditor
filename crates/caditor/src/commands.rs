@@ -275,6 +275,7 @@ pub enum Command {
     About,
     Messages,
     Mate,
+    MateAngle,
 }
 
 impl Command {
@@ -749,6 +750,7 @@ plain_commands! {
     DismissTip,
     HideTips,
     Mate,
+    MateAngle,
 }
 
 impl Command {
@@ -1045,6 +1047,7 @@ impl Command {
             Self::About => "help.about",
             Self::Messages => "help.messages",
             Self::Mate => "model.mate",
+            Self::MateAngle => "model.mate_angle",
         }
     }
 
@@ -1279,6 +1282,7 @@ impl Command {
             Self::About => "About caditor",
             Self::Messages => "Recent messages",
             Self::Mate => "Mate body",
+            Self::MateAngle => "Mate body at an angle",
         };
         fixed.to_owned()
     }
@@ -1462,6 +1466,7 @@ impl Command {
             | Self::Mirror
             | Self::Split
             | Self::Mate
+            | Self::MateAngle
             | Self::Scale
             | Self::BodyAppearance
             | Self::RenameBody
@@ -1808,6 +1813,7 @@ impl Command {
             | Self::About
             | Self::Messages
             | Self::Mate
+            | Self::MateAngle
             | Self::UndoHistory
             | Self::SelectFree
             | Self::SelectOpenEnds

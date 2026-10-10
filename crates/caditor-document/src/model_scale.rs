@@ -16,7 +16,6 @@ use crate::{
     document::{Document, Feature, FeatureKind},
     edit::{Edit, Transaction},
     hole::{HoleShape, HoleStyle},
-    mate::MatePair,
     movement::{MoveAxis, Pivot, TurnCentre},
     pattern::PatternKind,
     primitive::SizeRule,
@@ -460,8 +459,8 @@ impl Rescaler {
             FeatureKind::Shell(shell) => self.length(&mut shell.thickness, name)?,
             FeatureKind::OffsetFace(offset) => self.length(&mut offset.distance, name)?,
             FeatureKind::Mate(mate) => {
-                if let MatePair::Faces(faces) = &mut mate.pair {
-                    self.length(&mut faces.distance, name)?;
+                for distance in mate.lengths_mut() {
+                    self.length(distance, name)?;
                 }
             }
             FeatureKind::Thread(thread) => {
@@ -807,13 +806,13 @@ fn anchors(kind: &FeatureKind) -> Vec<Anchor> {
             .and_then(axis_anchor)
             .into_iter()
             .collect(),
-        FeatureKind::Mate(mate) => match &mate.pair {
-            MatePair::Faces(faces) => plane_anchor(&faces.target).into_iter().collect(),
-            MatePair::Axes(axes) => axis_anchor(&axes.axis)
-                .into_iter()
-                .chain(axis_anchor(&axes.target))
-                .collect(),
-        },
+        FeatureKind::Mate(mate) => mate
+            .planes()
+            .into_iter()
+            .filter_map(plane_anchor)
+            .chain(mate.axis_references().into_iter().filter_map(axis_anchor))
+            .chain(mate.points().into_iter().filter_map(point_anchor))
+            .collect(),
         FeatureKind::Mirror(mirror) => plane_anchor(&mirror.plane).into_iter().collect(),
         FeatureKind::Split(split) => split
             .along
