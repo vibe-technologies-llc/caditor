@@ -127,8 +127,9 @@ fresh checksums; commit its diff once CI passes on it.
    into place only once every copy succeeded). It also runs `check-binary.sh` on the installed
    program and, when `Xvfb` is installed (always in CI, `CADITOR_REQUIRE_DISPLAY=1`),
    `packaging/check-run.sh`, which starts the program under it on Mesa's software Vulkan driver
-   with `CADITOR_STARTUP_CHECK=1` to a first frame and a journalled edit, kills it with SIGKILL and
-   starts it again to see the recovery offered. CI runs both on every push.
+   and then on its OpenGL one (`WGPU_BACKEND=gl`) with `CADITOR_STARTUP_CHECK=1` to a first frame
+   and a journalled edit, kills it with SIGKILL and starts it again to restore the edit, for an
+   untitled document and for a saved model with its journal beside it. CI runs both on every push.
    `packaging/build-packages.sh target/dist/caditor-<version>-snapshot-linux-x86_64.tar.zst` then
    builds the `.deb`, `.rpm` and `.AppImage` beside it (it also needs `rpm`, `squashfs-tools`,
    `xz` and `binutils`), and `packaging/check-packages.sh` on the same archive checks them.

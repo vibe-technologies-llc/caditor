@@ -1582,7 +1582,8 @@ impl App {
             WindowEvent::RedrawRequested => {
                 session.redraw(&mut self.model, &mut self.files);
                 session.workspace.frame_failures.drawn();
-                self.startup_check.after_frame(&mut self.model, &self.files);
+                self.startup_check
+                    .after_frame(&mut self.model, &mut self.files);
             }
             WindowEvent::DroppedFile(path) => {
                 session.dropped.push(path);

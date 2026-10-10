@@ -119,11 +119,19 @@ paths:
 - `startup_check.rs` is the app's hook for that script. Every run logs "the first frame was drawn"
   once the first frame is through (after `FrameFailures::drawn`), and `Files::offer` logs "recovery
   offered for <journal> with N recoverable changes" for each journal the startup scan finds. With
-  `CADITOR_STARTUP_CHECK` set to anything non-empty, the first frame not blocked by a dialog or an
-  opening also applies one transaction (a parameter named `startup_check`), flushes the journal
-  (`Model::flush_journal`) and logs "startup check: an edit is in the recovery journal", so a
-  harness can kill the process knowing a recoverable change is on disk. The variable has no
-  command-line form and is not documented to users.
+  `CADITOR_STARTUP_CHECK` set (`Mode::parse`), the check does one of three things. Any other
+  non-empty value: the first frame not blocked by a dialog or an opening applies one transaction
+  (a parameter named `startup_check`), flushes the journal (`Model::flush_journal`) and logs
+  "startup check: an edit is in the recovery journal", so a harness can kill the process knowing a
+  recoverable change is on disk. `save:<path>`: the first unblocked frame replaces the model with
+  the Plate sample, saves it to the path and, once the save is through, logs "startup check:
+  saved the model to <path>", so a harness has a saved model to open. `restore`: as soon as the
+  startup scan or an opened model's journal offers a recovery (`Files::first_recoverable`), it
+  performs `FileCommand::Restore` for it, as the card's Restore button does, and logs "startup
+  check: restored N changes of <name>" if the restored document holds the `startup_check`
+  parameter (an error line otherwise), the name being Untitled or the model's file name, so the
+  harness sees that the edit came back into the right document. The variable has no command-line
+  form and is not documented to users.
 - A panic while handling a window or user event (a frame, closing, a dropped file, an
   accessibility event) is caught in `App::contained` after the hook flushed the journal. The window
   gets a fresh egui context, `after_failed_frame` drops transient state (selection, tools, sketch

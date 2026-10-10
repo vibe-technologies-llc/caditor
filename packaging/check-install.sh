@@ -11,8 +11,9 @@ menu entry and the program, then uninstalls it and checks nothing is left.
 
 The installed program is also checked against docs/RELEASING.md (check-binary.sh: the
 libraries it links and its highest glibc symbol) and, when Xvfb is installed, started to
-a first frame, killed with an edit journalled and started again to recover it
-(check-run.sh). CADITOR_REQUIRE_DISPLAY=1 makes a missing Xvfb a failure, as CI sets it.
+a first frame, killed with an edit journalled and started again to restore it, on Vulkan and on
+OpenGL, for an untitled document and an opened model (check-run.sh).
+CADITOR_REQUIRE_DISPLAY=1 makes a missing Xvfb a failure, as CI sets it.
 EOF
 }
 
