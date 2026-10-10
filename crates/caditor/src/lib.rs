@@ -189,6 +189,7 @@ mod ui_tests;
 mod undo_history;
 mod units;
 mod upload_badge;
+mod value_shapes;
 mod variants;
 mod version_preview;
 mod view_aids;

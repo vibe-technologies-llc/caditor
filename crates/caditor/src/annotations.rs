@@ -479,6 +479,7 @@ struct ViewKey {
     forced: Vec<ConstraintId>,
     kept: Vec<EntityId>,
     glyphs: bool,
+    taken: Vec<Rect>,
 }
 
 impl ViewKey {
@@ -540,6 +541,9 @@ impl Marks {
                     .map(|dimension| (dimension, Thinning::WhenCrowded)),
             );
         let mut labels = annotation_layout::obstacles();
+        for rect in &key.taken {
+            labels.add(footprint(key.rect, *rect));
+        }
         let mut dimensions = Vec::new();
         let mut collapsed = Vec::new();
         for (dimension, thinning) in ordered {
@@ -970,6 +974,7 @@ pub struct Surface<'a> {
     pub highlight: Option<Pickable>,
     pub first_dimension_scales: bool,
     pub outside: bool,
+    pub taken: &'a [Rect],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1085,6 +1090,13 @@ impl Annotations {
     #[cfg(test)]
     pub fn layouts(&self) -> usize {
         self.layouts
+    }
+
+    pub fn label_rects(&self) -> impl Iterator<Item = Rect> + '_ {
+        self.marks
+            .iter()
+            .flat_map(|marks| &marks.dimensions)
+            .filter_map(|mark| mark.label)
     }
 
     #[cfg(test)]
@@ -1233,6 +1245,7 @@ impl Annotations {
             forced: self.forced(selection, surface),
             kept: Self::kept(selection, surface.feature),
             glyphs: surface.glyphs,
+            taken: surface.taken.to_vec(),
         };
         let marks = match self.marks.take() {
             Some(marks) if marks.key == key => marks,
@@ -1722,7 +1735,7 @@ fn to_vector(size: egui::Vec2) -> Vector2 {
     Vector2::new(f64::from(size.x), f64::from(size.y))
 }
 
-fn footprint(surface: Rect, rect: Rect) -> Footprint {
+pub fn footprint(surface: Rect, rect: Rect) -> Footprint {
     let center = rect.center() - surface.min;
     let half = rect.size() / 2.0;
     Footprint {

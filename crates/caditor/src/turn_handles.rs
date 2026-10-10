@@ -21,6 +21,8 @@ const ARROW_SHARE: f64 = 0.6;
 const STEP_DEGREES: f64 = 5.0;
 const FULL_TURN_DEGREES: f64 = 360.0;
 const SMALLEST_RADIUS: f64 = 1e-6;
+const ARC_STEP_DEGREES: f64 = 5.0;
+const MAX_ARC_STEPS: f64 = 72.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TurnEnd {
@@ -203,6 +205,33 @@ fn grips(model: &Model, feature: FeatureId, extent: &RevolveExtent) -> [Option<G
         ],
         RevolveExtent::Full | RevolveExtent::UpTo { .. } => [None, None],
     }
+}
+
+pub fn turn_arcs(model: &Model, feature: FeatureId) -> Vec<(TurnEnd, Vec<Point3>)> {
+    let Some(revolve) = committed_revolve(model, feature) else {
+        return Vec::new();
+    };
+    let Some(swing) = swing(model, feature, revolve) else {
+        return Vec::new();
+    };
+    grips(model, feature, &revolve.extent)
+        .into_iter()
+        .flatten()
+        .map(|grip| {
+            let from = match grip.end {
+                TurnEnd::Symmetric => -grip.degrees,
+                TurnEnd::Only | TurnEnd::Forward | TurnEnd::Backward => 0.0,
+            };
+            let span = grip.degrees - from;
+            let steps = (span.abs() / ARC_STEP_DEGREES)
+                .ceil()
+                .clamp(1.0, MAX_ARC_STEPS);
+            let points = (0..=steps as usize)
+                .map(|step| swing.at(from + span * step as f64 / steps))
+                .collect();
+            (grip.end, points)
+        })
+        .collect()
 }
 
 impl TurnHandles {

@@ -1,14 +1,20 @@
 use caditor_document::{
-    BlendKind, ChamferForm, Edit, Evaluation, Extrude, ExtrudeEnd, ExtrudeExtent, FeatureId,
-    FeatureKind, FeatureResult, HoleDepth, LinearDirection, ParameterValues, PatternKind, Revolve,
-    RevolveExtent, SolidFeature, Transaction, origin_feature,
+    Blend, BlendKind, ChamferForm, Edit, Evaluation, Extrude, ExtrudeEnd, ExtrudeExtent, FeatureId,
+    FeatureKind, FeatureResult, HoleDepth, LinearDirection, LinearSpacing, Move, MoveAxis,
+    ParameterValues, PatternKind, PrimitiveShape, Revolve, RevolveExtent, SizeRule, SolidFeature,
+    ThreadLength, Transaction, origin_feature,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_geometry::{Aabb, Point3};
 use caditor_kernel::{Face, Solid};
 
 use crate::{
-    feature_fields::Rule, field, model::Model, move_manipulator::Reach, reach_handles, solid_panel,
+    feature_fields::Rule,
+    field,
+    model::Model,
+    move_manipulator::Reach,
+    solid_panel,
+    value_shapes::{self, Drawn},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -27,6 +33,64 @@ pub enum ValueSlot {
     SecondCount,
     SecondSpacing,
     PatternAngle,
+    ChamferSecondDistance,
+    ChamferAngle,
+    OffsetDistance,
+    Primitive(PrimitiveSize),
+    MoveOffset(MoveAxis),
+    ThreadDepth,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum PrimitiveSize {
+    Length,
+    Width,
+    Height,
+    Diameter,
+    TubeDiameter,
+    BottomDiameter,
+    TopDiameter,
+    TopLength,
+    Sides,
+}
+
+impl PrimitiveSize {
+    fn named(what: &str) -> Option<Self> {
+        Some(match what {
+            "length" => Self::Length,
+            "width" => Self::Width,
+            "height" => Self::Height,
+            "diameter" => Self::Diameter,
+            "tube diameter" => Self::TubeDiameter,
+            "bottom diameter" => Self::BottomDiameter,
+            "top diameter" => Self::TopDiameter,
+            "top length" => Self::TopLength,
+            "number of sides" => Self::Sides,
+            _ => return None,
+        })
+    }
+
+    pub fn caption(self) -> &'static str {
+        match self {
+            Self::Length => "Length",
+            Self::Width => "Width",
+            Self::Height => "Height",
+            Self::Diameter => "Diameter",
+            Self::TubeDiameter => "Tube diameter",
+            Self::BottomDiameter => "Bottom diameter",
+            Self::TopDiameter => "Top diameter",
+            Self::TopLength => "Top length",
+            Self::Sides => "Number of sides",
+        }
+    }
+}
+
+fn move_caption(axis: MoveAxis) -> &'static str {
+    match axis {
+        MoveAxis::X => "Move along X",
+        MoveAxis::Y => "Move along Y",
+        MoveAxis::Z => "Move along Z",
+    }
 }
 
 impl ValueSlot {
@@ -45,6 +109,12 @@ impl ValueSlot {
             Self::Spacing => "Spacing",
             Self::SecondCount => SECOND_COUNT,
             Self::SecondSpacing => "Second spacing",
+            Self::ChamferSecondDistance => "Second distance",
+            Self::ChamferAngle => "Chamfer angle",
+            Self::OffsetDistance => "Offset distance",
+            Self::Primitive(size) => size.caption(),
+            Self::MoveOffset(axis) => move_caption(axis),
+            Self::ThreadDepth => "Thread depth",
         }
     }
 }
@@ -57,7 +127,7 @@ pub struct FeatureValue {
     pub expression: Expression,
     pub dimension: Dimension,
     pub rule: Rule,
-    pub line: Option<[Point3; 2]>,
+    pub drawn: Drawn,
     pub anchor: Point3,
 }
 
@@ -185,10 +255,10 @@ fn direction_values(
 
 fn spacing_caption(direction: &LinearDirection, first: bool) -> &'static str {
     match (direction.measured, first) {
-        (caditor_document::LinearSpacing::BetweenCopies, true) => "Spacing",
-        (caditor_document::LinearSpacing::Total, true) => "Total length",
-        (caditor_document::LinearSpacing::BetweenCopies, false) => "Second spacing",
-        (caditor_document::LinearSpacing::Total, false) => "Second total length",
+        (LinearSpacing::BetweenCopies, true) => "Spacing",
+        (LinearSpacing::Total, true) => "Total length",
+        (LinearSpacing::BetweenCopies, false) => "Second spacing",
+        (LinearSpacing::Total, false) => "Second total length",
     }
 }
 
@@ -197,21 +267,7 @@ fn values_of(parameters: &ParameterValues, kind: &FeatureKind) -> Vec<Found> {
     match kind {
         FeatureKind::Solid(SolidFeature::Extrude(extrude)) => extrude_values(extrude),
         FeatureKind::Solid(SolidFeature::Revolve(revolve)) => revolve_values(parameters, revolve),
-        FeatureKind::Blend(blend) => {
-            let caption = match (blend.kind, blend.chamfer_form()) {
-                (BlendKind::Fillet, _) => "Radius",
-                (BlendKind::Chamfer, ChamferForm::TwoDistances { .. }) => "First distance",
-                (BlendKind::Chamfer, ChamferForm::Equal | ChamferForm::DistanceAngle { .. }) => {
-                    "Distance"
-                }
-            };
-            vec![found(
-                ValueSlot::BlendSize,
-                caption,
-                &blend.size,
-                length(Rule::AboveZero),
-            )]
-        }
+        FeatureKind::Blend(blend) => blend_values(blend),
         FeatureKind::Shell(shell) => vec![found(
             ValueSlot::ShellThickness,
             "Thickness",
@@ -270,8 +326,106 @@ fn values_of(parameters: &ParameterValues, kind: &FeatureKind) -> Vec<Found> {
             ],
             PatternKind::Curve(_) | PatternKind::Points(_) => Vec::new(),
         },
-        _ => Vec::new(),
+        FeatureKind::OffsetFace(offset) => vec![found(
+            ValueSlot::OffsetDistance,
+            "Distance",
+            &offset.distance,
+            length(Rule::Any),
+        )],
+        FeatureKind::Primitive(primitive) => primitive_values(&primitive.shape),
+        FeatureKind::Move(movement) => move_values(parameters, movement),
+        FeatureKind::Thread(thread) => match &thread.length {
+            ThreadLength::Depth(depth) => vec![found(
+                ValueSlot::ThreadDepth,
+                "Depth",
+                depth,
+                length(Rule::AboveZero),
+            )],
+            ThreadLength::Full => Vec::new(),
+        },
+        FeatureKind::Sketch(_)
+        | FeatureKind::SplitFace(_)
+        | FeatureKind::Combine(_)
+        | FeatureKind::Mate(_)
+        | FeatureKind::Mirror(_)
+        | FeatureKind::Split(_)
+        | FeatureKind::Scale(_)
+        | FeatureKind::Datum(_)
+        | FeatureKind::Import(_)
+        | FeatureKind::Remove(_)
+        | FeatureKind::Measurement(_) => Vec::new(),
     }
+}
+
+fn blend_values(blend: &Blend) -> Vec<Found> {
+    let caption = match (blend.kind, blend.chamfer_form()) {
+        (BlendKind::Fillet, _) => "Radius",
+        (BlendKind::Chamfer, ChamferForm::TwoDistances { .. }) => "First distance",
+        (BlendKind::Chamfer, ChamferForm::Equal | ChamferForm::DistanceAngle { .. }) => "Distance",
+    };
+    let size = found(
+        ValueSlot::BlendSize,
+        caption,
+        &blend.size,
+        (Dimension::LENGTH, Rule::AboveZero),
+    );
+    let second = match blend.chamfer_form() {
+        ChamferForm::Equal => None,
+        ChamferForm::TwoDistances { second } => Some(found(
+            ValueSlot::ChamferSecondDistance,
+            "Second distance",
+            second,
+            (Dimension::LENGTH, Rule::AboveZero),
+        )),
+        ChamferForm::DistanceAngle { angle } => Some(found(
+            ValueSlot::ChamferAngle,
+            "Angle",
+            angle,
+            (Dimension::ANGLE, Rule::ChamferAngle),
+        )),
+    };
+    std::iter::once(size).chain(second).collect()
+}
+
+fn primitive_values(shape: &PrimitiveShape) -> Vec<Found> {
+    shape
+        .sizes()
+        .into_iter()
+        .zip(shape.rules())
+        .filter_map(|((what, expression), rule)| {
+            let size = PrimitiveSize::named(what)?;
+            let checked = match rule {
+                SizeRule::AboveZero => (Dimension::LENGTH, Rule::AboveZero),
+                SizeRule::ZeroOrMore => (Dimension::LENGTH, Rule::ZeroOrMore),
+                SizeRule::Sides => (Dimension::NONE, Rule::Sides),
+            };
+            Some(found(
+                ValueSlot::Primitive(size),
+                size.caption(),
+                expression,
+                checked,
+            ))
+        })
+        .collect()
+}
+
+fn move_values(parameters: &ParameterValues, movement: &Move) -> Vec<Found> {
+    MoveAxis::ALL
+        .into_iter()
+        .filter(|axis| {
+            parameters
+                .evaluate_expression(axis.of(&movement.offset))
+                .is_ok_and(|value| value.value != 0.0)
+        })
+        .map(|axis| {
+            found(
+                ValueSlot::MoveOffset(axis),
+                move_caption(axis),
+                axis.of(&movement.offset),
+                (Dimension::LENGTH, Rule::Any),
+            )
+        })
+        .collect()
 }
 
 fn face_box(solid: &Solid, face: &Face) -> Option<Aabb> {
@@ -290,14 +444,27 @@ fn anchor_of(evaluation: &Evaluation, feature: FeatureId) -> Option<Point3> {
         .result
         .as_deref()
         .and_then(FeatureResult::solid)?;
-    let solid = &body.solid;
-    solid
-        .faces()
-        .filter(|(_, face)| face.origin().map(origin_feature) == Some(feature))
-        .filter_map(|(_, face)| face_box(solid, face))
+    made_faces(&body.solid, feature)
+        .map(|(_, bounds)| bounds)
         .reduce(Aabb::union)
         .or_else(|| body.bounding_box())
         .map(|bounds| bounds.center())
+}
+
+pub fn body_of(evaluation: &Evaluation, feature: FeatureId) -> Option<&Solid> {
+    evaluation
+        .feature(feature)?
+        .result
+        .as_deref()
+        .and_then(FeatureResult::solid)
+        .map(|body| &body.solid)
+}
+
+pub fn made_faces(solid: &Solid, feature: FeatureId) -> impl Iterator<Item = (&Face, Aabb)> {
+    solid
+        .faces()
+        .filter(move |(_, face)| face.origin().map(origin_feature) == Some(feature))
+        .filter_map(|(_, face)| Some((face, face_box(solid, face)?)))
 }
 
 pub fn sketch_of(kind: &FeatureKind) -> Option<FeatureId> {
@@ -316,19 +483,22 @@ pub fn of(model: &Model, feature: FeatureId) -> Vec<FeatureValue> {
     if values.is_empty() {
         return Vec::new();
     }
-    let lines = reach_handles::reach_lines(model, feature);
+    let shapes = value_shapes::of(model, feature);
+    let drawn_of = |slot: ValueSlot| {
+        shapes
+            .iter()
+            .find(|(shaped, _)| *shaped == slot)
+            .map_or(Drawn::Stacked, |(_, drawn)| drawn.clone())
+    };
     let Some(anchor) = anchor_of(model.evaluation(), feature)
-        .or_else(|| lines.first().map(|(_, [from, to])| from.lerp(*to, 0.5)))
+        .or_else(|| shapes.iter().find_map(|(_, drawn)| drawn.middle()))
     else {
         return Vec::new();
     };
     values
         .into_iter()
         .map(|value| {
-            let line = lines
-                .iter()
-                .find(|(reach, _)| ValueSlot::Extrude(*reach) == value.slot)
-                .map(|(_, line)| *line);
+            let drawn = drawn_of(value.slot);
             FeatureValue {
                 feature,
                 slot: value.slot,
@@ -336,8 +506,8 @@ pub fn of(model: &Model, feature: FeatureId) -> Vec<FeatureValue> {
                 expression: value.expression,
                 dimension: value.dimension,
                 rule: value.rule,
-                anchor: line.map_or(anchor, |[from, to]| from.lerp(to, 0.5)),
-                line,
+                anchor: drawn.middle().unwrap_or(anchor),
+                drawn,
             }
         })
         .collect()
@@ -412,6 +582,37 @@ fn set_pattern(kind: &mut PatternKind, slot: ValueSlot, value: Expression) -> bo
     true
 }
 
+fn set_chamfer_second(blend: &mut Blend, slot: ValueSlot, value: Expression) -> bool {
+    let fits = matches!(
+        (&blend.form, slot),
+        (
+            ChamferForm::TwoDistances { .. },
+            ValueSlot::ChamferSecondDistance
+        ) | (ChamferForm::DistanceAngle { .. }, ValueSlot::ChamferAngle)
+    );
+    match blend.form.expression_mut().filter(|_| fits) {
+        Some(target) => {
+            *target = value;
+            true
+        }
+        None => false,
+    }
+}
+
+fn set_primitive(shape: &mut PrimitiveShape, size: PrimitiveSize, value: Expression) -> bool {
+    let index = shape
+        .sizes()
+        .into_iter()
+        .position(|(what, _)| PrimitiveSize::named(what) == Some(size));
+    match index.and_then(|index| shape.sizes_mut().into_iter().nth(index)) {
+        Some(target) => {
+            *target = value;
+            true
+        }
+        None => false,
+    }
+}
+
 fn rebuilt(kind: &FeatureKind, slot: ValueSlot, value: Expression) -> Option<FeatureKind> {
     let mut changed = kind.clone();
     let set = match (&mut changed, slot) {
@@ -442,6 +643,27 @@ fn rebuilt(kind: &FeatureKind, slot: ValueSlot, value: Expression) -> Option<Fea
             _ => false,
         },
         (FeatureKind::Pattern(pattern), _) => set_pattern(&mut pattern.kind, slot, value),
+        (FeatureKind::Blend(blend), ValueSlot::ChamferSecondDistance | ValueSlot::ChamferAngle) => {
+            set_chamfer_second(blend, slot, value)
+        }
+        (FeatureKind::OffsetFace(offset), ValueSlot::OffsetDistance) => {
+            offset.distance = value;
+            true
+        }
+        (FeatureKind::Primitive(primitive), ValueSlot::Primitive(size)) => {
+            set_primitive(&mut primitive.shape, size, value)
+        }
+        (FeatureKind::Move(movement), ValueSlot::MoveOffset(axis)) => {
+            *axis.of_mut(&mut movement.offset) = value;
+            true
+        }
+        (FeatureKind::Thread(thread), ValueSlot::ThreadDepth) => match &mut thread.length {
+            ThreadLength::Depth(depth) => {
+                *depth = value;
+                true
+            }
+            ThreadLength::Full => false,
+        },
         _ => false,
     };
     set.then_some(changed)

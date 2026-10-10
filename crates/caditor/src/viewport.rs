@@ -689,6 +689,11 @@ impl ViewportState {
         self.model_dimensions.highlightable()
     }
 
+    #[cfg(test)]
+    pub fn model_dimensions(&self) -> &ModelDimensions {
+        &self.model_dimensions
+    }
+
     pub fn style(&self) -> DisplayStyle {
         self.style
     }
@@ -4217,6 +4222,7 @@ impl ViewportState {
             highlight: self.keyboard_highlight,
             first_dimension_scales: self.first_dimension_scales,
             outside: false,
+            taken: &[],
         };
         self.annotations
             .show(ui, model, &surface, &mut self.selection, actions);

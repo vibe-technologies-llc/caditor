@@ -23,6 +23,7 @@ paths:
   - "crates/caditor/src/annotation_layout.rs"
   - "crates/caditor/src/model_dimensions.rs"
   - "crates/caditor/src/feature_values.rs"
+  - "crates/caditor/src/value_shapes.rs"
   - "crates/caditor/src/typed_point.rs"
   - "crates/caditor/src/viewport.rs"
   - "crates/caditor/src/dimensioning.rs"
@@ -903,17 +904,33 @@ paths:
   and `Marks` (by revision and view, so a still frame lays nothing out), lanes, thinning and
   collapsing as for the edited sketch, but no glyphs, open ends or points beyond, labels that do
   not drag or select, and an inline field opened by a double-click or Enter.
+- Labels are thinned across all sketches and features together through one obstacle grid a
+  frame: the feature values are placed first (those of the first subject with values always, any
+  other one left out when labels placed before it cover it by more than `MOST_LABEL_COVER`), and
+  their rectangles then seed each sketch's layout in turn (`Surface::taken`, part of `ViewKey`,
+  so a still frame still lays nothing out), each sketch's laid-out labels joining the grid for the
+  next (`Annotations::label_rects`), so labels of two sketches never overlap.
 - Feature values (`feature_values.rs`): an extrusion's distance, total, forward and backward
   distances (`ValueSlot::Extrude` of its `Reach`), a revolve's angles, a fillet's radius or a
-  chamfer's first distance, a shell's thickness, a hole's diameter and blind depth, and a linear
-  pattern's counts and spacings or a circular one's count and total angle, each with the panel
-  row's caption, dimension and `feature_fields::Rule`. They are worked out when the revision,
-  evaluation, units or subjects change. An extrusion's distances are drawn as dimension lines
-  along its reach (`reach_handles::reach_lines`, from the sketch's centre along its normal) with
-  the label at the middle; the others stack under the centre of the faces the feature made (their
-  `FaceOrigin` names it, `origin_feature`; a pattern's copies count as its own), else of its
-  body. Labels read `<caption> <value>`, or `<caption> <expression> = <value>`, on the canvas
-  backdrop in `canvas::body`, and are announced as buttons named "<feature> <caption>: <text>".
+  chamfer's first distance and its second distance or angle, a shell's thickness, a hole's
+  diameter and blind depth, an offset face's distance, a primitive's sizes
+  (`ValueSlot::Primitive` of a `PrimitiveSize`, captioned as its panel row), a move's offsets that
+  are not zero (`ValueSlot::MoveOffset`), a thread's depth, and a linear pattern's counts and
+  spacings or a circular one's count and total angle, each with the panel row's caption,
+  dimension and `feature_fields::Rule`. They are worked out when the revision, evaluation, units
+  or subjects change. How each is drawn is a `value_shapes::Drawn`: an extrusion's distances as
+  dimension lines along its reach (`reach_handles::reach_lines`, from the sketch's centre along
+  its normal), a revolve's angles as arcs about its axis through the sketch's centre
+  (`turn_handles::turn_arcs`, the arc its turn handles swing on), a hole's diameter across its
+  rim along the sketch's x axis and its depth down its axis from the first hole centre, and an
+  offset face's distance out along the first face's normal from its middle, each a path with end
+  ticks and the label halfway along it; a fillet's radius, a chamfer's values and a shell's
+  thickness as a leader with a dot on the largest face the feature made (its box's centre
+  projected onto the face's surface), their labels stacked up and to the right of it; the others
+  stack under the centre of the faces the feature made (their `FaceOrigin` names it,
+  `origin_feature`; a pattern's copies count as its own), else of its body. Labels read
+  `<caption> <value>`, or `<caption> <expression> = <value>`, on the canvas backdrop in
+  `canvas::body`, and are announced as buttons named "<feature> <caption>: <text>".
 - A label whose value is a parameter, owned (`ParameterOwner::Feature` with the caption, or a
   dimension's) or a bare reference to a model parameter, reads `name = value`
   (`field::driving_parameter`), and its field holds `name = expression` (`field::driven_text`):
