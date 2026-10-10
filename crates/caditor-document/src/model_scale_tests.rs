@@ -433,6 +433,7 @@ fn a_centre_off_the_principal_geometry_a_feature_uses_is_refused_in_words() {
             plane: PlaneReference::Principal(PrincipalPlane::Yz),
             keep_original: true,
             mirrored: Vec::new(),
+            faces: Vec::new(),
         }),
     );
     model.document.apply(transaction.finish()).unwrap();

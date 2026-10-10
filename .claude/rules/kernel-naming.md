@@ -41,6 +41,8 @@ paths:
   split feature, the original name and the side of the tool they lie on (`SplitPiece`), keeping
   the original's origin; several pieces on one side share the name and are told apart by their
   neighbours. Edges of a chosen face are renamed `between` their faces.
+- A closing face of `enclose_faces` is `FaceName::closure` of the feature and the sorted, deduped
+  names of the edges around it.
 - Boolean fragments of a split face keep its name and origin; pieces keep their edge's name and new
   edges are `between` their two faces, before the plan disambiguates duplicates. A pattern renames
   a copy's faces, then its edges from those faces.

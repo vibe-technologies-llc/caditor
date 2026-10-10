@@ -193,9 +193,9 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 - [low · medium] A body splits along a plane, a sketch curve or another body whole, but not along
   one curved face of another body extended past its edges. A tangent mate rests a round face of
   the moving body on a plane, but not a flat face of it on a round face of another body.
-- [low · medium] Mirror reflects a whole body or chosen features (extrusions, revolves, holes), but
-  not chosen faces: reflecting a set of faces (a pocket's walls and floor of an imported body
-  with no features) across a plane, kept linked to the faces it copies, is missing.
+- [low · medium] Mirror faces closes the chosen faces only with flat faces across their openings:
+  a set whose opening is not flat (a pocket cut into a curved face, a boss on a cylinder) is
+  refused, since closing it needs the surface the opening lies on extended across it.
 - [low · medium] 3MF exports carry no cosmetic thread: naming one needs object metadata
   (`metadatagroup`) under a name in a namespace of caditor's own, and that namespace's URI, kept
   for good once files carry it, has not been chosen.

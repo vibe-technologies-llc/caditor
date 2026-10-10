@@ -554,6 +554,16 @@ paths:
   each with Stop mirroring, or read The whole body, and Mirror the chosen features takes the rows
   chosen now, as a pattern's Repeats rows do; Keep the original is hidden while features are
   mirrored. The open mirror shows its body and its reflected cuts like a pattern of holes.
+- Mirror faces (`Command::MirrorFaces`, Model menu's Bodies group, palette; no ribbon button or
+  default key) takes the selected faces of one body (`mirror_tools::faces_source`) and, from the
+  rest of the selection, a principal, datum or coordinate system plane, else the YZ plane, and
+  creates "Mirror faces N" mirroring the region they bound, then opens it. Its panel lists the
+  faces in words under Mirrors (`offset_face_panel::face_row`, read on the body as the mirror finds
+  it, `body_result_seen_by`), each with Stop mirroring this face (the last one leaves the whole
+  body mirrored); Mirror the selected faces, also the palette's `Command::MirrorSelectedFaces` on
+  the open feature or the tree's row, takes the faces of the body selected in the view now
+  (`mirror_tools::faces_change`), as Mirror the chosen features takes tree rows, each clearing the
+  other. Keep the original is shown only while the whole body is mirrored.
 - Split body (Alt+K, Model menu, palette, a body's right-click menu; not on the ribbon, which it
   would widen past one row) takes the body the same way and creates a `Split` along what is
   selected (`split_tools::source`, `source_for` from the Bodies group): a plane or flat face chosen

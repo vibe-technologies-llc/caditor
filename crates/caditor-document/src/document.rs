@@ -1016,7 +1016,7 @@ impl FeatureKind {
             Self::Mate(mate) => mate.origin_features(),
             Self::Hole(hole) => hole.origin_features(),
             Self::Combine(_) | Self::Scale(_) => BTreeSet::new(),
-            Self::Mirror(mirror) => mirror.plane.origin_features(),
+            Self::Mirror(mirror) => mirror.origin_features(),
             Self::Split(split) => split.along.origin_features(),
             Self::Pattern(pattern) => pattern.origin_features(),
             Self::Datum(datum) => datum.origin_features(),

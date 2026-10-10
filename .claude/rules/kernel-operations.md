@@ -5,6 +5,7 @@ paths:
   - "crates/caditor-kernel/src/blend/**"
   - "crates/caditor-kernel/src/shell/**"
   - "crates/caditor-kernel/src/pattern/**"
+  - "crates/caditor-kernel/src/enclose/**"
   - "crates/caditor-kernel/src/box_tree.rs"
 ---
 
@@ -270,6 +271,22 @@ paths:
   sides, the original as `[0, 0]`.
 - Copies are renamed and given `FaceOrigin::Copy` (`kernel-naming.md`); the original keeps every
   name and origin.
+
+# Closing faces (`enclose/`)
+
+- `enclose_faces(solid, faces, feature)` turns chosen faces of a solid into a closed tool: valid
+  or an `EnclosureError`. Their open edges (used by a chosen face and an unchosen one) are
+  chained into loops, each of which must lie in one plane (the plane of an unchosen flat face
+  beside it, else one fitted to its edges, within `LINEAR_RESOLUTION`; `NotFlat` otherwise); a
+  vertex where two open edges start is `OpenBoundary`. Loops in one plane are nested by
+  containment into flat cap faces, an even depth an outer loop and an odd one a hole that must
+  wind against it (`Openings` otherwise). The chosen faces are copied with their surfaces, names,
+  origins and pcurves (settled), the caps added with fitted pcurves, named
+  `FaceName::closure(feature, edge names)` and given the origin of the unchosen face beside
+  them. A shell meshing inside out (`SolidBuilder::inside_out`) means the faces bound a cavity:
+  every face and loop is turned over and the result is `Bounds::Cavity`; otherwise
+  `Bounds::Material`. Validation catches the rest (a lone flat face closing on itself) as
+  `Build`.
 
 # Shell (`shell/`)
 

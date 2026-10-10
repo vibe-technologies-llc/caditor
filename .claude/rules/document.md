@@ -654,6 +654,15 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   lookup (`pattern::seed`, worded through `SeedWords`) is shared with the pattern, so the same
   failures name the feature with the fix on it, the mirrored features are in `features()` and an
   edit to them recomputes the mirror. The cut images are the mirror's own `cuts`.
+- With `faces` (`Mirror::mirroring_faces`, `FaceReference`s resolved on the body as it stands at
+  the mirror like a split face's, pieces of one face accepted, a lost or tied one failing it) and
+  no mirrored features (`mirrors_faces`), it reflects the region the faces bound: kernel
+  `enclose_faces` closes them flat across their openings into a tool, placed as copy
+  `MIRROR_IMAGE` and cut from the body where the faces bounded a cavity (`Bounds::Cavity`, kept as
+  `cuts`) or joined where they bounded material (kept as `joins`); `keep_original` is then
+  ignored. Faces whose openings are not flat, do not run in separate loops or close into no valid
+  solid fail it alone in words asking for every face around the pocket or boss. The faces' origin
+  features are its `origin_features`, so it follows edits to them, and healing visits each face.
 - `Scale { body, factor, center, frame }` resizes its body about a point (`Solid::mapped`),
   keeping every name. The factor is a plain number from `MIN_SCALE_FACTOR` to `MAX_SCALE_FACTOR`;
   the centre is three lengths, from the origin along the world's axes or, with `frame` (a

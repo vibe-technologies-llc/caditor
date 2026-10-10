@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use caditor_expression::Expression;
 use caditor_geometry::{Point2, Point3, Vector3};
-use caditor_kernel::{FaceId, FaceName, Solid, Surface};
+use caditor_kernel::{FaceId, FaceName, FaceReference, Solid, Surface};
 use caditor_sketch::Sketch;
 
 use crate::{
@@ -23,6 +23,7 @@ fn mirrored(pair: &mut Pair, plane: PlaneReference, keep_original: bool) -> Feat
             plane,
             keep_original,
             mirrored: Vec::new(),
+            faces: Vec::new(),
         }),
     );
     pair.document.apply(transaction.finish()).unwrap();
@@ -193,6 +194,7 @@ fn a_mirror_across_an_axis_datum_is_refused() {
             plane: PlaneReference::Datum(axis),
             keep_original: false,
             mirrored: Vec::new(),
+            faces: Vec::new(),
         }),
     );
 
@@ -369,5 +371,162 @@ fn a_mirrored_feature_that_made_the_body_fails_the_mirror_naming_it() {
         "Leave it out of the mirror, or mirror the whole body."
     );
     assert_eq!(error.fix, Some(FixTarget::Feature(featured.plate)));
+    assert_eq!(evaluation.failed_count(), 1);
+}
+
+fn faces_mirrored(featured: &mut Featured, made_by: FeatureId, engine: &mut Recompute) {
+    featured
+        .document
+        .apply(Transaction::single(
+            "Hide the mirror",
+            Edit::SetFeatureSuppressed {
+                id: featured.mirror,
+                suppressed: true,
+            },
+        ))
+        .unwrap();
+    let before = evaluate(&featured.document, engine);
+    let solid = before.body(featured.plate).unwrap();
+    let faces = solid
+        .faces()
+        .filter(|(_, face)| {
+            face.origin()
+                .is_some_and(|origin| origin.feature() == made_by.raw())
+        })
+        .filter_map(|(id, _)| FaceReference::capture(solid, id))
+        .collect();
+    let mirror = Mirror::new(
+        featured.plate,
+        PlaneReference::Principal(PrincipalPlane::Yz),
+    )
+    .mirroring_faces(faces);
+    featured
+        .document
+        .apply(Transaction::new(
+            "Mirror faces",
+            vec![
+                Edit::SetFeatureKind {
+                    id: featured.mirror,
+                    kind: FeatureKind::Mirror(mirror),
+                },
+                Edit::SetFeatureSuppressed {
+                    id: featured.mirror,
+                    suppressed: false,
+                },
+            ],
+        ))
+        .unwrap();
+}
+
+#[test]
+fn mirroring_a_hole_s_faces_cuts_their_image_and_follows_edits_to_them() {
+    let mut featured = featured(|_| Vec::new());
+    let mut engine = Recompute::default();
+    let plate = 60.0 * 10.0 * 4.0;
+    let boss = 4.0 * 6.0 * 2.0;
+    let hole = featured.hole;
+
+    faces_mirrored(&mut featured, hole, &mut engine);
+    let evaluation = evaluate(&featured.document, &mut engine);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert_near_volume(
+        &evaluation,
+        featured.plate,
+        plate - 2.0 * hole_area(2.0) * 4.0 + boss,
+    );
+    assert_eq!(evaluation.cuts(featured.mirror).len(), 1);
+    let mirror = featured.document.feature(featured.mirror).unwrap();
+    assert!(mirror.kind.dependencies().contains(&featured.hole));
+
+    let points = featured
+        .document
+        .feature(featured.hole)
+        .unwrap()
+        .kind
+        .hole()
+        .unwrap()
+        .sketch;
+    featured
+        .document
+        .apply(Transaction::single(
+            "Widen",
+            Edit::SetFeatureKind {
+                id: featured.hole,
+                kind: hole_of(points, featured.plate, "4 mm"),
+            },
+        ))
+        .unwrap();
+    let widened = evaluate(&featured.document, &mut engine);
+
+    assert_eq!(widened.failed_count(), 0);
+    assert_near_volume(
+        &widened,
+        featured.plate,
+        plate - 2.0 * hole_area(4.0) * 4.0 + boss,
+    );
+}
+
+#[test]
+fn mirroring_a_boss_s_faces_joins_their_image() {
+    let mut featured = featured(|_| Vec::new());
+    let mut engine = Recompute::default();
+    let plate = 60.0 * 10.0 * 4.0;
+    let boss = 4.0 * 6.0 * 2.0;
+    let made_by = featured.boss;
+
+    faces_mirrored(&mut featured, made_by, &mut engine);
+    let evaluation = evaluate(&featured.document, &mut engine);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert_near_volume(
+        &evaluation,
+        featured.plate,
+        plate - hole_area(2.0) * 4.0 + 2.0 * boss,
+    );
+    assert_eq!(evaluation.joins(featured.mirror).len(), 1);
+    let (_, high) = bounds(&evaluation, featured.plate);
+    assert!(near(high, [30.0, 10.0, 6.0]), "{high:?}");
+}
+
+#[test]
+fn faces_that_bound_no_closable_region_fail_the_mirror_in_words() {
+    let mut featured = featured(|_| Vec::new());
+    let mut engine = Recompute::default();
+    let made_by = featured.boss;
+    faces_mirrored(&mut featured, made_by, &mut engine);
+    let mut mirror = featured
+        .document
+        .feature(featured.mirror)
+        .unwrap()
+        .kind
+        .mirror()
+        .unwrap()
+        .clone();
+    mirror.faces.truncate(2);
+    featured
+        .document
+        .apply(Transaction::single(
+            "Fewer faces",
+            Edit::SetFeatureKind {
+                id: featured.mirror,
+                kind: FeatureKind::Mirror(mirror),
+            },
+        ))
+        .unwrap();
+
+    let evaluation = evaluate(&featured.document, &mut engine);
+
+    let error = failure(&evaluation, featured.mirror);
+    assert!(
+        error.reason.contains("so they do not bound a region"),
+        "{}",
+        error.reason
+    );
+    assert!(
+        error
+            .remedy
+            .starts_with("Choose every face around the pocket or boss")
+    );
     assert_eq!(evaluation.failed_count(), 1);
 }

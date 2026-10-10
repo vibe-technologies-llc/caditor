@@ -231,6 +231,7 @@ fn its_axes_and_planes_place_datums_sketches_and_mirrors() {
             plane,
             keep_original: false,
             mirrored: Vec::new(),
+            faces: Vec::new(),
         }),
     );
 

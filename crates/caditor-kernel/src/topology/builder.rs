@@ -315,6 +315,10 @@ impl SolidBuilder {
         }
     }
 
+    pub(crate) fn inside_out(&self) -> Result<bool, TessellationError> {
+        Ok(!self.solid.void_shells()?.is_empty())
+    }
+
     pub fn unvalidated_mesh(&self, quality: &MeshQuality) -> Result<FaceMesh, TessellationError> {
         let tolerance = quality.tolerance(self.solid.extent());
         let mesh = tessellation::tessellate(&self.solid, &tolerance)?;

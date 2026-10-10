@@ -7,6 +7,7 @@ mod checks;
 mod coordinates;
 mod curve;
 mod curve2;
+mod enclose;
 mod error;
 mod faceted;
 #[cfg(test)]
@@ -49,6 +50,7 @@ pub use crate::{
         IntersectionNode, Line,
     },
     curve2::{BSplineCurve2, Circle2, Curve2, Curve2Derivatives, Curve2Sample, Ellipse2, Line2},
+    enclose::{Bounds, Enclosure, EnclosureError, enclose_faces},
     error::GeometryError,
     faceted::{
         FaceMesh, FacetedError, FacetedSolids, MAX_FACETED_FACES, MAX_FILLED_HOLE_EDGES,
