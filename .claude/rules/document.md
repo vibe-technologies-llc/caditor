@@ -625,7 +625,9 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   once, flush and concentric); `Angle` (an `AngleMate`: `AngleSides::Faces`, a `FacePair` of a
   flat face and a plane, or `AngleSides::Axes`, and an angle expression from 0 to
   `MAX_MATE_ANGLE_DEGREES`); `Tangent` (a `FacePair` whose face is a cylindrical or spherical face
-  of the body, `round_face`, pieces of one surface accepted); `Point` (a `PointMate`: a
+  of the body, `round_face`, pieces of one surface accepted); `FaceOnRound` (a flat face of the
+  body and `round`, a `FaceAttachment` to a cylindrical or spherical face of another body, pieces
+  of one surface accepted, `Mate::round_targets`); `Point` (a `PointMate`: a
   `PointReference` on the body and a `PointTarget`, another point or a plane). References are
   resolved at the mate's place, the moving ones on the body as it stands before it, so the mate
   follows its target on every recompute.
@@ -648,13 +650,20 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 - Tangent: a cylinder first turns, about the point of its axis nearest the box centre, by the
   least turn laying its axis along the plane; then the body shifts along the plane's normal until
   the axis or sphere centre lies its radius from the plane on the side the normal faces (the other
-  side when `flipped`). Point: the body shifts so the point lands on the target point, or along
-  the plane's normal onto the plane. Angle and point mates have no side (`Mate::flips`).
+  side when `flipped`). Flat face on a round face: for a cylinder the body first turns about its
+  box centre by the least turn laying the face's normal square to the cylinder's axis; then it
+  shifts along that normal until the axis or sphere centre lies the radius in front of the face
+  when the round face is convex (`Convexity`, from its sense), behind it when concave (a bore),
+  the other way when `flipped`, so the faces touch facing each other. Point: the body shifts so
+  the point lands on the target point, or along the plane's normal onto the plane. Angle and point
+  mates have no side (`Mate::flips`).
 - It modifies its body like a move (`modifies_body`, state before kept), keeps every name
   (`Solid::transformed`), and its target bodies, datums (plane, axis and point), frames and
   sketches count as used like a move axis's; healing visits the moving face and every reference.
   A lost, split or curved moving face (a lost or flat round face for a tangent) fails it naming
-  the face; a placement too far fails it in words. Only the distance scales with the model.
+  the face, and a lost or not round face to rest on fails it naming that face; the round face's
+  body counts among `bodies_used` and its origins among the feature's. A placement too far fails
+  it in words. Only the distance scales with the model.
 
 ### Mirror and scale (`mirror.rs`, `scaling.rs`)
 
@@ -708,6 +717,16 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   - `Body`, another body as it stands at the split, used whole as the tool: what lies outside it
     stays, so its faces split along their whole surfaces. It counts in `bodies_used` and is left
     as it was; splitting a body along itself fails.
+  - `Surface`, a `FaceAttachment` to one face of a body as it stands at the split (its own body
+    included; pieces of one surface accepted), carried on past its edges (`surface_tool.rs`): a
+    flat face is its plane's half-space block, the side its outward normal faces staying; a
+    cylinder is a solid cylinder of its radius extruded along its axis past the body's box, a cone
+    the solid cone of its nappe from the apex to past the box, a sphere and a torus their whole
+    solids, each revolved or extruded under the split's id with entities `SURFACE_ENTITY`,
+    `CAP_ENTITY` and `AXIS_ENTITY`. The side the face's outward normal faces stays (outside a
+    shaft, inside a bore), the other when `flipped`. A freeform face (extrusion, revolution or
+    spline surface) fails in words, as do a lost face and pieces no longer on one surface. Its
+    body counts in `bodies_used`, its origins among the feature's and healing visits the face.
   - A tool that misses the body (an empty side) fails it in words naming the plane, curve or
     body; a sketch's own problems (no curve, closed, not one chain, crossing itself) fail it with
     the fix on the sketch.
@@ -725,8 +744,9 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   changing the shape (kernel `split_faces`): a plane's half-space block
   (`split::half_space_solid`, the side its normal faces being `Inside`), a sketch of one open
   chain carried on past its ends (`Sweep::half_space`, the left side inside), a sketch of closed
-  outlines extruded through the body (`Sweep::outlines`, the outlines inside), or another body as
-  it stands (inside it). A sketch whose curves are one open chain plus closed outlines joined to
+  outlines extruded through the body (`Sweep::outlines`, the outlines inside), another body as
+  it stands (inside it), or the surface of a face of a body carried on past its edges (the split's
+  `surface_tool`). A sketch whose curves are one open chain plus closed outlines joined to
   it nowhere (`split::mixed_curves`: curves grouped by shared ends, exactly one group with free
   ends and that group one chain) splits twice under the same feature: along the outlines, then
   the resulting pieces of the chosen faces along the chain, so pieces are named

@@ -9,7 +9,7 @@ use crate::{
     datum::{AxisReference, PlaneReference, PointReference, Resolver, feature_name},
     describe::describe_origin,
     document::{Feature, FeatureId},
-    mate_placement::{self, FlushAndConcentric, Round, Unplaced},
+    mate_placement::{self, Convexity, FlushAndConcentric, Round, Unplaced},
     movement::Context,
     origins,
     recompute::{CancelToken, Failure, FeatureResult, Inputs},
@@ -44,6 +44,12 @@ pub struct FacePair {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct FaceOnRound {
+    pub face: FaceReference,
+    pub round: FaceAttachment,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum AngleSides {
     Faces(FacePair),
     Axes(AxisMate),
@@ -75,6 +81,7 @@ pub enum MatePair {
     Angle(Box<AngleMate>),
     Tangent(Box<FacePair>),
     Point(Box<PointMate>),
+    FaceOnRound(Box<FaceOnRound>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -91,19 +98,36 @@ pub enum RoundFaceError {
 }
 
 pub fn round_face(solid: &Solid, face: &FaceReference) -> Result<Round, RoundFaceError> {
+    round_with_sense(solid, face).map(|(round, _)| round)
+}
+
+fn round_with_sense(
+    solid: &Solid,
+    face: &FaceReference,
+) -> Result<(Round, Convexity), RoundFaceError> {
     let pieces = match face.resolve(solid) {
         Ok(found) => vec![found],
         Err(ReferenceError::Ambiguous(pieces)) => pieces,
         Err(ReferenceError::Missing) => return Err(RoundFaceError::Missing),
     };
     let rounds: Option<Vec<Round>> = pieces.iter().map(|piece| round_of(solid, *piece)).collect();
-    match rounds.as_deref() {
-        Some([first, rest @ ..])
+    let convexity = pieces
+        .first()
+        .and_then(|piece| solid.face(*piece))
+        .map(|face| {
+            if face.sense().is_same() {
+                Convexity::Convex
+            } else {
+                Convexity::Concave
+            }
+        });
+    match (rounds.as_deref(), convexity) {
+        (Some([first, rest @ ..]), Some(convexity))
             if rest
                 .iter()
                 .all(|other| first.same_as(other, LINEAR_RESOLUTION)) =>
         {
-            Ok(*first)
+            Ok((*first, convexity))
         }
         _ => Err(RoundFaceError::NotRound),
     }
@@ -128,9 +152,11 @@ impl Mate {
         match &self.pair {
             MatePair::Faces(faces) => Some(faces),
             MatePair::FaceAxis(both) => Some(&both.faces),
-            MatePair::Axes(_) | MatePair::Angle(_) | MatePair::Tangent(_) | MatePair::Point(_) => {
-                None
-            }
+            MatePair::Axes(_)
+            | MatePair::Angle(_)
+            | MatePair::Tangent(_)
+            | MatePair::Point(_)
+            | MatePair::FaceOnRound(_) => None,
         }
     }
 
@@ -142,7 +168,10 @@ impl Mate {
                 AngleSides::Axes(axes) => Some(axes),
                 AngleSides::Faces(_) => None,
             },
-            MatePair::Faces(_) | MatePair::Tangent(_) | MatePair::Point(_) => None,
+            MatePair::Faces(_)
+            | MatePair::Tangent(_)
+            | MatePair::Point(_)
+            | MatePair::FaceOnRound(_) => None,
         }
     }
 
@@ -157,7 +186,8 @@ impl Mate {
             | MatePair::Axes(_)
             | MatePair::FaceAxis(_)
             | MatePair::Tangent(_)
-            | MatePair::Point(_) => None,
+            | MatePair::Point(_)
+            | MatePair::FaceOnRound(_) => None,
         }
     }
 
@@ -166,7 +196,8 @@ impl Mate {
             MatePair::Faces(_)
             | MatePair::Axes(_)
             | MatePair::FaceAxis(_)
-            | MatePair::Tangent(_) => true,
+            | MatePair::Tangent(_)
+            | MatePair::FaceOnRound(_) => true,
             MatePair::Angle(_) | MatePair::Point(_) => false,
         }
     }
@@ -180,7 +211,10 @@ impl Mate {
             MatePair::Faces(faces) => vec![&mut faces.distance],
             MatePair::FaceAxis(both) => vec![&mut both.faces.distance],
             MatePair::Angle(angle) => vec![&mut angle.angle],
-            MatePair::Axes(_) | MatePair::Tangent(_) | MatePair::Point(_) => Vec::new(),
+            MatePair::Axes(_)
+            | MatePair::Tangent(_)
+            | MatePair::Point(_)
+            | MatePair::FaceOnRound(_) => Vec::new(),
         }
     }
 
@@ -188,9 +222,11 @@ impl Mate {
         match &mut self.pair {
             MatePair::Faces(faces) => vec![&mut faces.distance],
             MatePair::FaceAxis(both) => vec![&mut both.faces.distance],
-            MatePair::Axes(_) | MatePair::Angle(_) | MatePair::Tangent(_) | MatePair::Point(_) => {
-                Vec::new()
-            }
+            MatePair::Axes(_)
+            | MatePair::Angle(_)
+            | MatePair::Tangent(_)
+            | MatePair::Point(_)
+            | MatePair::FaceOnRound(_) => Vec::new(),
         }
     }
 
@@ -216,7 +252,20 @@ impl Mate {
                 AngleSides::Axes(_) => Vec::new(),
             },
             MatePair::Tangent(tangent) => vec![&tangent.face],
+            MatePair::FaceOnRound(resting) => vec![&resting.face],
             MatePair::Axes(_) | MatePair::Point(_) => Vec::new(),
+        }
+    }
+
+    pub fn round_targets(&self) -> Vec<&FaceAttachment> {
+        match &self.pair {
+            MatePair::FaceOnRound(resting) => vec![&resting.round],
+            MatePair::Faces(_)
+            | MatePair::Axes(_)
+            | MatePair::FaceAxis(_)
+            | MatePair::Angle(_)
+            | MatePair::Tangent(_)
+            | MatePair::Point(_) => Vec::new(),
         }
     }
 
@@ -233,7 +282,7 @@ impl Mate {
                 PointTarget::Plane(plane) => vec![plane],
                 PointTarget::Point(_) => Vec::new(),
             },
-            MatePair::Axes(_) => Vec::new(),
+            MatePair::Axes(_) | MatePair::FaceOnRound(_) => Vec::new(),
         }
     }
 
@@ -253,7 +302,8 @@ impl Mate {
             | MatePair::Axes(_)
             | MatePair::FaceAxis(_)
             | MatePair::Angle(_)
-            | MatePair::Tangent(_) => Vec::new(),
+            | MatePair::Tangent(_)
+            | MatePair::FaceOnRound(_) => Vec::new(),
         }
     }
 
@@ -265,12 +315,18 @@ impl Mate {
             MatePair::Angle(_) => size_of::<AngleMate>(),
             MatePair::Tangent(_) => size_of::<FacePair>(),
             MatePair::Point(_) => size_of::<PointMate>(),
+            MatePair::FaceOnRound(_) => size_of::<FaceOnRound>(),
         };
         boxed
             + self
                 .moving_faces()
                 .iter()
                 .map(|face| face.heap_size())
+                .sum::<usize>()
+            + self
+                .round_targets()
+                .iter()
+                .map(|round| round.face.heap_size())
                 .sum::<usize>()
             + self
                 .planes()
@@ -302,6 +358,7 @@ impl Mate {
             .collect();
         bodies.extend(self.planes().into_iter().filter_map(PlaneReference::body));
         bodies.extend(self.points().into_iter().filter_map(PointReference::body));
+        bodies.extend(self.round_targets().into_iter().map(|round| round.body));
         bodies
     }
 
@@ -378,6 +435,11 @@ impl Mate {
                 .into_iter()
                 .flat_map(PointReference::origin_features),
         );
+        found.extend(
+            self.round_targets()
+                .into_iter()
+                .flat_map(FaceAttachment::origin_features),
+        );
         found
     }
 }
@@ -435,6 +497,30 @@ impl Placing<'_> {
                 reason,
                 format!(
                     "Choose a cylindrical or spherical face of {body_name} to rest on the plane."
+                ),
+            )
+        })
+    }
+
+    fn target_round(&self, target: &FaceAttachment) -> Result<(Round, Convexity), Failure> {
+        let solid = self.resolver.body(target.body)?;
+        let document = self.context.inputs.document;
+        round_with_sense(solid, &target.face).map_err(|error| {
+            let described = describe_origin(document, target.face.origin());
+            let holder = feature_name(document, target.body);
+            let reason = match error {
+                RoundFaceError::Missing => {
+                    format!("{described}, which it rests on, is no longer part of {holder}.")
+                }
+                RoundFaceError::NotRound => format!(
+                    "{described}, which it rests on, is no longer a whole cylinder or sphere."
+                ),
+            };
+            self.context.error(
+                reason,
+                format!(
+                    "Choose a cylindrical or spherical face of another body to rest {} on.",
+                    self.body_name
                 ),
             )
         })
@@ -508,6 +594,11 @@ impl Placing<'_> {
                 let round = self.moving_round(&tangent.face)?;
                 let target = resolver.plane(&tangent.target)?;
                 mate_placement::tangent(round, &target, flipped, centre)
+            }
+            MatePair::FaceOnRound(resting) => {
+                let moving = self.moving_plane(&resting.face)?;
+                let (round, convexity) = self.target_round(&resting.round)?;
+                mate_placement::face_on_round(&moving, round, convexity, flipped, centre)
             }
             MatePair::Point(point) => {
                 let moving = resolver.point(&point.point)?;

@@ -2,11 +2,19 @@ use caditor_kernel::{EdgeId, FaceId, FaceOrigin, Solid};
 use caditor_sketch::EntityId;
 
 use crate::{
+    attachment::FaceAttachment,
     document::{Document, FeatureId},
     hole::Hole,
     pattern::PatternKind,
     primitive::Cap,
 };
+
+pub fn describe_surface(document: &Document, face: &FaceAttachment) -> String {
+    format!(
+        "the surface of {}",
+        lowercase_first(&describe_origin(document, face.face.origin()))
+    )
+}
 
 pub fn origin_feature(origin: FaceOrigin) -> FeatureId {
     FeatureId::from_raw(origin.copy().map_or(origin.feature(), |copy| copy.pattern))

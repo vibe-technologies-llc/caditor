@@ -312,7 +312,9 @@ paths:
   older reader reports them as from a newer version: `face_axis_mate` (`body`, `faces` and `axes`
   as in `mate`, `flipped`), `angle_mate` (`body`, `sides`: `faces` with `face` and `target`, or
   `axes`, and the `angle` text, unreadable 90 deg), `tangent_mate` (`body`, `sides` with the round
-  `face` and the `target` plane, `flipped`) and `point_mate` (`body`, `point`, a point reference,
+  `face` and the `target` plane, `flipped`), `face_on_round_mate` (`body`, the flat `face`,
+  `round_body` and the `round` face record, `flipped`; an unreadable round face loads as a
+  reference to no face, reported) and `point_mate` (`body`, `point`, a point reference,
   and `target`: `point` or `plane`; an unreadable point loads as the origin, reported).
 - A `mirror` feature record holds `body`, `plane` (a plane reference; an unreadable one loads as
   the YZ plane, reported) and `keep_original`. One mirroring features rather than its whole body
@@ -385,7 +387,9 @@ paths:
   YZ plane, reported) and `flipped` only when set. A split along another body or a sketch's curve
   is a `split_along` record (`body`, `along` as `{"body": id}` or `{"sketch": id}`, `flipped` only
   when set), since an older reader would not know what to split along; a split along a plane is
-  still written as `split`.
+  still written as `split`. A split along the surface of a face is a `split_surface` record
+  (`body`, `face`, an attachment record, `flipped` only when set); an unreadable face loads
+  splitting along the YZ plane, reported.
 - An `offset_face` feature record holds `body`, `distance` (stored text; unreadable: 1 mm,
   reported), `faces` (face records; an unreadable one is left out, reported as left where it is)
   and `tangent` only when set.
@@ -395,7 +399,9 @@ paths:
   sketch along a direction is a `split_face_along` record: `feature`, the `split_face` record it
   would be carrying square, and `direction`, an axis reference, since an older reader would split
   along other lines; an unreadable direction loads carried square, reported, and an inner record
-  that is no split face loads without it, reported.
+  that is no split face loads without it, reported. One splitting along the surface of a face is
+  a `split_face_surface` record: `feature`, the `split_face` record splitting along the YZ plane,
+  and `face`, an attachment record; an unreadable face leaves it along the YZ plane, reported.
 - A `primitive` feature record holds `shape` (`box` with `length`, `width`, `height`; `cylinder`
   with `diameter`, `height`; `sphere` with `diameter`; `torus` with `diameter`, `tube`; `cone` with
   `bottom`, `top`, `height`; `wedge` with `length`, `width`, `height`, `top`; `prism` with `sides`,

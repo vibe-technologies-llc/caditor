@@ -9,16 +9,19 @@ use caditor_kernel::{
 use caditor_sketch::Sketch;
 
 use crate::{
-    datum::{PlaneReference, Resolver, feature_name},
+    attachment::FaceAttachment,
+    datum::{PlaneReference, Resolver, capitalized, feature_name},
+    describe::describe_surface,
     document::{Document, Feature, FeatureId},
     recompute::{CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
     solid::{SolidResult, profile_curves},
+    surface_tool::{SurfaceTool, SurfaceToolError, surface_tool},
     trouble,
 };
 
 const HALF_SPACE_SIDES: [u64; 4] = [1, 2, 3, 4];
-const HALF_SPACE_REACH: f64 = 0.05;
-const HALF_SPACE_MARGIN: f64 = 1.0;
+pub(crate) const HALF_SPACE_REACH: f64 = 0.05;
+pub(crate) const HALF_SPACE_MARGIN: f64 = 1.0;
 const CLOSURE_ENTITIES: [u64; 7] = [
     u64::MAX - 8,
     u64::MAX - 9,
@@ -34,25 +37,44 @@ pub enum SplitAlong {
     Plane(PlaneReference),
     Body(FeatureId),
     Sketch(FeatureId),
+    Surface(FaceAttachment),
 }
 
 impl SplitAlong {
     pub fn plane(&self) -> Option<&PlaneReference> {
         match self {
             Self::Plane(plane) => Some(plane),
-            Self::Body(_) | Self::Sketch(_) => None,
+            Self::Body(_) | Self::Sketch(_) | Self::Surface(_) => None,
         }
     }
 
     pub fn plane_mut(&mut self) -> Option<&mut PlaneReference> {
         match self {
             Self::Plane(plane) => Some(plane),
-            Self::Body(_) | Self::Sketch(_) => None,
+            Self::Body(_) | Self::Sketch(_) | Self::Surface(_) => None,
+        }
+    }
+
+    pub fn surface(&self) -> Option<&FaceAttachment> {
+        match self {
+            Self::Surface(face) => Some(face),
+            Self::Plane(_) | Self::Body(_) | Self::Sketch(_) => None,
+        }
+    }
+
+    pub fn surface_mut(&mut self) -> Option<&mut FaceAttachment> {
+        match self {
+            Self::Surface(face) => Some(face),
+            Self::Plane(_) | Self::Body(_) | Self::Sketch(_) => None,
         }
     }
 
     pub fn heap_size(&self) -> usize {
-        self.plane().map_or(0, PlaneReference::heap_size)
+        match self {
+            Self::Plane(plane) => plane.heap_size(),
+            Self::Surface(face) => face.face.heap_size(),
+            Self::Body(_) | Self::Sketch(_) => 0,
+        }
     }
 
     pub fn datum(&self) -> Option<FeatureId> {
@@ -63,6 +85,7 @@ impl SplitAlong {
         match self {
             Self::Plane(plane) => plane.body(),
             Self::Body(tool) => Some(*tool),
+            Self::Surface(face) => Some(face.body),
             Self::Sketch(_) => None,
         }
     }
@@ -70,14 +93,16 @@ impl SplitAlong {
     pub fn sketch(&self) -> Option<FeatureId> {
         match self {
             Self::Sketch(sketch) => Some(*sketch),
-            Self::Plane(_) | Self::Body(_) => None,
+            Self::Plane(_) | Self::Body(_) | Self::Surface(_) => None,
         }
     }
 
     pub fn origin_features(&self) -> BTreeSet<FeatureId> {
-        self.plane()
-            .map(PlaneReference::origin_features)
-            .unwrap_or_default()
+        match self {
+            Self::Plane(plane) => plane.origin_features(),
+            Self::Surface(face) => face.origin_features(),
+            Self::Body(_) | Self::Sketch(_) => BTreeSet::new(),
+        }
     }
 }
 
@@ -145,6 +170,19 @@ impl Words {
                     adjust: format!("Move the curve of {sketch}"),
                 }
             }
+            SplitAlong::Surface(face) => {
+                let tool = describe_surface(document, face);
+                Self {
+                    misses: format!(
+                        "{}, carried on past its edges, does not pass through the body of \
+                         {body}, so nothing lies on one of its sides.",
+                        capitalized(&tool)
+                    ),
+                    tool,
+                    aim: "Choose a face whose surface crosses the body.".to_owned(),
+                    adjust: format!("Move {}", feature_name(document, face.body)),
+                }
+            }
         }
     }
 }
@@ -203,6 +241,16 @@ impl Context<'_> {
         }
     }
 
+    fn surface_failure(&self, face: &FaceAttachment, error: SurfaceToolError) -> Failure {
+        if matches!(error, SurfaceToolError::Misses) {
+            return self.misses();
+        }
+        match error.words(self.resolver.inputs.document, face) {
+            Some(words) => self.error(words.reason, &words.remedy),
+            None => self.unbuildable(&error),
+        }
+    }
+
     fn swept_failure(&self, sketch: FeatureId, error: SweptError) -> Failure {
         let name = feature_name(self.resolver.inputs.document, sketch);
         let (reason, remedy) = match error {
@@ -252,6 +300,7 @@ impl Context<'_> {
 enum Tool<'a> {
     Inside(Solid),
     Outside(&'a Solid),
+    Surface(SurfaceTool),
 }
 
 pub(crate) fn evaluate(
@@ -313,11 +362,25 @@ pub(crate) fn evaluate(
             definition.flipped,
             feature,
         )?),
+        (SplitAlong::Surface(face), _) => {
+            let holder = context.resolver.body(face.body)?;
+            Tool::Surface(
+                surface_tool(
+                    holder,
+                    &face.face,
+                    solid,
+                    definition.flipped,
+                    feature.id().raw(),
+                )
+                .map_err(|error| context.surface_failure(face, error))?,
+            )
+        }
         (SplitAlong::Plane(_), None) => return Err(context.misses()),
     };
     let (tool, keep_inside) = match &tool {
         Tool::Inside(tool) => (tool, true),
         Tool::Outside(tool) => (*tool, definition.flipped),
+        Tool::Surface(made) => (&made.solid, made.keep_inside),
     };
     let inside = boolean(solid, tool, BooleanOperation::Intersection)
         .map_err(|error| context.boolean_failure(solid, tool, error))?;

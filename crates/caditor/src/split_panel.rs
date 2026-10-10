@@ -9,13 +9,13 @@ use crate::{
     split_tools, widgets,
 };
 
-pub const DESCRIPTION: &str = "Cuts the body along a plane, a sketch curve swept through it or \
-                               another body: the side the plane or curve faces, or what lies \
-                               outside the other body, stays in the body and the rest becomes a \
-                               body of its own";
+pub const DESCRIPTION: &str = "Cuts the body along a plane, a sketch curve swept through it, \
+                               the surface of a face carried on past its edges or another body: \
+                               the side the plane, curve or face faces, or what lies outside the \
+                               other body, stays in the body and the rest becomes a body of its \
+                               own";
 pub const KEEP_OTHER_SIDE: &str = "Keep the other side";
-const PICK_HOVER: &str =
-    "Split along the selected plane, flat face, sketch curve or other body instead";
+const PICK_HOVER: &str = "Split along the selected plane, face, sketch curve or other body instead";
 
 struct Panel<'a> {
     model: &'a Model,

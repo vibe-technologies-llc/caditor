@@ -192,9 +192,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   hole in the wrong place or a fillet to remove means remodelling it from scratch. Direct edits
   become features of their own, named from the faces they move, so they stay parametric and
   undoable.
-- [low · medium] A body splits along a plane, a sketch curve or another body whole, but not along
-  one curved face of another body extended past its edges. A tangent mate rests a round face of
-  the moving body on a plane, but not a flat face of it on a round face of another body.
 - [low · medium] Mirror faces closes the chosen faces only with flat faces across their openings:
   a set whose opening is not flat (a pocket cut into a curved face, a boss on a cylinder) is
   refused, since closing it needs the surface the opening lies on extended across it.

@@ -10,9 +10,10 @@ along the YZ plane. It has no ribbon button; use the Model menu or {command:pale
   curves is carried straight on past its ends and swept through the body; a sketch of closed
   outlines is swept through the body the same way, so a circle marks a round patch on the faces it
   crosses. A sketch holding both, one open chain and closed outlines apart from it, divides the
-  faces along all of them. Another body divides the faces where its surface crosses them. **Use
-  selected** and **Choose in the view** take a plane, a flat face, a sketch curve or another body,
-  as {command:model.split_along_selected} does.
+  faces along all of them. Another body divides the faces where its surface crosses them, and a
+  curved face of another body where its whole surface, carried on past its edges, crosses them. **Use selected**
+  and **Choose in the view** take a plane, a face, a sketch curve or another body, as
+  {command:model.split_along_selected} does.
 - **Carried**, shown for a sketch, says which way its curves are swept: **Square to the sketch**,
   or **Along an edge or axis**, which takes the selected straight edge, axis, round face or sketch
   line (or lets you click one in the view) so the curves land slanted on the faces, as a drawing

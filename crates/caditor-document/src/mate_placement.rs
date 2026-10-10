@@ -46,6 +46,12 @@ impl Round {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Convexity {
+    Convex,
+    Concave,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Unplaced {
     TooFar,
     AxisAlongPlane,
@@ -269,6 +275,46 @@ fn tangent_placement(
     let side = if flipped { -radius } else { radius };
     let height = (turned.apply_point(middle) - target.origin()).dot(normal);
     let shift = RigidTransform::translation(normal * (side - height))?;
+    Some(turned.then(&shift))
+}
+
+pub(crate) fn face_on_round(
+    moving: &Plane,
+    round: Round,
+    convexity: Convexity,
+    flipped: bool,
+    centre: Point3,
+) -> Result<RigidTransform, Unplaced> {
+    placed(face_on_round_placement(
+        moving, round, convexity, flipped, centre,
+    ))
+}
+
+fn face_on_round_placement(
+    moving: &Plane,
+    round: Round,
+    convexity: Convexity,
+    flipped: bool,
+    centre: Point3,
+) -> Option<RigidTransform> {
+    let normal = moving.normal().try_normalize()?;
+    let (turned, middle, radius) = match round {
+        Round::Cylinder { axis, radius } => {
+            let along = axis.direction().try_normalize()?;
+            let lying = (normal - along * normal.dot(along))
+                .try_normalize()
+                .unwrap_or_else(|| along.any_orthonormal_vector());
+            let turned = turning(normal, lying, centre, moving.x_axis())?;
+            (turned, axis.origin(), radius)
+        }
+        Round::Sphere { centre, radius } => (RigidTransform::IDENTITY, centre, radius),
+    };
+    let facing = turned.apply_vector(normal);
+    let origin = turned.apply_point(moving.origin());
+    let outside = (convexity == Convexity::Convex) != flipped;
+    let side = if outside { radius } else { -radius };
+    let height = (middle - origin).dot(facing);
+    let shift = RigidTransform::translation(facing * (height - side))?;
     Some(turned.then(&shift))
 }
 

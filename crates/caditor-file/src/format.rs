@@ -5,9 +5,9 @@ use caditor_document::{
     BodyAppearance, BodyOperation, BodyPlacement, ChamferForm, CircularPattern, Combine,
     CombineOperation, ConfigurationId, CopyOrientation, CurvePattern, CurveSpacing, CurveStation,
     Datum, DatumAxis, DatumFrame, DatumPlane, DatumPoint, Document, Edit, Extrude, ExtrudeEnd,
-    ExtrudeExtent, FaceAttachment, FaceAxisMate, FaceColour, FaceMate, FacePair, FaceTangent,
-    Feature, FeatureId, FeatureKind, HOME_VIEW_NAME, Hole, HoleBottom, HoleDepth, HoleFit,
-    HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle, Import, LinearDirection,
+    ExtrudeExtent, FaceAttachment, FaceAxisMate, FaceColour, FaceMate, FaceOnRound, FacePair,
+    FaceTangent, Feature, FeatureId, FeatureKind, HOME_VIEW_NAME, Hole, HoleBottom, HoleDepth,
+    HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle, Import, LinearDirection,
     LinearSpacing, MAX_BODY_NAME_CHARS, MAX_GROUP_NAME_CHARS, MAX_MATERIAL_NAME_CHARS,
     MAX_PATTERN_INSTANCES, MAX_SAVED_VIEWS, MAX_VIEW_NAME_CHARS, MIN_OPACITY_PERCENT, Mate,
     MatePair, MetricSize, Mirror, ModelProperties, ModelProperty, Move, NamedView, OPAQUE_PERCENT,
@@ -254,6 +254,33 @@ pub(crate) enum FeatureKindRecord {
     TangentMate(Box<TangentMateRecord>),
     PointMate(Box<PointMateRecord>),
     FaceMirror(Box<FaceMirrorRecord>),
+    SplitSurface(Box<SplitSurfaceRecord>),
+    SplitFaceSurface(Box<SplitFaceSurfaceRecord>),
+    FaceOnRoundMate(Box<FaceOnRoundMateRecord>),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct SplitSurfaceRecord {
+    pub body: u64,
+    pub face: Lenient<AttachmentRecord>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub flipped: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct SplitFaceSurfaceRecord {
+    pub feature: FeatureKindRecord,
+    pub face: Lenient<AttachmentRecord>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct FaceOnRoundMateRecord {
+    pub body: u64,
+    pub face: Lenient<FaceRecord>,
+    pub round_body: u64,
+    pub round: Lenient<FaceRecord>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub flipped: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -665,7 +692,7 @@ pub(crate) struct RevolveOneSideRecord {
 
 pub(crate) const FEATURE_FIELDS: [&str; 3] = ["hidden", "appearance", "group"];
 
-pub(crate) const FEATURE_KINDS: [&str; 70] = [
+pub(crate) const FEATURE_KINDS: [&str; 73] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -736,6 +763,9 @@ pub(crate) const FEATURE_KINDS: [&str; 70] = [
     "point_mate",
     "split_face_along",
     "face_mirror",
+    "split_surface",
+    "split_face_surface",
+    "face_on_round_mate",
 ];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2076,6 +2106,18 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
         }));
     }
     if let FeatureKind::SplitFace(split) = kind
+        && let SplitAlong::Surface(face) = &split.along
+    {
+        let plain = SplitFace {
+            along: SplitAlong::Plane(PlaneReference::Principal(PrincipalPlane::Yz)),
+            ..split.clone()
+        };
+        return FeatureKindRecord::SplitFaceSurface(Box::new(SplitFaceSurfaceRecord {
+            feature: feature_kind_record(&FeatureKind::SplitFace(plain)),
+            face: Lenient::Read(attachment_record(face)),
+        }));
+    }
+    if let FeatureKind::SplitFace(split) = kind
         && let Some(direction) = split.direction.as_deref()
     {
         let square = SplitFace {
@@ -2437,6 +2479,9 @@ fn kind_record(kind: &FeatureKind) -> FeatureKindRecord {
                 }
                 SplitAlong::Body(tool) => SplitFaceToolRecord::Body(tool.raw()),
                 SplitAlong::Sketch(sketch) => SplitFaceToolRecord::Sketch(sketch.raw()),
+                SplitAlong::Surface(_) => SplitFaceToolRecord::Plane(Lenient::Read(
+                    plane_reference_record(&PlaneReference::Principal(PrincipalPlane::Yz)),
+                )),
             },
         })),
         FeatureKind::Mate(mate) => mate_kind_record(mate),
@@ -4626,6 +4671,28 @@ fn restore_kind(
             }
             kind
         }
+        FeatureKindRecord::SplitFaceSurface(surface) => {
+            let mut kind = restore_kind(&surface.feature, name, texts, issues);
+            let face = match &surface.face {
+                Lenient::Read(face) => restore_attachment(face),
+                Lenient::Unreadable(_) => None,
+            };
+            match (&mut kind, face) {
+                (FeatureKind::SplitFace(split), Some(face)) => {
+                    split.along = SplitAlong::Surface(face);
+                    split.direction = None;
+                }
+                (FeatureKind::SplitFace(_), None) => issues.push(format!(
+                    "The face whose surface “{name}” splits faces along could not be read, so it \
+                     splits them along the YZ plane."
+                )),
+                _ => issues.push(format!(
+                    "“{name}” was to split along the surface of a face, but it does not split \
+                     faces, so that was left out."
+                )),
+            }
+            kind
+        }
         FeatureKindRecord::SplitFaceAlong(along) => {
             let mut kind = restore_kind(&along.feature, name, texts, issues);
             let direction = match &along.direction {
@@ -5013,6 +5080,12 @@ fn restore_kind(
         }
         FeatureKindRecord::Split(record) => FeatureKind::Split(restore_split(record, name, issues)),
         FeatureKindRecord::SplitAlong(record) => FeatureKind::Split(restore_split_along(record)),
+        FeatureKindRecord::SplitSurface(record) => {
+            FeatureKind::Split(restore_split_surface(record, name, issues))
+        }
+        FeatureKindRecord::FaceOnRoundMate(record) => {
+            FeatureKind::Mate(restore_face_on_round_mate(record, name, issues))
+        }
         FeatureKindRecord::SplitFace(record) => {
             FeatureKind::SplitFace(restore_split_face(record, name, issues))
         }
@@ -6095,6 +6168,13 @@ fn split_record(split: &Split) -> FeatureKindRecord {
         }
         SplitAlong::Body(tool) => SplitToolRecord::Body(tool.raw()),
         SplitAlong::Sketch(sketch) => SplitToolRecord::Sketch(sketch.raw()),
+        SplitAlong::Surface(face) => {
+            return FeatureKindRecord::SplitSurface(Box::new(SplitSurfaceRecord {
+                body: split.body.raw(),
+                face: Lenient::Read(attachment_record(face)),
+                flipped: split.flipped,
+            }));
+        }
     };
     FeatureKindRecord::SplitAlong(Box::new(SplitAlongRecord {
         body: split.body.raw(),
@@ -6169,6 +6249,15 @@ fn mate_kind_record(mate: &Mate) -> FeatureKindRecord {
             sides: face_pair_record(tangent),
             flipped,
         })),
+        MatePair::FaceOnRound(resting) => {
+            FeatureKindRecord::FaceOnRoundMate(Box::new(FaceOnRoundMateRecord {
+                body,
+                face: Lenient::Read(face_record(&resting.face)),
+                round_body: resting.round.body.raw(),
+                round: Lenient::Read(face_record(&resting.round.face)),
+                flipped,
+            }))
+        }
         MatePair::Point(point) => FeatureKindRecord::PointMate(Box::new(PointMateRecord {
             body,
             point: Lenient::Read(point_record(&point.point)),
@@ -6350,6 +6439,61 @@ fn restore_split_along(record: &SplitAlongRecord) -> Split {
             SplitToolRecord::Body(tool) => SplitAlong::Body(FeatureId::from_raw(tool)),
             SplitToolRecord::Sketch(sketch) => SplitAlong::Sketch(FeatureId::from_raw(sketch)),
         },
+        flipped: record.flipped,
+    }
+}
+
+fn restore_split_surface(
+    record: &SplitSurfaceRecord,
+    feature: &str,
+    issues: &mut Vec<String>,
+) -> Split {
+    let face = match &record.face {
+        Lenient::Read(face) => restore_attachment(face),
+        Lenient::Unreadable(_) => None,
+    };
+    let along = face.map_or_else(
+        || {
+            issues.push(format!(
+                "The face whose surface “{feature}” splits along could not be read, so it splits \
+                 along the YZ plane."
+            ));
+            SplitAlong::Plane(PlaneReference::Principal(PrincipalPlane::Yz))
+        },
+        SplitAlong::Surface,
+    );
+    Split {
+        body: FeatureId::from_raw(record.body),
+        along,
+        flipped: record.flipped,
+    }
+}
+
+fn restore_face_on_round_mate(
+    record: &FaceOnRoundMateRecord,
+    feature: &str,
+    issues: &mut Vec<String>,
+) -> Mate {
+    let face = restore_mating_face(&record.face, "flat face", feature, issues);
+    let round = match &record.round {
+        Lenient::Read(face) => restore_face(&face.face, face.origin, face.copy, &face.neighbours),
+        Lenient::Unreadable(_) => None,
+    };
+    let round = round.unwrap_or_else(|| {
+        issues.push(format!(
+            "The round face “{feature}” rests its body on could not be read; choose it again."
+        ));
+        FaceReference::new(FaceName::from_digest(0), None, [])
+    });
+    Mate {
+        body: FeatureId::from_raw(record.body),
+        pair: MatePair::FaceOnRound(Box::new(FaceOnRound {
+            face,
+            round: FaceAttachment {
+                body: FeatureId::from_raw(record.round_body),
+                face: round,
+            },
+        })),
         flipped: record.flipped,
     }
 }

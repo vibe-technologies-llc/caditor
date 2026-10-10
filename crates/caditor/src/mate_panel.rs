@@ -17,7 +17,8 @@ use crate::{
 pub const DESCRIPTION: &str = "Places the body by its geometry and keeps it there when that \
                                changes: a face flush on another face or plane, an axis on \
                                another axis, both at once, at an angle, a round face resting on \
-                               a plane, or a point on a point or plane";
+                               a plane, a flat face resting on a round face, or a point on a \
+                               point or plane";
 pub const FACE_SAME_WAY: &str = "Face the same way";
 pub const AXIS_OTHER_WAY: &str = "Point the other way";
 pub const OTHER_SIDE: &str = "Rest on the other side";
@@ -217,6 +218,17 @@ pub fn show(
                     ui,
                     "Rests on",
                     describe_plane(document, &tangent.target),
+                    End::Target(MatePart::Main),
+                );
+                panel.flip_row(ui, OTHER_SIDE);
+            }
+            MatePair::FaceOnRound(resting) => {
+                let face = describe_origin(document, resting.face.origin());
+                panel.moving(ui, "Flat face", face);
+                panel.reference_row(
+                    ui,
+                    "Rests on",
+                    describe_origin(document, resting.round.face.origin()),
                     End::Target(MatePart::Main),
                 );
                 panel.flip_row(ui, OTHER_SIDE);

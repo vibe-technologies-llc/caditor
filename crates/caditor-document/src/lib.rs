@@ -46,6 +46,7 @@ mod shell;
 mod solid;
 mod split;
 mod split_face;
+mod surface_tool;
 mod thread;
 mod thread_standard;
 mod tolerance;
@@ -77,7 +78,7 @@ pub use crate::{
         displayed_axis, displayed_frame, displayed_plane,
     },
     dependencies::DependencyGraph,
-    describe::{describe_edge, describe_origin, edge_faces, origin_feature},
+    describe::{describe_edge, describe_origin, describe_surface, edge_faces, origin_feature},
     document::{
         Document, FIRST_UNSTORABLE_ID, Feature, FeatureId, FeatureKind, Parameter, ParameterUser,
         RollbackBar, TreeRow,
@@ -94,8 +95,8 @@ pub use crate::{
     hole_standard::{FinePitch, HeatSetInsert, HoleFit, HoleStandard, MetricSize, pitch_text},
     import::Import,
     mate::{
-        AngleMate, AngleSides, AxisMate, FaceAxisMate, FaceMate, FacePair, MAX_MATE_ANGLE_DEGREES,
-        Mate, MatePair, PointMate, PointTarget, RoundFaceError, round_face,
+        AngleMate, AngleSides, AxisMate, FaceAxisMate, FaceMate, FaceOnRound, FacePair,
+        MAX_MATE_ANGLE_DEGREES, Mate, MatePair, PointMate, PointTarget, RoundFaceError, round_face,
     },
     mate_placement::Round,
     mirror::{MIRROR_IMAGE, Mirror},

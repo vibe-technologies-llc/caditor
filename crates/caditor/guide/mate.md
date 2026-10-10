@@ -12,6 +12,9 @@ then what it goes onto:
   **flush and concentric** in one mate, as a bolt sits in a hole;
 - a cylindrical or spherical face of the body, then a face or plane: the round face **rests on**
   the plane, a cylinder laid down along it;
+- a flat face of the body, then a cylindrical or spherical face of another body: the flat face
+  **rests on** the round one, turned to lie along a cylinder, touching it from outside (or, for a
+  bore, from inside);
 - a corner, round edge or sphere of the body, then a point or corner, or a face or plane: the
   **point** lands on the other point, or on the plane.
 
@@ -22,8 +25,8 @@ part keeps its hinge.
 
 The panel shows each choice with Use selected and Choose in the view, a **Distance** to leave
 between faces, the **Angle** of an angle mate (both previewed as you type), and, where the mate
-has a side, whether the face points the same way, the axis the other way or the round face rests
-on the other side, which {command:model.reverse_direction} also flips. An angle or point mate has
+has a side, whether the face points the same way, the axis the other way or the face rests on the
+other side, which {command:model.reverse_direction} also flips. An angle or point mate has
 no side to flip.
 
 A mate keeps its kind: to change from faces to axes, make another mate. When what it uses is

@@ -1,6 +1,6 @@
 use caditor_document::{
     Document, Edit, FeatureId, FeatureKind, FeatureResult, PlaneReference, PrincipalPlane, Split,
-    SplitAlong, Transaction, capitalized, describe_plane, is_open_chain,
+    SplitAlong, Transaction, capitalized, describe_plane, describe_surface, is_open_chain,
 };
 
 use crate::{
@@ -10,12 +10,12 @@ use crate::{
     model::{Action, Model},
     move_tools,
     selection::{Pickable, Selection},
+    sketch_placement::{self, FaceChoice},
 };
 
 pub const TITLE: &str = "Split body";
 const NO_BODY: &str = "Select a face or edge of the body to split";
-const NO_TOOL: &str =
-    "Select a plane, flat face, sketch curve or another body made before this feature";
+const NO_TOOL: &str = "Select a plane, face, sketch curve or another body made before this feature";
 const ALREADY: &str = "The body is already split along the selected plane, curve or body";
 const SEVERAL_SKETCHES: &str =
     "Curves of several sketches are selected; select curves of only the one to split along";
@@ -41,6 +41,7 @@ pub fn describe(document: &Document, along: &SplitAlong) -> String {
             || "The curve of a deleted sketch".to_owned(),
             |sketch| format!("The curve of {}", sketch.name),
         ),
+        SplitAlong::Surface(face) => capitalized(&describe_surface(document, face)),
     }
 }
 
@@ -100,6 +101,23 @@ fn chosen_sketch(
     }
 }
 
+fn chosen_surface(
+    model: &Model,
+    selection: &Selection,
+    index: usize,
+) -> Result<Option<(SplitAlong, Option<Pickable>)>, &'static str> {
+    let curved: Vec<(Pickable, FaceChoice)> = selection
+        .iter()
+        .filter_map(|pickable| Some((pickable, FaceChoice::of(pickable)?)))
+        .filter(|(pickable, _)| datum_tools::plane_reference(model, *pickable, index).is_none())
+        .collect();
+    let [(pickable, choice)] = curved.as_slice() else {
+        return Ok(None);
+    };
+    let face = sketch_placement::surface_at(model, *choice, index)?;
+    Ok(Some((SplitAlong::Surface(face), Some(*pickable))))
+}
+
 pub fn chosen_along(
     model: &Model,
     selection: &Selection,
@@ -108,7 +126,10 @@ pub fn chosen_along(
     if let Some(chosen) = datum_tools::chosen_plane(model, selection, index)? {
         return Ok(Some((SplitAlong::Plane(chosen.plane), chosen.face)));
     }
-    Ok(chosen_sketch(model, selection, index)?.map(|along| (along, None)))
+    if let Some(along) = chosen_sketch(model, selection, index)? {
+        return Ok(Some((along, None)));
+    }
+    chosen_surface(model, selection, index)
 }
 
 pub fn source(

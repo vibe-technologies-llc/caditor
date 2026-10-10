@@ -420,7 +420,7 @@ impl FeatureKind {
                 match &mut split.along {
                     SplitAlong::Body(body) => *body = rename(*body),
                     SplitAlong::Sketch(sketch) => *sketch = rename(*sketch),
-                    SplitAlong::Plane(_) => {}
+                    SplitAlong::Plane(_) | SplitAlong::Surface(_) => {}
                 }
             }
             Self::SplitFace(split) => {
@@ -428,7 +428,7 @@ impl FeatureKind {
                 match &mut split.along {
                     SplitAlong::Body(body) => *body = rename(*body),
                     SplitAlong::Sketch(sketch) => *sketch = rename(*sketch),
-                    SplitAlong::Plane(_) => {}
+                    SplitAlong::Plane(_) | SplitAlong::Surface(_) => {}
                 }
             }
             Self::Scale(scale) => {
