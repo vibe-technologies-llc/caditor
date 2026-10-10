@@ -7,13 +7,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Files and recovery
 
-- [high · easy] A 3MF's components expand without a total budget: `add_object` recurses through
-  `<component>` up to `MAX_COMPONENT_DEPTH` (16) and copies the leaf mesh for every instance, so
-  16 objects of 4 components each place about 4·10⁹ meshes from a few kilobytes until the
-  allocator aborts, and the loop never polls the cancel token, so Cancel does not stop it; objects
-  are also found by a linear scan per item and component. DXF, SVG and STEP charge
-  `MAX_EXPANDED_OBJECTS` or `MAX_INSTANCES`; charge placed objects and triangles here the same way,
-  index objects in an `UntrustedMap` and poll the cancel.
 - [high · easy] A save can replace an outside change without asking: `save_with` compares the
   file's head with `unless_changed_from` only before encoding, and encoding (zstd at level 9,
   thinning, recompressing versions) can take seconds on a large model; a sync client or another

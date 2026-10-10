@@ -263,13 +263,16 @@ paths:
   part from `_rels/.rels`, its `unit` converted to millimetres, build items and nested components
   placed by their transforms; both the model part and `_rels/.rels` are read with `import/xml.rs`,
   never roxmltree, whose recursion a deeply nested part would overflow, and past
-  `MAX_MODEL_ELEMENTS` elements the file is `ModelTooManyElements`). STL and OBJ have no units, so they read as millimetres with a
-  note.
+  `MAX_MODEL_ELEMENTS` elements the file is `ModelTooManyElements`). Objects are indexed by id in
+  an `UntrustedMap`, and component expansion is charged: every placed object against
+  `MAX_EXPANDED_OBJECTS` and the placed triangles against `MAX_MODEL_ELEMENTS`, past either the
+  file is `ModelPlacesTooMuch`, and each placed object polls the kernel interrupt so Cancel
+  stops it. STL and OBJ have no units, so they read as millimetres with a note.
 - The triangles become solids through the kernel's `faceted_solids` (`kernel.md`), each
   canonicalised like a STEP body and imported as an `Import` named after the file; what the
   kernel repaired or left out becomes notes in the import report. Its failures are
-  `ImportError` variants of their own (`DamagedMesh`, `ModelTooManyElements`, `MeshNotClosed`,
-  `MeshTooDetailed`, `MeshNotSolid`).
+  `ImportError` variants of their own (`DamagedMesh`, `ModelTooManyElements`,
+  `ModelPlacesTooMuch`, `MeshNotClosed`, `MeshTooDetailed`, `MeshNotSolid`).
 
 ## Export (`export/`)
 

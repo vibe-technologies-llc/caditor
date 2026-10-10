@@ -1,7 +1,7 @@
-use std::fmt::Write;
+use std::{fmt::Write, sync::Arc};
 
 use caditor_document::CancelToken;
-use caditor_kernel::{SamplingTolerance, Solid};
+use caditor_kernel::{SamplingTolerance, Solid, interruptible};
 
 use crate::{
     export::zip::{ZipEntry, archive},
@@ -254,4 +254,45 @@ fn a_3mf_with_relationships_nested_a_hundred_thousand_deep_is_refused_instead_of
         parse_mesh(&package, MeshFormat::ThreeMf, "deep.3mf", "deep"),
         Err(ImportError::DamagedMesh("3MF"))
     );
+}
+
+fn component_bomb() -> Vec<u8> {
+    let levels = 16;
+    let mut model = String::from(
+        "<model unit=\"millimeter\"><resources><object id=\"1\"><mesh><vertices>\
+         <vertex x=\"0\" y=\"0\" z=\"0\"/><vertex x=\"1\" y=\"0\" z=\"0\"/>\
+         <vertex x=\"0\" y=\"1\" z=\"0\"/></vertices><triangles>\
+         <triangle v1=\"0\" v2=\"1\" v3=\"2\"/></triangles></mesh></object>",
+    );
+    for level in 2..=levels + 1 {
+        write!(model, "<object id=\"{level}\"><components>").unwrap();
+        for _ in 0..4 {
+            write!(model, "<component objectid=\"{}\"/>", level - 1).unwrap();
+        }
+        model.push_str("</components></object>");
+    }
+    write!(
+        model,
+        "</resources><build><item objectid=\"{}\"/></build></model>",
+        levels + 1
+    )
+    .unwrap();
+    model_package(&model)
+}
+
+#[test]
+fn a_3mf_whose_components_place_billions_of_objects_is_refused_promptly() {
+    assert_eq!(
+        parse_mesh(&component_bomb(), MeshFormat::ThreeMf, "bomb.3mf", "bomb"),
+        Err(ImportError::ModelPlacesTooMuch)
+    );
+}
+
+#[test]
+fn a_cancelled_token_stops_a_3mf_components_expansion() {
+    let stopped = interruptible(Arc::new(|| true), || {
+        parse_mesh(&component_bomb(), MeshFormat::ThreeMf, "bomb.3mf", "bomb")
+    });
+
+    assert_eq!(stopped, Err(ImportError::Cancelled));
 }

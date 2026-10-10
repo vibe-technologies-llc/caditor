@@ -203,6 +203,13 @@ pub enum ImportError {
         mesh::MAX_MODEL_ELEMENTS
     )]
     ModelTooManyElements,
+    #[error(
+        "its components place more than {} objects or {} triangles in all, more than caditor \
+         reads from one 3MF; reduce how often its parts are reused",
+        mesh::MAX_PLACED_OBJECTS,
+        mesh::MAX_PLACED_TRIANGLES
+    )]
+    ModelPlacesTooMuch,
     #[error("the 3MF package holds no 3D model")]
     NoModelInPackage,
     #[error(

@@ -3,18 +3,20 @@ use std::path::Path;
 use caditor_document::{CancelToken, Import};
 use caditor_geometry::Point3;
 use caditor_kernel::{
-    FacetedError, MAX_FILLED_HOLE_EDGES, MeshRepairs, TriangleMesh, faceted_solids, interruptible,
+    FacetedError, Interrupted, MAX_FILLED_HOLE_EDGES, MeshRepairs, TriangleMesh, check_interrupt,
+    faceted_solids, interruptible,
 };
 
 use crate::{
     import::{
-        ImportError, ensure_going,
+        ImportError, MAX_EXPANDED_OBJECTS, ensure_going,
         model::{ImportedBody, ModelImport, canonical},
         xml::{self, Node, XmlError},
         zip_read,
     },
     read::{MAX_FILE_SIZE, read_file},
     reason::ReadFailure,
+    untrusted::UntrustedMap,
 };
 
 pub const MESH_IMPORT_EXTENSIONS: [&str; 3] = ["stl", "obj", "3mf"];
@@ -25,6 +27,8 @@ const THREE_MF_MODEL: &str = "3D/3dmodel.model";
 const THREE_MF_RELATIONSHIPS: &str = "_rels/.rels";
 const THREE_MF_MODEL_TYPE: &str = "http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel";
 const MAX_COMPONENT_DEPTH: usize = 16;
+pub(super) const MAX_PLACED_OBJECTS: usize = MAX_EXPANDED_OBJECTS;
+pub(super) const MAX_PLACED_TRIANGLES: usize = MAX_MODEL_ELEMENTS;
 pub(super) const MAX_MODEL_ELEMENTS: usize = 4_000_000;
 const NO_UNITS_NOTE: &str = "The file gives no units, so its sizes were read as millimetres; if the \
                              part comes out the wrong size, scale it with Scale body.";
@@ -380,44 +384,70 @@ fn read_three_mf(bytes: &[u8]) -> Result<TriangleMesh, ImportError> {
     }
     let root = tree.root().ok_or_else(damaged)?;
     let scale = unit_scale(root.attribute("unit")).ok_or_else(damaged)?;
-    let objects: Vec<Node<'_, '_>> = root
-        .descendants()
-        .filter(|node| node.name() == "object")
-        .collect();
-    let object = |id: &str| {
-        objects
-            .iter()
-            .find(|object| object.attribute("id") == Some(id))
-            .copied()
+    let mut objects = UntrustedMap::new();
+    for object in root.descendants().filter(|node| node.name() == "object") {
+        if let Some(id) = object.attribute("id") {
+            objects.entry(id).or_insert(object);
+        }
+    }
+    let mut placement = Placement {
+        objects,
+        mesh: TriangleMesh::default(),
+        placed_objects: 0,
     };
-    let mut mesh = TriangleMesh::default();
     let build = root
         .children()
         .find(|node| node.name() == "build")
         .ok_or_else(damaged)?;
     for item in build.children().filter(|node| node.name() == "item") {
         let id = item.attribute("objectid").ok_or_else(damaged)?;
-        let placed = Transform::parse(item.attribute("transform")).ok_or_else(damaged)?;
-        add_object(&object, id, placed, &mut mesh, 0).ok_or_else(damaged)?;
+        let transform = Transform::parse(item.attribute("transform")).ok_or_else(damaged)?;
+        placement.add_object(id, transform, 0)?;
     }
+    let mut mesh = placement.mesh;
     for position in &mut mesh.positions {
         *position *= scale;
     }
     Ok(mesh)
 }
 
-fn add_object<'a, 't: 'a>(
-    object: &impl Fn(&str) -> Option<Node<'a, 't>>,
-    id: &str,
-    placed: Transform,
-    mesh: &mut TriangleMesh,
-    depth: usize,
-) -> Option<()> {
-    if depth > MAX_COMPONENT_DEPTH {
-        return None;
+struct Placement<'a, 't> {
+    objects: UntrustedMap<&'a str, Node<'a, 't>>,
+    mesh: TriangleMesh,
+    placed_objects: usize,
+}
+
+impl<'a, 't: 'a> Placement<'a, 't> {
+    fn add_object(&mut self, id: &str, placed: Transform, depth: usize) -> Result<(), ImportError> {
+        let damaged = || ImportError::DamagedMesh(MeshFormat::ThreeMf.name());
+        check_interrupt().map_err(|Interrupted| ImportError::Cancelled)?;
+        self.placed_objects += 1;
+        if self.placed_objects > MAX_PLACED_OBJECTS {
+            return Err(ImportError::ModelPlacesTooMuch);
+        }
+        if depth > MAX_COMPONENT_DEPTH {
+            return Err(damaged());
+        }
+        let node = *self.objects.get(id).ok_or_else(damaged)?;
+        if let Some(shape) = node.children().find(|child| child.name() == "mesh") {
+            self.add_mesh(shape, placed).ok_or_else(damaged)?;
+            if self.mesh.triangles.len() > MAX_PLACED_TRIANGLES {
+                return Err(ImportError::ModelPlacesTooMuch);
+            }
+        }
+        for component in node
+            .descendants()
+            .filter(|child| child.name() == "component")
+        {
+            let inner = Transform::parse(component.attribute("transform")).ok_or_else(damaged)?;
+            let objectid = component.attribute("objectid").ok_or_else(damaged)?;
+            self.add_object(objectid, inner.then(placed), depth + 1)?;
+        }
+        Ok(())
     }
-    let node = object(id)?;
-    if let Some(shape) = node.children().find(|child| child.name() == "mesh") {
+
+    fn add_mesh(&mut self, shape: Node<'a, 't>, placed: Transform) -> Option<()> {
+        let mesh = &mut self.mesh;
         let start = mesh.positions.len();
         let coordinate = |vertex: Node<'_, '_>, name: &str| -> Option<f64> {
             vertex.attribute(name)?.parse().ok()
@@ -442,21 +472,8 @@ fn add_object<'a, 't: 'a>(
             mesh.triangles
                 .push([corner("v1")?, corner("v2")?, corner("v3")?]);
         }
+        Some(())
     }
-    for component in node
-        .descendants()
-        .filter(|child| child.name() == "component")
-    {
-        let inner = Transform::parse(component.attribute("transform"))?;
-        add_object(
-            object,
-            component.attribute("objectid")?,
-            inner.then(placed),
-            mesh,
-            depth + 1,
-        )?;
-    }
-    Some(())
 }
 
 fn model_part(relationships: &[u8]) -> Option<String> {
