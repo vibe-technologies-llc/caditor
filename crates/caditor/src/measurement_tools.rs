@@ -241,7 +241,8 @@ pub fn item_of(model: &Model, pickable: Pickable) -> Option<MeasuredItem> {
         | Pickable::SketchRegion { .. }
         | Pickable::Region { .. }
         | Pickable::BlendEdge { .. }
-        | Pickable::ShellFace { .. } => return None,
+        | Pickable::ShellFace { .. }
+        | Pickable::BodyItem { .. } => return None,
         Pickable::CentreOfMass(body) => MeasuredItem::Body(body),
     })
 }

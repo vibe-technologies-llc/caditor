@@ -210,6 +210,7 @@ pub fn base_plane(model: &Model, pickable: Pickable) -> Option<Plane> {
         | Pickable::ShellFace { .. }
         | Pickable::FrameAxis { .. }
         | Pickable::FeatureValue { .. }
+        | Pickable::BodyItem { .. }
         | Pickable::CentreOfMass(_) => None,
     }
 }

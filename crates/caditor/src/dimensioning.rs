@@ -6,6 +6,7 @@ use caditor_geometry::Point2;
 use caditor_sketch::{Constraint, Entity, EntityId, Reference, Sketch};
 
 use crate::{
+    body_picks::Staged,
     model::Model,
     sketch_tools::{self, Added, ConstraintTool},
 };
@@ -259,8 +260,17 @@ fn parallel(sketch: &Sketch, first: EntityId, second: EntityId) -> bool {
     a.perp_dot(b).abs() <= PARALLEL_TOLERANCE * a.length() * b.length()
 }
 
-pub fn words(sketch: &Sketch, tool: ConstraintTool, picks: &[EntityId]) -> String {
-    let label = |id: &EntityId| sketch.entity_label(*id);
+pub type Names = [(EntityId, String)];
+
+fn label_of(sketch: &Sketch, names: &Names, id: EntityId) -> String {
+    names
+        .iter()
+        .find(|(named, _)| *named == id)
+        .map_or_else(|| sketch.entity_label(id), |(_, name)| name.clone())
+}
+
+pub fn words(sketch: &Sketch, names: &Names, tool: ConstraintTool, picks: &[EntityId]) -> String {
+    let label = |id: &EntityId| label_of(sketch, names, *id);
     let arc = |id: &EntityId| kind(sketch, *id) == Some(Kind::Arc);
     match (tool, picks) {
         (ConstraintTool::Distance, [arc_picked]) if arc(arc_picked) => {
@@ -316,6 +326,7 @@ pub fn words(sketch: &Sketch, tool: ConstraintTool, picks: &[EntityId]) -> Strin
 
 pub fn prompt(
     sketch: &Sketch,
+    names: &Names,
     picks: &[EntityId],
     pointer: Option<Point2>,
 ) -> (String, &'static str) {
@@ -326,8 +337,8 @@ pub fn prompt(
         return (
             format!(
                 "Click across {} for the diameter, on the point's side for the distance: here {}",
-                sketch.entity_label(axis),
-                words(sketch, tool, picks)
+                label_of(sketch, names, axis),
+                words(sketch, names, tool, picks)
             ),
             AXIS_KEYS,
         );
@@ -339,7 +350,7 @@ pub fn prompt(
             format!(
                 "Click above or below for the horizontal distance, beside for the vertical one, \
                  elsewhere for the aligned one: here {}",
-                words(sketch, tool, picks)
+                words(sketch, names, tool, picks)
             ),
             PLACING_KEYS,
         );
@@ -349,20 +360,24 @@ pub fn prompt(
         ([point], Fit::Waiting) => (
             format!(
                 "Click a second point, a line or a circle for its distance from {}",
-                sketch.entity_label(*point)
+                label_of(sketch, names, *point)
             ),
             POINT_KEYS,
         ),
         (_, Fit::Ready(tool)) => {
-            let here = as_placed
-                .filter(|placed| *placed != tool)
-                .map_or_else(String::new, |placed| {
-                    format!(" (empty space here: {})", words(sketch, placed, picks))
-                });
+            let here =
+                as_placed
+                    .filter(|placed| *placed != tool)
+                    .map_or_else(String::new, |placed| {
+                        format!(
+                            " (empty space here: {})",
+                            words(sketch, names, placed, picks)
+                        )
+                    });
             (
                 format!(
                     "Click a second item to dimension against it, or press Enter for {}{here}",
-                    words(sketch, tool, picks)
+                    words(sketch, names, tool, picks)
                 ),
                 PICKED_KEYS,
             )
@@ -371,8 +386,13 @@ pub fn prompt(
     }
 }
 
-pub fn hover_words(sketch: &Sketch, picks: &[EntityId], hovered: EntityId) -> String {
-    let label = sketch.entity_label(hovered);
+pub fn hover_words(
+    sketch: &Sketch,
+    names: &Names,
+    picks: &[EntityId],
+    hovered: EntityId,
+) -> String {
+    let label = label_of(sketch, names, hovered);
     if picks.contains(&hovered) {
         return format!("Click to let go of {label}");
     }
@@ -381,22 +401,24 @@ pub fn hover_words(sketch: &Sketch, picks: &[EntityId], hovered: EntityId) -> St
         return format!(
             "Click to pick {label}, then click across {} for the diameter of {}, or on its side \
              for the distance",
-            sketch.entity_label(axis),
-            sketch.entity_label(point)
+            label_of(sketch, names, axis),
+            label_of(sketch, names, point)
         );
     }
     if awaits_placement(sketch, &picked) {
         return format!(
             "Click to pick {label}, then click where {} goes",
-            words(sketch, ConstraintTool::Distance, &picked)
+            words(sketch, names, ConstraintTool::Distance, &picked)
         );
     }
     match (picks, fitting(sketch, &picked)) {
         ([], Fit::Ready(tool)) => format!(
             "Click to pick {label}, then press Enter for {} or click a second item",
-            words(sketch, tool, &picked)
+            words(sketch, names, tool, &picked)
         ),
-        (_, Fit::Ready(tool)) => format!("Click to dimension {}", words(sketch, tool, &picked)),
+        (_, Fit::Ready(tool)) => {
+            format!("Click to dimension {}", words(sketch, names, tool, &picked))
+        }
         (_, Fit::Waiting) => {
             format!("Click to measure from {label}, then click what to measure to")
         }
@@ -407,32 +429,23 @@ pub fn hover_words(sketch: &Sketch, picks: &[EntityId], hovered: EntityId) -> St
 pub fn dimension(
     model: &Model,
     feature: FeatureId,
-    picks: &[EntityId],
+    staged: &Staged,
     pointer: Option<Point2>,
 ) -> Result<Added, String> {
-    let owner = model
-        .document()
-        .feature(feature)
-        .ok_or_else(|| NOT_IN_SKETCH.to_owned())?;
-    let definition = owner
-        .kind
-        .sketch()
-        .ok_or_else(|| NOT_IN_SKETCH.to_owned())?;
-    let shown = model
-        .displayed_sketch(owner)
-        .ok_or_else(|| NOT_IN_SKETCH.to_owned())?;
-    let tool = match fitting(&shown, picks) {
-        Fit::Ready(tool) => placed(&shown, picks, pointer).unwrap_or(tool),
-        Fit::Waiting => return Err(prompt(&shown, picks, pointer).0),
+    let (definition, shown, picks) = (&staged.definition, &staged.shown, &staged.picks);
+    let tool = match fitting(shown, picks) {
+        Fit::Ready(tool) => placed(shown, picks, pointer).unwrap_or(tool),
+        Fit::Waiting => return Err(prompt(shown, staged.names(), picks, pointer).0),
         Fit::Refused(reason) => return Err(reason.to_owned()),
     };
-    let constraints = tool.candidates_among(definition, &shown, picks, &definition.relations())?;
+    let constraints = tool.candidates_among(definition, shown, picks, &definition.relations())?;
     let constraints = sketch_tools::in_unit(constraints, model.units());
     Ok(sketch_tools::add_constraints(
         model,
         feature,
         tool,
         constraints,
+        &staged.projections,
     ))
 }
 
@@ -547,26 +560,26 @@ mod tests {
         let point_label = sketch.entity_label(point);
 
         assert_eq!(
-            hover_words(&sketch, &[level], slanted),
+            hover_words(&sketch, &[], &[level], slanted),
             format!("Click to dimension the angle between {level_label} and {slanted_label}")
         );
         assert_eq!(
-            hover_words(&sketch, &[], level),
+            hover_words(&sketch, &[], &[], level),
             format!(
                 "Click to pick {level_label}, then press Enter for the length of {level_label} or \
                  click a second item"
             )
         );
         assert_eq!(
-            hover_words(&sketch, &[level], level),
+            hover_words(&sketch, &[], &[level], level),
             format!("Click to let go of {level_label}")
         );
         assert_eq!(
-            prompt(&sketch, &[point], None).0,
+            prompt(&sketch, &[], &[point], None).0,
             format!("Click a second point, a line or a circle for its distance from {point_label}")
         );
         assert_eq!(
-            prompt(&sketch, &[level], None),
+            prompt(&sketch, &[], &[level], None),
             (
                 format!(
                     "Click a second item to dimension against it, or press Enter for the length \
@@ -607,7 +620,7 @@ mod tests {
             Some(ConstraintTool::Distance)
         );
         assert_eq!(
-            prompt(&sketch, &[point, axis], at(-4.0, 3.0)),
+            prompt(&sketch, &[], &[point, axis], at(-4.0, 3.0)),
             (
                 format!(
                     "Click across {axis_label} for the diameter, on the point's side for the \
@@ -617,7 +630,7 @@ mod tests {
             )
         );
         assert_eq!(
-            hover_words(&sketch, &[point], axis),
+            hover_words(&sketch, &[], &[point], axis),
             format!(
                 "Click to pick {axis_label}, then click across {axis_label} for the diameter of \
                  {point_label}, or on its side for the distance"
@@ -716,11 +729,11 @@ mod tests {
             Some(ConstraintTool::Radius)
         );
         assert_eq!(
-            words(&sketch, ConstraintTool::Angle, &[arc]),
+            words(&sketch, &[], ConstraintTool::Angle, &[arc]),
             format!("the sweep of {}", sketch.entity_label(arc))
         );
         assert_eq!(
-            words(&sketch, ConstraintTool::VerticalDistance, &points),
+            words(&sketch, &[], ConstraintTool::VerticalDistance, &points),
             format!(
                 "the vertical distance between {} and {}",
                 sketch.entity_label(first),

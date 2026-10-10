@@ -22,7 +22,9 @@ use crate::{
     annotations::{self, Annotations, LabelMoving, Surface},
     blend_tools,
     bodies::{self, BodyMeshes, OpenDraft},
+    body_picks::{self, BodyPick, Staged},
     body_selection,
+    body_snap::BodySnaps,
     box_selection::{self, Catch},
     canvas, clipboard,
     comb::CombDrawing,
@@ -69,7 +71,7 @@ use crate::{
     sketch_drag::{self, BoxMode, Grab, Moving, ScreenArea, Transform, Transforming},
     sketch_placement::{DatumTarget, FaceChoice},
     sketch_status, sketch_toolbar, sketch_tools,
-    snap::{Hold, Pointer, Screen},
+    snap::{Accept, Hold, Pointer, Screen, Target},
     snapshot, solid_tools, split_face_tools, toggles,
     trimming::{self, Trimming},
     typed_point::{self, TypedPoint},
@@ -401,6 +403,8 @@ pub struct ViewportState {
     manipulator: Option<Manipulator>,
     manipulator_hover: Option<Handle>,
     dimensioning: Option<FeatureId>,
+    body_snaps: Arc<BodySnaps>,
+    body_hovered: Option<Pickable>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -603,6 +607,8 @@ impl ViewportState {
             manipulator: None,
             manipulator_hover: None,
             dimensioning: None,
+            body_snaps: Arc::default(),
+            body_hovered: None,
         }
     }
 
@@ -906,6 +912,10 @@ impl ViewportState {
         &self.selection
     }
 
+    pub fn body_snaps(&self) -> &BodySnaps {
+        &self.body_snaps
+    }
+
     pub fn replace_selection(&mut self, pickables: Vec<Pickable>) {
         self.selection.replace_with_all(pickables);
     }
@@ -1186,6 +1196,7 @@ impl ViewportState {
                 self.trimming.preview(faceting),
                 self.modifying.preview(faceting),
                 self.grab_preview(),
+                self.body_preview(editing),
             ],
             measured: self.measured.as_ref().map(|(line, _)| [line.from, line.to]),
             problems: self.problems.iter().map(|problem| problem.place).collect(),
@@ -1489,7 +1500,51 @@ impl ViewportState {
             .as_ref()
             .and_then(PickList::highlighted)
             .or(self.keyboard_highlight)
-            .or(self.hovered)
+            .or(self.pointed())
+    }
+
+    fn pointed(&self) -> Option<Pickable> {
+        self.body_hovered.or(self.hovered)
+    }
+
+    fn body_hover(
+        &self,
+        editing: &SketchEditing,
+        sketch: &Sketch,
+        screen: &SketchScreen,
+        pointer: Option<Pointer>,
+    ) -> Option<Pickable> {
+        let active = editing
+            .active()
+            .filter(|active| matches!(active.tool, Tool::Select | Tool::Dimension))?;
+        let pointer = pointer.filter(|_| self.primary.is_none())?;
+        let on_sketch = match self.hovered {
+            Some(Pickable::SketchEntity { feature, entity }) if feature == active.feature => {
+                Some(entity)
+            }
+            Some(Pickable::SketchEntity { .. }) | None => None,
+            Some(_) => return None,
+        };
+        let point_like = |entity: EntityId| {
+            entity == EntityId::ORIGIN || matches!(sketch.entity(entity), Some(Entity::Point(_)))
+        };
+        if on_sketch.is_some_and(point_like) {
+            return None;
+        }
+        let snapped = self
+            .body_snaps
+            .point(screen, pointer, Accept::Points)
+            .or_else(|| {
+                on_sketch
+                    .is_none()
+                    .then(|| self.body_snaps.edge(screen, pointer, Accept::Anything))
+                    .flatten()
+            })?;
+        let Target::Body(target) = snapped.target else {
+            return None;
+        };
+        let (body, item) = self.body_snaps.item(target)?;
+        Some(BodyPick { body, item }.pickable(active.feature))
     }
 
     fn track_cursor(&mut self, ui: &egui::Ui, response: &Response, rect: Rect) {
@@ -1898,6 +1953,42 @@ impl ViewportState {
         }
     }
 
+    fn body_preview(&self, editing: &SketchEditing) -> Preview {
+        let Some(feature) = editing.feature() else {
+            return Preview::default();
+        };
+        let mut preview = Preview::default();
+        let hovered = self
+            .body_hovered
+            .and_then(|hovered| BodyPick::of(hovered, feature))
+            .into_iter()
+            .map(|pick| (pick, true));
+        let picked = body_picks::selected(&self.selection, feature)
+            .into_iter()
+            .map(|pick| (pick, false));
+        for (pick, hovered) in hovered.chain(picked) {
+            let Some(target) = self.body_snaps.find(pick.body, pick.item) else {
+                continue;
+            };
+            match (self.body_snaps.position(target), hovered) {
+                (Some(position), true) => preview.snap = Some(position),
+                (Some(position), false) => preview.points.push(position),
+                (None, true) => preview.guides.extend(
+                    self.body_snaps
+                        .path(target)
+                        .unwrap_or_default()
+                        .windows(2)
+                        .filter_map(|pair| match pair {
+                            [start, end] => Some([*start, *end]),
+                            _ => None,
+                        }),
+                ),
+                (None, false) => preview.curves.extend(self.body_snaps.path(target)),
+            }
+        }
+        preview
+    }
+
     fn grab_snapping<'a>(
         &self,
         model: &'a Model,
@@ -2015,7 +2106,8 @@ impl ViewportState {
         let sketch = model.displayed_sketch(owner)?;
         let from = self.on_sketch(model, feature, press.cursor)?;
         let selected = sketch_tools::selected_entities(&self.selection, feature);
-        Grab::of(&sketch, feature, grabbed, &selected, from).map(PrimaryDrag::Grab)
+        Grab::of(&sketch, feature, grabbed, &selected, from)
+            .map(|grab| PrimaryDrag::Grab(grab.snapping_to_bodies(&self.body_snaps)))
     }
 
     fn select_within(
@@ -2157,7 +2249,12 @@ impl ViewportState {
             .and_then(|feature| model.displayed_sketch(feature));
         self.drawing
             .sync(editing.active(), editing.modes(), displayed.as_deref());
-        self.drawing.track_bodies(model);
+        if let Some(feature) = editing.feature()
+            && let Some(refreshed) = BodySnaps::refreshed(&self.body_snaps, model, feature)
+        {
+            self.body_snaps = refreshed;
+        }
+        self.drawing.use_bodies(&self.body_snaps);
         self.drawing
             .place_freely(self.placing_freely || !(self.snapping || self.snap_held));
         self.drawing
@@ -2203,12 +2300,14 @@ impl ViewportState {
                     pixels_per_point: scale,
                 };
                 self.drawing.hover(&sketch, &screen, pointer);
+                self.body_hovered = self.body_hover(editing, &sketch, &screen, pointer);
                 self.trimming.hover(&sketch, &screen, pointer);
                 self.modifying
                     .hover(&sketch, &screen, pointer, self.scenes.faceting());
             }
             _ => {
                 self.drawing.leave();
+                self.body_hovered = None;
                 self.trimming.leave();
                 self.modifying.leave();
             }
@@ -2350,7 +2449,7 @@ impl ViewportState {
             return;
         }
         if let Some(feature) = self.dimensioning {
-            self.dimension_click(model, feature, self.hovered, actions);
+            self.dimension_click(model, feature, self.pointed(), actions);
             return;
         }
         if self.trimming.is_active() {
@@ -2409,51 +2508,45 @@ impl ViewportState {
         hovered: Option<Pickable>,
         actions: &mut Vec<Action>,
     ) {
-        let mut picks = sketch_tools::selected_entities(&self.selection, feature);
-        let Some(shown) = model
-            .document()
-            .feature(feature)
-            .and_then(|owner| model.displayed_sketch(owner))
-        else {
+        let Ok(staged) = self.staged_picks(model, feature, None) else {
             return;
         };
-        let letting_go = matches!(
-            hovered,
-            Some(Pickable::SketchEntity { feature: owner, entity }) if owner == feature && picks.contains(&entity)
-        );
-        if dimensioning::awaits_placement(&shown, &picks) && !letting_go {
-            self.place_dimension(model, feature, &picks, actions);
+        let pickable = hovered.filter(|hovered| match hovered {
+            Pickable::SketchEntity { feature: owner, .. } => *owner == feature,
+            Pickable::BodyItem { sketch, .. } => *sketch == feature,
+            _ => false,
+        });
+        let letting_go = pickable.is_some_and(|pickable| self.selection.contains(pickable));
+        if dimensioning::awaits_placement(&staged.shown, &staged.picks) && !letting_go {
+            self.place_dimension(model, feature, &staged, actions);
             return;
         }
-        let picked = match hovered {
-            Some(Pickable::SketchEntity {
-                feature: owner,
-                entity,
-            }) if owner == feature => entity,
-            _ => {
-                if !picks.is_empty() {
-                    self.place_dimension(model, feature, &picks, actions);
-                }
-                return;
+        let Some(pickable) = pickable else {
+            if !staged.picks.is_empty() {
+                self.place_dimension(model, feature, &staged, actions);
             }
+            return;
         };
-        let pickable = Pickable::SketchEntity {
-            feature,
-            entity: picked,
-        };
-        if picks.contains(&picked) {
+        if letting_go {
             self.selection.toggle(pickable);
             return;
         }
-        picks.push(picked);
-        match dimensioning::fitting(&shown, &picks) {
+        let staged = match self.staged_picks(model, feature, Some(pickable)) {
+            Ok(staged) => staged,
+            Err(unstaged) => {
+                actions.push(Action::Inform(Notice::warning(format!("{unstaged}."))));
+                return;
+            }
+        };
+        match dimensioning::fitting(&staged.shown, &staged.picks) {
             dimensioning::Fit::Refused(reason) => {
                 actions.push(Action::Inform(Notice::warning(format!("{reason}."))));
             }
             dimensioning::Fit::Ready(_)
-                if picks.len() > 1 && !dimensioning::awaits_placement(&shown, &picks) =>
+                if staged.picks.len() > 1
+                    && !dimensioning::awaits_placement(&staged.shown, &staged.picks) =>
             {
-                self.place_dimension(model, feature, &picks, actions);
+                self.place_dimension(model, feature, &staged, actions);
             }
             dimensioning::Fit::Ready(_) | dimensioning::Fit::Waiting => {
                 self.selection.toggle(pickable);
@@ -2461,14 +2554,34 @@ impl ViewportState {
         }
     }
 
+    fn staged_picks(
+        &self,
+        model: &Model,
+        feature: FeatureId,
+        adding: Option<Pickable>,
+    ) -> Result<Staged, body_picks::Unstaged> {
+        let mut entities = sketch_tools::selected_entities(&self.selection, feature);
+        let mut bodies = body_picks::selected(&self.selection, feature);
+        match adding {
+            Some(Pickable::SketchEntity { entity, .. }) if !entities.contains(&entity) => {
+                entities.push(entity);
+            }
+            Some(pickable) => {
+                bodies.extend(BodyPick::of(pickable, feature).filter(|pick| !bodies.contains(pick)))
+            }
+            None => {}
+        }
+        Staged::new(model, feature, &self.body_snaps, &entities, &bodies)
+    }
+
     fn place_dimension(
         &mut self,
         model: &Model,
         feature: FeatureId,
-        picks: &[EntityId],
+        staged: &Staged,
         actions: &mut Vec<Action>,
     ) {
-        match dimensioning::dimension(model, feature, picks, self.sketch_cursor) {
+        match dimensioning::dimension(model, feature, staged, self.sketch_cursor) {
             Ok(added) => self.dimension_added(feature, added, actions),
             Err(reason) => actions.push(Action::Inform(Notice::warning(reason))),
         }
@@ -2497,16 +2610,14 @@ impl ViewportState {
         self.selection.clear();
     }
 
-    fn picked_dimension(&self, model: &Model) -> Option<(FeatureId, Vec<EntityId>)> {
+    fn picked_dimension(&self, model: &Model) -> Option<(FeatureId, Staged)> {
         let feature = self.dimensioning?;
-        let picks = sketch_tools::selected_entities(&self.selection, feature);
-        let owner = model.document().feature(feature)?;
-        let shown = model.displayed_sketch(owner)?;
+        let staged = self.staged_picks(model, feature, None).ok()?;
         matches!(
-            dimensioning::fitting(&shown, &picks),
+            dimensioning::fitting(&staged.shown, &staged.picks),
             dimensioning::Fit::Ready(_)
         )
-        .then_some((feature, picks))
+        .then_some((feature, staged))
     }
 
     fn select_chain(&mut self, model: &Model, editing: &SketchEditing) -> bool {
@@ -2537,7 +2648,7 @@ impl ViewportState {
     }
 
     fn select(&mut self, model: &Model, toggle: bool) {
-        match (self.hovered, toggle) {
+        match (self.pointed(), toggle) {
             (Some(pickable), true) => self.toggle_chosen(model, pickable),
             (Some(pickable), false) => {
                 let chosen = self.whole_body_of(model, pickable);
@@ -3872,8 +3983,8 @@ impl ViewportState {
                 self.modify(editing, outcome, actions);
             } else if let Some(ended) = self.drawing.finish(model) {
                 actions.extend(ended_action(ended));
-            } else if let Some((feature, picks)) = self.picked_dimension(model) {
-                match dimensioning::dimension(model, feature, &picks, None) {
+            } else if let Some((feature, staged)) = self.picked_dimension(model) {
+                match dimensioning::dimension(model, feature, &staged, None) {
                     Ok(added) => self.dimension_added(feature, added, actions),
                     Err(reason) => actions.push(Action::Inform(Notice::warning(reason))),
                 }
@@ -4379,9 +4490,7 @@ impl ViewportState {
                 self.drawing
                     .snap_label(sketch)
                     .or_else(|| match &self.primary {
-                        Some(PrimaryDrag::Grab(grab)) => {
-                            grab.landing().and_then(|landing| landing.label(sketch))
-                        }
+                        Some(PrimaryDrag::Grab(grab)) => grab.landing_label(sketch),
                         _ => None,
                     })
             });
@@ -4571,10 +4680,13 @@ impl ViewportState {
         {
             Some((PROJECT_PROMPT.to_owned(), key_hints.targets.clone()))
         } else if let Some(feature) = self.dimensioning {
-            let picks = sketch_tools::selected_entities(&self.selection, feature);
-            let owner = document.feature(feature)?;
-            let shown = model.displayed_sketch(owner)?;
-            let (text, keys) = dimensioning::prompt(&shown, &picks, self.sketch_cursor);
+            let staged = self.staged_picks(model, feature, None).ok()?;
+            let (text, keys) = dimensioning::prompt(
+                &staged.shown,
+                staged.names(),
+                &staged.picks,
+                self.sketch_cursor,
+            );
             Some((text, keys.to_owned()))
         } else if let Some(prompt) = self.trimming.prompt() {
             Some((prompt.to_owned(), key_hints.targets.clone()))
@@ -4662,19 +4774,32 @@ impl ViewportState {
         feature: FeatureId,
         hovered: Option<Pickable>,
     ) -> Option<String> {
-        let Some(Pickable::SketchEntity {
-            feature: owner,
-            entity,
-        }) = hovered
-        else {
-            return None;
-        };
-        if owner != feature {
+        let hovered = hovered?;
+        if hovered.owner() != Some(feature) {
             return None;
         }
-        let shown = model.displayed_sketch(model.document().feature(feature)?)?;
-        let picks = sketch_tools::selected_entities(&self.selection, feature);
-        Some(dimensioning::hover_words(&shown, &picks, entity))
+        let picked = self.selection.contains(hovered);
+        let staged = match self.staged_picks(model, feature, Some(hovered)) {
+            Ok(staged) => staged,
+            Err(unstaged) => return Some(unstaged.to_string()),
+        };
+        let hovered_id = match hovered {
+            Pickable::SketchEntity { entity, .. } => entity,
+            Pickable::BodyItem { body, item, .. } => staged.body_entity(BodyPick { body, item })?,
+            _ => return None,
+        };
+        let picks: Vec<EntityId> = staged
+            .picks
+            .iter()
+            .copied()
+            .filter(|pick| picked || *pick != hovered_id)
+            .collect();
+        Some(dimensioning::hover_words(
+            &staged.shown,
+            staged.names(),
+            &picks,
+            hovered_id,
+        ))
     }
 
     fn paint_description(

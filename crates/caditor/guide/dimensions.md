@@ -15,6 +15,11 @@ for example `width / 2` or `30 deg`.
   an end give the angle between them.
 - Anything else gives the distance between the two items, the origin and axes included.
 
+Smart dimension also takes a corner, the centre of a round edge or an edge of a body made before
+the sketch, where it falls on the sketch plane, labelled for example "Edge of Base". It is
+[projected](project-and-intersect) into the sketch with the dimension, and one undo takes both
+away.
+
 Clicking two points, or a lone line, waits for a third click that places the dimension: above or
 below gives the horizontal distance, beside them the vertical one, elsewhere the aligned one. A
 point or circle and a slanted line, or two circles whose centres are not level or upright, wait

@@ -134,15 +134,12 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Sketching
 
-- [medium · medium] Drawing tools snap to body corners and edges and project them
-  (`body_snap.rs`), but Smart dimension and the constraint tools still reach model geometry only
-  through Project first: dimensioning a point from a body's edge means projecting the edge, then
-  going back to the tool. They could take a body edge or corner from the same `BodySnaps` cache,
-  projecting it in the dimension's or constraint's own transaction. A body item is also not
-  acquired for tracks, never pulled by the held snap (Alt) and never crossed by a direction or
-  track, since it is not in the sketch until a point lands on it; acquiring it would need tracks
-  that hold a point the shape has yet to project. A grab (dragging with Select) does not snap to
-  bodies either.
+- [medium · hard] Body items (`body_snap.rs`) are snapped to by drawing and grabs and picked by
+  Select and Smart dimension, but they are not acquired for tracks, never pulled by the held snap
+  (Alt) and never crossed by a direction or track, since they are not in the sketch until a point
+  lands on them: acquiring one would need tracks that hold a point the shape has yet to project.
+  Nor do the keyboard highlight commands reach them (`Pickable::BodyItem` is not a scene
+  pickable), so picking a body item for a dimension or constraint needs the pointer.
 - [low · medium] Sketch fillet and chamfer join two curves at their crossing only for lines, arcs
   and circles (`Sketch::join_at_crossing`): an elliptical arc that does not already end at the
   other curve is `NotCrossable`, though `intersect` finds its crossings; carrying its end round

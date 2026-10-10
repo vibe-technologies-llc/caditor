@@ -653,7 +653,7 @@ pub fn show(
         ui,
         model,
         editing,
-        viewport.selection(),
+        (viewport.selection(), viewport.body_snaps()),
         &mut commands,
         panels,
         actions,

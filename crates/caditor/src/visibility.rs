@@ -102,7 +102,8 @@ pub fn owner(pickable: Pickable) -> Option<FeatureId> {
         | Pickable::FeatureValue { .. }
         | Pickable::Region { .. }
         | Pickable::BlendEdge { .. }
-        | Pickable::ShellFace { .. } => None,
+        | Pickable::ShellFace { .. }
+        | Pickable::BodyItem { .. } => None,
     }
 }
 
@@ -124,7 +125,8 @@ pub fn principal(pickable: Pickable) -> Option<PrincipalGeometry> {
         | Pickable::FeatureValue { .. }
         | Pickable::Region { .. }
         | Pickable::BlendEdge { .. }
-        | Pickable::ShellFace { .. } => None,
+        | Pickable::ShellFace { .. }
+        | Pickable::BodyItem { .. } => None,
     }
 }
 

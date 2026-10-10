@@ -8,12 +8,12 @@ use std::{
     thread,
 };
 
-use caditor_document::{FeatureId, ParameterValues};
+use caditor_document::{FeatureId, Outline, ParameterValues, ProjectionSource};
 use caditor_geometry::Point2;
 use caditor_sketch::{Constraint, Drag, EntityId, Sketch, SolveMemo};
 use parking_lot::{Condvar, Mutex};
 
-use crate::model::Waker;
+use crate::{body_snap::BodyPart, model::Waker};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum DragCommand {
@@ -33,6 +33,14 @@ pub struct Join {
     pub point: EntityId,
     pub at: Point2,
     pub constraints: Vec<Constraint>,
+    pub body: Option<Box<BodyJoin>>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BodyJoin {
+    pub projection: ProjectionSource,
+    pub outline: Outline,
+    pub part: BodyPart,
 }
 
 #[derive(Debug, Clone)]

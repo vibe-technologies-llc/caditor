@@ -24,6 +24,10 @@ A disabled button says on hover what to select.
 
 With more than two items, chaining constraints relate every item to the first one selected.
 
+A corner, the centre of a round edge or an edge of a body made before the sketch can be selected
+with them, where it falls on the sketch plane: clicking it with Select picks it, Shift adds it.
+The constraint [projects](project-and-intersect) it into the sketch in the same undoable change.
+
 ## When constraints disagree
 
 A constraint already in the sketch is not added twice, and one that contradicts another is refused,

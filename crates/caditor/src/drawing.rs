@@ -1039,12 +1039,9 @@ impl Drawing {
         }
     }
 
-    pub fn track_bodies(&mut self, model: &Model) {
-        let Some((feature, _)) = self.context else {
-            return;
-        };
-        if let Some(refreshed) = BodySnaps::refreshed(&self.bodies, model, feature) {
-            self.bodies = refreshed;
+    pub fn use_bodies(&mut self, bodies: &Arc<BodySnaps>) {
+        if !Arc::ptr_eq(&self.bodies, bodies) {
+            self.bodies = Arc::clone(bodies);
         }
     }
 
