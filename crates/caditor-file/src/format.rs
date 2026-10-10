@@ -16,8 +16,9 @@ use caditor_document::{
     Primitive, PrimitiveAnchor, PrimitiveShape, PrincipalAxis, PrincipalGeometry, PrincipalPlane,
     ProjectionSource, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rgb, RollbackBar,
     SavedView, SavedViews, Scale, Shell, SketchAttachment, SketchFeature, SolidFeature, SolidStart,
-    Split, SplitAlong, SplitFace, TappedThread, Thread, ThreadFamily, ThreadHand, ThreadLength,
-    ThreadSide, ThreadSize, Transaction, TurnCentre, Wall, group_name, material_name, view_name,
+    Split, SplitAlong, SplitCarry, SplitFace, TappedThread, Thread, ThreadFamily, ThreadHand,
+    ThreadLength, ThreadSide, ThreadSize, Transaction, TurnCentre, Wall, group_name, material_name,
+    view_name,
 };
 use caditor_expression::{BinaryOperator, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Rotation3, Vector2, Vector3};
@@ -257,6 +258,12 @@ pub(crate) enum FeatureKindRecord {
     SplitSurface(Box<SplitSurfaceRecord>),
     SplitFaceSurface(Box<SplitFaceSurfaceRecord>),
     FaceOnRoundMate(Box<FaceOnRoundMateRecord>),
+    SplitFaceWrapped(Box<SplitFaceWrappedRecord>),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct SplitFaceWrappedRecord {
+    pub feature: FeatureKindRecord,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -692,7 +699,7 @@ pub(crate) struct RevolveOneSideRecord {
 
 pub(crate) const FEATURE_FIELDS: [&str; 3] = ["hidden", "appearance", "group"];
 
-pub(crate) const FEATURE_KINDS: [&str; 73] = [
+pub(crate) const FEATURE_KINDS: [&str; 74] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -766,6 +773,7 @@ pub(crate) const FEATURE_KINDS: [&str; 73] = [
     "split_surface",
     "split_face_surface",
     "face_on_round_mate",
+    "split_face_wrapped",
 ];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2126,10 +2134,21 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
         }));
     }
     if let FeatureKind::SplitFace(split) = kind
-        && let Some(direction) = split.direction.as_deref()
+        && split.is_wrapped()
     {
         let square = SplitFace {
-            direction: None,
+            carry: SplitCarry::Square,
+            ..split.clone()
+        };
+        return FeatureKindRecord::SplitFaceWrapped(Box::new(SplitFaceWrappedRecord {
+            feature: feature_kind_record(&FeatureKind::SplitFace(square)),
+        }));
+    }
+    if let FeatureKind::SplitFace(split) = kind
+        && let Some(direction) = split.direction()
+    {
+        let square = SplitFace {
+            carry: SplitCarry::Square,
             ..split.clone()
         };
         return FeatureKindRecord::SplitFaceAlong(Box::new(SplitFaceAlongRecord {
@@ -4710,7 +4729,7 @@ fn restore_kind(
             match (&mut kind, face) {
                 (FeatureKind::SplitFace(split), Some(face)) => {
                     split.along = SplitAlong::Surface(face);
-                    split.direction = None;
+                    split.carry = SplitCarry::Square;
                 }
                 (FeatureKind::SplitFace(_), None) => issues.push(format!(
                     "The face whose surface “{name}” splits faces along could not be read, so it \
@@ -4723,6 +4742,17 @@ fn restore_kind(
             }
             kind
         }
+        FeatureKindRecord::SplitFaceWrapped(wrapped) => {
+            let mut kind = restore_kind(&wrapped.feature, name, texts, issues);
+            match &mut kind {
+                FeatureKind::SplitFace(split) => split.carry = SplitCarry::Wrapped,
+                _ => issues.push(format!(
+                    "“{name}” was to wrap curves onto a curved face, but it does not split faces, \
+                     so that was left out."
+                )),
+            }
+            kind
+        }
         FeatureKindRecord::SplitFaceAlong(along) => {
             let mut kind = restore_kind(&along.feature, name, texts, issues);
             let direction = match &along.direction {
@@ -4731,7 +4761,7 @@ fn restore_kind(
             };
             match (&mut kind, direction) {
                 (FeatureKind::SplitFace(split), Some(direction)) => {
-                    split.direction = Some(Box::new(direction));
+                    split.carry = SplitCarry::Along(Box::new(direction));
                 }
                 (FeatureKind::SplitFace(_), None) => issues.push(format!(
                     "The edge or axis “{name}” carries its curves along could not be read, so it \
@@ -6831,7 +6861,7 @@ fn restore_split_face(
         body: FeatureId::from_raw(record.body),
         faces,
         along,
-        direction: None,
+        carry: SplitCarry::Square,
     }
 }
 

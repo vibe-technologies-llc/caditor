@@ -1,10 +1,10 @@
 use std::collections::BTreeSet;
 
 use caditor_document::{
-    Document, Edit, Evaluation, FeatureId, FeatureKind, PlaneReference, PrincipalPlane, SplitAlong,
-    SplitFace, Transaction,
+    Document, Edit, Evaluation, Feature, FeatureId, FeatureKind, PlaneReference, PrincipalPlane,
+    SplitAlong, SplitCarry, SplitFace, Transaction,
 };
-use caditor_kernel::{FaceId, FaceReference, Solid};
+use caditor_kernel::{FaceId, FaceReference, LINEAR_RESOLUTION, Solid, Surface, parallel};
 
 use crate::{
     bodies::{self, FaceKey},
@@ -27,6 +27,10 @@ const GONE: &str = "The feature no longer exists";
 const NO_DIRECTION: &str =
     "Select an edge, axis, round face or sketch line to carry the curves along";
 const ALREADY_CARRIED: &str = "The curves are already carried along the selected edge or axis";
+const NOT_ALONG_SKETCH: &str = "Only a sketch's curves can be wrapped round the faces; split along \
+                                one first";
+const ALREADY_WRAPPED: &str = "The curves are already wrapped round the faces";
+const NOT_ONE_CYLINDER: &str = "Only faces of one cylinder can have curves wrapped round them";
 const DEFAULT_PLANE: PlaneReference = PlaneReference::Principal(PrincipalPlane::Yz);
 
 #[derive(Debug, Clone, PartialEq)]
@@ -108,7 +112,7 @@ pub fn create(
                 .along
                 .clone()
                 .unwrap_or(SplitAlong::Plane(DEFAULT_PLANE)),
-            direction: None,
+            carry: SplitCarry::Square,
         }),
     );
     Ok((transaction.finish(), feature))
@@ -227,10 +231,69 @@ pub fn direction_change(
         model,
         feature,
         SplitFace {
-            direction: Some(Box::new(axis)),
+            carry: SplitCarry::Along(Box::new(axis)),
             ..split.clone()
         },
     )
+}
+
+fn on_one_cylinder(model: &Model, feature: FeatureId, split: &SplitFace) -> bool {
+    let Some(input) = bodies::input(model.evaluation(), feature) else {
+        return true;
+    };
+    let solid = &input.solid;
+    let Ok(faces) = split.resolve(solid) else {
+        return true;
+    };
+    let mut axes = faces
+        .iter()
+        .filter_map(|face| solid.face(*face))
+        .map(|face| match face.surface() {
+            Surface::Cylinder(cylinder) => Some(*cylinder),
+            _ => None,
+        });
+    let Some(Some(first)) = axes.next() else {
+        return false;
+    };
+    axes.all(|other| {
+        other.is_some_and(|other| {
+            let offset = other.frame().origin() - first.frame().origin();
+            parallel(first.frame().normal(), other.frame().normal())
+                && offset.cross(first.frame().normal()).length() <= LINEAR_RESOLUTION
+                && (first.radius() - other.radius()).abs() <= LINEAR_RESOLUTION
+        })
+    })
+}
+
+pub fn wrapped_change(
+    model: &Model,
+    feature: FeatureId,
+    split: &SplitFace,
+) -> Result<Transaction, String> {
+    if split.along.sketch().is_none() {
+        return Err(NOT_ALONG_SKETCH.to_owned());
+    }
+    if split.is_wrapped() {
+        return Err(ALREADY_WRAPPED.to_owned());
+    }
+    if !on_one_cylinder(model, feature, split) {
+        return Err(NOT_ONE_CYLINDER.to_owned());
+    }
+    change(
+        model,
+        feature,
+        SplitFace {
+            carry: SplitCarry::Wrapped,
+            ..split.clone()
+        },
+    )
+}
+
+pub fn wrap_command(model: &Model, feature: &Feature) -> Result<Transaction, String> {
+    match feature.kind.split_face() {
+        Some(split) => wrapped_change(model, feature.id(), split),
+        None => Err(format!("{} does not split faces", feature.name)),
+    }
 }
 
 pub fn chosen_faces(solid: &Solid, split: &SplitFace) -> BTreeSet<FaceKey> {

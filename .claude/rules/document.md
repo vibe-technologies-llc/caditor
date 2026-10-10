@@ -742,7 +742,7 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 
 ### Split face (`split_face.rs`)
 
-- `SplitFace { body, faces, along, direction }` divides the chosen faces of its body
+- `SplitFace { body, faces, along, carry }` divides the chosen faces of its body
   (`FaceReference`s resolved in the body's state before it like an offset face's, pieces of one
   face accepted, a lost or tied one failing it) along a `SplitAlong` (as a split's), without
   changing the shape (kernel `split_faces`): a plane's half-space block
@@ -750,22 +750,32 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   chain carried on past its ends (`Sweep::half_space`, the left side inside), a sketch of closed
   outlines extruded through the body (`Sweep::outlines`, the outlines inside), another body as
   it stands (inside it), or the surface of a face of a body carried on past its edges (the split's
-  `surface_tool`). A sketch whose curves are one open chain plus closed outlines joined to
-  it nowhere (`split::mixed_curves`: curves grouped by shared ends, exactly one group with free
-  ends and that group one chain) splits twice under the same feature: along the outlines, then
+  `surface_tool`). A sketch whose curves are one open chain plus closed outlines
+  (`split::mixed_curves`: curves grouped by shared ends, exactly one group with free ends, whose
+  bridges, the curves on no cycle, form one chain; its other curves join the outlines, so a chain
+  starting at, ending at or passing through an outline's corner is carried straight on past it
+  like any other end) splits twice under the same feature: along the outlines, then
   the resulting pieces of the chosen faces along the chain, so pieces are named
   `split(feature, split(feature, original, outline side), chain side)`; a pass whose tool divides
   nothing is skipped, and both skipped is the miss below. It modifies its body (`modifies_body`,
   state before kept for choosing); its plane's datum and face body, the tool body and the sketch
   count as used like a split's, and healing visits its faces and its plane.
-- `direction` (a boxed `AxisReference`: an edge, axis, round face's axis or sketch line) carries a
-  sketch's curves along that line instead of square to the sketch (kernel `extrude_along`, turned
-  to rise along the sketch normal); the swept block's outline covers the body's box projected
-  along it onto the sketch plane. It applies only to a sketch, and `SplitFace::with_along` drops
-  it when the split switches to a plane or body. A direction in the sketch plane fails it in
-  words naming the axis and the sketch. Its body, datum, frame and sketch count as used like a
-  move axis's (`direction_body` and the rest), its origins among the feature's, and healing
-  keeps it.
+- `carry` (`SplitCarry`) says how a sketch's curves reach the faces: `Square` to the sketch,
+  `Along` a boxed `AxisReference` or `Wrapped`. It applies only to a sketch, and
+  `SplitFace::with_along` sets it square when the split switches to a plane, body or surface.
+- `Along` (an edge, axis, round face's axis or sketch line) carries the curves along that line
+  (kernel `extrude_along`, turned to rise along the sketch normal); the swept block's outline
+  covers the body's box projected along it onto the sketch plane. A direction in the sketch
+  plane fails it in words naming the axis and the sketch. Its body, datum, frame and sketch count
+  as used like a move axis's (`direction_body` and the rest), its origins among the feature's, and
+  healing keeps it.
+- `Wrapped` wraps the sketch's closed outlines (even depth) round the cylinder the chosen faces
+  lie on (kernel `wrap_regions`): every chosen face must be cylindrical and on one cylinder (same
+  axis line and radius within `tolerance.rs`), and the sketch plane must run along its axis.
+  A face that is not cylindrical (named by origin), faces of several cylinders, a plane across
+  the axis, open curves (one chain, a mixed sketch or no closed profile) and outlines reaching
+  farther round than the circumference fail it in words, the last two with the fix on the
+  sketch.
 - A tool crossing none of the chosen faces fails it in words naming the plane, curve or body;
   splitting along its own body, a sketch's problems and kernel failures (through `trouble.rs`)
   fail it alone.

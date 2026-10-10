@@ -1,12 +1,16 @@
 use std::collections::BTreeSet;
 
-use caditor_geometry::{Plane, Vector3};
-use caditor_kernel::{FaceId, FaceName, FaceReference, FaceSplitError, Solid, split_faces};
+use caditor_expression::format_number;
+use caditor_geometry::{Plane, Ray, Vector3};
+use caditor_kernel::{
+    Cylinder, FaceId, FaceName, FaceReference, FaceSplitError, Profile, ProfileError, Selection,
+    Solid, Surface, WrapError, split_faces, wrap_regions,
+};
 
 use crate::{
     attachment::FaceAttachment,
     datum::{AxisReference, Resolver, capitalized, describe_axis, feature_name},
-    describe::describe_surface,
+    describe::{describe_origin, describe_surface},
     document::{Feature, FeatureId},
     origins,
     pieces::{Resolution, Unresolved, pieces_of_one_face, tally},
@@ -20,12 +24,41 @@ use crate::{
     tolerance, trouble,
 };
 
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum SplitCarry {
+    #[default]
+    Square,
+    Along(Box<AxisReference>),
+    Wrapped,
+}
+
+impl SplitCarry {
+    pub fn direction(&self) -> Option<&AxisReference> {
+        match self {
+            Self::Along(axis) => Some(axis),
+            Self::Square | Self::Wrapped => None,
+        }
+    }
+
+    pub fn direction_mut(&mut self) -> Option<&mut AxisReference> {
+        match self {
+            Self::Along(axis) => Some(axis),
+            Self::Square | Self::Wrapped => None,
+        }
+    }
+
+    pub fn heap_size(&self) -> usize {
+        self.direction()
+            .map_or(0, |axis| size_of::<AxisReference>() + axis.heap_size())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct SplitFace {
     pub body: FeatureId,
     pub faces: Vec<FaceReference>,
     pub along: SplitAlong,
-    pub direction: Option<Box<AxisReference>>,
+    pub carry: SplitCarry,
 }
 
 impl SplitFace {
@@ -37,23 +70,27 @@ impl SplitFace {
                 .map(FaceReference::heap_size)
                 .sum::<usize>()
             + self.along.heap_size()
-            + self
-                .direction
-                .as_deref()
-                .map_or(0, |axis| size_of::<AxisReference>() + axis.heap_size())
+            + self.carry.heap_size()
     }
 
     pub fn with_along(&self, along: SplitAlong) -> Self {
-        let direction = along.sketch().and(self.direction.clone());
+        let carry = match along.sketch() {
+            Some(_) => self.carry.clone(),
+            None => SplitCarry::Square,
+        };
         Self {
             along,
-            direction,
+            carry,
             ..self.clone()
         }
     }
 
     pub fn direction(&self) -> Option<&AxisReference> {
-        self.direction.as_deref()
+        self.carry.direction()
+    }
+
+    pub fn is_wrapped(&self) -> bool {
+        matches!(self.carry, SplitCarry::Wrapped)
     }
 
     pub fn direction_body(&self) -> Option<FeatureId> {
@@ -330,10 +367,137 @@ fn sketch_tool<'a>(
     }
 }
 
+fn wrapping_cylinder(
+    context: &Context<'_>,
+    solid: &Solid,
+    faces: &[FaceId],
+    sketch: &str,
+) -> Result<Cylinder, Failure> {
+    let document = context.resolver.inputs.document;
+    let mut cylinder: Option<Cylinder> = None;
+    for face in faces.iter().filter_map(|face| solid.face(*face)) {
+        let Surface::Cylinder(found) = face.surface() else {
+            return Err(context.error(
+                format!(
+                    "{} is not cylindrical, so the curves of {sketch} cannot be wrapped onto it.",
+                    capitalized(&describe_origin(document, face.origin()))
+                ),
+                "Choose faces of one cylinder only, or carry the curves square to the sketch.",
+            ));
+        };
+        match cylinder {
+            None => cylinder = Some(*found),
+            Some(first) if same_cylinder(&first, found) => {}
+            Some(_) => {
+                return Err(context.error(
+                    format!(
+                        "The chosen faces of {} do not lie on one cylinder, so the curves of \
+                         {sketch} cannot be wrapped onto them all.",
+                        context.body_name
+                    ),
+                    "Choose faces of one cylinder only, or split the others in another \
+                     feature.",
+                ));
+            }
+        }
+    }
+    cylinder.ok_or_else(|| {
+        context.error(
+            "No face is chosen to split.".to_owned(),
+            "Choose the faces to split.",
+        )
+    })
+}
+
+fn same_cylinder(first: &Cylinder, second: &Cylinder) -> bool {
+    let axis = |cylinder: &Cylinder| Ray::new(cylinder.frame().origin(), cylinder.frame().normal());
+    match (axis(first), axis(second)) {
+        (Some(first_axis), Some(second_axis)) => {
+            tolerance::same_line(first_axis, second_axis)
+                && (first.radius() - second.radius()).abs() <= tolerance::POSITION_TOLERANCE
+        }
+        _ => false,
+    }
+}
+
+fn wrapped_tool<'a>(
+    context: &Context<'_>,
+    solid: &Solid,
+    faces: &[FaceId],
+    sketch: FeatureId,
+) -> Result<Tool<'a>, Failure> {
+    let inputs = context.resolver.inputs;
+    let result = sketch_result(context, inputs, sketch)?;
+    let geometry = &result.geometry;
+    let plane = geometry.plane();
+    let name = feature_name(inputs.document, sketch);
+    let cylinder = wrapping_cylinder(context, solid, faces, &name)?;
+    if !tolerance::perpendicular(plane.normal(), cylinder.frame().normal()) {
+        return Err(context.error(
+            format!(
+                "{name} does not lie on a plane along the axis of the chosen faces, so its \
+                 curves cannot be wrapped round them."
+            ),
+            "Place the sketch on a plane parallel to the cylinder's axis, such as one touching \
+             it, or carry the curves square to the sketch.",
+        ));
+    }
+    let curves = profile_curves(geometry);
+    if curves.is_empty() {
+        return Err(context.swept_failure(sketch, SweptError::NoCurves));
+    }
+    let open = || {
+        context.resolver.error(
+            format!(
+                "Only closed outlines can be wrapped onto a cylinder, and the curves of {name} \
+                 are not all closed."
+            ),
+            format!(
+                "Close the outlines in {name}, making other curves construction geometry, or \
+                 carry its curves square to the sketch."
+            ),
+            sketch,
+        )
+    };
+    if is_open_chain(geometry) || mixed_curves(geometry).is_some() {
+        return Err(open());
+    }
+    let regions = Profile::new(&curves)
+        .and_then(|profile| profile.select(&Selection::EvenDepth))
+        .map_err(|error| match error {
+            ProfileError::NoClosedProfile { .. } => open(),
+            other => context.swept_failure(sketch, SweptError::Profile(other)),
+        })?;
+    let feature = context.resolver.feature.id().raw();
+    wrap_regions(&plane, &regions, &cylinder, feature)
+        .map(Tool::Made)
+        .map_err(|error| match error {
+            WrapError::Cancelled(_) => Failure::Cancelled,
+            WrapError::BeyondFullTurn {
+                span,
+                circumference,
+            } => context.resolver.error(
+                format!(
+                    "The outlines of {name} reach {} mm round the cylinder, which is only {} mm \
+                     round, so wrapped they would overlap.",
+                    format_number(span),
+                    format_number(circumference)
+                ),
+                format!(
+                    "Keep the outlines of {name} within {} mm across the cylinder's axis.",
+                    format_number(circumference)
+                ),
+                sketch,
+            ),
+            other => context.unbuildable(&other),
+        })
+}
+
 fn tool<'a>(
     context: &'a Context<'_>,
     definition: &SplitFace,
     solid: &Solid,
+    faces: &[FaceId],
 ) -> Result<Tool<'a>, Failure> {
     let feature = context.resolver.feature.id().raw();
     match &definition.along {
@@ -354,6 +518,9 @@ fn tool<'a>(
             "Choose another body to split them along.",
         )),
         SplitAlong::Body(tool) => context.resolver.body(*tool).map(Tool::Body),
+        SplitAlong::Sketch(sketch) if definition.is_wrapped() => {
+            wrapped_tool(context, solid, faces, *sketch)
+        }
         SplitAlong::Sketch(sketch) => sketch_tool(context, definition, solid, *sketch),
         SplitAlong::Surface(face) => {
             let holder = context.resolver.body(face.body)?;
@@ -436,7 +603,7 @@ pub(crate) fn evaluate(
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }
-    let tool = tool(&context, definition, solid)?;
+    let tool = tool(&context, definition, solid, &faces)?;
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }

@@ -11837,6 +11837,89 @@ fn split_face_carries_its_sketch_along_a_chosen_line_from_its_panel() {
 }
 
 #[test]
+fn split_face_wraps_its_sketch_round_a_cylinder_from_the_palette() {
+    let mut harness = Harness::new();
+    let mut disc = Sketch::new(Plane::XY);
+    disc.add_circle(Point2::new(0.0, 0.0), 10.0);
+    harness.add_sketch(disc);
+    harness.select([]);
+    harness.click_tool("Extrude");
+    harness.settle();
+    let rod = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the extrusion is open");
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+    let tangent = Plane::from_frame(
+        caditor_geometry::Point3::new(0.0, 10.0, 0.0),
+        caditor_geometry::Vector3::Y,
+        caditor_geometry::Vector3::Z,
+    )
+    .unwrap();
+    let mut label = Sketch::new(tangent);
+    let edge = label.add_line(Point2::new(2.0, -3.0), Point2::new(7.0, -3.0));
+    label.add_line(Point2::new(7.0, -3.0), Point2::new(7.0, 3.0));
+    label.add_line(Point2::new(7.0, 3.0), Point2::new(2.0, 3.0));
+    label.add_line(Point2::new(2.0, 3.0), Point2::new(2.0, -3.0));
+    let label = harness.add_sketch(label);
+    let walls = |harness: &Harness| {
+        harness
+            .model
+            .evaluation()
+            .body(rod)
+            .unwrap()
+            .faces()
+            .filter(|(_, face)| matches!(face.surface(), caditor_kernel::Surface::Cylinder(_)))
+            .count()
+    };
+    let wall = harness
+        .built()
+        .picks
+        .pickables()
+        .find(|pickable| {
+            let Pickable::Face { body, face } = pickable else {
+                return false;
+            };
+            let result = harness
+                .model
+                .evaluation()
+                .body_result(*body)
+                .and_then(|result| result.solid())
+                .unwrap();
+            crate::bodies::find_face(result, *face)
+                .and_then(|id| result.solid.face(id))
+                .is_some_and(|face| matches!(face.surface(), caditor_kernel::Surface::Cylinder(_)))
+        })
+        .expect("the wall is pickable");
+    harness.select([
+        wall,
+        Pickable::SketchEntity {
+            feature: label,
+            entity: edge,
+        },
+    ]);
+    harness.use_tool_with(Key::K, Modifiers::ALT | Modifiers::SHIFT);
+    harness.settle();
+    let split = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the split face is open");
+    assert_eq!(walls(&harness), 3);
+
+    run_from_palette(&mut harness, "wrap the split");
+    harness.settle();
+
+    assert!(split_face_of(&harness, split).is_wrapped());
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+    assert_eq!(walls(&harness), 2);
+    assert!(harness.shows("Wrapped round the faces"));
+}
+
+#[test]
 fn the_offset_face_command_needs_faces_of_a_body_and_takes_every_selected_one() {
     let mut harness = Harness::new();
     let (plate, top) = extruded_plate(&mut harness);

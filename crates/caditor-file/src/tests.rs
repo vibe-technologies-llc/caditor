@@ -3496,7 +3496,7 @@ fn split_face_model(
             body: base,
             faces: vec![top],
             along,
-            direction: None,
+            carry: caditor_document::SplitCarry::Square,
         }),
     );
     document.apply(transaction.finish()).unwrap();
@@ -3527,6 +3527,41 @@ fn split_faces_are_saved_and_loaded_as_a_record_of_their_own() {
 }
 
 #[test]
+fn a_split_face_wrapping_its_sketch_is_a_kind_older_readers_report() {
+    use caditor_document::{SplitAlong, SplitCarry};
+    let (mut document, split) = split_face_model(|document, _| {
+        let outline = document
+            .features()
+            .find(|feature| feature.name == "Outline")
+            .unwrap();
+        SplitAlong::Sketch(outline.id())
+    });
+    let mut kind = document.feature(split).unwrap().kind.clone();
+    if let FeatureKind::SplitFace(definition) = &mut kind {
+        definition.carry = SplitCarry::Wrapped;
+    }
+    document
+        .apply(Transaction::single(
+            "Wrap",
+            Edit::SetFeatureKind {
+                id: split,
+                kind: kind.clone(),
+            },
+        ))
+        .unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let older = decode_text(&text.replace("split_face_wrapped", "split_face_wrappex"));
+
+    assert!(text.contains("\"split_face_wrapped\":{\"feature\":{\"split_face\":"));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert!(older.document.feature(split).is_none());
+    assert!(!older.issues.is_empty());
+}
+
+#[test]
 fn a_split_face_carried_along_an_axis_is_a_kind_older_readers_report() {
     use caditor_document::{AxisReference, PrincipalAxis, SplitAlong};
     let (mut document, split) = split_face_model(|document, _| {
@@ -3538,7 +3573,9 @@ fn a_split_face_carried_along_an_axis_is_a_kind_older_readers_report() {
     });
     let mut kind = document.feature(split).unwrap().kind.clone();
     if let FeatureKind::SplitFace(definition) = &mut kind {
-        definition.direction = Some(Box::new(AxisReference::Principal(PrincipalAxis::X)));
+        definition.carry = caditor_document::SplitCarry::Along(Box::new(AxisReference::Principal(
+            PrincipalAxis::X,
+        )));
     }
     document
         .apply(Transaction::single(
@@ -3561,7 +3598,7 @@ fn a_split_face_carried_along_an_axis_is_a_kind_older_readers_report() {
     assert!(older.document.feature(split).is_none());
     assert!(!older.issues.is_empty());
     let restored = damaged.document.feature(split).unwrap();
-    assert!(restored.kind.split_face().unwrap().direction.is_none());
+    assert!(restored.kind.split_face().unwrap().direction().is_none());
     assert_eq!(
         damaged.issues,
         [

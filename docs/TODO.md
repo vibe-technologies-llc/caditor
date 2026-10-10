@@ -234,10 +234,10 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   Every copy is the original's tool placed again, never recomputed where it lands (a copy of an
   extrusion up to next stops where the original did, not on the face it meets), and one pattern
   cannot chain a shift, a turn and a mirror.
-- [low · medium] Split face carries a sketch only straight, square to it or along a chosen line:
-  a curve cannot be wrapped onto a curved face (a stripe laid round a cylinder by its unrolled
-  length), and a sketch whose open chain touches one of its closed outlines is neither one chain
-  nor separate outlines, so it fails.
+- [low · medium] Split face wraps only closed outlines, only onto faces of one cylinder and only
+  within once round it: an open chain cannot be wrapped (a helical stripe running round more than
+  once, a band whose ends meet after one turn), and nothing wraps onto a cone (by its unrolled
+  sector) or a sphere.
 - [low · medium] Expressions cannot read a measured value (a distance or angle taken from the
   geometry): parameters evaluate before and apart from recompute, so a measured one would need
   recompute to evaluate parameters in tree order beside the features, the measured reference

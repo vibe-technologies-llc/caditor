@@ -256,6 +256,7 @@ pub enum Command {
     ChamferTwoDistances,
     ChamferDistanceAngle,
     FlipChamfer,
+    WrapSplitCurves,
     ReverseDirection,
     FilterFeatures,
     AddParameter,
@@ -738,6 +739,7 @@ plain_commands! {
     ChamferTwoDistances,
     ChamferDistanceAngle,
     FlipChamfer,
+    WrapSplitCurves,
     ReverseDirection,
     FilterFeatures,
     AddParameter,
@@ -1034,6 +1036,7 @@ impl Command {
             Self::ChamferTwoDistances => "model.chamfer_two_distances",
             Self::ChamferDistanceAngle => "model.chamfer_distance_angle",
             Self::FlipChamfer => "model.flip_chamfer",
+            Self::WrapSplitCurves => "model.wrap_split_curves",
             Self::ReverseDirection => "model.reverse_direction",
             Self::FilterFeatures => "model.filter_features",
             Self::AddParameter => "model.add_parameter",
@@ -1272,6 +1275,7 @@ impl Command {
             Self::ChamferTwoDistances => "Chamfer by two distances",
             Self::ChamferDistanceAngle => "Chamfer by a distance and an angle",
             Self::FlipChamfer => "Flip the chamfer's faces",
+            Self::WrapSplitCurves => "Wrap the split face's curves round its faces",
             Self::ReverseDirection => "Reverse the direction",
             Self::FilterFeatures => "Filter the feature tree",
             Self::AddParameter => "Add parameter",
@@ -1531,6 +1535,7 @@ impl Command {
             | Self::ChamferTwoDistances
             | Self::ChamferDistanceAngle
             | Self::FlipChamfer
+            | Self::WrapSplitCurves
             | Self::ReverseDirection
             | Self::FilterFeatures
             | Self::AddParameter
@@ -1814,6 +1819,7 @@ impl Command {
             | Self::ChamferTwoDistances
             | Self::ChamferDistanceAngle
             | Self::FlipChamfer
+            | Self::WrapSplitCurves
             | Self::ReverseDirection
             | Self::AddParameter
             | Self::DeleteParameter

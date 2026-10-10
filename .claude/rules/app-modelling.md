@@ -355,7 +355,11 @@ paths:
   `ALONG`: Along an edge or axis takes the one selected edge, axis, round face or sketch line,
   `datum_tools::only_axis` through `split_face_tools::direction_change`, else chooses one in the
   view on `Slot::SplitDirection`, then shown as Along with a button going back to square, as an
-  extrusion's Direction row) and Body.
+  extrusion's Direction row; `WRAPPED`, Wrapped round the faces, through
+  `split_face_tools::wrapped_change`, offered disabled with the reason unless the chosen faces lie
+  on one cylinder as the body before it stands, and also the palette's Wrap the split face's
+  curves round its faces, `Command::WrapSplitCurves`, on the open feature else the tree's row)
+  and Body.
 - Its pieces carry new names, so the faces of its result are not the keys of the state before it:
   while open it always shows the body before it (`OpenView::Before`, `FaceChoice::Splitting`) with
   every face a `Pickable::ShellFace` and the chosen ones in the selected colour, a click splitting a

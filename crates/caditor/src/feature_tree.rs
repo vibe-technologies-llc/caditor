@@ -2459,7 +2459,7 @@ fn feature_commands(
         actions.push(Action::Apply(transaction));
     }
     let target = chosen.open.or(current);
-    let changes: [(Command, FeatureChange<'_>); 18] = [
+    let changes: [(Command, FeatureChange<'_>); 19] = [
         (Command::PlaceSketch, &|feature| {
             place_change(model, selection, feature)
         }),
@@ -2514,6 +2514,9 @@ fn feature_commands(
         }),
         (Command::FlipChamfer, &|feature| {
             blend_tools::flip_change(document, feature)
+        }),
+        (Command::WrapSplitCurves, &|feature| {
+            split_face_tools::wrap_command(model, feature)
         }),
         (Command::ReverseDirection, &|feature| {
             reversing::reverse_change(document, feature)

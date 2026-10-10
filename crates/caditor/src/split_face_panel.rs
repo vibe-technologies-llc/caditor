@@ -1,5 +1,5 @@
 use caditor_document::{
-    Document, Feature, Resolution, SolidResult, SplitFace, capitalized, describe_axis,
+    Document, Feature, Resolution, SolidResult, SplitCarry, SplitFace, capitalized, describe_axis,
 };
 use caditor_kernel::FaceId;
 use egui::{Id, Ui};
@@ -17,11 +17,13 @@ use crate::{
 };
 
 pub const DESCRIPTION: &str = "Divides the chosen faces along a plane, a sketch's curves carried \
-                               through them or another body, without changing the shape, so a \
-                               piece can take its own colour, draft or fillet";
+                               through them or wrapped round a cylinder, or another body, without \
+                               changing the shape, so a piece can take its own colour, draft or \
+                               fillet";
 pub const CARRIED: &str = "Carried";
 pub const SQUARE: &str = "Square to the sketch";
 pub const ALONG: &str = "Along an edge or axis";
+pub const WRAPPED: &str = "Wrapped round the faces";
 const DIRECTION_HOVER: &str = "Carry the curves along the selected edge, axis or line instead";
 const PICK_HOVER: &str =
     "Split along the selected plane, flat face, sketch curve or other body instead";
@@ -189,37 +191,42 @@ fn direction_rows(ui: &mut Ui, row: &FacesRow<'_>, actions: &mut Vec<Action>) {
     let id = feature.id();
     let along = split.direction();
     let square = SplitFace {
-        direction: None,
+        carry: SplitCarry::Square,
         ..split.clone()
     };
     widgets::caption(ui, CARRIED);
-    let chosen = feature_fields::combo(
-        ui,
-        Id::new(("split-face-direction", id)),
-        if along.is_some() { ALONG } else { SQUARE },
-        || {
-            vec![
-                Choice {
-                    label: SQUARE.to_owned(),
-                    selected: along.is_none(),
-                    change: split_face_tools::change(model, id, square.clone()).map(Action::Apply),
-                },
-                Choice {
-                    label: ALONG.to_owned(),
-                    selected: along.is_some(),
-                    change: Ok(
-                        match split_face_tools::direction_change(model, selection, id, split) {
-                            Ok(transaction) => Action::Apply(transaction),
-                            Err(_) => Action::Editing(EditingCommand::Pick(Picking::new(
-                                id,
-                                Slot::SplitDirection,
-                            ))),
-                        },
-                    ),
-                },
-            ]
-        },
-    );
+    let shown = match split.carry {
+        SplitCarry::Square => SQUARE,
+        SplitCarry::Along(_) => ALONG,
+        SplitCarry::Wrapped => WRAPPED,
+    };
+    let chosen = feature_fields::combo(ui, Id::new(("split-face-direction", id)), shown, || {
+        vec![
+            Choice {
+                label: SQUARE.to_owned(),
+                selected: matches!(split.carry, SplitCarry::Square),
+                change: split_face_tools::change(model, id, square.clone()).map(Action::Apply),
+            },
+            Choice {
+                label: ALONG.to_owned(),
+                selected: along.is_some(),
+                change: Ok(
+                    match split_face_tools::direction_change(model, selection, id, split) {
+                        Ok(transaction) => Action::Apply(transaction),
+                        Err(_) => Action::Editing(EditingCommand::Pick(Picking::new(
+                            id,
+                            Slot::SplitDirection,
+                        ))),
+                    },
+                ),
+            },
+            Choice {
+                label: WRAPPED.to_owned(),
+                selected: split.is_wrapped(),
+                change: split_face_tools::wrapped_change(model, id, split).map(Action::Apply),
+            },
+        ]
+    });
     ui.end_row();
     actions.extend(chosen);
     let picking = reference_picking::current(ui.ctx())

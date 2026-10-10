@@ -563,7 +563,7 @@ fn a_split_face_divides_faces_along_the_surface_of_a_curved_face() {
                 body: round,
                 face: wall,
             }),
-            direction: None,
+            carry: SplitCarry::Square,
         }),
     );
     document.apply(transaction.finish()).unwrap();
