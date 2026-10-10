@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 
+use caditor_expression::Expression;
 use caditor_geometry::Point3;
 
 use crate::{
@@ -220,7 +221,30 @@ fn a_copy_others_use_cannot_stop_being_a_copy() {
         },
     ));
 
-    assert!(refused.is_err());
+    assert!(matches!(refused, Err(EditError::BodyInUse { .. })));
+}
+
+#[test]
+fn a_copy_others_use_can_be_edited_while_it_stays_a_copy() {
+    let mut pair = pair();
+    let copy = copied(&mut pair, ["0 mm", "30 mm", "0 mm"]);
+    let mut transaction = pair.document.transaction("Use");
+    transaction.add_feature("Remove 1", FeatureKind::Remove(Remove { body: copy }));
+    pair.document.apply(transaction.finish()).unwrap();
+    let FeatureKind::Move(mut movement) = pair.document.feature(copy).unwrap().kind.clone() else {
+        panic!("the copy is a move");
+    };
+    movement.offset[1] = Expression::parse_stored("45 mm").unwrap();
+
+    let edited = pair.document.apply(Transaction::single(
+        "Move the copy",
+        Edit::SetFeatureKind {
+            id: copy,
+            kind: FeatureKind::Move(movement),
+        },
+    ));
+
+    assert!(edited.is_ok());
 }
 
 fn upright_edge(evaluation: &Evaluation, body: FeatureId, x: f64, y: f64) -> AxisReference {

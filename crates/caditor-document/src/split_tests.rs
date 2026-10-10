@@ -2,7 +2,7 @@ use std::f64::consts::PI;
 
 use caditor_expression::Expression;
 use caditor_geometry::{Plane, Point2};
-use caditor_kernel::{FaceReference, Surface};
+use caditor_kernel::{EdgeReference, FaceReference, Surface};
 use caditor_sketch::Sketch;
 
 use crate::{
@@ -589,4 +589,54 @@ fn a_split_face_divides_faces_along_the_surface_of_a_curved_face() {
             .bodies_used()
             .contains(&round)
     );
+}
+
+fn fillet_on_the_split_off_part(model: &mut Model) -> FeatureId {
+    let evaluation = evaluate(&model.document, &mut Recompute::default());
+    let solid = evaluation.body(model.split).unwrap();
+    let point = caditor_geometry::Point3::new(-5.0, -5.0, 4.0);
+    let (edge, _) = solid
+        .edges()
+        .find(|(_, edge)| {
+            let parameter = edge.curve().closest_parameter(point, edge.interval());
+            edge.curve().point(parameter).distance(point) < 1e-6
+        })
+        .unwrap();
+    let edges = vec![EdgeReference::capture(solid, edge).unwrap()];
+
+    let mut transaction = model.document.transaction("Fillet");
+    let fillet = transaction.add_feature(
+        "Fillet 1",
+        FeatureKind::Blend(Blend {
+            kind: BlendKind::Fillet,
+            body: model.split,
+            groups: Vec::new(),
+            edges,
+            size: Expression::parse_stored("1 mm").unwrap(),
+            form: ChamferForm::Equal,
+            flipped: false,
+        }),
+    );
+    model.document.apply(transaction.finish()).unwrap();
+    fillet
+}
+
+#[test]
+fn a_split_plane_can_be_edited_under_a_fillet_on_the_split_off_part() {
+    let mut model = split_plate(PlaneReference::Principal(PrincipalPlane::Yz), false);
+    fillet_on_the_split_off_part(&mut model);
+
+    let edited = model.document.apply(Transaction::single(
+        "Move the plane",
+        Edit::SetFeatureKind {
+            id: model.split,
+            kind: FeatureKind::Split(Split {
+                body: model.plate,
+                along: SplitAlong::Plane(PlaneReference::Principal(PrincipalPlane::Xz)),
+                flipped: false,
+            }),
+        },
+    ));
+
+    assert!(edited.is_ok());
 }

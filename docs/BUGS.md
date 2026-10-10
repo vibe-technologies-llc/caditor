@@ -86,13 +86,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   edge along the same curve between the same cap and the faces of its `Collinear` pieces, or the
   feature marked as having lost part of its choice with a fix
   (`blend_tests::a_notch_trimmed_into_a_filleted_edge_keeps_both_pieces_rounded`, ignored).
-- [medium · easy] A Split, or a Move that copies, cannot be edited once something uses its body:
-  `SetFeatureKind` keeps a body only for imports and new-body solids and primitives, so any other
-  kind whose id another feature's `bodies_used` holds is refused as `BodyInUse`, though
-  `makes_body` is true for both. Changing a split's plane under a fillet on the split-off part is
-  refused, and so are Update references (`healing.rs` emits the same edit) and, through one
-  refused edit, the whole `complete_origins` transaction on loading, logged only. Decide it as
-  `Feature { kind: new, .. }.makes_body()`.
 - [medium · easy] Sketch dimensions escape the measurement-order check: `set_dimension` and
   `add_sketch_constraint` check references only, and `check_measurement_order` runs on
   `SetFeatureKind` and `InsertFeature`, which a sketch never takes after insertion. A dimension of

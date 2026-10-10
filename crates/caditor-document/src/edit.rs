@@ -31,7 +31,6 @@ use crate::{
     projection::ProjectionSource,
     properties::{ModelProperties, ModelProperty},
     selection_sets::{MAX_SELECTION_SETS, MAX_SET_MEMBERS, MAX_SET_NAME_CHARS, SelectionSets},
-    solid::BodyOperation,
     views::{MAX_SAVED_VIEWS, MAX_VIEW_NAME_CHARS, SavedViews},
 };
 
@@ -1010,13 +1009,7 @@ impl Document {
         self.check_feature_references(&kind, index)?;
         self.check_measurement_order(&Feature::new(id, name.clone(), kind.clone()), index)?;
         self.reserve_past_references(&kind);
-        let keeps_body = matches!(kind, FeatureKind::Import(_))
-            || kind
-                .solid()
-                .is_some_and(|solid| solid.operation() == BodyOperation::NewBody)
-            || kind
-                .primitive()
-                .is_some_and(|primitive| primitive.operation == BodyOperation::NewBody);
+        let keeps_body = Feature::new(id, name.clone(), kind.clone()).makes_body();
         if !keeps_body {
             let users: Vec<String> = self
                 .features()
