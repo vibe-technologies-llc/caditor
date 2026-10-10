@@ -321,16 +321,21 @@ paths:
     nothing, since an opened top between the long and short sides of a bevelled box passes both
     pairs at its own offset yet closes into a ridge below it; only when neither pair holds do all
     four vertices merge into one;
-  - a one-loop face whose kept edges form two sides apart, one a single edge and the other a chain
-    (a rim split by another face's seam), is dropped only when its offset outline turns over: the
-    loop's offset vertices projected onto the original surface (hinted by each coedge's pcurve
-    start) enclose a uv area of the opposite sign or none (`Layout::outline_inverts`), since
-    counting chains alone closes faces of a chamfered box that survive. Such a dropped face is a
-    `Band`: each joint of the chain is solved on the offset of the face beyond the single edge as
-    well (a vertex of two offset surfaces, held by a seam plane when its own faces leave it free),
-    each chain edge becomes its own edge between its live face and that face, and the single edge
-    maps to the chain's pieces in order. Two chains, or a single edge whose far face also drops,
-    are still refused;
+  - a one-loop face whose kept edges form two sides apart, at least one a chain (a rim split by
+    another face's seam, or both rims split by seams on both circles), is dropped only when its
+    offset outline turns over: the loop's offset vertices projected onto the original surface
+    (hinted by each coedge's pcurve start) enclose a uv area of the opposite sign or none
+    (`Layout::outline_inverts`), since counting chains alone closes faces of a chamfered box that
+    survive. Such a dropped face is a `Band` closing into a ridge between the faces beyond its two
+    sides (`Rim`s, both walked from one end of the band to the other): each joint of one side lies
+    across the rim of the other side nearest to it on the original body, which orders the joints of
+    both sides along the ridge (`ridge`, refused when they do not follow each other in order), and
+    is solved on the offsets of the faces beyond the rims on both sides of it (a vertex of two
+    offset surfaces held by a seam plane when its own faces leave it free). Each stretch of the
+    ridge between consecutive joints becomes a new edge between the faces beyond the two rims
+    covering it (a `Span`, its curve rebuilt from the open rim of the two), and each rim maps to
+    the stretches it covers in order. A band whose rim's far face drops as well has no surface to
+    put its joints on and is `ShellError::ClosesBesideClosing`, naming both faces;
   - vanishing edges merge their vertices; a merged vertex must lie strictly inside the offset of
     each face that shrank away there, and beyond an opened face offset outward, so the cavity still
     opens through it, else the edge shrinking to nothing is reported;

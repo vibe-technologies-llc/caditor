@@ -1,4 +1,4 @@
-use std::f64::consts::{FRAC_PI_2, PI};
+use std::f64::consts::{FRAC_PI_2, FRAC_PI_4, PI};
 
 use caditor_geometry::{Plane, Point2, Point3, RigidTransform, Rotation3, Vector2, Vector3};
 
@@ -13,6 +13,7 @@ use crate::{
     profile::{Profile, ProfileCurve, Selection},
     test_support::{arc, assert_cancelled_anywhere, assert_watertight, line},
     tolerance::SamplingTolerance,
+    topology::Face,
 };
 
 pub(super) fn polygon(points: &[(f64, f64)]) -> Vec<ProfileCurve> {
@@ -1255,5 +1256,101 @@ fn an_opening_under_leaning_walls_is_refused_rather_than_cut_straight() {
         matches!(swept, Err(ShellError::Overhang { open, .. }) if open == top),
         "{:?}",
         swept.map(|hollowed| volume(&hollowed.solid))
+    );
+}
+
+fn stacked(solid: Solid, turn: f64, lift: f64) -> Solid {
+    let turn = RigidTransform::rotation_about(Point3::ZERO, Vector3::Z, turn).unwrap();
+    let lift = RigidTransform::translation(Vector3::new(0.0, 0.0, lift)).unwrap();
+    solid
+        .transformed(&turn)
+        .unwrap()
+        .transformed(&lift)
+        .unwrap()
+}
+
+fn seams_on_both_rims(lid_turn: f64) -> Solid {
+    let drum = cylinder(5.0, 9.0);
+    let band = stacked(frustum(5.0, 4.5, 0.5), FRAC_PI_4, 9.0);
+    let lid = stacked(frustum(4.5, 1.0, 0.5), lid_turn, 9.5);
+    let banded = boolean(&drum, &band, BooleanOperation::Union).unwrap();
+    boolean(&banded, &lid, BooleanOperation::Union).unwrap()
+}
+
+fn revolved_volume(profile: &[Point2]) -> f64 {
+    (0..profile.len())
+        .map(|index| {
+            let (a, b) = (profile[index], profile[(index + 1) % profile.len()]);
+            PI / 3.0 * (a.x * a.x + a.x * b.x + b.x * b.x) * (b.y - a.y)
+        })
+        .sum::<f64>()
+        .abs()
+}
+
+fn is_band(face: &Face) -> bool {
+    matches!(face.surface(), Surface::Cone(cone) if (cone.half_angle().abs() - FRAC_PI_4).abs() < 1e-9)
+}
+
+#[test]
+fn a_band_split_by_seams_on_both_rims_closes_into_a_ridge() {
+    let thickness = 2.0;
+    let lid = lowered((4.5, 9.5), (1.0, 10.0), thickness);
+    let wall = 5.0 - thickness;
+    let ridge = Point2::new(wall, height_at(lid, wall));
+    let top = 10.0 - thickness;
+    let crown = meeting(lid, [Point2::new(0.0, top), Point2::new(1.0, top)]);
+    let outer = 225.0 * PI + frustum_volume(5.0, 4.5, 0.5) + frustum_volume(4.5, 1.0, 0.5);
+    for lid_turn in [FRAC_PI_2, PI / 9.0] {
+        let solid = seams_on_both_rims(lid_turn);
+        let band = solid
+            .faces()
+            .find(|(_, face)| is_band(face))
+            .map(|(id, _)| id)
+            .unwrap();
+        let rims = loop_edges(&solid, band)
+            .into_iter()
+            .filter(|edge| coedge_faces(&solid, *edge) != [band, band])
+            .count();
+        assert_eq!(rims, 4, "seams split both rims of the band");
+
+        for (open, floor) in [(false, thickness), (true, 0.0)] {
+            let opened: Vec<FaceId> = if open {
+                vec![face_facing(&solid, Vector3::NEG_Z, Point3::ZERO)]
+            } else {
+                Vec::new()
+            };
+            let cavity = revolved_volume(&[
+                Point2::new(0.0, floor),
+                Point2::new(wall, floor),
+                ridge,
+                crown,
+                Point2::new(0.0, top),
+            ]);
+            let name = format!("seams on both rims, lid turned {lid_turn}, open {open}");
+            let result = run(&solid, &opened, thickness);
+            check(&name, &result, outer - cavity);
+
+            let walls: Vec<&Face> = result
+                .faces()
+                .filter(|(_, face)| face.origin() == Some(FaceOrigin::Shell { feature: 70 }))
+                .map(|(_, face)| face)
+                .collect();
+            assert_eq!(walls.len(), if open { 3 } else { 4 }, "{name}");
+            assert!(!walls.iter().any(|face| is_band(face)), "{name}");
+        }
+    }
+}
+
+#[test]
+fn a_band_closing_beside_a_band_that_closes_too_is_named() {
+    let drum = cylinder(5.0, 9.0);
+    let band = stacked(frustum(5.0, 4.5, 0.5), FRAC_PI_4, 9.0);
+    let lid = stacked(frustum(4.5, 4.2, 0.1), FRAC_PI_2, 9.5);
+    let banded = boolean(&drum, &band, BooleanOperation::Union).unwrap();
+    let solid = boolean(&banded, &lid, BooleanOperation::Union).unwrap();
+    let error = shell(&solid, &[], 2.0, 70).unwrap_err();
+    assert!(
+        matches!(error, ShellError::ClosesBesideClosing { .. }),
+        "{error:?}"
     );
 }

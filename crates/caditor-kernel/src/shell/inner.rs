@@ -13,7 +13,6 @@ use crate::{
     curve::Curve,
     interrupt,
     naming::{EdgeName, FaceName, FaceOrigin},
-    sense::Sense,
     surface::Surface,
     tolerance::LINEAR_RESOLUTION,
     topology::{CoedgeId, EdgeId, Face, FaceId, Solid, VertexId},
@@ -369,11 +368,45 @@ fn place_corners(
     Ok(corners)
 }
 
+struct Rim {
+    edge: EdgeId,
+    beyond: FaceId,
+    forward: bool,
+}
+
+impl Rim {
+    fn ends(&self, solid: &Solid) -> Option<(VertexId, VertexId)> {
+        let edge = solid.edge(self.edge)?;
+        Some(if self.forward {
+            (edge.start(), edge.end())
+        } else {
+            (edge.end(), edge.start())
+        })
+    }
+}
+
+struct RidgeVertex {
+    vertex: VertexId,
+    edge: EdgeId,
+}
+
+struct Span {
+    first: usize,
+    second: usize,
+}
+
 struct Band {
     face: FaceId,
-    chain: Vec<CoedgeId>,
-    side: CoedgeId,
-    beyond: FaceId,
+    rims: [Vec<Rim>; 2],
+    vertices: Vec<RidgeVertex>,
+    spans: Vec<Span>,
+}
+
+impl Band {
+    fn beyond(&self, span: &Span) -> Option<[&Rim; 2]> {
+        let [first, second] = &self.rims;
+        Some([first.get(span.first)?, second.get(span.second)?])
+    }
 }
 
 fn sides(
@@ -408,52 +441,153 @@ fn sides(
     Some(sides)
 }
 
-fn bands(solid: &Solid, collapses: &Collapses, vanishing: &BTreeSet<EdgeId>) -> Vec<Band> {
-    collapses
-        .shrinking()
-        .filter_map(|(face, across)| {
-            let sides = sides(solid, face, across, vanishing)?;
-            let [first, second] = sides.as_slice() else {
-                return None;
-            };
-            let (chain, side) = if first.len() == 1 {
-                (second, first)
-            } else {
-                (first, second)
-            };
-            let [side] = side.as_slice() else {
-                return None;
-            };
-            if chain.len() < 2 {
-                return None;
-            }
-            let beyond = coedge_faces(solid, solid.coedge(*side)?.edge())
-                .into_iter()
-                .find(|other| *other != face)?;
-            (!collapses.contains(beyond)).then(|| Band {
-                face,
-                chain: chain.clone(),
-                side: *side,
-                beyond,
-            })
-        })
-        .collect()
+fn rims(
+    solid: &Solid,
+    collapses: &Collapses,
+    face: FaceId,
+    side: &[CoedgeId],
+    walks_forward: bool,
+) -> Result<Vec<Rim>, ShellError> {
+    let mut rims = Vec::with_capacity(side.len());
+    for coedge_id in side {
+        let coedge = solid
+            .coedge(*coedge_id)
+            .ok_or(ShellError::walls_at([face]))?;
+        let edge = coedge.edge();
+        let [beyond] = coedge_faces(solid, edge)
+            .into_iter()
+            .filter(|other| *other != face)
+            .collect::<Vec<_>>()[..]
+        else {
+            return Err(collapses
+                .refusal(solid, face)
+                .unwrap_or(ShellError::UnsupportedEdge(edge)));
+        };
+        if collapses.contains(beyond) {
+            return Err(ShellError::ClosesBesideClosing { face, beyond });
+        }
+        rims.push(Rim {
+            edge,
+            beyond,
+            forward: coedge.sense().is_same() == walks_forward,
+        });
+    }
+    if !walks_forward {
+        rims.reverse();
+    }
+    Ok(rims)
 }
 
-fn joints(
+fn nearest_rim(solid: &Solid, point: Point3, rims: &[Rim]) -> Option<usize> {
+    rims.iter()
+        .enumerate()
+        .filter_map(|(index, rim)| {
+            let edge = solid.edge(rim.edge)?;
+            let curve = edge.curve();
+            let foot = curve.point(curve.closest_parameter(point, edge.interval()));
+            Some((index, foot.distance(point)))
+        })
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(index, _)| index)
+}
+
+fn ridge(solid: &Solid, [first, second]: &[Vec<Rim>; 2]) -> Option<(Vec<RidgeVertex>, Vec<Span>)> {
+    let far_end = |rim: &Rim| {
+        let (_, end) = rim.ends(solid)?;
+        Some(RidgeVertex {
+            vertex: end,
+            edge: rim.edge,
+        })
+    };
+    let across: Vec<usize> = first
+        .split_last()?
+        .1
+        .iter()
+        .map(|rim| {
+            let joint = far_end(rim)?.vertex;
+            nearest_rim(solid, solid.vertex(joint)?.point(), second)
+        })
+        .collect::<Option<_>>()?;
+    if across.windows(2).any(|pair| pair.first() > pair.last()) {
+        return None;
+    }
+    let start = first.first()?;
+    let mut vertices = vec![RidgeVertex {
+        vertex: start.ends(solid)?.0,
+        edge: start.edge,
+    }];
+    let mut spans = Vec::with_capacity(first.len() + second.len());
+    let (mut along_first, mut along_second) = (0, 0);
+    loop {
+        spans.push(Span {
+            first: along_first,
+            second: along_second,
+        });
+        let first_joint_next = across
+            .get(along_first)
+            .is_some_and(|rim| *rim <= along_second);
+        if first_joint_next {
+            vertices.push(far_end(first.get(along_first)?)?);
+            along_first += 1;
+        } else if along_second + 1 < second.len() {
+            vertices.push(far_end(second.get(along_second)?)?);
+            along_second += 1;
+        } else {
+            break;
+        }
+    }
+    vertices.push(far_end(first.last()?)?);
+    Some((vertices, spans))
+}
+
+fn bands(
     solid: &Solid,
-    clusters: &Clusters,
-    bands: &[Band],
-) -> BTreeMap<VertexId, BTreeSet<FaceId>> {
+    collapses: &Collapses,
+    vanishing: &BTreeSet<EdgeId>,
+) -> Result<Vec<Band>, ShellError> {
+    let mut bands = Vec::new();
+    for (face, across) in collapses.shrinking() {
+        let Some(sides) = sides(solid, face, across, vanishing) else {
+            continue;
+        };
+        let [first, second] = sides.as_slice() else {
+            continue;
+        };
+        if first.len() < 2 && second.len() < 2 {
+            continue;
+        }
+        let rims = [
+            rims(solid, collapses, face, first, true)?,
+            rims(solid, collapses, face, second, false)?,
+        ];
+        let (vertices, spans) = ridge(solid, &rims).ok_or_else(|| {
+            collapses
+                .refusal(solid, face)
+                .unwrap_or(ShellError::walls_at([face]))
+        })?;
+        bands.push(Band {
+            face,
+            rims,
+            vertices,
+            spans,
+        });
+    }
+    Ok(bands)
+}
+
+fn joints(clusters: &Clusters, bands: &[Band]) -> BTreeMap<VertexId, BTreeSet<FaceId>> {
     let mut joints: BTreeMap<VertexId, BTreeSet<FaceId>> = BTreeMap::new();
     for band in bands {
-        let inner = band.chain.split_last().map_or(&[][..], |(_, inner)| inner);
-        for coedge in inner {
-            if let Some((_, end)) = solid.coedge_vertices(*coedge) {
-                joints
-                    .entry(clusters.find(end))
-                    .or_default()
-                    .insert(band.beyond);
+        let inner = band
+            .vertices
+            .get(1..band.vertices.len().saturating_sub(1))
+            .unwrap_or_default();
+        for (index, joint) in inner.iter().enumerate() {
+            let faces = joints.entry(clusters.find(joint.vertex)).or_default();
+            for span in band.spans.get(index..index + 2).unwrap_or_default() {
+                if let Some(rims) = band.beyond(span) {
+                    faces.extend(rims.map(|rim| rim.beyond));
+                }
             }
         }
     }
@@ -484,8 +618,8 @@ impl Layout {
     fn new(offsets: &Offsets<'_>, collapses: &Collapses) -> Result<Self, ShellError> {
         let vanishing = collapses.vanishing_edges(offsets.solid);
         let clusters = Clusters::new(offsets.solid, &vanishing);
-        let bands = bands(offsets.solid, collapses, &vanishing);
-        let joints = joints(offsets.solid, &clusters, &bands);
+        let bands = bands(offsets.solid, collapses, &vanishing)?;
+        let joints = joints(&clusters, &bands);
         let mut plan = Plan::default();
         let corners = place_corners(offsets, collapses, &clusters, &joints, &mut plan)?;
         Ok(Self {
@@ -549,8 +683,7 @@ impl Layout {
             [] => true,
             [first, second] => match (first.as_slice(), second.as_slice()) {
                 ([a], [b]) => edge(a) != edge(b),
-                ([_], _) | (_, [_]) => self.outline_inverts(solid, face) == Some(true),
-                _ => false,
+                _ => self.outline_inverts(solid, face) == Some(true),
             },
             _ => false,
         }
@@ -625,64 +758,72 @@ fn face_name(solid: &Solid, face: FaceId) -> FaceName {
 
 fn place_band(
     offsets: &Offsets<'_>,
-    collapses: &Collapses,
     band: &Band,
     layout: &mut Layout,
     placed: &mut BTreeMap<EdgeId, Vec<Placed>>,
 ) -> Result<(), ShellError> {
     let solid = offsets.solid;
-    let refused = |edge: EdgeId| {
-        collapses
-            .refusal(solid, band.face)
-            .unwrap_or(ShellError::UnsupportedEdge(edge))
-    };
-    let mut pieces = Vec::with_capacity(band.chain.len());
-    for coedge_id in &band.chain {
-        let coedge = solid
-            .coedge(*coedge_id)
-            .ok_or(ShellError::walls_at([band.face]))?;
-        let edge = coedge.edge();
-        let [face] = coedge_faces(solid, edge)
-            .into_iter()
-            .filter(|face| *face != band.face)
-            .collect::<Vec<_>>()[..]
-        else {
-            return Err(refused(edge));
-        };
-        if collapses.contains(face) || face == band.beyond {
-            return Err(refused(edge));
+    let unplaced = || ShellError::walls_at([band.face]);
+    let ends: Vec<usize> = band
+        .vertices
+        .iter()
+        .map(|joint| {
+            layout
+                .corners
+                .end(&layout.clusters, joint.vertex, joint.edge)
+        })
+        .collect::<Option<_>>()
+        .ok_or_else(unplaced)?;
+    let mut pieces: Vec<Placed> = Vec::with_capacity(band.spans.len());
+    for (index, span) in band.spans.iter().enumerate() {
+        let [first, second] = band.beyond(span).ok_or_else(unplaced)?;
+        if first.beyond == second.beyond {
+            return Err(ShellError::UnsupportedEdge(first.edge));
         }
-        let ends = layout.ends(solid, edge).ok_or_else(|| refused(edge))?;
-        let index = new_edge(
+        let open = |rim: &Rim| solid.edge(rim.edge).is_some_and(|edge| !edge.is_closed());
+        let source = if open(first) { first } else { second };
+        let (Some(from), Some(to)) = (ends.get(index), ends.get(index + 1)) else {
+            return Err(unplaced());
+        };
+        let along = if source.forward {
+            (*from, *to)
+        } else {
+            (*to, *from)
+        };
+        let edge = new_edge(
             offsets,
-            edge,
-            &[face, band.beyond],
-            ends,
-            EdgeName::between(face_name(solid, face), face_name(solid, band.beyond)),
+            source.edge,
+            &[first.beyond, second.beyond],
+            along,
+            EdgeName::between(
+                face_name(solid, first.beyond),
+                face_name(solid, second.beyond),
+            ),
             &mut layout.plan,
         )?;
-        placed.insert(
-            edge,
-            vec![Placed {
-                edge: index,
-                flipped: false,
-            }],
-        );
         pieces.push(Placed {
-            edge: index,
-            flipped: coedge.sense() == Sense::Reversed,
+            edge,
+            flipped: !source.forward,
         });
     }
-    let side = solid
-        .coedge(band.side)
-        .ok_or(ShellError::walls_at([band.face]))?;
-    if side.sense().is_same() {
-        pieces.reverse();
-        for piece in &mut pieces {
-            piece.flipped = !piece.flipped;
+    for (side, rims) in band.rims.iter().enumerate() {
+        for (index, rim) in rims.iter().enumerate() {
+            let covered = band.spans.iter().zip(&pieces).filter(|(span, _)| {
+                let at = if side == 0 { span.first } else { span.second };
+                at == index
+            });
+            let mut along: Vec<Placed> = covered
+                .map(|(_, piece)| Placed {
+                    edge: piece.edge,
+                    flipped: piece.flipped == rim.forward,
+                })
+                .collect();
+            if !rim.forward {
+                along.reverse();
+            }
+            placed.insert(rim.edge, along);
         }
     }
-    placed.insert(side.edge(), pieces);
     Ok(())
 }
 
@@ -695,7 +836,7 @@ fn place_edges(
     let mut placed = BTreeMap::new();
     let bands = std::mem::take(&mut layout.bands);
     for band in &bands {
-        place_band(offsets, collapses, band, layout, &mut placed)?;
+        place_band(offsets, band, layout, &mut placed)?;
     }
     layout.bands = bands;
     let mut halves: BTreeMap<(usize, usize), Vec<Half>> = BTreeMap::new();

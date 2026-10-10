@@ -53,6 +53,7 @@ impl From<ShellError> for OffsetError {
             ShellError::TooCurved(face) => Self::TooCurved(face),
             ShellError::Corner(vertex) => Self::Corner(vertex),
             ShellError::EdgeCollapses(edge) => Self::EdgeCollapses(edge),
+            ShellError::ClosesBesideClosing { face, .. } => Self::Vanishes(face),
             ShellError::Walls { faces, edge } => Self::Invalid { faces, edge },
             ShellError::Cancelled(interrupted) => Self::Cancelled(interrupted),
             ShellError::TooThick
