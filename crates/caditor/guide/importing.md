@@ -12,6 +12,13 @@ scale, whether to centre it on the origin, the plane for a new sketch and, for a
 layers, which layers to take. It shows the size the drawing will have. Dashed lines come in as
 construction geometry.
 
+Text in an SVG drawing comes in as the outlines of its letters, closed so they can be extruded,
+with the holes of letters such as o, e and a left open. Its size, weight, spacing, alignment and
+the place of each letter follow the drawing, but every font is drawn in Inter, the font caditor
+uses, so letters from another font differ in shape and width; the report names the fonts
+replaced. Italic text comes in upright, and text set along a path or in characters Inter lacks
+is left out, each said in the report. Text in a DXF drawing is left out.
+
 {command:sketch.toggle_first_dimension_scales} then sizes an outline traced from a picture with one
 dimension; see [dimensions](dimensions).
 

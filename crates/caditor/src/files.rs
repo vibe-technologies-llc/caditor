@@ -21,8 +21,8 @@ use caditor_file::{
     LoadError, Loaded, MESH_IMPORT_EXTENSIONS, ModelImport, NamedFace, NamedSketch,
     PARAMETERS_EXTENSION, PNG_EXTENSION, ParameterFileError, ReadingProgress, ReadingStage,
     RecentChange, RecentFiles, Recovered, STEP_EXTENSIONS, STEP_IMPORT_EXTENSIONS, SaveError,
-    SavedState, Settings, SheetLayout, SketchExported, SketchFormat, describe_set_aside,
-    journal_for, load_cancellable, load_version, read_drawing, scan,
+    SavedState, Settings, SheetLayout, SketchExported, SketchFormat, TextOutlines,
+    describe_set_aside, journal_for, load_cancellable, load_version, read_drawing, scan,
 };
 use caditor_render::{ImageError, SurfaceSize};
 use caditor_sketch::Sketch;
@@ -44,6 +44,7 @@ use crate::{
     },
     editing::{self, SketchEditing},
     export::{self, ExportChoices, ExportCommand, ExportReport, Exporter, ThumbnailJob},
+    fonts,
     history::{self, HistoryCommand, VersionHistory},
     icons,
     image_export::{
@@ -1738,7 +1739,7 @@ impl Files {
                         replacing: None,
                     }
                 } else {
-                    match read_drawing(&path, &cancel) {
+                    match read_drawing(&path, TextOutlines::InFont(fonts::INTER), &cancel) {
                         Ok(drawing) => Event::DrawingRead {
                             path,
                             session,

@@ -30,6 +30,7 @@ roxmltree.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, features = ["float_roundtrip", "raw_value"] }
 thiserror.workspace = true
+ttf-parser.workspace = true
 xxhash-rust.workspace = true
 
 [target.'cfg(unix)'.dependencies]

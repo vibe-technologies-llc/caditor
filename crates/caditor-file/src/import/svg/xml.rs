@@ -1,9 +1,10 @@
 use std::{borrow::Cow, collections::BTreeMap};
 
-const XML_NAMESPACE: &str = "http://www.w3.org/XML/1998/namespace";
+pub(super) const XML_NAMESPACE: &str = "http://www.w3.org/XML/1998/namespace";
 const MAX_ENTITY_DEPTH: usize = 8;
 const MAX_ENTITY_WORK: usize = 4 << 20;
 const TEXT_KEPT_IN: &str = "style";
+const CONTENT_KEPT_IN: [&str; 4] = ["text", "tspan", "textPath", "a"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum XmlError {
@@ -26,6 +27,19 @@ struct Element<'t> {
     parent: Option<usize>,
     children: Vec<usize>,
     text: Cow<'t, str>,
+    pieces: Vec<Piece<'t>>,
+}
+
+#[derive(Debug)]
+struct Piece<'t> {
+    before_child: usize,
+    text: Cow<'t, str>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(super) enum Content<'a, 't> {
+    Text(&'a str),
+    Element(Node<'a, 't>),
 }
 
 #[derive(Debug)]
@@ -91,6 +105,26 @@ impl<'a, 't> Node<'a, 't> {
 
     pub fn text(self) -> &'a str {
         self.element().map_or("", |element| element.text.as_ref())
+    }
+
+    pub fn content(self) -> Vec<Content<'a, 't>> {
+        let Some(element) = self.element() else {
+            return Vec::new();
+        };
+        let tree = self.tree;
+        let mut pieces = element.pieces.iter().peekable();
+        let mut content = Vec::with_capacity(element.children.len() + element.pieces.len());
+        for (position, index) in element.children.iter().enumerate() {
+            while let Some(piece) = pieces.next_if(|piece| piece.before_child <= position) {
+                content.push(Content::Text(piece.text.as_ref()));
+            }
+            content.push(Content::Element(Node {
+                tree,
+                index: *index,
+            }));
+        }
+        content.extend(pieces.map(|piece| Content::Text(piece.text.as_ref())));
+        content
     }
 
     pub fn ancestors(self) -> impl Iterator<Item = Node<'a, 't>> {
@@ -320,6 +354,7 @@ impl<'t> Parser<'t> {
             parent,
             children: Vec::new(),
             text: Cow::Borrowed(""),
+            pieces: Vec::new(),
         });
         if tag.empty {
             if self
@@ -342,7 +377,9 @@ impl<'t> Parser<'t> {
         let Some((element, name)) = self.open.last().copied() else {
             return;
         };
-        if name.rsplit(':').next() != Some(TEXT_KEPT_IN) {
+        let local = name.rsplit(':').next().unwrap_or(name);
+        let is_style = local == TEXT_KEPT_IN;
+        if !is_style && !CONTENT_KEPT_IN.contains(&local) {
             return;
         }
         let text = if escaped {
@@ -350,12 +387,21 @@ impl<'t> Parser<'t> {
         } else {
             Cow::Borrowed(raw)
         };
-        if let Some(element) = self.tree.elements.get_mut(element) {
+        let Some(element) = self.tree.elements.get_mut(element) else {
+            return;
+        };
+        if is_style {
             if element.text.is_empty() {
                 element.text = text;
             } else {
                 element.text.to_mut().push_str(&text);
             }
+            return;
+        }
+        let before_child = element.children.len();
+        match element.pieces.last_mut() {
+            Some(last) if last.before_child == before_child => last.text.to_mut().push_str(&text),
+            _ => element.pieces.push(Piece { before_child, text }),
         }
     }
 
