@@ -6,7 +6,8 @@ Everything in caditor works from the keyboard.
 
 {command:palette} lists every command, including ones without a button, and once you type it also
 finds features, parameters, saved views and selection sets by name. The line under the list says
-what Enter will do, or why the highlighted command is not available now.
+what Enter will do, or why the highlighted command is not available now; pressing Enter on one
+that is not available closes the palette and shows that reason as a notice.
 
 - Commands are also found by other names they are known by: "zoom extents" finds
   {command:view.fit}, "ruler" finds {command:view.measure}, "home" the Isometric view. Features are

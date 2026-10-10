@@ -12494,19 +12494,30 @@ fn the_command_palette_runs_what_fits_the_context_and_explains_the_rest() {
     assert!(harness.shows("Fillet is not available: Select the edges of a body first."));
     harness.key(Key::Enter, Modifiers::NONE);
     harness.show_new_windows();
-    assert!(harness.workspace.palette.is_open());
+    harness.frame();
+    assert!(!harness.workspace.palette.is_open());
+    assert!(
+        harness
+            .model
+            .notice()
+            .is_some_and(|notice| notice.text.starts_with("Fillet is not available"))
+    );
 
-    harness.replace_text("draw line");
+    harness.key(Key::P, Modifiers::COMMAND | Modifiers::SHIFT);
+    harness.show_new_windows();
+    harness.type_text("draw line");
     assert!(harness.shows("Draw line"));
     assert!(
         harness.shows("Draw line is not available here: it works only while a sketch is edited.")
     );
     harness.key(Key::Enter, Modifiers::NONE);
     harness.show_new_windows();
-    assert!(harness.workspace.palette.is_open());
+    assert!(!harness.workspace.palette.is_open());
     assert_eq!(harness.tool(), None);
 
-    harness.replace_text("zqzqzq");
+    harness.key(Key::P, Modifiers::COMMAND | Modifiers::SHIFT);
+    harness.show_new_windows();
+    harness.type_text("zqzqzq");
     assert!(harness.shows("Nothing is called “zqzqzq”. Try another word, or fewer letters."));
 
     harness.replace_text("undo");
@@ -12682,7 +12693,7 @@ fn the_palette_lists_what_does_not_fit_the_context_last_with_the_reason() {
     assert!(harness.shows(refusal));
     harness.key(Key::Enter, Modifiers::NONE);
     harness.show_new_windows();
-    assert!(harness.workspace.palette.is_open());
+    assert!(!harness.workspace.palette.is_open());
     assert_eq!(harness.tool(), None);
 }
 

@@ -140,6 +140,7 @@ pub struct Palette {
     view: Option<usize>,
     selection_set: Option<usize>,
     configuration: Option<ConfigurationId>,
+    refusal: Option<String>,
     recent: Vec<Command>,
 }
 
@@ -183,6 +184,15 @@ impl Palette {
 
     pub fn take_configuration(&mut self) -> Option<ConfigurationId> {
         self.configuration.take()
+    }
+
+    pub fn take_refusal(&mut self) -> Option<String> {
+        self.refusal.take()
+    }
+
+    fn refuse(&mut self, entry: &Entry) {
+        self.open = false;
+        self.refusal = Some(entry.detail());
     }
 
     fn choose(&mut self, choice: Choice) {
@@ -496,12 +506,14 @@ impl Palette {
             }
             clicked
                 .or(enter.then_some(self.highlighted))
-                .and_then(|index| entries.get(index))
-                .filter(|entry| entry.state == State::Ready)
-                .map(|entry| entry.choice)
+                .and_then(|index| entries.into_iter().nth(index))
         });
-        if let Some(choice) = response.inner {
-            self.choose(choice);
+        if let Some(entry) = response.inner {
+            if entry.state == State::Ready {
+                self.choose(entry.choice);
+            } else {
+                self.refuse(&entry);
+            }
             ctx.request_repaint();
         } else if response.should_close() {
             self.open = false;

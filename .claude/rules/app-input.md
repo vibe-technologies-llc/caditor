@@ -171,7 +171,9 @@ paths:
   match.
 - A fixed detail line under the list says what Enter does, or why the highlighted entry is not
   available, distinguishing "unavailable now" from "only works while a sketch is edited". The
-  chosen command is triggered on the next frame.
+  chosen command is triggered on the next frame. Enter or a click on an entry that is not ready
+  closes the palette like a run does and posts its detail line as a warning notice
+  (`Palette::take_refusal`), so the next key reaches the view or panel it was meant for.
 - Matching ranks a start of the title, then starts of words, then text inside, then other names
   (`Command::keywords`, such as "zoom extents" for Fit view; a feature's kind words from
   `feature_tree::kind_words`), then scattered letters (`palette::fit_with_keywords`), so a synonym
@@ -389,7 +391,16 @@ paths:
   says so (`drawing::HEADING_PROMPT`) and a click places the point there, keeping the angle as a
   dimension like a typed one (`typed_hover`); a lone length typed meanwhile runs along the ray and
   keeps the angle too. Placing the point, Backspace, cancelling the shape or Escape
-  (`Drawing::release_heading`, before the shape is cancelled) let go of it.
+  (`Drawing::release_heading`, before the point is taken back or the shape cancelled) let go of it.
+- A length followed by `<` with no angle (`12 <`, `@12<`; `typed_point::length_lock`) holds that
+  distance from the last placed point (`Drawing::lock_length`, a `Lock::Length` of the same
+  `Heading`): `Drawing::place` puts the point that far from it toward the pointer, ahead of
+  snapping, the prompt says the length (the radius for a circle, arc, arc slot or corner or
+  side-middle polygon) is locked (`held_noun`) and the readout ends with it, and a click places
+  the point there keeping the length as a dimension like a typed one. It is held only while the
+  shape has just its first point (a spline from its first on), else `LENGTH_LOCK_REFUSED` in the
+  field; zero, negative and out-of-range lengths and a missing last point are errors in the field.
+  Release is as for the direction, and the field previews it (`Drawing::preview_length`).
 - It is canvas chrome (`canvas::PANEL`, `canvas::Hints`) in the band left of the view cube.
 - While it has focus and its text reads as a point (`typed_point::parse_placed`) or a heading, the
   drawing previews it as a placement that is never placed (`Drawing::preview_typed`,

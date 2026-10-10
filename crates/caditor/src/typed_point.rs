@@ -48,6 +48,9 @@ const RHO: Part = Part {
 };
 const FULL_TURN_DEGREES: f64 = 360.0;
 const FORMS: &str = "Type x, y such as 10, 20, or a length and an angle such as 25 < 30";
+const LENGTH_LOCK_NEEDS_A_POINT: &str = "A length held with < sets the distance from the last placed point: place a point first, \
+     or type length < angle";
+const LENGTH_LOCK_ABOVE_ZERO: &str = "A held length must be above zero";
 const HEADING_NEEDS_A_POINT: &str = "An angle alone sets the direction from the last placed point: place a point first, or type \
      length < angle";
 
@@ -83,6 +86,12 @@ impl Typed {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Heading {
     pub degrees: f64,
+    pub dimension: Option<TypedDimension>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LengthLock {
+    pub length: f64,
     pub dimension: Option<TypedDimension>,
 }
 
@@ -579,6 +588,33 @@ pub fn heading(model: &Model, text: &str, from: From) -> Option<Result<Heading, 
     )
 }
 
+pub fn length_lock(model: &Model, text: &str, from: From) -> Option<Result<LengthLock, String>> {
+    let text = text.strip_prefix(RELATIVE_MARK).unwrap_or(text);
+    let [length, angle] = polar(text)[..] else {
+        return None;
+    };
+    if length.trim().is_empty() || !angle.trim().is_empty() || coordinates(text).len() != 1 {
+        return None;
+    }
+    Some(
+        typed_value(model, length, DISTANCE, Measured::Length).and_then(|length| {
+            let last = from
+                .last
+                .ok_or_else(|| LENGTH_LOCK_NEEDS_A_POINT.to_owned())?;
+            if length.value <= 0.0 {
+                return Err(LENGTH_LOCK_ABOVE_ZERO.to_owned());
+            }
+            if length.value > MAX_LENGTH {
+                return Err(format!("Keep the length within {} m", MAX_LENGTH / 1_000.0));
+            }
+            Ok(LengthLock {
+                length: length.value,
+                dimension: length.dimension(Some(last)),
+            })
+        }),
+    )
+}
+
 pub fn parse_placed(model: &Model, text: &str, from: From) -> Result<Placed, String> {
     let (relative, text) = match text.strip_prefix(RELATIVE_MARK) {
         Some(rest) => (true, rest),
@@ -676,6 +712,37 @@ mod tests {
         assert_eq!(without_point, Some(Err(HEADING_NEEDS_A_POINT.to_owned())));
         for text in ["10 < 30", "10, 20", "5", "1, 2 < 3"] {
             assert!(heading(&model, text, from).is_none(), "{text}");
+        }
+    }
+
+    #[test]
+    fn a_length_followed_by_a_less_than_sign_is_a_held_length_and_nothing_else_is() {
+        let model = empty_model();
+        let last = Point2::new(5.0, 5.0);
+        let from = From {
+            last: Some(last),
+            toward: None,
+        };
+
+        let held = length_lock(&model, "12 <", from).and_then(Result::ok);
+        let relative = length_lock(&model, "@12<", from).and_then(Result::ok);
+        let without_point = length_lock(&model, "12<", From::default());
+        let zero = length_lock(&model, "0<", from);
+
+        assert_eq!(held.as_ref().map(|found| found.length), Some(12.0));
+        assert_eq!(
+            held.and_then(|lock| lock.dimension)
+                .map(|dimension| (dimension.measured, dimension.from)),
+            Some((Measured::Length, Some(last)))
+        );
+        assert_eq!(relative.map(|found| found.length), Some(12.0));
+        assert_eq!(
+            without_point,
+            Some(Err(LENGTH_LOCK_NEEDS_A_POINT.to_owned()))
+        );
+        assert_eq!(zero, Some(Err(LENGTH_LOCK_ABOVE_ZERO.to_owned())));
+        for text in ["<30", "10 < 30", "10, 20", "5", "1, 2 <"] {
+            assert!(length_lock(&model, text, from).is_none(), "{text}");
         }
     }
 

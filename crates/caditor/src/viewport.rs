@@ -143,7 +143,8 @@ const TAKE_BACK_HINT: &str = "Backspace: take back the last point";
 const HELD_SNAP_HINT: &str = "Alt: snap to the grid or nearby geometry";
 const TYPE_POINT_HINT: &str = "Type x, y or length < angle for an exact point";
 const TYPED_POINT_HINT: &str = "@: from the last point   A length alone goes toward the pointer   \
-                                < angle alone: lock the direction   Enter: place   Esc: cancel";
+                                < angle alone: lock the direction   length <: lock the length   \
+                                Enter: place   Esc: cancel";
 pub const TYPE_VALUE_UNAVAILABLE: &str = "Choose a drawing tool, or Offset, Sketch fillet, a \
                                           pattern or Tangent circle, to type an exact value";
 const TYPED_SIDES_HINT: &str = "6 sides: set the sides";
@@ -3489,6 +3490,22 @@ impl ViewportState {
             }
             return;
         }
+        if let Some(lock) = typed_point::length_lock(model, &typed.text, from) {
+            let locked = lock.and_then(|lock| {
+                let dimensions = lock
+                    .dimension
+                    .filter(|_| self.typed_dimensions)
+                    .into_iter()
+                    .collect();
+                self.drawing
+                    .lock_length(lock.length, dimensions)
+                    .map_err(str::to_owned)
+            });
+            if let Err(error) = locked {
+                self.typed_point.open_with(typed.entered, error);
+            }
+            return;
+        }
         match typed_point::parse_placed(model, &typed.text, from) {
             Ok(mut placed) => {
                 if !self.typed_dimensions {
@@ -3516,6 +3533,12 @@ impl ViewportState {
         if let Some(heading) = typed_point::heading(model, text, from) {
             if let Ok(heading) = heading {
                 self.drawing.preview_heading(sketch, heading.degrees);
+            }
+            return;
+        }
+        if let Some(lock) = typed_point::length_lock(model, text, from) {
+            if let Ok(lock) = lock {
+                self.drawing.preview_length(sketch, lock.length);
             }
             return;
         }
@@ -3761,7 +3784,9 @@ impl ViewportState {
                 actions.push(Action::Editing(EditingCommand::CloseSolid));
             }
         }
-        if back && self.drawing.in_progress() {
+        if back && self.drawing.has_heading() {
+            self.drawing.release_heading();
+        } else if back && self.drawing.in_progress() {
             self.take_back_point(model, actions);
         }
     }
