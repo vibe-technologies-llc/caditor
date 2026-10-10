@@ -7,13 +7,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Files and recovery
 
-- [high · medium] One damaged byte in a journal's snapshot withholds every change after it:
-  `decode_journal` returns `DamagedJournal` when the `Snapshot` chunk fails its checksum, though
-  the header and entries are intact, so `journal_for` sets the journal aside, the scan never
-  offers it and it is deleted after `SET_ASIDE_KEPT_SECONDS`. A plain snapshot is the last saved
-  state by definition: when the model file's head digest equals the header's `on_disk`, load the
-  file as the base, replay the entries and report it; a `RebasedSnapshot` keeps today's handling.
-
 ## Kernel
 
 - [high · hard] Booleans between the fixture solids in random placements all succeed on the

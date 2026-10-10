@@ -30,6 +30,12 @@ paths:
   state, so the scan must not delete it as unchanged, and an older caditor, not knowing the kind,
   reads the journal as damaged and sets it aside instead of deleting it. A recovered session with
   folded changes has no known saved state (`Model::saved` is `None`), so it stays modified.
+- A plain snapshot is the saved state by definition, so one that fails its checksum does not
+  withhold the entries after it: when the header says nothing was folded (`folded` is `Some(0)`,
+  absent in journals older versions wrote) and the model file's head digest still equals the
+  header's `on_disk`, `decode_journal_with` takes the file as the base (`recovery::model_as_last_saved`),
+  replays the entries onto it and adds an issue saying so. A damaged `RebasedSnapshot`, or a plain
+  one whose model changed since, keeps the unreadable handling below.
 - The header carries the path as raw bytes (`os::path_bytes`: Unix bytes, WTF-8 on Windows, so
   names that are not Unicode survive), whether the file loaded with
   problems (a recovered session still keeps the damaged original on its first save), and `on_disk`,

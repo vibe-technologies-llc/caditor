@@ -16,7 +16,7 @@ use crate::{
         properties_record, restore_transaction, rollback_record, suppressed_record,
         transaction_record, views_record,
     },
-    load::{Parts, assemble},
+    load::{Loaded, Parts, assemble},
     os,
     selection_sets::{SelectionSetsRecord, selection_sets_record},
 };
@@ -39,6 +39,8 @@ struct JournalHeader {
     on_disk: Option<FileDigest>,
     #[serde(default)]
     loaded_with_problems: bool,
+    #[serde(default)]
+    folded: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -93,6 +95,7 @@ pub(crate) fn encode_journal(
         file_bytes: head.file.map(|file| os::path_bytes(file.as_os_str())),
         on_disk: head.on_disk.cloned(),
         loaded_with_problems: head.loaded_with_problems,
+        folded: Some(u64::try_from(head.folded).unwrap_or(u64::MAX)),
     };
     let mut bytes = start_file(&JOURNAL_MAGIC, JOURNAL_VERSION);
     push_packed_for_recovery(
@@ -227,23 +230,50 @@ pub(crate) struct JournalContents {
 pub(crate) struct DamagedJournal;
 
 pub(crate) fn decode_journal(bytes: &[u8]) -> Result<JournalContents, DamagedJournal> {
+    decode_journal_with(bytes, |_, _| None)
+}
+
+pub(crate) fn decode_journal_with(
+    bytes: &[u8],
+    saved_state: impl FnOnce(&Path, &FileDigest) -> Option<Loaded>,
+) -> Result<JournalContents, DamagedJournal> {
     let container = parse(bytes, &JOURNAL_MAGIC)
         .filter(|container| container.version <= JOURNAL_VERSION)
         .ok_or(DamagedJournal)?;
     let mut pieces = container.pieces.iter();
     let header: JournalHeader = content_of(pieces.next(), ChunkKind::JournalHeader)?;
-    let (snapshot, folded) = match pieces.next() {
+    let file = match header.file_bytes {
+        Some(bytes) => Some(PathBuf::from(os::path_from_bytes(bytes))),
+        None => header.file.map(PathBuf::from),
+    };
+    let mut issues = Vec::new();
+    let mut folded = 0;
+    let base = match pieces.next() {
         Some(Piece::Chunk(chunk)) if chunk.kind == Some(ChunkKind::RebasedSnapshot) => {
             let rebased: RebasedSnapshotRecord =
                 content_of(Some(&Piece::Chunk(*chunk)), ChunkKind::RebasedSnapshot)?;
-            let folded = usize::try_from(rebased.folded).unwrap_or(usize::MAX);
-            (rebased.snapshot, folded)
+            folded = usize::try_from(rebased.folded).unwrap_or(usize::MAX);
+            assemble(snapshot_parts(rebased.snapshot, &mut issues), &mut issues)
         }
-        piece => (content_of(piece, ChunkKind::Snapshot)?, 0),
+        Some(Piece::Damaged) if header.folded == Some(0) => {
+            let saved = file
+                .as_deref()
+                .zip(header.on_disk.as_ref())
+                .and_then(|(file, on_disk)| saved_state(file, on_disk))
+                .ok_or(DamagedJournal)?;
+            issues.extend(saved.issues);
+            issues.push(
+                "The recovered copy of the model was damaged, so the changes were replayed onto \
+                 the model as it was last saved."
+                    .to_owned(),
+            );
+            saved.document
+        }
+        piece => {
+            let snapshot = content_of(piece, ChunkKind::Snapshot)?;
+            assemble(snapshot_parts(snapshot, &mut issues), &mut issues)
+        }
     };
-
-    let mut issues = Vec::new();
-    let base = assemble(snapshot_parts(snapshot, &mut issues), &mut issues);
     let mut entries = Vec::new();
     let mut unreadable_entries = 0;
     for piece in pieces {
@@ -255,10 +285,6 @@ pub(crate) fn decode_journal(bytes: &[u8]) -> Result<JournalContents, DamagedJou
             None => unreadable_entries += 1,
         }
     }
-    let file = match header.file_bytes {
-        Some(bytes) => Some(PathBuf::from(os::path_from_bytes(bytes))),
-        None => header.file.map(PathBuf::from),
-    };
     Ok(JournalContents {
         file,
         on_disk: header.on_disk,

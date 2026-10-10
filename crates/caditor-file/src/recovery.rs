@@ -11,8 +11,8 @@ use caditor_document::{Document, Editor};
 
 use crate::{
     binary::FileDigest,
-    journal::{JournalEntry, decode_journal, replay},
-    load::load,
+    journal::{JournalEntry, decode_journal_with, replay},
+    load::{Loaded, load},
     lock::{Location, in_use, location, lock_existing},
     os,
     paths::{self, JOURNAL_EXTENSION, MARKER_EXTENSION},
@@ -69,7 +69,7 @@ fn inspect_as(journal: &Path, unreadable: Unreadable) -> io::Result<Inspection> 
         .and_then(|metadata| metadata.modified())
         .ok();
 
-    let Ok(contents) = decode_journal(&bytes) else {
+    let Ok(contents) = decode_journal_with(&bytes, model_as_last_saved) else {
         log::warn!("{} is damaged and cannot be recovered", journal.display());
         return match unreadable {
             Unreadable::Keep => Ok(Inspection::Damaged),
@@ -111,6 +111,12 @@ fn inspect_as(journal: &Path, unreadable: Unreadable) -> io::Result<Inspection> 
         issues,
         modified,
     })))
+}
+
+fn model_as_last_saved(file: &Path, on_disk: &FileDigest) -> Option<Loaded> {
+    load(file)
+        .ok()
+        .filter(|loaded| loaded.digest.as_ref() == Some(on_disk))
 }
 
 pub fn scan(recovery_dir: Option<&Path>, recent: &[PathBuf]) -> Vec<Recovered> {

@@ -28,6 +28,8 @@ From the first change, every change is also written to a hidden journal beside t
 untitled model, in caditor's own folder), within seconds. If caditor, the computer or the power
 fails, the next start offers to restore the unsaved work, undo history included;
 {command:file.recover} offers it again later. Saving clears what the journal held.
+If the journal's own copy of the model is damaged but the saved file is still the one it was
+kept beside, the changes are restored onto that file, and the report says so.
 
 When the journal cannot be written, for example on a full or read-only disk, the status bar shows
 **Not protected** until it can be written again. Save soon, or Save as somewhere else.

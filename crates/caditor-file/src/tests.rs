@@ -4976,6 +4976,86 @@ fn a_journal_whose_first_change_cannot_be_read_is_kept() {
     assert!(journal.exists());
 }
 
+fn crashed_beside_its_saved_model(dir: &TempDir, config: StorageConfig) -> (PathBuf, Editor) {
+    let path = dir.path().join("model.caditor");
+    let base = sample();
+    save(&base, &path, false).unwrap();
+    let start = Start {
+        file: Some(path.clone()),
+        on_disk: load(&path).unwrap().digest,
+        ..untitled(&base)
+    };
+    let storage = Storage::spawn(config, start, || {}).unwrap();
+    let mut editor = Editor::new(base);
+    record_session(&storage, &mut editor);
+    crash(storage);
+    (dir.path().join(".model.caditor.journal"), editor)
+}
+
+fn with_damaged_snapshot(journal: &Path) {
+    let original = fs::read(journal).unwrap();
+    let damaged = corrupt_chunk(&original, &binary::JOURNAL_MAGIC, 1);
+    fs::write(journal, damaged).unwrap();
+}
+
+#[test]
+fn a_journal_whose_plain_snapshot_is_damaged_replays_onto_the_saved_model() {
+    let dir = TempDir::new().unwrap();
+    let (journal, editor) = crashed_beside_its_saved_model(&dir, config(&dir));
+    with_damaged_snapshot(&journal);
+
+    let Inspection::Recoverable(recovered) = inspect(&journal).unwrap() else {
+        panic!("the changes after a damaged snapshot should be offered");
+    };
+
+    assert_eq!(recovered.changes(), 3);
+    assert_eq!(recovered.editor.document(), editor.document());
+    assert_eq!(recovered.folded, 0);
+    assert!(
+        recovered
+            .issues
+            .iter()
+            .any(|issue| issue.contains("last saved"))
+    );
+    assert!(journal.exists());
+}
+
+#[test]
+fn a_journal_with_a_damaged_snapshot_is_set_aside_when_the_model_changed_since() {
+    let dir = TempDir::new().unwrap();
+    let (journal, _) = crashed_beside_its_saved_model(&dir, config(&dir));
+    with_damaged_snapshot(&journal);
+    save(
+        &Document::default(),
+        &dir.path().join("model.caditor"),
+        false,
+    )
+    .unwrap();
+
+    assert!(matches!(inspect(&journal).unwrap(), Inspection::Damaged));
+}
+
+#[test]
+fn a_journal_whose_rebased_snapshot_is_damaged_stays_damaged() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("model.caditor");
+    let base = sample();
+    save(&base, &path, false).unwrap();
+    let start = Start {
+        file: Some(path.clone()),
+        on_disk: load(&path).unwrap().digest,
+        ..untitled(&base)
+    };
+    let storage = Storage::spawn(rebasing(&dir), start, || {}).unwrap();
+    let mut editor = Editor::new(base);
+    edit_until_rebased(&storage, &mut editor);
+    crash(storage);
+    let journal = dir.path().join(".model.caditor.journal");
+    with_damaged_snapshot(&journal);
+
+    assert!(matches!(inspect(&journal).unwrap(), Inspection::Damaged));
+}
+
 #[test]
 fn a_model_holding_an_undefined_number_is_refused_rather_than_saved_damaged() {
     let dir = TempDir::new().unwrap();
