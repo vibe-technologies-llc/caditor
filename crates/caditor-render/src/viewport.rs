@@ -10,8 +10,8 @@ use crate::{
     gpu::{self, Bytes, GrowableBuffer, Pack, QuadIndices, Records, Wake},
     image::{self, Background, ChannelOrder, ImageRequest, Tile},
     kept::{KeptView, Shown, ViewCopy},
-    lines::{LINE_POINT_SLOTS, LINE_POINT_STRIDE, LineStrips, LineStyles, line_instances},
-    mesh::{MESH_VERTEX_STRIDE, MeshCache, MeshPool, UploadBudget},
+    lines::{LINE_POINT_SLOTS, LINE_POINT_STRIDE, LineStrips, line_instances},
+    mesh::{MESH_VERTEX_STRIDE, MeshCache, MeshPool, StyleLayout, UploadBudget, pack_color},
     picking::{self, PickPrepared, PickTargets, PickWindow, Picking},
     scene::{
         Batch, Color, CutFace, Fill, Grid, Layer, MAX_SECTION_PLANES, Marker, PickId, Reflection,
@@ -19,6 +19,7 @@ use crate::{
     },
     settings::Shading,
     silhouette::{SILHOUETTE_STRIDE, SilhouetteCache},
+    styles::{StyleTable, StyleTexel, style_texel_bytes},
 };
 
 pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
@@ -41,7 +42,7 @@ const BEHIND_FACES_DEPTH_BIAS: wgpu::DepthBiasState = wgpu::DepthBiasState {
 };
 const MARKER_BYTES: usize = 28;
 const MARKER_STRIDE: u64 = MARKER_BYTES as u64;
-const FILL_VERTEX_BYTES: usize = 24;
+const FILL_VERTEX_BYTES: usize = 16;
 const FILL_VERTEX_STRIDE: u64 = FILL_VERTEX_BYTES as u64;
 const VIEW_UNIFORM_SIZE: u64 = 400;
 const HATCH_SPACING_POINTS: f64 = 8.0;
@@ -522,7 +523,8 @@ struct GpuBatch {
     shown: Option<Arc<Batch>>,
     anchor: Point3,
     lines: GrowableBuffer,
-    line_styles: Option<LineStyles>,
+    line_styles: Option<StyleTable>,
+    fill_styles: Option<StyleTable>,
     markers: GrowableBuffer,
     fills: GrowableBuffer,
     line_count: u32,
@@ -546,6 +548,7 @@ impl GpuBatch {
             anchor: Point3::ZERO,
             lines: GrowableBuffer::new(device, "line points", wgpu::BufferUsages::VERTEX),
             line_styles: None,
+            fill_styles: None,
             markers: GrowableBuffer::new(device, "markers", wgpu::BufferUsages::VERTEX),
             fills: GrowableBuffer::new(device, "fills", wgpu::BufferUsages::VERTEX),
             line_count: 0,
@@ -584,7 +587,7 @@ impl GpuBatch {
             batch,
             anchor,
             slot,
-            line_styles,
+            styles,
         } = uploaded;
         let strips = LineStrips::of(&batch.lines, device.limits().max_texture_dimension_2d);
         self.line_count = line_instances(self.lines.upload(
@@ -608,11 +611,14 @@ impl GpuBatch {
             .map(|run| run.start.min(drawn)..run.end.min(drawn))
             .filter(|run| !run.is_empty())
             .collect();
-        self.line_styles = Some(LineStyles::written(
+        let line_layout = strips.style_layout(device.limits().max_texture_dimension_2d);
+        self.line_styles = Some(StyleTable::written(
             self.line_styles.take(),
             (device, queue),
-            line_styles,
-            &strips,
+            styles,
+            "line styles",
+            line_layout,
+            &strips.style_texels(line_layout),
         ));
         self.bounds = BatchBounds::of(batch);
 
@@ -629,25 +635,37 @@ impl GpuBatch {
         self.shown_markers = count(shown_markers).min(self.marker_count);
 
         let (groups, spans) = grouped_fill_spans(&batch.fills, slot);
-        self.fill_vertices = count(
-            self.fills.upload(
+        let ordered: Vec<&Fill> = FillGroup::ORDER
+            .into_iter()
+            .flat_map(|group| {
+                batch
+                    .fills
+                    .iter()
+                    .filter(move |fill| FillGroup::of(fill) == group)
+            })
+            .collect();
+        let fill_layout = StyleLayout::new(ordered.len(), device.limits().max_texture_dimension_2d);
+        self.fill_styles = Some(StyleTable::written(
+            self.fill_styles.take(),
+            (device, queue),
+            styles,
+            "fill styles",
+            fill_layout,
+            &style_texel_bytes(ordered.iter().map(|fill| fill_texel(fill)), fill_layout),
+        ));
+        self.fill_vertices =
+            count(self.fills.upload(
                 device,
                 queue,
                 Records {
                     count: groups.total(),
                     per_primitive: 3,
-                    records: FillGroup::ORDER
-                        .into_iter()
-                        .flat_map(|group| {
-                            batch
-                                .fills
-                                .iter()
-                                .filter(move |fill| FillGroup::of(fill) == group)
-                        })
-                        .flat_map(|fill| fill_vertices(fill, anchor)),
+                    records:
+                        ordered.iter().enumerate().flat_map(|(index, fill)| {
+                            fill_vertices(fill, anchor, index_word(index))
+                        }),
                 },
-            ),
-        );
+            ));
         let uploaded = self.fill_vertices;
         self.fill_spans = spans
             .into_iter()
@@ -724,12 +742,16 @@ impl GpuBatch {
         pass.draw_indexed(0..gpu::QUAD_INDEX_COUNT, 0, 0..instances);
     }
 
-    fn bind_fills(&self, pass: &mut wgpu::RenderPass<'_>) {
+    fn bind_fills(&self, pass: &mut wgpu::RenderPass<'_>, vertices: u32) -> bool {
+        let Some(styles) = &self.fill_styles else {
+            return false;
+        };
+        pass.set_bind_group(1, &styles.bind_group, &[]);
         pass.set_vertex_buffer(
             0,
-            self.fills
-                .slice(u64::from(self.fill_vertices) * FILL_VERTEX_STRIDE),
+            self.fills.slice(u64::from(vertices) * FILL_VERTEX_STRIDE),
         );
+        true
     }
 
     fn draw_pick_fills(
@@ -742,12 +764,9 @@ impl GpuBatch {
             return;
         }
         pass.set_pipeline(pipeline);
-        pass.set_vertex_buffer(
-            0,
-            self.fills
-                .slice(u64::from(vertices.end) * FILL_VERTEX_STRIDE),
-        );
-        pass.draw(vertices, 0..1);
+        if self.bind_fills(pass, vertices.end) {
+            pass.draw(vertices, 0..1);
+        }
     }
 
     fn reference_pick_fills(&self) -> Range<u32> {
@@ -901,7 +920,7 @@ struct Uploaded<'a> {
     batch: &'a Arc<Batch>,
     anchor: Point3,
     slot: usize,
-    line_styles: &'a wgpu::BindGroupLayout,
+    styles: &'a wgpu::BindGroupLayout,
 }
 
 pub struct ViewportRenderer {
@@ -910,7 +929,7 @@ pub struct ViewportRenderer {
     shading: Shading,
     view_layout: wgpu::BindGroupLayout,
     grid_layout: wgpu::BindGroupLayout,
-    line_styles_layout: wgpu::BindGroupLayout,
+    styles_layout: wgpu::BindGroupLayout,
     pipelines: Pipelines,
     set_aside: Vec<(u32, Pipelines)>,
     view_uniform: Uniform,
@@ -961,17 +980,16 @@ impl ViewportRenderer {
         };
         let view_layout = uniform_layout("view uniform");
         let grid_layout = uniform_layout("grid uniform");
-        let line_styles_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("line styles"),
-                entries: &[LineStyles::layout_entry()],
-            });
+        let styles_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("styles"),
+            entries: &[StyleTable::layout_entry()],
+        });
         let meshes = MeshCache::new(device);
         let silhouettes = SilhouetteCache::new(device);
         let layouts = Layouts {
             view: &view_layout,
             grid: &grid_layout,
-            line_styles: &line_styles_layout,
+            styles: &styles_layout,
             mesh: meshes.layout(),
             silhouette: silhouettes.layout(),
         };
@@ -988,7 +1006,7 @@ impl ViewportRenderer {
             quad_indices: QuadIndices::new(device),
             view_layout,
             grid_layout,
-            line_styles_layout,
+            styles_layout,
             batches: Vec::new(),
             anchor: None,
             fill_order: FillOrder::default(),
@@ -1041,7 +1059,7 @@ impl ViewportRenderer {
             let layouts = Layouts {
                 view: &self.view_layout,
                 grid: &self.grid_layout,
-                line_styles: &self.line_styles_layout,
+                styles: &self.styles_layout,
                 mesh: self.meshes.layout(),
                 silhouette: self.silhouettes.layout(),
             };
@@ -1249,7 +1267,7 @@ impl ViewportRenderer {
             shading: self.shading,
             view_layout: self.view_layout.clone(),
             grid_layout: self.grid_layout.clone(),
-            line_styles_layout: self.line_styles_layout.clone(),
+            styles_layout: self.styles_layout.clone(),
             pipelines: self.pipelines.clone(),
             set_aside: Vec::new(),
             view_uniform: Uniform::new(device, &self.view_layout, "view", VIEW_UNIFORM_SIZE),
@@ -1461,7 +1479,9 @@ impl ViewportRenderer {
                 behind = Some(draw.behind_faces);
             }
             if bound != Some(draw.slot) {
-                batch.bind_fills(pass);
+                if !batch.bind_fills(pass, batch.fill_vertices) {
+                    continue;
+                }
                 bound = Some(draw.slot);
             }
             pass.draw(draw.vertices.clone(), 0..1);
@@ -1676,7 +1696,7 @@ impl ViewportRenderer {
                             batch,
                             anchor,
                             slot,
-                            line_styles: &self.line_styles_layout,
+                            styles: &self.styles_layout,
                         },
                     );
                 });
@@ -1862,7 +1882,7 @@ fn coalesce(spans: &[FillSpan], draws: &mut Vec<FillDraw>) {
 struct Layouts<'a> {
     view: &'a wgpu::BindGroupLayout,
     grid: &'a wgpu::BindGroupLayout,
-    line_styles: &'a wgpu::BindGroupLayout,
+    styles: &'a wgpu::BindGroupLayout,
     mesh: &'a wgpu::BindGroupLayout,
     silhouette: &'a wgpu::BindGroupLayout,
 }
@@ -1885,7 +1905,9 @@ impl Pipelines {
         };
         let scene_layout = pipeline_layout("scene", &[Some(layouts.view)]);
         let line_pipeline_layout =
-            pipeline_layout("lines", &[Some(layouts.view), Some(layouts.line_styles)]);
+            pipeline_layout("lines", &[Some(layouts.view), Some(layouts.styles)]);
+        let fill_pipeline_layout =
+            pipeline_layout("fills", &[Some(layouts.view), Some(layouts.styles)]);
         let grid_pipeline_layout =
             pipeline_layout("grid", &[Some(layouts.view), Some(layouts.grid)]);
         let mesh_pipeline_layout =
@@ -1896,8 +1918,7 @@ impl Pipelines {
         );
 
         let marker_attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Unorm8x4, 2 => Float32, 3 => Uint32, 4 => Uint32];
-        let fill_attributes =
-            wgpu::vertex_attr_array![0 => Float32x3, 1 => Unorm8x4, 2 => Uint32, 3 => Uint32];
+        let fill_attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Uint32];
         let mesh_attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Snorm16x2, 2 => Uint32];
         let silhouette_attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x3, 3 => Snorm16x2, 4 => Snorm16x2, 5 => Snorm16x2];
         let line_points = LinePointAttributes::new();
@@ -2106,10 +2127,17 @@ impl Pipelines {
                 "fs_marker",
                 true,
             ),
-            fills: color("fills", &scene_layout, "vs_fill", &fills, "fs_fill", false),
+            fills: color(
+                "fills",
+                &fill_pipeline_layout,
+                "vs_fill",
+                &fills,
+                "fs_fill",
+                false,
+            ),
             reference_fills: color(
                 "reference fills",
-                &scene_layout,
+                &fill_pipeline_layout,
                 "vs_fill",
                 &fills,
                 "fs_fill",
@@ -2142,7 +2170,7 @@ impl Pipelines {
                 ),
                 fills: pick_pipeline(
                     "pick fills",
-                    &scene_layout,
+                    &fill_pipeline_layout,
                     "vs_fill",
                     &fills,
                     "fs_pick",
@@ -2150,7 +2178,7 @@ impl Pipelines {
                 ),
                 reference_fills: pick_pipeline(
                     "pick reference fills",
-                    &scene_layout,
+                    &fill_pipeline_layout,
                     "vs_fill",
                     &fills,
                     "fs_pick",
@@ -2297,18 +2325,27 @@ fn fill_vertex_count(fill: &Fill) -> u32 {
     u32::try_from(fill.triangles.len().saturating_mul(3)).unwrap_or(u32::MAX)
 }
 
+fn fill_texel(fill: &Fill) -> StyleTexel {
+    [
+        pack_color(fill.color),
+        PickId::raw(fill.pick),
+        fill.layer.flags(),
+        0,
+    ]
+}
+
+fn index_word(index: usize) -> u32 {
+    u32::try_from(index).unwrap_or(u32::MAX)
+}
+
 fn fill_vertices(
     fill: &Fill,
     anchor: Point3,
+    style: u32,
 ) -> impl Iterator<Item = [u8; FILL_VERTEX_BYTES]> + '_ {
-    let flags = fill.layer.flags();
     fill.triangles.iter().flatten().map(move |corner| {
         gpu::record(|record| {
-            record
-                .vec3(relative_to_eye(*corner, anchor))
-                .unorm8x4(fill.color.to_array())
-                .u32(PickId::raw(fill.pick))
-                .u32(flags);
+            record.vec3(relative_to_eye(*corner, anchor)).u32(style);
         })
     })
 }
@@ -2731,6 +2768,32 @@ mod tests {
             spans.iter().map(|span| span.in_front).collect::<Vec<_>>(),
             vec![false, false, true, true]
         );
+    }
+
+    #[test]
+    fn a_fill_vertex_holds_a_position_and_the_index_of_its_fill_style() {
+        let fill = Fill::convex(
+            &[
+                Point3::new(0.0, 0.0, 0.0),
+                Point3::new(1.0, 0.0, 0.0),
+                Point3::new(0.0, 1.0, 0.0),
+            ],
+            Color::from_rgba8(10, 20, 30, 40),
+            Layer::Front,
+            None,
+        );
+
+        let vertices: Vec<_> = fill_vertices(&fill, Point3::ZERO, 7).collect();
+        let texel = fill_texel(&fill);
+
+        assert_eq!(FILL_VERTEX_BYTES, 16);
+        assert_eq!(vertices.len(), 3);
+        assert!(
+            vertices
+                .iter()
+                .all(|vertex| vertex[12..] == 7_u32.to_le_bytes())
+        );
+        assert_eq!(texel, [pack_color(fill.color), 0, Layer::Front.flags(), 0]);
     }
 
     #[test]

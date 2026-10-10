@@ -369,9 +369,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   selection change restyles and uploads all of it, over a millisecond to rebuild and about half of
   that to upload for a sketch of 24,000 curves in a release build. A batch per feature, with pick
   ids of its own, would limit both to what changed.
-- [low · easy] Fill vertices still repeat their fill's colour, pick id and flags at every corner
-  (12 of their 24 bytes); a per-batch style table indexed per vertex, as lines have
-  (`LineStyles`), would take them down to 16.
 - [low · hard] Snapping projects every point and curve of the sketch on every hover frame
   (`snap.rs`), a cost linear in the sketch that is most of the frame for tens of thousands of lines,
   mostly walking the entities, and a line or slot end walks every line again to find the nearest for

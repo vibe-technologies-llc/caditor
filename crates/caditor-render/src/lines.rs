@@ -7,14 +7,13 @@ use crate::{
     gpu::{self, Pack},
     mesh::{StyleLayout, pack_color},
     scene::{Line, PickId, Stroke},
+    styles::{StyleTexel, style_texel_bytes},
     viewport::relative_to_eye,
 };
 
 pub(crate) const LINE_POINT_BYTES: usize = 24;
 pub(crate) const LINE_POINT_STRIDE: u64 = LINE_POINT_BYTES as u64;
 pub(crate) const LINE_POINT_SLOTS: u32 = 4;
-pub(crate) const LINE_STYLE_BINDING: u32 = 4;
-const LINE_STYLE_TEXEL_BYTES: u32 = 16;
 const DRAWN: u32 = 1 << 31;
 const LINKED: u32 = 1 << 30;
 const STYLE_INDEX_LIMIT: usize = LINKED as usize;
@@ -60,7 +59,7 @@ impl LineStyle {
         }
     }
 
-    fn texel(self) -> [u32; 4] {
+    fn texel(self) -> StyleTexel {
         [self.color, self.width, self.flags, 0]
     }
 }
@@ -242,17 +241,7 @@ impl<'a> LineStrips<'a> {
     }
 
     pub(crate) fn style_texels(&self, layout: StyleLayout) -> Vec<u8> {
-        let mut bytes = Vec::with_capacity(layout.texels() * LINE_STYLE_TEXEL_BYTES as usize);
-        let texels = self
-            .styles
-            .iter()
-            .map(|style| style.texel())
-            .chain(iter::repeat([0; 4]))
-            .take(layout.texels());
-        for texel in texels.flatten() {
-            bytes.extend_from_slice(&texel.to_le_bytes());
-        }
-        bytes
+        style_texel_bytes(self.styles.iter().map(|style| style.texel()), layout)
     }
 }
 
@@ -318,85 +307,13 @@ fn strips(lines: &[&Line], style_of: &[u32], shown_lines: usize) -> Vec<Strip> {
     strips
 }
 
-pub(crate) struct LineStyles {
-    layout: StyleLayout,
-    texture: wgpu::Texture,
-    pub bind_group: wgpu::BindGroup,
-}
-
-impl LineStyles {
-    pub(crate) fn layout_entry() -> wgpu::BindGroupLayoutEntry {
-        wgpu::BindGroupLayoutEntry {
-            binding: LINE_STYLE_BINDING,
-            visibility: wgpu::ShaderStages::VERTEX,
-            ty: wgpu::BindingType::Texture {
-                sample_type: wgpu::TextureSampleType::Uint,
-                view_dimension: wgpu::TextureViewDimension::D2,
-                multisampled: false,
-            },
-            count: None,
-        }
-    }
-
-    pub(crate) fn written(
-        kept: Option<Self>,
-        (device, queue): (&wgpu::Device, &wgpu::Queue),
-        bind_group_layout: &wgpu::BindGroupLayout,
-        strips: &LineStrips<'_>,
-    ) -> Self {
-        let layout = strips.style_layout(device.limits().max_texture_dimension_2d);
-        let styles = kept
-            .filter(|kept| kept.layout == layout)
-            .unwrap_or_else(|| Self::new(device, bind_group_layout, layout));
-        queue.write_texture(
-            styles.texture.as_image_copy(),
-            &strips.style_texels(layout),
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(layout.columns.saturating_mul(LINE_STYLE_TEXEL_BYTES)),
-                rows_per_image: Some(layout.rows),
-            },
-            layout.extent(),
-        );
-        styles
-    }
-
-    fn new(
-        device: &wgpu::Device,
-        bind_group_layout: &wgpu::BindGroupLayout,
-        layout: StyleLayout,
-    ) -> Self {
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("line styles"),
-            size: layout.extent(),
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba32Uint,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("line styles"),
-            layout: bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: LINE_STYLE_BINDING,
-                resource: wgpu::BindingResource::TextureView(&view),
-            }],
-        });
-        Self {
-            layout,
-            texture,
-            bind_group,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scene::{Color, Layer};
+    use crate::{
+        scene::{Color, Layer},
+        styles::STYLE_TEXEL_BYTES,
+    };
 
     fn line(start: [f64; 2], end: [f64; 2], alpha: u8, stroke: Stroke) -> Line {
         Line {
@@ -577,7 +494,7 @@ mod tests {
         assert_eq!(strips.style_layout(2), StyleLayout::new(4, 2));
         assert_eq!(
             strips.style_texels(strips.style_layout(2)).len(),
-            4 * LINE_STYLE_TEXEL_BYTES as usize
+            4 * STYLE_TEXEL_BYTES as usize
         );
     }
 }
