@@ -237,13 +237,13 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   a curve cannot be wrapped onto a curved face (a stripe laid round a cylinder by its unrolled
   length), and a sketch whose open chain touches one of its closed outlines is neither one chain
   nor separate outlines, so it fails.
-- [low · medium] Expressions cannot read a measured value (a distance or angle taken from the
-  geometry): parameters evaluate before and apart from recompute, so a measured one would need
-  recompute to evaluate parameters in tree order beside the features, the measured reference
-  healed like any other and a cycle through the feature it drives refused. Nor can a measurement
-  be kept in the model: a named reading between two references, updated on every recompute and
-  drawn in the view, by which a clearance is watched while upstream features change and which
-  expressions could then use.
+- [low · medium] A kept measurement feeds features below it but no parameter: parameters still
+  evaluate before and apart from recompute, so a parameter reading one (`gap = clearance / 2`) is
+  refused; it needs recompute to evaluate parameters in tree order beside the features. A
+  measurement reads only a distance, an angle, a length, a radius or an area (no offset along an
+  axis, position, sweep, perimeter or mass property), its references cannot be chosen again in
+  its panel (keep a new one instead), and deleting one that features use leaves its parameter at
+  the value read when it was kept rather than the last reading.
 - [low · hard] Scale is uniform: a body cannot be stretched by different factors along the three
   axes (a plane stays a plane, but a cylinder becomes an elliptical one, which the kernel's
   surfaces do not have).

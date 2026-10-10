@@ -26,6 +26,7 @@ use crate::{
         list_names,
     },
     grouping::{MAX_GROUP_NAME_CHARS, group_name},
+    measurement::Measured,
     model_parameters::{MAX_VALUE_LABEL_CHARS, ParameterOwner},
     projection::ProjectionSource,
     properties::{ModelProperties, ModelProperty},
@@ -442,6 +443,31 @@ pub enum EditError {
     ConfigurationOutOfStep(String),
     #[error("This would make {name} depend on itself ({path})")]
     Cycle { name: String, path: String },
+    #[error(
+        "{name} cannot use {parameter}, the reading of {measurement}: parameters are worked out before the model is measured ({name} → {parameter} → {measurement} → {name}); use {parameter} in a feature below {measurement} instead"
+    )]
+    ParameterReadsMeasurement {
+        name: String,
+        parameter: String,
+        measurement: String,
+    },
+    #[error(
+        "{feature} cannot use {parameter}, the reading of {measurement}, which is taken further down the tree ({feature} → {parameter} → {measurement} → {feature}); move {measurement} above {feature}"
+    )]
+    MeasurementBelowUser {
+        feature: String,
+        parameter: String,
+        measurement: String,
+    },
+    #[error("{parameter} already holds the reading of {measurement}")]
+    ParameterMeasuredTwice {
+        parameter: String,
+        measurement: String,
+    },
+    #[error(
+        "{name} is the reading of {measurement}, which follows the model, so it cannot be written into what uses it; delete {measurement} or stop using {name} first"
+    )]
+    MeasuredParameterInlined { name: String, measurement: String },
     #[error("The rollback bar sits right above {0}; move the bar before deleting it")]
     RollbackBarAbove(String),
     #[error("{name} cannot move above {other}, which it uses")]
@@ -981,13 +1007,15 @@ impl Document {
             | (FeatureKind::Hole(_), FeatureKind::Hole(_))
             | (FeatureKind::Pattern(_), FeatureKind::Pattern(_))
             | (FeatureKind::Import(_), FeatureKind::Import(_))
-            | (FeatureKind::Remove(_), FeatureKind::Remove(_)) => true,
+            | (FeatureKind::Remove(_), FeatureKind::Remove(_))
+            | (FeatureKind::Measurement(_), FeatureKind::Measurement(_)) => true,
             _ => false,
         };
         if !same_kind {
             return Err(EditError::KindChange(name));
         }
         self.check_feature_references(&kind, index)?;
+        self.check_measurement_order(&Feature::new(id, name.clone(), kind.clone()), index)?;
         self.reserve_past_references(&kind);
         let keeps_body = matches!(kind, FeatureKind::Import(_))
             || kind
@@ -1078,6 +1106,7 @@ impl Document {
         self.check_parameter_name(&parameter.name, None)?;
         check_note(&parameter.note)?;
         self.check_references(&parameter.expression)?;
+        self.check_reads_no_measurement(&parameter.name, &parameter.expression)?;
         let id = parameter.id();
         self.next_parameter_id = self.next_parameter_id.max(id.raw().saturating_add(1));
         graph.inserted(id, &parameter.expression);
@@ -1163,6 +1192,7 @@ impl Document {
     ) -> Result<Edit, EditError> {
         self.parameter_position(id)?;
         self.check_references(&expression)?;
+        self.check_reads_no_measurement(self.parameter_name(id).unwrap_or_default(), &expression)?;
         let dependencies = graph.of(self);
         if let Some(cycle) = dependencies.cycle(id, &expression) {
             let names: Vec<&str> = cycle
@@ -1219,6 +1249,7 @@ impl Document {
         }
         self.check_feature_name(&feature.name, feature.id())?;
         self.check_feature_references(&feature.kind, index)?;
+        self.check_measurement_order(&feature, index)?;
         check_appearance(&feature.appearance)?;
         self.check_parameters_exist(feature.appearance.parameters())?;
         let id = feature.id();
@@ -1545,7 +1576,8 @@ impl Document {
         }
         let moving = self.feature(id).ok_or(EditError::MissingFeature)?;
         let name = moving.name.clone();
-        let mut uses = moving.kind.dependencies();
+        let measured = Measured::of(self);
+        let mut uses = measured.dependencies_of(&moving.kind);
         uses.remove(&id);
         let others: Vec<&Feature> = self.features().filter(|other| other.id() != id).collect();
         let (above, below) = others.split_at(index.min(others.len()));
@@ -1557,7 +1589,7 @@ impl Document {
         }
         if let Some(user) = above
             .iter()
-            .find(|other| other.kind.dependencies().contains(&id))
+            .find(|other| measured.dependencies_of(&other.kind).contains(&id))
         {
             return Err(EditError::BelowDependent {
                 name,
@@ -1611,5 +1643,103 @@ impl Document {
         self.feature(id)
             .map(|feature| feature.name.clone())
             .unwrap_or_default()
+    }
+
+    fn check_reads_no_measurement(
+        &self,
+        name: &str,
+        expression: &Expression,
+    ) -> Result<(), EditError> {
+        let used = expression.parameters();
+        if used.is_empty() {
+            return Ok(());
+        }
+        let measured = Measured::of(self);
+        let Some((parameter, measurement)) = used
+            .into_iter()
+            .find_map(|parameter| Some((parameter, measured.measurement(parameter)?)))
+        else {
+            return Ok(());
+        };
+        Err(EditError::ParameterReadsMeasurement {
+            name: name.to_owned(),
+            parameter: self
+                .parameter_name(parameter)
+                .unwrap_or_default()
+                .to_owned(),
+            measurement: self.feature_name(measurement),
+        })
+    }
+
+    fn check_measurement_order(&self, feature: &Feature, index: usize) -> Result<(), EditError> {
+        let used = feature.kind.parameters();
+        if used.is_empty() && feature.kind.measurement().is_none() {
+            return Ok(());
+        }
+        let measured = Measured::of(self);
+        let id = feature.id();
+        for parameter in used {
+            let Some(measurement) = measured.measurement(parameter).filter(|other| *other != id)
+            else {
+                continue;
+            };
+            if self
+                .feature_index(measurement)
+                .is_some_and(|position| position >= index)
+            {
+                return Err(EditError::MeasurementBelowUser {
+                    feature: feature.name.clone(),
+                    parameter: self
+                        .parameter_name(parameter)
+                        .unwrap_or_default()
+                        .to_owned(),
+                    measurement: self.feature_name(measurement),
+                });
+            }
+        }
+        let Some(parameter) = feature
+            .kind
+            .measurement()
+            .and_then(|measurement| measurement.parameter)
+        else {
+            return Ok(());
+        };
+        let parameter_name = self
+            .parameter_name(parameter)
+            .unwrap_or_default()
+            .to_owned();
+        if let Some(other) = measured.measurement(parameter).filter(|other| *other != id) {
+            return Err(EditError::ParameterMeasuredTwice {
+                parameter: parameter_name,
+                measurement: self.feature_name(other),
+            });
+        }
+        if let Some(reader) = self
+            .parameters()
+            .iter()
+            .find(|other| other.expression.uses(parameter))
+        {
+            return Err(EditError::ParameterReadsMeasurement {
+                name: reader.name.clone(),
+                parameter: parameter_name,
+                measurement: feature.name.clone(),
+            });
+        }
+        let at_or_above = self
+            .features()
+            .enumerate()
+            .filter(|(position, other)| *position < index && other.id() != id)
+            .map(|(_, other)| other);
+        if let Some(user) = at_or_above
+            .into_iter()
+            .find(|other| other.kind.uses_parameter(parameter))
+        {
+            return Err(EditError::MeasurementBelowUser {
+                feature: user.name.clone(),
+                parameter: parameter_name,
+                measurement: feature.name.clone(),
+            });
+        }
+        Ok(())
     }
 }

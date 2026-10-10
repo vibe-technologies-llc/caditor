@@ -25,7 +25,9 @@ use crate::{
     history::ResultHistory,
     hole, import,
     lookahead::Lookahead,
-    mate, mirror, movement, offset_face, pattern,
+    mate,
+    measurement::{self, Measured, MeasurementResult},
+    mirror, movement, offset_face, pattern,
     pool::{Claim, Job, Landed, LastMeshes, Pool, Threads, Work, available_workers},
     presenting::{Glimpse, MESHES_REPORTED_EVERY, Presentation, SettledBody},
     primitive, projection, removal, scaling, shell,
@@ -198,6 +200,7 @@ pub enum FeatureResult {
     Solid(SolidResult),
     Datum(DatumResult),
     Thread(ThreadResult),
+    Measurement(MeasurementResult),
 }
 
 impl FeatureResult {
@@ -209,6 +212,7 @@ impl FeatureResult {
             (Self::Datum(own), Self::Datum(theirs)) => own == theirs,
             (Self::Solid(own), Self::Solid(theirs)) => own.same_shapes(theirs),
             (Self::Thread(own), Self::Thread(theirs)) => own == theirs,
+            (Self::Measurement(own), Self::Measurement(theirs)) => own.value == theirs.value,
             _ => false,
         }
     }
@@ -216,28 +220,35 @@ impl FeatureResult {
     pub fn sketch(&self) -> Option<&SketchResult> {
         match self {
             Self::Sketch(sketch) => Some(sketch),
-            Self::Solid(_) | Self::Datum(_) | Self::Thread(_) => None,
+            Self::Solid(_) | Self::Datum(_) | Self::Thread(_) | Self::Measurement(_) => None,
         }
     }
 
     pub fn solid(&self) -> Option<&SolidResult> {
         match self {
             Self::Solid(solid) => Some(solid),
-            Self::Sketch(_) | Self::Datum(_) | Self::Thread(_) => None,
+            Self::Sketch(_) | Self::Datum(_) | Self::Thread(_) | Self::Measurement(_) => None,
         }
     }
 
     pub fn datum(&self) -> Option<&DatumResult> {
         match self {
             Self::Datum(datum) => Some(datum),
-            Self::Sketch(_) | Self::Solid(_) | Self::Thread(_) => None,
+            Self::Sketch(_) | Self::Solid(_) | Self::Thread(_) | Self::Measurement(_) => None,
         }
     }
 
     pub fn thread(&self) -> Option<&ThreadResult> {
         match self {
             Self::Thread(thread) => Some(thread),
-            Self::Sketch(_) | Self::Solid(_) | Self::Datum(_) => None,
+            Self::Sketch(_) | Self::Solid(_) | Self::Datum(_) | Self::Measurement(_) => None,
+        }
+    }
+
+    pub fn measurement(&self) -> Option<&MeasurementResult> {
+        match self {
+            Self::Measurement(measurement) => Some(measurement),
+            Self::Sketch(_) | Self::Solid(_) | Self::Datum(_) | Self::Thread(_) => None,
         }
     }
 }
@@ -594,9 +605,9 @@ impl Key {
         view: &View,
     ) -> Self {
         let used_parameters = feature.kind.parameters();
-        let mut upstream: Vec<(FeatureId, Option<Arc<FeatureResult>>)> = feature
-            .kind
-            .features()
+        let mut upstream: Vec<(FeatureId, Option<Arc<FeatureResult>>)> = run
+            .measured
+            .features_read_by(&feature.kind)
             .into_iter()
             .map(|used| (used, view.features.get(&used).cloned()))
             .collect();
@@ -653,6 +664,7 @@ impl View {
 pub(crate) struct Context<'a> {
     pub(crate) document: &'a Document,
     pub(crate) parameters: &'a ParameterValues,
+    pub(crate) measured: &'a Measured,
     pub(crate) evaluator: &'a dyn Evaluator,
     pub(crate) cancel: &'a CancelToken,
 }
@@ -660,9 +672,12 @@ pub(crate) struct Context<'a> {
 pub(crate) type Computed = Result<(Arc<FeatureResult>, Option<Arc<Healing>>), Failure>;
 
 pub(crate) fn compute(context: &Context<'_>, job: &Job) -> Computed {
+    let overlaid = context
+        .measured
+        .overlay(context.parameters, &job.feature, &job.view.features);
     let inputs = Inputs {
         document: context.document,
-        parameters: context.parameters,
+        parameters: overlaid.as_ref().unwrap_or(context.parameters),
         features: &job.view.features,
         bodies: &job.view.bodies,
         previous: job.previous.as_deref(),
@@ -835,9 +850,11 @@ impl Recompute {
             .checked_add(self.features_done_after)
             .unwrap_or(started);
         let parameters = ParameterValues::evaluate(document);
+        let measured = Measured::of(document);
         let run = Run {
             document,
             parameters: &parameters,
+            measured: &measured,
             evaluator,
             cancel,
             progress: reports.progress,
@@ -919,7 +936,7 @@ impl Recompute {
                     .insert(id, FeatureStatus::without_result(state));
                 continue;
             }
-            let view = walk.view(feature);
+            let view = walk.view(feature, run.measured);
             let key = Key::of(run, (feature, index), (&tree, &suppressed), &view);
             walk.see_bodies(feature);
             let reused = self
@@ -947,8 +964,8 @@ impl Recompute {
                 let outcome = match missing_upstream(document, feature, &key.upstream) {
                     Some(error) => Err(error.into()),
                     None if pool.parallel() => {
-                        let lookahead =
-                            lookahead.get_or_insert_with(|| walk.lookahead(features, bar));
+                        let lookahead = lookahead
+                            .get_or_insert_with(|| walk.lookahead(features, bar, run.measured));
                         let names = (&tree, &suppressed);
                         self.outcome(run, pool, lookahead, names, (index, job))
                     }
@@ -1206,6 +1223,7 @@ impl Recompute {
 struct Run<'a> {
     document: &'a Document,
     parameters: &'a ParameterValues,
+    measured: &'a Measured,
     evaluator: &'a dyn Evaluator,
     cancel: &'a CancelToken,
     progress: &'a dyn Fn(usize, usize),
@@ -1216,6 +1234,7 @@ impl<'a> Run<'a> {
         Context {
             document: self.document,
             parameters: self.parameters,
+            measured: self.measured,
             evaluator: self.evaluator,
             cancel: self.cancel,
         }
@@ -1286,8 +1305,8 @@ impl Walk {
         }
     }
 
-    fn lookahead(&self, features: &[Arc<Feature>], bar: usize) -> Lookahead {
-        let mut lookahead = Lookahead::new(features, bar);
+    fn lookahead(&self, features: &[Arc<Feature>], bar: usize, measured: &Measured) -> Lookahead {
+        let mut lookahead = Lookahead::new(features, bar, measured);
         for (index, feature) in features.iter().enumerate() {
             if self.statuses.contains_key(&feature.id()) {
                 lookahead.settle(index, self.current.get(&feature.id()).cloned());
@@ -1296,9 +1315,9 @@ impl Walk {
         lookahead
     }
 
-    fn view(&self, feature: &Feature) -> View {
+    fn view(&self, feature: &Feature, measured: &Measured) -> View {
         let mut view = View::default();
-        for used in feature.kind.features() {
+        for used in measured.features_read_by(&feature.kind) {
             if let Some(result) = self.current.get(&used) {
                 view.features.insert(used, Arc::clone(result));
             }
@@ -1319,9 +1338,20 @@ impl Walk {
     fn into_evaluation(
         self,
         document: &Document,
-        parameters: ParameterValues,
+        mut parameters: ParameterValues,
         pending: BTreeSet<FeatureId>,
     ) -> Evaluation {
+        for (parameter, measurement) in Measured::of(document).pairs() {
+            let reading = self
+                .statuses
+                .get(&measurement)
+                .filter(|status| status.state == FeatureState::UpToDate)
+                .and_then(|status| status.result.as_deref())
+                .and_then(FeatureResult::measurement);
+            if let Some(reading) = reading {
+                parameters.set_measured(parameter, Ok(reading.value));
+            }
+        }
         let mut shown: BTreeMap<FeatureId, FeatureId> = self
             .bodies
             .iter()
@@ -1611,6 +1641,9 @@ impl Evaluator for ModelEvaluator {
             FeatureKind::Datum(definition) => datum::evaluate(feature, definition, inputs),
             FeatureKind::Import(definition) => import::evaluate(feature, definition, inputs),
             FeatureKind::Remove(definition) => removal::evaluate(feature, definition, inputs),
+            FeatureKind::Measurement(definition) => {
+                measurement::evaluate(feature, definition, inputs, cancel)
+            }
         }
     }
 }

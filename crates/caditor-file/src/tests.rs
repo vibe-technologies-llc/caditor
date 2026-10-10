@@ -9,7 +9,7 @@ use caditor_document::{
     CancelToken, Document, Edit, Editor, FaceAttachment, FeatureId, FeatureKind, PlaneReference,
     PrincipalPlane, RollbackBar, SketchAttachment, Transaction,
 };
-use caditor_expression::{Dimension, EvalError, Expression, Quantity, Unit};
+use caditor_expression::{Dimension, EvalError, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
 use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, FitSpacing, Sketch, SplineKind};
 use tempfile::TempDir;
@@ -8734,4 +8734,106 @@ fn a_chamfer_by_two_distances_or_an_angle_is_a_kind_older_readers_report() {
     assert_eq!(kind_of(&angled_loaded.document), angled_saved);
     assert!(!equal_text.contains("shaped_chamfer"));
     assert!(equal_text.contains("\"chamfer\":{"));
+}
+
+fn measured_model() -> (Document, FeatureId, ParameterId) {
+    use caditor_document::{
+        Between, MeasuredItem, Measurement, ParameterOwner, PointReference, Reading,
+    };
+    use caditor_kernel::{FaceName, FaceOrigin, FaceReference};
+    let (mut document, base, _) = solid_model();
+    let top = FaceReference::new(
+        FaceName::from_digest(0xbeef),
+        Some(FaceOrigin::EndCap { feature: 1 }),
+        [FaceName::from_digest(3)],
+    );
+    let mut transaction = document.transaction("Keep");
+    let clearance = transaction.add_parameter("clearance", transaction.parse("3 mm").unwrap());
+    let measurement = transaction.add_feature(
+        "Clearance",
+        FeatureKind::from(Measurement {
+            reading: Reading::Between {
+                quantity: Between::Distance,
+                first: MeasuredItem::Face {
+                    body: base,
+                    face: top,
+                },
+                second: MeasuredItem::Point(PointReference::Origin),
+            },
+            parameter: Some(clearance),
+        }),
+    );
+    transaction.edit(Edit::SetParameterOwner {
+        id: clearance,
+        owner: Some(ParameterOwner::Feature {
+            feature: measurement,
+            value: "Reading".to_owned(),
+        }),
+    });
+    document.apply(transaction.finish()).unwrap();
+    (document, measurement, clearance)
+}
+
+#[test]
+fn a_measurement_is_saved_and_loaded_as_a_record_of_its_own_that_older_readers_report() {
+    let (document, measurement, _) = measured_model();
+    let text = encode(&document).unwrap();
+    assert!(text.contains("\"measurement\":{\"items\":[{\"face\":{\"body\":1,"));
+    assert!(text.contains("{\"point\":\"origin\"}],\"parameter\":1,\"quantity\":\"distance\"}"));
+    let loaded = decode_text(&text);
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+
+    let kind = document.feature(measurement).unwrap().kind.clone();
+    let transaction = Transaction::single(
+        "Edit",
+        Edit::SetFeatureKind {
+            id: measurement,
+            kind,
+        },
+    );
+    let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+    let record = through_binary(&text);
+    assert_eq!(format::restore_transaction(record), Some(transaction));
+
+    let unknown =
+        encode(&document)
+            .unwrap()
+            .replacen("\"measurement\":{", "\"measurement_v2\":{", 1);
+    let older = decode_text(&unknown);
+    assert!(older.document.feature(measurement).is_none());
+    assert!(
+        older
+            .issues
+            .iter()
+            .any(|issue| issue.contains("newer version")),
+        "{:?}",
+        older.issues
+    );
+}
+
+#[test]
+fn an_unreadable_measured_item_measures_from_the_origin_and_is_reported() {
+    use caditor_document::{MeasuredItem, PointReference, Reading};
+    let (document, measurement, clearance) = measured_model();
+    let text =
+        encode(&document)
+            .unwrap()
+            .replacen("0000000000000000000000000000beef", "not a digest", 1);
+    let loaded = decode_text(&text);
+    assert_eq!(
+        loaded.issues,
+        [
+            "What “Clearance” measures could not be read in full, so it measures from the origin \
+          instead; measure again and keep the measurement."
+        ]
+    );
+    let restored = loaded.document.feature(measurement).unwrap();
+    let restored = restored.kind.measurement().unwrap();
+    assert_eq!(restored.parameter, Some(clearance));
+    let Reading::Between { first, second, .. } = &restored.reading else {
+        panic!("a distance stays a distance");
+    };
+    assert_eq!(*first, MeasuredItem::Point(PointReference::Origin));
+    assert_eq!(*second, MeasuredItem::Point(PointReference::Origin));
 }

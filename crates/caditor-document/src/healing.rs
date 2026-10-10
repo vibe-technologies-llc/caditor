@@ -12,6 +12,7 @@ use crate::{
     edit::{Edit, Transaction},
     hole::HoleDepth,
     mate::{AngleSides, AxisMate, Mate, MatePair, PointTarget},
+    measurement::{MeasuredItem, Measurement},
     movement::TurnCentre,
     pattern::PatternKind,
     recompute::Inputs,
@@ -204,6 +205,7 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
         FeatureKind::Thread(thread) => {
             visitor.face(thread.body, &mut thread.face, "its threaded face");
         }
+        FeatureKind::Measurement(measurement) => visit_measurement(measurement, visitor),
         FeatureKind::Pattern(pattern) => match &mut pattern.kind {
             PatternKind::Linear { first, second } => {
                 visit_axis(&mut first.axis, "first direction", visitor);
@@ -348,6 +350,34 @@ fn visit_point(point: &mut PointReference, role: &str, visitor: &mut impl Refere
         | PointReference::Vertex { .. }
         | PointReference::Sketch { .. }
         | PointReference::Frame(_) => {}
+    }
+}
+
+fn visit_measurement(measurement: &mut Measurement, visitor: &mut impl ReferenceVisitor) {
+    let count = measurement.reading.items().len();
+    for (index, item) in measurement.reading.items_mut().into_iter().enumerate() {
+        let role = match (count, index) {
+            (1, _) => "measured item",
+            (_, 0) => "first measured item",
+            _ => "second measured item",
+        };
+        match item {
+            MeasuredItem::Point(point) => visit_point(point, role, visitor),
+            MeasuredItem::Axis(axis) => visit_axis(axis, role, visitor),
+            MeasuredItem::Plane(plane) => {
+                visit_plane(plane, &format!("the face giving its {role}"), visitor);
+            }
+            MeasuredItem::Edge { body, edge } => {
+                let what = format!("the edge giving its {role}");
+                visitor.edges(*body, std::slice::from_mut(edge.as_mut()), &|_| {
+                    what.clone()
+                });
+            }
+            MeasuredItem::Face { body, face } => {
+                visitor.face(*body, face, &format!("the face giving its {role}"));
+            }
+            MeasuredItem::Sketch { .. } => {}
+        }
     }
 }
 

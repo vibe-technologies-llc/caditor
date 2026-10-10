@@ -2,7 +2,11 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use caditor_expression::{EvalError, Expression, ParameterId, Quantity};
 
-use crate::document::{Document, Parameter, path_to};
+use crate::{
+    datum::feature_name,
+    document::{Document, Parameter, path_to},
+    measurement::Measured,
+};
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum ParameterError {
@@ -10,6 +14,8 @@ pub enum ParameterError {
     Evaluation(#[from] EvalError),
     #[error("it depends on itself ({path})")]
     Cycle { path: String },
+    #[error("it is read from {measurement}, which has no reading now")]
+    Unmeasured { measurement: String },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -21,6 +27,7 @@ struct Entry {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ParameterValues {
     entries: BTreeMap<ParameterId, Entry>,
+    measured: BTreeSet<ParameterId>,
 }
 
 impl ParameterValues {
@@ -53,10 +60,24 @@ impl ParameterValues {
                 },
             );
         }
+        let measured = Measured::of(document);
         for id in order.sequence {
             let Some(parameter) = by_id.get(&id) else {
                 continue;
             };
+            if let Some(measurement) = measured.measurement(id) {
+                values.measured.insert(id);
+                values.entries.insert(
+                    id,
+                    Entry {
+                        name: parameter.name.clone(),
+                        value: Err(ParameterError::Unmeasured {
+                            measurement: feature_name(document, measurement),
+                        }),
+                    },
+                );
+                continue;
+            }
             let value = values
                 .evaluate_expression(&parameter.expression)
                 .map_err(ParameterError::Evaluation);
@@ -69,6 +90,29 @@ impl ParameterValues {
             );
         }
         values
+    }
+
+    pub(crate) fn set_measured(
+        &mut self,
+        id: ParameterId,
+        value: Result<Quantity, ParameterError>,
+    ) {
+        if let Some(entry) = self.entries.get_mut(&id) {
+            entry.value = value;
+        }
+    }
+
+    pub fn take_readings(&mut self, from: &Self) {
+        for id in &self.measured {
+            let reading = from
+                .entries
+                .get(id)
+                .filter(|_| from.measured.contains(id))
+                .map(|entry| entry.value.clone());
+            if let (Some(entry), Some(reading)) = (self.entries.get_mut(id), reading) {
+                entry.value = reading;
+            }
+        }
     }
 
     pub fn get(&self, id: ParameterId) -> Option<&Result<Quantity, ParameterError>> {

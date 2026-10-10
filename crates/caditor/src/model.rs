@@ -402,7 +402,8 @@ impl Model {
         self.drafts += 1;
         let previewed = !matches!(kind, FeatureKind::Move(_));
         let shown = self.shown_placement(feature);
-        let parameters = ParameterValues::evaluate(&document);
+        let mut parameters = ParameterValues::evaluate(&document);
+        parameters.take_readings(&self.evaluation.parameters);
         self.draft = Some(DraftPreview {
             feature,
             kind,
@@ -1043,6 +1044,7 @@ impl Model {
         self.record(entry);
         self.dirty = self.differs_from_saved();
         self.parameters = ParameterValues::evaluate(self.editor.document());
+        self.parameters.take_readings(&self.evaluation.parameters);
         self.recompute(Retry::Nothing);
     }
 
@@ -1111,6 +1113,7 @@ impl Model {
                 }
                 self.evaluation = update.evaluation;
                 self.evaluation_generation += 1;
+                self.parameters.take_readings(&self.evaluation.parameters);
                 self.display.sketches.forget();
                 self.display
                     .sketches

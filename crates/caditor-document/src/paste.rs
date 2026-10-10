@@ -451,6 +451,7 @@ impl FeatureKind {
             Self::Remove(remove) => remove.body = rename(remove.body),
             Self::Thread(thread) => thread.body = rename(thread.body),
             Self::Import(import) => import.placement.frame = import.placement.frame.map(rename),
+            Self::Measurement(measurement) => measurement.parameter = None,
             Self::Datum(_) => {}
         }
     }

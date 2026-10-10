@@ -51,6 +51,7 @@ pub struct Overlay {
     pub previews: Vec<Preview>,
     pub measured: Option<[Point3; 2]>,
     pub problems: Vec<Point3>,
+    pub kept: Vec<[Point3; 2]>,
     pub interference: Vec<Mark>,
     pub comb: Option<Arc<CombDrawing>>,
     pub isocurves: Option<Arc<IsocurveDrawing>>,
@@ -68,6 +69,9 @@ impl Overlay {
         }
         if let Some([from, to]) = self.measured {
             scene::add_measurement(&mut batch, palette, from, to);
+        }
+        for [from, to] in &self.kept {
+            scene::add_measurement(&mut batch, palette, *from, *to);
         }
         for problem in &self.problems {
             scene::add_problem(&mut batch, palette, *problem);

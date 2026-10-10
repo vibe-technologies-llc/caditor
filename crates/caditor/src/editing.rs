@@ -668,7 +668,8 @@ fn opened_solid(document: &Document, feature: FeatureId) -> bool {
             | FeatureKind::Hole(_)
             | FeatureKind::Pattern(_)
             | FeatureKind::Datum(_)
-            | FeatureKind::Thread(_) => true,
+            | FeatureKind::Thread(_)
+            | FeatureKind::Measurement(_) => true,
             FeatureKind::Sketch(_) | FeatureKind::Import(_) | FeatureKind::Remove(_) => false,
         })
 }

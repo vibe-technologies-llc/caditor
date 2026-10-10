@@ -5,6 +5,7 @@ use std::{
 
 use crate::{
     document::{Feature, FeatureId},
+    measurement::Measured,
     recompute::{BodyState, FeatureResult, View},
     solid::body_part,
 };
@@ -33,7 +34,7 @@ pub(crate) struct Lookahead {
 }
 
 impl Lookahead {
-    pub(crate) fn new(features: &[Arc<Feature>], bar: usize) -> Self {
+    pub(crate) fn new(features: &[Arc<Feature>], bar: usize, measured: &Measured) -> Self {
         let position: BTreeMap<FeatureId, usize> = features
             .iter()
             .enumerate()
@@ -62,9 +63,8 @@ impl Lookahead {
                 .chain(&touched)
                 .filter_map(|body| Some((*body, *last_touch.get(body)?)))
                 .collect();
-            let used: Vec<(FeatureId, usize)> = feature
-                .kind
-                .features()
+            let used: Vec<(FeatureId, usize)> = measured
+                .features_read_by(&feature.kind)
                 .into_iter()
                 .filter_map(|used| Some((used, *position.get(&used)?)))
                 .filter(|(_, at)| *at < index)

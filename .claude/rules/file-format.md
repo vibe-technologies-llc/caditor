@@ -425,6 +425,13 @@ paths:
   any) and `keep_tool` (only when set), since an older reader would consume one tool and miss the
   rest; an inner record that is no combine loads without them, reported, and a repeated tool is
   kept once. A `remove` record holds `body`.
+- A measurement is a `measurement` record, a kind of its own so an older reader reports it as
+  from a newer version and keeps its parameter as an ordinary one holding the value read when it
+  was kept: `quantity` (`distance`, `angle`, `length`, `radius`, `area`), `items` (one or two,
+  each `point`, `axis` or `plane` with a reference record, `edge` with `body` and an edge record,
+  `face` with `body` and a face record, or `sketch` with `sketch` and `entity`) and `parameter`,
+  the measured parameter's id, only when it has one. An unreadable item, or too few, loads as the
+  origin, reported; the parameter's owner is an ordinary `named_values` entry.
 - A diameter across an axis (`AxisDiameter`) is a `distance` record with `diameter: true` holding
   the radius: a literal halved, any other expression divided by 2 (loading takes the division
   off again or doubles), so an older reader drops the flag and holds the same geometry as a

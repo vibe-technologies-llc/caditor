@@ -25,6 +25,7 @@ paths:
   - "crates/caditor/src/selection.rs"
   - "crates/caditor/src/measure.rs"
   - "crates/caditor/src/measure_panel.rs"
+  - "crates/caditor/src/measurement_tools.rs"
   - "crates/caditor/src/interference.rs"
   - "crates/caditor/src/interference_panel.rs"
   - "crates/caditor/src/comb.rs"
@@ -247,7 +248,7 @@ paths:
 
 - The Measure command toggles `MeasureTool` in the `Workspace`; while open, `measure_panel.rs`
   draws a right-hand panel. Measuring never changes the document; only a reading's New parameter
-  from this value does, as an ordinary change.
+  from this value and Keep this measurement do, each as an ordinary change.
 - `Measurements` resolves the selection on the UI thread into points, edges and faces (with their
   result's `Arc`), sketch curves (`profile_curve` lifted onto the sketch's solved plane), and the
   principal and datum planes and axes, a coordinate system's axes and planes and its origin as a
@@ -293,6 +294,20 @@ paths:
   result is read as the world with a warning callout saying so (`measure_panel::relative`).
 - The closest points are drawn on the front layer (`scene::add_measurement`) with a distance
   label in `canvas::MEASURE`.
+- Keep this measurement (`measurement_tools::KEEP`) is in the row menu of a Between them card's
+  Distance and its angle rows, and of one item's Length, Radius and Area (`Keepable::of_row`),
+  while every selected item has a stable reference (`measurement_tools::item_of`, carried with
+  the readout as `Readout::kept`; regions and centres of mass have none). One transaction adds a
+  parameter named after the row (`distance1`) holding the value as New parameter does, a
+  `Measurement` feeding it at the bar ("Measurement N") and the parameter's owner
+  (`ParameterOwner::Feature` with `measurement_tools::READING`), checked first, a refusal (a
+  reference made below the bar) a warning notice; the parameter's name takes focus for renaming.
+- Every shown, up-to-date measurement is drawn outside the panel too (`measurement_tools::shown`,
+  each frame like the failure markers): its line, if any, in the overlay batch as Measure's
+  (`Overlay::kept`) and a label "<parameter> = <reading>" at its anchor in `canvas::MEASURE`,
+  read by screen readers. Its tree row's card says what it measures, its reading and the
+  parameter it feeds (`measurement_tools::show`). A measured parameter's expression field in
+  Parameters shows the reading and refuses edits in words.
 - Show or hide centres of mass (`Command::ToggleCentresOfMass`, View menu, palette) is a view aid
   (`ViewAids::centres_of_mass`, kept for the session in `ViewportState::aids`, not saved; it
   reaches the scene through `Sources::aids` and `Revisions::aids`). Outside sketch editing it

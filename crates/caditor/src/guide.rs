@@ -493,6 +493,7 @@ impl Page {
             FeatureKind::Import(_) => Self::ImportedBodies,
             FeatureKind::Remove(_) => Self::Bodies,
             FeatureKind::Thread(_) => Self::Thread,
+            FeatureKind::Measurement(_) => Self::Measure,
         }
     }
 

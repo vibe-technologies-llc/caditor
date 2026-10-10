@@ -35,7 +35,9 @@ expression, so the name stays. A value that uses other parameters, such as `dept
 ## Finding and sharing
 
 {command:palette} finds parameters by name and takes you to the value. A value read in
-[Measure](measure) becomes a parameter from its row's menu.
+[Measure](measure) becomes a parameter from its row's menu, or a kept measurement whose parameter
+is read from the model on every recompute; features below the measurement can use it, other
+parameters cannot.
 {command:file.export_parameters} writes them to a CSV file a spreadsheet opens;
 {command:file.import_parameters} reads one back and shows what would be added, changed or left out
 before anything is applied. The import is one change, so Undo takes it back. The file starts with a
