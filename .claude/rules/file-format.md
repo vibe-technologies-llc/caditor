@@ -258,6 +258,11 @@ paths:
   and `flipped` when set, since an older reader would bevel both faces by the first distance; an
   inner record that is no chamfer loads without them, reported. An equal chamfer is still a
   `chamfer` record.
+- A fillet or chamfer holding edge groups (every edge of a face or of its body) is a
+  `blend_groups` record: `feature`, the `fillet`, `chamfer` or `shaped_chamfer` record of its
+  edges alone, and `groups`, each `face` with a face record or `body`, since an older reader
+  would round only the listed edges; an unreadable group is left out, reported, and an inner
+  record that is no blend loads without them, reported.
 - A datum point is a `point` record (`base`, a point reference: `origin`, `datum`, `vertex` with
   `body` and the vertex name's digest, `centre` with `body` and an edge record, `surface_centre`
   with `body` and a face record, or `sketch` with `sketch` and `entity`; `offset`, three stored

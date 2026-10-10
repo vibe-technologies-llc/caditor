@@ -1452,6 +1452,7 @@ mod step {
             FeatureKind::Blend(Blend {
                 kind: BlendKind::Fillet,
                 body,
+                groups: Vec::new(),
                 edges: vec![EdgeReference::capture(solid, top_edge).unwrap()],
                 size: Expression::parse_stored("1 mm").unwrap(),
                 form: ChamferForm::Equal,

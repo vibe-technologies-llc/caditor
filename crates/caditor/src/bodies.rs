@@ -14,8 +14,8 @@ use std::{
 };
 
 use caditor_document::{
-    Document, Evaluation, FeatureId, FeatureKind, FeatureResult, FeatureState, Resolution,
-    SolidResult,
+    Document, EdgeGroup, Evaluation, FeatureId, FeatureKind, FeatureResult, FeatureState,
+    Resolution, SolidResult,
 };
 pub use caditor_document::{describe_origin, origin_feature};
 use caditor_geometry::{Aabb, Point3, RigidTransform};
@@ -527,6 +527,7 @@ pub enum FaceChoice {
 pub enum OpenChoice {
     Edges {
         references: Vec<EdgeReference>,
+        groups: Vec<EdgeGroup>,
         chosen: ChosenEdges,
     },
     Faces {
@@ -541,11 +542,18 @@ impl OpenChoice {
     fn of(kind: Option<&FeatureKind>, solid: &Solid, previous: Option<Self>) -> Self {
         match kind {
             Some(FeatureKind::Blend(blend)) => match previous {
-                Some(Self::Edges { references, chosen }) if references == blend.edges => {
-                    Self::Edges { references, chosen }
-                }
+                Some(Self::Edges {
+                    references,
+                    groups,
+                    chosen,
+                }) if references == blend.edges && groups == blend.groups => Self::Edges {
+                    references,
+                    groups,
+                    chosen,
+                },
                 _ => Self::Edges {
                     references: blend.edges.clone(),
+                    groups: blend.groups.clone(),
                     chosen: blend_tools::chosen_edges(solid, blend),
                 },
             },

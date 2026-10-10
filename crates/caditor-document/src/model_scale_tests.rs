@@ -125,6 +125,7 @@ fn model() -> Model {
         FeatureKind::Blend(Blend {
             kind: BlendKind::Fillet,
             body: base,
+            groups: Vec::new(),
             edges,
             size: transaction.parse("1 mm").unwrap(),
             form: ChamferForm::Equal,

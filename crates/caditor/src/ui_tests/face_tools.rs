@@ -1,6 +1,8 @@
 use std::f64::consts::PI;
 
-use caditor_document::{BlendKind, FeatureId, RevolveAxis, SolidFeature, face_plane};
+use caditor_document::{
+    Blend, BlendKind, EdgeGroup, FeatureId, RevolveAxis, SolidFeature, face_plane,
+};
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
 use caditor_sketch::Sketch;
 use egui::{Key, Modifiers};
@@ -8,6 +10,7 @@ use egui::{Key, Modifiers};
 use super::{CAMERA_SETTLE, Harness, click_with, extruded_plate, rectangle};
 use crate::{
     blend_tools, bodies, look_at, measure,
+    model::Action,
     selection::{Pickable, Selection},
     solid_tools::{self, Sweep},
 };
@@ -44,16 +47,21 @@ fn open_feature(harness: &Harness) -> FeatureId {
         .expect("a feature is open")
 }
 
-fn blend_edges(harness: &Harness, feature: FeatureId) -> (FeatureId, usize) {
-    let blend = harness
+fn blend_of(harness: &Harness, feature: FeatureId) -> Blend {
+    harness
         .document()
         .feature(feature)
         .unwrap()
         .kind
         .blend()
         .unwrap()
-        .clone();
-    (blend.body, blend.edges.len())
+        .clone()
+}
+
+fn rounded_edges(harness: &Harness, feature: FeatureId) -> usize {
+    let blend = blend_of(harness, feature);
+    let input = bodies::input(harness.model.evaluation(), feature).unwrap();
+    blend.resolve(&input.solid).unwrap().len()
 }
 
 fn close_feature(harness: &mut Harness) {
@@ -71,8 +79,14 @@ fn fillet_with_a_face_selected_rounds_every_edge_around_it() {
     harness.select([top, side]);
     harness.click_tool(BlendKind::Fillet.title());
     harness.settle();
+    let fillet = open_feature(&harness);
+    let blend = blend_of(&harness, fillet);
 
-    assert_eq!(blend_edges(&harness, open_feature(&harness)), (plate, 5));
+    assert_eq!(blend.body, plate);
+    assert_eq!(blend.edges.len(), 1);
+    assert!(matches!(blend.groups.as_slice(), [EdgeGroup::Face(_)]));
+    assert_eq!(rounded_edges(&harness, fillet), 5);
+    assert!(harness.shows_containing("All edges of Extrude 1 end face"));
 }
 
 #[test]
@@ -84,8 +98,39 @@ fn fillet_with_a_body_chosen_in_the_tree_rounds_every_edge_of_it() {
     click_with(&mut harness, "Extrude 1", Modifiers::NONE);
     harness.click_tool(BlendKind::Chamfer.title());
     harness.settle();
+    let chamfer = open_feature(&harness);
+    let blend = blend_of(&harness, chamfer);
 
-    assert_eq!(blend_edges(&harness, open_feature(&harness)), (plate, 12));
+    assert_eq!(blend.body, plate);
+    assert!(blend.edges.is_empty());
+    assert_eq!(blend.groups, [EdgeGroup::Body]);
+    assert_eq!(rounded_edges(&harness, chamfer), 12);
+    assert!(harness.shows_containing("All edges of Extrude 1"));
+}
+
+#[test]
+fn leaving_out_an_edge_of_a_filleted_face_keeps_its_other_edges() {
+    let mut harness = Harness::new();
+    let (plate, top) = extruded_plate(&mut harness);
+    harness.select([top]);
+    harness.click_tool(BlendKind::Fillet.title());
+    harness.settle();
+    let fillet = open_feature(&harness);
+    let input = bodies::input(harness.model.evaluation(), fillet).unwrap();
+    let around = blend_of(&harness, fillet).entry_edges(&input.solid);
+    let edge = input.solid.edge(around[0][0]).unwrap().name();
+
+    assert_eq!(blend_of(&harness, fillet).body, plate);
+    assert_eq!(around[0].len(), 4);
+
+    let transaction = blend_tools::toggle_edge(&harness.model, fillet, edge).unwrap();
+    harness.perform(Action::Apply(transaction));
+    harness.settle();
+    let blend = blend_of(&harness, fillet);
+
+    assert!(blend.groups.is_empty());
+    assert_eq!(blend.edges.len(), 3);
+    assert_eq!(rounded_edges(&harness, fillet), 3);
 }
 
 #[test]

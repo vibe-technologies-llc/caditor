@@ -439,6 +439,15 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   choice: the face more chosen edges share). A fillet ignores both but keeps them, so switching
   back restores the chamfer; the extra expression counts among the feature's expressions
   (`Blend::expressions`, parameters, inlining) and a second distance scales with the model.
+- Besides its `edges`, a blend holds `groups` (`EdgeGroup`): a face (`FaceReference`, pieces of
+  one split face accepted) or the whole body, each expanded on every recompute to the edges it
+  has then (`GroupResolution::edges`: the face's boundary edges, or every edge of the body, seams
+  left out, each once; edges between pieces of one face, being smooth, the kernel leaves out), so
+  an edge an upstream change adds to the face or body is rounded too. The resolved edges and
+  every group's are joined, each once (`Blend::resolve`). A lost or tied face fails the blend in
+  words about the face (`BlendUnresolved::Faces`); a face group's origins count among
+  `origin_features` and healing visits it. `entry_count`, `remove_entry` and `entry_edges` treat
+  edges then groups as one list, the panel's.
 
 - Both modify a body and resolve their references (`EdgeReference`s, opened `FaceReference`s) in
   the body's state before the feature, each to a `Resolution` (`pieces.rs`; the panel lists them in

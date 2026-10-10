@@ -1,13 +1,15 @@
 use std::collections::BTreeSet;
 
 use caditor_expression::{Dimension, EvalError, Expression, ParameterId};
-use caditor_kernel::{BlendError, BlendShape, EdgeId, EdgeNaming, EdgeReference, Solid, blend};
+use caditor_kernel::{
+    BlendError, BlendShape, EdgeId, EdgeNaming, EdgeReference, FaceId, FaceReference, Solid, blend,
+};
 
 use crate::{
-    describe::describe_edge,
+    describe::{describe_edge, edge_faces},
     document::{Feature, FeatureId},
     origins,
-    pieces::{Resolution, Unresolved, pieces_of_one_edge, tally},
+    pieces::{Resolution, Unresolved, pieces_of_one_edge, pieces_of_one_face, tally},
     recompute::{CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
     solid::SolidResult,
 };
@@ -84,10 +86,68 @@ impl ChamferForm {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum EdgeGroup {
+    Face(FaceReference),
+    Body,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GroupResolution {
+    Face(Resolution<FaceId>),
+    Body,
+}
+
+impl GroupResolution {
+    pub fn edges(&self, solid: &Solid) -> Vec<EdgeId> {
+        let faces: Vec<FaceId> = match self {
+            Self::Body => return blendable(solid, solid.edges().map(|(id, _)| id)),
+            Self::Face(resolution @ (Resolution::One(_) | Resolution::Pieces(_))) => {
+                resolution.found().to_vec()
+            }
+            Self::Face(Resolution::Tied(_) | Resolution::Missing) => Vec::new(),
+        };
+        blendable(
+            solid,
+            faces.iter().flat_map(|face| face_boundary(solid, *face)),
+        )
+    }
+}
+
+pub fn face_boundary(solid: &Solid, face: FaceId) -> Vec<EdgeId> {
+    solid
+        .face(face)
+        .into_iter()
+        .flat_map(|face| face.loops())
+        .filter_map(|id| solid.face_loop(*id))
+        .flat_map(|face_loop| face_loop.coedges())
+        .filter_map(|id| solid.coedge(*id))
+        .map(|coedge| coedge.edge())
+        .collect()
+}
+
+pub fn is_seam(solid: &Solid, edge: EdgeId) -> bool {
+    edge_faces(solid, edge).len() == 1
+}
+
+fn blendable(solid: &Solid, edges: impl Iterator<Item = EdgeId>) -> Vec<EdgeId> {
+    let mut seen = BTreeSet::new();
+    edges
+        .filter(|edge| !is_seam(solid, *edge) && seen.insert(*edge))
+        .collect()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BlendUnresolved {
+    Edges(Unresolved),
+    Faces(Unresolved),
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct Blend {
     pub kind: BlendKind,
     pub body: FeatureId,
     pub edges: Vec<EdgeReference>,
+    pub groups: Vec<EdgeGroup>,
     pub size: Expression,
     pub form: ChamferForm,
     pub flipped: bool,
@@ -115,6 +175,7 @@ impl Blend {
 
     pub fn heap_size(&self) -> usize {
         size_of_val(self.edges.as_slice())
+            + size_of_val(self.groups.as_slice())
             + self.size.heap_size()
             + self.form.expression().map_or(0, Expression::heap_size)
     }
@@ -135,7 +196,56 @@ impl Blend {
     }
 
     pub fn origin_features(&self) -> BTreeSet<FeatureId> {
-        self.edges.iter().flat_map(origins::of_edge).collect()
+        self.edges
+            .iter()
+            .flat_map(origins::of_edge)
+            .chain(self.groups.iter().flat_map(|group| match group {
+                EdgeGroup::Face(face) => origins::of_face(face),
+                EdgeGroup::Body => BTreeSet::new(),
+            }))
+            .collect()
+    }
+
+    pub fn entry_count(&self) -> usize {
+        self.edges.len() + self.groups.len()
+    }
+
+    pub fn remove_entry(&mut self, index: usize) {
+        match index.checked_sub(self.edges.len()) {
+            None => {
+                self.edges.remove(index);
+            }
+            Some(group) if group < self.groups.len() => {
+                self.groups.remove(group);
+            }
+            Some(_) => {}
+        }
+    }
+
+    pub fn group_resolutions(&self, solid: &Solid) -> Vec<GroupResolution> {
+        self.groups
+            .iter()
+            .map(|group| match group {
+                EdgeGroup::Face(face) => {
+                    GroupResolution::Face(Resolution::of(face.resolve(solid), |pieces| {
+                        pieces_of_one_face(solid, pieces)
+                    }))
+                }
+                EdgeGroup::Body => GroupResolution::Body,
+            })
+            .collect()
+    }
+
+    pub fn entry_edges(&self, solid: &Solid) -> Vec<Vec<EdgeId>> {
+        self.resolutions(solid)
+            .iter()
+            .map(|resolution| resolution.found().to_vec())
+            .chain(
+                self.group_resolutions(solid)
+                    .iter()
+                    .map(|resolution| resolution.edges(solid)),
+            )
+            .collect()
     }
 
     pub fn resolutions(&self, solid: &Solid) -> Vec<Resolution<EdgeId>> {
@@ -150,8 +260,21 @@ impl Blend {
             .collect()
     }
 
-    pub fn resolve(&self, solid: &Solid) -> Result<Vec<EdgeId>, Unresolved> {
-        tally(self.resolutions(solid))
+    pub fn resolve(&self, solid: &Solid) -> Result<Vec<EdgeId>, BlendUnresolved> {
+        let groups = self.group_resolutions(solid);
+        let faces = groups
+            .iter()
+            .filter_map(|resolution| match resolution {
+                GroupResolution::Face(face) => Some(face.clone()),
+                GroupResolution::Body => None,
+            })
+            .collect();
+        tally(faces).map_err(BlendUnresolved::Faces)?;
+        let mut edges = tally(self.resolutions(solid)).map_err(BlendUnresolved::Edges)?;
+        edges.extend(groups.iter().flat_map(|group| group.edges(solid)));
+        edges.sort_unstable();
+        edges.dedup();
+        Ok(edges)
     }
 }
 
@@ -382,23 +505,28 @@ pub(crate) fn evaluate(
     };
     let edges = definition.resolve(solid).map_err(|unresolved| {
         let body = &context.body_name;
+        let (unresolved, one, several) = match unresolved {
+            BlendUnresolved::Edges(unresolved) => (unresolved, "edge", "edges"),
+            BlendUnresolved::Faces(unresolved) => (unresolved, "face", "faces"),
+        };
         let reason = match unresolved {
             Unresolved::Missing(1) => {
-                format!("A chosen edge is no longer part of the body of {body}.")
+                format!("A chosen {one} is no longer part of the body of {body}.")
             }
             Unresolved::Missing(missing) => {
-                format!("{missing} chosen edges are no longer part of the body of {body}.")
+                format!("{missing} chosen {several} are no longer part of the body of {body}.")
             }
-            Unresolved::Unrelated(1) => {
-                format!("A chosen edge now matches several separate edges of the body of {body}.")
-            }
+            Unresolved::Unrelated(1) => format!(
+                "A chosen {one} now matches several separate {several} of the body of {body}."
+            ),
             Unresolved::Unrelated(unrelated) => format!(
-                "{unrelated} chosen edges now match several separate edges of the body of {body}."
+                "{unrelated} chosen {several} now match several separate {several} of the body \
+                 of {body}."
             ),
         };
         context.error(
             reason,
-            "Choose the edges again, or undo the change that removed them.".to_owned(),
+            format!("Choose the {several} again, or undo the change that removed them."),
         )
     })?;
     if cancel.is_cancelled() {

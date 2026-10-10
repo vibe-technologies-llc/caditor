@@ -59,7 +59,7 @@ mod worker;
 
 pub use crate::{
     attachment::{AttachmentError, FaceAttachment, SketchAttachment, SketchFeature, face_plane},
-    blend::{Blend, BlendKind, ChamferForm},
+    blend::{Blend, BlendKind, BlendUnresolved, ChamferForm, EdgeGroup, GroupResolution},
     body_appearance::{
         BodyAppearance, DEFAULT_BODY_COLOUR, DensityError, FaceColour, FaceSplits,
         MAX_BODY_NAME_CHARS, MAX_DENSITY, MAX_MATERIAL_NAME_CHARS, MIN_OPACITY_PERCENT,

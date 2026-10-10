@@ -4,6 +4,7 @@ use caditor_kernel::{EdgeNaming, EdgeReference, FaceReference, RegionReference, 
 
 use crate::{
     attachment::SketchAttachment,
+    blend::EdgeGroup,
     datum::{
         AxisReference, CurveStation, Datum, DatumAxis, PlaneReference, PlaneThrough, PointBy,
         PointReference,
@@ -136,6 +137,23 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
                     format!("edge {} of {count}", index + 1)
                 }
             });
+            let faces = blend
+                .groups
+                .iter()
+                .filter(|group| matches!(group, EdgeGroup::Face(_)))
+                .count();
+            let mut index = 0;
+            for group in &mut blend.groups {
+                if let EdgeGroup::Face(face) = group {
+                    index += 1;
+                    let what = if faces == 1 {
+                        "the face whose edges it rounds".to_owned()
+                    } else {
+                        format!("face {index} of {faces} whose edges it rounds")
+                    };
+                    visitor.face(blend.body, face, &what);
+                }
+            }
         }
         FeatureKind::Move(movement) => {
             if let TurnCentre::Axis(turn) = &mut movement.about {

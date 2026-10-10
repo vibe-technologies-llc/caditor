@@ -2,7 +2,9 @@ use std::{f64::consts::PI, sync::Arc};
 
 use caditor_expression::Expression;
 use caditor_geometry::{Plane, Point2, Point3};
-use caditor_kernel::{EdgeName, EdgeReference, FaceName, SamplingTolerance, Solid, VertexName};
+use caditor_kernel::{
+    EdgeName, EdgeReference, FaceName, FaceReference, SamplingTolerance, Solid, VertexName,
+};
 use caditor_sketch::Sketch;
 
 use crate::*;
@@ -103,6 +105,7 @@ fn model() -> Model {
         FeatureKind::Blend(Blend {
             kind: BlendKind::Fillet,
             body: base,
+            groups: Vec::new(),
             edges,
             size: Expression::Parameter(radius),
             form: ChamferForm::Equal,
@@ -453,6 +456,7 @@ fn ambiguous_edges_and_faces_count_only_when_their_pieces_are_one_edge_or_face()
     let blend = Blend {
         kind: BlendKind::Fillet,
         body: base,
+        groups: Vec::new(),
         edges: vec![front_top],
         size: Expression::parse_stored("1 mm").unwrap(),
         form: ChamferForm::Equal,
@@ -579,6 +583,7 @@ fn a_failure_message_follows_the_renaming_of_a_feature_that_made_a_face() {
         FeatureKind::Blend(Blend {
             kind: BlendKind::Fillet,
             body: base,
+            groups: Vec::new(),
             edges: vec![rim],
             size: Expression::parse_stored("5 mm").unwrap(),
             form: ChamferForm::Equal,
@@ -643,6 +648,7 @@ fn a_fillet_on_a_cap_edge_survives_a_hole_added_inside_the_outline() {
         FeatureKind::Blend(Blend {
             kind: BlendKind::Fillet,
             body: base,
+            groups: Vec::new(),
             edges,
             size: mm("1"),
             form: ChamferForm::Equal,
@@ -722,6 +728,7 @@ fn filleted_boss() -> Boss {
         FeatureKind::Blend(Blend {
             kind: BlendKind::Fillet,
             body: base,
+            groups: Vec::new(),
             edges,
             size: mm("0.5"),
             form: ChamferForm::Equal,
@@ -817,6 +824,7 @@ fn fillet_saved_before_origins(rolled_back: bool) -> SavedBeforeOrigins {
         FeatureKind::Blend(Blend {
             kind: BlendKind::Fillet,
             body: base,
+            groups: Vec::new(),
             edges: vec![edge],
             size: mm("1"),
             form: ChamferForm::Equal,
@@ -1062,5 +1070,160 @@ fn a_notch_trimmed_into_a_filleted_edge_keeps_both_pieces_rounded() {
     assert!(
         (found - notched).abs() < 0.02,
         "volume {found} instead of {notched}"
+    );
+}
+
+struct Grouped {
+    document: Document,
+    engine: Recompute,
+    outline: FeatureId,
+    base: FeatureId,
+    fillet: FeatureId,
+}
+
+fn grouped_fillet(group: impl Fn(&Solid) -> EdgeGroup) -> Grouped {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    let outline = transaction.add_feature(
+        "Outline",
+        FeatureKind::from(rectangle((0.0, 0.0), (10.0, 8.0))),
+    );
+    let base = transaction.add_feature("Base", extruded(outline, "4", BodyOperation::NewBody));
+    document.apply(transaction.finish()).unwrap();
+    let mut engine = Recompute::default();
+    let evaluation = evaluate(&document, &mut engine);
+    let groups = vec![group(evaluation.body(base).unwrap())];
+    let mut transaction = document.transaction("Fillet");
+    let fillet = transaction.add_feature(
+        "Fillet 1",
+        FeatureKind::Blend(Blend {
+            kind: BlendKind::Fillet,
+            body: base,
+            edges: Vec::new(),
+            groups,
+            size: mm("0.5"),
+            form: ChamferForm::Equal,
+            flipped: false,
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    Grouped {
+        document,
+        engine,
+        outline,
+        base,
+        fillet,
+    }
+}
+
+fn top_face(solid: &Solid) -> EdgeGroup {
+    let (top, _) = solid
+        .faces()
+        .find(|(id, _)| face_plane(solid, *id).is_some_and(|plane| plane.origin().z > 3.9))
+        .unwrap();
+    EdgeGroup::Face(FaceReference::capture(solid, top).unwrap())
+}
+
+fn add_hole_in(document: &mut Document, outline: FeatureId) {
+    let mut transaction = document.transaction("Add hole");
+    let center = transaction.add_sketch_entity(
+        outline,
+        caditor_sketch::Entity::Point(Point2::new(5.0, 4.0)),
+    );
+    transaction.add_sketch_entity(
+        outline,
+        caditor_sketch::Entity::Circle {
+            center,
+            radius: 1.5,
+        },
+    );
+    document.apply(transaction.finish()).unwrap();
+}
+
+fn rounded_count(document: &Document, evaluation: &Evaluation, fillet: FeatureId) -> usize {
+    let blend = document.feature(fillet).unwrap().kind.blend().unwrap();
+    blend
+        .resolve(
+            &evaluation
+                .body_before(fillet)
+                .unwrap()
+                .solid()
+                .unwrap()
+                .solid,
+        )
+        .unwrap()
+        .len()
+}
+
+#[test]
+fn a_fillet_of_a_face_rounds_an_edge_an_upstream_change_adds_to_that_face() {
+    let mut grouped = grouped_fillet(top_face);
+    let before = evaluate(&grouped.document, &mut grouped.engine);
+    let rounded = volume(&before, grouped.base);
+
+    add_hole_in(&mut grouped.document, grouped.outline);
+    let after = evaluate(&grouped.document, &mut grouped.engine);
+    let hole = PI * 1.5 * 1.5 * 4.0;
+
+    assert_eq!(rounded_count(&grouped.document, &before, grouped.fillet), 4);
+    assert_eq!(
+        after.feature(grouped.fillet).unwrap().state,
+        FeatureState::UpToDate
+    );
+    assert_eq!(rounded_count(&grouped.document, &after, grouped.fillet), 5);
+    assert!(volume(&after, grouped.base) < rounded - hole - 0.01);
+}
+
+#[test]
+fn a_fillet_of_a_whole_body_rounds_every_edge_it_has_now() {
+    let mut grouped = grouped_fillet(|_| EdgeGroup::Body);
+    let before = evaluate(&grouped.document, &mut grouped.engine);
+
+    add_hole_in(&mut grouped.document, grouped.outline);
+    let after = evaluate(&grouped.document, &mut grouped.engine);
+
+    assert_eq!(
+        rounded_count(&grouped.document, &before, grouped.fillet),
+        12
+    );
+    assert_eq!(
+        after.feature(grouped.fillet).unwrap().state,
+        FeatureState::UpToDate
+    );
+    assert_eq!(rounded_count(&grouped.document, &after, grouped.fillet), 14);
+}
+
+#[test]
+fn a_lost_face_fails_the_blend_in_words_about_the_face() {
+    let mut grouped = grouped_fillet(top_face);
+    let mut changed = grouped
+        .document
+        .feature(grouped.fillet)
+        .unwrap()
+        .kind
+        .blend()
+        .unwrap()
+        .clone();
+    changed.groups = vec![EdgeGroup::Face(FaceReference::new(
+        FaceName::from_digest(7),
+        None,
+        Vec::new(),
+    ))];
+
+    grouped
+        .document
+        .apply(Transaction::single(
+            "Edit",
+            Edit::SetFeatureKind {
+                id: grouped.fillet,
+                kind: FeatureKind::Blend(changed),
+            },
+        ))
+        .unwrap();
+    let evaluation = evaluate(&grouped.document, &mut grouped.engine);
+
+    assert_eq!(
+        failure(&evaluation, grouped.fillet).reason,
+        "A chosen face is no longer part of the body of Base."
     );
 }

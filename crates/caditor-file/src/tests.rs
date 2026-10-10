@@ -3328,6 +3328,7 @@ fn blended_model() -> (Document, FeatureId, FeatureId) {
         FeatureKind::Blend(Blend {
             kind: BlendKind::Fillet,
             body: base,
+            groups: Vec::new(),
             edges: vec![edge],
             size: transaction.parse("depth / 3").unwrap(),
             form: ChamferForm::Equal,
@@ -3339,6 +3340,7 @@ fn blended_model() -> (Document, FeatureId, FeatureId) {
         FeatureKind::Blend(Blend {
             kind: BlendKind::Chamfer,
             body: base,
+            groups: Vec::new(),
             edges: vec![
                 edge,
                 edge.with_origins([
@@ -6445,6 +6447,7 @@ fn fillet_saved_before_origins() -> (Document, FeatureId) {
         FeatureKind::Blend(Blend {
             kind: BlendKind::Fillet,
             body: base,
+            groups: Vec::new(),
             edges: vec![saved],
             size: transaction.parse("1 mm").unwrap(),
             form: ChamferForm::Equal,
@@ -8771,6 +8774,58 @@ fn a_chamfer_by_two_distances_or_an_angle_is_a_kind_older_readers_report() {
     assert_eq!(kind_of(&angled_loaded.document), angled_saved);
     assert!(!equal_text.contains("shaped_chamfer"));
     assert!(equal_text.contains("\"chamfer\":{"));
+}
+
+#[test]
+fn a_blend_of_every_edge_of_faces_or_a_body_is_a_kind_older_readers_report() {
+    use caditor_document::{BlendKind, ChamferForm, EdgeGroup};
+    use caditor_kernel::{FaceName, FaceOrigin, FaceReference};
+    let (mut document, blend) = fillet_saved_before_origins();
+    let top = FaceReference::new(
+        FaceName::from_digest(0xbeef),
+        Some(FaceOrigin::EndCap { feature: 1 }),
+        [FaceName::from_digest(3)],
+    );
+    let mut kind = document.feature(blend).unwrap().kind.clone();
+    if let FeatureKind::Blend(definition) = &mut kind {
+        definition.kind = BlendKind::Chamfer;
+        definition.form = ChamferForm::TwoDistances {
+            second: Expression::parse_stored("2 mm").unwrap(),
+        };
+        definition.groups = vec![EdgeGroup::Face(top), EdgeGroup::Body];
+    }
+    let grouped = Transaction::single("Group", Edit::SetFeatureKind { id: blend, kind });
+
+    document.apply(grouped.clone()).unwrap();
+    let text = encode(&document).unwrap();
+    let saved = document.feature(blend).map(|feature| feature.kind.clone());
+    let loaded = decode_text(&text);
+    let older = decode_text(&text.replace("blend_groups", "blend_of_a_later_version"));
+    let damaged = decode_text(&text.replacen("\"face\":\"", "\"face\":\"zz", 1));
+    let journaled = serde_json::to_string(&format::transaction_record(&grouped)).unwrap();
+
+    assert!(text.contains("\"blend_groups\":{\"feature\":{\"shaped_chamfer\":"));
+    assert!(text.contains("\"body\"]"));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(
+        loaded
+            .document
+            .feature(blend)
+            .map(|feature| feature.kind.clone()),
+        saved
+    );
+    assert!(older.document.feature(blend).is_none());
+    assert!(!older.issues.is_empty());
+    assert_eq!(damaged.issues.len(), 1, "{:?}", damaged.issues);
+    assert!(
+        damaged.issues[0].contains("faces whose edges"),
+        "{:?}",
+        damaged.issues
+    );
+    assert_eq!(
+        format::restore_transaction(through_binary(&journaled)),
+        Some(grouped)
+    );
 }
 
 fn measured_model() -> (Document, FeatureId, ParameterId) {
