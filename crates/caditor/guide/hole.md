@@ -5,8 +5,11 @@
 - With one flat face selected, it puts a hole on the face, on solid material away from its edges,
   in a hidden sketch. While it is open, drag the square at its centre to move it on the face, or
   an arrow to move it along one direction; the arrow at the bottom of a blind hole drags its
-  depth. Its panel's **Placed on** row moves it too: **Choose in the view** and click where the
-  hole goes on any flat face, or type its **Position X** and **Position Y** on the face.
+  depth and the one at its rim its diameter (making the size Custom). The square stops on a round
+  edge's centre or an edge's middle under the pointer, and on a corner; hold Ctrl to drag freely.
+  With the pointer on a handle, type a value (or x, y for the square) and press Enter. Its panel's
+  **Placed on** row moves it too: **Choose in the view** and click where the hole goes on any flat
+  face, or type its **Position X** and **Position Y** on the face.
 - **Place by** ties the hole to the body: **From an edge** measures it from a straight edge
   (select the edge first, or choose it in the view) with a **Distance** you can type, and a
   second edge across the first fixes it, so a hole 8 mm from two sides stays there when the body

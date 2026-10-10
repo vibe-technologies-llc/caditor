@@ -14,7 +14,9 @@ command. **Make a copy** in the panel switches between the two.
 ## In the view
 
 While a move is open, arrows and squares at the body's centre drag it along an axis or in a plane,
-and rings turn it. Drags go in round steps; hold Ctrl to drag freely. The values land in the
+and rings turn it. Drags go in round steps, an arrow or square stopping on a corner, an edge's
+middle or a round edge's centre of another body under the pointer; hold Ctrl to drag freely. With
+the pointer on a handle, type a value and press Enter to set its field. The values land in the
 panel's fields, where they stay editable; a named value keeps its name, and one that follows other
 [parameters](parameters) does not drag.
 

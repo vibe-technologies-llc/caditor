@@ -21,6 +21,7 @@ use crate::{
     feature_tree::count,
     field, hole_panel, icons,
     model::{Action, Model},
+    move_manipulator::Reach,
     reference_picking::{self, Picking, Side, Slot},
     scene,
     selection::{self, Pickable, Selection},
@@ -41,6 +42,14 @@ const START_OFFSET: &str = "Start offset";
 pub const END_OFFSET: &str = "Past the face";
 const FORWARD_END_OFFSET: &str = "Forward past face";
 const BACKWARD_END_OFFSET: &str = "Backward past face";
+
+pub fn end_offset_caption(reach: Reach) -> &'static str {
+    match reach {
+        Reach::Only | Reach::Symmetric => END_OFFSET,
+        Reach::Forward => FORWARD_END_OFFSET,
+        Reach::Backward => BACKWARD_END_OFFSET,
+    }
+}
 pub const TAPER: &str = "Taper";
 pub const TURN_UP_TO: &str = "Up to face";
 pub const SQUARE: &str = "Square to the sketch";

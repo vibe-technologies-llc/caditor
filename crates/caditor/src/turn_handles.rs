@@ -18,7 +18,7 @@ use crate::{
 };
 
 const ARROW_SHARE: f64 = 0.6;
-const STEP_DEGREES: f64 = 5.0;
+pub const STEP_DEGREES: f64 = 5.0;
 const FULL_TURN_DEGREES: f64 = 360.0;
 const SMALLEST_RADIUS: f64 = 1e-6;
 
@@ -38,6 +38,10 @@ impl TurnEnd {
             Self::Forward => "Forward",
             Self::Backward => "Backward",
         }
+    }
+
+    pub fn field_caption(self) -> &'static str {
+        self.caption()
     }
 
     pub fn words(self) -> String {
@@ -64,25 +68,25 @@ impl TurnEnd {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-struct Swing {
-    foot: Point3,
-    radial: Vector3,
-    normal: Vector3,
-    radius: f64,
+pub struct Swing {
+    pub foot: Point3,
+    pub radial: Vector3,
+    pub normal: Vector3,
+    pub radius: f64,
 }
 
 impl Swing {
-    fn at(&self, degrees: f64) -> Point3 {
+    pub fn at(&self, degrees: f64) -> Point3 {
         let (sin, cos) = degrees.to_radians().sin_cos();
         self.foot + (self.radial * cos + self.normal * sin) * self.radius
     }
 
-    fn tangent(&self, degrees: f64) -> Vector3 {
+    pub fn tangent(&self, degrees: f64) -> Vector3 {
         let (sin, cos) = degrees.to_radians().sin_cos();
         self.normal * cos - self.radial * sin
     }
 
-    fn degrees_of(&self, ray: Ray) -> Option<f64> {
+    pub fn degrees_of(&self, ray: Ray) -> Option<f64> {
         let axis = self.radial.cross(self.normal);
         let plane = caditor_geometry::Plane::new(self.foot, axis)?;
         let hit = ray.at(ray.intersect_plane(&plane)?) - self.foot;
@@ -428,4 +432,25 @@ impl TurnDrag {
             units.angle.readout_text(self.value)
         )
     }
+}
+
+pub fn typed(
+    model: &Model,
+    feature: FeatureId,
+    end: TurnEnd,
+    value: Expression,
+) -> Option<Transaction> {
+    let document = model.document();
+    let start = committed_revolve(model, feature)?;
+    let mut probe = start.extent.clone();
+    let held = Held::of(document, feature, end.caption(), end.slot(&mut probe)?);
+    let mut revolve = start.clone();
+    let mut named = Vec::new();
+    held.set(end.slot(&mut revolve.extent)?, value, &mut named);
+    manipulator::keeping_names(
+        document,
+        feature,
+        FeatureKind::Solid(SolidFeature::Revolve(revolve)),
+        named,
+    )
 }

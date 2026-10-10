@@ -13,7 +13,9 @@ one lights it in the view. Leaving out one edge of a face or body taken whole tu
 its edges as they are now, less the one left out. Edges that continue smoothly are taken together
 as a chain.
 
-- Fillet takes a **Radius**, Chamfer a **Distance**.
+- Fillet takes a **Radius**, Chamfer a **Distance**. An arrow at the middle of the first edge,
+  standing on the rounded or cut face, drags it; type a value with the pointer on the arrow to set
+  it exactly.
 - A chamfer's **Distances** row chooses **Equal** (one distance on both faces), **Two** (a second
   distance on the other face) or **Angle** (a distance and the angle from the first face).
   **Measure from the other face** swaps which face takes the first distance. The same choices are

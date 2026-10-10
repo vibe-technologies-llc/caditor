@@ -8,6 +8,7 @@ use caditor_sketch::Entity;
 
 use crate::{
     feature_fields::POSITION_CAPTIONS,
+    handle_snap::Snap,
     hole_on_curve, hole_tools,
     manipulator::{self, Held},
     model::Model,
@@ -234,6 +235,18 @@ impl PlaceHandles {
         }
     }
 
+    pub fn typing(&self, grip: PlaceGrip) -> Option<(String, usize)> {
+        let [x, y] = POSITION_CAPTIONS;
+        match (self.subject, grip) {
+            (Subject::Curved, _) => None,
+            (Subject::Hole | Subject::Primitive, PlaceGrip::AlongX) => Some((x.to_owned(), 1)),
+            (Subject::Hole | Subject::Primitive, PlaceGrip::AlongY) => Some((y.to_owned(), 1)),
+            (Subject::Hole | Subject::Primitive, PlaceGrip::OnPlane) => {
+                Some((format!("{x}, {y}"), 2))
+            }
+        }
+    }
+
     pub fn hit(&self, view: &View, cursor: Vector2, pixels_per_point: f64) -> Option<Handle> {
         let reach = HIT_POINTS * pixels_per_point;
         let arrow = ARROWS
@@ -313,6 +326,7 @@ pub struct PlaceDrag {
     step: f64,
     from: Point2,
     at: Point2,
+    snapped: Option<Snap>,
 }
 
 impl PlaceDrag {
@@ -344,15 +358,35 @@ impl PlaceDrag {
             step: handles.step(),
             from,
             at: from,
+            snapped: None,
         })
     }
 
-    pub fn follow(&mut self, ray: Ray, free: bool) -> bool {
+    fn kept(&self, wanted: Point2) -> Point2 {
+        match self.grip {
+            PlaceGrip::AlongX => Point2::new(wanted.x, self.from.y),
+            PlaceGrip::AlongY => Point2::new(self.from.x, wanted.y),
+            PlaceGrip::OnPlane => wanted,
+        }
+    }
+
+    pub fn follow(&mut self, ray: Ray, free: bool, snap: Option<Snap>) -> bool {
+        if let Some((landed, snap)) = snap
+            .filter(|_| !free)
+            .and_then(|snap| Some((snap.on_plane(&self.plane)?, snap)))
+        {
+            let placed = self.kept(landed);
+            let changed = placed != self.at || self.snapped != Some(snap);
+            self.at = placed;
+            self.snapped = Some(snap);
+            return changed;
+        }
+        let unsnapped = self.snapped.take().is_some();
         let Some(at) = ray
             .intersect_plane(&self.plane)
             .map(|distance| self.plane.to_local(ray.at(distance)))
         else {
-            return false;
+            return unsnapped;
         };
         let pulled = at - self.grabbed;
         let pulled = match self.grip {
@@ -364,14 +398,9 @@ impl PlaceDrag {
         let placed = if free {
             wanted
         } else {
-            let snapped = (wanted / self.step).round() * self.step;
-            match self.grip {
-                PlaceGrip::AlongX => Point2::new(snapped.x, self.from.y),
-                PlaceGrip::AlongY => Point2::new(self.from.x, snapped.y),
-                PlaceGrip::OnPlane => snapped,
-            }
+            self.kept((wanted / self.step).round() * self.step)
         };
-        let changed = placed != self.at;
+        let changed = placed != self.at || unsnapped;
         self.at = placed;
         changed
     }
@@ -410,10 +439,61 @@ impl PlaceDrag {
 
     pub fn readout(&self, units: Units) -> String {
         let [x, y] = POSITION_CAPTIONS;
-        format!(
+        let shown = format!(
             "{x} {}, {y} {}",
             units.readout_text(self.at.x),
             units.readout_text(self.at.y)
-        )
+        );
+        match self.snapped {
+            Some(snap) => format!("{shown} {}", snap.kind.words()),
+            None => shown,
+        }
     }
+}
+
+fn axes_typed(grip: PlaceGrip, values: &[Expression]) -> [Option<&Expression>; 2] {
+    match grip {
+        PlaceGrip::AlongX => [values.first(), None],
+        PlaceGrip::AlongY => [None, values.first()],
+        PlaceGrip::OnPlane => [values.first(), values.get(1)],
+    }
+}
+
+pub fn typed(
+    model: &Model,
+    feature: FeatureId,
+    grip: PlaceGrip,
+    values: &[Expression],
+) -> Option<Transaction> {
+    let document = model.document();
+    let typed = axes_typed(grip, values);
+    if let Some(hole) = committed_hole(document, feature) {
+        if hole_on_curve::mount(document, hole).is_some() {
+            return None;
+        }
+        let from = hole_tools::lone_point(document, hole)?.at;
+        let parameters = model.parameters();
+        let [typed_x, typed_y] = typed;
+        let [x, y] = [(typed_x, from.x), (typed_y, from.y)].map(|(value, kept)| {
+            value.map_or(Some(kept), |value| {
+                value
+                    .evaluate_as(Dimension::LENGTH, &|id| parameters.value(id))
+                    .ok()
+            })
+        });
+        return hole_tools::moved(document, feature, hole, Point2::new(x?, y?)).ok();
+    }
+    let primitive = committed_primitive(document, feature)?;
+    let mut moved = primitive.clone();
+    let mut named = Vec::new();
+    for (index, value) in typed.into_iter().enumerate() {
+        let Some(value) = value else {
+            continue;
+        };
+        let keeper = held(document, feature, &primitive.at, index);
+        if let Some(slot) = moved.at.get_mut(index) {
+            keeper.set(slot, value.clone(), &mut named);
+        }
+    }
+    manipulator::keeping_names(document, feature, FeatureKind::Primitive(moved), named)
 }

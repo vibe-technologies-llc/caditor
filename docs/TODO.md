@@ -234,35 +234,24 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   hole in the wrong place or a fillet to remove means remodelling it from scratch. Direct edits
   become features of their own, named from the faces they move, so they stay parametric and
   undoable.
-- [medium · medium] Only extrusion and revolve ends, a hole's depth, an offset face's distance, a
-  datum plane's offset and the move and placement handles drag in the view
-  (`manipulator::Manipulator`, `length_handles::Measured`): a fillet's radius, a chamfer's
-  distance, a shell's or thin wall's thickness, an extrusion's end offset and taper, a hole's
-  diameter and a datum plane's angle are only typed. Each could be a `Handle::Length` or a turn
-  handle on the open feature (a fillet's at the middle of its first chosen edge along the bisector
-  of its faces, a shell's on the rim of its first opened face), with its value beside the pointer
-  and committed through `manipulator::Held` like the others.
-- [medium · medium] Handle drags move only in steps along their line or plane (`reach_handles.rs`,
-  `place_handles.rs`, `move_manipulator.rs`): an extrusion's arrow dropped on a face or corner
-  does not stop there, a hole's square does not snap to a round edge's centre or an edge's middle,
-  and the dragged value cannot be typed mid-drag. Snapping a drag to the shown bodies' corners,
-  edge middles, round edges' centres and faces (the distance to them along the handle, ahead of
-  the steps, Ctrl still dragging freely) and opening the typed-point field on a digit while a
-  handle is held or hovered, committing to the dragged field, would give the drag-to-geometry and
-  typed values of Fusion's handles; a snap sets a measured value rather than a reference, and the
-  readout would say what it snapped to.
+- [low · medium] Some values still have no handle (`value_gauges.rs`): an end Up to next has no
+  face to stand its Past the face arrow on, and a chamfer's second distance or angle, a hole's
+  counterbore, countersink, slot, thread and Past the face sizes, a wedge's top length, a prism's
+  sides and a curve or point pattern's count and spacing are only typed. A fillet's arrow assumes the edge's
+  faces turn away from each other where it stands (the coedge sense), so on a concave edge its
+  foot is off the rounded face, and a chamfer of two distances or a distance and an angle places
+  its foot as an equal one would. Each would be a further `Measured` with its `Gauge`.
+- [low · medium] Turning handles (a revolve's angle arrows, a move's rings, a plane's and a circular
+  pattern's turn arrows) step but never snap (`Manipulating::snaps`), and a drag snaps to flat
+  faces only, by their plane, while a curved face under the pointer gives nothing. Snapping a turn
+  to the angle that brings a corner or edge middle into its plane, and a line handle to where it
+  meets a curved face, would finish Fusion's drag-to-geometry.
 - [low · medium] A hole's placement handles (`place_handles.rs`) stand only on a lone free point
   (`hole_tools::lone_point`): a hole of several points, or one measured from edges or centred on
   one (`hole_placement.rs`), drags nothing. Each free point could carry its own square, and each
   edge distance an arrow along the edge's normal committing to its `Distance` through
   `manipulator::Held`. Place by takes only edges of bodies, not another sketch's curves, datum
   axes or the origin.
-- [low · medium] Primitives and patterns have no size handles: a box's width, depth and height, a
-  cylinder's radius and height and the other primitives' sizes are only typed, while only their
-  position drags (`place_handles.rs`), and a linear pattern's spacing and count or a circular
-  pattern's count and angle do not drag at all. Arrows on a box's faces and a cylinder's rim and
-  top, and for a pattern one at its last copy dragging the spacing or angle and one past it adding
-  copies, would follow `length_handles.rs` and commit through `manipulator::Held`.
 - [low · medium] Mirror faces closes an opening only in one plane or on one elementary face beside
   it: an opening on an extrusion, revolution or spline face, one running all the way around a
   round face (a collar or a groove), or one spanning several curved faces is refused, since

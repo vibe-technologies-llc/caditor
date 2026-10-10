@@ -222,7 +222,7 @@ fn chosen_axis(
     }
 }
 
-fn repeated_bounds(model: &Model, repeated: &[FeatureId]) -> Option<Aabb> {
+pub fn repeated_bounds(model: &Model, repeated: &[FeatureId]) -> Option<Aabb> {
     let evaluation = model.evaluation();
     repeated
         .iter()

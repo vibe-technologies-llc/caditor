@@ -74,6 +74,7 @@ mod coordinate_systems;
 mod custom_colours;
 mod dimension_labels;
 mod face_tools;
+mod feature_handles;
 mod feature_panels;
 mod feature_tree_choice;
 mod files_and_history;
@@ -9769,18 +9770,22 @@ fn dragging_a_box_s_square_moves_it_on_its_plane_and_keeps_a_named_position() {
     assert!((again.y - 4.0).abs() < 1e-6, "{again:?}");
 }
 
-fn drag_length_arrow(harness: &mut Harness, along: f64) -> f64 {
+fn drag_value_arrow(
+    harness: &mut Harness,
+    measured: crate::value_gauges::Measured,
+    along: f64,
+) -> f64 {
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
     let from = harness
         .workspace
         .viewport
-        .handle_position(Handle::Length, 0.0)
-        .expect("the distance arrow is shown");
+        .handle_position(Handle::Value(measured), 0.0)
+        .expect("the value arrow is shown");
     let to = harness
         .workspace
         .viewport
-        .handle_position(Handle::Length, along)
+        .handle_position(Handle::Value(measured), along)
         .unwrap();
     let step = harness.workspace.viewport.manipulator_step().unwrap();
     drag_screen(harness, from, to);
@@ -9808,7 +9813,7 @@ fn dragging_a_hole_s_depth_arrow_changes_its_blind_depth() {
     harness.select([]);
     let hole = harness.workspace.editing.solid().expect("the hole is open");
 
-    let step = drag_length_arrow(&mut harness, -4.0);
+    let step = drag_value_arrow(&mut harness, crate::value_gauges::Measured::HoleDepth, -4.0);
     let caditor_document::HoleDepth::Blind(depth) = open_hole(&harness, hole).depth else {
         panic!("the hole stays blind");
     };
@@ -9834,7 +9839,11 @@ fn dragging_an_offset_face_arrow_changes_its_distance() {
         .solid()
         .expect("the offset face is open");
 
-    let step = drag_length_arrow(&mut harness, 3.0);
+    let step = drag_value_arrow(
+        &mut harness,
+        crate::value_gauges::Measured::OffsetDistance,
+        3.0,
+    );
     let distance = length_value(&harness, &offset_of(&harness, offset).distance);
 
     assert_eq!(harness.model.undo_label(), Some("Edit Offset face 1"));
@@ -9872,7 +9881,11 @@ fn dragging_a_datum_plane_s_arrow_changes_its_offset() {
     };
     let before = offset_of(&harness);
 
-    let step = drag_length_arrow(&mut harness, 5.0);
+    let step = drag_value_arrow(
+        &mut harness,
+        crate::value_gauges::Measured::PlaneOffset,
+        5.0,
+    );
     let offset = offset_of(&harness);
 
     assert_eq!(harness.model.undo_label(), Some("Edit Plane 1"));

@@ -36,11 +36,12 @@ use crate::{
     faceting::FacetLevel,
     feature_tree,
     gearing::GearSettings,
+    handle_snap::{self, Snap},
     hole_placement, hole_tools,
     interference_panel::{Mark, MarkKind},
     isocurves::IsocurveDrawing,
     look_at::{self, LookTarget},
-    manipulator::{Manipulating, Manipulator},
+    manipulator::{self, Manipulating, Manipulator},
     measure::MeasuredLine,
     measurement_tools,
     menu_bar::MenuEntries,
@@ -352,6 +353,9 @@ pub struct ViewportState {
     row_to_choose: Option<FeatureId>,
     typed_point: TypedPoint,
     typed_owner: Option<(FeatureId, Tool)>,
+    typed_handle: Option<manipulator::Typing>,
+    typed_handle_preview: Option<String>,
+    handle_snap: Option<(Vector2, Option<Snap>)>,
     moving: Option<Moving>,
     transforming: Option<Transforming>,
     moving_label: Option<LabelMoving>,
@@ -556,6 +560,9 @@ impl ViewportState {
             row_to_choose: None,
             typed_point: TypedPoint::default(),
             typed_owner: None,
+            typed_handle: None,
+            typed_handle_preview: None,
+            handle_snap: None,
             moving: None,
             transforming: None,
             moving_label: None,
@@ -1073,6 +1080,7 @@ impl ViewportState {
 
             self.track_cursor(ui, &response, rect);
             self.track_manipulator(model, editing);
+            manipulator::publish_dragged(ui.ctx(), self.dragged_feature());
             self.track_sketch_cursor(model, editing);
             self.track_drawing(model, editing);
             self.type_points(ui, rect, model, editing, keys_free, actions);
@@ -1503,6 +1511,12 @@ impl ViewportState {
     }
 
     #[cfg(test)]
+    pub fn screen_of(&self, point: Point3) -> Option<egui::Pos2> {
+        let pixel = self.view()?.project(point)? / f64::from(self.pixels_per_point);
+        Some(self.rect?.min + egui::Vec2::new(pixel.x as f32, pixel.y as f32))
+    }
+
+    #[cfg(test)]
     pub fn handle_foot(&self, handle: Handle) -> Option<Point3> {
         self.manipulator?.foot(handle)
     }
@@ -1786,6 +1800,12 @@ impl ViewportState {
         let ray = cursor.and_then(|cursor| self.view()?.ray_through(cursor));
         let free = self.placing_freely;
         let hold = self.hold();
+        let snap = match &self.primary {
+            Some(PrimaryDrag::Manipulate(manipulating)) if !free && manipulating.snaps() => {
+                self.snap_handle(model, manipulating.feature)
+            }
+            _ => None,
+        };
         match &mut self.primary {
             Some(PrimaryDrag::Manipulate(manipulating))
                 if editing.solid() != Some(manipulating.feature) =>
@@ -1798,7 +1818,7 @@ impl ViewportState {
             }
             Some(PrimaryDrag::Manipulate(manipulating)) => {
                 if let Some(ray) = ray
-                    && manipulating.follow(ray, free)
+                    && manipulating.follow(ray, free, snap)
                 {
                     actions.push(Action::Preview {
                         feature: manipulating.feature,
@@ -1939,6 +1959,32 @@ impl ViewportState {
                 |((manipulator, view), cursor)| manipulator.hit(&view, cursor, pixels_per_point),
             ),
         };
+    }
+
+    fn snap_handle(&mut self, model: &Model, feature: FeatureId) -> Option<Snap> {
+        let cursor = self.cursor?;
+        if let Some((at, snap)) = self.handle_snap
+            && at == cursor
+        {
+            return snap;
+        }
+        let snap = self
+            .scenes
+            .built()
+            .zip(self.view())
+            .and_then(|(built, view)| {
+                handle_snap::Probe {
+                    model,
+                    feature,
+                    built,
+                    view: &view,
+                    cursor,
+                    pixels_per_point: self.pixels_per_point,
+                }
+                .snap()
+            });
+        self.handle_snap = Some((cursor, snap));
+        snap
     }
 
     fn manipulate_from(&self, press: Press, model: &Model) -> Option<Manipulating> {
@@ -3621,6 +3667,11 @@ impl ViewportState {
             self.type_value(ui, rect, model, editing, keys_free, actions);
             return;
         }
+        if editing.feature().is_none() {
+            self.type_handle(ui, rect, model, editing, keys_free, actions);
+            return;
+        }
+        self.typed_handle = None;
         let drawing_sketch = editing
             .active()
             .filter(|active| active.tool.draws())
@@ -3743,6 +3794,117 @@ impl ViewportState {
         }
         if let Ok(placed) = typed_point::parse_placed(model, text, from) {
             self.drawing.preview_typed(sketch, placed.position);
+        }
+    }
+
+    fn type_handle(
+        &mut self,
+        ui: &egui::Ui,
+        rect: Rect,
+        model: &Model,
+        editing: &SketchEditing,
+        keys_free: bool,
+        actions: &mut Vec<Action>,
+    ) {
+        let open = editing
+            .solid()
+            .filter(|_| !editing.context().choosing_in_view);
+        if self
+            .typed_handle
+            .as_ref()
+            .is_some_and(|typing| Some(typing.feature) != open)
+        {
+            self.typed_handle = None;
+            self.typed_point.close();
+        }
+        if self.typed_handle.is_none() {
+            let held = match &self.primary {
+                Some(PrimaryDrag::Manipulate(manipulating)) => Some(manipulating.handle),
+                Some(_) => None,
+                None => self.manipulator_hover,
+            };
+            let typing = held
+                .zip(self.manipulator)
+                .and_then(|(handle, manipulator)| manipulator.typing(model, handle));
+            let Some(typing) = typing else {
+                self.typed_point.close();
+                return;
+            };
+            if keys_free {
+                self.typed_point.open_from_typing(ui.ctx());
+            }
+            if !self.typed_point.is_open() {
+                return;
+            }
+            if let Some(PrimaryDrag::Manipulate(manipulating)) = self.primary.take() {
+                actions.push(Action::Preview {
+                    feature: manipulating.feature,
+                    draft: None,
+                });
+            }
+            self.typed_handle = Some(typing);
+            self.typed_handle_preview = None;
+        }
+        let Some(typing) = self.typed_handle.clone() else {
+            return;
+        };
+        let text = self.typed_point.typing_text().map(str::to_owned);
+        if text != self.typed_handle_preview {
+            let draft = text.as_deref().and_then(|text| {
+                let values = typing.parse(model, text).ok()?;
+                typing.transaction(model, values).ok()
+            });
+            actions.push(Action::Preview {
+                feature: typing.feature,
+                draft,
+            });
+            self.typed_handle_preview = text;
+        }
+        let hint = format!(
+            "Lengths in {}   Enter: set {}   Esc: cancel",
+            model.length_unit().symbol(),
+            typing.label
+        );
+        let anchor = rect.center_top() + vec2(0.0, TYPED_POINT_OFFSET);
+        let typed = self.typed_point.show(
+            ui.ctx(),
+            top_band(rect),
+            anchor,
+            &typing.label,
+            &hint,
+            typing.placeholder(),
+        );
+        let Some(typed) = typed else {
+            if !self.typed_point.is_open() {
+                self.typed_handle = None;
+                self.typed_handle_preview = None;
+                actions.push(Action::Preview {
+                    feature: typing.feature,
+                    draft: None,
+                });
+            }
+            return;
+        };
+        match typing
+            .parse(model, &typed.text)
+            .and_then(|values| typing.transaction(model, values))
+        {
+            Ok(transaction) => {
+                self.typed_handle = None;
+                self.typed_handle_preview = None;
+                actions.push(Action::Apply(transaction));
+            }
+            Err(error) => {
+                self.typed_handle_preview = None;
+                self.typed_point.open_with(typed.entered, error);
+            }
+        }
+    }
+
+    pub fn dragged_feature(&self) -> Option<FeatureId> {
+        match &self.primary {
+            Some(PrimaryDrag::Manipulate(manipulating)) => Some(manipulating.feature),
+            _ => self.typed_handle.as_ref().map(|typing| typing.feature),
         }
     }
 
