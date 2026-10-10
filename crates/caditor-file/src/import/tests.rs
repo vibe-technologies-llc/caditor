@@ -1288,8 +1288,8 @@ mod step {
         let evaluation = evaluated(&document);
         let solid = evaluation.body(id).unwrap();
         let appearance = &document.feature(id).unwrap().appearance;
-        let colours = appearance.face_colours(solid);
-        let opacities = appearance.face_opacities(solid);
+        let colours = appearance.face_colours(solid, &document.face_splits(id));
+        let opacities = appearance.face_opacities(solid, &document.face_splits(id));
         let loaded = decode(&encode(&document).unwrap()).unwrap();
 
         assert_eq!(faces.len(), 6);

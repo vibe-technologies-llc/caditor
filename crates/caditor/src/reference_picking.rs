@@ -38,6 +38,7 @@ pub enum Slot {
     ExtrudeDirection,
     MirrorPlane,
     SplitPlane,
+    SplitDirection,
     PatternDirection,
     PatternSecond,
     PatternPath,
@@ -165,6 +166,11 @@ pub fn prompt(model: &Model, picking: Picking) -> String {
         Slot::SplitPlane => {
             "Click a plane, flat face, sketch curve or another body to split along".to_owned()
         }
+        Slot::SplitDirection => {
+            "Click a straight edge, an axis, a round face or a sketch line to carry the curves \
+             along"
+                .to_owned()
+        }
         Slot::FrameOrigin => {
             "Click a corner, round edge, sphere or torus, sketch point or datum point for its \
              origin"
@@ -285,6 +291,9 @@ pub fn change(
         }
         (Slot::SplitPlane, FeatureKind::SplitFace(split)) => {
             split_face_tools::along_change(model, selection, feature, split)
+        }
+        (Slot::SplitDirection, FeatureKind::SplitFace(split)) => {
+            split_face_tools::direction_change(model, selection, feature, split)
         }
         (Slot::PatternDirection, FeatureKind::Pattern(pattern)) => {
             pattern_tools::selected_change(model, selection, feature, pattern, Reference::First)

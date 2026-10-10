@@ -248,6 +248,7 @@ pub(crate) enum FeatureKindRecord {
     CurvePattern(Box<CurvePatternRecord>),
     PointPattern(Box<PointPatternRecord>),
     SplitFace(Box<SplitFaceRecord>),
+    SplitFaceAlong(Box<SplitFaceAlongRecord>),
     FaceAxisMate(Box<FaceAxisMateRecord>),
     AngleMate(Box<AngleMateRecord>),
     TangentMate(Box<TangentMateRecord>),
@@ -284,6 +285,12 @@ pub(crate) struct SplitFaceRecord {
     pub body: u64,
     pub faces: Vec<Lenient<FaceRecord>>,
     pub along: SplitFaceToolRecord,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct SplitFaceAlongRecord {
+    pub feature: FeatureKindRecord,
+    pub direction: Lenient<AxisReferenceRecord>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -651,7 +658,7 @@ pub(crate) struct RevolveOneSideRecord {
 
 pub(crate) const FEATURE_FIELDS: [&str; 3] = ["hidden", "appearance", "group"];
 
-pub(crate) const FEATURE_KINDS: [&str; 68] = [
+pub(crate) const FEATURE_KINDS: [&str; 69] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -720,6 +727,7 @@ pub(crate) const FEATURE_KINDS: [&str; 68] = [
     "angle_mate",
     "tangent_mate",
     "point_mate",
+    "split_face_along",
 ];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2056,6 +2064,18 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
         };
         return FeatureKindRecord::ExtrudeAlong(Box::new(ExtrudeAlongRecord {
             feature: feature_kind_record(&FeatureKind::Solid(SolidFeature::Extrude(square))),
+            direction: Lenient::Read(axis_record(direction)),
+        }));
+    }
+    if let FeatureKind::SplitFace(split) = kind
+        && let Some(direction) = split.direction.as_deref()
+    {
+        let square = SplitFace {
+            direction: None,
+            ..split.clone()
+        };
+        return FeatureKindRecord::SplitFaceAlong(Box::new(SplitFaceAlongRecord {
+            feature: feature_kind_record(&FeatureKind::SplitFace(square)),
             direction: Lenient::Read(axis_record(direction)),
         }));
     }
@@ -4575,6 +4595,27 @@ fn restore_kind(
             }
             kind
         }
+        FeatureKindRecord::SplitFaceAlong(along) => {
+            let mut kind = restore_kind(&along.feature, name, texts, issues);
+            let direction = match &along.direction {
+                Lenient::Read(direction) => restore_axis(direction),
+                Lenient::Unreadable(_) => None,
+            };
+            match (&mut kind, direction) {
+                (FeatureKind::SplitFace(split), Some(direction)) => {
+                    split.direction = Some(Box::new(direction));
+                }
+                (FeatureKind::SplitFace(_), None) => issues.push(format!(
+                    "The edge or axis “{name}” carries its curves along could not be read, so it \
+                     carries them square to their sketch."
+                )),
+                _ => issues.push(format!(
+                    "“{name}” was to carry curves along an edge or axis, but it does not split \
+                     faces, so that was left out."
+                )),
+            }
+            kind
+        }
         FeatureKindRecord::RevolveUpTo(up_to) => {
             let mut kind = restore_kind(&up_to.feature, name, texts, issues);
             let target = match &up_to.target {
@@ -6558,6 +6599,7 @@ fn restore_split_face(
         body: FeatureId::from_raw(record.body),
         faces,
         along,
+        direction: None,
     }
 }
 

@@ -351,7 +351,11 @@ paths:
 - The panel has the faces in words (Leave this face out per row, Choose in the view adding the
   selected faces of the body), Split along (a combo of the listed planes, the other bodies before
   it and every earlier sketch, with Use selected and Choose in the view on `Slot::SplitPlane`, as
-  the palette's Split along selected does) and Body.
+  the palette's Split along selected does), for a sketch Carried (`split_face_panel::SQUARE`,
+  `ALONG`: Along an edge or axis takes the one selected edge, axis, round face or sketch line,
+  `datum_tools::only_axis` through `split_face_tools::direction_change`, else chooses one in the
+  view on `Slot::SplitDirection`, then shown as Along with a button going back to square, as an
+  extrusion's Direction row) and Body.
 - Its pieces carry new names, so the faces of its result are not the keys of the state before it:
   while open it always shows the body before it (`OpenView::Before`, `FaceChoice::Splitting`) with
   every face a `Pickable::ShellFace` and the chosen ones in the selected colour, a click splitting a

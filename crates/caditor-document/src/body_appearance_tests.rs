@@ -340,8 +340,9 @@ fn a_face_colour_and_opacity_follow_the_face_into_every_fragment_a_later_cut_lea
 
     let after = evaluate(&pair.document, &mut engine);
     let appearance = &pair.document.feature(pair.plate).unwrap().appearance;
-    let coloured = appearance.face_colours(after.body(pair.plate).unwrap());
-    let see_through = appearance.face_opacities(after.body(pair.plate).unwrap());
+    let coloured = appearance.face_colours(after.body(pair.plate).unwrap(), &FaceSplits::default());
+    let see_through =
+        appearance.face_opacities(after.body(pair.plate).unwrap(), &FaceSplits::default());
 
     assert_eq!(after.failed_count(), 0);
     assert_eq!(coloured.len(), 2);

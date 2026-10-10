@@ -193,6 +193,9 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
             if let Some(plane) = split.along.plane_mut() {
                 visit_plane(plane, "the face it splits along", visitor);
             }
+            if let Some(direction) = split.direction.as_deref_mut() {
+                visit_axis(direction, "direction", visitor);
+            }
         }
         FeatureKind::Thread(thread) => {
             visitor.face(thread.body, &mut thread.face, "its threaded face");

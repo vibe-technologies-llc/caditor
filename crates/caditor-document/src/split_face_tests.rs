@@ -1,6 +1,6 @@
 use caditor_expression::{Expression, ParameterId};
 use caditor_geometry::{Plane, Point2, Vector3};
-use caditor_kernel::{FaceReference, SamplingTolerance, Solid, Surface};
+use caditor_kernel::{FaceReference, LINEAR_RESOLUTION, SamplingTolerance, Solid, Surface};
 use caditor_sketch::Sketch;
 
 use crate::*;
@@ -102,6 +102,7 @@ fn model(along: impl FnOnce(&mut TransactionBuilder) -> SplitAlong) -> Model {
             body: base,
             faces,
             along,
+            direction: None,
         }),
     );
     document.apply(transaction.finish()).unwrap();
@@ -191,4 +192,184 @@ fn a_tool_missing_the_faces_fails_the_split_alone_in_words() {
     );
     assert_eq!(error.fix, Some(FixTarget::Feature(model.split)));
     assert!(evaluation.body(model.base).is_some());
+}
+
+fn split_of(model: &Model) -> SplitFace {
+    model
+        .document
+        .feature(model.split)
+        .unwrap()
+        .kind
+        .split_face()
+        .unwrap()
+        .clone()
+}
+
+fn set_split(model: &mut Model, split: SplitFace) {
+    model
+        .document
+        .apply(Transaction::single(
+            "Edit",
+            Edit::SetFeatureKind {
+                id: model.split,
+                kind: FeatureKind::SplitFace(split),
+            },
+        ))
+        .unwrap();
+}
+
+fn colour_top(model: &mut Model, evaluation: &Evaluation, colour: Rgb) {
+    let before = evaluation.body_before(model.split).unwrap();
+    let appearance = BodyAppearance {
+        faces: top_faces(&before.solid().unwrap().solid)
+            .into_iter()
+            .map(|face| FaceColour {
+                face,
+                colour,
+                opacity: None,
+            })
+            .collect(),
+        ..BodyAppearance::default()
+    };
+    model
+        .document
+        .apply(Transaction::single(
+            "Colour",
+            Edit::SetBodyAppearance {
+                id: model.base,
+                appearance,
+            },
+        ))
+        .unwrap();
+}
+
+fn top_colours(model: &Model, evaluation: &Evaluation, splits: &FaceSplits) -> Vec<Rgb> {
+    let solid = evaluation.body(model.base).unwrap();
+    let appearance = &model.document.feature(model.base).unwrap().appearance;
+    let colours = appearance.face_colours(solid, splits);
+    top_faces(solid)
+        .iter()
+        .filter_map(|face| colours.get(&face.resolve(solid).ok()?).copied())
+        .collect()
+}
+
+fn slanted_line(transaction: &mut TransactionBuilder) -> AxisReference {
+    let mut sketch = Sketch::new(Plane::XZ);
+    let entity = sketch.add_line(Point2::new(0.0, 0.0), Point2::new(0.5, 1.0));
+    let sketch = transaction.add_feature("Slant", FeatureKind::from(sketch));
+    AxisReference::Sketch { sketch, entity }
+}
+
+#[test]
+fn a_face_colour_given_before_the_split_carries_to_every_piece() {
+    let red = Rgb::new(200, 30, 30);
+    let mut model = model(|_| SplitAlong::Plane(PlaneReference::Principal(PrincipalPlane::Yz)));
+    let evaluation = evaluate(&model.document, &mut model.engine);
+    colour_top(&mut model, &evaluation, red);
+
+    let evaluation = evaluate(&model.document, &mut model.engine);
+    let splits = model.document.face_splits(model.base);
+    let carried = top_colours(&model, &evaluation, &splits);
+    let without = top_colours(&model, &evaluation, &FaceSplits::default());
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert_eq!(carried, vec![red, red]);
+    assert!(without.is_empty());
+}
+
+#[test]
+fn a_direction_carries_the_curve_slanted_through_the_body() {
+    let mut slant = None;
+    let mut model = model(|transaction| {
+        slant = Some(slanted_line(transaction));
+        let sketch = transaction.add_feature(
+            "Part line",
+            FeatureKind::from(line((0.0, -10.0), (0.0, 10.0))),
+        );
+        SplitAlong::Sketch(sketch)
+    });
+    let mut split = split_of(&model);
+    split.direction = slant.map(Box::new);
+    set_split(&mut model, split);
+
+    let evaluation = evaluate(&model.document, &mut model.engine);
+    let solid = evaluation.body(model.base).unwrap();
+    let on_top_at = |x: f64| {
+        solid.vertices().any(|(_, vertex)| {
+            let point = vertex.point();
+            (point.z - 4.0).abs() < LINEAR_RESOLUTION && (point.x - x).abs() < 1e-6
+        })
+    };
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert_eq!(top_faces(solid).len(), 2);
+    assert!(on_top_at(2.0));
+    assert!(!on_top_at(0.0));
+    assert!(
+        model
+            .document
+            .feature(model.split)
+            .unwrap()
+            .kind
+            .features()
+            .contains(&split_of(&model).direction_sketch().unwrap())
+    );
+}
+
+#[test]
+fn a_direction_along_the_sketch_plane_fails_the_split_in_words() {
+    let mut model = model(|transaction| {
+        let sketch = transaction.add_feature(
+            "Part line",
+            FeatureKind::from(line((0.0, -10.0), (0.0, 10.0))),
+        );
+        SplitAlong::Sketch(sketch)
+    });
+    let mut split = split_of(&model);
+    split.direction = Some(Box::new(AxisReference::Principal(PrincipalAxis::X)));
+    set_split(&mut model, split);
+
+    let evaluation = evaluate(&model.document, &mut model.engine);
+    let error = failure(&evaluation, model.split);
+
+    assert_eq!(
+        error.reason,
+        "The X axis runs along the plane of Part line, so its curves cannot be carried along it."
+    );
+    assert_eq!(error.fix, Some(FixTarget::Feature(model.split)));
+}
+
+#[test]
+fn a_sketch_mixing_an_open_chain_with_outlines_splits_along_both_and_keeps_colours() {
+    let red = Rgb::new(200, 30, 30);
+    let mut model = model(|transaction| {
+        let mut sketch = line((2.0, -10.0), (2.0, 10.0));
+        sketch.add_circle(Point2::new(-2.0, 0.0), 1.0);
+        let sketch = transaction.add_feature("Part line", FeatureKind::from(sketch));
+        SplitAlong::Sketch(sketch)
+    });
+    let evaluation = evaluate(&model.document, &mut model.engine);
+    colour_top(&mut model, &evaluation, red);
+
+    let evaluation = evaluate(&model.document, &mut model.engine);
+    let splits = model.document.face_splits(model.base);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert_eq!(top_faces(evaluation.body(model.base).unwrap()).len(), 3);
+    assert_eq!(top_colours(&model, &evaluation, &splits), vec![red; 3]);
+}
+
+#[test]
+fn a_mixed_sketch_whose_outline_misses_the_faces_still_splits_along_the_chain() {
+    let mut model = model(|transaction| {
+        let mut sketch = line((2.0, -10.0), (2.0, 10.0));
+        sketch.add_circle(Point2::new(-20.0, 0.0), 1.0);
+        let sketch = transaction.add_feature("Part line", FeatureKind::from(sketch));
+        SplitAlong::Sketch(sketch)
+    });
+
+    let evaluation = evaluate(&model.document, &mut model.engine);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert_eq!(top_faces(evaluation.body(model.base).unwrap()).len(), 2);
 }

@@ -24,6 +24,9 @@ const NO_TOOL: &str =
 const ALREADY: &str = "The faces are already split along the selected plane, curve or body";
 const SEVERAL_TOOLS: &str = "Several other bodies are selected; select only the one to split along";
 const GONE: &str = "The feature no longer exists";
+const NO_DIRECTION: &str =
+    "Select an edge, axis, round face or sketch line to carry the curves along";
+const ALREADY_CARRIED: &str = "The curves are already carried along the selected edge or axis";
 const DEFAULT_PLANE: PlaneReference = PlaneReference::Principal(PrincipalPlane::Yz);
 
 #[derive(Debug, Clone, PartialEq)]
@@ -105,6 +108,7 @@ pub fn create(
                 .along
                 .clone()
                 .unwrap_or(SplitAlong::Plane(DEFAULT_PLANE)),
+            direction: None,
         }),
     );
     Ok((transaction.finish(), feature))
@@ -201,11 +205,29 @@ pub fn along_change(
     if along == split.along {
         return Err(ALREADY.to_owned());
     }
+    change(model, feature, split.with_along(along))
+}
+
+pub fn direction_change(
+    model: &Model,
+    selection: &Selection,
+    feature: FeatureId,
+    split: &SplitFace,
+) -> Result<Transaction, String> {
+    let index = model
+        .document()
+        .feature_index(feature)
+        .ok_or_else(|| GONE.to_owned())?;
+    let axis =
+        datum_tools::only_axis(model, selection, index)?.ok_or_else(|| NO_DIRECTION.to_owned())?;
+    if split.direction() == Some(&axis) {
+        return Err(ALREADY_CARRIED.to_owned());
+    }
     change(
         model,
         feature,
         SplitFace {
-            along,
+            direction: Some(Box::new(axis)),
             ..split.clone()
         },
     )

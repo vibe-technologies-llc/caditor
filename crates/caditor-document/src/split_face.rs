@@ -1,19 +1,20 @@
 use std::collections::BTreeSet;
 
-use caditor_kernel::{FaceId, FaceReference, FaceSplitError, Solid, split_faces};
+use caditor_geometry::{Plane, Vector3};
+use caditor_kernel::{FaceId, FaceName, FaceReference, FaceSplitError, Solid, split_faces};
 
 use crate::{
-    datum::{Resolver, feature_name},
+    datum::{AxisReference, Resolver, capitalized, describe_axis, feature_name},
     document::{Feature, FeatureId},
     origins,
     pieces::{Resolution, Unresolved, pieces_of_one_face, tally},
-    recompute::{CancelToken, Failure, FeatureResult, Inputs},
-    solid::SolidResult,
+    recompute::{CancelToken, Failure, FeatureResult, Inputs, SketchResult},
+    solid::{SolidResult, profile_curves},
     split::{
-        HalfSpaceError, SplitAlong, SweptError, half_space_solid, is_open_chain, swept_half_space,
-        swept_outlines,
+        HalfSpaceError, MixedCurves, SplitAlong, Sweep, SweptError, half_space_solid,
+        is_open_chain, mixed_curves,
     },
-    trouble,
+    tolerance, trouble,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -21,6 +22,7 @@ pub struct SplitFace {
     pub body: FeatureId,
     pub faces: Vec<FaceReference>,
     pub along: SplitAlong,
+    pub direction: Option<Box<AxisReference>>,
 }
 
 impl SplitFace {
@@ -32,6 +34,39 @@ impl SplitFace {
                 .map(FaceReference::heap_size)
                 .sum::<usize>()
             + self.along.heap_size()
+            + self
+                .direction
+                .as_deref()
+                .map_or(0, |axis| size_of::<AxisReference>() + axis.heap_size())
+    }
+
+    pub fn with_along(&self, along: SplitAlong) -> Self {
+        let direction = along.sketch().and(self.direction.clone());
+        Self {
+            along,
+            direction,
+            ..self.clone()
+        }
+    }
+
+    pub fn direction(&self) -> Option<&AxisReference> {
+        self.direction.as_deref()
+    }
+
+    pub fn direction_body(&self) -> Option<FeatureId> {
+        self.direction().and_then(AxisReference::body)
+    }
+
+    pub fn direction_datum(&self) -> Option<FeatureId> {
+        self.direction().and_then(AxisReference::datum)
+    }
+
+    pub fn direction_frame(&self) -> Option<FeatureId> {
+        self.direction().and_then(AxisReference::frame)
+    }
+
+    pub fn direction_sketch(&self) -> Option<FeatureId> {
+        self.direction().and_then(AxisReference::sketch)
     }
 
     pub fn features(&self) -> BTreeSet<FeatureId> {
@@ -39,6 +74,9 @@ impl SplitFace {
         used.extend(self.along.datum());
         used.extend(self.along.body());
         used.extend(self.along.sketch());
+        used.extend(self.direction_datum());
+        used.extend(self.direction_body());
+        used.extend(self.direction_sketch());
         used
     }
 
@@ -46,6 +84,11 @@ impl SplitFace {
         let mut origins: BTreeSet<FeatureId> =
             self.faces.iter().flat_map(origins::of_face).collect();
         origins.extend(self.along.origin_features());
+        origins.extend(
+            self.direction()
+                .into_iter()
+                .flat_map(AxisReference::origin_features),
+        );
         origins
     }
 
@@ -187,14 +230,89 @@ fn tool_words(inputs: &Inputs<'_>, along: &SplitAlong) -> String {
 enum Tool<'a> {
     Made(Solid),
     Body(&'a Solid),
+    Twice { outlines: Solid, chain: Solid },
 }
 
-impl Tool<'_> {
-    fn solid(&self) -> &Solid {
-        match self {
-            Self::Made(solid) => solid,
-            Self::Body(solid) => solid,
-        }
+fn sketch_result<'a>(
+    context: &Context<'_>,
+    inputs: &'a Inputs<'_>,
+    sketch: FeatureId,
+) -> Result<&'a SketchResult, Failure> {
+    inputs
+        .features
+        .get(&sketch)
+        .and_then(|result| result.sketch())
+        .ok_or_else(|| {
+            let name = feature_name(inputs.document, sketch);
+            context.resolver.error(
+                format!("It uses {name}, which has an error."),
+                format!("Fix {name} first."),
+                sketch,
+            )
+        })
+}
+
+fn carried_direction(
+    context: &Context<'_>,
+    definition: &SplitFace,
+    plane: &Plane,
+    sketch: FeatureId,
+) -> Result<Option<Vector3>, Failure> {
+    let Some(reference) = definition.direction() else {
+        return Ok(None);
+    };
+    let axis = context.resolver.axis(reference)?;
+    let normal = plane.normal();
+    let direction = axis.direction().normalize();
+    if tolerance::perpendicular(direction, normal) {
+        let document = context.resolver.inputs.document;
+        return Err(context.error(
+            format!(
+                "{} runs along the plane of {}, so its curves cannot be carried along it.",
+                capitalized(&describe_axis(document, reference)),
+                feature_name(document, sketch)
+            ),
+            "Choose an edge, axis or line that leaves the sketch plane, or carry the curves \
+             square to the sketch.",
+        ));
+    }
+    Ok(Some(if direction.dot(normal) < 0.0 {
+        -direction
+    } else {
+        direction
+    }))
+}
+
+fn sketch_tool<'a>(
+    context: &Context<'_>,
+    definition: &SplitFace,
+    solid: &Solid,
+    sketch: FeatureId,
+) -> Result<Tool<'a>, Failure> {
+    let result = sketch_result(context, context.resolver.inputs, sketch)?;
+    let geometry = &result.geometry;
+    let plane = geometry.plane();
+    let sweep = Sweep {
+        plane,
+        direction: carried_direction(context, definition, &plane, sketch)?,
+        feature: context.resolver.feature.id().raw(),
+    };
+    let failed = |error| context.swept_failure(sketch, error);
+    if is_open_chain(geometry) {
+        return sweep
+            .half_space(solid, profile_curves(geometry), false)
+            .map(Tool::Made)
+            .map_err(failed);
+    }
+    match mixed_curves(geometry) {
+        Some(MixedCurves { chain, outlines }) => Ok(Tool::Twice {
+            outlines: sweep.outlines(solid, &outlines).map_err(failed)?,
+            chain: sweep.half_space(solid, chain, false).map_err(failed)?,
+        }),
+        None => sweep
+            .outlines(solid, &profile_curves(geometry))
+            .map(Tool::Made)
+            .map_err(failed),
     }
 }
 
@@ -222,28 +340,54 @@ fn tool<'a>(
             "Choose another body to split them along.",
         )),
         SplitAlong::Body(tool) => context.resolver.body(*tool).map(Tool::Body),
-        SplitAlong::Sketch(sketch) => {
-            let inputs = context.resolver.inputs;
-            let Some(result) = inputs
-                .features
-                .get(sketch)
-                .and_then(|result| result.sketch())
-            else {
-                let name = feature_name(inputs.document, *sketch);
-                return Err(context.resolver.error(
-                    format!("It uses {name}, which has an error."),
-                    format!("Fix {name} first."),
-                    *sketch,
-                ));
-            };
-            let made = if is_open_chain(&result.geometry) {
-                swept_half_space(solid, &result.geometry, false, feature)
-            } else {
-                swept_outlines(solid, &result.geometry, feature)
-            };
-            made.map(Tool::Made)
-                .map_err(|error| context.swept_failure(*sketch, error))
-        }
+        SplitAlong::Sketch(sketch) => sketch_tool(context, definition, solid, *sketch),
+    }
+}
+
+fn divided(
+    context: &Context<'_>,
+    solid: &Solid,
+    faces: &[FaceId],
+    tool: &Solid,
+) -> Result<Option<Solid>, Failure> {
+    match split_faces(solid, faces, tool, context.resolver.feature.id().raw()) {
+        Ok(split) => Ok(Some(split)),
+        Err(FaceSplitError::Undivided) => Ok(None),
+        Err(error) => Err(context.split_failure(solid, tool, error)),
+    }
+}
+
+fn split_twice(
+    context: &Context<'_>,
+    solid: &Solid,
+    faces: &[FaceId],
+    tools: [&Solid; 2],
+    cancel: &CancelToken,
+) -> Result<Solid, Failure> {
+    let [outlines, chain] = tools;
+    let unchosen: BTreeSet<FaceName> = solid
+        .faces()
+        .filter(|(id, _)| !faces.contains(id))
+        .map(|(_, face)| face.name())
+        .collect();
+    let first = divided(context, solid, faces, outlines)?;
+    if cancel.is_cancelled() {
+        return Err(Failure::Cancelled);
+    }
+    let (base, chosen) = match &first {
+        Some(split) => (
+            split,
+            split
+                .faces()
+                .filter(|(_, face)| !unchosen.contains(&face.name()))
+                .map(|(id, _)| id)
+                .collect(),
+        ),
+        None => (solid, faces.to_vec()),
+    };
+    match divided(context, base, &chosen, chain)? {
+        Some(split) => Ok(split),
+        None => first.ok_or_else(|| context.misses()),
     }
 }
 
@@ -276,8 +420,18 @@ pub(crate) fn evaluate(
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }
-    let split = split_faces(solid, &faces, tool.solid(), feature.id().raw())
-        .map_err(|error| context.split_failure(solid, tool.solid(), error))?;
+    let split = match &tool {
+        Tool::Made(made) => divided(&context, solid, &faces, made)?,
+        Tool::Body(body) => divided(&context, solid, &faces, body)?,
+        Tool::Twice { outlines, chain } => Some(split_twice(
+            &context,
+            solid,
+            &faces,
+            [outlines, chain],
+            cancel,
+        )?),
+    }
+    .ok_or_else(|| context.misses())?;
     Ok(FeatureResult::Solid(SolidResult::new(
         definition.body,
         split,

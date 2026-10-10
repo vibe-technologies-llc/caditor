@@ -387,7 +387,11 @@ paths:
   and `tangent` only when set.
 - A `split_face` feature record holds `body`, `faces` (face records; an unreadable one is left
   out, reported as left whole) and `along` (`{"plane": plane reference}`, unreadable loading as the
-  YZ plane, reported, `{"body": id}` or `{"sketch": id}`), a kind of its own.
+  YZ plane, reported, `{"body": id}` or `{"sketch": id}`), a kind of its own. One carrying its
+  sketch along a direction is a `split_face_along` record: `feature`, the `split_face` record it
+  would be carrying square, and `direction`, an axis reference, since an older reader would split
+  along other lines; an unreadable direction loads carried square, reported, and an inner record
+  that is no split face loads without it, reported.
 - A `primitive` feature record holds `shape` (`box` with `length`, `width`, `height`; `cylinder`
   with `diameter`, `height`; `sphere` with `diameter`; `torus` with `diameter`, `tube`; `cone` with
   `bottom`, `top`, `height`; `wedge` with `length`, `width`, `height`, `top`; `prism` with `sides`,
