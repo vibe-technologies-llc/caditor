@@ -12,7 +12,8 @@ use crate::{
     section::SectionCommand,
     selection::Pickable,
     shape_modes::{
-        BlendMode, CircleMode, PolygonMode, RectangleMode, ShapeMode, SlotMode, SplineMode,
+        BlendMode, CircleMode, OffsetMode, PolygonMode, RectangleMode, ShapeMode, SlotMode,
+        SplineMode,
     },
     sketch_tools::ConstraintTool,
 };
@@ -244,6 +245,7 @@ pub fn command(command: Command) -> &'static str {
         Command::ToggleSelectThrough => phosphor::SELECTION_BACKGROUND,
         Command::CycleSelectionPriority => phosphor::FUNNEL,
         Command::ToggleTypedDimensions => phosphor::RULER,
+        Command::DrawSymmetrically => phosphor::FLIP_VERTICAL,
         Command::TypeValue => phosphor::TEXTBOX,
         Command::ToggleFirstDimensionScales => phosphor::RESIZE,
         Command::ToggleGlyphs => phosphor::SHAPES,
@@ -431,6 +433,9 @@ pub fn shape_mode(mode: ShapeMode) -> &'static str {
         ShapeMode::Spline(SplineMode::ClosedFit) => phosphor::CIRCLE_DASHED,
         ShapeMode::Blend(BlendMode::Tangent) => tool(Tool::BlendCurve),
         ShapeMode::Blend(BlendMode::Curvature) => phosphor::WAVE_SINE,
+        ShapeMode::Offset(OffsetMode::OneSide) => tool(Tool::Offset),
+        ShapeMode::Offset(OffsetMode::BothRound) => phosphor::ARROWS_OUT_LINE_VERTICAL,
+        ShapeMode::Offset(OffsetMode::BothFlat) => phosphor::RECTANGLE_DASHED,
     }
 }
 

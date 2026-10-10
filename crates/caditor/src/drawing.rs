@@ -23,6 +23,7 @@ use crate::{
     shapes::{self, ArcSlot, Circular, DEGENERATE_LENGTH, MAX_SIDES, MIN_SIDES, Slot},
     sketch_tools,
     snap::{self, Accept, Held, Hold, Lookup, ON_THE_GRID, Pointer, Screen, Snapped, Target},
+    symmetric_drawing,
     tracking::{self, Acquired, Tracked, Tracks},
     typed_point::{Measured, Placed, TypedDimension},
     units::Units,
@@ -201,7 +202,7 @@ impl Shape {
             ShapeMode::Polygon(mode) => Some(Self::Polygon(mode)),
             ShapeMode::Slot(mode) => Some(Self::Slot(mode)),
             ShapeMode::Spline(mode) => Some(Self::Spline(mode)),
-            ShapeMode::Blend(_) => None,
+            ShapeMode::Blend(_) | ShapeMode::Offset(_) => None,
         }
     }
 
@@ -727,6 +728,7 @@ pub struct Drawing {
     heading: Option<Heading>,
     pointed: Option<Pointed>,
     bodies: Arc<BodySnaps>,
+    about: Option<EntityId>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -1675,8 +1677,20 @@ impl Drawing {
         false
     }
 
+    pub fn draw_about(&mut self, line: Option<EntityId>) {
+        self.about = line;
+    }
+
+    fn symmetric(&self, model: &Model, feature: FeatureId, drawn: Transaction) -> Transaction {
+        match self.about {
+            Some(line) => symmetric_drawing::mirrored(model, feature, drawn, line),
+            None => drawn,
+        }
+    }
+
     pub fn click(&mut self, model: &Model) -> Result<Option<Transaction>, Refusal> {
         self.pointed = None;
+        let feature = self.context.map(|(feature, _)| feature);
         let clicked = self.placed_by_click(model);
         if clicked.is_ok() {
             self.heading = None;
@@ -1685,7 +1699,11 @@ impl Drawing {
         if self.arcing.is_some() && arc_ended {
             self.line_next();
         }
-        clicked
+        clicked.map(|drawn| {
+            drawn
+                .zip(feature)
+                .map(|(drawn, feature)| self.symmetric(model, feature, drawn))
+        })
     }
 
     fn placed_by_click(&mut self, model: &Model) -> Result<Option<Transaction>, Refusal> {
@@ -2112,7 +2130,7 @@ impl Drawing {
     }
 
     pub fn finish(&mut self, model: &Model) -> Option<Ended> {
-        let (_, shape) = self.context?;
+        let (feature, shape) = self.context?;
         if !self.in_progress() {
             return None;
         }
@@ -2130,7 +2148,8 @@ impl Drawing {
                         Refusal::SplinePoints
                     }));
                 }
-                self.finish_spline(model, false).map(Ended::Drawn)
+                self.finish_spline(model, false)
+                    .map(|drawn| Ended::Drawn(self.symmetric(model, feature, drawn)))
             }
             Shape::Point
             | Shape::Rectangle(_)

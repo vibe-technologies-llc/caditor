@@ -320,3 +320,46 @@ fn mirrored_arcs_and_elliptical_arcs_add_no_redundancy_and_no_freedom() {
     assert_clean(&solved);
     assert_eq!(solved.solution.degrees_of_freedom(), free);
 }
+
+#[test]
+fn a_curve_mirrored_after_its_neighbour_joins_the_image_already_there() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let first = sketch.add_line(Point2::new(0.0, 10.0), Point2::new(20.0, 10.0));
+    let (_, corner) = ends(&sketch, first);
+    let top = sketch.add_point(Point2::new(20.0, 30.0));
+    let second = sketch.insert(Entity::Line {
+        start: corner,
+        end: top,
+    });
+
+    let first_copies = sketch.mirror(&[first], EntityId::VERTICAL_AXIS).unwrap();
+    let second_copies = sketch.mirror(&[second], EntityId::VERTICAL_AXIS).unwrap();
+
+    let (_, image_corner) = ends(&sketch, first_copies[0]);
+    let (image_start, image_top) = ends(&sketch, second_copies[0]);
+    assert_eq!(image_start, image_corner);
+    assert_near(sketch.point(image_top).unwrap(), Point2::new(-20.0, 30.0));
+    assert_eq!(count_of(&sketch, "Symmetric"), 2);
+    assert_clean(&solve(&sketch));
+}
+
+#[test]
+fn a_curve_joined_by_coincident_to_a_mirrored_point_takes_its_image() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let first = sketch.add_line(Point2::new(0.0, 10.0), Point2::new(20.0, 10.0));
+    let second = sketch.add_line(Point2::new(20.0, 10.0), Point2::new(20.0, 30.0));
+    let (_, corner) = ends(&sketch, first);
+    let (joined, _) = ends(&sketch, second);
+    sketch
+        .add_constraint(Constraint::Coincident(corner, joined))
+        .unwrap();
+
+    let first_copies = sketch.mirror(&[first], EntityId::VERTICAL_AXIS).unwrap();
+    let second_copies = sketch.mirror(&[second], EntityId::VERTICAL_AXIS).unwrap();
+
+    let (_, image_corner) = ends(&sketch, first_copies[0]);
+    let (image_start, _) = ends(&sketch, second_copies[0]);
+    assert_eq!(image_start, image_corner);
+    assert_eq!(count_of(&sketch, "Symmetric"), 2);
+    assert_clean(&solve(&sketch));
+}

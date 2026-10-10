@@ -280,6 +280,10 @@ impl Sketch {
                 }
                 continue;
             }
+            if let Some(partner) = self.symmetric_partner(*point, about) {
+                images.insert(*point, partner);
+                continue;
+            }
             let position = self.point(*point).ok_or(SketchError::NotAPoint(*point))?;
             let image = self.add_point(plan.reflection.of(position));
             images.insert(*point, image);
@@ -361,6 +365,40 @@ impl Sketch {
             self.add_constraint(Constraint::Coincident(point, about))?;
         }
         Ok(copies)
+    }
+
+    fn symmetric_partner(&self, point: EntityId, about: EntityId) -> Option<EntityId> {
+        self.mirrored_directly(point, about).or_else(|| {
+            self.constraints_using(point)
+                .into_iter()
+                .filter_map(|id| self.constraint(id))
+                .filter_map(|constraint| match *constraint {
+                    Constraint::Coincident(a, b) if a == point => Some(b),
+                    Constraint::Coincident(a, b) if b == point => Some(a),
+                    _ => None,
+                })
+                .filter(|other| matches!(self.entity(*other), Some(Entity::Point(_))))
+                .find_map(|other| self.mirrored_directly(other, about))
+        })
+    }
+
+    fn mirrored_directly(&self, point: EntityId, about: EntityId) -> Option<EntityId> {
+        self.constraints_using(point)
+            .into_iter()
+            .filter_map(|id| self.constraint(id))
+            .find_map(|constraint| match *constraint {
+                Constraint::Symmetric {
+                    first,
+                    second,
+                    about: line,
+                } if line == about && first == point => Some(second),
+                Constraint::Symmetric {
+                    first,
+                    second,
+                    about: line,
+                } if line == about && second == point => Some(first),
+                _ => None,
+            })
     }
 
     pub(crate) fn held_on(&self, point: EntityId, about: EntityId) -> bool {

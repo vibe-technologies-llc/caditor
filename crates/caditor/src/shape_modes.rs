@@ -1,4 +1,4 @@
-use caditor_sketch::{Continuity, SplineKind};
+use caditor_sketch::{Caps, Continuity, SplineKind};
 
 use crate::editing::Tool;
 
@@ -78,6 +78,24 @@ impl BlendMode {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum OffsetMode {
+    #[default]
+    OneSide,
+    BothRound,
+    BothFlat,
+}
+
+impl OffsetMode {
+    pub fn caps(self) -> Option<Caps> {
+        match self {
+            Self::OneSide => None,
+            Self::BothRound => Some(Caps::Round),
+            Self::BothFlat => Some(Caps::Flat),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ShapeMode {
     Rectangle(RectangleMode),
@@ -86,10 +104,11 @@ pub enum ShapeMode {
     Slot(SlotMode),
     Spline(SplineMode),
     Blend(BlendMode),
+    Offset(OffsetMode),
 }
 
 impl ShapeMode {
-    pub const ALL: [Self; 18] = [
+    pub const ALL: [Self; 21] = [
         Self::Rectangle(RectangleMode::Corners),
         Self::Rectangle(RectangleMode::Center),
         Self::Rectangle(RectangleMode::ThreePoints),
@@ -108,6 +127,9 @@ impl ShapeMode {
         Self::Spline(SplineMode::ClosedFit),
         Self::Blend(BlendMode::Tangent),
         Self::Blend(BlendMode::Curvature),
+        Self::Offset(OffsetMode::OneSide),
+        Self::Offset(OffsetMode::BothRound),
+        Self::Offset(OffsetMode::BothFlat),
     ];
 
     pub fn of_tool(tool: Tool) -> impl Iterator<Item = Self> {
@@ -124,6 +146,7 @@ impl ShapeMode {
             Self::Slot(_) => Tool::Slot,
             Self::Spline(_) => Tool::Spline,
             Self::Blend(_) => Tool::BlendCurve,
+            Self::Offset(_) => Tool::Offset,
         }
     }
 
@@ -159,6 +182,11 @@ impl ShapeMode {
                 BlendMode::Tangent => BlendMode::Curvature,
                 BlendMode::Curvature => BlendMode::Tangent,
             }),
+            Self::Offset(mode) => Self::Offset(match mode {
+                OffsetMode::OneSide => OffsetMode::BothRound,
+                OffsetMode::BothRound => OffsetMode::BothFlat,
+                OffsetMode::BothFlat => OffsetMode::OneSide,
+            }),
         }
     }
 
@@ -182,11 +210,15 @@ impl ShapeMode {
             Self::Spline(SplineMode::ClosedFit) => "Closed, through fit points",
             Self::Blend(BlendMode::Tangent) => "Tangent (G1)",
             Self::Blend(BlendMode::Curvature) => "Curvature-continuous (G2)",
+            Self::Offset(OffsetMode::OneSide) => "To one side",
+            Self::Offset(OffsetMode::BothRound) => "To both sides, round ends",
+            Self::Offset(OffsetMode::BothFlat) => "To both sides, flat ends",
         }
     }
 
     pub fn title(self) -> String {
         match self {
+            Self::Offset(_) => self.named(),
             Self::Blend(_) => format!(
                 "Draw a {} {}",
                 decapitalized(self.label()),
@@ -261,6 +293,17 @@ impl ShapeMode {
                 "Join the ends of two curves with a spline leaving each along its direction and \
                  bending as tightly as it does there (G2)"
             }
+            Self::Offset(OffsetMode::OneSide) => {
+                "Offset a chain of curves to the side the pointer is on, held at its distance"
+            }
+            Self::Offset(OffsetMode::BothRound) => {
+                "Offset an open chain to both sides, closing its ends with round caps, as a slot \
+                 round a path; a closed chain gets a copy inside and outside"
+            }
+            Self::Offset(OffsetMode::BothFlat) => {
+                "Offset an open chain to both sides, closing its ends with flat caps square to \
+                 them, as a wall round its middle; a closed chain gets a copy inside and outside"
+            }
         }
     }
 
@@ -284,6 +327,9 @@ impl ShapeMode {
             Self::Spline(SplineMode::ClosedFit) => "sketch.spline.closed_fit",
             Self::Blend(BlendMode::Tangent) => "sketch.blend_curve.tangent",
             Self::Blend(BlendMode::Curvature) => "sketch.blend_curve.curvature",
+            Self::Offset(OffsetMode::OneSide) => "sketch.offset.one_side",
+            Self::Offset(OffsetMode::BothRound) => "sketch.offset.both_round",
+            Self::Offset(OffsetMode::BothFlat) => "sketch.offset.both_flat",
         }
     }
 
@@ -304,6 +350,7 @@ pub struct ShapeModes {
     slot: SlotMode,
     spline: SplineMode,
     blend: BlendMode,
+    offset: OffsetMode,
 }
 
 impl ShapeModes {
@@ -315,6 +362,7 @@ impl ShapeModes {
             Tool::Slot => Some(ShapeMode::Slot(self.slot)),
             Tool::Spline => Some(ShapeMode::Spline(self.spline)),
             Tool::BlendCurve => Some(ShapeMode::Blend(self.blend)),
+            Tool::Offset => Some(ShapeMode::Offset(self.offset)),
             Tool::Select
             | Tool::Point
             | Tool::Line
@@ -326,7 +374,6 @@ impl ShapeModes {
             | Tool::Conic
             | Tool::Trim
             | Tool::Extend
-            | Tool::Offset
             | Tool::Mirror
             | Tool::RectangularPattern
             | Tool::CircularPattern
@@ -344,6 +391,10 @@ impl ShapeModes {
         self.blend.continuity()
     }
 
+    pub fn offset(&self) -> OffsetMode {
+        self.offset
+    }
+
     pub fn set(&mut self, mode: ShapeMode) {
         match mode {
             ShapeMode::Rectangle(mode) => self.rectangle = mode,
@@ -352,6 +403,7 @@ impl ShapeModes {
             ShapeMode::Slot(mode) => self.slot = mode,
             ShapeMode::Spline(mode) => self.spline = mode,
             ShapeMode::Blend(mode) => self.blend = mode,
+            ShapeMode::Offset(mode) => self.offset = mode,
         }
     }
 }
@@ -375,6 +427,7 @@ mod tests {
     all_variants!(SlotMode: Ends, Center, Arc);
     all_variants!(SplineMode: Control, Fit, ClosedControl, ClosedFit);
     all_variants!(BlendMode: Tangent, Curvature);
+    all_variants!(OffsetMode: OneSide, BothRound, BothFlat);
 
     #[test]
     fn every_way_of_drawing_a_shape_is_listed() {
@@ -386,6 +439,7 @@ mod tests {
             .chain(SlotMode::ALL.into_iter().map(ShapeMode::Slot))
             .chain(SplineMode::ALL.into_iter().map(ShapeMode::Spline))
             .chain(BlendMode::ALL.into_iter().map(ShapeMode::Blend))
+            .chain(OffsetMode::ALL.into_iter().map(ShapeMode::Offset))
             .collect();
 
         assert_eq!(listed, ShapeMode::ALL);
@@ -393,7 +447,13 @@ mod tests {
 
     #[test]
     fn each_shape_cycles_through_its_own_modes_and_back() {
-        for tool in [Tool::Rectangle, Tool::Circle, Tool::Polygon, Tool::Slot] {
+        for tool in [
+            Tool::Rectangle,
+            Tool::Circle,
+            Tool::Polygon,
+            Tool::Slot,
+            Tool::Offset,
+        ] {
             let modes: Vec<ShapeMode> = ShapeMode::of_tool(tool).collect();
             let first = ShapeModes::default().of(tool).unwrap();
             let cycled: Vec<ShapeMode> = std::iter::successors(Some(first), |mode| {
@@ -455,5 +515,26 @@ mod tests {
         modes.set(tangent.next());
 
         assert_eq!(modes.blend(), Continuity::Curvature);
+    }
+
+    #[test]
+    fn offset_steps_from_one_side_to_both_sides_with_round_then_flat_ends() {
+        let one_side = ShapeModes::default().of(Tool::Offset).unwrap();
+
+        assert_eq!(one_side, ShapeMode::Offset(OffsetMode::OneSide));
+        assert_eq!(one_side.title(), "Offset to one side");
+        assert_eq!(
+            one_side.hint(Some("W")),
+            "Offset to one side   W: to both sides, round ends"
+        );
+        assert_eq!(one_side.next(), ShapeMode::Offset(OffsetMode::BothRound));
+        assert_eq!(OffsetMode::OneSide.caps(), None);
+        assert_eq!(OffsetMode::BothRound.caps(), Some(Caps::Round));
+        assert_eq!(OffsetMode::BothFlat.caps(), Some(Caps::Flat));
+
+        let mut modes = ShapeModes::default();
+        modes.set(one_side.next().next());
+
+        assert_eq!(modes.offset(), OffsetMode::BothFlat);
     }
 }

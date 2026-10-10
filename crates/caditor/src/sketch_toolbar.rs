@@ -739,13 +739,23 @@ impl Bar<'_, '_> {
     fn compact_tool_button(&mut self, ui: &mut Ui, tool: Tool) -> Rect {
         let command = Command::SketchTool(tool);
         let invoked = self.commands.available(command);
+        let active = self.active.tool == tool;
         let button = ToolButton::new(icons::tool(tool), tool.label())
             .compact()
-            .selected(self.active.tool == tool);
-        let help = Ok(self.commands.with_keys(command, tool.description()));
+            .selected(active);
+        let mode = self.modes.of(tool);
+        let description = mode.map_or(tool.description(), ShapeMode::description);
+        let help = Ok(self.commands.with_keys(command, description));
         let response = explained(ui.add(button), tool.label(), &help);
-        if response.clicked() || invoked {
-            self.request.tool = Some(tool);
+        for way in ShapeMode::of_tool(tool) {
+            if self.commands.available(Command::ShapeMode(way)) {
+                self.request.mode = Some(way);
+            }
+        }
+        match mode.filter(|_| invoked && active) {
+            Some(mode) => self.request.mode = Some(mode.next()),
+            None if response.clicked() || invoked => self.request.tool = Some(tool),
+            None => {}
         }
         response.rect
     }
@@ -758,6 +768,7 @@ impl Bar<'_, '_> {
         let response = widgets::compact_corner_menu_button(ui, id, button, partners.name, selected);
         let commands = &*self.commands;
         let active = self.active.tool;
+        let host_mode = self.modes.of(partners.host);
         let shown = Popup::menu(&response).show(|ui| {
             widgets::fitted_menu(ui, |ui| {
                 let mut chosen = None;
@@ -772,14 +783,28 @@ impl Bar<'_, '_> {
                     )
                     .clicked()
                     {
-                        chosen = Some(tool);
+                        chosen = Some(GroupChoice::Tool(tool));
+                    }
+                }
+                if let Some(current) = host_mode {
+                    ui.separator();
+                    for mode in ShapeMode::of_tool(partners.host) {
+                        let keys = commands.keys(Command::ShapeMode(mode));
+                        let glyph = icons::shape_mode(mode);
+                        if widgets::menu_choice(ui, glyph, mode.label(), keys, mode == current)
+                            .clicked()
+                        {
+                            chosen = Some(GroupChoice::Way(mode));
+                        }
                     }
                 }
                 chosen
             })
         });
-        if let Some(tool) = shown.and_then(|shown| shown.inner) {
-            self.request.tool = Some(tool);
+        match shown.and_then(|shown| shown.inner) {
+            Some(GroupChoice::Tool(tool)) => self.request.tool = Some(tool),
+            Some(GroupChoice::Way(mode)) => self.request.mode = Some(mode),
+            None => {}
         }
     }
 

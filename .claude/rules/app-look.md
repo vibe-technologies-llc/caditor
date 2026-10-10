@@ -289,7 +289,8 @@ paths:
   Constrain and Dimension. Finish sketch is a primary button at the right of the first row. Shape
   tools with several ways to draw carry a `corner_menu_button` listing them as `menu_choice`s, and
   the compact Sketch fillet, Offset, Mirror and Project buttons a `compact_corner_menu_button` (a
-  notch in the lower right corner) listing the tools without a button of their own beside them.
+  notch in the lower right corner) listing the tools without a button of their own beside them,
+  then the host's ways when it has some (Offset's).
 - The three arc tools share one Draw button (`sketch_toolbar::ARC_TOOLS`) showing the arc tool last
   used or chosen; each keeps its own key and command, which the button handles whichever is shown.
   Spline, Ellipse, Elliptical arc and Conic share the Curve button (`CURVE_TOOLS`) the same way (a

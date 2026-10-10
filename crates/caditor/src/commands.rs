@@ -209,6 +209,7 @@ pub enum Command {
     ToggleSelectThrough,
     CycleSelectionPriority,
     ToggleTypedDimensions,
+    DrawSymmetrically,
     TypeValue,
     ToggleFirstDimensionScales,
     ToggleGlyphs,
@@ -652,6 +653,7 @@ plain_commands! {
     ToggleSelectThrough,
     CycleSelectionPriority,
     ToggleTypedDimensions,
+    DrawSymmetrically,
     TypeValue,
     ToggleFirstDimensionScales,
     ToggleGlyphs,
@@ -1050,6 +1052,7 @@ impl Command {
             Self::ToggleSelectThrough => "view.toggle_select_through",
             Self::CycleSelectionPriority => "select.priority",
             Self::ToggleTypedDimensions => "sketch.toggle_typed_dimensions",
+            Self::DrawSymmetrically => "sketch.draw_symmetrically",
             Self::TypeValue => "sketch.type_value",
             Self::ToggleFirstDimensionScales => "sketch.toggle_first_dimension_scales",
             Self::ToggleGlyphs => "view.toggle_glyphs",
@@ -1301,6 +1304,7 @@ impl Command {
             Self::ToggleSelectThrough => "Select through to what is hidden",
             Self::CycleSelectionPriority => "Cycle the selection priority: body, face, edge",
             Self::ToggleTypedDimensions => "Keep typed values as dimensions",
+            Self::DrawSymmetrically => "Draw symmetrically about the selected line",
             Self::TypeValue => "Type an exact value",
             Self::ToggleFirstDimensionScales => "Scale the whole sketch on its first dimension",
             Self::ToggleGlyphs => "Show or hide constraint glyphs",
@@ -1427,6 +1431,7 @@ impl Command {
             }
             Self::ToggleSnapping => &["magnet", "snap"],
             Self::ToggleGridSnapping => &["snap to grid"],
+            Self::DrawSymmetrically => &["dynamic mirror", "mirror while drawing", "symmetry"],
             Self::LookAtFace | Self::LookAtSketch => &["normal to", "perpendicular", "face on"],
             Self::Section(SectionCommand::Toggle) => &["cross section", "clipping", "cut away"],
             Self::ExportImage => &["screenshot", "png", "picture"],
@@ -1659,6 +1664,7 @@ impl Command {
             | Self::RotateGeometry
             | Self::ScaleGeometry
             | Self::ToggleTypedDimensions
+            | Self::DrawSymmetrically
             | Self::TypeValue
             | Self::ToggleFirstDimensionScales
             | Self::MoveGeometry
@@ -1698,6 +1704,7 @@ impl Command {
             | Self::RotateGeometry
             | Self::ScaleGeometry
             | Self::ToggleTypedDimensions
+            | Self::DrawSymmetrically
             | Self::TypeValue
             | Self::ToggleFirstDimensionScales
             | Self::MoveGeometry
@@ -1853,6 +1860,7 @@ impl Command {
             | Self::RotateGeometry
             | Self::ScaleGeometry
             | Self::ToggleTypedDimensions
+            | Self::DrawSymmetrically
             | Self::TypeValue
             | Self::ChainArc
             | Self::TakeBackPoint

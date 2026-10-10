@@ -262,7 +262,7 @@ impl Modifying {
             return;
         };
         match &mut self.state {
-            State::Offset(offsetting) => offsetting.sync(sketch, selected),
+            State::Offset(offsetting) => offsetting.sync(sketch, selected, modes.offset()),
             State::Mirror(mirroring) => mirroring.sync(selected),
             State::Pattern(patterning) => patterning.sync(sketch, selected),
             State::Fillet(filleting) => filleting.sync(sketch),

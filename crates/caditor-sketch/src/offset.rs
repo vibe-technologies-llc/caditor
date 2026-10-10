@@ -48,6 +48,11 @@ pub enum OffsetError {
     Apart { first: String, second: String },
     #[error("the offset would cross itself at this distance")]
     CrossesItself,
+    #[error(
+        "the ends of {label}'s offsets cannot be closed: they are splines that do not follow it; \
+         offset it to one side at a time"
+    )]
+    CapsOnSpline { entity: EntityId, label: String },
     #[error(transparent)]
     Edit(SketchError),
 }
@@ -72,6 +77,18 @@ impl Side {
             Self::Right => -1.0,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Caps {
+    Round,
+    Flat,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ChainEnd {
+    Start,
+    End,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -175,6 +192,27 @@ impl Course {
                 center,
                 radius: shrunk(radius, by)?,
             }),
+        }
+    }
+
+    fn reversed(self) -> Self {
+        match self {
+            Self::Line { start, end } => Self::Line {
+                start: end,
+                end: start,
+            },
+            Self::Arc {
+                center,
+                radius,
+                from,
+                sweep,
+            } => Self::Arc {
+                center,
+                radius,
+                from: from + sweep,
+                sweep: -sweep,
+            },
+            Self::Circle { .. } => self,
         }
     }
 
@@ -392,6 +430,7 @@ fn wrapped(angle: f64) -> f64 {
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Element {
     curve: EntityId,
+    start: EntityId,
     end: EntityId,
     center: Option<EntityId>,
     course: Course,
@@ -409,6 +448,7 @@ pub struct Chain {
 enum Made {
     Offset(usize),
     Corner(usize),
+    Cap(ChainEnd),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -686,6 +726,115 @@ impl Chain {
         Ok(outline)
     }
 
+    pub fn both_sides(&self, distance: f64, caps: Caps) -> Result<Vec<Outline>, OffsetError> {
+        let sides = [
+            self.outline(Side::Left, distance)?,
+            self.outline(Side::Right, distance)?,
+        ];
+        if self.closed {
+            return Ok(sides.into());
+        }
+        if let Some(around) = &self.around {
+            return Err(OffsetError::CapsOnSpline {
+                entity: around.curve,
+                label: self.label(0),
+            });
+        }
+        let [left, right] = sides;
+        let capped = self.capped(left, right, distance, caps)?;
+        let tolerance = TOLERANCE * self.scale().max(distance);
+        if capped.crosses_itself(tolerance) {
+            return Err(OffsetError::CrossesItself);
+        }
+        Ok(vec![capped])
+    }
+
+    fn end_point(&self, end: ChainEnd) -> Option<(EntityId, &Element)> {
+        match end {
+            ChainEnd::Start => self
+                .elements
+                .first()
+                .map(|element| (element.start, element)),
+            ChainEnd::End => self.elements.last().map(|element| (element.end, element)),
+        }
+    }
+
+    fn capped(
+        &self,
+        left: Outline,
+        right: Outline,
+        distance: f64,
+        caps: Caps,
+    ) -> Result<Outline, OffsetError> {
+        let (Some(first), Some(last)) = (self.elements.first(), self.elements.last()) else {
+            return Err(OffsetError::NothingSelected);
+        };
+        let (Some(left_first), Some(left_last), Some(right_first), Some(right_last)) = (
+            left.parts.first(),
+            left.parts.last(),
+            right.parts.first(),
+            right.parts.last(),
+        ) else {
+            return Err(OffsetError::NothingSelected);
+        };
+        let cap = |end: ChainEnd, from: Point2, to: Point2, center: Point2| {
+            let (course, joint) = match caps {
+                Caps::Flat => (
+                    Course::Line {
+                        start: from,
+                        end: to,
+                    },
+                    Joint::Sharp,
+                ),
+                Caps::Round => (
+                    Course::Arc {
+                        center,
+                        radius: distance,
+                        from: direction_angle(from - center),
+                        sweep: -PI,
+                    },
+                    Joint::Tangent,
+                ),
+            };
+            (
+                Part {
+                    made: Made::Cap(end),
+                    course,
+                },
+                joint,
+            )
+        };
+        let (end_cap, end_joint) = cap(
+            ChainEnd::End,
+            left_last.course.end(),
+            right_last.course.end(),
+            last.course.end(),
+        );
+        let (start_cap, start_joint) = cap(
+            ChainEnd::Start,
+            right_first.course.start(),
+            left_first.course.start(),
+            first.course.start(),
+        );
+        let mut parts = left.parts.clone();
+        let mut joints = left.joints.clone();
+        parts.push(end_cap);
+        joints.extend([end_joint, end_joint]);
+        parts.extend(right.parts.iter().rev().map(|part| Part {
+            made: part.made,
+            course: part.course.reversed(),
+        }));
+        joints.extend(right.joints.iter().rev().copied());
+        parts.push(start_cap);
+        joints.extend([start_joint, start_joint]);
+        Ok(Outline {
+            parts,
+            joints,
+            closed: true,
+            fitted: None,
+        })
+    }
+
     fn join(
         &self,
         courses: &mut [Course],
@@ -943,6 +1092,34 @@ impl Sketch {
         Ok(added)
     }
 
+    pub fn offset_both_sides(
+        &mut self,
+        curves: &[EntityId],
+        distance: f64,
+        value: Expression,
+        caps: Caps,
+    ) -> Result<Vec<EntityId>, OffsetError> {
+        let chain = self.offset_chain(curves)?;
+        let outlines = chain.both_sides(distance, caps)?;
+        let mut working = self.clone();
+        let mut added = Vec::new();
+        for outline in &outlines {
+            let made = match &outline.fitted {
+                Some(points) => working.add_fitted(&chain, points),
+                None => working.add_offset(&chain, outline, value.clone()),
+            }
+            .map_err(OffsetError::Edit)?;
+            added.extend(made);
+        }
+        for curve in &added {
+            working
+                .set_construction(*curve, false)
+                .map_err(OffsetError::Edit)?;
+        }
+        *self = working;
+        Ok(added)
+    }
+
     fn offset_element(&self, curve: EntityId) -> Result<Element, OffsetError> {
         let label = || self.entity_label(curve);
         let no_length = || OffsetError::NoLength {
@@ -950,13 +1127,14 @@ impl Sketch {
             label: label(),
         };
         let entity = self.entity(curve).ok_or_else(no_length)?;
-        let (end, center, course) = match *entity {
-            Entity::Line { end, .. } => {
+        let (start, end, center, course) = match *entity {
+            Entity::Line { start, end } => {
                 let (start_at, end_at) = self.line_endpoints(curve).ok_or_else(no_length)?;
                 if start_at.distance(end_at) <= TOLERANCE * start_at.abs().max_element().max(1.0) {
                     return Err(no_length());
                 }
                 (
+                    start,
                     end,
                     None,
                     Course::Line {
@@ -965,12 +1143,13 @@ impl Sketch {
                     },
                 )
             }
-            Entity::Arc { center, end, .. } => {
+            Entity::Arc { center, start, end } => {
                 let arc = self.arc(curve).ok_or_else(no_length)?;
                 if arc.radius <= 0.0 {
                     return Err(no_length());
                 }
                 (
+                    start,
                     end,
                     Some(center),
                     Course::Arc {
@@ -983,7 +1162,12 @@ impl Sketch {
             }
             Entity::Circle { center, .. } => {
                 let (at, radius) = self.circle(curve).ok_or_else(no_length)?;
-                (center, Some(center), Course::Circle { center: at, radius })
+                (
+                    center,
+                    center,
+                    Some(center),
+                    Course::Circle { center: at, radius },
+                )
             }
             Entity::Spline { .. } => {
                 return Err(OffsetError::NotOffsettable {
@@ -1001,6 +1185,7 @@ impl Sketch {
         };
         Ok(Element {
             curve,
+            start,
             end,
             center,
             course,
@@ -1042,7 +1227,7 @@ impl Sketch {
             let Some(original) = elements.get(element) else {
                 break;
             };
-            ordered.push(self.oriented(*original, !entered_at_start));
+            ordered.push(Self::oriented(*original, !entered_at_start));
             let exit = 2 * element + usize::from(entered_at_start);
             let Some(next) = links.get(exit).copied().flatten() else {
                 break;
@@ -1054,35 +1239,14 @@ impl Sketch {
         Ok(self.chain_of(ordered, closed))
     }
 
-    fn oriented(&self, element: Element, reversed: bool) -> Element {
+    fn oriented(element: Element, reversed: bool) -> Element {
         if !reversed {
             return element;
         }
-        let start = match self.entity(element.curve) {
-            Some(Entity::Line { start, .. } | Entity::Arc { start, .. }) => *start,
-            _ => element.end,
-        };
-        let course = match element.course {
-            Course::Line { start, end } => Course::Line {
-                start: end,
-                end: start,
-            },
-            Course::Arc {
-                center,
-                radius,
-                from,
-                sweep,
-            } => Course::Arc {
-                center,
-                radius,
-                from: from + sweep,
-                sweep: -sweep,
-            },
-            circle @ Course::Circle { .. } => circle,
-        };
         Element {
-            end: start,
-            course,
+            start: element.end,
+            end: element.start,
+            course: element.course.reversed(),
             ..element
         }
     }
@@ -1114,6 +1278,15 @@ impl Sketch {
                 }
             } else {
                 self.hold_offset(original, piece, value.clone())?;
+            }
+        }
+        for (part, piece) in outline.parts.iter().zip(&made) {
+            if let Made::Cap(end) = part.made
+                && part.course.is_line()
+                && let Some((point, element)) = chain.end_point(end)
+            {
+                self.add_constraint(Constraint::Coincident(point, piece.curve))?;
+                self.add_constraint(Constraint::Perpendicular(piece.curve, element.curve))?;
             }
         }
         let count = made.len();
@@ -1149,6 +1322,13 @@ impl Sketch {
                     .flatten()
                     .all(|element| self.is_construction(element.curve));
                 (element.map(|element| element.end), construction)
+            }
+            Made::Cap(end) => {
+                let point = chain.end_point(end);
+                (
+                    point.map(|(point, _)| point),
+                    point.is_some_and(|(_, element)| self.is_construction(element.curve)),
+                )
             }
         };
         let piece = match part.course {
