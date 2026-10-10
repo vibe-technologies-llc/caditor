@@ -339,7 +339,13 @@ paths:
   an ordinary face; translucent and overlay meshes are only cut, never capped.
 - `Scene::hits_through` skips hits on sectioned geometry beyond a plane (`is_cut_away`), so the
   pick list, paint selection and Measure only reach what is shown (offscreen and `through.rs`
-  tests).
+  tests). It also reproduces the cap: for the opaque, flat and reflective meshes that are closed
+  (and faces with alpha), a back-facing triangle (`ShadedMesh::oriented_triangles`, its flat
+  normal oriented by the vertex normals) beyond the ray's entry into the kept region (the
+  nearest crossing of a plane from the cut side, measured from the eye plane in an orthographic
+  view, `Probe::entry`) is the cap, the nearest one setting `Probe::cap_depth`: no hit is
+  recorded at or behind it, reference fills not at all, and front-layer hits stay, as in the pick
+  pass where the cap writes id 0 (`through.rs` tests); an open mesh keeps its far side.
 - `kept_span` gives the part of a segment the planes keep as a parameter interval, for callers that
   clip curves to what is shown (box selection of sketch curves, `sectioned_screen.rs`).
 

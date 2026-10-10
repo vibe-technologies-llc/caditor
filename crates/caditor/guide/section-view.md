@@ -14,8 +14,9 @@ the model is closed.
   current plane.
 - **Cut faces** are drawn hatched or filled in the body's colour.
 
-Selecting, box selection and [Measure](measure) reach only what the section shows, and an exported
-image keeps the cut.
+Selecting, painting over faces, listing what is under the pointer, box selection and
+[Measure](measure) reach only what the section shows: a cut face selects nothing, and the far wall
+behind it is not reachable through it. An exported image keeps the cut.
 
 ## Slicing while sketching
 

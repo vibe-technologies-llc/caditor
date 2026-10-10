@@ -168,11 +168,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Viewer
 
-- [medium · medium] Painting or listing under the pointer on a section cap takes the hidden far
-  wall: `through.rs` `hits_through` lists every triangle on the kept side of the plane with no
-  back-face or cap test and painting keeps the first, while a click on the same pixel hits the
-  cap's id 0 and selects nothing. For a closed mesh, treat a back-facing hit behind the ray's
-  section entry as the cap and drop it and what lies behind it; open meshes keep their far side.
 - [low · medium · blocked by: wgpu's GL backend] On GL and other devices without texture view
   formats the multisample resolve still averages in gamma space. A resolve of its own (a pass
   reading the samples through a `texture_multisampled_2d` and averaging them in linear light) was

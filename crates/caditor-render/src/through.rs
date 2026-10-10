@@ -12,6 +12,7 @@ use crate::{
 
 const PARALLEL: f64 = 1e-12;
 const NEAR_MARGIN: f64 = 1e-9;
+const CAP_TOLERANCE: f64 = 1e-6;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Found {
@@ -61,6 +62,7 @@ struct Probe<'a> {
     pixels_per_point: f64,
     section: &'a [SectionPlane],
     slack: f64,
+    cap_depth: f64,
     found: AHashMap<PickId, Found>,
 }
 
@@ -81,8 +83,17 @@ impl Scene {
             },
             section: &self.section,
             slack: section_slack(view.viewpoint().distance),
+            cap_depth: f64::INFINITY,
             found: AHashMap::new(),
         };
+        for instance in self
+            .meshes
+            .iter()
+            .chain(&self.flat_meshes)
+            .chain(&self.reflective_meshes)
+        {
+            probe.cap(instance);
+        }
         for instance in self
             .meshes
             .iter()
@@ -118,7 +129,84 @@ impl Scene {
 }
 
 impl Probe<'_> {
+    fn is_capped(&self, found: &Found) -> bool {
+        match found.rank {
+            Rank::Front => false,
+            Rank::BehindEverything => self.cap_depth.is_finite(),
+            Rank::Model => found.depth >= self.cap_depth * (1.0 - CAP_TOLERANCE),
+        }
+    }
+
+    fn entry(&self) -> Option<f64> {
+        let origin = self.eye_plane_origin();
+        let direction = self.ray.direction();
+        let toward = origin + direction;
+        self.section
+            .iter()
+            .filter_map(|section| {
+                let start = section.plane.signed_distance(origin) - self.slack;
+                let approach =
+                    section.plane.signed_distance(toward) - section.plane.signed_distance(origin);
+                (approach < 0.0).then(|| start / -approach)
+            })
+            .filter(|entry| *entry > 0.0)
+            .reduce(f64::max)
+    }
+
+    fn eye_plane_origin(&self) -> Point3 {
+        if self.view.is_orthographic() {
+            self.ray.origin() - self.view.forward() * self.view.near_plane()
+        } else {
+            self.ray.origin()
+        }
+    }
+
+    fn cap(&mut self, instance: &MeshInstance) {
+        if self.section.is_empty() || !instance.mesh.is_closed() {
+            return;
+        }
+        let Some(entry) = self.entry() else {
+            return;
+        };
+        let reach = (self.ray.origin() - self.eye_plane_origin()).length();
+        let opaque = |face: usize| {
+            instance
+                .faces
+                .get(face)
+                .is_none_or(|style| style.color.alpha > 0.0)
+        };
+        for (face, corners, outward) in instance.mesh.oriented_triangles() {
+            if !opaque(face) {
+                continue;
+            }
+            let corners = match instance.placement {
+                Some(placement) => corners.map(|corner| placement.apply_point(corner)),
+                None => corners,
+            };
+            let Some(distance) = ray_meets_triangle(&self.ray, corners) else {
+                continue;
+            };
+            let position = self.ray.at(distance);
+            let Some(depth) = self.in_view(position) else {
+                continue;
+            };
+            let [a, b, c] = corners;
+            let flat = (b - a).cross(c - a) * outward;
+            let back = flat.dot(self.ray.direction()) > 0.0;
+            if back
+                && distance + reach > entry
+                && !self.is_cut_away(position, true)
+                && depth < self.cap_depth
+            {
+                self.cap_depth = depth;
+            }
+        }
+    }
+
     fn record(&mut self, id: PickId, found: Found) {
+        if self.is_capped(&found) {
+            return;
+        }
         self.found
             .entry(id)
             .and_modify(|best| {
@@ -506,5 +594,127 @@ mod tests {
             .collect();
 
         assert_eq!(order, vec![id(1), id(4), id(7)]);
+    }
+
+    fn cube(half: f64, centre: Point3) -> ShadedMesh {
+        let face = |normal: Vector3, across: Vector3, up: Vector3| {
+            let corner = |x: f64, y: f64| MeshPoint {
+                position: centre + (normal + across * x + up * y) * half,
+                normal,
+            };
+            MeshFace {
+                points: vec![
+                    corner(-1.0, -1.0),
+                    corner(1.0, -1.0),
+                    corner(1.0, 1.0),
+                    corner(-1.0, 1.0),
+                ],
+                triangles: vec![[0, 1, 2], [0, 2, 3]],
+            }
+        };
+        ShadedMesh::new([
+            face(Vector3::Z, Vector3::X, Vector3::Y),
+            face(-Vector3::Z, Vector3::Y, Vector3::X),
+            face(Vector3::X, Vector3::Y, Vector3::Z),
+            face(-Vector3::X, Vector3::Z, Vector3::Y),
+            face(Vector3::Y, Vector3::Z, Vector3::X),
+            face(-Vector3::Y, Vector3::X, Vector3::Z),
+        ])
+    }
+
+    fn cube_styles(first: u32) -> Vec<FaceStyle> {
+        (first..first + 6).map(|raw| style(Some(id(raw)))).collect()
+    }
+
+    fn halved_cubes(closed: bool) -> Scene {
+        let near = Arc::new(cube(10.0, Point3::ZERO).with_closed(closed));
+        let far = Arc::new(cube(10.0, Point3::new(0.0, 0.0, -40.0)).with_closed(closed));
+        Scene {
+            meshes: vec![
+                MeshInstance {
+                    mesh: near,
+                    faces: cube_styles(1),
+                    placement: None,
+                },
+                MeshInstance {
+                    mesh: far,
+                    faces: cube_styles(11),
+                    placement: None,
+                },
+            ],
+            section: vec![SectionPlane {
+                plane: Plane::new(Point3::ZERO, Vector3::Z).unwrap(),
+                cut_face: CutFace::Hatched,
+            }],
+            ..Scene::default()
+        }
+    }
+
+    fn ids_at_centre(scene: &Scene) -> Vec<PickId> {
+        scene
+            .hits_through(&view(), DVec2::new(200.0, 150.0), 1.0)
+            .iter()
+            .map(|hit| hit.id)
+            .collect()
+    }
+
+    #[test]
+    fn a_section_cap_hides_the_far_wall_of_a_closed_body_and_what_lies_behind_it() {
+        let scene = halved_cubes(true);
+
+        assert_eq!(ids_at_centre(&scene), Vec::<PickId>::new());
+    }
+
+    #[test]
+    fn a_section_cap_leaves_front_geometry_and_what_is_in_front_of_it() {
+        let mut scene = halved_cubes(true);
+        scene.batches = vec![Arc::new(Batch {
+            lines: Vec::new(),
+            markers: vec![Marker {
+                position: Point3::new(0.0, 0.0, -2.0),
+                color: GREY,
+                diameter: 4.0,
+                layer: Layer::Model,
+                pick: Some(id(30)),
+            }],
+            fills: vec![Fill::convex(
+                &[
+                    Point3::new(-10.0, -10.0, -60.0),
+                    Point3::new(10.0, -10.0, -60.0),
+                    Point3::new(10.0, 10.0, -60.0),
+                    Point3::new(-10.0, 10.0, -60.0),
+                ],
+                GREY,
+                Layer::Reference,
+                Some(id(31)),
+            )],
+        })];
+        Arc::make_mut(&mut scene.batches[0]).markers.push(Marker {
+            position: Point3::new(0.0, 0.0, -50.0),
+            color: GREY,
+            diameter: 4.0,
+            layer: Layer::Front,
+            pick: Some(id(32)),
+        });
+
+        assert_eq!(ids_at_centre(&scene), vec![id(32), id(30)]);
+    }
+
+    #[test]
+    fn the_far_wall_of_an_open_mesh_under_a_section_is_still_listed() {
+        let scene = halved_cubes(false);
+
+        assert_eq!(ids_at_centre(&scene), vec![id(2), id(11), id(12)]);
+    }
+
+    #[test]
+    fn nothing_is_a_cap_while_the_eye_is_on_the_kept_side() {
+        let mut scene = halved_cubes(true);
+        scene.section = vec![SectionPlane {
+            plane: Plane::new(Point3::new(0.0, 0.0, 500.0), Vector3::Z).unwrap(),
+            cut_face: CutFace::Hatched,
+        }];
+
+        assert_eq!(ids_at_centre(&scene), vec![id(1), id(2), id(11), id(12)]);
     }
 }

@@ -272,6 +272,26 @@ impl ShadedMesh {
             })
     }
 
+    pub(crate) fn oriented_triangles(
+        &self,
+    ) -> impl Iterator<Item = (usize, [Point3; 3], f64)> + '_ {
+        self.indices()
+            .as_chunks::<3>()
+            .0
+            .iter()
+            .filter_map(|corners| {
+                let [first, second, third] = corners.map(|index| self.vertex(index));
+                let vertices = [first?, second?, third?];
+                let world = |corner: GpuVertex| self.origin + corner.position.as_dvec3();
+                let [a, b, c] = vertices.map(world);
+                let flat = (b - a).cross(c - a);
+                let normal: glam::DVec3 =
+                    vertices.iter().map(|vertex| vertex.normal.as_dvec3()).sum();
+                let outward = if flat.dot(normal) >= 0.0 { 1.0 } else { -1.0 };
+                Some((vertices[0].face as usize, [a, b, c], outward))
+            })
+    }
+
     pub(crate) fn curved_triangles(
         &self,
         from: usize,
