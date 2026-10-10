@@ -66,7 +66,8 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 ## Interface
 
 - [medium · easy] Frames and scene rebuilds walk linear lists once per item, unmeasured but
-  quadratic on large imports (one feature per body, so a 954-body assembly is about 954 features):
+  quadratic on large imports (one feature per body, so the VZ330 assembly, 3,894 bodies since
+  copies are no longer capped at 1000, is about 3,894 features):
   `Highlight::is_of_chosen_row` scans the tree's chosen rows with `contains` for every face and
   edge of every body on each base-scene rebuild; the Bodies tree lays out every body row each frame
   with no off-screen skip, looking each up with `Document::feature` and building a visibility

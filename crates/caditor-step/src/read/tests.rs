@@ -2,7 +2,7 @@ use std::time::SystemTime;
 
 use crate::{
     fixtures,
-    read::{Held, ReadError, StepSolid, read_step},
+    read::{Held, ReadError, StepSolid, read_step, read_step_copies},
     write::{StepBody, write_step},
 };
 
@@ -216,6 +216,104 @@ fn assembly_parts_are_placed_and_named_after_their_products() {
     };
     assert!(near(bounds(0).min(), [80.0, 0.0, 0.0]) && near(bounds(0).max(), [100.0, 10.0, 5.0]));
     assert!(near(bounds(1).min(), [-2.0, 20.0, -2.0]) && near(bounds(1).max(), [2.0, 50.0, 2.0]));
+}
+
+fn screws_and_a_bed(screws: usize) -> String {
+    let plate = fixtures::plate_with_hole();
+    let body = |name| StepBody {
+        name,
+        solid: &plate,
+        colour: None,
+        opacity: None,
+        layer: None,
+        threads: &[],
+        faces: &[],
+    };
+    let text = write_step(
+        &[body("Screw"), body("Bed")],
+        "Printer",
+        SystemTime::UNIX_EPOCH,
+    )
+    .unwrap();
+    let lines: Vec<&str> = text.lines().collect();
+    let first = lines
+        .iter()
+        .position(|line| line.contains("NEXT_ASSEMBLY_USAGE_OCCURRENCE('1','Screw'"))
+        .unwrap();
+    let placing = &lines[first..first + 5];
+    let own: Vec<&str> = placing
+        .iter()
+        .map(|line| line.split('=').next().unwrap())
+        .collect();
+    let renumbered = |line: &str, copy: usize| {
+        let mut out = String::new();
+        let mut rest = line;
+        while let Some(at) = rest.find('#') {
+            out.push_str(&rest[..at]);
+            let digits = rest[at + 1..]
+                .find(|character: char| !character.is_ascii_digit())
+                .map_or(rest.len(), |end| at + 1 + end);
+            let reference = &rest[at..digits];
+            match own.iter().position(|id| *id == reference) {
+                Some(index) => out.push_str(&format!("#{}", 1_000_000 + copy * 5 + index)),
+                None => out.push_str(reference),
+            }
+            rest = &rest[digits..];
+        }
+        out.push_str(rest);
+        out
+    };
+    let copies: String = (1..screws)
+        .flat_map(|copy| placing.iter().map(move |line| (copy, *line)))
+        .map(|(copy, line)| renumbered(line, copy) + "\n")
+        .collect();
+    text.replacen(
+        "ENDSEC;\nEND-ISO-10303-21;",
+        &format!("{copies}ENDSEC;\nEND-ISO-10303-21;"),
+        1,
+    )
+}
+
+#[test]
+fn a_part_after_more_than_a_thousand_copies_of_another_is_imported_with_them() {
+    let text = screws_and_a_bed(1500);
+
+    let copies = read_step_copies(&text).unwrap();
+    let separate = read_step(&text).unwrap();
+
+    assert_eq!(copies.copies.len(), 1501);
+    assert!(copies.copies.iter().any(|copy| copy.name == "Bed"));
+    assert!(copies.notes.is_empty(), "{:?}", copies.notes);
+    assert_eq!(separate.solids.len(), 1000);
+    assert_eq!(
+        separate.notes,
+        [
+            "The file places parts more than 1000 times in all; only the first 1000 copies were \
+          imported."
+        ]
+    );
+}
+
+#[test]
+fn a_file_placing_parts_more_than_ten_thousand_times_keeps_the_first_and_says_so() {
+    let text = screws_and_a_bed(10_001);
+
+    let copies = read_step_copies(&text).unwrap();
+
+    assert_eq!(copies.copies.len(), 10_000);
+    assert!(
+        copies
+            .copies
+            .iter()
+            .all(|copy| copy.name.starts_with("Screw"))
+    );
+    assert_eq!(
+        copies.notes,
+        [
+            "The file places parts more than 10000 times in all; only the first 10000 copies were \
+          imported."
+        ]
+    );
 }
 
 #[test]

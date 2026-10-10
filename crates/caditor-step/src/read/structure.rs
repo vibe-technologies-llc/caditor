@@ -8,7 +8,7 @@ use crate::read::{
     units::{Units, context_units},
 };
 
-pub(crate) const MAX_INSTANCES: usize = 1000;
+pub(crate) const MAX_INSTANCES: usize = 10_000;
 pub(crate) const MAX_DEPTH: usize = 32;
 const OPERATOR_FIELDS: usize = 8;
 

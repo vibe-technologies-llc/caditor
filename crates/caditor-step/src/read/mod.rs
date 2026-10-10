@@ -34,7 +34,9 @@ use crate::{
         geometry::{Crossings, Geometry, MAX_WORK, Work},
         graph::{Entity, Graph, Problem},
         presentation::{Consulted, Look, Presentation, SolidParts},
-        structure::{MAX_DEPTH, MAX_INSTANCES as MAX_PLACEMENTS, Placements, Structure, Unplaced},
+        structure::{
+            MAX_DEPTH, MAX_INSTANCES as MAX_SHARED_COPIES, Placements, Structure, Unplaced,
+        },
         topology::{Bending, Built, Healing, Lost, SolidShells, Topology, short, unreadable_faces},
         units::Units,
     },
@@ -42,6 +44,7 @@ use crate::{
 
 const SOLID_KINDS: [&str; 3] = ["MANIFOLD_SOLID_BREP", "BREP_WITH_VOIDS", "FACETED_BREP"];
 const UNIT_SLACK: f64 = 1e-9;
+const MAX_SEPARATE_COPIES: usize = 1000;
 const TESSELLATED_KINDS: [&str; 5] = [
     "TESSELLATED_SOLID",
     "TESSELLATED_SHELL",
@@ -235,6 +238,7 @@ fn read_step_checking(text: &str, crossings: Crossings) -> Result<StepModel, Rea
     let reading = Reading {
         report: &|_| {},
         crossings,
+        copies: MAX_SEPARATE_COPIES,
     };
     let read = read_placed(text, &reading, |solid, placement| {
         if placement == Similarity::IDENTITY {
@@ -271,6 +275,7 @@ pub fn read_step_copies_reporting(
     let reading = Reading {
         report,
         crossings: Crossings::Checked,
+        copies: MAX_SHARED_COPIES,
     };
     let read = read_placed(text, &reading, |solid, placement| {
         Some((Arc::clone(solid), placement))
@@ -360,10 +365,14 @@ fn read_placed<T>(
         .collect();
     check_interrupt().map_err(|_| ReadError::Cancelled)?;
     let mut builds = Builds::of(graph, &wanted, reading);
-    let mut budget = MAX_PLACEMENTS;
+    let mut budget = reading.copies;
     let mut unplaced = Vec::new();
     for (index, entity) in solids.iter().enumerate() {
         check_interrupt().map_err(|_| ReadError::Cancelled)?;
+        if budget == 0 {
+            structure.truncated = true;
+            continue;
+        }
         let representation = structure.representation_of(entity.id);
         let units = representation
             .map(|representation| structure.units_of(&graph, representation))
@@ -501,8 +510,9 @@ fn read_placed<T>(
     model.notes.extend(damage_notes(&exchange));
     if structure.truncated {
         model.notes.push(format!(
-            "The file places parts more than {MAX_PLACEMENTS} times in all; only the first \
-             {MAX_PLACEMENTS} copies were imported."
+            "The file places parts more than {} times in all; only the first {} copies were \
+             imported.",
+            reading.copies, reading.copies
         ));
     }
     if skipped > 0 {
@@ -788,6 +798,7 @@ impl Builds {
 struct Reading<'r> {
     report: &'r (dyn Fn(ReadProgress) + Sync),
     crossings: Crossings,
+    copies: usize,
 }
 
 struct Job {
@@ -801,7 +812,9 @@ fn built_together(
     jobs: &[Job],
     reading: &Reading<'_>,
 ) -> Vec<Result<Built, Problem>> {
-    let Reading { report, crossings } = *reading;
+    let Reading {
+        report, crossings, ..
+    } = *reading;
     let work = Work::new(MAX_WORK);
     let finished = AtomicUsize::new(0);
     let total = jobs.len();

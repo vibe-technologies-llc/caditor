@@ -8,7 +8,7 @@ use caditor_document::{
     CancelToken, Document, Edit, EditError, FeatureId, FeatureKind, Prepared, Transaction,
 };
 use caditor_file::{
-    Drawing, ImportError, ImportedBody, MAX_MODEL_RECORDS, MeshFormat, ModelImport,
+    Drawing, ImportError, ImportedBody, MAX_MODEL_RECORDS, MAX_RECORDS, MeshFormat, ModelImport,
     ReadingProgress, STEP_IMPORT_EXTENSIONS, SketchTarget, bodies_transaction, drawing_transaction,
     read_mesh_file, read_step_file_reporting,
 };
@@ -279,6 +279,16 @@ pub fn place_bodies(
         )));
         return None;
     }
+    if outnumbers(model.document(), &transaction, MAX_RECORDS) {
+        model.set_notice(Notice::failure(format!(
+            "“{file}” was not imported: with its {} the model would hold more than the {} \
+             features and parameters caditor opens, so some would be lost when it is opened \
+             again. Import fewer parts at a time, or split the assembly between models.",
+            count(imported.bodies.len(), "body", "bodies"),
+            MAX_RECORDS
+        )));
+        return None;
+    }
     let revision = model.revision();
     model.perform(Action::Apply(transaction));
     if model.revision() == revision {
@@ -410,6 +420,15 @@ fn outgrows(document: &Document, transaction: &Transaction, limit: usize) -> boo
     ) > limit
 }
 
+fn outnumbers(document: &Document, transaction: &Transaction, limit: usize) -> bool {
+    let added = transaction
+        .edits()
+        .iter()
+        .filter(|edit| matches!(edit, Edit::InsertFeature { .. }))
+        .count();
+    document.parameters().len() + document.features().len() + added > limit
+}
+
 fn stored_len<'a>(kinds: impl Iterator<Item = &'a FeatureKind>) -> usize {
     let mut texts = BTreeSet::new();
     kinds
@@ -502,6 +521,24 @@ mod tests {
             &importing(&document, "Big", 1001),
             1000
         ));
+    }
+
+    #[test]
+    fn an_import_that_would_hold_more_features_than_a_model_opens_is_caught_before_it_lands() {
+        let mut document = Document::default();
+        document.apply(importing(&document, "First", 1)).unwrap();
+
+        let mut two = document.transaction("Import");
+        for name in ["Screw", "Screw 2"] {
+            two.add_feature(
+                name,
+                FeatureKind::Import(Import::new("part.step", Solid::default(), "x".to_owned())),
+            );
+        }
+        let two = two.finish();
+
+        assert!(!outnumbers(&document, &two, 3));
+        assert!(outnumbers(&document, &two, 2));
     }
 
     fn document_with_import_from(path: &Path) -> (Document, FeatureId) {

@@ -66,7 +66,13 @@ paths:
   was 92% of reading back a 400-face lead screw (87 s); a model file's import text and every other
   text go through `read_step`.
 - Hostile-input bounds: `MAX_SPLINE_DEGREE`, checked knot arithmetic before expansion, one
-  `MAX_WORK` budget per file for everything built, `MAX_DEPTH` and `MAX_INSTANCES` for assemblies.
+  `MAX_WORK` budget per file for everything built, `MAX_DEPTH` and `MAX_INSTANCES` (the placements
+  walked for one part) for assemblies. Copies are capped per file in solid order:
+  `read_step_copies` places at most `MAX_SHARED_COPIES` (10,000, as many as `MAX_INSTANCES`),
+  since its copies share one solid each, and `read_step` at most `MAX_SEPARATE_COPIES` (1000),
+  since each of its copies is a solid of its own; once the cap is spent no later part is walked,
+  and a note says only the first copies were imported. A printer assembly (the VZ330, 3,894
+  copies, its bed among the last parts) must not lose whole parts to the cap.
   Curves, surfaces, placements and solids are memoised per entity and units.
 
 ## Colours, opacity and layers (`presentation.rs`)

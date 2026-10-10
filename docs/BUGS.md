@@ -170,6 +170,14 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   8.7 s against 7.6 s. Healing still traces an edge only between exactly two distinct faces, so an
   edge used twice by one face (a cylinder seam) with a vertex a few micrometres off is refused
   outright when the file declares no precision.
+- [medium · medium] The VZ330 assembly (an Autodesk export at 0.01 mm, 3,894 copies) leaves 63
+  parts out, 43 of them as "a vertex 0.00001 to 0.0015 mm away from the end of its edge" (the M4
+  T-nuts, "Part 9 (1)" to "Part 14 (1)", "CPAP duct 18mm (1)"), all well within the file's
+  precision; the rest as edges that cannot be followed across a face (8), faces too far apart (6),
+  meshes that fail the validity check (4), overlapping shells (1) and an edge of no length (1).
+  A vertex that far off its edge's end within the declared precision should move onto the edge's
+  end, as vertices off their faces already do (`step-read.md`, "Geometry and healing"). Reproduce
+  with `STEP_CORPUS` on the file (about 70 s in release).
 - [low · hard] A face whose surface cannot be read is left out (`step-read.md`, "Unreadable
   faces"), but from the outer shell that turns the whole body into flat facets, since the kernel
   holds only closed solids, and a lost face with holes is not closed at all; an edge whose curve
