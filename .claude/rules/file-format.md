@@ -116,7 +116,9 @@ paths:
   record.
 - Records carry stable IDs. Expressions are canonical text with parameters as `$<id>`
   (`to_stored_text`, `parse_stored`); region keys and topology names are 32-digit hex; numbers
-  exact f64.
+  exact f64. Stored text keeps its own grammar where typed text changed: a power after a unit
+  raises the measure there, and printing brackets it (`expression.md`), so every shipped file
+  keeps its values without a format change.
 - An import is an `import` record (source name, STEP text, and the absolute `path` it was read
   from when known and valid UTF-8, written only then, so older readers drop it and lose only
   Reload); one that cannot be read loads empty, reported. An import placed anywhere but the origin

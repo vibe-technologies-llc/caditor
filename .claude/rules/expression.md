@@ -21,6 +21,15 @@ paths:
   `Expression::measure`, so an expression reads back from a file or the journal exactly as it was.
 - A unit binds to the primary before it (`Expression::WithUnit`); `mm²` and `mm³` name areas and
   volumes. Names that read as units are refused as parameter names (`check_name`).
+- In typed text a power right after a unit raises the unit, as engineers write it: `10 mm^2` is
+  `10 mm²`, while `(10 mm)^2` raises the measure. Only a length unit takes a power, and only a
+  literal 2 or 3; anything else (`10 deg^2`, `10 mm^4`, `10 mm²^2`) is `UnitPower`, which spells
+  the bracketed form.
+- Stored text (`parse_stored`) keeps the reading every shipped version wrote it with: a power
+  after a unit raises the measure, so an old file's `10 mm^2` is still (10 mm)². Printing brackets
+  a power of a measure (`(10 mm)^2`, `ends_in_unit`), which reads alike in both grammars, so new
+  files read the same in older versions and no format change was needed. Never print a power
+  right after a unit.
 - Typed text accepts SI units only; `in` and `ft` stay readable in stored text (`parse_stored`).
 - `Naming::split` reads `name = expression` typed in a value field: a single `=` (not part of
   `==`, `<=`, `>=` or `!=`) after nothing but a name's characters. Anything else is an ordinary
