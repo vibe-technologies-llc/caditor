@@ -1696,12 +1696,12 @@ impl Document {
 
     pub(crate) fn check_measurements_above(
         &self,
+        measured: &Measured,
         user: &str,
         id: FeatureId,
         used: impl IntoIterator<Item = ParameterId>,
         index: usize,
     ) -> Result<(), EditError> {
-        let measured = Measured::of(self);
         for parameter in used {
             let below = measured
                 .measurements_read(parameter)
@@ -1726,7 +1726,7 @@ impl Document {
         }
         let measured = Measured::of(self);
         let id = feature.id();
-        self.check_measurements_above(&feature.name, id, used, index)?;
+        self.check_measurements_above(&measured, &feature.name, id, used, index)?;
         let Some(parameter) = feature
             .kind
             .measurement()

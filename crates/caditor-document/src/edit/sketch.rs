@@ -8,6 +8,7 @@ use crate::{
     attachment::SketchFeature,
     document::{Document, FeatureId, FeatureKind, list_names},
     edit::{Edit, EditError, Transaction, TransactionBuilder},
+    measurement::Measured,
     projection::ProjectionSource,
 };
 
@@ -735,9 +736,13 @@ impl Document {
         feature: FeatureId,
         used: impl IntoIterator<Item = ParameterId>,
     ) -> Result<(), EditError> {
+        let mut used = used.into_iter().peekable();
+        if used.peek().is_none() {
+            return Ok(());
+        }
         let index = self.feature_position(feature)?;
         let sketch = self.feature(feature).ok_or(EditError::MissingFeature)?;
-        self.check_measurements_above(&sketch.name, feature, used, index)
+        self.check_measurements_above(&Measured::of(self), &sketch.name, feature, used, index)
     }
 
     fn sketch_mut(&mut self, id: FeatureId) -> Result<(String, &mut Sketch), EditError> {
