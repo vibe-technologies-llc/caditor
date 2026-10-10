@@ -3,6 +3,7 @@ use std::{
     fmt::Write,
 };
 
+use caditor_expression::format_decimals;
 use caditor_geometry::Point2;
 
 use super::{
@@ -225,11 +226,6 @@ struct Real(f64);
 
 impl std::fmt::Display for Real {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let fixed = format!("{:.DECIMALS$}", self.0);
-        let trimmed = fixed.trim_end_matches('0').trim_end_matches('.');
-        match trimmed {
-            "-0" | "" => formatter.write_str("0"),
-            trimmed => formatter.write_str(trimmed),
-        }
+        formatter.write_str(&format_decimals(self.0, DECIMALS))
     }
 }

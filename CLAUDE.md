@@ -39,7 +39,7 @@ inside the workspace.
 | `caditor-expression` | `Quantity` (mm and degrees with a `Dimension`) and expressions over parameters. | none |
 | `caditor-sketch` | 2D sketches on a `Plane`: entities, constraints and its own solver; the unit-free dimension layout the canvas and drawing export share. | expression, geometry |
 | `caditor-kernel` | Own B-rep kernel (no truck, no OpenCascade): curves, surfaces, topology, tessellation, naming, profiles, booleans, blends, shells, patterns. | geometry |
-| `caditor-step` | STEP (ISO 10303-21, AP214) writing and reading of kernel solids. | kernel, geometry |
+| `caditor-step` | STEP (ISO 10303-21, AP214) writing and reading of kernel solids. | expression, kernel, geometry |
 | `caditor-zstd` | Safe wrapper over the pure-Rust zstd port; one of the three crates with `unsafe`. | none |
 | `caditor-windows` | Safe wrappers over the Win32 calls nothing else offers safely; a crate with `unsafe`, empty off Windows. | none |
 | `caditor-wayland` | Safe Wayland protocol work on winit's own connection (files dragged onto the window, the window's `xdg-foreign` export for portal dialogs); the third crate with `unsafe`, empty off Unix. | none |

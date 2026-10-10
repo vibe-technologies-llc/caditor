@@ -1,3 +1,7 @@
+use caditor_expression::format_decimals;
+
+const PITCH_DECIMALS: usize = 2;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum MetricSize {
     M1_6,
@@ -443,6 +447,5 @@ fn micrometres(millimetres: f64) -> f64 {
 }
 
 fn trimmed(value: f64) -> String {
-    let text = format!("{value:.2}");
-    text.trim_end_matches('0').trim_end_matches('.').to_owned()
+    format_decimals(value, PITCH_DECIMALS)
 }

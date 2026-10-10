@@ -6,8 +6,8 @@ paths:
 
 # STEP writer
 
-- `caditor-step` speaks STEP (ISO 10303-21, AP214, `SCHEMA`); it depends only on the kernel and
-  geometry crates, and only `caditor-file` uses it.
+- `caditor-step` speaks STEP (ISO 10303-21, AP214, `SCHEMA`); it depends only on the expression,
+  kernel and geometry crates, and only `caditor-file` uses it.
 - `write_step` writes one body as one product named after it, and several as an assembly: a root
   product named after the model whose `SHAPE_REPRESENTATION` holds one identity placement per
   part, and one part product per body (named after it, with its own

@@ -1,6 +1,6 @@
 use std::ops::Deref;
 
-use caditor_expression::{Dimension, Expression, Quantity, Unit, format_number};
+use caditor_expression::{Dimension, Expression, Quantity, Unit, format_number, trim_decimals};
 
 use crate::sketch_tools::{rounded_for_display, rounded_to_decimals};
 
@@ -143,14 +143,7 @@ impl LengthUnit {
 
     fn spoken_number(self, millimetres: f64) -> String {
         let number = self.measured_number(millimetres, 1, MEASURED_LENGTH_DECIMALS);
-        if number.contains('.') {
-            number
-                .trim_end_matches('0')
-                .trim_end_matches('.')
-                .to_owned()
-        } else {
-            number
-        }
+        trim_decimals(&number).to_owned()
     }
 
     pub fn measured_size(self, extents: [f64; 3]) -> String {

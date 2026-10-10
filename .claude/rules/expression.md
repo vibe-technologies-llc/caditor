@@ -48,6 +48,9 @@ paths:
   (only comparison operators speak of comparing); a length field given `1 / 2 mm` is told that a
   unit binds to the number before it and `(1 / 2) mm` gives the quotient its unit.
 - `format_number` output must be readable back by the parser.
+- A number written with a fixed count of decimals (a spoken direction, a drawing coordinate, a
+  pitch) goes through `format_decimals`, which trims trailing zeros and never writes `-0`;
+  `trim_decimals` trims text already formatted. No other crate trims zeros itself.
 - Every intermediate value must be finite; a literal too large for an f64 is refused at parse time.
 
 ## Scaling

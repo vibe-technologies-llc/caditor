@@ -732,6 +732,7 @@ dependencies = [
 name = "caditor-step"
 version = "0.1.0"
 dependencies = [
+ "caditor-expression",
  "caditor-geometry",
  "caditor-kernel",
  "log",

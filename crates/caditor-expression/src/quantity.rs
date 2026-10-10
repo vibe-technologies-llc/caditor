@@ -138,11 +138,14 @@ pub fn format_number(value: f64) -> String {
     if magnitude != 0.0 && (magnitude < SCIENTIFIC_BELOW || magnitude >= SCIENTIFIC_FROM) {
         return format_scientific(value);
     }
-    let rounded = format!("{value:.DISPLAY_DECIMALS$}");
-    let trimmed = trim_decimals(&rounded);
-    match trimmed {
-        "-0" => "0".to_owned(),
-        other => other.to_owned(),
+    format_decimals(value, DISPLAY_DECIMALS)
+}
+
+pub fn format_decimals(value: f64, decimals: usize) -> String {
+    let fixed = format!("{value:.decimals$}");
+    match trim_decimals(&fixed) {
+        "-0" | "" => "0".to_owned(),
+        trimmed => trimmed.to_owned(),
     }
 }
 
@@ -154,7 +157,7 @@ fn format_scientific(value: f64) -> String {
     }
 }
 
-fn trim_decimals(text: &str) -> &str {
+pub fn trim_decimals(text: &str) -> &str {
     if text.contains('.') {
         text.trim_end_matches('0').trim_end_matches('.')
     } else {
@@ -283,6 +286,26 @@ mod tests {
         );
         assert_eq!(Quantity::new(12.5, Dimension::AREA).to_string(), "12.5 mm²");
         assert_eq!(Quantity::plain(3.0).to_string(), "3");
+    }
+
+    #[test]
+    fn fixed_decimals_are_trimmed_and_never_negative_zero() {
+        assert_eq!(format_decimals(-0.0002, 3), "0");
+        assert_eq!(format_decimals(-0.0, 3), "0");
+        assert_eq!(format_decimals(1.5000, 4), "1.5");
+        assert_eq!(format_decimals(2.0, 3), "2");
+        assert_eq!(format_decimals(-1.25, 3), "-1.25");
+        assert_eq!(format_decimals(100.0, 0), "100");
+        assert_eq!(format_decimals(0.0004, 3), "0");
+        assert_eq!(format_decimals(f64::NAN, 3), "NaN");
+    }
+
+    #[test]
+    fn trailing_zeros_are_trimmed_only_after_a_decimal_point() {
+        assert_eq!(trim_decimals("1.500"), "1.5");
+        assert_eq!(trim_decimals("2.000"), "2");
+        assert_eq!(trim_decimals("1200"), "1200");
+        assert_eq!(trim_decimals("0.0"), "0");
     }
 
     #[test]

@@ -4,6 +4,7 @@ use std::{
 };
 
 use caditor_document::{CancelToken, ModelProperties, ModelProperty, ThreadSide};
+use caditor_expression::format_decimals;
 
 use super::{
     APPLICATION, ExportError, ExportThread, Look, MeshBody, exported_properties,
@@ -339,12 +340,7 @@ pub(super) struct Coordinate(pub(super) f64);
 
 impl fmt::Display for Coordinate {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let fixed = format!("{:.COORDINATE_DECIMALS$}", self.0);
-        let trimmed = fixed.trim_end_matches('0').trim_end_matches('.');
-        match trimmed {
-            "-0" | "" => formatter.write_str("0"),
-            trimmed => formatter.write_str(trimmed),
-        }
+        formatter.write_str(&format_decimals(self.0, COORDINATE_DECIMALS))
     }
 }
 

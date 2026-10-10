@@ -131,10 +131,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Application
 
-- [low · easy] The 3D view's description can read "-0": `scene_description.rs` trims
-  `format!("{:.3}")` without the `-0` guard `caditor-expression`'s `format_number` has, so a
-  direction component of -0.0002 is spoken "along -0, 0.707, 0.707". Nine copies of that trimming
-  have drifted (`hole_standard.rs` lacks the guard too); one shared function would end it.
 - [low · easy] A frame that panics mid-drag leaves the drag shown: `after_failed_frame` resets the
   interface but never sends `DragCommand::Cancel` (Escape and `Model::switch_to` do), and
   `Display::evaluated` clears only a released drag, so the sketch stays at its uncommitted

@@ -3,6 +3,7 @@ use std::{
     f64::consts::FRAC_PI_2,
 };
 
+use caditor_expression::format_decimals;
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
 use caditor_kernel::{
     BSpline, BuildError, Circle, CrossingCheck, Curve, EdgeId, FaceId, FaceMesh, FacetedError,
@@ -1427,15 +1428,7 @@ fn describe_build(error: &BuildError, precision: Option<f64>) -> String {
 
 pub(crate) fn short(value: f64) -> String {
     let digits = (1.0 - value.log10().floor()).clamp(0.0, 12.0) as usize;
-    let written = format!("{value:.digits$}");
-    if written.contains('.') {
-        written
-            .trim_end_matches('0')
-            .trim_end_matches('.')
-            .to_owned()
-    } else {
-        written
-    }
+    format_decimals(value, digits)
 }
 
 #[cfg(test)]

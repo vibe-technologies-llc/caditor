@@ -1,5 +1,6 @@
 use std::f64::consts::{PI, TAU};
 
+use caditor_expression::format_decimals;
 use caditor_geometry::{Point2, Vector2};
 
 use crate::{
@@ -32,6 +33,7 @@ const BISECTIONS: usize = 60;
 const LARGEST_FILLET_STEPS: usize = 40;
 const SHIFT_STEP: f64 = 0.01;
 const TOUCHING: f64 = 1e-9;
+const SPOKEN_DECIMALS: usize = 3;
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum GearError {
@@ -112,13 +114,7 @@ fn undercut_words(
 }
 
 fn plain(value: f64) -> String {
-    let text = format!("{value:.3}");
-    let trimmed = text.trim_end_matches('0').trim_end_matches('.');
-    if trimmed == "-0" {
-        "0".to_owned()
-    } else {
-        trimmed.to_owned()
-    }
+    format_decimals(value, SPOKEN_DECIMALS)
 }
 
 fn millimetres(value: f64) -> String {

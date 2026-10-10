@@ -1,5 +1,6 @@
 use std::f64::consts::{FRAC_PI_2, FRAC_PI_4, PI};
 
+use caditor_expression::format_decimals;
 use caditor_geometry::{Aabb2, Point2, Vector2};
 use caditor_sketch::{
     ArcGeometry, Constraint, EntityId, Reference, Sketch,
@@ -80,16 +81,7 @@ fn lane_taking(sketch: &Sketch, constraint: &Constraint) -> Option<Measured> {
 }
 
 pub(super) fn number(value: f64, decimals: usize) -> String {
-    let fixed = format!("{value:.decimals$}");
-    let trimmed = if fixed.contains('.') {
-        fixed.trim_end_matches('0').trim_end_matches('.')
-    } else {
-        fixed.as_str()
-    };
-    match trimmed {
-        "-0" | "" => "0".to_owned(),
-        trimmed => trimmed.to_owned(),
-    }
+    format_decimals(value, decimals)
 }
 
 fn length(value: f64) -> String {

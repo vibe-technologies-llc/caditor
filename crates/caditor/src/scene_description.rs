@@ -1,4 +1,5 @@
 use caditor_document::{DatumResult, FeatureId};
+use caditor_expression::format_decimals;
 use caditor_geometry::{Plane, Vector3};
 use caditor_kernel::FaceId;
 use caditor_sketch::{Entity, EntityId, EntityState, SplineKind};
@@ -14,6 +15,7 @@ use crate::{
 };
 
 const SQUARE: f64 = 1e-9;
+const DIRECTION_DECIMALS: usize = 3;
 
 const NAMED_AT_MOST: usize = 6;
 const ITEMS_AT_MOST: usize = 400;
@@ -226,12 +228,7 @@ fn direction_words(direction: Vector3) -> String {
             return format!("along {name}");
         }
     }
-    let rounded = |value: f64| {
-        format!("{:.3}", value)
-            .trim_end_matches('0')
-            .trim_end_matches('.')
-            .to_owned()
-    };
+    let rounded = |value: f64| format_decimals(value, DIRECTION_DECIMALS);
     format!(
         "along {}, {}, {}",
         rounded(direction.x),
@@ -511,4 +508,23 @@ fn edited_sketch(model: &Model, feature: FeatureId) -> Option<String> {
         count(constraints, "constraint", "constraints"),
         summary.status_text().to_lowercase()
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::f64::consts::FRAC_1_SQRT_2;
+
+    use super::*;
+
+    #[test]
+    fn a_direction_component_that_rounds_to_zero_is_spoken_as_zero() {
+        let direction = Vector3::new(-0.0002, FRAC_1_SQRT_2, FRAC_1_SQRT_2);
+
+        assert_eq!(direction_words(direction), "along 0, 0.707, 0.707");
+    }
+
+    #[test]
+    fn a_direction_along_an_axis_is_named_by_it() {
+        assert_eq!(direction_words(Vector3::new(0.0, -1.0, 0.0)), "along y");
+    }
 }
