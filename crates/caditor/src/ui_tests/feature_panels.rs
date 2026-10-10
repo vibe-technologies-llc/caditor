@@ -6,8 +6,8 @@ use caditor_sketch::Sketch;
 use egui::{Id, Key, Modifiers};
 
 use super::{
-    CAMERA_SETTLE, Harness, datum_of, datum_plane_of, extruded_plate, pattern_of, rectangle,
-    volume_about,
+    CAMERA_SETTLE, Harness, choose, datum_of, datum_plane_of, extruded_plate, pattern_of,
+    rectangle, volume_about,
 };
 use crate::{
     feature_fields::{
@@ -145,9 +145,7 @@ fn every_panel_refuses_a_value_with_the_shared_wording() {
 
     harness.type_into_field(Id::new(("pattern-field", "spacing", pattern)), "0 mm");
     let spacing = harness.shows(ABOVE_ZERO_OR_REVERSE);
-    harness.hold_still();
-    harness.click_lowest("Circular");
-    harness.settle();
+    choose(&mut harness, "Linear", "Circular");
     harness.type_into_field(Id::new(("pattern-field", "angle", pattern)), "400 deg");
     let angle = harness.shows(TURN);
 
