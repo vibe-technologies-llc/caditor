@@ -39,7 +39,8 @@ use crate::{
     shell_panel,
     sketch_placement::{self, PlacementTarget},
     sketch_status::{self, SketchSummary, StatusRequest},
-    sketch_tools, solid_panel, solid_tools, split_panel, split_tools, thread_panel,
+    sketch_tools, solid_panel, solid_tools, split_face_panel, split_face_tools, split_panel,
+    split_tools, thread_panel,
     tree_row::{self, Look},
     units::Units,
     viewport, visibility,
@@ -300,6 +301,7 @@ pub fn kind_words(kind: &FeatureKind) -> &'static [&'static str] {
         },
         FeatureKind::Shell(_) => &["shell", "hollow"],
         FeatureKind::OffsetFace(_) => &["offset", "face", "press", "pull", "move face"],
+        FeatureKind::SplitFace(_) => &["split", "face", "part line", "imprint", "divide"],
         FeatureKind::Primitive(primitive) => match primitive.shape.kind() {
             PrimitiveKind::Box => &["box", "block", "cube", "primitive"],
             PrimitiveKind::Cylinder => &["cylinder", "post", "primitive"],
@@ -1030,6 +1032,21 @@ fn body(
             );
             body_display(ui, model, feature);
         }
+        FeatureKind::SplitFace(split) => {
+            split_face_panel::show(
+                ui,
+                &split_face_panel::FacesRow {
+                    model,
+                    selection: row.selection,
+                    feature,
+                    split,
+                    opened: row.edited,
+                },
+                &mut state.reference_rows,
+                actions,
+            );
+            body_display(ui, model, feature);
+        }
         FeatureKind::Primitive(primitive) => {
             primitive_panel::show(ui, model, row.selection, actions, feature, primitive);
             body_display(ui, model, feature);
@@ -1131,6 +1148,7 @@ fn kind_color(tokens: &appearance::Tokens, row: &Row<'_>) -> Color32 {
         | FeatureKind::Blend(_)
         | FeatureKind::Shell(_)
         | FeatureKind::OffsetFace(_)
+        | FeatureKind::SplitFace(_)
         | FeatureKind::Primitive(_)
         | FeatureKind::Combine(_)
         | FeatureKind::Move(_)
@@ -1252,6 +1270,7 @@ fn edit_command(feature: &Feature, edited: bool) -> Option<EditingCommand> {
             | FeatureKind::Blend(_)
             | FeatureKind::Shell(_)
             | FeatureKind::OffsetFace(_)
+            | FeatureKind::SplitFace(_)
             | FeatureKind::Primitive(_)
             | FeatureKind::Combine(_)
             | FeatureKind::Move(_)
@@ -1271,6 +1290,7 @@ fn edit_command(feature: &Feature, edited: bool) -> Option<EditingCommand> {
             | FeatureKind::Blend(_)
             | FeatureKind::Shell(_)
             | FeatureKind::OffsetFace(_)
+            | FeatureKind::SplitFace(_)
             | FeatureKind::Primitive(_)
             | FeatureKind::Combine(_)
             | FeatureKind::Move(_)
@@ -2149,9 +2169,12 @@ fn split_change(
     selection: &Selection,
     feature: &Feature,
 ) -> Result<Transaction, String> {
-    match feature.kind.split() {
-        Some(split) => split_tools::along_change(model, selection, feature.id(), split),
-        None => Err(format!("{} is not a split", feature.name)),
+    match (&feature.kind, feature.kind.split()) {
+        (_, Some(split)) => split_tools::along_change(model, selection, feature.id(), split),
+        (FeatureKind::SplitFace(split), None) => {
+            split_face_tools::along_change(model, selection, feature.id(), split)
+        }
+        (_, None) => Err(format!("{} is not a split", feature.name)),
     }
 }
 

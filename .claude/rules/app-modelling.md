@@ -8,6 +8,8 @@ paths:
   - "crates/caditor/src/shell_panel.rs"
   - "crates/caditor/src/offset_face_tools.rs"
   - "crates/caditor/src/offset_face_panel.rs"
+  - "crates/caditor/src/split_face_tools.rs"
+  - "crates/caditor/src/split_face_panel.rs"
   - "crates/caditor/src/primitive_tools.rs"
   - "crates/caditor/src/primitive_panel.rs"
   - "crates/caditor/src/combine_tools.rs"
@@ -316,8 +318,8 @@ paths:
   faces, by two distances, by a distance and an angle, Flip the chamfer's faces;
   `blend_tools::form_change`, `flip_change`), refused in words on anything but a chamfer and the
   flip on an equal one.
-- Hovering a row of the edges, opened faces or moved faces listed in an open fillet's, chamfer's,
-  shell's or offset face's panel lights that edge or face (its pieces when split) in the view as
+- Hovering a row of the edges, opened, moved or split faces listed in an open fillet's,
+  chamfer's, shell's, offset face's or split face's panel lights that edge or face (its pieces when split) in the view as
   hovered (`widgets::removable_row_hovered`, `RowCache::preview`, handed to
   `ViewportState::preview_entities` by the app each frame), so a row in words is matched to the
   geometry.
@@ -338,6 +340,22 @@ paths:
   the feature, so the keys of the state before it find them. A failed or pending one shows the
   body before it with every face pickable, so the choice can be mended. Hover texts and the prompt
   say move rather than open.
+
+## Split face
+
+- Split face (Alt+Shift+K, Model menu, palette; not on the ribbon) takes the selected faces of one
+  body (`split_face_tools::source`) and, from the rest of the selection, a principal or datum
+  plane or the curves of one earlier sketch (`split_tools::chosen_along`, faces left aside), else
+  the YZ plane, and creates a `SplitFace` that opens; what it drops is said in a notice.
+- The panel has the faces in words (Leave this face out per row, Choose in the view adding the
+  selected faces of the body), Split along (a combo of the listed planes, the other bodies before
+  it and every earlier sketch, with Use selected and Choose in the view on `Slot::SplitPlane`, as
+  the palette's Split along selected does) and Body.
+- Its pieces carry new names, so the faces of its result are not the keys of the state before it:
+  while open it always shows the body before it (`OpenView::Before`, `FaceChoice::Splitting`) with
+  every face a `Pickable::ShellFace` and the chosen ones in the selected colour, a click splitting a
+  face or leaving it out, and over it the result's edges the body before lacks in the selected
+  colour (`Builder::split_edges`), so the split lines show as a preview.
 
 ## Primitives
 

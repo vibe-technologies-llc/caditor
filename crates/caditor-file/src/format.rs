@@ -15,9 +15,9 @@ use caditor_document::{
     PointsPattern, Primitive, PrimitiveAnchor, PrimitiveShape, PrincipalAxis, PrincipalGeometry,
     PrincipalPlane, ProjectionSource, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent,
     Rgb, RollbackBar, SavedView, SavedViews, Scale, Shell, SketchAttachment, SketchFeature,
-    SolidFeature, SolidStart, Split, SplitAlong, TappedThread, Thread, ThreadFamily, ThreadHand,
-    ThreadLength, ThreadSide, ThreadSize, Transaction, TurnCentre, Wall, group_name, material_name,
-    view_name,
+    SolidFeature, SolidStart, Split, SplitAlong, SplitFace, TappedThread, Thread, ThreadFamily,
+    ThreadHand, ThreadLength, ThreadSide, ThreadSize, Transaction, TurnCentre, Wall, group_name,
+    material_name, view_name,
 };
 use caditor_expression::{BinaryOperator, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Rotation3, Vector2, Vector3};
@@ -247,6 +247,7 @@ pub(crate) enum FeatureKindRecord {
     ExtrudeAlong(Box<ExtrudeAlongRecord>),
     CurvePattern(Box<CurvePatternRecord>),
     PointPattern(Box<PointPatternRecord>),
+    SplitFace(Box<SplitFaceRecord>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -272,6 +273,21 @@ pub(crate) struct PointPatternRecord {
     pub base: Lenient<PointReferenceRecord>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub skipped: Vec<[u32; 2]>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct SplitFaceRecord {
+    pub body: u64,
+    pub faces: Vec<Lenient<FaceRecord>>,
+    pub along: SplitFaceToolRecord,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum SplitFaceToolRecord {
+    Plane(Lenient<PlaneReferenceRecord>),
+    Body(u64),
+    Sketch(u64),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -580,7 +596,7 @@ pub(crate) struct RevolveOneSideRecord {
 
 pub(crate) const FEATURE_FIELDS: [&str; 3] = ["hidden", "appearance", "group"];
 
-pub(crate) const FEATURE_KINDS: [&str; 63] = [
+pub(crate) const FEATURE_KINDS: [&str; 64] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -644,6 +660,7 @@ pub(crate) const FEATURE_KINDS: [&str; 63] = [
     "extrude_along",
     "curve_pattern",
     "point_pattern",
+    "split_face",
 ];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2320,6 +2337,21 @@ fn kind_record(kind: &FeatureKind) -> FeatureKindRecord {
             FeatureKindRecord::Primitive(Box::new(primitive_record(primitive)))
         }
         FeatureKind::Split(split) => split_record(split),
+        FeatureKind::SplitFace(split) => FeatureKindRecord::SplitFace(Box::new(SplitFaceRecord {
+            body: split.body.raw(),
+            faces: split
+                .faces
+                .iter()
+                .map(|face| Lenient::Read(face_record(face)))
+                .collect(),
+            along: match &split.along {
+                SplitAlong::Plane(plane) => {
+                    SplitFaceToolRecord::Plane(Lenient::Read(plane_reference_record(plane)))
+                }
+                SplitAlong::Body(tool) => SplitFaceToolRecord::Body(tool.raw()),
+                SplitAlong::Sketch(sketch) => SplitFaceToolRecord::Sketch(sketch.raw()),
+            },
+        })),
         FeatureKind::Mate(mate) => FeatureKindRecord::Mate(Box::new(mate_record(mate))),
         FeatureKind::Scale(scale) => {
             let record = FeatureKindRecord::Scale(ScaleRecord {
@@ -4850,6 +4882,9 @@ fn restore_kind(
         }
         FeatureKindRecord::Split(record) => FeatureKind::Split(restore_split(record, name, issues)),
         FeatureKindRecord::SplitAlong(record) => FeatureKind::Split(restore_split_along(record)),
+        FeatureKindRecord::SplitFace(record) => {
+            FeatureKind::SplitFace(restore_split_face(record, name, issues))
+        }
         FeatureKindRecord::Mate(record) => FeatureKind::Mate(restore_mate(record, name, issues)),
         FeatureKindRecord::Primitive(record) => {
             FeatureKind::Primitive(restore_primitive(record, name, issues))
@@ -6249,6 +6284,50 @@ fn restore_offset_face(
         faces,
         distance,
         tangent: record.tangent,
+    }
+}
+
+fn restore_split_face(
+    record: &SplitFaceRecord,
+    feature: &str,
+    issues: &mut Vec<String>,
+) -> SplitFace {
+    let faces: Vec<FaceReference> = record
+        .faces
+        .iter()
+        .filter_map(|face| match face {
+            Lenient::Read(face) => {
+                restore_face(&face.face, face.origin, face.copy, &face.neighbours)
+            }
+            Lenient::Unreadable(_) => None,
+        })
+        .collect();
+    if faces.len() < record.faces.len() {
+        issues.push(format!(
+            "Some faces split by “{feature}” could not be read and were left whole."
+        ));
+    }
+    let along = match &record.along {
+        SplitFaceToolRecord::Plane(plane) => {
+            let plane = match plane {
+                Lenient::Read(plane) => restore_plane_reference(plane),
+                Lenient::Unreadable(_) => None,
+            };
+            SplitAlong::Plane(plane.unwrap_or_else(|| {
+                issues.push(format!(
+                    "The plane “{feature}” splits faces along could not be read, so it splits \
+                     them along the YZ plane."
+                ));
+                PlaneReference::Principal(PrincipalPlane::Yz)
+            }))
+        }
+        SplitFaceToolRecord::Body(tool) => SplitAlong::Body(FeatureId::from_raw(*tool)),
+        SplitFaceToolRecord::Sketch(sketch) => SplitAlong::Sketch(FeatureId::from_raw(*sketch)),
+    };
+    SplitFace {
+        body: FeatureId::from_raw(record.body),
+        faces,
+        along,
     }
 }
 

@@ -26,7 +26,10 @@ pub(super) fn split(
 ) -> Result<Vec<SplitFace>, BooleanError> {
     let shared = arrangement.shared_pieces();
     let mut split = Vec::new();
-    for operand in Operand::BOTH {
+    for operand in Operand::BOTH
+        .into_iter()
+        .filter(|operand| input.traces(*operand))
+    {
         let solid = input.solid(operand);
         for (id, face) in solid.faces() {
             interrupt::check()?;

@@ -30,7 +30,7 @@ use crate::{
     model::Waker,
     offset_face_tools,
     selection::Pickable,
-    shell_tools,
+    shell_tools, split_face_tools,
 };
 
 const SHOWN_TOGETHER_FOR: Duration = Duration::from_millis(750);
@@ -488,6 +488,7 @@ fn local_corner(
 pub enum FaceChoice {
     Opening,
     Moving { tangent: bool },
+    Splitting,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -548,6 +549,22 @@ impl OpenChoice {
                     choice: FaceChoice::Moving {
                         tangent: offset.tangent,
                     },
+                },
+            },
+            Some(FeatureKind::SplitFace(split)) => match previous {
+                Some(Self::Faces {
+                    references,
+                    opened,
+                    choice: FaceChoice::Splitting,
+                }) if references == split.faces => Self::Faces {
+                    references,
+                    opened,
+                    choice: FaceChoice::Splitting,
+                },
+                _ => Self::Faces {
+                    references: split.faces.clone(),
+                    opened: split_face_tools::chosen_faces(solid, split),
+                    choice: FaceChoice::Splitting,
                 },
             },
             Some(_) | None => Self::Nothing,

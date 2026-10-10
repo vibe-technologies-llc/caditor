@@ -380,6 +380,9 @@ paths:
 - An `offset_face` feature record holds `body`, `distance` (stored text; unreadable: 1 mm,
   reported), `faces` (face records; an unreadable one is left out, reported as left where it is)
   and `tangent` only when set.
+- A `split_face` feature record holds `body`, `faces` (face records; an unreadable one is left
+  out, reported as left whole) and `along` (`{"plane": plane reference}`, unreadable loading as the
+  YZ plane, reported, `{"body": id}` or `{"sketch": id}`), a kind of its own.
 - A `primitive` feature record holds `shape` (`box` with `length`, `width`, `height`; `cylinder`
   with `diameter`, `height`; `sphere` with `diameter`; `torus` with `diameter`, `tube`; `cone` with
   `bottom`, `top`, `height`; `wedge` with `length`, `width`, `height`, `top`; `prism` with `sides`,

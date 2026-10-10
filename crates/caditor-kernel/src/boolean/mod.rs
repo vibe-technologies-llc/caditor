@@ -9,15 +9,23 @@ mod interference;
 #[cfg(test)]
 mod interference_tests;
 mod select;
+mod split_faces;
+#[cfg(test)]
+mod split_faces_tests;
 #[cfg(test)]
 mod tests;
 mod trace;
 mod untangle;
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use caditor_geometry::{Aabb, Aabb2, Point2, Point3};
 use thiserror::Error;
 
-pub use self::interference::{Interference, interference};
+pub use self::{
+    interference::{Interference, interference},
+    split_faces::{FaceSplitError, split_faces},
+};
 use crate::{
     box_tree::BoxTree,
     build::plan::PlanError,
@@ -25,7 +33,7 @@ use crate::{
     intersect::{IntersectionError, patch_bounds},
     surface::Surface,
     tolerance::{LINEAR_RESOLUTION, PCURVE_TOLERANCE},
-    topology::{BuildError, Face, FaceId, PcurveError, Solid, SolidClassifier},
+    topology::{BuildError, EdgeId, Face, FaceId, PcurveError, Solid, SolidClassifier},
 };
 
 const TOLERANCE: f64 = LINEAR_RESOLUTION;
@@ -207,6 +215,7 @@ struct Input<'a> {
     first: &'a Solid,
     second: &'a Solid,
     carrying: bool,
+    imprinted: Option<BTreeSet<FaceId>>,
     classifiers: [SolidClassifier<'a>; 2],
     faces: [Vec<FaceBounds>; 2],
     trees: [BoxTree; 2],
@@ -324,6 +333,7 @@ impl<'a> Input<'a> {
             first,
             second,
             carrying,
+            imprinted: None,
             classifiers: [first.classifier(), second.classifier()],
             positions: [
                 bounds_positions(&first_faces),
@@ -335,6 +345,38 @@ impl<'a> Input<'a> {
             ],
             faces: [first_faces, second_faces],
         }
+    }
+
+    fn imprinting(first: &'a Solid, second: &'a Solid, faces: BTreeSet<FaceId>) -> Self {
+        Self {
+            imprinted: Some(faces),
+            ..Self::new(first, second)
+        }
+    }
+
+    fn imprints_on(&self, key: FaceKey) -> bool {
+        match (&self.imprinted, key.operand) {
+            (Some(faces), Operand::First) => faces.contains(&key.face),
+            (Some(_), Operand::Second) => false,
+            (None, _) => true,
+        }
+    }
+
+    fn splits_edge(&self, operand: Operand, edge: EdgeId) -> bool {
+        if self.imprinted.is_none() || operand == Operand::Second {
+            return true;
+        }
+        let solid = self.solid(operand);
+        solid
+            .edge(edge)
+            .into_iter()
+            .flat_map(|edge| edge.coedges().iter())
+            .filter_map(|coedge| solid.coedge_face(*coedge))
+            .any(|face| self.imprints_on(FaceKey { operand, face }))
+    }
+
+    fn traces(&self, operand: Operand) -> bool {
+        self.imprinted.is_none() || operand == Operand::First
     }
 
     fn solid(&self, operand: Operand) -> &'a Solid {
@@ -422,5 +464,5 @@ fn run(input: &Input, operation: BooleanOperation) -> Result<Solid, BooleanError
     interrupt::check()?;
     let healed = heal::heal(&mut arrangement, kept)?;
     interrupt::check()?;
-    assemble::assemble(input, &arrangement, healed)
+    assemble::assemble(input, &arrangement, healed, &BTreeMap::new())
 }

@@ -44,6 +44,7 @@ mod selection_sets;
 mod shell;
 mod solid;
 mod split;
+mod split_face;
 mod thread;
 mod thread_standard;
 mod tolerance;
@@ -143,6 +144,7 @@ pub use crate::{
         Wall, body_part, body_parts, displayed_start_offset, profile_curve, sketch_regions,
     },
     split::{HalfSpaceError, Split, SplitAlong, SweptError, is_open_chain},
+    split_face::SplitFace,
     thread::{
         Bore, BoreError, PlacedThread, Thread, ThreadLength, ThreadPlacement, ThreadResult,
         hole_thread, placed_threads,
@@ -232,6 +234,8 @@ mod shell_tests;
 mod sketch_tests;
 #[cfg(test)]
 mod solid_tests;
+#[cfg(test)]
+mod split_face_tests;
 #[cfg(test)]
 mod split_tests;
 #[cfg(test)]

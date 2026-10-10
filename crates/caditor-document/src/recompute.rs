@@ -30,7 +30,7 @@ use crate::{
     presenting::{Glimpse, MESHES_REPORTED_EVERY, Presentation, SettledBody},
     primitive, projection, removal, scaling, shell,
     solid::{self, SketchRegion, SolidFeature, SolidResult, body_part, body_parts},
-    split,
+    split, split_face,
     thread::{self, ThreadResult},
     values::ParameterValues,
 };
@@ -1591,6 +1591,9 @@ impl Evaluator for ModelEvaluator {
                 mirror::evaluate(feature, definition, inputs, cancel)
             }
             FeatureKind::Split(definition) => split::evaluate(feature, definition, inputs, cancel),
+            FeatureKind::SplitFace(definition) => {
+                split_face::evaluate(feature, definition, inputs, cancel)
+            }
             FeatureKind::Scale(definition) => {
                 scaling::evaluate(feature, definition, inputs, cancel)
             }

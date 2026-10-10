@@ -347,22 +347,28 @@ fn edge_hits(
     let classifier = input.classifier(other);
     for (edge_id, edge) in solid.edges() {
         interrupt::check()?;
+        if operand == Operand::First && !input.splits_edge(operand, edge_id) {
+            continue;
+        }
         let curve = edge.curve();
         let bounds = curve.bounding_box(edge.interval());
         for face in input.faces_near(other, &bounds) {
+            let target_key = FaceKey {
+                operand: other,
+                face: face.id,
+            };
+            if other == Operand::First && !input.imprints_on(target_key) {
+                continue;
+            }
             let Some(surface) = target.face(face.id).map(|face| face.surface()) else {
                 continue;
             };
             let located = |error: IntersectionError| {
-                let key = FaceKey {
-                    operand: other,
-                    face: face.id,
-                };
                 BooleanError::from(error)
                     .or_faces(
                         edge_face_keys(solid, operand, edge_id)
                             .into_iter()
-                            .chain([key]),
+                            .chain([target_key]),
                     )
                     .or_point(|| {
                         let nearest =
@@ -403,10 +409,7 @@ fn edge_hits(
                 }
                 overlaps.push(Overlap {
                     edge: (operand, edge_id),
-                    face: FaceKey {
-                        operand: other,
-                        face: face.id,
-                    },
+                    face: target_key,
                     range: overlap.range,
                 });
             }
@@ -456,6 +459,13 @@ fn shared_points(pool: &Pool, faces: [&FaceBounds; 2], surfaces: [&Surface; 2]) 
 fn face_branches(input: &Input, pool: &mut Pool) -> Result<Vec<Branch>, BooleanError> {
     let mut branches = Vec::new();
     for first in input.faces(Operand::First) {
+        let key = FaceKey {
+            operand: Operand::First,
+            face: first.id,
+        };
+        if !input.imprints_on(key) {
+            continue;
+        }
         for second in input.faces_near(Operand::Second, &first.bounds) {
             interrupt::check()?;
             let (Some(first_face), Some(second_face)) =
@@ -464,10 +474,7 @@ fn face_branches(input: &Input, pool: &mut Pool) -> Result<Vec<Branch>, BooleanE
                 continue;
             };
             let faces = [
-                FaceKey {
-                    operand: Operand::First,
-                    face: first.id,
-                },
+                key,
                 FaceKey {
                     operand: Operand::Second,
                     face: second.id,
@@ -565,7 +572,12 @@ fn split_edges(
                 .or_point(|| Some(curve.point(interval.middle()))));
         };
         let mut stops = vec![(interval.start(), start), (interval.end(), end)];
-        for (vertex, point) in pool.near(curve, interval) {
+        let near = if input.splits_edge(operand, edge_id) {
+            pool.near(curve, interval)
+        } else {
+            Vec::new()
+        };
+        for (vertex, point) in near {
             if pool.owned_by(vertex, operand) {
                 continue;
             }

@@ -5,6 +5,7 @@ use crate::{
         BooleanError, FaceKey, Input, imprint::Arrangement, select::KeptFace, trace::Coedge,
     },
     build::plan::{Plan, PlanCoedge, PlanFace},
+    naming::EdgeName,
     topology::Solid,
 };
 
@@ -50,6 +51,7 @@ pub(super) fn assemble(
     input: &Input,
     arrangement: &Arrangement,
     faces: Vec<KeptFace>,
+    renamed: &BTreeMap<usize, EdgeName>,
 ) -> Result<Solid, BooleanError> {
     let mut plan = Plan::default();
     let mut vertices: BTreeMap<usize, usize> = BTreeMap::new();
@@ -68,10 +70,12 @@ pub(super) fn assemble(
                         let (curve, data) = arrangement
                             .curve(piece)
                             .ok_or_else(|| BooleanError::Open(Box::default()))?;
-                        let name = arrangement
-                            .source(data.source)
-                            .map(|source| source.name)
-                            .unwrap_or_default();
+                        let name = renamed.get(&piece).copied().unwrap_or_else(|| {
+                            arrangement
+                                .source(data.source)
+                                .map(|source| source.name)
+                                .unwrap_or_default()
+                        });
                         let mut vertex = |index: usize| -> Result<usize, BooleanError> {
                             if let Some(vertex) = vertices.get(&index) {
                                 return Ok(*vertex);

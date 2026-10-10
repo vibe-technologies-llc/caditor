@@ -9,3 +9,5 @@ The part on one side stays in the body and the rest becomes a new body, so both 
 **Keep the other side** (or {command:model.reverse_direction}) swaps them. The panel's **Split along** list holds the principal planes,
 earlier bodies and sketches of one open curve, and {command:model.split_along_selected} takes the
 selection.
+
+To divide faces without cutting the body, use [Split face](split-face).

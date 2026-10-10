@@ -125,6 +125,7 @@ pub(crate) fn expressions_mut(kind: &mut FeatureKind) -> Vec<&mut Expression> {
         | FeatureKind::Combine(_)
         | FeatureKind::Mirror(_)
         | FeatureKind::Split(_)
+        | FeatureKind::SplitFace(_)
         | FeatureKind::Remove(_) => Vec::new(),
     }
 }

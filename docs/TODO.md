@@ -247,9 +247,11 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   Every copy is the original's tool placed again, never recomputed where it lands (a copy of an
   extrusion up to next stops where the original did, not on the face it meets), and one pattern
   cannot chain a shift, a turn and a mirror.
-- [medium · hard] No split face: dividing a face along a sketch curve, a plane or another body,
-  without cutting the body, so a part line, a stripe of another colour or a face to draft or delete
-  in part can be had. It is a feature of its own, naming the faces it splits.
+- [low · medium] Split face carries a sketch only straight along its normal: a curve cannot be
+  wrapped onto a curved face or projected along another direction, and a sketch mixing an open
+  chain with closed outlines splits along the outlines alone. A face colour given to a face
+  before a split face was inserted above it is lost on the pieces (their names are the split's,
+  and the reference ties between them), where it could carry to every piece.
 - [low · medium] Expressions cannot read a measured value (a distance or angle taken from the
   geometry): parameters evaluate before and apart from recompute, so a measured one would need
   recompute to evaluate parameters in tree order beside the features, the measured reference
@@ -277,9 +279,9 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 - [low · hard · blocked by: sketch text ("Tools missing" under Sketching)] Emboss or deboss sketch
   text, or any sketch profile, onto a face, flat or curved (wrapped around it), raised or
   recessed by a depth.
-- [low · hard · blocked by: split face (above)] No silhouette split: dividing a body along its
-  outline seen from a chosen direction, so the parting line of a moulded or cast part can be a
-  face boundary for a draft to start from.
+- [low · hard] No silhouette split: dividing a body's faces along its outline seen from a chosen
+  direction (a split face whose tool is that outline), so the parting line of a moulded or cast
+  part can be a face boundary for a draft to start from.
 - [low · hard · blocked by: draft angle (above), rib and web (above)] No plastic-part features:
   the screw boss with its ribs, a lip and groove along a seam, snap fits (hook, loop, groove) and a
   rest (a flat seat on a curved face), which moulded parts need.
