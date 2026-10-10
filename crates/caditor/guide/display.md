@@ -39,9 +39,15 @@ reads distances to it.
 
 - The dimensions of every shown sketch, laid out on its plane.
 - For the feature under the pointer, the selected one and the rows chosen in the
-  [feature tree](feature-tree): its own values (an extrusion's distance along its reach, a revolve's
-  angle, a fillet's radius, a shell's thickness, a hole's diameter and depth, a pattern's count and
-  spacing) and the dimensions of the sketch it sweeps, even while that sketch is hidden.
+  [feature tree](feature-tree): its own values and the dimensions of the sketch it sweeps, even
+  while that sketch is hidden. An extrusion's distance runs along its reach, a revolve's angle as
+  an arc about its axis, a hole's diameter across its rim and its depth down its axis, an offset
+  face's distance out from the face, and a fillet's radius, a chamfer's distances or angle and a
+  shell's thickness point at the face they made. A primitive's sizes, a move's offsets, a thread's
+  depth and a pattern's counts and spacings sit beside the feature.
+
+Labels never pile up: where the labels of several sketches and features would cover one another,
+the ones of the feature you point at or choose stay and the others give way until you zoom in.
 
 Double-click a label, or highlight it with {command:view.highlight_next} and press Enter, to
 change it in place. The field takes units, expressions and parameter names as the feature's panel

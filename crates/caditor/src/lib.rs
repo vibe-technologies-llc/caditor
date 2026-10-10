@@ -193,6 +193,7 @@ mod units;
 mod upload_badge;
 mod value_gauges;
 mod value_handles;
+mod value_shapes;
 mod variants;
 mod version_preview;
 mod view_aids;
