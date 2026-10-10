@@ -45,7 +45,7 @@ use crate::{
         diagnosis::{DIAGNOSIS_WORK, diagnose_failure},
         equation::value,
         memo::Recall,
-        numeric::{Analysis, Cancelled, Component, FROZEN, Parts, STIFF, Solver},
+        numeric::{Analysis, Cancelled, Component, Descent, FROZEN, Failure, Parts, STIFF, Solver},
         system::System,
     },
 };
@@ -85,6 +85,32 @@ fn respaced(sketch: &Sketch, system: &System, values: &[f64]) -> Option<Sketch> 
             },
         )
         .then_some(moved)
+}
+
+fn solve_from_drawn(
+    solver: &Solver<'_>,
+    failed: Vec<Failure>,
+    stiff: &BTreeSet<usize>,
+    drawn: &[f64],
+    values: &mut [f64],
+) -> Result<Vec<Failure>, Cancelled> {
+    let mut unsolved = Vec::new();
+    for failure in failed {
+        let variables = &failure.component.variables;
+        if !variables.iter().any(|variable| stiff.contains(variable)) {
+            unsolved.push(failure);
+            continue;
+        }
+        for variable in variables {
+            if let (Some(slot), Some(before)) = (values.get_mut(*variable), drawn.get(*variable)) {
+                *slot = *before;
+            }
+        }
+        if solver.descend(&failure.component, values)? != Descent::Solved {
+            unsolved.push(failure);
+        }
+    }
+    Ok(unsolved)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -312,15 +338,15 @@ impl Sketch {
         let mut round = 0;
         loop {
             let mut system = System::build(&current, &dimensions)?;
+            let drawn = system.values.clone();
             let mut stiff = BTreeSet::new();
             let targets: Vec<(usize, f64)> = drags
                 .iter()
                 .flat_map(|drag| drag.targets(&system))
+                .filter(|(_, target)| target.is_finite())
                 .collect();
-            for (variable, target) in targets {
-                if let Some(slot) = system.values.get_mut(variable)
-                    && target.is_finite()
-                {
+            for &(variable, target) in &targets {
+                if let Some(slot) = system.values.get_mut(variable) {
                     *slot = target;
                     stiff.insert(variable);
                 }
@@ -352,10 +378,14 @@ impl Sketch {
             if !held {
                 values = start;
                 let failed = solver.solve_parts(&parts.at(&system, &values), &mut values)?;
+                let failed = solve_from_drawn(&solver, failed, &stiff, &drawn, &mut values)?;
                 if !failed.is_empty() {
                     for found in diagnose_failure(&current, &solver, &failed, DIAGNOSIS_WORK)? {
                         found.apply(&mut values);
                     }
+                }
+                for component in parts.at(&system, &values).iter() {
+                    solver.reach(component, &targets, &mut values)?;
                 }
             }
             if round < SPACING_ROUNDS

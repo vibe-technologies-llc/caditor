@@ -2019,7 +2019,6 @@ fn closed_chains_report_freedoms_and_redundancies_alike_by_dense_and_sparse_elim
 }
 
 #[test]
-#[ignore = "roadmap: a drag past what the geometry can reach is unsolvable instead of following"]
 fn an_arm_dragged_past_its_reach_straightens_toward_the_pointer() {
     let mut sketch = Sketch::new(Plane::XY);
     let upper = sketch.add_line(Point2::ZERO, Point2::new(9.95, 0.999));
@@ -2050,6 +2049,22 @@ fn an_arm_dragged_past_its_reach_straightens_toward_the_pointer() {
         }],
     );
 
-    assert!(at(&solved, hand).distance(Point2::new(20.0, 0.0)) < 1e-3);
-    assert!(at(&solved, elbow).distance(Point2::new(10.0, 0.0)) < 1e-3);
+    let pointer = Point2::new(30.0, 5.0);
+    let (followed, _) = sketch
+        .solve_geometry_from(
+            &no_parameters,
+            &|| false,
+            &[crate::Drag::Point {
+                point: hand,
+                to: pointer,
+            }],
+            None,
+        )
+        .unwrap();
+    let toward = pointer.normalize();
+
+    assert!(at(&solved, hand).distance(Point2::new(20.0, 0.0)) < 1e-6);
+    assert!(at(&solved, elbow).distance(Point2::new(10.0, 0.0)) < 1e-6);
+    assert!(followed.point(hand).unwrap().distance(toward * 20.0) < 1e-6);
+    assert!(followed.point(elbow).unwrap().distance(toward * 10.0) < 1e-6);
 }

@@ -39,6 +39,19 @@ paths:
   targets and first holds them there (`FROZEN`); when that cannot work they are only `STIFF` times
   as willing to leave their targets as free geometry is to move. Geometry that already satisfies
   its constraints does not move; under-constrained geometry moves as little as possible.
+- A part holding a target that the `STIFF` solve from the targets cannot solve (a pointer past
+  what the geometry reaches, so the solve starts too far from any solution) solves from where it
+  was drawn instead (`solve_from_drawn`, the last frame), and only a part failing from both is
+  diagnosed. Every part with a target that holds then reaches toward it (`numeric/reach.rs`): the
+  closest least-squares pose, the squared distance of the dragged values from their targets
+  minimised over the constraints. A first-order step cannot tell a straightened arm turning
+  toward the pointer from one bending away, so each step is Newton's in the constraints' null
+  space (an SVD of the normalised rows), its curvature the targets' plus the constraints' second
+  derivatives weighted by their multipliers, taken by finite differences of the analytic Jacobian
+  (`PROBE` of the part's scale), negative or flat curvatures replaced by their size or `FLATTEST`.
+  The step is projected back onto the constraints by Gauss-Newton with unit weights and halved
+  until the pose holds and lies closer, so every accepted pose is a solution. Parts above
+  `DENSE_LIMIT` variables keep the `STIFF` solve's pose.
 - The app's `drag_solver.rs` runs it on its own worker thread through `solve_geometry_from`: the
   same solve without the rank and degrees-of-freedom analysis, returning a memo whose parts are
   marked not analysed, so they warm-start a later solve but never stand in for its analysis.
