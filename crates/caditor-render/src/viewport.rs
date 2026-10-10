@@ -1,6 +1,6 @@
 use std::{ops::Range, sync::Arc};
 
-use caditor_geometry::{Plane, Point2, Point3, Vector3};
+use caditor_geometry::{Aabb, Plane, Point2, Point3, Vector3};
 use glam::{DVec2, Vec3};
 
 use crate::{
@@ -60,6 +60,7 @@ const GRID_MIN_SCALE_PER_DISTANCE: f64 = 0.25;
 const WHOLE_VIEW: [f32; 4] = [1.0, 1.0, 0.0, 0.0];
 const MESH_UPLOAD_BYTES_PER_FRAME: u64 = 8 << 20;
 const SECTIONED_LABEL: &str = "sectioned";
+const STROKE_FRINGE_POINTS: f64 = 2.0;
 
 pub struct ViewportFrame<'a> {
     pub rect: ViewportRect,
@@ -497,7 +498,8 @@ struct GpuBatch {
     fills: GrowableBuffer,
     line_count: u32,
     shown_lines: u32,
-    hidden_line_count: u32,
+    hidden_runs: Vec<Range<u32>>,
+    bounds: Option<BatchBounds>,
     marker_count: u32,
     shown_markers: u32,
     fill_vertices: u32,
@@ -516,7 +518,8 @@ impl GpuBatch {
             fills: GrowableBuffer::new(device, "fills", wgpu::BufferUsages::VERTEX),
             line_count: 0,
             shown_lines: 0,
-            hidden_line_count: 0,
+            hidden_runs: Vec::new(),
+            bounds: None,
             marker_count: 0,
             shown_markers: 0,
             fill_vertices: 0,
@@ -548,19 +551,19 @@ impl GpuBatch {
             anchor,
             slot,
         } = uploaded;
-        let ordered = OrderedLines::of(&batch.lines);
-        let uploaded = count(self.lines.upload(
+        let (shown_lines, lines) = shown_first(&batch.lines, |line| line.color);
+        self.line_count = count(self.lines.upload(
             device,
             queue,
             Records {
-                count: ordered.total,
+                count: batch.lines.len() as u64,
                 per_primitive: 1,
-                records: ordered.lines.map(|line| line_record(line, anchor)),
+                records: lines.map(|line| line_record(line, anchor)),
             },
         ));
-        self.line_count = uploaded.min(count(ordered.pickable));
-        self.shown_lines = count(ordered.shown).min(self.line_count);
-        self.hidden_line_count = uploaded.saturating_sub(self.line_count);
+        self.shown_lines = count(shown_lines).min(self.line_count);
+        self.hidden_runs = hidden_runs(&batch.lines, self.shown_lines);
+        self.bounds = BatchBounds::of(batch);
 
         let (shown_markers, markers) = shown_first(&batch.markers, |marker| marker.color);
         self.marker_count = count(self.markers.upload(
@@ -627,13 +630,19 @@ impl GpuBatch {
     }
 
     fn draw_hidden_lines(&self, pass: &mut wgpu::RenderPass<'_>, pipeline: &wgpu::RenderPipeline) {
-        if self.hidden_line_count == 0 {
+        let Some(end) = self.hidden_runs.last().map(|run| run.end) else {
             return;
-        }
-        let end = self.line_count.saturating_add(self.hidden_line_count);
+        };
         pass.set_pipeline(pipeline);
         pass.set_vertex_buffer(0, self.lines.slice(u64::from(end) * LINE_STRIDE));
-        pass.draw_indexed(0..gpu::QUAD_INDEX_COUNT, 0, self.line_count..end);
+        for run in &self.hidden_runs {
+            pass.draw_indexed(0..gpu::QUAD_INDEX_COUNT, 0, run.clone());
+        }
+    }
+
+    fn seen_in(&self, window: &ClipWindow) -> bool {
+        self.bounds
+            .is_some_and(|bounds| window.sees_reaching(&bounds.corners, bounds.reach_points))
     }
 
     fn draw_markers(
@@ -773,42 +782,59 @@ fn grouped_fill_spans(fills: &[Fill], slot: usize) -> (FillGroups, Vec<FillSpan>
     (groups, spans)
 }
 
-struct OrderedLines<'a> {
-    shown: u64,
-    pickable: u64,
-    total: u64,
-    lines: Box<dyn Iterator<Item = &'a Line> + 'a>,
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct BatchBounds {
+    corners: [Point3; 8],
+    reach_points: f64,
 }
 
-impl<'a> OrderedLines<'a> {
-    fn of(lines: &'a [Line]) -> Self {
-        let hidden = |line: &&Line| line.layer == Layer::Hidden;
-        let drawn = |line: &&Line| line.color.alpha > 0.0;
-        let shown = lines
+impl BatchBounds {
+    fn of(batch: &Batch) -> Option<Self> {
+        let points = batch
+            .lines
             .iter()
-            .filter(|line| !hidden(line) && drawn(line))
-            .count() as u64;
-        let pickable = lines.iter().filter(|line| !hidden(line)).count() as u64;
-        let hidden_drawn = lines
-            .iter()
-            .filter(|line| hidden(line) && drawn(line))
-            .count() as u64;
-        let ordered = lines
-            .iter()
-            .filter(move |line| !hidden(line) && drawn(line))
+            .flat_map(|line| [line.start, line.end])
+            .chain(batch.markers.iter().map(|marker| marker.position))
             .chain(
-                lines
+                batch
+                    .fills
                     .iter()
-                    .filter(move |line| !hidden(line) && !drawn(line)),
-            )
-            .chain(lines.iter().filter(move |line| hidden(line) && drawn(line)));
-        Self {
-            shown,
-            pickable,
-            total: pickable + hidden_drawn,
-            lines: Box::new(ordered),
+                    .flat_map(|fill| fill.triangles.iter().flatten().copied()),
+            );
+        let bounds = Aabb::from_points(points)?;
+        let widest_line = batch
+            .lines
+            .iter()
+            .map(|line| line.width)
+            .fold(0.0_f32, f32::max);
+        let widest_marker = batch
+            .markers
+            .iter()
+            .map(|marker| marker.diameter)
+            .fold(0.0_f32, f32::max);
+        Some(Self {
+            corners: bounds.corners(),
+            reach_points: f64::from(widest_line.max(widest_marker)) * 0.5 + STROKE_FRINGE_POINTS,
+        })
+    }
+}
+
+fn hidden_runs(lines: &[Line], shown: u32) -> Vec<Range<u32>> {
+    let mut runs: Vec<Range<u32>> = Vec::new();
+    let flagged = lines
+        .iter()
+        .filter(|line| line.color.alpha > 0.0)
+        .map(|line| line.stroke.dashes_where_hidden());
+    for (index, flagged) in (0..shown).zip(flagged) {
+        if !flagged {
+            continue;
+        }
+        match runs.last_mut() {
+            Some(run) if run.end == index => run.end = index + 1,
+            _ => runs.push(index..index + 1),
         }
     }
+    runs
 }
 
 fn shown_first<T>(
@@ -1119,7 +1145,11 @@ impl ViewportRenderer {
             self.draw_scene(
                 &mut pass,
                 viewport.scene.grid.is_some(),
-                &ClipWindow::new(viewport.view, WHOLE_VIEW),
+                &ClipWindow::new(
+                    viewport.view,
+                    WHOLE_VIEW,
+                    valid_scale(viewport.pixels_per_point),
+                ),
             );
         }
         drop(pass);
@@ -1272,7 +1302,7 @@ impl ViewportRenderer {
         self.draw_scene(
             &mut pass,
             plan.grid,
-            &ClipWindow::new(&plan.view, transform),
+            &ClipWindow::new(&plan.view, transform, plan.pixels_per_point),
         );
         drop(pass);
         plan.targets.attachment().resolve(&mut encoder);
@@ -1321,15 +1351,16 @@ impl ViewportRenderer {
         self.quad_indices.bind(pass);
         self.silhouettes
             .draw(pass, &self.pipelines.silhouettes, window);
-        for batch in &self.batches {
+        let seen = || self.batches.iter().filter(|batch| batch.seen_in(window));
+        for batch in seen() {
             batch.draw_lines(pass, &self.pipelines.lines, batch.shown_lines);
         }
-        for batch in &self.batches {
+        for batch in seen() {
             batch.draw_hidden_lines(pass, &self.pipelines.hidden_lines);
         }
         self.silhouettes
             .draw_hidden(pass, &self.pipelines.hidden_silhouettes, window);
-        for batch in &self.batches {
+        for batch in seen() {
             batch.draw_markers(pass, &self.pipelines.markers, batch.shown_markers);
         }
         if grid {
@@ -1337,14 +1368,18 @@ impl ViewportRenderer {
             pass.set_bind_group(1, &self.grid_uniform.bind_group, &[]);
             pass.draw_indexed(0..gpu::QUAD_INDEX_COUNT, 0, 0..1);
         }
-        self.draw_fills(pass);
+        self.draw_fills(pass, window);
     }
 
-    fn draw_fills(&self, pass: &mut wgpu::RenderPass<'_>) {
+    fn draw_fills(&self, pass: &mut wgpu::RenderPass<'_>, window: &ClipWindow) {
         let mut bound = None;
         let mut behind = None;
         for draw in &self.fill_order.draws {
-            let Some(batch) = self.batches.get(draw.slot) else {
+            let Some(batch) = self
+                .batches
+                .get(draw.slot)
+                .filter(|batch| batch.seen_in(window))
+            else {
                 continue;
             };
             if behind != Some(draw.behind_faces) {
@@ -1367,9 +1402,10 @@ impl ViewportRenderer {
         let (Some(targets), Some(window)) = (self.picking.prepared(), self.pick_window) else {
             return;
         };
+        let seen = || self.batches.iter().filter(|batch| batch.seen_in(&window));
         let mut behind = begin_pick_pass(encoder, targets, "pick reference fills", true);
         behind.set_bind_group(0, &self.pick_view_uniform.bind_group, &[]);
-        for batch in &self.batches {
+        for batch in seen() {
             batch.draw_pick_fills(
                 &mut behind,
                 &self.pipelines.pick.reference_fills,
@@ -1389,7 +1425,7 @@ impl ViewportRenderer {
         self.reflective.draw(&mut pass, meshes, &window);
         self.translucent
             .draw(&mut pass, &self.pipelines.pick.translucent_meshes, &window);
-        for batch in &self.batches {
+        for batch in seen() {
             batch.draw_pick_fills(
                 &mut pass,
                 &self.pipelines.pick.fills,
@@ -1397,10 +1433,10 @@ impl ViewportRenderer {
             );
         }
         self.quad_indices.bind(&mut pass);
-        for batch in &self.batches {
+        for batch in seen() {
             batch.draw_lines(&mut pass, &self.pipelines.pick.lines, batch.line_count);
         }
-        for batch in &self.batches {
+        for batch in seen() {
             batch.draw_markers(&mut pass, &self.pipelines.pick.markers, batch.marker_count);
         }
         drop(pass);
@@ -1475,7 +1511,7 @@ impl ViewportRenderer {
         self.pick_window = None;
         if let Some((cursor, PickPrepared::Ready(window))) = prepared {
             let transform = picking::pick_transform(cursor, view.size(), window);
-            self.pick_window = Some(ClipWindow::new(view, transform));
+            self.pick_window = Some(ClipWindow::new(view, transform, pixels_per_point));
             view_uniform(
                 &mut self.staging,
                 &anchored,
@@ -1963,7 +1999,7 @@ impl Pipelines {
                 true,
             ),
             lines: color("lines", &scene_layout, "vs_line", &lines, "fs_line", true),
-            hidden_lines: hidden("hidden lines", &scene_layout, "vs_line", &lines),
+            hidden_lines: hidden("hidden lines", &scene_layout, "vs_hidden_line", &lines),
             hidden_silhouettes: hidden(
                 "hidden silhouettes",
                 &silhouette_pipeline_layout,
@@ -2114,7 +2150,7 @@ fn line_record(line: &Line, anchor: Point3) -> [u8; LINE_BYTES] {
             .u32(PickId::raw(line.pick))
             .f32(line.layer.depth_bias(Primitive::Line))
             .f32(line.stroke.along())
-            .u32(line.layer.flags());
+            .u32(line.layer.flags() | line.stroke.flags());
     })
 }
 
@@ -2366,7 +2402,7 @@ mod tests {
     use caditor_geometry::Vector3;
 
     use super::*;
-    use crate::camera::Viewpoint;
+    use crate::{camera::Viewpoint, scene::Stroke};
 
     #[test]
     fn relative_to_eye_keeps_micrometres_far_from_the_origin() {
@@ -2377,6 +2413,74 @@ mod tests {
         let separation = relative_to_eye(b, eye) - relative_to_eye(a, eye);
         assert!((separation.x - 1e-3).abs() < 1e-6);
         assert_eq!(a.as_vec3(), b.as_vec3());
+    }
+
+    fn line(x: f64, alpha: u8, stroke: Stroke) -> Line {
+        Line {
+            start: Point3::new(x, 0.0, 0.0),
+            end: Point3::new(x, 1.0, 0.0),
+            color: Color::from_rgba8(200, 10, 10, alpha),
+            width: 2.0,
+            layer: Layer::Model,
+            pick: None,
+            stroke,
+        }
+    }
+
+    #[test]
+    fn hidden_runs_cover_the_shown_lines_dashed_where_hidden_in_their_uploaded_places() {
+        let hidden = Stroke::DashedWhereHidden {
+            along: 0.0,
+            seen_dashed: false,
+        };
+        let lines = [
+            line(0.0, 255, hidden),
+            line(1.0, 0, hidden),
+            line(2.0, 255, hidden),
+            line(3.0, 255, Stroke::Solid),
+            line(4.0, 255, hidden),
+            line(5.0, 255, Stroke::Dashed { along: 0.0 }),
+            line(6.0, 255, hidden),
+        ];
+
+        assert_eq!(hidden_runs(&lines, 6), vec![0..2, 3..4, 5..6]);
+        assert_eq!(hidden_runs(&lines, 4), vec![0..2, 3..4]);
+        assert!(hidden_runs(&lines, 0).is_empty());
+    }
+
+    #[test]
+    fn a_batch_is_culled_only_when_its_bounds_and_their_reach_lie_beyond_a_side() {
+        let viewpoint = Viewpoint::looking_from(Vector3::Z, Point3::ZERO, 100.0).unwrap();
+        let view = View::new(viewpoint, 200.0, 200.0);
+        let window = ClipWindow::new(&view, WHOLE_VIEW, 1.0);
+        let at_pixel = |x: f64| view.unproject(DVec2::new(x, 100.0), 100.0).unwrap();
+        let marked = |x: f64, diameter: f32| Batch {
+            markers: vec![Marker {
+                position: at_pixel(x),
+                color: Color::from_rgb8(1, 2, 3),
+                diameter,
+                layer: Layer::Model,
+                pick: None,
+            }],
+            ..Batch::default()
+        };
+        let seen = |batch: &Batch| {
+            BatchBounds::of(batch)
+                .is_some_and(|bounds| window.sees_reaching(&bounds.corners, bounds.reach_points))
+        };
+
+        assert!(seen(&marked(100.0, 4.0)));
+        assert!(seen(&marked(215.0, 30.0)));
+        assert!(!seen(&marked(215.0, 4.0)));
+        assert!(!seen(&marked(-300.0, 30.0)));
+        assert!(seen(&Batch {
+            lines: vec![
+                line(-1000.0, 255, Stroke::Solid),
+                line(1000.0, 255, Stroke::Solid)
+            ],
+            ..Batch::default()
+        }));
+        assert_eq!(BatchBounds::of(&Batch::default()), None);
     }
 
     #[test]

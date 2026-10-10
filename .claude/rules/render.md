@@ -126,6 +126,12 @@ paths:
 - A mesh whose placed bounds lie wholly beyond one side of the clip volume is not drawn
   (`culling::ClipWindow`, the eight placed corners against the clip planes in f64), tested against
   the window in the main pass, the pick window in the pick pass and each tile in image export.
+  A batch is culled the same way, its lines, hidden lines, markers and fills alike, by the bounds
+  of all its points worked out on upload (`BatchBounds`), but only against the four side planes
+  widened by its reach (half its widest line or marker plus `STROKE_FRINGE_POINTS`, turned into
+  the window's clip units by `ClipWindow::sees_reaching`), since strokes and marks reach that far
+  past their points on screen and front-layer depths are moved; so a mark whose centre lies
+  outside the pick window but whose disc covers the cursor still picks (offscreen test).
 - A `ShadedMesh` either owns its vertices (`ShadedMesh::new` from `MeshFace`s: 28 bytes a vertex
   on the CPU and 12 a triangle) or reads them from a `MeshSource` it shares (`ShadedMesh::shared`): the
   source's triangles are its indices, and each vertex is converted (position relative to the
@@ -206,10 +212,14 @@ paths:
   by a larger slope bias (`BEHIND_FACES_DEPTH_BIAS`) and a factor (`BEHIND_FACES`,
   `GRID_DEPTH_BIAS`), so a face lying on the XY plane never speckles with the grid or a principal
   plane (offscreen tests).
-- `Layer::Hidden` lines draw after the model's lines with a depth test of `Less` and no depth write
-  (`hidden_lines` pipeline), so they show only where a nearer face covers them; they sit after the
-  other lines in the batch's buffer (`OrderedLines`), outside `line_count`, so the pick pass never
-  draws them.
+- A line stroked `Stroke::DashedWhereHidden` (the hidden-edges style, threads) is drawn as usual,
+  solid or dashed by `seen_dashed` (a solid one carries `SOLID_WHERE_SEEN` in its flags, since its
+  record holds the distance along for the hidden dashes), and its own record is drawn again after
+  every batch's lines with a depth test of `Less` and no depth write (`hidden_lines` pipeline,
+  `vs_hidden_line`, always dashed), so the dashes show only where a nearer face covers it. The
+  batch keeps the runs of its shown lines so stroked (`hidden_runs`), one draw each, so the scene
+  holds no second copy of a line, and the pick pass never draws the hidden part (offscreen test,
+  and pixel for pixel the look of the copies it replaced).
 - `Layer::Front` draws over everything whatever its depth, in view and picking alike (the app
   puts the edited sketch there). `layered_depth` halves every depth into the far half of the range
   (an exact scaling) and moves front geometry into the near half, where biases stay wide enough
@@ -229,7 +239,7 @@ paths:
   current view, after every mesh and before the batches' lines, with the line pipeline's depth
   test and `fs_line`. A `Silhouette` names a mesh, a colour, a width, a dash flag, a
   `dashed_where_hidden` flag and a placement, with no faces drawn needed, so wireframe shows it
-  too. One `dashed_where_hidden` is drawn again after the `Layer::Hidden` lines like them
+  too. One `dashed_where_hidden` is drawn again after the hidden lines like them
   (`hidden_silhouettes` pipeline: `vs_hidden_silhouette`, always dashed, depth `Less`, no depth
   write), so its hidden part shows dashed where a nearer face covers it (offscreen test).
 - Silhouettes never draw in the pick pass, visible or hidden: an outline is not topology, has no
@@ -268,7 +278,7 @@ paths:
   plane as its normal and offset relative to the eye (worked out in f64) and each plane's hatch
   direction over its spacing with a phase anchored to the plane, the spacing `HATCH_SPACING_POINTS`
   at the target rounded up to a power of two so the hatch stays put while zooming a little.
-- Every mesh and silhouette, and lines, markers and fills of `Layer::Model` and `Layer::Hidden`
+- Every mesh and silhouette, and lines, markers and fills of `Layer::Model`
   (`Layer::is_sectioned`, a bit in the instance flags beside the front-layer bit), are discarded
   beyond a plane in view and picking alike; reference and front geometry never are, so datums,
   the edited sketch and the front-layer marks stay whole.
@@ -363,8 +373,8 @@ paths:
   per triangle after one against the placed bounds) and pickable fills the ray meets, and
   pickable lines and markers within `PICK_RADIUS_POINTS` of it, each id once with its nearest
   offset. It lists front-layer geometry first, then the rest nearest first, then reference fills,
-  so the order follows what the pick pass would let win; `Layer::Hidden` and overlay meshes are
-  never listed, as they are never picked.
+  so the order follows what the pick pass would let win; overlay meshes are never listed, as they
+  are never picked.
 
 ## Image export (`image.rs`)
 
