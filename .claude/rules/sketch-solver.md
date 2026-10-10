@@ -99,9 +99,12 @@ paths:
   (`Form::SplineOnLine` and `SplineOnCircle` carry a side, taken from the start, and the value;
   a tangency is side 1, value 0), with `SplineAlongLine` or `SplineAcrossRadius` keeping the
   spline square to the gap there.
-- A tangent between two splines sharing no end takes a parameter on each (`closest_pair`: the
-  nearest pair of samples, refined by Newton on the squared distance): `Form::SplinesMeet` along x
-  and y and `Form::SplinesAlong`, their tangents parallel, three equations for two parameters.
+- A tangent between two splines sharing no end takes a parameter on each (`pair::closest_pair`:
+  the nearest pair of samples, refined by Newton on the squared distance): `Form::CurvesMeet`
+  along x and y and `Form::CurvesAlong`, their tangents parallel, three equations for two
+  parameters. The curve forms read a `CurveHandle` (a spline's handle or an ellipse's) evaluated
+  at its parameter (`CurveAt`: point, tangent and second derivative, pushing gradients into
+  whichever handle it is), so the same forms serve ellipses (below).
 - Equal lengths with a spline (`Form::SameLength` of `LengthOf::Line` or `Spline`) differentiate
   the Gauss–Legendre sum of the speed node by node, five nodes in every knot span of the handle
   (`length_nodes`), as `BSpline::length` sums it.
@@ -145,6 +148,25 @@ paths:
   (`EllipseGeometry::closest_parameter`), a circle's at the stationary point of the distance from
   its centre whose gap to the circle is smallest (`touching_parameter`, sign changes of the slope
   over `STATIONARY_SAMPLES`, bisected), so geometry that already holds does not move.
+- Between an ellipse and a spline or another ellipse (`solve/pair.rs`), a tangent or distance
+  takes a parameter on each curve, in the constraint's order (`System::pair_parameter_start`, both
+  started at `closest_pair` over `pair::Course`, the ellipse's samples taken round a full turn and
+  its parameter wrapping, the spline's clamped). A tangent sharing no point is `Form::CurvesMeet`
+  along x and y and `Form::CurvesAlong`; a distance is `Form::CurvesFoot` (the second curve's
+  point square to the first's tangent), `Form::CurvesGap` (along the first's normal at the value,
+  on the side it started) and `Form::CurvesAlong`, so the gap is where they come closest, three
+  equations for two parameters either way. Where they share a point a tangent needs no parameter,
+  since the meeting equations would only repeat the coincidences: two ellipses through one point
+  are `Form::EllipsesTouch` (their normals there parallel, each normal's gradient through
+  `ellipse_touch_along`), and a spline ending on an ellipse is `Form::EllipseTouch` with its first
+  leg (`Joints::pair_joint`). `Sketch::ellipse_gap` and `spline_gap` give the measured points of
+  such a pair from the same `closest_pair` (`curve_pair_gap`), so geometry that already holds
+  does not move.
+- An angle between a line and an elliptical arc sharing an end is `Form::NormalAngle`: the angle
+  from the line to the ellipse's outward normal at the joint (`ellipse_touch_along`'s normal),
+  turned a right angle as an arc's radius is (`Joints::arc_joint` takes elliptical arcs), so the
+  arc's direction is its tangent leaving the joint and a chamfer by a distance and an angle can
+  hold its angle on an elliptical arc.
 - `OnMinorAxis { point, ellipse }` is `Form::OnMinorAxis`: the point's offset from the centre
   along the major axis is zero, so with a `Coincident` on the ellipse it holds the point at a
   minor axis end however the axis is turned.

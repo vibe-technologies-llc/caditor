@@ -9,9 +9,10 @@ use caditor_geometry::{Point2, Vector2};
 use crate::{
     constraint::Constraint,
     curve::{ArcGeometry, Faceting, direction_angle},
-    entity::Entity,
+    entity::{Entity, SplineKind},
     id::EntityId,
     intersect::{self, Carrier, Shape},
+    offset::around::Around,
     sketch::{Sketch, SketchError},
 };
 
@@ -27,8 +28,8 @@ pub enum OffsetError {
     #[error("{label} cannot be offset; only lines, arcs and circles can")]
     NotOffsettable { entity: EntityId, label: String },
     #[error(
-        "{label} cannot be offset: the curve at one distance from an ellipse is no ellipse, so \
-         nothing would keep it there; offset lines, arcs and circles"
+        "{label} can only be offset on its own: its offset is a spline, which does not join a \
+         chain of lines and arcs"
     )]
     EllipseNotOffsettable { entity: EntityId, label: String },
     #[error("{label} has no length to offset")]
@@ -65,7 +66,7 @@ impl Side {
         }
     }
 
-    fn sign(self) -> f64 {
+    pub(crate) fn sign(self) -> f64 {
         match self {
             Self::Left => 1.0,
             Self::Right => -1.0,
@@ -401,6 +402,7 @@ pub struct Chain {
     elements: Vec<Element>,
     labels: Vec<String>,
     closed: bool,
+    around: Option<Around>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -433,10 +435,18 @@ pub struct Outline {
     parts: Vec<Part>,
     joints: Vec<Joint>,
     closed: bool,
+    fitted: Option<Vec<Point2>>,
 }
 
 impl Outline {
     pub fn faceted(&self, faceting: Faceting) -> Vec<Vec<Point2>> {
+        if let Some(points) = &self.fitted {
+            return SplineKind::fit(self.closed)
+                .curve(points)
+                .map(|curve| curve.faceted(faceting))
+                .into_iter()
+                .collect();
+        }
         self.parts
             .iter()
             .map(|part| part.course.faceted(faceting))
@@ -444,12 +454,18 @@ impl Outline {
     }
 
     pub fn curve_count(&self) -> usize {
+        if self.fitted.is_some() {
+            return 1;
+        }
         self.parts.len()
     }
 }
 
 impl Chain {
     pub fn curves(&self) -> Vec<EntityId> {
+        if let Some(around) = &self.around {
+            return vec![around.curve];
+        }
         self.elements.iter().map(|element| element.curve).collect()
     }
 
@@ -457,7 +473,14 @@ impl Chain {
         self.closed
     }
 
+    pub fn follows(&self) -> bool {
+        self.around.is_none()
+    }
+
     pub fn distance_to(&self, point: Point2) -> f64 {
+        if let Some(around) = &self.around {
+            return around.distance_to(point);
+        }
         self.elements
             .iter()
             .map(|element| element.course.closest(point).distance(point))
@@ -476,6 +499,14 @@ impl Chain {
         if self.closed {
             let inside = self.winds_around(point);
             return if inside == (self.signed_area() > 0.0) {
+                Side::Left
+            } else {
+                Side::Right
+            };
+        }
+        if let Some(around) = &self.around {
+            let (on, normal) = around.left_normal_near(point);
+            return if (point - on).dot(normal) >= 0.0 {
                 Side::Left
             } else {
                 Side::Right
@@ -519,6 +550,9 @@ impl Chain {
     }
 
     fn outline_points(&self) -> Vec<Point2> {
+        if let Some(around) = &self.around {
+            return around.shape.polyline(SIDE_SEGMENT_ANGLE);
+        }
         let mut points = Vec::new();
         for element in &self.elements {
             let mut course = element.course.points(SIDE_SEGMENT_ANGLE);
@@ -568,6 +602,15 @@ impl Chain {
     }
 
     pub fn outline(&self, side: Side, distance: f64) -> Result<Outline, OffsetError> {
+        if let Some(around) = &self.around {
+            let points = around.fit_points(&self.label(0), side, distance)?;
+            return Ok(Outline {
+                parts: Vec::new(),
+                joints: Vec::new(),
+                closed: self.closed,
+                fitted: Some(points),
+            });
+        }
         if !(distance.is_finite() && distance > 0.0) {
             return Err(OffsetError::NotPositive);
         }
@@ -635,6 +678,7 @@ impl Chain {
             parts,
             joints,
             closed: self.closed && count > 1,
+            fitted: None,
         };
         if outline.crosses_itself(tolerance) {
             return Err(OffsetError::CrossesItself);
@@ -805,6 +849,16 @@ impl Sketch {
         if picked.is_empty() {
             return Err(OffsetError::NothingSelected);
         }
+        if picked.len() == 1
+            && let Some(around) = picked.first().and_then(|only| self.around(*only))
+        {
+            return Ok(Chain {
+                elements: Vec::new(),
+                labels: vec![self.entity_label(around.curve)],
+                closed: around.closed(),
+                around: Some(around),
+            });
+        }
         let elements: Vec<Element> = picked
             .iter()
             .map(|curve| self.offset_element(*curve))
@@ -829,6 +883,9 @@ impl Sketch {
     }
 
     pub fn offset_chain_through(&self, curve: EntityId) -> Vec<EntityId> {
+        if self.around(curve).is_some() {
+            return vec![curve];
+        }
         let Ok(start) = self.offset_element(curve) else {
             return Vec::new();
         };
@@ -877,9 +934,11 @@ impl Sketch {
         let chain = self.offset_chain(curves)?;
         let outline = chain.outline(side, distance)?;
         let mut working = self.clone();
-        let added = working
-            .add_offset(&chain, &outline, value)
-            .map_err(OffsetError::Edit)?;
+        let added = match &outline.fitted {
+            Some(points) => working.add_fitted(&chain, points),
+            None => working.add_offset(&chain, &outline, value),
+        }
+        .map_err(OffsetError::Edit)?;
         *self = working;
         Ok(added)
     }
@@ -957,6 +1016,7 @@ impl Sketch {
             elements,
             labels,
             closed,
+            around: None,
         }
     }
 
@@ -1308,5 +1368,6 @@ fn components(count: usize, links: &[Option<usize>]) -> usize {
     components
 }
 
+mod around;
 #[cfg(test)]
 mod tests;

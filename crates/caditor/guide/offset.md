@@ -9,3 +9,7 @@ side, so select, choose Offset, type the distance and press Enter without the mo
 
 The copy stays at that distance as the original changes. Smooth joints stay smooth and corners
 between lines stay sharp.
+
+An ellipse or elliptical arc offsets on its own, as a fit-point spline that keeps within a
+hair of the distance. It does not follow the ellipse afterwards, since no constraint can hold a
+spline at a distance from an ellipse along its whole length; the words beside the pointer say so.

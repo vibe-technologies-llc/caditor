@@ -133,25 +133,28 @@ paths:
   solver differentiates), circles and arcs to one radius, and ellipses and elliptical arcs to both
   radii (only the minor one when they share their centre and axis point, whose major radius is
   then one already).
-- `Angle` also takes a line and an arc sharing an end (joined directly, by `Coincident`, or the
-  arc's end lying on the line; refused otherwise as `NotJoined`). The arc's direction there is its
-  tangent leaving the joint along the arc (`Sketch::angle_direction`, `angle_vertex`), so trim,
-  extend, fillet and split drop such an angle on an arc they reshape (`keeps_sweep`).
+- `Angle` also takes a line and an arc or elliptical arc sharing an end (joined directly, by
+  `Coincident`, or the arc's end lying on the line; refused otherwise as `NotJoined`). The arc's
+  direction there is its tangent leaving the joint along the arc (`Sketch::angle_direction`,
+  `angle_vertex`), so trim, extend, fillet and split drop such an angle on an arc they reshape
+  (`keeps_sweep`).
 - Ellipses take `Coincident` with a point (on the whole ellipse, never one of its own points),
   `Concentric` with circles, arcs, ellipses and points, `Horizontal`/`Vertical` (its major axis,
   the same as `HorizontalPoints` on the centre and axis point, so `restating` finds either),
-  `Tangent` with a line, circle or arc (touching at a shared point when they have one, anywhere
-  along the ellipse otherwise, `sketch-solver.md`), `Equal` with another ellipse, `Midpoint` (an
+  `Tangent` with a line, circle, arc, spline or another ellipse (touching at a shared point when
+  they have one, a spline at one of its ends, anywhere along both otherwise, `sketch-solver.md`),
+  `Equal` with another ellipse, `Angle` with a line (an elliptical arc sharing an end with it),
+  `Midpoint` (an
   elliptical arc only), `OnMinorAxis` with a point (the point on the line through the centre
   square to the major axis; never one of its own points), `Distance` from a point (measured
   square to the ellipse from its closest point, `Sketch::closest_on_ellipse`), a line (the gap
   where the ellipse reaches toward it, on the side its centre lies; zero when they cross) or a
   circle or arc (the gap at the stationary point of the distance from the circle's centre whose
-  gap is smallest, so apart or one inside the other as drawn; `Sketch::ellipse_gap` gives the two
-  points of each, on the whole ellipse) and `MajorRadius`/`MinorRadius` (a dimension above zero;
-  the major one restates a `Distance` between the centre and the axis point). Every other
-  constraint, `Radius`, a `Tangent` or `Distance` with a spline or another ellipse included,
-  refuses them.
+  gap is smallest, so apart or one inside the other as drawn), a spline or another ellipse (the
+  gap where the two come closest, zero when they cross; `Sketch::ellipse_gap` gives the two points
+  of each, on the whole ellipse) and `MajorRadius`/`MinorRadius` (a dimension above zero; the
+  major one restates a `Distance` between the centre and the axis point). Every other constraint,
+  `Radius` included, refuses them.
 - `Rho { conic, value }` is a dimension of a conic's rho (`Dimension::NONE`, a plain number within
   `MIN_RHO..=MAX_RHO`, `DimensionError::RhoOutOfRange`): it adds no equation and takes no degree
   of freedom, since rho is not solved for; the solver shapes the conic with the evaluated value
@@ -195,7 +198,7 @@ every constraint still true of it. Joints are judged by a `TOLERANCE` relative t
   - `extend` moves an end to the nearest crossing beyond it and joins it the same way; an end
     shared with another curve, coincident with another point or fixed is refused.
 - Offset (`offset.rs`): `offset_chain` orders the chosen lines and arcs into one open or closed
-  chain (splines, branches and separate chains refused), walked from a free end so `Side` means the
+  chain (splines, branches and separate chains refused; a lone ellipse is below), walked from a free end so `Side` means the
   same thing on the working copy. `Chain::outline` joins offset curves: smooth joints meet, line
   corners meet sharp, a convex corner with an arc gets a round arc about the original corner, a
   concave one is trimmed where the carriers cross.
@@ -256,9 +259,17 @@ every constraint still true of it. Joints are judged by a `TOLERANCE` relative t
   minor radius for both, except where it lies on the major axis (`lies_on_major_axis`), where an
   `Equal` holds them. Extend carries an elliptical arc's end round its ellipse to the nearest
   crossing beyond it (`reach_around_ellipse`, `Reach::AroundEllipse`), as an arc's goes round its
-  circle; a whole ellipse is `Closed`. Ellipses are never offset (`EllipseNotOffsettable`, saying
-  the curve at a distance from an ellipse is no ellipse, so no constraint would keep an offset
-  there); a whole ellipse cannot be split or broken, having no ends. `Sketch::curve_crossings`
+  circle; a whole ellipse is `Closed`. A whole ellipse cannot be split or broken, having no ends.
+- An ellipse or elliptical arc selected alone offsets as a fit-point spline (`offset/around.rs`;
+  `Chain::follows` is false): the curve at a distance from an ellipse is no ellipse, so its fit
+  points are the exact offset at even steps of the ellipse's parameter, doubled from
+  `FIRST_FIT_POINTS` (a share of it for an arc) until the centripetal spline through them strays
+  from the offset by at most `FIT_TOLERANCE` of the ellipse's reach (at most `MAX_FIT_POINTS`),
+  closed for a whole ellipse, open from end to end for an arc. Inward past the tightest bend of
+  the curve (its smallest radius of curvature) is `Collapses`. The spline is free geometry with no
+  constraint to the ellipse, which no constraint could hold along its length, and the app says it
+  will not follow; an ellipse chosen with other curves is `EllipseNotOffsettable`, since its offset
+  joins no chain. `Sketch::curve_crossings`
   gives where a spline or an ellipse crosses another curve.
 - Fillet (`fillet.rs`): a `Corner` is where exactly two lines, arcs or elliptical arcs end, kept
   by one of its points. `rounding` refuses a radius whose touching point would not lie on a curve
@@ -284,8 +295,8 @@ every constraint still true of it. Joints are judged by a `TOLERANCE` relative t
   side, so either side can be changed alone afterwards; with an angle, the first end's `Distance`
   and an `Angle` between the cut and the first curve measured inside the cut-off triangle (the
   `from`, `to` and `reversed` that make the drawn value positive are found by measuring,
-  `AngleNotHeld` if none does, as for a first curve that is an elliptical arc, which takes no
-  `Angle`), so the angle is a dimension like the distance.
+  `AngleNotHeld` if none does), so the angle is a dimension like the distance, an elliptical arc's
+  measured from its tangent at the new end as an arc's is.
 - Split (`split.rs`): `split_at` cuts a line or arc at an existing point lying on it between its
   ends (`check_split`), which becomes the end both pieces share, its `Coincident` on the curve
   dropped. A line's pieces are `Collinear`, or each keeps its horizontal or vertical; a point that

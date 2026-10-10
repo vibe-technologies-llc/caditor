@@ -262,3 +262,82 @@ fn a_corner_of_a_line_and_an_elliptical_arc_is_rounded_by_a_sketch_fillet() {
     assert_eq!(constraints_of_kind(sketch, "Tangent").len(), 2);
     assert_eq!(harness.model.undo_label(), Some(filleting::TRANSACTION));
 }
+
+#[test]
+fn two_ellipses_are_made_tangent_and_a_spline_dimensioned_from_one() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let lower = sketch.add_ellipse(Point2::new(10.0, 10.0), Point2::new(25.0, 10.0), 5.0);
+    let upper = sketch.add_ellipse(Point2::new(10.0, 22.0), Point2::new(18.0, 22.0), 4.0);
+    let spline = sketch.add_spline(&[
+        Point2::new(-10.0, 0.0),
+        Point2::new(-6.0, 6.0),
+        Point2::new(-8.0, 14.0),
+    ]);
+    let feature = edit_free_sketch(&mut harness, sketch);
+
+    harness.select(entity_pickables(feature, &[lower, upper]));
+    harness.click_button("Tangent");
+    harness.settle();
+
+    assert_eq!(
+        constraints_of_kind(harness.sketch(feature), "Tangent").len(),
+        1
+    );
+    let shown = harness.shown(feature);
+    let (on_lower, on_upper) = shown.ellipse_gap(lower, upper).unwrap();
+    assert!(on_lower.distance(on_upper) < DRAWN);
+
+    harness.select(entity_pickables(feature, &[spline, lower]));
+    harness.click_button("Distance");
+    harness.settle();
+
+    let sketch = harness.sketch(feature);
+    let [distance] = &constraints_of_kind(sketch, "Distance")[..] else {
+        panic!("expected one distance");
+    };
+    let (on_spline, on_ellipse) = harness.shown(feature).spline_gap(spline, lower).unwrap();
+    let measured = sketch.measured(distance).unwrap();
+    assert!(
+        (measured - on_spline.distance(on_ellipse)).abs() < DRAWN,
+        "{measured}"
+    );
+    assert!(measured > 1.0, "{measured}");
+}
+
+#[test]
+fn an_ellipse_is_offset_as_a_spline_that_says_it_will_not_follow() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let ellipse = sketch.add_ellipse(Point2::new(10.0, 10.0), Point2::new(25.0, 10.0), 5.0);
+    let feature = edit_free_sketch(&mut harness, sketch);
+
+    harness.use_tool(Key::W);
+    assert_eq!(harness.tool(), Some(Tool::Offset));
+    harness.click_at(Point2::new(10.0, 15.0));
+    harness.point_at(Point2::new(10.0, 17.0));
+    assert!(harness.shows(&format!(
+        "Offset Ellipse {} by 2 mm {}",
+        ellipse.raw(),
+        crate::offsetting::FREE_SPLINE
+    )));
+    type_point(&mut harness, "2");
+
+    let sketch = harness.sketch(feature);
+    let [spline] = &entities_of_kind(sketch, "Closed fit-point spline")[..] else {
+        panic!("expected one spline");
+    };
+    let curve = sketch.spline(*spline).unwrap();
+    for index in 0..=40 {
+        let point = curve.point_at(f64::from(index) / 40.0);
+        let gap = sketch
+            .closest_on_ellipse(ellipse, point)
+            .unwrap()
+            .distance(point);
+        assert!((gap - 2.0).abs() < DRAWN, "{gap}");
+    }
+    assert_eq!(
+        harness.model.undo_label(),
+        Some(crate::offsetting::TRANSACTION)
+    );
+}

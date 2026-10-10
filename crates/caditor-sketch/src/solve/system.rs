@@ -161,27 +161,26 @@ impl System {
         }
         let joints = OnceCell::new();
         for (id, constraint) in sketch.active_constraints() {
-            if let Some((_, start)) = system.ellipse_parameter_start(sketch, &joints, constraint)? {
-                let index = system.values.len();
-                system.values.push(start);
-                system.parameter_variables.insert(index);
-                system.wrapping_parameters.insert(index);
-                system.parameters.insert(id, vec![index]);
-                continue;
+            let mut starts = system.pair_parameter_start(sketch, &joints, constraint)?;
+            if starts.is_empty() {
+                starts.extend(system.ellipse_parameter_start(sketch, &joints, constraint)?);
             }
-            let starts = system.parameter_start(sketch, &joints, constraint)?;
+            if starts.is_empty() {
+                starts = system.parameter_start(sketch, &joints, constraint)?;
+            }
             if !starts.is_empty() {
                 let indices = starts
                     .into_iter()
-                    .map(|(spline, start)| {
+                    .map(|(curve, start)| {
                         let index = system.values.len();
                         system.values.push(start);
                         system.parameter_variables.insert(index);
-                        if system
-                            .splines
-                            .get(&spline)
-                            .is_some_and(|handle| handle.periodic)
-                        {
+                        let wraps = sketch.role(curve) == Some(Role::Elliptic)
+                            || system
+                                .splines
+                                .get(&curve)
+                                .is_some_and(|handle| handle.periodic);
+                        if wraps {
                             system.wrapping_parameters.insert(index);
                         }
                         index
@@ -667,6 +666,11 @@ impl System {
                     let joints = joints.get_or_init(|| Joints::of(sketch));
                     self.spline_pair_tangent(sketch, joints, id, (a, b))?
                 }
+                (Role::Elliptic, Role::Elliptic | Role::Spline)
+                | (Role::Spline, Role::Elliptic) => {
+                    let joints = joints.get_or_init(|| Joints::of(sketch));
+                    self.curve_pair_tangent(sketch, joints, id, (a, b))?
+                }
                 (Role::Line, Role::Elliptic) => {
                     let joints = joints.get_or_init(|| Joints::of(sketch));
                     vec![self.ellipse_tangent(sketch, joints, a, b)?]
@@ -766,6 +770,10 @@ impl System {
                     (Role::Line, Role::Elliptic) => {
                         vec![self.ellipse_line_gap(sketch, (to, from), value)?]
                     }
+                    (Role::Elliptic, Role::Elliptic | Role::Spline)
+                    | (Role::Spline, Role::Elliptic) => {
+                        self.curves_gap(sketch, (from, to), self.parameter_pair(id)?, value)?
+                    }
                     (Role::Elliptic, Role::Line) => {
                         vec![self.ellipse_line_gap(sketch, (from, to), value)?]
                     }
@@ -810,12 +818,30 @@ impl System {
                 let (first, first_turn) = self.angle_ray(sketch, joints, constraint, (from, to))?;
                 let (second, second_turn) =
                     self.angle_ray(sketch, joints, constraint, (to, from))?;
-                vec![Form::Angle {
-                    from: first,
-                    to: second,
-                    reversed,
-                    radians: dimension()?.to_radians() - second_turn + first_turn,
-                }]
+                let radians = dimension()?.to_radians() - second_turn + first_turn;
+                match (first, second) {
+                    (AngleRay::Line(from), AngleRay::Line(to)) => vec![Form::Angle {
+                        from,
+                        to,
+                        reversed,
+                        radians,
+                    }],
+                    (AngleRay::Normal(point, ellipse, fallback), AngleRay::Line(line))
+                    | (AngleRay::Line(line), AngleRay::Normal(point, ellipse, fallback)) => {
+                        vec![Form::NormalAngle {
+                            line,
+                            point,
+                            ellipse,
+                            fallback,
+                            ellipse_first: sketch.is_elliptic(from),
+                            reversed,
+                            radians,
+                        }]
+                    }
+                    (AngleRay::Normal(..), AngleRay::Normal(..)) => {
+                        return Err(not_applicable(from, to));
+                    }
+                }
             }
             Constraint::Radius { entity, .. } => vec![Form::Radius {
                 circle: self.circle(sketch, entity)?,
@@ -1050,9 +1076,21 @@ impl System {
         joints: &Joints,
         constraint: &Constraint,
         (entity, other): (EntityId, EntityId),
-    ) -> Result<(LineHandle, f64), SketchError> {
-        let Some(&Entity::Arc { center, .. }) = sketch.entity(entity) else {
-            return Ok((self.line(sketch, entity)?, 0.0));
+    ) -> Result<(AngleRay, f64), SketchError> {
+        let center = match sketch.entity(entity) {
+            Some(&Entity::Arc { center, .. }) => center,
+            Some(Entity::EllipticalArc { .. }) => {
+                let joint = joints
+                    .arc_joint(sketch, entity, other)
+                    .ok_or_else(|| not_joined(sketch, constraint, entity, other))?;
+                let point = self.point(joint.end)?;
+                let shape = self.ellipse_shape(sketch, entity)?;
+                let at = shape.parameter_of(point.at(&self.values));
+                let fallback = fallback_direction(shape.tangent_at(at).perp());
+                let ray = AngleRay::Normal(point, self.ellipse(sketch, entity)?, fallback);
+                return Ok((ray, joint.turn()));
+            }
+            _ => return Ok((AngleRay::Line(self.line(sketch, entity)?), 0.0)),
         };
         let joint = joints
             .arc_joint(sketch, entity, other)
@@ -1063,7 +1101,7 @@ impl System {
             end,
             fallback: self.initial_direction(center, end),
         };
-        Ok((radius, joint.turn()))
+        Ok((AngleRay::Line(radius), joint.turn()))
     }
 
     pub(super) fn radius_line(&self, point: PointHandle, center: PointHandle) -> LineHandle {
@@ -1103,6 +1141,11 @@ fn scale_of(magnitudes: impl IntoIterator<Item = f64>) -> f64 {
     } else {
         largest
     }
+}
+
+enum AngleRay {
+    Line(LineHandle),
+    Normal(PointHandle, EllipseHandle, Vector2),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1198,8 +1241,11 @@ impl Joints {
         arc: EntityId,
         other: EntityId,
     ) -> Option<ArcJoint> {
-        let Some(&Entity::Arc { start, end, .. }) = sketch.entity(arc) else {
-            return None;
+        let (start, end) = match sketch.entity(arc) {
+            Some(&(Entity::Arc { start, end, .. } | Entity::EllipticalArc { start, end, .. })) => {
+                (start, end)
+            }
+            _ => return None,
         };
         let on_other: BTreeSet<EntityId> = self
             .points_on(sketch, other)

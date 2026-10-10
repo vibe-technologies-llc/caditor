@@ -10,11 +10,12 @@ pointer sweeps; {command:sketch.reverse_arc} sends it the other way.
 Both share the Curve button with the spline. They have no key of their own; use the button, the
 Sketch menu or {command:palette}.
 
-A [Smart dimension](dimensions) on an ellipse adds its major and minor radii, and with a point,
-line, circle or arc the distance between them. Horizontal and Vertical level its major axis.
+A [Smart dimension](dimensions) on an ellipse adds its major and minor radii, and with a point
+or another curve the distance between them, where they come closest; an elliptical arc and a
+line sharing an end take the angle between them. Horizontal and Vertical level its major axis.
 Equal gives ellipses the same radii, Midpoint puts a point at the middle of an elliptical arc,
-and Tangent makes a line, circle or arc touch an ellipse, at the point they share or anywhere
-along it. Drawing snaps to the far end of the major axis, the ends of the minor axis, which a
+and Tangent makes a line, circle, arc, spline or another ellipse touch an ellipse, at the point
+they share or anywhere along both. Drawing snaps to the far end of the major axis, the ends of the minor axis, which a
 point keeps however the ellipse turns, and the middle of an elliptical arc.
 
 [Trim and extend](trim-and-extend) open an ellipse into an elliptical arc, shorten or split an
@@ -26,6 +27,6 @@ a line, arc or another elliptical arc, and [Mirror](sketch-mirror) and the
 [Projecting](project-and-intersect) an ellipse onto a sketch facing the same way, or the opposite
 way, brings it in as an ellipse; seen at an angle it comes in as a spline.
 
-Ellipses cannot be offset: the curve at one distance from an ellipse is no ellipse, so nothing
-would keep the copy at that distance. A tangent or distance between an ellipse and a spline or
-another ellipse is not offered.
+[Offset](offset) copies an ellipse or elliptical arc on its own as a fit-point spline at the
+distance. The curve at one distance from an ellipse is no ellipse, so the spline is free: it
+does not follow when the ellipse changes, and the tool says so before you place it.

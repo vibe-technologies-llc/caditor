@@ -10,8 +10,9 @@ for example `width / 2` or `30 deg`.
 
 - A line gives its length, a circle its diameter and an arc its radius.
 - Two lines that are not parallel give the angle between them.
-- An ellipse alone gives its major and minor radii; with a point, line, circle or arc, the
-  distance between them, measured where they come closest.
+- An ellipse alone gives its major and minor radii; with a point or any other curve, the
+  distance between them, measured where they come closest. An elliptical arc and a line sharing
+  an end give the angle between them.
 - Anything else gives the distance between the two items, the origin and axes included.
 
 Clicking two points, or a lone line, waits for a third click that places the dimension: above or

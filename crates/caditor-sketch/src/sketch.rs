@@ -11,7 +11,10 @@ use crate::{
     curve::{ArcGeometry, BSpline, EllipseGeometry, Faceting},
     entity::{Entity, FitSpacing, Role, SplineKind},
     id::{ConstraintId, EntityId, FIRST_UNSTORABLE_ID, Reference},
-    solve::{arc_joint, ellipse_gap, joined_at_end, not_joined, spline_gap, straight_spline},
+    solve::{
+        arc_joint, curve_pair_gap, ellipse_gap, joined_at_end, not_joined, spline_gap,
+        straight_spline,
+    },
 };
 
 pub(crate) fn spline_through(positions: &[Point2], kind: SplineKind) -> Option<BSpline> {
@@ -520,6 +523,10 @@ impl Sketch {
                 let (on_spline, on_other) = self.spline_gap(to, from)?;
                 Some(on_spline.distance(on_other))
             }
+            (Role::Elliptic, Role::Elliptic | Role::Spline) | (Role::Spline, Role::Elliptic) => {
+                let (on_one, on_other) = curve_pair_gap(self, from, to)?;
+                Some(on_one.distance(on_other))
+            }
             (Role::Elliptic, Role::Point | Role::Line | Role::Circular) => {
                 let (on_ellipse, on_other) = self.ellipse_gap(from, to)?;
                 Some(on_ellipse.distance(on_other))
@@ -575,12 +582,22 @@ impl Sketch {
     }
 
     fn is_arc(&self, id: EntityId) -> bool {
-        matches!(self.entity(id), Some(Entity::Arc { .. }))
+        matches!(
+            self.entity(id),
+            Some(Entity::Arc { .. } | Entity::EllipticalArc { .. })
+        )
     }
 
     pub fn angle_direction(&self, entity: EntityId, other: EntityId) -> Option<Vector2> {
-        let Some(&Entity::Arc { center, .. }) = self.entity(entity) else {
-            return self.line_direction(entity);
+        let center = match self.entity(entity) {
+            Some(&Entity::Arc { center, .. }) => center,
+            Some(Entity::EllipticalArc { .. }) => {
+                let joint = arc_joint(self, entity, other)?;
+                let shape = self.ellipse(entity)?;
+                let tangent = shape.tangent_at(shape.parameter_of(self.point(joint.end)?));
+                return Some(if joint.at_start { tangent } else { -tangent });
+            }
+            _ => return self.line_direction(entity),
         };
         let joint = arc_joint(self, entity, other)?;
         let radius = self.point(joint.end)? - self.point(center)?;
@@ -951,12 +968,8 @@ impl Sketch {
                 let second = self.expect(b, &kinds, needed)?;
                 match (first, second) {
                     (Role::Line, Role::Line) => Err(self.not_applicable(constraint, a, b)),
-                    (Role::Elliptic, Role::Line | Role::Circular)
-                    | (Role::Line | Role::Circular, Role::Elliptic) => {
-                        self.check_not_only_reference(&entities)
-                    }
                     (Role::Elliptic, _) | (_, Role::Elliptic) => {
-                        Err(self.not_applicable(constraint, a, b))
+                        self.check_not_only_reference(&entities)
                     }
                     _ => Ok(()),
                 }
@@ -1060,8 +1073,11 @@ impl Sketch {
                 }
                 (Some(Role::Spline), Some(Role::Line | Role::Circular))
                 | (Some(Role::Line | Role::Circular), Some(Role::Spline))
-                | (Some(Role::Elliptic), Some(Role::Line | Role::Circular))
-                | (Some(Role::Line | Role::Circular), Some(Role::Elliptic)) => {
+                | (
+                    Some(Role::Elliptic),
+                    Some(Role::Line | Role::Circular | Role::Elliptic | Role::Spline),
+                )
+                | (Some(Role::Line | Role::Circular | Role::Spline), Some(Role::Elliptic)) => {
                     self.check_not_only_reference(&entities)
                 }
                 (Some(Role::Point), Some(Role::Elliptic)) => {

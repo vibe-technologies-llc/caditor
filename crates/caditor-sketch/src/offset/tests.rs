@@ -705,13 +705,83 @@ fn a_rounded_rectangle_offset_inwards_keeps_every_corner_concentric() {
     assert_eq!(count_of(&sketch, "Distance"), 1);
 }
 
+fn gap_to(sketch: &Sketch, ellipse: EntityId, point: Point2) -> f64 {
+    sketch
+        .closest_on_ellipse(ellipse, point)
+        .unwrap()
+        .distance(point)
+}
+
+fn assert_spline_at_distance(sketch: &Sketch, spline: EntityId, ellipse: EntityId, distance: f64) {
+    let curve = sketch.spline(spline).unwrap();
+    for index in 0..=200 {
+        let point = curve.point_at(f64::from(index) / 200.0);
+        let gap = gap_to(sketch, ellipse, point);
+        assert!((gap - distance).abs() < 1e-3, "{gap} at {point}");
+    }
+}
+
 #[test]
-fn an_ellipse_is_refused_saying_its_offset_would_be_no_ellipse() {
+fn an_ellipse_is_offset_either_way_as_a_closed_fit_point_spline_within_tolerance() {
     let mut sketch = Sketch::new(Plane::XY);
     let ellipse = sketch.add_ellipse(Point2::ZERO, Point2::new(10.0, 0.0), 4.0);
+    let chain = sketch.offset_chain(&[ellipse]).unwrap();
 
-    let refused = sketch.offset_chain(&[ellipse]).unwrap_err();
+    assert!(!chain.follows());
+    assert!(chain.is_closed());
+    assert_eq!(chain.side_of(Point2::new(0.0, 6.0)), Side::Right);
+    assert_eq!(chain.side_of(Point2::new(0.0, 3.0)), Side::Left);
+    assert_eq!(chain.default_side(), Side::Right);
+    assert_eq!(chain.outline(Side::Right, 2.0).unwrap().curve_count(), 1);
+    assert!(matches!(
+        chain.outline(Side::Left, 1.7),
+        Err(OffsetError::Collapses { .. })
+    ));
 
+    for (side, distance) in [(Side::Right, 2.0), (Side::Left, 1.0)] {
+        let mut copy = sketch.clone();
+        let made = copy
+            .offset(&[ellipse], side, distance, mm(distance))
+            .unwrap();
+        let [spline] = made.as_slice() else {
+            panic!("expected one spline, found {made:?}");
+        };
+        assert!(matches!(
+            copy.entity(*spline),
+            Some(Entity::Spline { kind, .. }) if kind.is_closed()
+        ));
+        assert_spline_at_distance(&copy, *spline, ellipse, distance);
+        let solved = solve(&copy);
+        assert!(solved.solution.redundancies().is_empty());
+    }
+}
+
+#[test]
+fn an_elliptical_arc_is_offset_as_an_open_spline_and_an_ellipse_in_a_chain_is_refused() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let arc = sketch.add_elliptical_arc(
+        Point2::ZERO,
+        Point2::new(10.0, 0.0),
+        4.0,
+        Point2::new(10.0, 0.0),
+        Point2::new(0.0, 4.0),
+    );
+    let line = sketch.add_line(Point2::new(10.0, 0.0), Point2::new(20.0, 0.0));
+
+    assert_eq!(sketch.offset_chain_through(arc), vec![arc]);
+    let refused = sketch.offset_chain(&[arc, line]).unwrap_err();
     assert!(matches!(refused, OffsetError::EllipseNotOffsettable { .. }));
-    assert!(refused.to_string().contains("no ellipse"), "{refused}");
+    assert!(refused.to_string().contains("on its own"), "{refused}");
+
+    let made = sketch.offset(&[arc], Side::Right, 1.5, mm(1.5)).unwrap();
+    let [spline] = made.as_slice() else {
+        panic!("expected one spline, found {made:?}");
+    };
+    let Some(Entity::Spline { points, kind }) = sketch.entity(*spline) else {
+        panic!("expected a spline");
+    };
+    assert!(!kind.is_closed());
+    let first = sketch.point(points[0]).unwrap();
+    assert!(first.distance(Point2::new(11.5, 0.0)) < EXACT, "{first}");
+    assert_spline_at_distance(&sketch, *spline, arc, 1.5);
 }

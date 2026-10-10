@@ -329,8 +329,10 @@ paths:
 - Trim's primary drag is a trim path: every piece the path crosses is collected and trimmed on
   release in crossing order as one transaction, each found again by its middle on whichever curve
   now carries it after earlier splits. Extend ignores drags.
-- Offset works on the selected chain; with none, a click on a curve selects its chain. The
-  pointer's side and distance choose side and distance, previewed live. Mirror copies the
+- Offset works on the selected chain; with none, a click on a curve selects its chain (an
+  ellipse or elliptical arc alone). The pointer's side and distance choose side and distance,
+  previewed live; an ellipse's words end `offsetting::FREE_SPLINE`, since its offset spline does
+  not follow it (`sketch.md`). Mirror copies the
   selection about the line or axis under the pointer (sketch lines win a tie with an axis).
 - Mirror and both patterns select inside the tool, as Smart dimension picks: started with nothing
   selected (or once the selection empties) they gather (`Modifying::gathers`), where a click on a
@@ -602,9 +604,10 @@ paths:
   for a lone arc, beyond it within its sweep its length, inside it its sweep, outside its sweep its
   radius. A lone ellipse or elliptical arc adds its major and minor radii (`MajorRadius`,
   `MinorRadius`, the one already held left out), as the Radius tool does with one selected; an
-  ellipse picked with a point, line, circle or arc takes the distance between them (drawn between
-  `Sketch::ellipse_gap`'s points), with anything else it is refused in words, its centre and axis
-  points dimensioning the rest. A lone conic takes its rho (`Constraint::Rho`, through the Radius candidates,
+  ellipse picked with a point or any curve takes the distance between them (drawn between
+  `Sketch::ellipse_gap`'s points), an elliptical arc and a line sharing an end the angle between
+  them as for an arc; with more picks it is refused in words, its centre and axis points
+  dimensioning the rest. A lone conic takes its rho (`Constraint::Rho`, through the Radius candidates,
   labelled `rho` and laid out from the middle of its chord to the point it passes there), never
   added as a reference, since rho is no freedom the other constraints could take up
   (`sketch_tools::determines`). A point and a construction line also wait for placement (`dimensioning::about_axis`):
@@ -612,9 +615,9 @@ paths:
   image across the line and labelled Ø), on the point's side the distance. Enter always adds the
   aligned distance, the length or the radius. The Diameter tool adds the same diameter for a point
   and any line selected. A spline waits for a
-  point, line, circle or arc, whose distance from it is the dimension (from a curve, the gap where
-  the spline bulges toward it, drawn between `Sketch::spline_gap`'s points); another spline is
-  refused in words, and a lone point waits. A line and an arc sharing an end take the angle
+  point, line, circle, arc or ellipse, whose distance from it is the dimension (from a curve, the
+  gap where the spline bulges toward it, drawn between `Sketch::spline_gap`'s points); another
+  spline is refused in words, and a lone point waits. A line and an arc sharing an end take the angle
   between them there instead of their distance, measured inside the corner as two lines' is
   (`sketch_tools::angle_to_arc`), drawn from the arc's tangent at the joint. The dimension goes
   through the same candidates, checks, reference rule and inline field as the dimension buttons
