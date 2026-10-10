@@ -3,6 +3,7 @@ use spade::Point2 as PlanePoint;
 const SHUFFLE_SEED: u64 = 0x005e_ed0f_f4ce;
 const FIRST_ROUND: usize = 64;
 const CURVE_STEPS: f64 = u32::MAX as f64;
+const SCATTER_STEPS: f64 = (1u64 << 53) as f64;
 
 struct SplitMix(u64);
 
@@ -15,10 +16,19 @@ impl SplitMix {
         mixed ^ (mixed >> 31)
     }
 
+    fn centred(&mut self) -> f64 {
+        (self.next() >> 11) as f64 / SCATTER_STEPS - 0.5
+    }
+
     fn below(&mut self, bound: usize) -> usize {
         let bound = bound as u64;
         ((u128::from(self.next()) * u128::from(bound)) >> 64) as usize
     }
+}
+
+pub(super) fn scatter(key: u64) -> [f64; 2] {
+    let mut random = SplitMix(key ^ SHUFFLE_SEED);
+    [random.centred(), random.centred()]
 }
 
 fn spread(value: u32) -> u64 {
@@ -93,6 +103,15 @@ mod tests {
         assert_eq!(sorted, (0..1000).collect::<Vec<_>>());
         assert_eq!(order, insertion_order(&points));
         assert_ne!(order, sorted);
+    }
+
+    #[test]
+    fn scattered_offsets_are_fixed_and_centred() {
+        let offsets: Vec<[f64; 2]> = (0..1000).map(scatter).collect();
+
+        assert_eq!(offsets, (0..1000).map(scatter).collect::<Vec<_>>());
+        assert!(offsets.iter().flatten().all(|offset| offset.abs() <= 0.5));
+        assert!(offsets.windows(2).all(|pair| pair[0] != pair[1]));
     }
 
     #[test]

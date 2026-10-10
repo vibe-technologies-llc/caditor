@@ -12,6 +12,7 @@ use crate::{
     tessellation::{
         EdgeSampling, POLL_EVERY, TessellationError, constrained,
         density::{Density, density},
+        insertion::scatter,
         patch::{FacePatch, PatchPosition, PatchShape, PatchVertex},
         pieces,
     },
@@ -22,6 +23,7 @@ use crate::{
 const UV_MERGE: f64 = 1e-9;
 const JOINT_PARAMETER_GAP: f64 = 1e-6;
 const GRID_CLEARANCE: f64 = 0.3;
+const GRID_NUDGE: f64 = 1e-6;
 const TINY_COORDINATE: f64 = 1e-30;
 const MAX_GAP_PIECES: f64 = 4096.0;
 const NORMAL_NUDGE: f64 = 1e-3;
@@ -147,11 +149,11 @@ pub(crate) fn triangulate(
     if budget.placed.saturating_add(grid_size) > budget.limit {
         return Err(TessellationError::TooLarge);
     }
-    for (index, uv) in grid.into_iter().enumerate() {
+    for (index, (uv, nudge)) in grid.into_iter().enumerate() {
         if index.is_multiple_of(POLL_EVERY) {
             interrupt::check()?;
         }
-        points.add_interior(uv)?;
+        points.add_interior(uv, nudge)?;
     }
     let shape = PatchShape {
         grid: grid_size,
@@ -445,7 +447,10 @@ fn close_gaps(points: Vec<BoundaryPoint>, density: &Density) -> Vec<BoundaryPoin
     closed
 }
 
-fn grid_points(loops: &[Vec<BoundaryPoint>], scaled: &Scaled) -> Result<Vec<Point2>, Interrupted> {
+fn grid_points(
+    loops: &[Vec<BoundaryPoint>],
+    scaled: &Scaled,
+) -> Result<Vec<(Point2, [f64; 2])>, Interrupted> {
     let Scaled::Cells(density) = scaled else {
         return Ok(Vec::new());
     };
@@ -494,7 +499,8 @@ fn grid_points(loops: &[Vec<BoundaryPoint>], scaled: &Scaled) -> Result<Vec<Poin
                 .filter_map(|segment| segments.get(*segment))
                 .any(|(start, end)| distance_to_segment(local, *start, *end) < GRID_CLEARANCE);
             if !near && let Some(u) = density.u.line(column) {
-                points.push(Point2::new(u, v));
+                let [x, y] = scatter(((row as u64) << 32) | column as u64);
+                points.push((Point2::new(u, v), [x * GRID_NUDGE, y * GRID_NUDGE]));
             }
         }
     }
@@ -522,7 +528,7 @@ impl<'a> FacePoints<'a> {
         }
     }
 
-    fn insert(&mut self, point: LocalPoint) -> Result<usize, TessellationError> {
+    fn insert(&mut self, point: LocalPoint, nudge: [f64; 2]) -> Result<usize, TessellationError> {
         let mapped = self.scaled.map(point.uv);
         let place = [mapped.x.to_bits(), mapped.y.to_bits()];
         if let Some(&index) = self.by_place.get(&place) {
@@ -538,7 +544,8 @@ impl<'a> FacePoints<'a> {
         let index = self.points.len();
         self.by_place.insert(place, index);
         self.points.push(point);
-        self.mapped.push(PlanePoint::new(mapped.x, mapped.y));
+        self.mapped
+            .push(PlanePoint::new(mapped.x + nudge[0], mapped.y + nudge[1]));
         Ok(index)
     }
 
@@ -548,17 +555,21 @@ impl<'a> FacePoints<'a> {
             if index.is_multiple_of(POLL_EVERY) {
                 interrupt::check()?;
             }
-            indices.push(self.insert(LocalPoint {
-                uv: point.uv,
-                position: Some(point.position),
-            })?);
+            indices.push(self.insert(
+                LocalPoint {
+                    uv: point.uv,
+                    position: Some(point.position),
+                },
+                [0.0, 0.0],
+            )?);
         }
         self.loops.push(indices);
         Ok(())
     }
 
-    fn add_interior(&mut self, uv: Point2) -> Result<(), TessellationError> {
-        self.insert(LocalPoint { uv, position: None }).map(|_| ())
+    fn add_interior(&mut self, uv: Point2, nudge: [f64; 2]) -> Result<(), TessellationError> {
+        self.insert(LocalPoint { uv, position: None }, nudge)
+            .map(|_| ())
     }
 
     fn triangulate(
@@ -566,15 +577,15 @@ impl<'a> FacePoints<'a> {
         shape: PatchShape,
         threads: usize,
     ) -> Result<FaceTriangulation, TessellationError> {
-        let segments = constrained::segments(&self.loops);
+        let outline = constrained::outline(&self.mapped, &self.loops);
         let pieced = if shape.in_pieces {
-            pieces::triangles(self.face, &self.mapped, &segments, threads)?
+            pieces::triangles(self.face, &self.mapped, &outline, threads)?
         } else {
             None
         };
         let triangles = match pieced {
             Some(triangles) => triangles,
-            None => constrained::whole(self.face, &self.mapped, &segments)?,
+            None => constrained::whole(self.face, &self.mapped, &outline)?,
         };
         Ok(FaceTriangulation {
             face: self.face,

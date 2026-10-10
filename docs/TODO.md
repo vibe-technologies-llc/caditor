@@ -84,12 +84,13 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   Shells whose volume and placement could be known without meshing, and lumps of a many-lump body
   that the tool does not reach (a union touching one of 300 separated blocks takes 18 ms), are not
   carried yet.
-- [medium · medium] A large face triangulated in pieces still leaves about a fifth of its
-  triangles to one serial remainder (those straddling a cut, and fans like those along a plate's
-  long straight sides whose circumcircles leave every strip: 2 of the 9 ms of the top of a plate
-  with 113 holes), and strips are cut at point quantiles rather than where the face is narrow
-  (through a row of holes), so past about six strips they keep little. Spade's exact in-circle
-  predicates on the cocircular samples of round holes are a quarter of all tessellation time.
+- [medium · medium] A strip's reach is a share of its points, not a distance, so splitting a
+  large face into more strips shrinks the reach below the triangles bridging between holes: the
+  top of a plate with 113 holes keeps 95% of its triangles in six strips but 82% in thirteen with
+  a quarter-strip reach, and on this many-core machine six strips stay fastest. A reach sized from
+  the face's expected triangle sizes would let more strips pay. The remaining exact in-circle
+  predicates (under a tenth of tessellation time) are on cocircular boundary samples of
+  mirror-symmetric holes, which no helper reaches.
 - [low · hard] `SolidResult::cuts`/`joins` keep every tool solid with every history entry,
   though only patterns, mirrors and an open feature read them; a removal's tool shares little
   with the result, since a difference reverses the tool's kept faces and their pcurves (an
