@@ -26,7 +26,7 @@ use crate::{
     hole, import,
     lookahead::Lookahead,
     mate, mirror, movement, offset_face, pattern,
-    pool::{Claim, Job, Landed, LastMeshes, Pool, Work, available_workers},
+    pool::{Claim, Job, Landed, LastMeshes, Pool, Threads, Work, available_workers},
     presenting::{Glimpse, MESHES_REPORTED_EVERY, Presentation, SettledBody},
     primitive, projection, removal, scaling, shell,
     solid::{self, SketchRegion, SolidFeature, SolidResult, body_part, body_parts},
@@ -680,7 +680,7 @@ pub struct Recompute {
     last_meshes: Arc<LastMeshes>,
     mesh_quality: MeshQuality,
     features_done_after: Duration,
-    workers: usize,
+    threads: Arc<Threads>,
 }
 
 impl Default for Recompute {
@@ -701,13 +701,13 @@ impl Recompute {
             last_meshes: Arc::default(),
             mesh_quality,
             features_done_after: FEATURES_DONE_AFTER,
-            workers: available_workers(),
+            threads: Arc::new(Threads::new(available_workers())),
         }
     }
 
     #[cfg(test)]
     pub(crate) fn with_workers(mut self, workers: usize) -> Self {
-        self.workers = workers;
+        self.threads = Arc::new(Threads::new(workers));
         self
     }
 
@@ -720,6 +720,16 @@ impl Recompute {
     #[cfg(test)]
     pub(crate) fn results_kept(&self, feature: FeatureId) -> usize {
         self.cache.kept(feature)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn entries_shared_with(&self, other: &Self) -> (usize, usize) {
+        self.cache.shared_with(&other.cache)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn threads_shared_with(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.threads, &other.threads)
     }
 
     #[cfg(test)]
@@ -741,7 +751,7 @@ impl Recompute {
             last_meshes: Arc::clone(&self.last_meshes),
             mesh_quality: self.mesh_quality,
             features_done_after: self.features_done_after,
-            workers: self.workers,
+            threads: Arc::clone(&self.threads),
         }
     }
 
@@ -759,7 +769,7 @@ impl Recompute {
     pub fn retry_failures(&mut self) {
         for entry in self.cache.entries_mut() {
             if matches!(entry.state, FeatureState::Failed(_)) {
-                entry.retry = true;
+                Arc::make_mut(entry).retry = true;
             }
         }
     }
@@ -831,10 +841,9 @@ impl Recompute {
             run.context(),
             self.mesh_quality,
             Arc::clone(&self.last_meshes),
-            self.workers,
         );
-        let evaluation = std::thread::scope(|scope| {
-            let pool = Pool::new(scope, &work);
+        let threads = Arc::clone(&self.threads);
+        let evaluation = threads.run(&work, |pool| {
             let _closing = pool.closing();
             let walk = match display {
                 Display::Prepared => Presentation {
@@ -843,14 +852,14 @@ impl Recompute {
                     mesh: &|body, meshed| pool.mesh(body, meshed),
                     from: shown_from,
                 }
-                .during(|glimpse| self.walk(&run, &pool, Some(glimpse))),
-                Display::Skipped => self.walk(&run, &pool, None),
+                .during(|glimpse| self.walk(&run, pool, Some(glimpse))),
+                Display::Skipped => self.walk(&run, pool, None),
             };
             pool.forget_features();
             let mut evaluation =
                 walk.into_evaluation(document, parameters.clone(), BTreeSet::new());
             if display == Display::Prepared {
-                self.prepare_display(document, &mut evaluation, &pool, &|evaluation| {
+                self.prepare_display(document, &mut evaluation, pool, &|evaluation| {
                     if !cancel.is_cancelled() && Instant::now() >= shown_from {
                         (reports.features_done)(evaluation.clone());
                     }

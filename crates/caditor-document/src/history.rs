@@ -13,7 +13,7 @@ const SKETCH_ENTITY_BYTES: usize = 160;
 
 #[derive(Debug, Clone)]
 struct Kept {
-    entry: CacheEntry,
+    entry: Arc<CacheEntry>,
     bytes: usize,
     used: u64,
 }
@@ -46,7 +46,7 @@ impl ResultHistory {
         self.features
             .get(&feature)
             .and_then(|kept| kept.first())
-            .map(|kept| &kept.entry)
+            .map(|kept| kept.entry.as_ref())
     }
 
     pub(crate) fn peek(
@@ -57,7 +57,7 @@ impl ResultHistory {
         self.features
             .get(&feature)?
             .iter()
-            .map(|kept| &kept.entry)
+            .map(|kept| kept.entry.as_ref())
             .find(|entry| matches(entry))
     }
 
@@ -69,7 +69,7 @@ impl ResultHistory {
         self.clock += 1;
         let clock = self.clock;
         let kept = self.features.get_mut(&feature)?;
-        let at = kept.iter().position(|kept| matches(&kept.entry))?;
+        let at = kept.iter().position(|kept| matches(kept.entry.as_ref()))?;
         if at > 0 {
             if let Some(found) = kept.get(at) {
                 self.earlier_bytes = self.earlier_bytes.saturating_sub(found.bytes);
@@ -81,7 +81,7 @@ impl ResultHistory {
         kept.get_mut(..=at)?.rotate_right(1);
         let found = kept.first_mut()?;
         found.used = clock;
-        Some(&found.entry)
+        Some(found.entry.as_ref())
     }
 
     pub(crate) fn insert(&mut self, feature: FeatureId, entry: CacheEntry) {
@@ -93,7 +93,7 @@ impl ResultHistory {
         kept.insert(
             0,
             Kept {
-                entry,
+                entry: Arc::new(entry),
                 bytes: 0,
                 used: self.clock,
             },
@@ -133,7 +133,7 @@ impl ResultHistory {
         }
     }
 
-    pub(crate) fn entries_mut(&mut self) -> impl Iterator<Item = &mut CacheEntry> {
+    pub(crate) fn entries_mut(&mut self) -> impl Iterator<Item = &mut Arc<CacheEntry>> {
         self.features
             .values_mut()
             .flat_map(|kept| kept.iter_mut().map(|kept| &mut kept.entry))
@@ -159,6 +159,24 @@ impl ResultHistory {
     #[cfg(test)]
     pub(crate) fn kept(&self, feature: FeatureId) -> usize {
         self.features.get(&feature).map_or(0, Vec::len)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn shared_with(&self, other: &Self) -> (usize, usize) {
+        let total = self.features.values().map(Vec::len).sum();
+        let shared = self
+            .features
+            .iter()
+            .filter_map(|(feature, kept)| Some((kept, other.features.get(feature)?)))
+            .flat_map(|(kept, other)| {
+                kept.iter().filter(|kept| {
+                    other
+                        .iter()
+                        .any(|other| Arc::ptr_eq(&kept.entry, &other.entry))
+                })
+            })
+            .count();
+        (shared, total)
     }
 
     #[cfg(test)]

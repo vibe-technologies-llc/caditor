@@ -31,14 +31,19 @@ paths:
     `consumed_bodies`). Once those have a provisional outcome it builds the feature's view and
     key, takes a matching cache entry without touching its recency (`ResultHistory::peek`), and
     otherwise queues the evaluation on the run's pool.
-  - The pool (`pool.rs`) is scoped to the run and starts its threads only as queued work outgrows
-    the idle ones, up to the available parallelism (`with_workers(0)` in tests is the sequential
-    walk). Evaluations run lowest tree index first, before any mesh. The walk waits for the
-    feature it is at and takes its outcome only when the view it ran on is the one the walk has
-    (`View::same_as`, by `Arc`); otherwise (another view, a panic on the pool outside the
-    evaluator, no thread started) it evaluates inline. A cancel halts the lookahead, queued evaluations end as cancelled without running,
-    and features not committed are `Outdated` as before; whatever the lookahead ran past a
-    cancel is dropped.
+  - The pool (`pool.rs`) is a `rayon_core::ThreadPool` (`Threads`) that a `Recompute` builds on
+    its first parallel run, with the available parallelism in threads, and keeps for its life, so
+    every run and every draft (`draft_copy` shares it) reuses the same threads and they end when
+    the last `Recompute` holding it is dropped. Each run scopes its queue on it (`in_place_scope`,
+    which lends the threads borrowed run data without `unsafe`) and starts its serving tasks only
+    as queued work outgrows the idle ones; the walk stays on the run's own thread. A pool that
+    cannot start, or `with_workers(0)` in tests, is the sequential walk. Evaluations run lowest
+    tree index first, before any mesh. The walk waits for the feature it is at and takes its
+    outcome only when the view it ran on is the one the walk has (`View::same_as`, by `Arc`);
+    otherwise (another view, a panic on the pool outside the evaluator, no thread started) it
+    evaluates inline. A cancel halts the lookahead, queued evaluations end as cancelled without
+    running, and features not committed are `Outdated` as before; whatever the lookahead ran past
+    a cancel is dropped.
 - The cache keeps a short history per feature (`history.rs`, `ResultHistory`): up to
   `RESULTS_KEPT_PER_FEATURE` entries, the one last used first, so undoing a change or switching a
   value back finds the earlier entry and its result `Arc`, and everything below reuses its own
@@ -144,8 +149,9 @@ paths:
   front), so the state on screen is meshed before stale ones.
 - A draft (`Recomputer::submit_draft`, a document with a change the user has not committed, under
   a serial of the app's) runs on the same worker against a copy of the cache
-  (`Recompute::draft_copy`, cheap since entries hold `Arc`s), so upstream results are reused while
-  the cache, the last reported evaluation and the model's reports are never touched. Its finished,
+  (`Recompute::draft_copy`, which shares the pool and every entry, since the history holds its
+  entries as `Arc`s and `retry_failures` copies the one it marks), so upstream results are
+  reused while the cache, the last reported evaluation and the model's reports are never touched. Its finished,
   complete evaluation is kept apart (`Recomputer::take_draft`); an unfinished or cancelled one is
   dropped. A draft never pre-empts the model: submitted while a model submission is unanswered it
   waits until that is reported, and any model submission drops a waiting draft and stops a running

@@ -66,6 +66,7 @@ parking_lot = "0.12.5"
 png = "0.18.1"
 pollster = "1.0.1"
 raw-window-handle = "0.6.2"
+rayon-core = "1.13.0"
 rfd = { version = "0.17.2", default-features = false }
 roxmltree = { version = "0.21.1", default-features = false, features = ["std"] }
 rustix = { version = "1.1.5", default-features = false }

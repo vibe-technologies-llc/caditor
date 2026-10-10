@@ -4,12 +4,13 @@ use std::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
         mpsc,
     },
-    thread,
+    thread::{self, ThreadId},
     time::{Duration, Instant},
 };
 
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
 use caditor_sketch::Sketch;
+use parking_lot::Mutex;
 
 use crate::{
     combine_tests::block,
@@ -364,4 +365,48 @@ fn long_tree_recompute_costs() {
             2 * count
         );
     }
+}
+
+struct Recording {
+    threads: Arc<Mutex<Vec<ThreadId>>>,
+}
+
+impl Evaluator for Recording {
+    fn evaluate(
+        &self,
+        feature: &Feature,
+        inputs: &Inputs<'_>,
+        cancel: &CancelToken,
+    ) -> Result<FeatureResult, Failure> {
+        let mut threads = self.threads.lock();
+        let current = thread::current().id();
+        if !threads.contains(&current) {
+            threads.push(current);
+        }
+        drop(threads);
+        ModelEvaluator.evaluate(feature, inputs, cancel)
+    }
+}
+
+#[test]
+fn every_run_and_draft_computes_on_the_threads_of_one_pool() {
+    let (document, _) = plates(6, 2);
+    let threads = Arc::new(Mutex::new(Vec::new()));
+    let evaluator = Recording {
+        threads: Arc::clone(&threads),
+    };
+    let mut engine = Recompute::default().with_workers(WORKERS);
+
+    for round in 0..3 {
+        let mut draft = engine.draft_copy();
+        let target = if round % 2 == 0 {
+            &mut engine
+        } else {
+            &mut draft
+        };
+        target.run(&document, &evaluator, &CancelToken::never(), &|_, _| {});
+        engine.clear_cache();
+    }
+
+    assert!(threads.lock().len() <= WORKERS + 1);
 }

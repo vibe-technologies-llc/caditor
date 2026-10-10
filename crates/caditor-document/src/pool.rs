@@ -2,12 +2,13 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     num::NonZeroUsize,
     panic::{self, AssertUnwindSafe},
-    sync::Arc,
-    thread::{self, Scope},
+    sync::{Arc, OnceLock},
+    thread,
 };
 
 use caditor_kernel::{MeshQuality, interruptible};
 use parking_lot::{Condvar, Mutex, MutexGuard};
+use rayon_core::{Scope, ThreadPool, ThreadPoolBuilder};
 
 use crate::{
     document::{Feature, FeatureId},
@@ -17,6 +18,59 @@ use crate::{
 
 pub(crate) fn available_workers() -> usize {
     thread::available_parallelism().map_or(1, NonZeroUsize::get)
+}
+
+#[derive(Debug)]
+pub(crate) struct Threads {
+    workers: usize,
+    pool: OnceLock<Option<ThreadPool>>,
+}
+
+impl Threads {
+    pub(crate) fn new(workers: usize) -> Self {
+        Self {
+            workers,
+            pool: OnceLock::new(),
+        }
+    }
+
+    fn pool(&self) -> Option<&ThreadPool> {
+        if self.workers == 0 {
+            return None;
+        }
+        self.pool
+            .get_or_init(|| {
+                ThreadPoolBuilder::new()
+                    .num_threads(self.workers)
+                    .thread_name(|_| "recompute worker".to_owned())
+                    .build()
+                    .inspect_err(|error| {
+                        log::warn!(
+                            "could not start threads to recompute on, so features compute one at \
+                             a time: {error}"
+                        );
+                    })
+                    .ok()
+            })
+            .as_ref()
+    }
+
+    pub(crate) fn run<'scope, R>(
+        &self,
+        work: &'scope Work<'scope>,
+        body: impl FnOnce(&Pool<'_, 'scope>) -> R,
+    ) -> R {
+        let Some(threads) = self.pool() else {
+            return body(&Pool { scope: None, work });
+        };
+        work.queue.lock().limit = threads.current_num_threads();
+        threads.in_place_scope(|scope| {
+            body(&Pool {
+                scope: Some(scope),
+                work,
+            })
+        })
+    }
 }
 
 #[derive(Debug, Default)]
@@ -120,16 +174,12 @@ impl<'a> Work<'a> {
         context: Context<'a>,
         quality: MeshQuality,
         last_meshes: Arc<LastMeshes>,
-        workers: usize,
     ) -> Self {
         Self {
             context,
             quality,
             last_meshes,
-            queue: Mutex::new(Queue {
-                limit: workers,
-                ..Queue::default()
-            }),
+            queue: Mutex::new(Queue::default()),
             ready: Condvar::new(),
             finished: Condvar::new(),
         }
@@ -225,16 +275,12 @@ impl<'a> Work<'a> {
     }
 }
 
-pub(crate) struct Pool<'scope, 'env> {
-    scope: &'scope Scope<'scope, 'env>,
-    work: &'env Work<'env>,
+pub(crate) struct Pool<'a, 'scope> {
+    scope: Option<&'a Scope<'scope>>,
+    work: &'scope Work<'scope>,
 }
 
-impl<'scope, 'env> Pool<'scope, 'env> {
-    pub(crate) fn new(scope: &'scope Scope<'scope, 'env>, work: &'env Work<'env>) -> Self {
-        Self { scope, work }
-    }
-
+impl<'scope> Pool<'_, 'scope> {
     pub(crate) fn cancel(&self) -> &CancelToken {
         self.work.context.cancel
     }
@@ -332,18 +378,9 @@ impl<'scope, 'env> Pool<'scope, 'env> {
         if !spawn {
             return;
         }
-        let work = self.work;
-        let spawned = thread::Builder::new()
-            .name("recompute worker".to_owned())
-            .spawn_scoped(self.scope, move || work.serve());
-        if let Err(error) = spawned {
-            log::warn!(
-                "could not start another thread to recompute on, so fewer features compute at \
-                 once: {error}"
-            );
-            let mut queue = self.work.queue.lock();
-            queue.started = queue.started.saturating_sub(1);
-            queue.limit = queue.started;
+        if let Some(scope) = self.scope.filter(|_| spawn) {
+            let work = self.work;
+            scope.spawn(move |_| work.serve());
         }
     }
 }

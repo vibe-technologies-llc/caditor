@@ -119,3 +119,42 @@ fn earlier_results_are_held_at_the_size_of_their_solids_and_meshes() {
     evaluate(&model.document, &mut cleared);
     assert_eq!(cleared.earlier_results_held(), (0, 0));
 }
+
+#[test]
+fn a_draft_copy_shares_every_cache_entry_and_changes_none_of_the_originals() {
+    let mut model = model();
+    let mut engine = Recompute::default();
+    evaluate(&model.document, &mut engine);
+
+    let mut draft = engine.draft_copy();
+    let copied = draft.entries_shared_with(&engine);
+    set_depth(&mut model, "6 mm");
+    let drafted = evaluate(&model.document, &mut draft);
+    let original = evaluate(&model.document, &mut engine);
+
+    assert_eq!(copied, (2, 2));
+    assert!(drafted.recomputed().contains(&model.base));
+    assert!(original.recomputed().contains(&model.base));
+    assert_eq!(draft.results_kept(model.base), 2);
+    assert!(draft.threads_shared_with(&engine));
+}
+
+#[test]
+fn retrying_failures_in_a_draft_copy_leaves_the_original_cache_alone() {
+    let mut model = model();
+    let mut engine = Recompute::default();
+    set_depth(&mut model, "0 mm");
+    let failed = evaluate(&model.document, &mut engine);
+    let mut draft = engine.draft_copy();
+
+    draft.retry_failures();
+    let retried = evaluate(&model.document, &mut draft);
+    let again = evaluate(&model.document, &mut engine);
+
+    assert!(matches!(
+        failed.feature(model.base).unwrap().state,
+        FeatureState::Failed(_)
+    ));
+    assert!(retried.recomputed().contains(&model.base));
+    assert!(!again.recomputed().contains(&model.base));
+}

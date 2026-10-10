@@ -16,4 +16,5 @@ caditor-sketch.workspace = true
 
 log.workspace = true
 parking_lot.workspace = true
+rayon-core.workspace = true
 thiserror.workspace = true

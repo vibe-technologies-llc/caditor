@@ -97,9 +97,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   full. Pcurve samples and curve data shared through `Arc`, as spline surfaces already are, would
   let successive bodies share what did not change. `SolidResult::cuts`/`joins` also keep every
   tool solid forever, though only patterns, mirrors and an open feature read them.
-- [low · easy] The recompute pool is scoped to a run (`pool.rs`), so every run and draft starts up
-  to `available_parallelism()` threads again, and `draft_copy` deep-copies every cache entry for
-  each draft.
 - [low · hard] The face grid is graded per direction but still a tensor product, so a bump divides
   the whole rows and columns through it, and curvature is sampled only on the lattice, so a feature
   narrower than a lattice span is refined only if a checked cell lands on it. Cells split where
