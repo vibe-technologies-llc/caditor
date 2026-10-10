@@ -128,6 +128,22 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Sketching
 
+- [high · medium] A sketch reaches model geometry only through Project or Intersect first: drawing a
+  line from a body's corner, centring a circle on a round edge's centre or dimensioning a point
+  from a body's edge means projecting each item, then going back to the tool. Snapping (`snap.rs`,
+  `tracking.rs`) could take the corners, edge middles, round edges' centres and edges of the shown
+  bodies (as background while a sketch is edited, read from the body's state at the sketch through
+  `body_result_seen_by`), and a point landing on one would project that item in the shape's own
+  transaction and join the point to the projection, as Onshape and Fusion infer from model edges;
+  Smart dimension and the constraint tools would take a body edge or corner the same way. The body
+  vertices and edges then need projecting to the screen on the UI thread within the bounds the
+  sketch's own snapping keeps to (Interface performance).
+- [medium · medium] The Line tool cannot turn into an arc mid-chain: carrying on with a tangent arc
+  means the Tangent arc key, then the Line key again. A press on the chain's last point dragged
+  away (`drawing.rs`; a press-drag now places the press only for a first point,
+  `viewport::DRAG_DRAWS_FROM_PRESS`) could draw a tangent arc from it, the release placing its end and the
+  chain carrying on with lines afterwards, as Fusion's line tool does; the chain's anchors
+  (`ChainStep`) already let the two tools share one chain.
 - [medium · hard] Tools missing: a pattern of sketch geometry along a path (copies tied to the
   path would need a vector-equality or along-the-curve spacing the solver lacks), and text (a
   font, a height, bold and italic, set along a curve, its letters becoming closed regions that
@@ -161,6 +177,23 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   one chain at a time, leaves the free ends of an open chain sliding along their curves and cannot
   offset splines; a sketch fillet cannot round a spline and drops equal lengths and midpoints of the
   lines it shortens, as trim does.
+- [low · easy] A typed value locks only a direction (`Drawing::lock_heading`): a line's length
+  cannot be held while the pointer chooses its direction, nor a circle's or arc's radius while the
+  pointer chooses where it goes round, nor one side of a rectangle while the pointer sets the other.
+  A lone length typed as a lock (a marker after it, with its own prompt beside `HEADING_PROMPT`)
+  could hold the distance from the last point, the pointer's direction landing on the circle of
+  that radius with snaps joining where they cross it, and keep the length as a dimension as a
+  typed one is (`TypedDimension`).
+- [low · medium] Offset copies a chain to one side only: an outline round a centreline (a slot
+  following a path, a wall drawn by its middle) needs two offsets and the closing lines or arcs
+  drawn by hand. A Both sides way of Offset (`offsetting.rs`, the distance on each side) closing an
+  open chain's ends with arcs or lines (the cap ends of Fusion and SolidWorks), each held to the
+  original as the one-sided offset is, would make the closed profile in one step; a thin wall
+  extrusion covers only an outline extruded straight.
+- [low · medium] No symmetric drawing: while half of a symmetric outline is drawn the other half
+  cannot be made with it. Choosing a sketch line or axis to draw about (a Sketch menu toggle, as
+  SolidWorks's dynamic mirror) could add each finished shape's mirror image with its `Symmetric`
+  constraints in the shape's own transaction, as Mirror does afterwards (`mirroring.rs`).
 - [low · hard] No reference image: a photo or scan cannot be placed on a sketch plane, scaled by two
   points (or calibrated by a known distance), given an opacity, locked and traced, as a part
   copied from an existing object or a drawing needs.
@@ -187,6 +220,62 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   hole in the wrong place or a fillet to remove means remodelling it from scratch. Direct edits
   become features of their own, named from the faces they move, so they stay parametric and
   undoable.
+- [medium · easy] New features always start from the `DEFAULT_*` constants of their `*_tools.rs`
+  (a 1 mm fillet, a 6 by 10 mm hole, a 1 mm shell, a 10 mm extrusion), so filleting a part with 3 mm
+  fillets one set of edges at a time means typing 3 each time. The last value committed for each
+  (a fillet's radius, a chamfer's form and distances, a shell's thickness, a hole's size, fit,
+  style and depth kind, a pattern's counts) could be kept while caditor runs, as Sketch fillet
+  keeps `LastSizes` and Spur gear its `GearSettings`, and start the next one of its kind, as typed
+  (a parameter only while the model still has it).
+- [medium · easy] Fillet and Chamfer take only edges (`blend_tools::selected_edges` refuses faces
+  with "Select the edges of a body first"), so rounding every edge of a face or of a whole body
+  goes through Select the edges around the selected faces first. Selected faces could give their
+  boundary edges and a body chosen in the tree every edge of it (`body_selection::face_boundary`,
+  as that command uses), so filleting a face's edges is one step as in Fusion, Onshape and
+  SolidWorks; the edges are captured as they are, as a selection of them is.
+- [medium · easy] An extrusion's or revolve's panel names its sketch in a combo but cannot open it
+  (`solid_panel::sketch_row`), so changing the profile of an extrusion made from a face, whose
+  sketch is hidden, means finding that sketch in the tree. The row could offer Edit the sketch as
+  the hole panel does (`hole_panel::EDIT_SKETCH`), and Edit the sketch of the selected face
+  (palette, the view's context menu) could enter the sketch of the feature that made the face
+  (`viewport::feature_of`) directly, as SolidWorks's Edit Sketch on a face does.
+- [medium · medium] Only extrusion and revolve ends, a hole's depth, an offset face's distance, a
+  datum plane's offset and the move and placement handles drag in the view
+  (`manipulator::Manipulator`, `length_handles::Measured`): a fillet's radius, a chamfer's
+  distance, a shell's or thin wall's thickness, an extrusion's end offset and taper, a hole's
+  diameter and a datum plane's angle are only typed. Each could be a `Handle::Length` or a turn
+  handle on the open feature (a fillet's at the middle of its first chosen edge along the bisector
+  of its faces, a shell's on the rim of its first opened face), with its value beside the pointer
+  and committed through `manipulator::Held` like the others.
+- [medium · medium] Handle drags move only in steps along their line or plane (`reach_handles.rs`,
+  `place_handles.rs`, `move_manipulator.rs`): an extrusion's arrow dropped on a face or corner
+  does not stop there, a hole's square does not snap to a round edge's centre or an edge's middle,
+  and the dragged value cannot be typed mid-drag. Snapping a drag to the shown bodies' corners,
+  edge middles, round edges' centres and faces (the distance to them along the handle, ahead of
+  the steps, Ctrl still dragging freely) and opening the typed-point field on a digit while a
+  handle is held or hovered, committing to the dragged field, would give the drag-to-geometry and
+  typed values of Fusion's handles; a snap sets a measured value rather than a reference, and the
+  readout would say what it snapped to.
+- [medium · medium] A hole placed on a face moves only by Position X and Y along its hidden
+  sketch's own axes or by dragging, so a hole 8 mm from two edges, or concentric with a round edge,
+  means editing the sketch, projecting the edges and dimensioning. While `hole_tools::lone_point`
+  holds, the hole panel (`hole_panel.rs`) could have From an edge rows (a straight edge of the face
+  picked with Use selected or Choose in the view, and a distance) that project the edge into the
+  hidden sketch and add a `Distance` from it in one change, and Concentric with a picked round edge
+  (its projection's centre `Coincident` with the point), so the hole follows those edges when the
+  body changes; Add another hole could place a further point on the face by a click, as Fusion's
+  hole places several.
+- [low · easy] Revolve takes only a sketch: a flat face of a body selected with an axis or straight
+  edge is refused (`NOTHING_TO_REVOLVE`), though Extrude turns one selected face into a hidden
+  sketch of its boundary (`solid_tools::create_on_face`). Revolve could do the same with the face
+  and the axis picked with it, and both could take several coplanar faces of one body as one
+  profile rather than one face (`sketch_placement::selected_face`).
+- [low · medium] Primitives and patterns have no size handles: a box's width, depth and height, a
+  cylinder's radius and height and the other primitives' sizes are only typed, while only their
+  position drags (`place_handles.rs`), and a linear pattern's spacing and count or a circular
+  pattern's count and angle do not drag at all. Arrows on a box's faces and a cylinder's rim and
+  top, and for a pattern one at its last copy dragging the spacing or angle and one past it adding
+  copies, would follow `length_handles.rs` and commit through `manipulator::Held`.
 - [low · medium] Mirror faces closes an opening only in one plane or on one elementary face beside
   it: an opening on an extrusion, revolution or spline face, one running all the way around a
   round face (a collar or a groove), or one spanning several curved faces is refused, since
@@ -341,6 +430,13 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Viewer
 
+- [low · easy] Look straight at the selected face takes only a flat face and always looks along its
+  outward normal (`sketch_placement::face_to_look_at`): pressed again it changes nothing, and a
+  principal or datum plane, a sketch not being edited, a round face or a straight edge cannot be
+  looked at. Pressed while the view already faces it, it (and Look at sketch) could turn the view a
+  quarter turn about the normal, as SolidWorks's Normal To and Onshape's View normal to do, and it
+  could take a plane or a sketch (its solved plane), a round face (along its axis) or a straight
+  edge (along it).
 - [low · medium · blocked by: wgpu's GL backend] On GL and other devices without texture view
   formats the multisample resolve still averages in gamma space. A resolve of its own (a pass
   reading the samples through a `texture_multisampled_2d` and averaging them in linear light) was
@@ -372,12 +468,64 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Application
 
+- [high · medium] Outside sketch editing no dimension is shown on the model (`viewport.rs` hands
+  `annotations::Annotations` only the edited sketch), so changing a size means opening the
+  feature's panel or entering its sketch. Selecting a face or opening a feature could show, on the
+  model, the dimensions of the sketch it was swept from (laid out by `annotation_layout` on that
+  sketch's solved plane, as for the edited sketch) with the feature's own values as dimensions (an
+  extrusion's distances along its reach, a revolve's angles, a fillet's radius, a hole's diameter
+  and depth), each double-clicked to an inline `commit_field` committing through
+  `field::dimension_transaction` or the feature's `SetFeatureKind`, as SolidWorks shows a
+  feature's dimensions on double-click. Which dimensions show for a hidden sketch or a sketch
+  several features use needs a rule.
+- [medium · easy] No Repeat the last command: filleting several sets of edges, adding a run of
+  datum planes or drilling holes on several faces reaches for the same button each time. A command
+  (palette, the view's context menu as "Repeat <title>", the Edit menu) running again the last
+  modelling or sketch command triggered, kept in the `Workspace` beside `deferred_commands` and
+  offered with that command's own availability, so it takes the new selection as the command
+  would.
+- [medium · easy] The view's context menu on a face, edge or body (`view_menu::model_item`) offers
+  editing, hiding, looking, fitting, measuring and selecting, but none of the tools that would take
+  the selection: Fillet and Chamfer on edges; New sketch, Extrude, Hole, Offset face, Shell and
+  Split face on a flat face; Move, Copy, Mirror, Pattern and Split on a body; Suppress, Rename and
+  Delete for the feature that made it. Its entries are already `Command`s drawn from the frame's
+  offers, so the fitting ones could be listed by what the selection holds (left out rather than
+  disabled where they never apply, as Look at face is), a right-click route to the next step like
+  Fusion's marking menu.
+- [medium · medium] Expression fields complete nothing: a parameter's name is typed exactly from
+  memory or looked up in the Parameters panel. Typing in a `field::commit_field` could list the
+  parameters whose names start with what is typed, with their values, Tab taking one; and while a
+  field has focus, a click on a dimension label in the view or a value in the Parameters panel could
+  insert its parameter's name (naming the value first when it has none, as `field::NamedField`
+  does), as SolidWorks inserts a dimension clicked while an equation is typed.
+- [medium · medium] No Select similar: every hole of one size, every fillet face of one radius or
+  every face of the same shape is selected by clicking each one. Select similar (Edit menu,
+  palette, the context menu's Select submenu) could add from the shown bodies the faces of the same
+  surface kind and size as the selected ones (a cylinder of the same radius, a plane parallel to
+  it, a torus of the same radii), from a hole's wall every hole of the same diameter and depth
+  (`body_selection::hole_of` per hole), and for edges those of the same kind and length or radius,
+  beside the other growers in `body_selection.rs` with the same cheap availability check.
 - [medium · hard] Pasting features cannot carry a feature that picks faces or edges of another
   copied feature (a fillet copied with its extrusion): face and edge names are digests over the
   feature id, so the copy is left out with the reason. Renaming them needs each picked face or edge
   found again in the copy's recomputed result (by matching it in the original's) before the paste
   is applied. Pasted features also take no group, and a copy from another model keeps none of its
   references outside the copied set.
+- [low · easy] Numeric fields do not step: Up and Down in a `field::commit_field` holding a plain
+  number could add or take away one unit of its last digit (Shift for ten), previewed through
+  `Action::Preview` as typing is, so a size is tried without retyping it; an expression or a named
+  value would be left alone.
+- [low · easy] Selection growers still missing beside those in `body_selection.rs`: Invert the
+  selection (every face, edge or vertex of the shown bodies, of the kind selected, not selected
+  now), Select the faces of the feature that made this face (every face whose `FaceOrigin` names
+  that feature, to offset or colour a boss as a whole) and Select the loop of the selected edge
+  (with the edge and one of its faces selected, that face's loop holding it, as Fusion's
+  double-click on an edge selects a loop).
+- [low · medium] The status bar reads the size of one selected item (`Offers::size`) but nothing for
+  two: the distance between two points, edges or faces, or the angle between two flat faces or
+  straight edges, still needs Measure open. While two items are selected and Measure is closed,
+  the status bar could show the Between them distance or angle beside the selection, measured by
+  `Measurements` on its worker as Measure does, as SolidWorks's status bar shows it.
 - [low · hard] No automation: nothing can be driven by a script or macro, as Fusion's scripts and
   add-ins do, to make repetitive geometry, run a batch over files or add a tool. An interface
   would go through `Action`s and `Transaction`s like the UI, so scripts cannot break the model's
