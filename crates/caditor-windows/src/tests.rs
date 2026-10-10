@@ -8,7 +8,7 @@ use std::{
 use tempfile::TempDir;
 
 use crate::{
-    FileId, HIDDEN_ATTRIBUTE, boot_id,
+    FileId, HIDDEN_ATTRIBUTE, boot_id, cluster_size, duplicate_extents,
     files::{verbatim_for_tests, without_verbatim_for_tests},
     final_path, machine_guid, move_file_durably, process_running, replace_file,
 };
@@ -143,4 +143,20 @@ fn the_final_path_of_a_file_is_absolute_without_a_verbatim_prefix_and_in_its_rea
     assert!(!resolved.to_string_lossy().starts_with(r"\\?\"));
     assert!(resolved.ends_with("Model.caditor"));
     assert!(final_path(&dir.path().join("missing")).is_err());
+}
+
+#[test]
+fn a_volume_without_block_cloning_reports_an_error_and_one_with_it_a_cluster_size() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("a");
+    fs::write(&file, vec![1u8; 3 * 65536]).unwrap();
+    let open = fs::File::open(&file).unwrap();
+
+    match cluster_size(&open) {
+        Ok(size) => assert!(size.is_power_of_two() && size >= 4096),
+        Err(_) => {
+            let target = tempfile::tempfile().unwrap();
+            assert!(duplicate_extents(&open, &target, 0, 0, 65536).is_err());
+        }
+    }
 }

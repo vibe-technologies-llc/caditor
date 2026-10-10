@@ -1,3 +1,5 @@
+#[cfg(any(windows, test))]
+mod cloning;
 #[cfg(unix)]
 mod unix;
 #[cfg(windows)]

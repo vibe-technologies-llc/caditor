@@ -182,8 +182,8 @@ paths:
   uncompressed snapshot exceeds `MAX_DECOMPRESSED` (exported as `MAX_MODEL_RECORDS`), checked
   before anything is written rather than found when the read-back runs out of budget.
 - Versions copied unchanged are block-aligned (a zero-filled `Padding` chunk, skipped by readers)
-  so `copy_file_range` (`os/unix.rs`) can clone them; what could not be cloned (everything on
-  Windows), or the file having changed since it was read, is written from memory.
+  so `copy_file_range` (`os/unix.rs`) or ReFS block cloning (`os/windows.rs`) can clone them; what
+  could not be cloned, or the file having changed since it was read, is written from memory.
 
 ## Saving
 
