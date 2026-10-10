@@ -55,6 +55,8 @@ mod font_fallbacks;
 mod fonts;
 #[cfg(feature = "fuzzing")]
 pub mod fuzzing;
+mod gear_panel;
+mod gearing;
 mod graphics;
 mod guide;
 mod guide_panel;

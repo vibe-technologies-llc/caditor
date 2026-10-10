@@ -31,11 +31,11 @@ use crate::{
     commands::{self, Clipboard, Command, CommandFrame, Offer, Situation},
     configurations::{self, ConfigurationsDraft},
     constraint_trial, defender, drawing_export, drop_target,
-    editing::{EditingCommand, SketchEditing},
+    editing::{self, EditingCommand, SketchEditing, Tool},
     feature_tree,
     files::{self, FileCommand, Files},
     font_fallbacks::FallbackFonts,
-    fonts,
+    fonts, gear_panel,
     graphics::{FramePacer, Hardware},
     guide::{self, SidePanel},
     guide_panel::{self, Guide},
@@ -74,7 +74,7 @@ use crate::{
     selection::{Selection, SelectionFilter},
     selection_sets::{self, SetsDraft},
     shortcut_editor::{self, ShortcutEditor},
-    sketch_toolbar,
+    sketch_toolbar, sketch_tools,
     status_bar::{self, StatusContext},
     tidy_panel,
     tidying::Tidying,
@@ -661,6 +661,7 @@ pub fn show(
         + usize::from(comb.open)
         + usize::from(isocurves.open)
         + usize::from(tidying.feature().is_some())
+        + usize::from(gearing_open(editing))
         + usize::from(section.open)
         + usize::from(guide.open);
     let room = layout::panel_room(ui.ctx().content_rect().width(), open_panels);
@@ -778,6 +779,21 @@ pub fn show(
     viewport.set_isocurves(lines);
     let tidied = tidy_panel::show(ui, model, tidying, viewport.selection(), room);
     actions.extend(tidied.actions);
+    if let Some(feature) = editing.feature().filter(|_| gearing_open(editing)) {
+        let selected = sketch_tools::selected_entities(viewport.selection(), feature);
+        let context = gear_panel::Context {
+            model,
+            feature,
+            sketch: editing::edited_sketch(model.document(), feature),
+            selected: &selected,
+        };
+        actions.extend(gear_panel::show(
+            ui,
+            &context,
+            viewport.gear_settings(),
+            room,
+        ));
+    }
     let mut previewed = tidied.previewed;
     previewed.extend(panels.reference_rows.take_previewed());
     viewport.preview_entities(previewed);
@@ -1047,6 +1063,12 @@ pub fn show(
     window_frame::frame(ui.ctx(), chrome);
     *last_offers = offers;
     *keyboard_was_taken = ui.ctx().egui_wants_keyboard_input();
+}
+
+fn gearing_open(editing: &SketchEditing) -> bool {
+    editing
+        .active()
+        .is_some_and(|active| active.tool == Tool::Gear)
 }
 
 struct GuideBasis<'a> {

@@ -333,6 +333,7 @@ impl ShapeModes {
             | Tool::RectangularPattern
             | Tool::CircularPattern
             | Tool::TangentCircle
+            | Tool::Gear
             | Tool::Fillet
             | Tool::Chamfer
             | Tool::Project

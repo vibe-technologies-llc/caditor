@@ -10,6 +10,7 @@ mod datum;
 mod entity;
 mod fillet;
 mod fit;
+mod gear;
 mod id;
 mod inference;
 mod intersect;
@@ -35,6 +36,10 @@ pub use crate::{
     entity::{Entity, MAX_RHO, MIN_RHO, SplineKind},
     fillet::{Bevel, ChamferSize, Corner, FilletError, Rounding},
     fit::FittedSpline,
+    gear::{
+        DrawnGear, GearCentre, GearCircles, GearError, GearOutline, GearPiece, MAX_PRESSURE_ANGLE,
+        MAX_TEETH, MIN_PRESSURE_ANGLE, MIN_TEETH, SpurGear,
+    },
     id::{ConstraintId, EntityId, Reference},
     inference::{ANGLE_DEGREES, InferenceError, Kept, RELATIVE_DISTANCE, RelationKind, Tolerance},
     mirror::{MirrorError, MirrorImage},

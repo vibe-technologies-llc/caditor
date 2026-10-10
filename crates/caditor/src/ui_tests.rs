@@ -98,6 +98,7 @@ mod sketch_conics;
 mod sketch_ellipses;
 mod sketch_first_dimension;
 mod sketch_free;
+mod sketch_gears;
 mod sketch_keys;
 mod sketch_modify_status;
 mod sketch_patterns;
@@ -7581,6 +7582,7 @@ fn sketch_bar_buttons() -> Vec<String> {
             !sketch_toolbar::ARC_TOOLS.contains(tool)
                 && !sketch_toolbar::CURVE_TOOLS.contains(tool)
                 && !sketch_toolbar::OFF_RIBBON.contains(tool)
+                && *tool != Tool::Gear
         })
         .map(Tool::label)
         .chain(

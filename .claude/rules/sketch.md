@@ -343,6 +343,39 @@ every constraint still true of it. Joints are judged by a `TOLERANCE` relative t
   joint search `Tangent` and `Curvature` use). A curvature blend to a two-point spline is refused
   by `Curvature` itself (`Edit`).
 
+## Spur gears (`gear.rs`)
+
+- A `SpurGear` is a module, a tooth count (`MIN_TEETH..=MAX_TEETH`), a pressure angle in degrees
+  (`MIN_PRESSURE_ANGLE..=MAX_PRESSURE_ANGLE`), a profile shift in modules, a root fillet radius
+  and a bore diameter (0 for none). Its circles (`GearCircles`) are the standard ones: pitch
+  `m z / 2`, base the pitch times `cos α`, tip `ADDENDUM` and root `DEDENDUM` modules either side,
+  both moved out by the shift.
+- `SpurGear::outline` refuses in words (`GearError`) what would not make a sound gear: a tooth
+  count undercut at the shift, judged by the rack rule `1 - x - z sin²α / 2` with
+  `UNDERCUT_SLACK` modules of grace (so 17 teeth pass at 20° with no shift, as practice has it),
+  naming the fewest teeth and the least shift (rounded up to 0.01) that would do; teeth coming to
+  a point (a tip land under `MIN_TIP_LAND` modules); a root circle through the centre; teeth
+  meeting at the root; a root fillet too large for the gap, naming the largest that fits
+  (`largest_root_fillet`, bisected); a bore leaving less than `MIN_RIM` modules under the roots;
+  and anything reaching past `MAX_LENGTH`.
+- A tooth is worked out once, its upper half in its own frame, then mirrored and turned to every
+  tooth, so all flanks are the same curve. Its flank is a control spline fitted to the involute
+  with the roll angle as parameter, which is analytic where arc length is not (the involute leaves
+  the base circle at a cusp), so a uniform clamped spline of 4 to 6 points follows it within
+  `FLANK_TOLERANCE` modules (`fit::least_squares` with the end points pinned, more points until it
+  does). The involute starts `START_ROLL` above the base circle and a radial line runs from there
+  to the root circle when the root lies below it; a root fillet touches that line and the root
+  circle in closed form, or the involute and the root circle where they lie above the base circle
+  (bisected on the roll). The outline (`GearPiece`s in order round the gear, each piece starting
+  exactly where the last ended) is tip arc, flank, line, fillet, root arc across the gap, then the
+  next tooth's fillet, line and flank.
+- `Sketch::add_gear` draws it about a `GearCentre`: a free position gets a new point, an existing
+  point is shared, the origin gets a point held on it by `Coincident`. Consecutive pieces share
+  their end points, tip and root arcs share the centre, and the four circles (pitch, base, root,
+  tip) are construction circles on the centre, so the outline is one closed profile with no open
+  end and the bore, when asked for, a circle inside it. It adds no other constraint: the gear is
+  drawn once and does not follow later changes to the values it was drawn from.
+
 ## Faceting and splines (`curve.rs`, `fit.rs`)
 
 - Curves are drawn as polylines within a chord tolerance (`Faceting`, bounded counts per turn and

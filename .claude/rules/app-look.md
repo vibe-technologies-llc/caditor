@@ -239,7 +239,8 @@ paths:
 - The three arc tools share one Draw button (`sketch_toolbar::ARC_TOOLS`) showing the arc tool last
   used or chosen; each keeps its own key and command, which the button handles whichever is shown.
   Spline, Ellipse, Elliptical arc and Conic share the Curve button (`CURVE_TOOLS`) the same way (a
-  `ToolGroup`), so the sketch bar still fits one row at 1400 points. A group's corner menu lists
+  `ToolGroup`), and Polygon and Spur gear the Polygon button (`POLYGON_TOOLS`, labelled Polygon
+  whichever is shown), so the sketch bar still fits one row at 1400 points. A group's corner menu lists
   its tools, then the ways of the one shown (the spline's), and the group handles the ways'
   commands of all its tools.
 - While the renderer is still uploading (`Renderer::is_uploading`, set each frame on
@@ -289,7 +290,7 @@ paths:
 ## Side panel
 
 - The model panel, Measure, Interference, Analyse faces, the curvature comb, Constrain
-  automatically and the user guide (`app.md`) together take at most `MAX_PANELS_SHARE` (60%) of the
+  automatically, Spur gear and the user guide (`app.md`) together take at most `MAX_PANELS_SHARE` (60%) of the
   window, split evenly between those open (`layout::panel_room`, `panel_widths`); each one's
   minimum width yields to that share, so at 200% on a small screen the 3D view keeps a usable
   width. A model panel narrowed by the share keeps the width the user chose for when there is room.

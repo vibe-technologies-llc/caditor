@@ -37,6 +37,7 @@ pub enum Tool {
     RectangularPattern,
     CircularPattern,
     TangentCircle,
+    Gear,
     Fillet,
     Chamfer,
     Project,
@@ -45,7 +46,7 @@ pub enum Tool {
     BlendCurve,
 }
 
-all_variants!(Tool: Select, Point, Line, Rectangle, Circle, Arc, ThreePointArc, TangentArc, Slot, Polygon, Spline, Ellipse, EllipticalArc, Conic, Trim, Extend, Offset, Mirror, RectangularPattern, CircularPattern, TangentCircle, Fillet, Chamfer, Project, Intersect, Dimension, BlendCurve);
+all_variants!(Tool: Select, Point, Line, Rectangle, Circle, Arc, ThreePointArc, TangentArc, Slot, Polygon, Spline, Ellipse, EllipticalArc, Conic, Trim, Extend, Offset, Mirror, RectangularPattern, CircularPattern, TangentCircle, Gear, Fillet, Chamfer, Project, Intersect, Dimension, BlendCurve);
 
 impl Tool {
     pub fn label(self) -> &'static str {
@@ -71,6 +72,7 @@ impl Tool {
             Self::RectangularPattern => "Rectangular pattern",
             Self::CircularPattern => "Circular pattern",
             Self::TangentCircle => "Tangent circle",
+            Self::Gear => "Spur gear",
             Self::Fillet => "Sketch fillet",
             Self::Chamfer => "Sketch chamfer",
             Self::Project => "Project",
@@ -136,6 +138,10 @@ impl Tool {
                 "Draw a circle tangent to three lines, circles or arcs, or to two of them at a \
                  typed radius, kept tangent as they change"
             }
+            Self::Gear => {
+                "Draw the outline of an involute spur gear from its module, teeth and pressure \
+                 angle, with its pitch, base, root and tip circles, ready to extrude"
+            }
             Self::Fillet => {
                 "Round the corner where two lines or arcs meet with an arc tangent to both"
             }
@@ -173,6 +179,7 @@ impl Tool {
             | Self::RectangularPattern
             | Self::CircularPattern
             | Self::TangentCircle
+            | Self::Gear
             | Self::Fillet
             | Self::Chamfer
             | Self::Project
@@ -211,6 +218,7 @@ impl Tool {
                 | Self::RectangularPattern
                 | Self::CircularPattern
                 | Self::TangentCircle
+                | Self::Gear
                 | Self::Fillet
                 | Self::Chamfer
                 | Self::BlendCurve
