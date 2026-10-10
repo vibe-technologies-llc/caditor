@@ -139,16 +139,10 @@ pub fn measured(sketch: &Sketch, constraint: &Constraint) -> Option<Measured> {
             let mirrored = 2.0 * LineSpan::of(sketch, axis)?.foot(point) - point;
             Some(Measured::Points(point, mirrored))
         }
-        Constraint::HorizontalDistance { from, to, .. } => Some(Measured::Aligned {
-            from: sketch.point(from)?,
-            to: sketch.point(to)?,
-            along: Vector2::X,
-        }),
-        Constraint::VerticalDistance { from, to, .. } => Some(Measured::Aligned {
-            from: sketch.point(from)?,
-            to: sketch.point(to)?,
-            along: Vector2::Y,
-        }),
+        Constraint::HorizontalDistance { .. } | Constraint::VerticalDistance { .. } => {
+            let (from, to, along) = sketch.axis_offset_ends(constraint)?;
+            Some(Measured::Aligned { from, to, along })
+        }
         Constraint::Angle {
             from, to, reversed, ..
         } => Some(Measured::Angle(

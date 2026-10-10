@@ -1,9 +1,11 @@
+use std::borrow::Cow;
+
 use caditor_document::{FeatureId, Transaction};
 use caditor_expression::{Dimension, Expression, Unit};
 use caditor_geometry::Point2;
 use caditor_sketch::{
-    Bevel, ChamferSize, Corner, Dimensioned, Entity, EntityId, Faceting, FilletError, Rounding,
-    Sketch,
+    Bevel, ChamferSize, Corner, Dimensioned, Entity, EntityId, Faceting, FilletError, Pick,
+    Rounding, Sketch,
 };
 
 use crate::{
@@ -20,11 +22,10 @@ use crate::{
     units::LengthUnit,
 };
 
-pub const CORNER_PROMPT: &str =
-    "Click the corner to round, where two lines, arcs or elliptical arcs meet, or drag from it";
+pub const CORNER_PROMPT: &str = "Click the corner to round, where two lines, arcs or elliptical arcs meet, or drag from it; or click two lines, arcs or circles to round where they cross or would meet";
+pub const SECOND_CURVE_PROMPT: &str = "Click the second line, arc or circle: the corner is where the two cross or would meet nearest the clicks, each trimmed or extended to it";
 pub const RADIUS_PROMPT: &str = "Click where the fillet should pass, or type its radius";
-pub const CHAMFER_CORNER_PROMPT: &str =
-    "Click the corner to cut, where two lines, arcs or elliptical arcs meet, or drag from it";
+pub const CHAMFER_CORNER_PROMPT: &str = "Click the corner to cut, where two lines, arcs or elliptical arcs meet, or drag from it; or click two lines, arcs or circles to cut where they cross or would meet";
 pub const DISTANCE_PROMPT: &str = "Click where the chamfer should pass, or type how far from the corner it cuts: 5, or 5, 3 for a different distance on each curve, or 5 < 45 for a distance and an angle";
 pub const TRANSACTION: &str = "Fillet corner";
 pub const CHAMFER_TRANSACTION: &str = "Chamfer corner";
@@ -40,6 +41,7 @@ const NO_CORNER_HIGHLIGHTED: &str =
 const NOTHING_TO_ROUND: &str =
     "The sketch has no corner where two lines, arcs or elliptical arcs meet";
 const CHOOSE_FIRST: &str = "Choose the corner first";
+const SECOND_CURVE_KEYS: &str = "Esc: let go of the first curve";
 const SAME_CORNER: f64 = 1e-6;
 pub const FIELD: ValueField = ValueField {
     label: "Fillet radius",
@@ -90,6 +92,35 @@ impl CornerCut {
         match self {
             Self::Round => "round",
             Self::Chamfer => "cut",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Aim {
+    Corner(Corner),
+    Crossing([Pick; 2]),
+}
+
+impl Aim {
+    fn curves(self) -> [EntityId; 2] {
+        match self {
+            Self::Corner(corner) => corner.curves,
+            Self::Crossing([first, second]) => [first.curve, second.curve],
+        }
+    }
+
+    fn corner(self) -> Option<Corner> {
+        match self {
+            Self::Corner(corner) => Some(corner),
+            Self::Crossing(_) => None,
+        }
+    }
+
+    fn found_in(self, sketch: &mut Sketch) -> Result<Corner, FilletError> {
+        match self {
+            Self::Corner(corner) => sketch.corner_at(corner.point),
+            Self::Crossing(picks) => sketch.join_at_crossing(picks),
         }
     }
 }
@@ -158,11 +189,14 @@ impl LeftOut {
 #[derive(Debug, Clone, Default)]
 pub struct Filleting {
     cut: CornerCut,
-    chosen: Option<Corner>,
-    more: Vec<Corner>,
+    chosen: Option<Aim>,
+    more: Vec<Aim>,
     left_out: Option<LeftOut>,
-    hover: Option<Result<Corner, FilletError>>,
+    hover: Option<Result<Aim, FilletError>>,
     highlight: Option<Corner>,
+    pending: Option<Pick>,
+    under: Option<Pick>,
+    at: Option<Point2>,
     pointer: Option<Point2>,
     typed: Option<f64>,
     typed_chamfer: Option<Result<ChamferSize, String>>,
@@ -215,50 +249,89 @@ impl Filleting {
                 .corner_at(corner.point)
                 .is_ok_and(|now| now.curves == corner.curves)
         };
-        self.chosen = self.chosen.filter(still);
+        let aim_still = |aim: &Aim| match aim {
+            Aim::Corner(corner) => still(corner),
+            Aim::Crossing(picks) => picks.iter().all(|pick| sketch.entity(pick.curve).is_some()),
+        };
+        self.chosen = self.chosen.filter(aim_still);
         self.highlight = self.highlight.filter(still);
-        self.more.retain(still);
+        self.pending = self
+            .pending
+            .filter(|pick| sketch.entity(pick.curve).is_some());
+        self.more.retain(aim_still);
         if self.chosen.is_none() && !self.more.is_empty() {
             self.chosen = Some(self.more.remove(0));
         }
     }
 
-    fn corners(&self) -> Vec<Corner> {
+    fn aims(&self) -> Vec<Aim> {
         let more = self.chosen.map(|_| self.more.clone()).unwrap_or_default();
         self.target().into_iter().chain(more).collect()
     }
 
+    fn hovered(
+        &self,
+        sketch: &Sketch,
+        screen: &impl Screen,
+        pointer: Option<Pointer>,
+    ) -> (Option<Result<Aim, FilletError>>, Option<Pick>) {
+        let Some(pointer) = pointer.filter(|_| self.chosen.is_none()) else {
+            return (None, None);
+        };
+        let corner = end_under(sketch, screen, pointer).map(|point| sketch.corner_at(point));
+        if self.pending.is_none()
+            && let Some(Ok(corner)) = corner
+        {
+            return (Some(Ok(Aim::Corner(corner))), None);
+        }
+        match (curve_under(sketch, screen, pointer), self.pending) {
+            (Some(pick), Some(first)) if pick.curve != first.curve => {
+                let aim = Aim::Crossing([first, pick]);
+                (Some(aim.found_in(&mut sketch.clone()).map(|_| aim)), None)
+            }
+            (Some(pick), _) => (None, Some(pick)),
+            (None, Some(_)) => (None, None),
+            (None, None) => (corner.map(|found| found.map(Aim::Corner)), None),
+        }
+    }
+
     pub fn hover(&mut self, sketch: &Sketch, screen: &impl Screen, pointer: Option<Pointer>) {
         self.pointer = pointer.map(|pointer| pointer.sketch);
-        self.hover = match self.chosen {
-            Some(_) => None,
-            None => pointer
-                .and_then(|pointer| end_under(sketch, screen, pointer))
-                .map(|point| sketch.corner_at(point)),
+        (self.hover, self.under) = self.hovered(sketch, screen, pointer);
+        self.at = None;
+        let (working, corners) = match prepared(sketch, &self.aims()) {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                self.rounding = self.chosen.map(|_| Err(error));
+                return;
+            }
         };
-        let aim = self.chosen.zip(self.pointer);
+        self.at = corners.first().map(|corner| corner.position);
+        let aim = corners
+            .first()
+            .filter(|_| self.chosen.is_some())
+            .zip(self.pointer);
         let shown = match self.cut {
             CornerCut::Round => self
                 .typed
                 .or_else(|| {
-                    aim.and_then(|(chosen, pointer)| sketch.radius_through(&chosen, pointer))
+                    aim.and_then(|(chosen, pointer)| working.radius_through(chosen, pointer))
                 })
                 .map(Shown::Radius),
             CornerCut::Chamfer => match &self.typed_chamfer {
                 Some(Ok(size)) => Some(Shown::Chamfer(size.clone())),
                 Some(Err(_)) => None,
                 None => aim
-                    .and_then(|(chosen, pointer)| sketch.distance_through(&chosen, pointer))
+                    .and_then(|(chosen, pointer)| working.distance_through(chosen, pointer))
                     .map(|distance| Shown::Chamfer(pointed(distance))),
             },
         };
-        let corners = self.corners();
         self.rounding = shown.filter(|_| !corners.is_empty()).map(|shown| {
             corners
                 .iter()
                 .map(|corner| match &shown {
-                    Shown::Radius(radius) => sketch.rounding(corner, *radius).map(Cut::Round),
-                    Shown::Chamfer(size) => sketch.bevel(corner, size).map(Cut::Bevel),
+                    Shown::Radius(radius) => working.rounding(corner, *radius).map(Cut::Round),
+                    Shown::Chamfer(size) => working.bevel(corner, size).map(Cut::Bevel),
                 })
                 .collect()
         });
@@ -309,17 +382,17 @@ impl Filleting {
         self.round(model, feature, size, text).map(Outcome::Apply)
     }
 
-    fn target(&self) -> Option<Corner> {
+    fn target(&self) -> Option<Aim> {
         self.chosen
-            .or(self.highlight)
+            .or(self.highlight.map(Aim::Corner))
             .or_else(|| self.hover.as_ref()?.as_ref().ok().copied())
     }
 
     pub fn preview(&self, faceting: Faceting) -> Preview {
-        let mut preview = Preview::default();
-        if let Some(corner) = self.target() {
-            preview.snap = Some(corner.position);
-        }
+        let mut preview = Preview {
+            snap: self.at,
+            ..Preview::default()
+        };
         if let Some(Ok(cuts)) = &self.rounding {
             for cut in cuts {
                 preview.curves.push(cut.faceted(faceting));
@@ -330,30 +403,42 @@ impl Filleting {
     }
 
     pub fn highlighted_entities(&self) -> Vec<EntityId> {
-        self.corners()
+        self.aims()
             .into_iter()
-            .flat_map(|corner| corner.curves)
+            .flat_map(Aim::curves)
+            .chain(self.pending.map(|pick| pick.curve))
             .collect()
     }
 
     pub fn label(&self, sketch: &Sketch, unit: LengthUnit) -> Option<String> {
-        let corners = self.corners();
+        let aims = self.aims();
         let left_out = self.left_out.as_ref().map(LeftOut::words);
-        let subject = match (corners.as_slice(), &self.hover) {
+        let verb = capitalized(self.cut.verb());
+        let subject = match (aims.as_slice(), &self.hover) {
             ([], Some(Err(error))) => return Some(capitalized(&error.to_string())),
-            ([], _) => return left_out.map(|words| capitalized(&words)),
-            ([corner], _) => {
-                let [first, second] = corner.curves.map(|curve| sketch.entity_label(curve));
-                format!(
-                    "{} the corner of {first} and {second}",
-                    capitalized(self.cut.verb())
-                )
+            ([], _) => {
+                return match (self.pending, self.under) {
+                    (Some(first), _) => Some(format!(
+                        "{verb} where {} meets the next line, arc or circle clicked",
+                        sketch.entity_label(first.curve)
+                    )),
+                    (None, Some(under)) => Some(format!(
+                        "Click {} and then a second line, arc or circle to {} where they meet",
+                        sketch.entity_label(under.curve),
+                        self.cut.verb()
+                    )),
+                    (None, None) => left_out.map(|words| capitalized(&words)),
+                };
             }
-            (many, _) => format!(
-                "{} {}",
-                capitalized(self.cut.verb()),
-                count(many.len(), "corner", "corners")
-            ),
+            ([Aim::Corner(corner)], _) => {
+                let [first, second] = corner.curves.map(|curve| sketch.entity_label(curve));
+                format!("{verb} the corner of {first} and {second}")
+            }
+            ([Aim::Crossing(picks)], _) => {
+                let [first, second] = picks.map(|pick| sketch.entity_label(pick.curve));
+                format!("{verb} where {first} and {second} meet")
+            }
+            (many, _) => format!("{verb} {}", count(many.len(), "corner", "corners")),
         };
         let said = match &self.rounding {
             Some(Ok(cuts)) => match cuts.first() {
@@ -398,6 +483,10 @@ impl Filleting {
                 text: DISTANCE_PROMPT,
                 hint: Hint::Keys(DISTANCE_KEYS),
             },
+            (false, _, _) if self.pending.is_some() => Prompt {
+                text: SECOND_CURVE_PROMPT,
+                hint: Hint::Keys(SECOND_CURVE_KEYS),
+            },
             (false, CornerCut::Round, _) => Prompt {
                 text: CORNER_PROMPT,
                 hint: Hint::Targets,
@@ -413,45 +502,54 @@ impl Filleting {
         if self.chosen.is_some() {
             return self.round_at_pointer(model, feature);
         }
-        match self.hover.clone() {
-            Some(Ok(corner)) => {
-                self.choose(corner);
+        match (self.hover.clone(), self.under) {
+            (Some(Ok(aim)), _) => {
+                self.choose(aim);
                 self.hover = None;
+                self.pending = None;
                 Outcome::Nothing
             }
-            Some(Err(error)) => {
+            (Some(Err(error)), _) => {
                 Outcome::Refused(trimming::refusal(self.cut.tool(), &error.to_string()))
             }
-            None => Outcome::Nothing,
+            (None, Some(pick)) => {
+                self.pending = match self.pending {
+                    Some(first) if first.curve == pick.curve => None,
+                    _ => Some(pick),
+                };
+                self.under = None;
+                Outcome::Nothing
+            }
+            (None, None) => Outcome::Nothing,
         }
     }
 
-    fn choose(&mut self, corner: Corner) {
-        let known = |other: &Corner| same_corner(other, &corner);
+    fn choose(&mut self, aim: Aim) {
+        let known = |other: &Aim| same_aim(other, &aim);
         match self.chosen {
             None => {
-                self.chosen = Some(corner);
+                self.chosen = Some(aim);
                 self.more.clear();
                 self.left_out = None;
             }
             Some(chosen) if known(&chosen) => {}
             Some(_) if self.more.iter().any(known) => {}
-            Some(_) => self.more.push(corner),
+            Some(_) => self.more.push(aim),
         }
     }
 
     pub fn begin_pull(&mut self) -> bool {
         if self.chosen.is_none()
-            && let Some(Ok(corner)) = self.hover.clone()
+            && let Some(Ok(aim @ Aim::Corner(_))) = self.hover.clone()
         {
-            self.choose(corner);
+            self.choose(aim);
         }
         self.chosen.is_some()
     }
 
     pub fn activate(&mut self, model: &Model, feature: FeatureId) -> Outcome {
         if let Some(corner) = self.highlight.take() {
-            self.choose(corner);
+            self.choose(Aim::Corner(corner));
             return Outcome::Nothing;
         }
         if self.chosen.is_none() {
@@ -488,11 +586,11 @@ impl Filleting {
         text: String,
     ) -> Result<Transaction, String> {
         let cut = self.cut;
-        let corners = self.corners();
-        if corners.is_empty() {
+        let aims = self.aims();
+        if aims.is_empty() {
             return Err(trimming::refusal(cut.tool(), CHOOSE_FIRST));
         }
-        let label = match (cut, corners.len()) {
+        let label = match (cut, aims.len()) {
             (CornerCut::Round, 1) => TRANSACTION,
             (CornerCut::Round, _) => CORNERS_TRANSACTION,
             (CornerCut::Chamfer, 1) => CHAMFER_TRANSACTION,
@@ -500,8 +598,8 @@ impl Filleting {
         };
         let refused = |error: FilletError| trimming::refusal(cut.tool(), &error.to_string());
         let rounded = trimming::reshaped(model, feature, label.to_owned(), |sketch| {
-            for corner in &corners {
-                let current = sketch.corner_at(corner.point).map_err(refused)?;
+            for aim in &aims {
+                let current = aim.found_in(sketch).map_err(refused)?;
                 match (cut, &size) {
                     (CornerCut::Round, Size::Radius(value)) => sketch
                         .fillet(&current, value.millimetres, value.expression.clone())
@@ -519,6 +617,7 @@ impl Filleting {
         self.more.clear();
         self.left_out = None;
         self.highlight = None;
+        self.pending = None;
         self.rounding = None;
         self.typed_chamfer = None;
         self.last = Some(text);
@@ -549,11 +648,14 @@ impl Filleting {
         if count == 0 {
             return;
         }
-        let current = self.highlight.or(self.chosen).and_then(|aim| {
-            corners
-                .iter()
-                .position(|corner| corner.curves == aim.curves && corner.position == aim.position)
-        });
+        let current = self
+            .highlight
+            .or(self.chosen.and_then(Aim::corner))
+            .and_then(|aim| {
+                corners.iter().position(|corner| {
+                    corner.curves == aim.curves && corner.position == aim.position
+                })
+            });
         let next = match current {
             Some(index) => (index as isize + step).rem_euclid(count),
             None if step < 0 => count - 1,
@@ -576,11 +678,14 @@ impl Filleting {
     }
 
     pub fn can_back_out(&self) -> bool {
-        self.highlight.is_some() || self.chosen.is_some()
+        self.highlight.is_some() || self.chosen.is_some() || self.pending.is_some()
     }
 
     pub fn back_out(&mut self) {
-        if self.highlight.take().is_none() && self.chosen.take().is_some() {
+        if self.highlight.take().is_none()
+            && self.pending.take().is_none()
+            && self.chosen.take().is_some()
+        {
             self.more.clear();
             self.left_out = None;
             self.rounding = None;
@@ -596,7 +701,48 @@ fn same_corner(first: &Corner, second: &Corner) -> bool {
     one == other && first.position.distance(second.position) <= SAME_CORNER
 }
 
-fn gathered(sketch: &Sketch, selected: &[EntityId]) -> (Vec<Corner>, Option<LeftOut>) {
+fn same_aim(first: &Aim, second: &Aim) -> bool {
+    match (first, second) {
+        (Aim::Corner(one), Aim::Corner(other)) => same_corner(one, other),
+        (Aim::Crossing(_), Aim::Crossing(_)) => {
+            let mut one = first.curves();
+            let mut other = second.curves();
+            one.sort();
+            other.sort();
+            one == other
+        }
+        (Aim::Corner(_), Aim::Crossing(_)) | (Aim::Crossing(_), Aim::Corner(_)) => false,
+    }
+}
+
+fn prepared<'a>(
+    sketch: &'a Sketch,
+    aims: &[Aim],
+) -> Result<(Cow<'a, Sketch>, Vec<Corner>), FilletError> {
+    let corners: Option<Vec<Corner>> = aims.iter().map(|aim| aim.corner()).collect();
+    if let Some(corners) = corners {
+        return Ok((Cow::Borrowed(sketch), corners));
+    }
+    let mut working = sketch.clone();
+    let corners = aims
+        .iter()
+        .map(|aim| aim.found_in(&mut working))
+        .collect::<Result<Vec<Corner>, FilletError>>()?;
+    Ok((Cow::Owned(working), corners))
+}
+
+fn curve_under(sketch: &Sketch, screen: &impl Screen, pointer: Pointer) -> Option<Pick> {
+    trimming::curve_under(sketch, screen, pointer)
+        .filter(|(curve, _)| {
+            matches!(
+                sketch.entity(*curve),
+                Some(Entity::Line { .. } | Entity::Arc { .. } | Entity::Circle { .. })
+            )
+        })
+        .map(|(curve, near)| Pick { curve, near })
+}
+
+fn gathered(sketch: &Sketch, selected: &[EntityId]) -> (Vec<Aim>, Option<LeftOut>) {
     let mut corners: Vec<Corner> = Vec::new();
     let mut refused: Vec<String> = Vec::new();
     let mut take = |corner: Corner| {
@@ -619,19 +765,36 @@ fn gathered(sketch: &Sketch, selected: &[EntityId]) -> (Vec<Corner>, Option<Left
         .into_iter()
         .filter(|corner| corner.curves.iter().all(|curve| curves.contains(curve)))
         .for_each(&mut take);
-    for curve in curves {
-        if !corners.iter().any(|corner| corner.curves.contains(&curve)) {
-            refused.push(format!(
-                "{} meets no other selected line, arc or elliptical arc at a corner",
-                sketch.entity_label(curve)
-            ));
+    let lonely: Vec<EntityId> = curves
+        .into_iter()
+        .filter(|curve| !corners.iter().any(|corner| corner.curves.contains(curve)))
+        .collect();
+    let mut aims: Vec<Aim> = corners.into_iter().map(Aim::Corner).collect();
+    match lonely.as_slice() {
+        [first, second] => match crossing(sketch, *first, *second) {
+            Ok(aim) => aims.push(aim),
+            Err(error) => refused.push(error.to_string()),
+        },
+        _ => {
+            for curve in lonely {
+                refused.push(format!(
+                    "{} meets no other selected line, arc or elliptical arc at a corner",
+                    sketch.entity_label(curve)
+                ));
+            }
         }
     }
     let left_out = refused.first().map(|reason| LeftOut {
         count: refused.len(),
         reason: reason.clone(),
     });
-    (corners, left_out)
+    (aims, left_out)
+}
+
+fn crossing(sketch: &Sketch, first: EntityId, second: EntityId) -> Result<Aim, FilletError> {
+    let aim = Aim::Crossing(sketch.crossing_picks(first, second)?);
+    aim.found_in(&mut sketch.clone())?;
+    Ok(aim)
 }
 
 fn end_under(sketch: &Sketch, screen: &impl Screen, pointer: Pointer) -> Option<EntityId> {

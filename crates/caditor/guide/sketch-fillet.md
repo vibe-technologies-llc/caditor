@@ -4,6 +4,15 @@
 arc tangent to both. Click near the corner, then move the pointer to set the radius and click, or
 type the radius and press Enter.
 
+Two lines, arcs or circles need not meet first. Click one, then the other: the corner is where the
+two cross, or would meet if extended, nearest the clicks, and each is trimmed or extended to it,
+keeping the part you clicked. A circle becomes the arc on the side you clicked, so a lever's
+outline (two boss circles joined by two lines) takes one fillet where each line meets a boss, the
+second fillet on a boss carrying its arc on round to the other line. Selecting the two curves before
+starting the tool does the same, keeping the longer part of a line or arc and the side of a circle
+that leaves the blunter corner. Escape lets go of the first curve. An end that would move but is
+joined to other geometry or fixed is refused, as is a pair that never meets.
+
 To round several corners at once, select them first: the points at the corners, or the curves
 meeting there (select a whole outline to round all its corners). Starting the tool takes every
 corner in the selection, says how many it takes and what it left out and why, and one radius rounds

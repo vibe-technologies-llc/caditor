@@ -221,18 +221,10 @@ impl Style {
                 let along = (second - first).try_normalize()?;
                 self.linear((first, second), along, length(value), shift)
             }
-            Constraint::HorizontalDistance { from, to, .. } => self.linear(
-                (sketch.point(from)?, sketch.point(to)?),
-                Vector2::X,
-                length(value),
-                shift,
-            ),
-            Constraint::VerticalDistance { from, to, .. } => self.linear(
-                (sketch.point(from)?, sketch.point(to)?),
-                Vector2::Y,
-                length(value),
-                shift,
-            ),
+            Constraint::HorizontalDistance { .. } | Constraint::VerticalDistance { .. } => {
+                let (from, to, along) = sketch.axis_offset_ends(constraint)?;
+                self.linear((from, to), along, length(value), shift)
+            }
             Constraint::Angle {
                 from, to, reversed, ..
             } => self.angle(sketch, (from, to), reversed, value, shift),

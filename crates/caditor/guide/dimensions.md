@@ -16,12 +16,18 @@ for example `width / 2` or `30 deg`.
 - Anything else gives the distance between the two items, the origin and axes included.
 
 Clicking two points, or a lone line, waits for a third click that places the dimension: above or
-below gives the horizontal distance, beside them the vertical one, elsewhere the aligned one. For
-an arc, placing it inside gives its sweep and beyond it its length. Enter adds the dimension of a
+below gives the horizontal distance, beside them the vertical one, elsewhere the aligned one. A
+point or circle and a slanted line, or two circles whose centres are not level or upright, wait
+the same way: the horizontal distance of a point from a line is measured to where the line crosses
+the level through the point, and a circle's from its centre. For an arc, placing it inside gives
+its sweep and beyond it its length. Enter adds the dimension of a
 single pick, and Escape lets go of the picks; changing to another tool lets go of them too.
 
 The Dimension group of the ribbon also has each dimension on its own: Distance, Horizontal
-distance, Vertical distance, Angle, Radius and Diameter.
+distance, Vertical distance, Angle, Radius and Diameter. Horizontal and Vertical distance take two
+points, a line's ends, a point or circle and a line, or two circles or arcs (their centres); a line
+running the way the distance is measured is refused, since it never crosses the level or upright
+through the other item.
 
 ## Changing a dimension
 

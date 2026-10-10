@@ -155,14 +155,10 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   `viewport::DRAG_DRAWS_FROM_PRESS`) could draw a tangent arc from it, the release placing its end and the
   chain carrying on with lines afterwards, as Fusion's line tool does; the chain's anchors
   (`ChainStep`) already let the two tools share one chain.
-- [medium · medium] Sketch fillet and chamfer take only two curves ending at one point
-  (`Sketch::corner_between` is `NotJoined` otherwise): two lines that cross, or stop short of each
-  other, cannot be rounded in one step, as other sketchers do by trimming or extending both to the
-  touching points, and a line with a circle is `NotLineOrArc`, so the usual lever outline (two
-  circles, two lines, a fillet where each line meets the boss circle) needs every circle trimmed
-  to an arc and every line joined to it first. `fillet.rs` would take the corner at the crossing
-  of the two carriers nearest the picks and trim or extend each curve to the touching point, a
-  circle becoming the arc on the picked side.
+- [low · medium] Sketch fillet and chamfer join two curves at their crossing only for lines, arcs
+  and circles (`Sketch::join_at_crossing`): an elliptical arc that does not already end at the
+  other curve is `NotCrossable`, though `intersect` finds its crossings; carrying its end round
+  its ellipse as extend does would let it join too.
 - [medium · hard] Tools missing: a pattern of sketch geometry along a path (copies tied to the
   path would need a vector-equality or along-the-curve spacing the solver lacks), and text (a
   font, a height, bold and italic, set along a curve, its letters becoming closed regions that
@@ -229,12 +225,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   click takes the rest. The same slot drawn off the axis trims in one click per end with every end
   joined to its line. Open decision for `trim.rs`: whether an axis should cut only a curve that no
   other curve cuts, or never.
-- [low · medium] Horizontal and Vertical distance take only two points (`check_constraint` is
-  `WrongKind` for a line or a circle): a point's horizontal distance from a vertical line, or a
-  vertical distance from a point to a horizontal line or between two circles, must be dimensioned
-  to one of the line's ends or a centre, so it measures from whichever end was picked rather than
-  from the line. A point to a line along an axis would be the point's offset from where the line
-  crosses the axis-parallel through it, and a circle's its centre's.
 - [low · hard] No reference image: a photo or scan cannot be placed on a sketch plane, scaled by two
   points (or calibrated by a known distance), given an opacity, locked and traced, as a part
   copied from an existing object or a drawing needs.

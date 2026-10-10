@@ -369,3 +369,65 @@ fn the_tools_off_the_sketch_bar_are_in_the_corner_menus_of_their_partners_at_75_
     let visible = egui::Rect::from_min_size(egui::Pos2::ZERO, super::SCREEN.size() / 0.75);
     assert_eq!(sketch_bar_problems(&harness, visible), Vec::<String>::new());
 }
+
+#[test]
+fn a_sketch_fillet_rounds_where_two_clicked_lines_cross_trimming_both_in_one_step() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let level = sketch.add_line(Point2::new(-50.0, 0.0), Point2::new(50.0, 0.0));
+    let upright = sketch.add_line(Point2::new(0.0, -50.0), Point2::new(0.0, 50.0));
+    let [level_label, upright_label] = [level, upright].map(|line| sketch.entity_label(line));
+    let feature = edit_free_sketch(&mut harness, sketch);
+    let before = harness.sketch(feature).clone();
+
+    harness.use_tool(Key::B);
+    harness.point_at(Point2::new(30.0, 0.0));
+    assert!(harness.shows_containing(&format!("Click {level_label} and then a second line")));
+    harness.click_at(Point2::new(30.0, 0.0));
+    assert!(harness.shows(filleting::SECOND_CURVE_PROMPT));
+    harness.point_at(Point2::new(0.0, 25.0));
+    assert!(harness.shows(&format!(
+        "Round where {level_label} and {upright_label} meet"
+    )));
+    harness.click_at(Point2::new(0.0, 25.0));
+    assert!(harness.shows(filleting::RADIUS_PROMPT));
+    type_point(&mut harness, "5");
+
+    let sketch = harness.sketch(feature);
+    let arcs = entities_of_kind(sketch, "Arc");
+    let arc = sketch.arc(arcs[0]).unwrap();
+    assert_eq!(arcs.len(), 1);
+    assert!(arc.center.distance(Point2::new(5.0, 5.0)) < 1e-6);
+    let (start, end) = sketch.line_endpoints(level).unwrap();
+    assert!(start.distance(Point2::new(5.0, 0.0)) < 1e-6);
+    assert!(end.distance(Point2::new(50.0, 0.0)) < 1e-6);
+    assert_eq!(harness.model.undo_label(), Some(filleting::TRANSACTION));
+
+    harness.key(Key::Z, Modifiers::COMMAND);
+    harness.frame();
+    assert!(harness.sketch(feature).same_content(&before));
+}
+
+#[test]
+fn a_sketch_fillet_started_on_a_selected_line_and_boss_rounds_where_they_meet() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let boss = sketch.add_circle(Point2::ZERO, 10.0);
+    let arm = sketch.add_line(Point2::new(0.0, 8.0), Point2::new(50.0, 4.0));
+    let [boss_label, arm_label] = [boss, arm].map(|curve| sketch.entity_label(curve));
+    let feature = edit_free_sketch(&mut harness, sketch);
+
+    harness.select(entity_pickables(feature, &[arm, boss]));
+    harness.use_tool(Key::B);
+    harness.frame();
+    assert!(harness.shows(filleting::RADIUS_PROMPT));
+    assert!(harness.shows_containing(&format!("Round where {boss_label} and {arm_label} meet")));
+
+    type_point(&mut harness, "3");
+    let sketch = harness.sketch(feature);
+    let radii = arc_radii(sketch);
+    assert_eq!(radii.len(), 2);
+    assert!(radii.iter().any(|radius| (radius - 3.0).abs() < 1e-6));
+    assert!(radii.iter().any(|radius| (radius - 10.0).abs() < 1e-6));
+    assert!(entities_of_kind(sketch, "Circle").is_empty());
+}

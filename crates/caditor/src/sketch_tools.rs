@@ -118,10 +118,12 @@ impl ConstraintTool {
                  and a point, line or circle, the ends of a line, or the length of an arc"
             }
             Self::HorizontalDistance => {
-                "Fix the horizontal distance between two points or the ends of a line"
+                "Fix the horizontal distance between two points, the ends of a line, a point or \
+                 circle and where a line crosses the level through it, or circles' centres"
             }
             Self::VerticalDistance => {
-                "Fix the vertical distance between two points or the ends of a line"
+                "Fix the vertical distance between two points, the ends of a line, a point or \
+                 circle and where a line crosses the upright through it, or circles' centres"
             }
             Self::Angle => {
                 "Fix the angle between two lines or a line and an arc at their shared end, or \
@@ -173,7 +175,10 @@ impl ConstraintTool {
                 "Select one line or arc, two of points, lines and circles, or a spline or ellipse \
                  and a point, line, circle or ellipse"
             }
-            Self::HorizontalDistance | Self::VerticalDistance => "Select two points or one line",
+            Self::HorizontalDistance | Self::VerticalDistance => {
+                "Select two points, one line, a point or circle and a line, or a point and a \
+                 circle, or two circles or arcs"
+            }
             Self::Radius => "Select one or more circles, arcs or ellipses",
             Self::Diameter => {
                 "Select one or more circles or arcs, or a point and the line it turns about"
@@ -328,6 +333,15 @@ impl ConstraintTool {
             (Self::HorizontalDistance | Self::VerticalDistance, &[(a, Point), (b, Point)]) => {
                 Some(vec![self.offset(shown, a, b)?])
             }
+            (
+                Self::HorizontalDistance | Self::VerticalDistance,
+                &[(from, Point | Circular), (to, Line | Circular)]
+                | &[(from, Line | Circular), (to, Point | Circular)],
+            ) => {
+                Some(vec![self.offset(shown, from, to).unwrap_or_else(|| {
+                    self.offset_of(from, to, millimetres(0.0))
+                })])
+            }
             (Self::Angle, &[(a, Line), (b, Line)]) => Some(vec![angle(shown, a, b)?]),
             (Self::Angle, &[(line, Line), (arc, Circular)] | &[(arc, Circular), (line, Line)])
                 if is_arc(definition, arc) =>
@@ -369,10 +383,14 @@ impl ConstraintTool {
     }
 
     fn offset(self, shown: &Sketch, from: EntityId, to: EntityId) -> Option<Constraint> {
-        measured(shown, |value| match self {
+        measured(shown, |value| self.offset_of(from, to, value))
+    }
+
+    fn offset_of(self, from: EntityId, to: EntityId, value: Expression) -> Constraint {
+        match self {
             Self::VerticalDistance => Constraint::VerticalDistance { from, to, value },
             _ => Constraint::HorizontalDistance { from, to, value },
-        })
+        }
     }
 }
 
@@ -1836,6 +1854,56 @@ mod tests {
         assert!((left_arc.center.y - right_arc.center.y).abs() < 1e-7);
         assert!((left_arc.radius - right_arc.radius).abs() < 1e-7);
         assert!((left_arc.sweep - right_arc.sweep).abs() < 1e-7);
+    }
+
+    #[test]
+    fn horizontal_and_vertical_distances_take_a_line_or_circles_and_refuse_a_level_line() {
+        let f = fixture();
+        let mm = |value| measure(value, Unit::Millimetre);
+
+        assert_eq!(
+            candidates(&f, ConstraintTool::HorizontalDistance, &[f.lone, f.slanted]),
+            Ok(vec![Constraint::HorizontalDistance {
+                from: f.lone,
+                to: f.slanted,
+                value: mm(1.0),
+            }])
+        );
+        assert_eq!(
+            candidates(&f, ConstraintTool::VerticalDistance, &[f.circle, f.lone]),
+            Ok(vec![Constraint::VerticalDistance {
+                from: f.circle,
+                to: f.lone,
+                value: mm(4.0),
+            }])
+        );
+        assert_eq!(
+            candidates(&f, ConstraintTool::HorizontalDistance, &[f.circle, f.arc]),
+            Ok(vec![Constraint::HorizontalDistance {
+                from: f.circle,
+                to: f.arc,
+                value: mm(30.0),
+            }])
+        );
+        assert_eq!(
+            candidates(
+                &f,
+                ConstraintTool::HorizontalDistance,
+                &[f.lone, f.horizontal]
+            ),
+            Err(format!(
+                "{} is horizontal, so a horizontal distance cannot be measured from it.",
+                f.sketch.entity_label(f.horizontal)
+            ))
+        );
+        assert_eq!(
+            candidates(
+                &f,
+                ConstraintTool::VerticalDistance,
+                &[f.horizontal, f.slanted]
+            ),
+            Err(ConstraintTool::VerticalDistance.selection_hint().to_owned())
+        );
     }
 
     #[test]

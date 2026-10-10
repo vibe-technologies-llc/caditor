@@ -399,8 +399,13 @@ paths:
   duplicates dropped
   (`filleting::gathered`), the words saying "Round 4 corners" and how many selected items were
   left out with the first one's reason (a point that is no corner, a curve meeting no other
-  selected one); else the curve end under the pointer, refused in words when it is no corner. A
-  click, or Space on a highlighted corner, adds further corners. Then the pointer sets the radius
+  selected one); two selected curves meeting at no corner make one corner where they cross or
+  would meet (`filleting::Aim::Crossing`, picks from `Sketch::crossing_picks`); else the curve end
+  under the pointer, refused in words when it is no corner. A click on a line, arc or circle away
+  from a corner picks it as the first curve (highlighted, "Click the second line, arc or circle",
+  Escape lets it go) and a click on a second one chooses the corner where they cross or would meet
+  (`Sketch::join_at_crossing` on a copy for the hover, the preview and the fillet, refused in words
+  when they cannot be joined). A click, or Space on a highlighted corner, adds further corners. Then the pointer sets the radius
   through the first corner (`radius_through`), previewed on all of them, and a click, a typed
   value or Enter rounds them all in one transaction ("Fillet corners" when several, one undo
   step), each corner found again by its point on the working copy as the ones before change it.
@@ -602,7 +607,10 @@ paths:
   horizontal span and above or below them the horizontal distance, within their vertical span and
   beside them the vertical one, elsewhere (and always for level or upright ones) the aligned one;
   for a lone arc, beyond it within its sweep its length, inside it its sweep, outside its sweep its
-  radius. A lone ellipse or elliptical arc adds its major and minor radii (`MajorRadius`,
+  radius. A point or circle and a slanted line, or two circles, also wait for placement when their
+  horizontal and vertical offsets are both above zero (`dimensioning::offset_ends`, the ends of
+  `Sketch::axis_offset_ends`): within the horizontal one's span the horizontal distance, within
+  the vertical one's the vertical, elsewhere the distance as before. A lone ellipse or elliptical arc adds its major and minor radii (`MajorRadius`,
   `MinorRadius`, the one already held left out), as the Radius tool does with one selected; an
   ellipse picked with a point or any curve takes the distance between them (drawn between
   `Sketch::ellipse_gap`'s points), an elliptical arc and a line sharing an end the angle between

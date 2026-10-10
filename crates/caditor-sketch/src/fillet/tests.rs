@@ -2,8 +2,8 @@ use caditor_expression::{EvalError, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2};
 
 use crate::{
-    ChamferSize, Constraint, ConstraintId, Dimensioned, Entity, EntityId, FilletError, Sketch,
-    Solved,
+    ChamferSize, Constraint, ConstraintId, Dimensioned, Entity, EntityId, FilletError, Pick,
+    Sketch, Solved,
 };
 
 const EXACT: f64 = 1e-7;
@@ -823,4 +823,143 @@ fn an_elliptical_arc_is_chamfered_by_a_distance_along_it_and_an_angle_from_it() 
                 .is_some_and(|found| (found - 10.0).abs() < 1e-6)
         );
     }
+}
+
+fn pick(curve: EntityId, x: f64, y: f64) -> Pick {
+    Pick {
+        curve,
+        near: Point2::new(x, y),
+    }
+}
+
+#[test]
+fn two_crossing_lines_are_trimmed_to_their_crossing_and_rounded_in_one_step() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let level = sketch.add_line(Point2::new(-10.0, 0.0), Point2::new(10.0, 0.0));
+    let upright = sketch.add_line(Point2::new(0.0, -10.0), Point2::new(0.0, 10.0));
+
+    let corner = sketch
+        .join_at_crossing([pick(level, 8.0, 0.0), pick(upright, 0.0, 6.0)])
+        .unwrap();
+    let arc = sketch.fillet(&corner, 2.0, mm(2.0)).unwrap();
+
+    let (level_start, level_end) = ends(&sketch, level);
+    let (upright_start, upright_end) = ends(&sketch, upright);
+    assert_near(sketch.point(level_start).unwrap(), Point2::new(2.0, 0.0));
+    assert_near(sketch.point(level_end).unwrap(), Point2::new(10.0, 0.0));
+    assert_near(sketch.point(upright_start).unwrap(), Point2::new(0.0, 2.0));
+    assert_near(sketch.point(upright_end).unwrap(), Point2::new(0.0, 10.0));
+    assert_near(sketch.arc(arc).unwrap().center, Point2::new(2.0, 2.0));
+    assert_eq!(sketch.point(corner.point), Some(Point2::ZERO));
+    assert_eq!(sketch.free_points(), vec![corner.point]);
+    assert_clean(&solve(&sketch));
+}
+
+#[test]
+fn two_lines_stopping_short_are_extended_to_where_they_would_meet() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let level = sketch.add_line(Point2::new(-10.0, 0.0), Point2::new(-3.0, 0.0));
+    let upright = sketch.add_line(Point2::new(0.0, 10.0), Point2::new(0.0, 4.0));
+    let mut chamfered = sketch.clone();
+
+    let corner = sketch
+        .join_at_crossing([pick(level, -6.0, 0.0), pick(upright, 0.0, 7.0)])
+        .unwrap();
+    sketch.fillet(&corner, 2.0, mm(2.0)).unwrap();
+    let cut = chamfered
+        .join_at_crossing([pick(level, -6.0, 0.0), pick(upright, 0.0, 7.0)])
+        .unwrap();
+    chamfered.chamfer(&cut, &equal(1.0)).unwrap();
+
+    let (_, level_end) = ends(&sketch, level);
+    let (_, upright_end) = ends(&sketch, upright);
+    assert_near(sketch.point(level_end).unwrap(), Point2::new(-2.0, 0.0));
+    assert_near(sketch.point(upright_end).unwrap(), Point2::new(0.0, 2.0));
+    assert_eq!(sketch.open_ends().len(), 2);
+    assert_clean(&solve(&sketch));
+    let (_, cut_end) = ends(&chamfered, level);
+    assert_near(chamfered.point(cut_end).unwrap(), Point2::new(-1.0, 0.0));
+}
+
+#[test]
+fn the_lever_outline_rounds_where_each_line_meets_a_boss_in_one_step_each() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let left = sketch.add_circle(Point2::ZERO, 10.0);
+    let right = sketch.add_circle(Point2::new(50.0, 0.0), 6.0);
+    let top = sketch.add_line(Point2::new(0.0, 8.0), Point2::new(50.0, 4.0));
+    let bottom = sketch.add_line(Point2::new(0.0, -8.0), Point2::new(50.0, -4.0));
+
+    let steps = [
+        [pick(top, 20.0, 6.4), pick(left, 5.0, 8.66)],
+        [pick(bottom, 20.0, -6.4), pick(left, 5.0, -8.66)],
+        [pick(top, 30.0, 5.6), pick(right, 46.0, 4.47)],
+        [pick(bottom, 30.0, -5.6), pick(right, 46.0, -4.47)],
+    ];
+    for picks in steps {
+        let corner = sketch.join_at_crossing(picks).unwrap();
+        sketch.fillet(&corner, 3.0, mm(3.0)).unwrap();
+    }
+
+    assert!(sketch.open_ends().is_empty(), "{:?}", sketch.open_ends());
+    let left_arc = sketch.arc(left).unwrap();
+    let right_arc = sketch.arc(right).unwrap();
+    assert!(left_arc.sweep > std::f64::consts::PI);
+    assert!(right_arc.sweep > std::f64::consts::PI);
+    assert!(
+        left_arc
+            .point_at(left_arc.start_angle + left_arc.sweep / 2.0)
+            .x
+            < -9.0
+    );
+    assert!(
+        right_arc
+            .point_at(right_arc.start_angle + right_arc.sweep / 2.0)
+            .x
+            > 55.0
+    );
+    assert_clean(&solve(&sketch));
+}
+
+#[test]
+fn selected_curves_keep_their_longer_parts_and_a_boss_its_blunter_side() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let boss = sketch.add_circle(Point2::ZERO, 10.0);
+    let top = sketch.add_line(Point2::new(0.0, 8.0), Point2::new(50.0, 4.0));
+
+    let picks = sketch.crossing_picks(top, boss).unwrap();
+    let corner = sketch.join_at_crossing(picks).unwrap();
+
+    let arc = sketch.arc(boss).unwrap();
+    assert!(arc.point_at(arc.start_angle + arc.sweep / 2.0).y > 9.0);
+    let (start, end) = ends(&sketch, top);
+    assert_eq!(start, corner.point);
+    assert_near(sketch.point(end).unwrap(), Point2::new(50.0, 4.0));
+}
+
+#[test]
+fn curves_that_never_meet_or_cannot_move_are_refused_in_words() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let first = sketch.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
+    let second = sketch.add_line(Point2::new(0.0, 5.0), Point2::new(10.0, 5.0));
+    let upright = sketch.add_line(Point2::new(20.0, 10.0), Point2::new(20.0, 2.0));
+    let (_, held) = ends(&sketch, upright);
+    sketch
+        .add_constraint(Constraint::Fix {
+            point: held,
+            at: Point2::new(20.0, 2.0),
+        })
+        .unwrap();
+
+    assert!(matches!(
+        sketch.join_at_crossing([pick(first, 5.0, 0.0), pick(second, 5.0, 5.0)]),
+        Err(FilletError::NeverMeet { .. })
+    ));
+    assert!(matches!(
+        sketch.join_at_crossing([pick(first, 5.0, 0.0), pick(upright, 20.0, 6.0)]),
+        Err(FilletError::Held(_))
+    ));
+    assert!(matches!(
+        sketch.join_at_crossing([pick(first, 5.0, 0.0), pick(first, 6.0, 0.0)]),
+        Err(FilletError::SameCurve { .. })
+    ));
 }

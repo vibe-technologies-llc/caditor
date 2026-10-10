@@ -1,8 +1,9 @@
 use std::f64::consts::TAU;
 
 use caditor_document::FeatureId;
+use caditor_expression::Expression;
 use caditor_geometry::Point2;
-use caditor_sketch::{Entity, EntityId, Reference, Sketch};
+use caditor_sketch::{Constraint, Entity, EntityId, Reference, Sketch};
 
 use crate::{
     model::Model,
@@ -119,7 +120,54 @@ pub fn awaits_placement(sketch: &Sketch, picks: &[EntityId]) -> bool {
     };
     match picks {
         [first, second] if both_points(first, second) => true,
-        _ => about_axis(sketch, picks).is_some(),
+        _ => about_axis(sketch, picks).is_some() || offset_ends(sketch, picks).is_some(),
+    }
+}
+
+fn offset_ends(sketch: &Sketch, picks: &[EntityId]) -> Option<[(Point2, Point2); 2]> {
+    let &[from, to] = picks else {
+        return None;
+    };
+    let measurable = matches!(
+        (kind(sketch, from)?, kind(sketch, to)?),
+        (
+            Kind::Point | Kind::Circle | Kind::Arc,
+            Kind::Circle | Kind::Arc | Kind::Line
+        ) | (Kind::Circle | Kind::Arc | Kind::Line, Kind::Point)
+            | (Kind::Line, Kind::Circle | Kind::Arc)
+    );
+    if !measurable {
+        return None;
+    }
+    let value = Expression::Number(0.0);
+    let ends = |constraint: Constraint| {
+        sketch
+            .axis_offset_ends(&constraint)
+            .map(|(start, end, _)| (start, end))
+    };
+    let across = ends(Constraint::HorizontalDistance {
+        from,
+        to,
+        value: value.clone(),
+    })?;
+    let upright = ends(Constraint::VerticalDistance { from, to, value })?;
+    let (wide, tall) = (
+        (across.1 - across.0).x.abs(),
+        (upright.1 - upright.0).y.abs(),
+    );
+    let tolerance = LEVEL_TOLERANCE * wide.max(tall);
+    (wide > tolerance && tall > tolerance).then_some([across, upright])
+}
+
+fn oriented_between([across, upright]: [(Point2, Point2); 2], pointer: Point2) -> ConstraintTool {
+    let within = |low: f64, high: f64, at: f64| (low.min(high)..=low.max(high)).contains(&at);
+    match (
+        within(across.0.x, across.1.x, pointer.x),
+        within(upright.0.y, upright.1.y, pointer.y),
+    ) {
+        (true, false) => ConstraintTool::HorizontalDistance,
+        (false, true) => ConstraintTool::VerticalDistance,
+        _ => ConstraintTool::Distance,
     }
 }
 
@@ -183,7 +231,8 @@ pub fn placed(
             }
         }),
         _ => None,
-    };
+    }
+    .or_else(|| offset_ends(sketch, picks).map(|ends| oriented_between(ends, pointer)));
     Some(placed.unwrap_or(tool))
 }
 
@@ -573,6 +622,46 @@ mod tests {
                 "Click to pick {axis_label}, then click across {axis_label} for the diameter of \
                  {point_label}, or on its side for the distance"
             )
+        );
+    }
+
+    #[test]
+    fn a_point_or_circle_off_a_slanted_line_and_two_circles_wait_to_be_placed() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let point = sketch.add_point(Point2::new(8.0, 3.0));
+        let slanted = sketch.add_line(Point2::ZERO, Point2::new(10.0, 10.0));
+        let level = sketch.add_line(Point2::new(0.0, -5.0), Point2::new(10.0, -5.0));
+        let first = sketch.add_circle(Point2::ZERO, 2.0);
+        let second = sketch.add_circle(Point2::new(10.0, 6.0), 1.0);
+        let at = |x: f64, y: f64| Some(Point2::new(x, y));
+
+        assert!(awaits_placement(&sketch, &[point, slanted]));
+        assert!(awaits_placement(&sketch, &[first, second]));
+        assert!(awaits_placement(&sketch, &[second, slanted]));
+        assert!(!awaits_placement(&sketch, &[point, level]));
+        assert_eq!(
+            placed(&sketch, &[point, slanted], at(5.5, 0.0)),
+            Some(ConstraintTool::HorizontalDistance)
+        );
+        assert_eq!(
+            placed(&sketch, &[point, slanted], at(12.0, 5.0)),
+            Some(ConstraintTool::VerticalDistance)
+        );
+        assert_eq!(
+            placed(&sketch, &[point, slanted], at(20.0, 20.0)),
+            Some(ConstraintTool::Distance)
+        );
+        assert_eq!(
+            placed(&sketch, &[first, second], at(5.0, 10.0)),
+            Some(ConstraintTool::HorizontalDistance)
+        );
+        assert_eq!(
+            placed(&sketch, &[first, second], at(15.0, 3.0)),
+            Some(ConstraintTool::VerticalDistance)
+        );
+        assert_eq!(
+            placed(&sketch, &[point, level], at(8.0, 0.0)),
+            Some(ConstraintTool::Distance)
         );
     }
 
