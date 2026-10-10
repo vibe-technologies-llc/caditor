@@ -181,3 +181,56 @@ fn the_library_names_each_failure_with_its_own_error() {
         assert_eq!(classified(code), error);
     }
 }
+
+#[test]
+fn frames_holding_more_than_they_record_after_a_prefix_are_errors_not_panics() {
+    let prefix = sample(10);
+    let frame = compress_after(&prefix.clone(), &prefix, Level::BALANCED).unwrap();
+    let empty = recording_no_content(&frame);
+    let mut twice = frame.clone();
+    twice.extend_from_slice(&frame);
+
+    assert_eq!(content_size(&empty), Ok(0));
+    assert_eq!(
+        decompress_after(&frame, &prefix, prefix.len()).unwrap(),
+        prefix
+    );
+    assert!(decompress_after(&empty, &prefix, 1 << 20).is_err());
+    assert!(decompress_after(&twice, &prefix, 1 << 20).is_err());
+}
+
+#[test]
+fn the_fuzzed_frames_running_past_their_output_are_errors() {
+    let bytes = include_bytes!("crashes/history-past-output.bin");
+    let (&split, rest) = bytes.split_first().unwrap();
+    let (prefix, data) = rest.split_at(usize::from(split));
+
+    assert_eq!(content_size(data), Ok(56));
+    assert!(decompress(data, 1 << 20).is_err());
+    assert!(decompress_after(data, prefix, 1 << 20).is_err());
+}
+
+fn recording_no_content(frame: &[u8]) -> Vec<u8> {
+    const SIZE_IN_FOUR_BYTES: u8 = 0b1000_0000;
+    const SINGLE_SEGMENT: u8 = 0b0010_0000;
+    const CHECKSUM: u8 = 0b0000_0100;
+    const WINDOW_OF_32_KIB: u8 = 5 << 3;
+
+    let descriptor = frame[4];
+    let single = descriptor & SINGLE_SEGMENT != 0;
+    let size_field = match descriptor >> 6 {
+        0 => usize::from(single),
+        1 => 2,
+        2 => 4,
+        _ => 8,
+    };
+    let window = if single { None } else { Some(frame[5]) };
+    let blocks = &frame[5 + usize::from(!single) + size_field..];
+
+    let mut patched = frame[..4].to_vec();
+    patched.push(SIZE_IN_FOUR_BYTES | (descriptor & CHECKSUM));
+    patched.push(window.unwrap_or(WINDOW_OF_32_KIB));
+    patched.extend_from_slice(&[0; 4]);
+    patched.extend_from_slice(blocks);
+    patched
+}

@@ -602,7 +602,7 @@ fn a_position_and_a_body_volume_are_kept_from_measure_rows() {
     harness.select([far]);
     let volume = LengthUnit::Millimetre.measured_volume(16000.0);
     harness.wait_until("the position and the volume are read", |harness| {
-        harness.shows(&volume)
+        harness.shows(&volume) && !harness.workspace.measure.measurements.is_measuring()
     });
 
     harness.click_button("More for Position");

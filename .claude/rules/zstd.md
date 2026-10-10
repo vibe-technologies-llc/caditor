@@ -17,6 +17,13 @@ paths:
   `unsafe_code = "deny"`, allowed per call site); contexts are owned by guards that free them on drop.
 - The decoder reads untrusted data: frames must record their content size, and decompression
   refuses one larger than the caller's limit or decoding to a different size than recorded.
+- The decoder's output has `SPARE_ROOM` past the recorded size, so it is never empty where a frame
+  starts. The port works out the history size as the output's end minus the prefix's address, which
+  overflows when a frame starts on an empty output after a prefix (a frame recording no content
+  but holding sequences, or concatenated frames filling the output first). With overflow checks on
+  (tests, fuzzing) that panics inside `extern "C"` functions, which aborts the process, so
+  `catch_unwind` could not contain it; a panic inside the port must be kept from happening at this
+  boundary. The fuzz input that found it is `src/crashes/history-past-output.bin`, kept by a test.
 - The port exports no error codes, so `ZstdError` classifies the failure from the negated return
   value against the numbers in `code`, a test pins each; a code it does not know is
   `Unclassified { code }`.

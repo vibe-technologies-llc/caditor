@@ -98,7 +98,9 @@ paths:
   near-coincident and aligned geometry. They hold the invariants of their subject: an `Ok` solid
   validates, each transaction is undone exactly by its inverse, every saved version loads back.
 - Kernel and solver work runs under `WORK_BUDGET`, so slow inputs cancel instead of tripping
-  libFuzzer's timeout. Every panic counts, including ones recompute would contain.
+  libFuzzer's timeout: the structured targets and both STEP targets (`step`, `step_import`), whose
+  bodies are healed and faceted, a folded spline face meshing to a quarter of a million triangles.
+  Every panic counts, including ones recompute would contain.
 - The byte entry points are `caditor_file::fuzzing` and `caditor::fuzzing`, behind their `fuzzing`
   features.
 - Seeds are committed in `fuzz/seeds/<kind>` and dictionaries in `fuzz/dictionaries/<kind>.dict`,

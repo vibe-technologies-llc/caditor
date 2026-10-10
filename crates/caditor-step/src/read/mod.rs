@@ -903,25 +903,29 @@ fn build_one<'a>(
     let geometry = geometries
         .get(position)
         .ok_or_else(|| Problem::new(job.id, "could not be read"))?;
-    healed(geometry, job.id, &job.shells)
-        .or_else(|problem| without_unreadable(geometry, job.id, &job.shells, problem))
+    healed(geometry, job.id, &job.shells).or_else(|problem| match check_interrupt() {
+        Ok(()) => without_unreadable(geometry, job.id, &job.shells, problem),
+        Err(_) => Err(problem),
+    })
 }
 
 fn healed(geometry: &Geometry<'_>, id: u64, shells: &SolidShells) -> Result<Built, Problem> {
-    Topology::new(geometry, Healing::Exact)
-        .solid(id, shells)
-        .or_else(|problem| {
-            Topology::new(geometry, Healing::Extended)
-                .solid(id, shells)
-                .map_err(|_| problem)
-        })
-        .or_else(|problem| match geometry.units.precision {
-            Some(_) => Topology::new(geometry, Healing::Bent)
-                .solid(id, shells)
-                .or_else(|_| Topology::new(geometry, Healing::Faceted).solid(id, shells))
-                .map_err(|_| problem),
-            None => Err(problem),
-        })
+    let built = |healing| Topology::new(geometry, healing).solid(id, shells);
+    built(Healing::Exact).or_else(|problem| {
+        let looser: &[Healing] = match geometry.units.precision {
+            Some(_) => &[Healing::Extended, Healing::Bent, Healing::Faceted],
+            None => &[Healing::Extended],
+        };
+        for healing in looser {
+            if check_interrupt().is_err() {
+                break;
+            }
+            if let Ok(rebuilt) = built(*healing) {
+                return Ok(rebuilt);
+            }
+        }
+        Err(problem)
+    })
 }
 
 fn without_unreadable(

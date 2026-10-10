@@ -22,9 +22,7 @@ fn dimension_line(harness: &mut Harness, scales: bool, typed: &str) -> (f64, f64
         entity: line,
     }]);
     harness.key(Key::D, Modifiers::SHIFT);
-    harness.frame();
-    harness.frame();
-    harness.frame();
+    harness.settle();
 
     harness.events.push(Event::Text(typed.to_owned()));
     harness.frame();

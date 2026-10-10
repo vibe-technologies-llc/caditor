@@ -26,12 +26,22 @@ paths:
   `click_tool` (its label, else its accessible name when the ribbon is compact) and reads a
   panel's rect with `panel_rect`. The focus scroll that brings a tree row into view is animated,
   so a test lets animations finish before clicking what it revealed.
-- `settle` waits for the recompute and body meshing, runs two frames, and starts over while those
-  frames started more (opening a feature meshes the body before it from a frame), so the scene
+- `settle` waits for the recompute, body meshing and the mass properties asked for
+  (`Model::masses_pending`, counted from queueing to the arrival `Model::poll` takes in), runs two
+  frames, and starts over while those frames started more (opening a feature meshes the body before it from a frame), so the scene
   after it is the finished one. `point_at`, and so `click_at`, settles first when a recompute or
   meshing is still running: its result changes the panels (a sketch's status pills), and a
   layout change landing between working out a screen position and the frame that reads the
   pointer would put the pointer somewhere else in the sketch.
+- `settle` does not wait for workers outside the model, so a test reading their result waits for
+  it itself: Measure's readout (`Measurements::is_measuring`, its Position rows arrive apart from a
+  body's mass card), the journal on disk (`Model::flush_journal` before reading the recovery
+  folder, where a journal being written leaves its temporary beside it), the file worker
+  (`Files::wait_for_jobs` before reading recent files, as the app does on exit), and a harness's
+  storage worker (`Model::close` and `Closing::wait` before another harness opens the same model,
+  since Windows locks the journal until the worker lets go and the open is refused as in use).
+  A value typed into a sketch's field right after an edit waits for `settle` first, since
+  anything reading the settled sketch (`Model::settled_sketch`) sees none while it recomputes.
 - A constraint trial (`app-sketching.md`) is waited for at the end of each harness frame
   (`Model::finish_checking_constraints`), so a constraint button's result is in the document by
   the next check as if applied at once.
