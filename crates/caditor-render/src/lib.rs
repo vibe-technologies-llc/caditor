@@ -15,6 +15,7 @@ mod picking;
 mod scene;
 mod settings;
 mod silhouette;
+mod styles;
 mod through;
 mod viewport;
 

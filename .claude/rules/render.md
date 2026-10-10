@@ -200,7 +200,7 @@ paths:
   drops any capacity past 64 KiB when cleared. Replacing the frame-cost benchmark's batch every
   frame costs about 2.8 ms instead of 7.9.
 - Records are as narrow as the shaders allow: a mesh vertex is 20 bytes (`MESH_VERTEX_STRIDE`:
-  position, normal, face), a silhouette 48, a line point 24, a marker 28 and a fill vertex 24.
+  position, normal, face), a silhouette 48, a line point 24, a marker 28 and a fill vertex 16 (a position and the index of its fill's style).
   Every layer's depth biases are WGSL constants chosen from the layer bits of the flags
   (`line_depth_bias`, `marker_depth_bias`, `fill_depth_bias`), so no record repeats them. Normals are
   octahedral `Snorm16x2` (`Pack::octahedral`, `unfolded` in the shader), back within 0.01°; a zero
@@ -220,13 +220,18 @@ paths:
   padding point at each end of the buffer, an open strip of n segments costs n + 1 points, a closed
   one n + 3 (its last segment's start before it and its second point after it, both undrawn, so
   the closing joint has neighbours on both sides), and a lone segment two, 48 bytes as before.
-  Styles (colour, width, flags) sit in a small `Rgba32Uint` texture per batch (`LineStyles`, laid
-  out by `StyleLayout` like face styles, bound as group 1 for the line pipelines); a batch with
-  more styles than the texture can hold draws only the lines before the first that does not fit.
+  Styles (colour, width, flags) sit in a small `Rgba32Uint` texture per batch (`StyleTable`,
+  `styles.rs`, laid out by `StyleLayout` like face styles, bound as group 1 for the line
+  pipelines); a batch with more styles than the texture can hold draws only the lines before the
+  first that does not fit.
 - A batch uploads its fills once, ordered pickable reference fills, then the other pickable fills,
   then the rest, each group in batch order (`FillGroups`): the pick pass draws the first two
   groups as one range each of the colour pass's buffer, and the colour pass's spans keep batch
-  order, so fills of equal depth still draw in the order given.
+  order, so fills of equal depth still draw in the order given. Each fill has one texel (colour,
+  pick id, flags; `fill_texel`) in a second `StyleTable` of the batch, in that upload order, and
+  its vertices carry only the position and the fill's index, which `vs_fill` reads through
+  `style_texel`; the colour and pick fill pipelines bind the table as group 1 like the line
+  pipelines, so fills need no storage buffer either.
 - Draw order: every batch's lines, then markers, then fills. Translucent fills sort back to front
   by centroid depth across all batches, front-layer fills last (`FillOrder`).
 - Model geometry draws over reference geometry (datum planes, axes) through a per-`Layer` depth

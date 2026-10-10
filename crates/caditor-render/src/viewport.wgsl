@@ -32,7 +32,7 @@ struct MeshPlacement {
 @group(1) @binding(0) var<uniform> grid: Grid;
 @group(1) @binding(1) var face_styles: texture_2d<u32>;
 @group(1) @binding(2) var<uniform> mesh: MeshPlacement;
-@group(1) @binding(4) var line_styles: texture_2d<u32>;
+@group(1) @binding(4) var styles: texture_2d<u32>;
 
 const CULLED: vec4<f32> = vec4<f32>(0.0, 0.0, 2.0, 1.0);
 const ORTHOGRAPHIC_DEPTH_BIAS: f32 = 0.03;
@@ -253,10 +253,13 @@ struct LineStyle {
     flags: u32,
 }
 
+fn style_texel(index: u32) -> vec4<u32> {
+    let columns = max(textureDimensions(styles).x, 1u);
+    return textureLoad(styles, vec2<u32>(index % columns, index / columns), 0);
+}
+
 fn line_style(word: u32) -> LineStyle {
-    let index = word & STYLE_INDEX;
-    let columns = max(textureDimensions(line_styles).x, 1u);
-    let texel = textureLoad(line_styles, vec2<u32>(index % columns, index / columns), 0);
+    let texel = style_texel(word & STYLE_INDEX);
     return LineStyle(unpack_color(texel.x), bitcast<f32>(texel.y), texel.z);
 }
 
@@ -520,21 +523,21 @@ fn vs_marker(@builtin(vertex_index) vertex: u32, marker: MarkerInstance) -> Vary
 
 struct FillVertex {
     @location(0) position: vec3<f32>,
-    @location(1) color: vec4<f32>,
-    @location(2) pick: u32,
-    @location(3) flags: u32,
+    @location(1) style: u32,
 }
 
 @vertex
 fn vs_fill(fill: FillVertex) -> Varyings {
+    let style = style_texel(fill.style);
+    let flags = style.z;
     var out = empty_varyings();
     let position = from_anchor(fill.position);
-    out.position = finish(to_clip(position), fill_depth_bias(fill.flags), fill.flags & IN_FRONT);
-    out.color = fill.color;
-    out.pick = fill.pick;
+    out.position = finish(to_clip(position), fill_depth_bias(flags), flags & IN_FRONT);
+    out.color = unpack_color(style.x);
+    out.pick = style.y;
     out.depth = view_depth(position);
     out.relative = position;
-    out.sectioned = fill.flags & SECTIONED;
+    out.sectioned = flags & SECTIONED;
     return out;
 }
 
