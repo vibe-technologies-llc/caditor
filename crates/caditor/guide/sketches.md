@@ -7,7 +7,9 @@ A sketch is a flat drawing on a plane: lines, arcs, circles, splines and points,
 ## Starting a sketch
 
 Select a principal plane, a datum plane or a flat face, then choose {command:model.new_sketch}. With
-nothing selected, it asks you to click one in the view; Escape stops choosing. A sketch on a face
+nothing selected, it asks you to click one in the view, or to pick a principal plane, datum plane
+or coordinate system plane from the **Plane** list of the **New sketch** card above the tree, which
+Tab reaches; Escape or **Cancel** stops choosing. A sketch on a face
 moves with that face when the model changes. Its row in the tree says what it lies on and offers
 Detach and {command:model.place_sketch}.
 

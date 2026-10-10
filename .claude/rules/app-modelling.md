@@ -39,6 +39,7 @@ paths:
   - "crates/caditor/src/reference_picking.rs"
   - "crates/caditor/src/visibility.rs"
   - "crates/caditor/src/sketch_placement.rs"
+  - "crates/caditor/src/new_sketch_panel.rs"
   - "crates/caditor/src/reference_rows.rs"
   - "crates/caditor/src/principal_tree.rs"
   - "crates/caditor/src/feature_tree.rs"
@@ -917,7 +918,12 @@ paths:
 - New sketch starts on the one selected principal plane, datum plane, coordinate system plane or
   flat face
   (`sketch_placement::sketch_target`, several refused with `SEVERAL_TO_SKETCH_ON`, as Place on the
-  selection does); while choosing a plane a click on any of them does the same.
+  selection does); while choosing a plane a click on any of them does the same. Choosing also
+  shows a New sketch card above the tree (`new_sketch_panel.rs`): a Plane combo of the principal
+  planes and every datum plane and coordinate system plane before the bar
+  (`Document::active_features`), each disabled with the reason `new_sketch_on_datum` gives when it
+  cannot take a sketch, and choosing one sends the same `EditingCommand` a click does; Cancel
+  sends `CancelNewSketch`, as Escape does. So a plane is chosen without the pointer.
 - The attachment is captured from the body's state where the sketch sits in the tree: a face made
   further down is refused with the reason, and one whose body is not recomputed that far says so
   (`body_state_before` tells the two apart). A sketch's row says what it lies on and offers Detach

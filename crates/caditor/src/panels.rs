@@ -15,6 +15,7 @@ use crate::{
     icons,
     layout::{self, MIN_SIDE_WIDTH, PanelLayout},
     model::{Action, Model},
+    new_sketch_panel,
     parameter_table::{self, NoteDraft, ParameterUses},
     reference_rows::RowCache,
     selection::{Pickable, Selection},
@@ -406,6 +407,10 @@ pub fn show(
                 .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
                 .show(ui, |ui| {
                     ui.add_space(SPACE_S);
+                    if editing.is_choosing_plane() {
+                        new_sketch_panel::show(ui, model, actions);
+                        ui.add_space(SPACE_L);
+                    }
                     let features = model.document().features().len();
                     let header = SectionHeader {
                         title: FEATURES_TITLE,

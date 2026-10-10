@@ -374,6 +374,12 @@ fn screenshots() {
         let mut model = Harness::styled(look, dir.path(), false);
         model.open_sample(Sample::Bracket);
         shoot(&mut model, &gpu, &out, "model", look);
+        model.select([]);
+        model.click_tool("New sketch");
+        model.still();
+        shoot(&mut model, &gpu, &out, "choosing-plane", look);
+        model.key(egui::Key::Escape, egui::Modifiers::NONE);
+        model.still();
         model
             .workspace
             .viewport

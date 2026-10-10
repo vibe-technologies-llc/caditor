@@ -3698,6 +3698,34 @@ fn a_new_sketch_on_the_selected_plane_is_edited_until_finished() {
 }
 
 #[test]
+fn a_new_sketch_s_plane_is_chosen_from_its_card_as_well_as_in_the_view() {
+    let mut harness = Harness::new();
+    harness.select([]);
+    harness.click("New sketch");
+    harness.frame();
+
+    assert!(harness.workspace.editing.is_choosing_plane());
+    assert!(harness.shows(crate::new_sketch_panel::UNCHOSEN));
+
+    harness.click(crate::new_sketch_panel::CANCEL);
+    harness.frame();
+
+    assert!(!harness.workspace.editing.is_choosing_plane());
+    assert!(!harness.shows(crate::new_sketch_panel::UNCHOSEN));
+
+    harness.click("New sketch");
+    harness.frame();
+    open_combo(&mut harness, crate::new_sketch_panel::PLANE);
+    harness.click_lowest("The XZ plane");
+    harness.frame();
+
+    let feature = harness.editing().expect("the chosen plane is sketched on");
+    assert_eq!(harness.sketch(feature).plane(), Plane::XZ);
+    assert_eq!(harness.model.undo_label(), Some("Create Sketch 1"));
+    assert!(!harness.workspace.editing.is_choosing_plane());
+}
+
+#[test]
 fn undoing_the_creation_of_the_edited_sketch_ends_editing() {
     let mut harness = Harness::new();
     harness.select([Pickable::Plane(PrincipalPlane::Xy)]);
