@@ -3,6 +3,8 @@ use std::{cell::LazyCell, f64::consts::TAU};
 use caditor_geometry::{Point2, Vector2};
 use caditor_sketch::{ArcGeometry, Constraint, EllipseGeometry, Entity, EntityId, Sketch};
 
+use crate::body_snap::BodyTarget;
+
 pub const POINT_TOLERANCE: f64 = 8.0;
 pub const CURVE_TOLERANCE: f64 = 6.0;
 pub const HELD_POINT_PULL: f64 = 3.0 * POINT_TOLERANCE;
@@ -95,6 +97,7 @@ pub enum Target {
         corners: (EntityId, EntityId),
     },
     Centroid(EntityId),
+    Body(BodyTarget),
 }
 
 impl Target {
@@ -142,12 +145,13 @@ impl Target {
             Self::Extension(line) => {
                 format!("On the extension of {}", sketch.entity_label(line))
             }
+            Self::Body(_) => "On a body".to_owned(),
         }
     }
 
     pub fn joins(self, point: EntityId) -> Vec<Constraint> {
         match self {
-            Self::Pending(_) | Self::Centroid(_) => Vec::new(),
+            Self::Pending(_) | Self::Centroid(_) | Self::Body(_) => Vec::new(),
             Self::Midpoint(curve) => vec![Constraint::Midpoint { point, curve }],
             Self::Quadrant {
                 curve,
@@ -209,7 +213,7 @@ impl Target {
 
     fn touches(self, ignored: &[EntityId]) -> bool {
         let involved = match self {
-            Self::Pending(_) => Vec::new(),
+            Self::Pending(_) | Self::Body(_) => Vec::new(),
             Self::Quadrant { curve, centre, .. } => vec![curve, centre],
             Self::AxisEnd {
                 curve,
@@ -235,6 +239,7 @@ impl Target {
     pub fn is_point_like(self) -> bool {
         match self {
             Self::Curve(_) | Self::Extension(_) => false,
+            Self::Body(body) => body.part.is_point_like(),
             Self::Pending(_)
             | Self::Point(_)
             | Self::Midpoint(_)
@@ -259,13 +264,14 @@ impl Target {
             | Self::AxisEnd { .. }
             | Self::Tangent(_)
             | Self::Centre { .. }
-            | Self::Centroid(_) => None,
+            | Self::Centroid(_)
+            | Self::Body(_) => None,
         }
     }
 
     pub fn entity(self) -> Option<EntityId> {
         match self {
-            Self::Pending(_) => None,
+            Self::Pending(_) | Self::Body(_) => None,
             Self::Point(entity)
             | Self::Curve(entity)
             | Self::Extension(entity)
@@ -428,7 +434,8 @@ fn grid_crossing_on(sketch: &Sketch, snapped: Snapped, spacing: f64) -> Option<S
         | Target::Tangent(_)
         | Target::Intersection(..)
         | Target::Centre { .. }
-        | Target::Centroid(_) => return None,
+        | Target::Centroid(_)
+        | Target::Body(_) => return None,
     };
     let on = foot.distance(crossing) <= ON_GRID_TOLERANCE * (1.0 + crossing.abs().max_element());
     on.then_some(Snapped {
@@ -1280,7 +1287,8 @@ pub fn crossing_along(
         | Target::Tangent(_)
         | Target::Intersection(..)
         | Target::Centre { .. }
-        | Target::Centroid(_) => return None,
+        | Target::Centroid(_)
+        | Target::Body(_) => return None,
     };
     let on_part = |fraction: f64| (0.0..=1.0).contains(&fraction) != extended;
     let crossings: Vec<Point2> = if curve == EntityId::HORIZONTAL_AXIS {

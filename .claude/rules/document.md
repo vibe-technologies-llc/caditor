@@ -893,8 +893,11 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   sketches in `features()` and edge origins in `origin_features`, so recompute reuses the sketch
   only while they are unchanged and a source stays above it. `TransactionBuilder::add_projection`
   adds an `Outline` (`edge_outline`, `vertex_outline`, `sketch_outline`) as points, a curve and
-  its source in one transaction. A sketch's evaluation records every body standing at it
-  (`Evaluation::body_result_seen_by`), so the app projects from that state.
+  its source in one transaction; `add_projected` does the same and returns every entity it added,
+  so a caller building constraints on them can check those against a shadow sketch. A sketch's
+  evaluation records every body standing at it (`Evaluation::body_result_seen_by`, and
+  `body_state_seen_by` for the result's `Arc`, which a cache keys on), so the app projects from
+  that state.
 - Intersect sources (`section.rs`): a `Section` is an edge of the body cut by the sketch plane,
   the body intersected with the half-space above the plane (`split::half_space_solid`, the one
   Split uses, extruded under the sketch's own feature id). Its edges between the cut face (a cap

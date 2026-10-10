@@ -533,6 +533,12 @@ fn ellipse_samples(
         .collect()
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct Projected {
+    pub id: EntityId,
+    pub entities: Vec<(EntityId, Entity)>,
+}
+
 impl TransactionBuilder<'_> {
     pub fn add_projection(
         &mut self,
@@ -540,20 +546,32 @@ impl TransactionBuilder<'_> {
         source: ProjectionSource,
         outline: &Outline,
     ) -> EntityId {
-        let point = |builder: &mut Self, position: Point2| {
-            builder.add_sketch_entity(feature, Entity::Point(position))
+        self.add_projected(feature, source, outline).id
+    }
+
+    pub fn add_projected(
+        &mut self,
+        feature: FeatureId,
+        source: ProjectionSource,
+        outline: &Outline,
+    ) -> Projected {
+        let mut entities = Vec::new();
+        let mut add = |builder: &mut Self, entity: Entity| {
+            let id = builder.add_sketch_entity(feature, entity.clone());
+            entities.push((id, entity));
+            id
         };
         let projected = match outline {
-            Outline::Point(position) => point(self, *position),
+            Outline::Point(position) => add(self, Entity::Point(*position)),
             Outline::Line { start, end } => {
-                let start = point(self, *start);
-                let end = point(self, *end);
-                self.add_sketch_entity(feature, Entity::Line { start, end })
+                let start = add(self, Entity::Point(*start));
+                let end = add(self, Entity::Point(*end));
+                add(self, Entity::Line { start, end })
             }
             Outline::Circle { center, radius } => {
-                let center = point(self, *center);
-                self.add_sketch_entity(
-                    feature,
+                let center = add(self, Entity::Point(*center));
+                add(
+                    self,
                     Entity::Circle {
                         center,
                         radius: *radius,
@@ -561,18 +579,18 @@ impl TransactionBuilder<'_> {
                 )
             }
             Outline::Arc { center, start, end } => {
-                let center = point(self, *center);
-                let start = point(self, *start);
-                let end = point(self, *end);
-                self.add_sketch_entity(feature, Entity::Arc { center, start, end })
+                let center = add(self, Entity::Point(*center));
+                let start = add(self, Entity::Point(*start));
+                let end = add(self, Entity::Point(*end));
+                add(self, Entity::Arc { center, start, end })
             }
             Outline::Spline { points, kind } => {
                 let points = points
                     .iter()
-                    .map(|position| point(self, *position))
+                    .map(|position| add(self, Entity::Point(*position)))
                     .collect();
-                self.add_sketch_entity(
-                    feature,
+                add(
+                    self,
                     Entity::Spline {
                         points,
                         kind: *kind,
@@ -584,10 +602,10 @@ impl TransactionBuilder<'_> {
                 major,
                 minor_radius,
             } => {
-                let center = point(self, *center);
-                let major = point(self, *major);
-                self.add_sketch_entity(
-                    feature,
+                let center = add(self, Entity::Point(*center));
+                let major = add(self, Entity::Point(*major));
+                add(
+                    self,
                     Entity::Ellipse {
                         center,
                         major,
@@ -602,12 +620,12 @@ impl TransactionBuilder<'_> {
                 start,
                 end,
             } => {
-                let center = point(self, *center);
-                let major = point(self, *major);
-                let start = point(self, *start);
-                let end = point(self, *end);
-                self.add_sketch_entity(
-                    feature,
+                let center = add(self, Entity::Point(*center));
+                let major = add(self, Entity::Point(*major));
+                let start = add(self, Entity::Point(*start));
+                let end = add(self, Entity::Point(*end));
+                add(
+                    self,
                     Entity::EllipticalArc {
                         center,
                         major,
@@ -623,7 +641,10 @@ impl TransactionBuilder<'_> {
             id: projected,
             source: Some(source),
         });
-        projected
+        Projected {
+            id: projected,
+            entities,
+        }
     }
 }
 
