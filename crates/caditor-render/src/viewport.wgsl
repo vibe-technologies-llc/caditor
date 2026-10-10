@@ -32,16 +32,35 @@ struct MeshPlacement {
 @group(1) @binding(0) var<uniform> grid: Grid;
 @group(1) @binding(1) var face_styles: texture_2d<u32>;
 @group(1) @binding(2) var<uniform> mesh: MeshPlacement;
+@group(1) @binding(4) var line_styles: texture_2d<u32>;
 
 const CULLED: vec4<f32> = vec4<f32>(0.0, 0.0, 2.0, 1.0);
 const ORTHOGRAPHIC_DEPTH_BIAS: f32 = 0.03;
 const HALF_DEPTH_RANGE: f32 = 0.5;
 const GRID_DEPTH_BIAS: f32 = 0.99998;
+const REFERENCE_FILL_DEPTH_BIAS: f32 = 0.99998;
+const MODEL_FILL_DEPTH_BIAS: f32 = 1.00002;
+const FRONT_FILL_DEPTH_BIAS: f32 = 1.0;
+const REFERENCE_LINE_DEPTH_BIAS: f32 = 1.00001;
+const MODEL_LINE_DEPTH_BIAS: f32 = 1.00003;
+const FRONT_LINE_DEPTH_BIAS: f32 = 1.002;
+const REFERENCE_MARKER_DEPTH_BIAS: f32 = 1.00002;
+const MODEL_MARKER_DEPTH_BIAS: f32 = 1.00004;
+const FRONT_MARKER_DEPTH_BIAS: f32 = 1.004;
 const BEHIND: u32 = 0u;
 const IN_FRONT: u32 = 1u;
 const SECTIONED: u32 = 2u;
 const CAPPABLE: u32 = 4u;
 const SOLID_WHERE_SEEN: u32 = 8u;
+const DRAWN: u32 = 0x80000000u;
+const LINKED: u32 = 0x40000000u;
+const STYLE_INDEX: u32 = 0x3fffffffu;
+const START_ROUND: u32 = 1u;
+const END_ROUND: u32 = 2u;
+const START_JOINED: u32 = 4u;
+const END_JOINED: u32 = 8u;
+const MIN_JOINED_PIXELS: f32 = 1e-3;
+const SEAM_OFFSET_PIXELS: f32 = 0.0073;
 const MAX_SECTION_PLANES: u32 = 6u;
 const FACE_SLOPE_BIAS: f32 = 2.0;
 const CAP_DEPTH_BIAS: f32 = 1.0002;
@@ -50,6 +69,7 @@ const HATCH_SHADE: f32 = 0.25;
 const HATCH_WIDTH_POINTS: f32 = 1.0;
 const DASH_PERIOD_POINTS: f32 = 10.0;
 const DASH_DRAWN_FRACTION: f32 = 0.6;
+const DASH_LEAD_POINTS: f32 = DASH_PERIOD_POINTS * 64.0;
 const STROKE_FRINGE_PIXELS: f32 = 1.0;
 const OPAQUE_ALPHA: f32 = 0.999;
 const SRGB_LINEAR_SLOPE: f32 = 12.92;
@@ -71,6 +91,7 @@ struct Varyings {
     @location(8) stroke: vec3<f32>,
     @location(9) @interpolate(flat) stroke_extent: vec3<f32>,
     @location(10) @interpolate(flat) sectioned: u32,
+    @location(11) @interpolate(flat) joints: vec4<f32>,
 }
 
 struct PickOutput {
@@ -119,6 +140,25 @@ fn layered_depth(clip: vec4<f32>, depth_bias: f32, in_front: u32) -> f32 {
     return select(depth, depth + HALF_DEPTH_RANGE * clip.w, in_front != BEHIND);
 }
 
+fn layer_depth_bias(flags: u32, reference: f32, model: f32, front: f32) -> f32 {
+    if (flags & IN_FRONT) != BEHIND {
+        return front;
+    }
+    return select(reference, model, (flags & SECTIONED) != 0u);
+}
+
+fn line_depth_bias(flags: u32) -> f32 {
+    return layer_depth_bias(flags, REFERENCE_LINE_DEPTH_BIAS, MODEL_LINE_DEPTH_BIAS, FRONT_LINE_DEPTH_BIAS);
+}
+
+fn marker_depth_bias(flags: u32) -> f32 {
+    return layer_depth_bias(flags, REFERENCE_MARKER_DEPTH_BIAS, MODEL_MARKER_DEPTH_BIAS, FRONT_MARKER_DEPTH_BIAS);
+}
+
+fn fill_depth_bias(flags: u32) -> f32 {
+    return layer_depth_bias(flags, REFERENCE_FILL_DEPTH_BIAS, MODEL_FILL_DEPTH_BIAS, FRONT_FILL_DEPTH_BIAS);
+}
+
 fn finish(clip: vec4<f32>, depth_bias: f32, in_front: u32) -> vec4<f32> {
     return vec4<f32>(
         clip.x * view.pick_transform.x + view.pick_transform.z * clip.w,
@@ -161,6 +201,7 @@ fn empty_varyings() -> Varyings {
     out.stroke = vec3<f32>(0.0);
     out.stroke_extent = vec3<f32>(0.0);
     out.sectioned = 0u;
+    out.joints = vec4<f32>(0.0);
     return out;
 }
 
@@ -195,14 +236,38 @@ fn quad_corner(index: u32) -> vec2<f32> {
 }
 
 struct LineInstance {
-    @location(0) start: vec3<f32>,
-    @location(1) end: vec3<f32>,
-    @location(2) color: vec4<f32>,
-    @location(3) width: f32,
+    @location(0) previous: vec3<f32>,
+    @location(1) previous_word: u32,
+    @location(2) start: vec3<f32>,
+    @location(3) along: f32,
     @location(4) pick: u32,
-    @location(5) depth_bias: f32,
-    @location(6) along: f32,
-    @location(7) flags: u32,
+    @location(5) word: u32,
+    @location(6) end: vec3<f32>,
+    @location(7) end_word: u32,
+    @location(8) next: vec3<f32>,
+}
+
+struct LineStyle {
+    color: vec4<f32>,
+    width: f32,
+    flags: u32,
+}
+
+fn line_style(word: u32) -> LineStyle {
+    let index = word & STYLE_INDEX;
+    let columns = max(textureDimensions(line_styles).x, 1u);
+    let texel = textureLoad(line_styles, vec2<u32>(index % columns, index / columns), 0);
+    return LineStyle(unpack_color(texel.x), bitcast<f32>(texel.y), texel.z);
+}
+
+struct Joins {
+    ends: u32,
+    previous: vec2<f32>,
+    next: vec2<f32>,
+}
+
+fn unjoined() -> Joins {
+    return Joins(0u, vec2<f32>(0.0), vec2<f32>(0.0));
 }
 
 struct Segment {
@@ -219,6 +284,14 @@ fn near_limit() -> f32 {
 
 fn is_before_near(start: vec3<f32>, end: vec3<f32>) -> bool {
     return view_depth(start) < near_limit() && view_depth(end) < near_limit();
+}
+
+fn is_beyond_near(position: vec3<f32>) -> bool {
+    return view_depth(position) >= near_limit();
+}
+
+fn screen_pixels(position: vec3<f32>) -> vec2<f32> {
+    return ndc_to_pixels(to_clip(position));
 }
 
 fn clipped_segment(head: vec3<f32>, tail: vec3<f32>) -> Segment {
@@ -265,13 +338,30 @@ fn stroke_reach(stroke: Stroke) -> vec2<f32> {
     return vec2<f32>(cap + STROKE_FRINGE_PIXELS, half_width + STROKE_FRINGE_PIXELS);
 }
 
-fn stroked(vertex: u32, segment: Segment, stroke: Stroke) -> Varyings {
+fn end_reach(stroke: Stroke, joins: Joins, at_end: bool) -> f32 {
+    let reach = stroke_reach(stroke);
+    let joined = (joins.ends & select(START_JOINED, END_JOINED, at_end)) != 0u;
+    return select(reach.x, reach.y, joined);
+}
+
+fn stroke_ends(stroke: Stroke, joins: Joins) -> u32 {
+    let capped = select(0u, START_ROUND | END_ROUND, stroke.capped);
+    let joined = joins.ends & (START_JOINED | END_JOINED);
+    let rounded_by_joins = select(0u, START_ROUND, (joined & START_JOINED) != 0u) | select(0u, END_ROUND, (joined & END_JOINED) != 0u);
+    return capped | joined | rounded_by_joins;
+}
+
+fn in_segment_frame(vector: vec2<f32>, direction: vec2<f32>, normal: vec2<f32>) -> vec2<f32> {
+    return vec2<f32>(dot(vector, direction), dot(vector, normal));
+}
+
+fn stroked(vertex: u32, segment: Segment, stroke: Stroke, joins: Joins) -> Varyings {
     let direction = segment_direction(segment);
     let normal = vec2<f32>(-direction.y, direction.x);
     let corner = quad_corner(vertex);
     let at_end = corner.x > 0.0;
     let reach = stroke_reach(stroke);
-    let along = corner.x * reach.x;
+    let along = corner.x * end_reach(stroke, joins, at_end);
     let across = corner.y * reach.y;
     var clip = select(segment.start_clip, segment.end_clip, at_end);
     clip = vec4<f32>(clip.xy + pixels_to_ndc(direction * along + normal * across) * clip.w, clip.zw);
@@ -284,22 +374,47 @@ fn stroked(vertex: u32, segment: Segment, stroke: Stroke) -> Varyings {
         let span = length(segment.along_pixels);
         let from_start = along + select(0.0, span, at_end);
         out.stroke = vec3<f32>(from_start, across, 1.0) * clip.w;
-        out.stroke_extent = vec3<f32>(span, stroke.width * pixels_per_point() * 0.5, select(0.0, 1.0, stroke.capped));
+        out.stroke_extent = vec3<f32>(span, stroke.width * pixels_per_point() * 0.5, f32(stroke_ends(stroke, joins)));
+        out.joints = vec4<f32>(in_segment_frame(joins.previous, direction, normal), in_segment_frame(joins.next, direction, normal));
     }
     return out;
+}
+
+fn neighbour_owns(offset: vec2<f32>, away: vec2<f32>, neighbour: vec2<f32>, half_width: f32, outgoing: bool) -> bool {
+    let span = length(neighbour);
+    if span <= 0.0 {
+        return false;
+    }
+    let toward = neighbour / span;
+    let side = dot(offset, away - toward);
+    let on_neighbour_side = side < select(SEAM_OFFSET_PIXELS, -SEAM_OFFSET_PIXELS, outgoing);
+    let from_joint = dot(offset, toward);
+    if !on_neighbour_side || from_joint > span {
+        return false;
+    }
+    return length(offset - toward * max(from_joint, 0.0)) < half_width + 0.5;
 }
 
 fn stroke_coverage(in: Varyings) -> f32 {
     if in.stroke.z <= 0.0 {
         return 1.0;
     }
-    let along = in.stroke.x / in.stroke.z;
-    let across = abs(in.stroke.y / in.stroke.z);
+    let point = in.stroke.xy / in.stroke.z;
+    let along = point.x;
+    let across = abs(point.y);
     let span = in.stroke_extent.x;
     let half_width = in.stroke_extent.y;
+    let ends = u32(in.stroke_extent.z + 0.5);
+    if (ends & START_JOINED) != 0u && neighbour_owns(point, vec2<f32>(1.0, 0.0), in.joints.xy, half_width, true) {
+        return 0.0;
+    }
+    if (ends & END_JOINED) != 0u && neighbour_owns(point - vec2<f32>(span, 0.0), vec2<f32>(-1.0, 0.0), in.joints.zw, half_width, false) {
+        return 0.0;
+    }
+    let past_end = along - span > -along;
     let beyond = max(-along, along - span);
     let across_coverage = clamp(half_width + 0.5 - across, 0.0, 1.0);
-    if in.stroke_extent.z > 0.5 {
+    if (ends & select(START_ROUND, END_ROUND, past_end)) != 0u {
         let from_end = length(vec2<f32>(max(beyond, 0.0), across));
         return clamp(half_width + 0.5 - from_end, 0.0, 1.0);
     }
@@ -308,15 +423,43 @@ fn stroke_coverage(in: Varyings) -> f32 {
 
 @vertex
 fn vs_line(@builtin(vertex_index) vertex: u32, line: LineInstance) -> Varyings {
-    return line_varyings(vertex, line, line.along >= 0.0 && (line.flags & SOLID_WHERE_SEEN) == 0u);
+    let style = line_style(line.word);
+    return line_varyings(vertex, line, style, line.along >= 0.0 && (style.flags & SOLID_WHERE_SEEN) == 0u);
 }
 
 @vertex
 fn vs_hidden_line(@builtin(vertex_index) vertex: u32, line: LineInstance) -> Varyings {
-    return line_varyings(vertex, line, line.along >= 0.0);
+    return line_varyings(vertex, line, line_style(line.word), line.along >= 0.0);
 }
 
-fn line_varyings(vertex: u32, line: LineInstance, dashed: bool) -> Varyings {
+fn joined_neighbour(linked: bool, far: vec3<f32>, joint: vec2<f32>) -> vec2<f32> {
+    if !linked || !is_beyond_near(far) {
+        return vec2<f32>(0.0);
+    }
+    let toward = screen_pixels(far) - joint;
+    return select(vec2<f32>(0.0), toward, length(toward) > MIN_JOINED_PIXELS);
+}
+
+fn line_joins(line: LineInstance, start: vec3<f32>, end: vec3<f32>) -> Joins {
+    var joins = unjoined();
+    if !finishes_strokes() || !is_beyond_near(start) || !is_beyond_near(end) {
+        return joins;
+    }
+    let start_pixels = screen_pixels(start);
+    let end_pixels = screen_pixels(end);
+    if length(end_pixels - start_pixels) <= MIN_JOINED_PIXELS {
+        return joins;
+    }
+    joins.previous = joined_neighbour((line.previous_word & LINKED) != 0u, from_anchor(line.previous), start_pixels);
+    joins.next = joined_neighbour((line.end_word & LINKED) != 0u, from_anchor(line.next), end_pixels);
+    joins.ends = select(0u, START_JOINED, any(joins.previous != vec2<f32>(0.0))) | select(0u, END_JOINED, any(joins.next != vec2<f32>(0.0)));
+    return joins;
+}
+
+fn line_varyings(vertex: u32, line: LineInstance, style: LineStyle, dashed: bool) -> Varyings {
+    if (line.word & DRAWN) == 0u {
+        return empty_varyings();
+    }
     let line_start = from_anchor(line.start);
     let line_end = from_anchor(line.end);
     if is_before_near(line_start, line_end) {
@@ -324,19 +467,20 @@ fn line_varyings(vertex: u32, line: LineInstance, dashed: bool) -> Varyings {
     }
     let segment = clipped_segment(line_start, line_end);
 
-    let stroke = Stroke(line.width, line.depth_bias, line.flags & IN_FRONT, line.color.a >= OPAQUE_ALPHA);
-    var out = stroked(vertex, segment, stroke);
-    out.color = line.color;
+    let stroke = Stroke(style.width, line_depth_bias(style.flags), style.flags & IN_FRONT, style.color.a >= OPAQUE_ALPHA);
+    let joins = line_joins(line, line_start, line_end);
+    var out = stroked(vertex, segment, stroke, joins);
+    out.color = style.color;
     out.pick = line.pick;
-    out.sectioned = line.flags & SECTIONED;
+    out.sectioned = style.flags & SECTIONED;
     if dashed {
         let corner = quad_corner(vertex);
         let at_end = corner.x > 0.0;
         let clipped_length = distance(segment.start, segment.end);
         let points_per_unit = length(segment.along_pixels) / (max(clipped_length, 1e-12) * pixels_per_point());
         let along_start = line.along + distance(line_start, segment.start);
-        let beyond_points = corner.x * stroke_reach(stroke).x / pixels_per_point();
-        out.dash_points = max((along_start + select(0.0, clipped_length, at_end)) * points_per_unit + beyond_points, 0.0);
+        let beyond_points = corner.x * end_reach(stroke, joins, at_end) / pixels_per_point();
+        out.dash_points = max((along_start + select(0.0, clipped_length, at_end)) * points_per_unit + beyond_points + DASH_LEAD_POINTS, 0.0);
     }
     return out;
 }
@@ -346,8 +490,7 @@ struct MarkerInstance {
     @location(1) color: vec4<f32>,
     @location(2) diameter: f32,
     @location(3) pick: u32,
-    @location(4) depth_bias: f32,
-    @location(5) flags: u32,
+    @location(4) flags: u32,
 }
 
 @vertex
@@ -364,7 +507,7 @@ fn vs_marker(@builtin(vertex_index) vertex: u32, marker: MarkerInstance) -> Vary
     let clip = vec4<f32>(center.xy + pixels_to_ndc(corner * radius) * center.w, center.zw);
 
     var out = empty_varyings();
-    out.position = finish(clip, marker.depth_bias, marker.flags & IN_FRONT);
+    out.position = finish(clip, marker_depth_bias(marker.flags), marker.flags & IN_FRONT);
     out.color = marker.color;
     out.pick = marker.pick;
     out.depth = depth;
@@ -379,15 +522,14 @@ struct FillVertex {
     @location(0) position: vec3<f32>,
     @location(1) color: vec4<f32>,
     @location(2) pick: u32,
-    @location(3) depth_bias: f32,
-    @location(4) flags: u32,
+    @location(3) flags: u32,
 }
 
 @vertex
 fn vs_fill(fill: FillVertex) -> Varyings {
     var out = empty_varyings();
     let position = from_anchor(fill.position);
-    out.position = finish(to_clip(position), fill.depth_bias, fill.flags & IN_FRONT);
+    out.position = finish(to_clip(position), fill_depth_bias(fill.flags), fill.flags & IN_FRONT);
     out.color = fill.color;
     out.pick = fill.pick;
     out.depth = view_depth(position);
@@ -444,7 +586,7 @@ fn vs_mesh(vertex: MeshVertex) -> Varyings {
 struct SilhouetteStyle {
     offset_width: vec4<f32>,
     color: vec4<f32>,
-    turn_x_bias: vec4<f32>,
+    turn_x: vec4<f32>,
     turn_y_dashed: vec4<f32>,
     turn_z: vec4<f32>,
 }
@@ -461,7 +603,7 @@ struct SilhouetteTriangle {
 }
 
 fn silhouette_turned(vector: vec3<f32>) -> vec3<f32> {
-    return silhouette.turn_x_bias.xyz * vector.x + silhouette.turn_y_dashed.xyz * vector.y + silhouette.turn_z.xyz * vector.z;
+    return silhouette.turn_x.xyz * vector.x + silhouette.turn_y_dashed.xyz * vector.y + silhouette.turn_z.xyz * vector.z;
 }
 
 fn silhouette_placed(position: vec3<f32>) -> vec3<f32> {
@@ -530,8 +672,8 @@ fn silhouette_stroke(vertex: u32, triangle: SilhouetteTriangle, dashed: bool) ->
     }
     let segment = clipped_segment(start, end);
 
-    let stroke = Stroke(silhouette.offset_width.w, silhouette.turn_x_bias.w, BEHIND, silhouette.color.a >= OPAQUE_ALPHA);
-    var out = stroked(vertex, segment, stroke);
+    let stroke = Stroke(silhouette.offset_width.w, line_depth_bias(SECTIONED), BEHIND, silhouette.color.a >= OPAQUE_ALPHA);
+    var out = stroked(vertex, segment, stroke, unjoined());
     out.color = silhouette.color;
     out.sectioned = SECTIONED;
     if dashed {

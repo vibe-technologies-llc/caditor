@@ -2761,54 +2761,148 @@ fn an_orthographic_view_draws_and_picks_faces_behind_its_eye_with_edges_over_the
     assert!(on_top.distance(under_the_box) < 1e-9);
 }
 
+fn polyline(points: &[Point3], alpha: u8, dashed: bool) -> Vec<Line> {
+    let mut along = 0.0_f32;
+    points
+        .windows(2)
+        .filter_map(|pair| {
+            let (start, end) = (*pair.first()?, *pair.get(1)?);
+            let stroke = if dashed {
+                Stroke::Dashed { along }
+            } else {
+                Stroke::Solid
+            };
+            along += start.distance(end) as f32;
+            Some(Line {
+                start,
+                end,
+                color: Color::from_rgba8(250, 20, 20, alpha),
+                width: 8.0,
+                layer: Layer::Model,
+                pick: None,
+                stroke,
+            })
+        })
+        .collect()
+}
+
+fn drawn_lines(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    view: &View,
+    lines: Vec<Line>,
+    sample_count: u32,
+) -> Rendered {
+    let scene = Scene::from(Batch {
+        lines,
+        ..Batch::default()
+    });
+    let mut renderer = viewport_renderer(device, sample_count);
+    render_with(
+        &mut renderer,
+        device,
+        queue,
+        &full_frame(view, &scene, DVec2::ZERO),
+    )
+}
+
 #[test]
-fn opaque_polylines_join_and_end_round_and_translucent_ones_keep_square_ends() {
+fn polylines_join_round_where_their_segments_meet_and_translucent_ones_blend_once_there() {
     let Some((device, queue)) = gpu() else {
         return;
     };
     let view = looking_down(100.0, f64::from(SIZE), f64::from(SIZE));
     let pixel_size = view.units_per_pixel_at(100.0);
-    let segment = |start: Point3, end: Point3, alpha: u8| Line {
-        start,
-        end,
-        color: Color::from_rgba8(250, 20, 20, alpha),
-        width: 8.0,
-        layer: Layer::Model,
-        pick: None,
-        stroke: Stroke::Solid,
+    let offset = |x: f64, y: f64| Vector3::new(x, y, 0.0) * pixel_size;
+    let corner = Point3::ZERO;
+    let far_end = Point3::new(0.0, 20.0, 0.0);
+    let turn = [Point3::new(-20.0, 0.0, 0.0), corner, far_end];
+    let hairpin = [
+        Point3::new(-20.0, 0.0, 0.0),
+        corner,
+        Point3::new(-20.0, 3.0, 0.0),
+    ];
+    let triangle = [
+        Point3::new(-15.0, -10.0, 0.0),
+        Point3::new(15.0, -10.0, 0.0),
+        Point3::new(0.0, 15.0, 0.0),
+        Point3::new(-15.0, -10.0, 0.0),
+    ];
+    let red_at =
+        |rendered: &Rendered, point: Point3| pixel(rendered, view.project(point).unwrap().floor());
+
+    for sample_count in [1, 4] {
+        let draw = |points: &[Point3], alpha: u8| {
+            drawn_lines(
+                &device,
+                &queue,
+                &view,
+                polyline(points, alpha, false),
+                sample_count,
+            )
+        };
+        let opaque = draw(&turn, 255);
+        let translucent = draw(&turn, 160);
+        let folded = draw(&hairpin, 160);
+        let closed = draw(&triangle, 160);
+        let once = red_at(&translucent, Point3::new(-10.0, 0.0, 0.0));
+
+        assert!(red_at(&opaque, corner + offset(2.5, -2.5))[0] > 200);
+        assert!(red_at(&opaque, far_end + offset(0.0, 2.5))[0] > 200);
+        assert!(once[0] > 120 && once[0] < 230, "{once:?}");
+        for inside in [
+            corner,
+            corner + offset(-1.5, 1.5),
+            corner + offset(1.5, -1.5),
+            corner + offset(1.0, -2.0),
+        ] {
+            assert_eq!(red_at(&translucent, inside), once, "at {inside}");
+        }
+        assert!(red_at(&translucent, corner + offset(3.5, -3.5))[0] < once[0]);
+        assert!(red_at(&translucent, far_end + offset(0.0, 2.5))[0] < 100);
+        for inside in [
+            corner,
+            corner + offset(-3.0, 0.5),
+            corner + offset(-30.0, 1.0),
+        ] {
+            assert_eq!(red_at(&folded, inside), once, "at {inside} of the fold");
+        }
+        for inside in triangle {
+            assert_eq!(red_at(&closed, inside), once, "at {inside} of the triangle");
+        }
+    }
+}
+
+#[test]
+fn a_translucent_dashed_line_cut_into_collinear_pieces_draws_as_the_whole_line() {
+    let Some((device, queue)) = gpu() else {
+        return;
     };
-    let corner = Point3::new(0.0, 0.0, 0.0);
-    let polyline = |alpha: u8| {
-        Scene::from(Batch {
-            lines: vec![
-                segment(Point3::new(-20.0, 0.0, 0.0), corner, alpha),
-                segment(corner, Point3::new(0.0, 20.0, 0.0), alpha),
-            ],
-            ..Batch::default()
-        })
-    };
-    let outer_corner = corner + Vector3::new(2.5, -2.5, 0.0) * pixel_size;
-    let past_the_end = Point3::new(0.0, 20.0, 0.0) + Vector3::new(0.0, 2.5, 0.0) * pixel_size;
-    let draw = |scene: &Scene| {
-        let mut renderer = viewport_renderer(&device, 1);
-        render_with(
-            &mut renderer,
+    let view = looking_down(100.0, f64::from(SIZE), f64::from(SIZE));
+    let pieces: Vec<Point3> = (0..=8)
+        .map(|index| Point3::new(-40.0 + 10.0 * f64::from(index), 5.0, 0.0))
+        .collect();
+    let ends = [pieces[0], pieces[8]];
+
+    for sample_count in [1, 4] {
+        let whole = drawn_lines(
             &device,
             &queue,
-            &full_frame(&view, scene, DVec2::ZERO),
-        )
-    };
-    let red_at = |rendered: &Rendered, point: Point3| {
-        pixel(rendered, view.project(point).unwrap().floor())[0]
-    };
+            &view,
+            polyline(&ends, 160, true),
+            sample_count,
+        );
+        let cut = drawn_lines(
+            &device,
+            &queue,
+            &view,
+            polyline(&pieces, 160, true),
+            sample_count,
+        );
 
-    let opaque = draw(&polyline(255));
-    let translucent = draw(&polyline(200));
-
-    assert!(red_at(&opaque, outer_corner) > 200);
-    assert!(red_at(&opaque, past_the_end) > 200);
-    assert!(red_at(&translucent, outer_corner) < 100);
-    assert!(red_at(&translucent, past_the_end) < 100);
+        assert!(differing_pixels(&whole, &cut) <= 4);
+        assert!(red_run_count(&whole, row(view.project(ends[0]).unwrap().y, 100.0, 90.0)) > 10);
+    }
 }
 
 fn diagonal_line(layer: Layer) -> Line {

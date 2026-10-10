@@ -857,14 +857,14 @@ pub(crate) struct PlacedAt {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct StyleLayout {
-    columns: u32,
-    rows: u32,
-    faces: u32,
+pub(crate) struct StyleLayout {
+    pub columns: u32,
+    pub rows: u32,
+    pub faces: u32,
 }
 
 impl StyleLayout {
-    fn new(face_count: usize, largest_side: u32) -> Self {
+    pub(crate) fn new(face_count: usize, largest_side: u32) -> Self {
         let side = largest_side.max(1);
         let wanted = u32::try_from(face_count).unwrap_or(u32::MAX).max(1);
         let columns = wanted.min(side);
@@ -876,7 +876,7 @@ impl StyleLayout {
         }
     }
 
-    fn extent(self) -> wgpu::Extent3d {
+    pub(crate) fn extent(self) -> wgpu::Extent3d {
         wgpu::Extent3d {
             width: self.columns,
             height: self.rows,
@@ -884,12 +884,12 @@ impl StyleLayout {
         }
     }
 
-    fn texels(self) -> usize {
+    pub(crate) fn texels(self) -> usize {
         usize::try_from(u64::from(self.columns) * u64::from(self.rows)).unwrap_or(usize::MAX)
     }
 }
 
-fn pack_color(color: Color) -> u32 {
+pub(crate) fn pack_color(color: Color) -> u32 {
     color.to_array().iter().rev().fold(0, |packed, channel| {
         (packed << 8) | (channel.clamp(0.0, 1.0) * 255.0).round() as u32
     })

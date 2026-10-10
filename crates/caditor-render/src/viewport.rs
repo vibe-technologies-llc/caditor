@@ -10,11 +10,12 @@ use crate::{
     gpu::{self, Bytes, GrowableBuffer, Pack, QuadIndices, Records, Wake},
     image::{self, Background, ChannelOrder, ImageRequest, Tile},
     kept::{KeptView, Shown, ViewCopy},
+    lines::{LINE_POINT_SLOTS, LINE_POINT_STRIDE, LineStrips, LineStyles, line_instances},
     mesh::{MESH_VERTEX_STRIDE, MeshCache, MeshPool, UploadBudget},
     picking::{self, PickPrepared, PickTargets, PickWindow, Picking},
     scene::{
-        Batch, Color, CutFace, Fill, Grid, Layer, Line, MAX_SECTION_PLANES, Marker, PickId,
-        Primitive, Reflection, Scene, SectionPlane, ViewportRect, section_slack,
+        Batch, Color, CutFace, Fill, Grid, Layer, MAX_SECTION_PLANES, Marker, PickId, Reflection,
+        Scene, SectionPlane, ViewportRect, section_slack,
     },
     settings::Shading,
     silhouette::{SILHOUETTE_STRIDE, SilhouetteCache},
@@ -38,11 +39,9 @@ const BEHIND_FACES_DEPTH_BIAS: wgpu::DepthBiasState = wgpu::DepthBiasState {
     slope_scale: -4.0,
     clamp: 0.0,
 };
-const LINE_BYTES: usize = 48;
-const LINE_STRIDE: u64 = LINE_BYTES as u64;
-const MARKER_BYTES: usize = 32;
+const MARKER_BYTES: usize = 28;
 const MARKER_STRIDE: u64 = MARKER_BYTES as u64;
-const FILL_VERTEX_BYTES: usize = 28;
+const FILL_VERTEX_BYTES: usize = 24;
 const FILL_VERTEX_STRIDE: u64 = FILL_VERTEX_BYTES as u64;
 const VIEW_UNIFORM_SIZE: u64 = 400;
 const HATCH_SPACING_POINTS: f64 = 8.0;
@@ -61,6 +60,7 @@ const WHOLE_VIEW: [f32; 4] = [1.0, 1.0, 0.0, 0.0];
 const MESH_UPLOAD_BYTES_PER_FRAME: u64 = 8 << 20;
 const SECTIONED_LABEL: &str = "sectioned";
 const STROKE_FRINGE_POINTS: f64 = 2.0;
+const TARGET_SIDE_STEP: u32 = 256;
 
 pub struct ViewportFrame<'a> {
     pub rect: ViewportRect,
@@ -382,6 +382,34 @@ struct TargetSize {
     linear: bool,
 }
 
+impl TargetSize {
+    fn roomy(self, largest_side: u32) -> Self {
+        Self {
+            width: roomy_side(self.width, largest_side),
+            height: roomy_side(self.height, largest_side),
+            ..self
+        }
+    }
+
+    fn holds(self, needed: Self, largest_side: u32) -> bool {
+        let roomy = needed.roomy(largest_side);
+        let side_holds = |allocated: u32, needed: u32, roomy: u32| {
+            allocated >= needed && allocated <= roomy.saturating_add(TARGET_SIDE_STEP)
+        };
+        self.linear == needed.linear
+            && side_holds(self.width, needed.width, roomy.width)
+            && side_holds(self.height, needed.height, roomy.height)
+    }
+}
+
+fn roomy_side(needed: u32, largest_side: u32) -> u32 {
+    needed
+        .div_ceil(TARGET_SIDE_STEP)
+        .saturating_mul(TARGET_SIDE_STEP)
+        .min(largest_side)
+        .max(needed)
+}
+
 struct SceneTargets {
     size: TargetSize,
     multisampled_color: Option<Multisampled>,
@@ -494,10 +522,13 @@ struct GpuBatch {
     shown: Option<Arc<Batch>>,
     anchor: Point3,
     lines: GrowableBuffer,
+    line_styles: Option<LineStyles>,
     markers: GrowableBuffer,
     fills: GrowableBuffer,
     line_count: u32,
     shown_lines: u32,
+    #[cfg(test)]
+    line_segments: (u64, u64),
     hidden_runs: Vec<Range<u32>>,
     bounds: Option<BatchBounds>,
     marker_count: u32,
@@ -513,11 +544,14 @@ impl GpuBatch {
         Self {
             shown: None,
             anchor: Point3::ZERO,
-            lines: GrowableBuffer::new(device, "lines", wgpu::BufferUsages::VERTEX),
+            lines: GrowableBuffer::new(device, "line points", wgpu::BufferUsages::VERTEX),
+            line_styles: None,
             markers: GrowableBuffer::new(device, "markers", wgpu::BufferUsages::VERTEX),
             fills: GrowableBuffer::new(device, "fills", wgpu::BufferUsages::VERTEX),
             line_count: 0,
             shown_lines: 0,
+            #[cfg(test)]
+            line_segments: (0, 0),
             hidden_runs: Vec::new(),
             bounds: None,
             marker_count: 0,
@@ -550,19 +584,36 @@ impl GpuBatch {
             batch,
             anchor,
             slot,
+            line_styles,
         } = uploaded;
-        let (shown_lines, lines) = shown_first(&batch.lines, |line| line.color);
-        self.line_count = count(self.lines.upload(
+        let strips = LineStrips::of(&batch.lines, device.limits().max_texture_dimension_2d);
+        self.line_count = line_instances(self.lines.upload(
             device,
             queue,
             Records {
-                count: batch.lines.len() as u64,
+                count: strips.point_count(),
                 per_primitive: 1,
-                records: lines.map(|line| line_record(line, anchor)),
+                records: strips.points(anchor),
             },
         ));
-        self.shown_lines = count(shown_lines).min(self.line_count);
-        self.hidden_runs = hidden_runs(&batch.lines, self.shown_lines);
+        self.shown_lines = count(strips.shown_instances()).min(self.line_count);
+        #[cfg(test)]
+        {
+            self.line_segments = strips.segments();
+        }
+        let drawn = self.line_count;
+        self.hidden_runs = strips
+            .hidden_runs()
+            .into_iter()
+            .map(|run| run.start.min(drawn)..run.end.min(drawn))
+            .filter(|run| !run.is_empty())
+            .collect();
+        self.line_styles = Some(LineStyles::written(
+            self.line_styles.take(),
+            (device, queue),
+            line_styles,
+            &strips,
+        ));
         self.bounds = BatchBounds::of(batch);
 
         let (shown_markers, markers) = shown_first(&batch.markers, |marker| marker.color);
@@ -621,23 +672,37 @@ impl GpuBatch {
         pipeline: &wgpu::RenderPipeline,
         instances: u32,
     ) {
-        if instances == 0 {
-            return;
+        if self.bind_lines(pass, pipeline, instances) {
+            pass.draw_indexed(0..gpu::QUAD_INDEX_COUNT, 0, 0..instances);
         }
-        pass.set_pipeline(pipeline);
-        pass.set_vertex_buffer(0, self.lines.slice(u64::from(instances) * LINE_STRIDE));
-        pass.draw_indexed(0..gpu::QUAD_INDEX_COUNT, 0, 0..instances);
     }
 
     fn draw_hidden_lines(&self, pass: &mut wgpu::RenderPass<'_>, pipeline: &wgpu::RenderPipeline) {
-        let Some(end) = self.hidden_runs.last().map(|run| run.end) else {
-            return;
+        let end = self.hidden_runs.last().map_or(0, |run| run.end);
+        if self.bind_lines(pass, pipeline, end) {
+            for run in &self.hidden_runs {
+                pass.draw_indexed(0..gpu::QUAD_INDEX_COUNT, 0, run.clone());
+            }
+        }
+    }
+
+    fn bind_lines(
+        &self,
+        pass: &mut wgpu::RenderPass<'_>,
+        pipeline: &wgpu::RenderPipeline,
+        instances: u32,
+    ) -> bool {
+        let Some(styles) = self.line_styles.as_ref().filter(|_| instances > 0) else {
+            return false;
         };
         pass.set_pipeline(pipeline);
-        pass.set_vertex_buffer(0, self.lines.slice(u64::from(end) * LINE_STRIDE));
-        for run in &self.hidden_runs {
-            pass.draw_indexed(0..gpu::QUAD_INDEX_COUNT, 0, run.clone());
+        pass.set_bind_group(1, &styles.bind_group, &[]);
+        for slot in 0..LINE_POINT_SLOTS {
+            let first = u64::from(slot) * LINE_POINT_STRIDE;
+            let end = u64::from(slot + instances) * LINE_POINT_STRIDE;
+            pass.set_vertex_buffer(slot, self.lines.slice_between(first, end));
         }
+        true
     }
 
     fn seen_in(&self, window: &ClipWindow) -> bool {
@@ -819,24 +884,6 @@ impl BatchBounds {
     }
 }
 
-fn hidden_runs(lines: &[Line], shown: u32) -> Vec<Range<u32>> {
-    let mut runs: Vec<Range<u32>> = Vec::new();
-    let flagged = lines
-        .iter()
-        .filter(|line| line.color.alpha > 0.0)
-        .map(|line| line.stroke.dashes_where_hidden());
-    for (index, flagged) in (0..shown).zip(flagged) {
-        if !flagged {
-            continue;
-        }
-        match runs.last_mut() {
-            Some(run) if run.end == index => run.end = index + 1,
-            _ => runs.push(index..index + 1),
-        }
-    }
-    runs
-}
-
 fn shown_first<T>(
     items: &[T],
     color: impl Fn(&T) -> Color + Copy,
@@ -854,6 +901,7 @@ struct Uploaded<'a> {
     batch: &'a Arc<Batch>,
     anchor: Point3,
     slot: usize,
+    line_styles: &'a wgpu::BindGroupLayout,
 }
 
 pub struct ViewportRenderer {
@@ -862,6 +910,7 @@ pub struct ViewportRenderer {
     shading: Shading,
     view_layout: wgpu::BindGroupLayout,
     grid_layout: wgpu::BindGroupLayout,
+    line_styles_layout: wgpu::BindGroupLayout,
     pipelines: Pipelines,
     set_aside: Vec<(u32, Pipelines)>,
     view_uniform: Uniform,
@@ -912,11 +961,17 @@ impl ViewportRenderer {
         };
         let view_layout = uniform_layout("view uniform");
         let grid_layout = uniform_layout("grid uniform");
+        let line_styles_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("line styles"),
+                entries: &[LineStyles::layout_entry()],
+            });
         let meshes = MeshCache::new(device);
         let silhouettes = SilhouetteCache::new(device);
         let layouts = Layouts {
             view: &view_layout,
             grid: &grid_layout,
+            line_styles: &line_styles_layout,
             mesh: meshes.layout(),
             silhouette: silhouettes.layout(),
         };
@@ -933,6 +988,7 @@ impl ViewportRenderer {
             quad_indices: QuadIndices::new(device),
             view_layout,
             grid_layout,
+            line_styles_layout,
             batches: Vec::new(),
             anchor: None,
             fill_order: FillOrder::default(),
@@ -985,6 +1041,7 @@ impl ViewportRenderer {
             let layouts = Layouts {
                 view: &self.view_layout,
                 grid: &self.grid_layout,
+                line_styles: &self.line_styles_layout,
                 mesh: self.meshes.layout(),
                 silhouette: self.silhouettes.layout(),
             };
@@ -1192,6 +1249,7 @@ impl ViewportRenderer {
             shading: self.shading,
             view_layout: self.view_layout.clone(),
             grid_layout: self.grid_layout.clone(),
+            line_styles_layout: self.line_styles_layout.clone(),
             pipelines: self.pipelines.clone(),
             set_aside: Vec::new(),
             view_uniform: Uniform::new(device, &self.view_layout, "view", VIEW_UNIFORM_SIZE),
@@ -1455,12 +1513,14 @@ impl ViewportRenderer {
         self.picking.encode_readback(encoder, *view, cursor);
     }
 
-    fn ensure_targets(&mut self, device: &wgpu::Device, size: TargetSize) -> bool {
+    fn ensure_targets(&mut self, device: &wgpu::Device, needed: TargetSize) -> bool {
+        let largest_side = device.limits().max_texture_dimension_2d;
+        let size = needed.roomy(largest_side);
         let TargetSize { width, height, .. } = size;
         let current = self
             .targets
             .as_ref()
-            .is_some_and(|targets| targets.size == size);
+            .is_some_and(|targets| targets.size.holds(needed, largest_side));
         if current || self.targets_refused == Some(size) {
             return false;
         }
@@ -1616,6 +1676,7 @@ impl ViewportRenderer {
                             batch,
                             anchor,
                             slot,
+                            line_styles: &self.line_styles_layout,
                         },
                     );
                 });
@@ -1666,15 +1727,18 @@ impl ViewportRenderer {
     }
 
     #[cfg(test)]
-    pub fn instances(&self) -> [(u32, u32); 2] {
+    pub fn instances(&self) -> [(u64, u64); 2] {
         self.batches
             .iter()
             .fold([(0, 0); 2], |[lines, markers], batch| {
                 [
-                    (lines.0 + batch.shown_lines, lines.1 + batch.line_count),
                     (
-                        markers.0 + batch.shown_markers,
-                        markers.1 + batch.marker_count,
+                        lines.0 + batch.line_segments.0,
+                        lines.1 + batch.line_segments.1,
+                    ),
+                    (
+                        markers.0 + u64::from(batch.shown_markers),
+                        markers.1 + u64::from(batch.marker_count),
                     ),
                 ]
             })
@@ -1798,6 +1862,7 @@ fn coalesce(spans: &[FillSpan], draws: &mut Vec<FillDraw>) {
 struct Layouts<'a> {
     view: &'a wgpu::BindGroupLayout,
     grid: &'a wgpu::BindGroupLayout,
+    line_styles: &'a wgpu::BindGroupLayout,
     mesh: &'a wgpu::BindGroupLayout,
     silhouette: &'a wgpu::BindGroupLayout,
 }
@@ -1819,6 +1884,8 @@ impl Pipelines {
             })
         };
         let scene_layout = pipeline_layout("scene", &[Some(layouts.view)]);
+        let line_pipeline_layout =
+            pipeline_layout("lines", &[Some(layouts.view), Some(layouts.line_styles)]);
         let grid_pipeline_layout =
             pipeline_layout("grid", &[Some(layouts.view), Some(layouts.grid)]);
         let mesh_pipeline_layout =
@@ -1828,16 +1895,13 @@ impl Pipelines {
             &[Some(layouts.view), Some(layouts.silhouette)],
         );
 
-        let line_attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Unorm8x4, 3 => Float32, 4 => Uint32, 5 => Float32, 6 => Float32, 7 => Uint32];
-        let marker_attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Unorm8x4, 2 => Float32, 3 => Uint32, 4 => Float32, 5 => Uint32];
-        let fill_attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Unorm8x4, 2 => Uint32, 3 => Float32, 4 => Uint32];
+        let marker_attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Unorm8x4, 2 => Float32, 3 => Uint32, 4 => Uint32];
+        let fill_attributes =
+            wgpu::vertex_attr_array![0 => Float32x3, 1 => Unorm8x4, 2 => Uint32, 3 => Uint32];
         let mesh_attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Snorm16x2, 2 => Uint32];
         let silhouette_attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x3, 3 => Snorm16x2, 4 => Snorm16x2, 5 => Snorm16x2];
-        let lines = [Some(wgpu::VertexBufferLayout {
-            array_stride: LINE_STRIDE,
-            step_mode: wgpu::VertexStepMode::Instance,
-            attributes: &line_attributes,
-        })];
+        let line_points = LinePointAttributes::new();
+        let lines = line_points.layouts();
         let markers = [Some(wgpu::VertexBufferLayout {
             array_stride: MARKER_STRIDE,
             step_mode: wgpu::VertexStepMode::Instance,
@@ -2014,8 +2078,20 @@ impl Pipelines {
                 "fs_line",
                 true,
             ),
-            lines: color("lines", &scene_layout, "vs_line", &lines, "fs_line", true),
-            hidden_lines: hidden("hidden lines", &scene_layout, "vs_hidden_line", &lines),
+            lines: color(
+                "lines",
+                &line_pipeline_layout,
+                "vs_line",
+                &lines,
+                "fs_line",
+                true,
+            ),
+            hidden_lines: hidden(
+                "hidden lines",
+                &line_pipeline_layout,
+                "vs_hidden_line",
+                &lines,
+            ),
             hidden_silhouettes: hidden(
                 "hidden silhouettes",
                 &silhouette_pipeline_layout,
@@ -2050,7 +2126,7 @@ impl Pipelines {
             pick: reused_picking.cloned().unwrap_or_else(|| PickPipelines {
                 lines: pick_pipeline(
                     "pick lines",
-                    &scene_layout,
+                    &line_pipeline_layout,
                     "vs_line",
                     &lines,
                     "fs_pick",
@@ -2156,18 +2232,54 @@ fn build_pipeline(device: &wgpu::Device, spec: &PipelineSpec<'_>) -> wgpu::Rende
     })
 }
 
-fn line_record(line: &Line, anchor: Point3) -> [u8; LINE_BYTES] {
-    gpu::record(|record| {
-        record
-            .vec3(relative_to_eye(line.start, anchor))
-            .vec3(relative_to_eye(line.end, anchor))
-            .unorm8x4(line.color.to_array())
-            .f32(line.width)
-            .u32(PickId::raw(line.pick))
-            .f32(line.layer.depth_bias(Primitive::Line))
-            .f32(line.stroke.along())
-            .u32(line.layer.flags() | line.stroke.flags());
-    })
+struct LinePointAttributes {
+    previous: [wgpu::VertexAttribute; 2],
+    start: [wgpu::VertexAttribute; 4],
+    end: [wgpu::VertexAttribute; 2],
+    next: [wgpu::VertexAttribute; 1],
+}
+
+impl LinePointAttributes {
+    const ALONG: u64 = 12;
+    const PICK: u64 = 16;
+    const WORD: u64 = 20;
+
+    fn new() -> Self {
+        let attribute = |shader_location, format, offset| wgpu::VertexAttribute {
+            format,
+            offset,
+            shader_location,
+        };
+        let position = |location| attribute(location, wgpu::VertexFormat::Float32x3, 0);
+        let word = |location| attribute(location, wgpu::VertexFormat::Uint32, Self::WORD);
+        Self {
+            previous: [position(0), word(1)],
+            start: [
+                position(2),
+                attribute(3, wgpu::VertexFormat::Float32, Self::ALONG),
+                attribute(4, wgpu::VertexFormat::Uint32, Self::PICK),
+                word(5),
+            ],
+            end: [position(6), word(7)],
+            next: [position(8)],
+        }
+    }
+
+    fn layouts(&self) -> [Option<wgpu::VertexBufferLayout<'_>>; LINE_POINT_SLOTS as usize] {
+        let layout = |attributes| {
+            Some(wgpu::VertexBufferLayout {
+                array_stride: LINE_POINT_STRIDE,
+                step_mode: wgpu::VertexStepMode::Instance,
+                attributes,
+            })
+        };
+        [
+            layout(&self.previous),
+            layout(&self.start),
+            layout(&self.end),
+            layout(&self.next),
+        ]
+    }
 }
 
 fn marker_record(marker: &Marker, anchor: Point3) -> [u8; MARKER_BYTES] {
@@ -2177,7 +2289,6 @@ fn marker_record(marker: &Marker, anchor: Point3) -> [u8; MARKER_BYTES] {
             .unorm8x4(marker.color.to_array())
             .f32(marker.diameter)
             .u32(PickId::raw(marker.pick))
-            .f32(marker.layer.depth_bias(Primitive::Marker))
             .u32(marker.layer.flags());
     })
 }
@@ -2190,7 +2301,6 @@ fn fill_vertices(
     fill: &Fill,
     anchor: Point3,
 ) -> impl Iterator<Item = [u8; FILL_VERTEX_BYTES]> + '_ {
-    let depth_bias = fill.layer.depth_bias(Primitive::Fill);
     let flags = fill.layer.flags();
     fill.triangles.iter().flatten().map(move |corner| {
         gpu::record(|record| {
@@ -2198,7 +2308,6 @@ fn fill_vertices(
                 .vec3(relative_to_eye(*corner, anchor))
                 .unorm8x4(fill.color.to_array())
                 .u32(PickId::raw(fill.pick))
-                .f32(depth_bias)
                 .u32(flags);
         })
     })
@@ -2418,7 +2527,10 @@ mod tests {
     use caditor_geometry::Vector3;
 
     use super::*;
-    use crate::{camera::Viewpoint, scene::Stroke};
+    use crate::{
+        camera::Viewpoint,
+        scene::{Line, Stroke},
+    };
 
     #[test]
     fn relative_to_eye_keeps_micrometres_far_from_the_origin() {
@@ -2441,27 +2553,6 @@ mod tests {
             pick: None,
             stroke,
         }
-    }
-
-    #[test]
-    fn hidden_runs_cover_the_shown_lines_dashed_where_hidden_in_their_uploaded_places() {
-        let hidden = Stroke::DashedWhereHidden {
-            along: 0.0,
-            seen_dashed: false,
-        };
-        let lines = [
-            line(0.0, 255, hidden),
-            line(1.0, 0, hidden),
-            line(2.0, 255, hidden),
-            line(3.0, 255, Stroke::Solid),
-            line(4.0, 255, hidden),
-            line(5.0, 255, Stroke::Dashed { along: 0.0 }),
-            line(6.0, 255, hidden),
-        ];
-
-        assert_eq!(hidden_runs(&lines, 6), vec![0..2, 3..4, 5..6]);
-        assert_eq!(hidden_runs(&lines, 4), vec![0..2, 3..4]);
-        assert!(hidden_runs(&lines, 0).is_empty());
     }
 
     #[test]
@@ -2544,6 +2635,31 @@ mod tests {
         )
         .validate(&module)
         .unwrap();
+    }
+
+    #[test]
+    fn scene_targets_grow_in_steps_and_shrink_only_once_well_past_what_is_needed() {
+        let size = |width: u32, height: u32| TargetSize {
+            width,
+            height,
+            linear: false,
+        };
+        let allocated = size(900, 700).roomy(4096);
+
+        assert_eq!(allocated, size(1024, 768));
+        assert!(allocated.holds(size(1024, 700), 4096));
+        assert!(allocated.holds(size(800, 600), 4096));
+        assert!(!allocated.holds(size(1025, 700), 4096));
+        assert!(!allocated.holds(size(500, 700), 4096));
+        assert!(!allocated.holds(
+            TargetSize {
+                linear: true,
+                ..size(900, 700)
+            },
+            4096
+        ));
+        assert_eq!(size(1000, 300).roomy(1000), size(1000, 512));
+        assert_eq!(size(1200, 300).roomy(1000), size(1200, 512));
     }
 
     #[test]

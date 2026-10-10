@@ -6,6 +6,7 @@ mod culling;
 mod gpu;
 mod image;
 mod kept;
+mod lines;
 mod mesh;
 mod offscreen;
 #[cfg(test)]
