@@ -1110,6 +1110,12 @@ impl Harness {
         self.context.global_style().visuals.error_fg_color
     }
 
+    fn read_screen(&mut self) {
+        self.context.enable_accesskit();
+        self.frame();
+        self.context.disable_accesskit();
+    }
+
     fn accessible_named(&self, role: Role, name: &str) -> bool {
         self.accessible
             .iter()
@@ -14442,9 +14448,7 @@ fn assert_readable(harness: &Harness, screen: &str) {
 #[test]
 fn icon_buttons_are_named_and_captions_label_their_fields_for_screen_readers() {
     let mut harness = Harness::new();
-    harness.context.enable_accesskit();
-    harness.frame();
-    harness.frame();
+    harness.read_screen();
     assert_readable(&harness, "The empty window");
     assert!(harness.accessible_named(Role::Button, "More actions for Side sketch"));
     assert!(harness.accessible_named(Role::Button, "Show details of Base sketch"));
@@ -14453,6 +14457,7 @@ fn icon_buttons_are_named_and_captions_label_their_fields_for_screen_readers() {
     assert!(harness.accessible_named(Role::Button, "Length unit: millimetres"));
 
     harness.click("File");
+    harness.read_screen();
     assert_readable(&harness, "The File menu");
     assert!(harness.accessible_named(Role::Button, "Open sample"));
     harness.key(Key::Escape, Modifiers::NONE);
@@ -14461,6 +14466,7 @@ fn icon_buttons_are_named_and_captions_label_their_fields_for_screen_readers() {
     let (extrude, _) = extruded_plate(&mut harness);
     harness.perform(Action::Editing(EditingCommand::OpenSolid(extrude)));
     harness.settle();
+    harness.read_screen();
     assert_readable(&harness, "An open extrusion");
     assert!(harness.captioned(Role::TextInput, "Distance"));
     assert!(harness.captioned(Role::ComboBox, "Extent"));
@@ -14469,29 +14475,35 @@ fn icon_buttons_are_named_and_captions_label_their_fields_for_screen_readers() {
     harness.select([]);
     harness.click("Plane");
     harness.settle();
+    harness.read_screen();
     assert_readable(&harness, "An open datum plane");
     assert!(harness.captioned(Role::TextInput, "Offset"));
     assert!(harness.accessible_named(Role::Button, crate::feature_fields::CHOOSE_IN_VIEW));
 
     harness.key(Key::Comma, Modifiers::COMMAND);
     harness.show_new_windows();
+    harness.read_screen();
     assert_readable(&harness, "Preferences");
     for tab in PreferencesTab::ALL {
         assert!(harness.accessible_named(Role::Tab, tab.label()), "{tab:?}");
     }
     harness.click("Appearance");
+    harness.read_screen();
     assert_readable(&harness, "The Appearance preferences");
     assert!(harness.accessible_named(Role::Button, "Make the interface smaller"));
     assert!(harness.accessible_named(Role::Button, "Make the interface larger"));
     harness.click("Navigation");
+    harness.read_screen();
     assert!(harness.captioned(Role::Slider, "Orbit speed"));
     harness.click("Graphics");
+    harness.read_screen();
     assert_readable(&harness, "The Graphics preferences");
     assert!(harness.captioned(Role::CheckBox, "Vsync"));
     assert!(harness.accessible_named(Role::Button, crate::graphics::COPY_DETAILS));
 
     harness.perform(Action::Preferences(PreferencesCommand::ShowShortcuts));
     harness.show_new_windows();
+    harness.read_screen();
     assert_readable(&harness, "The shortcut editor");
     assert!(harness.accessible_named(Role::Button, "Record a new shortcut for Undo"));
     assert!(harness.accessible_named(Role::Button, "Record a new shortcut for Redo"));
@@ -14509,6 +14521,7 @@ fn icon_buttons_are_named_and_captions_label_their_fields_for_screen_readers() {
 
     harness.key(Key::P, Modifiers::COMMAND | Modifiers::SHIFT);
     harness.show_new_windows();
+    harness.read_screen();
     assert_readable(&harness, "The command palette");
     assert!(harness.accessible_named(Role::Button, "Fit view"));
     harness.key(Key::Escape, Modifiers::NONE);
@@ -14516,6 +14529,7 @@ fn icon_buttons_are_named_and_captions_label_their_fields_for_screen_readers() {
 
     let base = feature_named(&harness, "Base sketch");
     harness.edit(base);
+    harness.read_screen();
     assert_readable(&harness, "An edited sketch");
     assert!(harness.accessible_named(Role::Button, "Horizontal"));
 }

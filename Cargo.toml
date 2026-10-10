@@ -112,6 +112,12 @@ opt-level = 3
 [profile.dev.package.epaint]
 opt-level = 3
 
+[profile.dev.package.egui]
+opt-level = 3
+
+[profile.dev.package.emath]
+opt-level = 3
+
 [profile.dev.package.harfrust]
 opt-level = 3
 
@@ -137,6 +143,24 @@ opt-level = 3
 opt-level = 3
 
 [profile.dev.package.unicode-general-category]
+opt-level = 3
+
+[profile.dev.package.png]
+opt-level = 3
+
+[profile.dev.package.fdeflate]
+opt-level = 3
+
+[profile.dev.package.miniz_oxide]
+opt-level = 3
+
+[profile.dev.package.crc32fast]
+opt-level = 3
+
+[profile.dev.package.simd-adler32]
+opt-level = 3
+
+[profile.dev.package.flate2]
 opt-level = 3
 
 [profile.release]

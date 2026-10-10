@@ -13,7 +13,9 @@ paths:
   answers back like a slow GPU.
 - With AccessKit enabled it keeps each frame's nodes, so tests check names, captions and that no
   visible node shows a private-use glyph. Icon-only buttons are clicked and hovered by accessible
-  name (`click_button`, `hover_button`), labelled ones by their painted label.
+  name (`click_button`, `hover_button`), labelled ones by their painted label. A test that reads
+  accessibility only at a few screens leaves AccessKit off and calls `Harness::read_screen`
+  before each check: one frame with it on, then off again, so the other frames skip the tree.
 - Modifier keys reach egui only through `Event::ModifiersChanged` (`click_with`); tree drags hold
   the button across frames (`hold_drag`, `release_drag`) so a test can read mid-drag state.
 - Overlap checks compare only the visible part of each text (`Harness::text_clips`), since

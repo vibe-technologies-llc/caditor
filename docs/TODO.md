@@ -410,13 +410,12 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Checks and CI
 
-- [low · medium] Slow tests to keep an eye on: with egui's font stack built optimised in the dev
-  profile (`dependencies.md`) the 647 UI tests take about 200 s on one thread (0.3 s each on
-  average), and 10 take over a second: `icon_buttons_are_named_and_captions_label_their_fields_for_screen_readers`
-  (2.8 s, AccessKit on every one of its many frames), the shortcut reset tests, the hole and
-  section panel tests and the PNG export test (1.0 to 1.7 s). Their cost is now in the app's own
-  unoptimised frames and in recompute and meshing of the bodies they build, so they would need
-  smaller models or fewer frames rather than a build setting.
+- [low · medium] Slow tests to keep an eye on: with egui, its glyph stack and the PNG encoder built
+  optimised in the dev profile (`dependencies.md`) a UI test takes a few tenths of a second, and
+  none of the ten that took over a second (the screen-reader test, the shortcut reset tests, the
+  hole, extrusion, chamfer and section panel tests, the PNG export test) takes over 0.55 s. What is
+  left is the app's own unoptimised frames and the recompute and meshing of the bodies the tests
+  build; re-measure the whole UI suite and list the tests still over half a second.
 
 ## Scope decisions
 
