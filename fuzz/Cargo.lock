@@ -764,6 +764,7 @@ dependencies = [
  "rustix 1.1.5",
  "thiserror 2.0.21",
  "wayland-client",
+ "wayland-protocols",
 ]
 
 [[package]]
