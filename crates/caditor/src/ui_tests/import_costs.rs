@@ -15,6 +15,7 @@ use caditor_file::{
 use caditor_geometry::{RigidTransform, Vector3};
 use caditor_kernel::Solid;
 use caditor_render::{Background, GraphicsSettings, ImageRequest, OffscreenRenderer, SurfaceSize};
+use egui::{Event, Modifiers, PointerButton};
 use tempfile::TempDir;
 
 use super::Harness;
@@ -30,6 +31,7 @@ const STALL: Duration = Duration::from_millis(50);
 const UPLOAD_BYTES_PER_FRAME: f64 = 8.0 * 1024.0 * 1024.0;
 const VERTEX_BYTES: usize = 28;
 const TRIANGLE_BYTES: usize = 12;
+const LOADED_FRAMES: u32 = 40;
 
 fn report(stage: &str, started: Instant, detail: impl std::fmt::Display) {
     eprintln!(
@@ -263,6 +265,65 @@ fn in_app(path: &Path) {
             at.as_secs_f64()
         );
     }
+    after_loading(&mut harness);
+}
+
+fn after_loading(harness: &mut Harness) {
+    harness.settle();
+    let centre = super::SCREEN.center();
+    let aside = centre + egui::vec2(40.0, 25.0);
+
+    timed_frames(harness, "loaded, idle", |_, _| {});
+    timed_frames(
+        harness,
+        "loaded, pointer moving over the view",
+        |harness, frame| {
+            let position = if frame % 2 == 0 { centre } else { aside };
+            harness.events.push(Event::PointerMoved(position));
+        },
+    );
+
+    harness.events.push(Event::PointerMoved(centre));
+    harness.pass();
+    harness.events.push(Event::PointerButton {
+        pos: centre,
+        button: PointerButton::Secondary,
+        pressed: true,
+        modifiers: Modifiers::NONE,
+    });
+    harness.pass();
+    timed_frames(harness, "loaded, orbiting", |harness, frame| {
+        let along = (frame % 40) as f32 * 3.0;
+        harness
+            .events
+            .push(Event::PointerMoved(centre + egui::vec2(along, along / 3.0)));
+    });
+    harness.events.push(Event::PointerButton {
+        pos: centre,
+        button: PointerButton::Secondary,
+        pressed: false,
+        modifiers: Modifiers::NONE,
+    });
+    harness.pass();
+}
+
+fn timed_frames(harness: &mut Harness, name: &str, mut change: impl FnMut(&mut Harness, u32)) {
+    let mut took: Vec<Duration> = (0..LOADED_FRAMES)
+        .map(|frame| {
+            change(harness, frame);
+            let started = Instant::now();
+            harness.pass();
+            started.elapsed()
+        })
+        .collect();
+    took.sort();
+    let total: Duration = took.iter().sum();
+    eprintln!(
+        "{name:<44} {:?} a frame on average, median {:?}, longest {:?}",
+        total / LOADED_FRAMES,
+        took.get(took.len() / 2).copied().unwrap_or_default(),
+        took.last().copied().unwrap_or_default(),
+    );
 }
 
 #[test]

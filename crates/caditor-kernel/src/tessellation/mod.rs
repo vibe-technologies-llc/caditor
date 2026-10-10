@@ -523,7 +523,9 @@ impl<'a> Tessellator<'a> {
         edge: &Edge,
         wanted: SampledWith,
     ) -> Result<EdgeSampling, TessellationError> {
-        let mut samples = edge.curve().sample(edge.interval(), &wanted.tolerance);
+        let mut samples = edge
+            .curve()
+            .sample_sparingly(edge.interval(), &wanted.tolerance);
         if samples.len() <= wanted.least {
             samples = edge
                 .interval()

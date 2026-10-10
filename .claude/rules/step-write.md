@@ -55,7 +55,12 @@ paths:
   `WriteError::Geometry`.
 - Every kernel surface and curve has an exact STEP form; the non-obvious ones: cones with a
   negative half angle on a flipped axis, rational B-splines as the complex entity, intersection
-  curves as the cubic B-spline of their Hermite segments over the edge. A face's `same_sense` is
+  curves as the cubic B-spline of their Hermite segments over the edge, each segment halved (at
+  most `MAX_WRITTEN_SPLITS` times, new nodes at `refined_point`) until the cubic stays within
+  `WRITTEN_DEVIATION`, a quarter of the resolution, of the refined curve at its quarter points:
+  between nodes a traced edge on a thread's flanks bows over a micrometre off its faces, so the
+  plain Hermite spline would read back invalid and import's canonical round trip would leave the
+  part out (screws and nuts of the VZ330 assembly). A face's `same_sense` is
   the kernel face sense (inverted for void shells), since kernel normals are STEP's.
 - The text is built in one buffer: the header first, then each entity as `Data::add` takes it; a
   body that cannot be written truncates the buffer back to its `Checkpoint`, so the output is

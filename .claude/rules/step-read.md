@@ -80,7 +80,12 @@ paths:
   style, so a style's every part counts, not the first found. A `COLOUR_RGB` in 0–1 (or 0–255 when
   a channel passes 1) or a `DRAUGHTING_PRE_DEFINED_COLOUR` of the eight named ones gives the colour;
   a transparency in 0–1 gives the opacity, a percent of one minus it. `NULL_STYLE` states the item
-  plain. Curve, point, text and the surface's curve styles are skipped silently.
+  plain. Fusion's exporter names each `COLOUR_RGB` after its appearance (`Opaque(r,g,b)`,
+  `Acrylic (Clear)`, `Glass (Smoked)`) and writes no transparency, so a colour whose name holds one
+  of `SEE_THROUGH_APPEARANCES` as a word (clear, transparent, glass: 25%; translucent, smoked,
+  frosted, tinted: 50%, the larger winning) and none of `OPAQUE_APPEARANCES` (opaque, coat) gives
+  its level that opacity when the style states no `SURFACE_STYLE_TRANSPARENT`. Curve, point, text
+  and the surface's curve styles are skipped silently.
 - What cannot be understood (an unknown colour or style kind, a colour name not among the eight, a
   transparency outside 0–1, a hatched or tiled fill, a style missing from the file, a style for
   one copy matching none) is named by entity in one note, at most `MOST_NAMED_PROBLEMS` listed,

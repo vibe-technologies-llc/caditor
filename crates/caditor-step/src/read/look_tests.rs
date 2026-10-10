@@ -406,6 +406,47 @@ fn every_form_exporters_use_for_a_coloured_or_see_through_body_is_read() {
 }
 
 #[test]
+fn a_colour_named_after_a_clear_appearance_is_see_through_unless_a_transparency_is_stated() {
+    let named = |name: &str, transparency: Option<&str>| {
+        let name = name.to_owned();
+        let (elements, transparent) = match transparency {
+            Some(value) => (
+                "#971000,#971010".to_owned(),
+                format!("#971010=SURFACE_STYLE_TRANSPARENT({value});\n"),
+            ),
+            None => ("#971000".to_owned(), String::new()),
+        };
+        let model = plate_styled(move |solid| {
+            format!(
+                "#980000=COLOUR_RGB('{name}',0.96,0.96,0.95);\n\
+                 #971000=SURFACE_STYLE_FILL_AREA(#971001);\n\
+                 #971001=FILL_AREA_STYLE('{name}',(#971002));\n\
+                 #971002=FILL_AREA_STYLE_COLOUR('{name}',#980000);\n\
+                 {transparent}{}#970000=PRESENTATION_STYLE_ASSIGNMENT((#972000));\n\
+                 #970001=STYLED_ITEM('color',(#970000),{solid});\n",
+                usage(972_000, "POSITIVE", &elements)
+            )
+        });
+        assert!(model.notes.is_empty(), "{:?}", model.notes);
+        (model.solids[0].colour, model.solids[0].opacity)
+    };
+    let pale = Some([245, 245, 242]);
+
+    assert_eq!(named("Acrylic (Clear)", None), (pale, Some(25)));
+    assert_eq!(named("Glass - Window", None), (pale, Some(25)));
+    assert_eq!(named("Glass (Smoked)", None), (pale, Some(50)));
+    assert_eq!(
+        named("Plastic - Translucent Glossy (Gray)", None),
+        (pale, Some(50))
+    );
+    assert_eq!(named("Opaque(245,245,242)", None), (pale, None));
+    assert_eq!(named("Paint - Clear Coat", None), (pale, None));
+    assert_eq!(named("Steel - Satin", None), (pale, None));
+    assert_eq!(named("Unclear", None), (pale, None));
+    assert_eq!(named("Acrylic (Clear)", Some("0.1")), (pale, Some(90)));
+}
+
+#[test]
 fn styling_that_cannot_be_understood_is_named_and_what_it_styles_keeps_its_look() {
     let model = plate_styled(|solid| {
         [

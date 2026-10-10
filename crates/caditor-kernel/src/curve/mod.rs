@@ -160,6 +160,27 @@ impl Curve {
             .collect()
     }
 
+    pub(crate) fn sample_sparingly(
+        &self,
+        range: Interval,
+        tolerance: &SamplingTolerance,
+    ) -> Vec<CurveSample> {
+        let parameters = match self {
+            Self::Line(_) | Self::Circle(_) => return self.sample(range, tolerance),
+            Self::Ellipse(_) | Self::BSpline(_) | Self::Intersection(_) => {
+                let fine = parametric::adaptive_parameters(self, range, tolerance);
+                parametric::merged_parameters(self, &fine, tolerance)
+            }
+        };
+        parameters
+            .into_iter()
+            .map(|parameter| CurveSample {
+                parameter,
+                point: self.point(parameter),
+            })
+            .collect()
+    }
+
     pub fn length(&self, range: Interval) -> f64 {
         match self {
             Self::Line(_) => range.length(),

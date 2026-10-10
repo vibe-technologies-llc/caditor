@@ -16,7 +16,8 @@ dimension; see [dimensions](dimensions).
 ## Models and meshes
 
 STEP files (`.step`, `.stp`, also compressed) come in as one body per part, with their colours,
-see-through bodies and faces, and layers; a copy coloured on its own in an assembly keeps its own
+see-through bodies and faces (a Fusion appearance named clear, glass or translucent, such as
+Acrylic (Clear), comes in see-through), and layers; a copy coloured on its own in an assembly keeps its own
 colour, and a body whose faces differ takes the colour most of them share, the others keeping
 theirs. STL, OBJ and 3MF meshes come in as bodies made of flat facets; STL and OBJ files carry no
 unit, so they are read as millimetres. Each body is an [imported body](imported-bodies) in the

@@ -1344,7 +1344,7 @@ fn a_dense_spline_profile_extrudes_validates_and_meshes_in_bounded_time() {
     );
     let volume = mesh.mass_properties().volume;
     assert!(
-        (volume - 5.0 * area).abs() < 1e-3 * volume,
+        (volume - 5.0 * area).abs() < 2e-3 * volume,
         "{volume} vs {}",
         5.0 * area
     );

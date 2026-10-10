@@ -5,7 +5,14 @@ paths:
 
 # Tessellation
 
-- Each edge is sampled once; both faces share its positions.
+- Each edge is sampled once; both faces share its positions. Edges are sampled sparingly
+  (`Curve::sample_sparingly`): the adaptive samples, seeded with 2×degree points in every knot
+  span, are merged afterwards while a chord from the last kept sample still holds every dropped
+  sample and sub-span middle within the chord tolerance and turns within the angle
+  (`merged_parameters`, at most `MAX_MERGED_SAMPLES` merged into one), never across a sample where
+  the tangent jumps (a degree-1 spline's corners). So a traced thread edge stored as a spline with
+  a knot at every node takes the 65 points a turn 6° asks for, not one per seed (670 on a VZ330
+  screw, and ten times the face triangles). Validation and profiles keep `Curve::sample`.
 - Each face is a constrained Delaunay triangulation (`spade`) of its loops in (u, v), plus an
   interior tensor grid (`density.rs`) kept clear of the boundary. Each direction's grid lines are
   graded by curvature: the cells needed per unit parameter are sampled on a lattice of uniform

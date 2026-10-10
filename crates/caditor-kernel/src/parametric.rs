@@ -13,6 +13,9 @@ const LENGTH_SEED_REFINEMENT: usize = 2;
 const BOUND_SAMPLES: usize = 4;
 const BOUND_SAFETY: f64 = 2.0;
 const SEEDS_PER_POLL: usize = 1024;
+const MAX_MERGED_SAMPLES: usize = 64;
+const CORNER_PROBE: f64 = 1e-3;
+const CORNER_SHARE: f64 = 0.01;
 
 pub(crate) trait Parametric {
     type Point: Coordinates;
@@ -184,6 +187,87 @@ pub(crate) fn adaptive_parameters<C: Parametric>(
         parameters.push(range.end());
     }
     parameters
+}
+
+pub(crate) fn merged_parameters<C: Parametric>(
+    curve: &C,
+    parameters: &[f64],
+    tolerance: &SamplingTolerance,
+) -> Vec<f64> {
+    let samples: Vec<[C::Point; 2]> = parameters
+        .iter()
+        .map(|parameter| {
+            let [point, tangent, _] = curve.evaluate(*parameter);
+            [point, tangent]
+        })
+        .collect();
+    let middles: Vec<C::Point> = parameters
+        .windows(2)
+        .filter_map(|pair| match pair {
+            [low, high] => Some(curve.evaluate(0.5 * (low + high))[0]),
+            _ => None,
+        })
+        .collect();
+    let covers = |anchor: usize, reach: usize| {
+        let (Some([start, start_tangent]), Some([end, end_tangent])) =
+            (samples.get(anchor), samples.get(reach))
+        else {
+            return false;
+        };
+        let within =
+            |point: &C::Point| distance_to_segment(*point, *start, *end) <= tolerance.chord();
+        let turns_little =
+            |tangent: &C::Point| angle_between(*start_tangent, *tangent) <= tolerance.angle();
+        turns_little(end_tangent)
+            && samples
+                .get(anchor + 1..reach)
+                .unwrap_or_default()
+                .iter()
+                .all(|[point, tangent]| within(point) && turns_little(tangent))
+            && middles
+                .get(anchor..reach)
+                .unwrap_or_default()
+                .iter()
+                .all(within)
+    };
+    let corners: Vec<bool> = (0..parameters.len())
+        .map(|index| {
+            let (Some(before), Some(at), Some(after)) = (
+                index
+                    .checked_sub(1)
+                    .and_then(|before| parameters.get(before)),
+                parameters.get(index),
+                parameters.get(index + 1),
+            ) else {
+                return true;
+            };
+            let probe = CORNER_PROBE * (at - before).min(after - at);
+            let [_, left, _] = curve.evaluate(at - probe);
+            let [_, right, _] = curve.evaluate(at + probe);
+            let turn = angle_between(left, right);
+            turn.is_nan() || turn > CORNER_SHARE * tolerance.angle()
+        })
+        .collect();
+    let is_corner = |index: usize| corners.get(index).copied().unwrap_or(true);
+    let Some(first) = parameters.first() else {
+        return Vec::new();
+    };
+    let last = parameters.len() - 1;
+    let mut merged = vec![*first];
+    let mut anchor = 0;
+    while anchor < last {
+        let mut reach = anchor + 1;
+        while reach < last
+            && !is_corner(reach)
+            && reach - anchor < MAX_MERGED_SAMPLES
+            && covers(anchor, reach + 1)
+        {
+            reach += 1;
+        }
+        merged.extend(parameters.get(reach));
+        anchor = reach;
+    }
+    merged
 }
 
 fn needs_split<C: Parametric>(

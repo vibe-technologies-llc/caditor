@@ -2,11 +2,15 @@ use std::collections::BTreeMap;
 
 use caditor_geometry::{Plane, Point3, Vector3};
 use caditor_kernel::{
-    BSpline, BSplineSurface, Curve, EdgeId, FaceId, IntersectionCurve, Interval, ShellId, Solid,
-    Surface, VertexId,
+    BSpline, BSplineSurface, Curve, EdgeId, FaceId, IntersectionCurve, Interval, LINEAR_RESOLUTION,
+    ShellId, Solid, Surface, VertexId,
 };
 
 use crate::write::{Data, Ref, list, logical, text};
+
+const WRITTEN_DEVIATION: f64 = 0.25 * LINEAR_RESOLUTION;
+const MAX_WRITTEN_SPLITS: u32 = 8;
+const SPLIT_PROBES: [f64; 3] = [0.25, 0.5, 0.75];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Unsupported {
@@ -343,7 +347,7 @@ fn hermite_spline(
     curve: &IntersectionCurve,
     ends: Option<(Point3, Point3)>,
 ) -> Option<BSpline<Point3>> {
-    let nodes = curve.nodes();
+    let nodes = written_nodes(curve)?;
     let first = nodes.first()?;
     let mut points = vec![first.point];
     let mut knots = vec![first.parameter; 4];
@@ -369,6 +373,67 @@ fn hermite_spline(
         }
     }
     BSpline::new(3, knots, points).ok()
+}
+
+#[derive(Debug, Clone, Copy)]
+struct WrittenNode {
+    parameter: f64,
+    point: Point3,
+    derivative: Vector3,
+}
+
+fn written_nodes(curve: &IntersectionCurve) -> Option<Vec<WrittenNode>> {
+    let traced = Curve::Intersection(curve.clone());
+    let node = |parameter: f64, point: Point3| WrittenNode {
+        parameter,
+        point,
+        derivative: traced.evaluate(parameter).first,
+    };
+    let nodes: Vec<WrittenNode> = curve
+        .nodes()
+        .iter()
+        .map(|node| WrittenNode {
+            parameter: node.parameter,
+            point: node.point,
+            derivative: node.derivative,
+        })
+        .collect();
+    let mut written = vec![*nodes.first()?];
+    for pair in nodes.windows(2) {
+        let [start, end] = pair else {
+            continue;
+        };
+        let mut pending = vec![(*end, MAX_WRITTEN_SPLITS)];
+        let mut from = *start;
+        while let Some((to, splits_left)) = pending.pop() {
+            let farthest = SPLIT_PROBES
+                .iter()
+                .map(|fraction| {
+                    let parameter = from.parameter + (to.parameter - from.parameter) * fraction;
+                    hermite_point(&from, &to, parameter).distance(curve.refined_point(parameter))
+                })
+                .fold(0.0, f64::max);
+            if farthest <= WRITTEN_DEVIATION || splits_left == 0 {
+                written.push(to);
+                from = to;
+                continue;
+            }
+            let middle = 0.5 * (from.parameter + to.parameter);
+            pending.push((to, splits_left - 1));
+            pending.push((node(middle, curve.refined_point(middle)), splits_left - 1));
+        }
+    }
+    Some(written)
+}
+
+fn hermite_point(start: &WrittenNode, end: &WrittenNode, parameter: f64) -> Point3 {
+    let span = end.parameter - start.parameter;
+    let s = (parameter - start.parameter) / span;
+    let (s2, s3) = (s * s, s * s * s);
+    start.point * (2.0 * s3 - 3.0 * s2 + 1.0)
+        + start.derivative * (span * (s3 - 2.0 * s2 + s))
+        + end.point * (3.0 * s2 - 2.0 * s3)
+        + end.derivative * (span * (s3 - s2))
 }
 
 struct Classified {

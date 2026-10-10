@@ -320,8 +320,11 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   import report names as not understood.
 - [high · hard] A large STEP import still stalls the interface while its bodies arrive: every
   showing rebuilds the base scene, whose one batch holds every body edge as line segments (13.2
-  million for the VZ330 assembly, 0.25 to 0.4 s a rebuild on the UI thread in release, and the
-  renderer uploads the whole batch again unbudgeted). Each body's edges and vertices could be a
+  million for the VZ330 assembly before edges were sampled sparingly, 0.25 to 0.4 s a rebuild on
+  the UI thread in release, and the renderer uploads the whole batch again unbudgeted). Drawing a
+  still frame of the VZ330 then took about 190 ms on the GPU (RX 9070 XT, 1920×1080, 4x): 100 ms of
+  edge lines, 28 ms of meshes, 20 ms of silhouettes; time it again, and consider culling batches by
+  bounds and a coarser mesh for bodies small on screen. Each body's edges and vertices could be a
   batch of its own, cached while its `BodyMesh`, style and highlight are unchanged, with pick ids
   that do not shift when other bodies come and go; hovering over a large model rebuilds the same
   way. Reading is now bound by single parts: the VZ330's lead screw (406 faces, helical splines of

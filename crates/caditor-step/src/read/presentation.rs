@@ -34,6 +34,16 @@ const CURVE_STYLES: [&str; 11] = [
     "SURFACE_STYLE_CONTROL_GRID",
     "PRE_DEFINED_PRESENTATION_STYLE",
 ];
+const SEE_THROUGH_APPEARANCES: [(&str, u8); 7] = [
+    ("clear", 25),
+    ("transparent", 25),
+    ("glass", 25),
+    ("translucent", 50),
+    ("smoked", 50),
+    ("frosted", 50),
+    ("tinted", 50),
+];
+const OPAQUE_APPEARANCES: [&str; 3] = ["opaque", "coat", "clearcoat"];
 const REFLECTANCES: [&str; 3] = [
     "SURFACE_STYLE_REFLECTANCE_AMBIENT",
     "SURFACE_STYLE_REFLECTANCE_AMBIENT_DIFFUSE",
@@ -500,22 +510,50 @@ enum Side {
     Both,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Paint {
+    colour: [u8; 3],
+    appearance_opacity: Option<u8>,
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 struct Found {
-    fill: Option<[u8; 3]>,
-    rendering: Option<[u8; 3]>,
+    fill: Option<Paint>,
+    rendering: Option<Paint>,
     opacity: Option<u8>,
     plain: bool,
 }
 
 impl Found {
     fn stated(self) -> Stated {
+        let paint = self.fill.or(self.rendering);
         Stated {
-            colour: self.fill.or(self.rendering),
-            opacity: self.opacity,
+            colour: paint.map(|paint| paint.colour),
+            opacity: self
+                .opacity
+                .or(paint.and_then(|paint| paint.appearance_opacity)),
             plain: self.plain,
         }
     }
+}
+
+fn appearance_opacity(name: &str) -> Option<u8> {
+    let words: Vec<String> = name
+        .split(|letter: char| !letter.is_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .map(str::to_lowercase)
+        .collect();
+    if words
+        .iter()
+        .any(|word| OPAQUE_APPEARANCES.contains(&word.as_str()))
+    {
+        return None;
+    }
+    SEE_THROUGH_APPEARANCES
+        .iter()
+        .filter(|(word, _)| words.iter().any(|named| named == word))
+        .map(|(_, opacity)| *opacity)
+        .max()
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -631,13 +669,13 @@ impl Reading<'_, '_> {
                 }
             },
             "FILL_AREA_STYLE_COLOUR" => {
-                if let Some(colour) = fields
+                if let Some(paint) = fields
                     .reference(1)
                     .ok()
                     .and_then(|colour| self.colour(colour))
                 {
                     found.each(side, |found| {
-                        found.fill.get_or_insert(colour);
+                        found.fill.get_or_insert(paint);
                     });
                 }
             }
@@ -648,12 +686,12 @@ impl Reading<'_, '_> {
                 self.problems.insert(id, Unread::Hatching);
             }
             "SURFACE_STYLE_RENDERING" | "SURFACE_STYLE_RENDERING_WITH_PROPERTIES" => {
-                if let Some(colour) = fields
+                if let Some(paint) = fields
                     .optional_reference(1)
                     .and_then(|colour| self.colour(colour))
                 {
                     found.each(side, |found| {
-                        found.rendering.get_or_insert(colour);
+                        found.rendering.get_or_insert(paint);
                     });
                 }
                 if kind == "SURFACE_STYLE_RENDERING_WITH_PROPERTIES" {
@@ -681,20 +719,31 @@ impl Reading<'_, '_> {
         }
     }
 
-    fn colour(&mut self, id: u64) -> Option<[u8; 3]> {
+    fn colour(&mut self, id: u64) -> Option<Paint> {
         let Ok(entity) = self.graph.entity(id) else {
             self.problems.insert(id, Unread::Missing);
             return None;
         };
         let read = match entity.kind() {
             "COLOUR_RGB" => {
-                let channels = match entity.fields() {
-                    Ok(fields) => [1, 2, 3].map(|index| fields.real(index).ok()),
-                    Err(_) => entity.find("COLOUR_RGB").map_or([None; 3], |fields| {
-                        [0, 1, 2].map(|index| fields.real(index).ok())
-                    }),
+                let (channels, name) = match entity.fields() {
+                    Ok(fields) => (
+                        [1, 2, 3].map(|index| fields.real(index).ok()),
+                        fields.name(0),
+                    ),
+                    Err(_) => (
+                        entity.find("COLOUR_RGB").map_or([None; 3], |fields| {
+                            [0, 1, 2].map(|index| fields.real(index).ok())
+                        }),
+                        None,
+                    ),
                 };
-                rgb(channels).ok_or(Unread::Colour)
+                rgb(channels)
+                    .map(|colour| Paint {
+                        colour,
+                        appearance_opacity: name.as_deref().and_then(appearance_opacity),
+                    })
+                    .ok_or(Unread::Colour)
             }
             "DRAUGHTING_PRE_DEFINED_COLOUR" | "PRE_DEFINED_COLOUR" => {
                 let name = entity
@@ -706,14 +755,17 @@ impl Reading<'_, '_> {
                     NAMED_COLOURS
                         .iter()
                         .find(|(known, _)| *known == name)
-                        .map(|(_, colour)| *colour)
+                        .map(|(_, colour)| Paint {
+                            colour: *colour,
+                            appearance_opacity: None,
+                        })
                 })
                 .ok_or(Unread::NamedColour)
             }
             _ => Err(Unread::Colour),
         };
         match read {
-            Ok(colour) => Some(colour),
+            Ok(paint) => Some(paint),
             Err(unread) => {
                 self.problems.insert(id, unread);
                 None
