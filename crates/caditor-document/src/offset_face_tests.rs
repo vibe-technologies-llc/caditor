@@ -1,6 +1,6 @@
-use caditor_expression::{Expression, ParameterId};
-use caditor_geometry::{Plane, Point2, Vector3};
-use caditor_kernel::{FaceName, FaceReference, SamplingTolerance, Solid, Surface};
+use caditor_expression::{Expression, ParameterId, Unit};
+use caditor_geometry::{Plane, Point2, Point3, Vector3};
+use caditor_kernel::{EdgeReference, FaceName, FaceReference, SamplingTolerance, Solid, Surface};
 use caditor_sketch::Sketch;
 
 use crate::*;
@@ -242,4 +242,100 @@ fn a_moved_face_stays_that_kind_and_keeps_its_body_in_use() {
             .dependents_of(&[model.base])
             .contains(&model.offset)
     );
+}
+
+fn plane_facing(solid: &Solid, normal: Vector3, level: f64) -> FaceReference {
+    let (id, _) = solid
+        .faces()
+        .find(|(_, face)| match face.surface() {
+            Surface::Plane(plane) => {
+                plane.frame().normal() * face.sense().sign() == normal
+                    && plane.frame().origin().dot(normal) == level
+            }
+            _ => false,
+        })
+        .unwrap();
+    FaceReference::capture(solid, id).unwrap()
+}
+
+fn edge_at(solid: &Solid, point: Point3) -> EdgeReference {
+    let (id, _) = solid
+        .edges()
+        .find(|(_, edge)| {
+            let parameter = edge.curve().closest_parameter(point, edge.interval());
+            edge.curve().point(parameter).distance(point) < 1e-6
+        })
+        .unwrap();
+    EdgeReference::capture(solid, id).unwrap()
+}
+
+#[test]
+fn a_fillet_on_one_rim_of_a_groove_holds_after_another_face_moves() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    let outline = transaction.add_feature(
+        "Outline",
+        FeatureKind::from(rectangle((0.0, 0.0), (10.0, 8.0))),
+    );
+    let mut across = Sketch::new(
+        Plane::from_frame(Point3::new(0.0, 9.0, 0.0), Vector3::NEG_Y, Vector3::X).unwrap(),
+    );
+    across.add_circle(Point2::new(5.0, 4.0), 1.5);
+    let rod = transaction.add_feature("Rod", FeatureKind::from(across));
+    let extrude = |sketch, height: f64, operation| {
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch,
+            regions: RegionChoice::All,
+            extent: ExtrudeExtent::one_side(Expression::Measure(height, Unit::Millimetre), false),
+            operation,
+            start: None,
+            other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
+            direction: None,
+        }))
+    };
+    let base = transaction.add_feature("Base", extrude(outline, 4.0, BodyOperation::NewBody));
+    transaction.add_feature("Groove", extrude(rod, 10.0, BodyOperation::Remove(base)));
+    document.apply(transaction.finish()).unwrap();
+    let mut engine = Recompute::default();
+    let evaluation = evaluate(&document, &mut engine);
+    let right = plane_facing(evaluation.body(base).unwrap(), Vector3::X, 10.0);
+
+    assert_eq!(evaluation.failed_count(), 0);
+
+    let mut transaction = document.transaction("Offset face");
+    transaction.add_feature(
+        "Offset face 1",
+        FeatureKind::OffsetFace(OffsetFace {
+            body: base,
+            faces: vec![right],
+            distance: Expression::Measure(1.0, Unit::Millimetre),
+            tangent: false,
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    let evaluation = evaluate(&document, &mut engine);
+    let rim = edge_at(evaluation.body(base).unwrap(), Point3::new(3.5, 4.0, 4.0));
+    let mut transaction = document.transaction("Fillet");
+    let fillet = transaction.add_feature(
+        "Fillet 1",
+        FeatureKind::Blend(Blend {
+            kind: BlendKind::Fillet,
+            body: base,
+            groups: Vec::new(),
+            edges: vec![rim],
+            size: Expression::Measure(0.5, Unit::Millimetre),
+            form: ChamferForm::Equal,
+            flipped: false,
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    let evaluation = evaluate(&document, &mut engine);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert!(matches!(
+        evaluation.feature(fillet).unwrap().state,
+        FeatureState::UpToDate
+    ));
 }

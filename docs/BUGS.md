@@ -19,15 +19,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Kernel
 
-- [high · easy] Offset face renames edges that had to be told apart: the shell's inner solid ends
-  with `built.renamed(|name, origin| (name, origin))`, and `Solid::renamed` sets every edge to
-  plain `between` or `seam` of its faces with none of the `between_at`/`occurrence`
-  disambiguation `derived_edge_names` does, while `offset_faces` (`Naming::Kept`) returns that
-  solid as it is. On a block whose top a groove splits into two pieces of one name, offsetting
-  any other face leaves both groove edges named `between(top, groove)` with the same ends, so a
-  fillet holding either fails as `Ambiguous`, against `kernel-operations.md`'s promise that kept
-  names keep their edges. Rename only for `Naming::Shell`, or through `derived_edge_names`, and pin
-  edge references across an offset (the offset tests compare face names only).
 - [high · hard] Booleans between the fixture solids in random placements all succeed on the
   survey's seed (`boolean::tests::random_placements_of_every_fixture`, ignored), but another seed
   still fails an extruded spline against a torus with `Invalid(EdgeOffSurface)` (an edge 1.3e-6 off

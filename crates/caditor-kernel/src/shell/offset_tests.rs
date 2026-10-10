@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use caditor_geometry::{Point3, Vector3};
+use caditor_geometry::{Plane, Point3, Vector3};
 
 use super::{
     OffsetError, offset_faces,
@@ -9,9 +9,12 @@ use super::{
 use crate::{
     blend::{BlendShape, blend, tangent_faces},
     boolean::{BooleanOperation, boolean},
+    build::{LinearExtent, extrude},
     fixtures::{cuboid, cylinder, frustum, holed_block, spline_topped_block},
-    naming::FaceName,
+    naming::{EdgeName, EdgeReference, FaceName},
+    profile::{Profile, Selection},
     surface::Surface,
+    test_support::circle,
     topology::{EdgeId, FaceId, Solid},
 };
 
@@ -319,4 +322,90 @@ fn a_rim_rounded_on_top_grows_with_its_fillets_and_walls() {
         &moved(&rounded, &chain, -1.0),
         rounded_box(8.0, 9.0, 1.0),
     );
+}
+
+fn groove_edges(solid: &Solid, groove: FaceName) -> Vec<EdgeId> {
+    solid
+        .edges()
+        .filter(|(_, edge)| {
+            edge.coedges()
+                .iter()
+                .filter_map(|coedge| solid.coedge_face(*coedge))
+                .filter_map(|face| solid.face(face))
+                .any(|face| face.name() == groove)
+        })
+        .map(|(id, _)| id)
+        .collect()
+}
+
+#[test]
+fn edges_told_apart_beside_a_split_face_keep_their_names_when_another_face_moves() {
+    let block = swept(
+        &polygon(&[(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)]),
+        10.0,
+    );
+    let across =
+        Plane::from_frame(Point3::new(0.0, 11.0, 0.0), Vector3::NEG_Y, Vector3::X).unwrap();
+    let rod = extrude(
+        &across,
+        &Profile::new(&[circle(1, (5.0, 10.0), 2.0)])
+            .unwrap()
+            .select(&Selection::EvenDepth)
+            .unwrap(),
+        LinearExtent::one_side(12.0).unwrap(),
+        2,
+    )
+    .unwrap();
+    let grooved = boolean(&block, &rod, BooleanOperation::Difference).unwrap();
+
+    let groove = grooved
+        .faces()
+        .find(|(_, face)| matches!(face.surface(), Surface::Cylinder(_)))
+        .map(|(_, face)| face.name())
+        .unwrap();
+    let top = face_facing(&grooved, Vector3::Z, Point3::new(2.0, 5.0, 10.0));
+    let top_name = grooved.face(top).unwrap().name();
+    let rims: Vec<EdgeId> = groove_edges(&grooved, groove)
+        .into_iter()
+        .filter(|id| {
+            grooved
+                .edge(*id)
+                .unwrap()
+                .coedges()
+                .iter()
+                .filter_map(|coedge| grooved.coedge_face(*coedge))
+                .any(|face| grooved.face(face).unwrap().name() == top_name)
+        })
+        .collect();
+    let names_before: BTreeSet<EdgeName> = rims
+        .iter()
+        .map(|id| grooved.edge(*id).unwrap().name())
+        .collect();
+    let references: Vec<EdgeReference> = rims
+        .iter()
+        .map(|id| EdgeReference::capture(&grooved, *id).unwrap())
+        .collect();
+    let right = face_facing(&grooved, Vector3::X, Point3::new(10.0, 5.0, 5.0));
+
+    assert_eq!(rims.len(), 2);
+    assert_eq!(names_before.len(), 2);
+
+    let wider = moved(&grooved, &[right], 1.0);
+    let names_after: BTreeSet<EdgeName> = groove_edges(&wider, groove)
+        .into_iter()
+        .map(|id| wider.edge(id).unwrap().name())
+        .collect();
+    let resolved: Vec<(EdgeName, EdgeName)> = references
+        .iter()
+        .map(|reference| {
+            let edge = reference.resolve(&wider).unwrap();
+            (reference.name(), wider.edge(edge).unwrap().name())
+        })
+        .collect();
+
+    check("wider", &wider, volume(&grooved) + 100.0);
+    assert!(names_before.is_subset(&names_after));
+    for (captured, found) in resolved {
+        assert_eq!(found, captured);
+    }
 }

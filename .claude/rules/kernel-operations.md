@@ -455,8 +455,10 @@ paths:
   (splines, extrusions and revolutions included) and an edge between such faces whose ends did not
   move keeps its curve; only a moved face must be a plane, cylinder, cone, sphere or torus
   (`UnsupportedFace` otherwise).
-- Faces keep their names and origins (`Naming::Kept`), so edges and references to them survive
-  and a later feature finds them as before; the shell names its inner faces after the shell instead.
+- Faces keep their names and origins (`Naming::Kept`), and edges keep the names they had (only
+  edges the offset makes new are named `between` their faces, disambiguated by the plan), so edges
+  told apart by `between_at` or `occurrence` stay apart and references to faces and edges survive;
+  the shell names its inner faces after the shell instead and renames every edge from them.
 - A face that would vanish (`Collapses` drops a cylinder, sphere or torus gone to nothing, a face a
   moved neighbour closes up) is refused as `Vanishes`, never dropped silently. After a valid build,
   `find_crossing` must find no face pair crossing (`Crosses`); a body failing validation first

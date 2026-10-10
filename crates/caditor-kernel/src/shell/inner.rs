@@ -1034,6 +1034,13 @@ impl Naming {
             Self::Kept => (face.name(), face.origin()),
         }
     }
+
+    fn edges_renamed(self, built: Solid) -> Solid {
+        match self {
+            Self::Shell(_) => built.renamed(|name, origin| (name, origin)),
+            Self::Kept => built,
+        }
+    }
 }
 
 pub(super) struct Inner {
@@ -1163,7 +1170,7 @@ pub(super) fn inner_solid(offsets: &Offsets<'_>, naming: Naming) -> Result<Inner
         PlanError::Unassembled => ShellError::walls_at([]),
     })?;
     Ok(Inner {
-        solid: built.renamed(|name, origin| (name, origin)),
+        solid: naming.edges_renamed(built),
         dropped: collapses.faces(),
     })
 }
