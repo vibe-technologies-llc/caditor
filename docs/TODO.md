@@ -464,6 +464,9 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Application
 
+- [low · easy] A command run from the palette and then refused (not offered in the current
+  context) leaves the palette open, so the next key press goes to the palette rather than the view
+  or the panel it was meant for; a refusal should close the palette as a run command does.
 - [high · medium] Outside sketch editing no dimension is shown on the model (`viewport.rs` hands
   `annotations::Annotations` only the edited sketch), so changing a size means opening the
   feature's panel or entering its sketch. Selecting a face or opening a feature could show, on the
