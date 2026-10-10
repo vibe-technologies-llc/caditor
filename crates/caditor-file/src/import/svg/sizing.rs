@@ -1,7 +1,7 @@
 use caditor_geometry::Vector2;
 
-use crate::import::svg::{
-    syntax::{Length, MILLIMETRES_PER_INCH, PIXELS_PER_INCH, Unit, numbers},
+use crate::import::{
+    svg::syntax::{Length, MILLIMETRES_PER_INCH, PIXELS_PER_INCH, Unit, numbers},
     xml::Node,
 };
 

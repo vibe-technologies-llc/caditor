@@ -14,6 +14,7 @@ mod svg_tests;
 mod svg_text_tests;
 #[cfg(test)]
 mod tests;
+mod xml;
 mod zip_read;
 
 use std::{collections::BTreeSet, path::Path};
@@ -196,6 +197,12 @@ pub enum ImportError {
     NotMesh,
     #[error("it is not a readable {0} mesh")]
     DamagedMesh(&'static str),
+    #[error(
+        "its 3D model holds more than {} elements, more than caditor reads from one 3MF; reduce \
+         its triangles in a mesh editor first",
+        mesh::MAX_MODEL_ELEMENTS
+    )]
+    ModelTooManyElements,
     #[error("the 3MF package holds no 3D model")]
     NoModelInPackage,
     #[error(

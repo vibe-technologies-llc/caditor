@@ -10,6 +10,7 @@ use crate::{
     import::{
         ImportError, ensure_going,
         model::{ImportedBody, ModelImport, canonical},
+        xml::{self, Node, XmlError},
         zip_read,
     },
     read::{MAX_FILE_SIZE, read_file},
@@ -24,6 +25,7 @@ const THREE_MF_MODEL: &str = "3D/3dmodel.model";
 const THREE_MF_RELATIONSHIPS: &str = "_rels/.rels";
 const THREE_MF_MODEL_TYPE: &str = "http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel";
 const MAX_COMPONENT_DEPTH: usize = 16;
+pub(super) const MAX_MODEL_ELEMENTS: usize = 4_000_000;
 const NO_UNITS_NOTE: &str = "The file gives no units, so its sizes were read as millimetres; if the \
                              part comes out the wrong size, scale it with Scale body.";
 
@@ -369,12 +371,18 @@ fn read_three_mf(bytes: &[u8]) -> Result<TriangleMesh, ImportError> {
         .read(&model_path, limit)
         .ok_or(ImportError::NoModelInPackage)?;
     let text = std::str::from_utf8(&model).map_err(|_| damaged())?;
-    let document = roxmltree::Document::parse(text).map_err(|_| damaged())?;
-    let root = document.root_element();
+    let tree = xml::parse(text, MAX_MODEL_ELEMENTS).map_err(|error| match error {
+        XmlError::TooManyElements => ImportError::ModelTooManyElements,
+        XmlError::Damaged { .. } => damaged(),
+    })?;
+    if tree.damaged_at.is_some() {
+        return Err(damaged());
+    }
+    let root = tree.root().ok_or_else(damaged)?;
     let scale = unit_scale(root.attribute("unit")).ok_or_else(damaged)?;
-    let objects: Vec<roxmltree::Node<'_, '_>> = root
+    let objects: Vec<Node<'_, '_>> = root
         .descendants()
-        .filter(|node| node.has_tag_name("object"))
+        .filter(|node| node.name() == "object")
         .collect();
     let object = |id: &str| {
         objects
@@ -385,9 +393,9 @@ fn read_three_mf(bytes: &[u8]) -> Result<TriangleMesh, ImportError> {
     let mut mesh = TriangleMesh::default();
     let build = root
         .children()
-        .find(|node| node.has_tag_name("build"))
+        .find(|node| node.name() == "build")
         .ok_or_else(damaged)?;
-    for item in build.children().filter(|node| node.has_tag_name("item")) {
+    for item in build.children().filter(|node| node.name() == "item") {
         let id = item.attribute("objectid").ok_or_else(damaged)?;
         let placed = Transform::parse(item.attribute("transform")).ok_or_else(damaged)?;
         add_object(&object, id, placed, &mut mesh, 0).ok_or_else(damaged)?;
@@ -398,8 +406,8 @@ fn read_three_mf(bytes: &[u8]) -> Result<TriangleMesh, ImportError> {
     Ok(mesh)
 }
 
-fn add_object<'a>(
-    object: &impl Fn(&str) -> Option<roxmltree::Node<'a, 'a>>,
+fn add_object<'a, 't: 'a>(
+    object: &impl Fn(&str) -> Option<Node<'a, 't>>,
     id: &str,
     placed: Transform,
     mesh: &mut TriangleMesh,
@@ -409,15 +417,12 @@ fn add_object<'a>(
         return None;
     }
     let node = object(id)?;
-    if let Some(shape) = node.children().find(|child| child.has_tag_name("mesh")) {
+    if let Some(shape) = node.children().find(|child| child.name() == "mesh") {
         let start = mesh.positions.len();
-        let coordinate = |vertex: roxmltree::Node<'_, '_>, name: &str| -> Option<f64> {
+        let coordinate = |vertex: Node<'_, '_>, name: &str| -> Option<f64> {
             vertex.attribute(name)?.parse().ok()
         };
-        for vertex in shape
-            .descendants()
-            .filter(|child| child.has_tag_name("vertex"))
-        {
+        for vertex in shape.descendants().filter(|child| child.name() == "vertex") {
             let point = Point3::new(
                 coordinate(vertex, "x")?,
                 coordinate(vertex, "y")?,
@@ -428,7 +433,7 @@ fn add_object<'a>(
         let count = mesh.positions.len() - start;
         for triangle in shape
             .descendants()
-            .filter(|child| child.has_tag_name("triangle"))
+            .filter(|child| child.name() == "triangle")
         {
             let corner = |name: &str| -> Option<usize> {
                 let index: usize = triangle.attribute(name)?.parse().ok()?;
@@ -440,7 +445,7 @@ fn add_object<'a>(
     }
     for component in node
         .descendants()
-        .filter(|child| child.has_tag_name("component"))
+        .filter(|child| child.name() == "component")
     {
         let inner = Transform::parse(component.attribute("transform"))?;
         add_object(
@@ -456,11 +461,11 @@ fn add_object<'a>(
 
 fn model_part(relationships: &[u8]) -> Option<String> {
     let text = std::str::from_utf8(relationships).ok()?;
-    let document = roxmltree::Document::parse(text).ok()?;
-    let target = document
-        .descendants()
+    let tree = xml::parse(text, MAX_MODEL_ELEMENTS).ok()?;
+    let target = tree
+        .nodes()
         .find(|node| {
-            node.has_tag_name("Relationship") && node.attribute("Type") == Some(THREE_MF_MODEL_TYPE)
+            node.name() == "Relationship" && node.attribute("Type") == Some(THREE_MF_MODEL_TYPE)
         })?
         .attribute("Target")?;
     Some(target.trim_start_matches('/').to_owned())

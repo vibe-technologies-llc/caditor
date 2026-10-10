@@ -1,6 +1,6 @@
 use std::cell::Cell;
 
-use crate::{import::svg::xml::Node, untrusted::UntrustedMap};
+use crate::{import::xml::Node, untrusted::UntrustedMap};
 
 pub(super) const MAX_STYLE_RULES: usize = 10_000;
 const MAX_MATCHING_WORK: usize = 50_000_000;

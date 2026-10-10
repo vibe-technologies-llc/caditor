@@ -2,10 +2,12 @@ use std::f64::consts::{FRAC_PI_2, PI, TAU};
 
 use caditor_geometry::{Point2, Vector2};
 
-use crate::import::svg::{
-    path::{Outline, path_outline},
-    sizing::{Fit, ViewBox},
-    syntax::{Length, Matrix, numbers},
+use crate::import::{
+    svg::{
+        path::{Outline, path_outline},
+        sizing::{Fit, ViewBox},
+        syntax::{Length, Matrix, numbers},
+    },
     xml::Node,
 };
 

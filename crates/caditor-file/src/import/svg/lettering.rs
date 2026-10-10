@@ -12,8 +12,8 @@ use crate::import::{
         syntax::{Length, Matrix, numbers, transform_list},
         text_path::{Side, Track},
         text_style::Anchor,
-        xml::{Content, Node},
     },
+    xml::{Content, Node},
 };
 
 const SPACE: char = ' ';

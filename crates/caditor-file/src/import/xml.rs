@@ -127,6 +127,21 @@ impl<'a, 't> Node<'a, 't> {
         content
     }
 
+    pub fn descendants(self) -> impl Iterator<Item = Node<'a, 't>> {
+        let tree = self.tree;
+        let mut pending: Vec<usize> = self
+            .element()
+            .map(|element| element.children.iter().rev().copied().collect())
+            .unwrap_or_default();
+        std::iter::from_fn(move || {
+            let index = pending.pop()?;
+            if let Some(element) = tree.elements.get(index) {
+                pending.extend(element.children.iter().rev());
+            }
+            Some(Node { tree, index })
+        })
+    }
+
     pub fn ancestors(self) -> impl Iterator<Item = Node<'a, 't>> {
         let tree = self.tree;
         std::iter::successors(Some(self), move |node| {

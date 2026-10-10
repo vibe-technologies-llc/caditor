@@ -202,3 +202,56 @@ fn damaged_and_open_meshes_are_refused_in_words() {
         Err(ImportError::MeshNotClosed { .. })
     ));
 }
+
+fn model_package(model: &str) -> Vec<u8> {
+    archive(&[ZipEntry {
+        name: "3D/3dmodel.model",
+        contents: model.as_bytes(),
+    }])
+    .unwrap()
+}
+
+#[test]
+fn a_3mf_nested_a_hundred_thousand_deep_is_refused_instead_of_overflowing_the_stack() {
+    let depth = 100_000;
+    let mut model = String::from("<model unit=\"millimeter\"><resources>");
+    model.push_str(&"<a>".repeat(depth));
+    model.push_str(&"</a>".repeat(depth));
+    model.push_str("</resources></model>");
+
+    assert_eq!(
+        parse_mesh(
+            &model_package(&model),
+            MeshFormat::ThreeMf,
+            "deep.3mf",
+            "deep"
+        ),
+        Err(ImportError::DamagedMesh("3MF"))
+    );
+}
+
+#[test]
+fn a_3mf_with_relationships_nested_a_hundred_thousand_deep_is_refused_instead_of_overflowing_the_stack()
+ {
+    let depth = 100_000;
+    let mut relationships = String::from("<Relationships>");
+    relationships.push_str(&"<a>".repeat(depth));
+    relationships.push_str(&"</a>".repeat(depth));
+    relationships.push_str("</Relationships>");
+    let package = archive(&[
+        ZipEntry {
+            name: "_rels/.rels",
+            contents: relationships.as_bytes(),
+        },
+        ZipEntry {
+            name: "3D/3dmodel.model",
+            contents: b"<model/>",
+        },
+    ])
+    .unwrap();
+
+    assert_eq!(
+        parse_mesh(&package, MeshFormat::ThreeMf, "deep.3mf", "deep"),
+        Err(ImportError::DamagedMesh("3MF"))
+    );
+}

@@ -7,12 +7,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Files and recovery
 
-- [high · easy] A 3MF import can crash the whole app: `import/mesh.rs` parses the model part and
-  `_rels/.rels` with `roxmltree::Document::parse`, whose tokenizer recurses once per nesting level
-  (the reason `import/svg/xml.rs` exists, `file-import-export.md`), so a part of some 100,000
-  nested elements, a few hundred bytes deflated, overflows the import thread's stack, which
-  `catch_unwind` cannot catch. Parse both parts with `xml.rs`, which bounds depth and elements, and
-  pin it with a deeply nested part.
 - [high · easy] A 3MF's components expand without a total budget: `add_object` recurses through
   `<component>` up to `MAX_COMPONENT_DEPTH` (16) and copies the leaf mesh for every instance, so
   16 objects of 4 components each place about 4·10⁹ meshes from a few kilobytes until the

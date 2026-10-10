@@ -10,7 +10,6 @@ mod syntax;
 mod text;
 mod text_path;
 mod text_style;
-mod xml;
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -35,8 +34,8 @@ use crate::{
             style::{Inherited, Properties},
             syntax::Matrix,
             text::{LATIN_1_NOTE, decoded, is_packed},
-            xml::{Node, Tree, XmlError, parse},
         },
+        xml::{Node, Tree, XmlError, parse},
     },
     untrusted::UntrustedMap,
 };

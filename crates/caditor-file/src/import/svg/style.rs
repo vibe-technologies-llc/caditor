@@ -1,7 +1,9 @@
-use crate::import::svg::{
-    css::{Declaration, StyleSheet, inline_declarations},
-    syntax::{Length, Matrix, transform_list},
-    text_style::{TextProperties, TextStyle},
+use crate::import::{
+    svg::{
+        css::{Declaration, StyleSheet, inline_declarations},
+        syntax::{Length, Matrix, transform_list},
+        text_style::{TextProperties, TextStyle},
+    },
     xml::{Node, XML_NAMESPACE},
 };
 

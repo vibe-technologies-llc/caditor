@@ -66,8 +66,9 @@ paths:
   `parse_dxf`. `parse_svg` unpacks gzip like `.stpz` (`model::unpacked`), decodes UTF-8 or
   UTF-16 by BOM, else Latin-1 with a note, and returns the same `Drawing` as DXF, flattened by the
   DXF reader's `flatten`, so the import dialog, arrangement and `drawing_transaction` are shared.
-- `xml.rs` is caditor's own small XML reader, since roxmltree's tokenizer recurses per nesting
-  level and overflows the stack on hostile depth: iterative, namespaces resolved, attribute values
+- `import/xml.rs` is caditor's own small XML reader, shared with 3MF import (below), since
+  roxmltree's tokenizer recurses per nesting level and overflows the stack on hostile depth:
+  iterative, namespaces resolved, attribute values
   decoded (the five named entities, character references and the DOCTYPE's own text entities,
   which Illustrator uses for `xmlns`; an entity holding markup, nested past `MAX_ENTITY_DEPTH` or
   expanding past `MAX_ENTITY_WORK` is damage), text content kept only inside `style` elements
@@ -260,12 +261,15 @@ paths:
   the triangle count, else text), OBJ (`v` and `f`, polygons fanned, `/` parts and negative indices
   read) and 3MF (`zip_read.rs`, a small reader of stored and deflated entries, no ZIP64; the model
   part from `_rels/.rels`, its `unit` converted to millimetres, build items and nested components
-  placed by their transforms). STL and OBJ have no units, so they read as millimetres with a note.
+  placed by their transforms; both the model part and `_rels/.rels` are read with `import/xml.rs`,
+  never roxmltree, whose recursion a deeply nested part would overflow, and past
+  `MAX_MODEL_ELEMENTS` elements the file is `ModelTooManyElements`). STL and OBJ have no units, so they read as millimetres with a
+  note.
 - The triangles become solids through the kernel's `faceted_solids` (`kernel.md`), each
   canonicalised like a STEP body and imported as an `Import` named after the file; what the
   kernel repaired or left out becomes notes in the import report. Its failures are
-  `ImportError` variants of their own (`DamagedMesh`, `MeshNotClosed`, `MeshTooDetailed`,
-  `MeshNotSolid`).
+  `ImportError` variants of their own (`DamagedMesh`, `ModelTooManyElements`, `MeshNotClosed`,
+  `MeshTooDetailed`, `MeshNotSolid`).
 
 ## Export (`export/`)
 
