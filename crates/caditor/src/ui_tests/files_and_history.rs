@@ -1,4 +1,4 @@
-use std::{fs, path::Path};
+use std::{borrow::Cow, fs, path::Path};
 
 use caditor_document::Transaction;
 use egui::{Event, Id, Key, Modifiers, PanelState, PointerButton, Pos2};
@@ -23,14 +23,14 @@ fn notice_starts(harness: &Harness, text: &str) -> bool {
         .is_some_and(|notice| notice.text.starts_with(text))
 }
 
-fn offered(harness: &Harness, command: Command) -> Result<(), String> {
+fn offered(harness: &Harness, command: Command) -> Result<(), Cow<'static, str>> {
     harness
         .workspace
         .last_offers
         .iter()
         .find(|offer| offer.command == command)
         .map_or_else(
-            || Err("not offered".to_owned()),
+            || Err(Cow::Borrowed("not offered")),
             |offer| offer.availability.clone(),
         )
 }
@@ -131,7 +131,7 @@ fn revert_to_saved_goes_back_to_the_file_in_one_step_that_undo_takes_back() {
 
     assert_eq!(
         offered(&harness, Command::RevertToSaved),
-        Err(NEVER_SAVED.to_owned())
+        Err(NEVER_SAVED.into())
     );
 
     harness.command(FileCommand::OpenPath(path.clone()));
@@ -142,7 +142,7 @@ fn revert_to_saved_goes_back_to_the_file_in_one_step_that_undo_takes_back() {
 
     assert_eq!(
         offered(&harness, Command::RevertToSaved),
-        Err(NO_CHANGES_SINCE_SAVED.to_owned())
+        Err(NO_CHANGES_SINCE_SAVED.into())
     );
 
     let saved = harness.document().clone();

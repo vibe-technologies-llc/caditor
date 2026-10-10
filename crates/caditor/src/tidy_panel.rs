@@ -52,7 +52,7 @@ pub fn commands(
     commands: &mut CommandFrame<'_>,
 ) {
     let edited = editing.active().map(|active| active.feature);
-    let availability = edited.map(|_| ()).ok_or_else(|| NOT_EDITING.to_owned());
+    let availability = edited.map(|_| ()).ok_or(NOT_EDITING);
     for (command, task) in [
         (Command::FindRelations, Task::Relations),
         (Command::DimensionFromDatum, Task::Dimensions),

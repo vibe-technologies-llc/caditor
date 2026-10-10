@@ -6,7 +6,7 @@ use egui::{Id, KeyboardShortcut, Label, ThemePreference, Ui};
 use crate::{
     appearance::{self, MAX_SCALE, MIN_SCALE, SCALE_STEP, SPACE_M, SPACE_S},
     body_appearance::SWATCHES,
-    commands::{self, Command, Keymap},
+    commands::{Command, Keymap},
     defender,
     dialog_parts::{self, BodyRoom},
     files::templates::{self, Templates},
@@ -1138,11 +1138,8 @@ fn navigation(ui: &mut Ui, preferences: &Preferences, command: &mut Option<Prefe
     let navigation = preferences.navigation;
     let toggle = preferences
         .keymap
-        .first(Command::ToggleProjection)
-        .map_or_else(
-            || Command::ToggleProjection.title(),
-            |shortcut| commands::display(&shortcut),
-        );
+        .hint(Command::ToggleProjection)
+        .map_or_else(|| Command::ToggleProjection.title(), str::to_owned);
     let note = format!("{toggle} switches between perspective and orthographic in the view.");
     section(ui, "View", "navigation-view", Some(note), |ui| {
         widgets::property(ui, "Projection", |ui| {

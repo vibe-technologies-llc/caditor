@@ -70,6 +70,8 @@ paths:
   revision, evaluation, the open feature's draft, displayed sketches, body meshes, display style,
   `Contrast`, editing `Context`, faceting level); anything new that affects the drawing must feed
   that key.
+  The hovered `Pickable`s handed in `Highlight` are sorted and deduplicated, since every scene item
+  looks itself up with a binary search.
 - Previews, the trim preview and the measured line form a second batch, rebuilt only when it
   differs; it has no pick ids, so it never asks for a pick.
 - A pick is asked for when the cursor, the view or the base's generation differs from the last
@@ -363,7 +365,7 @@ paths:
   registered once, so hover, selection and picking read as before. Up to `INLINE_TRIANGLES` the
   work is done in the frame; a larger mesh is worked out on a thread that wakes the app and bumps
   `Analyses::finished`, which `Revisions::analysed` watches, the body drawn plain meanwhile. Entries
-  of meshes that are gone are dropped. Moved or see-through bodies, X-ray and wireframe are drawn
+  of meshes that are gone are dropped, and all of them when no face analysis is shown (`prepare(None, ..)`), so a closed panel keeps no split mesh. Moved or see-through bodies, X-ray and wireframe are drawn
   as before (the panel says so for a style that does not colour faces).
 - The panel's legend names each band with its area from the same cache (`Tally`, approximate
   since it is the mesh's), so no band is told by colour alone; a band's hover says what it means.

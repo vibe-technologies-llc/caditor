@@ -994,7 +994,7 @@ impl ViewportState {
             .hovered
             .filter(|hovered| hovered.is_available(document, evaluation, context));
         let highlighted = self.highlighted();
-        let hovered: Vec<Pickable> = if self.drawing.is_active() {
+        let mut hovered: Vec<Pickable> = if self.drawing.is_active() {
             edited
                 .into_iter()
                 .flat_map(|feature| {
@@ -1042,6 +1042,8 @@ impl ViewportState {
                 .flat_map(|highlighted| self.whole_body_of(model, highlighted))
                 .collect()
         };
+        hovered.sort_unstable();
+        hovered.dedup();
         let chosen_rows = self.rows_to_highlight(context);
         let view = self.view();
         let sources = scene_sources(

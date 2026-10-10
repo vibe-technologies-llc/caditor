@@ -390,15 +390,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   whole 3D pass again. Keeping the resolved view in a surface-sized texture and copying it while
   the scene generation, view, rect, graphics settings and picks are unchanged would save the GPU
   that work.
-- [low · easy] Smaller per-frame costs measured or found in the resource survey:
-  - `CommandFrame::invoke_detailed` allocates each unavailable reason with `to_string`
-    (`commands.rs`).
-  - `Highlight::is_hovered` searches a slice for every scene item (`scene.rs`), and `hovered` can
-    hold a whole body.
-  - Key hints, shortcut lists and the window title are formatted again every frame.
-- [low · easy] Fallback system fonts are held twice in RAM (`font_fallbacks.rs` loads them as owned
-  data and epaint copies it again), up to tens of MB with CJK fonts. Face analysis also keeps a
-  split mesh per body after its panel closes (`analysis.rs`).
 - [low · medium] A pick in flight is polled every millisecond (`PICK_CHECK`, `app.rs`) until it is
   answered. A helper thread blocking on the device could wake the app instead.
 - [low · medium] GPU records are wider than needed. Mesh vertices are 28 B, where a normal packed

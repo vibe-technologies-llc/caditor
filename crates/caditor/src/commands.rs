@@ -1,4 +1,8 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    borrow::Cow,
+    collections::{BTreeMap, BTreeSet},
+    sync::OnceLock,
+};
 
 use caditor_file::Settings;
 use caditor_geometry::Vector3;
@@ -1937,16 +1941,19 @@ pub fn display(shortcut: &KeyboardShortcut) -> String {
         key.name()
     };
     let modifiers = normalized(shortcut.modifiers);
-    [
+    let mut text = String::new();
+    for (pressed, name) in [
         (modifiers.command, CTRL),
         (modifiers.alt, ALT),
         (modifiers.shift, SHIFT),
-    ]
-    .into_iter()
-    .filter_map(|(pressed, name)| pressed.then_some(name))
-    .chain([key_text])
-    .collect::<Vec<_>>()
-    .join("+")
+    ] {
+        if pressed {
+            text.push_str(name);
+            text.push('+');
+        }
+    }
+    text.push_str(key_text);
+    text
 }
 
 pub fn is_named_by(shortcut: &KeyboardShortcut, query: &str) -> bool {
@@ -2002,9 +2009,16 @@ fn same(a: &KeyboardShortcut, b: &KeyboardShortcut) -> bool {
     a.logical_key == b.logical_key && normalized(a.modifiers) == normalized(b.modifiers)
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default)]
 pub struct Keymap {
     overrides: BTreeMap<Command, Vec<KeyboardShortcut>>,
+    hints: OnceLock<BTreeMap<Command, String>>,
+}
+
+impl PartialEq for Keymap {
+    fn eq(&self, other: &Self) -> bool {
+        self.overrides == other.overrides
+    }
 }
 
 impl Keymap {
@@ -2048,6 +2062,17 @@ impl Keymap {
             .get(&command)
             .cloned()
             .unwrap_or_else(|| command.default_shortcuts())
+    }
+
+    pub fn hint(&self, command: Command) -> Option<&str> {
+        self.hints
+            .get_or_init(|| {
+                Command::all()
+                    .filter_map(|command| Some((command, display(&self.first(command)?))))
+                    .collect()
+            })
+            .get(&command)
+            .map(String::as_str)
     }
 
     pub fn first(&self, command: Command) -> Option<KeyboardShortcut> {
@@ -2101,6 +2126,7 @@ impl Keymap {
 
     pub fn reset(&mut self, command: Command) {
         self.overrides.remove(&command);
+        self.hints = OnceLock::new();
         for shortcut in command.default_shortcuts() {
             for other in self.conflicts(command, &shortcut) {
                 self.unbind(other, shortcut);
@@ -2110,9 +2136,11 @@ impl Keymap {
 
     pub fn reset_all(&mut self) {
         self.overrides.clear();
+        self.hints = OnceLock::new();
     }
 
     fn set(&mut self, command: Command, shortcuts: Vec<KeyboardShortcut>) {
+        self.hints = OnceLock::new();
         if shortcuts == command.default_shortcuts() {
             self.overrides.remove(&command);
         } else {
@@ -2235,8 +2263,30 @@ pub fn dispatch(ctx: &egui::Context, keymap: &Keymap, situation: &Situation) -> 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Offer {
     pub command: Command,
-    pub availability: Result<(), String>,
+    pub availability: Result<(), Cow<'static, str>>,
     pub detail: Option<String>,
+}
+
+pub trait Reason {
+    fn reason(&self) -> Cow<'static, str>;
+}
+
+impl Reason for &'static str {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Borrowed(self)
+    }
+}
+
+impl Reason for String {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.clone())
+    }
+}
+
+impl Reason for Cow<'static, str> {
+    fn reason(&self) -> Cow<'static, str> {
+        self.clone()
+    }
 }
 
 impl Offer {
@@ -2324,9 +2374,7 @@ impl<'a> CommandFrame<'a> {
     }
 
     pub fn keys(&self, command: Command) -> Option<String> {
-        self.keymap
-            .first(command)
-            .map(|shortcut| display(&shortcut))
+        self.keymap.hint(command).map(str::to_owned)
     }
 
     pub fn with_keys(&self, command: Command, text: &str) -> String {
@@ -2336,27 +2384,20 @@ impl<'a> CommandFrame<'a> {
         }
     }
 
-    pub fn invoke<T, E: ToString>(
-        &mut self,
-        command: Command,
-        availability: &Result<T, E>,
-    ) -> bool {
+    pub fn invoke<T, E: Reason>(&mut self, command: Command, availability: &Result<T, E>) -> bool {
         self.invoke_detailed(command, None, availability)
     }
 
-    pub fn invoke_detailed<T, E: ToString>(
+    pub fn invoke_detailed<T, E: Reason>(
         &mut self,
         command: Command,
         detail: Option<String>,
         availability: &Result<T, E>,
     ) -> bool {
-        let availability = availability
-            .as_ref()
-            .map(|_| ())
-            .map_err(ToString::to_string);
+        let availability = availability.as_ref().map(|_| ()).map_err(Reason::reason);
         let triggered = self.take(command);
         if triggered && let Err(reason) = &availability {
-            self.refused.push((command, reason.clone()));
+            self.refused.push((command, reason.to_string()));
         }
         if !self.offered.insert(command) {
             self.offers.retain(|offer| offer.command != command);
@@ -2408,6 +2449,19 @@ mod tests {
 
     fn press(key: Key, modifiers: Modifiers) -> KeyboardShortcut {
         KeyboardShortcut::new(modifiers, key)
+    }
+
+    #[test]
+    fn key_hints_follow_the_keymap_as_it_changes() {
+        let mut keymap = Keymap::default();
+        let line = Command::FitView;
+        let original = keymap.hint(line).map(str::to_owned);
+
+        keymap.set(line, Vec::new());
+        assert_eq!(keymap.hint(line), None);
+
+        keymap.reset(line);
+        assert_eq!(keymap.hint(line).map(str::to_owned), original);
     }
 
     #[test]

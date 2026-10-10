@@ -372,13 +372,15 @@ fn shown_in_list(listed: Command, query: &str, changed_only: bool, keymap: &Keym
     if changed_only && keymap.is_default(listed) {
         return false;
     }
-    let text = format!(
-        "{}: {}",
-        listed.category().label().to_lowercase(),
-        listed.title().to_lowercase()
-    );
     query.is_empty()
-        || palette::starts_words(query, &text)
+        || palette::starts_words(
+            query,
+            &format!(
+                "{}: {}",
+                listed.category().label().to_lowercase(),
+                listed.title().to_lowercase()
+            ),
+        )
         || keymap
             .shortcuts(listed)
             .iter()

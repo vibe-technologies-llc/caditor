@@ -110,9 +110,23 @@ pub fn waker_factory(proxy: EventLoopProxy<AppEvent>) -> WakerFactory {
 
 pub fn window_title(model: &Model) -> String {
     let marker = if model.is_dirty() { "*" } else { "" };
-    format!("{marker}{} — {}", model.display_name(), about::NAME)
+    format!(
+        "{marker}{}{TITLE_SEPARATOR}{}",
+        model.display_label(),
+        about::NAME
+    )
 }
 
+fn is_window_title(model: &Model, title: &str) -> bool {
+    let marker = if model.is_dirty() { "*" } else { "" };
+    title
+        .strip_prefix(marker)
+        .and_then(|rest| rest.strip_suffix(about::NAME))
+        .and_then(|rest| rest.strip_suffix(TITLE_SEPARATOR))
+        .is_some_and(|name| name == model.display_label())
+}
+
+const TITLE_SEPARATOR: &str = " — ";
 const FIRST_RETRY: Duration = Duration::from_millis(16);
 const MAX_RETRY: Duration = Duration::from_secs(1);
 const MAX_RETRY_DOUBLINGS: u32 = 6;
@@ -1854,8 +1868,8 @@ impl Session {
         perform(actions, model, files, &mut self.workspace);
         self.renderer
             .set_graphics(self.workspace.preferences.graphics.render());
-        let title = window_title(model);
-        if title != self.title {
+        if !is_window_title(model, &self.title) {
+            let title = window_title(model);
             self.window.set_title(&title);
             self.title = title;
         }

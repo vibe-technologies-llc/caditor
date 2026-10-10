@@ -1,8 +1,10 @@
+use std::borrow::Cow;
+
 use caditor_document::{Document, Edit, FeatureId, FeatureKind, Transaction, UndoMark};
 use caditor_sketch::Sketch;
 
 use crate::{
-    commands::Command,
+    commands::{Command, Reason},
     model::{Action, Model, Notice},
     reference_picking::Picking,
     selection::{Pickable, PrincipalPlane},
@@ -283,9 +285,11 @@ pub struct Opened {
     mark: UndoMark,
 }
 
+const NOTHING_OPEN: &str = "no feature is open; open one with Edit feature first";
+
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum CancelRefusal {
-    #[error("no feature is open; open one with Edit feature first")]
+    #[error("{NOTHING_OPEN}")]
     NothingOpen,
     #[error(
         "the undo history no longer goes back to when {feature} was opened; undo its changes \
@@ -297,6 +301,17 @@ pub enum CancelRefusal {
          changes one at a time instead"
     )]
     ChangedElsewhere { feature: String, step: String },
+}
+
+impl Reason for CancelRefusal {
+    fn reason(&self) -> Cow<'static, str> {
+        match self {
+            Self::NothingOpen => Cow::Borrowed(NOTHING_OPEN),
+            Self::HistoryChanged { .. } | Self::ChangedElsewhere { .. } => {
+                Cow::Owned(self.to_string())
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default)]
