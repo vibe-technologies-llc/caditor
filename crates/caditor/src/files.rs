@@ -147,6 +147,8 @@ pub enum FileCommand {
     ImportOptions(ImportOptionsCommand),
     Replace(bool),
     QuitAnyway,
+    StopExportsAndQuit,
+    KeepExporting,
     Export(ExportCommand),
     ExportImage(ImageCommand),
     ExportDrawing(DrawingSource),
@@ -729,6 +731,27 @@ impl Importing {
     }
 }
 
+struct ExportWait {
+    since: Instant,
+    stopping: bool,
+}
+
+impl ExportWait {
+    fn waiting() -> Self {
+        Self {
+            since: Instant::now(),
+            stopping: false,
+        }
+    }
+
+    fn stopping() -> Self {
+        Self {
+            since: Instant::now(),
+            stopping: true,
+        }
+    }
+}
+
 struct Opening {
     path: PathBuf,
     origin: Origin,
@@ -800,6 +823,7 @@ pub struct Files {
     confirm_replace: Option<Replacement>,
     changed_on_disk: Option<PathBuf>,
     closing: Option<(Closing, Instant)>,
+    waiting_for_exports: Option<ExportWait>,
     stored_settings: Option<Settings>,
     templates: Templates,
     themes: UserThemes,
@@ -849,6 +873,7 @@ impl Files {
             confirm_replace: None,
             changed_on_disk: None,
             closing: None,
+            waiting_for_exports: None,
             stored_settings: None,
             templates,
             themes,
@@ -911,6 +936,7 @@ impl Files {
     pub fn is_blocking(&self) -> bool {
         self.guard.is_some()
             || self.closing.is_some()
+            || self.waiting_for_exports.is_some()
             || self.confirm_replace.is_some()
             || self.changed_on_disk.is_some()
             || self.opening.is_some()
@@ -1007,7 +1033,7 @@ impl Files {
             FileCommand::OpenSample(sample) => self.request(Intent::Sample(sample), model),
             FileCommand::Open => self.request(Intent::Open(None), model),
             FileCommand::OpenPath(path) => self.request(Intent::Open(Some(path)), model),
-            FileCommand::Quit if self.closing.is_some() => {}
+            FileCommand::Quit if self.closing.is_some() || self.waiting_for_exports.is_some() => {}
             FileCommand::Quit => self.request(Intent::Quit, model),
             FileCommand::Restore(journal) => self.request(
                 Intent::Restore {
@@ -1095,7 +1121,19 @@ impl Files {
                     log::warn!("quitting before the storage worker finished");
                     self.quit = true;
                 }
+                if self.waiting_for_exports.take().is_some() {
+                    log::warn!("quitting before a cancelled export finished");
+                    self.close_storage(model);
+                }
             }
+            FileCommand::StopExportsAndQuit => {
+                if let Some(waiting) = &mut self.waiting_for_exports {
+                    *waiting = ExportWait::stopping();
+                    self.exporter.perform(ExportCommand::Cancel, model);
+                    self.image.perform(ImageCommand::Cancel);
+                }
+            }
+            FileCommand::KeepExporting => self.waiting_for_exports = None,
             FileCommand::Export(command) => {
                 self.exporter.perform(command, model);
                 if command == ExportCommand::Choose {
@@ -1496,6 +1534,11 @@ impl Files {
         while let Ok(event) = self.inbox.try_recv() {
             changed = true;
             self.handle(event, model, editing);
+        }
+        if self.waiting_for_exports.is_some() && !self.exports_running() {
+            self.waiting_for_exports = None;
+            self.close_storage(model);
+            changed = true;
         }
         self.import_next(model);
         self.history.compare_preview(model);
@@ -2263,11 +2306,32 @@ impl Files {
                 }
             }
             Intent::Replace(opened) => self.finish_open(*opened, model),
-            Intent::Quit => match model.close() {
-                Some(closing) => self.closing = Some((closing, Instant::now())),
-                None => self.quit = true,
-            },
+            Intent::Quit if self.exports_running() => {
+                self.waiting_for_exports = Some(ExportWait::waiting());
+            }
+            Intent::Quit => self.close_storage(model),
         }
+    }
+
+    fn close_storage(&mut self, model: &mut Model) {
+        match model.close() {
+            Some(closing) => self.closing = Some((closing, Instant::now())),
+            None => self.quit = true,
+        }
+    }
+
+    pub fn exports_running(&self) -> bool {
+        self.exporter.is_running() || self.image.is_running()
+    }
+
+    fn running_exports(&self) -> Vec<String> {
+        [
+            self.exporter.running_description(),
+            self.image.running_description(),
+        ]
+        .into_iter()
+        .flatten()
+        .collect()
     }
 
     fn save(&mut self, model: &mut Model) {
@@ -3325,6 +3389,8 @@ pub fn show(
     let mut command = None;
     if let Some((_, since)) = &files.closing {
         command = closing(&ctx, *since);
+    } else if let Some(waiting) = &files.waiting_for_exports {
+        command = finishing_exports(&ctx, &files.running_exports(), waiting);
     } else if let Some(open) = &files.opening {
         command = opening(&ctx, &open.path, open.origin);
     } else if let Some(intent) = &files.guard {
@@ -3463,6 +3529,57 @@ fn closing(ctx: &egui::Context, since: Instant) -> Option<FileCommand> {
                 .clicked()
                 .then_some(FileCommand::QuitAnyway)
         })
+    })
+}
+
+fn finishing_exports(
+    ctx: &egui::Context,
+    running: &[String],
+    waiting: &ExportWait,
+) -> Option<FileCommand> {
+    let waited = waiting.since.elapsed();
+    let slow = waiting.stopping && waited >= QUIT_ANYWAY_AFTER;
+    if waiting.stopping && !slow {
+        ctx.request_repaint_after(QUIT_ANYWAY_AFTER.saturating_sub(waited));
+    }
+    dialog_parts::titled_modal(ctx, "closing-exports", "Closing…", |ui| {
+        for description in running {
+            ui.horizontal(|ui| {
+                widgets::spinner(ui);
+                ui.label(description);
+            });
+        }
+        let explanation = if waiting.stopping {
+            "Stopping the export. caditor closes as soon as it has stopped."
+        } else {
+            "caditor closes when the export is done. Cancelling it writes no file."
+        };
+        ui.label(widgets::muted(explanation, ui));
+        widgets::footer_split(
+            ui,
+            |ui| match (waiting.stopping, slow) {
+                (false, _) => ui
+                    .add(widgets::danger_button("Cancel export and quit"))
+                    .on_hover_text("Stop the export without writing the file, then close caditor")
+                    .clicked()
+                    .then_some(FileCommand::StopExportsAndQuit),
+                (true, true) => ui
+                    .add(widgets::danger_button("Quit anyway"))
+                    .on_hover_text(
+                        "The export is left unfinished and may leave a temporary file beside the \
+                         place it was writing to.",
+                    )
+                    .clicked()
+                    .then_some(FileCommand::QuitAnyway),
+                (true, false) => None,
+            },
+            |ui| {
+                ui.add(widgets::button("Don't quit"))
+                    .on_hover_text("Keep caditor open and let the export carry on")
+                    .clicked()
+                    .then_some(FileCommand::KeepExporting)
+            },
+        )
     })
 }
 

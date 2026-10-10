@@ -48,7 +48,13 @@ paths:
 - The unsaved-changes prompt precedes every action that replaces or ends the document: Save
   primary and rightmost, Cancel beside it, the discarding choice a `danger_button` at the far left
   (`widgets::footer_split`). Quit waits for the storage worker in a "Closing…" modal without
-  blocking the UI and without a close button, since quitting cannot be taken back.
+  blocking the UI and without a close button, since quitting cannot be taken back. While a model or
+  image export runs, `run(Intent::Quit)` closes nothing: `Files::waiting_for_exports` shows
+  `finishing_exports`, a modal naming each running export (with the configuration progress),
+  and `poll` closes storage once none runs. Cancel export and quit raises the exports' cancel and
+  keeps waiting, offering Quit anyway after `QUIT_ANYWAY_AFTER`; Don't quit drops the wait. The
+  window's close button and the Quit command both reach it through `FileCommand::Quit`, which the
+  waiting ignores. Drawing, parameter and template writes are not waited for.
 - Opening shows a cancellable dialog. Each open counts an attempt (`Files::open_attempt`) and the
   result of an abandoned one is ignored. Cancelling, or starting another open, raises the open's
   `CancelToken`, which `caditor_file::load_cancellable` checks after reading the file, between

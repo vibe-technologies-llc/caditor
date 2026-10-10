@@ -275,6 +275,11 @@ impl ImageExporter {
         outcome(&display_name(Some(path)), result)
     }
 
+    pub fn running_description(&self) -> Option<String> {
+        self.exporting()
+            .map(|path| format!("Exporting “{}”…", display_name(Some(path))))
+    }
+
     fn exporting(&self) -> Option<&Path> {
         match &self.stage {
             Stage::Idle => None,
@@ -427,11 +432,11 @@ pub fn activity(
     commands: &mut CommandFrame<'_>,
     actions: &mut Vec<Action>,
 ) {
-    let running = exporter.exporting().ok_or(NOT_EXPORTING);
+    let running = exporter.running_description().ok_or(NOT_EXPORTING);
     let mut cancel = commands.invoke(Command::CancelImageExport, &running);
-    if let Ok(path) = running {
+    if let Ok(description) = running {
         widgets::spinner(ui);
-        ui.label(format!("Exporting “{}”…", display_name(Some(path))));
+        ui.label(description);
         cancel |= ui
             .add(widgets::button("Cancel"))
             .on_hover_text(commands.with_keys(

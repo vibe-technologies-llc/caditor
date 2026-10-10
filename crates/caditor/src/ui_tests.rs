@@ -274,6 +274,7 @@ struct Harness {
     window: ViewportInfo,
     window_commands: Vec<ViewportCommand>,
     image_failure: Option<ImageError>,
+    renders_held: bool,
     textures: crate::overlay::TextureMirror,
     painted: Option<Painted>,
     hovered_files: Vec<egui::HoveredFile>,
@@ -365,6 +366,7 @@ impl Harness {
             window: ViewportInfo::default(),
             window_commands: Vec::new(),
             image_failure: None,
+            renders_held: false,
             textures: crate::overlay::TextureMirror::default(),
             painted: None,
             hovered_files: Vec::new(),
@@ -493,6 +495,9 @@ impl Harness {
     }
 
     fn render_image(&mut self) {
+        if self.renders_held {
+            return;
+        }
         let Some(job) = self.files.image_job() else {
             return;
         };
@@ -516,6 +521,9 @@ impl Harness {
     }
 
     fn render_thumbnail(&mut self) {
+        if self.renders_held {
+            return;
+        }
         let Some(job) = self.files.thumbnail_job() else {
             return;
         };

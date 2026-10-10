@@ -20,8 +20,10 @@ folder it was last used with while caditor runs.
 
 Meshed formats take a resolution. The export waits for the model to finish recomputing and warns
 when a feature failed, since bodies then export as last computed. It runs in the background,
-cancellable from the status bar. [Model properties](templates) such as the title and author go into
-the formats that have room for them.
+cancellable from the status bar. Closing caditor while a model or image export runs waits for it
+and closes when it is done; the dialog offers to cancel the export and close, or not to close.
+[Model properties](templates) such as the title and author go into the formats that have room for
+them.
 
 ## Images
 

@@ -104,6 +104,22 @@ struct Running {
     progress: Option<Progress>,
 }
 
+impl Running {
+    fn description(&self) -> String {
+        match &self.progress {
+            Some(progress) => {
+                let done = progress.done.load(Ordering::SeqCst);
+                format!(
+                    "Exporting configuration {} of {}…",
+                    (done + 1).min(progress.total),
+                    progress.total
+                )
+            }
+            None => format!("Exporting “{}”…", display_name(Some(&self.path))),
+        }
+    }
+}
+
 struct Job {
     path: PathBuf,
     format: ExportFormat,
@@ -258,6 +274,10 @@ impl Exporter {
 
     pub fn is_running(&self) -> bool {
         self.running.is_some()
+    }
+
+    pub fn running_description(&self) -> Option<String> {
+        self.running.as_ref().map(Running::description)
     }
 
     #[cfg(test)]
@@ -625,22 +645,7 @@ pub fn activity(
     let mut cancel = commands.invoke(Command::CancelExport, &running);
     if let Ok(running) = running {
         widgets::spinner(ui);
-        match &running.progress {
-            Some(progress) => {
-                let done = progress.done.load(Ordering::SeqCst);
-                ui.label(format!(
-                    "Exporting configuration {} of {}…",
-                    (done + 1).min(progress.total),
-                    progress.total
-                ));
-            }
-            None => {
-                ui.label(format!(
-                    "Exporting “{}”…",
-                    display_name(Some(&running.path))
-                ));
-            }
-        }
+        ui.label(running.description());
         cancel |= ui
             .add(widgets::button("Cancel"))
             .on_hover_text(commands.with_keys(

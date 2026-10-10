@@ -4,13 +4,16 @@ use caditor_document::{Edit, Transaction};
 use egui::{Event, Id, Key, Modifiers, PanelState, PointerButton, Pos2};
 use tempfile::TempDir;
 
-use super::{Harness, canonical, extruded_plate, run_from_palette, sample_document};
+use super::{
+    Harness, canonical, click_window_button, extruded_plate, run_from_palette, sample_document,
+};
 use crate::{
     app::Workspace,
     commands::{Command, RecentSlot},
     export::ExportCommand,
     files::{FileCommand, GuardChoice},
     history::HistoryCommand,
+    icons,
     layout::PanelLayout,
     model::{Action, NEVER_SAVED, NO_CHANGES_SINCE_SAVED},
     preferences::Preferences,
@@ -468,4 +471,79 @@ fn a_kept_version_is_previewed_in_the_background_without_touching_the_model() {
     });
     assert_eq!(harness.expression_text("width"), "50 mm");
     assert!(harness.files.version_preview().is_none());
+}
+
+fn start_image_export(harness: &mut Harness, target: std::path::PathBuf) {
+    harness.key(Key::E, Modifiers::COMMAND | Modifiers::SHIFT);
+    harness.frame();
+    harness.show_new_windows();
+    harness.answer_dialog(Some(target));
+    harness.click("Export…");
+}
+
+#[test]
+fn closing_the_window_while_an_image_export_runs_waits_for_it_to_finish() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    harness.renders_held = true;
+
+    start_image_export(&mut harness, dir.path().join("plate"));
+    assert!(harness.files.exports_running());
+
+    click_window_button(&mut harness, icons::CLOSE);
+    harness.frame();
+    harness.frame();
+
+    assert!(harness.shows("Closing…"));
+    assert!(harness.shows("Exporting “plate.png”…"));
+    assert!(harness.shows("Cancel export and quit"));
+    assert!(!harness.files.should_quit());
+
+    harness.renders_held = false;
+    harness.wait_until("caditor quits", |harness| harness.files.should_quit());
+
+    assert!(dir.path().join("plate.png").exists());
+}
+
+#[test]
+fn quitting_while_an_export_runs_can_be_called_off_or_stop_the_export_and_quit() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    extruded_plate(&mut harness);
+    harness.renders_held = true;
+
+    harness.key(Key::E, Modifiers::COMMAND);
+    harness.frame();
+    harness.show_new_windows();
+    harness.click("3MF");
+    harness.answer_dialog(Some(dir.path().join("plate")));
+    harness.click("Export…");
+    assert!(harness.files.exports_running());
+
+    harness.command(FileCommand::Quit);
+    harness.click("Close without saving");
+    harness.frame();
+
+    assert!(harness.shows("Exporting “plate.3mf”…"));
+    assert!(!harness.files.should_quit());
+
+    harness.click("Don't quit");
+    harness.frame();
+
+    assert!(!harness.shows("Cancel export and quit"));
+    assert!(harness.files.exports_running());
+    assert!(!harness.files.should_quit());
+
+    harness.command(FileCommand::Quit);
+    harness.click("Close without saving");
+    harness.click("Cancel export and quit");
+    harness.frame();
+
+    assert!(harness.shows("Stopping the export. caditor closes as soon as it has stopped."));
+    assert!(!harness.files.should_quit());
+
+    harness.renders_held = false;
+    harness.wait_until("caditor quits", |harness| harness.files.should_quit());
+
+    assert!(!dir.path().join("plate.3mf").exists());
 }
