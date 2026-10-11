@@ -215,7 +215,10 @@ paths:
   file is read-only (since `rename` would replace it anyway); the notice offers Save As.
 - Before the rename, a model save reads the synced temporary back and checks that it parses
   undamaged, its head digest is the one encoded and every record hashes to it
-  (`binary::reads_back`); otherwise the temporary is removed and the file left as it was. This
+  (`binary::reads_back`); otherwise the temporary is removed and the file left as it was, as on a
+  write failing halfway (`save::tests`, `a_save_failing_halfway_through_writing_leaves_the_file_as_it_was`
+  and `a_save_that_does_not_read_back_leaves_the_file_as_it_was`, which hold the bytes, the
+  folder's contents and the reason). This
   guards against the compressor and the shared-range copies. Every version data chunk the save
   compressed itself (the state it replaces, and deltas or keyframes rewritten by thinning,
   `Encoded::fresh_versions`) is rebuilt from the written file, through its chain back to a keyframe

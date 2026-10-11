@@ -4,12 +4,6 @@ Tests, CI and tooling that are missing or need attention.
 
 Entries are tagged and ordered as `ROADMAP.md` describes.
 
-- [high · easy] Nothing tests that a failed save leaves the file as it was: `replace_checked`
-  removes its temporary and returns the error when filling, syncing, the read-back or the rename
-  fails, but every test of it takes the success path, and the failing-save tests fail before
-  anything is written (a missing folder, unreadable versions). Fail `fill` halfway and the check
-  with `NotReadBack` over an existing file and assert its bytes, the folder's contents and the
-  reason.
 - [high · medium] No old-format files are kept to prove every shipped format still reads
   (`reliability.md`): the "saved before format N" tests build their files with today's encoder
   under an old version number (`model_from_json(1, …)`), so record shapes older builds wrote are

@@ -826,6 +826,63 @@ mod tests {
         }
     }
 
+    fn folder_contents(dir: &TempDir) -> Vec<OsString> {
+        let mut names: Vec<OsString> = fs::read_dir(dir.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn a_save_failing_halfway_through_writing_leaves_the_file_as_it_was() {
+        let dir = TempDir::new().unwrap();
+        let target = dir.path().join("model.caditor");
+        let original = pattern(3 * BLOCK + 5, 1);
+        fs::write(&target, &original).unwrap();
+        let replacement = pattern(5 * BLOCK, 2);
+
+        let error = replace_checked(
+            &target,
+            |file| {
+                file.write_all(&replacement[..replacement.len() / 2])?;
+                Err(io::Error::new(io::ErrorKind::StorageFull, "no space left"))
+            },
+            |_| Ok(()),
+        )
+        .unwrap_err();
+
+        assert_eq!(WriteFailure::of(&error), WriteFailure::DiskFull);
+        assert_eq!(fs::read(&target).unwrap(), original);
+        assert_eq!(folder_contents(&dir), [OsString::from("model.caditor")]);
+    }
+
+    #[test]
+    fn a_save_that_does_not_read_back_leaves_the_file_as_it_was() {
+        let dir = TempDir::new().unwrap();
+        let target = dir.path().join("model.caditor");
+        let original = pattern(2 * BLOCK + 9, 4);
+        fs::write(&target, &original).unwrap();
+        let replacement = pattern(4 * BLOCK, 6);
+
+        let error = replace_checked(
+            &target,
+            |file| file.write_all(&replacement),
+            |_| {
+                Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    binary::NotReadBack::Model,
+                ))
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(WriteFailure::of(&error), WriteFailure::NotReadBack);
+        assert_eq!(fs::read(&target).unwrap(), original);
+        assert_eq!(folder_contents(&dir), [OsString::from("model.caditor")]);
+    }
+
     #[test]
     fn a_shared_save_writes_exactly_what_was_encoded() {
         let dir = TempDir::new().unwrap();
