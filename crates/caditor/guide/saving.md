@@ -42,7 +42,8 @@ untitled model, in caditor's own folder), within seconds. If caditor, the comput
 fails, the next start offers to restore the unsaved work, undo history included;
 {command:file.recover} offers it again later. Saving clears what the journal held. Discarding
 changes that another caditor window has meanwhile restored or discarded simply takes them off the
-list.
+list. Opening a model while caditor is still looking for unsaved work waits for that look to end,
+and work you restore or discard meanwhile is not offered a second time.
 If the journal's own copy of the model is damaged but the saved file is still the one it was
 kept beside, the changes are restored onto that file, and the report says so.
 

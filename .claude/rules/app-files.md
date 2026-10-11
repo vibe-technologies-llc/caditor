@@ -98,7 +98,16 @@ paths:
 - The open thread and the Save As check wait for the model's storage handover
   (`Model::storage_handover`, `await_handover`, `file-journal.md`) before inspecting journals, so
   reopening a model just left, or saving over it, is not refused as open in another window while
-  the previous storage worker still lets go of its journal.
+  the previous storage worker still lets go of its journal. Both then read the journals through
+  `Journals::of`, which asks `journal_for` again every `IN_USE_POLL` while it answers `InUse` and
+  the startup scan is still running (`Files::scanning`, cleared by the scan job's `Scanning`
+  guard, since the scan holds each journal's lock through replay and a whole load), or within
+  `IN_USE_RETRY` of the first ask (another window's scan), and stops on the open's cancel; only a
+  journal still held after that is refused as open in another window.
+- The startup scan's result is reconciled with what the window did while it ran: `Event::Started`
+  skips journals restored or discarded this run (`Files::settled_journals`) and any journal of the
+  model open now (found by its `Recovered::file`, since opening it would have offered a journal
+  still holding work), so a stale copy is never offered to replace the edits made since.
 - A save over a file another program changed (`Report::ChangedOnDisk`) asks: Save a copy primary,
   Cancel, Replace at the far left, not a danger button, since the outside contents become a
   version. A save started from the unsaved-changes prompt continues after Replace or Save a copy

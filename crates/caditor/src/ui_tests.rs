@@ -328,6 +328,15 @@ impl Harness {
     }
 
     fn starting(dir: Option<&Path>, document: Document, workspace: Workspace) -> Self {
+        Self::starting_with(dir, document, workspace, |_| {})
+    }
+
+    fn starting_with(
+        dir: Option<&Path>,
+        document: Document,
+        workspace: Workspace,
+        prepare: impl FnOnce(&mut Files),
+    ) -> Self {
         let recovery_dir = dir.map(|dir| dir.join("recovery"));
         let dialogs = ScriptedDialogs::default();
         let services = Services {
@@ -345,6 +354,7 @@ impl Harness {
         };
         let mut model = Model::new(document, services);
         let mut files = Files::new(config, Box::new(dialogs.clone()), no_wake());
+        prepare(&mut files);
         files.start(None, &mut model);
         let mut harness = Self {
             context: egui::Context::default(),
@@ -3424,7 +3434,14 @@ fn an_unreadable_journal_is_kept_aside_and_reported_when_its_model_opens() {
 }
 
 fn crashed_with_a_width_change(dir: &Path) -> Editor {
+    crashed_with_a_width_change_to(dir, None)
+}
+
+fn crashed_with_a_width_change_to(dir: &Path, file: Option<PathBuf>) -> Editor {
     let base = sample_document().unwrap();
+    if let Some(file) = &file {
+        caditor_file::save(&base, file, false).unwrap();
+    }
     let mut editor = Editor::new(base.clone());
     let width = base.parameter_named("width").unwrap().id();
     let change = caditor_document::Transaction::single(
@@ -3441,7 +3458,7 @@ fn crashed_with_a_width_change(dir: &Path) -> Editor {
             ..StorageConfig::default()
         },
         Start {
-            file: None,
+            file,
             on_disk: None,
             loaded_with_problems: false,
             base,
@@ -3480,6 +3497,152 @@ fn unsaved_work_from_a_crash_is_offered_and_restored_with_its_history() {
     harness.wait_until("the restored journal replaces the recovered one", |_| {
         std::fs::read_dir(&recovery).unwrap().count() == 1
     });
+}
+
+#[derive(Clone, Default)]
+struct HeldScan {
+    reached: Arc<std::sync::atomic::AtomicBool>,
+    release: Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl HeldScan {
+    fn scanner(&self, holding: Option<PathBuf>) -> crate::files::Scanner {
+        let held = self.clone();
+        Arc::new(move |dir, recent| {
+            let locked = holding.as_ref().map(|journal| {
+                let file = std::fs::OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .open(journal)
+                    .unwrap();
+                file.lock().unwrap();
+                file
+            });
+            let found = locked.is_none().then(|| caditor_file::scan(dir, recent));
+            held.reached
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            let deadline = Instant::now() + FILE_TIMEOUT;
+            while !held.release.load(std::sync::atomic::Ordering::SeqCst)
+                && Instant::now() < deadline
+            {
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            drop(locked);
+            found.unwrap_or_else(|| caditor_file::scan(dir, recent))
+        })
+    }
+
+    fn has_reached(&self) -> bool {
+        self.reached.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    fn let_go(&self) {
+        self.release
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+fn starting_with_held_scan(root: &Path, held: &HeldScan, holding: Option<PathBuf>) -> Harness {
+    let scanner = held.scanner(holding);
+    let mut harness = Harness::starting_with(
+        Some(root),
+        sample_document().unwrap(),
+        Workspace::new(),
+        move |files| files.scan_with(scanner),
+    );
+    harness.wait_until("the startup scan has looked", |_| held.has_reached());
+    harness
+}
+
+fn let_the_scan_report(harness: &mut Harness, held: &HeldScan) {
+    held.let_go();
+    assert!(harness.files.wait_for_jobs(FILE_TIMEOUT));
+    harness.frame();
+    harness.frame();
+}
+
+#[test]
+fn work_restored_while_the_startup_scan_ran_is_not_offered_again_when_it_reports() {
+    let dir = TempDir::new().unwrap();
+    let root = canonical(&dir);
+    let path = root.as_path().join("plate.caditor");
+    let other = root.as_path().join("other.caditor");
+    caditor_file::save(&Document::default(), &other, false).unwrap();
+    let editor = crashed_with_a_width_change_to(root.as_path(), Some(path.clone()));
+    let held = HeldScan::default();
+    let mut harness = starting_with_held_scan(root.as_path(), &held, None);
+
+    harness.command(FileCommand::OpenPath(path.clone()));
+    harness.wait_until("the unsaved work is offered", |harness| {
+        harness.shows("Recover unsaved work")
+    });
+    harness.click("Restore");
+    assert_eq!(harness.model.document(), editor.document());
+    harness.command(FileCommand::OpenPath(other.clone()));
+    harness.click("Continue without saving");
+    harness.wait_until("the other model opens", |harness| {
+        harness.model.path() == Some(other.as_path())
+    });
+
+    let_the_scan_report(&mut harness, &held);
+
+    assert!(!harness.files.has_recoverable());
+    assert!(!harness.shows("Recover unsaved work"));
+    assert_eq!(harness.model.path(), Some(other.as_path()));
+}
+
+#[test]
+fn the_open_models_own_journal_found_by_the_startup_scan_is_not_offered() {
+    let dir = TempDir::new().unwrap();
+    let root = canonical(&dir);
+    let path = root.as_path().join("plate.caditor");
+    crashed_with_a_width_change_to(root.as_path(), Some(path.clone()));
+    let held = HeldScan::default();
+    let mut harness = starting_with_held_scan(root.as_path(), &held, None);
+
+    caditor_file::discard(&root.as_path().join(".plate.caditor.journal")).unwrap();
+    harness.command(FileCommand::OpenPath(path.clone()));
+    harness.wait_until("the model opens", |harness| {
+        harness.model.path() == Some(path.as_path())
+    });
+    harness.edit_width("60 mm");
+
+    let_the_scan_report(&mut harness, &held);
+
+    assert!(!harness.files.has_recoverable());
+    assert!(!harness.shows("Recover unsaved work"));
+    assert_eq!(harness.expression_text("width"), "60 mm");
+}
+
+#[test]
+fn opening_a_model_whose_journal_the_startup_scan_holds_waits_for_the_scan() {
+    let dir = TempDir::new().unwrap();
+    let root = canonical(&dir);
+    let path = root.as_path().join("plate.caditor");
+    let editor = crashed_with_a_width_change_to(root.as_path(), Some(path.clone()));
+    let held = HeldScan::default();
+    let journal = root.as_path().join(".plate.caditor.journal");
+    let mut harness = starting_with_held_scan(root.as_path(), &held, Some(journal));
+
+    harness.command(FileCommand::OpenPath(path.clone()));
+    harness.frame();
+
+    assert!(harness.files.is_opening());
+    assert!(!harness.shows_containing("already open in another caditor window"));
+
+    let_the_scan_report(&mut harness, &held);
+    harness.wait_until("the unsaved work is offered", |harness| {
+        !harness.files.is_opening() && harness.shows("Recover unsaved work")
+    });
+
+    assert!(harness.model.notice().is_none_or(|notice| {
+        !notice
+            .text
+            .contains("already open in another caditor window")
+    }));
+    harness.click("Restore");
+    assert_eq!(harness.model.document(), editor.document());
+    assert_eq!(harness.model.path(), Some(path.as_path()));
 }
 
 #[test]

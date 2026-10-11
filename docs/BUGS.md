@@ -5,20 +5,6 @@ its reproduction or pinning test where one exists.
 
 Entries are tagged and ordered as `ROADMAP.md` describes.
 
-## Files and recovery
-
-- [low · medium] The startup recovery scan is not reconciled with what the window did while it
-  ran: `Event::Started` offers every journal it found again (`Files::offer` drops only those
-  still listed), so work restored or discarded from the card opening a model showed before the
-  scan finished is offered again, and restoring that stale copy replaces the edits made since; and
-  the scan holds each journal's lock (`try_lock`) through replay and a whole load, so an open
-  reaching `journal_for` meanwhile is refused as "already open in another caditor window", as is
-  a Save As target check. Remember the journals restored or discarded this session and skip them
-  and the open model's own journal when the scan reports, and retry an open briefly on
-  `InUse`; pin it near `unsaved_work_from_a_crash_is_offered_and_restored_with_its_history` with
-  `hold_jobs` delaying `Started`.
-
-
 ## Kernel
 
 - [high · hard] Booleans between the fixture solids in random placements all succeed on the

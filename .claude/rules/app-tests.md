@@ -56,7 +56,9 @@ paths:
   `Preview::is_drawn` without a GPU.
 - Slow file work is staged with test-only seams on `Files`: `read_models_with` swaps the reader an
   import thread calls and `load_models_with` the loader an open thread calls
-  (`ui_tests/import_jobs.rs` blocks either until released or cancelled). A test asserting that a
+  (`ui_tests/import_jobs.rs` blocks either until released or cancelled); `scan_with` swaps the
+  startup scan, set before `Files::start` through `Harness::starting_with` (`HeldScan` holds the
+  scan's report back, or a journal's lock, until the test lets go). A test asserting that a
   cancelled or abandoned result was dropped waits for `Files::own_threads_delivered` (every import,
   open and preview thread has sent its event) and a frame, never a fixed sleep.
 - Opening a model resolves its path (`dunce::canonicalize`), and a Windows runner's temporary

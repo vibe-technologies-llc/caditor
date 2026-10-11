@@ -72,6 +72,8 @@ pub mod templates;
 mod themes;
 
 const HANDOVER_TIMEOUT: Duration = Duration::from_secs(10);
+const IN_USE_RETRY: Duration = Duration::from_secs(1);
+const IN_USE_POLL: Duration = Duration::from_millis(20);
 const OPEN_RECENT: &str = "Open recent";
 pub const KEEP_CONSTRUCTION_HINT: &str = "Export sketch writes construction geometry dashed on a \
                                           layer of its own named Construction, instead of leaving \
@@ -904,6 +906,16 @@ pub type ModelReader = Arc<
 
 pub type ModelLoader = Arc<dyn Fn(&Path, &CancelToken) -> Result<Loaded, LoadError> + Send + Sync>;
 
+pub type Scanner = Arc<dyn Fn(Option<&Path>, &[PathBuf]) -> Vec<Recovered> + Send + Sync>;
+
+struct Scanning(Arc<AtomicBool>);
+
+impl Drop for Scanning {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
+}
+
 struct Queued {
     path: PathBuf,
     into: Option<FeatureId>,
@@ -930,6 +942,9 @@ pub struct Files {
     opening: Option<Opening>,
     open_attempt: u64,
     model_loader: ModelLoader,
+    scanner: Scanner,
+    scanning: Arc<AtomicBool>,
+    settled_journals: BTreeSet<PathBuf>,
     importing: Option<Importing>,
     import_attempt: u64,
     model_reader: ModelReader,
@@ -982,6 +997,9 @@ impl Files {
             opening: None,
             open_attempt: 0,
             model_loader: Arc::new(load_cancellable),
+            scanner: Arc::new(scan),
+            scanning: Arc::default(),
+            settled_journals: BTreeSet::new(),
             importing: None,
             import_attempt: 0,
             model_reader: Arc::new(import::read_model),
@@ -1015,13 +1033,17 @@ impl Files {
     pub fn start(&mut self, open: Option<PathBuf>, model: &mut Model) {
         let state_dir = self.config.state_dir.clone();
         let recovery_dir = self.config.recovery_dir.clone();
+        let scanner = Arc::clone(&self.scanner);
+        self.scanning.store(true, Ordering::SeqCst);
+        let scanning = Scanning(Arc::clone(&self.scanning));
         self.spawn(
             move || {
                 let recent = state_dir
                     .as_deref()
                     .map(RecentFiles::load)
                     .unwrap_or_default();
-                let recovered = scan(recovery_dir.as_deref(), recent.paths());
+                let recovered = scanner(recovery_dir.as_deref(), recent.paths());
+                drop(scanning);
                 Event::Started { recent, recovered }
             },
             || Event::ScanFailed,
@@ -1043,6 +1065,11 @@ impl Files {
     #[cfg(test)]
     pub fn load_models_with(&mut self, loader: ModelLoader) {
         self.model_loader = loader;
+    }
+
+    #[cfg(test)]
+    pub fn scan_with(&mut self, scanner: Scanner) {
+        self.scanner = scanner;
     }
 
     #[cfg(test)]
@@ -1760,6 +1787,17 @@ impl Files {
                 }
                 self.check_recent();
                 for recovered in recovered {
+                    let settled = self.settled_journals.contains(&recovered.journal);
+                    let open_now = model
+                        .path()
+                        .is_some_and(|path| recovered.file.as_deref() == Some(path));
+                    if settled || open_now {
+                        log::info!(
+                            "{} was dealt with while the startup scan ran, so it is not offered",
+                            recovered.journal.display()
+                        );
+                        continue;
+                    }
                     self.offer(recovered, false);
                 }
             }
@@ -1813,6 +1851,7 @@ impl Files {
                 journal,
                 result: Ok(()),
             } => {
+                self.settled_journals.insert(journal.clone());
                 let candidate = self
                     .recoverable
                     .iter()
@@ -2570,6 +2609,8 @@ impl Files {
                     return;
                 };
                 let candidate = self.recoverable.remove(index);
+                self.settled_journals
+                    .insert(candidate.recovered.journal.clone());
                 self.confirm_discard = None;
                 if let Some(file) = &candidate.recovered.file {
                     self.remember(file.clone());
@@ -2805,16 +2846,21 @@ impl Files {
         let handover = model.storage_handover();
         let recovery_dir = self.config.recovery_dir.clone();
         let loader = Arc::clone(&self.model_loader);
+        let scanning = Arc::clone(&self.scanning);
         let failed = path.clone();
         self.spawn_own(
             "open",
             move || {
                 await_handover(handover.as_ref());
                 let path = dunce::canonicalize(&path).unwrap_or(path);
-                let outcome =
-                    open_file(&path, current.as_deref(), recovery_dir.as_deref(), |path| {
-                        loader(path, &cancel)
-                    });
+                let journals = Journals {
+                    recovery_dir: recovery_dir.as_deref(),
+                    scanning: &scanning,
+                    cancel: &cancel,
+                };
+                let outcome = open_file(&path, current.as_deref(), &journals, |path| {
+                    loader(path, &cancel)
+                });
                 Event::Opened {
                     path,
                     since,
@@ -2838,12 +2884,18 @@ impl Files {
         let current = model.path().map(Path::to_path_buf);
         let handover = model.storage_handover();
         let recovery_dir = self.config.recovery_dir.clone();
+        let scanning = Arc::clone(&self.scanning);
         let failed = picked.clone();
         self.spawn(
             move || {
                 await_handover(handover.as_ref());
+                let journals = Journals {
+                    recovery_dir: recovery_dir.as_deref(),
+                    scanning: &scanning,
+                    cancel: &CancelToken::never(),
+                };
                 Event::SaveTargetChecked {
-                    target: check_save_target(&picked, current.as_deref(), recovery_dir.as_deref()),
+                    target: check_save_target(&picked, current.as_deref(), &journals),
                     session,
                 }
             },
@@ -3172,16 +3224,38 @@ fn await_handover(handover: Option<&Handover>) {
     }
 }
 
+struct Journals<'a> {
+    recovery_dir: Option<&'a Path>,
+    scanning: &'a AtomicBool,
+    cancel: &'a CancelToken,
+}
+
+impl Journals<'_> {
+    fn of(&self, file: &Path) -> FileJournal {
+        let giving_up = Instant::now() + IN_USE_RETRY;
+        loop {
+            let journal = journal_for(file, self.recovery_dir);
+            let worth_waiting = matches!(journal, FileJournal::InUse)
+                && !self.cancel.is_cancelled()
+                && (self.scanning.load(Ordering::SeqCst) || Instant::now() < giving_up);
+            if !worth_waiting {
+                return journal;
+            }
+            thread::sleep(IN_USE_POLL);
+        }
+    }
+}
+
 fn open_file(
     path: &Path,
     current: Option<&Path>,
-    recovery_dir: Option<&Path>,
+    journals: &Journals<'_>,
     load: impl FnOnce(&Path) -> Result<Loaded, LoadError>,
 ) -> OpenOutcome {
     if current == Some(path) {
         return OpenOutcome::AlreadyOpen;
     }
-    let set_aside = match journal_for(path, recovery_dir) {
+    let set_aside = match journals.of(path) {
         FileJournal::InUse => return OpenOutcome::InUse,
         FileJournal::Recoverable(recovered) => return OpenOutcome::Recoverable(recovered),
         FileJournal::None => Vec::new(),
@@ -3337,17 +3411,13 @@ fn with_extension(path: PathBuf) -> PathBuf {
     PathBuf::from(named)
 }
 
-fn check_save_target(
-    picked: &Path,
-    current: Option<&Path>,
-    recovery_dir: Option<&Path>,
-) -> SaveTarget {
+fn check_save_target(picked: &Path, current: Option<&Path>, journals: &Journals<'_>) -> SaveTarget {
     let named = with_extension(picked.to_path_buf());
     let target = canonical_location(&named);
     if current == Some(target.as_path()) {
         return SaveTarget::Ready(target);
     }
-    match journal_for(&target, recovery_dir) {
+    match journals.of(&target) {
         FileJournal::InUse => return SaveTarget::InUse(target),
         FileJournal::Recoverable(_) => return SaveTarget::HasRecovery(target),
         FileJournal::None => {}
