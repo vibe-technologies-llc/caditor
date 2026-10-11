@@ -93,7 +93,11 @@ paths:
 - A save over a file another program changed (`Report::ChangedOnDisk`) asks: Save a copy primary,
   Cancel, Replace at the far left, not a danger button, since the outside contents become a
   version. A save started from the unsaved-changes prompt continues after Replace or Save a copy
-  and is dropped on Cancel.
+  and is dropped on Cancel. The prompt keeps the session of the model whose save was refused
+  (`FileEvent::ChangedOnDisk` carries it, `Files::changed_on_disk`): once another model is open,
+  `poll` drops it unasked, with the save waiting to continue, and a notice says the file was left
+  as the other program saved it (`not_saved_for_another_model`), so Replace never writes another
+  model over that file.
 - A load or import report is one card listing each issue.
 - Each dialog purpose remembers the folder last picked in it for the app session (`Folder`:
   open, import, export, drawing, parameter files; the image export keeps its own), and starts

@@ -12,7 +12,9 @@ file you chose before another model was opened writes nothing and says so; choos
 A save never overwrites the file in place. caditor writes a new copy beside it, makes sure it is on
 the disk and only then puts it in place, so a crash or a full disk during a save leaves the old file
 whole. If another program changed the file since you opened it, the save asks whether to save a
-copy or replace it; replacing keeps the other contents as a [version](version-history).
+copy or replace it; replacing keeps the other contents as a [version](version-history). If you
+open or start another model before answering, the question is dropped and the file keeps what the
+other program saved.
 
 A model holds at most 10,000 parameters and features in all, the most a model file is opened
 with. A change that would take it past that, such as adding or pasting features or importing

@@ -935,7 +935,7 @@ pub struct Files {
     picking: Option<(u64, Purpose, Since)>,
     pick_ticket: u64,
     confirm_replace: Option<(Replacement, u64)>,
-    changed_on_disk: Option<PathBuf>,
+    changed_on_disk: Option<(PathBuf, u64)>,
     closing: Option<(Closing, Instant)>,
     waiting_for_exports: Option<ExportWait>,
     stored_settings: Option<Settings>,
@@ -1187,7 +1187,8 @@ impl Files {
                 }
             }
             FileCommand::OutsideChange(choice) => {
-                let Some(path) = self.changed_on_disk.take() else {
+                self.drop_outside_change_of_another_model(model);
+                let Some((path, _)) = self.changed_on_disk.take() else {
                     return;
                 };
                 match choice {
@@ -1654,7 +1655,9 @@ impl Files {
                 }
                 FileEvent::KeepFailed => self.history.finish_keeping(),
                 FileEvent::SaveFailed => self.after_save = None,
-                FileEvent::ChangedOnDisk(path) => self.changed_on_disk = Some(path),
+                FileEvent::ChangedOnDisk { path, session } => {
+                    self.changed_on_disk = Some((path, session));
+                }
             }
         }
         while let Ok(event) = self.inbox.try_recv() {
@@ -1667,9 +1670,24 @@ impl Files {
             self.stop_waiting_for_exports(&waiting, model);
             changed = true;
         }
+        if self.drop_outside_change_of_another_model(model) {
+            changed = true;
+        }
         self.import_next(model);
         self.history.compare_preview(model);
         changed
+    }
+
+    fn drop_outside_change_of_another_model(&mut self, model: &mut Model) -> bool {
+        let Some((path, _)) = self
+            .changed_on_disk
+            .take_if(|(_, session)| *session != model.session())
+        else {
+            return false;
+        };
+        self.after_save = None;
+        model.set_notice(not_saved_for_another_model(&path));
+        true
     }
 
     fn handle(&mut self, event: Event, model: &mut Model, editing: &mut SketchEditing) {
@@ -3271,6 +3289,14 @@ fn not_written_for_another_model(path: &Path) -> Notice {
     ))
 }
 
+fn not_saved_for_another_model(path: &Path) -> Notice {
+    Notice::warning(format!(
+        "“{}” was not saved: another program had changed it, and another model was opened before \
+         you chose whether to replace it. The file keeps what the other program saved.",
+        display_name(Some(path))
+    ))
+}
+
 fn run_contained(job: Job) {
     if panic::catch_unwind(AssertUnwindSafe(job)).is_err() {
         log::error!("a background file task panicked");
@@ -3769,7 +3795,7 @@ pub fn show(
         command = guard(&ctx, model, intent).map(FileCommand::Guard);
     } else if let Some((replacement, _)) = &files.confirm_replace {
         command = confirm_replace(&ctx, replacement).map(FileCommand::Replace);
-    } else if let Some(path) = &files.changed_on_disk {
+    } else if let Some((path, _)) = &files.changed_on_disk {
         command = changed_on_disk(&ctx, path).map(FileCommand::OutsideChange);
     } else if let Some(report) = &files.report {
         command = show_report(&ctx, report);

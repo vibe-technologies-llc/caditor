@@ -1576,6 +1576,59 @@ fn saving_over_a_file_another_program_changed_asks_before_replacing_it() {
 }
 
 #[test]
+fn the_outside_change_prompt_of_a_model_left_without_saving_is_dropped_and_writes_nothing() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("plate.caditor");
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    harness.answer_dialog(Some(path.clone()));
+    harness.key(Key::S, Modifiers::COMMAND | Modifiers::SHIFT);
+    harness.wait_until("the model is saved", |harness| {
+        harness.model.path().is_some() && !harness.model.is_saving()
+    });
+    let mut outside = harness.model.document().clone();
+    let mut transaction = outside.transaction("Elsewhere");
+    transaction.add_parameter("elsewhere", transaction.parse("3 mm").unwrap());
+    outside.apply(transaction.finish()).unwrap();
+    caditor_file::save(&outside, &path, false).unwrap();
+    let versions = caditor_file::history(&path).unwrap().versions.len();
+    harness.edit_width("41 mm");
+
+    harness.key(Key::S, Modifiers::COMMAND);
+    harness.wait_until("the outside change is reported", |harness| {
+        harness.shows("“plate.caditor” was changed by another program")
+    });
+    harness.command(FileCommand::New);
+
+    assert!(harness.shows("Save changes to “plate.caditor”?"));
+
+    harness.click("Continue without saving");
+    harness.frame();
+
+    assert_eq!(harness.model.path(), None);
+    assert!(!harness.shows("“plate.caditor” was changed by another program"));
+    assert!(!harness.files.is_blocking());
+    assert!(
+        harness
+            .model
+            .notice()
+            .unwrap()
+            .text
+            .starts_with("“plate.caditor” was not saved: another program had changed it")
+    );
+
+    harness.command(FileCommand::OutsideChange(
+        crate::files::OutsideChangeChoice::Replace,
+    ));
+    harness.wait_until("no save runs", |harness| !harness.model.is_saving());
+
+    assert_eq!(caditor_file::load(&path).unwrap().document, outside);
+    assert_eq!(
+        caditor_file::history(&path).unwrap().versions.len(),
+        versions
+    );
+}
+
+#[test]
 fn save_as_refuses_a_model_open_in_another_window() {
     let dir = TempDir::new().unwrap();
     let other_path = dir.path().join("other.caditor");

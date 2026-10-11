@@ -163,7 +163,7 @@ impl Notice {
 pub enum FileEvent {
     Saved(PathBuf),
     SaveFailed,
-    ChangedOnDisk(PathBuf),
+    ChangedOnDisk { path: PathBuf, session: u64 },
     VersionKept(PathBuf),
     KeepFailed,
 }
@@ -1481,7 +1481,10 @@ impl Model {
             Report::ChangedOnDisk { ticket, path } => {
                 self.pending_save
                     .take_if(|pending| pending.ticket == ticket);
-                self.file_events.push(FileEvent::ChangedOnDisk(path));
+                self.file_events.push(FileEvent::ChangedOnDisk {
+                    path,
+                    session: self.session(),
+                });
             }
             Report::VersionKept { path, .. } => {
                 self.file_events.push(FileEvent::VersionKept(path));

@@ -7,19 +7,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Files and recovery
 
-- [high · easy] The "changed by another program" prompt outlives a switch to another model, and
-  its Replace then saves the model open now over the old file, keeping neither the outside
-  contents nor the old file's versions: `FileEvent::ChangedOnDisk(path)` sets
-  `Files::changed_on_disk` with no session (the one prompt the `Since` checks left untagged),
-  nothing clears it when another model opens, and `OutsideChange(Replace)` calls
-  `Model::save_replacing_outside_changes(path)` on whatever model is open, whose storage worker
-  reads versions from its own file (none when untitled). Open A, let another program save over
-  it, edit and press Ctrl+S, then Ctrl+N before the save reports: the save's report waits behind
-  "Save changes to “A”?" (the guard is drawn first), Continue without saving opens the new model,
-  "“A” was changed by another program" follows, and Replace writes the empty model over
-  A.caditor. Keep the session with the prompt and drop a stale one with
-  `not_written_for_another_model`, as Save As and exports do; pin it beside
-  `saving_over_a_file_another_program_changed_asks_before_replacing_it`.
 - [medium · easy] Closing the window while a file dialog is open makes the unsaved-changes
   prompt's Save As… do nothing, and the next ordinary save then quits caditor: the title bar's
   Close is drawn over dialogs (`window_frame::over_dialogs`) and `FileCommand::Quit` is refused
