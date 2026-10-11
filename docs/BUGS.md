@@ -423,19 +423,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Viewer
 
-- [medium · easy] A click waiting for its pick acts on whatever lies under the pointer when the
-  pointer stops, not on what was clicked: `Click` keeps no cursor, and the pending click is
-  performed once `hover_is_current` holds, which compares the hover with the pointer's current
-  position and view, so a click released while the pick for its spot is still on the GPU (one to
-  three frames, longer while the camera animates) followed by a move onto another face or empty
-  space selects that face or clears the selection, and a move out of the view drops it. `Press`
-  already keeps its cursor and catches up when the pick for it arrives; the view's context menu
-  waits the same way as the click (`menu_waits_for_pick`), and `begin_primary` uses
-  `press.hovered` even when the press's pick never came. Keep the cursor with the click and
-  perform it on the pick for that cursor (or `Scene::hits_through` there once a later pick
-  replaced it), as `app.md` promises a click "never acts on a stale hover";
-  `a_click_waits_for_the_pick_under_the_cursor_rather_than_using_an_old_one` covers only a
-  pointer that stays still.
 - [medium · easy] Curves of a suppressed or rolled-back sketch stay selected and acted on:
   `Pickable::SketchEntity::is_available` (`selection.rs`) asks only that the entity exists and the
   sketch is not hidden (`visibility::is_shown` reads `hidden` alone), never `Document::is_active`,

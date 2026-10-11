@@ -52,8 +52,15 @@ paths:
   keeping a CPU copy of every egui texture so a new renderer generation (lost device) rebuilds
   egui and re-uploads them whole. `scene.rs` converts documents and results to a `Scene`.
 - Selectables are `Pickable`s built from stable IDs. The hover remembers the cursor position and
-  view its pick was made for; a click that depends on it (anything but a drawing tool's) waits
-  for a result for the current cursor and view, so it never acts on a stale hover.
+  view its pick was made for; a click that depends on it (anything but a drawing tool's) keeps
+  the cursor and view it was made at (`PendingClick`) and waits for the pick made there, so it
+  never acts on a stale hover nor on what the pointer reaches meanwhile. Picks run one at a time,
+  so once a pick for the pointer's newer spot has arrived, or the pointer has left the view, the
+  click's own will never come: it is resolved on the CPU (`ViewportState::seen_through`, the
+  scene's `hits_through` at the click's spot and view, keeping only what lies no deeper than the
+  nearest face there allows, then the usual `best_hit`), and performed with the cursor, sketch
+  cursor and hover put back to that spot for it. A press keeps its view too, and a drag starting
+  before the press's pick arrived takes what lies under the press the same way (`caught_up`).
 - `Model` (`model.rs`) owns the `Editor`, the `Recomputer` and the length unit; the UI gets
   `&Model` and returns `Action`s the app performs after its pass. Features draw from the last good
   result, tinted if failed or outdated; suppressed and rolled-back ones are neither drawn nor

@@ -9583,6 +9583,42 @@ fn a_click_waits_for_the_pick_under_the_cursor_rather_than_using_an_old_one() {
 }
 
 #[test]
+fn a_click_waiting_for_its_pick_acts_on_what_was_clicked_when_the_pointer_moves_on_or_leaves() {
+    let mut harness = Harness::new();
+    let (_, top) = extruded_plate(&mut harness);
+    let face = Plane::from_frame(Point3::new(0.0, 0.0, 10.0), Vector3::Z, Vector3::X).unwrap();
+    let on_top = harness
+        .workspace
+        .viewport
+        .screen_position(face, Point2::new(20.0, 20.0))
+        .unwrap();
+    let beside = harness
+        .workspace
+        .viewport
+        .screen_position(Plane::XY, Point2::new(-30.0, 20.0))
+        .unwrap();
+    let outside = harness.workspace.viewport.rect().unwrap().left_top() - egui::vec2(10.0, 10.0);
+
+    for away in [beside, outside] {
+        harness.select([]);
+        harness.events.push(Event::PointerMoved(beside));
+        harness.frame();
+        harness.picks_held = true;
+        harness.events.push(Event::PointerMoved(on_top));
+        harness.press(on_top);
+        let waiting = harness.workspace.viewport.selection().is_empty();
+        harness.events.push(Event::PointerMoved(away));
+        harness.frame();
+        harness.picks_held = false;
+        harness.frame();
+        harness.frame();
+
+        assert!(waiting);
+        assert!(harness.workspace.viewport.selection().contains(top));
+    }
+}
+
+#[test]
 fn clicking_a_flat_face_while_choosing_a_plane_starts_a_sketch_on_it() {
     let mut harness = Harness::new();
     let (extrude, top) = extruded_plate(&mut harness);
@@ -16706,6 +16742,37 @@ fn dragging_a_sketch_point_moves_it_as_its_constraints_allow_in_one_undoable_cha
     harness.perform(Action::Undo);
     harness.settle();
     assert_eq!(harness.sketch(feature).point(end), before.point(end));
+}
+
+#[test]
+fn a_drag_pressed_before_its_pick_arrived_grabs_the_point_under_the_press() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::ZERO, Point2::new(40.0, 0.0));
+    let (start, end) = line_ends(&sketch, line);
+    sketch
+        .add_constraint(Constraint::Coincident(start, EntityId::ORIGIN))
+        .unwrap();
+    let feature = edit_free_sketch(&mut harness, sketch);
+    let before = harness.sketch(feature).clone();
+    harness.point_at(Point2::new(20.0, 25.0));
+
+    harness.picks_held = true;
+    let grabbed = harness.on_screen(Point2::new(40.0, 0.0));
+    harness.events.push(Event::PointerMoved(grabbed));
+    harness.frame();
+    drag_in_sketch(&mut harness, grabbed, Point2::new(30.0, 12.0));
+    harness.picks_held = false;
+    harness.wait_until("the drag is committed", |harness| {
+        harness.sketch(feature).point(end) != before.point(end)
+    });
+    harness.settle();
+
+    let dragged = harness.sketch(feature).point(end).unwrap();
+    assert!(
+        dragged.distance(Point2::new(30.0, 12.0)) < 0.5,
+        "{dragged:?}"
+    );
 }
 
 #[test]

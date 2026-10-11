@@ -310,8 +310,9 @@ paths:
   right-drag that orbits or pans in any input mode never opens it and the primary press-and-hold
   of the pick list and the Laptop gestures are untouched. Where a click would select (no drawing,
   modify or dimension tool, plane choice or reference pick; `ViewportState::menu_selects`) it
-  waits for a pick for the current cursor and view like a primary click
-  (`menu_waits_for_pick`), then an unselected item under the pointer replaces the selection
+  waits for the pick at the click's cursor and view like a primary click
+  (`menu_waits_for_pick`, resolved on the CPU once the pointer's newer pick replaced it, `app.md`),
+  then an unselected item under the pointer replaces the selection
   (`whole_body_of`, so the Bodies filter takes the body), a selected one or empty space keeps
   it. Show the context menu (`Command::ContextMenu`, Shift+F10, palette; egui has no Menu key)
   opens it at the keyboard highlight, else the selection's middle on screen
