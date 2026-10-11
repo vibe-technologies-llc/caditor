@@ -465,7 +465,11 @@ mod tests {
     }
 
     fn style(pick: Option<PickId>) -> FaceStyle {
-        FaceStyle { color: GREY, pick }
+        FaceStyle {
+            color: GREY,
+            pick,
+            finish: None,
+        }
     }
 
     fn stacked() -> Scene {

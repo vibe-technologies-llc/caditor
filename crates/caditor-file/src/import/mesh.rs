@@ -122,6 +122,7 @@ pub fn parse_mesh(
             import: Import::new(source, stored, step),
             colour: None,
             opacity: None,
+            finish: None,
             group: None,
             faces: Vec::new(),
         }));

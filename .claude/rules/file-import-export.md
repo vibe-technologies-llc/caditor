@@ -235,18 +235,20 @@ paths:
   placed import. A copy scaled or mirrored, or one the turns cannot reproduce, is mapped and
   canonicalised on its own at the origin as before; one whose mapping fails is left out with
   `Misplacement::CopyUnplaceable`'s note.
-- Each `ImportedBody` carries the copy's STEP `colour`, its `opacity` and its `layer` as `group`,
+- Each `ImportedBody` carries the copy's STEP `colour`, its `opacity`, its `finish` (the reader's
+  `caditor_step::Finish` turned into the document's one by `finish`) and its `layer` as `group`,
   and its faces' own looks as `ImportedFace`s (index in the stored solid, colour, opacity snapped
-  like the body's with solid as 100, kept only when it differs from the body's). Face indices are
+  like the body's with solid as 100, finish, kept only when one differs from the body's). Face indices are
   carried onto each stored lump through `caditor_step::lump_faces` (the faces of each lump in the
   order written, which canonicalising keeps), for every lump whose face count matches.
   `bodies_transaction` makes each a `FaceColour` naming the imported face
   (`FaceName::imported`, origin `Imported`), coloured with its own colour, else the body's, else
-  `DEFAULT_BODY_COLOUR`, so a face see-through but coloured by neither stays see-through.
+  `DEFAULT_BODY_COLOUR`, so a face see-through but coloured by neither stays see-through, and
+  with its finish.
   The STEP opacity (a percent) is snapped when the copy is read to the nearest of the body's
   opacity steps, solid included (`nearest_opacity_step`, `document.md`), so a nearly solid body
   imports solid. `bodies_transaction` sets a coloured or see-through body's appearance colour and
-  opacity (one `SetBodyAppearance`) and puts a layered body in the
+  opacity and finish (one `SetBodyAppearance`) and puts a layered body in the
   folder of its layer's name (one line, cut at `MAX_GROUP_NAME_CHARS`), moving the bodies of a
   layer together at its first body so each layer is one folder; mesh imports have neither.
 - `bodies_transaction` adds an `Import` feature per body under unique names; the model file stores

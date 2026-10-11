@@ -1,9 +1,10 @@
 use caditor_document::{
-    BodyAppearance, Document, Edit, FaceColour, Feature, FeatureId, MAX_BODY_NAME_CHARS,
+    BodyAppearance, Document, Edit, FaceColour, Feature, FeatureId, Finish, MAX_BODY_NAME_CHARS,
     MAX_MATERIAL_NAME_CHARS, Rgb, Transaction, density_of, material_name,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_kernel::FaceReference;
+use caditor_render::SurfaceFinish;
 use egui::{Color32, Id, Ui, Widget};
 
 use crate::{
@@ -31,6 +32,34 @@ pub const MATERIAL_NAME_CAPTION: &str = "Name";
 pub const DENSITY_CAPTION: &str = "Density";
 pub const BODY_NAME_CAPTION: &str = "Body name";
 pub const OPACITY_CAPTION: &str = "Opacity";
+pub const FINISH_CAPTION: &str = "Finish";
+pub const NO_FINISH: &str = "Plain";
+pub const FINISHES: [(Option<Finish>, &str); 9] = [
+    (
+        None,
+        "Shade the body plainly, as every body without a finish",
+    ),
+    (Some(Finish::Matte), "A flat plastic or paint with no shine"),
+    (
+        Some(Finish::Satin),
+        "A soft sheen, as most moulded and printed plastic has",
+    ),
+    (
+        Some(Finish::Glossy),
+        "A smooth, shiny plastic, paint or glass with sharp highlights",
+    ),
+    (Some(Finish::Rubber), "A soft, dull rubber or silicone"),
+    (
+        Some(Finish::PowderCoat),
+        "A tough coat over metal with a faint sheen",
+    ),
+    (Some(Finish::Anodized), "Coloured, half metallic aluminium"),
+    (
+        Some(Finish::BrushedMetal),
+        "Bare metal that reflects its surroundings softly",
+    ),
+    (Some(Finish::PolishedMetal), "Mirror-like metal or chrome"),
+];
 pub const OPACITIES: [(Option<u8>, &str, &str); 4] = [
     (None, "Solid", "Draw the body solid"),
     (
@@ -108,6 +137,7 @@ pub struct Material {
     pub name: &'static str,
     pub density: f64,
     pub colour: Option<Rgb>,
+    pub finish: Finish,
 }
 
 pub const MATERIALS: [Material; 12] = [
@@ -115,63 +145,103 @@ pub const MATERIALS: [Material; 12] = [
         name: "Aluminium",
         density: 2.70,
         colour: Some(Rgb::new(190, 196, 204)),
+        finish: Finish::BrushedMetal,
     },
     Material {
         name: "Steel",
         density: 7.85,
         colour: Some(Rgb::new(138, 144, 153)),
+        finish: Finish::BrushedMetal,
     },
     Material {
         name: "Stainless steel",
         density: 8.00,
         colour: Some(Rgb::new(170, 175, 181)),
+        finish: Finish::PolishedMetal,
     },
     Material {
         name: "Brass",
         density: 8.50,
         colour: Some(Rgb::new(201, 164, 64)),
+        finish: Finish::PolishedMetal,
     },
     Material {
         name: "Copper",
         density: 8.96,
         colour: Some(Rgb::new(184, 115, 51)),
+        finish: Finish::PolishedMetal,
     },
     Material {
         name: "Titanium",
         density: 4.51,
         colour: Some(Rgb::new(135, 134, 129)),
+        finish: Finish::BrushedMetal,
     },
     Material {
         name: "ABS",
         density: 1.04,
         colour: None,
+        finish: Finish::Satin,
     },
     Material {
         name: "PLA",
         density: 1.24,
         colour: None,
+        finish: Finish::Satin,
     },
     Material {
         name: "PETG",
         density: 1.27,
         colour: None,
+        finish: Finish::Glossy,
     },
     Material {
         name: "Nylon (PA12)",
         density: 1.01,
         colour: None,
+        finish: Finish::Matte,
     },
     Material {
         name: "Polycarbonate",
         density: 1.20,
         colour: None,
+        finish: Finish::Glossy,
     },
     Material {
         name: "Oak",
         density: 0.75,
         colour: Some(Rgb::new(160, 120, 74)),
+        finish: Finish::Satin,
     },
 ];
+
+pub fn surface(finish: Finish) -> SurfaceFinish {
+    let (metalness, roughness) = match finish {
+        Finish::Matte => (0.0, 0.75),
+        Finish::Satin => (0.0, 0.45),
+        Finish::Glossy => (0.0, 0.15),
+        Finish::Rubber => (0.0, 0.95),
+        Finish::PowderCoat => (0.0, 0.6),
+        Finish::Anodized => (0.6, 0.35),
+        Finish::BrushedMetal => (1.0, 0.4),
+        Finish::PolishedMetal => (1.0, 0.12),
+    };
+    SurfaceFinish {
+        metalness,
+        roughness,
+    }
+}
+
+pub fn finish_name(finish: Option<Finish>) -> &'static str {
+    finish.map_or(NO_FINISH, Finish::name)
+}
+
+pub fn with_finish(appearance: &BodyAppearance, finish: Option<Finish>) -> BodyAppearance {
+    BodyAppearance {
+        finish,
+        ..appearance.clone()
+    }
+}
 
 pub fn color32(colour: Rgb) -> Color32 {
     Color32::from_rgb(colour.red, colour.green, colour.blue)
@@ -218,18 +288,18 @@ pub fn with_face_colours(
         .cloned()
         .collect();
     if let Some(colour) = colour {
-        let opacity_of = |face: &FaceReference| {
+        let earlier = |face: &FaceReference| {
             appearance
                 .faces
                 .iter()
                 .rev()
                 .find(|coloured| coloured.face.name() == face.name())
-                .and_then(|coloured| coloured.opacity)
         };
         faces_coloured.extend(faces.iter().map(|face| FaceColour {
             face: face.clone(),
             colour,
-            opacity: opacity_of(face),
+            opacity: earlier(face).and_then(|coloured| coloured.opacity),
+            finish: earlier(face).and_then(|coloured| coloured.finish),
         }));
     }
     BodyAppearance {
@@ -298,6 +368,7 @@ pub fn with_material(appearance: &BodyAppearance, material: Option<&Material>) -
             density: Some(Expression::number(material.density)),
             name: appearance.name.clone(),
             opacity: appearance.opacity,
+            finish: Some(material.finish),
             faces: appearance.faces.clone(),
         },
     }
@@ -597,6 +668,38 @@ impl Panel<'_> {
         self.actions.extend(chosen);
     }
 
+    fn finish_row(&mut self, ui: &mut Ui) {
+        widgets::caption(ui, FINISH_CAPTION);
+        let current = self.appearance.finish;
+        let model = self.model;
+        let body = self.body;
+        let appearance = self.appearance;
+        let shown = finish_name(current);
+        let chosen = feature_fields::combo(ui, finish_id(body), shown, || {
+            FINISHES
+                .iter()
+                .map(|(finish, _)| Choice {
+                    label: finish_name(*finish).to_owned(),
+                    selected: *finish == current,
+                    change: change(
+                        model.document(),
+                        body,
+                        with_finish(appearance, *finish),
+                        "finish",
+                    )
+                    .map(Action::Apply),
+                })
+                .collect()
+        });
+        let hover = FINISHES
+            .iter()
+            .find(|(finish, _)| *finish == current)
+            .map_or("", |(_, hover)| *hover);
+        ui.end_row();
+        feature_fields::description_row(ui, hover);
+        self.actions.extend(chosen);
+    }
+
     fn material_rows(&mut self, ui: &mut Ui) {
         widgets::caption(ui, MATERIAL_CAPTION);
         let current = self.appearance.material.as_deref();
@@ -746,6 +849,7 @@ pub fn show(
         let landed = panel.name_row(ui, feature, focus && naming);
         panel.colour_row(ui);
         panel.opacity_row(ui);
+        panel.finish_row(ui);
         panel.material_rows(ui);
         panel.density_row(ui);
         landed
@@ -757,11 +861,40 @@ pub fn name_field_id(body: FeatureId) -> Id {
     Id::new(("body-name", body))
 }
 
+pub fn finish_id(body: FeatureId) -> Id {
+    Id::new(("body-finish", body))
+}
+
 #[cfg(test)]
 mod tests {
-    use caditor_document::OPACITY_STEPS;
+    use caditor_document::{Finish, OPACITY_STEPS};
 
-    use super::OPACITIES;
+    use super::{FINISHES, MATERIALS, OPACITIES, surface};
+
+    #[test]
+    fn every_finish_is_offered_once_after_plain_and_metals_are_the_metallic_ones() {
+        let offered: Vec<Option<Finish>> = FINISHES.iter().map(|(finish, _)| *finish).collect();
+        let expected: Vec<Option<Finish>> = std::iter::once(None)
+            .chain(Finish::ALL.into_iter().map(Some))
+            .collect();
+
+        assert_eq!(offered, expected);
+        for finish in Finish::ALL {
+            let surface = surface(finish);
+            let metal = matches!(finish, Finish::BrushedMetal | Finish::PolishedMetal);
+            assert_eq!(surface.metalness >= 1.0, metal, "{finish:?}");
+            assert!((0.0..=1.0).contains(&surface.roughness), "{finish:?}");
+        }
+        let finish_of = |name: &str| {
+            MATERIALS
+                .iter()
+                .find(|material| material.name == name)
+                .map(|material| material.finish)
+        };
+        assert_eq!(finish_of("Steel"), Some(Finish::BrushedMetal));
+        assert_eq!(finish_of("Aluminium"), Some(Finish::BrushedMetal));
+        assert_eq!(finish_of("PLA"), Some(Finish::Satin));
+    }
 
     #[test]
     fn the_opacity_choices_are_solid_and_the_steps_an_import_snaps_to() {

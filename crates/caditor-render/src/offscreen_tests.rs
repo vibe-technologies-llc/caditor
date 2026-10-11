@@ -583,6 +583,7 @@ fn draws_and_picks_a_box(device: &wgpu::Device, queue: &wgpu::Queue) {
         .map(|index| FaceStyle {
             color: Color::from_rgb8(40, 200, 40),
             pick: PickId::from_index(10 + index),
+            finish: None,
         })
         .collect();
     let scene = Scene {
@@ -648,6 +649,7 @@ fn sectioned_box(cut_face: CutFace, normal: Vector3) -> Scene {
         .map(|index| FaceStyle {
             color: Color::from_rgb8(40, 200, 40),
             pick: PickId::from_index(10 + index),
+            finish: None,
         })
         .collect();
     let line = |z: f64, index: usize| Line {
@@ -759,6 +761,7 @@ fn a_see_through_face_is_not_capped_in_the_pick_pass_so_a_click_reaches_what_is_
             .map(|index| FaceStyle {
                 color: Color::from_rgb8(200, 40, 40),
                 pick: PickId::from_index(20 + index),
+                finish: None,
             })
             .collect(),
         placement: RigidTransform::translation(Vector3::new(0.0, 0.0, -50.0)),
@@ -848,7 +851,14 @@ fn face_colours_and_the_eye_follow_every_frame_with_one_renderer() {
     let painted = |color: Color| Scene {
         meshes: vec![MeshInstance {
             mesh: Arc::clone(&mesh),
-            faces: vec![FaceStyle { color, pick: None }; 6],
+            faces: vec![
+                FaceStyle {
+                    color,
+                    pick: None,
+                    finish: None,
+                };
+                6
+            ],
             placement: None,
         }],
         ..Scene::default()
@@ -903,6 +913,7 @@ fn faces_that_cannot_be_picked_still_hide_what_is_behind_them_from_picking() {
                 FaceStyle {
                     color: Color::from_rgb8(90, 90, 90),
                     pick: None,
+                    finish: None,
                 };
                 6
             ],
@@ -961,6 +972,7 @@ fn a_line_dashed_where_hidden_also_draws_dashed_where_a_face_covers_it_and_picks
                 FaceStyle {
                     color: Color::from_rgb8(90, 90, 90),
                     pick: PickId::from_index(1),
+                    finish: None,
                 };
                 6
             ],
@@ -1082,6 +1094,7 @@ fn the_front_layer_draws_and_picks_over_faces_in_front_of_it() {
                 FaceStyle {
                     color: Color::from_rgb8(90, 90, 90),
                     pick: None,
+                    finish: None,
                 };
                 6
             ],
@@ -1180,6 +1193,7 @@ fn reference_fills_are_picked_only_where_nothing_else_is() {
         .map(|index| FaceStyle {
             color: Color::from_rgb8(40, 200, 40),
             pick: PickId::from_index(10 + index),
+            finish: None,
         })
         .collect();
     let scene = Scene {
@@ -1368,6 +1382,7 @@ fn a_viewport_of_no_size_keeps_its_meshes_until_the_scene_drops_them() {
                 FaceStyle {
                     color: Color::from_rgb8(40, 200, 40),
                     pick: None,
+                    finish: None,
                 };
                 6
             ],
@@ -1615,6 +1630,7 @@ fn a_translucent_mesh_blends_over_what_is_behind_it_and_is_never_picked() {
             FaceStyle {
                 color: Color::from_rgb8(255, 0, 0),
                 pick: Some(solid_pick),
+                finish: None,
             };
             6
         ],
@@ -1626,6 +1642,7 @@ fn a_translucent_mesh_blends_over_what_is_behind_it_and_is_never_picked() {
             FaceStyle {
                 color: Color::from_rgba8(0, 255, 0, 80),
                 pick: None,
+                finish: None,
             };
             6
         ],
@@ -1675,6 +1692,7 @@ fn an_overlay_mesh_shows_through_whatever_covers_it_and_is_never_picked() {
             FaceStyle {
                 color: Color::from_rgb8(255, 0, 0),
                 pick: Some(cover_pick),
+                finish: None,
             };
             6
         ],
@@ -1686,6 +1704,7 @@ fn an_overlay_mesh_shows_through_whatever_covers_it_and_is_never_picked() {
             FaceStyle {
                 color: Color::from_rgba8(0, 255, 0, 120),
                 pick: None,
+                finish: None,
             };
             6
         ],
@@ -1728,6 +1747,7 @@ fn a_flat_mesh_shows_its_colour_unlit_hides_what_is_behind_it_and_is_picked() {
             FaceStyle {
                 color: paper,
                 pick: Some(face_pick),
+                finish: None,
             };
             6
         ],
@@ -1922,6 +1942,7 @@ fn silhouetted(mesh: &Arc<ShadedMesh>, with_faces: bool) -> Scene {
                 faces: vec![FaceStyle {
                     color: Color::from_rgb8(120, 120, 120),
                     pick: PickId::from_index(0),
+                    finish: None,
                 }],
                 placement: None,
             }],
@@ -2038,6 +2059,7 @@ fn a_silhouette_dashed_where_hidden_shows_dashes_only_where_a_face_covers_it_and
             FaceStyle {
                 color: Color::from_rgb8(90, 90, 90),
                 pick: PickId::from_index(1),
+                finish: None,
             };
             6
         ],
@@ -2117,6 +2139,7 @@ fn reflective_scene(reflection: Reflection, pick: PickId) -> Scene {
             faces: vec![FaceStyle {
                 color: Color::from_rgb8(200, 200, 200),
                 pick: Some(pick),
+                finish: None,
             }],
             placement: None,
         }],
@@ -2306,6 +2329,7 @@ fn a_face_on_the_grid_plane_hides_the_grid_and_a_reference_fill_without_speckles
             faces: vec![FaceStyle {
                 color: face,
                 pick: PickId::from_index(5),
+                finish: None,
             }],
             placement: None,
         }],
@@ -2370,6 +2394,7 @@ fn an_edge_beyond_a_face_seen_at_a_grazing_angle_is_not_eaten_by_it() {
         .map(|index| FaceStyle {
             color: Color::from_rgb8(40, 200, 40),
             pick: PickId::from_index(10 + index),
+            finish: None,
         })
         .collect();
     let far_edge = Line {
@@ -2506,6 +2531,7 @@ fn faces_that_cannot_be_picked_hide_faces_and_reference_fills_as_pickable_ones_d
             FaceStyle {
                 color: Color::from_rgb8(90, 90, 90),
                 pick: None,
+                finish: None,
             };
             6
         ],
@@ -2517,6 +2543,7 @@ fn faces_that_cannot_be_picked_hide_faces_and_reference_fills_as_pickable_ones_d
             .map(|index| FaceStyle {
                 color: Color::from_rgb8(40, 200, 40),
                 pick: PickId::from_index(10 + index),
+                finish: None,
             })
             .collect(),
         placement: None,
@@ -2641,6 +2668,7 @@ fn a_scene_larger_than_a_buffer_draws_what_fits_and_splits_its_meshes() {
         .map(|index| FaceStyle {
             color: Color::from_rgb8(40, 200, 40),
             pick: PickId::from_index(100 + index),
+            finish: None,
         })
         .collect();
     let many = 2 * BUFFER_LIMIT as usize / 52;
@@ -2731,6 +2759,7 @@ fn an_orthographic_view_draws_and_picks_faces_behind_its_eye_with_edges_over_the
         .map(|index| FaceStyle {
             color: Color::from_rgb8(40, 200, 40),
             pick: PickId::from_index(10 + index),
+            finish: None,
         })
         .collect();
     let line = |start: Point3, end: Point3, index: usize| Line {
@@ -2991,6 +3020,7 @@ fn every_offered_anti_aliasing_level_smooths_edges_and_keeps_front_geometry_and_
                 FaceStyle {
                     color: Color::from_rgb8(90, 90, 90),
                     pick: None,
+                    finish: None,
                 };
                 6
             ],
@@ -3070,6 +3100,7 @@ fn enhanced_shading_sets_faces_apart_keeps_their_tint_and_keeps_dimmed_bodies_da
                 .map(|index| FaceStyle {
                     color,
                     pick: PickId::from_index(10 + index),
+                    finish: None,
                 })
                 .collect(),
             placement: None,
@@ -3175,6 +3206,7 @@ fn an_exported_image_is_drawn_in_tiles_at_its_own_size_with_the_chosen_backgroun
                 FaceStyle {
                     color: Color::from_rgb8(40, 200, 40),
                     pick: None,
+                    finish: None,
                 };
                 6
             ],
@@ -3260,6 +3292,7 @@ fn green_box_scene() -> Scene {
                 FaceStyle {
                     color: Color::from_rgb8(40, 200, 40),
                     pick: None,
+                    finish: None,
                 };
                 6
             ],
@@ -3399,6 +3432,7 @@ fn a_window_less_renderer_draws_an_image_without_a_surface() {
                 FaceStyle {
                     color: Color::from_rgb8(40, 200, 40),
                     pick: None,
+                    finish: None,
                 };
                 6
             ],
@@ -3580,6 +3614,7 @@ fn large_meshes() -> Vec<MeshInstance> {
                 .map(|face| FaceStyle {
                     color: Color::from_rgb8(160, 164, 172),
                     pick: PickId::from_index((100_000 + index * LARGE_MESH_SIDE + face) as usize),
+                    finish: None,
                 })
                 .collect(),
             placement: None,
@@ -3758,6 +3793,7 @@ fn small_meshes() -> Scene {
                 faces: vec![FaceStyle {
                     color: Color::from_rgb8(160, 164, 172),
                     pick: PickId::from_index(index as usize),
+                    finish: None,
                 }],
                 placement: RigidTransform::translation(at),
             }
@@ -3919,6 +3955,7 @@ fn styled_box(color: Color, first_pick: usize) -> MeshInstance {
             .map(|index| FaceStyle {
                 color,
                 pick: PickId::from_index(first_pick + index),
+                finish: None,
             })
             .collect(),
         placement: None,
@@ -4389,6 +4426,7 @@ fn a_placed_mesh_draws_and_picks_where_its_placement_puts_it() {
             faces: vec![FaceStyle {
                 color: Color::from_rgb8(255, 40, 40),
                 pick: PickId::from_index(0),
+                finish: None,
             }],
             placement: Some(placement),
         }],
@@ -4423,6 +4461,7 @@ fn a_far_placed_mesh_and_silhouette_draw_as_fresh_ones_once_the_eye_moves_within
             faces: vec![FaceStyle {
                 color: Color::from_rgb8(120, 120, 120),
                 pick: PickId::from_index(0),
+                finish: None,
             }],
             placement,
         }],
@@ -4680,4 +4719,140 @@ fn an_unchanged_frame_copies_the_kept_view_and_every_change_draws_it_again() {
     renderer.abandon_unsubmitted();
     let expected = fresh(1, Shading::Enhanced, &doubled(&shown));
     drawn_again_once(&mut renderer, gpu, &doubled(&shown), &last, &expected);
+}
+
+fn sphere_mesh(radius: f64, around: u32) -> ShadedMesh {
+    let up = around / 2;
+    let mut points = Vec::new();
+    let mut triangles = Vec::new();
+    for ring in 0..=up {
+        let polar = std::f64::consts::PI * f64::from(ring) / f64::from(up);
+        for step in 0..=around {
+            let azimuth = std::f64::consts::TAU * f64::from(step) / f64::from(around);
+            let normal = Vector3::new(
+                polar.sin() * azimuth.cos(),
+                polar.sin() * azimuth.sin(),
+                polar.cos(),
+            );
+            points.push(MeshPoint {
+                position: Point3::ZERO + normal * radius,
+                normal,
+            });
+        }
+    }
+    let row = around + 1;
+    for ring in 0..up {
+        for step in 0..around {
+            let corner = ring * row + step;
+            triangles.push([corner, corner + row, corner + 1]);
+            triangles.push([corner + 1, corner + row, corner + row + 1]);
+        }
+    }
+    ShadedMesh::new([MeshFace { points, triangles }])
+}
+
+const SHADED_BEFORE_FINISHES: [[[u8; 4]; 3]; 2] = [
+    [
+        [142, 153, 170, 255],
+        [114, 123, 137, 255],
+        [67, 73, 81, 255],
+    ],
+    [
+        [148, 159, 176, 255],
+        [115, 124, 138, 255],
+        [98, 106, 118, 255],
+    ],
+];
+const POLISHED_METAL: crate::SurfaceFinish = crate::SurfaceFinish {
+    metalness: 1.0,
+    roughness: 0.12,
+};
+
+#[test]
+fn a_metal_finish_shades_its_faces_as_metal_while_faces_without_one_shade_as_before() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let mut renderer = viewport_renderer(&device, 4);
+    let cube = Arc::new(box_mesh(20.0));
+    let ball = Arc::new(sphere_mesh(10.0, 32));
+    let body = Color::from_rgb8(150, 162, 180);
+    let brass = Color::from_rgb8(201, 164, 64);
+    let cube_in = |color: Color, finish: Option<crate::SurfaceFinish>| MeshInstance {
+        mesh: Arc::clone(&cube),
+        faces: (0..6)
+            .map(|index| FaceStyle {
+                color,
+                pick: PickId::from_index(10 + index),
+                finish,
+            })
+            .collect(),
+        placement: None,
+    };
+    let painted = |color: Color, finish: Option<crate::SurfaceFinish>| Scene {
+        meshes: vec![cube_in(color, finish)],
+        ..Scene::default()
+    };
+    let beside_metal = Scene {
+        meshes: vec![
+            cube_in(body, None),
+            MeshInstance {
+                mesh: Arc::clone(&ball),
+                faces: vec![FaceStyle {
+                    color: brass,
+                    pick: None,
+                    finish: Some(POLISHED_METAL),
+                }],
+                placement: RigidTransform::translation(Vector3::new(-30.0, 30.0, 0.0)),
+            },
+        ],
+        ..Scene::default()
+    };
+    let viewpoint =
+        Viewpoint::looking_from(Vector3::new(0.8, -1.0, 0.9), Point3::ZERO, 150.0).unwrap();
+    let view = View::new(viewpoint, f64::from(SIZE), f64::from(SIZE));
+    let faces = [
+        Point3::new(0.0, 0.0, 20.0),
+        Point3::new(0.0, -20.0, 0.0),
+        Point3::new(20.0, 0.0, 0.0),
+    ]
+    .map(|point| view.project(point).unwrap());
+    let mut shade = |shading: Shading, scene: &Scene| {
+        renderer.set_shading(shading);
+        let rendered = render_with(
+            &mut renderer,
+            &device,
+            &queue,
+            &full_frame(&view, scene, faces[0]),
+        );
+        (faces.map(|at| pixel(&rendered, at)), rendered.pick)
+    };
+
+    for (shading, before) in Shading::ALL.into_iter().zip(SHADED_BEFORE_FINISHES) {
+        let (plain, plain_pick) = shade(shading, &painted(body, None));
+        let (metal, metal_pick) = shade(shading, &painted(body, Some(POLISHED_METAL)));
+        let (beside, _) = shade(shading, &beside_metal);
+        let (golden, _) = shade(shading, &painted(brass, Some(POLISHED_METAL)));
+        for (now, before) in plain.iter().zip(before) {
+            for (now, before) in now.iter().zip(before) {
+                assert!(now.abs_diff(before) <= 2, "{shading:?}: {plain:?}");
+            }
+        }
+        assert_eq!(beside, plain, "{shading:?}");
+        assert!(
+            plain
+                .iter()
+                .zip(&metal)
+                .any(|(plain, metal)| brightness(*plain).abs_diff(brightness(*metal)) > 40),
+            "{shading:?}: {plain:?} {metal:?}"
+        );
+        for [red, _, blue, _] in golden {
+            assert!(
+                u16::from(red) > 2 * u16::from(blue),
+                "{shading:?}: {golden:?}"
+            );
+        }
+        assert_eq!(plain_pick.hits[0].id, metal_pick.hits[0].id);
+        assert_eq!(metal_pick.hits[0].id, PickId::from_index(14).unwrap());
+    }
 }

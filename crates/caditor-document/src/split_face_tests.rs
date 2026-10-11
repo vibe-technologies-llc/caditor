@@ -229,6 +229,7 @@ fn colour_top(model: &mut Model, evaluation: &Evaluation, colour: Rgb) {
                 face,
                 colour,
                 opacity: None,
+                finish: None,
             })
             .collect(),
         ..BodyAppearance::default()

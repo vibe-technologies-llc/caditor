@@ -286,11 +286,13 @@ fn face_looks_style_their_faces_and_a_see_through_body_needs_no_colour() {
             face: 0,
             colour: Some([0, 255, 0]),
             opacity: None,
+            finish: None,
         },
         crate::FaceLook {
             face: 1,
             colour: None,
             opacity: None,
+            finish: None,
         },
     ];
     let body = |colour, opacity, faces| StepBody {

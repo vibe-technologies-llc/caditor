@@ -14,6 +14,7 @@ fn steel(pair: &Pair, density: &str) -> BodyAppearance {
         density: Some(pair.document.parse(density).unwrap()),
         name: None,
         opacity: None,
+        finish: Some(Finish::BrushedMetal),
         faces: Vec::new(),
     }
 }
@@ -26,6 +27,18 @@ fn set(pair: &Pair, appearance: BodyAppearance) -> Transaction {
             appearance,
         },
     )
+}
+
+#[test]
+fn every_finish_reads_back_from_its_key_and_no_two_share_one() {
+    for finish in Finish::ALL {
+        assert_eq!(Finish::from_key(finish.key()), Some(finish));
+    }
+
+    let keys: std::collections::BTreeSet<&str> =
+        Finish::ALL.iter().map(|finish| finish.key()).collect();
+    assert_eq!(keys.len(), Finish::ALL.len());
+    assert_eq!(Finish::from_key("velvet"), None);
 }
 
 #[test]
@@ -253,6 +266,7 @@ fn a_body_may_be_see_through_down_to_a_tenth_and_full_opacity_is_stored_as_none(
             ),
             colour: Rgb::new(1, 2, 3),
             opacity: Some(3),
+            finish: None,
         }],
         ..BodyAppearance::default()
     };
@@ -289,7 +303,7 @@ fn an_opacity_snaps_to_the_nearest_step_and_solid_is_the_step_above_the_first() 
 }
 
 #[test]
-fn a_face_colour_and_opacity_follow_the_face_into_every_fragment_a_later_cut_leaves() {
+fn a_face_colour_opacity_and_finish_follow_the_face_into_every_fragment_a_later_cut_leaves() {
     use caditor_geometry::Vector3;
     use caditor_kernel::{FaceReference, Surface};
 
@@ -315,6 +329,7 @@ fn a_face_colour_and_opacity_follow_the_face_into_every_fragment_a_later_cut_lea
             face: FaceReference::capture(solid, top).unwrap(),
             colour: red,
             opacity: Some(50),
+            finish: Some(Finish::Anodized),
         }],
         ..BodyAppearance::default()
     };
@@ -345,6 +360,8 @@ fn a_face_colour_and_opacity_follow_the_face_into_every_fragment_a_later_cut_lea
     let coloured = appearance.face_colours(after.body(pair.plate).unwrap(), &FaceSplits::default());
     let see_through =
         appearance.face_opacities(after.body(pair.plate).unwrap(), &FaceSplits::default());
+    let finished =
+        appearance.face_finishes(after.body(pair.plate).unwrap(), &FaceSplits::default());
 
     assert_eq!(after.failed_count(), 0);
     assert_eq!(coloured.len(), 2);
@@ -354,4 +371,9 @@ fn a_face_colour_and_opacity_follow_the_face_into_every_fragment_a_later_cut_lea
         coloured.keys().collect::<Vec<_>>()
     );
     assert!(see_through.values().all(|opacity| *opacity == 50));
+    assert_eq!(
+        finished.keys().collect::<Vec<_>>(),
+        coloured.keys().collect::<Vec<_>>()
+    );
+    assert!(finished.values().all(|finish| *finish == Finish::Anodized));
 }

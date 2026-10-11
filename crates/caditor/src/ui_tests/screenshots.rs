@@ -811,6 +811,28 @@ fn tree_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
     model.frame();
     model.frame();
     shoot(model, gpu, out, "body-appearance-custom", look);
+    model.click_button(crate::body_appearance::CUSTOM_COLOUR_NAME);
+    model.frame();
+    let steel = crate::body_appearance::MATERIALS
+        .iter()
+        .find(|material| material.name == "Steel");
+    let finished = model.document().feature(body).and_then(|feature| {
+        crate::body_appearance::change(
+            model.document(),
+            body,
+            crate::body_appearance::with_material(&feature.appearance, steel),
+            "material",
+        )
+        .ok()
+    });
+    if let Some(finished) = finished {
+        model.perform(Action::Apply(finished));
+        model.workspace.panels.choose_nothing();
+        model.settle();
+        shoot(model, gpu, out, "body-finish", look);
+        model.perform(Action::Undo);
+        model.settle();
+    }
     model.workspace.panels.painting = None;
     model.frame();
     let keys: Vec<_> = model

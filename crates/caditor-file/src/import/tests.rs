@@ -1719,12 +1719,14 @@ mod step {
                     face,
                     colour: Some([255, 0, 0]),
                     opacity: None,
+                    finish: None,
                 });
             } else if is_cap(&pair, face, 0.0) && right(face) {
                 looks.push(caditor_step::FaceLook {
                     face,
                     colour: None,
                     opacity: Some(50),
+                    finish: None,
                 });
             }
         }
@@ -1790,6 +1792,7 @@ mod step {
                     face: 0,
                     colour: None,
                     opacity: Some(25),
+                    finish: None,
                 }],
             }],
             "block",
@@ -1812,6 +1815,54 @@ mod step {
             (face.colour, face.opacity),
             (caditor_document::DEFAULT_BODY_COLOUR, Some(25))
         );
+    }
+
+    #[test]
+    fn an_appearance_named_in_the_file_imports_as_the_body_and_its_faces_finish() {
+        let solid = block();
+        let written = write_step(
+            &[StepBody {
+                name: "Block",
+                solid: &solid,
+                colour: Some([0, 0, 255]),
+                opacity: None,
+                layer: None,
+                threads: &[],
+                faces: &[caditor_step::FaceLook {
+                    face: 0,
+                    colour: Some([0, 255, 0]),
+                    opacity: None,
+                    finish: None,
+                }],
+            }],
+            "block",
+            SystemTime::UNIX_EPOCH,
+        )
+        .unwrap();
+        let text = written
+            .replace(
+                "COLOUR_RGB('',0.0,0.0,1.0)",
+                "COLOUR_RGB('Aluminum - Anodized Glossy (Blue)',0.0,0.0,1.0)",
+            )
+            .replace(
+                "COLOUR_RGB('',0.0,1.0,0.0)",
+                "COLOUR_RGB('Rubber - Soft (Green)',0.0,1.0,0.0)",
+            );
+        let import = parse_step(&text, "block.step").unwrap();
+        let mut document = Document::default();
+
+        document
+            .apply(bodies_transaction(&document, &import.bodies, "Import"))
+            .unwrap();
+
+        assert_ne!(text, written);
+        let appearance = &document.features().next().unwrap().appearance;
+        assert_eq!(appearance.finish, Some(caditor_document::Finish::Anodized));
+        let [face] = appearance.faces.as_slice() else {
+            panic!("expected one face look: {:?}", appearance.faces);
+        };
+        assert_eq!(face.finish, Some(caditor_document::Finish::Rubber));
+        assert_eq!(face.colour, Rgb::new(0, 255, 0));
     }
 
     fn block_file(dir: &tempfile::TempDir) -> std::path::PathBuf {

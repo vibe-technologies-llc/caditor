@@ -18,12 +18,15 @@ const INDEX_BYTES: u64 = 4;
 const STYLE_BINDING: u32 = 1;
 const PLACEMENT_BINDING: u32 = 2;
 const PLACEMENT_BYTES: u64 = 80;
-const STYLE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rg32Uint;
-const STYLE_TEXEL_BYTES: u32 = 8;
+const STYLE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba32Uint;
+const STYLE_TEXEL_BYTES: u32 = 16;
+const FINISH_PRESENT: u32 = 1 << 16;
+const FINISH_LEVELS: f32 = 255.0;
 const FLAT_NORMALS: f32 = 1e-6;
 const UNSTYLED_FACE: FaceStyle = FaceStyle {
     color: Color::from_rgb8(160, 164, 172),
     pick: None,
+    finish: None,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -436,9 +439,25 @@ pub struct Division {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SurfaceFinish {
+    pub metalness: f32,
+    pub roughness: f32,
+}
+
+impl SurfaceFinish {
+    pub(crate) fn packed(finish: Option<Self>) -> u32 {
+        let level = |value: f32| (value.clamp(0.0, 1.0) * FINISH_LEVELS).round() as u32;
+        finish.map_or(0, |finish| {
+            FINISH_PRESENT | level(finish.roughness) << 8 | level(finish.metalness)
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FaceStyle {
     pub color: Color,
     pub pick: Option<PickId>,
+    pub finish: Option<SurfaceFinish>,
 }
 
 #[derive(Debug, Clone)]
@@ -1137,7 +1156,9 @@ impl StyleTarget<'_> {
             let style = self.faces.get(face).copied().unwrap_or(UNSTYLED_FACE);
             bytes
                 .u32(pack_color(style.color))
-                .u32(PickId::raw(style.pick));
+                .u32(PickId::raw(style.pick))
+                .u32(SurfaceFinish::packed(style.finish))
+                .u32(0);
         }
     }
 
@@ -1577,6 +1598,7 @@ mod tests {
         let style = |red: u8| FaceStyle {
             color: Color::from_rgb8(red, 0, 0),
             pick: None,
+            finish: None,
         };
         let layout = StyleLayout::new(40, 10);
         let before: Vec<FaceStyle> = (0..40).map(|_| style(0)).collect();

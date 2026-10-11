@@ -674,6 +674,7 @@ fn export_step(
                     face: face.face,
                     colour: Some([face.colour.red, face.colour.green, face.colour.blue]),
                     opacity: face.opacity,
+                    finish: None,
                 })
                 .collect()
         })

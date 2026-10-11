@@ -38,6 +38,11 @@ paths:
   colour, else the body's, and its opacity, else the body's, 100 being solid. The reader gives the
   same body and face looks back exactly. `lump_faces` lists the faces of each lump in the order
   written, which import uses to carry face looks onto the lumps it stores apart.
+- A finish is not written (a `FaceLook`'s `finish` is ignored): AP214's only place for one, the
+  reflectances of `SURFACE_STYLE_RENDERING_WITH_PROPERTIES`, is a Phong ambient, diffuse and
+  specular split that neither caditor's reader nor the exporters it reads from (which name the
+  colour after the appearance instead) map back to a finish, so written there it would not round
+  trip.
 - A `StepBody` with a `layer` (the body's folder) is listed in one `PRESENTATION_LAYER_ASSIGNMENT`
   per distinct layer name, holding its solids; a blank name writes none.
 - A `StepBody` with `threads` (`StepThread`: designation, start, direction, length) gets one

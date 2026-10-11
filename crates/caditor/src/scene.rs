@@ -12,7 +12,7 @@ use caditor_geometry::{Aabb, Plane, Point2, Point3, Ray, RigidTransform};
 use caditor_kernel::{EdgeName, RegionKey, RegionMesh, RegionReference, resolve_regions};
 use caditor_render::{
     Batch, Color, FaceStyle, Fill, Grid, Layer, Line, Marker, MeshInstance, PickHit, PickId,
-    PickResult, Reflection, Scene, ShadedMesh, Silhouette, Stroke,
+    PickResult, Reflection, Scene, ShadedMesh, Silhouette, Stroke, SurfaceFinish,
 };
 use caditor_sketch::{
     Constraint, ConstraintId, Entity, EntityId, EntityState, Faceting, Reference, Sketch,
@@ -197,6 +197,10 @@ impl Highlight<'_> {
             _ => None,
         };
         owner.is_some_and(|owner| self.chosen_rows.contains(&owner))
+    }
+
+    fn is_lit(&self, pickable: Pickable) -> bool {
+        self.selection.contains(pickable) || self.is_hovered(pickable)
     }
 
     fn color(&self, highlights: &Highlights, pickable: Pickable, base: Color) -> Color {
@@ -633,7 +637,7 @@ pub fn build(
         };
         let faces = match color {
             Some(color) if color == painted(document, body) => {
-                face_looks(document, evaluation, body)
+                face_looks(document, evaluation, body, palette)
             }
             Some(_) | None => FaceLooks::default(),
         };
@@ -1139,6 +1143,10 @@ impl Builder<'_> {
                     };
                     let base = own(face, base);
                     let alpha = own_alpha(face, alpha);
+                    let finish = match style.is_translucent() {
+                        true => None,
+                        false => self.finish_of(looks, face, pickable),
+                    };
                     match picked {
                         true => FaceStyle {
                             color: self
@@ -1146,10 +1154,12 @@ impl Builder<'_> {
                                 .color(&self.palette.faces, pickable, base)
                                 .with_alpha(alpha),
                             pick: self.picks.register(pickable, PickPriority::Surface),
+                            finish,
                         },
                         false => FaceStyle {
                             color: base.with_alpha(alpha),
                             pick: None,
+                            finish,
                         },
                     }
                 })
@@ -1185,9 +1195,14 @@ impl Builder<'_> {
                                 body,
                                 face: face.key,
                             };
+                            let finish = match style.is_drawing() {
+                                true => None,
+                                false => self.finish_of(looks, face, pickable),
+                            };
                             FaceStyle {
                                 color: self.highlight.color(&self.palette.faces, pickable, base),
                                 pick: self.picks.register(pickable, PickPriority::Surface),
+                                finish,
                             }
                         }
                         None if pickable => {
@@ -1202,11 +1217,13 @@ impl Builder<'_> {
                                     self.palette.background_body,
                                 ),
                                 pick: self.picks.register(pickable, PickPriority::Surface),
+                                finish: None,
                             }
                         }
                         None => FaceStyle {
                             color: self.palette.background_body,
                             pick: None,
+                            finish: None,
                         },
                     })
                     .collect(),
@@ -1326,6 +1343,18 @@ impl Builder<'_> {
         }
     }
 
+    fn finish_of(
+        &self,
+        looks: &FaceLooks,
+        face: &BodyFace,
+        pickable: Pickable,
+    ) -> Option<SurfaceFinish> {
+        match self.highlight.is_lit(pickable) {
+            true => None,
+            false => looks.finish(face),
+        }
+    }
+
     fn plain_silhouette(&mut self, mesh: &Arc<ShadedMesh>) {
         self.silhouettes.push(Silhouette {
             mesh: Arc::clone(mesh),
@@ -1367,6 +1396,7 @@ impl Builder<'_> {
                     return FaceStyle {
                         color: base,
                         pick: None,
+                        finish: None,
                     };
                 };
                 let pickable = Pickable::Face {
@@ -1379,6 +1409,7 @@ impl Builder<'_> {
                 FaceStyle {
                     color: self.highlight.color(&self.palette.faces, pickable, base),
                     pick,
+                    finish: None,
                 }
             })
             .collect()
@@ -1428,6 +1459,7 @@ impl Builder<'_> {
                 FaceStyle {
                     color: self.palette.cut_preview.with_alpha(CUT_PREVIEW_ALPHA),
                     pick: None,
+                    finish: None,
                 };
                 cut.faces.len()
             ],
@@ -1480,7 +1512,11 @@ impl Builder<'_> {
             OpenChoice::Edges { .. } | OpenChoice::Nothing => mesh
                 .faces
                 .iter()
-                .map(|_| FaceStyle { color, pick: None })
+                .map(|_| FaceStyle {
+                    color,
+                    pick: None,
+                    finish: None,
+                })
                 .collect(),
         };
         self.meshes.push(MeshInstance {
@@ -1537,6 +1573,7 @@ impl Builder<'_> {
         let left = FaceStyle {
             color: self.palette.faces.selected.with_alpha(0.0),
             pick: None,
+            finish: None,
         };
         let faces = open
             .before
@@ -1558,6 +1595,7 @@ impl Builder<'_> {
                 FaceStyle {
                     color: color.with_alpha(PREVIEW_ALPHA),
                     pick: self.picks.register(pickable, PickPriority::Surface),
+                    finish: None,
                 }
             })
             .collect();
@@ -1577,7 +1615,11 @@ impl Builder<'_> {
                 .before
                 .faces
                 .iter()
-                .map(|_| FaceStyle { color, pick: None })
+                .map(|_| FaceStyle {
+                    color,
+                    pick: None,
+                    finish: None,
+                })
                 .collect(),
             placement: None,
         });
@@ -1595,7 +1637,11 @@ impl Builder<'_> {
             .iter()
             .map(|face| {
                 if !choosable(face) {
-                    return FaceStyle { color, pick: None };
+                    return FaceStyle {
+                        color,
+                        pick: None,
+                        finish: None,
+                    };
                 }
                 let pickable = Pickable::ShellFace {
                     feature,
@@ -1614,6 +1660,7 @@ impl Builder<'_> {
                 FaceStyle {
                     color,
                     pick: self.picks.register(pickable, PickPriority::Surface),
+                    finish: None,
                 }
             })
             .collect()
@@ -1643,7 +1690,11 @@ impl Builder<'_> {
                     .before
                     .faces
                     .iter()
-                    .map(|_| FaceStyle { color, pick: None })
+                    .map(|_| FaceStyle {
+                        color,
+                        pick: None,
+                        finish: None,
+                    })
                     .collect(),
             };
             self.meshes.push(MeshInstance {
@@ -2299,24 +2350,56 @@ pub fn region_references(
 struct FaceLooks {
     colours: BTreeMap<FaceKey, Color>,
     opacities: BTreeMap<FaceKey, f32>,
+    finish: Option<SurfaceFinish>,
+    finishes: BTreeMap<FaceKey, SurfaceFinish>,
 }
 
-fn face_looks(document: &Document, evaluation: &Evaluation, body: FeatureId) -> FaceLooks {
-    let Some(appearance) = document
-        .feature(body)
-        .map(|feature| &feature.appearance)
-        .filter(|appearance| !appearance.faces.is_empty())
-    else {
+impl FaceLooks {
+    fn finish(&self, face: &BodyFace) -> Option<SurfaceFinish> {
+        self.finishes.get(&face.key).copied().or(self.finish)
+    }
+}
+
+fn face_looks(
+    document: &Document,
+    evaluation: &Evaluation,
+    body: FeatureId,
+    palette: &ScenePalette,
+) -> FaceLooks {
+    let Some(appearance) = document.feature(body).map(|feature| &feature.appearance) else {
         return FaceLooks::default();
     };
+    let finish = appearance
+        .finish
+        .filter(|_| palette.shows_finishes)
+        .map(body_appearance::surface);
+    let plain = FaceLooks {
+        finish,
+        ..FaceLooks::default()
+    };
+    if appearance.faces.is_empty() {
+        return plain;
+    }
     let Some(shown) = bodies::shown(evaluation, body) else {
-        return FaceLooks::default();
+        return plain;
     };
     let splits = document.face_splits(body);
     let coloured = appearance.face_colours(&shown.solid, &splits);
     let see_through = appearance.face_opacities(&shown.solid, &splits);
+    let finished = match palette.shows_finishes {
+        true => appearance.face_finishes(&shown.solid, &splits),
+        false => BTreeMap::new(),
+    };
     let keys = bodies::face_keys(&shown.solid);
     FaceLooks {
+        finish,
+        finishes: keys
+            .iter()
+            .filter_map(|(id, key)| {
+                let finish = finished.get(id)?;
+                Some((*key, body_appearance::surface(*finish)))
+            })
+            .collect(),
         colours: keys
             .iter()
             .filter_map(|(id, key)| {

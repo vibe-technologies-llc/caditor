@@ -1,4 +1,5 @@
 mod conform;
+mod finish;
 mod geometry;
 mod graph;
 #[cfg(test)]
@@ -27,7 +28,7 @@ use std::{
 use caditor_geometry::Similarity;
 use caditor_kernel::{Solid, check_interrupt, current_interrupt, interruptible};
 
-pub use crate::read::presentation::FaceLook;
+pub use crate::read::{finish::Finish, presentation::FaceLook};
 use crate::{
     part21::{Exchange, SyntaxError, parse},
     read::{
@@ -60,6 +61,7 @@ pub struct StepSolid {
     pub solid: Solid,
     pub colour: Option<[u8; 3]>,
     pub opacity: Option<u8>,
+    pub finish: Option<Finish>,
     pub layer: Option<String>,
     pub faces: Vec<FaceLook>,
 }
@@ -77,6 +79,7 @@ pub struct StepCopy {
     pub placement: Similarity,
     pub colour: Option<[u8; 3]>,
     pub opacity: Option<u8>,
+    pub finish: Option<Finish>,
     pub layer: Option<String>,
     pub faces: Vec<FaceLook>,
 }
@@ -256,6 +259,7 @@ fn read_step_checking(text: &str, crossings: Crossings) -> Result<StepModel, Rea
                 solid,
                 colour: look.colour,
                 opacity: look.opacity,
+                finish: look.finish,
                 layer: look.layer,
                 faces: look.faces,
             })
@@ -290,6 +294,7 @@ pub fn read_step_copies_reporting(
                 placement,
                 colour: look.colour,
                 opacity: look.opacity,
+                finish: look.finish,
                 layer: look.layer,
                 faces: look.faces,
             })

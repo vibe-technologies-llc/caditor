@@ -227,6 +227,18 @@ fn features_cross_the_clipboard_and_paste_into_another_model() {
         })),
     );
     document.apply(transaction.finish()).unwrap();
+    document
+        .apply(caditor_document::Transaction::single(
+            "Polish",
+            caditor_document::Edit::SetBodyAppearance {
+                id: extrude,
+                appearance: caditor_document::BodyAppearance {
+                    finish: Some(caditor_document::Finish::PolishedMetal),
+                    ..caditor_document::BodyAppearance::default()
+                },
+            },
+        ))
+        .unwrap();
     let features: Vec<Feature> = [source.sketch, extrude]
         .iter()
         .map(|id| document.feature(*id).unwrap().clone())
@@ -248,6 +260,12 @@ fn features_cross_the_clipboard_and_paste_into_another_model() {
     assert_eq!(paste.inlined, 1);
     target.apply(paste.transaction).unwrap();
     assert_eq!(target.features().len(), 2);
+    assert!(
+        target
+            .features()
+            .any(|feature| feature.appearance.finish
+                == Some(caditor_document::Finish::PolishedMetal))
+    );
     assert_eq!(
         read_features_clipboard(&text, HERE).unwrap().origin,
         PasteOrigin::ThisDocument

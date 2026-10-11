@@ -6,9 +6,9 @@ use caditor_document::{
     CombineOperation, ConfigurationId, CopyOrientation, CurvePattern, CurveSpacing, CurveStation,
     Datum, DatumAxis, DatumFrame, DatumPlane, DatumPoint, Document, EdgeGroup, Edit, Extrude,
     ExtrudeEnd, ExtrudeExtent, FaceAttachment, FaceAxisMate, FaceColour, FaceMate, FaceOnRound,
-    FacePair, FaceTangent, Feature, FeatureId, FeatureKind, HOME_VIEW_NAME, Hole, HoleBottom,
-    HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle, Import,
-    LinearDirection, LinearSpacing, MAX_BODY_NAME_CHARS, MAX_GROUP_NAME_CHARS,
+    FacePair, FaceTangent, Feature, FeatureId, FeatureKind, Finish, HOME_VIEW_NAME, Hole,
+    HoleBottom, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle,
+    Import, LinearDirection, LinearSpacing, MAX_BODY_NAME_CHARS, MAX_GROUP_NAME_CHARS,
     MAX_MATERIAL_NAME_CHARS, MAX_PATTERN_INSTANCES, MAX_SAVED_VIEWS, MAX_VIEW_NAME_CHARS,
     MIN_OPACITY_PERCENT, Mate, MatePair, MeasuredItem, Measurement, MetricSize, Mirror,
     ModelProperties, ModelProperty, Move, NamedView, OPAQUE_PERCENT, ORIGINAL_INSTANCE, Of,
@@ -170,6 +170,8 @@ pub(crate) struct AppearanceRecord {
     pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub opacity: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finish: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub faces: Vec<Lenient<FaceColourRecord>>,
 }
@@ -181,6 +183,8 @@ pub(crate) struct FaceColourRecord {
     pub colour: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub opacity: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finish: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2029,6 +2033,7 @@ fn appearance_record(appearance: &BodyAppearance) -> AppearanceRecord {
         density: appearance.density.as_ref().map(Expression::to_stored_text),
         name: appearance.name.clone(),
         opacity: appearance.opacity,
+        finish: appearance.finish.map(|finish| finish.key().to_owned()),
         faces: appearance
             .faces
             .iter()
@@ -2037,6 +2042,7 @@ fn appearance_record(appearance: &BodyAppearance) -> AppearanceRecord {
                     face: face_record(&coloured.face),
                     colour: coloured.colour.hex(),
                     opacity: coloured.opacity,
+                    finish: coloured.finish.map(|finish| finish.key().to_owned()),
                 })
             })
             .collect(),
@@ -2103,7 +2109,18 @@ fn restore_appearance(
         }
         usable.then_some(opacity)
     });
+    let finish = record.finish.as_deref().and_then(|key| {
+        let finish = Finish::from_key(key);
+        if finish.is_none() {
+            issues.push(format!(
+                "The finish of “{name}” is one this version does not know, so it is drawn \
+                 without one."
+            ));
+        }
+        finish
+    });
     let mut unusable_opacities = 0;
+    let mut unknown_finishes = 0;
     let faces: Vec<FaceColour> = record
         .faces
         .iter()
@@ -2123,6 +2140,13 @@ fn restore_appearance(
                     }
                     usable.then_some(opacity)
                 }),
+                finish: coloured.finish.as_deref().and_then(|key| {
+                    let finish = Finish::from_key(key);
+                    if finish.is_none() {
+                        unknown_finishes += 1;
+                    }
+                    finish
+                }),
             }),
             Lenient::Unreadable(_) => None,
         })
@@ -2135,6 +2159,17 @@ fn restore_appearance(
         unusable => issues.push(format!(
             "The opacity of {unusable} faces of “{name}” could not be used, so they are drawn \
              like the body."
+        )),
+    }
+    match unknown_finishes {
+        0 => {}
+        1 => issues.push(format!(
+            "The finish of a face of “{name}” is one this version does not know, so it is \
+             drawn like the body."
+        )),
+        unknown => issues.push(format!(
+            "The finish of {unknown} faces of “{name}” is one this version does not know, so \
+             they are drawn like the body."
         )),
     }
     match record.faces.len() - faces.len() {
@@ -2153,6 +2188,7 @@ fn restore_appearance(
         density,
         name: body_name,
         opacity,
+        finish,
         faces,
     }
 }

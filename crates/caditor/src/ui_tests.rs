@@ -67,6 +67,7 @@ use crate::{
     version_preview, view_cube, widgets, window_frame,
 };
 
+mod body_finishes;
 mod cancel_and_parameters;
 mod completion;
 mod configurations;
@@ -18354,6 +18355,7 @@ fn a_face_of_its_own_opacity_is_drawn_see_through_and_the_rest_of_its_body_solid
                     face: reference,
                     colour: caditor_document::Rgb::new(200, 64, 52),
                     opacity: Some(50),
+                    finish: None,
                 }],
                 ..Default::default()
             },

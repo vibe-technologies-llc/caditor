@@ -22,6 +22,7 @@ fn look(face: usize, colour: Option<[u8; 3]>, opacity: Option<u8>) -> FaceLook {
         face,
         colour,
         opacity,
+        finish: None,
     }
 }
 
@@ -444,6 +445,56 @@ fn a_colour_named_after_a_clear_appearance_is_see_through_unless_a_transparency_
     assert_eq!(named("Steel - Satin", None), (pale, None));
     assert_eq!(named("Unclear", None), (pale, None));
     assert_eq!(named("Acrylic (Clear)", Some("0.1")), (pale, Some(90)));
+}
+
+#[test]
+fn a_colour_named_after_an_appearance_gives_the_body_and_a_face_painted_otherwise_their_finish() {
+    let plate = fixtures::plate_with_hole();
+    let text = written(
+        &[Body {
+            name: "Plate",
+            colour: None,
+            opacity: None,
+            faces: Vec::new(),
+        }],
+        &plate,
+    );
+    let solid = id_of(&text, "MANIFOLD_SOLID_BREP(");
+    let face = id_of(&text, "ADVANCED_FACE(");
+    let painted = |id: u64, item: &str, name: &str, channel: f64| {
+        format!(
+            "#{}=COLOUR_RGB('{name}',{channel},{channel},{channel});\n\
+             #{}=SURFACE_STYLE_FILL_AREA(#{});\n\
+             #{}=FILL_AREA_STYLE('',(#{}));\n\
+             #{}=FILL_AREA_STYLE_COLOUR('',#{});\n\
+             {}#{id}=PRESENTATION_STYLE_ASSIGNMENT((#{}));\n\
+             #{}=STYLED_ITEM('color',(#{id}),{item});\n",
+            id + 10,
+            id + 11,
+            id + 12,
+            id + 12,
+            id + 13,
+            id + 13,
+            id + 10,
+            usage(id + 20, "BOTH", &format!("#{}", id + 11)),
+            id + 20,
+            id + 30,
+        )
+    };
+    let styles = format!(
+        "{}{}",
+        painted(960_000, solid, "Steel - Satin", 0.5),
+        painted(961_000, face, "Plastic - Matte (Black)", 0.1)
+    );
+
+    let model = read_step(&inserted(&text, &styles)).unwrap();
+    let read = &model.solids[0];
+
+    assert!(model.notes.is_empty(), "{:?}", model.notes);
+    assert_eq!(read.finish, Some(crate::Finish::BrushedMetal));
+    assert_eq!(read.faces.len(), 1);
+    assert_eq!(read.faces[0].finish, Some(crate::Finish::Matte));
+    assert_eq!(read.faces[0].colour, Some([26, 26, 26]));
 }
 
 #[test]

@@ -102,7 +102,7 @@ paths:
 
 ## Meshes
 
-- A `MeshInstance` is an `Arc<ShadedMesh>` plus a `FaceStyle` (colour, pick id) per face. Buffers
+- A `MeshInstance` is an `Arc<ShadedMesh>` plus a `FaceStyle` (colour, pick id, finish) per face. Buffers
   upload once per `Arc` into the `MeshPool` the five mesh caches share (keyed by the `Arc`'s
   address, the entry holding the `Arc`) and drop when no list of the scene holds the mesh; each
   cache keeps only its styles, placement and bind group per mesh, so moving a mesh between lists
@@ -153,8 +153,8 @@ paths:
   source face and the area of every piece; analysis colouring uses it, since styles are per face.
   `ShadedMesh::origin` and `face_triangles` (world corners with their face) let the app's reach
   analysis and `through.rs` work on the triangles without a copy of the mesh.
-- Per-face styles live in an `Rg32Uint` texture (`StyleLayout`) read by face index in the vertex
-  shader, so hover and selection cost nothing in geometry. A restyle writes only the texture rows
+- Per-face styles live in an `Rgba32Uint` texture (`StyleLayout`: colour, pick id, packed
+  finish, a spare word) read by face index in the vertex shader, so hover and selection cost nothing in geometry. A restyle writes only the texture rows
   whose styles changed, each as one span from its first to its last changed face, and updates the
   kept copy in place (`changed_spans`); past `MAX_STYLE_SPANS` such rows, or when the face count
   changes, the whole texture is written.
@@ -171,6 +171,21 @@ paths:
   (`to_linear`), lights it and encodes the result (`to_srgb`), the light constants tuned so a
   face lit by ambient alone or fully lit reads about as it did when lighting was in gamma space, the
   tones between a little lighter. Zebra and chrome keep their sRGB-space look.
+- A face whose style carries a `SurfaceFinish` (metalness and roughness, 0 to 1, packed into the
+  style texel's third word as two bytes and a present bit, `SurfaceFinish::packed`) is shaded by
+  `finished` instead of `lit`: `vs_mesh` puts the word in the flat `sectioned` varying above its
+  flag bits (`FINISH_SHIFT`), so it costs no varying, pass or pipeline, and a face without one
+  takes exactly the old branch (the offscreen test pins its pixels from before finishes, in both
+  shadings). `finished` keeps the shading mode's diffuse lights (`standard_diffuse`,
+  `enhanced_diffuse`, shared with the plain shading) on the colour (a metal keeps
+  `METAL_DIFFUSE` of it, so hover tints and dark sides still read), adds a GGX highlight with a
+  Smith visibility and Schlick Fresnel per light (the key light, and the fill light in Enhanced),
+  capped by `HIGHLIGHT_LIMIT` so a polished flat face square to a light is not blown out, and
+  reflects `studio`, the chrome reflection's world-Z-up sky, ground and panel in linear light with
+  its horizon and panel blurred by roughness, weighted by a roughness-aware Fresnel. The
+  reflectance is 4% for a dielectric and the colour times `METAL_REFLECTANCE_GAIN` for a metal, so
+  metal highlights and reflections are tinted. Section caps, flat, reflective and pick shaders
+  ignore the finish; translucent meshes, which draw with `fs_mesh`, take it.
 - The multisample resolve averages in linear light where views allow it: a renderer told so
   (`set_linear_resolve`, from `gpu::resolves_linearly`, the adapter's `VIEW_FORMATS`) gives its
   multisampled colour target and the kept view an sRGB view each, stores the scene pass instead

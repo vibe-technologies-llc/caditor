@@ -13,8 +13,8 @@ use std::{
 
 use caditor_document::{
     BodyAppearance, BodyPlacement, CancelToken, DEFAULT_BODY_COLOUR, Document, Edit, FaceColour,
-    FeatureKind, Import, MAX_GROUP_NAME_CHARS, OPAQUE_PERCENT, ParameterValues, Rgb, Transaction,
-    group_name, nearest_opacity_step,
+    FeatureKind, Finish, Import, MAX_GROUP_NAME_CHARS, OPAQUE_PERCENT, ParameterValues, Rgb,
+    Transaction, group_name, nearest_opacity_step,
 };
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Point3, Similarity, Vector3};
@@ -59,6 +59,7 @@ pub struct ImportedBody {
     pub import: Import,
     pub colour: Option<Rgb>,
     pub opacity: Option<u8>,
+    pub finish: Option<Finish>,
     pub group: Option<String>,
     pub faces: Vec<ImportedFace>,
 }
@@ -68,6 +69,7 @@ pub struct ImportedFace {
     pub face: u32,
     pub colour: Option<Rgb>,
     pub opacity: Option<u8>,
+    pub finish: Option<Finish>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -282,6 +284,7 @@ fn parse_step_reporting(
                             name: copy.name.clone(),
                             colour: copy.colour.map(rgb),
                             opacity,
+                            finish: copy.finish.map(finish),
                             group: copy.layer.clone(),
                             faces,
                         })
@@ -407,6 +410,7 @@ fn placed_copies(
                 name: copy.name.clone(),
                 colour: copy.colour.map(rgb),
                 opacity,
+                finish: copy.finish.map(finish),
                 group: copy.layer.clone(),
                 faces,
             })
@@ -443,17 +447,19 @@ fn face_looks<S: std::borrow::Borrow<Solid>>(
             .map(|percent| nearest_opacity_step(percent).unwrap_or(OPAQUE_PERCENT))
             .filter(|opacity| *opacity != body_opacity);
         let colour = look.colour.map(rgb);
+        let finish = look.finish.map(finish);
         let Some((lump, position)) = stored_at.get(&look.face) else {
             continue;
         };
         let (Some(faces), Ok(face)) = (per_lump.get_mut(*lump), u32::try_from(*position)) else {
             continue;
         };
-        if colour.is_some() || opacity.is_some() {
+        if colour.is_some() || opacity.is_some() || finish.is_some() {
             faces.push(ImportedFace {
                 face,
                 colour,
                 opacity,
+                finish,
             });
         }
     }
@@ -462,6 +468,19 @@ fn face_looks<S: std::borrow::Borrow<Solid>>(
 
 fn rgb([red, green, blue]: [u8; 3]) -> Rgb {
     Rgb::new(red, green, blue)
+}
+
+fn finish(read: caditor_step::Finish) -> Finish {
+    match read {
+        caditor_step::Finish::Matte => Finish::Matte,
+        caditor_step::Finish::Satin => Finish::Satin,
+        caditor_step::Finish::Glossy => Finish::Glossy,
+        caditor_step::Finish::Rubber => Finish::Rubber,
+        caditor_step::Finish::PowderCoat => Finish::PowderCoat,
+        caditor_step::Finish::Anodized => Finish::Anodized,
+        caditor_step::Finish::BrushedMetal => Finish::BrushedMetal,
+        caditor_step::Finish::PolishedMetal => Finish::PolishedMetal,
+    }
 }
 
 fn body_placement(similarity: &Similarity, solid: &Solid) -> Option<BodyPlacement> {
@@ -549,12 +568,17 @@ pub fn bodies_transaction(
         taken.push(name.clone());
         let id = builder.add_feature(name, FeatureKind::Import(body.import.clone()));
         let faces = coloured_faces(id.raw(), body);
-        if body.colour.is_some() || body.opacity.is_some() || !faces.is_empty() {
+        if body.colour.is_some()
+            || body.opacity.is_some()
+            || body.finish.is_some()
+            || !faces.is_empty()
+        {
             builder.edit(Edit::SetBodyAppearance {
                 id,
                 appearance: BodyAppearance {
                     colour: body.colour,
                     opacity: body.opacity,
+                    finish: body.finish,
                     faces,
                     ..BodyAppearance::default()
                 },
@@ -584,6 +608,7 @@ fn coloured_faces(feature: u64, body: &ImportedBody) -> Vec<FaceColour> {
             ),
             colour: face.colour.or(body.colour).unwrap_or(DEFAULT_BODY_COLOUR),
             opacity: face.opacity,
+            finish: face.finish,
         })
         .collect()
 }

@@ -96,8 +96,14 @@ paths:
   `Acrylic (Clear)`, `Glass (Smoked)`) and writes no transparency, so a colour whose name holds one
   of `SEE_THROUGH_APPEARANCES` as a word (clear, transparent, glass: 25%; translucent, smoked,
   frosted, tinted: 50%, the larger winning) and none of `OPAQUE_APPEARANCES` (opaque, coat) gives
-  its level that opacity when the style states no `SURFACE_STYLE_TRANSPARENT`. Curve, point, text
-  and the surface's curve styles are skipped silently.
+  its level that opacity when the style states no `SURFACE_STYLE_TRANSPARENT`. The same name gives
+  the colour its `Finish` (`finish.rs`, `appearance_finish`, whole words in any case): anodized,
+  then powder coat, then rubber words, then a metal word (steel, aluminium or aluminum, chrome,
+  brass, copper, bronze, metal, …: polished metal with polished, chrome, mirror or gloss, else
+  brushed metal), then glossy, satin and matte words, then a plastic word alone (satin);
+  `Opaque(r,g,b)` and other names give none. A finish travels with its colour: a level stating a
+  colour states that colour's finish, so a face painted another appearance takes that one's.
+  Curve, point, text and the surface's curve styles are skipped silently.
 - What cannot be understood (an unknown colour or style kind, a colour name not among the eight, a
   transparency outside 0–1, a hatched or tiled fill, a style missing from the file, a style for
   one copy matching none) is named by entity in one note, at most `MOST_NAMED_PROBLEMS` listed,
@@ -115,9 +121,10 @@ paths:
   worked out per placement, shared between copies whose styled path is the same
   (`placement_key`).
 - The body's look is the first stated by its solid, its shells or the links above; when none
-  states anything, the colour and the opacity most of its faces share (ties to the first face's),
-  so a part whose faces are all styled (SolidWorks, NX) takes its main colour. Each face whose
-  colour or opacity differs from the body's is a `FaceLook` by its index among the kernel faces
+  states anything, the colour and the opacity most of its faces share (ties to the first face's)
+  and the finish of the first face of that colour, so a part whose faces are all styled
+  (SolidWorks, NX) takes its main colour. Each face whose colour, opacity or finish differs from
+  the body's is a `FaceLook` by its index among the kernel faces
   (`Built::faces` maps them to file faces): its colour when it differs (a face with none under a
   coloured body cannot say so and takes the body's), its opacity (100 is explicitly solid) when it
   differs.

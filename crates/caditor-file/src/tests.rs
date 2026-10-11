@@ -3085,6 +3085,7 @@ fn steel_appearance(document: &Document) -> caditor_document::BodyAppearance {
         density: Some(document.parse("depth / 1 mm * 2.5").unwrap()),
         name: Some("Base plate".to_owned()),
         opacity: Some(40),
+        finish: Some(caditor_document::Finish::BrushedMetal),
         faces: Vec::new(),
     }
 }
@@ -3111,6 +3112,7 @@ fn a_body_appearance_survives_saving_and_the_journal() {
     assert!(!plain.contains("appearance"));
     assert!(text.contains("\"colour\":\"#4682b4\""), "{text}");
     assert!(text.contains("\"material\":\"Steel\""), "{text}");
+    assert!(text.contains("\"finish\":\"brushed_metal\""), "{text}");
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(
         loaded.document.feature(base).unwrap().appearance,
@@ -3133,11 +3135,13 @@ fn face_colours_are_saved_and_a_damaged_one_is_left_out_in_words() {
                 face: face(0xface),
                 colour: Rgb::new(200, 64, 52),
                 opacity: Some(25),
+                finish: Some(caditor_document::Finish::Anodized),
             },
             FaceColour {
                 face: face(0xbeef),
                 colour: Rgb::new(38, 150, 150),
                 opacity: None,
+                finish: None,
             },
         ],
         ..Default::default()
@@ -3183,6 +3187,62 @@ fn face_colours_are_saved_and_a_damaged_one_is_left_out_in_words() {
             .len(),
         1
     );
+}
+
+#[test]
+fn a_body_saved_before_finishes_loads_without_one_and_an_unknown_finish_is_left_out_in_words() {
+    use caditor_document::{FaceColour, Finish, Rgb};
+    use caditor_kernel::{FaceName, FaceReference};
+    let (mut document, base, _) = solid_model();
+    let appearance = caditor_document::BodyAppearance {
+        faces: vec![FaceColour {
+            face: FaceReference::new(FaceName::from_digest(0xface), None, []),
+            colour: Rgb::new(200, 64, 52),
+            opacity: None,
+            finish: Some(Finish::Rubber),
+        }],
+        ..steel_appearance(&document)
+    };
+    document
+        .apply(Transaction::single(
+            "Paint Base",
+            Edit::SetBodyAppearance {
+                id: base,
+                appearance,
+            },
+        ))
+        .unwrap();
+    let text = encode(&document).unwrap();
+
+    let older = decode_text(
+        &text
+            .replace(",\"finish\":\"brushed_metal\"", "")
+            .replace(",\"finish\":\"rubber\"", ""),
+    );
+    let newer = decode_text(
+        &text
+            .replace("brushed_metal", "velvet")
+            .replace("\"rubber\"", "\"suede\""),
+    );
+    let older_appearance = &older.document.feature(base).unwrap().appearance;
+    let newer_appearance = &newer.document.feature(base).unwrap().appearance;
+
+    assert!(text.contains("\"finish\":\"rubber\""), "{text}");
+    assert_eq!(older.issues, Vec::<String>::new());
+    assert_eq!(older_appearance.finish, None);
+    assert_eq!(older_appearance.faces[0].finish, None);
+    assert_eq!(older_appearance.material.as_deref(), Some("Steel"));
+    assert_eq!(
+        newer.issues,
+        [
+            "The finish of “Base” is one this version does not know, so it is drawn without one.",
+            "The finish of a face of “Base” is one this version does not know, so it is drawn \
+             like the body."
+        ]
+    );
+    assert_eq!(newer_appearance.finish, None);
+    assert_eq!(newer_appearance.faces[0].finish, None);
+    assert_eq!(newer_appearance.faces[0].colour, Rgb::new(200, 64, 52));
 }
 
 #[test]

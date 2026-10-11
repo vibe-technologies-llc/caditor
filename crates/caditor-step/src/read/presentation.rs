@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::read::{
+    finish::{Finish, appearance_finish},
     graph::{Entity, Graph},
     topology::{SolidShells, shell_faces},
 };
@@ -54,6 +55,7 @@ const REFLECTANCES: [&str; 3] = [
 pub(crate) struct Look {
     pub colour: Option<[u8; 3]>,
     pub opacity: Option<u8>,
+    pub finish: Option<Finish>,
     pub layer: Option<String>,
     pub faces: Vec<FaceLook>,
 }
@@ -63,13 +65,22 @@ pub struct FaceLook {
     pub face: usize,
     pub colour: Option<[u8; 3]>,
     pub opacity: Option<u8>,
+    pub finish: Option<Finish>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 struct Stated {
     colour: Option<[u8; 3]>,
     opacity: Option<u8>,
+    finish: Option<Finish>,
     plain: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Effective {
+    colour: Option<[u8; 3]>,
+    opacity: u8,
+    finish: Option<Finish>,
 }
 
 impl Stated {
@@ -78,9 +89,11 @@ impl Stated {
     }
 
     fn under(self, newer: Self) -> Self {
+        let painted = if newer.colour.is_some() { newer } else { self };
         Self {
-            colour: newer.colour.or(self.colour),
+            colour: painted.colour,
             opacity: newer.opacity.or(self.opacity),
+            finish: painted.finish,
             plain: newer.plain || self.plain,
         }
     }
@@ -396,13 +409,18 @@ impl Presentation {
                 .collect();
             face_looks.push(Some(effective(&levels)));
         }
-        let (colour, opacity) = if above.is_empty() {
-            let present: Vec<(Option<[u8; 3]>, u8)> =
-                face_looks.iter().flatten().copied().collect();
-            (
-                most_shared(present.iter().map(|(colour, _)| *colour)).flatten(),
-                most_shared(present.iter().map(|(_, opacity)| *opacity)).unwrap_or(OPAQUE_PERCENT),
-            )
+        let body = if above.is_empty() {
+            let present: Vec<Effective> = face_looks.iter().flatten().copied().collect();
+            let colour = most_shared(present.iter().map(|look| look.colour)).flatten();
+            Effective {
+                colour,
+                opacity: most_shared(present.iter().map(|look| look.opacity))
+                    .unwrap_or(OPAQUE_PERCENT),
+                finish: present
+                    .iter()
+                    .find(|look| look.colour == colour)
+                    .and_then(|look| look.finish),
+            }
         } else {
             effective(&above)
         };
@@ -410,19 +428,23 @@ impl Presentation {
             .iter()
             .enumerate()
             .filter_map(|(face, look)| {
-                let (face_colour, face_opacity) = (*look)?;
-                let colour = face_colour.filter(|face_colour| Some(*face_colour) != colour);
-                let opacity = (face_opacity != opacity).then_some(face_opacity);
-                (colour.is_some() || opacity.is_some()).then_some(FaceLook {
+                let look = (*look)?;
+                let colour = look.colour.filter(|colour| Some(*colour) != body.colour);
+                let opacity = (look.opacity != body.opacity).then_some(look.opacity);
+                let finish = look.finish.filter(|finish| Some(*finish) != body.finish);
+                (colour.is_some() || opacity.is_some() || finish.is_some()).then_some(FaceLook {
                     face,
                     colour,
                     opacity,
+                    finish,
                 })
             })
             .collect();
+        let opacity = body.opacity;
         Look {
-            colour,
+            colour: body.colour,
             opacity: (opacity < OPAQUE_PERCENT).then_some(opacity),
+            finish: body.finish,
             layer: self.layer(parts),
             faces,
         }
@@ -479,13 +501,17 @@ impl Presentation {
     }
 }
 
-fn effective(levels: &[Stated]) -> (Option<[u8; 3]>, u8) {
-    let colour = levels.iter().find_map(|stated| stated.colour);
+fn effective(levels: &[Stated]) -> Effective {
+    let painted = levels.iter().find(|stated| stated.colour.is_some());
     let opacity = levels
         .iter()
         .find(|stated| stated.states_anything())
         .map_or(OPAQUE_PERCENT, |stated| stated.opacity_or_opaque());
-    (colour, opacity)
+    Effective {
+        colour: painted.and_then(|stated| stated.colour),
+        opacity,
+        finish: painted.and_then(|stated| stated.finish),
+    }
 }
 
 fn most_shared<T: PartialEq + Copy>(values: impl IntoIterator<Item = T>) -> Option<T> {
@@ -514,6 +540,7 @@ enum Side {
 struct Paint {
     colour: [u8; 3],
     appearance_opacity: Option<u8>,
+    appearance_finish: Option<Finish>,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -532,6 +559,7 @@ impl Found {
             opacity: self
                 .opacity
                 .or(paint.and_then(|paint| paint.appearance_opacity)),
+            finish: paint.and_then(|paint| paint.appearance_finish),
             plain: self.plain,
         }
     }
@@ -742,6 +770,7 @@ impl Reading<'_, '_> {
                     .map(|colour| Paint {
                         colour,
                         appearance_opacity: name.as_deref().and_then(appearance_opacity),
+                        appearance_finish: name.as_deref().and_then(appearance_finish),
                     })
                     .ok_or(Unread::Colour)
             }
@@ -758,6 +787,7 @@ impl Reading<'_, '_> {
                         .map(|(_, colour)| Paint {
                             colour: *colour,
                             appearance_opacity: None,
+                            appearance_finish: None,
                         })
                 })
                 .ok_or(Unread::NamedColour)

@@ -1245,11 +1245,13 @@ fn a_step_export_writes_the_colours_and_opacities_of_faces_and_reads_them_back()
                 face: 0,
                 colour: Some([0, 255, 0]),
                 opacity: None,
+                finish: None,
             },
             caditor_step::FaceLook {
                 face: 2,
                 colour: None,
                 opacity: Some(50),
+                finish: None,
             },
         ]
     );

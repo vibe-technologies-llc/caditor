@@ -54,6 +54,61 @@ impl Rgb {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Finish {
+    Matte,
+    Satin,
+    Glossy,
+    Rubber,
+    PowderCoat,
+    Anodized,
+    BrushedMetal,
+    PolishedMetal,
+}
+
+impl Finish {
+    pub const ALL: [Self; 8] = [
+        Self::Matte,
+        Self::Satin,
+        Self::Glossy,
+        Self::Rubber,
+        Self::PowderCoat,
+        Self::Anodized,
+        Self::BrushedMetal,
+        Self::PolishedMetal,
+    ];
+
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Matte => "matte",
+            Self::Satin => "satin",
+            Self::Glossy => "glossy",
+            Self::Rubber => "rubber",
+            Self::PowderCoat => "powder_coat",
+            Self::Anodized => "anodized",
+            Self::BrushedMetal => "brushed_metal",
+            Self::PolishedMetal => "polished_metal",
+        }
+    }
+
+    pub fn from_key(key: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|finish| finish.key() == key)
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Matte => "Matte",
+            Self::Satin => "Satin",
+            Self::Glossy => "Glossy",
+            Self::Rubber => "Rubber",
+            Self::PowderCoat => "Powder coat",
+            Self::Anodized => "Anodized",
+            Self::BrushedMetal => "Brushed metal",
+            Self::PolishedMetal => "Polished metal",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct BodyAppearance {
     pub colour: Option<Rgb>,
@@ -61,6 +116,7 @@ pub struct BodyAppearance {
     pub density: Option<Expression>,
     pub name: Option<String>,
     pub opacity: Option<u8>,
+    pub finish: Option<Finish>,
     pub faces: Vec<FaceColour>,
 }
 
@@ -69,6 +125,7 @@ pub struct FaceColour {
     pub face: FaceReference,
     pub colour: Rgb,
     pub opacity: Option<u8>,
+    pub finish: Option<Finish>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -171,6 +228,13 @@ impl BodyAppearance {
         self.face_looks(solid, splits)
             .into_iter()
             .filter_map(|(face, coloured)| coloured.opacity.map(|opacity| (face, opacity)))
+            .collect()
+    }
+
+    pub fn face_finishes(&self, solid: &Solid, splits: &FaceSplits) -> BTreeMap<FaceId, Finish> {
+        self.face_looks(solid, splits)
+            .into_iter()
+            .filter_map(|(face, coloured)| coloured.finish.map(|finish| (face, finish)))
             .collect()
     }
 

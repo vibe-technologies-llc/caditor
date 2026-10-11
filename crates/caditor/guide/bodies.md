@@ -15,7 +15,14 @@ Ctrl-click and Shift-click choose several, as in the feature tree. The eye hides
   with the keyboard, the arrow keys move within the square or the strip (Shift for bigger steps)
   and Enter applies. Colours chosen this way are kept, the latest first, as swatches before the
   plus.
-- **Material**, which sets a density, or your own **Density** in g/cm³.
+- **Finish**, how the surface takes the light: **Plain** shades the body as every body without a
+  finish; **Matte**, **Satin**, **Glossy**, **Rubber** and **Powder coat** give it the sheen of
+  plastic, paint or rubber, and **Anodized**, **Brushed metal** and **Polished metal** make it
+  reflect a studio around it as metal does, tinted by its colour. The line under the list says
+  what the chosen finish looks like. High contrast draws every body plainly, and a hovered or
+  selected face shows its highlight colour without a finish.
+- **Material**, which sets a density and the material's finish (steel and aluminium brushed metal,
+  the plastics satin, matte or glossy), or your own **Density** in g/cm³.
 - **Body name**.
 - With faces of the body selected, a second row of swatches, ending in its own Custom colour, colours just those faces.
 

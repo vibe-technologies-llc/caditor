@@ -33,7 +33,7 @@ pub use crate::{
     image::{Background, ImageBands, ImageError, ImageRequest, MAX_IMAGE_SIDE},
     mesh::{
         Corner, Division, FaceStyle, MeshFace, MeshInstance, MeshPoint, MeshSource, Piece,
-        ShadedMesh,
+        ShadedMesh, SurfaceFinish,
     },
     offscreen::OffscreenRenderer,
     picking::PickPoll,

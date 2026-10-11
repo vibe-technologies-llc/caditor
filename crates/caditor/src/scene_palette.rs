@@ -225,6 +225,7 @@ pub struct ScenePalette {
     pub hole_diameter: f32,
     pub selection_widening: f32,
     pub troubled_edges_dashed: bool,
+    pub shows_finishes: bool,
 }
 
 impl ScenePalette {
@@ -388,6 +389,7 @@ pub const STANDARD: ScenePalette = ScenePalette {
     hole_diameter: 0.0,
     selection_widening: 1.0,
     troubled_edges_dashed: false,
+    shows_finishes: true,
 };
 
 pub const HIGH_CONTRAST: ScenePalette = ScenePalette {
@@ -498,6 +500,7 @@ pub const HIGH_CONTRAST: ScenePalette = ScenePalette {
     hole_diameter: 4.0,
     selection_widening: 2.0,
     troubled_edges_dashed: true,
+    shows_finishes: false,
 };
 
 pub const LIGHT_STANDARD: ScenePalette = ScenePalette {
@@ -573,6 +576,7 @@ pub const LIGHT_STANDARD: ScenePalette = ScenePalette {
     hole_diameter: 0.0,
     selection_widening: 1.0,
     troubled_edges_dashed: false,
+    shows_finishes: true,
 };
 
 const LIGHT_BANDS: Bands = Bands {
@@ -681,6 +685,7 @@ pub const LIGHT_HIGH_CONTRAST: ScenePalette = ScenePalette {
     hole_diameter: 4.0,
     selection_widening: 2.0,
     troubled_edges_dashed: true,
+    shows_finishes: false,
 };
 
 #[cfg(test)]

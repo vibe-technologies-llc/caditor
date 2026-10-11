@@ -514,17 +514,25 @@ paths:
   `widgets::swatch`es (default, `body_appearance::SWATCHES`, the recent custom colours
   (`Model::recent_colours`, named "Recent colour, <name>, <hex>") and the Custom colour swatch, a
   `widgets::icon_swatch` with a plus, always last) above a property grid of Colour
-  (a hex field), Material (`MATERIALS` presets, which set the density and, for a body without a
-  colour, their colour; None clears both), Name and Density (g/cm³, an expression), under a Body
-  name field (empty: named after its feature) and above them Opacity (`OPACITIES`: Solid, 75%,
-  50%, 25%, a combo box; a see-through body is drawn in the translucent pass like X-ray,
-  its faces and edges picked as usual). With faces of the body selected in the view, a second row
+  (a hex field), Material (`MATERIALS` presets, which set the density, their `Finish` and, for a
+  body without a colour, their colour; None clears density and material and keeps the finish),
+  Name and Density (g/cm³, an expression), under a Body name field (empty: named after its
+  feature) and above them Opacity (`OPACITIES`: Solid, 75%, 50%, 25%, a combo box; a see-through
+  body is drawn in the translucent pass like X-ray, its faces and edges picked as usual) and Finish
+  (`FINISHES`: Plain, then every `caditor_document::Finish`, a combo box captioned "Finish" with a
+  muted line under it saying what the chosen one looks like; `body_appearance::surface` gives each
+  its metalness and roughness for the renderer, `render.md`). With faces of the body selected in the view, a second row
   of swatches (named "<colour> for the selected faces", the first the body's own colour, which
   removes theirs) colours those faces (`with_face_colours`), and Clear face colours drops them
-  all, keeping a repainted face's own opacity; the scene draws a face's colour, and a face's own
-  opacity (from STEP import) by splitting the body between the opaque and translucent passes
-  outside the analysis and reflection views, unless the body is failed or outdated. Each change is
-  one undoable `SetBodyAppearance`; a refused value is an `error_row`.
+  all, keeping a repainted face's own opacity and finish; the scene draws a face's colour, and a
+  face's own opacity (from STEP import) by splitting the body between the opaque and translucent
+  passes outside the analysis and reflection views, unless the body is failed or outdated. The
+  scene gives a face its own finish, else the body's (`FaceLooks::finish`), only when the body is
+  sound, the palette `shows_finishes` (the standard ones; high contrast draws every body plainly,
+  so its tested colours hold) and the face is neither hovered nor selected
+  (`Builder::finish_of`, so a highlight reads in its palette colour), never in X-ray, the drawing
+  style, an analysis or a reflection view. Each change is one undoable `SetBodyAppearance`; a
+  refused value is an `error_row`.
 - The Custom colour swatch, on the body row and on the selected-faces row alike, opens
   `colour_selector.rs` in the card (state in egui temp data keyed by `body_appearance::selector_id`,
   so a body and its faces each have their own): a saturation and brightness square, a hue strip,

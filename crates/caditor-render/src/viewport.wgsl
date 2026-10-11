@@ -52,6 +52,9 @@ const IN_FRONT: u32 = 1u;
 const SECTIONED: u32 = 2u;
 const CAPPABLE: u32 = 4u;
 const SOLID_WHERE_SEEN: u32 = 8u;
+const FINISH_SHIFT: u32 = 8u;
+const FINISH_PRESENT: u32 = 0x10000u;
+const FINISH_LEVEL: u32 = 255u;
 const DRAWN: u32 = 0x80000000u;
 const LINKED: u32 = 0x40000000u;
 const STYLE_INDEX: u32 = 0x3fffffffu;
@@ -582,7 +585,7 @@ fn vs_mesh(vertex: MeshVertex) -> Varyings {
     out.depth = view_depth(relative);
     out.relative = relative;
     out.normal = turned(unfolded(vertex.normal));
-    out.sectioned = SECTIONED | select(0u, CAPPABLE, mesh.faces_columns.z != 0u);
+    out.sectioned = SECTIONED | select(0u, CAPPABLE, mesh.faces_columns.z != 0u) | (style.z << FINISH_SHIFT);
     return out;
 }
 
@@ -765,26 +768,33 @@ fn facing_normal(in: Varyings, eye: vec3<f32>) -> vec3<f32> {
     return normal;
 }
 
-fn standard_shade(color: vec3<f32>, normal: vec3<f32>, eye: vec3<f32>) -> vec3<f32> {
-    let toward_light = view.light.xyz;
-    let key = max(dot(normal, toward_light), 0.0);
+fn standard_diffuse(normal: vec3<f32>, eye: vec3<f32>) -> f32 {
+    let key = max(dot(normal, view.light.xyz), 0.0);
     let head = max(dot(normal, eye), 0.0);
-    let halfway = normalize(toward_light + eye);
+    return AMBIENT + KEY_LIGHT * key + HEADLIGHT * head;
+}
+
+fn standard_shade(color: vec3<f32>, normal: vec3<f32>, eye: vec3<f32>) -> vec3<f32> {
+    let halfway = normalize(view.light.xyz + eye);
     let shine = pow(max(dot(normal, halfway), 0.0), SHININESS) * SPECULAR;
-    let shade = AMBIENT + KEY_LIGHT * key + HEADLIGHT * head;
-    return color * shade + vec3<f32>(shine);
+    return color * standard_diffuse(normal, eye) + vec3<f32>(shine);
+}
+
+fn enhanced_diffuse(normal: vec3<f32>, eye: vec3<f32>) -> f32 {
+    let hemisphere = mix(GROUND_AMBIENT, SKY_AMBIENT, normal.z * 0.5 + 0.5);
+    let key = max(dot(normal, view.light.xyz), 0.0);
+    let fill = max(dot(normal, view.fill_light.xyz), 0.0);
+    let facing = clamp(dot(normal, eye), 0.0, 1.0);
+    return hemisphere
+        + ENHANCED_KEY_LIGHT * key
+        + ENHANCED_FILL_LIGHT * fill
+        + ENHANCED_HEADLIGHT * facing;
 }
 
 fn enhanced_shade(color: vec3<f32>, normal: vec3<f32>, eye: vec3<f32>) -> vec3<f32> {
     let key_light = view.light.xyz;
-    let hemisphere = mix(GROUND_AMBIENT, SKY_AMBIENT, normal.z * 0.5 + 0.5);
-    let key = max(dot(normal, key_light), 0.0);
-    let fill = max(dot(normal, view.fill_light.xyz), 0.0);
     let facing = clamp(dot(normal, eye), 0.0, 1.0);
-    let diffuse = hemisphere
-        + ENHANCED_KEY_LIGHT * key
-        + ENHANCED_FILL_LIGHT * fill
-        + ENHANCED_HEADLIGHT * facing;
+    let diffuse = enhanced_diffuse(normal, eye);
 
     let lightness = to_srgb(vec3<f32>(dot(color, LUMINANCE))).x;
     let reflectance = clamp(lightness * REFLECTANCE_PER_LUMINANCE, 0.0, 1.0);
@@ -799,7 +809,89 @@ fn enhanced_shade(color: vec3<f32>, normal: vec3<f32>, eye: vec3<f32>) -> vec3<f
 fn shade(in: Varyings) -> vec4<f32> {
     let eye = toward_eye(in.relative);
     let normal = facing_normal(in, eye);
+    let finish = in.sectioned >> FINISH_SHIFT;
+    if (finish & FINISH_PRESENT) != 0u {
+        return finished(in.color, normal, eye, finish);
+    }
     return lit(in.color, normal, eye);
+}
+
+const PI: f32 = 3.14159265;
+const DIELECTRIC_REFLECTANCE: f32 = 0.04;
+const METAL_DIFFUSE: f32 = 0.3;
+const METAL_REFLECTANCE_GAIN: f32 = 1.5;
+const MIN_ROUGHNESS: f32 = 0.08;
+const HIGHLIGHT_LIMIT: f32 = 6.0;
+const ENVIRONMENT_STRENGTH: f32 = 1.0;
+const BLURRED_HORIZON_WIDTH: f32 = 0.6;
+const BLURRED_PANEL_SHARPNESS: f32 = 5.0;
+const BLURRED_PANEL_BRIGHTNESS: f32 = 0.15;
+
+fn finish_metalness(finish: u32) -> f32 {
+    return f32(finish & FINISH_LEVEL) / f32(FINISH_LEVEL);
+}
+
+fn finish_roughness(finish: u32) -> f32 {
+    return max(f32((finish >> 8u) & FINISH_LEVEL) / f32(FINISH_LEVEL), MIN_ROUGHNESS);
+}
+
+fn diffuse_light(normal: vec3<f32>, eye: vec3<f32>) -> f32 {
+    if uses_enhanced_shading() {
+        return enhanced_diffuse(normal, eye);
+    }
+    return standard_diffuse(normal, eye);
+}
+
+fn schlick(reflectance: vec3<f32>, cosine: f32) -> vec3<f32> {
+    return reflectance + (vec3<f32>(1.0) - reflectance) * pow(1.0 - clamp(cosine, 0.0, 1.0), 5.0);
+}
+
+fn highlight(normal: vec3<f32>, eye: vec3<f32>, toward_light: vec3<f32>, alpha: f32, reflectance: vec3<f32>) -> vec3<f32> {
+    let n_dot_l = max(dot(normal, toward_light), 0.0);
+    let n_dot_v = max(dot(normal, eye), 1e-4);
+    let halfway = normalize(toward_light + eye);
+    let n_dot_h = max(dot(normal, halfway), 0.0);
+    let squared = alpha * alpha;
+    let spread = n_dot_h * n_dot_h * (squared - 1.0) + 1.0;
+    let distribution = squared / (PI * spread * spread);
+    let k = alpha * 0.5;
+    let visibility = 0.25 / ((n_dot_v * (1.0 - k) + k) * (n_dot_l * (1.0 - k) + k));
+    let fresnel = schlick(reflectance, dot(eye, halfway));
+    return fresnel * min(distribution * visibility, HIGHLIGHT_LIMIT) * n_dot_l * PI;
+}
+
+fn studio(reflected: vec3<f32>, roughness: f32) -> vec3<f32> {
+    let up = reflected.z;
+    let width = mix(HORIZON_WIDTH, BLURRED_HORIZON_WIDTH, roughness);
+    let sky = mix(SKY_LOW, SKY_HIGH, smoothstep(-width, 0.7 + width, up));
+    let ground = mix(GROUND_NEAR, GROUND_FAR, smoothstep(width, -0.7 - width, up));
+    let horizon = smoothstep(-width, width, up);
+    let sharpness = mix(PANEL_SHARPNESS, BLURRED_PANEL_SHARPNESS, roughness);
+    let brightness = mix(PANEL_BRIGHTNESS, BLURRED_PANEL_BRIGHTNESS, roughness);
+    let panel = pow(max(dot(reflected, normalize(PANEL_DIRECTION)), 0.0), sharpness) * brightness;
+    return to_linear(mix(ground, sky, horizon)) + vec3<f32>(panel);
+}
+
+fn finished(color: vec4<f32>, normal: vec3<f32>, eye: vec3<f32>, finish: u32) -> vec4<f32> {
+    let metalness = finish_metalness(finish);
+    let roughness = finish_roughness(finish);
+    let alpha = roughness * roughness;
+    let base = to_linear(color.rgb);
+    let reflectance = mix(vec3<f32>(DIELECTRIC_REFLECTANCE), min(base * METAL_REFLECTANCE_GAIN, vec3<f32>(1.0)), metalness);
+    let facing = clamp(dot(normal, eye), 0.0, 1.0);
+    let glancing = pow(1.0 - facing, 5.0);
+    let mirrored = reflectance + (max(vec3<f32>(1.0 - roughness), reflectance) - reflectance) * glancing;
+    let albedo = base * (1.0 - metalness * (1.0 - METAL_DIFFUSE)) * (vec3<f32>(1.0) - mirrored * (1.0 - metalness));
+
+    var light = albedo * diffuse_light(normal, eye);
+    if uses_enhanced_shading() {
+        light += highlight(normal, eye, view.light.xyz, alpha, reflectance) * ENHANCED_KEY_LIGHT;
+        light += highlight(normal, eye, view.fill_light.xyz, alpha, reflectance) * ENHANCED_FILL_LIGHT;
+    } else {
+        light += highlight(normal, eye, view.light.xyz, alpha, reflectance) * KEY_LIGHT;
+    }
+    light += studio(reflect(-eye, normal), roughness) * mirrored * ENVIRONMENT_STRENGTH;
+    return vec4<f32>(to_srgb(light), color.a);
 }
 
 fn lit(color: vec4<f32>, normal: vec3<f32>, eye: vec3<f32>) -> vec4<f32> {
