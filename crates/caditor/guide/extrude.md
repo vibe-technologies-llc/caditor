@@ -23,6 +23,8 @@ In the open panel, click regions in the view to add or leave them out, and
   each side its own end.
 - Each end is a **Distance**, **Through all**, **Up to next** (the next face of the body it
   changes) or **Up to face** (a face or plane you select).
+- A cut whose distance reaches more than ten times the size of the bodies it cuts offers **Cut
+  through all instead**, which keeps cutting through however the bodies grow.
 - **Past the face** moves an Up to next or Up to face end beyond the face it reaches, or short of
   it when negative.
 - On one side and without an offset, Up to next follows a curved next face, or several faces at

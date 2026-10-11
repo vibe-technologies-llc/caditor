@@ -77,6 +77,10 @@ const NO_TARGET_SELECTED: &str =
     "Select a flat face or a plane made before this feature, then use it";
 const CURVED_TARGET: &str = "The selected face is curved; only a flat face or plane can be an end";
 const SIDES_CHANGED: &str = "The extrusion no longer has that end; choose the face again";
+pub const FAR_PAST_THE_BODY: &str = "This distance reaches far past the body. Through all cuts through \
+     the whole body whatever its size, and keeps doing so when the body grows.";
+pub const CUT_THROUGH_ALL: &str = "Cut through all instead";
+const FAR_PAST_THE_BODY_TIMES: f64 = 10.0;
 
 struct Panel<'a> {
     model: &'a Model,
@@ -433,6 +437,9 @@ impl Panel<'_> {
                     (Dimension::LENGTH, rows.rule),
                     |distance| with_extent_of(extrude, rebuild(ExtrudeEnd::Distance(distance))),
                 );
+                if self.reaches_far_past_the_body(extrude, distance) {
+                    self.through_all_offer(ui, extrude, rebuild);
+                }
             }
             ExtrudeEnd::UpToFace { target, .. } => {
                 let shown = Shown::Named(capitalized(&describe_plane(self.document(), target)));
@@ -477,6 +484,43 @@ impl Panel<'_> {
                 None,
                 self.actions,
             );
+        }
+    }
+
+    fn reaches_far_past_the_body(&self, extrude: &Extrude, distance: &Expression) -> bool {
+        let target = match extrude.operation {
+            BodyOperation::Remove(target) | BodyOperation::Intersect(target) => target,
+            BodyOperation::NewBody | BodyOperation::Add(_) => return false,
+        };
+        let parameters = self.model.shown_parameters(self.id());
+        let Ok(reach) = distance.evaluate_as(Dimension::LENGTH, &|id| parameters.value(id)) else {
+            return false;
+        };
+        let evaluation = self.model.evaluation();
+        let size = std::iter::once(target)
+            .chain(extrude.other_bodies.iter().copied())
+            .filter_map(|body| evaluation.body_seen_by(self.id(), body)?.bounding_box())
+            .map(|bounds| 2.0 * bounds.bounding_radius())
+            .fold(0.0, f64::max);
+        size > 0.0 && reach > FAR_PAST_THE_BODY_TIMES * size
+    }
+
+    fn through_all_offer(
+        &mut self,
+        ui: &mut Ui,
+        extrude: &Extrude,
+        rebuild: &dyn Fn(ExtrudeEnd) -> ExtrudeExtent,
+    ) {
+        ui.label("");
+        let through = widgets::callout(ui, widgets::Tone::Info, |ui| {
+            ui.add(egui::Label::new(FAR_PAST_THE_BODY).wrap());
+            ui.add(widgets::button(CUT_THROUGH_ALL)).clicked()
+        });
+        ui.end_row();
+        if through {
+            let change = self.change(with_extent_of(extrude, rebuild(ExtrudeEnd::ThroughAll)));
+            self.actions
+                .push(feature_fields::applied(&self.feature.name, change));
         }
     }
 

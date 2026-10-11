@@ -277,6 +277,11 @@ paths:
   tree (`solid_panel::selected_target`, through `datum_tools::plane_reference`), or else one
   selected curved face as an `UpToSurface` end (`sketch_placement::surface_at`), each refusal
   saying why (made later, an axis); with none usable it starts choosing one in the view.
+  A removing or intersecting extrusion whose end distance reaches past `FAR_PAST_THE_BODY_TIMES`
+  the size (box diagonal) of the bodies it cuts, as seen at the extrusion, gets an info callout
+  under the distance (`solid_panel::FAR_PAST_THE_BODY`) whose Cut through all instead
+  (`CUT_THROUGH_ALL`) switches that end to Through all in one change
+  (`a_cut_typed_far_past_the_body_offers_through_all`).
   An end Up to next or Up to face has an offset field below it (`solid_panel::END_OFFSET`, Past
   the face, and Forward or Backward past face; key `<side>-offset`; any sign, negative stopping
   short, zero clearing it), kept when the end switches between the two or takes another face.

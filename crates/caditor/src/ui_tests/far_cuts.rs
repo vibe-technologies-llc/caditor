@@ -1,8 +1,9 @@
-use caditor_document::FeatureId;
+use caditor_document::{ExtrudeEnd, ExtrudeExtent, FeatureId, FeatureKind, SolidFeature};
 use caditor_geometry::Point2;
 use egui::{Id, Key, Modifiers};
 
 use super::{CAMERA_SETTLE, Harness, draft_volume, extruded_plate};
+use crate::solid_panel::CUT_THROUGH_ALL;
 
 fn open_cut_on_plate(harness: &mut Harness) -> (FeatureId, FeatureId) {
     let (plate, top) = extruded_plate(harness);
@@ -58,4 +59,37 @@ fn a_cut_being_typed_far_past_the_body_is_previewed_cutting_through_it() {
     harness.key(Key::Enter, Modifiers::NONE);
     harness.settle();
     assert!((harness.body_volume(plate) - 14_000.0).abs() < 1.0);
+}
+
+#[test]
+fn a_cut_typed_far_past_the_body_offers_through_all() {
+    let mut harness = Harness::new();
+    let (plate, cut) = open_cut_on_plate(&mut harness);
+    let field = Id::new(("solid-field", "distance", cut));
+
+    harness.type_into_field(field, "20 mm");
+    harness.settle();
+    let near = harness.shows(CUT_THROUGH_ALL);
+    harness.type_into_field(field, "100000 mm");
+    harness.settle();
+    let far = harness.shows(CUT_THROUGH_ALL);
+    harness.let_animations_finish();
+    harness.click(CUT_THROUGH_ALL);
+    harness.settle();
+    let end = match &harness.document().feature(cut).unwrap().kind {
+        FeatureKind::Solid(SolidFeature::Extrude(extrude)) => extrude.extent.clone(),
+        other => panic!("{other:?}"),
+    };
+
+    assert!(!near);
+    assert!(far);
+    assert!(matches!(
+        end,
+        ExtrudeExtent::OneSide {
+            end: ExtrudeEnd::ThroughAll,
+            ..
+        }
+    ));
+    assert!((harness.body_volume(plate) - 14_000.0).abs() < 1.0);
+    assert!(!harness.shows(CUT_THROUGH_ALL));
 }
