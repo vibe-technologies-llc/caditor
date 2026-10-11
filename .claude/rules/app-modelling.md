@@ -1,6 +1,7 @@
 ---
 paths:
   - "crates/caditor/src/solid_tools.rs"
+  - "crates/caditor/src/body_reach.rs"
   - "crates/caditor/src/solid_panel.rs"
   - "crates/caditor/src/blend_tools.rs"
   - "crates/caditor/src/blend_panel.rs"
@@ -249,13 +250,26 @@ paths:
   `NOTHING_TO_REVOLVE`), never swapped for a sketch it does not name. The revolve axis is the
   line of the sketch, sketch axis, principal axis, datum axis, straight edge or round face picked
   last; the panel's axis picker refuses several.
-- A new feature adds to the body whose faces are selected with its sketch (`SweepSource::body`),
-  else the last body standing (`Document::bodies_standing`, so never one a Combine consumed; a new
-  one if none) and opens; an extrusion of a sketch lying on a face of a body still standing
+- A new feature adds to the body whose faces are selected with its sketch (`SweepSource::body`)
+  and opens; an extrusion of a sketch lying on a face of a body still standing
   (`solid_tools::face_body`) instead cuts that body, reversed so it runs into it, unless faces of
-  another body are selected; the panel's Body list is `Document::bodies_before`. `SketchEditing` holds at most
-  one open solid feature, never together with an edited sketch; `editing::Context` carries both to
-  the scene and to availability checks.
+  another body are selected. Otherwise it adds to the body it reaches, else makes a new body
+  (`solid_tools::default_operation`, `body_reach::reached_body`), so a second sketch drawn away
+  from the first body extrudes as a body of its own. Reaching is decided once, at creation, on the
+  UI thread from the evaluation shown: only shown bodies standing at the bar
+  (`Document::bodies_standing`, so never one a Combine consumed) whose `SolidResult::bounding_box`
+  meets a bound of the sweep (the sketch's outline polylines widened by a wall's thickness and a
+  slack, swept by the distance or turned about the axis) are looked at, so with nothing near no
+  kernel work is done; for those the tool is swept as the feature will be (the solved sketch's
+  regions, `extrude` or `revolve`) and checked with `caditor_kernel::interference` under a
+  `REACH_BUDGET` deadline through the kernel interrupt. An overlap ranks above a touch, several
+  overlaps go to the largest overlap volume, and ties (within `SAME_VOLUME`) and touches to the
+  body later in the tree; a check that fails or runs out of time counts as a touch, since the
+  boxes meet. Deciding before the feature exists, rather than creating a new body and switching
+  it once the first evaluation shows it reaching one, keeps creation one undoable step and the
+  open preview in its final colour from its first frame. The panel's Body list is
+  `Document::bodies_before`. `SketchEditing` holds at most one open solid feature, never together
+  with an edited sketch; `editing::Context` carries both to the scene and to availability checks.
 - With regions of the sketch selected (`Pickable::SketchRegion`, `app-sketching.md`), a new
   extrusion or revolve chooses them (`solid_tools::selected_regions`), and the button's hover says
   it takes the selected regions; with curves of the sketch selected that close up (every open end

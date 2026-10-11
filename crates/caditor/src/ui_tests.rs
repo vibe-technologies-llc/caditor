@@ -12114,7 +12114,7 @@ fn one_cut_removes_material_from_every_body_chosen_in_its_panel() {
         Point2::new(50.0, 0.0),
         Point2::new(90.0, 40.0),
     );
-    choose(&mut harness, "Add to body", "New body");
+    assert_eq!(harness.solid(second).operation(), BodyOperation::NewBody);
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
     assert!(volume_about(&harness, second, 16000.0));
@@ -15737,6 +15737,45 @@ fn choose(harness: &mut Harness, current: &str, option: &str) {
 }
 
 #[test]
+fn a_second_sketch_extrudes_as_a_new_body_unless_it_reaches_the_first() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    let extruded_rectangle = |harness: &mut Harness, min: Point2, max: Point2| {
+        let mut sketch = Sketch::new(Plane::XY);
+        rectangle(&mut sketch, min, max);
+        harness.add_sketch(sketch);
+        harness.select([]);
+        harness.click("Extrude");
+        harness.settle();
+        let feature = open_solid(harness);
+        let reads_new_body = harness.shows("New body");
+        harness.key(Key::Escape, Modifiers::NONE);
+        harness.frame();
+        (feature, reads_new_body)
+    };
+
+    let (apart, apart_reads_new_body) = extruded_rectangle(
+        &mut harness,
+        Point2::new(60.0, 0.0),
+        Point2::new(80.0, 20.0),
+    );
+    let (overlapping, _) = extruded_rectangle(
+        &mut harness,
+        Point2::new(30.0, 30.0),
+        Point2::new(50.0, 50.0),
+    );
+
+    assert_eq!(harness.solid(apart).operation(), BodyOperation::NewBody);
+    assert!(apart_reads_new_body);
+    assert_eq!(
+        harness.solid(overlapping).operation(),
+        BodyOperation::Add(plate)
+    );
+    assert_eq!(harness.document().bodies_standing(), vec![plate, apart]);
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+}
+
+#[test]
 fn a_solid_feature_changes_its_extent_result_body_sketch_and_axis_from_its_panel() {
     let mut harness = Harness::new();
     let (plate, _) = extruded_plate(&mut harness);
@@ -15770,10 +15809,11 @@ fn a_solid_feature_changes_its_extent_result_body_sketch_and_axis_from_its_panel
     harness.click("Extrude");
     harness.settle();
     let third = open_solid(&harness);
-    let adds_to_last = harness.solid(third).operation() == BodyOperation::Add(second);
+    let adds_to_the_plate_it_stands_on =
+        harness.solid(third).operation() == BodyOperation::Add(plate);
     harness.hold_still();
     let third_card_in_view = harness.shows("Body");
-    choose(&mut harness, "Extrude 2", "Extrude 1");
+    choose(&mut harness, "Extrude 1", "Extrude 2");
     let retargeted = harness.solid(third).operation();
 
     harness.key(Key::Escape, Modifiers::NONE);
@@ -15804,9 +15844,9 @@ fn a_solid_feature_changes_its_extent_result_body_sketch_and_axis_from_its_panel
     assert_eq!(separate, BodyOperation::NewBody);
     assert_eq!(sketch, feature_named(&harness, "Plate"));
     assert_eq!(harness.solid(second).sketch(), boss);
-    assert!(adds_to_last);
+    assert!(adds_to_the_plate_it_stands_on);
     assert!(third_card_in_view);
-    assert_eq!(retargeted, BodyOperation::Add(plate));
+    assert_eq!(retargeted, BodyOperation::Add(second));
     assert_eq!(
         axis,
         Some(caditor_document::RevolveAxis::Sketch(
@@ -16122,6 +16162,7 @@ fn an_extrusion_runs_up_to_a_selected_curved_face() {
     harness.click("Extrude");
     harness.settle();
     let stand = open_solid(&harness);
+    choose(&mut harness, "New body", "Add to body");
     harness.frame();
 
     let curved = harness
@@ -16175,6 +16216,7 @@ fn an_extrusion_runs_up_to_a_face_chosen_in_the_view_and_chosen_again() {
     let mut harness = Harness::new();
     let (plate, top) = extruded_plate(&mut harness);
     let tower = extrusion_above_plate(&mut harness, 30.0);
+    choose(&mut harness, "New body", "Add to body");
     harness.click_lowest(crate::feature_fields::REVERSE_DIRECTION);
     harness.settle();
 
@@ -16252,6 +16294,7 @@ fn an_extrusion_starts_at_a_face_chosen_in_the_view_and_goes_back_to_its_sketch_
     let mut harness = Harness::new();
     let (plate, top) = extruded_plate(&mut harness);
     let tower = extrusion_above_plate(&mut harness, 30.0);
+    choose(&mut harness, "New body", "Add to body");
     let highest = |harness: &Harness| {
         harness
             .model
@@ -16406,6 +16449,7 @@ fn an_extrusion_starting_at_a_face_shows_and_drags_its_arrow_where_it_ends() {
     let mut harness = Harness::new();
     let (plate, top) = extruded_plate(&mut harness);
     let tower = extrusion_above_plate(&mut harness, 30.0);
+    choose(&mut harness, "New body", "Add to body");
     open_combo(&mut harness, "Start");
     harness.click_lowest("Face or plane");
     harness.settle();

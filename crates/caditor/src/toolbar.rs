@@ -357,7 +357,7 @@ fn solid_buttons(
                 actions.extend(solid_tools::create_on_faces_actions(model, sweep, profile));
             }
             (None, Ok(Some(source))) => actions.extend(solid_tools::create_actions(
-                document,
+                model,
                 sweep,
                 solid_tools::with_selected_outline(model, sweep, source.clone(), context.selection),
                 &Starts::of(model),

@@ -52,6 +52,9 @@ edge, sketch line or axis you select, measuring the distance along it.
 ## Result
 
 - **New body**, **Add** to a body, **Remove from body** (a cut) or **Intersect with body**.
+- A new extrusion adds to the body it reaches, overlapping or touching it, else makes a new body;
+  reaching several, it adds to the one it overlaps most. With faces of a body selected along with
+  the sketch, it adds to that body.
 - A sketch on a face of a body cuts into that body by default.
 - **Fill**: Solid fills the regions; **Thin wall** makes a wall of the sketch's curves with a
   thickness, inside, outside or centred. A sketch of open curves starts as a thin wall.

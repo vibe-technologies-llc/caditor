@@ -2,9 +2,9 @@ use std::collections::BTreeSet;
 
 use caditor_document::{
     AxisReference, BodyOperation, Document, Edit, Evaluation, Extrude, ExtrudeExtent, Feature,
-    FeatureId, FeatureKind, FeatureResult, RegionChoice, Revolve, RevolveAxis, RevolveExtent,
-    SketchAttachment, SketchFeature, SketchRegion, SolidFeature, SolidStart, Transaction, Wall,
-    describe_axis, face_plane, profile_curve, sketch_regions,
+    FeatureId, FeatureKind, FeatureResult, ParameterValues, RegionChoice, Revolve, RevolveAxis,
+    RevolveExtent, SketchAttachment, SketchFeature, SketchRegion, SolidFeature, SolidStart,
+    Transaction, Wall, describe_axis, face_plane, profile_curve, sketch_regions,
 };
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Plane, Point2};
@@ -13,7 +13,7 @@ use caditor_sketch::{Entity, EntityId, Reference, Sketch};
 
 use crate::{
     bodies::{self, FaceKey},
-    body_selection,
+    body_reach, body_selection,
     editing::{self, EditingCommand, SketchEditing},
     last_values::{Remembered, Starts},
     model::{Action, Model, Notice},
@@ -589,18 +589,6 @@ pub fn axis_name(document: &Document, sketch: FeatureId, axis: &RevolveAxis) -> 
     }
 }
 
-fn last_body(document: &Document, before: Option<FeatureId>) -> Option<FeatureId> {
-    let standing = match before.filter(|feature| document.feature_index(*feature).is_some()) {
-        Some(feature) => document.bodies_before(feature),
-        None => document.bodies_standing(),
-    };
-    standing.last().copied()
-}
-
-pub fn default_operation(document: &Document, before: Option<FeatureId>) -> BodyOperation {
-    last_body(document, before).map_or(BodyOperation::NewBody, BodyOperation::Add)
-}
-
 pub fn face_body(document: &Document, sketch: FeatureId) -> Option<FeatureId> {
     let body = match document.feature(sketch)?.kind.attachment()? {
         SketchAttachment::Face(face) => face.body,
@@ -640,6 +628,7 @@ fn open_profile_wall(
 
 pub fn create(
     document: &Document,
+    reach: Reach<'_>,
     sweep: Sweep,
     source: SweepSource,
     starts: &Starts,
@@ -650,32 +639,27 @@ pub fn create(
         RegionChoice::All => open_profile_wall(document, source.sketch, unit),
         RegionChoice::Chosen(_) => None,
     };
-    let operation = source
-        .body
-        .map_or_else(|| default_operation(document, None), BodyOperation::Add);
-    let solid = match sweep {
-        Sweep::Extrude => {
-            let (operation, into_the_body) = match face_body(document, source.sketch) {
-                Some(body) if source.body.is_none_or(|selected| selected == body) => {
-                    (BodyOperation::Remove(body), true)
-                }
-                Some(_) | None => (operation, false),
-            };
-            SolidFeature::Extrude(Extrude {
-                sketch: source.sketch,
-                regions: source.regions.clone(),
-                extent: ExtrudeExtent::one_side(
-                    starts.length(Remembered::ExtrudeDistance, DEFAULT_DISTANCE),
-                    into_the_body,
-                ),
-                operation,
-                start: None,
-                other_bodies: Vec::new(),
-                taper: None,
-                wall,
-                direction: None,
-            })
+    let cut_body = match (sweep, face_body(document, source.sketch)) {
+        (Sweep::Extrude, Some(body)) if source.body.is_none_or(|selected| selected == body) => {
+            Some(body)
         }
+        (Sweep::Extrude | Sweep::Revolve, _) => None,
+    };
+    let solid = match sweep {
+        Sweep::Extrude => SolidFeature::Extrude(Extrude {
+            sketch: source.sketch,
+            regions: source.regions.clone(),
+            extent: ExtrudeExtent::one_side(
+                starts.length(Remembered::ExtrudeDistance, DEFAULT_DISTANCE),
+                cut_body.is_some(),
+            ),
+            operation: BodyOperation::NewBody,
+            start: None,
+            other_bodies: Vec::new(),
+            taper: None,
+            wall,
+            direction: None,
+        }),
         Sweep::Revolve => SolidFeature::Revolve(Revolve {
             sketch: source.sketch,
             regions: source.regions.clone(),
@@ -683,13 +667,19 @@ pub fn create(
                 .axis
                 .unwrap_or(RevolveAxis::Sketch(EntityId::VERTICAL_AXIS)),
             extent: RevolveExtent::Full,
-            operation,
+            operation: BodyOperation::NewBody,
             start: None,
             other_bodies: Vec::new(),
             side: None,
             wall,
         }),
     };
+    let operation = match (cut_body, source.body) {
+        (Some(body), _) => BodyOperation::Remove(body),
+        (None, Some(selected)) => BodyOperation::Add(selected),
+        (None, None) => default_operation(document, reach, &solid),
+    };
+    let solid = with_operation(&solid, operation);
     let mut transaction = document.transaction(format!("Create {name}"));
     let feature = transaction.add_feature(name, FeatureKind::Solid(solid));
     if visibility::is_shown(document, source.sketch) {
@@ -701,13 +691,37 @@ pub fn create(
     (transaction.finish(), feature)
 }
 
-pub fn create_actions(
+#[derive(Debug, Clone, Copy)]
+pub struct Reach<'a> {
+    pub evaluation: &'a Evaluation,
+    pub parameters: &'a ParameterValues,
+}
+
+impl<'a> Reach<'a> {
+    pub fn of(model: &'a Model) -> Self {
+        Self {
+            evaluation: model.evaluation(),
+            parameters: model.parameters(),
+        }
+    }
+}
+
+pub fn default_operation(
     document: &Document,
+    reach: Reach<'_>,
+    solid: &SolidFeature,
+) -> BodyOperation {
+    body_reach::reached_body(document, reach.evaluation, reach.parameters, solid)
+        .map_or(BodyOperation::NewBody, BodyOperation::Add)
+}
+
+pub fn create_actions(
+    model: &Model,
     sweep: Sweep,
     source: SweepSource,
     starts: &Starts,
 ) -> Vec<Action> {
-    let (transaction, feature) = create(document, sweep, source, starts);
+    let (transaction, feature) = create(model.document(), Reach::of(model), sweep, source, starts);
     vec![
         Action::Apply(transaction),
         Action::Editing(EditingCommand::OpenSolid(feature)),
@@ -823,7 +837,8 @@ pub fn clear_regions(model: &Model, feature: &Feature) -> Result<Transaction, St
 
 #[cfg(test)]
 mod tests {
-    use caditor_geometry::{Plane, Point2};
+    use caditor_document::{CancelToken, ModelEvaluator, Recompute};
+    use caditor_geometry::{Plane, Point2, Point3, Vector3};
     use caditor_sketch::Sketch;
 
     use super::*;
@@ -951,72 +966,210 @@ mod tests {
         );
     }
 
-    #[test]
-    fn new_features_add_to_the_last_body_once_there_is_one() {
-        let (mut document, base, side, line) = document_with_sketches();
-        let (transaction, first) = create(
-            &document,
-            Sweep::Extrude,
-            SweepSource {
-                sketch: base,
-                axis: None,
-                regions: RegionChoice::All,
-                body: None,
-            },
-            &Starts::defaults(LengthUnit::Millimetre),
-        );
-        document.apply(transaction).unwrap();
-        let (transaction, second) = create(
-            &document,
-            Sweep::Revolve,
-            SweepSource {
-                sketch: side,
-                axis: Some(RevolveAxis::Sketch(line)),
-                regions: RegionChoice::All,
-                body: None,
-            },
-            &Starts::defaults(LengthUnit::Millimetre),
-        );
-        assert_eq!(transaction.label(), "Create Revolve 1");
-        document.apply(transaction).unwrap();
+    fn rectangle(plane: Plane, min: Point2, max: Point2) -> Sketch {
+        let mut sketch = Sketch::new(plane);
+        let corners = [
+            min,
+            Point2::new(max.x, min.y),
+            max,
+            Point2::new(min.x, max.y),
+        ];
+        for (index, corner) in corners.iter().enumerate() {
+            sketch.add_line(*corner, corners[(index + 1) % corners.len()]);
+        }
+        sketch
+    }
 
-        let first = document.feature(first).unwrap();
-        assert_eq!(first.name, "Extrude 1");
-        assert_eq!(
-            first.kind.solid().unwrap().operation(),
-            BodyOperation::NewBody
+    fn sketched(document: &mut Document, name: &str, sketch: Sketch) -> FeatureId {
+        let mut transaction = document.transaction(name);
+        let feature = transaction.add_feature(name, FeatureKind::from(sketch));
+        document.apply(transaction.finish()).unwrap();
+        feature
+    }
+
+    fn evaluated(document: &Document) -> Evaluation {
+        Recompute::default().run(document, &ModelEvaluator, &CancelToken::never(), &|_, _| {})
+    }
+
+    fn swept(document: &mut Document, sweep: Sweep, sketch: FeatureId) -> FeatureId {
+        swept_from(document, sweep, sketch, None)
+    }
+
+    fn swept_from(
+        document: &mut Document,
+        sweep: Sweep,
+        sketch: FeatureId,
+        axis: Option<RevolveAxis>,
+    ) -> FeatureId {
+        let evaluation = evaluated(document);
+        let parameters = ParameterValues::evaluate(document);
+        let reach = Reach {
+            evaluation: &evaluation,
+            parameters: &parameters,
+        };
+        let source = SweepSource {
+            sketch,
+            axis,
+            regions: RegionChoice::All,
+            body: None,
+        };
+        let (transaction, feature) = create(
+            document,
+            reach,
+            sweep,
+            source,
+            &Starts::defaults(LengthUnit::Millimetre),
         );
-        let second = document.feature(second).unwrap().kind.solid().unwrap();
-        assert_eq!(second.operation(), BodyOperation::Add(first.id()));
-        assert_eq!(second.axis_line(), Some(line));
+        document.apply(transaction).unwrap();
+        feature
+    }
+
+    fn operation(document: &Document, feature: FeatureId) -> BodyOperation {
+        document
+            .feature(feature)
+            .and_then(|feature| feature.kind.solid())
+            .map(SolidFeature::operation)
+            .unwrap()
+    }
+
+    fn block(document: &mut Document, name: &str, min: Point2, max: Point2) -> FeatureId {
+        let sketch = sketched(document, name, rectangle(Plane::XY, min, max));
+        swept(document, Sweep::Extrude, sketch)
+    }
+
+    #[test]
+    fn a_new_extrusion_away_from_every_body_makes_a_new_body() {
+        let mut document = Document::default();
+
+        let first = block(&mut document, "Base", Point2::ZERO, Point2::new(20.0, 20.0));
+        let second = block(
+            &mut document,
+            "Apart",
+            Point2::new(50.0, 0.0),
+            Point2::new(60.0, 10.0),
+        );
+
+        assert_eq!(document.feature(first).unwrap().name, "Extrude 1");
+        assert_eq!(operation(&document, first), BodyOperation::NewBody);
+        assert_eq!(operation(&document, second), BodyOperation::NewBody);
+        assert_eq!(document.bodies_standing(), vec![first, second]);
+    }
+
+    #[test]
+    fn a_new_extrusion_overlapping_or_touching_a_body_adds_to_it() {
+        let mut document = Document::default();
+        let base = block(&mut document, "Base", Point2::ZERO, Point2::new(20.0, 20.0));
+
+        let overlapping = block(
+            &mut document,
+            "Overlapping",
+            Point2::new(10.0, 10.0),
+            Point2::new(30.0, 30.0),
+        );
+        let beside = block(
+            &mut document,
+            "Beside",
+            Point2::new(-10.0, 0.0),
+            Point2::ZERO.with_y(10.0),
+        );
+        let on_top = sketched(
+            &mut document,
+            "On top",
+            rectangle(
+                Plane::from_frame(Point3::new(0.0, 0.0, 10.0), Vector3::Z, Vector3::X).unwrap(),
+                Point2::new(2.0, 2.0),
+                Point2::new(8.0, 8.0),
+            ),
+        );
+        let standing_on_top = swept(&mut document, Sweep::Extrude, on_top);
+
+        assert_eq!(operation(&document, overlapping), BodyOperation::Add(base));
+        assert_eq!(operation(&document, beside), BodyOperation::Add(base));
+        assert_eq!(
+            operation(&document, standing_on_top),
+            BodyOperation::Add(base)
+        );
+        assert_eq!(document.bodies_standing(), vec![base]);
+    }
+
+    #[test]
+    fn a_new_extrusion_reaching_two_bodies_adds_to_the_one_it_overlaps_most() {
+        let reaching_both = |from: f64, to: f64| {
+            let mut document = Document::default();
+            let left = block(&mut document, "Left", Point2::ZERO, Point2::new(20.0, 20.0));
+            let right = block(
+                &mut document,
+                "Right",
+                Point2::new(30.0, 0.0),
+                Point2::new(50.0, 20.0),
+            );
+            let across = block(
+                &mut document,
+                "Across",
+                Point2::new(from, 0.0),
+                Point2::new(to, 20.0),
+            );
+            (
+                operation(&document, right),
+                operation(&document, across),
+                left,
+                right,
+            )
+        };
+
+        let (right_made, mostly_right, _, right) = reaching_both(15.0, 45.0);
+        let (_, mostly_left, left, _) = reaching_both(5.0, 35.0);
+
+        assert_eq!(right_made, BodyOperation::NewBody);
+        assert_eq!(mostly_right, BodyOperation::Add(right));
+        assert_eq!(mostly_left, BodyOperation::Add(left));
+    }
+
+    #[test]
+    fn a_new_revolve_adds_to_the_body_it_passes_through_and_otherwise_makes_a_new_one() {
+        let mut document = Document::default();
+        let base = block(&mut document, "Base", Point2::ZERO, Point2::new(20.0, 20.0));
+        let ring = sketched(
+            &mut document,
+            "Ring",
+            rectangle(Plane::XZ, Point2::new(5.0, 2.0), Point2::new(10.0, 5.0)),
+        );
+        let far = sketched(
+            &mut document,
+            "Far ring",
+            rectangle(Plane::XZ, Point2::new(5.0, 40.0), Point2::new(10.0, 45.0)),
+        );
+
+        let through = swept(&mut document, Sweep::Revolve, ring);
+        let apart = swept_from(
+            &mut document,
+            Sweep::Revolve,
+            far,
+            Some(RevolveAxis::Sketch(EntityId::VERTICAL_AXIS)),
+        );
+
+        assert_eq!(document.feature(through).unwrap().name, "Revolve 1");
+        assert_eq!(operation(&document, through), BodyOperation::Add(base));
+        assert_eq!(operation(&document, apart), BodyOperation::NewBody);
     }
 
     #[test]
     fn new_features_skip_a_body_a_combine_consumed() {
-        let (mut document, base, side, _) = document_with_sketches();
+        let mut document = Document::default();
+        let target = block(
+            &mut document,
+            "Block",
+            Point2::ZERO,
+            Point2::new(20.0, 20.0),
+        );
+        let tool = block(
+            &mut document,
+            "Peg",
+            Point2::new(30.0, 0.0),
+            Point2::new(40.0, 10.0),
+        );
         let mut transaction = document.transaction("Two bodies joined");
-        let mut extrude = |name: &str, sketch| {
-            transaction.add_feature(
-                name,
-                FeatureKind::Solid(SolidFeature::Extrude(Extrude {
-                    sketch,
-                    regions: RegionChoice::All,
-                    extent: ExtrudeExtent::one_side(
-                        Expression::measure(5.0, Unit::Millimetre),
-                        false,
-                    ),
-                    operation: BodyOperation::NewBody,
-                    start: None,
-                    other_bodies: Vec::new(),
-                    taper: None,
-                    wall: None,
-                    direction: None,
-                })),
-            )
-        };
-        let target = extrude("Block", base);
-        let tool = extrude("Peg", side);
-        let combine = transaction.add_feature(
+        transaction.add_feature(
             "Combine 1",
             FeatureKind::Combine(caditor_document::Combine::new(
                 target,
@@ -1026,14 +1179,18 @@ mod tests {
         );
         document.apply(transaction.finish()).unwrap();
 
-        assert_eq!(
-            default_operation(&document, None),
-            BodyOperation::Add(target)
+        let over_the_peg = block(
+            &mut document,
+            "Over the peg",
+            Point2::new(32.0, 2.0),
+            Point2::new(38.0, 8.0),
         );
+
+        assert_eq!(operation(&document, tool), BodyOperation::NewBody);
         assert_eq!(document.bodies_standing(), vec![target]);
         assert_eq!(
-            default_operation(&document, Some(combine)),
-            BodyOperation::Add(tool)
+            operation(&document, over_the_peg),
+            BodyOperation::Add(target)
         );
     }
 }
