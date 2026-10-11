@@ -570,6 +570,7 @@ pub fn show(
         copied,
         ..
     } = workspace;
+    panels.forget_missing(model.document(), model.revision());
     let chosen_rows = panels.chosen();
     let tree_bodies = body_selection::tree_bodies(model.document(), &chosen_rows);
     let offers = selection_offers.refresh(

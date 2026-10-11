@@ -272,12 +272,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   draws two "Group 1" folders, and Rename group and Ungroup (`group_run`) reach one half. Give an
   inserted feature the group its neighbours at the bar share; pin it beside
   `moving_into_the_middle_of_a_group_joins_it_and_moving_out_leaves_it` (`grouping_tests.rs`).
-- [low · easy] The tree's choice keeps features an undo removed: `PanelState::chosen` and
-  `toggle_chosen` (`panels.rs`) never drop ids missing from the document, cleared only by a new
-  session and by deletions made from the tree, so after pasting a feature (which chooses the copy)
-  and pressing Ctrl+Z, Ctrl+clicking two rows and dragging one shows "That feature no longer
-  exists" (`move_features`, `MissingFeature`) and moves nothing. Drop missing ids when the
-  revision changes; pin it in `ui_tests/feature_tree_choice.rs`.
 - [low · easy] Undoing back to the saved state of a model with a kept measurement leaves it marked
   unsaved: `Model::changed` judges `dirty` right after the undo, while the measured parameter
   still holds the reading `follow_readings` wrote for the undone revision, and the next

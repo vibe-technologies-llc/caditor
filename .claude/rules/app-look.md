@@ -468,7 +468,9 @@ paths:
   empty and nothing open, or a click on empty space in the view with nothing selected
   (`ViewportState::take_tree_dismissal`), lets go of the chosen rows
   (`PanelState::choose_nothing`), so Move, Pattern or Measure never act on a row left chosen
-  unseen; a non-empty view selection clears it as before. Fit view
+  unseen; a non-empty view selection clears it as before. Whenever the document's revision
+  changes, `PanelState::forget_missing` drops chosen rows the document no longer holds (an undone
+  paste), so a later Ctrl+click or drag never carries a feature that is gone. Fit view
   (F) with nothing selected in the view frames the chosen rows' bodies, sketches and datums
   (`BuiltScene::bounds_of_features`) and everything when none is chosen.
 - A click on a row's name only selects it (`PanelState::selected`, cleared when the view selection
