@@ -28,7 +28,8 @@ large assembly the total follows a few seconds later.
 ## Relative to
 
 Once the model has a [coordinate system](coordinate-systems), **Relative to** reads positions and
-directions along its axes instead of the world's.
+directions along its axes instead of the world's, a body's centre of mass among them. Moments of
+inertia stay along the model's axes.
 
 Values marked ≈ are approximate, with a note saying why. **Copy all** puts every reading on the
 clipboard as text.

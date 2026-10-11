@@ -79,12 +79,12 @@ impl Keepable {
         }
     }
 
-    pub fn of_mass_row(label: &str) -> Vec<Self> {
+    pub fn of_mass_row(label: &str, frame: Option<FeatureId>) -> Vec<Self> {
         match label {
             "Volume" => vec![Self::Volume],
             "Mass" => vec![Self::Mass],
             "Surface area" => vec![Self::Area],
-            "Centroid" => Self::positions(None),
+            "Centroid" => Self::positions(frame),
             _ => Vec::new(),
         }
     }
@@ -915,8 +915,9 @@ mod tests {
         let frame = FeatureId::from_raw(3);
 
         let framed = Keepable::of_row("Position", false, Some(frame));
-        let centroid = Keepable::of_mass_row("Centroid");
-        let volume = Keepable::of_mass_row("Volume");
+        let centroid = Keepable::of_mass_row("Centroid", None);
+        let framed_centroid = Keepable::of_mass_row("Centroid", Some(frame));
+        let volume = Keepable::of_mass_row("Volume", Some(frame));
 
         assert_eq!(framed.len(), 3);
         assert_eq!(
@@ -941,12 +942,22 @@ mod tests {
             })
         );
         assert_eq!(
+            framed_centroid[0].reading(std::slice::from_ref(&body)),
+            Some(Reading::Position {
+                item: body.clone(),
+                axis: MeasuredItem::Axis(AxisReference::Frame {
+                    frame,
+                    axis: PrincipalAxis::X,
+                }),
+            })
+        );
+        assert_eq!(
             volume[0].reading(std::slice::from_ref(&body)),
             Some(Reading::Of {
                 quantity: Of::Volume,
                 item: body.clone(),
             })
         );
-        assert!(Keepable::of_mass_row("Size").is_empty());
+        assert!(Keepable::of_mass_row("Size", None).is_empty());
     }
 }

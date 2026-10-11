@@ -1,6 +1,6 @@
 use caditor_document::{
-    AxisReference, Datum, DatumFrame, FeatureId, FeatureKind, PointReference, PrincipalAxis,
-    PrincipalPlane, displayed_frame,
+    AxisReference, Datum, DatumFrame, FeatureId, FeatureKind, MeasuredItem, PointReference,
+    PrincipalAxis, PrincipalPlane, Reading, displayed_frame,
 };
 use caditor_geometry::{Plane, Point3, Vector3};
 use egui::{Key, Modifiers};
@@ -10,6 +10,7 @@ use super::{
     run_from_palette, top_edge_along_x, vertex_at,
 };
 use crate::{
+    measurement_tools::Keepable,
     move_manipulator::Handle,
     selection::{Axis, Pickable},
 };
@@ -284,4 +285,55 @@ fn a_coordinate_system_origin_is_a_point_and_a_scale_centre_can_be_measured_in_i
         .and_then(|scale| scale.frame);
     assert_eq!(framed, Some(system));
     assert!(harness.shows(crate::scale_panel::FRAME_DESCRIPTION));
+}
+
+#[test]
+fn measure_reads_a_body_s_centroid_in_the_chosen_coordinate_system_and_keeps_it_there() {
+    let mut harness = Harness::new();
+    let (body, _) = extruded_plate(&mut harness);
+    let system = coordinate_system_at_far_corner(&mut harness, body);
+    let corner = vertex_at(&harness, body, Point3::ZERO);
+
+    harness.key(Key::I, Modifiers::NONE);
+    harness.frame();
+    harness.select([corner]);
+    harness.wait_until("the centroid is read in the world", |harness| {
+        harness.shows("20.000, 20.000, 5.000 mm")
+    });
+    harness.workspace.measure.relative_to = Some(system);
+    harness.wait_until("the centroid is read in the coordinate system", |harness| {
+        harness.shows("-20.000, 20.000, -5.000 mm")
+    });
+    harness.click_button("More for Centroid");
+    harness.show_new_windows();
+    harness.click(&Keepable::of_mass_row("Centroid", Some(system))[0].menu_label());
+    harness.settle();
+
+    let kept = harness
+        .document()
+        .features()
+        .find_map(|feature| match &feature.kind {
+            FeatureKind::Measurement(measurement) => Some(measurement.as_ref().clone()),
+            _ => None,
+        })
+        .expect("the centroid is kept");
+    let Some(parameter) = kept.parameter else {
+        panic!("the measurement feeds a parameter");
+    };
+    let Some(Ok(value)) = harness.model.parameters().get(parameter) else {
+        panic!("the parameter has a value");
+    };
+
+    assert!(!harness.shows("20.000, 20.000, 5.000 mm"));
+    assert_eq!(
+        kept.reading,
+        Reading::Position {
+            item: MeasuredItem::Body(body),
+            axis: MeasuredItem::Axis(AxisReference::Frame {
+                frame: system,
+                axis: PrincipalAxis::X,
+            }),
+        }
+    );
+    assert!((value.value + 20.0).abs() < CLOSE, "{value:?}");
 }

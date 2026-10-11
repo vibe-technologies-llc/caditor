@@ -303,8 +303,10 @@ paths:
   a notice saying so.
 - Relative to (shown once the model holds a coordinate system, `MeasureTool::relative_to`, World
   by default, forgotten when another model opens) reads every position and direction and the
-  Along X, Y and Z offsets in the chosen coordinate system (`measure::Relative`, its frame's inverse); distances,
-  angles and the line in the view stay world geometry. A chosen system that is gone or has no
+  Along X, Y and Z offsets in the chosen coordinate system (`measure::Relative`, its frame's inverse), a
+  body's and the all-bodies card's Centroid included (`mass_cards` takes the `Relative` and its
+  frame, so Keep this measurement along X, Y and Z keeps the coordinate in that system); distances,
+  angles, the line in the view and the inertia stay world geometry. A chosen system that is gone or has no
   result is read as the world with a warning callout saying so (`measure_panel::relative`).
 - The closest points are drawn on the front layer (`scene::add_measurement`) with a distance
   label in `canvas::MEASURE`.

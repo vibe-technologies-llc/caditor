@@ -241,17 +241,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   Check the row's merged graph (the live expressions with that row's cells in place) for a cycle
   when a cell is set; pin it in `configurations_tests.rs` beside
   `values_using_each_other_swap_without_a_passing_cycle`.
-- [medium · easy] Measure's mass cards give the centroid in world coordinates while Relative to
-  names a coordinate system: `measure_panel::mass_card` and `total_card` format
-  `properties.centroid` as it is (`MeasureContext` carries no `Relative`), while the "Centre of
-  mass of <body>" reading card beside it goes through `Relative::reading`, so one panel shows two
-  coordinates for one point, and the mass card's Keep this measurement along X, Y and Z
-  (`Keepable::of_mass_row`, `positions(None)`) keeps a reading along the world's axes, against
-  `app.md`'s "reads every position … in the chosen coordinate system". Map the centroid through
-  the panel's `Relative` and pass the frame to `of_mass_row` (inertia stays along the model axes as
-  the rule says); pin it beside
-  `measure_reads_positions_and_offsets_in_the_chosen_coordinate_system`
-  (`ui_tests/coordinate_systems.rs`).
 - [low · easy] A configuration added while a configured body colour's feature makes no body can
   never be switched to once it makes one again: `live_settings_of` leaves out a column whose live
   setting is none, so `adding_configuration` and `duplicating_configuration` store the row
