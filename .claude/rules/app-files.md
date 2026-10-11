@@ -243,7 +243,9 @@ paths:
   an import feature per body. `import::place_bodies` refuses it in a notice, before it lands, when
   its text would take the model past `MAX_MODEL_RECORDS` (`outgrows`) or its bodies past
   `MAX_RECORDS` features and parameters (`outnumbers`), the most a model file is opened with, since
-  the rest would be lost on opening it again.
+  the rest would be lost on opening it again. `Document::apply` refuses the same for every other
+  change (`TooManyRecords`, `document.md`); this check comes first only to word the notice for an
+  import.
 - A drawing that was read opens the import options dialog (`import_options.rs`, `Files::arranging`)
   before anything is planned: the unit to read its numbers in (`DrawingUnit`, as the file says
   by default, SI only), a scale, centring the outline on the origin and, for a new sketch, the

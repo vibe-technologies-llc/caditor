@@ -1,5 +1,6 @@
 use std::fs;
 
+use caditor_file::MAX_PARAMETER_ROWS;
 use tempfile::TempDir;
 
 use super::{Harness, run_from_palette};
@@ -139,4 +140,33 @@ fn an_import_that_left_nothing_out_stays_a_success() {
     let notice = harness.model.notice().unwrap();
     assert_eq!(notice.kind, NoticeKind::Success);
     assert!(notice.text.contains("added 1 parameter"), "{}", notice.text);
+}
+
+#[test]
+fn an_import_taking_the_model_past_what_a_file_opens_is_refused_in_words() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::new();
+    let file = dir.path().join("many.csv");
+    let rows: String = (0..MAX_PARAMETER_ROWS)
+        .map(|index| format!("filler_{index},1 mm\n"))
+        .collect();
+    fs::write(&file, format!("name,expression\n{rows}")).unwrap();
+    let parameters = harness.document().parameters().len();
+
+    harness.answer_dialog(Some(file));
+    harness.command(FileCommand::ImportParameters);
+    harness.wait_until("the file is refused", |harness| {
+        notice_says(
+            harness,
+            "Could not import parameters from “many.csv”: The model would then hold",
+        )
+    });
+
+    assert!(notice_says(
+        &harness,
+        "parameters and features, more than the 10000 caditor opens, so part of it would be lost \
+         when it is opened again; delete some first, or split the work between models."
+    ));
+    assert_eq!(harness.document().parameters().len(), parameters);
+    assert!(!harness.shows("Import parameters from “many.csv”"));
 }

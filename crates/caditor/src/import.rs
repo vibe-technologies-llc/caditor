@@ -5,10 +5,11 @@ use std::{
 };
 
 use caditor_document::{
-    CancelToken, Document, Edit, EditError, FeatureId, FeatureKind, Prepared, Transaction,
+    CancelToken, Document, Edit, EditError, FeatureId, FeatureKind, MAX_RECORDS, Prepared,
+    Transaction,
 };
 use caditor_file::{
-    Drawing, ImportError, ImportedBody, MAX_MODEL_RECORDS, MAX_RECORDS, MeshFormat, ModelImport,
+    Drawing, ImportError, ImportedBody, MAX_MODEL_RECORDS, MeshFormat, ModelImport,
     ReadingProgress, STEP_IMPORT_EXTENSIONS, SketchTarget, bodies_transaction, drawing_transaction,
     read_mesh_file, read_step_file_reporting,
 };

@@ -7,8 +7,8 @@ use std::{
 
 use caditor_document::{
     CancelToken, DependencyGraph, Document, Edit, EditError, Feature, FeatureId, FeatureKind,
-    MAX_PARAMETER_NOTE_CHARS, MAX_VALUE_LABEL_CHARS, Parameter, ParameterOwner, Revolve,
-    RevolveAxis, RollbackBar, SolidFeature, Transaction, complete_origins, value_label,
+    MAX_PARAMETER_NOTE_CHARS, MAX_RECORDS, MAX_VALUE_LABEL_CHARS, Parameter, ParameterOwner,
+    Revolve, RevolveAxis, RollbackBar, SolidFeature, Transaction, complete_origins, value_label,
 };
 use caditor_expression::{Expression, ParameterId, check_name};
 use caditor_sketch::EntityId;
@@ -164,8 +164,6 @@ pub(crate) fn describe_unpack_failure(place: &str, error: &UnpackError) -> Strin
         | UnpackError::MissingPart => format!("{place} is damaged and was left out."),
     }
 }
-
-pub const MAX_RECORDS: usize = 10_000;
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Parts {

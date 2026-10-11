@@ -253,3 +253,42 @@ fn a_feature_picking_edges_of_a_copied_body_is_left_out_with_its_reason() {
         .unwrap();
     assert_eq!(alone.pasted.len(), 1);
 }
+
+#[test]
+fn pasting_features_past_the_records_a_file_opens_is_refused_without_changing_anything() {
+    let Built {
+        mut document,
+        outline,
+        base,
+        ..
+    } = built();
+    let features = copied(&document, &[outline, base]);
+    let parameters = carried(&document, &features);
+
+    let mut filling = document.transaction("Fill");
+    for index in 0..MAX_RECORDS - 4 {
+        filling.add_parameter(format!("filler_{index}"), Expression::Number(1.0));
+    }
+    document.apply(filling.finish()).unwrap();
+    let before = document.clone();
+
+    let refused = document.paste_features(&features, &parameters, PasteOrigin::ThisDocument);
+    let one = document
+        .paste_features(&features[..1], &parameters, PasteOrigin::ThisDocument)
+        .unwrap();
+
+    assert!(
+        matches!(
+            refused,
+            Err(PasteError::Edit(EditError::TooManyRecords { records }))
+                if records == MAX_RECORDS + 1
+        ),
+        "{refused:?}"
+    );
+    assert_eq!(document, before);
+    document.apply(one.transaction).unwrap();
+    assert_eq!(
+        document.parameters().len() + document.features().len(),
+        MAX_RECORDS
+    );
+}

@@ -6,8 +6,8 @@ use std::{
 };
 
 use caditor_document::{
-    CancelToken, Document, Edit, Editor, FaceAttachment, FeatureId, FeatureKind, PlaneReference,
-    PrincipalPlane, RollbackBar, SketchAttachment, Transaction,
+    CancelToken, Document, Edit, Editor, FaceAttachment, FeatureId, FeatureKind, MAX_RECORDS,
+    PlaneReference, PrincipalPlane, RollbackBar, SketchAttachment, Transaction,
 };
 use caditor_expression::{Dimension, EvalError, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
@@ -5475,6 +5475,28 @@ fn records_beyond_the_limit_are_left_out_and_reported() {
         "The model holds more parameters and features than caditor loads (10000), so the last 3 \
          were left out."
     ));
+}
+
+#[test]
+fn a_model_holding_as_many_records_as_a_file_opens_reopens_with_every_feature() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Fill");
+    for index in 0..MAX_RECORDS - 2 {
+        transaction.add_parameter(format!("filler_{index}"), Expression::Number(1.0));
+    }
+    let first = transaction.add_feature("First", FeatureKind::from(Sketch::new(Plane::XY)));
+    let last = transaction.add_feature("Last", FeatureKind::from(Sketch::new(Plane::XY)));
+    document.apply(transaction.finish()).unwrap();
+
+    let mut beyond = document.transaction("Beyond");
+    beyond.add_feature("Beyond", FeatureKind::from(Sketch::new(Plane::XY)));
+
+    assert!(document.apply(beyond.finish()).is_err());
+    let loaded = decode(&crate::encode(&document).unwrap()).unwrap();
+    assert!(loaded.issues.is_empty(), "{:?}", loaded.issues);
+    assert_eq!(loaded.document.parameters().len(), MAX_RECORDS - 2);
+    assert!(loaded.document.feature(first).is_some());
+    assert!(loaded.document.feature(last).is_some());
 }
 
 #[test]

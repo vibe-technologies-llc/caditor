@@ -7,16 +7,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Files and recovery
 
-- [medium · easy] A model can grow past the `MAX_RECORDS` (10,000) parameters and features
-  `load.rs` opens, after which the saved file reopens without its features: `Parts::add` drops
-  records past the limit and parameters are written before features (`binary/model.rs`), so the
-  features go first, reported only as "the last N were left out", and the file is then flagged
-  damaged. Only body imports are refused before landing (`caditor/src/import.rs`, `outnumbers`);
-  a parameter CSV of up to `MAX_PARAMETER_ROWS` (10,000) rows (`parameters.rs`,
-  `Document::plan_parameter_import`), pasted features and features added one by one are not.
-  Refuse in words every transaction that would take the model past the limit, best in
-  `Document::apply` (with the limit moved beside it) so no path can make a model that does not
-  reopen.
 - [medium · easy] A hostile mesh or drawing import can abort the process by exhausting memory
   before any limit is checked, losing the session to the journal: 3MF placement
   (`import/mesh.rs`, `Placement::add_mesh`) pushes every vertex of an object again on each of up to

@@ -11,6 +11,11 @@ the disk and only then puts it in place, so a crash or a full disk during a save
 whole. If another program changed the file since you opened it, the save asks whether to save a
 copy or replace it; replacing keeps the other contents as a [version](version-history).
 
+A model holds at most 10,000 parameters and features in all, the most a model file is opened
+with. A change that would take it past that, such as adding or pasting features or importing
+parameters or bodies, is not made and says so; delete some first, or split the work between
+models.
+
 {command:file.revert} throws away the changes since the last save in one step; Undo brings them
 back.
 

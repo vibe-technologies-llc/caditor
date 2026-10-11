@@ -84,7 +84,10 @@ pub use crate::{
         Document, FIRST_UNSTORABLE_ID, Feature, FeatureId, FeatureKind, Parameter, ParameterUser,
         RollbackBar, TreeRow,
     },
-    edit::{Edit, EditError, MAX_PARAMETER_NOTE_CHARS, Touched, Transaction, TransactionBuilder},
+    edit::{
+        Edit, EditError, MAX_PARAMETER_NOTE_CHARS, MAX_RECORDS, Touched, Transaction,
+        TransactionBuilder,
+    },
     editor::{Base, Editor, Prepared, Stale, UndoMark},
     grouping::{MAX_GROUP_NAME_CHARS, group_name},
     healing::Healing,
@@ -528,6 +531,71 @@ mod tests {
 
         assert_eq!(error, EditError::DuplicateName("span".to_owned()));
         assert_eq!(document, before);
+    }
+
+    fn adding_parameters(document: &Document, count: usize) -> Transaction {
+        let mut transaction = document.transaction("Add parameters");
+        for index in 0..count {
+            transaction.add_parameter(format!("filler_{index}"), Expression::Number(1.0));
+        }
+        transaction.finish()
+    }
+
+    fn adding_sketch(document: &Document, name: &str) -> Transaction {
+        let mut transaction = document.transaction("Add sketch");
+        transaction.add_feature(name, FeatureKind::from(Sketch::new(Plane::XY)));
+        transaction.finish()
+    }
+
+    #[test]
+    fn a_change_taking_the_model_past_the_records_a_file_opens_is_refused_without_changing_anything()
+     {
+        let mut document = Document::default();
+        document
+            .apply(adding_parameters(&document, MAX_RECORDS - 1))
+            .unwrap();
+        let before = document.clone();
+
+        let mut past = document.transaction("Add");
+        past.add_parameter("one_more", Expression::Number(2.0));
+        past.add_feature("Sketch", FeatureKind::from(Sketch::new(Plane::XY)));
+        let past = past.finish();
+
+        assert_eq!(
+            document.apply(past),
+            Err(EditError::TooManyRecords {
+                records: MAX_RECORDS + 1
+            })
+        );
+        assert_eq!(document, before);
+        assert_eq!(
+            EditError::TooManyRecords {
+                records: MAX_RECORDS + 1
+            }
+            .to_string(),
+            "The model would then hold 10001 parameters and features, more than the 10000 caditor \
+             opens, so part of it would be lost when it is opened again; delete some first, or \
+             split the work between models"
+        );
+
+        document.apply(adding_sketch(&document, "Last")).unwrap();
+        assert_eq!(
+            document.parameters().len() + document.features().len(),
+            MAX_RECORDS
+        );
+        assert_eq!(
+            document.apply(adding_sketch(&document, "Beyond")),
+            Err(EditError::TooManyRecords {
+                records: MAX_RECORDS + 1
+            })
+        );
+
+        let first = document.parameters().first().unwrap().id();
+        let mut swap = document.transaction("Swap");
+        swap.edit(Edit::RemoveParameter { id: first });
+        let instead = swap.add_feature("Instead", FeatureKind::from(Sketch::new(Plane::XY)));
+        document.apply(swap.finish()).unwrap();
+        assert!(document.feature(instead).is_some());
     }
 
     #[test]

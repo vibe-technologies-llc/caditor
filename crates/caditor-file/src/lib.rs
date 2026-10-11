@@ -51,7 +51,7 @@ pub use crate::{
     },
     journal::JournalEntry,
     load::{
-        LoadError, Loaded, MAX_RECORDS, decode, history, load, load_cancellable, load_version,
+        LoadError, Loaded, decode, history, load, load_cancellable, load_version,
         load_version_cancellable,
     },
     logs::{LOGS_KEPT, MAX_LOG_SIZE, SessionLog, ended_unexpectedly, mark_reported, prune_logs},

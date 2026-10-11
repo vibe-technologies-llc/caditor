@@ -36,6 +36,8 @@ use crate::{
 
 pub const MAX_PARAMETER_NOTE_CHARS: usize = 2000;
 
+pub const MAX_RECORDS: usize = 10_000;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Edit {
     InsertParameter {
@@ -434,6 +436,10 @@ pub enum EditError {
     TooManyConfiguredValues,
     #[error("That configuration no longer exists")]
     MissingConfiguration,
+    #[error(
+        "The model would then hold {records} parameters and features, more than the {MAX_RECORDS} caditor opens, so part of it would be lost when it is opened again; delete some first, or split the work between models"
+    )]
+    TooManyRecords { records: usize },
     #[error("That value cannot be set that way in a configuration")]
     SettingMismatch,
     #[error(
@@ -747,8 +753,19 @@ impl Document {
                 }
             }
         }
+
+        let records = self.records();
+        if records > MAX_RECORDS && records > before.records() {
+            *self = before;
+            return Err(EditError::TooManyRecords { records });
+        }
+
         inverse.reverse();
         Ok(Transaction::new(transaction.label, inverse))
+    }
+
+    fn records(&self) -> usize {
+        self.parameters().len() + self.features().len()
     }
 
     pub fn check(&self, transaction: &Transaction) -> Result<(), EditError> {

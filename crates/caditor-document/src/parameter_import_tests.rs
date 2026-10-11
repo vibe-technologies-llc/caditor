@@ -120,3 +120,24 @@ fn conflicting_values_can_be_kept_and_bad_rows_are_refused_alone_in_words() {
     applied.apply(plan.transaction.unwrap()).unwrap();
     assert_eq!(applied.parameters().len(), 3);
 }
+
+#[test]
+fn an_import_taking_the_model_past_the_records_a_file_opens_is_refused_whole() {
+    let document = model();
+    let rows: Vec<ImportedParameter> = (0..MAX_RECORDS - 1)
+        .map(|index| row(&format!("filler_{index}"), "1 mm"))
+        .collect();
+
+    let refused = document.plan_parameter_import("Import parameters", &rows, true);
+    let fitting = document.plan_parameter_import("Import parameters", &rows[1..], true);
+
+    assert_eq!(
+        refused.unwrap_err(),
+        EditError::TooManyRecords {
+            records: MAX_RECORDS + 1
+        }
+    );
+    let mut fitted = document.clone();
+    fitted.apply(fitting.unwrap().transaction.unwrap()).unwrap();
+    assert_eq!(fitted.parameters().len(), MAX_RECORDS);
+}

@@ -45,6 +45,11 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   raised past every referenced ID so a dangling reference is never handed to a new feature.
   `dependents_of` gives every user of the given features in tree order; the app asks before
   deleting one that has any (`app-look.md`).
+- A model holds at most `MAX_RECORDS` parameters and features together, the most a file is
+  opened with (`load.rs` leaves the rest out, features first since parameters are written first).
+  `apply` refuses a transaction leaving more than that, and more than before, as `TooManyRecords`
+  with the count, so no path (adding, pasting, a parameter import, a body import) can make a
+  model that does not reopen whole, while a model already past it can still shrink or be edited.
 - `Document::check` runs a transaction on a clone so the UI can report an error before committing.
 - Parameters live in a `ParameterList` indexed by ID and name, and the `DependencyGraph` survives
   parameter inserts and removals within an `apply`, so restoring a version and cycle checks stay

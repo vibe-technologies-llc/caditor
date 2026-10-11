@@ -515,7 +515,8 @@ paths:
   version (checked after reading, after rebuilding it and during origin completion).
 - Near-linear on hostile files: names indexed; duplicate IDs and cycles (`DependencyGraph`) found
   before applying; each kind of record applied as one transaction, halved only where it fails; at
-  most `MAX_RECORDS` parameters and features loaded, the rest reported.
+  most `MAX_RECORDS` (`caditor-document`, the limit `Document::apply` keeps every model within)
+  parameters and features loaded, the rest reported.
 
 ## Clipboard (`clipboard.rs`)
 
