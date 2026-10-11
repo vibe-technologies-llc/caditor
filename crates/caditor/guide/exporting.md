@@ -21,7 +21,8 @@ folder it was last used with while caditor runs.
 Meshed formats take a resolution. The export waits for the model to finish recomputing and warns
 when a feature failed, since bodies then export as last computed. It runs in the background,
 cancellable from the status bar. Closing caditor while a model or image export runs waits for it
-and closes when it is done; the dialog offers to cancel the export and close, or not to close.
+and closes when it is done, asking first about changes made while it waited; the dialog offers to
+cancel the export and close, or not to close.
 A drawing, parameter file or template being written is waited for the same way; it cannot be
 cancelled, so the dialog offers to close anyway if the writing takes long.
 [Model properties](templates) such as the title and author go into the formats that have room for

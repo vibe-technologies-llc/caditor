@@ -12,7 +12,7 @@ use caditor_file::{
 use egui::Ui;
 
 use super::{
-    Event, FileCommand, Files, Intent, Opened, Opening, Origin, Output, Purpose, WriteKind,
+    Event, FileCommand, Files, Intent, Opened, Opening, Origin, Output, Purpose, Since, WriteKind,
     internal_load_error, menu_item, submenu_label, with_extension,
 };
 use crate::{
@@ -129,9 +129,10 @@ impl Files {
     }
 
     pub(super) fn list_templates(&mut self, then: Option<Purpose>, model: &Model) {
+        let then = then.map(|purpose| (purpose, Since::now(model)));
         let Some(folder) = self.templates.folder.clone() else {
-            if let Some(purpose) = then {
-                self.pick(purpose, model);
+            if let Some((purpose, since)) = then {
+                self.pick_since(purpose, since, model);
             }
             return;
         };
@@ -160,12 +161,12 @@ impl Files {
     pub(super) fn templates_listed(
         &mut self,
         listed: Vec<PathBuf>,
-        then: Option<Purpose>,
+        then: Option<(Purpose, Since)>,
         model: &Model,
     ) {
         self.templates.listed = listed;
-        if let Some(purpose) = then {
-            self.pick(purpose, model);
+        if let Some((purpose, since)) = then {
+            self.pick_since(purpose, since, model);
         }
     }
 
@@ -175,7 +176,9 @@ impl Files {
             return;
         };
         match self.templates.path_of(&name) {
-            Some(path) => self.load_template(path, Origin::DefaultTemplate, model),
+            Some(path) => {
+                self.load_template(path, Origin::DefaultTemplate, Since::now(model));
+            }
             None => {
                 model.replace(Document::default(), None, None, false);
                 model.perform(Action::Inform(Notice::failure(format!(
@@ -187,14 +190,13 @@ impl Files {
         }
     }
 
-    pub(super) fn load_template(&mut self, path: PathBuf, origin: Origin, model: &mut Model) {
+    pub(super) fn load_template(&mut self, path: PathBuf, origin: Origin, since: Since) {
         self.abandon_open();
         let opening = Opening::new(path.clone(), origin);
         let cancel = opening.token();
         self.opening = Some(opening);
         self.open_attempt += 1;
         let attempt = self.open_attempt;
-        let revision = model.revision();
         let loader = Arc::clone(&self.model_loader);
         let failed = path.clone();
         self.spawn_own(
@@ -204,7 +206,7 @@ impl Files {
                 Event::TemplateLoaded {
                     path,
                     origin,
-                    revision,
+                    since,
                     attempt,
                     result,
                 }
@@ -212,7 +214,7 @@ impl Files {
             move || Event::TemplateLoaded {
                 path: failed,
                 origin,
-                revision,
+                since,
                 attempt,
                 result: Err(internal_load_error()),
             },
@@ -223,11 +225,11 @@ impl Files {
         &mut self,
         path: PathBuf,
         origin: Origin,
-        revision: u64,
+        since: Since,
         result: Result<Loaded, LoadError>,
         model: &mut Model,
     ) {
-        let changed_meanwhile = model.revision() != revision && model.is_dirty();
+        let changed_meanwhile = since.has_new_unsaved_changes(model);
         match result {
             Ok(loaded) => {
                 let opened = Opened {
@@ -267,7 +269,7 @@ impl Files {
         }
     }
 
-    pub(super) fn template_target(&mut self, path: PathBuf, model: &mut Model) {
+    pub(super) fn template_target(&mut self, path: PathBuf, session: u64, model: &mut Model) {
         let named = with_extension(path.clone());
         if model.path() == Some(named.as_path()) || model.path() == Some(path.as_path()) {
             model.set_notice(Notice::warning(format!(
@@ -277,7 +279,7 @@ impl Files {
             )));
             return;
         }
-        self.check_output(Output::Template { path });
+        self.check_output(Output::Template { path }, session);
     }
 
     pub(super) fn save_template(&mut self, path: PathBuf, model: &Model) {

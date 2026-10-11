@@ -41,9 +41,10 @@ paths:
   (the portal's response stream ending, `PortalClosed`; zenity killed by a signal, `ZenityKilled`),
   only the portal's cancel response and zenity's status 1 being a cancel, which is what clears a
   save waiting to continue into quit, new or open.
-- While a native dialog is open (`Files::picking`, a ticket and its purpose) the window is blocked
-  and the status bar says it is waiting, with Stop waiting (and Esc) abandoning the pick as a
-  cancel would; whatever that dialog answers later carries an old ticket and is ignored.
+- While a native dialog is open (`Files::picking`, a ticket, its purpose and the model's `Since`)
+  the window is blocked and the status bar says it is waiting, with Stop waiting (and Esc)
+  abandoning the pick as a cancel would; whatever that dialog answers later carries an old ticket
+  and is ignored.
 - Filters on Unix match either case (`*.[sS][tT][eE][pP]`), since GTK's portal matches globs
   case-sensitively, and Open and Import end with All files (`Filter::any`), leaving the decision
   to the content check. Every save dialog confirms replacing a file itself: the portals and rfd
@@ -54,7 +55,9 @@ paths:
   blocking the UI and without a close button, since quitting cannot be taken back. While a model or
   image export or a drawing, parameter or template write runs, `run(Intent::Quit)` closes nothing:
   `Files::waiting_for_exports` shows `finishing_exports`, a modal naming each running export (with
-  the configuration progress) and each pending write, and `poll` closes storage once none is left.
+  the configuration progress) and each pending write, and `poll` closes storage once none is left
+  (`stop_waiting_for_exports`, also behind Quit anyway), unless the model gained unsaved changes
+  during the wait, which raises the unsaved-changes prompt for `Intent::Quit` instead.
   The writes run on the files worker, which `App::finish` waits for only `SETTINGS_FLUSH`, so each is
   counted from `Files::spawn_write` until its event arrives (`Files::writing`, `Event::written`).
   Cancel export and quit raises the exports' cancel and keeps waiting; a write cannot be cancelled,
@@ -69,6 +72,16 @@ paths:
   open the same way (with a notice saying so) before the unsaved-changes prompt is raised, so the
   prompt is never hidden behind the opening dialog and a load finishing later cannot replace the
   model the prompt is about.
+- A result arriving after a pick, a check or a wait is held against the model as it was when the
+  intent ran (`Since`: its session and revision, taken by `run` or `pick`, and by `list_templates`
+  before New from template's listing and picker). An open or template load (`Event::Opened`,
+  `Event::TemplateLoaded`) replacing a model that gained unsaved changes since
+  (`Since::has_new_unsaved_changes`, an import landing behind the Open picker, an edit while the
+  templates were listed) raises the unsaved-changes prompt with `Intent::Replace` first. The Save
+  As target check (`Event::SaveTargetChecked`), an output's target check (`Event::OutputChecked`,
+  Export again included) and the "Replace …?" confirmation (`confirm_replace`) carry the session of
+  the pick, and one arriving after another model opened (queued on the files worker behind a slow
+  `CheckRecent`) writes nothing, with a notice saying so (`not_written_for_another_model`).
 - A recovery offer leaves the list only when its discard succeeded; a failed discard keeps the card
   and says the changes are still there to restore.
 - Save As appends `.caditor`, checks the target on the worker (refused while open in another

@@ -5,8 +5,8 @@ use egui::{Event, Id, Key, Modifiers, PanelState, PointerButton, Pos2};
 use tempfile::TempDir;
 
 use super::{
-    Harness, Plane, Point2, Sketch, canonical, click_window_button, extruded_plate, rectangle,
-    run_from_palette, sample_document,
+    FILE_TIMEOUT, Harness, Plane, Point2, Sketch, canonical, click_window_button, extruded_plate,
+    rectangle, run_from_palette, sample_document,
 };
 use crate::{
     app::Workspace,
@@ -665,4 +665,92 @@ fn quitting_while_a_drawing_is_being_written_waits_for_the_file() {
     quit_while_the_replacing_write_is_held(&mut harness, "Writing the drawing “outline.dxf”…");
 
     assert_ne!(fs::read(&written).unwrap(), b"precious");
+}
+
+#[test]
+fn a_model_changed_while_quit_waited_for_a_write_is_not_closed_without_asking() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("dimensions.csv"), b"precious").unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    harness.answer_dialog(Some(dir.path().join("dimensions")));
+    run_from_palette(&mut harness, "Export parameters");
+    harness.wait_until("the replacement is confirmed", |harness| {
+        harness.shows("Replace “dimensions.csv”?")
+    });
+    let release = harness.files.hold_jobs();
+    harness.click("Replace");
+
+    harness.command(FileCommand::Quit);
+    let waiting = harness.shows("Closing…") && !harness.model.is_dirty();
+    add_parameters(&mut harness, &["depth"]);
+    release.send(()).unwrap();
+    harness.wait_until("the unsaved changes are asked about", |harness| {
+        harness.shows("Save changes to “Untitled”?")
+    });
+
+    assert!(waiting);
+    assert!(!harness.files.should_quit());
+    assert!(harness.document().parameter_named("depth").is_some());
+
+    harness.click("Close without saving");
+    harness.wait_until("caditor quits", |harness| harness.files.should_quit());
+}
+
+#[test]
+fn a_save_as_checked_after_another_model_opened_writes_nothing_and_says_so() {
+    let dir = TempDir::new().unwrap();
+    let root = canonical(&dir);
+    let other = saved_model(&root, "other.caditor");
+    let copy = root.join("copy.caditor");
+    let mut harness = Harness::with_directories(Some(root.as_path()));
+    assert!(harness.files.wait_for_jobs(FILE_TIMEOUT));
+    let release = harness.files.hold_jobs();
+
+    harness.answer_dialog(Some(copy.clone()));
+    harness.command(FileCommand::SaveAs);
+    harness.command(FileCommand::OpenPath(other.clone()));
+    harness.wait_until("the other model is open", |harness| {
+        harness.model.path() == Some(other.as_path())
+    });
+    release.send(()).unwrap();
+    harness.wait_until("the dropped save is announced", |harness| {
+        notice_starts(
+            harness,
+            "Nothing was written to “copy.caditor”, because another model was opened after you \
+             chose it.",
+        )
+    });
+    harness.settle();
+
+    assert!(!copy.exists());
+    assert_eq!(harness.model.path(), Some(other.as_path()));
+    assert!(!harness.model.is_dirty());
+}
+
+#[test]
+fn an_export_checked_after_another_model_opened_writes_nothing_and_says_so() {
+    let dir = TempDir::new().unwrap();
+    let root = canonical(&dir);
+    let other = saved_model(&root, "other.caditor");
+    let mut harness = Harness::with_directories(Some(root.as_path()));
+    extruded_plate(&mut harness);
+    assert!(harness.files.wait_for_jobs(FILE_TIMEOUT));
+    let release = harness.files.hold_jobs();
+
+    harness.command(FileCommand::Export(ExportCommand::Show));
+    harness.click("STL");
+    harness.answer_dialog(Some(root.join("plate")));
+    harness.click("Export…");
+    harness.command(FileCommand::OpenPath(other.clone()));
+    harness.command(FileCommand::Guard(GuardChoice::DontSave));
+    harness.wait_until("the other model is open", |harness| {
+        harness.model.path() == Some(other.as_path())
+    });
+    release.send(()).unwrap();
+    harness.wait_until("the dropped export is announced", |harness| {
+        notice_starts(harness, "Nothing was written to “plate.stl”")
+    });
+
+    assert!(!harness.files.exports_running());
+    assert!(!root.join("plate.stl").exists());
 }

@@ -1,5 +1,6 @@
 use std::{fs, path::Path};
 
+use caditor_document::Document;
 use tempfile::TempDir;
 
 use super::{Harness, run_from_palette, sample_document};
@@ -130,4 +131,32 @@ fn preferences_choose_the_template_new_model_starts_from() {
         Some("Base.caditor")
     );
     assert!(harness.shows("Base"));
+}
+
+#[test]
+fn a_model_edited_while_the_templates_were_listed_is_not_replaced_without_asking() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    let folder = templates_folder(dir.path());
+    let template = folder.join("Empty.caditor");
+    fs::create_dir_all(&folder).unwrap();
+    caditor_file::save(&Document::default(), &template, false).unwrap();
+
+    let release = harness.files.hold_jobs();
+    harness.answer_dialog(Some(template));
+    harness.command(FileCommand::NewFromTemplate(None));
+    let clean_when_asked = !harness.model.is_dirty();
+    harness.edit_width("55 mm");
+    release.send(()).unwrap();
+    harness.wait_until("the unsaved changes are asked about", |harness| {
+        harness.shows("Save changes to “Untitled”?")
+    });
+
+    assert!(clean_when_asked);
+    assert!(has_width(&harness));
+
+    harness.click("Cancel");
+
+    assert!(has_width(&harness));
+    assert_eq!(harness.expression_text("width"), "55 mm");
 }

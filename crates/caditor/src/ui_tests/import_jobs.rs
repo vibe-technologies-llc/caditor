@@ -291,3 +291,34 @@ fn cancelling_a_slow_open_stops_its_read_and_leaves_the_files_worker_free() {
     assert!(!harness.files.is_opening());
     assert!(!harness.shows_containing("Could not open"));
 }
+
+#[test]
+fn a_model_an_import_changed_while_the_open_dialog_was_up_is_not_replaced_without_asking() {
+    let dir = TempDir::new().unwrap();
+    let root = canonical(&dir);
+    let mut harness = Harness::with_directories(Some(root.as_path()));
+    let other = root.as_path().join("other.caditor");
+    caditor_file::save(&Document::default(), &other, false).unwrap();
+    let slow = SlowReader::new(true);
+    start_slow_import(&mut harness, root.as_path(), &slow);
+
+    harness.hold_dialogs();
+    harness.command(FileCommand::Open);
+    let clean_when_asked = !harness.model.is_dirty();
+    let features_before = harness.document().features().count();
+    slow.release.store(true, Ordering::SeqCst);
+    harness.wait_until("the import lands", |harness| harness.model.is_dirty());
+    harness.answer_held_dialogs(Some(other.clone()));
+    harness.wait_until("the unsaved changes are asked about", |harness| {
+        harness.shows("Save changes to “Untitled”?")
+    });
+
+    assert!(clean_when_asked);
+    assert_eq!(harness.model.path(), None);
+
+    harness.click("Cancel");
+
+    assert_eq!(harness.model.path(), None);
+    assert!(harness.model.is_dirty());
+    assert_eq!(harness.document().features().count(), features_before + 1);
+}

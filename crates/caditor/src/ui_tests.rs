@@ -180,27 +180,32 @@ impl ScriptedDialogs {
         }
         Ok(self.answer.lock().clone())
     }
+
+    fn respond(&self, directory: Option<PathBuf>, respond: Respond) {
+        self.asked_in.lock().push(directory);
+        if let Some(held) = self.held.lock().as_mut() {
+            held.push(respond);
+            return;
+        }
+        respond(self.reply());
+    }
 }
 
 impl Dialogs for ScriptedDialogs {
     fn pick_model(&self, directory: Option<PathBuf>, respond: Respond) {
-        self.asked_in.lock().push(directory);
-        respond(self.reply());
+        self.respond(directory, respond);
     }
 
     fn pick_save_path(&self, directory: Option<PathBuf>, _file_name: String, respond: Respond) {
-        self.asked_in.lock().push(directory);
-        respond(self.reply());
+        self.respond(directory, respond);
     }
 
     fn pick_template(&self, directory: Option<PathBuf>, respond: Respond) {
-        self.asked_in.lock().push(directory);
-        respond(self.reply());
+        self.respond(directory, respond);
     }
 
     fn pick_template_path(&self, directory: Option<PathBuf>, _file_name: String, respond: Respond) {
-        self.asked_in.lock().push(directory);
-        respond(self.reply());
+        self.respond(directory, respond);
     }
 
     fn pick_export_path(
@@ -210,17 +215,11 @@ impl Dialogs for ScriptedDialogs {
         _format: ExportFormat,
         respond: Respond,
     ) {
-        self.asked_in.lock().push(directory);
-        respond(self.reply());
+        self.respond(directory, respond);
     }
 
     fn pick_import(&self, directory: Option<PathBuf>, respond: Respond) {
-        self.asked_in.lock().push(directory);
-        if let Some(held) = self.held.lock().as_mut() {
-            held.push(respond);
-            return;
-        }
-        respond(self.reply());
+        self.respond(directory, respond);
     }
 
     fn pick_drawing_path(
@@ -230,13 +229,11 @@ impl Dialogs for ScriptedDialogs {
         _file_name: String,
         respond: Respond,
     ) {
-        self.asked_in.lock().push(directory);
-        respond(self.reply());
+        self.respond(directory, respond);
     }
 
     fn pick_image_path(&self, directory: Option<PathBuf>, _file_name: String, respond: Respond) {
-        self.asked_in.lock().push(directory);
-        respond(self.reply());
+        self.respond(directory, respond);
     }
 
     fn pick_parameters_path(
@@ -245,13 +242,11 @@ impl Dialogs for ScriptedDialogs {
         _file_name: String,
         respond: Respond,
     ) {
-        self.asked_in.lock().push(directory);
-        respond(self.reply());
+        self.respond(directory, respond);
     }
 
     fn pick_parameters(&self, directory: Option<PathBuf>, respond: Respond) {
-        self.asked_in.lock().push(directory);
-        respond(self.reply());
+        self.respond(directory, respond);
     }
 }
 
@@ -653,6 +648,17 @@ impl Harness {
 
     fn answer_dialog(&self, path: Option<PathBuf>) {
         *self.dialogs.answer.lock() = path;
+    }
+
+    fn hold_dialogs(&self) {
+        *self.dialogs.held.lock() = Some(Vec::new());
+    }
+
+    fn answer_held_dialogs(&self, path: Option<PathBuf>) {
+        let held = self.dialogs.held.lock().take().unwrap_or_default();
+        for respond in held {
+            respond(Ok(path.clone()));
+        }
     }
 
     fn edit_width(&mut self, text: &str) {

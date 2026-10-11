@@ -7,17 +7,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Files and recovery
 
-- [medium · easy] Results that arrive after a file picker or a background check are applied to
-  the model as it is then, with no second look: `open` and `load_template` (`files.rs`,
-  `files/templates.rs`) take `model.revision()` only after the picker returns, so a clean model
-  that a running import made dirty while the Open picker was up, or one edited while the files
-  worker was still listing templates for New from template (`list_templates`, nothing blocking
-  meanwhile), is replaced with no prompt, the import's bodies or the edits lost; the Quit wait for
-  exports likewise closes storage without checking `is_dirty()` again. `SaveTarget` and
-  `Event::OutputChecked` carry no session, so a Save As check or an export target check queued
-  behind a slow `CheckRecent` (a recent file on a hung share) saves or exports whatever model was
-  opened since over the path the user confirmed for the first. Take the revision and session when
-  the intent runs and compare them when the pick, the check or the wait ends.
 - [medium · medium] 3MF files whose meshes live in other model parts (the 3MF Production
   extension's `p:path` on a component, as Bambu Studio and OrcaSlicer write their projects) are
   refused or misread: `read_three_mf` (`import/mesh.rs`) reads only the root model part and

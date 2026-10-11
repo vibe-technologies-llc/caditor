@@ -534,6 +534,18 @@ enum Replacement {
     Output(Output),
 }
 
+impl SaveTarget {
+    fn path(&self) -> &Path {
+        match self {
+            Self::Ready(path)
+            | Self::Confirm(path)
+            | Self::InUse(path)
+            | Self::HasRecovery(path)
+            | Self::Failed(path) => path,
+        }
+    }
+}
+
 impl Replacement {
     fn path(&self) -> &Path {
         match self {
@@ -552,10 +564,14 @@ impl Replacement {
 
 enum Event {
     ScanFailed,
-    SaveTargetChecked(SaveTarget),
+    SaveTargetChecked {
+        target: SaveTarget,
+        session: u64,
+    },
     OutputChecked {
         output: Output,
         replaces: bool,
+        session: u64,
     },
     ParametersExported {
         path: PathBuf,
@@ -582,13 +598,13 @@ enum Event {
     },
     Opened {
         path: PathBuf,
-        revision: u64,
+        since: Since,
         attempt: u64,
         outcome: OpenOutcome,
     },
     TemplatesListed {
         listed: Vec<PathBuf>,
-        then: Option<Purpose>,
+        then: Option<(Purpose, Since)>,
     },
     ThemesListed {
         themes: Vec<UserTheme>,
@@ -597,7 +613,7 @@ enum Event {
     TemplateLoaded {
         path: PathBuf,
         origin: Origin,
-        revision: u64,
+        since: Since,
         attempt: u64,
         result: Result<Loaded, LoadError>,
     },
@@ -778,24 +794,43 @@ impl PendingWrite {
     }
 }
 
-struct ExportWait {
-    since: Instant,
-    stopping: bool,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Since {
+    session: u64,
+    revision: u64,
 }
 
-impl ExportWait {
-    fn waiting() -> Self {
+impl Since {
+    fn now(model: &Model) -> Self {
         Self {
-            since: Instant::now(),
-            stopping: false,
+            session: model.session(),
+            revision: model.revision(),
         }
     }
 
-    fn stopping() -> Self {
+    fn has_new_unsaved_changes(self, model: &Model) -> bool {
+        model.revision() != self.revision && model.is_dirty()
+    }
+}
+
+struct ExportWait {
+    since: Instant,
+    stopping: bool,
+    model: Since,
+}
+
+impl ExportWait {
+    fn waiting(model: Since) -> Self {
         Self {
             since: Instant::now(),
-            stopping: true,
+            stopping: false,
+            model,
         }
+    }
+
+    fn stop(&mut self) {
+        self.since = Instant::now();
+        self.stopping = true;
     }
 }
 
@@ -866,9 +901,9 @@ pub struct Files {
     drawing: DrawingExporter,
     drawing_construction: Construction,
     history: VersionHistory,
-    picking: Option<(u64, Purpose)>,
+    picking: Option<(u64, Purpose, Since)>,
     pick_ticket: u64,
-    confirm_replace: Option<Replacement>,
+    confirm_replace: Option<(Replacement, u64)>,
     changed_on_disk: Option<PathBuf>,
     closing: Option<(Closing, Instant)>,
     waiting_for_exports: Option<ExportWait>,
@@ -1149,20 +1184,19 @@ impl Files {
             FileCommand::DismissReport => self.report = None,
             FileCommand::ImportOptions(command) => self.import_options(command, model),
             FileCommand::Replace(confirmed) => {
-                let Some(replacement) = self.confirm_replace.take() else {
+                let Some((replacement, session)) = self.confirm_replace.take() else {
                     return;
                 };
-                match (replacement, confirmed) {
-                    (Replacement::Model(path), true) => model.save_to(path),
-                    (Replacement::Model(_), false) => self.after_save = None,
-                    (Replacement::Output(output), true) => self.start_output(output, model),
-                    (Replacement::Output(Output::Image { .. }), false) => {
-                        self.image.pick_cancelled()
+                if !confirmed {
+                    self.drop_replacement(&replacement);
+                } else if session != model.session() {
+                    self.drop_replacement(&replacement);
+                    model.set_notice(not_written_for_another_model(replacement.path()));
+                } else {
+                    match replacement {
+                        Replacement::Model(path) => model.save_to(path),
+                        Replacement::Output(output) => self.start_output(output, model),
                     }
-                    (Replacement::Output(Output::Export { .. }), false) => {}
-                    (Replacement::Output(Output::Drawing { .. }), false) => {}
-                    (Replacement::Output(Output::Template { .. }), false) => {}
-                    (Replacement::Output(Output::Parameters { .. }), false) => {}
                 }
             }
             FileCommand::QuitAnyway => {
@@ -1170,14 +1204,14 @@ impl Files {
                     log::warn!("quitting before the storage worker finished");
                     self.quit = true;
                 }
-                if self.waiting_for_exports.take().is_some() {
+                if let Some(waiting) = self.waiting_for_exports.take() {
                     log::warn!("quitting before a cancelled export finished");
-                    self.close_storage(model);
+                    self.stop_waiting_for_exports(&waiting, model);
                 }
             }
             FileCommand::StopExportsAndQuit => {
                 if let Some(waiting) = &mut self.waiting_for_exports {
-                    *waiting = ExportWait::stopping();
+                    waiting.stop();
                     self.exporter.perform(ExportCommand::Cancel, model);
                     self.image.perform(ImageCommand::Cancel);
                 }
@@ -1589,9 +1623,10 @@ impl Files {
             changed = true;
             self.handle(event, model, editing);
         }
-        if self.waiting_for_exports.is_some() && !self.work_running() {
-            self.waiting_for_exports = None;
-            self.close_storage(model);
+        if !self.work_running()
+            && let Some(waiting) = self.waiting_for_exports.take()
+        {
+            self.stop_waiting_for_exports(&waiting, model);
             changed = true;
         }
         self.import_next(model);
@@ -1608,7 +1643,9 @@ impl Files {
                 "caditor could not look for unsaved work from an earlier session. It will look \
                  again the next time it starts.",
             )),
-            Event::SaveTargetChecked(target) => self.save_target_checked(target, model),
+            Event::SaveTargetChecked { target, session } => {
+                self.save_target_checked(target, session, model);
+            }
             Event::PreferencesNotSaved { error, since } => {
                 self.stored_settings = Some(since);
                 model.set_notice(Notice::failure(format!(
@@ -1616,9 +1653,16 @@ impl Files {
                      change one again to retry saving."
                 )));
             }
-            Event::OutputChecked { output, replaces } => {
-                if replaces {
-                    self.confirm_replace = Some(Replacement::Output(output));
+            Event::OutputChecked {
+                output,
+                replaces,
+                session,
+            } => {
+                if session != model.session() {
+                    self.drop_output(&output);
+                    model.set_notice(not_written_for_another_model(output.path()));
+                } else if replaces {
+                    self.confirm_replace = Some((Replacement::Output(output), session));
                 } else {
                     self.start_output(output, model);
                 }
@@ -1628,17 +1672,18 @@ impl Files {
                 ticket,
                 path,
             } => {
-                if self.picking.map(|(current, _)| current) != Some(ticket) {
+                let Some((_, _, since)) =
+                    self.picking.take_if(|(current, _, _)| *current == ticket)
+                else {
                     log::info!("a file dialog the user stopped waiting for closed");
                     return;
-                }
-                self.picking = None;
+                };
                 let path = path.unwrap_or_else(|error| {
                     log::warn!("{error}");
                     model.set_notice(Notice::failure(error.notice()));
                     None
                 });
-                self.picked(purpose, path, model);
+                self.picked(purpose, path, since, model);
             }
             Event::Started { recent, recovered } => {
                 let added_meanwhile = std::mem::replace(&mut self.recent, recent);
@@ -1652,13 +1697,13 @@ impl Files {
             }
             Event::Opened {
                 path,
-                revision,
+                since,
                 attempt,
                 outcome,
             } => {
                 if attempt == self.open_attempt {
                     self.opening = None;
-                    self.opened(path, revision, outcome, model);
+                    self.opened(path, since, outcome, model);
                 }
             }
             Event::TemplatesListed { listed, then } => self.templates_listed(listed, then, model),
@@ -1666,13 +1711,13 @@ impl Files {
             Event::TemplateLoaded {
                 path,
                 origin,
-                revision,
+                since,
                 attempt,
                 result,
             } => {
                 if attempt == self.open_attempt {
                     self.opening = None;
-                    self.template_loaded(path, origin, revision, result, model);
+                    self.template_loaded(path, origin, since, result, model);
                 }
             }
             Event::TemplateSaved { path, result } => self.template_saved(&path, result, model),
@@ -2050,7 +2095,7 @@ impl Files {
         }
     }
 
-    fn check_output(&mut self, output: Output) {
+    fn check_output(&mut self, output: Output, session: u64) {
         let picked = output.path().to_path_buf();
         let named = output.named();
         let renamed = named.path() != picked;
@@ -2059,12 +2104,27 @@ impl Files {
             move || Event::OutputChecked {
                 replaces: renamed && named.path().exists(),
                 output: named,
+                session,
             },
             move || Event::OutputChecked {
                 output: failed,
                 replaces: true,
+                session,
             },
         );
+    }
+
+    fn drop_replacement(&mut self, replacement: &Replacement) {
+        match replacement {
+            Replacement::Model(_) => self.after_save = None,
+            Replacement::Output(output) => self.drop_output(output),
+        }
+    }
+
+    fn drop_output(&mut self, output: &Output) {
+        if let Output::Image { .. } = output {
+            self.image.pick_cancelled();
+        }
     }
 
     fn start_output(&mut self, output: Output, model: &mut Model) {
@@ -2272,7 +2332,7 @@ impl Files {
         self.exporter.perform(ExportCommand::Hide, model);
     }
 
-    fn opened(&mut self, path: PathBuf, revision: u64, outcome: OpenOutcome, model: &mut Model) {
+    fn opened(&mut self, path: PathBuf, since: Since, outcome: OpenOutcome, model: &mut Model) {
         let name = display_name(Some(&path));
         match outcome {
             OpenOutcome::Loaded { loaded, notes } => {
@@ -2282,7 +2342,7 @@ impl Files {
                     notes,
                     origin: Origin::File,
                 };
-                if model.revision() != revision && model.is_dirty() {
+                if since.has_new_unsaved_changes(model) {
                     self.guard = Some(Intent::Replace(Box::new(opened)));
                 } else {
                     self.finish_open(opened, model);
@@ -2359,7 +2419,9 @@ impl Files {
                     self.list_templates(Some(Purpose::Template), model);
                 }
             }
-            Intent::Template(Some(path)) => self.load_template(path, Origin::Template, model),
+            Intent::Template(Some(path)) => {
+                self.load_template(path, Origin::Template, Since::now(model));
+            }
             Intent::Sample(sample) => match sample.document() {
                 Ok(document) => model.replace(document, None, None, false),
                 Err(error) => {
@@ -2371,7 +2433,7 @@ impl Files {
                 }
             },
             Intent::Open(None) => self.pick(Purpose::Open, model),
-            Intent::Open(Some(path)) => self.open(path, model),
+            Intent::Open(Some(path)) => self.open(path, Since::now(model), model),
             Intent::Restore {
                 journal,
                 suppressed,
@@ -2395,9 +2457,17 @@ impl Files {
             }
             Intent::Replace(opened) => self.finish_open(*opened, model),
             Intent::Quit if self.work_running() => {
-                self.waiting_for_exports = Some(ExportWait::waiting());
+                self.waiting_for_exports = Some(ExportWait::waiting(Since::now(model)));
             }
             Intent::Quit => self.close_storage(model),
+        }
+    }
+
+    fn stop_waiting_for_exports(&mut self, waiting: &ExportWait, model: &mut Model) {
+        if waiting.model.has_new_unsaved_changes(model) {
+            self.guard = Some(Intent::Quit);
+        } else {
+            self.close_storage(model);
         }
     }
 
@@ -2453,23 +2523,31 @@ impl Files {
         }
     }
 
-    fn picked(&mut self, purpose: Purpose, path: Option<PathBuf>, model: &mut Model) {
+    fn picked(&mut self, purpose: Purpose, path: Option<PathBuf>, since: Since, model: &mut Model) {
         if let Some((folder, parent)) = purpose.folder().zip(path.as_deref().and_then(Path::parent))
         {
             self.folders.insert(folder, parent.to_path_buf());
         }
         match (purpose, path) {
-            (Purpose::Open, Some(path)) => self.open(path, model),
-            (Purpose::SaveAs, Some(path)) => self.save_as(path, model),
-            (Purpose::Template, Some(path)) => self.load_template(path, Origin::Template, model),
-            (Purpose::SaveTemplate, Some(path)) => self.template_target(path, model),
-            (Purpose::Export(format), Some(path)) => {
-                self.check_output(Output::Export { path, format });
+            (Purpose::Open, Some(path)) => self.open(path, since, model),
+            (Purpose::SaveAs, Some(path)) => self.save_as(path, since.session, model),
+            (Purpose::Template, Some(path)) => {
+                self.load_template(path, Origin::Template, since);
             }
-            (Purpose::Image, Some(path)) => self.check_output(Output::Image { path }),
-            (Purpose::Drawing, Some(path)) => self.check_output(Output::Drawing { path }),
+            (Purpose::SaveTemplate, Some(path)) => {
+                self.template_target(path, since.session, model);
+            }
+            (Purpose::Export(format), Some(path)) => {
+                self.check_output(Output::Export { path, format }, since.session);
+            }
+            (Purpose::Image, Some(path)) => {
+                self.check_output(Output::Image { path }, since.session);
+            }
+            (Purpose::Drawing, Some(path)) => {
+                self.check_output(Output::Drawing { path }, since.session);
+            }
             (Purpose::ExportParameters, Some(path)) => {
-                self.check_output(Output::Parameters { path });
+                self.check_output(Output::Parameters { path }, since.session);
             }
             (Purpose::ImportParameters, Some(path)) => self.read_parameter_file(path, model),
             (Purpose::Import, Some(path)) => {
@@ -2498,18 +2576,22 @@ impl Files {
     }
 
     fn stop_picking(&mut self, model: &mut Model) {
-        if let Some((_, purpose)) = self.picking.take() {
-            self.picked(purpose, None, model);
+        if let Some((_, purpose, since)) = self.picking.take() {
+            self.picked(purpose, None, since, model);
         }
     }
 
     fn pick(&mut self, purpose: Purpose, model: &Model) {
+        self.pick_since(purpose, Since::now(model), model);
+    }
+
+    fn pick_since(&mut self, purpose: Purpose, since: Since, model: &Model) {
         if self.picking.is_some() {
             return;
         }
         self.pick_ticket = self.pick_ticket.wrapping_add(1);
         let ticket = self.pick_ticket;
-        self.picking = Some((ticket, purpose));
+        self.picking = Some((ticket, purpose, since));
         let events = self.events.clone();
         let wake = (self.make_waker)();
         let respond: Respond = Box::new(move |path| {
@@ -2580,14 +2662,13 @@ impl Files {
         }
     }
 
-    fn open(&mut self, path: PathBuf, model: &mut Model) {
+    fn open(&mut self, path: PathBuf, since: Since, model: &mut Model) {
         self.abandon_open();
         let opening = Opening::new(path.clone(), Origin::File);
         let cancel = opening.token();
         self.opening = Some(opening);
         self.open_attempt += 1;
         let attempt = self.open_attempt;
-        let revision = model.revision();
         let current = model.path().map(Path::to_path_buf);
         let recovery_dir = self.config.recovery_dir.clone();
         let loader = Arc::clone(&self.model_loader);
@@ -2602,14 +2683,14 @@ impl Files {
                     });
                 Event::Opened {
                     path,
-                    revision,
+                    since,
                     attempt,
                     outcome,
                 }
             },
             move || Event::Opened {
                 path: failed,
-                revision,
+                since,
                 attempt,
                 outcome: OpenOutcome::Failed {
                     error: internal_load_error(),
@@ -2619,30 +2700,35 @@ impl Files {
         );
     }
 
-    fn save_as(&mut self, picked: PathBuf, model: &mut Model) {
+    fn save_as(&mut self, picked: PathBuf, session: u64, model: &mut Model) {
         let current = model.path().map(Path::to_path_buf);
         let recovery_dir = self.config.recovery_dir.clone();
         let failed = picked.clone();
         self.spawn(
-            move || {
-                Event::SaveTargetChecked(check_save_target(
-                    &picked,
-                    current.as_deref(),
-                    recovery_dir.as_deref(),
-                ))
+            move || Event::SaveTargetChecked {
+                target: check_save_target(&picked, current.as_deref(), recovery_dir.as_deref()),
+                session,
             },
-            move || Event::SaveTargetChecked(SaveTarget::Failed(failed)),
+            move || Event::SaveTargetChecked {
+                target: SaveTarget::Failed(failed),
+                session,
+            },
         );
     }
 
-    fn save_target_checked(&mut self, target: SaveTarget, model: &mut Model) {
+    fn save_target_checked(&mut self, target: SaveTarget, session: u64, model: &mut Model) {
+        if session != model.session() {
+            self.after_save = None;
+            model.set_notice(not_written_for_another_model(target.path()));
+            return;
+        }
         let refusal = match &target {
             SaveTarget::Ready(path) => {
                 model.save_to(path.clone());
                 return;
             }
             SaveTarget::Confirm(path) => {
-                self.confirm_replace = Some(Replacement::Model(path.clone()));
+                self.confirm_replace = Some((Replacement::Model(path.clone()), session));
                 return;
             }
             SaveTarget::InUse(path) => format!(
@@ -2761,6 +2847,7 @@ impl Files {
             }
         };
         self.exporter.restore(choices);
+        let session = model.session();
         let output = Output::Export {
             path: path.clone(),
             format: choices.format,
@@ -2770,10 +2857,12 @@ impl Files {
             move || Event::OutputChecked {
                 replaces: Stamp::of(&path).is_some_and(|now| Some(now) != written),
                 output,
+                session,
             },
             move || Event::OutputChecked {
                 output: failed,
                 replaces: true,
+                session,
             },
         );
     }
@@ -3045,6 +3134,14 @@ fn run_where_possible(job: Job, spawn: impl FnOnce(Job) -> io::Result<()>) {
 
 fn internal_load_error() -> LoadError {
     LoadError::Crashed
+}
+
+fn not_written_for_another_model(path: &Path) -> Notice {
+    Notice::warning(format!(
+        "Nothing was written to “{}”, because another model was opened after you chose it. \
+         Choose it again to write the model open now.",
+        display_name(Some(path))
+    ))
 }
 
 fn run_contained(job: Job) {
@@ -3543,7 +3640,7 @@ pub fn show(
         command = opening(&ctx, &open.path, open.origin);
     } else if let Some(intent) = &files.guard {
         command = guard(&ctx, model, intent).map(FileCommand::Guard);
-    } else if let Some(replacement) = &files.confirm_replace {
+    } else if let Some((replacement, _)) = &files.confirm_replace {
         command = confirm_replace(&ctx, replacement).map(FileCommand::Replace);
     } else if let Some(path) = &files.changed_on_disk {
         command = changed_on_disk(&ctx, path).map(FileCommand::OutsideChange);

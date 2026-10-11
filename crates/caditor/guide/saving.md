@@ -5,6 +5,9 @@
 {command:file.save} writes the model to its `.caditor` file; {command:file.save_as} writes it under
 a new name. The title shows Unsaved, and the window's title a `*`, while there are changes not yet
 saved. Closing, opening another model or quitting asks first: Save, Cancel, or close without saving.
+It asks even when the model was saved as you started, if it changed while the file dialog was open
+or caditor waited for an export, such as an import finishing meanwhile. A Save as or export whose
+file you chose before another model was opened writes nothing and says so; choose the file again.
 
 A save never overwrites the file in place. caditor writes a new copy beside it, makes sure it is on
 the disk and only then puts it in place, so a crash or a full disk during a save leaves the old file
