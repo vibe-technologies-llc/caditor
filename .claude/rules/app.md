@@ -554,7 +554,10 @@ paths:
   and inline `**strong**`, `` `code` ``, `[text](page-id)` links and `{command:id}`, which renders
   the command's title with the user's current keys (`guide_panel::command_text`), so pages never
   repeat default shortcuts. Unclosed marks stay text. Tests hold every link and command id to one
-  that exists, every page to a title, content and an incoming link, and the markup's reading.
+  that exists, every page to a title, content and an incoming link, and the markup's reading;
+  `no_page_has_a_line_the_parser_does_not_read` fails on a line that starts like markup the parser
+  does not read (`###` headings, fences, quotes, `*` or `+` items, tables, indented items), so an
+  example is a code span, not a fenced block.
 - `guide_panel.rs` draws it as a right-hand side panel sharing the side panels' room (`Guide` in
   the `Workspace`, reset by a failed frame): back, contents and close buttons, a search field over
   the titles and text (`guide::search`, title matches first, with a snippet around the first word),
