@@ -90,7 +90,10 @@ paths:
   follows when it settles.
 - `SketchShapes` caches faceted outlines and each entity's `SketchState`, so a hover or selection
   change only restyles them. Image export and the headless PNG build their own scene, without
-  highlights and in the standard palette, since high contrast is a viewing aid.
+  highlights and in the standard palette, since high contrast is a viewing aid: the image export
+  and the version preview in the palette of the 3D view's dark or light canvas, since they are
+  drawn on its background (`Background::Viewport`), the headless PNG and 3MF thumbnail in the
+  dark one (`snapshot::of_bodies` takes the canvas).
 - Every scene colour and line weight comes from the `ScenePalette` of the viewport's `Contrast`
   (`scene_palette.rs`, set from the High contrast preference each frame), never a constant in
   `scene.rs`; the overlay batch carries the contrast too. Colours shared with canvas labels

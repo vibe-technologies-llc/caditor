@@ -59,6 +59,7 @@ use crate::{
     portal::{self, DialogError, FileRequest, Filter, Mode},
     preferences::PreferencesCommand,
     samples::Sample,
+    scene_palette::Canvas,
     sketch_placement::FaceChoice,
     snapshot::Snapshot,
     themes::{Refusal, UserTheme, UserThemes},
@@ -1420,7 +1421,9 @@ impl Files {
                 )),
             },
             HistoryCommand::Hide => self.history.close(),
-            HistoryCommand::Preview(index) => self.preview_version(index, model),
+            HistoryCommand::Preview { index, canvas } => {
+                self.preview_version(index, canvas, model);
+            }
             HistoryCommand::StopPreview => self.history.stop_preview(),
             HistoryCommand::Keep { index, kept } => {
                 if let Some(path) = self.history.start_keeping(index)
@@ -1449,7 +1452,7 @@ impl Files {
         }
     }
 
-    fn preview_version(&mut self, index: usize, model: &Model) {
+    fn preview_version(&mut self, index: usize, canvas: Canvas, model: &Model) {
         let Some((path, started)) = self.history.start_preview(index) else {
             return;
         };
@@ -1462,7 +1465,8 @@ impl Files {
             "preview",
             move || Event::PreviewPrepared {
                 ticket,
-                result: version_preview::prepare(&path, index, &progress, &cancel).map(Box::new),
+                result: version_preview::prepare(&path, index, canvas, &progress, &cancel)
+                    .map(Box::new),
             },
             move || Event::PreviewPrepared {
                 ticket,

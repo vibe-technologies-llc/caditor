@@ -19,7 +19,10 @@ use egui::{Event, Modifiers, PointerButton};
 use tempfile::TempDir;
 
 use super::Harness;
-use crate::{app::Workspace, bodies::BodyMeshing, files::FileCommand, samples::Sample, snapshot};
+use crate::{
+    app::Workspace, bodies::BodyMeshing, files::FileCommand, samples::Sample,
+    scene_palette::Canvas, snapshot,
+};
 
 const IMPORT_FILE: &str = "CADITOR_IMPORT_FILE";
 const COPIES_PER_SAMPLE: usize = 100;
@@ -171,7 +174,7 @@ fn stages(path: &Path) {
         height: 1080,
     };
     let started = Instant::now();
-    let snapshot = snapshot::of_bodies(&document, &evaluation, &meshes, size);
+    let snapshot = snapshot::of_bodies(&document, &evaluation, &meshes, size, Canvas::default());
     report(
         "scene built twice (fitting, then drawn)",
         started,

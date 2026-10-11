@@ -2237,6 +2237,34 @@ fn png_size(path: &Path) -> (u32, u32, u8) {
 }
 
 #[test]
+fn an_exported_image_is_drawn_in_the_palette_of_the_light_view_it_shows() {
+    let mut harness = Harness::new();
+    let mut free = Sketch::new(Plane::XY);
+    free.add_line(Point2::new(0.0, 0.0), Point2::new(30.0, 10.0));
+    harness.add_sketch(free);
+    harness.settle();
+    harness.perform(Action::Preferences(PreferencesCommand::Change(
+        PreferenceChange::View(crate::themes::ViewChoice::Light),
+    )));
+    harness.frame();
+    harness.frame();
+    let view = harness.workspace.viewport.view_pixels().unwrap();
+
+    let image = harness
+        .workspace
+        .viewport
+        .image(&harness.model, &harness.workspace.editing, view);
+    let mut shown = harness.built().scene;
+    shown.grid = None;
+
+    assert_eq!(
+        harness.workspace.viewport.canvas(),
+        crate::scene_palette::Canvas::Light
+    );
+    assert_eq!(image.scene, shown);
+}
+
+#[test]
 fn exporting_an_image_writes_a_png_of_the_view_without_highlights_at_the_chosen_size() {
     let dir = TempDir::new().unwrap();
     let mut harness = Harness::with_directories(Some(dir.path()));

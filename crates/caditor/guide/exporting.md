@@ -31,7 +31,8 @@ them.
 ## Images
 
 {command:file.export_image} saves the 3D view as a PNG at any size, with the view's background or a
-transparent one. Hover, selection and labels are left out.
+transparent one, in the colours the view shows, light or dark. Hover, selection and labels are
+left out.
 
 ## Drawings
 

@@ -1430,7 +1430,7 @@ impl ViewportState {
             aids: ViewAids::default(),
             analyses: &Analyses::default(),
             contrast: Contrast::Standard,
-            canvas: Canvas::Dark,
+            canvas: self.canvas,
             draft: None,
         };
         let context = editing.context();
@@ -1462,7 +1462,13 @@ impl ViewportState {
 
     pub fn thumbnail(&self, model: &Model, bodies: &[FeatureId], size: SurfaceSize) -> ImageView {
         let meshes = self.bodies.only(bodies);
-        let snapshot = snapshot::of_bodies(model.document(), model.evaluation(), &meshes, size);
+        let snapshot = snapshot::of_bodies(
+            model.document(),
+            model.evaluation(),
+            &meshes,
+            size,
+            Canvas::default(),
+        );
         ImageView {
             view: snapshot.view,
             scene: snapshot.scene,

@@ -423,14 +423,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Viewer
 
-- [medium · easy] Exported images draw the dark view's palette on the light view's background:
-  `ViewportState::image` builds the scene with `canvas: Canvas::Dark` fixed, while the "3D view"
-  background (`Background::Viewport`) is the renderer's current one, light when the 3D view is
-  light, so a free sketch on Paper or with the view set to light exports in near-white curves on
-  near-white (`STANDARD`'s free curve and origin on `Canvas::Light`), against `app-files.md`'s
-  image drawn as shown. Version-history previews build theirs with `Canvas::default()` too
-  (`snapshot.rs`), drawn on the light background there. Pass the view's canvas; pin it beside
-  `exporting_an_image_writes_a_png_of_the_view_without_highlights_at_the_chosen_size`.
 - [medium · medium] High contrast holds edges and face highlights to 3:1 only on the default body
   colour: `scene::body_color` draws a sound body in its painted colour in every palette and
   `face_looks` keeps face colours, while `scene_palette.rs`'s

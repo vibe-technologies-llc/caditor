@@ -22,6 +22,7 @@ use crate::{
     appearance,
     history::{self, HistoryCommand},
     image_export::ReadPixels,
+    scene_palette::Canvas,
     snapshot::{self, Snapshot, Unmeshed},
     widgets::{self, Tone},
 };
@@ -266,6 +267,7 @@ pub struct Prepared {
 pub fn prepare(
     path: &Path,
     index: usize,
+    canvas: Canvas,
     progress: &Progress,
     cancel: &CancelToken,
 ) -> Result<Prepared, PreviewFailure> {
@@ -288,7 +290,7 @@ pub fn prepare(
         Ok(None)
     } else {
         progress.set(Stage::Meshing);
-        match snapshot::take_unless(&loaded.document, &evaluation, PICTURE_SIZE, cancel) {
+        match snapshot::take_unless(&loaded.document, &evaluation, PICTURE_SIZE, canvas, cancel) {
             Ok(snapshot) => Ok(Some(snapshot)),
             Err(Unmeshed::Cancelled) => return Err(PreviewFailure::Cancelled),
             Err(unmeshed) => Err(PictureFailure::Unmeshed(unmeshed)),
@@ -691,7 +693,14 @@ mod tests {
         caditor_file::save(&changed, &path, false).unwrap();
 
         let progress = Progress::default();
-        let prepared = prepare(&path, 0, &progress, &CancelToken::never()).unwrap();
+        let prepared = prepare(
+            &path,
+            0,
+            Canvas::default(),
+            &progress,
+            &CancelToken::never(),
+        )
+        .unwrap();
 
         assert_eq!(prepared.summary.features, document.features().len());
         assert!(prepared.summary.bodies > 0);
@@ -703,10 +712,22 @@ mod tests {
             ["width"]
         );
 
-        let cancelled = prepare(&path, 0, &progress, &CancelToken::new(|| true));
+        let cancelled = prepare(
+            &path,
+            0,
+            Canvas::default(),
+            &progress,
+            &CancelToken::new(|| true),
+        );
         assert_eq!(cancelled.err(), Some(PreviewFailure::Cancelled));
         assert!(matches!(
-            prepare(&path, 7, &progress, &CancelToken::never()),
+            prepare(
+                &path,
+                7,
+                Canvas::default(),
+                &progress,
+                &CancelToken::never()
+            ),
             Err(PreviewFailure::Unreadable(LoadError::VersionUnavailable))
         ));
     }
