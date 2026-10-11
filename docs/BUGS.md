@@ -272,15 +272,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   draws two "Group 1" folders, and Rename group and Ungroup (`group_run`) reach one half. Give an
   inserted feature the group its neighbours at the bar share; pin it beside
   `moving_into_the_middle_of_a_group_joins_it_and_moving_out_leaves_it` (`grouping_tests.rs`).
-- [low · easy] Undoing back to the saved state of a model with a kept measurement leaves it marked
-  unsaved: `Model::changed` judges `dirty` right after the undo, while the measured parameter
-  still holds the reading `follow_readings` wrote for the undone revision, and the next
-  evaluation writes the old reading back without judging it again (`dirty` is set only in
-  `changed`, after a save and on load), so the title keeps its Unsaved pill and Close or Open asks
-  to save a model equal to the saved one. Clear `dirty` when a follow brings the document back to
-  the saved one (never set it there, as following never makes a model unsaved); pin it beside
-  `a_measured_distance_is_kept_in_the_model_and_follows_upstream_edits`
-  (`ui_tests/cancel_and_parameters.rs`).
 - [low · easy] Clear face colours, and the selected faces' body-colour swatch, also drop the
   opacity and finish a STEP import gave faces: `body_appearance.rs` clears with
   `faces: Vec::new()` and `with_face_colours` with no colour filters the selected faces' entries

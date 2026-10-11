@@ -59,7 +59,8 @@ paths:
   result, tinted if failed or outdated; suppressed and rolled-back ones are neither drawn nor
   picked (`Document::active_features`).
 - `Model` also owns the file session: path, last saved document (unsaved exactly when the
-  document differs from it, and always when unknown, e.g. after restoring a rebased journal), the
+  document differs from it, and always when unknown, e.g. after restoring a rebased journal; a
+  followed measurement reading that brings the document back to it clears the mark), the
   journal's base and entries since it, and the `Storage` worker every change is recorded to.
   While the journal cannot be written the status bar shows Not protected.
 

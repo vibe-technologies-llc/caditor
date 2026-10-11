@@ -4,6 +4,7 @@ use caditor_document::{
 use caditor_expression::{Expression, ParameterId};
 use caditor_geometry::Point3;
 use egui::{Id, Key, Modifiers};
+use tempfile::TempDir;
 
 use super::{Harness, extruded_plate, offer, run_from_palette, top_edge_along_x, vertex_at};
 use crate::{
@@ -500,6 +501,48 @@ fn a_measured_distance_is_kept_in_the_model_and_follows_upstream_edits() {
             .map(|status| &status.state),
         Some(&caditor_document::FeatureState::UpToDate)
     );
+}
+
+#[test]
+fn undoing_back_to_the_saved_state_of_a_model_with_a_kept_measurement_leaves_it_saved() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("plate.caditor");
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    let (body, _) = extruded_plate(&mut harness);
+    let far_point = Point3::new(40.0, 40.0, 10.0);
+    let corner = vertex_at(&harness, body, Point3::ZERO);
+    let far = vertex_at(&harness, body, far_point);
+    harness.key(Key::I, Modifiers::NONE);
+    harness.frame();
+    harness.select([corner, far]);
+    let expected = LengthUnit::Millimetre.measured_length(Point3::ZERO.distance(far_point));
+    harness.wait_until("the distance is measured", |harness| {
+        harness.shows(&expected)
+    });
+    harness.click_button("More for Distance");
+    harness.show_new_windows();
+    harness.click(measurement_tools::KEEP);
+    harness.settle();
+    harness.frame();
+
+    harness.answer_dialog(Some(path));
+    harness.key(Key::S, Modifiers::COMMAND | Modifiers::SHIFT);
+    harness.wait_until("the model is saved", |harness| {
+        harness.model.path().is_some() && !harness.model.is_saving() && !harness.model.is_dirty()
+    });
+
+    harness.perform(Action::Editing(EditingCommand::OpenSolid(body)));
+    harness.type_into_field(distance_field(body), "20 mm");
+    harness.settle();
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.settle();
+    let edited = harness.model.is_dirty();
+
+    harness.perform(Action::Undo);
+    harness.settle();
+
+    assert!(edited);
+    assert!(!harness.model.is_dirty());
 }
 
 #[test]
