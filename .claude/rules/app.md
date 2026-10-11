@@ -597,7 +597,7 @@ paths:
 ## About, command line, accessibility, packaging
 
 - `cli.rs`: `caditor [FILE]`; a `.dxf` or STEP file (by extension or header) goes to import as if
-  dropped, anything else to Open. `caditor --export OUT [--resolution ...] [--size WxH] MODEL`
+  dropped, anything else to Open. `caditor --export OUT [--resolution ...] [--size WxH] [--configuration NAME | --all-configurations] MODEL`
   (`headless.rs`) opens no window: it loads a caditor model or imports a STEP file, recomputes
   without display work, exports every body that built to the format `OUT`'s extension names and
   prints a summary. A `.png` instead recomputes with display work and draws the scene the way the
@@ -605,7 +605,14 @@ paths:
   highlights, 1920×1080 unless `--size` says otherwise) on an `OffscreenRenderer`, so it needs a
   graphics adapter and refuses `--size` for any other format; load issues and left-out bodies are warnings, a failed feature a warning that
   also makes the exit status 2 (`PARTIAL_EXIT_STATUS`), and a model with no body, a DXF or SVG drawing,
-  an unreadable file or an unknown extension an error that writes nothing. The desktop entry also
+  an unreadable file or an unknown extension an error that writes nothing. `--configuration NAME`
+  (`ConfigurationChoice::Named`, matched ignoring case) exports a copy of the document switched to
+  that configuration (`Document::activating`), an unknown name or a model without configurations
+  refused naming the ones it has; `--all-configurations` (`ConfigurationChoice::Every`) exports
+  each configuration to the file `configuration_export::files_beside` plans next to `OUT`, as the
+  window's Every configuration does but keeping `OUT`'s own extension, a configuration that
+  cannot be switched to or has no body a warning that makes the status 2
+  (`Converted::configurations_left_out`), and only none exported an error. The desktop entry also
   offers STEP (`model/step`) and DXF (`image/vnd.dxf`).
 - AccessKit (`egui-winit`'s `accesskit` feature): the window is created hidden, the adapter
   attached, then shown. The status bar notice and the failed-features pill are live regions

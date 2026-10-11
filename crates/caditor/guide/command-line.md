@@ -12,9 +12,14 @@ built to `OUT`, in the format its extension names: `.step` or `.stp`, `.stl`, `.
 - `--resolution coarse`, `standard` or `fine` sets the mesh quality of STL and 3MF.
 - `--size 1920x1080` sets the size of a PNG, which is drawn like an exported image and needs a
   graphics adapter.
+- `--configuration NAME` exports the model in that [configuration](configurations) instead of
+  the active one; the model file is not changed.
+- `--all-configurations` writes every configuration to a file of its own beside `OUT`, named as
+  Export's Every configuration names them: `--export bracket.stl` writes "bracket M4.stl",
+  "bracket M8.stl" and so on, never `OUT` itself.
 
 The exit status is 0 when everything exported, 2 when a feature failed (its body is exported as
-last computed, with a warning), and 1 with nothing written when the model has no body or cannot be
-read.
+last computed, with a warning) or a configuration could not be exported while others were, and 1
+with nothing written when the model has no body, has no such configuration or cannot be read.
 
 `caditor --help` lists the options and `caditor --version` prints the version.

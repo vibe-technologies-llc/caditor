@@ -231,12 +231,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Application
 
-- [medium · easy] The command line exports only the active configuration: `caditor --export`
-  (`cli.rs`, `headless.rs`) takes no configuration, though the window already exports one file
-  per configuration (`configuration_export.rs`, `ConfigurationJob`), so size variants kept as
-  configurations cannot be exported from a script or CI. Add `--configuration NAME` and
-  `--all-configurations`, naming files as the window does; this is not the scripting entry below,
-  which needs a language and safety decision this does not.
 - [medium · hard] Pasting features cannot carry a feature that picks faces or edges of another
   copied feature (a fillet copied with its extrusion): face and edge names are digests over the
   feature id, so the copy is left out with the reason. Renaming them needs each picked face or edge

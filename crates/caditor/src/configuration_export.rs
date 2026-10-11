@@ -1,6 +1,6 @@
 use std::{
     collections::BTreeSet,
-    ffi::OsString,
+    ffi::{OsStr, OsString},
     path::{Path, PathBuf},
     sync::{
         Arc,
@@ -90,13 +90,27 @@ fn label(name: &str, position: usize) -> String {
     }
 }
 
-fn file_for(path: &Path, label: &str, format: ExportFormat) -> PathBuf {
+fn file_for(path: &Path, label: &str, finish: &impl Fn(PathBuf) -> PathBuf) -> PathBuf {
     let mut file = path.file_stem().map(OsString::from).unwrap_or_default();
     if !file.is_empty() {
         file.push(" ");
     }
     file.push(label);
-    with_format_extension(path.with_file_name(file), format)
+    finish(path.with_file_name(file))
+}
+
+fn with_extension_of(file: PathBuf, extension: &OsStr) -> PathBuf {
+    let kept = file.extension().is_some_and(|own| {
+        own.to_string_lossy()
+            .eq_ignore_ascii_case(&extension.to_string_lossy())
+    });
+    if kept || extension.is_empty() {
+        return file;
+    }
+    let mut named = file.into_os_string();
+    named.push(".");
+    named.push(extension);
+    PathBuf::from(named)
 }
 
 fn folded(path: &Path) -> String {
@@ -111,6 +125,26 @@ pub fn files_for(
     configurations: Vec<(ConfigurationId, String)>,
     format: ExportFormat,
 ) -> Vec<ConfigurationFile> {
+    planned(path, configurations, &|file| {
+        with_format_extension(file, format)
+    })
+}
+
+pub fn files_beside(
+    path: &Path,
+    configurations: Vec<(ConfigurationId, String)>,
+) -> Vec<ConfigurationFile> {
+    let extension = path.extension().map(OsString::from).unwrap_or_default();
+    planned(path, configurations, &|file| {
+        with_extension_of(file, &extension)
+    })
+}
+
+fn planned(
+    path: &Path,
+    configurations: Vec<(ConfigurationId, String)>,
+    finish: &impl Fn(PathBuf) -> PathBuf,
+) -> Vec<ConfigurationFile> {
     let labels: Vec<String> = configurations
         .iter()
         .zip(1..)
@@ -118,7 +152,7 @@ pub fn files_for(
         .collect();
     let natural: BTreeSet<String> = labels
         .iter()
-        .map(|label| folded(&file_for(path, label, format)))
+        .map(|label| folded(&file_for(path, label, finish)))
         .collect();
 
     let mut taken = BTreeSet::new();
@@ -126,11 +160,11 @@ pub fn files_for(
         .into_iter()
         .zip(labels)
         .map(|((id, name), label)| {
-            let mut file = file_for(path, &label, format);
+            let mut file = file_for(path, &label, finish);
             let mut copy = 1;
             while taken.contains(&folded(&file)) || (copy > 1 && natural.contains(&folded(&file))) {
                 copy += 1;
-                file = file_for(path, &format!("{label} ({copy})"), format);
+                file = file_for(path, &format!("{label} ({copy})"), finish);
             }
             taken.insert(folded(&file));
             ConfigurationFile {
@@ -208,7 +242,7 @@ fn quoted(path: &Path) -> String {
     format!("“{}”", display_name(Some(path)))
 }
 
-fn listed(items: &[String]) -> String {
+pub fn listed(items: &[String]) -> String {
     match items {
         [] => String::new(),
         [only] => only.clone(),

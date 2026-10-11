@@ -3,7 +3,10 @@ use std::{ffi::OsString, path::PathBuf};
 use caditor_file::MeshResolution;
 use caditor_render::SurfaceSize;
 
-use crate::{about, headless::Conversion};
+use crate::{
+    about,
+    headless::{ConfigurationChoice, Conversion},
+};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Invocation {
@@ -21,6 +24,8 @@ impl Invocation {
         let mut output = None;
         let mut resolution = None;
         let mut size = None;
+        let mut configuration = None;
+        let mut every_configuration = false;
         let mut arguments = arguments.into_iter();
         while let Some(argument) = arguments.next() {
             if options_ended {
@@ -66,6 +71,18 @@ impl Invocation {
                         }
                     }
                 }
+                Some("--configuration") => {
+                    match arguments.next().and_then(|name| name.into_string().ok()) {
+                        Some(name) if !name.trim().is_empty() => configuration = Some(name),
+                        _ => {
+                            return Self::Refused(needs_a_value(
+                                "--configuration",
+                                "the name of a configuration",
+                            ));
+                        }
+                    }
+                }
+                Some("--all-configurations") => every_configuration = true,
                 Some(option) if option.starts_with('-') && option.len() > 1 => {
                     return Self::Refused(format!(
                         "unknown option {option}; run {} --help to see what it accepts",
@@ -81,6 +98,16 @@ impl Invocation {
                 about::NAME
             ));
         }
+        let configurations = match (configuration, every_configuration) {
+            (Some(_), true) => {
+                return Self::Refused(
+                    "--configuration and --all-configurations cannot be used together".to_owned(),
+                );
+            }
+            (Some(name), false) => Some(ConfigurationChoice::Named(name)),
+            (None, true) => Some(ConfigurationChoice::Every),
+            (None, false) => None,
+        };
         let model = paths.pop().map(PathBuf::from);
         match (output, model) {
             (Some(output), Some(model)) => Self::Convert(Conversion {
@@ -88,6 +115,7 @@ impl Invocation {
                 output,
                 resolution: resolution.unwrap_or_default(),
                 size,
+                configurations: configurations.unwrap_or_default(),
             }),
             (Some(_), None) => Self::Refused("--export needs the model to export".to_owned()),
             (None, _) if resolution.is_some() => {
@@ -95,6 +123,12 @@ impl Invocation {
             }
             (None, _) if size.is_some() => {
                 Self::Refused("--size only applies to --export".to_owned())
+            }
+            (None, _) if configurations == Some(ConfigurationChoice::Every) => {
+                Self::Refused("--all-configurations only applies to --export".to_owned())
+            }
+            (None, _) if configurations.is_some() => {
+                Self::Refused("--configuration only applies to --export".to_owned())
             }
             (None, open) => Self::Run { open },
         }
@@ -128,7 +162,9 @@ pub fn usage() -> String {
          .3mf, .obj, .glb, .step, .stp or .png) and exit, without opening a window; the status is 2 when a \
          feature failed\n  --resolution <NAME>     Mesh quality for STL and 3MF: \
          coarse, standard (the default) or fine\n  --size <WxH>            \
-         Pixels of a .png export, 1920x1080 by default\n  -h, --help              Show this help\n  -V, \
+         Pixels of a .png export, 1920x1080 by default\n  --configuration <NAME>  \
+         Export MODEL in that configuration instead of the active one\n  --all-configurations    \
+         Export each configuration to its own file beside FILE, named after it\n  -h, --help              Show this help\n  -V, \
          --version           Show the version\n",
         about::version_line(),
         about::NAME
@@ -215,6 +251,7 @@ mod tests {
                 output: PathBuf::from("out.step"),
                 resolution: MeshResolution::Standard,
                 size: None,
+                configurations: ConfigurationChoice::Active,
             })
         );
         assert_eq!(
@@ -230,6 +267,7 @@ mod tests {
                 output: PathBuf::from("out.stl"),
                 resolution: MeshResolution::Fine,
                 size: None,
+                configurations: ConfigurationChoice::Active,
             })
         );
     }
@@ -246,6 +284,7 @@ mod tests {
                     width: 800,
                     height: 600,
                 }),
+                configurations: ConfigurationChoice::Active,
             })
         );
         assert_eq!(
@@ -258,6 +297,27 @@ mod tests {
         assert_eq!(size_named("0x480"), None);
         assert_eq!(size_named("wide"), None);
         assert_eq!(size_named("640x"), None);
+    }
+
+    #[test]
+    fn export_takes_one_configuration_or_every_one() {
+        let chosen = |arguments: &[&str]| match parse(arguments) {
+            Invocation::Convert(conversion) => conversion.configurations,
+            other => panic!("{other:?}"),
+        };
+
+        assert_eq!(
+            chosen(&["--export", "o.stl", "--configuration", "M8", "p.caditor"]),
+            ConfigurationChoice::Named("M8".to_owned())
+        );
+        assert_eq!(
+            chosen(&["--all-configurations", "--export", "o.stl", "p.caditor"]),
+            ConfigurationChoice::Every
+        );
+        assert_eq!(
+            chosen(&["--export", "o.stl", "p.caditor"]),
+            ConfigurationChoice::Active
+        );
     }
 
     #[test]
@@ -290,6 +350,29 @@ mod tests {
         assert_eq!(
             refused(&["--size", "big", "--export", "o.png", "p.caditor"]),
             "--size takes a width and a height in pixels, such as 1920x1080"
+        );
+        assert_eq!(
+            refused(&["--export", "o.stl", "p.caditor", "--configuration"]),
+            "--configuration needs the name of a configuration after it"
+        );
+        assert_eq!(
+            refused(&[
+                "--configuration",
+                "M4",
+                "--all-configurations",
+                "--export",
+                "o.stl",
+                "p.caditor"
+            ]),
+            "--configuration and --all-configurations cannot be used together"
+        );
+        assert_eq!(
+            refused(&["--configuration", "M4", "part.caditor"]),
+            "--configuration only applies to --export"
+        );
+        assert_eq!(
+            refused(&["--all-configurations", "part.caditor"]),
+            "--all-configurations only applies to --export"
         );
     }
 
