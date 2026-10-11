@@ -7,18 +7,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Files and recovery
 
-- [medium · easy] A hostile mesh or drawing import can abort the process by exhausting memory
-  before any limit is checked, losing the session to the journal: 3MF placement
-  (`import/mesh.rs`, `Placement::add_mesh`) pushes every vertex of an object again on each of up to
-  `MAX_PLACED_OBJECTS` (1,000,000) placements and checks only `triangles.len()` against
-  `MAX_PLACED_TRIANGLES`, so a 1,000-vertex object with no triangles placed a million times asks
-  for 10⁹ points (about 24 GB) from a package of a few MB (`mesh_tests.rs`'s bomb test uses a
-  three-vertex leaf); and DXF reading (`import/dxf/mod.rs`, `DxfFile::read`) counts only a
-  record's stored pairs towards `MAX_DRAWING_VALUES`, so a record of a bare `0`/`POINT` pair adds
-  nothing while still costing a `Record`, an `Item` and a `Prepared` of a few hundred bytes, about
-  forty times its size in the file (`only_kept_values_count_towards_the_limit` pins that
-  accounting). Charge placed vertices with the triangles, and every kept record (and block and
-  layer entry) against the limit.
 - [medium · easy] Results that arrive after a file picker or a background check are applied to
   the model as it is then, with no second look: `open` and `load_template` (`files.rs`,
   `files/templates.rs`) take `model.revision()` only after the picker returns, so a clean model

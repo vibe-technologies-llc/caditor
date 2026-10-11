@@ -12,7 +12,10 @@ paths:
   plain-language notes; only header, layers, MLINESTYLEs, blocks and entities are kept.
 - Text is UTF-8 when valid, else in the header's `$DWGCODEPAGE` (`code_page.rs`; unknown reads as
   1252).
-- Hostile-input limits, each an `ImportError` naming it: `MAX_DRAWING_VALUES`,
+- Hostile-input limits, each an `ImportError` naming it: `MAX_DRAWING_VALUES` (`DxfFile::read`
+  charges, before keeping it, every kept record its pairs plus `RECORD_VALUES`, its `Record`,
+  `Item` and `Prepared` measured in pairs, and every layer, dashed linetype, block and MLINESTYLE
+  entry `RECORD_VALUES`, so a file of bare `0`/`POINT` records ends there too),
   `MAX_EXPANDED_OBJECTS` (block expansion, charged per object and per decoded shape, so a long
   polyline repeated in a huge array ends there), `MAX_DRAWING_POINTS`. Curves past
   `MAX_READ_CURVES` are left out with a note and the first ones read; the rest of an item past the
@@ -267,8 +270,9 @@ paths:
   never roxmltree, whose recursion a deeply nested part would overflow, and past
   `MAX_MODEL_ELEMENTS` elements the file is `ModelTooManyElements`). Objects are indexed by id in
   an `UntrustedMap`, and component expansion is charged: every placed object against
-  `MAX_EXPANDED_OBJECTS` and the placed triangles against `MAX_MODEL_ELEMENTS`, past either the
-  file is `ModelPlacesTooMuch`, and each placed object polls the kernel interrupt so Cancel
+  `MAX_EXPANDED_OBJECTS`, and the placed vertices and triangles each against
+  `MAX_MODEL_ELEMENTS`, counted for a mesh before any of its vertices is pushed
+  (`Placement::add_mesh`); past any of them the file is `ModelPlacesTooMuch`, and each placed object polls the kernel interrupt so Cancel
   stops it. STL and OBJ have no units, so they read as millimetres with a note.
 - The triangles become solids through the kernel's `faceted_solids` (`kernel.md`), each
   canonicalised like a STEP body and imported as an `Import` named after the file; what the

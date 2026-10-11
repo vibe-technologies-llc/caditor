@@ -204,9 +204,10 @@ pub enum ImportError {
     )]
     ModelTooManyElements,
     #[error(
-        "its components place more than {} objects or {} triangles in all, more than caditor \
-         reads from one 3MF; reduce how often its parts are reused",
+        "its components place more than {} objects, {} vertices or {} triangles in all, more \
+         than caditor reads from one 3MF; reduce how often its parts are reused",
         mesh::MAX_PLACED_OBJECTS,
+        mesh::MAX_PLACED_VERTICES,
         mesh::MAX_PLACED_TRIANGLES
     )]
     ModelPlacesTooMuch,
@@ -249,7 +250,7 @@ pub enum ImportError {
     )]
     TooDetailed,
     #[error(
-        "its blocks and entities hold more than {MAX_DRAWING_VALUES} values, more than caditor \
+        "its layers, blocks and entities hold more than {MAX_DRAWING_VALUES} values, more than caditor \
          reads from one drawing; split it into smaller drawings"
     )]
     TooManyValues,

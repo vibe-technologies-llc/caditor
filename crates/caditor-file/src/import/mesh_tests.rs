@@ -289,6 +289,34 @@ fn a_3mf_whose_components_place_billions_of_objects_is_refused_promptly() {
 }
 
 #[test]
+fn a_3mf_placing_a_triangle_less_object_a_million_times_is_refused_before_its_vertices_are() {
+    let mut model =
+        String::from("<model unit=\"millimeter\"><resources><object id=\"1\"><mesh><vertices>");
+    for vertex in 0..1000 {
+        write!(model, "<vertex x=\"{vertex}\" y=\"0\" z=\"0\"/>").unwrap();
+    }
+    model.push_str("</vertices><triangles/></mesh></object>");
+    for level in 2..=3 {
+        write!(model, "<object id=\"{level}\"><components>").unwrap();
+        for _ in 0..1000 {
+            write!(model, "<component objectid=\"{}\"/>", level - 1).unwrap();
+        }
+        model.push_str("</components></object>");
+    }
+    model.push_str("</resources><build><item objectid=\"3\"/></build></model>");
+
+    assert_eq!(
+        parse_mesh(
+            &model_package(&model),
+            MeshFormat::ThreeMf,
+            "points.3mf",
+            "points"
+        ),
+        Err(ImportError::ModelPlacesTooMuch)
+    );
+}
+
+#[test]
 fn a_cancelled_token_stops_a_3mf_components_expansion() {
     let stopped = interruptible(Arc::new(|| true), || {
         parse_mesh(&component_bomb(), MeshFormat::ThreeMf, "bomb.3mf", "bomb")

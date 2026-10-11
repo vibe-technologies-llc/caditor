@@ -399,6 +399,7 @@ impl<'a> DxfFile<'a> {
             }
             match section.as_deref() {
                 Some("TABLES") if record.kind == "LAYER" => {
+                    charge(&mut kept, RECORD_VALUES, limit)?;
                     let name = record.text(2).unwrap_or_default().to_ascii_uppercase();
                     let off = record.field(62).and_then(Pair::integer).unwrap_or(7) < 0;
                     let frozen = record.flags(70) & FROZEN_LAYER != 0;
@@ -412,12 +413,14 @@ impl<'a> DxfFile<'a> {
                 }
                 Some("TABLES") if record.kind == "LTYPE" => {
                     if record.flags(73) > 0 {
+                        charge(&mut kept, RECORD_VALUES, limit)?;
                         let name = record.text(2).unwrap_or_default().to_ascii_uppercase();
                         file.dashed_linetypes.insert(name);
                     }
                 }
                 Some("BLOCKS") => match record.kind.as_str() {
                     "BLOCK" => {
+                        charge(&mut kept, RECORD_VALUES, limit)?;
                         block = Some((
                             record.text(2).unwrap_or_default().to_ascii_uppercase(),
                             Block {
@@ -434,20 +437,20 @@ impl<'a> DxfFile<'a> {
                     }
                     _ => {
                         if let Some((_, open)) = &mut block {
-                            kept = kept.saturating_add(record.pairs.len());
+                            charge(&mut kept, kept_record_values(&record), limit)?;
                             open.records.push(record);
                         }
                     }
                 },
                 Some("ENTITIES") => {
-                    kept = kept.saturating_add(record.pairs.len());
+                    charge(&mut kept, kept_record_values(&record), limit)?;
                     file.entities.push(record);
                 }
-                Some("OBJECTS") if record.kind == "MLINESTYLE" => file.line_styles.add(&record),
+                Some("OBJECTS") if record.kind == "MLINESTYLE" => {
+                    charge(&mut kept, RECORD_VALUES, limit)?;
+                    file.line_styles.add(&record);
+                }
                 _ => {}
-            }
-            if kept > limit {
-                return Err(ImportError::TooManyValues);
             }
         }
         if sections == 0 {
@@ -455,6 +458,21 @@ impl<'a> DxfFile<'a> {
         }
         Ok(file)
     }
+}
+
+const RECORD_VALUES: usize =
+    (size_of::<Record>() + size_of::<Item>() + size_of::<Prepared>()).div_ceil(size_of::<Pair>());
+
+fn kept_record_values(record: &Record) -> usize {
+    RECORD_VALUES.saturating_add(record.pairs.len())
+}
+
+fn charge(kept: &mut usize, values: usize, limit: usize) -> Result<(), ImportError> {
+    *kept = kept.saturating_add(values);
+    if *kept > limit {
+        return Err(ImportError::TooManyValues);
+    }
+    Ok(())
 }
 
 fn header_units(header: &Record) -> HeaderUnits {
@@ -1351,10 +1369,11 @@ mod tests {
     }
 
     #[test]
-    fn only_kept_values_count_towards_the_limit() {
+    fn only_kept_records_and_values_count_towards_the_limit() {
         let text = drawing(10, 1000);
+        let ten_points = 10 * (RECORD_VALUES + 3);
 
-        let file = read(&text, 30).unwrap();
+        let file = read(&text, ten_points).unwrap();
         let point = file.entities.first().unwrap();
 
         assert_eq!(file.entities.len(), 10);
@@ -1364,11 +1383,57 @@ mod tests {
             Value::Text(Cow::Borrowed("0"))
         ));
         assert!(matches!(
-            read(&drawing(11, 0), 30),
+            read(&drawing(11, 0), ten_points),
             Err(ImportError::TooManyValues)
         ));
         assert!(matches!(
             read(&drawing(0, 1), 1),
+            Err(ImportError::TooManyValues)
+        ));
+    }
+
+    fn bare_records(section: &str, kind: &str, count: usize) -> String {
+        let mut text = format!("0\nSECTION\n2\n{section}\n");
+        for _ in 0..count {
+            text.push_str(&format!("0\n{kind}\n"));
+        }
+        text.push_str("0\nENDSEC\n0\nEOF\n");
+        text
+    }
+
+    #[test]
+    fn a_drawing_of_bare_records_is_refused_before_they_outgrow_the_limit() {
+        let limit = 1000 * RECORD_VALUES;
+
+        assert_eq!(
+            read(&bare_records("ENTITIES", "POINT", 1000), limit)
+                .unwrap()
+                .entities
+                .len(),
+            1000
+        );
+        for (section, kind) in [
+            ("ENTITIES", "POINT"),
+            ("BLOCKS", "BLOCK"),
+            ("TABLES", "LAYER"),
+            ("OBJECTS", "MLINESTYLE"),
+        ] {
+            assert!(
+                matches!(
+                    read(&bare_records(section, kind, 1001), limit),
+                    Err(ImportError::TooManyValues)
+                ),
+                "{kind}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_drawing_of_millions_of_bare_points_is_refused() {
+        let points = MAX_DRAWING_VALUES / RECORD_VALUES + 1;
+
+        assert!(matches!(
+            parse_dxf(bare_records("ENTITIES", "POINT", points).as_bytes()),
             Err(ImportError::TooManyValues)
         ));
     }

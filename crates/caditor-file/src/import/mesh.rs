@@ -28,6 +28,7 @@ const THREE_MF_RELATIONSHIPS: &str = "_rels/.rels";
 const THREE_MF_MODEL_TYPE: &str = "http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel";
 const MAX_COMPONENT_DEPTH: usize = 16;
 pub(super) const MAX_PLACED_OBJECTS: usize = MAX_EXPANDED_OBJECTS;
+pub(super) const MAX_PLACED_VERTICES: usize = MAX_MODEL_ELEMENTS;
 pub(super) const MAX_PLACED_TRIANGLES: usize = MAX_MODEL_ELEMENTS;
 pub(super) const MAX_MODEL_ELEMENTS: usize = 4_000_000;
 const NO_UNITS_NOTE: &str = "The file gives no units, so its sizes were read as millimetres; if the \
@@ -431,10 +432,7 @@ impl<'a, 't: 'a> Placement<'a, 't> {
         }
         let node = *self.objects.get(id).ok_or_else(damaged)?;
         if let Some(shape) = node.children().find(|child| child.name() == "mesh") {
-            self.add_mesh(shape, placed).ok_or_else(damaged)?;
-            if self.mesh.triangles.len() > MAX_PLACED_TRIANGLES {
-                return Err(ImportError::ModelPlacesTooMuch);
-            }
+            self.add_mesh(shape, placed)?;
         }
         for component in node
             .descendants()
@@ -447,13 +445,31 @@ impl<'a, 't: 'a> Placement<'a, 't> {
         Ok(())
     }
 
-    fn add_mesh(&mut self, shape: Node<'a, 't>, placed: Transform) -> Option<()> {
+    fn add_mesh(&mut self, shape: Node<'a, 't>, placed: Transform) -> Result<(), ImportError> {
+        let vertices = || shape.descendants().filter(|child| child.name() == "vertex");
+        let triangles = || {
+            shape
+                .descendants()
+                .filter(|child| child.name() == "triangle")
+        };
         let mesh = &mut self.mesh;
         let start = mesh.positions.len();
-        let coordinate = |vertex: Node<'_, '_>, name: &str| -> Option<f64> {
-            vertex.attribute(name)?.parse().ok()
+        let count = vertices().count();
+
+        let placed_vertices = start.saturating_add(count);
+        let placed_triangles = mesh.triangles.len().saturating_add(triangles().count());
+        if placed_vertices > MAX_PLACED_VERTICES || placed_triangles > MAX_PLACED_TRIANGLES {
+            return Err(ImportError::ModelPlacesTooMuch);
+        }
+
+        let damaged = || ImportError::DamagedMesh(MeshFormat::ThreeMf.name());
+        let coordinate = |vertex: Node<'_, '_>, name: &str| -> Result<f64, ImportError> {
+            vertex
+                .attribute(name)
+                .and_then(|value| value.parse().ok())
+                .ok_or_else(damaged)
         };
-        for vertex in shape.descendants().filter(|child| child.name() == "vertex") {
+        for vertex in vertices() {
             let point = Point3::new(
                 coordinate(vertex, "x")?,
                 coordinate(vertex, "y")?,
@@ -461,19 +477,19 @@ impl<'a, 't: 'a> Placement<'a, 't> {
             );
             mesh.positions.push(placed.apply(point));
         }
-        let count = mesh.positions.len() - start;
-        for triangle in shape
-            .descendants()
-            .filter(|child| child.name() == "triangle")
-        {
-            let corner = |name: &str| -> Option<usize> {
-                let index: usize = triangle.attribute(name)?.parse().ok()?;
-                (index < count).then_some(start + index)
+        for triangle in triangles() {
+            let corner = |name: &str| -> Result<usize, ImportError> {
+                triangle
+                    .attribute(name)
+                    .and_then(|index| index.parse::<usize>().ok())
+                    .filter(|&index| index < count)
+                    .map(|index| start + index)
+                    .ok_or_else(damaged)
             };
             mesh.triangles
                 .push([corner("v1")?, corner("v2")?, corner("v3")?]);
         }
-        Some(())
+        Ok(())
     }
 }
 
