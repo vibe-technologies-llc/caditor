@@ -103,6 +103,46 @@ fn moving_into_the_middle_of_a_group_joins_it_and_moving_out_leaves_it() {
 }
 
 #[test]
+fn a_feature_created_at_a_rollback_bar_inside_a_group_joins_it() {
+    let (mut document, ids) = sketches(3);
+    let grouping = document
+        .grouping(&ids[0..2], "Group 1", "Group features")
+        .unwrap();
+    document.apply(grouping).unwrap();
+    let rollback = Transaction::single(
+        "Roll back",
+        Edit::SetRollbackBar {
+            bar: RollbackBar::Before(ids[1]),
+        },
+    );
+    document.apply(rollback).unwrap();
+
+    let mut transaction = document.transaction("Add");
+    let added = transaction.add_feature("Sketch 4", FeatureKind::from(Sketch::new(Plane::XY)));
+    document.apply(transaction.finish()).unwrap();
+
+    assert_eq!(order(&document), [ids[0], added, ids[1], ids[2]]);
+    assert_eq!(
+        groups(&document),
+        named(&[Some("Group 1"), Some("Group 1"), Some("Group 1"), None])
+    );
+    assert_eq!(document.group_run(added), [ids[0], added, ids[1]]);
+
+    let at_the_end = Transaction::single(
+        "Roll forward",
+        Edit::SetRollbackBar {
+            bar: RollbackBar::Before(ids[2]),
+        },
+    );
+    document.apply(at_the_end).unwrap();
+    let mut transaction = document.transaction("Add");
+    let after = transaction.add_feature("Sketch 5", FeatureKind::from(Sketch::new(Plane::XY)));
+    document.apply(transaction.finish()).unwrap();
+
+    assert_eq!(document.group_of(after), None);
+}
+
+#[test]
 fn a_group_name_is_one_trimmed_line_and_a_long_one_is_refused() {
     let (mut document, ids) = sketches(2);
     let set = |group: &str| {

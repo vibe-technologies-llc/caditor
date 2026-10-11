@@ -19,6 +19,17 @@ impl Document {
         self.feature(feature)?.group.as_deref()
     }
 
+    pub(crate) fn group_around(&self, index: usize) -> Option<String> {
+        let above = index
+            .checked_sub(1)
+            .and_then(|above| self.features.get(above))?;
+        let below = self.features.get(index)?;
+        above
+            .group
+            .clone()
+            .filter(|group| below.group.as_deref() == Some(group))
+    }
+
     pub fn group_run(&self, feature: FeatureId) -> Vec<FeatureId> {
         let features: Vec<&Feature> = self.features().collect();
         let Some(at) = features.iter().position(|found| found.id() == feature) else {

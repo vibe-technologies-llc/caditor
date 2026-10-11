@@ -121,17 +121,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   `Intricate`, which should read as `TooLarge`.
 
 
-## Application
-
-- [low · easy] A feature created at a rollback bar inside a folder splits the folder in two of the
-  same name: `TransactionBuilder::add_feature` inserts `Feature::new` (no group) at the bar, and
-  nothing applies the membership rule moves follow (`grouping::membership_edits`), so with A and B
-  grouped as "Group 1" and rolled back to A, a new sketch lands between them ungrouped, the tree
-  draws two "Group 1" folders, and Rename group and Ungroup (`group_run`) reach one half. Give an
-  inserted feature the group its neighbours at the bar share; pin it beside
-  `moving_into_the_middle_of_a_group_joins_it_and_moving_out_leaves_it` (`grouping_tests.rs`).
-
-
 ## Sketching
 
 - [medium · hard] Offset keeps one offset curve per original, so an offset that would drop a curve

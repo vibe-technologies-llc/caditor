@@ -648,6 +648,7 @@ pub struct TransactionBuilder<'a> {
     next_feature_id: u64,
     parameter_count: usize,
     next_feature_index: usize,
+    inserted_group: Option<String>,
     next_sketch_ids: BTreeMap<FeatureId, u64>,
 }
 
@@ -695,9 +696,11 @@ impl TransactionBuilder<'_> {
     pub fn add_feature(&mut self, name: impl Into<String>, kind: FeatureKind) -> FeatureId {
         let id = FeatureId::from_raw(self.next_feature_id);
         self.next_feature_id = self.next_feature_id.saturating_add(1);
+        let mut feature = Feature::new(id, name.into(), kind);
+        feature.group.clone_from(&self.inserted_group);
         self.edits.push(Edit::InsertFeature {
             index: self.next_feature_index,
-            feature: Arc::new(Feature::new(id, name.into(), kind)),
+            feature: Arc::new(feature),
         });
         self.next_feature_index += 1;
         id
@@ -707,6 +710,7 @@ impl TransactionBuilder<'_> {
         let id = FeatureId::from_raw(self.next_feature_id);
         self.next_feature_id = self.next_feature_id.saturating_add(1);
         feature.set_id(id);
+        feature.group.clone_from(&self.inserted_group);
         self.edits.push(Edit::InsertFeature {
             index: self.next_feature_index,
             feature: Arc::new(feature),
@@ -736,6 +740,7 @@ impl Document {
             next_feature_id: self.next_feature_id,
             parameter_count: self.parameters.len(),
             next_feature_index: self.bar_index(),
+            inserted_group: self.group_around(self.bar_index()),
             next_sketch_ids: BTreeMap::new(),
         }
     }

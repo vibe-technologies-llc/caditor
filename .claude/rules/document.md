@@ -146,7 +146,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 
 - `Document::paste_features` plans one transaction inserting copies of features at the rollback
   bar in the order given (tree order), each under a fresh id from `add_copied_feature` and named
-  "<name> copy" (numbered when taken), keeping hidden, suppressed and appearance but not the group.
+  "<name> copy" (numbered when taken), keeping hidden, suppressed and appearance; its group is the
+  one at the bar (Feature groups below), never its original's.
 - `FeatureKind::rename_features` rewrites the plain feature ids a kind holds (sketch, body, tools,
   datum and frame attachments, projections' bodies, sketches and datums). Inputs inside the copy
   are first renamed to placeholders above `PLACEHOLDER_BASE`; any input still among the copied
@@ -203,6 +204,10 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 - Moves keep folders whole: a feature moved (`move_row`, `move_features`) between two members of
   one group joins it, and a member moved where neither neighbour shares its group leaves it
   (`membership_edits`), in the same transaction as the move.
+- Inserts keep them whole too: a feature `TransactionBuilder::add_feature` or
+  `add_copied_feature` inserts at a rollback bar standing between two members of one group joins
+  that group (`group_around`, worked out when the builder starts), so a pasted copy takes the
+  folder at the bar rather than its original's.
 
 ## Model properties (`properties.rs`)
 

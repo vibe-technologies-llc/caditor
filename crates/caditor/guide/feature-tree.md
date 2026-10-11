@@ -57,7 +57,9 @@ it again after a stop.
 
 ## Organising
 
-- {command:model.group_features} puts the chosen rows in a folder; double-click it to rename.
+- {command:model.group_features} puts the chosen rows in a folder; double-click it to rename. A
+  feature moved into a folder, or made or pasted while the rollback bar stands inside one, joins
+  it.
 - {command:model.filter_features} filters the rows by name, by kind, such as "fillet", or by
   state: "failed", "outdated", "suppressed" or "hidden".
 - {command:model.copy_features} and {command:model.paste_features} copy features through the
