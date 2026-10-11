@@ -11,6 +11,7 @@ use crate::{
     lock::locked_update,
     os,
     read::read_file,
+    reason::UpdateFailure,
     save::{keep_unreadable, write_atomically},
 };
 
@@ -83,21 +84,22 @@ impl Settings {
         serde_json::to_vec_pretty(&self.values)
     }
 
-    pub fn save(&self, dir: &Path) -> io::Result<()> {
+    pub fn save(&self, dir: &Path) -> Result<(), UpdateFailure> {
         self.save_changes(dir, &Self::default())
     }
 
-    pub fn save_changes(&self, dir: &Path, since: &Self) -> io::Result<()> {
+    pub fn save_changes(&self, dir: &Path, since: &Self) -> Result<(), UpdateFailure> {
         locked_update(dir, LOCK_FILE, || self.merge_into_file(dir, since))
     }
 
-    fn merge_into_file(&self, dir: &Path, since: &Self) -> io::Result<()> {
+    fn merge_into_file(&self, dir: &Path, since: &Self) -> Result<(), UpdateFailure> {
         let path = dir.join(SETTINGS_FILE);
         let mut values = match read_file(&path) {
             Ok(bytes) => match serde_json::from_slice::<BTreeMap<String, Value>>(&bytes) {
                 Ok(values) => values,
                 Err(error) => {
-                    let kept = keep_unreadable(&path, UNREADABLE_STEM)?;
+                    let kept = keep_unreadable(&path, UNREADABLE_STEM)
+                        .map_err(|error| UpdateFailure::writing(&error))?;
                     log::warn!(
                         "the preferences in {} were unreadable ({error}) and were kept as {}",
                         path.display(),
@@ -107,7 +109,7 @@ impl Settings {
                 }
             },
             Err(error) if error.kind() == io::ErrorKind::NotFound => self.values.clone(),
-            Err(error) => return Err(error),
+            Err(error) => return Err(UpdateFailure::reading(&error)),
         };
         for (key, value) in &self.values {
             if since.values.get(key) != Some(value) {
@@ -119,8 +121,10 @@ impl Settings {
                 values.remove(key);
             }
         }
-        let contents = Self { values }.stored().map_err(io::Error::other)?;
-        write_atomically(&path, &contents)
+        let contents = Self { values }
+            .stored()
+            .map_err(|_| UpdateFailure::Encoding)?;
+        write_atomically(&path, &contents).map_err(|error| UpdateFailure::writing(&error))
     }
 
     pub fn text(&self, key: &str) -> Option<&str> {

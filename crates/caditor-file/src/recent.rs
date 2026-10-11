@@ -9,6 +9,7 @@ use crate::{
     lock::locked_update,
     os,
     read::read_file,
+    reason::UpdateFailure,
     save::{keep_unreadable, write_atomically},
 };
 
@@ -74,7 +75,7 @@ impl RecentFiles {
         recent
     }
 
-    pub fn save_changes(state_dir: &Path, changes: &[RecentChange]) -> io::Result<()> {
+    pub fn save_changes(state_dir: &Path, changes: &[RecentChange]) -> Result<(), UpdateFailure> {
         locked_update(state_dir, LOCK_FILE, || {
             let mut stored = Self::load_keeping_unreadable(state_dir)?;
             for change in changes {
@@ -84,13 +85,14 @@ impl RecentFiles {
         })
     }
 
-    fn load_keeping_unreadable(state_dir: &Path) -> io::Result<Self> {
+    fn load_keeping_unreadable(state_dir: &Path) -> Result<Self, UpdateFailure> {
         let path = state_dir.join(RECENT_FILE);
         match read_file(&path) {
             Ok(bytes) => match serde_json::from_slice::<Vec<Value>>(&bytes) {
                 Ok(stored) => Ok(Self::from_stored(&stored)),
                 Err(error) => {
-                    let kept = keep_unreadable(&path, UNREADABLE_STEM)?;
+                    let kept = keep_unreadable(&path, UNREADABLE_STEM)
+                        .map_err(|error| UpdateFailure::writing(&error))?;
                     log::warn!(
                         "the recent files in {} were unreadable ({error}) and were kept as {}",
                         path.display(),
@@ -100,7 +102,7 @@ impl RecentFiles {
                 }
             },
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(Self::default()),
-            Err(error) => Err(error),
+            Err(error) => Err(UpdateFailure::reading(&error)),
         }
     }
 
@@ -112,20 +114,22 @@ impl RecentFiles {
         }
     }
 
-    pub fn save(&self, state_dir: &Path) -> io::Result<()> {
+    pub fn save(&self, state_dir: &Path) -> Result<(), UpdateFailure> {
         locked_update(state_dir, LOCK_FILE, || {
             Self::load_keeping_unreadable(state_dir)?;
             self.write(state_dir)
         })
     }
 
-    fn write(&self, state_dir: &Path) -> io::Result<()> {
-        write_atomically(&state_dir.join(RECENT_FILE), &self.stored()?)
+    fn write(&self, state_dir: &Path) -> Result<(), UpdateFailure> {
+        let stored = self.stored().map_err(|_| UpdateFailure::Encoding)?;
+        write_atomically(&state_dir.join(RECENT_FILE), &stored)
+            .map_err(|error| UpdateFailure::writing(&error))
     }
 
-    pub(crate) fn stored(&self) -> io::Result<Vec<u8>> {
+    pub(crate) fn stored(&self) -> Result<Vec<u8>, serde_json::Error> {
         let stored: Vec<Value> = self.paths.iter().map(|path| storable(path)).collect();
-        serde_json::to_vec_pretty(&stored).map_err(io::Error::other)
+        serde_json::to_vec_pretty(&stored)
     }
 
     pub fn paths(&self) -> &[PathBuf] {

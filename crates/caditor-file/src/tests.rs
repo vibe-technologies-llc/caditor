@@ -766,6 +766,75 @@ fn a_crashed_models_journal_is_offered_even_when_no_recent_file_names_it() {
     assert_eq!(files_in(&recovery), Vec::<String>::new());
 }
 
+#[test]
+fn a_journal_already_gone_counts_as_discarded_and_one_held_elsewhere_is_refused() {
+    let dir = TempDir::new().unwrap();
+    let recovery = dir.path().join("recovery");
+    let base = sample();
+    let storage = Storage::spawn(config(&dir), untitled(&base), || {}).unwrap();
+    let mut editor = Editor::new(base);
+    record_session(&storage, &mut editor);
+    assert!(storage.flusher().flush(WAIT));
+
+    let journal = recovery.join(&files_in(&recovery)[0]);
+
+    assert_eq!(discard(&journal), Err(DiscardError::InUse));
+
+    crash(storage);
+    let recovered = scan(Some(&recovery), &[]);
+    std::fs::remove_file(&recovered[0].journal).unwrap();
+
+    assert_eq!(discard(&recovered[0].journal), Ok(()));
+    assert_eq!(discard(&recovered[0].journal), Ok(()));
+}
+
+#[cfg(unix)]
+#[test]
+fn a_discard_refused_by_the_folder_is_worded_rather_than_given_as_system_text() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = TempDir::new().unwrap();
+    let recovery = dir.path().join("recovery");
+    let base = sample();
+    let storage = Storage::spawn(config(&dir), untitled(&base), || {}).unwrap();
+    let mut editor = Editor::new(base);
+    record_session(&storage, &mut editor);
+    crash(storage);
+    let recovered = scan(Some(&recovery), &[]);
+
+    std::fs::set_permissions(&recovery, std::fs::Permissions::from_mode(0o500)).unwrap();
+    let refused = discard(&recovered[0].journal);
+    std::fs::set_permissions(&recovery, std::fs::Permissions::from_mode(0o700)).unwrap();
+
+    assert_eq!(
+        refused,
+        Err(DiscardError::Removing(WriteFailure::PermissionDenied))
+    );
+    assert_eq!(
+        refused.unwrap_err().to_string(),
+        "you do not have permission to write to its folder"
+    );
+    assert!(recovered[0].journal.exists());
+}
+
+#[test]
+fn preferences_and_recent_files_that_cannot_be_saved_say_why_in_words() {
+    let dir = TempDir::new().unwrap();
+    let blocked = dir.path().join("blocked");
+    std::fs::write(&blocked, b"not a folder").unwrap();
+
+    let preferences = Settings::default().save(&blocked);
+    let recent = RecentFiles::save_changes(&blocked, &[RecentChange::Cleared]);
+
+    let failure = UpdateFailure::Writing(WriteFailure::FolderIsAFile);
+    assert_eq!(preferences, Err(failure));
+    assert_eq!(recent, Err(failure));
+    assert_eq!(
+        failure.to_string(),
+        "a file stands where its folder should be"
+    );
+}
+
 fn save_request(ticket: u64, document: &Document, path: &Path, replace: bool) -> SaveRequest {
     SaveRequest {
         ticket,

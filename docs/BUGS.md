@@ -7,14 +7,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Files and recovery
 
-- [low · easy] Discarding recovered changes whose journal is already gone fails for good, worded
-  as the operating system's text: `recovery::discard` returns `NotFound` when the journal no
-  longer exists (another window discarded or restored it), the notice prints the `io::Error` as
-  is ("No such file or directory (os error 2)") and keeps the card, and every retry fails the same
-  way. `PreferencesNotSaved` and `RecentNotSaved` print raw `io::Error` text the same way
-  ("Permission denied (os error 13)"), where saves and loads word theirs through `WriteFailure`
-  and `ReadFailure`. Count a journal already gone as discarded and word the three errors; pin it beside
-  `a_discard_that_fails_keeps_the_recovery_offer_and_says_the_changes_can_still_be_restored`.
 - [low · medium] The startup recovery scan is not reconciled with what the window did while it
   ran: `Event::Started` offers every journal it found again (`Files::offer` drops only those
   still listed), so work restored or discarded from the card opening a model showed before the

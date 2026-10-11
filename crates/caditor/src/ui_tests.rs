@@ -1433,6 +1433,13 @@ fn a_preference_that_could_not_be_saved_is_shown_as_a_notice() {
 
     let notice = harness.model.notice().unwrap();
     assert!(notice.outlasts_edits);
+    assert!(
+        notice.text.starts_with(
+            "Could not save your preferences: a file stands where its folder should be. "
+        ),
+        "{}",
+        notice.text
+    );
     assert!(notice.text.ends_with("change one again to retry saving."));
 }
 
@@ -3519,18 +3526,27 @@ fn a_discard_that_fails_keeps_the_recovery_offer_and_says_the_changes_can_still_
     harness.wait_until("recovery is offered", |harness| {
         harness.shows("Recover unsaved work")
     });
+    assert!(harness.model.flush_journal(FILE_TIMEOUT));
 
     std::fs::set_permissions(&recovery, std::fs::Permissions::from_mode(0o500)).unwrap();
     harness.click("Discard…");
     harness.click("Discard");
     harness.wait_until("the failure is reported", |harness| {
-        harness.model.notice().is_some()
+        harness.model.notice().is_some_and(|notice| {
+            notice
+                .text
+                .starts_with("Could not discard the recovered changes")
+        })
     });
     std::fs::set_permissions(&recovery, std::fs::Permissions::from_mode(0o700)).unwrap();
 
     let notice = harness.model.notice().unwrap().text.clone();
-    assert!(notice.starts_with("Could not discard the recovered changes"));
-    assert!(notice.ends_with("where you can restore them."));
+    assert_eq!(
+        notice,
+        "Could not discard the recovered changes: you do not have permission to write to its \
+         folder. They are still offered under Recover unsaved work, where you can restore them."
+    );
+    assert!(harness.model.unprotected().is_none());
     assert!(harness.files.has_recoverable());
     assert!(harness.shows("Recover unsaved work"));
     assert!(harness.shows("1 unsaved change, last one just now"));
@@ -3539,6 +3555,40 @@ fn a_discard_that_fails_keeps_the_recovery_offer_and_says_the_changes_can_still_
 
     assert_eq!(harness.model.document(), editor.document());
     assert!(!harness.files.has_recoverable());
+}
+
+#[test]
+fn discarding_changes_another_window_already_removed_takes_them_off_the_list() {
+    let dir = TempDir::new().unwrap();
+    crashed_with_a_width_change(dir.path());
+    let recovery = dir.path().join("recovery");
+    let crashed = std::fs::read_dir(&recovery)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect::<Vec<_>>();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    harness.wait_until("recovery is offered", |harness| {
+        harness.shows("Recover unsaved work")
+    });
+    let before = harness.model.document().clone();
+
+    for journal in &crashed {
+        std::fs::remove_file(journal).unwrap();
+    }
+    harness.click("Discard…");
+    harness.click("Discard");
+    harness.wait_until("the offer is gone", |harness| {
+        !harness.files.has_recoverable()
+    });
+
+    assert!(!harness.shows("Recover unsaved work"));
+    assert!(
+        harness
+            .model
+            .notice()
+            .is_none_or(|notice| !notice.text.starts_with("Could not discard"))
+    );
+    assert_eq!(harness.model.document(), &before);
 }
 
 fn fail_a_frame(harness: &mut Harness) -> app::AfterFailedFrame {

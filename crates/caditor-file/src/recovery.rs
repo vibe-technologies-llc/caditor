@@ -13,10 +13,11 @@ use crate::{
     binary::FileDigest,
     journal::{JournalEntry, decode_journal_with, replay},
     load::{Loaded, load},
-    lock::{Location, in_use, location, lock_existing},
+    lock::{Location, location, lock_existing},
     os,
     paths::{self, JOURNAL_EXTENSION, MARKER_EXTENSION},
     read::{read_file, read_open},
+    reason::{ReadFailure, WriteFailure},
     save::{sweep_orphaned_temporaries, sync_parent, write_atomically},
 };
 
@@ -380,14 +381,33 @@ fn set_aside_locked(file: &File, journal: &Path) -> io::Result<Inspection> {
     }
 }
 
-pub fn discard(journal: &Path) -> io::Result<()> {
-    let file = lock_existing(journal)?.ok_or_else(in_use)?;
-    match remove_locked(&file, journal)? {
-        Inspection::Removed => Ok(()),
-        _ => Err(io::Error::new(
-            io::ErrorKind::ResourceBusy,
-            "the changes are open in another caditor window",
-        )),
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum DiscardError {
+    #[error("they are open in another caditor window")]
+    InUse,
+    #[error("{0}")]
+    Reading(ReadFailure),
+    #[error("{0}")]
+    Removing(WriteFailure),
+}
+
+pub fn discard(journal: &Path) -> Result<(), DiscardError> {
+    let file = match lock_existing(journal) {
+        Ok(Some(file)) => file,
+        Ok(None) => return Err(DiscardError::InUse),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(DiscardError::Reading(ReadFailure::of(&error))),
+    };
+    let here =
+        location(&file, journal).map_err(|error| DiscardError::Reading(ReadFailure::of(&error)))?;
+    match here {
+        Location::Gone => Ok(()),
+        Location::Replaced => Err(DiscardError::InUse),
+        Location::Here => match fs::remove_file(journal) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(DiscardError::Removing(WriteFailure::of(&error))),
+        },
     }
 }
 

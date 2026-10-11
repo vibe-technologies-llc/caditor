@@ -96,6 +96,9 @@ paths:
   (`lock::locked_update`: polled up to `UPDATE_LOCK_WAIT`, then the update goes ahead unlocked with
   a warning rather than losing the change), so windows keep each other's changes.
 - An unreadable file is kept as `<stem>.unreadable…` before it is replaced.
+- A failed update is an `UpdateFailure`: `Reading` (`ReadFailure`) for the file it merges into,
+  `Writing` (`WriteFailure`, `FolderIsAFile` when a file stands where the folder should be) for the
+  folder, the kept copy and the write, `Encoding` for the JSON, so the app words it.
 
 ## Recovery (`recovery.rs`: `scan`, `journal_for`)
 
@@ -107,6 +110,9 @@ paths:
   every entry read) and returns the rest with a replayed `Editor`; one with unreadable entries
   (damaged, or newer) is offered, never deleted. Before deleting, the locked file is compared with
   the path by inode, so a journal an owner renamed into place meanwhile is left alone.
+- `discard` removes a journal no window holds, comparing by inode the same way; a journal already
+  gone is discarded (`Ok`), one held or replaced by another window is `DiscardError::InUse`, and
+  other failures are `Reading` or `Removing` with the worded `ReadFailure` or `WriteFailure`.
 - A journal of an unreadable model (bad header or snapshot, or newer journal version) is renamed
   aside by `journal_for` to `<journal>.<seconds>.unreadable` before the new journal takes its
   place (`FileJournal::SetAside`), and opening reports where. The scan removes those after

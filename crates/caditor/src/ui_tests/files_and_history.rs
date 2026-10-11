@@ -407,6 +407,13 @@ fn a_recent_model_is_not_announced_as_removed_when_the_list_could_not_be_saved()
 
     let notice = harness.model.notice().unwrap();
     assert!(notice.outlasts_edits);
+    assert!(
+        notice.text.starts_with(
+            "Could not save the recent models: a file stands where its folder should be. "
+        ),
+        "{}",
+        notice.text
+    );
     assert!(notice.text.ends_with("next time it starts."));
 }
 

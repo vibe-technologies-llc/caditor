@@ -17,13 +17,14 @@ use std::{
 
 use caditor_document::{CancelToken, Document, FeatureId, FeatureResult, ImportedParameter};
 use caditor_file::{
-    Closing, Construction, DRAWING_IMPORT_EXTENSIONS, Drawing, DrawingExported, DrawingSheet,
-    ExportError, ExportFormat, FILE_EXTENSION, FaceExported, FileJournal, Handover, History,
-    ImportError, LoadError, Loaded, MESH_IMPORT_EXTENSIONS, ModelImport, NamedFace, NamedSketch,
-    PARAMETERS_EXTENSION, PNG_EXTENSION, ParameterFileError, ReadingProgress, ReadingStage,
-    RecentChange, RecentFiles, Recovered, STEP_EXTENSIONS, STEP_IMPORT_EXTENSIONS, SaveError,
-    SavedState, Settings, SheetLayout, SketchExported, SketchFormat, TextOutlines,
-    describe_set_aside, journal_for, load_cancellable, load_version, read_drawing, scan,
+    Closing, Construction, DRAWING_IMPORT_EXTENSIONS, DiscardError, Drawing, DrawingExported,
+    DrawingSheet, ExportError, ExportFormat, FILE_EXTENSION, FaceExported, FileJournal, Handover,
+    History, ImportError, LoadError, Loaded, MESH_IMPORT_EXTENSIONS, ModelImport, NamedFace,
+    NamedSketch, PARAMETERS_EXTENSION, PNG_EXTENSION, ParameterFileError, ReadingProgress,
+    ReadingStage, RecentChange, RecentFiles, Recovered, STEP_EXTENSIONS, STEP_IMPORT_EXTENSIONS,
+    SaveError, SavedState, Settings, SheetLayout, SketchExported, SketchFormat, TextOutlines,
+    UpdateFailure, describe_set_aside, journal_for, load_cancellable, load_version, read_drawing,
+    scan,
 };
 use caditor_render::{ImageError, SurfaceSize};
 use caditor_sketch::Sketch;
@@ -90,7 +91,6 @@ pub const EXPORT_AGAIN_HINT: &str = "Export the model again to the file it was l
 const REVERT_HINT: &str = "Undo every change made since the model was last saved, as one step \
                            that Undo takes back";
 const QUIT_ANYWAY_AFTER: Duration = Duration::from_secs(5);
-const INTERNAL_ERROR: &str = "caditor ran into an internal error while reading it";
 const REPORT_HEIGHT: f32 = 280.0;
 const REPLACED_HEIGHT: f32 = 160.0;
 const RESTORE_SUPPRESSED_HINT: &str = "Restore with every feature suppressed, for a model that \
@@ -615,7 +615,7 @@ enum Event {
         result: Result<Vec<ImportedParameter>, ParameterFileError>,
     },
     PreferencesNotSaved {
-        error: io::Error,
+        error: UpdateFailure,
         since: Settings,
     },
     Picked {
@@ -654,7 +654,7 @@ enum Event {
     },
     Discarded {
         journal: PathBuf,
-        error: Option<String>,
+        result: Result<(), DiscardFailure>,
     },
     Exported {
         path: PathBuf,
@@ -668,7 +668,7 @@ enum Event {
         path: PathBuf,
     },
     RecentNotSaved {
-        error: io::Error,
+        error: UpdateFailure,
     },
     ImageExported {
         path: PathBuf,
@@ -747,6 +747,14 @@ impl Event {
             _ => None,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+enum DiscardFailure {
+    #[error("{0}")]
+    Refused(DiscardError),
+    #[error("caditor ran into an internal error while removing them")]
+    Crashed,
 }
 
 enum Intent {
@@ -1212,14 +1220,12 @@ impl Files {
                 let failed = journal.clone();
                 self.spawn(
                     move || Event::Discarded {
-                        error: caditor_file::discard(&journal)
-                            .err()
-                            .map(|error| error.to_string()),
+                        result: caditor_file::discard(&journal).map_err(DiscardFailure::Refused),
                         journal,
                     },
                     move || Event::Discarded {
                         journal: failed,
-                        error: Some(INTERNAL_ERROR.to_owned()),
+                        result: Err(DiscardFailure::Crashed),
                     },
                 );
             }
@@ -1795,7 +1801,7 @@ impl Files {
             } => self.parameters_read(path, session, result, model),
             Event::Discarded {
                 journal,
-                error: Some(error),
+                result: Err(error),
             } => {
                 log::warn!("could not discard {}: {error}", journal.display());
                 model.set_notice(Notice::failure(format!(
@@ -1805,7 +1811,7 @@ impl Files {
             }
             Event::Discarded {
                 journal,
-                error: None,
+                result: Ok(()),
             } => {
                 let candidate = self
                     .recoverable

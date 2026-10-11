@@ -66,6 +66,8 @@ pub enum WriteFailure {
     ReadOnly,
     #[error("its folder no longer exists")]
     FolderGone,
+    #[error("a file stands where its folder should be")]
+    FolderIsAFile,
     #[error("you do not have permission to write to its folder")]
     PermissionDenied,
     #[error("its folder is on a read-only drive")]
@@ -100,6 +102,7 @@ impl WriteFailure {
         }
         match error.kind() {
             ErrorKind::NotFound => Self::FolderGone,
+            ErrorKind::NotADirectory => Self::FolderIsAFile,
             ErrorKind::PermissionDenied => Self::PermissionDenied,
             ErrorKind::ReadOnlyFilesystem => Self::ReadOnlyDrive,
             ErrorKind::StorageFull | ErrorKind::QuotaExceeded => Self::DiskFull,
@@ -109,5 +112,25 @@ impl WriteFailure {
                 .raw_os_error()
                 .map_or(Self::System { kind }, |code| Self::Os { code }),
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum UpdateFailure {
+    #[error("{0}")]
+    Reading(ReadFailure),
+    #[error("{0}")]
+    Writing(WriteFailure),
+    #[error("caditor could not put them into the file's format")]
+    Encoding,
+}
+
+impl UpdateFailure {
+    pub(crate) fn reading(error: &Error) -> Self {
+        Self::Reading(ReadFailure::of(error))
+    }
+
+    pub(crate) fn writing(error: &Error) -> Self {
+        Self::Writing(WriteFailure::of(error))
     }
 }

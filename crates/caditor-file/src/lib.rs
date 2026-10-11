@@ -60,10 +60,11 @@ pub use crate::{
         parameters_csv, parse_parameters, read_parameters, write_parameters,
     },
     paths::{recovery_dir, state_dir},
-    reason::{ReadFailure, WriteFailure},
+    reason::{ReadFailure, UpdateFailure, WriteFailure},
     recent::{RECENT_LIMIT, RecentChange, RecentFiles},
     recovery::{
-        FileJournal, Inspection, Recovered, describe_set_aside, discard, inspect, journal_for, scan,
+        DiscardError, FileJournal, Inspection, Recovered, describe_set_aside, discard, inspect,
+        journal_for, scan,
     },
     save::{
         KeepVersionError, SaveError, SaveOptions, Saved, encode, save, save_with, set_version_kept,

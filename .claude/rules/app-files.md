@@ -89,7 +89,10 @@ paths:
   the pick, and one arriving after another model opened (queued on the files worker behind a slow
   `CheckRecent`) writes nothing, with a notice saying so (`not_written_for_another_model`).
 - A recovery offer leaves the list only when its discard succeeded; a failed discard keeps the card
-  and says the changes are still there to restore.
+  and says the changes are still there to restore, worded through `caditor_file::DiscardError`
+  (`DiscardFailure` adds a crashed job), never the system's text. A journal already gone (another
+  window discarded or restored it) counts as discarded, so the card goes rather than failing on
+  every retry.
 - Save As appends `.caditor`, checks the target on the worker (refused while open in another
   window or holding unrecovered changes) and asks before replacing a file the dialog did not name.
 - The open thread and the Save As check wait for the model's storage handover
@@ -118,8 +121,8 @@ paths:
   (`FileCommand::ForgetRecent`, also the palette's `Command::ForgetRecent` per slot, its detail the
   file name); the file is never touched. The list is written on the files worker and "Removed …"
   is posted only once that write succeeded (`Event::RecentForgotten`); a failed write of any
-  recent-list edit is a failure notice (`Event::RecentNotSaved`, as `PreferencesNotSaved`) saying
-  the list stays as left until caditor closes. Which entries are gone is checked on the files
+  recent-list edit is a failure notice (`Event::RecentNotSaved`, as `PreferencesNotSaved`, both
+  worded through `caditor_file::UpdateFailure`) saying the list stays as left until caditor closes. Which entries are gone is checked on the files
   worker (`FileCommand::CheckRecent`, not found only, so a permission error does not count) once
   recent files are read at startup and each time the File menu opens; a missing one is drawn muted with
   "(not found)" and can still be opened. Opening a recent model that no longer exists forgets it

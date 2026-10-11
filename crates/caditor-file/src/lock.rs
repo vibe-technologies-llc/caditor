@@ -10,6 +10,7 @@ use std::{
 use crate::{
     os::{self, FileKey},
     read::ensure_regular,
+    reason::{UpdateFailure, WriteFailure},
 };
 
 const UPDATE_LOCK_WAIT: Duration = Duration::from_secs(3);
@@ -130,12 +131,21 @@ fn remove(path: &Path) {
 pub(crate) fn locked_update<T>(
     dir: &Path,
     lock_name: &str,
-    update: impl FnOnce() -> io::Result<T>,
-) -> io::Result<T> {
-    fs::create_dir_all(dir)?;
+    update: impl FnOnce() -> Result<T, UpdateFailure>,
+) -> Result<T, UpdateFailure> {
+    fs::create_dir_all(dir).map_err(|error| folder_failure(dir, &error))?;
     let lock_path = dir.join(lock_name);
     let _held = hold_update_lock(&lock_path);
     update()
+}
+
+fn folder_failure(dir: &Path, error: &io::Error) -> UpdateFailure {
+    let file_in_the_way = fs::metadata(dir).is_ok_and(|metadata| !metadata.is_dir());
+    if file_in_the_way {
+        UpdateFailure::Writing(WriteFailure::FolderIsAFile)
+    } else {
+        UpdateFailure::writing(error)
+    }
 }
 
 fn hold_update_lock(path: &Path) -> Option<File> {
