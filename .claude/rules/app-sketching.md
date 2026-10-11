@@ -259,7 +259,9 @@ paths:
   document with the transaction applied gives the drawn sketch, `Sketch::mirror` of its new,
   non-projected entities about the line gives the image, and the entities and constraints the
   image adds are appended to the same transaction under their own ids, labelled "Draw line
-  symmetrically", so one undo takes both halves. The preview gains the reflection of the shape's
+  symmetrically", so one undo takes both halves; `Drawing::click` stores that label, not the
+  segment's own, in the chain step so taking back still finds its segment as the newest undo
+  step. The preview gains the reflection of the shape's
   curves and points (`Mirror::add_image`) and the drawing prompt ends ", mirrored about Line 4".
   A shape that is its own image is drawn once.
 - What a placed point may snap to is `Drawing::accept` (points only where a curve would add no

@@ -1688,6 +1688,7 @@ impl Drawing {
     pub fn click(&mut self, model: &Model) -> Result<Option<Transaction>, Refusal> {
         self.pointed = None;
         let feature = self.context.map(|(feature, _)| feature);
+        let chain_before = self.chain.len();
         let clicked = self.placed_by_click(model);
         if clicked.is_ok() {
             self.heading = None;
@@ -1696,10 +1697,15 @@ impl Drawing {
         if self.arcing.is_some() && arc_ended {
             self.line_next();
         }
+        let pushed = self.chain.len() > chain_before;
         clicked.map(|drawn| {
-            drawn
-                .zip(feature)
-                .map(|(drawn, feature)| self.symmetric(model, feature, drawn))
+            drawn.zip(feature).map(|(drawn, feature)| {
+                let transaction = self.symmetric(model, feature, drawn);
+                if pushed && let Some(step) = self.chain.last_mut() {
+                    step.label = transaction.label().to_owned();
+                }
+                transaction
+            })
         })
     }
 

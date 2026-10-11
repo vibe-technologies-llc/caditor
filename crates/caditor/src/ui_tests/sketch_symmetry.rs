@@ -145,3 +145,30 @@ fn drawing_symmetrically_mirrors_each_shape_about_the_chosen_line_in_its_own_tra
     run_from_palette(&mut harness, "draw symmetrically");
     assert!(!harness.workspace.viewport.draws_symmetrically());
 }
+
+#[test]
+fn taking_back_the_last_point_while_drawing_symmetrically_undoes_both_halves_and_keeps_the_chain() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let axis = sketch.add_line(Point2::new(0.0, -40.0), Point2::new(0.0, 40.0));
+    sketch.set_construction(axis, true).unwrap();
+    let feature = edit_free_sketch(&mut harness, sketch);
+    let before = harness.sketch(feature).clone();
+
+    harness.select(entity_pickables(feature, &[axis]));
+    run_from_palette(&mut harness, "draw symmetrically");
+    harness.use_tool(Key::L);
+    harness.click_at(Point2::new(10.0, 0.0));
+    harness.click_at(Point2::new(20.0, 10.0));
+    assert_eq!(entities_of_kind(harness.sketch(feature), "Line").len(), 3);
+
+    harness.key(Key::Backspace, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+
+    assert!(harness.sketch(feature).same_content(&before));
+    assert!(harness.shows_containing("Click to end the line"));
+
+    harness.click_at(Point2::new(30.0, 10.0));
+    assert_eq!(entities_of_kind(harness.sketch(feature), "Line").len(), 3);
+}

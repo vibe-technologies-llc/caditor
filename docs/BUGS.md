@@ -308,14 +308,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Sketching
 
-- [medium · easy] Taking back the last point while Draw symmetrically is on ends the chain instead
-  of undoing the segment: `Drawing::remove_last` undoes a segment only when the newest undo label
-  is the one the segment was stored with ("Draw line", `segment_label`), but
-  `symmetric_drawing::mirrored` renames the transaction "Draw line symmetrically", so Backspace,
-  Delete or Take back the last point after drawing (10, 0) to (20, 10) about the vertical axis
-  leaves both halves drawn and ends the chain, against `app-sketching.md`'s "taking back undoes
-  the last segment when it is the newest undo step". Store the label the transaction will carry;
-  pin it in `ui_tests/sketch_symmetry.rs`.
 - [medium · easy] Smart dimension on a slanted line and an arc sharing an end never adds their
   angle: `dimensioning::fitting` gives `Angle` for them (`Sketch::angle_vertex`), but
   `offset_ends` counts `(Line, Arc)` as having horizontal and vertical offsets, so
