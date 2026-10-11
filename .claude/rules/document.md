@@ -496,6 +496,9 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   `origin_features` and healing visits it. `entry_count`, `remove_entry` and `entry_edges` treat
   edges then groups as one list, the panel's.
 
+- A blend refused as `UnsupportedEnd` at a vertex whose faces an earlier fillet or chamfer made
+  (`Context::earlier_blend_at`) names that feature and says to move this one above it, since the
+  edges continuing from the corner belong to it and cannot be chosen.
 - Both modify a body and resolve their references (`EdgeReference`s, opened `FaceReference`s) in
   the body's state before the feature, each to a `Resolution` (`pieces.rs`; the panel lists them in
   the same terms): one match; the pieces of a split edge on one line or circle (a shell face tied

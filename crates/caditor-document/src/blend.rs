@@ -2,7 +2,8 @@ use std::collections::BTreeSet;
 
 use caditor_expression::{Dimension, EvalError, Expression, ParameterId};
 use caditor_kernel::{
-    BlendError, BlendShape, EdgeId, EdgeNaming, EdgeReference, FaceId, FaceReference, Solid, blend,
+    BlendError, BlendShape, EdgeId, EdgeNaming, EdgeReference, FaceId, FaceOrigin, FaceReference,
+    Solid, VertexId, blend,
 };
 
 use crate::{
@@ -284,6 +285,25 @@ struct Context<'a> {
 }
 
 impl Context<'_> {
+    fn earlier_blend_at(&self, solid: &Solid, vertex: VertexId) -> Option<String> {
+        let document = self.inputs.document;
+        solid
+            .edges()
+            .filter(|(_, edge)| edge.start() == vertex || edge.end() == vertex)
+            .flat_map(|(edge, _)| edge_faces(solid, edge))
+            .filter_map(|face| solid.face(face)?.origin())
+            .find_map(|origin| match origin.original() {
+                FaceOrigin::Fillet { feature } | FaceOrigin::Chamfer { feature }
+                    if feature != self.feature.id().raw() =>
+                {
+                    document
+                        .feature(FeatureId::from_raw(feature))
+                        .map(|earlier| earlier.name.clone())
+                }
+                _ => None,
+            })
+    }
+
     fn error(&self, reason: String, remedy: String) -> Failure {
         Failure::Error(Box::new(FeatureError {
             reason,
@@ -444,10 +464,23 @@ impl Context<'_> {
                      leave it out."
                 ),
             ),
-            BlendError::UnsupportedEnd { .. } => self.error(
-                format!("The {noun} cannot be closed off where {edge} ends."),
-                "Also choose the edges that continue from it, or leave it out.".to_owned(),
-            ),
+            BlendError::UnsupportedEnd { vertex, .. } => {
+                let reason = format!("The {noun} cannot be closed off where {edge} ends.");
+                match vertex.and_then(|vertex| self.earlier_blend_at(solid, vertex)) {
+                    Some(earlier) => self.error(
+                        format!("{reason} {earlier} already blended the corner there."),
+                        format!(
+                            "Move {} above {earlier} in the tree, so the corner is blended \
+                             after this edge, or leave this edge out.",
+                            self.feature.name
+                        ),
+                    ),
+                    None => self.error(
+                        reason,
+                        "Also choose the edges that continue from it, or leave it out.".to_owned(),
+                    ),
+                }
+            }
             BlendError::Lost(_) => self.error(
                 format!(
                     "The {noun} of {edge} could not be finished after the inner corners next to \

@@ -1574,3 +1574,70 @@ fn the_top_rim_of_a_tapered_box_is_filleted_after_its_corners_and_bottom_rim() {
     assert_eq!(topped.failed_count(), 0);
     assert!(volume(&topped, block) < before - 50.0);
 }
+
+#[test]
+fn an_edge_ending_at_a_corner_an_earlier_blend_cut_names_it_and_says_to_move_above_it() {
+    let Model {
+        mut document,
+        mut engine,
+        base,
+        fillet,
+        ..
+    } = model();
+    let removal = document.deletion(&[fillet], "Delete");
+    document.apply(removal).unwrap();
+    let evaluation = evaluate(&document, &mut engine);
+    let solid = evaluation.body(base).unwrap();
+    let rim = [(5.0, 0.0), (10.0, 4.0), (5.0, 8.0), (0.0, 4.0)]
+        .map(|(x, y)| edge_at(solid, Point3::new(x, y, 4.0)))
+        .to_vec();
+    let mut transaction = document.transaction("Chamfer");
+    transaction.add_feature(
+        "Chamfer 1",
+        FeatureKind::Blend(Blend {
+            kind: BlendKind::Chamfer,
+            body: base,
+            groups: Vec::new(),
+            edges: rim,
+            size: Expression::parse_stored("0.5 mm").unwrap(),
+            form: ChamferForm::Equal,
+            flipped: false,
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    let evaluation = evaluate(&document, &mut engine);
+    let chamfered = evaluation.body(base).unwrap();
+    let verticals = [(0.0, 0.0), (10.0, 0.0), (10.0, 8.0), (0.0, 8.0)]
+        .map(|(x, y)| edge_at(chamfered, Point3::new(x, y, 1.0)))
+        .to_vec();
+
+    let mut transaction = document.transaction("Fillet");
+    let corners = transaction.add_feature(
+        "Fillet 2",
+        FeatureKind::Blend(Blend {
+            kind: BlendKind::Fillet,
+            body: base,
+            groups: Vec::new(),
+            edges: verticals,
+            size: Expression::parse_stored("1 mm").unwrap(),
+            form: ChamferForm::Equal,
+            flipped: false,
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    let evaluation = evaluate(&document, &mut engine);
+    let error = failure(&evaluation, corners);
+
+    assert!(
+        error
+            .reason
+            .ends_with("Chamfer 1 already blended the corner there."),
+        "{}",
+        error.reason
+    );
+    assert_eq!(
+        error.remedy,
+        "Move Fillet 2 above Chamfer 1 in the tree, so the corner is blended after this edge, or \
+         leave this edge out."
+    );
+}
