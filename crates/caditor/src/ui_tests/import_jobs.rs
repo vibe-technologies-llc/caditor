@@ -324,3 +324,67 @@ fn a_model_an_import_changed_while_the_open_dialog_was_up_is_not_replaced_withou
     assert!(harness.model.is_dirty());
     assert_eq!(harness.document().features().count(), features_before + 1);
 }
+
+fn quit_while_an_import_dialog_is_open(harness: &mut Harness) {
+    harness.edit_width("45 mm");
+    harness.hold_dialogs();
+    harness.command(FileCommand::Import { into: None });
+
+    assert!(harness.files.is_picking());
+
+    harness.command(FileCommand::Quit);
+    harness.click("Save as…");
+
+    assert_eq!(harness.dialogs.held.lock().as_ref().map(Vec::len), Some(2));
+    assert!(!harness.files.is_importing());
+    assert!(harness.files.is_picking());
+}
+
+#[test]
+fn saving_from_the_close_prompt_while_a_file_dialog_is_open_asks_where_and_then_quits() {
+    let dir = TempDir::new().unwrap();
+    let root = canonical(&dir);
+    let mut harness = Harness::with_directories(Some(root.as_path()));
+    let path = root.as_path().join("bracket.caditor");
+    quit_while_an_import_dialog_is_open(&mut harness);
+
+    harness.answer_held_dialogs(Some(path.clone()));
+    harness.wait_until("the model is saved and caditor quits", |harness| {
+        harness.files.should_quit()
+    });
+
+    assert_eq!(harness.model.path(), Some(path.as_path()));
+    assert_eq!(
+        caditor_file::load(&path).unwrap().document,
+        *harness.model.document()
+    );
+    assert!(!harness.files.is_importing());
+}
+
+#[test]
+fn a_save_from_the_close_prompt_that_is_cancelled_does_not_quit_on_a_later_save() {
+    let dir = TempDir::new().unwrap();
+    let root = canonical(&dir);
+    let mut harness = Harness::with_directories(Some(root.as_path()));
+    let path = root.as_path().join("bracket.caditor");
+    quit_while_an_import_dialog_is_open(&mut harness);
+
+    harness.answer_held_dialogs(None);
+    harness.frame();
+    harness.frame();
+
+    assert!(!harness.files.is_picking());
+    assert!(!harness.files.should_quit());
+
+    harness.answer_dialog(Some(path.clone()));
+    harness.command(FileCommand::Save);
+    harness.wait_until("the model is saved", |harness| {
+        harness.model.path().is_some() && !harness.model.is_dirty()
+    });
+    harness.frame();
+    harness.frame();
+
+    assert_eq!(harness.model.path(), Some(path.as_path()));
+    assert!(!harness.files.should_quit());
+    assert!(!harness.shows("Closing…"));
+}

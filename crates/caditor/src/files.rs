@@ -1172,13 +1172,16 @@ impl Files {
                 model,
             ),
             FileCommand::Save => self.save(model),
-            FileCommand::SaveAs => self.pick(Purpose::SaveAs, model),
+            FileCommand::SaveAs => {
+                self.pick(Purpose::SaveAs, model);
+            }
             FileCommand::Guard(choice) => {
                 let Some(intent) = self.guard.take() else {
                     return;
                 };
                 match choice {
                     GuardChoice::Save => {
+                        self.stop_picking(model);
                         self.after_save = Some(intent);
                         self.save(model);
                     }
@@ -1193,7 +1196,7 @@ impl Files {
                 };
                 match choice {
                     OutsideChangeChoice::Replace => model.save_replacing_outside_changes(path),
-                    OutsideChangeChoice::SaveCopy => self.pick(Purpose::SaveAs, model),
+                    OutsideChangeChoice::SaveCopy => self.pick_save_path(model),
                     OutsideChangeChoice::Cancel => self.after_save = None,
                 }
             }
@@ -1279,7 +1282,9 @@ impl Files {
                     self.ask_parameter_export(model);
                 }
             }
-            FileCommand::ImportParameters => self.pick(Purpose::ImportParameters, model),
+            FileCommand::ImportParameters => {
+                self.pick(Purpose::ImportParameters, model);
+            }
             FileCommand::Parameters(command) => self.parameter_import_command(command, model),
             FileCommand::DrawingExport(command) => {
                 self.drawing.perform(command);
@@ -2543,7 +2548,9 @@ impl Files {
                     ))));
                 }
             },
-            Intent::Open(None) => self.pick(Purpose::Open, model),
+            Intent::Open(None) => {
+                self.pick(Purpose::Open, model);
+            }
             Intent::Open(Some(path)) => self.open(path, Since::now(model), model),
             Intent::Restore {
                 journal,
@@ -2630,7 +2637,13 @@ impl Files {
     fn save(&mut self, model: &mut Model) {
         match model.path() {
             Some(path) => model.save_to(path.to_path_buf()),
-            None => self.pick(Purpose::SaveAs, model),
+            None => self.pick_save_path(model),
+        }
+    }
+
+    fn pick_save_path(&mut self, model: &Model) {
+        if !self.pick(Purpose::SaveAs, model) {
+            self.after_save = None;
         }
     }
 
@@ -2678,7 +2691,8 @@ impl Files {
             (Purpose::Drawing | Purpose::ExportParameters | Purpose::ImportParameters, None) => {}
             (Purpose::Export(_), None) => {}
             (Purpose::Import, None) => self.importing = None,
-            (_, None) => self.after_save = None,
+            (Purpose::SaveAs, None) => self.after_save = None,
+            (Purpose::Open | Purpose::Template | Purpose::SaveTemplate, None) => {}
         }
     }
 
@@ -2692,13 +2706,13 @@ impl Files {
         }
     }
 
-    fn pick(&mut self, purpose: Purpose, model: &Model) {
-        self.pick_since(purpose, Since::now(model), model);
+    fn pick(&mut self, purpose: Purpose, model: &Model) -> bool {
+        self.pick_since(purpose, Since::now(model), model)
     }
 
-    fn pick_since(&mut self, purpose: Purpose, since: Since, model: &Model) {
+    fn pick_since(&mut self, purpose: Purpose, since: Since, model: &Model) -> bool {
         if self.picking.is_some() {
-            return;
+            return false;
         }
         self.pick_ticket = self.pick_ticket.wrapping_add(1);
         let ticket = self.pick_ticket;
@@ -2771,6 +2785,7 @@ impl Files {
             }
             Purpose::ImportParameters => self.dialogs.pick_parameters(directory, respond),
         }
+        true
     }
 
     fn open(&mut self, path: PathBuf, since: Since, model: &mut Model) {

@@ -44,7 +44,13 @@ paths:
 - While a native dialog is open (`Files::picking`, a ticket, its purpose and the model's `Since`)
   the window is blocked and the status bar says it is waiting, with Stop waiting (and Esc)
   abandoning the pick as a cancel would; whatever that dialog answers later carries an old ticket
-  and is ignored.
+  and is ignored. The window's Close is drawn over dialogs (`window_frame::over_dialogs`), so the
+  unsaved-changes prompt can be raised while one is open: its Save abandons that pick the same way
+  (`stop_picking`) before saving, so an untitled model's Save as dialog is shown rather than
+  refused. A save waiting to continue (`after_save`) waits only for a save that was sent or a
+  Save as pick that started: `pick` says whether it started, `pick_save_path` drops the
+  continuation when it did not, and only the Save as pick's cancel drops it, so a later save never
+  quits, opens or starts another model on behalf of a prompt answered long before.
 - Filters on Unix match either case (`*.[sS][tT][eE][pP]`), since GTK's portal matches globs
   case-sensitively, and Open and Import end with All files (`Filter::any`), leaving the decision
   to the content check. Every save dialog confirms replacing a file itself: the portals and rfd

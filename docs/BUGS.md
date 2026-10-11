@@ -7,16 +7,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Files and recovery
 
-- [medium · easy] Closing the window while a file dialog is open makes the unsaved-changes
-  prompt's Save As… do nothing, and the next ordinary save then quits caditor: the title bar's
-  Close is drawn over dialogs (`window_frame::over_dialogs`) and `FileCommand::Quit` is refused
-  only while closing or waiting for exports, not while `picking`; `GuardChoice::Save` sets
-  `after_save = Some(Quit)` and an untitled model's `save` calls `pick(SaveAs)`, which returns at
-  once while another pick is pending, and a cancelled Import or Export pick never clears
-  `after_save` (only Save As and Open do, `picked`), so the save the user makes later runs
-  `request(Quit)` and the window closes. Refuse the prompt's Save while a dialog is open (or stop
-  the pending pick first), and clear `after_save` when a pick it did not start ends; pin it in
-  `ui_tests/import_jobs.rs` with `hold_dialogs`.
 - [low · easy] Restore this version on the preview card ignores the one-restore-at-a-time rule:
   the card's button (`version_preview.rs`) is always enabled while the rows' are disabled when not
   `idle`, and `VersionHistory::start_restoring` refuses only while a Keep runs, so a restore from
