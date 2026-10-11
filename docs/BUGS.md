@@ -433,12 +433,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   about 2:1, against `ux.md`'s "edges and highlighted faces to 3:1 on a body". Draw bodies in the
   tested body colour in high contrast, as finishes already are dropped there, or choose edge and
   highlight colours by the body's luminance, and extend the test to every swatch.
-- [low · easy] Removing a section plane above the current one moves Current to another plane:
-  `SectionTool::remove` (`section.rs`) removes the cut and only clamps `current`, never moving it
-  down when the removed index lies below it, so with three planes and the second current, the
-  first one's bin leaves the third marked Current, and the palette's Flip, Use selected and Remove
-  (which act on `current_mut`) change a plane the user did not choose. Move `current` down with
-  the planes after it; pin it beside the `section.rs` tests.
 - [low · easy] Fit view with a modifying feature's row chosen frames everything, and hovering or
   choosing that row lights nothing: `BuiltScene::bounds_of_features` (`scene.rs`) looks rows up in
   the body meshes, keyed by the feature that made each body, so a fillet, shell, hole, combine or

@@ -11,7 +11,7 @@ the model is closed.
 - **Offset** moves the plane, **Tilt** and **Turn** turn it; each takes units and
   [expressions](expressions).
 - {command:view.section_flip} keeps the other side, and {command:view.section_remove} drops the
-  current plane.
+  current plane. Removing another plane with its bin keeps the current one current.
 - **Cut faces** are drawn hatched or filled in the body's colour.
 
 Selecting, painting over faces, listing what is under the pointer, box selection and

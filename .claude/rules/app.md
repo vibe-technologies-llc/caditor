@@ -540,7 +540,9 @@ paths:
 - Opening the view with no plane, and Add a plane (`SectionCommand::Add`), adds one through the
   centre of the model's bounds (offset rounded to 0.1 mm) on the first principal plane not in use
   (XZ, YZ, XY), up to `MAX_SECTION_PLANES`; Remove (`SectionCommand::Remove`, or the card's bin)
-  drops one. The commands act on the current plane, the one added or edited last, marked Current.
+  drops one. The commands act on the current plane, the one added or edited last, marked Current;
+  removing a plane above it moves `current` down with it (`SectionTool::remove`), so it stays the
+  same plane, and removing the current one makes the next current.
 - `SectionTool::planes` resolves the planes each frame into `ViewportState::set_section`;
   `ViewportState::shown_section` adds the sketch slice (`app-sketching.md`) and hands them to
   `SceneCache::set_section`, which sets `Scene::section` on the cached scene without rebuilding it
