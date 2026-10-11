@@ -291,6 +291,7 @@ pub struct Moving {
     pub feature: FeatureId,
     pub label: String,
     pub anchor: Point2,
+    selected: Vec<EntityId>,
     points: Vec<(EntityId, Point2)>,
 }
 
@@ -322,8 +323,13 @@ impl Moving {
             feature,
             label: format!("Move {}", subject(sketch, &entities)),
             anchor,
+            selected: selected.to_vec(),
             points,
         })
+    }
+
+    pub fn refreshed(&self, sketch: &Sketch) -> Result<Self, String> {
+        Self::of(sketch, self.feature, &self.selected)
     }
 
     pub fn to(&self, target: Point2) -> Vec<DragCommand> {
@@ -377,6 +383,7 @@ pub struct Transforming {
     pub transform: Transform,
     pub label: String,
     pub pivot: Point2,
+    selected: Vec<EntityId>,
     points: Vec<(EntityId, Point2)>,
     circles: Vec<(EntityId, f64)>,
 }
@@ -466,9 +473,14 @@ impl Transforming {
             transform,
             label: format!("{} {}", transform.verb(), subject(sketch, &moved)),
             pivot,
+            selected: selected.to_vec(),
             points,
             circles,
         })
+    }
+
+    pub fn refreshed(&self, sketch: &Sketch) -> Result<Self, String> {
+        Self::of(sketch, self.feature, &self.selected, self.transform)
     }
 
     pub fn rotated(&self, degrees: f64) -> Result<Vec<DragCommand>, String> {

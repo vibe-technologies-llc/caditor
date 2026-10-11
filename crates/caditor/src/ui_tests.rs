@@ -8027,6 +8027,67 @@ fn the_sketch_bar_selects_everything_and_moves_it_to_a_typed_point() {
     assert!(harness.shows(typed_point::MOVE_LABEL));
 }
 
+#[test]
+fn a_waiting_move_or_rotate_field_acts_on_the_geometry_as_it_stands_at_enter() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::new(10.0, 10.0), Point2::new(20.0, 10.0));
+    let (start, end) = line_ends(&sketch, line);
+    let feature = edit_free_sketch(&mut harness, sketch);
+    let selected = Pickable::SketchEntity {
+        feature,
+        entity: line,
+    };
+    let at = |harness: &Harness, point: EntityId| harness.sketch(feature).point(point).unwrap();
+
+    harness.select([selected]);
+    harness.key(Key::M, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+    harness.type_text("30, 30");
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.wait_until("the first move is committed", |harness| {
+        harness.sketch(feature).point(start) == Some(Point2::new(30.0, 30.0))
+    });
+
+    harness.select([selected]);
+    harness.key(Key::M, Modifiers::NONE);
+    harness.frame();
+    assert!(harness.shows(typed_point::MOVE_LABEL));
+    harness.perform(Action::Undo);
+    harness.settle();
+    assert!(at(&harness, start).distance(Point2::new(10.0, 10.0)) < DRAWN);
+    harness.type_text("40, 10");
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.wait_until("the second move is committed", |harness| {
+        harness.sketch(feature).point(start) != Some(Point2::new(10.0, 10.0))
+    });
+
+    assert!(at(&harness, start).distance(Point2::new(40.0, 10.0)) < DRAWN);
+    assert!(at(&harness, end).distance(Point2::new(50.0, 10.0)) < DRAWN);
+
+    harness.select([
+        selected,
+        Pickable::SketchEntity {
+            feature,
+            entity: EntityId::ORIGIN,
+        },
+    ]);
+    run_from_palette(&mut harness, "rotate selected sketch");
+    assert!(harness.shows(typed_point::ROTATE_FIELD.label));
+    harness.perform(Action::Undo);
+    harness.settle();
+    assert!(at(&harness, start).distance(Point2::new(10.0, 10.0)) < DRAWN);
+    harness.type_text("90");
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.wait_until("the rotation is committed", |harness| {
+        harness.sketch(feature).point(start) != Some(Point2::new(10.0, 10.0))
+    });
+
+    assert!(at(&harness, start).distance(Point2::new(-10.0, 10.0)) < DRAWN);
+    assert!(at(&harness, end).distance(Point2::new(-10.0, 20.0)) < DRAWN);
+}
+
 fn rectangle(sketch: &mut Sketch, min: Point2, max: Point2) {
     let corners = [
         min,

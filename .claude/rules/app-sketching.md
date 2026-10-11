@@ -123,7 +123,11 @@ paths:
   nothing selected that crosses another curve, is refused with `NOTHING_TO_BREAK` or the
   sketch's reason in a notice.
 - Move selected geometry opens the typed-point field (`app-input.md`) as "Move to", committed and
-  solved like a drag; button and command share availability (`Moving::offered`).
+  solved like a drag; button and command share availability (`Moving::offered`). The positions
+  (and the anchor a relative entry counts from) are taken afresh from the displayed sketch at Enter
+  (`Moving::refreshed`, `Transforming::refreshed`, through the selection the field opened with), so
+  a drag or an undo made while the field waited is not undone by it; geometry that is gone, or a
+  sketch still recalculating, leaves the field open with the reason.
 - Rotate and Scale selected geometry (`Command::RotateGeometry`, `ScaleGeometry`, Sketch menu,
   palette; `sketch_drag::Transforming`) open the same field as "Rotate by" (an angle, degrees
   unless a unit is named, counter-clockwise) or "Scale by" (a factor above zero), committed and

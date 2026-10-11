@@ -317,14 +317,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   its outline's offset by the wall thickness meets both. `Chain::outline` (`offset.rs`) would drop
   a vanishing arc, or the run of curves a closing notch uses up, and re-meet the neighbours,
   leaving out the dropped curves' constraints as trim does.
-- [low · easy] Rotate, Scale and Move selected geometry act on the positions taken when their
-  field opened: `sketch_drag::Transforming` and `Moving` hold the points as they stood then, the
-  waiting field (focus lost without Enter) keeps them (`ViewportState::typed_owner` follows only
-  the sketch and tool), and Enter sends targets worked out from those positions, so a drag of the
-  same geometry or an undo made while the field waited is silently undone by the turn, scale or
-  move. Keep the revision they were taken at and close the field when it moves on, or take the
-  points afresh at Enter; pin it beside
-  `the_sketch_bar_selects_everything_and_moves_it_to_a_typed_point`.
 
 ## Sketch solver
 

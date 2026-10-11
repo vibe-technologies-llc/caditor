@@ -147,6 +147,7 @@ const KEYBOARD_ZOOM_FACTOR: f64 = 1.25;
 const TYPED_POINT_OFFSET: f32 = 64.0;
 const FREE_PLACEMENT_HINT: &str = "Ctrl: place freely";
 const SNAPPING_OFF_HINT: &str = "Snapping off";
+const SKETCH_NOT_SHOWN: &str = "The sketch is being recalculated: try again in a moment";
 const TAKE_BACK_HINT: &str = "Backspace: take back the last point";
 const HELD_SNAP_HINT: &str = "Alt: snap to the grid or nearby geometry";
 const TYPE_POINT_HINT: &str = "Type x, y or length < angle for an exact point";
@@ -4102,12 +4103,16 @@ impl ViewportState {
             }
             return;
         };
-        let from = typed_point::From {
-            last: Some(moving.anchor),
-            toward: None,
-        };
-        match typed_point::parse(model, &typed.text, from) {
-            Ok(target) => actions.extend(moving.to(target).into_iter().map(Action::Drag)),
+        let fresh = fresh_from_sketch(model, moving.feature, |sketch| moving.refreshed(sketch));
+        let target = fresh.and_then(|fresh| {
+            let from = typed_point::From {
+                last: Some(fresh.anchor),
+                toward: None,
+            };
+            typed_point::parse(model, &typed.text, from).map(|target| fresh.to(target))
+        });
+        match target {
+            Ok(commands) => actions.extend(commands.into_iter().map(Action::Drag)),
             Err(error) => {
                 self.typed_point.open_with(typed.entered, error);
                 self.moving = Some(moving);
@@ -4187,13 +4192,16 @@ impl ViewportState {
             }
             return;
         };
-        let commands =
-            typed_point::parse_transform(model, &typed.text, transform).and_then(|amount| {
-                match transform {
-                    Transform::Rotate => transforming.rotated(amount),
-                    Transform::Scale => transforming.scaled(amount),
-                }
-            });
+        let commands = fresh_from_sketch(model, transforming.feature, |sketch| {
+            transforming.refreshed(sketch)
+        })
+        .and_then(|fresh| {
+            let amount = typed_point::parse_transform(model, &typed.text, transform)?;
+            match transform {
+                Transform::Rotate => fresh.rotated(amount),
+                Transform::Scale => fresh.scaled(amount),
+            }
+        });
         match commands {
             Ok(commands) => actions.extend(commands.into_iter().map(Action::Drag)),
             Err(error) => {
@@ -5308,6 +5316,19 @@ fn drag_motion(
 fn zoom_factor(navigation: &Navigation, zooming_in: f64) -> f64 {
     let direction = if navigation.invert_zoom { 1.0 } else { -1.0 };
     (direction * zooming_in * ZOOM_PER_SCROLL_POINT * navigation.zoom_speed).exp()
+}
+
+fn fresh_from_sketch<T>(
+    model: &Model,
+    feature: FeatureId,
+    refresh: impl FnOnce(&Sketch) -> Result<T, String>,
+) -> Result<T, String> {
+    let shown = model
+        .document()
+        .feature(feature)
+        .and_then(|owner| model.displayed_sketch(owner))
+        .ok_or_else(|| SKETCH_NOT_SHOWN.to_owned())?;
+    refresh(&shown)
 }
 
 fn edited_sketch<'a>(model: &'a Model, editing: &SketchEditing) -> Option<Displayed<'a>> {
