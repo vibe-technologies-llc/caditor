@@ -310,6 +310,9 @@ fn a_recent_model_is_removed_on_its_own_and_a_missing_one_is_marked_and_said_to_
 
     assert_eq!(harness.files.recent(), std::slice::from_ref(&first));
 
+    harness.wait_until("the second removal is announced", |harness| {
+        notice_starts(harness, "Removed “third.caditor” from the recent models.")
+    });
     harness.command(FileCommand::OpenPath(first.clone()));
     harness.wait_until("the failure is reported", |harness| {
         notice_starts(harness, "Could not open “first.caditor”")
