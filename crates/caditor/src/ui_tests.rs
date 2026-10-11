@@ -74,6 +74,7 @@ mod coordinate_systems;
 mod custom_colours;
 mod dimension_labels;
 mod face_tools;
+mod far_cuts;
 mod feature_handles;
 mod feature_panels;
 mod feature_tree_choice;
