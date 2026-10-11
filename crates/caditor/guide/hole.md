@@ -11,7 +11,9 @@
   edge's centre or an edge's middle under the pointer, and on a corner; hold Ctrl to drag freely.
   With the pointer on a handle, type a value (or x, y for the square) and press Enter. Its panel's
   **Placed on** row moves it too: **Choose in the view** and click where the hole goes on any flat
-  face, or type its **Position X** and **Position Y** on the face.
+  face, or type its **Position X** and **Position Y** on the face. A position typed with
+  [parameters](parameters), such as `width / 2`, keeps following them; such a hole is then moved
+  from its fields only, and a plain number typed there lets go of the expression.
 - **Place by** ties the hole to the body: **From an edge** measures it from a straight edge
   (select the edge first, or choose it in the view) with a **Distance** you can type, and a
   second edge across the first fixes it, so a hole 8 mm from two sides stays there when the body

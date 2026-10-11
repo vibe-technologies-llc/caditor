@@ -20783,6 +20783,56 @@ fn a_hole_drilled_on_a_face_moves_by_its_position_fields_and_a_click_on_the_face
     assert_eq!(harness.workspace.editing.feature(), Some(sketch));
 }
 
+#[test]
+fn a_hole_s_position_typed_as_an_expression_follows_its_parameters() {
+    let mut harness = Harness::new();
+    let (_, top) = extruded_plate(&mut harness);
+    let mut transaction = harness.document().transaction("Add spot");
+    let spot = transaction.parse("12 mm").unwrap();
+    transaction.add_parameter("spot", spot);
+    harness.perform(Action::Apply(transaction.finish()));
+    harness.select([top]);
+    harness.click("Hole");
+    harness.settle();
+    let hole = harness.workspace.editing.solid().expect("the hole is open");
+    let sketch = open_hole(&harness, hole).sketch;
+    let point = harness
+        .sketch(sketch)
+        .entities()
+        .find_map(|(id, entity)| matches!(entity, Entity::Point(_)).then_some(id))
+        .expect("the hole's sketch holds its point");
+    let field = |axis: usize| Id::new(("hole-position", hole, point, axis));
+    let solved = |harness: &Harness| placed_holes(harness, hole)[0].1;
+
+    harness.type_into_field(field(0), "spot");
+    harness.settle();
+    harness.type_into_field(field(1), "spot + 10 mm");
+    harness.settle();
+
+    assert_eq!(harness.model.undo_label(), Some("Move Hole 1"));
+    assert!(harness.shows("spot + 10 mm"));
+    assert!(solved(&harness).distance(Point3::new(12.0, 22.0, 10.0)) < 1e-6);
+
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.type_into(Focus::ParameterValue(harness.parameter("spot")), "15 mm");
+    harness.settle();
+
+    assert!(solved(&harness).distance(Point3::new(15.0, 25.0, 10.0)) < 1e-6);
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+
+    harness.perform(Action::Editing(EditingCommand::OpenSolid(hole)));
+    harness.settle();
+    harness.type_into_field(field(0), "8 mm");
+    harness.settle();
+    let held = crate::hole_placement::read(harness.document(), &open_hole(&harness, hole))
+        .expect("the hole stays placed by its position");
+
+    assert!(held.holes[0].along[0].is_none());
+    assert!(held.holes[0].along[1].is_some());
+    assert!(solved(&harness).distance(Point3::new(8.0, 25.0, 10.0)) < 1e-6);
+}
+
 fn plate_edge_at(harness: &Harness, body: FeatureId, middle: Point3) -> caditor_kernel::EdgeName {
     let solid = harness.model.evaluation().body(body).unwrap();
     solid
@@ -20988,12 +21038,14 @@ fn a_hole_centred_on_a_round_edge_follows_it_and_takes_further_holes_clicked_on_
 
     let first_hole = open_hole(&harness, first);
     let first_point = placed_holes(&harness, first)[0].0.point;
-    let moved = crate::hole_placement::moved(
-        harness.document(),
+    let x = harness.document().parse("12 mm").unwrap();
+    let y = harness.document().parse("25 mm").unwrap();
+    let moved = crate::hole_placement::positioned(
+        &harness.model,
         first,
         &first_hole,
         first_point,
-        Point2::new(12.0, 25.0),
+        [Some(&x), Some(&y)],
     )
     .unwrap();
     harness.perform(Action::Apply(moved));

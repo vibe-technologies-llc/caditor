@@ -172,15 +172,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   splitting and the rounding's retraced edges do not yet follow. Tapering the other way works down
   to corners a little larger than the fillet; corners no larger than the fillet are refused as
   `Intricate`, which should read as `TooLarge`.
-- [low · medium] A hole's Position X and Y keep a number where an expression was typed:
-  `hole_panel::position_rows` previews `width / 2` with its value and then stores the evaluated
-  millimetres in the hidden sketch's point (`hole_placement::moved`), as `place_handles::typed`
-  does for "x, y" typed over the square, so the hole stays put when `width` changes, against the
-  `ux.md` rule that numeric fields take expressions of named parameters; a primitive's Position
-  fields keep the expression (`primitive_panel.rs`). Refuse an expression using parameters there
-  with a pointer to Place by, or hold the point with horizontal and vertical distances from the
-  sketch origin (which `hole_placement::read` would then have to accept); pin it beside the test
-  typing into `("hole-position", …)` in `ui_tests.rs`.
 
 
 ## Application

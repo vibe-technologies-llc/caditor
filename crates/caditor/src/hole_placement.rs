@@ -58,6 +58,27 @@ pub struct PlacedHole {
     pub point: EntityId,
     pub at: Point2,
     pub anchor: Anchor,
+    pub along: [Option<Along>; 2],
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Along {
+    pub constraint: ConstraintId,
+    pub value: Expression,
+}
+
+impl PlacedHole {
+    fn along_constraints(&self) -> impl Iterator<Item = ConstraintId> + '_ {
+        self.along.iter().flatten().map(|along| along.constraint)
+    }
+}
+
+pub fn signed(magnitude: &Expression, negative: bool) -> Expression {
+    match (negative, magnitude) {
+        (false, _) => magnitude.clone(),
+        (true, Expression::Negate(inner)) => (**inner).clone(),
+        (true, _) => Expression::Negate(Box::new(magnitude.clone())),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -160,6 +181,7 @@ pub fn of_sketch(definition: &SketchFeature) -> Option<Placement> {
     };
     let mut edges: BTreeMap<EntityId, Vec<EdgeDistance>> = BTreeMap::new();
     let mut concentric: BTreeMap<EntityId, Held> = BTreeMap::new();
+    let mut along: BTreeMap<EntityId, [Option<Along>; 2]> = BTreeMap::new();
     let mut used: BTreeSet<EntityId> = BTreeSet::new();
     for (constraint, kind) in sketch.constraints() {
         if !sketch.is_active(constraint) {
@@ -178,6 +200,25 @@ pub fn of_sketch(definition: &SketchFeature) -> Option<Placement> {
                 }
                 edges.entry(point).or_default().push(EdgeDistance {
                     held: held(constraint, line)?,
+                    value: value.clone(),
+                });
+            }
+            Constraint::HorizontalDistance { from, to, value }
+            | Constraint::VerticalDistance { from, to, value } => {
+                let axis = usize::from(matches!(kind, Constraint::VerticalDistance { .. }));
+                let point = match (*from, *to) {
+                    (EntityId::ORIGIN, point) | (point, EntityId::ORIGIN) => point,
+                    _ => return None,
+                };
+                if !points.contains_key(&point) {
+                    return None;
+                }
+                let slot = along.entry(point).or_default().get_mut(axis)?;
+                if slot.is_some() {
+                    return None;
+                }
+                *slot = Some(Along {
+                    constraint,
                     value: value.clone(),
                 });
             }
@@ -208,13 +249,19 @@ pub fn of_sketch(definition: &SketchFeature) -> Option<Placement> {
     let holes = points
         .into_iter()
         .map(|(point, at)| {
-            let anchor = match (edges.remove(&point), concentric.remove(&point)) {
-                (None, None) => Anchor::Free,
-                (Some(edges), None) if edges.len() <= MAX_EDGES => Anchor::Edges(edges),
-                (None, Some(held)) => Anchor::Concentric(held),
+            let along = along.remove(&point);
+            let anchor = match (edges.remove(&point), concentric.remove(&point), &along) {
+                (None, None, _) => Anchor::Free,
+                (Some(edges), None, None) if edges.len() <= MAX_EDGES => Anchor::Edges(edges),
+                (None, Some(held), None) => Anchor::Concentric(held),
                 _ => return None,
             };
-            Some(PlacedHole { point, at, anchor })
+            Some(PlacedHole {
+                point,
+                at,
+                anchor,
+                along: along.unwrap_or_default(),
+            })
         })
         .collect::<Option<Vec<_>>>()?;
     Some(Placement { holes })
@@ -360,6 +407,7 @@ pub fn edge_change(
         return Err(ON_EDGE.to_owned());
     }
     let mut transaction = document.transaction(format!("Place {name} from an edge"));
+    transaction.remove_sketch_items(hole.sketch, [], placed.along_constraints());
     let projected = transaction.add_projected(hole.sketch, source, &outline);
     transaction.edit(Edit::SetSketchConstruction {
         feature: hole.sketch,
@@ -401,7 +449,9 @@ pub fn concentric_change(
     transaction.remove_sketch_items(
         hole.sketch,
         held.iter().map(|held| held.curve),
-        held.iter().map(|held| held.constraint),
+        held.iter()
+            .map(|held| held.constraint)
+            .chain(placed.along_constraints()),
     );
     let projected = transaction.add_projected(hole.sketch, source, &outline);
     let centre_point = projected
@@ -463,28 +513,88 @@ pub fn distance_change(
     )
 }
 
-pub fn moved(
-    document: &Document,
+pub fn positioned(
+    model: &Model,
     feature: FeatureId,
     hole: &Hole,
     point: EntityId,
-    at: Point2,
+    typed: [Option<&Expression>; 2],
 ) -> Result<Transaction, String> {
+    let document = model.document();
     let Target { name, placed, .. } = target(document, feature, hole, point)?;
     if placed.anchor != Anchor::Free {
         return Err(NOT_FREE.to_owned());
     }
-    field::checked(
-        document,
-        Transaction::single(
-            format!("Move {name}"),
-            Edit::SetSketchEntity {
-                feature: hole.sketch,
-                id: point,
-                entity: Entity::Point(at),
-            },
-        ),
-    )
+    let parameters = model.parameters();
+    let mut at = solved_point(model, hole.sketch, &placed);
+    let mut dimensions = Vec::new();
+    let mut freed = Vec::new();
+    for (axis, (value, held)) in typed.into_iter().zip(&placed.along).enumerate() {
+        let Some(value) = value else {
+            continue;
+        };
+        let millimetres = parameters
+            .evaluate_expression(value)
+            .map_err(|error| field::sentence(&error.to_string()))?
+            .value;
+        if axis == 0 {
+            at.x = millimetres;
+        } else {
+            at.y = millimetres;
+        }
+        let magnitude = signed(value, millimetres < 0.0);
+        match (value.parameters().is_empty(), held) {
+            (true, None) => {}
+            (true, Some(held)) => freed.push(held.constraint),
+            (false, Some(held)) => dimensions.push(Dimensioned::Kept(held.constraint, magnitude)),
+            (false, None) => {
+                dimensions.push(Dimensioned::Added(along_axis(axis, point, magnitude)));
+            }
+        }
+    }
+    let mut transaction = document.transaction(format!("Move {name}"));
+    transaction.remove_sketch_items(hole.sketch, [], freed);
+    transaction.edit(Edit::SetSketchEntity {
+        feature: hole.sketch,
+        id: point,
+        entity: Entity::Point(at),
+    });
+    for dimension in dimensions {
+        match dimension {
+            Dimensioned::Kept(constraint, value) => {
+                transaction.edit(Edit::SetDimension {
+                    feature: hole.sketch,
+                    constraint,
+                    value,
+                });
+            }
+            Dimensioned::Added(constraint) => {
+                transaction.add_sketch_constraint(hole.sketch, constraint);
+            }
+        }
+    }
+    field::checked(document, transaction.finish())
+}
+
+enum Dimensioned {
+    Kept(ConstraintId, Expression),
+    Added(Constraint),
+}
+
+fn along_axis(axis: usize, point: EntityId, value: Expression) -> Constraint {
+    if axis == 0 {
+        Constraint::HorizontalDistance {
+            from: EntityId::ORIGIN,
+            to: point,
+            value,
+        }
+    } else {
+        Constraint::VerticalDistance {
+            from: EntityId::ORIGIN,
+            to: point,
+            value,
+        }
+    }
 }
 
 pub fn removed(
@@ -508,7 +618,9 @@ pub fn removed(
         held.iter()
             .map(|held| held.curve)
             .chain(std::iter::once(point)),
-        held.iter().map(|held| held.constraint),
+        held.iter()
+            .map(|held| held.constraint)
+            .chain(placed.along_constraints()),
     );
     field::checked(document, transaction.finish())
 }
