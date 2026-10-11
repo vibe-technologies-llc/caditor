@@ -857,7 +857,12 @@ impl<'g, 'a> Topology<'g, 'a> {
         let point = match self.conformed.vertices.get(&id) {
             Some(placed) => *placed,
             None => {
-                let (point, gap) = settle_on(point, &surfaces);
+                let reach = match self.healing {
+                    Healing::Faceted => worst_gap(point, &surfaces)
+                        .min(self.geometry.units.precision.unwrap_or(f64::INFINITY)),
+                    _ => f64::INFINITY,
+                };
+                let (point, gap) = settle_on(point, &surfaces, reach);
                 self.note_repair(gap);
                 point
             }
@@ -1103,13 +1108,16 @@ fn parameter_range(curve: &Curve, from: Point3, to: Point3, closed: bool) -> Opt
     }
 }
 
-pub(crate) fn settle_on(point: Point3, surfaces: &[Surface]) -> (Point3, Option<f64>) {
-    let worst = |at: Point3| {
-        surfaces
-            .iter()
-            .map(|surface| surface.distance(at))
-            .fold(0.0, f64::max)
-    };
+fn worst_gap(point: Point3, surfaces: &[Surface]) -> f64 {
+    surfaces
+        .iter()
+        .map(|surface| surface.distance(point))
+        .fold(0.0, f64::max)
+}
+
+pub(crate) fn settle_on(point: Point3, surfaces: &[Surface], reach: f64) -> (Point3, Option<f64>) {
+    let worst = |at: Point3| worst_gap(at, surfaces);
+    let within_reach = |at: Point3| at.distance(point) <= reach;
     let start = worst(point);
     if start <= CLEAN || surfaces.is_empty() {
         return (point, None);
@@ -1120,9 +1128,13 @@ pub(crate) fn settle_on(point: Point3, surfaces: &[Surface]) -> (Point3, Option<
     let mut damping = VERTEX_DAMPING;
     for _ in 0..VERTEX_ITERATIONS {
         let system = linearised_gaps(surfaces, current, &mut hints);
-        let Some((next, next_worst)) =
-            damped_step(system, (current, current_worst), &mut damping, worst)
-        else {
+        let Some((next, next_worst)) = damped_step(
+            system,
+            (current, current_worst),
+            &mut damping,
+            worst,
+            within_reach,
+        ) else {
             break;
         };
         current = next;
@@ -1167,6 +1179,7 @@ fn damped_step(
     (current, current_worst): (Point3, f64),
     damping: &mut f64,
     worst: impl Fn(Point3) -> f64,
+    within_reach: impl Fn(Point3) -> bool,
 ) -> Option<(Point3, f64)> {
     while *damping <= MAX_VERTEX_DAMPING {
         let mut damped = normal_matrix;
@@ -1178,7 +1191,7 @@ fn damped_step(
         if let Some(step) = solve3(damped, right) {
             let next = current + step;
             let next_worst = worst(next);
-            if next_worst < current_worst {
+            if next_worst < current_worst && within_reach(next) {
                 *damping = (*damping * DAMPING_RELIEF).max(VERTEX_DAMPING);
                 return Some((next, next_worst));
             }

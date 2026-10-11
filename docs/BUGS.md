@@ -160,15 +160,26 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   fixture of a spline tangent to its neighbour a few micrometres off), and that file now reads in
   8.7 s against 7.6 s. Healing still traces an edge only between exactly two distinct faces, so an
   edge used twice by one face (a cylinder seam) with a vertex a few micrometres off is refused
-  outright when the file declares no precision.
-- [medium · medium] The VZ330 assembly (an Autodesk export at 0.01 mm, 3,894 copies) leaves 63
-  parts out, 43 of them as "a vertex 0.00001 to 0.0015 mm away from the end of its edge" (the M4
-  T-nuts, "Part 9 (1)" to "Part 14 (1)", "CPAP duct 18mm (1)"), all well within the file's
-  precision; the rest as edges that cannot be followed across a face (8), faces too far apart (6),
-  meshes that fail the validity check (4), overlapping shells (1) and an edge of no length (1).
-  A vertex that far off its edge's end within the declared precision should move onto the edge's
-  end, as vertices off their faces already do (`step-read.md`, "Geometry and healing"). Reproduce
-  with `STEP_CORPUS` on the file (about 70 s in release).
+  outright when the file declares no precision. In the VZ330 assembly 82 bodies import as facets
+  this way, among them the M4 T-nuts (a thread flank whose iso-line edge has the face on both
+  sides of it further along, as the flank runs out), "Body6" and its copies (a side closed around
+  a periodic spline, then the same L-shaped face), "Body7" and "front handle1" (the bound test
+  above), "CPAP duct 15mm" (a side bent to 2.504e-8 mm of its targets against `BEND_TOLERANCE`'s
+  2.5e-8) and rigid faces a few micrometres apart that bending cannot move: "Pulley (1)" has a
+  plane tangent to a cylinder 3.4e-6 mm off it, "Micro Switch" two pairs of parallel planes
+  1e-4 mm apart meeting at one corner.
+- [medium · medium] The VZ330 assembly (an Autodesk export at 0.01 mm, 3,894 copies) leaves 31
+  parts out, 15 of them as "a vertex 0.00001 to 0.0015 mm away from the end of its edge", the
+  exact build's refusal at faces meeting tangentially further apart than the resolution, where the
+  faceted fallback then fails on its own: in "Part 9 (1)" to "Part 14 (1)" a corner patch's edge
+  curve ends 0.011 to 0.017 mm from its vertex (its x mirrored), in "Component25" and "M3 30mm
+  Adjustement screw (1)" an edge lies 2.3 and 3.8 mm off a face, "Gigabit Ethernet Port" and
+  "Goliath Air cooled" mesh into a face boundary crossing itself in uv, "front handle1" and
+  "front handle2" leave an edge of no length, "User Library-USB - C" has faces 0.011 mm apart,
+  "M3_Short v1" does not close and "Goliath long duct" keeps a vertex 0.012 mm off its edge. The
+  rest are edges that cannot be followed across a face (7), faces too far apart (6), meshes that
+  fail the validity check (2) and overlapping shells (1). Reproduce with `STEP_CORPUS` on the file
+  (about 70 s in release).
 - [low · hard] A face whose surface cannot be read is left out (`step-read.md`, "Unreadable
   faces"), but from the outer shell that turns the whole body into flat facets, since the kernel
   holds only closed solids, and a lost face with holes is not closed at all; an edge whose curve

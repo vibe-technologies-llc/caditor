@@ -206,7 +206,10 @@ paths:
 - Vertices off their faces move onto all of them by Levenberg–Marquardt least squares (the damping
   grows until a step lowers the worst gap, so nearly tangent faces cannot make it overshoot); edges
   farther than a quarter of the resolution from either face are rebuilt with
-  `IntersectionCurve::through`.
+  `IntersectionCurve::through`. The exact and bent builds follow a vertex however far its faces'
+  common point lies (`settle_on` with an unbounded reach), since a thread's run-out corner, where
+  the flank grazes the bore, lies 0.035 mm from where Fusion writes it and the body is exact
+  there.
 - A body the exact build refuses is built again in `Healing::Extended` before any looser mode: each
   spline face's surface is continued past its domain by a tenth of its boundary span
   (`BSplineSurface::extended`), except across a seam, a pole or sides within the file's precision
@@ -260,12 +263,16 @@ paths:
 
 - A body neither the exact nor the bent build accepts is built again in `Healing::Faceted` when the
   file declares a precision: intersection edges are traced only between elementary faces, and an
-  edge whose ends
-  miss its vertices keeps the file's curve with the miss blended in (`loose::met_at_ends`, a line
-  rebuilt through its vertices). If every vertex and edge then lies within the declared precision of
-  its faces, the unvalidated body is meshed (`SolidBuilder::unvalidated_mesh`, `SMOOTH`, then
-  coarser while `faceted_solids` finds too many faces) and imported as the one planar solid
-  `faceted_solids` makes, with a note per body; otherwise the exact refusal stands. Like a mesh
-  import it skips `find_crossing`, since `faceted_solids` already leaves out self-folding shells.
+  edge whose ends miss its vertices keeps the file's curve with the miss blended in
+  (`loose::met_at_ends`, a line rebuilt through its vertices). A vertex settles no farther than its
+  worst gap (nor the precision): where faces meet nearly parallel or tangent a few micrometres
+  apart, their common point lies far along them (0.83 mm for a cylinder tangent to a spline
+  0.0044 mm off, 5 mm for planes 0.005° apart), and following it would leave every edge there
+  missing the vertex, while the file's corner already lies within the precision of all its faces.
+  If every vertex and edge then lies within the declared precision of its faces, the unvalidated
+  body is meshed (`SolidBuilder::unvalidated_mesh`, `SMOOTH`, then coarser while `faceted_solids`
+  finds too many faces) and imported as the one planar solid `faceted_solids` makes, with a note
+  per body; otherwise the exact refusal stands. Like a mesh import it skips `find_crossing`, since
+  `faceted_solids` already leaves out self-folding shells.
 - Faceted bodies lose their curved faces (no fillets on them, no exact measures). Bending covers
   only part of such files yet; the rest is the bent-faces entry in `docs/BUGS.md`.

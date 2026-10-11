@@ -2107,6 +2107,132 @@ fn box_with_top(top: impl Fn(&mut Entities) -> usize) -> String {
     entities.text()
 }
 
+fn box_with_a_split_top(step: f64, tilt: f64) -> String {
+    use caditor_geometry::{Point3, Vector3};
+
+    const CORNERS: [[f64; 3]; 10] = [
+        [0.0, 0.0, 0.0],
+        [10.0, 0.0, 0.0],
+        [10.0, 10.0, 0.0],
+        [0.0, 10.0, 0.0],
+        [0.0, 0.0, 10.0],
+        [5.0, 0.0, 10.0],
+        [10.0, 0.0, 10.0],
+        [10.0, 10.0, 10.0],
+        [5.0, 10.0, 10.0],
+        [0.0, 10.0, 10.0],
+    ];
+    const LOOPS: [&[usize]; 7] = [
+        &[0, 3, 2, 1],
+        &[0, 1, 6, 5, 4],
+        &[1, 2, 7, 6],
+        &[2, 3, 9, 8, 7],
+        &[3, 0, 4, 9],
+        &[4, 5, 8, 9],
+        &[5, 6, 7, 8],
+    ];
+    let raised_half = LOOPS.len() - 1;
+    let corner = |index: usize| {
+        let [x, y, z] = CORNERS[index];
+        Point3::new(x, y, z)
+    };
+
+    let mut entities = Entities::default();
+
+    let vertices: Vec<usize> = (0..CORNERS.len())
+        .map(|index| {
+            let at = entities.point(corner(index));
+            entities.add(format!("VERTEX_POINT('',#{at})"))
+        })
+        .collect();
+    let mut edges = std::collections::BTreeMap::new();
+    let mut faces = Vec::new();
+    for (face, corners) in LOOPS.iter().enumerate() {
+        let mut uses = Vec::new();
+        for (index, from) in corners.iter().enumerate() {
+            let to = corners[(index + 1) % corners.len()];
+            let key = (*from.min(&to), *from.max(&to));
+            let edge = *edges.entry(key).or_insert_with(|| {
+                let (start, end) = (corner(key.0), corner(key.1));
+                let origin = entities.point(start);
+                let along = entities.direction((end - start).normalize());
+                let vector = entities.add(format!("VECTOR('',#{along},1.)"));
+                let line = entities.add(format!("LINE('',#{origin},#{vector})"));
+                entities.add(format!(
+                    "EDGE_CURVE('',#{},#{},#{line},.T.)",
+                    vertices[key.0], vertices[key.1]
+                ))
+            });
+            let forward = if *from < to { ".T." } else { ".F." };
+            uses.push(format!(
+                "#{}",
+                entities.add(format!("ORIENTED_EDGE('',*,*,#{edge},{forward})"))
+            ));
+        }
+        let edge_loop = entities.add(format!("EDGE_LOOP('',({}))", uses.join(",")));
+        let bound = entities.add(format!("FACE_OUTER_BOUND('',#{edge_loop},.T.)"));
+        let points: Vec<Point3> = corners.iter().map(|index| corner(*index)).collect();
+        let (origin, axis) = if face == raised_half {
+            (
+                points[0] + Vector3::new(0.0, 0.0, step),
+                Vector3::new(-tilt, 0.0, 1.0).normalize(),
+            )
+        } else {
+            (
+                points[0],
+                (points[1] - points[0])
+                    .cross(points[2] - points[1])
+                    .normalize(),
+            )
+        };
+        let origin = entities.point(origin);
+        let axis = entities.direction(axis);
+        let reference = entities.direction(if face == raised_half {
+            Vector3::Y
+        } else {
+            (points[1] - points[0]).normalize()
+        });
+        let placement = entities.add(format!(
+            "AXIS2_PLACEMENT_3D('',#{origin},#{axis},#{reference})"
+        ));
+        let surface = entities.add(format!("PLANE('',#{placement})"));
+        faces.push(format!(
+            "#{}",
+            entities.add(format!("ADVANCED_FACE('',(#{bound}),#{surface},.T.)"))
+        ));
+    }
+    let shell = entities.add(format!("CLOSED_SHELL('',({}))", faces.join(",")));
+    let brep = entities.add(format!("MANIFOLD_SOLID_BREP('box',#{shell})"));
+    with_precision(
+        &entities.text(),
+        "ADVANCED_BREP_SHAPE_REPRESENTATION",
+        brep as u64,
+        "1.E-2",
+    )
+}
+
+#[test]
+fn a_corner_of_nearly_parallel_faces_stays_put_when_the_body_imports_as_facets() {
+    let text = box_with_a_split_top(5e-4, 1e-4);
+
+    let model = sample(&text);
+
+    assert_eq!(model.solids.len(), 1);
+    assert!(
+        model
+            .notes
+            .iter()
+            .any(|note| note.contains("“box” was imported as flat facets")),
+        "{:?}",
+        model.notes
+    );
+    assert!(
+        (fixtures::volume(&model.solids[0].solid) - 1000.0).abs() < 0.05,
+        "{}",
+        fixtures::volume(&model.solids[0].solid)
+    );
+}
+
 #[test]
 fn a_spline_face_ending_just_short_of_its_neighbours_is_continued_to_meet_them() {
     let short_by = 1e-4;

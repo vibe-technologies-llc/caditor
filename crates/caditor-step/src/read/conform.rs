@@ -452,7 +452,7 @@ fn placed_vertices(
             .filter(|face| spline_of(body.faces.get(face)).is_none() || !on_lines(**face, *vertex))
             .filter_map(|face| body.faces.get(face).cloned())
             .collect();
-        let (point, _) = settle_on(*start, &rigid);
+        let (point, _) = settle_on(*start, &rigid, f64::INFINITY);
         let off = rigid
             .iter()
             .map(|surface| surface.distance(point))
