@@ -64,7 +64,9 @@ paths:
 - `Model` (`model.rs`) owns the `Editor`, the `Recomputer` and the length unit; the UI gets
   `&Model` and returns `Action`s the app performs after its pass. Features draw from the last good
   result, tinted if failed or outdated; suppressed and rolled-back ones are neither drawn nor
-  picked (`Document::active_features`).
+  picked (`Document::active_features`), and what was selected of them leaves the selection: a
+  sketch's curves and regions are available only while it is active (`Document::is_active` in
+  `Pickable::is_available`) or edited, as faces and edges are only while the evaluation has them.
 - `Model` also owns the file session: path, last saved document (unsaved exactly when the
   document differs from it, and always when unknown, e.g. after restoring a rebased journal), the
   journal's base and entries since it, and the `Storage` worker every change is recorded to.

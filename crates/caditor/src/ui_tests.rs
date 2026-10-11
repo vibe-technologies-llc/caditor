@@ -16626,6 +16626,54 @@ fn a_suppressed_sketch_counts_toward_fitting_the_view_no_more() {
 }
 
 #[test]
+fn the_curves_of_a_suppressed_or_rolled_back_sketch_leave_the_selection() {
+    let mut harness = Harness::new();
+    harness.settle();
+    let mut far = Sketch::new(Plane::XY);
+    let line = far.add_line(Point2::new(900.0, 900.0), Point2::new(1000.0, 1000.0));
+    let sketch = harness.add_sketch(far);
+    harness.settle();
+    let curve = Pickable::SketchEntity {
+        feature: sketch,
+        entity: line,
+    };
+
+    for (label, edit, back) in [
+        (
+            "Suppress",
+            Edit::SetFeatureSuppressed {
+                id: sketch,
+                suppressed: true,
+            },
+            Edit::SetFeatureSuppressed {
+                id: sketch,
+                suppressed: false,
+            },
+        ),
+        (
+            "Roll back",
+            Edit::SetRollbackBar {
+                bar: RollbackBar::Before(sketch),
+            },
+            Edit::SetRollbackBar {
+                bar: RollbackBar::AtEnd,
+            },
+        ),
+    ] {
+        harness.select([curve]);
+        let selected = harness.workspace.viewport.selection().contains(curve);
+        harness.perform(Action::Apply(Transaction::single(label, edit)));
+        harness.settle();
+        let after = harness.workspace.viewport.selection().contains(curve);
+        harness.perform(Action::Apply(Transaction::single(label, back)));
+        harness.settle();
+
+        assert!(selected, "{label}");
+        assert!(!after, "{label}");
+    }
+}
+
+#[test]
 fn look_at_sketch_turns_the_view_square_on_to_the_edited_sketch_again() {
     let mut harness = Harness::new();
     let mut slanted = Sketch::new(Plane::XZ);

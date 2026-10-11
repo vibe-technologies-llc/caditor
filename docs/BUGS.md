@@ -423,14 +423,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Viewer
 
-- [medium · easy] Curves of a suppressed or rolled-back sketch stay selected and acted on:
-  `Pickable::SketchEntity::is_available` (`selection.rs`) asks only that the entity exists and the
-  sketch is not hidden (`visibility::is_shown` reads `hidden` alone), never `Document::is_active`,
-  so a curve selected before its sketch is suppressed or rolled back stays in the selection while
-  it is no longer drawn: Fit view (F) frames it, the status bar counts it, Look at faces its plane
-  and Extrude and Revolve still take its sketch (`solid_tools::sweep_source`). Faces, edges and
-  regions drop out when the evaluation loses them. Require an active feature outside the edited
-  sketch; pin it beside `a_suppressed_sketch_counts_toward_fitting_the_view_no_more`.
 - [medium · easy] Box and paint selection ignore the display style: `select_in_model`
   (`viewport.rs`) never reads the style, so in Wireframe and X-ray, where faces are not picked
   (Wireframe draws none, X-ray draws them without pick ids), a box with the default Everything
