@@ -8,6 +8,7 @@
   and toolbars wrap rather than cut off.
 - **High contrast** in [Preferences](preferences) › Appearance strengthens text, outlines and focus
   rings, and reaches the 3D view: lines and points stand out against the background and bodies,
+  a body too dark for its edges and highlighted faces to show is drawn lighter,
   and state is shown by form as well as colour (selected geometry is wider, failed bodies have
   dashed edges, free sketch points are hollow).
 - **Screen readers**: buttons, fields and rows are named, notices are announced, and the 3D view is

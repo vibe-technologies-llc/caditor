@@ -423,16 +423,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Viewer
 
-- [medium · medium] High contrast holds edges and face highlights to 3:1 only on the default body
-  colour: `scene::body_color` draws a sound body in its painted colour in every palette and
-  `face_looks` keeps face colours, while `scene_palette.rs`'s
-  `high_contrast_edges_and_highlighted_faces_stand_out_on_a_body` checks `body_edge`,
-  `faces.selected` and `faces.hovered` against `DEFAULT_COLOUR` alone, so on the offered Charcoal
-  swatch edges read about 1.9:1 and a selected face about 1.3:1, the selection invisible (a black
-  or dark grey STEP import the same), and in dark high contrast selected edges on the White swatch
-  about 2:1, against `ux.md`'s "edges and highlighted faces to 3:1 on a body". Draw bodies in the
-  tested body colour in high contrast, as finishes already are dropped there, or choose edge and
-  highlight colours by the body's luminance, and extend the test to every swatch.
 - [low · medium · blocked by: wgpu's GL backend] On GL and other devices without texture view
   formats the multisample resolve still averages in gamma space. A resolve of its own (a pass
   reading the samples through a `texture_multisampled_2d` and averaging them in linear light) was

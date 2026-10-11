@@ -18588,6 +18588,86 @@ fn a_body_drawn_half_see_through_goes_to_the_translucent_pass() {
 }
 
 #[test]
+fn high_contrast_draws_a_dark_body_light_enough_for_its_edges_and_highlights() {
+    let mut harness = Harness::new();
+    let (plate, top) = extruded_plate(&mut harness);
+    let Pickable::Face { face, .. } = top else {
+        panic!("{top:?}");
+    };
+    let shown = crate::bodies::shown(harness.model.evaluation(), plate).unwrap();
+    let reference = caditor_kernel::FaceReference::capture(
+        &shown.solid,
+        crate::bodies::find_face(shown, face).unwrap(),
+    )
+    .unwrap();
+    let charcoal = caditor_document::Rgb::new(60, 62, 68);
+    let black = caditor_document::Rgb::new(0, 0, 0);
+    harness.model.perform(Action::Apply(Transaction::single(
+        "Paint the plate dark",
+        Edit::SetBodyAppearance {
+            id: plate,
+            appearance: caditor_document::BodyAppearance {
+                colour: Some(charcoal),
+                faces: vec![caditor_document::FaceColour {
+                    face: reference,
+                    colour: black,
+                    opacity: None,
+                    finish: None,
+                }],
+                ..Default::default()
+            },
+        },
+    )));
+    harness.settle();
+    let colours = |harness: &mut Harness| {
+        let built = harness.built();
+        let top_pick = built.picks.id_of(top);
+        let faces: Vec<_> = built
+            .scene
+            .meshes
+            .iter()
+            .flat_map(|instance| instance.faces.iter())
+            .collect();
+        let of_top = faces
+            .iter()
+            .find(|face| face.pick == top_pick)
+            .map(|face| face.color);
+        let other = faces
+            .iter()
+            .find(|face| face.pick.is_some() && face.pick != top_pick)
+            .map(|face| face.color);
+        (of_top, other)
+    };
+    let as_painted =
+        |rgb: caditor_document::Rgb| caditor_render::Color::from_rgb8(rgb.red, rgb.green, rgb.blue);
+    let standard = colours(&mut harness);
+
+    set_high_contrast(&mut harness, true);
+    let high = colours(&mut harness);
+    let palette = scene_palette::Contrast::High.palette(harness.workspace.viewport.canvas());
+
+    assert_eq!(
+        standard,
+        (Some(as_painted(black)), Some(as_painted(charcoal)))
+    );
+    assert_eq!(
+        high,
+        (
+            Some(palette.body(as_painted(black))),
+            Some(palette.body(as_painted(charcoal)))
+        )
+    );
+    assert!(
+        high.0
+            .is_some_and(|colour| palette.marks_stand_out_on(colour))
+    );
+    assert!(
+        high.1
+            .is_some_and(|colour| palette.marks_stand_out_on(colour))
+    );
+}
+
+#[test]
 fn a_face_of_its_own_opacity_is_drawn_see_through_and_the_rest_of_its_body_solid() {
     let mut harness = Harness::new();
     let (plate, top) = extruded_plate(&mut harness);

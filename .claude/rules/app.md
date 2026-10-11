@@ -227,7 +227,9 @@ paths:
   triangles, and the body is then marked approximate with the mesh's chord
   (`MassAccuracy::Mesh`).
 - A body is drawn in its appearance colour, else the default (`body_appearance::DEFAULT_COLOUR`);
-  a failed or outdated feature on it tints it as before. While a sketch is edited, bodies are
+  a failed or outdated feature on it tints it as before. In high contrast every body and face
+  colour passes through `ScenePalette::body`, which lightens one too dark for edges and face
+  highlights to hold 3:1 on it (`app-look.md`). While a sketch is edited, bodies are
   dimmed and not pickable.
 - Every failed feature whose error has a `place` gets a marker there in the error colour, drawn in
   front of the model with a "<feature> failed here" label that screen readers read.
