@@ -22,6 +22,8 @@ use crate::{
     undo_history, version_preview,
 };
 
+const REOPENINGS: usize = 20;
+
 fn notice_starts(harness: &Harness, text: &str) -> bool {
     harness
         .model
@@ -356,6 +358,25 @@ fn a_recent_model_that_cannot_be_reached_stays_in_the_recent_models() {
     assert!(!harness.model.notice().unwrap().text.contains("removed"));
     assert_eq!(harness.files.recent(), std::slice::from_ref(&model));
     assert!(!harness.files.is_missing(&model));
+}
+
+#[test]
+fn a_model_opened_again_straight_after_leaving_it_opens_instead_of_being_called_open_elsewhere() {
+    let dir = TempDir::new().unwrap();
+    let root = canonical(&dir);
+    let model = saved_model(&root, "kept.caditor");
+    let mut harness = Harness::with_directories(Some(root.as_path()));
+
+    for _ in 0..REOPENINGS {
+        harness.command(FileCommand::OpenPath(model.clone()));
+        harness.wait_until("the model is open or refused", |harness| {
+            harness.model.path().is_some() || notice_starts(harness, "“kept.caditor” is")
+        });
+
+        assert_eq!(harness.model.path(), Some(model.as_path()));
+
+        harness.command(FileCommand::New);
+    }
 }
 
 #[test]

@@ -2,12 +2,16 @@ use std::{
     fs::{self, File, OpenOptions, Permissions},
     io::{self, Write},
     path::{Path, PathBuf},
-    sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, SyncSender, TryRecvError},
+    sync::{
+        Arc,
+        mpsc::{self, Receiver, RecvTimeoutError, Sender, SyncSender, TryRecvError},
+    },
     thread,
     time::{Duration, Instant},
 };
 
 use caditor_document::Document;
+use parking_lot::{Condvar, Mutex};
 
 use crate::{
     binary::FileDigest,
@@ -137,6 +141,31 @@ enum Command {
 pub struct Storage {
     commands: Sender<Command>,
     reports: Receiver<Report>,
+    handover: Handover,
+}
+
+#[derive(Clone, Default)]
+pub struct Handover(Arc<HandoverState>);
+
+#[derive(Default)]
+struct HandoverState {
+    predecessor_gone: Mutex<bool>,
+    changed: Condvar,
+}
+
+impl Handover {
+    fn complete(&self) {
+        *self.0.predecessor_gone.lock() = true;
+        self.0.changed.notify_all();
+    }
+
+    pub fn wait(&self, timeout: Duration) -> bool {
+        let mut gone = self.0.predecessor_gone.lock();
+        self.0
+            .changed
+            .wait_while_for(&mut gone, |gone| !*gone, timeout);
+        *gone
+    }
 }
 
 impl Storage {
@@ -147,6 +176,8 @@ impl Storage {
     ) -> io::Result<Self> {
         let (commands, queue) = mpsc::channel();
         let (sender, reports) = mpsc::channel();
+        let handover = Handover::default();
+        let handed_over = handover.clone();
         thread::Builder::new()
             .name("storage".to_owned())
             .spawn(move || {
@@ -165,6 +196,7 @@ impl Storage {
                 {
                     log::warn!("the previous storage worker did not finish in time");
                 }
+                handed_over.complete();
                 let mut mirror = Mirror::new(base.clone());
                 let entries = entries.into_iter().map(|entry| mirror.log(entry)).collect();
                 let mut worker = Worker {
@@ -192,7 +224,15 @@ impl Storage {
                 worker.rewrite();
                 worker.run(&queue);
             })?;
-        Ok(Self { commands, reports })
+        Ok(Self {
+            commands,
+            reports,
+            handover,
+        })
+    }
+
+    pub fn handover(&self) -> Handover {
+        self.handover.clone()
     }
 
     pub fn record(&self, entry: JournalEntry) -> Result<(), StorageStopped> {

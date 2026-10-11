@@ -71,8 +71,8 @@ pub use crate::{
     },
     settings::{Settings, SettingsError, config_dir},
     storage::{
-        Closing, Flusher, JournalFailure, KeepRequest, Report, SaveRequest, Start, Storage,
-        StorageConfig, StorageStopped,
+        Closing, Flusher, Handover, JournalFailure, KeepRequest, Report, SaveRequest, Start,
+        Storage, StorageConfig, StorageStopped,
     },
     themes::{
         MAX_THEME_FILE, MAX_THEME_FILES, ReadTheme, THEME_EXTENSION, THEMES_FOLDER, ThemeFile,

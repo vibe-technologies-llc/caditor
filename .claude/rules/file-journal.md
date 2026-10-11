@@ -74,6 +74,10 @@ paths:
 - After a write error (`Report::JournalFailed`) it keeps the lock, stops appending and rewrites the
   whole journal every `RETRY_INTERVAL` until it succeeds (`Report::JournalRestored`).
 - A replaced journal is removed only once the new one is written.
+- A worker started for another model (`Start::after`, the previous worker's `Closing`) waits up to
+  `PREDECESSOR_TIMEOUT` for it to finish, then completes its `Handover` (`Storage::handover`), so
+  anything inspecting journals for that model's file waits on it first: until then the previous
+  worker still holds that journal's lock, and the file would be judged open in another window.
 - A fallback journal is named by a hash of the model's path identity (`os::journal_identity`:
   the path as is on Unix, the case-folded final path on Windows, `windows.md`). Lookups
   (`paths::journals_for`, `journal_markers`) also try the hash of the path as spelled, which older

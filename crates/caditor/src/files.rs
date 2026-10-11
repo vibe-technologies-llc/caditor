@@ -8,7 +8,7 @@ use std::{
     slice,
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         mpsc::{self, Receiver, Sender},
     },
     thread,
@@ -18,8 +18,8 @@ use std::{
 use caditor_document::{CancelToken, Document, FeatureId, FeatureResult, ImportedParameter};
 use caditor_file::{
     Closing, Construction, DRAWING_IMPORT_EXTENSIONS, Drawing, DrawingExported, DrawingSheet,
-    ExportError, ExportFormat, FILE_EXTENSION, FaceExported, FileJournal, History, ImportError,
-    LoadError, Loaded, MESH_IMPORT_EXTENSIONS, ModelImport, NamedFace, NamedSketch,
+    ExportError, ExportFormat, FILE_EXTENSION, FaceExported, FileJournal, Handover, History,
+    ImportError, LoadError, Loaded, MESH_IMPORT_EXTENSIONS, ModelImport, NamedFace, NamedSketch,
     PARAMETERS_EXTENSION, PNG_EXTENSION, ParameterFileError, ReadingProgress, ReadingStage,
     RecentChange, RecentFiles, Recovered, STEP_EXTENSIONS, STEP_IMPORT_EXTENSIONS, SaveError,
     SavedState, Settings, SheetLayout, SketchExported, SketchFormat, TextOutlines,
@@ -70,6 +70,7 @@ pub mod parameters;
 pub mod templates;
 mod themes;
 
+const HANDOVER_TIMEOUT: Duration = Duration::from_secs(10);
 const OPEN_RECENT: &str = "Open recent";
 pub const KEEP_CONSTRUCTION_HINT: &str = "Export sketch writes construction geometry dashed on a \
                                           layer of its own named Construction, instead of leaving \
@@ -947,6 +948,7 @@ pub struct Files {
     folders: BTreeMap<Folder, PathBuf>,
     last_export: Option<LastExport>,
     missing_recent: BTreeSet<PathBuf>,
+    own_threads_running: Arc<AtomicUsize>,
 }
 
 impl Files {
@@ -998,6 +1000,7 @@ impl Files {
             folders: BTreeMap::new(),
             last_export: None,
             missing_recent: BTreeSet::new(),
+            own_threads_running: Arc::default(),
         }
     }
 
@@ -1032,6 +1035,11 @@ impl Files {
     #[cfg(test)]
     pub fn load_models_with(&mut self, loader: ModelLoader) {
         self.model_loader = loader;
+    }
+
+    #[cfg(test)]
+    pub fn own_threads_delivered(&self) -> bool {
+        self.own_threads_running.load(Ordering::SeqCst) == 0
     }
 
     #[cfg(test)]
@@ -2083,6 +2091,8 @@ impl Files {
     ) {
         let events = self.events.clone();
         let wake = (self.make_waker)();
+        let running = Arc::clone(&self.own_threads_running);
+        running.fetch_add(1, Ordering::SeqCst);
         run_on_own_thread(
             name,
             Box::new(move || {
@@ -2093,6 +2103,7 @@ impl Files {
                 if events.send(event).is_ok() {
                     wake();
                 }
+                running.fetch_sub(1, Ordering::SeqCst);
             }),
         );
     }
@@ -2752,12 +2763,14 @@ impl Files {
         self.open_attempt += 1;
         let attempt = self.open_attempt;
         let current = model.path().map(Path::to_path_buf);
+        let handover = model.storage_handover();
         let recovery_dir = self.config.recovery_dir.clone();
         let loader = Arc::clone(&self.model_loader);
         let failed = path.clone();
         self.spawn_own(
             "open",
             move || {
+                await_handover(handover.as_ref());
                 let path = dunce::canonicalize(&path).unwrap_or(path);
                 let outcome =
                     open_file(&path, current.as_deref(), recovery_dir.as_deref(), |path| {
@@ -2784,12 +2797,16 @@ impl Files {
 
     fn save_as(&mut self, picked: PathBuf, session: u64, model: &mut Model) {
         let current = model.path().map(Path::to_path_buf);
+        let handover = model.storage_handover();
         let recovery_dir = self.config.recovery_dir.clone();
         let failed = picked.clone();
         self.spawn(
-            move || Event::SaveTargetChecked {
-                target: check_save_target(&picked, current.as_deref(), recovery_dir.as_deref()),
-                session,
+            move || {
+                await_handover(handover.as_ref());
+                Event::SaveTargetChecked {
+                    target: check_save_target(&picked, current.as_deref(), recovery_dir.as_deref()),
+                    session,
+                }
             },
             move || Event::SaveTargetChecked {
                 target: SaveTarget::Failed(failed),
@@ -3106,6 +3123,14 @@ fn revert_to_saved(model: &mut Model) {
         "Went back to “{}” as it was last saved. Undo brings your changes back.",
         model.display_name()
     )));
+}
+
+fn await_handover(handover: Option<&Handover>) {
+    if let Some(handover) = handover
+        && !handover.wait(HANDOVER_TIMEOUT)
+    {
+        log::warn!("the journal of the model closed before was still held");
+    }
 }
 
 fn open_file(

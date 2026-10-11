@@ -32,7 +32,9 @@ paths:
   after it is the finished one. `point_at`, and so `click_at`, settles first when a recompute or
   meshing is still running: its result changes the panels (a sketch's status pills), and a
   layout change landing between working out a screen position and the frame that reads the
-  pointer would put the pointer somewhere else in the sketch. `open_combo` likewise moves the
+  pointer would put the pointer somewhere else in the sketch. `open_combo` likewise settles first
+  when a recompute or meshing is still running (one landing between finding the list's row and
+  the press, as after typing a value, shifts the panel and the press picks nothing), moves the
   pointer onto the list and holds still until the list stays put before pressing, since a tree
   taller than its panel can scroll when the pointer arrives over it.
 - `settle` does not wait for workers outside the model, so a test reading their result waits for
@@ -54,7 +56,9 @@ paths:
   `Preview::is_drawn` without a GPU.
 - Slow file work is staged with test-only seams on `Files`: `read_models_with` swaps the reader an
   import thread calls and `load_models_with` the loader an open thread calls
-  (`ui_tests/import_jobs.rs` blocks either until released or cancelled).
+  (`ui_tests/import_jobs.rs` blocks either until released or cancelled). A test asserting that a
+  cancelled or abandoned result was dropped waits for `Files::own_threads_delivered` (every import,
+  open and preview thread has sent its event) and a frame, never a fixed sleep.
 - Opening a model resolves its path (`dunce::canonicalize`), and a Windows runner's temporary
   folder is an 8.3 short name (`C:\Users\RUNNER~1\...`) that resolving spells out in full, so a test
   comparing `Model::path` with a file it wrote builds that file under `canonical(&dir)`, never

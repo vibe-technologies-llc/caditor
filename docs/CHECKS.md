@@ -62,17 +62,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   `diagnosis_tests` asserts under 5 s, against `sketch-solver.md`'s "never wall-clock time". Bound
   them by work units or iteration counts, and refuse `elapsed()` inside an assert in a
   conventions test.
-- [low · easy] `ui_tests::a_hole_is_drilled_at_the_points_of_a_sketch_and_its_panel_changes_the_style_and_sizes`
-  fails now and then under load, twice on 2026-10-10 and 11 while other builds ran, and passes on
-  its own every time: after `open_combo(&mut harness, "Depth")` and
-  `click_lowest("Through all")` it asserts one row named Depth, and finds two, so the pick
-  landed elsewhere and the hole stayed blind. Wait for the list to settle before clicking (as
-  `open_combo` does before pressing), or choose the depth through the field's id.
-- [low · easy] Fixed sleeps before asserting that nothing arrived: `ui_tests/import_jobs.rs` sleeps
-  100 to 200 ms after a reader returns, then asserts a cancelled import's result was not applied,
-  and `presenting_tests.rs` sleeps 50 ms before asserting no early report, so on a slow runner they
-  pass before the message could arrive. Wait on `Files::wait_for_jobs` or a seam signalling the
-  result was delivered or dropped.
 - [low · easy] Nothing catches a rules file emptied by mistake: 9bf86656 cut all 1,073 lines of
   `document.md` while meaning to add a sentence, and it stayed empty for six commits that should
   have updated it, every change to `caditor-document` loading an empty rule. Have
