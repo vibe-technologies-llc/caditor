@@ -1,16 +1,20 @@
 use std::{
     collections::BTreeSet,
+    fs,
     sync::{Arc, atomic::AtomicUsize},
 };
 
 use caditor_document::{CancelToken, ConfiguredValue, Setting, Transaction};
 use caditor_file::{ExportFormat, MeshOptions, MeshResolution, StlEncoding};
 use caditor_geometry::Point2;
+use tempfile::TempDir;
 
-use super::{Harness, add_block, run_from_palette};
+use super::{Harness, add_block, canonical, extruded_plate, run_from_palette};
 use crate::{
     configuration_export::{self, ConfigurationJob},
     configurations::{ADD_LABEL, cell_id},
+    export::ExportCommand,
+    files::FileCommand,
     model::Action,
 };
 
@@ -106,9 +110,12 @@ fn exporting_every_configuration_writes_a_file_for_each_with_its_own_values() {
     let folder = tempfile::tempdir().unwrap();
     let job = ConfigurationJob {
         document: harness.document().clone(),
-        configurations: configuration_export::exportable(harness.document()),
+        files: configuration_export::files_for(
+            &folder.path().join("bracket.stl"),
+            configuration_export::exportable(harness.document()),
+            ExportFormat::Stl,
+        ),
         left_out: BTreeSet::new(),
-        path: folder.path().join("bracket.stl"),
         format: ExportFormat::Stl,
         done: Arc::new(AtomicUsize::new(0)),
     };
@@ -140,4 +147,80 @@ fn exporting_every_configuration_writes_a_file_for_each_with_its_own_values() {
         "{long}"
     );
     assert_eq!(harness.expression_text("size"), "10 mm");
+}
+
+fn notice_starts(harness: &Harness, text: &str) -> bool {
+    harness
+        .model
+        .notice()
+        .is_some_and(|notice| notice.text.starts_with(text))
+}
+
+#[test]
+fn configurations_whose_names_make_the_same_file_are_written_apart_once_replacing_is_confirmed() {
+    let dir = TempDir::new().unwrap();
+    let root = canonical(&dir);
+    let mut harness = Harness::with_directories(Some(root.as_path()));
+    extruded_plate(&mut harness);
+    let (first, _) = harness.document().adding_configuration(Some("M4/20"));
+    harness.perform(Action::Apply(first));
+    let (second, _) = harness.document().adding_configuration(Some("M4-20"));
+    harness.perform(Action::Apply(second));
+    harness.settle();
+    harness.frame();
+
+    let slashed = root.join("bracket M4-20.stl");
+    let dashed = root.join("bracket M4-20 (2).stl");
+    fs::write(&slashed, b"kept").unwrap();
+    fs::write(&dashed, b"kept").unwrap();
+
+    harness.command(FileCommand::Export(ExportCommand::Show));
+    harness.click("STL");
+    harness.command(FileCommand::Export(ExportCommand::SetEveryConfiguration(
+        true,
+    )));
+    harness.answer_dialog(Some(root.join("bracket")));
+    harness.click("Export…");
+    harness.wait_until("the replacement is asked about", |harness| {
+        harness.shows("Replace 2 files?")
+    });
+    let listed = harness.shows("bracket M4-20.stl") && harness.shows("bracket M4-20 (2).stl");
+    harness.click("Cancel");
+
+    assert!(listed);
+    assert_eq!(fs::read(&slashed).unwrap(), b"kept");
+    assert_eq!(fs::read(&dashed).unwrap(), b"kept");
+
+    harness.click("Export…");
+    harness.wait_until("the replacement is asked about again", |harness| {
+        harness.shows("Replace 2 files?")
+    });
+    harness.click("Replace");
+    harness.wait_until("both configurations are written", |harness| {
+        notice_starts(
+            harness,
+            "Exported 2 configurations to “bracket M4-20.stl” and “bracket M4-20 (2).stl”.",
+        )
+    });
+
+    assert_ne!(fs::read(&slashed).unwrap(), b"kept");
+    assert_ne!(fs::read(&dashed).unwrap(), b"kept");
+    assert!(!root.join("bracket.stl").exists());
+
+    harness.perform(Action::DismissNotice);
+    run_from_palette(&mut harness, "export again");
+    harness.wait_until("both configurations are written again", |harness| {
+        notice_starts(harness, "Exported 2 configurations")
+    });
+
+    assert!(!harness.shows("Replace 2 files?"));
+
+    fs::write(&dashed, b"changed elsewhere").unwrap();
+    run_from_palette(&mut harness, "export again");
+    harness.wait_until("the changed file is asked about", |harness| {
+        harness.shows("Replace “bracket M4-20 (2).stl”?")
+    });
+    harness.click("Cancel");
+
+    assert_eq!(fs::read(&dashed).unwrap(), b"changed elsewhere");
 }

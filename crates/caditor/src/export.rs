@@ -11,8 +11,8 @@ use std::{
 };
 
 use caditor_document::{
-    BodyAppearance, CancelToken, ConfigurationId, Document, Evaluation, FaceSplits, FeatureId,
-    FeatureResult, ModelProperties, Rgb, placed_threads,
+    BodyAppearance, CancelToken, Document, Evaluation, FaceSplits, FeatureId, FeatureResult,
+    ModelProperties, Rgb, placed_threads,
 };
 use caditor_file::{
     ExportBody, ExportError, ExportFace, ExportFormat, ExportThread, Exported, Look, MeshOptions,
@@ -27,7 +27,7 @@ use parking_lot::Mutex;
 use crate::{
     appearance::SPACE_M,
     commands::{Command, CommandFrame},
-    configuration_export::{self, ConfigurationExported, ConfigurationJob},
+    configuration_export::{self, ConfigurationExported, ConfigurationFile, ConfigurationJob},
     dialog_parts::BodyRoom,
     feature_tree::count,
     files::FileCommand,
@@ -72,10 +72,15 @@ pub enum ExportReport {
 }
 
 impl ExportReport {
-    pub fn succeeded(&self) -> bool {
+    pub fn written<'a>(&'a self, path: &'a Path) -> Vec<&'a Path> {
         match self {
-            Self::Bodies(result) => result.is_ok(),
-            Self::Configurations(result) => result.is_ok(),
+            Self::Bodies(Ok(_)) => vec![path],
+            Self::Configurations(Ok(outcomes)) => outcomes
+                .iter()
+                .filter(|outcome| outcome.result.is_ok())
+                .map(|outcome| outcome.path.as_path())
+                .collect(),
+            Self::Bodies(Err(_)) | Self::Configurations(Err(_)) => Vec::new(),
         }
     }
 }
@@ -348,15 +353,28 @@ impl Exporter {
         format!("{stem}.{}", self.format.extension())
     }
 
+    pub fn configuration_files(
+        &self,
+        path: &Path,
+        format: ExportFormat,
+        model: &Model,
+    ) -> Vec<ConfigurationFile> {
+        if !self.every_configuration {
+            return Vec::new();
+        }
+        let configurations = configuration_export::exportable(model.document());
+        configuration_export::files_for(path, configurations, format)
+    }
+
     pub fn start(
         &mut self,
         path: PathBuf,
         format: ExportFormat,
+        configurations: Vec<ConfigurationFile>,
         model: &Model,
         finished: Finished,
     ) {
-        let configurations = configuration_export::exportable(model.document());
-        if self.every_configuration && !configurations.is_empty() {
+        if !configurations.is_empty() {
             self.start_configurations(path, format, model, configurations, finished);
             return;
         }
@@ -457,19 +475,18 @@ impl Exporter {
         path: PathBuf,
         format: ExportFormat,
         model: &Model,
-        configurations: Vec<(ConfigurationId, String)>,
+        files: Vec<ConfigurationFile>,
         finished: Finished,
     ) {
         let cancelled = Arc::new(AtomicBool::new(false));
         let flag = Arc::clone(&cancelled);
         let cancel = CancelToken::new(move || flag.load(Ordering::SeqCst));
         let done = Arc::new(AtomicUsize::new(0));
-        let total = configurations.len();
+        let total = files.len();
         let job = ConfigurationJob {
             document: model.document().clone(),
-            configurations,
+            files,
             left_out: self.left_out.clone(),
-            path: path.clone(),
             format,
             done: Arc::clone(&done),
         };

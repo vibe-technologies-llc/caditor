@@ -12,8 +12,8 @@
 
 {command:file.export_again} writes the same bodies again to the file the last export wrote, in the
 same format and with the same choices, without asking for a file: handy after each change while
-printing. It asks before replacing only when the file was changed by something else since. It is
-offered until another model is opened.
+printing. It asks before replacing only when the file was changed by something else since, or for
+every configuration, when one of their files was. It is offered until another model is opened.
 
 Each kind of file dialog (opening, importing, exporting models, drawings, parameters) starts in the
 folder it was last used with while caditor runs.

@@ -19,4 +19,8 @@ Editing a configured value while a configuration is active changes that configur
 
 When a model has two or more configurations, [Export](exporting) offers **Every configuration**:
 it writes one file per configuration beside the chosen one, with the configuration's name added to
-the file name, without changing the open model. Cancel keeps the files already written.
+the file name, without changing the open model. Characters a file name cannot hold become `-`, and
+configurations whose names would still make the same file, such as "M4/20" and "M4-20" or "A" and
+"a", each get their own, the later one numbered: "bracket M4-20 (2).stl". When some of those files
+already exist, one prompt lists them before anything is written, and Cancel leaves them as they
+are. Cancel during the export keeps the files already written.

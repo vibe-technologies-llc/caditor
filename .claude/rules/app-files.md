@@ -177,7 +177,15 @@ paths:
 - With two or more configurations (`document.md`) the dialog adds a Configurations choice: This
   configuration, or Every configuration (`Exporter::every_configuration`), which writes each
   configuration to a file of its own beside the chosen one, its name added to the stem with
-  characters no file name may hold replaced (`configuration_export::file_for`: "bracket M4.stl").
+  characters no file name may hold replaced ("bracket M4.stl"), a name left empty taking
+  "Configuration <position>". `configuration_export::files_for` plans every file before the job
+  starts and keeps them apart case-insensitively, as Windows and macOS filesystems compare names:
+  a file name an earlier configuration took gets " (2)", " (3)" and so on, skipping any another
+  configuration would take by its own name. The plan is carried in `Output::Export` from the check
+  to the job (`Exporter::configuration_files`, `ConfigurationJob::files`), so the files checked are
+  the files written, and the files worker checks each of them: the existing ones are asked about
+  in one "Replace N files?" prompt listing them (`Replacement::Output`'s `replaced`, one file asked
+  as "Replace …?"), and the chosen path itself is never written.
   That export runs a `ConfigurationJob` on the export thread: for each configuration a copy of
   the document is switched to it (`Document::activating`), recomputed without display data (one
   `Recompute` for all, so unchanged features are reused) and its bodies not left out exported,
@@ -189,13 +197,14 @@ paths:
   file; when the appended name exists, `files.rs` asks "Replace …?" as Save As does, and Cancel
   returns to the export dialog.
 - Every model export started records a `LastExport` in `Files` (path, `ExportChoices`, the model
-  session) and, once it succeeds, the file's size and modification time as the export thread
-  leaves it (`Stamp`). Export again (`Command::ExportAgain`, File menu under Export, palette, no
+  session) and, once it succeeds, the size and modification time of each file written as the
+  export thread leaves it (`Stamp`, every configuration's file for Every configuration,
+  `ExportReport::written`). Export again (`Command::ExportAgain`, File menu under Export, palette, no
   default keys; titled "Export again to <file>" through `Command::title_with`) restores those
-  choices and repeats the export through the export thread without a dialog. The target is
-  checked on the files worker: a file whose stamp differs from the one this export left (changed
-  elsewhere, or never written by it) is asked about with the "Replace …?" confirmation, Cancel
-  writing nothing. It is unavailable with the reason before an export in this model session,
+  choices and repeats the export through the export thread without a dialog. The targets (every
+  configuration's file, planned again from the model as it is) are checked on the files worker: a
+  file whose stamp differs from the one this export left (changed elsewhere, or never written by
+  it) is asked about with the "Replace …?" confirmation, Cancel writing nothing. It is unavailable with the reason before an export in this model session,
   while an export runs or the model recomputes, and for the model's own file.
 
 ## Drawing export

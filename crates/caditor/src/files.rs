@@ -5,6 +5,7 @@ use std::{
     fs, io,
     panic::{self, AssertUnwindSafe},
     path::{Path, PathBuf},
+    slice,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -37,6 +38,7 @@ use crate::{
     appearance::{self, SPACE_S},
     bodies::{self, FaceKey},
     commands::{Command, CommandFrame, Offer, RecentSlot},
+    configuration_export::ConfigurationFile,
     dialog_parts,
     drawing_export::{
         self, DrawingCommand, DrawingExporter, DrawingSource, FACE_HINT, NOT_A_FACE, NOT_A_SKETCH,
@@ -89,6 +91,7 @@ const REVERT_HINT: &str = "Undo every change made since the model was last saved
 const QUIT_ANYWAY_AFTER: Duration = Duration::from_secs(5);
 const INTERNAL_ERROR: &str = "caditor ran into an internal error while reading it";
 const REPORT_HEIGHT: f32 = 280.0;
+const REPLACED_HEIGHT: f32 = 160.0;
 const RESTORE_SUPPRESSED_HINT: &str = "Restore with every feature suppressed, for a model that \
                                        made caditor stop. Unsuppress features one at a time, or \
                                        Undo to bring them all back.";
@@ -420,7 +423,7 @@ struct LastExport {
     path: PathBuf,
     choices: ExportChoices,
     session: u64,
-    written: Option<Stamp>,
+    written: BTreeMap<PathBuf, Stamp>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -488,11 +491,23 @@ enum SaveTarget {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Output {
-    Export { path: PathBuf, format: ExportFormat },
-    Image { path: PathBuf },
-    Drawing { path: PathBuf },
-    Template { path: PathBuf },
-    Parameters { path: PathBuf },
+    Export {
+        path: PathBuf,
+        format: ExportFormat,
+        configurations: Vec<ConfigurationFile>,
+    },
+    Image {
+        path: PathBuf,
+    },
+    Drawing {
+        path: PathBuf,
+    },
+    Template {
+        path: PathBuf,
+    },
+    Parameters {
+        path: PathBuf,
+    },
 }
 
 impl Output {
@@ -508,9 +523,14 @@ impl Output {
 
     fn named(self) -> Self {
         match self {
-            Self::Export { path, format } => Self::Export {
+            Self::Export {
+                path,
+                format,
+                configurations,
+            } => Self::Export {
                 path: export::with_format_extension(path, format),
                 format,
+                configurations,
             },
             Self::Image { path } => Self::Image {
                 path: image_export::with_png_extension(path),
@@ -531,7 +551,10 @@ impl Output {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Replacement {
     Model(PathBuf),
-    Output(Output),
+    Output {
+        output: Output,
+        replaced: Vec<PathBuf>,
+    },
 }
 
 impl SaveTarget {
@@ -550,14 +573,21 @@ impl Replacement {
     fn path(&self) -> &Path {
         match self {
             Self::Model(path) => path,
-            Self::Output(output) => output.path(),
+            Self::Output { output, .. } => output.path(),
+        }
+    }
+
+    fn replaced(&self) -> &[PathBuf] {
+        match self {
+            Self::Model(path) => slice::from_ref(path),
+            Self::Output { replaced, .. } => replaced,
         }
     }
 
     fn kind(&self) -> &'static str {
         match self {
             Self::Model(_) => "model",
-            Self::Output(_) => "file",
+            Self::Output { .. } => "file",
         }
     }
 }
@@ -570,7 +600,7 @@ enum Event {
     },
     OutputChecked {
         output: Output,
-        replaces: bool,
+        replaced: Vec<PathBuf>,
         session: u64,
     },
     ParametersExported {
@@ -628,7 +658,7 @@ enum Event {
     Exported {
         path: PathBuf,
         report: ExportReport,
-        written: Option<Stamp>,
+        written: BTreeMap<PathBuf, Stamp>,
     },
     RecentChecked {
         missing: Vec<PathBuf>,
@@ -1195,7 +1225,7 @@ impl Files {
                 } else {
                     match replacement {
                         Replacement::Model(path) => model.save_to(path),
-                        Replacement::Output(output) => self.start_output(output, model),
+                        Replacement::Output { output, .. } => self.start_output(output, model),
                     }
                 }
             }
@@ -1655,14 +1685,15 @@ impl Files {
             }
             Event::OutputChecked {
                 output,
-                replaces,
+                replaced,
                 session,
             } => {
                 if session != model.session() {
                     self.drop_output(&output);
                     model.set_notice(not_written_for_another_model(output.path()));
-                } else if replaces {
-                    self.confirm_replace = Some((Replacement::Output(output), session));
+                } else if !replaced.is_empty() {
+                    self.confirm_replace =
+                        Some((Replacement::Output { output, replaced }, session));
                 } else {
                     self.start_output(output, model);
                 }
@@ -2098,17 +2129,53 @@ impl Files {
     fn check_output(&mut self, output: Output, session: u64) {
         let picked = output.path().to_path_buf();
         let named = output.named();
-        let renamed = named.path() != picked;
-        let failed = named.clone();
+        let renamed = (named.path() != picked).then(|| named.path().to_path_buf());
+        self.check_replacing(named, renamed.into_iter().collect(), session);
+    }
+
+    fn check_export(&mut self, path: PathBuf, format: ExportFormat, session: u64, model: &Model) {
+        let named = export::with_format_extension(path.clone(), format);
+        let configurations = self.exporter.configuration_files(&named, format, model);
+        if configurations.is_empty() {
+            let output = Output::Export {
+                path,
+                format,
+                configurations,
+            };
+            self.check_output(output, session);
+            return;
+        }
+        let targets = configurations
+            .iter()
+            .map(|file| file.path.clone())
+            .collect();
+        let output = Output::Export {
+            path: named,
+            format,
+            configurations,
+        };
+        self.check_replacing(output, targets, session);
+    }
+
+    fn check_replacing(&mut self, output: Output, targets: Vec<PathBuf>, session: u64) {
+        let failed = output.clone();
+        let assumed = if targets.is_empty() {
+            vec![output.path().to_path_buf()]
+        } else {
+            targets.clone()
+        };
         self.spawn(
             move || Event::OutputChecked {
-                replaces: renamed && named.path().exists(),
-                output: named,
+                replaced: targets
+                    .into_iter()
+                    .filter(|target| target.exists())
+                    .collect(),
+                output,
                 session,
             },
             move || Event::OutputChecked {
                 output: failed,
-                replaces: true,
+                replaced: assumed,
                 session,
             },
         );
@@ -2117,7 +2184,7 @@ impl Files {
     fn drop_replacement(&mut self, replacement: &Replacement) {
         match replacement {
             Replacement::Model(_) => self.after_save = None,
-            Replacement::Output(output) => self.drop_output(output),
+            Replacement::Output { output, .. } => self.drop_output(output),
         }
     }
 
@@ -2129,7 +2196,11 @@ impl Files {
 
     fn start_output(&mut self, output: Output, model: &mut Model) {
         match output {
-            Output::Export { path, format } => self.export(path, format, model),
+            Output::Export {
+                path,
+                format,
+                configurations,
+            } => self.export(path, format, configurations, model),
             Output::Image { path } => self.image.picked(path),
             Output::Drawing { path } => self.export_drawing(path, model),
             Output::Template { path } => self.save_template(path, model),
@@ -2297,7 +2368,13 @@ impl Files {
         );
     }
 
-    fn export(&mut self, path: PathBuf, format: ExportFormat, model: &mut Model) {
+    fn export(
+        &mut self,
+        path: PathBuf,
+        format: ExportFormat,
+        configurations: Vec<ConfigurationFile>,
+        model: &mut Model,
+    ) {
         if self.exporter.is_running() {
             model.set_notice(Notice::warning("An export is already running."));
             return;
@@ -2309,16 +2386,21 @@ impl Files {
                 ..self.exporter.choices()
             },
             session: model.session(),
-            written: None,
+            written: BTreeMap::new(),
         });
         let events = self.events.clone();
         let wake = (self.make_waker)();
         self.exporter.start(
             path,
             format,
+            configurations,
             model,
             Box::new(move |path, report| {
-                let written = report.succeeded().then(|| Stamp::of(&path)).flatten();
+                let written = report
+                    .written(&path)
+                    .into_iter()
+                    .filter_map(|file| Some((file.to_path_buf(), Stamp::of(file)?)))
+                    .collect();
                 let exported = Event::Exported {
                     path,
                     report,
@@ -2538,7 +2620,7 @@ impl Files {
                 self.template_target(path, since.session, model);
             }
             (Purpose::Export(format), Some(path)) => {
-                self.check_output(Output::Export { path, format }, since.session);
+                self.check_export(path, format, since.session, model);
             }
             (Purpose::Image, Some(path)) => {
                 self.check_output(Output::Image { path }, since.session);
@@ -2840,7 +2922,7 @@ impl Files {
             return;
         }
         let (path, choices, written) = match self.export_again_target(model) {
-            Ok(last) => (last.path.clone(), last.choices, last.written),
+            Ok(last) => (last.path.clone(), last.choices, last.written.clone()),
             Err(reason) => {
                 model.set_notice(Notice::warning(format!("{reason}.")));
                 return;
@@ -2848,20 +2930,40 @@ impl Files {
         };
         self.exporter.restore(choices);
         let session = model.session();
+
+        let configurations = self
+            .exporter
+            .configuration_files(&path, choices.format, model);
+        let targets: Vec<PathBuf> = if configurations.is_empty() {
+            vec![path.clone()]
+        } else {
+            configurations
+                .iter()
+                .map(|file| file.path.clone())
+                .collect()
+        };
+        let assumed = targets.clone();
         let output = Output::Export {
-            path: path.clone(),
+            path,
             format: choices.format,
+            configurations,
         };
         let failed = output.clone();
+
         self.spawn(
             move || Event::OutputChecked {
-                replaces: Stamp::of(&path).is_some_and(|now| Some(now) != written),
+                replaced: targets
+                    .into_iter()
+                    .filter(|target| {
+                        Stamp::of(target).is_some_and(|now| written.get(target) != Some(&now))
+                    })
+                    .collect(),
                 output,
                 session,
             },
             move || Event::OutputChecked {
                 output: failed,
-                replaces: true,
+                replaced: assumed,
                 session,
             },
         );
@@ -3837,19 +3939,42 @@ fn finishing_exports(
 }
 
 fn confirm_replace(ctx: &egui::Context, replacement: &Replacement) -> Option<bool> {
-    let path = replacement.path();
     let kind = replacement.kind();
-    let name = display_name(Some(path));
-    let title = format!("Replace “{name}”?");
+    let replaced = replacement.replaced();
+    let folder = replaced
+        .first()
+        .and_then(|path| path.parent())
+        .map(|folder| folder.display().to_string())
+        .unwrap_or_default();
+    let title = match replaced {
+        [only] => format!("Replace “{}”?", display_name(Some(only))),
+        _ => format!("Replace {} {kind}s?", replaced.len()),
+    };
     let response = widgets::dialog(ctx, "replace-model", &title, DialogWidth::Medium, |ui| {
-        let folder = path
-            .parent()
-            .map(|folder| folder.display().to_string())
-            .unwrap_or_default();
-        ui.label(format!(
-            "A {kind} named “{name}” already exists in “{folder}”. Replacing it overwrites what \
-             it holds."
-        ));
+        if let [only] = replaced {
+            let name = display_name(Some(only));
+            ui.label(format!(
+                "A {kind} named “{name}” already exists in “{folder}”. Replacing it overwrites \
+                 what it holds."
+            ));
+        } else {
+            ui.label(format!(
+                "These {} {kind}s already exist in “{folder}”. Replacing them overwrites what \
+                 they hold.",
+                replaced.len()
+            ));
+            ui.add_space(SPACE_S);
+            let height = widgets::list_height(ui.ctx(), REPLACED_HEIGHT);
+            widgets::card(ui, |ui| {
+                egui::ScrollArea::vertical()
+                    .max_height(height)
+                    .show(ui, |ui| {
+                        for path in replaced {
+                            ui.add(egui::Label::new(display_name(Some(path))).wrap());
+                        }
+                    });
+            });
+        }
         widgets::footer(ui, |ui| {
             if ui.add(widgets::primary_button(ui, "Replace")).clicked() {
                 return Some(true);

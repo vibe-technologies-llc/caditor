@@ -5,16 +5,6 @@ its reproduction or pinning test where one exists.
 
 Entries are tagged and ordered as `ROADMAP.md` describes.
 
-## Files and recovery
-
-- [low · easy] Exporting every configuration writes two configurations to one file when their
-  names sanitise alike: `configuration_export.rs`'s `safe_name` maps `/ \ : * ? " < > |` and
-  control characters to `-` and trims dots and spaces, and `file_for` builds the path from that
-  alone, so "M4/20" and "M4-20" (or "A." and "A") both write `<stem> M4-20.stl`, the second
-  replacing the first while `finished` reports both, and a name that sanitises to nothing writes
-  the chosen path itself. Only the chosen path gets a replace prompt. Make the paths unique before
-  the job starts and check each derived path for replacing.
-
 ## Kernel
 
 - [high · hard] Booleans between the fixture solids in random placements all succeed on the
