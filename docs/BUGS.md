@@ -168,6 +168,16 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   2.5e-8) and rigid faces a few micrometres apart that bending cannot move: "Pulley (1)" has a
   plane tangent to a cylinder 3.4e-6 mm off it, "Micro Switch" two pairs of parallel planes
   1e-4 mm apart meeting at one corner.
+- [medium · medium] Rigid faces (planes, cylinders, cones, spheres, tori) that meet within the
+  file's declared precision but not within `LINEAR_RESOLUTION` turn the whole body into flat
+  facets, since bending moves only splines (`step-read.md`, "Bent faces"). Snapping would make
+  them exact: a plane parallel to another within the precision, or tangent to a cylinder or cone
+  within it, is moved or turned by that gap onto its partner before the build, each move bounded
+  by the precision and noted like a bend. The VZ330's "Pulley (1)" (a plane 3.4e-6 mm off a
+  tangent cylinder) and "Micro Switch" (parallel planes 1e-4 mm apart) are the cases to start
+  from; fixing the bent path's own blockers above (closed sides of periodic splines, the bound
+  test's tolerance, `BEND_TOLERANCE` at 2.5e-8 mm, thread flanks running out) covers most of the
+  other 80 faceted bodies of that file.
 - [medium · medium] The VZ330 assembly (an Autodesk export at 0.01 mm, 3,894 copies) leaves 31
   parts out, 15 of them as "a vertex 0.00001 to 0.0015 mm away from the end of its edge", the
   exact build's refusal at faces meeting tangentially further apart than the resolution, where the
@@ -178,8 +188,9 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   "front handle2" leave an edge of no length, "User Library-USB - C" has faces 0.011 mm apart,
   "M3_Short v1" does not close and "Goliath long duct" keeps a vertex 0.012 mm off its edge. The
   rest are edges that cannot be followed across a face (7), faces too far apart (6), meshes that
-  fail the validity check (2) and overlapping shells (1). Reproduce with `STEP_CORPUS` on the file
-  (about 70 s in release).
+  fail the validity check (2) and overlapping shells (1). Reproduce by reading the file with
+  `read_step_copies` in release (about 80 s); `STEP_CORPUS` reads through `read_step`, which
+  places only the first 1000 copies.
 - [low · hard] A face whose surface cannot be read is left out (`step-read.md`, "Unreadable
   faces"), but from the outer shell that turns the whole body into flat facets, since the kernel
   holds only closed solids, and a lost face with holes is not closed at all; an edge whose curve
