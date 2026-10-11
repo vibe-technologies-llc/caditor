@@ -93,6 +93,13 @@ impl SlowLoader {
     }
 }
 
+fn wait_until_delivered(harness: &mut Harness) {
+    harness.wait_until("every file thread delivered its result", |harness| {
+        harness.files.own_threads_delivered()
+    });
+    harness.frame();
+}
+
 fn start_slow_import(harness: &mut Harness, dir: &Path, slow: &SlowReader) -> PathBuf {
     let path = dir.join("cube.stl");
     std::fs::write(&path, cube_stl(10.0)).unwrap();
@@ -150,9 +157,7 @@ fn cancelling_an_import_from_the_palette_drops_what_a_reader_that_ignores_it_ret
     });
     slow.release.store(true, Ordering::SeqCst);
     harness.wait_until("the reader returned", |_| SlowReader::has(&slow.finished));
-    std::thread::sleep(Duration::from_millis(100));
-    harness.frame();
-    harness.frame();
+    wait_until_delivered(&mut harness);
 
     assert_eq!(harness.document().features().len(), before);
     assert!(!harness.files.is_importing());
@@ -185,8 +190,7 @@ fn a_new_import_after_a_cancelled_one_is_not_cancelled_with_it() {
     harness.wait_until("the first reader returned", |_| {
         SlowReader::has(&slow.finished)
     });
-    std::thread::sleep(Duration::from_millis(100));
-    harness.frame();
+    wait_until_delivered(&mut harness);
 
     assert_eq!(harness.document().features().len(), before + 1);
     assert_eq!(
@@ -248,9 +252,7 @@ fn closing_the_window_during_a_load_asks_about_unsaved_changes_instead_of_hiding
     harness.wait_until("the abandoned load saw the cancel", |_| {
         SlowReader::has(&slow.saw_cancel)
     });
-    std::thread::sleep(Duration::from_millis(200));
-    harness.frame();
-    harness.frame();
+    wait_until_delivered(&mut harness);
 
     assert_eq!(harness.model.path(), None);
     assert!(!harness.files.should_quit());

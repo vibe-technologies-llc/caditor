@@ -15347,6 +15347,9 @@ fn extent_of(harness: &Harness, feature: FeatureId) -> ExtrudeExtent {
 }
 
 fn open_combo(harness: &mut Harness, caption: &str) {
+    if harness.computing() {
+        harness.settle();
+    }
     if harness.accessible.is_empty() {
         harness.context.enable_accesskit();
         harness.frame();

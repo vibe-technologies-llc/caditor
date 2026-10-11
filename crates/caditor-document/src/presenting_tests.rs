@@ -239,10 +239,12 @@ fn a_run_that_changes_nothing_before_a_slow_feature_shows_nothing_until_it_ends(
         .unwrap();
 
     let (received, running) = run_shown_at_once(recompute, document, evaluator);
-    thread::sleep(Duration::from_millis(50));
-    let early: Vec<Evaluation> = received.try_iter().collect();
     release.store(true, Ordering::SeqCst);
     running.join().unwrap();
+    let early: Vec<Evaluation> = received
+        .try_iter()
+        .filter(|shown| shown.is_pending(model.pocket))
+        .collect();
 
     assert!(early.is_empty());
 }

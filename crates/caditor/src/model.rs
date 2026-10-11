@@ -13,8 +13,8 @@ use caditor_document::{
     UndoMark, displayed_axis, displayed_frame,
 };
 use caditor_file::{
-    Closing, FileDigest, Flusher, JournalEntry, JournalFailure, KeepRequest, Recovered, Report,
-    SaveRequest, Start, Storage, StorageConfig,
+    Closing, FileDigest, Flusher, Handover, JournalEntry, JournalFailure, KeepRequest, Recovered,
+    Report, SaveRequest, Start, Storage, StorageConfig,
 };
 use caditor_geometry::{Aabb, Plane, RigidTransform};
 use caditor_kernel::MeshQuality;
@@ -1306,6 +1306,10 @@ impl Model {
     pub fn flush_journal(&self, timeout: Duration) -> bool {
         let flusher = self.services.panic_flush.lock().clone();
         flusher.is_some_and(|flusher| flusher.flush(timeout))
+    }
+
+    pub fn storage_handover(&self) -> Option<Handover> {
+        self.storage.as_ref().map(Storage::handover)
     }
 
     pub fn close(&mut self) -> Option<Closing> {

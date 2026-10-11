@@ -86,6 +86,10 @@ paths:
   and says the changes are still there to restore.
 - Save As appends `.caditor`, checks the target on the worker (refused while open in another
   window or holding unrecovered changes) and asks before replacing a file the dialog did not name.
+- The open thread and the Save As check wait for the model's storage handover
+  (`Model::storage_handover`, `await_handover`, `file-journal.md`) before inspecting journals, so
+  reopening a model just left, or saving over it, is not refused as open in another window while
+  the previous storage worker still lets go of its journal.
 - A save over a file another program changed (`Report::ChangedOnDisk`) asks: Save a copy primary,
   Cancel, Replace at the far left, not a danger button, since the outside contents become a
   version. A save started from the unsaved-changes prompt continues after Replace or Save a copy

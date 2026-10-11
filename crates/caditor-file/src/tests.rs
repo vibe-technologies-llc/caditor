@@ -1024,6 +1024,39 @@ fn saving_moves_the_journal_next_to_the_file_and_closing_removes_it() {
 }
 
 #[test]
+fn a_storage_hands_over_once_the_one_it_replaces_let_go_of_its_journal() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("model.caditor");
+    let recovery = dir.path().join("recovery");
+    let base = sample();
+    save(&base, &path, false).unwrap();
+    let start = Start {
+        file: Some(path.clone()),
+        ..untitled(&base)
+    };
+    let previous = Storage::spawn(config(&dir), start, || {}).unwrap();
+    assert!(previous.flusher().flush(WAIT));
+
+    assert!(matches!(
+        journal_for(&path, Some(&recovery)),
+        FileJournal::InUse
+    ));
+
+    let start = Start {
+        after: Some(previous.close(true)),
+        ..untitled(&base)
+    };
+    let next = Storage::spawn(config(&dir), start, || {}).unwrap();
+
+    assert!(next.handover().wait(WAIT));
+    assert!(matches!(
+        journal_for(&path, Some(&recovery)),
+        FileJournal::None
+    ));
+    assert!(next.close(true).wait(WAIT));
+}
+
+#[test]
 fn set_aside_journals_are_pruned_once_they_are_old() {
     let dir = TempDir::new().unwrap();
     let recovery = dir.path().join("recovery");
