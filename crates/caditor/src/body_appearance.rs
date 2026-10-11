@@ -281,11 +281,15 @@ pub fn with_face_colours(
     faces: &[FaceReference],
     colour: Option<Rgb>,
 ) -> BodyAppearance {
+    let selected =
+        |coloured: &FaceColour| faces.iter().any(|face| face.name() == coloured.face.name());
     let mut faces_coloured: Vec<FaceColour> = appearance
         .faces
         .iter()
-        .filter(|coloured| faces.iter().all(|face| face.name() != coloured.face.name()))
-        .cloned()
+        .filter_map(|coloured| match selected(coloured) {
+            true => released(appearance, coloured),
+            false => Some(coloured.clone()),
+        })
         .collect();
     if let Some(colour) = colour {
         let earlier = |face: &FaceReference| {
@@ -295,6 +299,7 @@ pub fn with_face_colours(
                 .rev()
                 .find(|coloured| coloured.face.name() == face.name())
         };
+        faces_coloured.retain(|coloured| !selected(coloured));
         faces_coloured.extend(faces.iter().map(|face| FaceColour {
             face: face.clone(),
             colour,
@@ -306,6 +311,24 @@ pub fn with_face_colours(
         faces: faces_coloured,
         ..appearance.clone()
     }
+}
+
+pub fn without_face_colours(appearance: &BodyAppearance) -> BodyAppearance {
+    BodyAppearance {
+        faces: appearance
+            .faces
+            .iter()
+            .filter_map(|coloured| released(appearance, coloured))
+            .collect(),
+        ..appearance.clone()
+    }
+}
+
+fn released(appearance: &BodyAppearance, coloured: &FaceColour) -> Option<FaceColour> {
+    (coloured.opacity.is_some() || coloured.finish.is_some()).then(|| FaceColour {
+        colour: appearance.colour.unwrap_or(DEFAULT_COLOUR),
+        ..coloured.clone()
+    })
 }
 
 pub fn faces_of_other_bodies(selection: &Selection, body: FeatureId) -> usize {
@@ -477,6 +500,7 @@ impl Panel<'_> {
                 count => format!("Colour the {count} selected faces"),
             };
             ui.label(widgets::muted(caption, ui));
+            let own_colour = self.appearance.colour.unwrap_or(DEFAULT_COLOUR);
             let current: Vec<Option<Rgb>> = faces
                 .iter()
                 .map(|face| {
@@ -486,6 +510,7 @@ impl Panel<'_> {
                         .rev()
                         .find(|coloured| coloured.face.name() == face.name())
                         .map(|coloured| coloured.colour)
+                        .filter(|colour| *colour != own_colour)
                 })
                 .collect();
             let shared = current
@@ -550,16 +575,12 @@ impl Panel<'_> {
                 );
             }
         }
-        if !self.appearance.faces.is_empty()
+        if without_face_colours(self.appearance) != *self.appearance
             && widgets::small_button(ui, icons::REMOVE, CLEAR_FACE_COLOURS)
                 .ui(ui)
                 .clicked()
         {
-            let cleared = BodyAppearance {
-                faces: Vec::new(),
-                ..self.appearance.clone()
-            };
-            self.apply(cleared, "face colours");
+            self.apply(without_face_colours(self.appearance), "face colours");
         }
     }
 

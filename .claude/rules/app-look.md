@@ -525,8 +525,12 @@ paths:
   muted line under it saying what the chosen one looks like; `body_appearance::surface` gives each
   its metalness and roughness for the renderer, `render.md`). With faces of the body selected in the view, a second row
   of swatches (named "<colour> for the selected faces", the first the body's own colour, which
-  removes theirs) colours those faces (`with_face_colours`), and Clear face colours drops them
-  all, keeping a repainted face's own opacity and finish; the scene draws a face's colour, and a
+  removes theirs) colours those faces (`with_face_colours`), and Clear face colours
+  (`without_face_colours`) drops them all, keeping a repainted face's own opacity and finish. A
+  face that came with an opacity or finish (STEP import) is not dropped by either, since a
+  `FaceColour` always holds a colour: it keeps its entry with the body's colour at that moment
+  (the importer's own fallback), and Clear face colours is offered only while it would change
+  something; the scene draws a face's colour, and a
   face's own opacity (from STEP import) by splitting the body between the opaque and translucent
   passes outside the analysis and reflection views, unless the body is failed or outdated. The
   scene gives a face its own finish, else the body's (`FaceLooks::finish`), only when the body is

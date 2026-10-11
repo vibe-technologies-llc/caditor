@@ -272,13 +272,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   draws two "Group 1" folders, and Rename group and Ungroup (`group_run`) reach one half. Give an
   inserted feature the group its neighbours at the bar share; pin it beside
   `moving_into_the_middle_of_a_group_joins_it_and_moving_out_leaves_it` (`grouping_tests.rs`).
-- [low · easy] Clear face colours, and the selected faces' body-colour swatch, also drop the
-  opacity and finish a STEP import gave faces: `body_appearance.rs` clears with
-  `faces: Vec::new()` and `with_face_colours` with no colour filters the selected faces' entries
-  out, though a `FaceColour` also carries `opacity` and `finish`, which no control sets, so an
-  imported glass face turns opaque and plain and only Undo brings it back; repainting keeps them,
-  and `app-look.md` says clearing does. Reset only the colour of entries holding an opacity or
-  finish; pin it beside `selected_faces_take_a_colour_of_their_own_from_the_body_card`.
 - [low · easy] The theme check never holds muted text on `sunken`, which the menu bar's Search
   commands label and every field's placeholder (egui's weak text on `text_edit_bg_color`) draw:
   `appearance::required_pairs` has `Text` on `Sunken` but not `TextMuted`, so a loaded theme with
