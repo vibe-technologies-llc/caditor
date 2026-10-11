@@ -14887,6 +14887,72 @@ fn values_named_in_their_fields_are_listed_as_model_parameters_and_used_by_name(
 }
 
 #[test]
+fn a_named_value_follows_its_field_into_another_mode_and_goes_when_a_mode_drops_it() {
+    use caditor_document::ParameterOwner;
+
+    let mut harness = Harness::new();
+    let (extrude, _) = extruded_plate(&mut harness);
+    let field = |salt: &str| Id::new(("solid-field", salt, extrude));
+    let owner = |harness: &Harness, name: &str| {
+        harness
+            .document()
+            .parameter_named(name)
+            .and_then(|parameter| parameter.owner.clone())
+    };
+    let caption = |value: &str| {
+        Some(ParameterOwner::Feature {
+            feature: extrude,
+            value: value.to_owned(),
+        })
+    };
+    let backward = |harness: &Harness| match harness.solid(extrude) {
+        SolidFeature::Extrude(caditor_document::Extrude {
+            extent:
+                ExtrudeExtent::TwoSides {
+                    backward: caditor_document::ExtrudeEnd::Distance(distance),
+                    ..
+                },
+            ..
+        }) => harness.document().expression_text(distance),
+        _ => String::new(),
+    };
+
+    harness.perform(Action::Editing(EditingCommand::OpenSolid(extrude)));
+    harness.type_into_field(field("distance"), "h = 20 mm");
+    harness.settle();
+    choose(&mut harness, "One side", "Symmetric");
+    let symmetric = owner(&harness, "h");
+    let shown = harness.shows("h = 20 mm");
+    harness.type_into_field(field("distance"), "h = 30 mm");
+    harness.settle();
+
+    assert_eq!(symmetric, caption("Total distance"));
+    assert!(shown);
+    assert_eq!(harness.expression_text("h"), "30 mm");
+    assert_eq!(harness.model.undo_label(), Some("Edit h"));
+
+    choose(&mut harness, "Symmetric", "Two sides");
+    let forward = owner(&harness, "h");
+    let copied = backward(&harness);
+    harness.type_into_field(field("backward"), "b = 5 mm");
+    harness.settle();
+    let named_backward = owner(&harness, "b");
+    choose(&mut harness, "Two sides", "One side");
+
+    assert_eq!(forward, caption("Forward distance"));
+    assert_eq!(copied, "30 mm");
+    assert_eq!(named_backward, caption("Backward distance"));
+    assert_eq!(owner(&harness, "h"), caption("Distance"));
+    assert!(harness.document().parameter_named("b").is_none());
+
+    harness.perform(Action::Undo);
+    harness.settle();
+
+    assert_eq!(owner(&harness, "b"), caption("Backward distance"));
+    assert_eq!(owner(&harness, "h"), caption("Forward distance"));
+}
+
+#[test]
 fn model_properties_are_edited_in_a_dialog_as_one_undoable_change() {
     use caditor_document::ModelProperty;
 
@@ -20399,6 +20465,47 @@ fn a_region_matched_again_after_a_hole_is_drawn_warns_until_its_references_are_u
     assert!(!harness.shows(reason));
 }
 
+#[test]
+fn update_references_waits_for_the_evaluation_of_the_revision_it_would_change() {
+    let (document, sketch, _) = chosen_plate();
+    let mut harness = Harness::starting(None, document, Workspace::new());
+    let mut transaction = harness.document().transaction("Draw a hole");
+    let center = transaction.add_sketch_entity(sketch, Entity::Point(Point2::new(20.0, 15.0)));
+    transaction.add_sketch_entity(
+        sketch,
+        Entity::Circle {
+            center,
+            radius: 5.0,
+        },
+    );
+    harness.perform(Action::Apply(transaction.finish()));
+    harness.settle();
+    harness.click("Base");
+    harness.frame();
+    let offered = harness.shows("Update references");
+    let available = offer(&harness, Command::UpdateReferences).availability;
+
+    harness.model.hold_evaluations(true);
+    harness.perform(Action::Undo);
+    harness.frame();
+    harness.frame();
+    let offered_meanwhile = harness.shows("Update references");
+    let available_meanwhile = offer(&harness, Command::UpdateReferences).availability;
+    harness.model.hold_evaluations(false);
+    harness.settle();
+
+    assert!(offered);
+    assert_eq!(available, Ok(()));
+    assert!(!offered_meanwhile);
+    assert_eq!(
+        available_meanwhile,
+        Err(crate::feature_tree::HEALING_AWAITS_RECOMPUTE.into())
+    );
+    assert_eq!(harness.model.redo_label(), Some("Draw a hole"));
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+    assert!(!harness.shows("Update references"));
+}
+
 fn viewport_centre(harness: &Harness) -> Pos2 {
     harness.workspace.viewport.rect().unwrap().center()
 }
@@ -21098,6 +21205,56 @@ fn a_hole_drilled_on_a_face_moves_by_its_position_fields_and_a_click_on_the_face
     assert_eq!(harness.workspace.editing.feature(), Some(sketch));
 }
 
+#[test]
+fn a_hole_s_position_typed_as_an_expression_follows_its_parameters() {
+    let mut harness = Harness::new();
+    let (_, top) = extruded_plate(&mut harness);
+    let mut transaction = harness.document().transaction("Add spot");
+    let spot = transaction.parse("12 mm").unwrap();
+    transaction.add_parameter("spot", spot);
+    harness.perform(Action::Apply(transaction.finish()));
+    harness.select([top]);
+    harness.click("Hole");
+    harness.settle();
+    let hole = harness.workspace.editing.solid().expect("the hole is open");
+    let sketch = open_hole(&harness, hole).sketch;
+    let point = harness
+        .sketch(sketch)
+        .entities()
+        .find_map(|(id, entity)| matches!(entity, Entity::Point(_)).then_some(id))
+        .expect("the hole's sketch holds its point");
+    let field = |axis: usize| Id::new(("hole-position", hole, point, axis));
+    let solved = |harness: &Harness| placed_holes(harness, hole)[0].1;
+
+    harness.type_into_field(field(0), "spot");
+    harness.settle();
+    harness.type_into_field(field(1), "spot + 10 mm");
+    harness.settle();
+
+    assert_eq!(harness.model.undo_label(), Some("Move Hole 1"));
+    assert!(harness.shows("spot + 10 mm"));
+    assert!(solved(&harness).distance(Point3::new(12.0, 22.0, 10.0)) < 1e-6);
+
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.type_into(Focus::ParameterValue(harness.parameter("spot")), "15 mm");
+    harness.settle();
+
+    assert!(solved(&harness).distance(Point3::new(15.0, 25.0, 10.0)) < 1e-6);
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+
+    harness.perform(Action::Editing(EditingCommand::OpenSolid(hole)));
+    harness.settle();
+    harness.type_into_field(field(0), "8 mm");
+    harness.settle();
+    let held = crate::hole_placement::read(harness.document(), &open_hole(&harness, hole))
+        .expect("the hole stays placed by its position");
+
+    assert!(held.holes[0].along[0].is_none());
+    assert!(held.holes[0].along[1].is_some());
+    assert!(solved(&harness).distance(Point3::new(8.0, 25.0, 10.0)) < 1e-6);
+}
+
 fn plate_edge_at(harness: &Harness, body: FeatureId, middle: Point3) -> caditor_kernel::EdgeName {
     let solid = harness.model.evaluation().body(body).unwrap();
     solid
@@ -21303,12 +21460,14 @@ fn a_hole_centred_on_a_round_edge_follows_it_and_takes_further_holes_clicked_on_
 
     let first_hole = open_hole(&harness, first);
     let first_point = placed_holes(&harness, first)[0].0.point;
-    let moved = crate::hole_placement::moved(
-        harness.document(),
+    let x = harness.document().parse("12 mm").unwrap();
+    let y = harness.document().parse("25 mm").unwrap();
+    let moved = crate::hole_placement::positioned(
+        &harness.model,
         first,
         &first_hole,
         first_point,
-        Point2::new(12.0, 25.0),
+        [Some(&x), Some(&y)],
     )
     .unwrap();
     harness.perform(Action::Apply(moved));

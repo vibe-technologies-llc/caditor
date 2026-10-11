@@ -196,6 +196,53 @@ fn deleting_the_feature_takes_its_unused_named_values_and_keeps_used_ones_as_par
 }
 
 #[test]
+fn a_named_value_the_configurations_name_loses_its_owner_when_its_feature_lets_go() {
+    let (document, extrusion) = block();
+    let mut editor = Editor::new(document);
+    editor
+        .apply(named(editor.document(), extrusion, "depth", "12 mm"))
+        .unwrap();
+    let depth = id_of(editor.document(), "depth");
+    editor
+        .apply(
+            editor
+                .document()
+                .configuring(ConfiguredValue::Parameter(depth))
+                .unwrap(),
+        )
+        .unwrap();
+
+    let users = editor.document().parameter_user_ids(depth);
+
+    assert!(users.contains(&ParameterUser::Configurations));
+    assert_eq!(
+        editor
+            .document()
+            .configuration_user_name(ParameterUser::Configurations)
+            .as_deref(),
+        Some("the configurations")
+    );
+
+    let plain = with_distance(
+        editor.document(),
+        extrusion,
+        editor.document().parse("20 mm").unwrap(),
+    );
+    editor
+        .apply(editor.document().releasing(plain, [depth]))
+        .unwrap();
+
+    assert_eq!(editor.document().parameter(depth).unwrap().owner, None);
+
+    editor.undo().unwrap();
+    editor
+        .apply(editor.document().deletion(&[extrusion], "Delete"))
+        .unwrap();
+
+    assert_eq!(editor.document().parameter(depth).unwrap().owner, None);
+}
+
+#[test]
 fn removing_a_named_dimension_takes_its_parameter_with_it() {
     let (document, ids) = sample();
     let owner = ParameterOwner::Dimension {

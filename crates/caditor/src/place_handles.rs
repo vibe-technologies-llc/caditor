@@ -9,7 +9,7 @@ use caditor_sketch::Entity;
 use crate::{
     feature_fields::POSITION_CAPTIONS,
     handle_snap::Snap,
-    hole_on_curve, hole_tools,
+    hole_on_curve, hole_placement, hole_tools,
     manipulator::{self, Held},
     model::Model,
     move_manipulator::{
@@ -487,17 +487,8 @@ pub fn typed(
         if hole_on_curve::mount(document, hole).is_some() {
             return None;
         }
-        let from = hole_tools::lone_point(document, hole)?.at;
-        let parameters = model.parameters();
-        let [typed_x, typed_y] = typed;
-        let [x, y] = [(typed_x, from.x), (typed_y, from.y)].map(|(value, kept)| {
-            value.map_or(Some(kept), |value| {
-                value
-                    .evaluate_as(Dimension::LENGTH, &|id| parameters.value(id))
-                    .ok()
-            })
-        });
-        return hole_tools::moved(document, feature, hole, Point2::new(x?, y?)).ok();
+        let point = hole_tools::lone_point(document, hole)?.entity;
+        return hole_placement::positioned(model, feature, hole, point, typed).ok();
     }
     let primitive = committed_primitive(document, feature)?;
     let mut moved = primitive.clone();

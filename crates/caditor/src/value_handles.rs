@@ -4,6 +4,7 @@ use caditor_geometry::{Point3, Ray, Vector2, Vector3};
 use caditor_render::{Batch, View};
 
 use crate::{
+    feature_fields::Rule,
     handle_snap::Snap,
     manipulator::{self, Held},
     model::Model,
@@ -234,6 +235,7 @@ impl ValueHandles {
             feature: self.feature,
             measured,
             caption: measured.caption(kind)?,
+            rule: measured.rule(kind),
         })
     }
 }
@@ -264,11 +266,12 @@ pub fn written(
     manipulator::keeping_names(document, feature, kind, named)
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Typing {
     pub feature: FeatureId,
     pub measured: Measured,
     pub caption: String,
+    pub rule: Rule,
 }
 
 #[derive(Debug, Clone, PartialEq)]

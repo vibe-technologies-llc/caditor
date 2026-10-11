@@ -877,12 +877,16 @@ impl Panel<'_> {
     }
 
     fn position_rows(&mut self, ui: &mut Ui, placed: &PlacedHole) {
-        let document = self.model.document();
+        let model = self.model;
         let id = self.id();
-        let unit = self.model.length_unit();
+        let unit = model.length_unit();
+        let solved = hole_placement::solved_point(model, self.hole.sketch, placed);
         for (index, caption) in feature_fields::POSITION_CAPTIONS.into_iter().enumerate() {
-            let along = if index == 0 { placed.at.x } else { placed.at.y };
-            let expression = unit.measured(along);
+            let along = if index == 0 { solved.x } else { solved.y };
+            let expression = match placed.along.get(index).and_then(Option::as_ref) {
+                Some(held) => hole_placement::signed(&held.value, along < 0.0),
+                None => unit.measured(along),
+            };
             let quantity = Quantity {
                 feature: id,
                 id: Id::new(("hole-position", id, placed.point, index)),
@@ -890,26 +894,15 @@ impl Panel<'_> {
                 dimension: Dimension::LENGTH,
                 rule: Rule::Any,
             };
-            let parameters = self.model.parameters();
-            let drafting = feature_fields::expression_row_drafting(
-                ui,
-                self.model,
-                caption,
-                quantity,
-                |value| {
-                    let millimetres = parameters
-                        .evaluate_expression(&value)
-                        .map_err(|error| field::sentence(&error.to_string()))?
-                        .value;
-                    let mut at = placed.at;
-                    if index == 0 {
-                        at.x = millimetres;
+            let drafting =
+                feature_fields::expression_row_drafting(ui, model, caption, quantity, |value| {
+                    let typed = if index == 0 {
+                        [Some(&value), None]
                     } else {
-                        at.y = millimetres;
-                    }
-                    hole_placement::moved(document, id, self.hole, placed.point, at)
-                },
-            );
+                        [None, Some(&value)]
+                    };
+                    hole_placement::positioned(model, id, self.hole, placed.point, typed)
+                });
             self.actions.extend(drafting.into_actions(id));
         }
     }

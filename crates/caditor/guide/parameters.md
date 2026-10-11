@@ -12,7 +12,9 @@ The Parameters section of the model panel lists them with a name, an
   parameters: `inner = outer - 2 * wall`.
 - Hover a value to see what uses the parameter. A parameter nothing uses has a muted mark before
   its value.
-- Right-click a row to move it up or down, add a note or delete it.
+- Right-click a row to move it up or down, add a note or delete it. For a parameter in use the
+  menu also lists what uses it, the [configurations](configurations) included; choose one to go
+  to it.
 - With six or more parameters a filter field heads the section; it keeps the rows whose name,
   expression or owner contains what is typed.
 - {command:model.delete_unused_parameters}, also the button under the tables, deletes every
@@ -27,6 +29,13 @@ In any value field, of a feature or a sketch dimension, type `name = expression`
 `depth = 12 mm`. That creates a parameter of that name holding the expression, and the field uses
 it. These named values are listed under Model parameters, each with the feature or dimension it
 belongs to; click that line to go to the feature or dimension. Typing a plain expression in the field again unnames it.
+
+Switching a panel's mode keeps a named value with the field it moves to: an extrusion's Distance
+named `h` becomes its Total distance when the extrusion turns symmetric, and its Forward distance
+when it runs two ways, the other side starting from the same value without the name. A mode that
+no longer has the value lets it go, removing it when nothing else uses it. A named value that
+something else still uses, a configuration included, stays as an ordinary parameter, no longer
+listed with the feature.
 
 Dragging an arrow or ring in the view keeps a named value: the drag changes the parameter's
 expression, so the name stays. A value that uses other parameters, such as `depth` or

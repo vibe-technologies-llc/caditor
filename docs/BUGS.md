@@ -68,30 +68,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   edge along the same curve between the same cap and the faces of its `Collinear` pieces, or the
   feature marked as having lost part of its choice with a fix
   (`blend_tests::a_notch_trimmed_into_a_filleted_edge_keeps_both_pieces_rounded`, ignored).
-- [medium · easy] Switching a panel's mode moves a named value into a field of another caption, and
-  the value is then no longer the field's own: a parameter named in Distance (`h = 20`) and carried
-  to Total distance by Extent › Symmetric (`solid_panel::reshaped`), to Total angle or Forward by a
-  revolve's Extent (`turn_row`), or to First distance by a chamfer's Distances › Two
-  (`blend_tools::FormChoice::applied_to`) keeps its `ParameterOwner::Feature` with the old
-  caption, and `Document::owned_parameter` matches the caption, so the field shows `h` instead of
-  `h = 20 mm`, typing `h = 30` there is refused as a name already taken, the reach or turn arrow
-  is driven ("Total distance follows h", `manipulator::Held::of`), and a plain number typed over it
-  leaves `h` unused but still listed as "Extrude 1 · Distance". Choosing a hole Size, a primitive
-  Shape or a chamfer form that drops the angle replaces a named value without `releasing` it
-  either. Carry the owner to the new caption (`Edit::SetParameterOwner`) in the switch's
-  transaction, and release what a switch drops; pin it beside
-  `values_named_in_their_fields_are_listed_as_model_parameters_and_used_by_name`.
-- [medium · easy] Typing a value over a hovered handle skips the rule its panel field holds:
-  `manipulator::Typing::parse` checks only dimension and units, and `Typing::transaction` builds
-  the change through `reach_handles::typed`, `turn_handles::typed` or `value_handles::written`
-  and checks it with `field::checked`, a trial apply that tests no ranges, so `0` over a fillet's
-  size, `2.5` over a pattern count, `-10` over a one-sided distance, `60 deg` over a taper or
-  `400 deg` over a revolve's angle is committed as an "Edit …" change and the feature, and those
-  after it, fail, where the panel row (`Rule`) and a drag (`Measured::accepts`) both keep it out.
-  Give `Typing` the slot's `feature_fields::Rule` and refuse in the field, as `app-modelling.md`
-  says a refusal does; pin it beside
-  `hovering_an_arrow_and_typing_a_value_sets_it_and_previews_it_first`
-  (`ui_tests/feature_handles.rs`).
 - [medium · medium] Reported by the user: a Remove extrusion typed far past the body (100000 mm, to
   cut through without measuring) does not cut, so the exact depth must be found. Not reproduced:
   in `caditor-document`, a box, a cylinder, a thin block and a filleted block cut by rectangles
@@ -143,35 +119,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   splitting and the rounding's retraced edges do not yet follow. Tapering the other way works down
   to corners a little larger than the fillet; corners no larger than the fillet are refused as
   `Intricate`, which should read as `TooLarge`.
-- [low · easy] Deleting a feature or typing a plain value over a named value leaves a model
-  parameter that the configurations still name owned by the feature that no longer uses it:
-  `releasing` (`model_parameters.rs`) judges a parameter unused by `parameter_user_ids`, which
-  reads parameters and features but not configurations (`parameter_users` beside it does), and
-  takes it out of `pending` before trying `RemoveParameter`, so when that is refused the
-  `SetParameterOwner { owner: None }` fallback never covers it, and the parameter table keeps
-  saying it is the value of the old feature. The table's "Used by" menu (`parameter_table.rs`)
-  omits configuration users through the same call. Count configuration users there and keep the
-  parameter pending until its removal succeeds.
-- [low · easy] Update references is offered from an evaluation of an older revision: the tree's
-  callout, its row menu and the palette (`feature_tree.rs`, `reference_update`) take
-  `status.healing` from `Model::evaluation`, which until the new revision reports is still the
-  last one's (features a running recompute has not reached keep theirs too), and
-  `Healing::update` (`healing.rs`) refuses only when the feature's own kind changed. Undo the
-  hole drawn in `a_region_matched_again_after_a_hole_is_drawn_warns_until_its_references_are_updated`
-  and click Update references before the recompute reports: "Update references of Base" writes
-  the region captured on the sketch with the hole into a model without it, giving a new healing
-  warning (for a fillet, "A chosen edge is no longer part of the body"). Keep the revision the
-  held evaluation is of and offer the update only while it is the current one and the feature
-  is not pending.
-- [low · medium] A hole's Position X and Y keep a number where an expression was typed:
-  `hole_panel::position_rows` previews `width / 2` with its value and then stores the evaluated
-  millimetres in the hidden sketch's point (`hole_placement::moved`), as `place_handles::typed`
-  does for "x, y" typed over the square, so the hole stays put when `width` changes, against the
-  `ux.md` rule that numeric fields take expressions of named parameters; a primitive's Position
-  fields keep the expression (`primitive_panel.rs`). Refuse an expression using parameters there
-  with a pointer to Place by, or hold the point with horizontal and vertical distances from the
-  sketch origin (which `hole_placement::read` would then have to accept); pin it beside the test
-  typing into `("hole-position", …)` in `ui_tests.rs`.
 
 
 ## Application

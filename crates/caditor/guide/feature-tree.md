@@ -49,7 +49,8 @@ A failed feature is marked in its row with what went wrong and what to do; featu
 depend on it keep working. Show where frames the place in the view, and when the fix lies in the
 feature's own settings its Edit button opens it. {command:model.first_failed} goes to the next
 failure after the chosen row and {command:model.previous_failed} to the one before, both wrapping
-around. A feature whose reference had to be found again shows a warning with Update references.
+around. A feature whose reference had to be found again shows a warning with Update references,
+offered once the recompute has checked the model as it now stands.
 
 The model recomputes in the background, so the window never waits. {command:model.recompute} runs
 it again after a stop.

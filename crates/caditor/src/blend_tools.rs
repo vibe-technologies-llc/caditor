@@ -10,9 +10,11 @@ use caditor_kernel::{
 };
 
 use crate::{
+    blend_panel,
     bodies::{self, FaceKey},
     body_selection,
     editing::{self, EditingCommand},
+    field,
     last_values::{self, Remembered, Starts},
     model::{Action, Model, Notice},
     selection::{Pickable, Selection},
@@ -242,13 +244,15 @@ pub fn create_actions(
 
 pub fn edit(document: &Document, feature: FeatureId, blend: Blend) -> Option<Transaction> {
     let name = &document.feature(feature)?.name;
-    Some(Transaction::single(
+    let fields = blend_panel::captioned(&blend);
+    let transaction = Transaction::single(
         format!("Edit {name}"),
         Edit::SetFeatureKind {
             id: feature,
-            kind: FeatureKind::Blend(blend),
+            kind: FeatureKind::Blend(blend.clone()),
         },
-    ))
+    );
+    Some(document.carrying_owners(transaction, feature, fields))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -304,7 +308,7 @@ impl FormChoice {
         }
     }
 
-    pub fn applied_to(self, blend: &Blend) -> Blend {
+    pub fn applied_to(self, document: &Document, feature: FeatureId, blend: &Blend) -> Blend {
         let form = match (self, &blend.form) {
             (Self::Equal, _) => ChamferForm::Equal,
             (Self::TwoDistances, ChamferForm::TwoDistances { second }) => {
@@ -313,7 +317,7 @@ impl FormChoice {
                 }
             }
             (Self::TwoDistances, _) => ChamferForm::TwoDistances {
-                second: blend.size.clone(),
+                second: field::copied_value(document, feature, &blend.size),
             },
             (Self::DistanceAngle, ChamferForm::DistanceAngle { angle }) => {
                 ChamferForm::DistanceAngle {
@@ -353,7 +357,12 @@ pub fn form_change(
             choice.label().to_lowercase()
         ));
     }
-    edit(document, feature.id(), choice.applied_to(blend)).ok_or_else(|| NOT_A_CHAMFER.to_owned())
+    edit(
+        document,
+        feature.id(),
+        choice.applied_to(document, feature.id(), blend),
+    )
+    .ok_or_else(|| NOT_A_CHAMFER.to_owned())
 }
 
 pub fn flip_change(document: &Document, feature: &Feature) -> Result<Transaction, String> {

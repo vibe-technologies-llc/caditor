@@ -35,7 +35,8 @@ In the open panel, click regions in the view to add or leave them out, and
 - A dragged arrow stops on a corner, an edge's middle or a round edge's centre under the pointer,
   and pulls to a flat face it passes, the readout saying what it stopped at; hold Ctrl to drag
   freely. With the pointer on an arrow, type a value and press Enter to set that field exactly;
-  it is previewed as you type, and Escape leaves it as it was.
+  it is previewed as you type, and Escape leaves it as it was. A value the field itself would
+  refuse, such as a negative distance, is refused there too, saying why.
 - {command:model.reverse_direction} sends a one-sided extrusion the other way, like the panel's
   **Reverse direction**.
 

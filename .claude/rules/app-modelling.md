@@ -186,6 +186,15 @@ paths:
   renames or edits the parameter (one "Edit <name>" change, skipping the panel's change), a plain
   expression unnames it (`Document::releasing`). Refusals are the parameter edits' (a name taken,
   not a name, a cycle).
+- A mode switch keeps the named values with their fields: `solid_tools::edit`, `blend_tools::edit`,
+  `hole_tools::edit` and `primitive_tools::edit` pass every change through
+  `Document::carrying_owners` with the new kind's captioned fields (`solid_panel::captioned`, the
+  extent's distances, past-the-face offsets and turn angles; `blend_panel::captioned`, the size by
+  `size_caption` and the chamfer's second distance or angle; none for holes and primitives, whose
+  switches only drop values), so Distance becomes Total distance, Forward or First distance, and a
+  hole Size, a primitive Shape or a chamfer form dropping a named value releases it. A switch that
+  copies a value into a second field (Two sides, Two distances) copies it unnamed
+  (`field::copied_value`, the parameter's own expression), so only one field holds the name.
 - `feature_fields.rs` holds the shared rows and the `Rule` wordings; panels use them rather than
   their own spacing or text. A reference that is not set reads None chosen; a body or sketch that
   no longer exists reads Missing in the warning colour with the warning icon; a refused change
@@ -478,8 +487,10 @@ paths:
   a list of `bodies_before`; the Sketch row's Edit the sketch enters it, hidden or not). A size sets exact millimetre values; typing any hole, counterbore or
   countersink size makes it Custom again.
 - The panel places the holes while the sketch reads as a placement (`hole_placement::read`): only
-  free points, each held by nothing (free), by `Distance` constraints to at most `MAX_EDGES`
-  projected straight edges, or by a `Coincident` with the centre of one projected round edge,
+  free points, each held by nothing (free, optionally by a `HorizontalDistance` and a
+  `VerticalDistance` from the sketch origin, `PlacedHole::along`), by `Distance` constraints to
+  at most `MAX_EDGES` projected straight edges, or by a `Coincident` with the centre of one
+  projected round edge,
   every projection an edge of a body (`ProjectionSource::Edge`, an `EdgeReference`) used by
   exactly one of those constraints. The placement lives wholly in the hidden sketch, so no
   record is added, the file format is the sketch's and the hole follows those edges whenever the
@@ -501,8 +512,15 @@ paths:
 - Each hole is listed (with several, a "Hole n" row saying how it is placed, with Remove hole n,
   `hole_placement::removed`, which takes its point and anchors in one change and refuses the
   last point). A free one has Position X and Y (key `("hole-position", feature, point, axis)`,
-  the point in the sketch plane, previewed while typed, one "Move <hole>" `SetSketchEntity`,
-  `hole_placement::moved`). One measured from edges has a Measured from row per edge (the edge in
+  the point in the sketch plane, previewed while typed, one "Move <hole>" change,
+  `hole_placement::positioned`): the point is set where the value puts it (`SetSketchEntity`),
+  and a value using parameters is also held, so the hole follows them, by a `HorizontalDistance`
+  or `VerticalDistance` from the sketch origin holding the expression as a magnitude (negated when
+  the point lies on the negative side, `hole_placement::signed`, which also gives the field the
+  expression back); a plain value typed over it drops that dimension. The square's typed "x, y"
+  goes the same way. From an edge and Concentric drop the dimensions, and a hole held by them has
+  no placement handles and no Use selected under Placed on, which take a sketch of one point and
+  no constraint (`hole_tools::lone_point`). One measured from edges has a Measured from row per edge (the edge in
   words as the sketch sees it, `edge_words`, and Stop measuring hole n from this edge,
   `released`) with its Distance (key `hole-edge-distance`, the constraint's expression,
   previewed, one "Move <hole>" `SetDimension`). One centred on an edge has Concentric with and its
@@ -581,8 +599,12 @@ paths:
   (`app-input.md`) labelled with that handle's field (`Manipulator::typing`, `manipulator::Typing`;
   a square and a move's square take "x, y"), dropping a drag in progress; the text previews as
   typed (only when it changes) and Enter commits the expression as typed, parameters included,
-  into the same slot a drag writes (`Typing::transaction`, through `field::checked`); a refusal
-  stays in the field, Escape drops the preview. A driven value opens no field.
+  into the same slot a drag writes (`Typing::transaction`, through `field::checked`). Each value
+  typed is held to the `feature_fields::Rule` its panel field holds (`Typing::parse`, the rules
+  from `Measured::rule`, `Reach::field_rule` and `turn_handles::field_rule`, none for positions
+  and moves), since the trial apply checks no ranges: `0` over a fillet's size or `-10` over a
+  one-sided distance is refused in the panel's words. A refusal stays in the field, Escape drops
+  the preview. A driven value opens no field.
 
 ## Thread
 

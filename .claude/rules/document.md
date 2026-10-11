@@ -124,12 +124,21 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   longer exists reads as deleted). `Edit::SetParameterOwner` sets or clears it.
   `owned_parameter` tells whether a field's expression is the named value of an owner, and
   `owner_text` words the owner ("Extrude 1 · Distance", "Sketch 1 · Radius").
+- `carrying_owners(transaction, feature, fields)` keeps a feature's named values with their fields
+  across a change of its kind: given the captioned fields of the new kind, each parameter the
+  feature owns that sits in a field of another caption and none of its own takes that caption
+  (`SetParameterOwner`, the first such field), and one the new kind no longer uses at all is
+  released as below. A field holding no owned parameter, or a kept value no field shows (a
+  fillet's chamfer form), changes nothing.
 - `TransactionBuilder::add_owned_parameter` inserts one. `Transaction::substituting` replaces an
   exact expression wherever a `SetFeatureKind` (through `inlining::expressions_mut`),
   `SetDimension` or `SetParameterExpression` holds it, and counts the replacements.
 - `releasing(transaction, ids)` appends what the named values become once the transaction is
   applied: each one nothing uses any more is removed (users before what they use), any other
-  loses its owner and stays an ordinary parameter. `deletion` releases the values owned by the
+  loses its owner and stays an ordinary parameter. Users are `parameter_user_ids`, which counts
+  the configurations as `parameter_users` does (`ParameterUser::Configuration` for an inactive
+  row's cell, `Configurations` for a configured column, worded by `configuration_user_name`), and
+  a removal `RemoveParameter` refuses leaves the value pending, so it still loses its owner. `deletion` releases the values owned by the
   deleted features, `remove_sketch_items` those owned by the dimensions it removes; reshaping a
   sketch keeps constraint IDs, so owners survive it.
 

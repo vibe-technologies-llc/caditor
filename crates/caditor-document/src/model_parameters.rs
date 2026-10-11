@@ -115,23 +115,26 @@ impl Document {
             return transaction;
         }
         let (label, mut edits) = transaction.into_parts();
+        let mut refused = BTreeSet::new();
         loop {
             let unused: Vec<ParameterId> = pending
                 .iter()
-                .filter(|id| after.parameter_user_ids(**id).is_empty())
+                .filter(|id| !refused.contains(*id) && after.parameter_user_ids(**id).is_empty())
                 .copied()
                 .collect();
             if unused.is_empty() {
                 break;
             }
             for id in unused {
-                pending.remove(&id);
                 let removal = Edit::RemoveParameter { id };
                 if after
                     .apply(Transaction::single(label.clone(), removal.clone()))
                     .is_ok()
                 {
+                    pending.remove(&id);
                     edits.push(removal);
+                } else {
+                    refused.insert(id);
                 }
             }
         }
@@ -141,6 +144,77 @@ impl Document {
                 .map(|id| Edit::SetParameterOwner { id, owner: None }),
         );
         Transaction::new(label, edits)
+    }
+
+    pub fn carrying_owners<'a>(
+        &self,
+        transaction: Transaction,
+        feature: FeatureId,
+        fields: impl IntoIterator<Item = (&'a str, &'a Expression)>,
+    ) -> Transaction {
+        let owned: Vec<(ParameterId, &str)> =
+            self.parameters()
+                .iter()
+                .filter_map(|parameter| match &parameter.owner {
+                    Some(ParameterOwner::Feature {
+                        feature: owner,
+                        value,
+                    }) if *owner == feature => Some((parameter.id(), value.as_str())),
+                    Some(ParameterOwner::Feature { .. } | ParameterOwner::Dimension { .. })
+                    | None => None,
+                })
+                .collect();
+        if owned.is_empty() {
+            return transaction;
+        }
+        let held: Vec<(&str, ParameterId)> = fields
+            .into_iter()
+            .filter_map(|(caption, expression)| match expression {
+                Expression::Parameter(id) => Some((caption, *id)),
+                _ => None,
+            })
+            .collect();
+
+        let (label, mut edits) = transaction.into_parts();
+        let mut dropped = Vec::new();
+        for (id, caption) in owned {
+            let captions: Vec<&str> = held
+                .iter()
+                .filter(|(_, holding)| *holding == id)
+                .map(|(caption, _)| *caption)
+                .collect();
+            if captions.contains(&caption) {
+                continue;
+            }
+            match captions.first() {
+                Some(moved) => edits.push(Edit::SetParameterOwner {
+                    id,
+                    owner: Some(ParameterOwner::Feature {
+                        feature,
+                        value: (*moved).to_owned(),
+                    }),
+                }),
+                None => dropped.push(id),
+            }
+        }
+        let carried = Transaction::new(label, edits);
+        if dropped.is_empty() {
+            return carried;
+        }
+
+        let mut after = self.clone();
+        if after.apply(carried.clone()).is_err() {
+            return carried;
+        }
+        let unused: Vec<ParameterId> = dropped
+            .into_iter()
+            .filter(|id| {
+                after
+                    .feature(feature)
+                    .is_none_or(|kept| !kept.uses_parameter(*id))
+            })
+            .collect();
+        self.releasing(carried, unused)
     }
 
     pub(crate) fn owned_by(&self, features: &BTreeSet<FeatureId>) -> Vec<ParameterId> {

@@ -8,9 +8,9 @@ use std::{
 
 use caditor_document::{
     Base, Document, Editor, Evaluation, Feature, FeatureError, FeatureId, FeatureKind,
-    FeatureResult, FeatureState, ModelEvaluator, Move, Outcome, ParameterValues, Pivot, Prepared,
-    Progress, Recomputer, Rgb, SketchResult, Stale, Transaction, TransactionBuilder, TurnCentre,
-    UndoMark, displayed_axis, displayed_frame,
+    FeatureResult, FeatureState, Healing, ModelEvaluator, Move, Outcome, ParameterValues, Pivot,
+    Prepared, Progress, Recomputer, Rgb, SketchResult, Stale, Transaction, TransactionBuilder,
+    TurnCentre, UndoMark, displayed_axis, displayed_frame,
 };
 use caditor_file::{
     Closing, FileDigest, Flusher, Handover, JournalEntry, JournalFailure, KeepRequest, Recovered,
@@ -236,6 +236,8 @@ pub struct Model {
     display: Display,
     shown_before: Vec<Arc<FeatureResult>>,
     evaluation_generation: u64,
+    evaluated_revision: Option<u64>,
+    evaluations_held: bool,
     draft: Option<DraftPreview>,
     drafts: u64,
     trials: Trials,
@@ -277,6 +279,8 @@ impl Model {
             display: Display::default(),
             shown_before: Vec::new(),
             evaluation_generation: 0,
+            evaluated_revision: None,
+            evaluations_held: false,
             draft: None,
             drafts: 0,
             trials: Trials::default(),
@@ -358,6 +362,14 @@ impl Model {
 
     pub fn evaluation_generation(&self) -> u64 {
         self.evaluation_generation
+    }
+
+    pub fn current_healing(&self, feature: FeatureId) -> Option<&Healing> {
+        let current = self.evaluated_revision == Some(self.revision());
+        if !current || self.evaluation.is_pending(feature) {
+            return None;
+        }
+        self.evaluation.feature(feature)?.healing.as_deref()
     }
 
     pub fn draft_evaluation(&self) -> Option<&Evaluation> {
@@ -1143,6 +1155,11 @@ impl Model {
     }
 
     #[cfg(test)]
+    pub fn hold_evaluations(&mut self, held: bool) {
+        self.evaluations_held = held;
+    }
+
+    #[cfg(test)]
     pub fn finish_checking_constraints(&mut self) {
         let verdict = self.trials.wait(self.revision());
         self.judged(verdict);
@@ -1157,7 +1174,7 @@ impl Model {
             | self.display.meshing.poll()
             | self.dragged(polled)
             | self.take_draft_result();
-        let Some(recomputer) = &mut self.recomputer else {
+        let Some(recomputer) = self.recomputer.as_mut().filter(|_| !self.evaluations_held) else {
             return stored;
         };
         match recomputer.poll() {
@@ -1173,6 +1190,7 @@ impl Model {
                 }
                 self.evaluation = update.evaluation;
                 self.evaluation_generation += 1;
+                self.evaluated_revision = Some(update.revision);
                 if update.revision == self.revision()
                     && self.editor.follow_readings(&self.evaluation)
                 {
@@ -1343,6 +1361,7 @@ impl Model {
         self.parameters = ParameterValues::evaluate(self.editor.document());
         self.evaluation = Evaluation::default();
         self.evaluation_generation += 1;
+        self.evaluated_revision = None;
         self.display.sketches.forget();
         self.display.dragging.cancel();
         self.display.sketches.stop_showing_dragged();

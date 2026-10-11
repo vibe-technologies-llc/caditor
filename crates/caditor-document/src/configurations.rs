@@ -4,7 +4,7 @@ use caditor_expression::{Expression, ParameterId};
 
 use crate::{
     body_appearance::Rgb,
-    document::{Document, FeatureId},
+    document::{Document, FeatureId, ParameterUser},
     edit::{Edit, EditError, Transaction},
     views::view_name,
 };
@@ -268,7 +268,7 @@ impl Document {
         self.configurations.active_row()
     }
 
-    pub(crate) fn configuration_users(&self, parameter: ParameterId) -> Vec<String> {
+    pub(crate) fn configuration_user_ids(&self, parameter: ParameterId) -> Vec<ParameterUser> {
         let rows = self
             .configurations
             .rows
@@ -280,12 +280,30 @@ impl Document {
                     .filter_map(Setting::expression)
                     .any(|expression| expression.uses(parameter))
             })
-            .map(|row| format!("{} configuration", row.name));
+            .map(|row| ParameterUser::Configuration(row.id));
         let column = self
             .configurations
             .configures(ConfiguredValue::Parameter(parameter))
-            .then(|| COLUMN_USER.to_owned());
+            .then_some(ParameterUser::Configurations);
         rows.chain(column).collect()
+    }
+
+    pub fn configuration_user_name(&self, user: ParameterUser) -> Option<String> {
+        match user {
+            ParameterUser::Configuration(id) => self
+                .configurations
+                .row(id)
+                .map(|row| format!("{} configuration", row.name)),
+            ParameterUser::Configurations => Some(COLUMN_USER.to_owned()),
+            ParameterUser::Parameter(_) | ParameterUser::Feature(_) => None,
+        }
+    }
+
+    pub(crate) fn configuration_users(&self, parameter: ParameterId) -> Vec<String> {
+        self.configuration_user_ids(parameter)
+            .into_iter()
+            .filter_map(|user| self.configuration_user_name(user))
+            .collect()
     }
 
     pub fn live_setting(&self, value: ConfiguredValue) -> Option<Setting> {

@@ -20,6 +20,7 @@ use crate::{
     projecting, scene,
     selection::{self, Pickable, Selection},
     sketch_placement::{self, FaceChoice},
+    solid_panel,
     units::LengthUnit,
     visibility,
 };
@@ -715,13 +716,15 @@ pub fn create_actions(
 
 pub fn edit(document: &Document, feature: FeatureId, solid: SolidFeature) -> Option<Transaction> {
     let name = &document.feature(feature)?.name;
-    Some(Transaction::single(
+    let fields = solid_panel::captioned(&solid);
+    let transaction = Transaction::single(
         format!("Edit {name}"),
         Edit::SetFeatureKind {
             id: feature,
-            kind: FeatureKind::Solid(solid),
+            kind: FeatureKind::Solid(solid.clone()),
         },
-    ))
+    );
+    Some(document.carrying_owners(transaction, feature, fields))
 }
 
 pub fn with_regions(solid: &SolidFeature, regions: RegionChoice) -> SolidFeature {

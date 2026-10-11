@@ -8,6 +8,7 @@ use caditor_render::{Batch, View};
 use caditor_sketch::Reference;
 
 use crate::{
+    feature_fields::Rule,
     manipulator::{self, Held},
     model::Model,
     move_manipulator::{
@@ -16,6 +17,7 @@ use crate::{
     reach_handles::start_offset,
     scene,
     scene_palette::ScenePalette,
+    solid_panel,
     units::Units,
 };
 
@@ -37,10 +39,10 @@ pub enum TurnEnd {
 impl TurnEnd {
     fn caption(self) -> &'static str {
         match self {
-            Self::Only => "Angle",
-            Self::Symmetric => "Total angle",
-            Self::Forward => "Forward",
-            Self::Backward => "Backward",
+            Self::Only => solid_panel::ANGLE,
+            Self::Symmetric => solid_panel::TOTAL_ANGLE,
+            Self::Forward => solid_panel::FORWARD_ANGLE,
+            Self::Backward => solid_panel::BACKWARD_ANGLE,
         }
     }
 
@@ -473,6 +475,24 @@ impl TurnDrag {
             self.end.caption(),
             units.angle.readout_text(self.value)
         )
+    }
+}
+
+pub fn field_rule(model: &Model, feature: FeatureId, end: TurnEnd) -> Rule {
+    let other = committed_revolve(model, feature).and_then(|revolve| match &revolve.extent {
+        RevolveExtent::TwoSides { forward, backward } => match end {
+            TurnEnd::Forward => Some(backward),
+            TurnEnd::Backward => Some(forward),
+            TurnEnd::Only | TurnEnd::Symmetric => None,
+        },
+        RevolveExtent::Full
+        | RevolveExtent::OneSide { .. }
+        | RevolveExtent::Symmetric { .. }
+        | RevolveExtent::UpTo { .. } => None,
+    });
+    match other {
+        Some(other) => Rule::TurnBeside(degrees(model, feature, other).unwrap_or(0.0)),
+        None => Rule::Turn,
     }
 }
 
