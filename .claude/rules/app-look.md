@@ -461,6 +461,9 @@ paths:
   each frame by `Viewport::show_chosen_rows`) highlight what they made in the view as hovered
   geometry is: the faces and edges of a body, the curves of a sketch, a datum
   (`Highlight::chosen_rows`, part of the scene cache's highlight key), never vertices or regions.
+  A row of a feature that changes a body it did not make (a fillet, shell, hole, combine, cut
+  extrusion, move) stands for that body too: `viewport::with_their_bodies` adds each row's
+  `Feature::body` to the rows handed to the scene, as `visibility::hideable_rows` does.
   It is only a look: the view's selection stays as it was, so commands keep taking the tree's
   choice, and nothing is highlighted while a sketch or feature is open for editing. A feature or
   body row under the pointer (`PanelState::hovered_row`, `ViewportState::hover_row`) is lit the
@@ -469,8 +472,9 @@ paths:
   (`ViewportState::take_tree_dismissal`), lets go of the chosen rows
   (`PanelState::choose_nothing`), so Move, Pattern or Measure never act on a row left chosen
   unseen; a non-empty view selection clears it as before. Fit view
-  (F) with nothing selected in the view frames the chosen rows' bodies, sketches and datums
-  (`BuiltScene::bounds_of_features`) and everything when none is chosen.
+  (F) with nothing selected in the view frames the chosen rows' bodies (a modifying feature's the
+  body it changes), sketches and datums (`BuiltScene::bounds_of_features`) and everything when
+  none is chosen.
 - A click on a row's name only selects it (`PanelState::selected`, cleared when the view selection
   changes); Ctrl+click toggles and Shift+click extends (`PanelState::chosen`, primary first) over
   the rows drawn this frame, so a filtered tree or a folded folder never adds rows it hides

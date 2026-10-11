@@ -9492,6 +9492,64 @@ fn fitting_the_view_frames_the_rows_chosen_in_the_tree_when_nothing_is_selected(
 }
 
 #[test]
+fn a_modifying_features_row_frames_and_lights_the_body_it_changes() {
+    let mut harness = Harness::new();
+    let (plate, top) = extruded_plate(&mut harness);
+    let mut far = Sketch::new(Plane::XY);
+    rectangle(
+        &mut far,
+        Point2::new(500.0, 500.0),
+        Point2::new(510.0, 510.0),
+    );
+    harness.add_sketch(far);
+    let front = top_edge_along_x(&harness, plate, 0.0);
+    harness.select([Pickable::Edge {
+        body: plate,
+        edge: front,
+    }]);
+    harness.click("Fillet");
+    harness.settle();
+    let fillet = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the fillet is open");
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.settle();
+    harness.select([]);
+    let face_colour = |harness: &mut Harness| {
+        let built = harness.built();
+        let pick = built.picks.id_of(top);
+        built
+            .scene
+            .meshes
+            .iter()
+            .flat_map(|instance| instance.faces.iter())
+            .find(|face| face.pick == pick)
+            .map(|face| face.color)
+            .expect("the top face is drawn")
+    };
+    let plain = face_colour(&mut harness);
+
+    harness.workspace.panels.choose_only(fillet);
+    harness.frame();
+    harness.frame();
+    let lit = face_colour(&mut harness);
+    harness.key(Key::F, Modifiers::NONE);
+    harness.frame();
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    let target = harness.workspace.viewport.viewpoint().target;
+
+    assert!(harness.document().feature(fillet).is_some());
+    assert_ne!(lit, plain);
+    assert!(
+        target.x < 100.0,
+        "the view is framed on the filleted body: {target:?}"
+    );
+}
+
+#[test]
 fn a_selection_filter_makes_clicks_skip_everything_but_one_kind() {
     let mut harness = Harness::new();
     let (_, top) = extruded_plate(&mut harness);

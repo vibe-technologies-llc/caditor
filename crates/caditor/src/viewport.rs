@@ -1,7 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use caditor_document::{
-    CarriedParameters, FeatureId, FeatureKind, PasteOrigin, SavedView, Transaction,
+    CarriedParameters, Document, FeatureId, FeatureKind, PasteOrigin, SavedView, Transaction,
 };
 use caditor_file::PastedGeometry;
 use caditor_geometry::{Aabb, Plane, Point2, Point3, Ray, Rotation3, Vector2, Vector3};
@@ -433,6 +433,17 @@ enum FitAsked {
 struct Problem {
     place: Point3,
     label: String,
+}
+
+fn with_their_bodies(document: &Document, rows: Vec<FeatureId>) -> Vec<FeatureId> {
+    let mut lit = rows.clone();
+    let bodies = rows.iter().filter_map(|row| document.feature(*row)?.body());
+    for body in bodies {
+        if !lit.contains(&body) {
+            lit.push(body);
+        }
+    }
+    lit
 }
 
 fn hides_what_lies_behind(pickable: Pickable) -> bool {
@@ -1228,7 +1239,7 @@ impl ViewportState {
         };
         hovered.sort_unstable();
         hovered.dedup();
-        let chosen_rows = self.rows_to_highlight(context);
+        let chosen_rows = with_their_bodies(model.document(), self.rows_to_highlight(context));
         let view = self.view();
         let sources = scene_sources(
             model,

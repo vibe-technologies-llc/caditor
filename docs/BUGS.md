@@ -433,14 +433,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   about 2:1, against `ux.md`'s "edges and highlighted faces to 3:1 on a body". Draw bodies in the
   tested body colour in high contrast, as finishes already are dropped there, or choose edge and
   highlight colours by the body's luminance, and extend the test to every swatch.
-- [low · easy] Fit view with a modifying feature's row chosen frames everything, and hovering or
-  choosing that row lights nothing: `BuiltScene::bounds_of_features` (`scene.rs`) looks rows up in
-  the body meshes, keyed by the feature that made each body, so a fillet, shell, hole, combine or
-  cut extrusion row gives no bounds and Fit falls back to the whole model, against "frames the
-  chosen rows' bodies" (`app-look.md`, the Navigation guide page); `Highlight::is_of_chosen_row`
-  compares the same raw ids. Map each row through `Feature::body` first, as
-  `visibility::hideable_rows` does; pin it beside
-  `fitting_the_view_frames_the_rows_chosen_in_the_tree_when_nothing_is_selected`.
 - [low · medium · blocked by: wgpu's GL backend] On GL and other devices without texture view
   formats the multisample resolve still averages in gamma space. A resolve of its own (a pass
   reading the samples through a `texture_multisampled_2d` and averaging them in linear light) was
