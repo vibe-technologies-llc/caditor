@@ -4,6 +4,7 @@ use caditor_geometry::{Ray, Vector2};
 use caditor_render::{Batch, View};
 
 use crate::{
+    feature_fields::Rule,
     feature_tree,
     field::{self, Expected},
     handle_snap::Snap,
@@ -246,30 +247,37 @@ impl Manipulator {
             return None;
         }
         let (primary, values) = self.parts();
-        let (label, dimension, count) = match (handle, primary) {
+        let feature = self.feature();
+        let (label, dimension, rules) = match (handle, primary) {
             (Handle::Value(measured), _) => {
                 let typing = values?.typing(model, measured)?;
-                (typing.caption, measured.amount().dimension(), 1)
+                let dimension = measured.amount().dimension();
+                (typing.caption, dimension, vec![typing.rule])
             }
             (Handle::Reach(reach), Some(Primary::Reach(_))) => {
-                (reach.field_caption().to_owned(), Dimension::LENGTH, 1)
+                let caption = reach.field_caption().to_owned();
+                (caption, Dimension::LENGTH, vec![reach.field_rule()])
             }
             (Handle::Revolve(end), Some(Primary::Revolve(_))) => {
-                (end.field_caption().to_owned(), Dimension::ANGLE, 1)
+                let rule = turn_handles::field_rule(model, feature, end);
+                (end.field_caption().to_owned(), Dimension::ANGLE, vec![rule])
             }
             (Handle::Place(grip), Some(Primary::Place(handles))) => {
                 let (label, count) = handles.typing(grip)?;
-                (label, Dimension::LENGTH, count)
+                (label, Dimension::LENGTH, vec![Rule::Any; count])
             }
-            (_, Some(Primary::Move(_))) => move_manipulator::typing(handle)?,
+            (_, Some(Primary::Move(_))) => {
+                let (label, dimension, count) = move_manipulator::typing(handle)?;
+                (label, dimension, vec![Rule::Any; count])
+            }
             _ => return None,
         };
         Some(Typing {
-            feature: self.feature(),
+            feature,
             handle,
             label,
             dimension,
-            count,
+            rules,
         })
     }
 
@@ -281,18 +289,18 @@ impl Manipulator {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Typing {
     pub feature: FeatureId,
     pub handle: Handle,
     pub label: String,
     dimension: Dimension,
-    count: usize,
+    rules: Vec<Rule>,
 }
 
 impl Typing {
     pub fn placeholder(&self) -> &'static str {
-        match (self.count, self.dimension) {
+        match (self.rules.len(), self.dimension) {
             (2, _) => "x, y",
             (_, Dimension::ANGLE) => "an angle",
             (_, Dimension::NONE) => "a number",
@@ -301,27 +309,34 @@ impl Typing {
     }
 
     pub fn parse(&self, model: &Model, text: &str) -> Result<Vec<Expression>, String> {
-        let parts = if self.count == 1 {
+        let parts = if self.rules.len() == 1 {
             vec![text]
         } else {
             typed_point::coordinates(text)
         };
-        if parts.len() != self.count {
+        if parts.len() != self.rules.len() {
             return Err(TWO_VALUES.to_owned());
         }
+        let parameters = model.parameters();
         parts
             .into_iter()
-            .map(|part| {
-                field::parse_expression(
+            .zip(&self.rules)
+            .map(|(part, rule)| {
+                let parsed = field::parse_expression(
                     model.document(),
-                    model.parameters(),
+                    parameters,
                     part.trim(),
                     Expected {
                         dimension: Some(self.dimension),
                         non_negative: false,
                     },
                     model.units(),
-                )
+                )?;
+                let value = parameters
+                    .evaluate_expression(&parsed)
+                    .map_err(|error| field::sentence(&error.to_string()))?;
+                rule.check(value.value)?;
+                Ok(parsed)
             })
             .collect()
     }

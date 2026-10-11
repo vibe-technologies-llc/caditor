@@ -8,6 +8,7 @@ use caditor_geometry::{
 use caditor_render::{Batch, Color, Fill, Layer, Line, Stroke, View};
 
 use crate::{
+    feature_fields::Rule,
     handle_snap::Snap,
     manipulator::{self, Held},
     model::Model,
@@ -87,6 +88,13 @@ impl Reach {
         match self {
             Self::Symmetric => solid_panel::TOTAL_DISTANCE,
             Self::Only | Self::Forward | Self::Backward => self.caption(),
+        }
+    }
+
+    pub fn field_rule(self) -> Rule {
+        match self {
+            Self::Only => Rule::AboveZeroOrReverse,
+            Self::Symmetric | Self::Forward | Self::Backward => Rule::AboveZero,
         }
     }
 }

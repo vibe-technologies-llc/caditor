@@ -121,17 +121,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   edge along the same curve between the same cap and the faces of its `Collinear` pieces, or the
   feature marked as having lost part of its choice with a fix
   (`blend_tests::a_notch_trimmed_into_a_filleted_edge_keeps_both_pieces_rounded`, ignored).
-- [medium · easy] Typing a value over a hovered handle skips the rule its panel field holds:
-  `manipulator::Typing::parse` checks only dimension and units, and `Typing::transaction` builds
-  the change through `reach_handles::typed`, `turn_handles::typed` or `value_handles::written`
-  and checks it with `field::checked`, a trial apply that tests no ranges, so `0` over a fillet's
-  size, `2.5` over a pattern count, `-10` over a one-sided distance, `60 deg` over a taper or
-  `400 deg` over a revolve's angle is committed as an "Edit …" change and the feature, and those
-  after it, fail, where the panel row (`Rule`) and a drag (`Measured::accepts`) both keep it out.
-  Give `Typing` the slot's `feature_fields::Rule` and refuse in the field, as `app-modelling.md`
-  says a refusal does; pin it beside
-  `hovering_an_arrow_and_typing_a_value_sets_it_and_previews_it_first`
-  (`ui_tests/feature_handles.rs`).
 - [medium · medium] Reported by the user: a Remove extrusion typed far past the body (100000 mm, to
   cut through without measuring) does not cut, so the exact depth must be found. Not reproduced:
   in `caditor-document`, a box, a cylinder, a thin block and a filleted block cut by rectangles

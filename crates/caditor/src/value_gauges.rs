@@ -2,7 +2,7 @@ use caditor_document::{
     Blend, BlendKind, CircularPattern, Datum, DatumPlane, Evaluation, Extrude, ExtrudeEnd,
     ExtrudeExtent, FeatureId, FeatureKind, Hole, HoleDepth, LinearDirection, LinearSpacing,
     MAX_PATTERN_INSTANCES, OffsetFace, Pattern, PatternKind, Primitive, PrimitiveAnchor,
-    PrimitiveShape, Shell, SolidFeature, SolidStart, Wall, capitalized, displayed_axis,
+    PrimitiveShape, Shell, SizeRule, SolidFeature, SolidStart, Wall, capitalized, displayed_axis,
     displayed_plane, face_plane, hole_centres,
 };
 use caditor_expression::{Dimension, Expression};
@@ -11,7 +11,9 @@ use caditor_kernel::{FaceId, MAX_TAPER_DEGREES, Solid, WallSide};
 use caditor_sketch::Entity;
 
 use crate::{
-    blend_panel, bodies, handle_snap, hole_tools,
+    blend_panel, bodies,
+    feature_fields::Rule,
+    handle_snap, hole_tools,
     model::Model,
     move_manipulator::{ARROW_POINTS, Reach, step_for},
     pattern_panel, pattern_tools, reach_handles, scene, solid_panel,
@@ -162,6 +164,33 @@ impl Measured {
             | Self::EndOffset(_)
             | Self::PrimitiveSize(_)
             | Self::PatternSpacing(_) => Amount::Length,
+        }
+    }
+
+    pub fn rule(self, kind: &FeatureKind) -> Rule {
+        match self {
+            Self::HoleDepth
+            | Self::HoleDiameter
+            | Self::BlendSize
+            | Self::ShellThickness
+            | Self::WallThickness => Rule::AboveZero,
+            Self::OffsetDistance | Self::PlaneOffset | Self::PlaneAngle | Self::EndOffset(_) => {
+                Rule::Any
+            }
+            Self::Taper => Rule::Taper,
+            Self::PatternSpacing(_) => Rule::AboveZeroOrReverse,
+            Self::PatternCount(_) | Self::CircularCount => Rule::Count,
+            Self::CircularAngle => Rule::Turn,
+            Self::PrimitiveSize(index) => {
+                let rule = kind
+                    .primitive()
+                    .and_then(|primitive| primitive.shape.rules().into_iter().nth(index));
+                match rule {
+                    Some(SizeRule::ZeroOrMore) => Rule::ZeroOrMore,
+                    Some(SizeRule::Sides) => Rule::Sides,
+                    Some(SizeRule::AboveZero) | None => Rule::AboveZero,
+                }
+            }
         }
     }
 

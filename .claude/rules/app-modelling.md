@@ -590,8 +590,12 @@ paths:
   (`app-input.md`) labelled with that handle's field (`Manipulator::typing`, `manipulator::Typing`;
   a square and a move's square take "x, y"), dropping a drag in progress; the text previews as
   typed (only when it changes) and Enter commits the expression as typed, parameters included,
-  into the same slot a drag writes (`Typing::transaction`, through `field::checked`); a refusal
-  stays in the field, Escape drops the preview. A driven value opens no field.
+  into the same slot a drag writes (`Typing::transaction`, through `field::checked`). Each value
+  typed is held to the `feature_fields::Rule` its panel field holds (`Typing::parse`, the rules
+  from `Measured::rule`, `Reach::field_rule` and `turn_handles::field_rule`, none for positions
+  and moves), since the trial apply checks no ranges: `0` over a fillet's size or `-10` over a
+  one-sided distance is refused in the panel's words. A refusal stays in the field, Escape drops
+  the preview. A driven value opens no field.
 
 ## Thread
 

@@ -414,6 +414,64 @@ fn hovering_an_arrow_and_typing_a_value_sets_it_and_previews_it_first() {
 }
 
 #[test]
+fn a_value_typed_over_a_handle_is_refused_where_its_panel_field_would_refuse_it() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    rectangle(&mut sketch, Point2::new(0.0, 0.0), Point2::new(40.0, 40.0));
+    harness.add_sketch(sketch);
+    harness.select([]);
+    harness.click_tool("Extrude");
+    harness.settle();
+    let extrude = open_feature(&harness);
+    let before = harness.model.undo_label().map(str::to_owned);
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    let at = grip(&mut harness, Handle::Reach(Reach::Only), 0.0);
+    harness.events.push(Event::PointerMoved(at));
+    harness.frame();
+    harness.frame();
+
+    harness.type_text("-10");
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.frame();
+    harness.settle();
+    let FeatureKind::Solid(SolidFeature::Extrude(kept)) = kind_of(&harness, extrude) else {
+        panic!("the extrusion stays an extrusion");
+    };
+    let ExtrudeExtent::OneSide {
+        end: ExtrudeEnd::Distance(distance),
+        ..
+    } = &kept.extent
+    else {
+        panic!("the extrusion keeps one distance");
+    };
+
+    assert!(harness.shows(crate::feature_fields::ABOVE_ZERO_OR_REVERSE));
+    assert_eq!(value_of(&harness, distance), 10.0);
+    assert_eq!(harness.model.undo_label().map(str::to_owned), before);
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+
+    let mut harness = Harness::new();
+    let fillet = filleted_plate(&mut harness);
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    let at = grip(&mut harness, Handle::Value(Measured::BlendSize), 0.0);
+    harness.events.push(Event::PointerMoved(at));
+    harness.frame();
+    harness.frame();
+    let radius = value_of(&harness, &blend_of(&harness, fillet).size);
+
+    harness.type_text("0");
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.frame();
+    harness.settle();
+
+    assert!(harness.shows(crate::feature_fields::ABOVE_ZERO));
+    assert_eq!(value_of(&harness, &blend_of(&harness, fillet).size), radius);
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+}
+
+#[test]
 fn a_dragged_extrusion_keeps_its_last_preview_drawn_while_the_next_one_computes() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
