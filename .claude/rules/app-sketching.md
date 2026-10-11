@@ -33,6 +33,9 @@ paths:
   - "crates/caditor/src/tidy_panel.rs"
   - "crates/caditor/src/gearing.rs"
   - "crates/caditor/src/gear_panel.rs"
+  - "crates/caditor/src/constraint_trial.rs"
+  - "crates/caditor/src/symmetric_drawing.rs"
+  - "crates/caditor/src/tangent_circling.rs"
 ---
 
 # Sketch editing in the app
@@ -331,7 +334,7 @@ paths:
   datum and cuts already drawn are refused in words.
 - The drawing tools project body corners and edges themselves when a point snaps to one
   (Snapping), so drawing from a body needs no Project first.
-- Projected geometry is drawn in the `PROJECTED` palette, is never grabbed or dragged and follows
+- Projected geometry is drawn in `ScenePalette::projected`, is never grabbed or dragged and follows
   its source on every recompute (`document.md`).
 
 ## Construction geometry
@@ -809,7 +812,7 @@ paths:
 ## Open ends
 
 - The edited sketch's open ends (`SketchResult::open_ends` of its up-to-date result) are ringed in
-  `canvas::WARNING` over the view (`annotations.rs`, only those in view, one ring per
+  `Chrome::warning` over the view (`annotations.rs`, only those in view, one ring per
   `RING_MERGE` square of the screen, so ends closer than that share a ring), counted beside the
   sketch's status (Status pills, its hover saying to join them) and in the 3D view's
   description, so an outline that will not close is seen while drawing rather than when the
@@ -822,7 +825,7 @@ paths:
   reach the geometry beneath, and the open ends stay reachable through the keyboard highlight and
   Select the open ends.
 - Points held past the drawn ends of their line or arc (`SketchResult::beyond`) are marked the same
-  way in `canvas::MUTED`: a dashed extension from the curve's nearer end to the point and a ring,
+  way in `Chrome::muted`: a dashed extension from the curve's nearer end to the point and a ring,
   counted as information ("1 point beyond its curve", its hover `sketch_status::BEYOND_HELP`)
   and in the 3D view's description. It is information, not a warning, since a point on a line's
   extension is often meant (`Target::Extension`).

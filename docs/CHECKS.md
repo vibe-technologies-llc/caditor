@@ -25,18 +25,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   job runs "the ignored kernel and sketch stress tests"; a renamed test also leaves the job green
   running nothing, since libtest passes a filter matching none. Add them and fail a step that ran
   no test.
-- [medium · easy] Rules files name identifiers that are gone, and 45 of 566 source files match no
-  scoped rule, so editing them never loads the rule that describes them: `canvas::MUTED`,
-  `WARNING`, `SNAP`, `HOVERED`, `MEASURE` and `PANEL`, `PROJECTED`, `CUT_PREVIEW` and
-  `DRAWING_FACE` became `Chrome` and `ScenePalette` fields in the themes change (`app-look.md`,
-  `app-sketching.md`, `app-modelling.md`, `app.md`, `app-input.md`); `render.md` names
-  `pick_reference_fills` and a `BEHIND_FACES` factor, `app-modelling.md` `scene::previewed_body`;
-  `value_gauges.rs`, `value_handles.rs`, `place_handles.rs`, `turn_handles.rs`,
-  `scene_description.rs`, `upload_badge.rs` and all of `caditor-geometry` are among the unmatched;
-  and CLAUDE.md's crate table and rules table list DXF/SVG/STEP import and STL/3MF/STEP/PNG export,
-  missing mesh import and OBJ, glTF and drawing export. Fix the names and paths, and add a
-  conventions test that every source file matches some rule's `paths:`, with an explicit list of
-  the files meant to have none.
 - [medium · medium] The document fuzzers cover a part of what they claim (`ci.md`): `tree_edit`
   and `sketch_edit` produce 18 of the 34 `Edit` variants (never `SetFeatureKind`, the
   configurations edits, projections, labels, appearance, groups, owners, notes, saved views or
@@ -56,11 +44,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   `diagnosis_tests` asserts under 5 s, against `sketch-solver.md`'s "never wall-clock time". Bound
   them by work units or iteration counts, and refuse `elapsed()` inside an assert in a
   conventions test.
-- [low · easy] Nothing catches a rules file emptied by mistake: 9bf86656 cut all 1,073 lines of
-  `document.md` while meaning to add a sentence, and it stayed empty for six commits that should
-  have updated it, every change to `caditor-document` loading an empty rule. Have
-  `conventions_tests.rs` fail on an empty rules file or one with nothing under its frontmatter, and
-  on a rules file the CLAUDE.md rules table lists that is missing.
 - [low · easy] Rules a machine could check that nothing checks: `reliability.md`'s "never
   `#[allow]`" (clippy's `allow_attributes` and `allow_attributes_without_reason` are not denied;
   the unsafe crates would move to `#[expect]`), and `ci.md`'s fuzz matrix, action pins and the

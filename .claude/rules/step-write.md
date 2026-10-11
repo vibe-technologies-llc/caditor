@@ -2,6 +2,7 @@
 paths:
   - "crates/caditor-step/src/write/**"
   - "crates/caditor-step/src/lib.rs"
+  - "crates/caditor-step/src/fixtures.rs"
 ---
 
 # STEP writer

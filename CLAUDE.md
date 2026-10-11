@@ -44,7 +44,7 @@ inside the workspace.
 | `caditor-windows` | Safe wrappers over the Win32 calls nothing else offers safely; a crate with `unsafe`, empty off Windows. | none |
 | `caditor-wayland` | Safe Wayland protocol work on winit's own connection (files dragged onto the window, the window's `xdg-foreign` export for portal dialogs); the third crate with `unsafe`, empty off Unix. | none |
 | `caditor-document` | The parametric model: parameters, feature tree, transactions, undo, recompute worker. | expression, geometry, kernel, sketch |
-| `caditor-file` | Persistence: binary container, version history, recovery journal, preferences, DXF/SVG/STEP import, STL/3MF/STEP/PNG export. | document and everything it uses, step, zstd, windows |
+| `caditor-file` | Persistence: binary container, version history, recovery journal, preferences, DXF/SVG/STEP and STL/OBJ/3MF mesh import, STL/3MF/OBJ/glTF/STEP/PNG and DXF/SVG drawing export. | document and everything it uses, step, zstd, windows |
 | `caditor-render` | wgpu viewport, camera, GPU picking, image export; no winit or document dependency. | geometry |
 | `caditor` | The winit/egui application: UI, commands, sketch editing, file workflow. | all but step and zstd (wayland on Unix, windows on Windows) |
 
@@ -84,7 +84,9 @@ the rules file covering it.
 
 Design detail lives in `.claude/rules/`, each file loading only for the paths it governs. A change
 that makes a rule false updates it in the same commit, and a change to what the user sees updates
-its page of the user guide (`crates/caditor/guide/`, `app.md`).
+its page of the user guide (`crates/caditor/guide/`, `app.md`). `conventions_tests.rs` fails on a
+source file no rule's `paths:` covers, a rules file with nothing under its title and one missing
+from this table.
 
 | File | Covers |
 | --- | --- |
@@ -92,9 +94,9 @@ its page of the user guide (`crates/caditor/guide/`, `app.md`).
 | `rust-style.md`, `dependencies.md`, `ci.md` | Formatting, imports, collections, `unsafe`; dependency declaration; CI, cargo-deny, fuzzing. |
 | `expression.md`, `zstd.md`, `windows.md`, `wayland.md` | Quantities, units and the expression language; the zstd wrapper's `unsafe` boundary; Windows: the Win32 boundary, files, app and MSI; the Wayland boundary and files dropped on Wayland. |
 | `sketch.md`, `sketch-solver.md` | Sketch entities, constraints and operations; the solver, DOF and conflict diagnosis. |
-| `kernel.md`, `kernel-tessellation.md`, `kernel-naming.md`, `kernel-profile.md`, `kernel-intersect.md`, `kernel-operations.md` | Kernel base (tolerances, curves, surfaces, topology); tessellation; topology names and references; profile regions; intersections; extrude, revolve, booleans, blends, shells, patterns. |
+| `kernel.md`, `kernel-tessellation.md`, `kernel-naming.md`, `kernel-profile.md`, `kernel-intersect.md`, `kernel-operations.md` | Kernel base (the geometry crate, tolerances, curves, surfaces, topology); tessellation; topology names and references; profile regions; intersections; extrude, revolve, booleans, blends, shells, patterns. |
 | `step-write.md`, `step-read.md` | STEP writing; the Part 21 parser and `read_step`. |
 | `document.md`, `document-recompute.md` | Transactions, undo, model parameters, every feature kind; recompute caching, failure containment, the worker. |
-| `file-format.md`, `file-journal.md`, `file-import-export.md` | Container, version history, atomic saving; recovery journal, storage worker, preferences; DXF, SVG, STEP, STL, 3MF and PNG. |
+| `file-format.md`, `file-journal.md`, `file-import-export.md` | Container, version history, atomic saving; recovery journal, storage worker, preferences; DXF, SVG, STEP and mesh import, model, image and drawing export, parameter files. |
 | `render.md` | Frames, devices, graphics settings, precision, depth, picking, navigation. |
 | `app.md`, `app-look.md`, `app-modelling.md`, `app-files.md`, `app-input.md`, `app-sketching.md`, `app-tests.md` | App shell, `Model` and `Action`s, the user guide; theme, widgets, panels, feature tree; modelling tools; file workflow and preferences; input, commands and keymap; sketch editing; the headless UI test harness. |

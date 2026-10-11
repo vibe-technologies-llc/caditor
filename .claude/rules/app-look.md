@@ -33,6 +33,8 @@ paths:
   - "crates/caditor/src/colour_selector.rs"
   - "crates/caditor/src/tree_row.rs"
   - "crates/caditor/src/conventions_tests.rs"
+  - "crates/caditor/src/feature_groups.rs"
+  - "crates/caditor/src/upload_badge.rs"
 ---
 
 # Look, layout and panels
@@ -309,7 +311,7 @@ paths:
   commands of all its tools.
 - While the renderer is still uploading (`Renderer::is_uploading`, set each frame on
   `ViewportState::set_uploading` before the interface runs), the view shows `upload_badge`: an
-  `icons::UPLOADING` and "Loading to the graphics card" in `canvas::MUTED` on the canvas backdrop,
+  `icons::UPLOADING` and "Loading to the graphics card" in `Chrome::muted` on the canvas backdrop,
   right-aligned under the view cube's buttons, and the status bar's file activity ends with a
   `widgets::spinner` and the same text (`StatusContext::uploading`). The badge is announced to
   screen readers as a label of the same text and draws no timer of its own, and the spinner is

@@ -17,6 +17,10 @@ paths:
   - "crates/caditor/src/graphics.rs"
   - "crates/caditor/src/units.rs"
   - "crates/caditor/src/model.rs"
+  - "crates/caditor/src/drop_target.rs"
+  - "crates/caditor/src/import_options.rs"
+  - "crates/caditor/src/model_properties.rs"
+  - "crates/caditor/src/window_export.rs"
 ---
 
 # Files, import, export, history, preferences

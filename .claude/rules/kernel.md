@@ -1,11 +1,17 @@
 ---
 paths:
   - "crates/caditor-kernel/**"
+  - "crates/caditor-geometry/**"
 ---
 
 # Kernel
 
 - Own B-rep kernel, no truck or OpenCascade; depends only on `caditor-geometry`.
+- `caditor-geometry` is the f64 vocabulary under it and every crate above: `glam` aliases
+  (`Point3`, `Vector3`, `Rotation3`), `Plane` (an origin, a normal and an x axis, orthonormal),
+  `Ray`, `Aabb` and `Aabb2`, `RigidTransform` and `RigidTransform2`, and `Similarity` (a rigid
+  motion with a scale and an optional mirror). Its only tolerances keep frames orthonormal; model
+  tolerances are the kernel's.
 - Operations return a valid solid or an error naming what failed; iterations are bounded and
   constructors reject non-finite and degenerate input with a `GeometryError` each.
 - `LINEAR_RESOLUTION` is the one absolute length tolerance; `ANGULAR_RESOLUTION` moves a point at

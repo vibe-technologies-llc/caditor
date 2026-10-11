@@ -296,3 +296,184 @@ fn every_member_inherits_the_workspace_lints() {
         }
     }
 }
+
+const RULES_FOLDER: &str = ".claude/rules";
+const CROSS_CUTTING_PREFIX: &str = "**/";
+const FRONTMATTER_FENCE: &str = "---";
+
+struct Rule {
+    name: String,
+    scope: Vec<String>,
+    body: String,
+}
+
+fn rules() -> Vec<Rule> {
+    let mut rules: Vec<Rule> = fs::read_dir(repository().join(RULES_FOLDER))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.extension().is_some_and(|found| found == "md"))
+        .map(|path| {
+            let text = fs::read_to_string(&path).unwrap();
+            let name = path.file_name().unwrap().to_string_lossy().into_owned();
+            let (scope, body) = split_frontmatter(&text);
+            Rule { name, scope, body }
+        })
+        .collect();
+    rules.sort_by(|left, right| left.name.cmp(&right.name));
+    rules
+}
+
+fn split_frontmatter(text: &str) -> (Vec<String>, String) {
+    let mut lines = text.lines();
+    if lines.next() != Some(FRONTMATTER_FENCE) {
+        return (Vec::new(), text.to_owned());
+    }
+    let mut scope = Vec::new();
+    for line in lines.by_ref() {
+        if line == FRONTMATTER_FENCE {
+            break;
+        }
+        if let Some(pattern) = line.trim().strip_prefix("- ") {
+            scope.push(pattern.trim_matches('"').to_owned());
+        }
+    }
+    (scope, lines.collect::<Vec<_>>().join("\n"))
+}
+
+fn segment_matches(pattern: &str, name: &str) -> bool {
+    match pattern.split_once('*') {
+        None => pattern == name,
+        Some((before, after)) => {
+            name.len() >= before.len() + after.len()
+                && name.starts_with(before)
+                && name.ends_with(after)
+        }
+    }
+}
+
+fn glob_matches(pattern: &[&str], path: &[&str]) -> bool {
+    match (pattern.split_first(), path.split_first()) {
+        (None, _) => path.is_empty(),
+        (Some((&"**", rest)), _) => {
+            (0..=path.len()).any(|skipped| glob_matches(rest, path.get(skipped..).unwrap()))
+        }
+        (Some(_), None) => false,
+        (Some((segment, rest)), Some((name, remaining))) => {
+            segment_matches(segment, name) && glob_matches(rest, remaining)
+        }
+    }
+}
+
+fn subject_patterns(rules: &[Rule]) -> Vec<(String, String)> {
+    rules
+        .iter()
+        .flat_map(|rule| {
+            rule.scope
+                .iter()
+                .filter(|pattern| !pattern.starts_with(CROSS_CUTTING_PREFIX))
+                .map(|pattern| (rule.name.clone(), pattern.clone()))
+        })
+        .collect()
+}
+
+#[test]
+fn every_source_file_loads_a_rule_about_it() {
+    let root = repository();
+    let patterns = subject_patterns(&rules());
+
+    assert!(!patterns.is_empty());
+
+    let unruled: Vec<String> = files_with_extension(&root, "rs")
+        .into_iter()
+        .map(|path| {
+            path.strip_prefix(&root)
+                .unwrap()
+                .components()
+                .map(|part| part.as_os_str().to_string_lossy().into_owned())
+                .collect::<Vec<_>>()
+                .join("/")
+        })
+        .filter(|path| {
+            let segments: Vec<&str> = path.split('/').collect();
+            !patterns.iter().any(|(_, pattern)| {
+                glob_matches(&pattern.split('/').collect::<Vec<_>>(), &segments)
+            })
+        })
+        .collect();
+
+    assert!(
+        unruled.is_empty(),
+        "these files match no rule's paths, so editing them loads no rule; add each to the rule \
+         describing it: {unruled:#?}"
+    );
+}
+
+#[test]
+fn every_rules_file_holds_its_rules_and_the_rules_table_lists_each_one() {
+    let rules = rules();
+    let guide = fs::read_to_string(repository().join("CLAUDE.md")).unwrap();
+    let table = guide.split("## Rules").nth(1).unwrap();
+    let listed: Vec<&str> = table
+        .lines()
+        .filter_map(|line| line.strip_prefix("| "))
+        .filter_map(|row| row.split(" | ").next())
+        .flat_map(|cell| cell.split('`'))
+        .filter(|name| name.ends_with(".md"))
+        .collect();
+    let names: Vec<&str> = rules.iter().map(|rule| rule.name.as_str()).collect();
+
+    assert!(rules.len() > 1);
+
+    for rule in &rules {
+        let rules_given = rule
+            .body
+            .lines()
+            .map(str::trim)
+            .any(|line| !line.is_empty() && !line.starts_with('#'));
+        assert!(
+            rules_given,
+            "{} holds nothing under its title; was it emptied by mistake?",
+            rule.name
+        );
+        assert!(
+            listed.contains(&rule.name.as_str()),
+            "{} is missing from the rules table in CLAUDE.md",
+            rule.name
+        );
+    }
+    for name in listed {
+        assert!(
+            names.contains(&name),
+            "CLAUDE.md lists {name}, which is not in {RULES_FOLDER}"
+        );
+    }
+}
+
+#[test]
+fn rule_paths_match_like_globs() {
+    let matches = |pattern: &str, path: &str| {
+        glob_matches(
+            &pattern.split('/').collect::<Vec<_>>(),
+            &path.split('/').collect::<Vec<_>>(),
+        )
+    };
+
+    assert!(matches(
+        "crates/caditor-kernel/**",
+        "crates/caditor-kernel/src/lib.rs"
+    ));
+    assert!(matches("**/*.rs", "crates/caditor/src/app.rs"));
+    assert!(matches(
+        "crates/caditor/src/app.rs",
+        "crates/caditor/src/app.rs"
+    ));
+    assert!(!matches(
+        "crates/caditor/src/app.rs",
+        "crates/caditor/src/apps.rs"
+    ));
+    assert!(!matches(
+        "crates/caditor/src/files/**",
+        "crates/caditor/src/files.rs"
+    ));
+    assert!(!matches("**/*.rs", "crates/caditor/Cargo.toml"));
+}

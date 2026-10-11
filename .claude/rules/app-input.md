@@ -15,6 +15,15 @@ paths:
   - "crates/caditor/src/paint_selection.rs"
   - "crates/caditor/src/app.rs"
   - "crates/caditor/src/feature_tree.rs"
+  - "crates/caditor/src/box_selection.rs"
+  - "crates/caditor/src/completion.rs"
+  - "crates/caditor/src/look_at.rs"
+  - "crates/caditor/src/repeating.rs"
+  - "crates/caditor/src/stepping.rs"
+  - "crates/caditor/src/view_history.rs"
+  - "crates/caditor/src/sectioned_screen.rs"
+  - "crates/caditor/src/clipboard.rs"
+  - "crates/caditor/src/display_style.rs"
 ---
 
 # Input, commands and keyboard operation
@@ -437,7 +446,7 @@ paths:
   `Stroke::DashedWhereHidden`, so the renderer draws the same line again dashed where a face
   covers it, never picked there, with no second copy in the scene), shaded without edges (edges drawn with no alpha, so they stay pickable and appear when
   hovered or selected) wireframe (no faces in the scene, so none is drawn or picked and edges
-  show through), hidden lines removed (faces in `Scene::flat_meshes`, unlit in `DRAWING_FACE`
+  show through), hidden lines removed (faces in `Scene::flat_meshes`, unlit in `ScenePalette::drawing_face`
   whatever the body's colour, still pickable and hiding what lies behind them, edges drawn over
   them, so it reads as a drawing) or X-ray (faces in `Scene::translucent_meshes` at
   `XRAY_FACE_ALPHA`, unpickable, edges on top). Every style that draws edges also gives each body
@@ -480,7 +489,7 @@ paths:
   shape has just its first point (a spline from its first on), else `LENGTH_LOCK_REFUSED` in the
   field; zero, negative and out-of-range lengths and a missing last point are errors in the field.
   Release is as for the direction, and the field previews it (`Drawing::preview_length`).
-- It is canvas chrome (`canvas::PANEL`, `canvas::Hints`) in the band left of the view cube.
+- It is canvas chrome (`Chrome::panel`, `canvas::Hints`) in the band left of the view cube.
 - While it has focus and its text reads as a point (`typed_point::parse_placed`) or a heading, the
   drawing previews it as a placement that is never placed (`Drawing::preview_typed`,
   `preview_heading`): the hover, the arc's sweep and the heading are kept aside (`Pointed`) and put

@@ -256,10 +256,9 @@ paths:
   bias, model fills (sketch regions) over the faces they lie on.
 - Faces carry a slope-scaled pipeline bias (`FACE_DEPTH_BIAS`, two slopes back in reverse-Z), so
   an edge beyond a face seen at a grazing angle is not eaten where the face's depth races across
-  the line's width; reference fills (their own `reference_fills` pipeline, chosen per draw by
-  `FillDraw::behind_faces`, and `pick_reference_fills`) and the grid sit behind faces on their plane
-  by a larger slope bias (`BEHIND_FACES_DEPTH_BIAS`) and a factor (`BEHIND_FACES`,
-  `GRID_DEPTH_BIAS`), so a face lying on the XY plane never speckles with the grid or a principal
+  the line's width; reference fills (their own `reference_fills` pipeline, in the drawing and the
+  pick pipelines alike, chosen per draw by `FillDraw::behind_faces`) sit behind faces on their
+  plane by a larger slope bias (`BEHIND_FACES_DEPTH_BIAS`) and the grid by `GRID_DEPTH_BIAS`, so a face lying on the XY plane never speckles with the grid or a principal
   plane (offscreen tests).
 - A line stroked `Stroke::DashedWhereHidden` (the hidden-edges style, threads) is drawn as usual,
   solid or dashed by `seen_dashed` (a solid one carries `SOLID_WHERE_SEEN` in its flags, since its

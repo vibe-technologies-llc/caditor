@@ -44,6 +44,22 @@ paths:
   - "crates/caditor/src/principal_tree.rs"
   - "crates/caditor/src/feature_tree.rs"
   - "crates/caditor/src/reversing.rs"
+  - "crates/caditor/src/body_selection.rs"
+  - "crates/caditor/src/handle_snap.rs"
+  - "crates/caditor/src/hole_on_curve.rs"
+  - "crates/caditor/src/hole_placement/**"
+  - "crates/caditor/src/last_values.rs"
+  - "crates/caditor/src/mate_panel.rs"
+  - "crates/caditor/src/mate_tools.rs"
+  - "crates/caditor/src/place_handles.rs"
+  - "crates/caditor/src/removal.rs"
+  - "crates/caditor/src/split_panel.rs"
+  - "crates/caditor/src/split_tools.rs"
+  - "crates/caditor/src/turn_handles.rs"
+  - "crates/caditor/src/value_gauges.rs"
+  - "crates/caditor/src/value_handles.rs"
+  - "crates/caditor/src/projecting.rs"
+  - "crates/caditor/src/similar.rs"
 ---
 
 # Modelling tools in the app
@@ -51,7 +67,7 @@ paths:
 ## Preview while open
 
 - While a feature that makes or changes a body is open (its result is a solid), that body is drawn
-  see-through at `PREVIEW_ALPHA` in its colour (`scene::previewed_body`), faces still picked, and
+  see-through at `PREVIEW_ALPHA` in its colour (`scene::previewed_bodies`), faces still picked, and
   turns solid when the feature closes, so a pattern, hole or extrusion reads as a preview
   until confirmed. It is drawn solid while choosing in the view.
 - A feature choosing nothing on the state before it (a move, a combine) draws its result solid
@@ -95,7 +111,7 @@ paths:
   `Model::draft_failure`).
 - A feature that removes material (an extrusion or revolve removing from a body, a hole) shows
   instead the body solid as cut and only its tools (`Evaluation::cuts`, the swept profile or each
-  drill) in `CUT_PREVIEW` over everything (`Scene::overlay_meshes`, edges on the front layer),
+  drill) in `ScenePalette::cut_preview` over everything (`Scene::overlay_meshes`, edges on the front layer),
   never picked, so the cut reads through the material around it.
 
 ## What a command acts on
@@ -284,7 +300,7 @@ paths:
   sketch's bounds, measured from where the extrusion starts (`reach_handles::start_offset`: the
   start offset, or for a start face or plane `displayed_start_offset`, its distance along the
   sketch normal with the face resolved on the body as the feature sees it), and pointing the way
-  that side runs, in `canvas::SNAP` at the move arrows' size,
+  that side runs, in `ScenePalette::handle` at the move arrows' size,
   left out when it points at the eye; a symmetric extrusion has one, on its forward side, whose
   drag grows the whole distance twice as fast. It drags as a move arrow does (`manipulator.rs`
   holds both kinds behind `Manipulator` and `Manipulating`): in steps, snapping to geometry under
@@ -538,7 +554,7 @@ paths:
 - While a hole of one free point is open (and nothing is being chosen in the view), its centre carries handles
   on the face (`place_handles.rs`, `Manipulator::Place`): a square to drag it anywhere on the face
   and an arrow along the sketch plane's x and y (`PlaceGrip`), drawn and hit-tested like the move
-  arrows, in `canvas::SNAP` at `ARROW_SHARE` of their length. A drag follows where the
+  arrows, in `ScenePalette::handle` at `ARROW_SHARE` of their length. A drag follows where the
   pointer's ray meets the sketch plane, in steps (Ctrl drags freely), previewed with Position X
   and Y beside the pointer and committed on release as one "Move <hole>" change; the handles
   follow the preview (`Model::draft_transaction`).
@@ -665,7 +681,7 @@ paths:
   front layer in the overlay batch at a constant size in points (`ARROW_POINTS`), an arrow pointing
   at the eye or a square seen edge-on left out. Hit-testing is on the UI thread in screen space
   (`MoveHandles::hit`, arrows within `HIT_POINTS` winning over squares), so it needs no pick; the
-  hovered or dragged handle turns `canvas::HOVERED`, the hover says what a drag does, and a click
+  hovered or dragged handle turns `ScenePalette::handle_highlighted`, the hover says what a drag does, and a click
   on a handle selects nothing.
 - A primary drag on a handle (`PrimaryDrag::Manipulate`, `Manipulating`) follows the point of its
   axis nearest the pointer's ray (`Ray::closest_along_line`) or where the ray meets its plane,
@@ -683,7 +699,7 @@ paths:
   (`turns_about_axes`), changing only the fields whose value changed. A move turning about the
   origin has no rings, since a ring at the body would mislead. A move turning about an axis stands
   its manipulator on that axis, at the foot of the body's centre shifted by the distances, with
-  one ring about it (`Handle::TurnAbout`, `canvas::SNAP`) whose drag adds the swept angle to the
+  one ring about it (`Handle::TurnAbout`, `ScenePalette::handle`) whose drag adds the swept angle to the
   Angle field the same way.
 
 ## Mirror and scale

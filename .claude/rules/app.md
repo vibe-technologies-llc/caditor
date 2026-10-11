@@ -42,6 +42,11 @@ paths:
   - "crates/caditor/src/guide_panel.rs"
   - "crates/caditor/src/defender.rs"
   - "crates/caditor/guide/**"
+  - "crates/caditor/src/view_aids.rs"
+  - "crates/caditor/src/pair_reading.rs"
+  - "crates/caditor/src/scene_description.rs"
+  - "crates/caditor/src/startup_check.rs"
+  - "crates/caditor/src/variants.rs"
 ---
 
 # App shell, model and bodies
@@ -323,7 +328,7 @@ paths:
   angles, the line in the view and the inertia stay world geometry. A chosen system that is gone or has no
   result is read as the world with a warning callout saying so (`measure_panel::relative`).
 - The closest points are drawn on the front layer (`scene::add_measurement`) with a distance
-  label in `canvas::MEASURE`.
+  label in `Chrome::measure`.
 - Keep this measurement (`measurement_tools::KEEP`) is in the row menu of a Between them card's
   Distance, angle and Along X, Y and Z rows (an offset along that principal axis, or along the
   coordinate system's axis while Relative to names one, `Keepable::Along`), and of one item's
@@ -343,7 +348,7 @@ paths:
   reference made below the bar) a warning notice; the parameter's name takes focus for renaming.
 - Every shown, up-to-date measurement is drawn outside the panel too (`measurement_tools::shown`,
   each frame like the failure markers): its line, if any, in the overlay batch as Measure's
-  (`Overlay::kept`) and a label "<parameter> = <reading>" at its anchor in `canvas::MEASURE`,
+  (`Overlay::kept`) and a label "<parameter> = <reading>" at its anchor in `Chrome::measure`,
   read by screen readers. A measured parameter's expression field in Parameters shows the reading
   and refuses edits in words; other parameters may read it like any parameter.
 - Its card (`measurement_panel.rs`, the open feature's panel) has Reads, a combo of the quantities
