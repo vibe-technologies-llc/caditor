@@ -129,6 +129,9 @@ fn offset_ends(sketch: &Sketch, picks: &[EntityId]) -> Option<[(Point2, Point2);
     let &[from, to] = picks else {
         return None;
     };
+    if sketch.angle_vertex(from, to).is_some() {
+        return None;
+    }
     let measurable = matches!(
         (kind(sketch, from)?, kind(sketch, to)?),
         (
@@ -676,6 +679,46 @@ mod tests {
             placed(&sketch, &[point, level], at(8.0, 0.0)),
             Some(ConstraintTool::Distance)
         );
+    }
+
+    #[test]
+    fn a_slanted_line_and_an_arc_sharing_an_end_give_their_angle_without_waiting_to_be_placed() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let slanted = sketch.add_line(Point2::new(-8.0, -6.0), Point2::ZERO);
+        let Some(Entity::Line { end: joint, .. }) = sketch.entity(slanted).cloned() else {
+            panic!("a line was added");
+        };
+        let center = sketch.add_point(Point2::new(0.0, 10.0));
+        let away = sketch.add_point(Point2::new(10.0, 10.0));
+        let arc = EntityId::from_raw(sketch.next_id());
+        sketch
+            .insert_entity(
+                arc,
+                Entity::Arc {
+                    center,
+                    start: joint,
+                    end: away,
+                },
+            )
+            .unwrap();
+        let apart = sketch.add_arc(
+            Point2::new(30.0, 0.0),
+            Point2::new(40.0, 0.0),
+            Point2::new(30.0, 10.0),
+        );
+        let at = |x: f64, y: f64| Some(Point2::new(x, y));
+
+        assert_eq!(
+            fitting(&sketch, &[slanted, arc]),
+            Fit::Ready(ConstraintTool::Angle)
+        );
+        assert!(!awaits_placement(&sketch, &[slanted, arc]));
+        assert!(!awaits_placement(&sketch, &[arc, slanted]));
+        assert_eq!(
+            placed(&sketch, &[slanted, arc], at(-10.0, 20.0)),
+            Some(ConstraintTool::Angle)
+        );
+        assert!(awaits_placement(&sketch, &[slanted, apart]));
     }
 
     #[test]

@@ -308,14 +308,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Sketching
 
-- [medium · easy] Smart dimension on a slanted line and an arc sharing an end never adds their
-  angle: `dimensioning::fitting` gives `Angle` for them (`Sketch::angle_vertex`), but
-  `offset_ends` counts `(Line, Arc)` as having horizontal and vertical offsets, so
-  `awaits_placement` holds the second click for a placing one, the prompt offers horizontal and
-  vertical distances, and `placed`, with no arm for the pair, adds a horizontal, vertical or
-  aligned distance to the arc's centre; only Enter gives the angle. Level and upright lines are
-  unaffected. Make `offset_ends` give none when the two share an end, as `fitting` decides first;
-  pin it beside `a_point_or_circle_off_a_slanted_line_and_two_circles_wait_to_be_placed`.
 - [medium · hard] Offset keeps one offset curve per original, so an offset that would drop a curve
   is refused: a 30×20 rounded rectangle (2 mm tangent corner arcs) offset inward by 2 mm or more is
   `Collapses` on its first arc, where an arc shrinking to nothing should leave a sharp corner and

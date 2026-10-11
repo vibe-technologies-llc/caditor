@@ -737,7 +737,8 @@ paths:
   gap where the spline bulges toward it, drawn between `Sketch::spline_gap`'s points); another
   spline is refused in words, and a lone point waits. A line and an arc sharing an end take the angle
   between them there instead of their distance, measured inside the corner as two lines' is
-  (`sketch_tools::angle_to_arc`), drawn from the arc's tangent at the joint. The dimension goes
+  (`sketch_tools::angle_to_arc`), drawn from the arc's tangent at the joint; they never wait for
+  placement (`offset_ends` gives none when `Sketch::angle_vertex` finds the shared end). The dimension goes
   through the same candidates, checks, reference rule and inline field as the dimension buttons
   (`ConstraintTool::candidates_among`, `add_constraints`), the field taking the typed value. The
   prompt says what Enter would add and the hover what a click would; with the tool active labels
