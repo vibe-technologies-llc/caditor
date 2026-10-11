@@ -214,6 +214,20 @@ pub enum ImportError {
     #[error("the 3MF package holds no 3D model")]
     NoModelInPackage,
     #[error(
+        "its 3D model takes objects from the part “{part}”, which the 3MF package does not hold"
+    )]
+    MissingModelPart { part: String },
+    #[error(
+        "its 3D model takes objects from “{part}”, which lies outside the 3MF package, so it \
+         cannot be read"
+    )]
+    ModelPartOutsidePackage { part: String },
+    #[error(
+        "its object {object} in the part “{part}” is made of itself through its components, so \
+         it has no shape to read"
+    )]
+    ComponentCycle { object: String, part: String },
+    #[error(
         "no part of it is a closed surface ({open_edges} of its edges border only one triangle), \
          so it does not enclose a solid"
     )]

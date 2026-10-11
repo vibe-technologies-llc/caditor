@@ -5,7 +5,9 @@ use caditor_kernel::{SamplingTolerance, Solid, interruptible};
 
 use crate::{
     export::zip::{ZipEntry, archive},
-    import::{ImportError, MeshFormat, ModelImport, parse_mesh, read_mesh_file},
+    import::{
+        ImportError, MeshFormat, ModelImport, mesh::MAX_MODEL_ELEMENTS, parse_mesh, read_mesh_file,
+    },
 };
 
 const CORNERS: [[f64; 3]; 8] = [
@@ -323,4 +325,233 @@ fn a_cancelled_token_stops_a_3mf_components_expansion() {
     });
 
     assert_eq!(stopped, Err(ImportError::Cancelled));
+}
+
+const PRODUCTION: &str = "http://schemas.microsoft.com/3dmanufacturing/production/2015/06";
+
+fn cube_object(id: u32, side: f64) -> String {
+    let mut object = format!("<object id=\"{id}\" type=\"model\"><mesh><vertices>");
+    for [x, y, z] in CORNERS {
+        let [x, y, z] = [x, y, z].map(|value| value * side / 10.0);
+        write!(object, "<vertex x=\"{x}\" y=\"{y}\" z=\"{z}\"/>").unwrap();
+    }
+    object.push_str("</vertices><triangles>");
+    for [a, b, c] in TRIANGLES {
+        write!(object, "<triangle v1=\"{a}\" v2=\"{b}\" v3=\"{c}\"/>").unwrap();
+    }
+    object.push_str("</triangles></mesh></object>");
+    object
+}
+
+fn production_model(resources: &str, build: &str) -> String {
+    format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><model unit=\"millimeter\" \
+         xmlns=\"http://schemas.microsoft.com/3dmanufacturing/core/2015/02\" \
+         xmlns:prod=\"{PRODUCTION}\" requiredextensions=\"prod\"><resources>{resources}\
+         </resources><build>{build}</build></model>"
+    )
+}
+
+fn parts_package(parts: &[(&str, &str)]) -> Vec<u8> {
+    let relationships = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Relationships \
+                         xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">\
+                         <Relationship Target=\"/3D/3dmodel.model\" Id=\"rel-1\" \
+                         Type=\"http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel\"/>\
+                         </Relationships>";
+    let mut entries = vec![ZipEntry {
+        name: "_rels/.rels",
+        contents: relationships.as_bytes(),
+    }];
+    entries.extend(parts.iter().map(|&(name, contents)| ZipEntry {
+        name,
+        contents: contents.as_bytes(),
+    }));
+    archive(&entries).unwrap()
+}
+
+fn read_package(package: &[u8]) -> Result<ModelImport, ImportError> {
+    parse_mesh(package, MeshFormat::ThreeMf, "project.3mf", "project")
+}
+
+#[test]
+fn a_bambu_style_project_places_the_meshes_its_objects_take_from_other_parts() {
+    let root = production_model(
+        "<object id=\"2\" prod:UUID=\"00000001-61cb-4c03-9d28-80fed5dfa1dc\" type=\"model\">\
+         <components><component prod:path=\"/3D/Objects/object_1.model\" objectid=\"1\" \
+         prod:UUID=\"00010000-b206-40ff-9872-83e8017abed1\" \
+         transform=\"1 0 0 0 1 0 0 0 1 0 0 0\"/></components></object>\
+         <object id=\"4\" type=\"model\"><components>\
+         <component prod:path=\"/3d/OBJECTS/Object_1.model\" objectid=\"1\"/></components>\
+         </object>",
+        "<item objectid=\"2\" transform=\"1 0 0 0 1 0 0 0 1 100 0 0\" printable=\"1\"/>\
+         <item objectid=\"4\" transform=\"1 0 0 0 1 0 0 0 1 -100 0 0\" printable=\"1\"/>",
+    );
+    let object = production_model(&cube_object(1, 10.0), "");
+    let package = parts_package(&[
+        ("3D/3dmodel.model", &root),
+        ("3D/Objects/object_1.model", &object),
+    ]);
+
+    let imported = read_package(&package).unwrap();
+
+    assert_eq!(imported.bodies.len(), 2);
+    let mut lowest: Vec<f64> = imported
+        .bodies
+        .iter()
+        .map(|body| body.import.solid.bounding_box().unwrap().min().x)
+        .collect();
+    lowest.sort_by(f64::total_cmp);
+    assert!((lowest[0] + 100.0).abs() < 1e-9 && (lowest[1] - 100.0).abs() < 1e-9);
+    for body in &imported.bodies {
+        assert!((volume(&body.import.solid) - 1000.0).abs() < 1e-6);
+    }
+}
+
+#[test]
+fn an_object_id_the_root_shares_with_another_part_places_that_parts_object() {
+    let root = production_model(
+        &format!(
+            "{}<object id=\"2\" type=\"model\"><components>\
+             <component prod:path=\"/3D/Objects/object_5.model\" objectid=\"1\"/>\
+             </components></object>",
+            cube_object(1, 1.0)
+        ),
+        "<item objectid=\"2\"/>",
+    );
+    let object = production_model(
+        &format!(
+            "<object id=\"1\" type=\"model\"><components><component objectid=\"5\" \
+             transform=\"1 0 0 0 1 0 0 0 1 0 0 20\"/></components></object>{}",
+            cube_object(5, 10.0)
+        ),
+        "",
+    );
+    let package = parts_package(&[
+        ("3D/3dmodel.model", &root),
+        ("3D/Objects/object_5.model", &object),
+    ]);
+
+    let imported = read_package(&package).unwrap();
+
+    assert!((only_volume(&imported) - 1000.0).abs() < 1e-6);
+    let bounds = imported.bodies[0].import.solid.bounding_box().unwrap();
+    assert!((bounds.min().z - 20.0).abs() < 1e-9 && (bounds.max().z - 30.0).abs() < 1e-9);
+}
+
+#[test]
+fn a_part_in_its_own_unit_is_placed_in_millimetres() {
+    let root = production_model(
+        "<object id=\"2\" type=\"model\"><components>\
+         <component prod:path=\"Objects/object_1.model\" objectid=\"1\" \
+         transform=\"1 0 0 0 1 0 0 0 1 5 0 0\"/></components></object>",
+        "<item objectid=\"2\"/>",
+    );
+    let object = production_model(&cube_object(1, 10.0), "")
+        .replace("unit=\"millimeter\"", "unit=\"centimeter\"");
+    let package = parts_package(&[
+        ("3D/3dmodel.model", &root),
+        ("3D/Objects/object_1.model", &object),
+    ]);
+
+    let imported = read_package(&package).unwrap();
+
+    assert!((only_volume(&imported) - 1_000_000.0).abs() < 1e-3);
+    let bounds = imported.bodies[0].import.solid.bounding_box().unwrap();
+    assert!((bounds.min().x - 5.0).abs() < 1e-9 && (bounds.max().x - 105.0).abs() < 1e-9);
+}
+
+#[test]
+fn a_project_taking_objects_from_a_missing_or_outside_part_is_refused_naming_it() {
+    let refers_to = |path: &str| {
+        let root = production_model(
+            &format!(
+                "<object id=\"2\" type=\"model\"><components>\
+                 <component prod:path=\"{path}\" objectid=\"1\"/></components></object>"
+            ),
+            "<item objectid=\"2\"/>",
+        );
+        read_package(&parts_package(&[("3D/3dmodel.model", &root)])).map(|_| ())
+    };
+
+    let missing = refers_to("/3D/Objects/object_1.model");
+    let outside = refers_to("/3D/../../secret.model");
+
+    assert_eq!(
+        missing,
+        Err(ImportError::MissingModelPart {
+            part: "/3D/Objects/object_1.model".to_owned()
+        })
+    );
+    assert_eq!(
+        missing.unwrap_err().to_string(),
+        "its 3D model takes objects from the part “/3D/Objects/object_1.model”, which the 3MF \
+         package does not hold"
+    );
+    assert_eq!(
+        outside,
+        Err(ImportError::ModelPartOutsidePackage {
+            part: "/3D/../../secret.model".to_owned()
+        })
+    );
+}
+
+#[test]
+fn parts_taking_objects_from_each_other_in_a_loop_are_refused_naming_the_object() {
+    let root = production_model(
+        "<object id=\"2\" type=\"model\"><components>\
+         <component prod:path=\"/3D/Objects/a.model\" objectid=\"1\"/></components></object>",
+        "<item objectid=\"2\"/>",
+    );
+    let a = production_model(
+        &format!(
+            "{}<object id=\"1\" type=\"model\"><components>\
+             <component prod:path=\"/3D/Objects/b.model\" objectid=\"1\"/></components></object>",
+            cube_object(3, 10.0)
+        ),
+        "",
+    );
+    let b = production_model(
+        "<object id=\"1\" type=\"model\"><components>\
+         <component prod:path=\"/3D/Objects/a.model\" objectid=\"1\"/></components></object>",
+        "",
+    );
+    let package = parts_package(&[
+        ("3D/3dmodel.model", &root),
+        ("3D/Objects/a.model", &a),
+        ("3D/Objects/b.model", &b),
+    ]);
+
+    let refused = read_package(&package).map(|_| ());
+
+    assert_eq!(
+        refused,
+        Err(ImportError::ComponentCycle {
+            object: "1".to_owned(),
+            part: "/3D/Objects/a.model".to_owned()
+        })
+    );
+}
+
+#[test]
+fn the_parts_of_a_project_share_one_element_limit() {
+    let half = MAX_MODEL_ELEMENTS / 2 + 1;
+    let filler = "<a/>".repeat(half);
+    let root = production_model(
+        &format!(
+            "{filler}<object id=\"2\" type=\"model\"><components>\
+             <component prod:path=\"/3D/Objects/object_1.model\" objectid=\"1\"/>\
+             </components></object>"
+        ),
+        "<item objectid=\"2\"/>",
+    );
+    let object = production_model(&format!("{filler}{}", cube_object(1, 10.0)), "");
+    let package = parts_package(&[
+        ("3D/3dmodel.model", &root),
+        ("3D/Objects/object_1.model", &object),
+    ]);
+
+    assert_eq!(
+        read_package(&package).map(|_| ()),
+        Err(ImportError::ModelTooManyElements)
+    );
 }

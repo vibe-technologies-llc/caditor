@@ -162,6 +162,10 @@ impl<'t> Tree<'t> {
         (0..self.elements.len()).map(|index| Node { tree: self, index })
     }
 
+    pub fn element_count(&self) -> usize {
+        self.elements.len()
+    }
+
     fn namespace(&self, index: Option<usize>) -> Option<&str> {
         self.namespaces.get(index?).map(AsRef::as_ref)
     }

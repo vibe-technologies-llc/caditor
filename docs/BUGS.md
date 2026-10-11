@@ -7,13 +7,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Files and recovery
 
-- [medium · medium] 3MF files whose meshes live in other model parts (the 3MF Production
-  extension's `p:path` on a component, as Bambu Studio and OrcaSlicer write their projects) are
-  refused or misread: `read_three_mf` (`import/mesh.rs`) reads only the root model part and
-  looks a component's `objectid` up there, ignoring `p:path`, so an id absent from the root fails
-  as "not a readable 3MF mesh" and one the root happens to share places the wrong object. Resolve
-  `p:path` through the archive (normalised, each part through the same bounded `xml::parse` and
-  charged to the same budgets), or until then refuse in words naming the external parts.
 - [low · easy] Opening a recent model that cannot be read forgets it from the recent list whatever
   the error: `open_file` sets `missing: !path.exists()`, true for any failed stat (an offline
   share, a folder whose permissions changed), and `opened` then calls `forget`, though `is_gone`

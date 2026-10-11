@@ -35,7 +35,9 @@ sheen, such as Steel - Satin, Aluminum - Anodized or Plastic - Matte, comes in w
 [finish](bodies)), and layers; a copy coloured on its own in an assembly keeps its own
 colour, and a body whose faces differ takes the colour most of them share, the others keeping
 theirs. STL, OBJ and 3MF meshes come in as bodies made of flat facets; STL and OBJ files carry no
-unit, so they are read as millimetres. Each body is an [imported body](imported-bodies) in the
+unit, so they are read as millimetres. 3MF projects that keep each object's mesh in a part of its
+own, as Bambu Studio and OrcaSlicer save them, come in whole; one naming a part the file does not
+hold is refused, naming that part. Each body is an [imported body](imported-bodies) in the
 tree.
 
 ## The report

@@ -1,3 +1,5 @@
+use miniz_oxide::inflate::TINFLStatus;
+
 const END_SIGNATURE: u32 = 0x0605_4b50;
 const CENTRAL_SIGNATURE: u32 = 0x0201_4b50;
 const LOCAL_SIGNATURE: u32 = 0x0403_4b50;
@@ -7,6 +9,13 @@ const CENTRAL_SIZE: usize = 46;
 const LOCAL_SIZE: usize = 30;
 const STORED: u16 = 0;
 const DEFLATED: u16 = 8;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EntryError {
+    Missing,
+    Damaged,
+    TooLarge,
+}
 
 pub struct Archive<'a> {
     bytes: &'a [u8],
@@ -64,11 +73,29 @@ impl<'a> Archive<'a> {
         Some(Self { bytes, entries })
     }
 
-    pub fn read(&self, name: &str, limit: usize) -> Option<Vec<u8>> {
+    pub fn read(&self, name: &str, limit: usize) -> Result<Vec<u8>, EntryError> {
         let entry = self
             .entries
             .iter()
-            .find(|entry| entry.name.eq_ignore_ascii_case(name))?;
+            .find(|entry| entry.name.eq_ignore_ascii_case(name))
+            .ok_or(EntryError::Missing)?;
+        let packed = self.packed(entry).ok_or(EntryError::Damaged)?;
+        match entry.method {
+            STORED if packed.len() > limit => Err(EntryError::TooLarge),
+            STORED => Ok(packed.to_vec()),
+            DEFLATED => {
+                miniz_oxide::inflate::decompress_to_vec_with_limit(packed, limit).map_err(|error| {
+                    match error.status {
+                        TINFLStatus::HasMoreOutput => EntryError::TooLarge,
+                        _ => EntryError::Damaged,
+                    }
+                })
+            }
+            _ => Err(EntryError::Damaged),
+        }
+    }
+
+    fn packed(&self, entry: &Entry) -> Option<&'a [u8]> {
         let bytes = self.bytes;
         if u32_at(bytes, entry.local)? != LOCAL_SIGNATURE {
             return None;
@@ -76,11 +103,6 @@ impl<'a> Archive<'a> {
         let name_length = usize::from(u16_at(bytes, entry.local + 26)?);
         let extra = usize::from(u16_at(bytes, entry.local + 28)?);
         let start = entry.local + LOCAL_SIZE + name_length + extra;
-        let packed = bytes.get(start..start.checked_add(entry.packed)?)?;
-        match entry.method {
-            STORED => Some(packed.to_vec()),
-            DEFLATED => miniz_oxide::inflate::decompress_to_vec_with_limit(packed, limit).ok(),
-            _ => None,
-        }
+        bytes.get(start..start.checked_add(entry.packed)?)
     }
 }

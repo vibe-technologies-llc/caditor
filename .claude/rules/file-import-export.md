@@ -264,21 +264,39 @@ paths:
 
 - `read_mesh_file` picks the format by extension (`MeshFormat`): STL (binary when its size matches
   the triangle count, else text), OBJ (`v` and `f`, polygons fanned, `/` parts and negative indices
-  read) and 3MF (`zip_read.rs`, a small reader of stored and deflated entries, no ZIP64; the model
-  part from `_rels/.rels`, its `unit` converted to millimetres, build items and nested components
-  placed by their transforms; both the model part and `_rels/.rels` are read with `import/xml.rs`,
-  never roxmltree, whose recursion a deeply nested part would overflow, and past
-  `MAX_MODEL_ELEMENTS` elements the file is `ModelTooManyElements`). Objects are indexed by id in
-  an `UntrustedMap`, and component expansion is charged: every placed object against
-  `MAX_EXPANDED_OBJECTS`, and the placed vertices and triangles each against
-  `MAX_MODEL_ELEMENTS`, counted for a mesh before any of its vertices is pushed
-  (`Placement::add_mesh`); past any of them the file is `ModelPlacesTooMuch`, and each placed object polls the kernel interrupt so Cancel
-  stops it. STL and OBJ have no units, so they read as millimetres with a note.
+  read) and 3MF (`zip_read.rs`, a small reader of stored and deflated entries, no ZIP64, whose
+  `Archive::read` tells a missing entry from a damaged or oversized one, `EntryError`; the model
+  part from `_rels/.rels`, build items and nested components placed by their transforms). Every
+  model part and `_rels/.rels` is read with `import/xml.rs`, never roxmltree, whose recursion a
+  deeply nested part would overflow.
+- 3MF model parts (`Package`): a build item or component carrying the Production extension's
+  `path` (namespace `http://schemas.microsoft.com/3dmanufacturing/production/2015/06`, matched by
+  namespace, not prefix) takes its object from that part, as Bambu Studio and OrcaSlicer projects
+  keep each object's mesh in `3D/Objects/*.model`; without it, from the part it is written in.
+  Object ids are scoped per part, each part's objects indexed by id in an `UntrustedMap`. A path is
+  normalised by `part_path` (relative to the referring part's folder unless it starts with `/`,
+  `.` and empty segments dropped, `..` escaping the package `ModelPartOutsidePackage`) and found
+  in the archive without regard to case; each part is read at most once, keyed by its lowercased
+  path, and only when something placed refers to it, so an absent part is `MissingModelPart`
+  naming it only then. Each part's `unit` converts its own vertices and the translations of its
+  transforms to millimetres. A part is parsed once into owned objects (`Shape`, `Reference`), its
+  failures kept per object and component and raised only when placed, as before.
+- 3MF budgets are the package's, not one part's: the inflated bytes of every part read (and
+  `_rels/.rels`) come out of one `MAX_FILE_SIZE` (`UnpacksTooLarge` past it), and every part's
+  elements out of one `MAX_MODEL_ELEMENTS` (`ModelTooManyElements`). Component expansion is
+  charged across parts: every placed object against `MAX_EXPANDED_OBJECTS`, and the placed
+  vertices and triangles each against `MAX_MODEL_ELEMENTS`, counted for a mesh before any of its
+  vertices is pushed (`add_mesh`); past any of them the file is `ModelPlacesTooMuch`, and each
+  placed object polls the kernel interrupt so Cancel stops it. An object reached again while its
+  own components are being placed, in its part or through others, is `ComponentCycle` naming the
+  object and its part; nesting past `MAX_COMPONENT_DEPTH` is damage. STL and OBJ have no units,
+  so they read as millimetres with a note.
 - The triangles become solids through the kernel's `faceted_solids` (`kernel.md`), each
   canonicalised like a STEP body and imported as an `Import` named after the file; what the
   kernel repaired or left out becomes notes in the import report. Its failures are
   `ImportError` variants of their own (`DamagedMesh`, `ModelTooManyElements`,
-  `ModelPlacesTooMuch`, `MeshNotClosed`, `MeshTooDetailed`, `MeshNotSolid`).
+  `ModelPlacesTooMuch`, `MissingModelPart`, `ModelPartOutsidePackage`, `ComponentCycle`,
+  `MeshNotClosed`, `MeshTooDetailed`, `MeshNotSolid`).
 
 ## Export (`export/`)
 

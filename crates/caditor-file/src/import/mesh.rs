@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{path::Path, rc::Rc};
 
 use caditor_document::{CancelToken, Import};
 use caditor_geometry::Point3;
@@ -12,7 +12,7 @@ use crate::{
         ImportError, MAX_EXPANDED_OBJECTS, ensure_going,
         model::{ImportedBody, ModelImport, canonical},
         xml::{self, Node, XmlError},
-        zip_read,
+        zip_read::{self, EntryError},
     },
     read::{MAX_FILE_SIZE, read_file},
     reason::ReadFailure,
@@ -26,6 +26,8 @@ const STL_TRIANGLE: usize = 50;
 const THREE_MF_MODEL: &str = "3D/3dmodel.model";
 const THREE_MF_RELATIONSHIPS: &str = "_rels/.rels";
 const THREE_MF_MODEL_TYPE: &str = "http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel";
+const PRODUCTION_NAMESPACE: &str =
+    "http://schemas.microsoft.com/3dmanufacturing/production/2015/06";
 const MAX_COMPONENT_DEPTH: usize = 16;
 pub(super) const MAX_PLACED_OBJECTS: usize = MAX_EXPANDED_OBJECTS;
 pub(super) const MAX_PLACED_VERTICES: usize = MAX_MODEL_ELEMENTS;
@@ -339,6 +341,14 @@ impl Transform {
         )
     }
 
+    fn in_units(self, scale: f64) -> Self {
+        let mut values = self.0;
+        for value in values.iter_mut().skip(9) {
+            *value *= scale;
+        }
+        Self(values)
+    }
+
     fn then(self, outer: Self) -> Self {
         let [m00, m01, m02, m10, m11, m12, m20, m21, m22, m30, m31, m32] = self.0;
         let row = |x: f64, y: f64, z: f64| {
@@ -367,130 +377,323 @@ fn unit_scale(unit: Option<&str>) -> Option<f64> {
 
 fn read_three_mf(bytes: &[u8]) -> Result<TriangleMesh, ImportError> {
     let damaged = || ImportError::DamagedMesh(MeshFormat::ThreeMf.name());
-    let limit = usize::try_from(MAX_FILE_SIZE).unwrap_or(usize::MAX);
     let archive = zip_read::Archive::new(bytes).ok_or_else(damaged)?;
-    let model_path = archive
-        .read(THREE_MF_RELATIONSHIPS, limit)
-        .and_then(|relationships| model_part(&relationships))
-        .unwrap_or_else(|| THREE_MF_MODEL.to_owned());
-    let model = archive
-        .read(&model_path, limit)
-        .ok_or(ImportError::NoModelInPackage)?;
-    let text = std::str::from_utf8(&model).map_err(|_| damaged())?;
-    let tree = xml::parse(text, MAX_MODEL_ELEMENTS).map_err(|error| match error {
-        XmlError::TooManyElements => ImportError::ModelTooManyElements,
-        XmlError::Damaged { .. } => damaged(),
+    let mut package = Package {
+        archive,
+        parts: Vec::new(),
+        loaded: UntrustedMap::new(),
+        bytes_left: usize::try_from(MAX_FILE_SIZE).unwrap_or(usize::MAX),
+        elements_left: MAX_MODEL_ELEMENTS,
+    };
+
+    let model_path = match package.model_part()? {
+        Some(target) => part_path("", &target)?,
+        None => THREE_MF_MODEL.to_owned(),
+    };
+    let root = package.load(&model_path).map_err(|error| match error {
+        ImportError::MissingModelPart { .. } => ImportError::NoModelInPackage,
+        other => other,
     })?;
-    if tree.damaged_at.is_some() {
-        return Err(damaged());
-    }
-    let root = tree.root().ok_or_else(damaged)?;
-    let scale = unit_scale(root.attribute("unit")).ok_or_else(damaged)?;
-    let mut objects = UntrustedMap::new();
-    for object in root.descendants().filter(|node| node.name() == "object") {
-        if let Some(id) = object.attribute("id") {
-            objects.entry(id).or_insert(object);
-        }
-    }
+    let build = package
+        .parts
+        .get(root)
+        .and_then(|part| part.build.clone())
+        .ok_or_else(damaged)?;
+
     let mut placement = Placement {
-        objects,
+        package,
         mesh: TriangleMesh::default(),
         placed_objects: 0,
+        expanding: Vec::new(),
     };
-    let build = root
-        .children()
-        .find(|node| node.name() == "build")
-        .ok_or_else(damaged)?;
-    for item in build.children().filter(|node| node.name() == "item") {
-        let id = item.attribute("objectid").ok_or_else(damaged)?;
-        let transform = Transform::parse(item.attribute("transform")).ok_or_else(damaged)?;
-        placement.add_object(id, transform, 0)?;
+    for item in build.iter() {
+        let item = item.as_ref().map_err(Clone::clone)?;
+        placement.add_reference(root, item, Transform::IDENTITY)?;
     }
-    let mut mesh = placement.mesh;
-    for position in &mut mesh.positions {
-        *position *= scale;
-    }
-    Ok(mesh)
+    Ok(placement.mesh)
 }
 
-struct Placement<'a, 't> {
-    objects: UntrustedMap<&'a str, Node<'a, 't>>,
+struct Package<'z> {
+    archive: zip_read::Archive<'z>,
+    parts: Vec<Part>,
+    loaded: UntrustedMap<String, usize>,
+    bytes_left: usize,
+    elements_left: usize,
+}
+
+struct Part {
+    name: String,
+    objects: UntrustedMap<String, Object>,
+    build: Option<References>,
+}
+
+struct Object {
+    shape: Option<Result<Shape, ImportError>>,
+    components: References,
+}
+
+type References = Rc<[Result<Reference, ImportError>]>;
+
+struct Shape {
+    positions: Vec<Point3>,
+    triangles: Vec<[usize; 3]>,
+}
+
+struct Reference {
+    part: Option<String>,
+    object: String,
+    transform: Transform,
+}
+
+impl Package<'_> {
+    fn model_part(&mut self) -> Result<Option<String>, ImportError> {
+        let relationships = match self.archive.read(THREE_MF_RELATIONSHIPS, self.bytes_left) {
+            Ok(relationships) => relationships,
+            Err(EntryError::TooLarge) => return Err(ImportError::UnpacksTooLarge),
+            Err(EntryError::Missing | EntryError::Damaged) => return Ok(None),
+        };
+        self.bytes_left = self.bytes_left.saturating_sub(relationships.len());
+        Ok(model_part(&relationships))
+    }
+
+    fn load(&mut self, path: &str) -> Result<usize, ImportError> {
+        let key = path.to_ascii_lowercase();
+        if let Some(&index) = self.loaded.get(key.as_str()) {
+            return Ok(index);
+        }
+        let part = self.read_part(path)?;
+        let index = self.parts.len();
+        self.parts.push(part);
+        self.loaded.insert(key, index);
+        Ok(index)
+    }
+
+    fn read_part(&mut self, path: &str) -> Result<Part, ImportError> {
+        let damaged = || ImportError::DamagedMesh(MeshFormat::ThreeMf.name());
+        let name = format!("/{path}");
+        let bytes = self
+            .archive
+            .read(path, self.bytes_left)
+            .map_err(|error| match error {
+                EntryError::Missing => ImportError::MissingModelPart { part: name.clone() },
+                EntryError::Damaged => damaged(),
+                EntryError::TooLarge => ImportError::UnpacksTooLarge,
+            })?;
+        self.bytes_left = self.bytes_left.saturating_sub(bytes.len());
+
+        let text = std::str::from_utf8(&bytes).map_err(|_| damaged())?;
+        let tree = xml::parse(text, self.elements_left).map_err(|error| match error {
+            XmlError::TooManyElements => ImportError::ModelTooManyElements,
+            XmlError::Damaged { .. } => damaged(),
+        })?;
+        self.elements_left = self.elements_left.saturating_sub(tree.element_count());
+        if tree.damaged_at.is_some() {
+            return Err(damaged());
+        }
+
+        let root = tree.root().ok_or_else(damaged)?;
+        let scale = unit_scale(root.attribute("unit")).ok_or_else(damaged)?;
+        let directory = path.rsplit_once('/').map_or("", |(directory, _)| directory);
+        let read = |node: Node<'_, '_>| read_reference(node, scale, directory);
+
+        let mut objects = UntrustedMap::new();
+        for object in root.descendants().filter(|node| node.name() == "object") {
+            let Some(id) = object.attribute("id") else {
+                continue;
+            };
+            if objects.contains_key(id) {
+                continue;
+            }
+            let shape = object
+                .children()
+                .find(|child| child.name() == "mesh")
+                .map(|shape| read_shape(shape, scale));
+            let components = object
+                .descendants()
+                .filter(|child| child.name() == "component")
+                .map(read)
+                .collect();
+            objects.insert(id.to_owned(), Object { shape, components });
+        }
+        let build = root
+            .children()
+            .find(|node| node.name() == "build")
+            .map(|build| {
+                build
+                    .children()
+                    .filter(|node| node.name() == "item")
+                    .map(read)
+                    .collect()
+            });
+        Ok(Part {
+            name,
+            objects,
+            build,
+        })
+    }
+}
+
+fn read_reference(
+    node: Node<'_, '_>,
+    scale: f64,
+    directory: &str,
+) -> Result<Reference, ImportError> {
+    let damaged = || ImportError::DamagedMesh(MeshFormat::ThreeMf.name());
+    let transform = Transform::parse(node.attribute("transform"))
+        .ok_or_else(damaged)?
+        .in_units(scale);
+    let object = node.attribute("objectid").ok_or_else(damaged)?.to_owned();
+    let part = node
+        .attribute_in(PRODUCTION_NAMESPACE, "path")
+        .map(|path| part_path(directory, path))
+        .transpose()?;
+    Ok(Reference {
+        part,
+        object,
+        transform,
+    })
+}
+
+fn read_shape(shape: Node<'_, '_>, scale: f64) -> Result<Shape, ImportError> {
+    let damaged = || ImportError::DamagedMesh(MeshFormat::ThreeMf.name());
+    let coordinate = |vertex: Node<'_, '_>, name: &str| -> Result<f64, ImportError> {
+        vertex
+            .attribute(name)
+            .and_then(|value| value.parse::<f64>().ok())
+            .map(|value| value * scale)
+            .ok_or_else(damaged)
+    };
+    let positions = shape
+        .descendants()
+        .filter(|child| child.name() == "vertex")
+        .map(|vertex| {
+            Ok(Point3::new(
+                coordinate(vertex, "x")?,
+                coordinate(vertex, "y")?,
+                coordinate(vertex, "z")?,
+            ))
+        })
+        .collect::<Result<Vec<_>, ImportError>>()?;
+    let count = positions.len();
+    let triangles = shape
+        .descendants()
+        .filter(|child| child.name() == "triangle")
+        .map(|triangle| {
+            let corner = |name: &str| -> Result<usize, ImportError> {
+                triangle
+                    .attribute(name)
+                    .and_then(|index| index.parse::<usize>().ok())
+                    .filter(|&index| index < count)
+                    .ok_or_else(damaged)
+            };
+            Ok([corner("v1")?, corner("v2")?, corner("v3")?])
+        })
+        .collect::<Result<Vec<_>, ImportError>>()?;
+    Ok(Shape {
+        positions,
+        triangles,
+    })
+}
+
+fn part_path(directory: &str, reference: &str) -> Result<String, ImportError> {
+    let outside = || ImportError::ModelPartOutsidePackage {
+        part: reference.to_owned(),
+    };
+    let base = if reference.starts_with('/') {
+        ""
+    } else {
+        directory
+    };
+    let mut segments = Vec::new();
+    for segment in base.split('/').chain(reference.split('/')) {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                segments.pop().ok_or_else(outside)?;
+            }
+            name => segments.push(name),
+        }
+    }
+    Ok(segments.join("/"))
+}
+
+struct Placement<'z> {
+    package: Package<'z>,
     mesh: TriangleMesh,
     placed_objects: usize,
+    expanding: Vec<(usize, String)>,
 }
 
-impl<'a, 't: 'a> Placement<'a, 't> {
-    fn add_object(&mut self, id: &str, placed: Transform, depth: usize) -> Result<(), ImportError> {
+impl Placement<'_> {
+    fn add_reference(
+        &mut self,
+        part: usize,
+        reference: &Reference,
+        placed: Transform,
+    ) -> Result<(), ImportError> {
+        let target = match &reference.part {
+            Some(path) => self.package.load(path)?,
+            None => part,
+        };
+        self.add_object(target, &reference.object, reference.transform.then(placed))
+    }
+
+    fn add_object(&mut self, part: usize, id: &str, placed: Transform) -> Result<(), ImportError> {
         let damaged = || ImportError::DamagedMesh(MeshFormat::ThreeMf.name());
         check_interrupt().map_err(|Interrupted| ImportError::Cancelled)?;
         self.placed_objects += 1;
         if self.placed_objects > MAX_PLACED_OBJECTS {
             return Err(ImportError::ModelPlacesTooMuch);
         }
-        if depth > MAX_COMPONENT_DEPTH {
+        let home = self.package.parts.get(part).ok_or_else(damaged)?;
+        if self
+            .expanding
+            .iter()
+            .any(|(expanding, object)| *expanding == part && object == id)
+        {
+            return Err(ImportError::ComponentCycle {
+                object: id.to_owned(),
+                part: home.name.clone(),
+            });
+        }
+        if self.expanding.len() > MAX_COMPONENT_DEPTH {
             return Err(damaged());
         }
-        let node = *self.objects.get(id).ok_or_else(damaged)?;
-        if let Some(shape) = node.children().find(|child| child.name() == "mesh") {
-            self.add_mesh(shape, placed)?;
+
+        let object = home.objects.get(id).ok_or_else(damaged)?;
+        if let Some(shape) = &object.shape {
+            let shape = shape.as_ref().map_err(Clone::clone)?;
+            add_mesh(&mut self.mesh, shape, placed)?;
         }
-        for component in node
-            .descendants()
-            .filter(|child| child.name() == "component")
-        {
-            let inner = Transform::parse(component.attribute("transform")).ok_or_else(damaged)?;
-            let objectid = component.attribute("objectid").ok_or_else(damaged)?;
-            self.add_object(objectid, inner.then(placed), depth + 1)?;
+        let components = Rc::clone(&object.components);
+
+        self.expanding.push((part, id.to_owned()));
+        for component in components.iter() {
+            let component = component.as_ref().map_err(Clone::clone)?;
+            self.add_reference(part, component, placed)?;
         }
+        self.expanding.pop();
         Ok(())
     }
+}
 
-    fn add_mesh(&mut self, shape: Node<'a, 't>, placed: Transform) -> Result<(), ImportError> {
-        let vertices = || shape.descendants().filter(|child| child.name() == "vertex");
-        let triangles = || {
-            shape
-                .descendants()
-                .filter(|child| child.name() == "triangle")
-        };
-        let mesh = &mut self.mesh;
-        let start = mesh.positions.len();
-        let count = vertices().count();
-
-        let placed_vertices = start.saturating_add(count);
-        let placed_triangles = mesh.triangles.len().saturating_add(triangles().count());
-        if placed_vertices > MAX_PLACED_VERTICES || placed_triangles > MAX_PLACED_TRIANGLES {
-            return Err(ImportError::ModelPlacesTooMuch);
-        }
-
-        let damaged = || ImportError::DamagedMesh(MeshFormat::ThreeMf.name());
-        let coordinate = |vertex: Node<'_, '_>, name: &str| -> Result<f64, ImportError> {
-            vertex
-                .attribute(name)
-                .and_then(|value| value.parse().ok())
-                .ok_or_else(damaged)
-        };
-        for vertex in vertices() {
-            let point = Point3::new(
-                coordinate(vertex, "x")?,
-                coordinate(vertex, "y")?,
-                coordinate(vertex, "z")?,
-            );
-            mesh.positions.push(placed.apply(point));
-        }
-        for triangle in triangles() {
-            let corner = |name: &str| -> Result<usize, ImportError> {
-                triangle
-                    .attribute(name)
-                    .and_then(|index| index.parse::<usize>().ok())
-                    .filter(|&index| index < count)
-                    .map(|index| start + index)
-                    .ok_or_else(damaged)
-            };
-            mesh.triangles
-                .push([corner("v1")?, corner("v2")?, corner("v3")?]);
-        }
-        Ok(())
+fn add_mesh(mesh: &mut TriangleMesh, shape: &Shape, placed: Transform) -> Result<(), ImportError> {
+    let start = mesh.positions.len();
+    let placed_vertices = start.saturating_add(shape.positions.len());
+    let placed_triangles = mesh.triangles.len().saturating_add(shape.triangles.len());
+    if placed_vertices > MAX_PLACED_VERTICES || placed_triangles > MAX_PLACED_TRIANGLES {
+        return Err(ImportError::ModelPlacesTooMuch);
     }
+
+    mesh.positions
+        .extend(shape.positions.iter().map(|&point| placed.apply(point)));
+    mesh.triangles.extend(
+        shape
+            .triangles
+            .iter()
+            .map(|triangle| triangle.map(|corner| start + corner)),
+    );
+    Ok(())
 }
 
 fn model_part(relationships: &[u8]) -> Option<String> {
@@ -502,5 +705,5 @@ fn model_part(relationships: &[u8]) -> Option<String> {
             node.name() == "Relationship" && node.attribute("Type") == Some(THREE_MF_MODEL_TYPE)
         })?
         .attribute("Target")?;
-    Some(target.trim_start_matches('/').to_owned())
+    Some(target.to_owned())
 }
