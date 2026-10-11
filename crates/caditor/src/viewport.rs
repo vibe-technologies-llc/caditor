@@ -2156,7 +2156,10 @@ impl ViewportState {
             && editing.picking().is_none()
             && !editing.is_choosing_plane()
         {
-            if self.paint && paint_selection::takes_faces(self.active_filter()) {
+            if self.paint
+                && self.style.picks_faces()
+                && paint_selection::takes_faces(self.active_filter())
+            {
                 return Some(PrimaryDrag::Paint(Painting::new(
                     self.selection.clone(),
                     press.cursor,
@@ -2274,7 +2277,8 @@ impl ViewportState {
         let document = model.document();
         let evaluation = model.evaluation();
         let scale = f64::from(self.pixels_per_point);
-        let mut caught: Vec<Pickable> = match Catch::of(self.active_filter()) {
+        let faces_pick = self.style.picks_faces();
+        let mut caught: Vec<Pickable> = match Catch::of(self.active_filter(), faces_pick) {
             Catch::SketchGeometry => {
                 let section = self.scenes.section();
                 let slack = section_slack(view.viewpoint().distance);
@@ -2319,7 +2323,7 @@ impl ViewportState {
                     .iter()
                     .filter(|(body, _)| visibility::is_shown(document, *body))
                     .collect();
-                let occlusion = if self.select_through {
+                let occlusion = if self.select_through || !faces_pick {
                     box_selection::Occlusion::open()
                 } else {
                     box_selection::Occlusion::of(

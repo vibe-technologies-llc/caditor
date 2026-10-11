@@ -43,6 +43,10 @@ impl DisplayStyle {
         !matches!(self, Self::Wireframe)
     }
 
+    pub fn picks_faces(self) -> bool {
+        !matches!(self, Self::Wireframe | Self::XRay)
+    }
+
     pub fn is_translucent(self) -> bool {
         matches!(self, Self::XRay)
     }

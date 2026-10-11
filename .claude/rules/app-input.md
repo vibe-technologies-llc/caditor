@@ -368,7 +368,10 @@ paths:
   primary drag in the 3D view draws a box (`PrimaryDrag::ModelBox`, `box_selection.rs`): left to
   right a window taking what lies wholly inside, right to left a crossing box taking what it
   touches, replacing the selection (Shift or Ctrl adds). It takes faces (Everything or Faces),
-  edges, vertices or the curves of shown sketches by the selection filter, of shown bodies only.
+  edges, vertices or the curves of shown sketches by the selection filter, of shown bodies only;
+  where the display style picks no faces (Wireframe and X-ray, `DisplayStyle::picks_faces`),
+  Everything takes edges (`Catch::of`) and nothing hides anything (`Occlusion::open`), since the
+  style draws the back edges through and a click picks them.
   Sketch curves go through `sectioned_screen::SectionedScreen`: a point a section plane cuts away
   is left out and a curve counts by the part the planes keep (`Screen::kept`, `kept_span`), so
   a curve cut away entirely is never taken, as picking never takes it.
@@ -391,7 +394,7 @@ paths:
 - Select faces by painting over them (`Command::TogglePaintSelection`, View menu, palette; kept for
   the session in `ViewportState::paint`, not saved) makes those model drags a brush
   (`PrimaryDrag::Paint`, `paint_selection.rs`) while the filter takes faces (Everything, Faces or
-  Bodies; other filters keep the box): the drag replaces the selection (Shift or Ctrl adds) and
+  Bodies) and the display style picks them (other filters, Wireframe and X-ray keep the box): the drag replaces the selection (Shift or Ctrl adds) and
   each pointer move adds the faces under the stroke as it goes, sampled every
   `BRUSH_STEP_POINTS` (at most `MAX_BRUSH_SAMPLES` a move) through `Scene::hits_through` on the
   CPU, so no GPU pick is awaited. Each sample takes the nearest face, or every face under it with

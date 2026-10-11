@@ -26,10 +26,12 @@ at them.
 
 Drag across empty space to select with a box. Dragging left to right takes what lies wholly inside;
 right to left also takes what the box touches. Only what you can see is taken, unless
-{command:view.toggle_select_through} is on.
+{command:view.toggle_select_through} is on. In Wireframe and X-ray, where faces cannot be clicked,
+a box takes edges instead of faces, and the back edges the style shows through too.
 
 - {command:view.toggle_lasso} draws a freehand outline instead of a box.
-- {command:view.toggle_paint_selection} selects faces by painting over them.
+- {command:view.toggle_paint_selection} selects faces by painting over them; in Wireframe and
+  X-ray the drag draws a box instead.
 
 ## Choosing what to pick
 

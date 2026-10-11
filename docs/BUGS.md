@@ -423,17 +423,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Viewer
 
-- [medium · easy] Box and paint selection ignore the display style: `select_in_model`
-  (`viewport.rs`) never reads the style, so in Wireframe and X-ray, where faces are not picked
-  (Wireframe draws none, X-ray draws them without pick ids), a box with the default Everything
-  filter (`Catch::of` gives `Faces`) still takes faces that cannot be clicked and none of the
-  edges that are all the user sees, the Edges and Vertices filters leave out the back edges as
-  hidden behind a body (the depth map rasterises every shown body's triangles unless Select
-  through is on) though the style draws them through and a click picks them, and a paint stroke in
-  Wireframe takes nothing after clearing the selection at its start. Where the style shows no
-  pickable faces, let Everything catch edges and nothing occlude (`Occlusion::open`), and keep
-  paint to the box there; pin it beside
-  `select_through_lets_a_box_take_the_edges_and_corners_hidden_behind_the_model`.
 - [medium · easy] Exported images draw the dark view's palette on the light view's background:
   `ViewportState::image` builds the scene with `canvas: Canvas::Dark` fixed, while the "3D view"
   background (`Background::Viewport`) is the renderer's current one, light when the 3D view is

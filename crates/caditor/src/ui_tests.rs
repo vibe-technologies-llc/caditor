@@ -8824,6 +8824,53 @@ fn select_through_lets_a_box_take_the_edges_and_corners_hidden_behind_the_model(
 }
 
 #[test]
+fn where_the_style_picks_no_faces_a_box_takes_every_edge_and_painting_draws_a_box() {
+    let mut harness = Harness::new();
+    extruded_plate(&mut harness);
+    harness.select([]);
+    run_from_palette(&mut harness, "fit view");
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    harness.frame();
+    let (low, high) = plate_on_screen(&harness);
+    let margin = egui::vec2(12.0, 12.0);
+    let mut caught = Vec::new();
+
+    for style in [DisplayStyle::Wireframe, DisplayStyle::XRay] {
+        harness.workspace.viewport.set_style(style);
+        harness.frame();
+        for filter in [
+            SelectionFilter::Everything,
+            SelectionFilter::Edges,
+            SelectionFilter::Vertices,
+        ] {
+            harness.workspace.viewport.set_filter(filter);
+            drag_screen(&mut harness, low - margin, high + margin);
+            caught.push(selected_kinds(&harness));
+        }
+    }
+    harness
+        .workspace
+        .viewport
+        .set_filter(SelectionFilter::Everything);
+    run_from_palette(&mut harness, "select faces by painting");
+    harness.frame();
+    harness
+        .workspace
+        .viewport
+        .set_style(DisplayStyle::Wireframe);
+    harness.frame();
+    let (low, high) = plate_on_screen(&harness);
+    drag_screen(&mut harness, low - margin, high + margin);
+    let painted_in_wireframe = selected_kinds(&harness);
+
+    let through = [(0, 12, 0), (0, 12, 0), (0, 0, 8)];
+    assert_eq!(caught, [through, through].concat());
+    assert!(harness.workspace.viewport.paint());
+    assert_eq!(painted_in_wireframe, (0, 12, 0));
+}
+
+#[test]
 fn a_box_dragged_over_the_model_selects_what_it_holds_or_touches_by_the_filter() {
     let mut harness = Harness::new();
     let (_, top) = extruded_plate(&mut harness);
