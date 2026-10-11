@@ -7,18 +7,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Files and recovery
 
-- [high · easy] Restore earlier version and Revert to saved fail on a model whose configurations
-  name a parameter whenever the configurations table itself is unchanged: `Document::transaction_to`
-  (`caditor-document/src/document.rs`) empties the table first (`deactivation`, `clearing`) only
-  when the two tables differ by `same_content`, yet always removes every current parameter, and
-  `remove_parameter` refuses one that `Configurations::parameters_named` still names, so drawing
-  a line in a model with a configured parameter and choosing Revert to saved (`files.rs`,
-  `revert_to_saved`) or restoring a version (`Event` handling after `start_restoring`) says the
-  parameter "is used by the configurations" and changes nothing. a1eff18b added the clearing
-  under the "tables differ" condition and `restoring_another_document_brings_its_configurations`
-  covers only tables that differ. Clear (and set back) the table whenever it names a parameter the
-  transaction removes, and pin it with an unchanged table holding a configured column and an
-  inactive row's cell.
 - [medium · easy] A model can grow past the `MAX_RECORDS` (10,000) parameters and features
   `load.rs` opens, after which the saved file reopens without its features: `Parts::add` drops
   records past the limit and parameters are written before features (`binary/model.rs`), so the

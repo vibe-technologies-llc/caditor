@@ -98,8 +98,10 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 - `Document::transaction_to` builds the transaction turning one document into another (bar to the
   end, everything removed, the target's inserted with IDs, flags, notes and owners, its bar
   restored), never lowering a sketch's ID counter; it restores an earlier version as one undoable
-  change. When the configuration tables differ it first deactivates and empties the current one, so
-  removing parameters the table names is not refused, and sets the target's at the end.
+  change. When the configuration tables differ, or the current one names a parameter of the model
+  (a column or an inactive row's cell, even with the table unchanged), it first deactivates and
+  empties the current one, so removing parameters the table names is not refused, and sets the
+  target's at the end.
 
 ## Model parameters (`model_parameters.rs`)
 

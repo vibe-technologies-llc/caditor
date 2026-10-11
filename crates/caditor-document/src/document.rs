@@ -1433,12 +1433,15 @@ impl Document {
             (self.selection_sets != target.selection_sets).then(|| Edit::SetSelectionSets {
                 sets: Box::new(SelectionSets::clone(&target.selection_sets)),
             });
-        let configurations =
-            (!self.configurations.same_content(&target.configurations)).then(|| {
-                Edit::SetConfigurations {
-                    configurations: Box::new(Configurations::clone(&target.configurations)),
-                }
-            });
+        let names_a_removed_parameter = self
+            .configurations
+            .parameters_named()
+            .any(|id| self.parameter(id).is_some());
+        let configurations = (names_a_removed_parameter
+            || !self.configurations.same_content(&target.configurations))
+        .then(|| Edit::SetConfigurations {
+            configurations: Box::new(Configurations::clone(&target.configurations)),
+        });
         let deactivation = configurations
             .as_ref()
             .and(self.configurations.active)

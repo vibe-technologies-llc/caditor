@@ -322,6 +322,48 @@ fn sized_by_another_in_one_configuration() -> (Editor, ParameterId, ParameterId,
 }
 
 #[test]
+fn reverting_a_change_outside_an_unchanged_configuration_table_naming_parameters_restores_the_model()
+ {
+    let (mut editor, _, size, scaled) = sized_by_another_in_one_configuration();
+    let saved = editor.document().clone();
+
+    let mut adding = editor.document().transaction("Add");
+    let ten = adding.parse("10 mm").unwrap();
+    adding.add_parameter("extra", ten);
+    editor.apply(adding.finish()).unwrap();
+    let changed = editor.document().clone();
+
+    assert!(
+        changed
+            .configurations()
+            .same_content(saved.configurations())
+    );
+
+    let revert = changed.transaction_to(&saved, "Revert to saved");
+    editor.apply(revert).unwrap();
+
+    assert!(editor.document().same_content(&saved));
+    assert_eq!(
+        editor
+            .document()
+            .configuration_setting(scaled, ConfiguredValue::Parameter(size)),
+        Some(Setting::Expression(expression(
+            editor.document(),
+            "unit * 2"
+        )))
+    );
+
+    editor.undo().unwrap();
+
+    assert!(editor.document().same_content(&changed));
+
+    let restore = editor.document().transaction_to(&changed, "Restore");
+    editor.apply(restore).unwrap();
+
+    assert!(editor.document().same_content(&changed));
+}
+
+#[test]
 fn a_parameter_named_only_by_an_inactive_configuration_is_in_use_and_cannot_be_removed() {
     let (mut editor, unit, _, _) = sized_by_another_in_one_configuration();
 
