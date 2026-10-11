@@ -4,7 +4,7 @@ use caditor_geometry::Point3;
 use thiserror::Error;
 
 use super::{
-    general::{Rounded, Stations, outline},
+    general::{Reach, Rounded, Stations, outline},
     loft::{self, Outline},
     station::{Cross, on_both},
 };
@@ -133,11 +133,15 @@ fn arc_curve(cross: &Cross) -> Result<BSplineCurve, GeometryError> {
     )
 }
 
-fn chord_surface(stations: &Stations, convex: bool) -> Result<Surface, GeometryError> {
+fn chord_surface(
+    stations: &Stations,
+    convex: bool,
+    reach: Reach,
+) -> Result<Surface, GeometryError> {
     let outlines: Vec<Outline> = stations
         .crosses
         .iter()
-        .map(|cross| outline(cross, convex).ok_or(GeometryError::ZeroDirection))
+        .map(|cross| outline(cross, convex, reach).ok_or(GeometryError::ZeroDirection))
         .collect::<Result<_, _>>()?;
     let segment = loft::Segment {
         params: stations.params.clone(),
@@ -179,7 +183,7 @@ fn targets(
             let [first, second] = foot_rows(stations)?;
             targets.push(Target {
                 name: stations.name.name,
-                chord: chord_surface(stations, chain.convex)?,
+                chord: chord_surface(stations, chain.convex, chain.reach)?,
                 fillet: fillet_surface(stations)?,
                 feet: [first.into(), second.into()],
                 foot_names: [
@@ -191,7 +195,8 @@ fn targets(
                 .into_iter()
                 .flatten()
             {
-                let shape = outline(cross, chain.convex).ok_or(GeometryError::ZeroDirection)?;
+                let shape = outline(cross, chain.convex, chain.reach)
+                    .ok_or(GeometryError::ZeroDirection)?;
                 joints.push(Joint {
                     chord: shape.chord,
                     arc: arc_curve(cross)?.into(),

@@ -112,6 +112,15 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   face nor a round face to clip by); until then the remedy should say to move the feature above
   the one that blended the corner
   (`blend::tests::vertical_edges_are_rounded_after_the_top_rim_is_chamfered`, ignored).
+- [medium · hard] The top rim of a box tapered to widen upwards, whose slanted corner edges were
+  filleted less than about twice the rim fillet, is refused: a 40×40×30 box tapered -4° with
+  3 mm corners refuses a 2 mm rim fillet as `Rounding(Untraced)` and with 2.2 mm corners as
+  `Intricate` (sections meeting at a joint too far apart), and at -8° with 2.2 mm or 2.5 mm
+  corners as `TooLarge`; 4 mm corners at -4° work. The ball's side contact there moves from a
+  corner's cylinder onto the side plane partway along the straight rim, a switch the run
+  splitting and the rounding's retraced edges do not yet follow. Tapering the other way works down
+  to corners a little larger than the fillet; corners no larger than the fillet are refused as
+  `Intricate`, which should read as `TooLarge`.
 
 
 ## Sketching

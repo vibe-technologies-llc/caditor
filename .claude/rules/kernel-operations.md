@@ -271,7 +271,10 @@ paths:
   run's own and those reached from them across smooth edges (`tangent_faces`), the nearest
   solution with both feet inside its faces winning; a run is split where a contact moves onto the
   next face, at the parameter where the contact crosses the edge the two faces share, found by
-  bisection on its signed distance from that edge, so every piece is smooth on one face per side.
+  bisection on its signed distance from that edge, so every piece is smooth on one face per side
+  (a section that cannot be solved on the earlier faces while bisecting leaves the switch where
+  the faces changed, rather than failing the blend: past a tapered rim's corner the ball no longer
+  meets the corner's cylinder).
   A chamfer's split is moved `BREAK_OFFSET` past that edge, as a tool joint lying on a body edge
   leaves the boolean nothing to divide; a fillet's is not, since its contact moves by the radius
   over the face's radius times the offset. Sections are doubled from `FIRST_STATIONS` until the
@@ -283,7 +286,15 @@ paths:
 - The tool (`loft.rs`) is a prism of ruled B-spline faces through each section's outline: the
   chord between the feet overhanging both by `OVERHANG` of its length, so it crosses the faces
   transversally, and an apex `APEX_REACH` reaches out along the feet's normal bisector (into the
-  body for a concave edge), with planar caps at an open chain's ends. Square, slanted and round
+  body for a concave edge), with planar caps at an open chain's ends. Each section carries the
+  edge's curvature (`Cross::bend`), and a point of the outline moves along the chain at
+  `1 - offset · bend` times the edge's speed, turning back past the centre of curvature. Both
+  reaches are therefore cut, for the whole chain at once so the rows stay smooth across joints
+  (`Reach::unfolded`), until every chord end and apex keeps `KEPT_SPEED` of the speed of the
+  point it reaches out from: a rim rounding a corner whose radius is only a little larger than
+  the fillet (the top of a tapered box with rounded corners, whose rim at the corner is an
+  ellipse) would otherwise fold its tool. Reaches cut below `LEAST_OVERHANG` and `LEAST_APEX`
+  are `TooLarge`. Square, slanted and round
   ends all take the swept tool's `End`s, except that a square end is extended and, where the
   extension would change something, clipped, rather than flush (`SquareEnd::Past`): the stations
   run on past the end along the faces' own intersection (`on_both`), so the clip or trim cuts the

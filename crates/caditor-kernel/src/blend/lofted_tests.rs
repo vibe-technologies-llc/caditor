@@ -395,3 +395,104 @@ fn a_rim_along_a_spline_face_is_rounded_and_chamfered() {
     assert_tangent_to("rounded", &rounded, &feet);
     assert!(volume(&chamfered) < volume(&rounded) && volume(&rounded) < volume(&bulged));
 }
+
+fn tapered_square(angle: f64) -> Solid {
+    let regions = Profile::new(&super::tests::polygon(&[
+        (0.0, 0.0),
+        (40.0, 0.0),
+        (40.0, 40.0),
+        (0.0, 40.0),
+    ]))
+    .unwrap()
+    .select(&Selection::EvenDepth)
+    .unwrap();
+    extrude_tapered(
+        &Plane::XY,
+        &regions,
+        LinearExtent::one_side(30.0).unwrap(),
+        angle.to_radians(),
+        1,
+    )
+    .unwrap()
+}
+
+fn rim_at(body: &Solid, height: f64) -> Vec<EdgeId> {
+    body.edges()
+        .filter(|(_, edge)| {
+            let middle = edge.curve().point(edge.interval().middle());
+            (middle.z - height).abs() < 1e-6
+        })
+        .map(|(id, _)| id)
+        .collect()
+}
+
+fn slanted_edges(body: &Solid) -> Vec<EdgeId> {
+    body.edges()
+        .filter(|(_, edge)| {
+            let start = edge.curve().point(edge.interval().start());
+            let end = edge.curve().point(edge.interval().end());
+            (start.z - end.z).abs() > 1.0
+        })
+        .map(|(id, _)| id)
+        .collect()
+}
+
+fn with_rounded_corners(angle: f64, corner: f64, bottom_too: bool) -> Solid {
+    let body = tapered_square(angle);
+    let mut edges = slanted_edges(&body);
+    if bottom_too {
+        edges.extend(rim_at(&body, 0.0));
+    }
+    run(&body, &edges, fillet(corner))
+}
+
+fn tapered_spandrel(radius: f64, angle: f64) -> f64 {
+    let turn = std::f64::consts::FRAC_PI_2 - angle.to_radians();
+    radius * radius * ((0.5 * turn).tan() - 0.5 * turn)
+}
+
+fn assert_top_rim_rounded(name: &str, body: &Solid, angle: f64, radius: f64) {
+    let top = rim_at(body, 30.0);
+    let feet = feet_of(body, &top);
+    let length: f64 = top
+        .iter()
+        .filter_map(|edge| body.edge(*edge))
+        .map(|edge| edge.curve().length(edge.interval()))
+        .sum();
+    let before = volume(body);
+
+    let rounded = run(body, &top[..1], fillet(radius));
+    let rounded_away = before - volume(&rounded);
+
+    assert_eq!(top.len(), 8, "{name}");
+    valid(name, &rounded);
+    assert_tangent_to(name, &rounded, &feet);
+    let expected = tapered_spandrel(radius, angle) * length;
+    assert!(
+        (rounded_away - expected).abs() < 0.05 * expected,
+        "{name}: removed {rounded_away} where about {expected} was expected"
+    );
+}
+
+#[test]
+fn the_top_rim_of_a_tapered_box_with_rounded_corners_is_rounded_close_to_the_corner_radius() {
+    for (angle, corner) in [(3.0, 3.0), (5.0, 2.5), (8.0, 3.0)] {
+        let body = with_rounded_corners(angle, corner, false);
+
+        assert_top_rim_rounded(&format!("{angle} deg, corners {corner}"), &body, angle, 2.0);
+    }
+}
+
+#[test]
+fn the_top_rim_of_a_tapered_box_is_rounded_after_its_corners_and_bottom_rim() {
+    let body = with_rounded_corners(3.0, 3.0, true);
+
+    assert_top_rim_rounded("corners and bottom", &body, 3.0, 2.0);
+}
+
+#[test]
+fn the_top_rim_of_a_box_widening_upwards_is_rounded() {
+    let body = with_rounded_corners(-4.0, 4.0, false);
+
+    assert_top_rim_rounded("widening", &body, -4.0, 2.0);
+}

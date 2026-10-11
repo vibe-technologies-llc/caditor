@@ -23,6 +23,9 @@ use crate::{
 
 const OVERHANG: f64 = 0.5;
 const APEX_REACH: f64 = 2.0;
+const KEPT_SPEED: f64 = 0.5;
+const LEAST_OVERHANG: f64 = 0.05;
+const LEAST_APEX: f64 = 0.25;
 const FIRST_STATIONS: usize = 8;
 const MAX_STATIONS: usize = 1024;
 const OUTLINE_FIT: f64 = 1e-6;
@@ -54,6 +57,7 @@ pub(super) struct Stations {
 pub(super) struct Rounded {
     pub runs: Vec<Stations>,
     pub convex: bool,
+    pub reach: Reach,
 }
 
 pub(super) struct Context<'a> {
@@ -128,6 +132,7 @@ struct Station {
     point: Point3,
     tangent: Vector3,
     along: Vector3,
+    bend: Vector3,
 }
 
 fn faces_tangent(
@@ -160,6 +165,7 @@ fn edge_station(solid: &Solid, sides: &RunSides, parameter: f64) -> Option<Stati
         point: derivatives.point,
         tangent,
         along,
+        bend: derivatives.curvature().unwrap_or(Vector3::ZERO),
     })
 }
 
@@ -197,6 +203,7 @@ fn extended_station(
         point,
         tangent,
         along,
+        bend: from.bend,
     })
 }
 
@@ -240,6 +247,7 @@ fn station_cross(
         inward,
         shape: context.shape,
         measured_on: (context.measured_on)(sides.faces),
+        bend: station.bend,
     };
     let sided = Sides {
         solid,
@@ -264,19 +272,79 @@ pub(super) fn reach(cross: &Cross) -> f64 {
         .map_or(feet, |center| feet.max(center.distance(cross.point)))
 }
 
-pub(super) fn outline(cross: &Cross, convex: bool) -> Option<Outline> {
-    let [first, second] = cross.feet.map(|foot| foot.point);
-    let across = second - first;
-    let length = across.length();
-    let unit = across.try_normalize()?;
-    let bisector = (cross.feet[0].normal + cross.feet[1].normal).try_normalize()?;
-    let side = if convex { 1.0 } else { -1.0 };
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct Reach {
+    overhang: f64,
+    apex: f64,
+}
+
+impl Reach {
+    const FULL: Self = Self {
+        overhang: OVERHANG,
+        apex: APEX_REACH,
+    };
+
+    fn unfolded<'a>(crosses: impl IntoIterator<Item = &'a Cross>, convex: bool) -> Option<Self> {
+        let mut reach = Self::FULL;
+        for cross in crosses {
+            let chord = Chord::of(cross, convex)?;
+            let [first, second] = chord.feet;
+            reach.overhang = reach
+                .overhang
+                .min(unfolded_share(cross, first, -chord.across, chord.length))
+                .min(unfolded_share(cross, second, chord.across, chord.length));
+            reach.apex = reach.apex.min(unfolded_share(
+                cross,
+                cross.point,
+                chord.outward,
+                chord.reach,
+            ));
+        }
+        (reach.overhang >= LEAST_OVERHANG && reach.apex >= LEAST_APEX).then_some(reach)
+    }
+}
+
+struct Chord {
+    feet: [Point3; 2],
+    across: Vector3,
+    length: f64,
+    outward: Vector3,
+    reach: f64,
+}
+
+impl Chord {
+    fn of(cross: &Cross, convex: bool) -> Option<Self> {
+        let feet = cross.feet.map(|foot| foot.point);
+        let [first, second] = feet;
+        let between = second - first;
+        let bisector = (cross.feet[0].normal + cross.feet[1].normal).try_normalize()?;
+        Some(Self {
+            feet,
+            across: between.try_normalize()?,
+            length: between.length(),
+            outward: if convex { bisector } else { -bisector },
+            reach: reach(cross),
+        })
+    }
+}
+
+fn unfolded_share(cross: &Cross, from: Point3, direction: Vector3, unit: f64) -> f64 {
+    let speed = 1.0 - (from - cross.point).dot(cross.bend);
+    let slowing = direction.dot(cross.bend) * unit;
+    if slowing <= 0.0 {
+        f64::INFINITY
+    } else {
+        (speed * (1.0 - KEPT_SPEED) / slowing).max(0.0)
+    }
+}
+
+pub(super) fn outline(cross: &Cross, convex: bool, reach: Reach) -> Option<Outline> {
+    let chord = Chord::of(cross, convex)?;
+    let [first, second] = chord.feet;
+    let overhang = chord.across * (reach.overhang * chord.length);
     Some(Outline {
-        chord: [
-            first - unit * (OVERHANG * length),
-            second + unit * (OVERHANG * length),
-        ],
-        apex: cross.point + bisector * (side * APEX_REACH * reach(cross)),
+        chord: [first - overhang, second + overhang],
+        apex: cross.point + chord.outward * (reach.apex * chord.reach),
     })
 }
 
@@ -304,7 +372,7 @@ fn fitted(stations: &Stations, middles: &[(f64, Cross)], convex: bool) -> bool {
     let outlines: Option<Vec<Outline>> = stations
         .crosses
         .iter()
-        .map(|cross| outline(cross, convex))
+        .map(|cross| outline(cross, convex, Reach::FULL))
         .collect();
     let Some(outlines) = outlines else {
         return false;
@@ -321,7 +389,7 @@ fn fitted(stations: &Stations, middles: &[(f64, Cross)], convex: bool) -> bool {
     let feet = super::rounding::foot_rows(stations).ok();
     let arcs = super::rounding::arc_rows(stations).ok();
     middles.iter().all(|(at, cross)| {
-        let Some(exact) = outline(cross, convex) else {
+        let Some(exact) = outline(cross, convex, Reach::FULL) else {
             return false;
         };
         let chord =
@@ -598,7 +666,13 @@ fn onto_shared_edge(
         return Ok(None);
     };
     let signed = |fraction: f64| -> Result<Option<f64>, BlendError> {
-        let found = cross_at(fraction)?;
+        let found = match cross_at(fraction) {
+            Ok(found) => found,
+            Err(BlendError::Cancelled(interrupted)) => {
+                return Err(BlendError::Cancelled(interrupted));
+            }
+            Err(_) => return Ok(None),
+        };
         Ok(found
             .feet
             .get(side)
@@ -638,6 +712,7 @@ fn met(before: &Cross, after: &Cross) -> Option<Cross> {
     }
     let mut joined = *after;
     joined.point = before.point.midpoint(after.point);
+    joined.bend = (before.bend + after.bend) * 0.5;
     joined.tangent = (before.tangent + after.tangent).try_normalize()?;
     for (foot, earlier) in joined.feet.iter_mut().zip(&before.feet) {
         foot.point = foot.point.midpoint(earlier.point);
@@ -846,13 +921,15 @@ pub(super) fn plan(context: &Context<'_>, chain: &Chain) -> Result<Planned, Blen
             .map_or(FaceName::default(), |run| run.name.name),
         origin: Some(context.shape.origin(context.feature)),
     };
+    let reach = Reach::unfolded(runs.iter().flat_map(|run| &run.crosses), convex)
+        .ok_or(BlendError::TooLarge(first_run.edge))?;
     let segments: Vec<Segment> = runs
         .iter()
         .map(|run| {
             let outlines: Option<Vec<Outline>> = run
                 .crosses
                 .iter()
-                .map(|cross| outline(cross, convex))
+                .map(|cross| outline(cross, convex, reach))
                 .collect();
             Some(Segment {
                 params: run.params.clone(),
@@ -889,8 +966,11 @@ pub(super) fn plan(context: &Context<'_>, chain: &Chain) -> Result<Planned, Blen
         context.feature,
     )
     .map_err(|error| error.at(Some(first_run.edge)))?;
-    let rounded =
-        matches!(context.shape, BlendShape::Fillet { .. }).then(|| Rounded { runs, convex });
+    let rounded = matches!(context.shape, BlendShape::Fillet { .. }).then(|| Rounded {
+        runs,
+        convex,
+        reach,
+    });
     Ok(Planned {
         tool: Tool {
             solid: shaped,

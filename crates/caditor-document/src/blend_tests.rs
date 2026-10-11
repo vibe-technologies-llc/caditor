@@ -1489,3 +1489,88 @@ fn the_rim_a_hole_leaves_through_the_far_tapered_side_is_rounded_and_chamfered()
     let chamfered_away = before - volume(&chamfered_evaluation, block);
     assert!(rounded_away > 0.0 && chamfered_away > rounded_away);
 }
+
+fn fillet_edges_of(
+    document: &mut Document,
+    name: &str,
+    body: FeatureId,
+    edges: Vec<EdgeReference>,
+    size: &str,
+) {
+    let mut transaction = document.transaction("Fillet");
+    transaction.add_feature(
+        name,
+        FeatureKind::Blend(Blend {
+            kind: BlendKind::Fillet,
+            body,
+            groups: Vec::new(),
+            edges,
+            size: mm(size),
+            form: ChamferForm::Equal,
+            flipped: false,
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+}
+
+#[test]
+fn the_top_rim_of_a_tapered_box_is_filleted_after_its_corners_and_bottom_rim() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    let outline = transaction.add_feature(
+        "Outline",
+        FeatureKind::from(rectangle((0.0, 0.0), (40.0, 40.0))),
+    );
+    let block = transaction.add_feature(
+        "Block",
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch: outline,
+            regions: RegionChoice::All,
+            extent: ExtrudeExtent::one_side(mm("30"), false),
+            operation: BodyOperation::NewBody,
+            start: None,
+            other_bodies: Vec::new(),
+            taper: Some(Box::new(Expression::parse("3 deg", &|_| None).unwrap())),
+            wall: None,
+            direction: None,
+        })),
+    );
+    document.apply(transaction.finish()).unwrap();
+    let tapered = evaluate(&document, &mut Recompute::default())
+        .body(block)
+        .unwrap()
+        .clone();
+    let lower: Vec<EdgeReference> = tapered
+        .edges()
+        .filter(|(_, edge)| {
+            let start = edge.curve().point(edge.interval().start());
+            let end = edge.curve().point(edge.interval().end());
+            start.z.min(end.z) < 1e-6
+        })
+        .map(|(id, _)| EdgeReference::capture(&tapered, id).unwrap())
+        .collect();
+    fillet_edges_of(&mut document, "Fillet 1", block, lower, "3");
+    let cornered = evaluate(&document, &mut Recompute::default());
+    let rounded_below = cornered.body(block).unwrap().clone();
+    let (top, _) = rounded_below
+        .edges()
+        .find(|(_, edge)| {
+            matches!(edge.curve(), caditor_kernel::Curve::Line(_))
+                && edge.curve().point(edge.interval().middle()).z > 30.0 - 1e-6
+        })
+        .unwrap();
+    let before = volume(&cornered, block);
+
+    fillet_edges_of(
+        &mut document,
+        "Fillet 2",
+        block,
+        vec![EdgeReference::capture(&rounded_below, top).unwrap()],
+        "2",
+    );
+    let topped = evaluate(&document, &mut Recompute::default());
+
+    assert_eq!(cornered.failed_count(), 0);
+    assert_eq!(topped.failed_count(), 0);
+    assert!(volume(&topped, block) < before - 50.0);
+}

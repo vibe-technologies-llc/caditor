@@ -31,6 +31,7 @@ pub(super) struct Cross {
     pub feet: [Contact; 2],
     pub center: Option<Point3>,
     pub inside: [bool; 2],
+    pub bend: Vector3,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -397,6 +398,7 @@ pub(super) struct Request {
     pub inward: [Vector3; 2],
     pub shape: BlendShape,
     pub measured_on: Side,
+    pub bend: Vector3,
 }
 
 pub(super) fn cross(sides: &Sides<'_>, request: &Request) -> Result<Cross, Missed> {
@@ -406,6 +408,7 @@ pub(super) fn cross(sides: &Sides<'_>, request: &Request) -> Result<Cross, Misse
         inward,
         shape,
         measured_on,
+        bend,
     } = *request;
     let own = [0, 1].map(|index| {
         sides
@@ -526,6 +529,7 @@ pub(super) fn cross(sides: &Sides<'_>, request: &Request) -> Result<Cross, Misse
         feet,
         center,
         inside,
+        bend,
     })
 }
 
