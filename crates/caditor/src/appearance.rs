@@ -795,6 +795,7 @@ fn required_pairs(high_contrast: bool) -> Vec<Pair> {
         pair(TextOnAccent, Accent, READABLE),
         pair(AccentText, AccentSubtle, READABLE),
         pair(AccentText, AccentSurface, READABLE),
+        pair(TextMuted, Sunken, READABLE),
         pair(TextMuted, Button, body),
         pair(AccentText, AccentSubtle, body),
         pair(Error, ErrorSubtle, body),

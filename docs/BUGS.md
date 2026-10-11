@@ -272,11 +272,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   draws two "Group 1" folders, and Rename group and Ungroup (`group_run`) reach one half. Give an
   inserted feature the group its neighbours at the bar share; pin it beside
   `moving_into_the_middle_of_a_group_joins_it_and_moving_out_leaves_it` (`grouping_tests.rs`).
-- [low · easy] The theme check never holds muted text on `sunken`, which the menu bar's Search
-  commands label and every field's placeholder (egui's weak text on `text_edit_bg_color`) draw:
-  `appearance::required_pairs` has `Text` on `Sunken` but not `TextMuted`, so a loaded theme with
-  `"sunken": "#3c4250"` passes with those at about 3.9:1, against `ux.md`'s 4.5:1 for every panel
-  text colour. Add the pair; pin it with the refusal tests in `themes.rs`.
 - [low · easy] The Preferences guide page uses markup the guide does not read: `preferences.md`
   has a `### Your own themes` heading and a fenced JSON example, and `guide::parse` knows only
   `# `, `## ` and `- `, so the heading shows its hashes and the example runs into one paragraph
