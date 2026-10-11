@@ -7,7 +7,7 @@ subject each; check them before starting new work.
 | --- | --- |
 | [`FEATURES.md`](FEATURES.md) | Missing tools, feature options and exchange formats: modelling, sketching, STEP, drawings, meshes, technical drawings, the application. |
 | [`BUGS.md`](BUGS.md) | Wrong results, silent losses and refusals of what should work today: files and recovery, kernel, modelling, the application, sketching, the solver, STEP import, the viewer. |
-| [`PERFORMANCE.md`](PERFORMANCE.md) | Where caditor is slower or heavier than it should be: kernel, STEP import, interface, solver, recompute. |
+| [`PERFORMANCE.md`](PERFORMANCE.md) | Where caditor is slower or heavier than it should be: kernel, STEP import, interface, solver, recompute, hostile files. |
 | [`PLATFORMS.md`](PLATFORMS.md) | Windows checks on a real machine, signing, packaging and distribution. |
 | [`CHECKS.md`](CHECKS.md) | Tests, CI and tooling that need attention. |
 | [`DECISIONS.md`](DECISIONS.md) | Open decisions: scope directions (assemblies, surfaces, sheet metal) and smaller questions an implementer cannot settle alone. |

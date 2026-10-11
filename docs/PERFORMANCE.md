@@ -32,6 +32,13 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   in parallel would need its own decomposition, and a narrower reach loses the triangles bridging
   between holes. The remaining exact in-circle predicates (under a tenth of tessellation time) are
   on cocircular boundary samples of mirror-symmetric holes, which no helper reaches.
+- [low · easy] `RegionReference::resolve` (`profile/reference.rs`) builds a likeness summary of
+  every region it passes before reaching the one whose key matches: per region, a `BTreeSet` of
+  its pieces with a digest each, the set of their sides and a containment test, all thrown away
+  when a later region matches, so `resolve_regions` costs chosen regions times regions on every
+  recompute of a feature with `RegionChoice::Chosen` (`solid.rs`'s `chosen_regions`,
+  `healing.rs`), unmeasured but quadratic for a grid sketch with most cells chosen. Look the keys
+  up first and summarise only for the references whose key is gone.
 - [low · hard] `SolidResult::cuts`/`joins` keep every tool solid with every history entry,
   though only patterns, mirrors and an open feature read them; a removal's tool shares little
   with the result, since a difference reverses the tool's kept faces and their pcurves (an
@@ -123,3 +130,20 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   of the tree before each feature, and `into_evaluation` builds `Measured::of` again though the run
   holds it, O(F²) for a cold open of a long tree while the presenter keeps only the latest glimpse
   and reports none before `FEATURES_DONE_AFTER`. Build one only once a report is due.
+
+## Hostile files
+
+- [low · easy] Crafted files take quadratic time in readers documented as near linear, on a
+  worker that Cancel only abandons: model loading dedupes `FeaturePattern::repeated`,
+  `FeatureMirror::mirrored` and `CombineTools::more_tools` with `Vec::contains` (`format.rs`) and
+  configured values before applying `MAX_CONFIGURED_VALUES` (`configurations.rs`'s
+  `restore_values`), so one record of half a million ids, a few KB compressed, takes minutes,
+  against `file-format.md`'s "near-linear on hostile files"; the XML reader shared by SVG and 3MF
+  interns namespaces by a linear scan (`xml.rs`, `intern`) and resolves each prefix by walking
+  every open scope (`resolved`), with no cap on attributes per tag or on nesting, and never polls
+  the interrupt; SVG `use` checks for a loop through every XML ancestor (`svg/mod.rs`), deeper
+  than `MAX_NESTING` bounds its own walk; STEP reading rebuilds an equivalence class by search for
+  every relationship and owned representation (`read/structure.rs`, `class` in
+  `relationship`) and drops fins with `kept.remove(0)` (`read/topology.rs`), charging the work
+  budget once per face. Dedupe through `UntrustedSet`, intern and resolve through maps, cap tags
+  and depth, test subtrees by document-order ranges, label the classes once and pop from a deque.

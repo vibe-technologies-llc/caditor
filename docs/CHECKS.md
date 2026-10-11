@@ -18,6 +18,12 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   (breaking the test that asserts their header). Keep a write-once corpus per format version
   covering each record kind of its day, loaded against recorded digests on every run, and have the
   seed writer refuse to touch it.
+- [medium · easy] No fuzz target reaches mesh import: `fuzz/fuzz_targets` covers DXF, SVG, STEP,
+  the model and journals, but nothing feeds `parse_mesh` STL, OBJ or 3MF, so the ZIP reader
+  (`zip_read.rs`, tested only on archives our own writer made) and the XML reader on the 3MF path
+  are never fuzzed, and the unbounded vertex copies of 3MF placement (`BUGS.md`) sit there. Add a
+  `mesh` target over every `MeshFormat`, seeded with small STL, OBJ and 3MF files, to the CI matrix
+  and `fuzz/Cargo.toml`.
 - [medium · easy] The nightly stress job runs three ignored tests by `--exact` name, while
   ignored surveys asserting kernel and sketch invariants run nowhere
   (`boolean::tests::aligned_contacts_a_micrometre_or_so_apart`, `blend/survey.rs`,
@@ -43,6 +49,12 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   selection sets) and 3 of the 20 feature kinds, and no target journals generated edits and
   replays them. Generate the rest, replay the journal in `save_load`, and add an exhaustive
   `match` on `Edit` so a new variant fails to compile until a generator covers it.
+- [medium · medium] Nothing tests the app when the storage worker dies or stops: `Model::send_save`
+  failing to send, `restart_storage` after a failed `record` and `poll_storage` returning an error
+  (`caditor/src/model.rs`) decide whether pending journal entries are kept, a save reports its
+  failure and the journal is taken up again, and no test stops or breaks the worker. Add a test
+  seam that stops the storage worker on command and cover a failed record keeping every entry and
+  starting a new worker, a failed save reported as failed, and quitting with the worker gone.
 - [medium · medium] Wall-clock asserts in the default suite, which flake on a loaded runner and
   miss complexity regressions on a fast one: `profile/tests.rs` (2 s), `binary/tests.rs` (2 s),
   `caditor-expression` (2 s), `read/structure.rs` (5 s), `fit.rs` and `import/tests.rs` (10 s)
@@ -61,6 +73,11 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   and `presenting_tests.rs` sleeps 50 ms before asserting no early report, so on a slow runner they
   pass before the message could arrive. Wait on `Files::wait_for_jobs` or a seam signalling the
   result was delivered or dropped.
+- [low · easy] Nothing catches a rules file emptied by mistake: 9bf86656 cut all 1,073 lines of
+  `document.md` while meaning to add a sentence, and it stayed empty for six commits that should
+  have updated it, every change to `caditor-document` loading an empty rule. Have
+  `conventions_tests.rs` fail on an empty rules file or one with nothing under its frontmatter, and
+  on a rules file the CLAUDE.md rules table lists that is missing.
 - [low · easy] Rules a machine could check that nothing checks: `reliability.md`'s "never
   `#[allow]`" (clippy's `allow_attributes` and `allow_attributes_without_reason` are not denied;
   the unsafe crates would move to `#[expect]`), and `ci.md`'s fuzz matrix, action pins and the
@@ -71,8 +88,9 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   through winit's sctk-adwaita", but `caditor-file` now depends on it directly for SVG text
   (`import/svg/font.rs`), while the maintained `skrifa` is already built through epaint: port the
   outlines, `wght` axis and GPOS kerning to `skrifa` and `read-fonts`, or correct the reason.
-  `caditor-file` also enables serde_json's `raw_value`, which no code uses since the binary format
-  (`dependencies.md`: features only when used).
+  `caditor-file` also enables serde_json's `raw_value`, which no code uses since the binary format,
+  and `caditor-windows` enables `windows-sys`'s `Win32_UI_Shell`, which nothing in it calls
+  (`dependencies.md`: features only when used; `cargo xwin clippy` confirms its removal).
 - [low · medium] Slow tests to keep an eye on: with egui, its glyph stack and the PNG encoder built
   optimised in the dev profile (`dependencies.md`) a UI test takes a few tenths of a second, and
   none of the ten that took over a second (the screen-reader test, the shortcut reset tests, the

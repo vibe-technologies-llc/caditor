@@ -7,6 +7,70 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Files and recovery
 
+- [high · easy] Restore earlier version and Revert to saved fail on a model whose configurations
+  name a parameter whenever the configurations table itself is unchanged: `Document::transaction_to`
+  (`caditor-document/src/document.rs`) empties the table first (`deactivation`, `clearing`) only
+  when the two tables differ by `same_content`, yet always removes every current parameter, and
+  `remove_parameter` refuses one that `Configurations::parameters_named` still names, so drawing
+  a line in a model with a configured parameter and choosing Revert to saved (`files.rs`,
+  `revert_to_saved`) or restoring a version (`Event` handling after `start_restoring`) says the
+  parameter "is used by the configurations" and changes nothing. a1eff18b added the clearing
+  under the "tables differ" condition and `restoring_another_document_brings_its_configurations`
+  covers only tables that differ. Clear (and set back) the table whenever it names a parameter the
+  transaction removes, and pin it with an unchanged table holding a configured column and an
+  inactive row's cell.
+- [medium · easy] A model can grow past the `MAX_RECORDS` (10,000) parameters and features
+  `load.rs` opens, after which the saved file reopens without its features: `Parts::add` drops
+  records past the limit and parameters are written before features (`binary/model.rs`), so the
+  features go first, reported only as "the last N were left out", and the file is then flagged
+  damaged. Only body imports are refused before landing (`caditor/src/import.rs`, `outnumbers`);
+  a parameter CSV of up to `MAX_PARAMETER_ROWS` (10,000) rows (`parameters.rs`,
+  `Document::plan_parameter_import`), pasted features and features added one by one are not.
+  Refuse in words every transaction that would take the model past the limit, best in
+  `Document::apply` (with the limit moved beside it) so no path can make a model that does not
+  reopen.
+- [medium · easy] A hostile mesh or drawing import can abort the process by exhausting memory
+  before any limit is checked, losing the session to the journal: 3MF placement
+  (`import/mesh.rs`, `Placement::add_mesh`) pushes every vertex of an object again on each of up to
+  `MAX_PLACED_OBJECTS` (1,000,000) placements and checks only `triangles.len()` against
+  `MAX_PLACED_TRIANGLES`, so a 1,000-vertex object with no triangles placed a million times asks
+  for 10⁹ points (about 24 GB) from a package of a few MB (`mesh_tests.rs`'s bomb test uses a
+  three-vertex leaf); and DXF reading (`import/dxf/mod.rs`, `DxfFile::read`) counts only a
+  record's stored pairs towards `MAX_DRAWING_VALUES`, so a record of a bare `0`/`POINT` pair adds
+  nothing while still costing a `Record`, an `Item` and a `Prepared` of a few hundred bytes, about
+  forty times its size in the file (`only_kept_values_count_towards_the_limit` pins that
+  accounting). Charge placed vertices with the triangles, and every kept record (and block and
+  layer entry) against the limit.
+- [medium · easy] Results that arrive after a file picker or a background check are applied to
+  the model as it is then, with no second look: `open` and `load_template` (`files.rs`,
+  `files/templates.rs`) take `model.revision()` only after the picker returns, so a clean model
+  that a running import made dirty while the Open picker was up, or one edited while the files
+  worker was still listing templates for New from template (`list_templates`, nothing blocking
+  meanwhile), is replaced with no prompt, the import's bodies or the edits lost; the Quit wait for
+  exports likewise closes storage without checking `is_dirty()` again. `SaveTarget` and
+  `Event::OutputChecked` carry no session, so a Save As check or an export target check queued
+  behind a slow `CheckRecent` (a recent file on a hung share) saves or exports whatever model was
+  opened since over the path the user confirmed for the first. Take the revision and session when
+  the intent runs and compare them when the pick, the check or the wait ends.
+- [medium · medium] 3MF files whose meshes live in other model parts (the 3MF Production
+  extension's `p:path` on a component, as Bambu Studio and OrcaSlicer write their projects) are
+  refused or misread: `read_three_mf` (`import/mesh.rs`) reads only the root model part and
+  looks a component's `objectid` up there, ignoring `p:path`, so an id absent from the root fails
+  as "not a readable 3MF mesh" and one the root happens to share places the wrong object. Resolve
+  `p:path` through the archive (normalised, each part through the same bounded `xml::parse` and
+  charged to the same budgets), or until then refuse in words naming the external parts.
+- [low · easy] Opening a recent model that cannot be read forgets it from the recent list whatever
+  the error: `open_file` sets `missing: !path.exists()`, true for any failed stat (an offline
+  share, a folder whose permissions changed), and `opened` then calls `forget`, though `is_gone`
+  beside it counts `NotFound` only, as `app-files.md` says. Use `is_gone`.
+- [low · easy] Exporting every configuration writes two configurations to one file when their
+  names sanitise alike: `configuration_export.rs`'s `safe_name` maps `/ \ : * ? " < > |` and
+  control characters to `-` and trims dots and spaces, and `file_for` builds the path from that
+  alone, so "M4/20" and "M4-20" (or "A." and "A") both write `<stem> M4-20.stl`, the second
+  replacing the first while `finished` reports both, and a name that sanitises to nothing writes
+  the chosen path itself. Only the chosen path gets a replace prompt. Make the paths unique before
+  the job starts and check each derived path for replacing.
+
 ## Kernel
 
 - [high · hard] Booleans between the fixture solids in random placements all succeed on the
@@ -121,10 +185,32 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   splitting and the rounding's retraced edges do not yet follow. Tapering the other way works down
   to corners a little larger than the fillet; corners no larger than the fillet are refused as
   `Intricate`, which should read as `TooLarge`.
+- [low · easy] Deleting a feature or typing a plain value over a named value leaves a model
+  parameter that the configurations still name owned by the feature that no longer uses it:
+  `releasing` (`model_parameters.rs`) judges a parameter unused by `parameter_user_ids`, which
+  reads parameters and features but not configurations (`parameter_users` beside it does), and
+  takes it out of `pending` before trying `RemoveParameter`, so when that is refused the
+  `SetParameterOwner { owner: None }` fallback never covers it, and the parameter table keeps
+  saying it is the value of the old feature. The table's "Used by" menu (`parameter_table.rs`)
+  omits configuration users through the same call. Count configuration users there and keep the
+  parameter pending until its removal succeeds.
 
 
 ## Sketching
 
+- [medium · easy] Mirror, patterns, extend and the sketch fillet treat inactive constraints as
+  holding, against `sketch.md`'s rule that an inactive constraint no longer holds:
+  `Sketch::constraints_using` returns every constraint, and `mirrored_directly` and
+  `symmetric_partner` (`mirror.rs`) take a point held `Symmetric` only by an inactive constraint
+  as already mirrored, so after deactivating a `Symmetric` between P and Q and moving Q, mirroring
+  a line ending at P joins the copy to Q where it now stands, with no symmetry, while the preview
+  (`mirror_image`) showed the true reflection; `held_on` (mirror, and `tie_turns` in
+  `pattern.rs`) counts an inactive `Coincident` or `Midpoint` as holding a point on the line or
+  centre, so no tie is added and the copy comes apart when dragged; `check_free_end`
+  (`trim.rs`) refuses to extend an end held only by an inactive `Fix` or `Coincident`; and
+  `merge_point` (`fillet.rs`) drops a moved constraint as a duplicate of an inactive one. Add an
+  `active_constraints_using` and use it at each, with tests deactivating a `Symmetric`, a
+  `Coincident` and a `Fix`.
 - [medium · hard] Offset keeps one offset curve per original, so an offset that would drop a curve
   is refused: a 30×20 rounded rectangle (2 mm tangent corner arcs) offset inward by 2 mm or more is
   `Collapses` on its first arc, where an arc shrinking to nothing should leave a sharp corner and
@@ -167,6 +253,18 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   8.7 s against 7.6 s. Healing still traces an edge only between exactly two distinct faces, so an
   edge used twice by one face (a cylinder seam) with a vertex a few micrometres off is refused
   outright when the file declares no precision.
+- [medium · easy] A hostile STEP file can exhaust memory in the structure and presentation passes,
+  whose bounds are per item rather than per file: `Structure::walk` (`read/structure.rs`) caps
+  placements at `MAX_INSTANCES` (10,000) per representation but memoises every walked
+  representation's whole `Placements` in `walked`, each placement with its own occurrence name
+  `String` and a path `Vec` growing about two ids per level, so layers of representations that all
+  have the next layer's as parents leave hundreds of nodes holding 10,000 placements each from a
+  file of a few hundred KB (`structure.rs`'s many-copies test asserts only time); and
+  `presentation.rs` clones a layer's name for every item it lists and a styling context `Vec` for
+  every repeated style reference (`instance`), as `product_names` clones a product's name per
+  representation, so one long name listed against many ids multiplies into tens of GB. Share
+  paths and names (`Arc<[u64]>`, `Arc<str>`) and spend one file-wide placement budget, as `Work`
+  bounds the parts.
 - [medium · medium] The VZ330 assembly (an Autodesk export at 0.01 mm, 3,894 copies) leaves 63
   parts out, 43 of them as "a vertex 0.00001 to 0.0015 mm away from the end of its edge" (the M4
   T-nuts, "Part 9 (1)" to "Part 14 (1)", "CPAP duct 18mm (1)"), all well within the file's
