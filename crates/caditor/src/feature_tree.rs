@@ -72,6 +72,8 @@ const UPDATE_REFERENCES_LABEL: &str = "Update references";
 const HEALED_HINT: &str =
     "Some of what it uses changed and was matched to the most similar geometry";
 const NOTHING_HEALED: &str = "Every reference it holds is found as it was chosen";
+pub const HEALING_AWAITS_RECOMPUTE: &str =
+    "The recompute has not checked its references since the last change; wait for it to finish";
 pub const OPEN_SAMPLE_LABEL: &str = "Open a sample";
 pub const EMPTY_TREE: &str = "The model has no features yet. Start with New sketch, here or in the ribbon, or open a \
      sample to see how one is built.";
@@ -755,7 +757,10 @@ fn feature_row(
                     | None => {}
                 }
                 if let Some(healing) = healing {
-                    healed(ui, document, actions, healing);
+                    let update = model
+                        .current_healing(id)
+                        .and_then(|current| current.update(document));
+                    healed(ui, actions, healing, update);
                 }
             });
             if asked_to_focus && has_callout {
@@ -841,11 +846,11 @@ fn outdated(ui: &mut Ui, actions: &mut Vec<Action>) {
     });
 }
 
-fn healed(ui: &mut Ui, document: &Document, actions: &mut Vec<Action>, healing: &Healing) {
+fn healed(ui: &mut Ui, actions: &mut Vec<Action>, healing: &Healing, update: Option<Transaction>) {
     widgets::callout(ui, Tone::Warning, |ui| {
         ui.label(healing.reason());
         ui.label(widgets::muted(healing.remedy(), ui));
-        let Some(update) = healing.update(document) else {
+        let Some(update) = update else {
             return;
         };
         let button = widgets::small_button(
@@ -1820,16 +1825,17 @@ fn reference_update(model: &Model, targets: &[&Feature]) -> Result<Transaction, 
     let document = model.document();
     let updates: Vec<Transaction> = targets
         .iter()
-        .filter_map(|feature| {
-            model
-                .evaluation()
-                .feature(feature.id())?
-                .healing
-                .as_ref()?
-                .update(document)
-        })
+        .filter_map(|feature| model.current_healing(feature.id())?.update(document))
         .collect();
+    let awaiting = targets.iter().any(|feature| {
+        model.current_healing(feature.id()).is_none()
+            && model
+                .evaluation()
+                .feature(feature.id())
+                .is_some_and(|status| status.healing.is_some())
+    });
     match updates.as_slice() {
+        [] if awaiting => Err(HEALING_AWAITS_RECOMPUTE.to_owned()),
         [] => Err(NOTHING_HEALED.to_owned()),
         [only] => Ok(only.clone()),
         _ => Ok(Transaction::new(

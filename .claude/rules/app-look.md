@@ -449,7 +449,11 @@ paths:
   the palette) scrolls so its callouts show with it, so the remedy is in view, not only the name. Callout actions are `small_button`s with icons.
 - A feature computed with a healed reference (`FeatureStatus::healing`) shows the warning icon and
   a callout with the reason, the remedy and an Update references button, offered only while the
-  evaluation was checked against the feature as it now stands (`Healing::update`).
+  evaluation was checked against the feature as it now stands (`Healing::update`) and is of the
+  current revision with the feature not pending (`Model::current_healing`, from the revision each
+  arriving evaluation is of), so an undo or edit meanwhile never writes a reference captured on
+  another model; the row menu and the palette take the same healing, refusing with
+  `HEALING_AWAITS_RECOMPUTE` until the recompute reports.
 - A row opened for editing (a sketch entered, a feature opened) collapses again when editing it
   ends, by the checkmark, Enter, Escape or Finish (`PanelState::opened_for_editing`,
   `finished_editing`), so the tree goes back to one line per feature.

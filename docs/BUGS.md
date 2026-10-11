@@ -172,17 +172,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   splitting and the rounding's retraced edges do not yet follow. Tapering the other way works down
   to corners a little larger than the fillet; corners no larger than the fillet are refused as
   `Intricate`, which should read as `TooLarge`.
-- [low · easy] Update references is offered from an evaluation of an older revision: the tree's
-  callout, its row menu and the palette (`feature_tree.rs`, `reference_update`) take
-  `status.healing` from `Model::evaluation`, which until the new revision reports is still the
-  last one's (features a running recompute has not reached keep theirs too), and
-  `Healing::update` (`healing.rs`) refuses only when the feature's own kind changed. Undo the
-  hole drawn in `a_region_matched_again_after_a_hole_is_drawn_warns_until_its_references_are_updated`
-  and click Update references before the recompute reports: "Update references of Base" writes
-  the region captured on the sketch with the hole into a model without it, giving a new healing
-  warning (for a fillet, "A chosen edge is no longer part of the body"). Keep the revision the
-  held evaluation is of and offer the update only while it is the current one and the feature
-  is not pending.
 - [low · medium] A hole's Position X and Y keep a number where an expression was typed:
   `hole_panel::position_rows` previews `width / 2` with its value and then stores the evaluated
   millimetres in the hidden sketch's point (`hole_placement::moved`), as `place_handles::typed`

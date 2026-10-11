@@ -20043,6 +20043,47 @@ fn a_region_matched_again_after_a_hole_is_drawn_warns_until_its_references_are_u
     assert!(!harness.shows(reason));
 }
 
+#[test]
+fn update_references_waits_for_the_evaluation_of_the_revision_it_would_change() {
+    let (document, sketch, _) = chosen_plate();
+    let mut harness = Harness::starting(None, document, Workspace::new());
+    let mut transaction = harness.document().transaction("Draw a hole");
+    let center = transaction.add_sketch_entity(sketch, Entity::Point(Point2::new(20.0, 15.0)));
+    transaction.add_sketch_entity(
+        sketch,
+        Entity::Circle {
+            center,
+            radius: 5.0,
+        },
+    );
+    harness.perform(Action::Apply(transaction.finish()));
+    harness.settle();
+    harness.click("Base");
+    harness.frame();
+    let offered = harness.shows("Update references");
+    let available = offer(&harness, Command::UpdateReferences).availability;
+
+    harness.model.hold_evaluations(true);
+    harness.perform(Action::Undo);
+    harness.frame();
+    harness.frame();
+    let offered_meanwhile = harness.shows("Update references");
+    let available_meanwhile = offer(&harness, Command::UpdateReferences).availability;
+    harness.model.hold_evaluations(false);
+    harness.settle();
+
+    assert!(offered);
+    assert_eq!(available, Ok(()));
+    assert!(!offered_meanwhile);
+    assert_eq!(
+        available_meanwhile,
+        Err(crate::feature_tree::HEALING_AWAITS_RECOMPUTE.into())
+    );
+    assert_eq!(harness.model.redo_label(), Some("Draw a hole"));
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+    assert!(!harness.shows("Update references"));
+}
+
 fn viewport_centre(harness: &Harness) -> Pos2 {
     harness.workspace.viewport.rect().unwrap().center()
 }
