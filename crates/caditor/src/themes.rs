@@ -743,6 +743,17 @@ mod tests {
     }
 
     #[test]
+    fn a_sunken_colour_that_leaves_muted_text_below_the_minimum_is_refused() {
+        let problem = build("murky", &file("dark", &[("sunken", "#3c4250")])).unwrap_err();
+
+        let words = problem.words();
+        assert!(matches!(problem, ThemeProblem::Contrast(_)));
+        assert!(words.contains("text_muted"), "{words}");
+        assert!(words.contains("sunken #3c4250"), "{words}");
+        assert!(words.contains("below the 4.5:1 it needs"), "{words}");
+    }
+
+    #[test]
     fn unknown_names_bad_colours_and_damaged_files_are_refused_in_words() {
         let unknown = build("a", &file("dark", &[("background", "#000000")])).unwrap_err();
         let bad = build("b", &file("dark", &[("panel", "black")])).unwrap_err();

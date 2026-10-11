@@ -241,17 +241,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   Check the row's merged graph (the live expressions with that row's cells in place) for a cycle
   when a cell is set; pin it in `configurations_tests.rs` beside
   `values_using_each_other_swap_without_a_passing_cycle`.
-- [medium · easy] Measure's mass cards give the centroid in world coordinates while Relative to
-  names a coordinate system: `measure_panel::mass_card` and `total_card` format
-  `properties.centroid` as it is (`MeasureContext` carries no `Relative`), while the "Centre of
-  mass of <body>" reading card beside it goes through `Relative::reading`, so one panel shows two
-  coordinates for one point, and the mass card's Keep this measurement along X, Y and Z
-  (`Keepable::of_mass_row`, `positions(None)`) keeps a reading along the world's axes, against
-  `app.md`'s "reads every position … in the chosen coordinate system". Map the centroid through
-  the panel's `Relative` and pass the frame to `of_mass_row` (inertia stays along the model axes as
-  the rule says); pin it beside
-  `measure_reads_positions_and_offsets_in_the_chosen_coordinate_system`
-  (`ui_tests/coordinate_systems.rs`).
 - [low · easy] A configuration added while a configured body colour's feature makes no body can
   never be switched to once it makes one again: `live_settings_of` leaves out a column whose live
   setting is none, so `adding_configuration` and `duplicating_configuration` store the row
@@ -272,38 +261,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   draws two "Group 1" folders, and Rename group and Ungroup (`group_run`) reach one half. Give an
   inserted feature the group its neighbours at the bar share; pin it beside
   `moving_into_the_middle_of_a_group_joins_it_and_moving_out_leaves_it` (`grouping_tests.rs`).
-- [low · easy] The tree's choice keeps features an undo removed: `PanelState::chosen` and
-  `toggle_chosen` (`panels.rs`) never drop ids missing from the document, cleared only by a new
-  session and by deletions made from the tree, so after pasting a feature (which chooses the copy)
-  and pressing Ctrl+Z, Ctrl+clicking two rows and dragging one shows "That feature no longer
-  exists" (`move_features`, `MissingFeature`) and moves nothing. Drop missing ids when the
-  revision changes; pin it in `ui_tests/feature_tree_choice.rs`.
-- [low · easy] Undoing back to the saved state of a model with a kept measurement leaves it marked
-  unsaved: `Model::changed` judges `dirty` right after the undo, while the measured parameter
-  still holds the reading `follow_readings` wrote for the undone revision, and the next
-  evaluation writes the old reading back without judging it again (`dirty` is set only in
-  `changed`, after a save and on load), so the title keeps its Unsaved pill and Close or Open asks
-  to save a model equal to the saved one. Clear `dirty` when a follow brings the document back to
-  the saved one (never set it there, as following never makes a model unsaved); pin it beside
-  `a_measured_distance_is_kept_in_the_model_and_follows_upstream_edits`
-  (`ui_tests/cancel_and_parameters.rs`).
-- [low · easy] Clear face colours, and the selected faces' body-colour swatch, also drop the
-  opacity and finish a STEP import gave faces: `body_appearance.rs` clears with
-  `faces: Vec::new()` and `with_face_colours` with no colour filters the selected faces' entries
-  out, though a `FaceColour` also carries `opacity` and `finish`, which no control sets, so an
-  imported glass face turns opaque and plain and only Undo brings it back; repainting keeps them,
-  and `app-look.md` says clearing does. Reset only the colour of entries holding an opacity or
-  finish; pin it beside `selected_faces_take_a_colour_of_their_own_from_the_body_card`.
-- [low · easy] The theme check never holds muted text on `sunken`, which the menu bar's Search
-  commands label and every field's placeholder (egui's weak text on `text_edit_bg_color`) draw:
-  `appearance::required_pairs` has `Text` on `Sunken` but not `TextMuted`, so a loaded theme with
-  `"sunken": "#3c4250"` passes with those at about 3.9:1, against `ux.md`'s 4.5:1 for every panel
-  text colour. Add the pair; pin it with the refusal tests in `themes.rs`.
-- [low · easy] The Preferences guide page uses markup the guide does not read: `preferences.md`
-  has a `### Your own themes` heading and a fenced JSON example, and `guide::parse` knows only
-  `# `, `## ` and `- `, so the heading shows its hashes and the example runs into one paragraph
-  starting "json {" that is no longer valid JSON if copied. Use `##` and code spans (or teach the
-  parser fences) and test that no page has a line the parser does not read.
 
 
 ## Sketching

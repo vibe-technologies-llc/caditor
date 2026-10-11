@@ -18499,6 +18499,98 @@ fn selected_faces_take_a_colour_of_their_own_from_the_body_card() {
     assert_eq!(painted_faces(&mut harness, red), 0);
 }
 
+fn glass_top(harness: &mut Harness) -> (FeatureId, Pickable) {
+    let (plate, top) = extruded_plate(harness);
+    let Pickable::Face { face, .. } = top else {
+        panic!("{top:?}");
+    };
+    let shown = crate::bodies::shown(harness.model.evaluation(), plate).unwrap();
+    let reference = caditor_kernel::FaceReference::capture(
+        &shown.solid,
+        crate::bodies::find_face(shown, face).unwrap(),
+    )
+    .unwrap();
+    harness.model.perform(Action::Apply(Transaction::single(
+        "Glass top",
+        Edit::SetBodyAppearance {
+            id: plate,
+            appearance: caditor_document::BodyAppearance {
+                faces: vec![caditor_document::FaceColour {
+                    face: reference,
+                    colour: caditor_document::Rgb::new(200, 64, 52),
+                    opacity: Some(50),
+                    finish: Some(caditor_document::Finish::Glossy),
+                }],
+                ..Default::default()
+            },
+        },
+    )));
+    harness.settle();
+    (plate, top)
+}
+
+#[test]
+fn clearing_face_colours_keeps_the_opacity_and_finish_a_face_came_with() {
+    use crate::body_appearance::{CLEAR_FACE_COLOURS, DEFAULT_COLOUR};
+
+    let mut harness = Harness::new();
+    let (plate, top) = glass_top(&mut harness);
+
+    harness.select([top]);
+    run_from_palette(&mut harness, "body colour and material");
+    harness.settle();
+    harness.select([]);
+    harness
+        .events
+        .push(Event::PointerMoved(Pos2::new(150.0, 400.0)));
+    scroll_in_view(&mut harness, egui::vec2(0.0, 400.0));
+    harness.click(CLEAR_FACE_COLOURS);
+    harness.settle();
+
+    let faces = harness
+        .document()
+        .feature(plate)
+        .unwrap()
+        .appearance
+        .faces
+        .clone();
+    assert_eq!(faces.len(), 1);
+    assert_eq!(faces[0].colour, DEFAULT_COLOUR);
+    assert_eq!(faces[0].opacity, Some(50));
+    assert_eq!(faces[0].finish, Some(caditor_document::Finish::Glossy));
+    assert!(!harness.shows(CLEAR_FACE_COLOURS));
+}
+
+#[test]
+fn the_body_colour_swatch_of_selected_faces_keeps_the_opacity_and_finish_they_came_with() {
+    use crate::body_appearance::{BODY_COLOUR_NAME, DEFAULT_COLOUR, face_swatch_name};
+
+    let mut harness = Harness::new();
+    let (plate, top) = glass_top(&mut harness);
+
+    harness.select([top]);
+    run_from_palette(&mut harness, "body colour and material");
+    harness.settle();
+    harness
+        .events
+        .push(Event::PointerMoved(Pos2::new(150.0, 400.0)));
+    scroll_in_view(&mut harness, egui::vec2(0.0, 400.0));
+    harness.click_button(&face_swatch_name(BODY_COLOUR_NAME));
+    harness.settle();
+
+    let faces = harness
+        .document()
+        .feature(plate)
+        .unwrap()
+        .appearance
+        .faces
+        .clone();
+    assert_eq!(faces.len(), 1);
+    assert_eq!(faces[0].colour, DEFAULT_COLOUR);
+    assert_eq!(faces[0].opacity, Some(50));
+    assert_eq!(faces[0].finish, Some(caditor_document::Finish::Glossy));
+}
+
 #[test]
 fn a_body_takes_a_colour_and_a_material_whose_density_gives_its_mass() {
     use crate::body_appearance::{DENSITY_CAPTION, NO_MATERIAL};

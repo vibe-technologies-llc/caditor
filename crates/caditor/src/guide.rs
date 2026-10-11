@@ -888,6 +888,56 @@ mod tests {
         assert!(broken.is_empty(), "{broken:#?}");
     }
 
+    fn is_unread_markup(line: &str) -> bool {
+        let trimmed = line.trim();
+        let heading =
+            trimmed.starts_with('#') && !line.starts_with("# ") && !line.starts_with("## ");
+        let nested_item = trimmed.starts_with("- ") && !line.starts_with("- ");
+        heading
+            || nested_item
+            || ["```", "~~~", "> ", "* ", "+ ", "|", "---", "==="]
+                .iter()
+                .any(|mark| trimmed.starts_with(mark))
+    }
+
+    #[test]
+    fn no_page_has_a_line_the_parser_does_not_read() {
+        let unread: Vec<String> = Page::ALL
+            .into_iter()
+            .flat_map(|page| {
+                page.source()
+                    .lines()
+                    .filter(|line| is_unread_markup(line))
+                    .map(move |line| format!("{}: {line}", page.id()))
+            })
+            .collect();
+        assert!(unread.is_empty(), "{unread:#?}");
+    }
+
+    #[test]
+    fn markup_the_parser_does_not_read_is_found() {
+        for line in [
+            "### Subheading",
+            "```json",
+            "  - nested",
+            "> quoted",
+            "* starred",
+            "| a | b |",
+        ] {
+            assert!(is_unread_markup(line), "{line}");
+        }
+        for line in [
+            "# Title",
+            "## Heading",
+            "- item",
+            "  continuation of an item",
+            "Plain text, 3.5 mm wide.",
+            "`code` first",
+        ] {
+            assert!(!is_unread_markup(line), "{line}");
+        }
+    }
+
     #[test]
     fn every_page_is_reached_from_another_or_from_the_start() {
         let linked: BTreeSet<&str> = every_span()

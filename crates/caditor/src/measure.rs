@@ -686,7 +686,7 @@ impl Relative {
         })
     }
 
-    fn position(&self, point: Point3) -> Point3 {
+    pub fn position(&self, point: Point3) -> Point3 {
         self.to_local.apply_point(point)
     }
 

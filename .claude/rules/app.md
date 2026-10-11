@@ -59,7 +59,8 @@ paths:
   result, tinted if failed or outdated; suppressed and rolled-back ones are neither drawn nor
   picked (`Document::active_features`).
 - `Model` also owns the file session: path, last saved document (unsaved exactly when the
-  document differs from it, and always when unknown, e.g. after restoring a rebased journal), the
+  document differs from it, and always when unknown, e.g. after restoring a rebased journal; a
+  followed measurement reading that brings the document back to it clears the mark), the
   journal's base and entries since it, and the `Storage` worker every change is recorded to.
   While the journal cannot be written the status bar shows Not protected.
 
@@ -302,8 +303,10 @@ paths:
   a notice saying so.
 - Relative to (shown once the model holds a coordinate system, `MeasureTool::relative_to`, World
   by default, forgotten when another model opens) reads every position and direction and the
-  Along X, Y and Z offsets in the chosen coordinate system (`measure::Relative`, its frame's inverse); distances,
-  angles and the line in the view stay world geometry. A chosen system that is gone or has no
+  Along X, Y and Z offsets in the chosen coordinate system (`measure::Relative`, its frame's inverse), a
+  body's and the all-bodies card's Centroid included (`mass_cards` takes the `Relative` and its
+  frame, so Keep this measurement along X, Y and Z keeps the coordinate in that system); distances,
+  angles, the line in the view and the inertia stay world geometry. A chosen system that is gone or has no
   result is read as the world with a warning callout saying so (`measure_panel::relative`).
 - The closest points are drawn on the front layer (`scene::add_measurement`) with a distance
   label in `canvas::MEASURE`.
@@ -553,7 +556,10 @@ paths:
   and inline `**strong**`, `` `code` ``, `[text](page-id)` links and `{command:id}`, which renders
   the command's title with the user's current keys (`guide_panel::command_text`), so pages never
   repeat default shortcuts. Unclosed marks stay text. Tests hold every link and command id to one
-  that exists, every page to a title, content and an incoming link, and the markup's reading.
+  that exists, every page to a title, content and an incoming link, and the markup's reading;
+  `no_page_has_a_line_the_parser_does_not_read` fails on a line that starts like markup the parser
+  does not read (`###` headings, fences, quotes, `*` or `+` items, tables, indented items), so an
+  example is a code span, not a fenced block.
 - `guide_panel.rs` draws it as a right-hand side panel sharing the side panels' room (`Guide` in
   the `Workspace`, reset by a failed frame): back, contents and close buttons, a search field over
   the titles and text (`guide::search`, title matches first, with a snippet around the first word),

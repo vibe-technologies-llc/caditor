@@ -1173,8 +1173,10 @@ impl Model {
                 }
                 self.evaluation = update.evaluation;
                 self.evaluation_generation += 1;
-                if update.revision == self.revision() {
-                    self.editor.follow_readings(&self.evaluation);
+                if update.revision == self.revision()
+                    && self.editor.follow_readings(&self.evaluation)
+                {
+                    self.dirty = self.dirty && self.differs_from_saved();
                 }
                 self.parameters.take_readings(&self.evaluation.parameters);
                 self.display.sketches.forget();

@@ -28,19 +28,12 @@ start. **Restore defaults** resets only the tab you are on, and offers Undo.
 - The interface size from 75% to 200%, and whether caditor draws its own title bar or uses the
   system's. See [accessibility](accessibility).
 
-### Your own themes
+## Your own themes
 
 A theme is a JSON file in the `themes` folder of caditor's configuration folder (the folder is
-named under the theme cards). Click **Reload themes** after adding or changing one.
-
-```json
-{
-  "name": "Ocean",
-  "base": "dark",
-  "view": "light",
-  "colours": { "panel": "#0b2230", "raised": "#10293a", "accent": "#1f6fb2" }
-}
-```
+named under the theme cards). Click **Reload themes** after adding or changing one. A file holding
+`{ "name": "Ocean", "base": "dark", "view": "light", "colours": { "panel": "#0b2230" } }`
+adds a theme called Ocean.
 
 `base` is `dark` or `light`, and its colours fill in whatever the file leaves out; `view` is the
 3D view's lightness. The colours are named `panel`, `raised`, `sunken`, `stripe`, `button`,

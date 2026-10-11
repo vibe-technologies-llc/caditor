@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use caditor_document::{FeatureId, FixTarget, TreeRow};
+use caditor_document::{Document, FeatureId, FixTarget, TreeRow};
 use caditor_expression::ParameterId;
 use caditor_geometry::Point3;
 use caditor_sketch::ConstraintId;
@@ -109,6 +109,7 @@ pub struct PanelState {
     pub finished_editing: Option<FeatureId>,
     pub selected: Option<FeatureId>,
     also_selected: Vec<FeatureId>,
+    chosen_checked_at: Option<u64>,
     pub dragging: Option<TreeRow>,
     pub deleting: Option<Vec<FeatureId>>,
     pub noting: Option<NoteDraft>,
@@ -214,6 +215,21 @@ impl PanelState {
                     .filter(|id| *id != primary),
             )
             .collect()
+    }
+
+    pub fn forget_missing(&mut self, document: &Document, revision: u64) {
+        if self.chosen_checked_at.replace(revision) == Some(revision) {
+            return;
+        }
+        let chosen = self.chosen();
+        let remaining: Vec<FeatureId> = chosen
+            .iter()
+            .copied()
+            .filter(|id| document.feature(*id).is_some())
+            .collect();
+        if remaining.len() != chosen.len() {
+            self.choose_all(&remaining);
+        }
     }
 
     pub fn choose_only(&mut self, feature: FeatureId) {

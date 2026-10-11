@@ -1,7 +1,7 @@
 use caditor_document::FeatureId;
 use caditor_geometry::{Plane, Point2};
 use caditor_sketch::Sketch;
-use egui::{Key, Modifiers, Pos2, accesskit::Role};
+use egui::{Event, Key, Modifiers, Pos2, accesskit::Role};
 
 use super::{
     CAMERA_SETTLE, Harness, add_block, click_with, extruded_plate, feature_named, offer, rectangle,
@@ -422,4 +422,31 @@ fn the_tree_works_out_its_offers_once_until_the_model_or_the_choice_changes() {
         offer(&harness, Command::RollToEnd).availability.is_ok(),
         "the offers follow the rollback bar"
     );
+}
+
+#[test]
+fn features_an_undo_removed_leave_the_tree_s_choice() {
+    let mut harness = Harness::new();
+    let (extrude, _) = extruded_plate(&mut harness);
+    let plate = feature_named(&harness, "Plate");
+    let before = harness.document().features().len();
+
+    harness.workspace.panels.choose_all(&[extrude]);
+    harness.frame();
+    harness.events.push(Event::Copy);
+    harness.settle();
+    harness.frame();
+    let copied = harness.clipboard.clone().unwrap();
+    harness.events.push(Event::Paste(copied));
+    harness.settle();
+    let pasted = chosen(&harness);
+
+    harness.perform(Action::Undo);
+    harness.settle();
+    harness.frame();
+    click_with(&mut harness, "Plate", Modifiers::COMMAND);
+
+    assert_eq!(harness.document().features().len(), before);
+    assert_eq!(pasted.len(), 1);
+    assert_eq!(chosen(&harness), vec![plate]);
 }
