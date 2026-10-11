@@ -135,7 +135,10 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   `SetDimension` or `SetParameterExpression` holds it, and counts the replacements.
 - `releasing(transaction, ids)` appends what the named values become once the transaction is
   applied: each one nothing uses any more is removed (users before what they use), any other
-  loses its owner and stays an ordinary parameter. `deletion` releases the values owned by the
+  loses its owner and stays an ordinary parameter. Users are `parameter_user_ids`, which counts
+  the configurations as `parameter_users` does (`ParameterUser::Configuration` for an inactive
+  row's cell, `Configurations` for a configured column, worded by `configuration_user_name`), and
+  a removal `RemoveParameter` refuses leaves the value pending, so it still loses its owner. `deletion` releases the values owned by the
   deleted features, `remove_sketch_items` those owned by the dimensions it removes; reshaping a
   sketch keeps constraint IDs, so owners survive it.
 

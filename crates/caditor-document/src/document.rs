@@ -13,7 +13,7 @@ use crate::{
     blend::Blend,
     body_appearance::BodyAppearance,
     combine::Combine,
-    configurations::Configurations,
+    configurations::{ConfigurationId, Configurations},
     datum::{Datum, PrincipalGeometry},
     edit::{Edit, Transaction},
     hole::Hole,
@@ -1210,6 +1210,8 @@ pub enum TreeRow {
 pub enum ParameterUser {
     Parameter(ParameterId),
     Feature(FeatureId),
+    Configuration(ConfigurationId),
+    Configurations,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -1528,7 +1530,10 @@ impl Document {
             .iter()
             .filter(|feature| feature.uses_parameter(parameter))
             .map(|feature| ParameterUser::Feature(feature.id()));
-        parameters.chain(features).collect()
+        parameters
+            .chain(features)
+            .chain(self.configuration_user_ids(parameter))
+            .collect()
     }
 
     pub fn parameter_users(&self, parameter: ParameterId) -> Vec<String> {

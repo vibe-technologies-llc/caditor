@@ -172,15 +172,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   splitting and the rounding's retraced edges do not yet follow. Tapering the other way works down
   to corners a little larger than the fillet; corners no larger than the fillet are refused as
   `Intricate`, which should read as `TooLarge`.
-- [low · easy] Deleting a feature or typing a plain value over a named value leaves a model
-  parameter that the configurations still name owned by the feature that no longer uses it:
-  `releasing` (`model_parameters.rs`) judges a parameter unused by `parameter_user_ids`, which
-  reads parameters and features but not configurations (`parameter_users` beside it does), and
-  takes it out of `pending` before trying `RemoveParameter`, so when that is refused the
-  `SetParameterOwner { owner: None }` fallback never covers it, and the parameter table keeps
-  saying it is the value of the old feature. The table's "Used by" menu (`parameter_table.rs`)
-  omits configuration users through the same call. Count configuration users there and keep the
-  parameter pending until its removal succeeds.
 - [low · easy] Update references is offered from an evaluation of an older revision: the tree's
   callout, its row menu and the palette (`feature_tree.rs`, `reference_update`) take
   `status.healing` from `Model::evaluation`, which until the new revision reports is still the

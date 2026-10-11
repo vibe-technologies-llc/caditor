@@ -115,23 +115,26 @@ impl Document {
             return transaction;
         }
         let (label, mut edits) = transaction.into_parts();
+        let mut refused = BTreeSet::new();
         loop {
             let unused: Vec<ParameterId> = pending
                 .iter()
-                .filter(|id| after.parameter_user_ids(**id).is_empty())
+                .filter(|id| !refused.contains(*id) && after.parameter_user_ids(**id).is_empty())
                 .copied()
                 .collect();
             if unused.is_empty() {
                 break;
             }
             for id in unused {
-                pending.remove(&id);
                 let removal = Edit::RemoveParameter { id };
                 if after
                     .apply(Transaction::single(label.clone(), removal.clone()))
                     .is_ok()
                 {
+                    pending.remove(&id);
                     edits.push(removal);
+                } else {
+                    refused.insert(id);
                 }
             }
         }

@@ -12,6 +12,7 @@ use crate::{
     completion, field, icons,
     model::{Action, Model, Notice},
     panels::{Focus, PanelState},
+    preferences::PreferencesCommand,
     tree_row,
     widgets::{self, DialogWidth},
 };
@@ -565,7 +566,7 @@ fn row_menu(
         ui.close();
     }
     if used {
-        users_menu(ui, document, state, parameter);
+        users_menu(ui, document, state, actions, parameter);
     }
     ui.separator();
     let deletion = Deletion::of(document, parameter, used);
@@ -577,7 +578,13 @@ fn row_menu(
     }
 }
 
-fn users_menu(ui: &mut Ui, document: &Document, state: &mut PanelState, parameter: &Parameter) {
+fn users_menu(
+    ui: &mut Ui,
+    document: &Document,
+    state: &mut PanelState,
+    actions: &mut Vec<Action>,
+    parameter: &Parameter,
+) {
     let users = document.parameter_user_ids(parameter.id());
     ui.separator();
     ui.label(widgets::muted(USED_BY, ui));
@@ -586,25 +593,36 @@ fn users_menu(ui: &mut Ui, document: &Document, state: &mut PanelState, paramete
             ParameterUser::Parameter(id) => (
                 icons::PARAMETERS,
                 document.parameter_name(id).unwrap_or_default().to_owned(),
-                Focus::ParameterValue(id),
+                Some(Focus::ParameterValue(id)),
             ),
             ParameterUser::Feature(id) => match document.feature(id) {
                 Some(feature) => (
                     icons::feature(&feature.kind),
                     feature.name.clone(),
-                    Focus::Feature(id),
+                    Some(Focus::Feature(id)),
                 ),
                 None => continue,
             },
+            ParameterUser::Configuration(_) | ParameterUser::Configurations => {
+                match document.configuration_user_name(*user) {
+                    Some(name) => (icons::command(Command::Configurations), name, None),
+                    None => continue,
+                }
+            }
         };
         let response = widgets::menu_item(ui, glyph, &name, None)
             .on_hover_text(format!("Go to {name}, which uses {}", parameter.name));
         if response.clicked() {
-            if let Focus::Feature(id) = focus {
-                state.choose_only(id);
-                state.reveal(id);
+            match focus {
+                Some(focus) => {
+                    if let Focus::Feature(id) = focus {
+                        state.choose_only(id);
+                        state.reveal(id);
+                    }
+                    state.request_focus(focus);
+                }
+                None => actions.push(Action::Preferences(PreferencesCommand::ShowConfigurations)),
             }
-            state.request_focus(focus);
             ui.close();
         }
     }
