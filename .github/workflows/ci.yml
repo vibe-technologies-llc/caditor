@@ -153,20 +153,26 @@ jobs:
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
 
-      - name: Count the booleans of random placements that fail
+      - name: Run the kernel surveys
         run: |
-          cargo test --release --locked -p caditor-kernel -- --ignored --exact \
-            boolean::tests::random_placements_of_every_fixture
+          .github/run-ignored.sh -p caditor-kernel -- \
+            boolean::tests::random_placements_of_every_fixture \
+            boolean::tests::aligned_contacts_a_micrometre_or_so_apart \
+            boolean::carry_tests::holes_drilled_one_by_one_and_blocks_joined_one_by_one_take_bounded_time \
+            blend::survey::every_corner_chamfers_but_a_convex_edge_rising_from_bevelled_concave_ones
 
-      - name: Time the diagnosis of conflicts across hundreds of entities
+      - name: Run the solver surveys and the diagnosis of conflicts across hundreds of entities
         run: |
-          cargo test --release --locked -p caditor-sketch -- --ignored --exact \
+          .github/run-ignored.sh -p caditor-sketch -- \
+            solve::tests::thousands_of_independent_rectangles_solve_in_a_fraction_of_a_second \
+            solve::tests::thousands_of_rectangles_resized_by_one_parameter_solve_in_a_fraction_of_a_second \
+            solve::tests::offsetting_a_closed_dimensioned_chain_solves_in_milliseconds \
             solve::diagnosis_tests::a_conflict_across_hundreds_of_entities_is_named_within_seconds \
             solve::diagnosis_tests::a_conflict_through_a_chain_of_three_hundred_lines_is_named_within_the_budget
 
       - name: Time a large STEP import from reading to every body shown
         run: |
-          cargo test --release --locked -p caditor --lib -- --ignored --exact --nocapture \
+          .github/run-ignored.sh -p caditor --lib -- \
             ui_tests::import_costs::a_large_step_import_is_timed_stage_by_stage
 
   format:

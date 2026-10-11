@@ -50,8 +50,14 @@ paths:
   `model.caditor`. Both scripts also run on their own: without `CADITOR_REQUIRE_DISPLAY`,
   `check-install.sh` skips the start when Xvfb is missing.
 - The `stress` job runs only nightly and on demand (`schedule`, `workflow_dispatch`): the ignored
-  kernel and sketch stress tests and the large STEP import benchmark (`app-tests.md`) in release. `random_placements_of_every_fixture` asserts that every
-  boolean of its seed succeeds, so a kernel change that breaks one fails the job.
+  kernel and sketch surveys (random placements, aligned contacts, carried holes, every blend
+  corner; thousands of rectangles, offset chains, conflict diagnosis) and the large STEP import
+  benchmark (`app-tests.md`) in release, each through `.github/run-ignored.sh`, which runs the
+  named ignored tests with `--exact` and fails the step when fewer ran than were named, so a
+  renamed test cannot leave the job green running nothing. `random_placements_of_every_fixture`
+  asserts that every boolean of its seed succeeds, so a kernel change that breaks one fails the
+  job. An ignored test pinning a known failure (`vertical_edges_are_rounded_after_the_top_rim_is_chamfered`)
+  or only timing (`display_mesh_costs`) is left out.
 - The check job runs cargo as the unprivileged `builder` user (`as-builder`), since root ignores the
   file modes the unreadable-file tests rely on, with a runtime directory of its own
   (`XDG_RUNTIME_DIR=/run/user/1001`), since Mesa's Vulkan stack probes for a Wayland display on

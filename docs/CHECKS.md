@@ -18,13 +18,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   are never fuzzed, and the unbounded vertex copies of 3MF placement (`BUGS.md`) sit there. Add a
   `mesh` target over every `MeshFormat`, seeded with small STL, OBJ and 3MF files, to the CI matrix
   and `fuzz/Cargo.toml`.
-- [medium · easy] The nightly stress job runs three ignored tests by `--exact` name, while
-  ignored surveys asserting kernel and sketch invariants run nowhere
-  (`boolean::tests::aligned_contacts_a_micrometre_or_so_apart`, `blend/survey.rs`,
-  `carry_tests.rs`, the solver's memo and fully-constrained surveys), against `ci.md` saying the
-  job runs "the ignored kernel and sketch stress tests"; a renamed test also leaves the job green
-  running nothing, since libtest passes a filter matching none. Add them and fail a step that ran
-  no test.
 - [medium · medium] The document fuzzers cover a part of what they claim (`ci.md`): `tree_edit`
   and `sketch_edit` produce 18 of the 34 `Edit` variants (never `SetFeatureKind`, the
   configurations edits, projections, labels, appearance, groups, owners, notes, saved views or
