@@ -2,7 +2,7 @@ use caditor_document::{
     Blend, BlendKind, ChamferForm, Document, Feature, FeatureId, GroupResolution, Resolution,
     SolidResult, Transaction,
 };
-use caditor_expression::Dimension;
+use caditor_expression::{Dimension, Expression};
 use caditor_kernel::{EdgeId, FaceId};
 use egui::{Id, Ui};
 
@@ -71,8 +71,13 @@ fn form_row(
         .map(|choice| Segment {
             label: choice.short(),
             hover: choice.hover(),
-            change: (choice != current)
-                .then(|| change(model, feature.id(), choice.applied_to(blend))),
+            change: (choice != current).then(|| {
+                change(
+                    model,
+                    feature.id(),
+                    choice.applied_to(model.document(), feature.id(), blend),
+                )
+            }),
         })
         .collect();
     actions.extend(feature_fields::segmented_row(
@@ -91,6 +96,19 @@ pub fn size_caption(blend: &Blend) -> &'static str {
     }
 }
 
+pub const SECOND_DISTANCE: &str = "Second distance";
+pub const CHAMFER_ANGLE: &str = "Angle";
+
+pub fn captioned(blend: &Blend) -> Vec<(&'static str, &Expression)> {
+    let size = (size_caption(blend), &blend.size);
+    let form = match blend.chamfer_form() {
+        ChamferForm::Equal => None,
+        ChamferForm::TwoDistances { second } => Some((SECOND_DISTANCE, second)),
+        ChamferForm::DistanceAngle { angle } => Some((CHAMFER_ANGLE, angle)),
+    };
+    std::iter::once(size).chain(form).collect()
+}
+
 fn form_value_row(
     ui: &mut Ui,
     model: &Model,
@@ -100,14 +118,11 @@ fn form_value_row(
 ) {
     let (caption, expression, dimension, rule) = match blend.chamfer_form() {
         ChamferForm::Equal => return,
-        ChamferForm::TwoDistances { second } => (
-            "Second distance",
-            second,
-            Dimension::LENGTH,
-            Rule::AboveZero,
-        ),
+        ChamferForm::TwoDistances { second } => {
+            (SECOND_DISTANCE, second, Dimension::LENGTH, Rule::AboveZero)
+        }
         ChamferForm::DistanceAngle { angle } => {
-            ("Angle", angle, Dimension::ANGLE, Rule::ChamferAngle)
+            (CHAMFER_ANGLE, angle, Dimension::ANGLE, Rule::ChamferAngle)
         }
     };
     let quantity = Quantity {

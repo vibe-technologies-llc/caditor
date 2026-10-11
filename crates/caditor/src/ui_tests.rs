@@ -14560,6 +14560,72 @@ fn values_named_in_their_fields_are_listed_as_model_parameters_and_used_by_name(
 }
 
 #[test]
+fn a_named_value_follows_its_field_into_another_mode_and_goes_when_a_mode_drops_it() {
+    use caditor_document::ParameterOwner;
+
+    let mut harness = Harness::new();
+    let (extrude, _) = extruded_plate(&mut harness);
+    let field = |salt: &str| Id::new(("solid-field", salt, extrude));
+    let owner = |harness: &Harness, name: &str| {
+        harness
+            .document()
+            .parameter_named(name)
+            .and_then(|parameter| parameter.owner.clone())
+    };
+    let caption = |value: &str| {
+        Some(ParameterOwner::Feature {
+            feature: extrude,
+            value: value.to_owned(),
+        })
+    };
+    let backward = |harness: &Harness| match harness.solid(extrude) {
+        SolidFeature::Extrude(caditor_document::Extrude {
+            extent:
+                ExtrudeExtent::TwoSides {
+                    backward: caditor_document::ExtrudeEnd::Distance(distance),
+                    ..
+                },
+            ..
+        }) => harness.document().expression_text(distance),
+        _ => String::new(),
+    };
+
+    harness.perform(Action::Editing(EditingCommand::OpenSolid(extrude)));
+    harness.type_into_field(field("distance"), "h = 20 mm");
+    harness.settle();
+    choose(&mut harness, "One side", "Symmetric");
+    let symmetric = owner(&harness, "h");
+    let shown = harness.shows("h = 20 mm");
+    harness.type_into_field(field("distance"), "h = 30 mm");
+    harness.settle();
+
+    assert_eq!(symmetric, caption("Total distance"));
+    assert!(shown);
+    assert_eq!(harness.expression_text("h"), "30 mm");
+    assert_eq!(harness.model.undo_label(), Some("Edit h"));
+
+    choose(&mut harness, "Symmetric", "Two sides");
+    let forward = owner(&harness, "h");
+    let copied = backward(&harness);
+    harness.type_into_field(field("backward"), "b = 5 mm");
+    harness.settle();
+    let named_backward = owner(&harness, "b");
+    choose(&mut harness, "Two sides", "One side");
+
+    assert_eq!(forward, caption("Forward distance"));
+    assert_eq!(copied, "30 mm");
+    assert_eq!(named_backward, caption("Backward distance"));
+    assert_eq!(owner(&harness, "h"), caption("Distance"));
+    assert!(harness.document().parameter_named("b").is_none());
+
+    harness.perform(Action::Undo);
+    harness.settle();
+
+    assert_eq!(owner(&harness, "b"), caption("Backward distance"));
+    assert_eq!(owner(&harness, "h"), caption("Forward distance"));
+}
+
+#[test]
 fn model_properties_are_edited_in_a_dialog_as_one_undoable_change() {
     use caditor_document::ModelProperty;
 

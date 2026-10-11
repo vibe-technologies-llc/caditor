@@ -121,19 +121,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   edge along the same curve between the same cap and the faces of its `Collinear` pieces, or the
   feature marked as having lost part of its choice with a fix
   (`blend_tests::a_notch_trimmed_into_a_filleted_edge_keeps_both_pieces_rounded`, ignored).
-- [medium · easy] Switching a panel's mode moves a named value into a field of another caption, and
-  the value is then no longer the field's own: a parameter named in Distance (`h = 20`) and carried
-  to Total distance by Extent › Symmetric (`solid_panel::reshaped`), to Total angle or Forward by a
-  revolve's Extent (`turn_row`), or to First distance by a chamfer's Distances › Two
-  (`blend_tools::FormChoice::applied_to`) keeps its `ParameterOwner::Feature` with the old
-  caption, and `Document::owned_parameter` matches the caption, so the field shows `h` instead of
-  `h = 20 mm`, typing `h = 30` there is refused as a name already taken, the reach or turn arrow
-  is driven ("Total distance follows h", `manipulator::Held::of`), and a plain number typed over it
-  leaves `h` unused but still listed as "Extrude 1 · Distance". Choosing a hole Size, a primitive
-  Shape or a chamfer form that drops the angle replaces a named value without `releasing` it
-  either. Carry the owner to the new caption (`Edit::SetParameterOwner`) in the switch's
-  transaction, and release what a switch drops; pin it beside
-  `values_named_in_their_fields_are_listed_as_model_parameters_and_used_by_name`.
 - [medium · easy] Typing a value over a hovered handle skips the rule its panel field holds:
   `manipulator::Typing::parse` checks only dimension and units, and `Typing::transaction` builds
   the change through `reach_handles::typed`, `turn_handles::typed` or `value_handles::written`

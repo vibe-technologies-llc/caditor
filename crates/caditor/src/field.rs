@@ -562,6 +562,23 @@ pub fn shown_value<'a>(
         .map_or(expression, |parameter| &parameter.expression)
 }
 
+pub fn copied_value(
+    document: &Document,
+    feature: FeatureId,
+    expression: &Expression,
+) -> Expression {
+    let owned = referenced_parameter(document, expression).filter(|parameter| {
+        matches!(
+            &parameter.owner,
+            Some(ParameterOwner::Feature { feature: owner, .. }) if *owner == feature
+        )
+    });
+    owned.map_or_else(
+        || expression.clone(),
+        |parameter| parameter.expression.clone(),
+    )
+}
+
 pub struct NamedField<'a> {
     pub document: &'a Document,
     pub parameters: &'a ParameterValues,

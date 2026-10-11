@@ -591,13 +591,14 @@ pub fn place_click(
 
 pub fn edit(document: &Document, feature: FeatureId, hole: Hole) -> Option<Transaction> {
     let name = &document.feature(feature)?.name;
-    Some(Transaction::single(
+    let transaction = Transaction::single(
         format!("Edit {name}"),
         Edit::SetFeatureKind {
             id: feature,
             kind: FeatureKind::Hole(hole),
         },
-    ))
+    );
+    Some(document.carrying_owners(transaction, feature, []))
 }
 
 #[cfg(test)]

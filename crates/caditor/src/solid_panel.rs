@@ -126,6 +126,51 @@ pub const TOTAL_DISTANCE: &str = "Total distance";
 pub const FORWARD_DISTANCE: &str = "Forward distance";
 pub const BACKWARD_DISTANCE: &str = "Backward distance";
 
+pub const ANGLE: &str = "Angle";
+pub const TOTAL_ANGLE: &str = "Total angle";
+pub const FORWARD_ANGLE: &str = "Forward";
+pub const BACKWARD_ANGLE: &str = "Backward";
+
+pub fn captioned(solid: &SolidFeature) -> Vec<(&'static str, &Expression)> {
+    match solid {
+        SolidFeature::Extrude(extrude) => extent_captioned(&extrude.extent),
+        SolidFeature::Revolve(revolve) => match &revolve.extent {
+            RevolveExtent::Full | RevolveExtent::UpTo { .. } => Vec::new(),
+            RevolveExtent::OneSide { angle, .. } => vec![(ANGLE, angle)],
+            RevolveExtent::Symmetric { angle } => vec![(TOTAL_ANGLE, angle)],
+            RevolveExtent::TwoSides { forward, backward } => {
+                vec![(FORWARD_ANGLE, forward), (BACKWARD_ANGLE, backward)]
+            }
+        },
+    }
+}
+
+fn extent_captioned(extent: &ExtrudeExtent) -> Vec<(&'static str, &Expression)> {
+    match extent {
+        ExtrudeExtent::OneSide { end, .. } => end_captioned(end, DISTANCE, END_OFFSET),
+        ExtrudeExtent::Symmetric { distance } => vec![(TOTAL_DISTANCE, distance)],
+        ExtrudeExtent::TwoSides { forward, backward } => {
+            let mut fields = end_captioned(forward, FORWARD_DISTANCE, FORWARD_END_OFFSET);
+            fields.extend(end_captioned(
+                backward,
+                BACKWARD_DISTANCE,
+                BACKWARD_END_OFFSET,
+            ));
+            fields
+        }
+    }
+}
+
+fn end_captioned<'a>(
+    end: &'a ExtrudeEnd,
+    distance: &'static str,
+    offset: &'static str,
+) -> Vec<(&'static str, &'a Expression)> {
+    let reach = end.distance().map(|value| (distance, value));
+    let past = end.offset().map(|value| (offset, value));
+    reach.into_iter().chain(past).collect()
+}
+
 struct EndRows<'a> {
     end: &'a str,
     distance: &'a str,
@@ -467,7 +512,9 @@ impl Panel<'_> {
         let segments = [Shape::OneSide, Shape::Symmetric, Shape::TwoSides]
             .into_iter()
             .map(|shape| {
-                let extent = reshaped(&extrude.extent, shape, &fallback);
+                let extent = reshaped(&extrude.extent, shape, &fallback, &|expression| {
+                    field::copied_value(self.document(), self.id(), expression)
+                });
                 let label = extent_name(&extent);
                 Segment {
                     label,
@@ -1010,7 +1057,7 @@ impl Panel<'_> {
                 let reversed = *reversed;
                 self.expression(
                     ui,
-                    "Angle",
+                    ANGLE,
                     "angle",
                     angle,
                     (Dimension::ANGLE, Rule::Turn),
@@ -1036,7 +1083,7 @@ impl Panel<'_> {
             RevolveExtent::Symmetric { angle } => {
                 self.expression(
                     ui,
-                    "Total angle",
+                    TOTAL_ANGLE,
                     "angle",
                     angle,
                     (Dimension::ANGLE, Rule::Turn),
@@ -1054,7 +1101,7 @@ impl Panel<'_> {
                 let (forward_rule, backward_rule) = (beside(backward), beside(forward));
                 self.expression(
                     ui,
-                    "Forward",
+                    FORWARD_ANGLE,
                     "forward-angle",
                     forward,
                     (Dimension::ANGLE, forward_rule),
@@ -1070,7 +1117,7 @@ impl Panel<'_> {
                 );
                 self.expression(
                     ui,
-                    "Backward",
+                    BACKWARD_ANGLE,
                     "backward-angle",
                     backward,
                     (Dimension::ANGLE, backward_rule),
@@ -1276,7 +1323,12 @@ impl Shape {
     }
 }
 
-fn reshaped(extent: &ExtrudeExtent, shape: Shape, fallback: &Expression) -> ExtrudeExtent {
+fn reshaped(
+    extent: &ExtrudeExtent,
+    shape: Shape,
+    fallback: &Expression,
+    copied: &dyn Fn(&Expression) -> Expression,
+) -> ExtrudeExtent {
     let distance = extent
         .ends()
         .into_iter()
@@ -1302,7 +1354,7 @@ fn reshaped(extent: &ExtrudeExtent, shape: Shape, fallback: &Expression) -> Extr
             ExtrudeExtent::Symmetric { distance }
         }
         (ExtrudeExtent::OneSide { end, reversed }, Shape::TwoSides) => {
-            let other = ExtrudeEnd::Distance(distance);
+            let other = ExtrudeEnd::Distance(copied(&distance));
             if *reversed {
                 ExtrudeExtent::TwoSides {
                     forward: other,
@@ -1316,7 +1368,8 @@ fn reshaped(extent: &ExtrudeExtent, shape: Shape, fallback: &Expression) -> Extr
             }
         }
         (ExtrudeExtent::Symmetric { .. }, Shape::TwoSides) => {
-            ExtrudeExtent::two_sides(distance.clone(), distance)
+            let backward = copied(&distance);
+            ExtrudeExtent::two_sides(distance, backward)
         }
     }
 }

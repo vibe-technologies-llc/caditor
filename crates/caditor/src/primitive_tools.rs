@@ -263,13 +263,14 @@ pub fn create_actions(model: &Model, kind: PrimitiveKind, source: &PrimitiveSour
 
 pub fn edit(document: &Document, feature: FeatureId, primitive: Primitive) -> Option<Transaction> {
     let name = &document.feature(feature)?.name;
-    Some(Transaction::single(
+    let transaction = Transaction::single(
         format!("Edit {name}"),
         Edit::SetFeatureKind {
             id: feature,
             kind: FeatureKind::Primitive(primitive),
         },
-    ))
+    );
+    Some(document.carrying_owners(transaction, feature, []))
 }
 
 pub fn change(

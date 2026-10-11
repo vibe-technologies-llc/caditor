@@ -186,6 +186,15 @@ paths:
   renames or edits the parameter (one "Edit <name>" change, skipping the panel's change), a plain
   expression unnames it (`Document::releasing`). Refusals are the parameter edits' (a name taken,
   not a name, a cycle).
+- A mode switch keeps the named values with their fields: `solid_tools::edit`, `blend_tools::edit`,
+  `hole_tools::edit` and `primitive_tools::edit` pass every change through
+  `Document::carrying_owners` with the new kind's captioned fields (`solid_panel::captioned`, the
+  extent's distances, past-the-face offsets and turn angles; `blend_panel::captioned`, the size by
+  `size_caption` and the chamfer's second distance or angle; none for holes and primitives, whose
+  switches only drop values), so Distance becomes Total distance, Forward or First distance, and a
+  hole Size, a primitive Shape or a chamfer form dropping a named value releases it. A switch that
+  copies a value into a second field (Two sides, Two distances) copies it unnamed
+  (`field::copied_value`, the parameter's own expression), so only one field holds the name.
 - `feature_fields.rs` holds the shared rows and the `Rule` wordings; panels use them rather than
   their own spacing or text. A reference that is not set reads None chosen; a body or sketch that
   no longer exists reads Missing in the warning colour with the warning icon; a refused change

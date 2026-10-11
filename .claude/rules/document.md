@@ -124,6 +124,12 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   longer exists reads as deleted). `Edit::SetParameterOwner` sets or clears it.
   `owned_parameter` tells whether a field's expression is the named value of an owner, and
   `owner_text` words the owner ("Extrude 1 · Distance", "Sketch 1 · Radius").
+- `carrying_owners(transaction, feature, fields)` keeps a feature's named values with their fields
+  across a change of its kind: given the captioned fields of the new kind, each parameter the
+  feature owns that sits in a field of another caption and none of its own takes that caption
+  (`SetParameterOwner`, the first such field), and one the new kind no longer uses at all is
+  released as below. A field holding no owned parameter, or a kept value no field shows (a
+  fillet's chamfer form), changes nothing.
 - `TransactionBuilder::add_owned_parameter` inserts one. `Transaction::substituting` replaces an
   exact expression wherever a `SetFeatureKind` (through `inlining::expressions_mut`),
   `SetDimension` or `SetParameterExpression` holds it, and counts the replacements.

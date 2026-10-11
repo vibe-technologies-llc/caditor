@@ -28,6 +28,11 @@ In any value field, of a feature or a sketch dimension, type `name = expression`
 it. These named values are listed under Model parameters, each with the feature or dimension it
 belongs to; click that line to go to the feature or dimension. Typing a plain expression in the field again unnames it.
 
+Switching a panel's mode keeps a named value with the field it moves to: an extrusion's Distance
+named `h` becomes its Total distance when the extrusion turns symmetric, and its Forward distance
+when it runs two ways, the other side starting from the same value without the name. A mode that
+no longer has the value lets it go, removing it when nothing else uses it.
+
 Dragging an arrow or ring in the view keeps a named value: the drag changes the parameter's
 expression, so the name stays. A value that uses other parameters, such as `depth` or
 `h = depth * 2`, does not drag; hovering its arrow says which parameters to change instead.
