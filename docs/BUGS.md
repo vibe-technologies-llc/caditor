@@ -7,10 +7,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Files and recovery
 
-- [low · easy] Opening a recent model that cannot be read forgets it from the recent list whatever
-  the error: `open_file` sets `missing: !path.exists()`, true for any failed stat (an offline
-  share, a folder whose permissions changed), and `opened` then calls `forget`, though `is_gone`
-  beside it counts `NotFound` only, as `app-files.md` says. Use `is_gone`.
 - [low · easy] Exporting every configuration writes two configurations to one file when their
   names sanitise alike: `configuration_export.rs`'s `safe_name` maps `/ \ : * ? " < > |` and
   control characters to `-` and trims dots and spaces, and `file_for` builds the path from that

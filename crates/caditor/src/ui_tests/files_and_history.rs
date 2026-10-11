@@ -326,6 +326,38 @@ fn a_recent_model_is_removed_on_its_own_and_a_missing_one_is_marked_and_said_to_
     assert!(harness.files.recent().is_empty());
 }
 
+#[cfg(unix)]
+#[test]
+fn a_recent_model_that_cannot_be_reached_stays_in_the_recent_models() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = TempDir::new().unwrap();
+    let root = canonical(&dir);
+    let share = root.join("share");
+    fs::create_dir(&share).unwrap();
+    let model = saved_model(&share, "shared.caditor");
+    let mut harness = Harness::with_directories(Some(root.as_path()));
+
+    harness.command(FileCommand::OpenPath(model.clone()));
+    harness.wait_until("the file is open", |harness| {
+        harness.model.path() == Some(model.as_path())
+    });
+    harness.command(FileCommand::New);
+    harness.settle();
+    assert!(harness.files.wait_for_jobs(Duration::from_secs(10)));
+
+    fs::set_permissions(&share, fs::Permissions::from_mode(0o000)).unwrap();
+    harness.command(FileCommand::OpenPath(model.clone()));
+    harness.wait_until("the failure is reported", |harness| {
+        notice_starts(harness, "Could not open “shared.caditor”")
+    });
+    fs::set_permissions(&share, fs::Permissions::from_mode(0o700)).unwrap();
+
+    assert!(!harness.model.notice().unwrap().text.contains("removed"));
+    assert_eq!(harness.files.recent(), std::slice::from_ref(&model));
+    assert!(!harness.files.is_missing(&model));
+}
+
 #[test]
 fn a_recent_model_is_not_announced_as_removed_when_the_list_could_not_be_saved() {
     let dir = TempDir::new().unwrap();

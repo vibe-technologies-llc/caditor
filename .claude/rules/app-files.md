@@ -109,7 +109,9 @@ paths:
   worker (`FileCommand::CheckRecent`, not found only, so a permission error does not count) once
   recent files are read at startup and each time the File menu opens; a missing one is drawn muted with
   "(not found)" and can still be opened. Opening a recent model that no longer exists forgets it
-  and the notice says it was removed from the recent models.
+  and the notice says it was removed from the recent models; `open_file` judges that with the same
+  `is_gone`, so a model failing for another reason (an offline share, a folder denying access)
+  stays listed.
 - Files dragged over the window (`drop_target.rs`, from egui's `hovered_files`: winit reports them
   on X11 and Windows, `file_drops.rs` on Wayland, `wayland.md`) outline the view and say in a card what dropping them
   does, mirroring `Files::dropped`: open one model, import drawings and STEP files (into the sketch

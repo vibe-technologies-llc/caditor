@@ -26,8 +26,9 @@ back.
 
 {command:file.open} starts in the folder a model was last opened from. File › Open recent lists the
 models opened or saved lately. One that cannot be found any more is shown greyed out with "(not
-found)"; opening it anyway says why and takes it off the list. Hover an entry for its remove button
-to take it off the list alone, or use {command:file.forget_recent_1} and its numbered neighbours;
+found)"; opening it anyway says why and takes it off the list. One that is there but cannot be
+reached, on a share that is offline or in a folder you may no longer open, stays listed for when it
+can be reached again. Hover an entry for its remove button to take it off the list alone, or use {command:file.forget_recent_1} and its numbered neighbours;
 the file itself is never touched.
 
 ## The recovery journal

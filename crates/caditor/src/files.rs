@@ -3031,7 +3031,7 @@ fn open_file(
         },
         Err(error) => OpenOutcome::Failed {
             error,
-            missing: !path.exists(),
+            missing: is_gone(path),
         },
     }
 }
