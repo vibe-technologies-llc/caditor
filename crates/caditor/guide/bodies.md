@@ -19,8 +19,9 @@ Ctrl-click and Shift-click choose several, as in the feature tree. The eye hides
   finish; **Matte**, **Satin**, **Glossy**, **Rubber** and **Powder coat** give it the sheen of
   plastic, paint or rubber, and **Anodized**, **Brushed metal** and **Polished metal** make it
   reflect a studio around it as metal does, tinted by its colour. The line under the list says
-  what the chosen finish looks like. High contrast draws every body plainly, and a hovered or
-  selected face shows its highlight colour without a finish.
+  what the chosen finish looks like. High contrast draws every body plainly, lightening a dark
+  colour until its edges and highlighted faces stand out on it, and a hovered or selected face
+  shows its highlight colour without a finish.
 - **Material**, which sets a density and the material's finish (steel and aluminium brushed metal,
   the plastics satin, matte or glossy), or your own **Density** in g/cm³.
 - **Body name**.

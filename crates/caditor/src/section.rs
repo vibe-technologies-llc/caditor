@@ -286,6 +286,9 @@ impl SectionTool {
     pub fn remove(&mut self, index: usize) {
         if index < self.cuts.len() {
             self.cuts.remove(index);
+            if index < self.current {
+                self.current -= 1;
+            }
         }
         self.current = self.current.min(self.cuts.len().saturating_sub(1));
     }
@@ -396,5 +399,27 @@ mod tests {
         assert_eq!(tool.current_cut(), Err(Refusal::NoPlane));
         tool.open = false;
         assert_eq!(tool.current_cut(), Err(Refusal::Closed));
+    }
+
+    #[test]
+    fn removing_a_plane_keeps_the_current_one_current() {
+        let model = empty_model();
+        let mut tool = SectionTool::default();
+        for _ in 0..3 {
+            tool.add(&model, None);
+        }
+        let bases: Vec<Pickable> = tool.cuts.iter().map(|cut| cut.base).collect();
+        tool.current = 1;
+
+        tool.remove(0);
+        let after_one_above = tool.current_mut().map(|cut| cut.base);
+        tool.remove(1);
+        let after_one_below = tool.current_mut().map(|cut| cut.base);
+        tool.remove(tool.current);
+        let after_itself = tool.current_cut();
+
+        assert_eq!(after_one_above, bases.get(1).copied());
+        assert_eq!(after_one_below, bases.get(1).copied());
+        assert_eq!(after_itself, Err(Refusal::NoPlane));
     }
 }

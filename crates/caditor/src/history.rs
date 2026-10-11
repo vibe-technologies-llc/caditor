@@ -8,8 +8,9 @@ use egui::Ui;
 use jiff::{Timestamp, tz::TimeZone};
 
 use crate::{
-    appearance, icons,
+    appearance, canvas, icons,
     model::{Model, display_name},
+    scene_palette::Canvas,
     version_preview::{self, Preview, Started},
     widgets::{self, DialogWidth, Tone},
 };
@@ -26,7 +27,7 @@ pub enum HistoryCommand {
     Hide,
     Restore(usize),
     Keep { index: usize, kept: bool },
-    Preview(usize),
+    Preview { index: usize, canvas: Canvas },
     StopPreview,
 }
 
@@ -329,7 +330,10 @@ fn versions(
                                         version_preview::SHOW,
                                         "Show what this version holds and how it differs from \
                                          the model now, without changing anything",
-                                        HistoryCommand::Preview(version.index),
+                                        HistoryCommand::Preview {
+                                            index: version.index,
+                                            canvas: canvas::canvas(ui.ctx()),
+                                        },
                                     )
                                 };
                                 if ui

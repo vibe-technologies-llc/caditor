@@ -636,7 +636,7 @@ pub fn build(
             false => opacity,
         };
         let faces = match color {
-            Some(color) if color == painted(document, body) => {
+            Some(color) if color == palette.body(painted(document, body)) => {
                 face_looks(document, evaluation, body, palette)
             }
             Some(_) | None => FaceLooks::default(),
@@ -2406,7 +2406,7 @@ fn face_looks(
                 let colour = coloured.get(id)?;
                 Some((
                     *key,
-                    Color::from_rgb8(colour.red, colour.green, colour.blue),
+                    palette.body(Color::from_rgb8(colour.red, colour.green, colour.blue)),
                 ))
             })
             .collect(),
@@ -2458,11 +2458,11 @@ fn body_color(
     evaluation: &Evaluation,
     body: FeatureId,
 ) -> Color {
-    match body_health(document, evaluation, body) {
+    palette.body(match body_health(document, evaluation, body) {
         Health::Sound => painted(document, body),
         Health::Outdated => palette.outdated_body,
         Health::Failed => palette.failed_body,
-    }
+    })
 }
 
 fn reference_points(plane: Plane, reference: Reference, size: f64) -> [Point3; 2] {

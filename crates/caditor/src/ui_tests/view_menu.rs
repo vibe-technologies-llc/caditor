@@ -158,6 +158,34 @@ fn a_right_click_on_an_unselected_face_selects_it_alone_and_its_menu_hides_the_b
 }
 
 #[test]
+fn a_right_click_waiting_for_its_pick_selects_what_was_under_it_after_the_pointer_moves_on() {
+    let mut harness = Harness::new();
+    let plate = plate(&mut harness);
+    let empty = empty_spot(&harness);
+    point_at(&mut harness, empty);
+
+    harness.picks_held = true;
+    point_at(&mut harness, plate.spot);
+    right_click(&mut harness, plate.spot);
+    let waiting = menu(&harness);
+    point_at(&mut harness, empty);
+    harness.picks_held = false;
+    harness.frame();
+    harness.frame();
+
+    assert_eq!(waiting, None);
+    assert_eq!(selected(&harness), vec![plate.top]);
+    assert_eq!(
+        menu(&harness),
+        Some(Place::Model {
+            on_item: true,
+            feature_open: false,
+            selected: true,
+        })
+    );
+}
+
+#[test]
 fn a_right_click_keeps_a_selection_it_lands_on_or_beside_and_escape_closes_the_menu_only() {
     let mut harness = Harness::new();
     let plate = plate(&mut harness);

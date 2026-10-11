@@ -271,7 +271,8 @@ paths:
 - Choices (size, scale, background) are kept for the session, not saved. A side beyond
   `MAX_IMAGE_SIDE` disables Export with the reason on hover.
 - The image is the scene drawn again at the image's size (`ViewportState::image`) with the camera,
-  graphics settings and section planes in use (`app.md`), without hover, selection, keyboard highlights, grid or drawing
+  graphics settings and section planes in use (`app.md`), in the scene palette of the 3D view's
+  canvas, whose background it is drawn on, without hover, selection, keyboard highlights, grid or drawing
   preview; egui overlays (labels, annotations, view cube) are never in it. A wider image shows
   more at the sides, and sketch curves are faceted for the image's size (`app.md`).
 - After the save dialog the job waits in `Files` (`image_job`); the session starts it with
@@ -396,8 +397,9 @@ paths:
   a picture that cannot be meshed or drawn (`PictureFailure`), the rest of the card still shown.
 - The picture is drawn like the 3MF thumbnail: the prepared `Snapshot` (initial viewpoint fitted
   to the version's bodies, no grid or highlights) waits in the preview until the session draws it
-  at `PICTURE_SIZE` with `Renderer::render_image` on the viewport background
-  (`Files::preview_picture`, `preview_rendered`; a busy renderer leaves it waiting for a later
+  at `PICTURE_SIZE` with `Renderer::render_image` on the viewport background, built in the scene
+  palette of the 3D view's canvas when Preview was pressed (`HistoryCommand::Preview` carries it
+  to `version_preview::prepare`) so it reads on that background (`Files::preview_picture`, `preview_rendered`; a busy renderer leaves it waiting for a later
   frame), its bands are read on a `preview` thread into an egui texture (`read_picture`), named for
   screen readers. Thumbnails are computed on demand, not stored at save time: a saved picture would
   cost every save a render and a format change, while any version that can be restored can be

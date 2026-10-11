@@ -2307,6 +2307,34 @@ fn png_size(path: &Path) -> (u32, u32, u8) {
 }
 
 #[test]
+fn an_exported_image_is_drawn_in_the_palette_of_the_light_view_it_shows() {
+    let mut harness = Harness::new();
+    let mut free = Sketch::new(Plane::XY);
+    free.add_line(Point2::new(0.0, 0.0), Point2::new(30.0, 10.0));
+    harness.add_sketch(free);
+    harness.settle();
+    harness.perform(Action::Preferences(PreferencesCommand::Change(
+        PreferenceChange::View(crate::themes::ViewChoice::Light),
+    )));
+    harness.frame();
+    harness.frame();
+    let view = harness.workspace.viewport.view_pixels().unwrap();
+
+    let image = harness
+        .workspace
+        .viewport
+        .image(&harness.model, &harness.workspace.editing, view);
+    let mut shown = harness.built().scene;
+    shown.grid = None;
+
+    assert_eq!(
+        harness.workspace.viewport.canvas(),
+        crate::scene_palette::Canvas::Light
+    );
+    assert_eq!(image.scene, shown);
+}
+
+#[test]
 fn exporting_an_image_writes_a_png_of_the_view_without_highlights_at_the_chosen_size() {
     let dir = TempDir::new().unwrap();
     let mut harness = Harness::with_directories(Some(dir.path()));
@@ -9151,6 +9179,53 @@ fn select_through_lets_a_box_take_the_edges_and_corners_hidden_behind_the_model(
 }
 
 #[test]
+fn where_the_style_picks_no_faces_a_box_takes_every_edge_and_painting_draws_a_box() {
+    let mut harness = Harness::new();
+    extruded_plate(&mut harness);
+    harness.select([]);
+    run_from_palette(&mut harness, "fit view");
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    harness.frame();
+    let (low, high) = plate_on_screen(&harness);
+    let margin = egui::vec2(12.0, 12.0);
+    let mut caught = Vec::new();
+
+    for style in [DisplayStyle::Wireframe, DisplayStyle::XRay] {
+        harness.workspace.viewport.set_style(style);
+        harness.frame();
+        for filter in [
+            SelectionFilter::Everything,
+            SelectionFilter::Edges,
+            SelectionFilter::Vertices,
+        ] {
+            harness.workspace.viewport.set_filter(filter);
+            drag_screen(&mut harness, low - margin, high + margin);
+            caught.push(selected_kinds(&harness));
+        }
+    }
+    harness
+        .workspace
+        .viewport
+        .set_filter(SelectionFilter::Everything);
+    run_from_palette(&mut harness, "select faces by painting");
+    harness.frame();
+    harness
+        .workspace
+        .viewport
+        .set_style(DisplayStyle::Wireframe);
+    harness.frame();
+    let (low, high) = plate_on_screen(&harness);
+    drag_screen(&mut harness, low - margin, high + margin);
+    let painted_in_wireframe = selected_kinds(&harness);
+
+    let through = [(0, 12, 0), (0, 12, 0), (0, 0, 8)];
+    assert_eq!(caught, [through, through].concat());
+    assert!(harness.workspace.viewport.paint());
+    assert_eq!(painted_in_wireframe, (0, 12, 0));
+}
+
+#[test]
 fn a_box_dragged_over_the_model_selects_what_it_holds_or_touches_by_the_filter() {
     let mut harness = Harness::new();
     let (_, top) = extruded_plate(&mut harness);
@@ -9744,6 +9819,64 @@ fn fitting_the_view_frames_the_rows_chosen_in_the_tree_when_nothing_is_selected(
 }
 
 #[test]
+fn a_modifying_features_row_frames_and_lights_the_body_it_changes() {
+    let mut harness = Harness::new();
+    let (plate, top) = extruded_plate(&mut harness);
+    let mut far = Sketch::new(Plane::XY);
+    rectangle(
+        &mut far,
+        Point2::new(500.0, 500.0),
+        Point2::new(510.0, 510.0),
+    );
+    harness.add_sketch(far);
+    let front = top_edge_along_x(&harness, plate, 0.0);
+    harness.select([Pickable::Edge {
+        body: plate,
+        edge: front,
+    }]);
+    harness.click("Fillet");
+    harness.settle();
+    let fillet = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the fillet is open");
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.settle();
+    harness.select([]);
+    let face_colour = |harness: &mut Harness| {
+        let built = harness.built();
+        let pick = built.picks.id_of(top);
+        built
+            .scene
+            .meshes
+            .iter()
+            .flat_map(|instance| instance.faces.iter())
+            .find(|face| face.pick == pick)
+            .map(|face| face.color)
+            .expect("the top face is drawn")
+    };
+    let plain = face_colour(&mut harness);
+
+    harness.workspace.panels.choose_only(fillet);
+    harness.frame();
+    harness.frame();
+    let lit = face_colour(&mut harness);
+    harness.key(Key::F, Modifiers::NONE);
+    harness.frame();
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    let target = harness.workspace.viewport.viewpoint().target;
+
+    assert!(harness.document().feature(fillet).is_some());
+    assert_ne!(lit, plain);
+    assert!(
+        target.x < 100.0,
+        "the view is framed on the filleted body: {target:?}"
+    );
+}
+
+#[test]
 fn a_selection_filter_makes_clicks_skip_everything_but_one_kind() {
     let mut harness = Harness::new();
     let (_, top) = extruded_plate(&mut harness);
@@ -9907,6 +10040,42 @@ fn a_click_waits_for_the_pick_under_the_cursor_rather_than_using_an_old_one() {
     harness.frame();
     harness.frame();
     assert!(harness.workspace.viewport.selection().is_empty());
+}
+
+#[test]
+fn a_click_waiting_for_its_pick_acts_on_what_was_clicked_when_the_pointer_moves_on_or_leaves() {
+    let mut harness = Harness::new();
+    let (_, top) = extruded_plate(&mut harness);
+    let face = Plane::from_frame(Point3::new(0.0, 0.0, 10.0), Vector3::Z, Vector3::X).unwrap();
+    let on_top = harness
+        .workspace
+        .viewport
+        .screen_position(face, Point2::new(20.0, 20.0))
+        .unwrap();
+    let beside = harness
+        .workspace
+        .viewport
+        .screen_position(Plane::XY, Point2::new(-30.0, 20.0))
+        .unwrap();
+    let outside = harness.workspace.viewport.rect().unwrap().left_top() - egui::vec2(10.0, 10.0);
+
+    for away in [beside, outside] {
+        harness.select([]);
+        harness.events.push(Event::PointerMoved(beside));
+        harness.frame();
+        harness.picks_held = true;
+        harness.events.push(Event::PointerMoved(on_top));
+        harness.press(on_top);
+        let waiting = harness.workspace.viewport.selection().is_empty();
+        harness.events.push(Event::PointerMoved(away));
+        harness.frame();
+        harness.picks_held = false;
+        harness.frame();
+        harness.frame();
+
+        assert!(waiting);
+        assert!(harness.workspace.viewport.selection().contains(top));
+    }
 }
 
 #[test]
@@ -16986,6 +17155,54 @@ fn a_suppressed_sketch_counts_toward_fitting_the_view_no_more() {
 }
 
 #[test]
+fn the_curves_of_a_suppressed_or_rolled_back_sketch_leave_the_selection() {
+    let mut harness = Harness::new();
+    harness.settle();
+    let mut far = Sketch::new(Plane::XY);
+    let line = far.add_line(Point2::new(900.0, 900.0), Point2::new(1000.0, 1000.0));
+    let sketch = harness.add_sketch(far);
+    harness.settle();
+    let curve = Pickable::SketchEntity {
+        feature: sketch,
+        entity: line,
+    };
+
+    for (label, edit, back) in [
+        (
+            "Suppress",
+            Edit::SetFeatureSuppressed {
+                id: sketch,
+                suppressed: true,
+            },
+            Edit::SetFeatureSuppressed {
+                id: sketch,
+                suppressed: false,
+            },
+        ),
+        (
+            "Roll back",
+            Edit::SetRollbackBar {
+                bar: RollbackBar::Before(sketch),
+            },
+            Edit::SetRollbackBar {
+                bar: RollbackBar::AtEnd,
+            },
+        ),
+    ] {
+        harness.select([curve]);
+        let selected = harness.workspace.viewport.selection().contains(curve);
+        harness.perform(Action::Apply(Transaction::single(label, edit)));
+        harness.settle();
+        let after = harness.workspace.viewport.selection().contains(curve);
+        harness.perform(Action::Apply(Transaction::single(label, back)));
+        harness.settle();
+
+        assert!(selected, "{label}");
+        assert!(!after, "{label}");
+    }
+}
+
+#[test]
 fn look_at_sketch_turns_the_view_square_on_to_the_edited_sketch_again() {
     let mut harness = Harness::new();
     let mut slanted = Sketch::new(Plane::XZ);
@@ -17102,6 +17319,37 @@ fn dragging_a_sketch_point_moves_it_as_its_constraints_allow_in_one_undoable_cha
     harness.perform(Action::Undo);
     harness.settle();
     assert_eq!(harness.sketch(feature).point(end), before.point(end));
+}
+
+#[test]
+fn a_drag_pressed_before_its_pick_arrived_grabs_the_point_under_the_press() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::ZERO, Point2::new(40.0, 0.0));
+    let (start, end) = line_ends(&sketch, line);
+    sketch
+        .add_constraint(Constraint::Coincident(start, EntityId::ORIGIN))
+        .unwrap();
+    let feature = edit_free_sketch(&mut harness, sketch);
+    let before = harness.sketch(feature).clone();
+    harness.point_at(Point2::new(20.0, 25.0));
+
+    harness.picks_held = true;
+    let grabbed = harness.on_screen(Point2::new(40.0, 0.0));
+    harness.events.push(Event::PointerMoved(grabbed));
+    harness.frame();
+    drag_in_sketch(&mut harness, grabbed, Point2::new(30.0, 12.0));
+    harness.picks_held = false;
+    harness.wait_until("the drag is committed", |harness| {
+        harness.sketch(feature).point(end) != before.point(end)
+    });
+    harness.settle();
+
+    let dragged = harness.sketch(feature).point(end).unwrap();
+    assert!(
+        dragged.distance(Point2::new(30.0, 12.0)) < 0.5,
+        "{dragged:?}"
+    );
 }
 
 #[test]
@@ -18732,6 +18980,86 @@ fn a_body_drawn_half_see_through_goes_to_the_translucent_pass() {
             .faces
             .iter()
             .all(|face| (face.color.alpha - 0.5).abs() < 1e-6 && face.pick.is_some())
+    );
+}
+
+#[test]
+fn high_contrast_draws_a_dark_body_light_enough_for_its_edges_and_highlights() {
+    let mut harness = Harness::new();
+    let (plate, top) = extruded_plate(&mut harness);
+    let Pickable::Face { face, .. } = top else {
+        panic!("{top:?}");
+    };
+    let shown = crate::bodies::shown(harness.model.evaluation(), plate).unwrap();
+    let reference = caditor_kernel::FaceReference::capture(
+        &shown.solid,
+        crate::bodies::find_face(shown, face).unwrap(),
+    )
+    .unwrap();
+    let charcoal = caditor_document::Rgb::new(60, 62, 68);
+    let black = caditor_document::Rgb::new(0, 0, 0);
+    harness.model.perform(Action::Apply(Transaction::single(
+        "Paint the plate dark",
+        Edit::SetBodyAppearance {
+            id: plate,
+            appearance: caditor_document::BodyAppearance {
+                colour: Some(charcoal),
+                faces: vec![caditor_document::FaceColour {
+                    face: reference,
+                    colour: black,
+                    opacity: None,
+                    finish: None,
+                }],
+                ..Default::default()
+            },
+        },
+    )));
+    harness.settle();
+    let colours = |harness: &mut Harness| {
+        let built = harness.built();
+        let top_pick = built.picks.id_of(top);
+        let faces: Vec<_> = built
+            .scene
+            .meshes
+            .iter()
+            .flat_map(|instance| instance.faces.iter())
+            .collect();
+        let of_top = faces
+            .iter()
+            .find(|face| face.pick == top_pick)
+            .map(|face| face.color);
+        let other = faces
+            .iter()
+            .find(|face| face.pick.is_some() && face.pick != top_pick)
+            .map(|face| face.color);
+        (of_top, other)
+    };
+    let as_painted =
+        |rgb: caditor_document::Rgb| caditor_render::Color::from_rgb8(rgb.red, rgb.green, rgb.blue);
+    let standard = colours(&mut harness);
+
+    set_high_contrast(&mut harness, true);
+    let high = colours(&mut harness);
+    let palette = scene_palette::Contrast::High.palette(harness.workspace.viewport.canvas());
+
+    assert_eq!(
+        standard,
+        (Some(as_painted(black)), Some(as_painted(charcoal)))
+    );
+    assert_eq!(
+        high,
+        (
+            Some(palette.body(as_painted(black))),
+            Some(palette.body(as_painted(charcoal)))
+        )
+    );
+    assert!(
+        high.0
+            .is_some_and(|colour| palette.marks_stand_out_on(colour))
+    );
+    assert!(
+        high.1
+            .is_some_and(|colour| palette.marks_stand_out_on(colour))
     );
 }
 

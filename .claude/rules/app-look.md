@@ -134,8 +134,13 @@ paths:
   light canvas are a little lighter than its chrome's label colours, which must reach 7:1 on the
   white label panel, so those halos can still frame them. Tests hold, for both canvases, every
   high-contrast line and point colour to 3:1 against the canvas (`Canvas::colour`) and the dimmed
-  body colour, edges and hovered or selected faces to 3:1 on the default body colour (so selected
-  faces are a dark blue and hovered ones a dark amber there), every marker, band and comb colour
+  body colour, edges, threads and hovered or selected faces to 3:1 on every body as drawn (so
+  selected faces are a dark blue and hovered ones a dark amber there): the default colour, each
+  swatch, black, dark grey and the outdated and failed tints, through `ScenePalette::body`, which
+  in high contrast (`lightens_bodies`) draws a body or face colour lightened toward white by the
+  fewest of `LIGHTENING_STEPS` steps after which those marks hold `MARKS_ON_A_BODY` on it
+  (`marks_stand_out_on`), so a Charcoal or black body keeps its hue as a light tint and the
+  default colour is drawn as it is (`scene::body_color` and `face_looks` take it), every marker, band and comb colour
   to 3:1 on the canvas, and check that the standard palettes keep one form for every sketch
   state. The axis triad in the corner (`view_cube::show_axis_triad`) draws its lines and letters
   in the palette's `axes` and sets each letter on the label backdrop; the palette's axis colours
@@ -467,6 +472,9 @@ paths:
   each frame by `Viewport::show_chosen_rows`) highlight what they made in the view as hovered
   geometry is: the faces and edges of a body, the curves of a sketch, a datum
   (`Highlight::chosen_rows`, part of the scene cache's highlight key), never vertices or regions.
+  A row of a feature that changes a body it did not make (a fillet, shell, hole, combine, cut
+  extrusion, move) stands for that body too: `viewport::with_their_bodies` adds each row's
+  `Feature::body` to the rows handed to the scene, as `visibility::hideable_rows` does.
   It is only a look: the view's selection stays as it was, so commands keep taking the tree's
   choice, and nothing is highlighted while a sketch or feature is open for editing. A feature or
   body row under the pointer (`PanelState::hovered_row`, `ViewportState::hover_row`) is lit the
@@ -477,8 +485,9 @@ paths:
   unseen; a non-empty view selection clears it as before. Whenever the document's revision
   changes, `PanelState::forget_missing` drops chosen rows the document no longer holds (an undone
   paste), so a later Ctrl+click or drag never carries a feature that is gone. Fit view
-  (F) with nothing selected in the view frames the chosen rows' bodies, sketches and datums
-  (`BuiltScene::bounds_of_features`) and everything when none is chosen.
+  (F) with nothing selected in the view frames the chosen rows' bodies (a modifying feature's the
+  body it changes), sketches and datums (`BuiltScene::bounds_of_features`) and everything when
+  none is chosen.
 - A click on a row's name only selects it (`PanelState::selected`, cleared when the view selection
   changes); Ctrl+click toggles and Shift+click extends (`PanelState::chosen`, primary first) over
   the rows drawn this frame, so a filtered tree or a folded folder never adds rows it hides

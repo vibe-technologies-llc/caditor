@@ -45,7 +45,8 @@ finished. Each rule below avoids a failure mode FreeCAD is known for.
   `canvas.rs`.
 - The 3D view is dark or light with the theme or on its own, each with its own chrome and scene
   palette under the same checks. High contrast reaches the 3D view: its scene palette holds every line and point to 3:1 against
-  the canvas and dimmed bodies, edges and highlighted faces to 3:1 on a body (`scene_palette.rs`),
+  the canvas and dimmed bodies, edges and highlighted faces to 3:1 on a body of any colour
+  (`scene_palette.rs`; a body too dark for them is drawn lightened, `ScenePalette::body`),
   and no state is told by colour alone (`app-sketching.md`): selected geometry widens twice as
   much as hovered geometry (`selection_widening`), a failed or outdated body's edges are dashed
   (`troubled_edges_dashed`), canvas labels sit on an opaque backdrop holding every label colour to

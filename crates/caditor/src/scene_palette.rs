@@ -1,12 +1,29 @@
 use caditor_render::Color;
 
-use crate::{canvas, scene::opaque, selection::Axis};
+use crate::{appearance, canvas, scene::opaque, selection::Axis};
 
 const fn translucent(color: egui::Color32, alpha: u8) -> Color {
     Color::from_rgba8(color.r(), color.g(), color.b(), alpha)
 }
 
 const CHOSEN_REGION_ALPHA: u8 = 90;
+const MARKS_ON_A_BODY: f32 = 3.0;
+const LIGHTENING_STEPS: u16 = 32;
+
+fn lightened(colour: Color, share: f32) -> Color {
+    let toward_white = |channel: f32| channel + (1.0 - channel) * share;
+    Color {
+        red: toward_white(colour.red),
+        green: toward_white(colour.green),
+        blue: toward_white(colour.blue),
+        alpha: colour.alpha,
+    }
+}
+
+fn shown32(colour: Color) -> egui::Color32 {
+    let byte = |channel: f32| (channel.clamp(0.0, 1.0) * 255.0).round() as u8;
+    egui::Color32::from_rgb(byte(colour.red), byte(colour.green), byte(colour.blue))
+}
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Contrast {
@@ -226,9 +243,33 @@ pub struct ScenePalette {
     pub selection_widening: f32,
     pub troubled_edges_dashed: bool,
     pub shows_finishes: bool,
+    pub lightens_bodies: bool,
 }
 
 impl ScenePalette {
+    pub fn body(&self, colour: Color) -> Color {
+        if !self.lightens_bodies {
+            return colour;
+        }
+        (0..=LIGHTENING_STEPS)
+            .map(|step| lightened(colour, f32::from(step) / f32::from(LIGHTENING_STEPS)))
+            .find(|body| self.marks_stand_out_on(*body))
+            .unwrap_or_else(|| lightened(colour, 1.0))
+    }
+
+    pub fn marks_stand_out_on(&self, body: Color) -> bool {
+        let below = shown32(body);
+        [
+            self.body_edge,
+            self.thread,
+            self.faces.hovered,
+            self.faces.selected,
+            self.faces.hovered_selected,
+        ]
+        .into_iter()
+        .all(|mark| appearance::contrast_ratio(shown32(mark), below) >= MARKS_ON_A_BODY)
+    }
+
     pub fn look(&self, state: SketchState) -> Look {
         match state {
             SketchState::UnderConstrained => self.under_constrained,
@@ -390,6 +431,7 @@ pub const STANDARD: ScenePalette = ScenePalette {
     selection_widening: 1.0,
     troubled_edges_dashed: false,
     shows_finishes: true,
+    lightens_bodies: false,
 };
 
 pub const HIGH_CONTRAST: ScenePalette = ScenePalette {
@@ -501,6 +543,7 @@ pub const HIGH_CONTRAST: ScenePalette = ScenePalette {
     selection_widening: 2.0,
     troubled_edges_dashed: true,
     shows_finishes: false,
+    lightens_bodies: true,
 };
 
 pub const LIGHT_STANDARD: ScenePalette = ScenePalette {
@@ -577,6 +620,7 @@ pub const LIGHT_STANDARD: ScenePalette = ScenePalette {
     selection_widening: 1.0,
     troubled_edges_dashed: false,
     shows_finishes: true,
+    lightens_bodies: false,
 };
 
 const LIGHT_BANDS: Bands = Bands {
@@ -686,14 +730,19 @@ pub const LIGHT_HIGH_CONTRAST: ScenePalette = ScenePalette {
     selection_widening: 2.0,
     troubled_edges_dashed: true,
     shows_finishes: false,
+    lightens_bodies: true,
 };
 
 #[cfg(test)]
 mod tests {
+    use caditor_document::Rgb;
     use egui::Color32;
 
     use super::*;
-    use crate::{appearance::tests::contrast_ratio, body_appearance::DEFAULT_COLOUR};
+    use crate::{
+        appearance::tests::contrast_ratio,
+        body_appearance::{DEFAULT_COLOUR, SWATCHES},
+    };
 
     const VISIBLE: f32 = 3.0;
 
@@ -892,22 +941,53 @@ mod tests {
 
     #[test]
     fn high_contrast_edges_and_highlighted_faces_stand_out_on_a_body() {
+        let painted = std::iter::once(("Default", DEFAULT_COLOUR))
+            .chain(SWATCHES.iter().map(|swatch| (swatch.name, swatch.colour)))
+            .chain([
+                ("Black", Rgb::new(0, 0, 0)),
+                ("Dark grey", Rgb::new(40, 40, 40)),
+            ])
+            .map(|(name, colour)| {
+                (
+                    name,
+                    Color::from_rgb8(colour.red, colour.green, colour.blue),
+                )
+            });
         for (palette, _) in high_contrast_palettes() {
-            for (what, color) in [
-                ("edge", palette.body_edge),
-                ("thread", palette.thread),
-                ("hovered face", palette.faces.hovered),
-                ("selected face", palette.faces.selected),
-                ("hovered and selected face", palette.faces.hovered_selected),
-            ] {
-                assert_visible(what, color, body());
+            let bodies = painted.clone().chain([
+                ("Outdated", palette.outdated_body),
+                ("Failed", palette.failed_body),
+            ]);
+            for (body_name, painted) in bodies {
+                let shown = opaque32(palette.body(painted));
+                for (what, color) in [
+                    ("edge", palette.body_edge),
+                    ("thread", palette.thread),
+                    ("hovered face", palette.faces.hovered),
+                    ("selected face", palette.faces.selected),
+                    ("hovered and selected face", palette.faces.hovered_selected),
+                ] {
+                    assert_visible(&format!("{what} on {body_name}"), color, shown);
+                }
             }
+            assert_eq!(opaque32(palette.body(opaque(body()))), body());
             assert_visible(
                 "edge on a drawing face",
                 palette.body_edge,
                 opaque32(palette.drawing_face),
             );
             assert!(palette.body_edge_width > STANDARD.body_edge_width);
+        }
+    }
+
+    #[test]
+    fn the_standard_palettes_draw_every_body_in_its_own_colour() {
+        for palette in [&STANDARD, &LIGHT_STANDARD] {
+            for swatch in &SWATCHES {
+                let colour =
+                    Color::from_rgb8(swatch.colour.red, swatch.colour.green, swatch.colour.blue);
+                assert_eq!(palette.body(colour), colour, "{}", swatch.name);
+            }
         }
     }
 

@@ -435,7 +435,8 @@ impl Pickable {
                             sketch.entity(entity).is_some()
                         }
                     });
-                let shown = editing == Some(feature) || visibility::is_shown(document, feature);
+                let shown = editing == Some(feature)
+                    || (visibility::is_shown(document, feature) && document.is_active(feature));
                 in_context && exists && shown
             }
             Self::SketchConstraint {
@@ -483,7 +484,9 @@ impl Pickable {
                 let in_context = match editing {
                     Some(edited) => edited == feature && context.selecting,
                     None => {
-                        context.picks_shown_regions() && visibility::is_shown(document, feature)
+                        context.picks_shown_regions()
+                            && visibility::is_shown(document, feature)
+                            && document.is_active(feature)
                     }
                 };
                 in_context

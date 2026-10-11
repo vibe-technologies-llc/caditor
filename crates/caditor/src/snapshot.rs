@@ -46,6 +46,7 @@ pub fn take(document: &Document, evaluation: &Evaluation, size: SurfaceSize) -> 
         document,
         evaluation,
         size,
+        Canvas::default(),
         &CancelToken::never(),
     )?)
 }
@@ -54,10 +55,11 @@ pub fn take_unless(
     document: &Document,
     evaluation: &Evaluation,
     size: SurfaceSize,
+    canvas: Canvas,
     cancel: &CancelToken,
 ) -> Result<Snapshot, Unmeshed> {
     let meshes = meshed(evaluation, cancel)?;
-    Ok(of_bodies(document, evaluation, &meshes, size))
+    Ok(of_bodies(document, evaluation, &meshes, size, canvas))
 }
 
 pub fn of_bodies(
@@ -65,6 +67,7 @@ pub fn of_bodies(
     evaluation: &Evaluation,
     meshes: &BodyMeshes,
     size: SurfaceSize,
+    canvas: Canvas,
 ) -> Snapshot {
     let sketches = DisplayedSketches::default();
     let sources = Sources {
@@ -76,7 +79,7 @@ pub fn of_bodies(
         aids: ViewAids::default(),
         analyses: &Analyses::default(),
         contrast: Contrast::default(),
-        canvas: Canvas::default(),
+        canvas,
         draft: None,
     };
     let (width, height) = (f64::from(size.width), f64::from(size.height));
@@ -140,4 +143,51 @@ pub fn meshed(evaluation: &Evaluation, cancel: &CancelToken) -> Result<BodyMeshe
 
 fn no_wake() -> Waker {
     Box::new(|| {})
+}
+
+#[cfg(test)]
+mod tests {
+    use caditor_document::{ModelEvaluator, Recompute};
+
+    use super::*;
+    use crate::samples::Sample;
+
+    #[test]
+    fn a_snapshot_is_drawn_in_the_palette_of_the_canvas_it_is_shown_on() {
+        let document = Sample::Plate.document().unwrap();
+        let evaluation = Recompute::default().run(
+            &document,
+            &ModelEvaluator,
+            &CancelToken::never(),
+            &|_, _| {},
+        );
+        let meshes = meshed(&evaluation, &CancelToken::never()).unwrap();
+        let size = SurfaceSize {
+            width: 320,
+            height: 200,
+        };
+
+        for canvas in Canvas::ALL {
+            let snapshot = of_bodies(&document, &evaluation, &meshes, size, canvas);
+            let origin = Contrast::Standard.palette(canvas).origin;
+            let other = Contrast::Standard
+                .palette(match canvas {
+                    Canvas::Dark => Canvas::Light,
+                    Canvas::Light => Canvas::Dark,
+                })
+                .origin;
+
+            assert!(
+                snapshot
+                    .scene
+                    .markers()
+                    .any(|marker| marker.color == origin),
+                "{canvas:?}"
+            );
+            assert!(
+                snapshot.scene.markers().all(|marker| marker.color != other),
+                "{canvas:?}"
+            );
+        }
+    }
 }

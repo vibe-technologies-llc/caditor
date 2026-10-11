@@ -24,7 +24,8 @@ input mode, since none of them uses the middle button's double-click for anythin
   {command:view.pan_left} and the other Shift+arrows pan. Holding a key glides the view on
   smoothly, and the orbit speed in Preferences sets how far each step turns.
 - {command:view.zoom_in} and {command:view.zoom_out} zoom.
-- {command:view.fit} frames the selection, the rows chosen in the tree, or everything.
+- {command:view.fit} frames the selection, the rows chosen in the tree, or everything. A row of a
+  feature that changes a body, such as a fillet or a hole, frames that body.
 - {command:view.isometric}, {command:view.front}, {command:view.top} and the other standard views
   turn the view smoothly to look from that side.
 - {command:view.look_at_face} looks straight at what is selected: a flat face, a principal or

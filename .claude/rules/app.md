@@ -52,12 +52,21 @@ paths:
   keeping a CPU copy of every egui texture so a new renderer generation (lost device) rebuilds
   egui and re-uploads them whole. `scene.rs` converts documents and results to a `Scene`.
 - Selectables are `Pickable`s built from stable IDs. The hover remembers the cursor position and
-  view its pick was made for; a click that depends on it (anything but a drawing tool's) waits
-  for a result for the current cursor and view, so it never acts on a stale hover.
+  view its pick was made for; a click that depends on it (anything but a drawing tool's) keeps
+  the cursor and view it was made at (`PendingClick`) and waits for the pick made there, so it
+  never acts on a stale hover nor on what the pointer reaches meanwhile. Picks run one at a time,
+  so once a pick for the pointer's newer spot has arrived, or the pointer has left the view, the
+  click's own will never come: it is resolved on the CPU (`ViewportState::seen_through`, the
+  scene's `hits_through` at the click's spot and view, keeping only what lies no deeper than the
+  nearest face there allows, then the usual `best_hit`), and performed with the cursor, sketch
+  cursor and hover put back to that spot for it. A press keeps its view too, and a drag starting
+  before the press's pick arrived takes what lies under the press the same way (`caught_up`).
 - `Model` (`model.rs`) owns the `Editor`, the `Recomputer` and the length unit; the UI gets
   `&Model` and returns `Action`s the app performs after its pass. Features draw from the last good
   result, tinted if failed or outdated; suppressed and rolled-back ones are neither drawn nor
-  picked (`Document::active_features`).
+  picked (`Document::active_features`), and what was selected of them leaves the selection: a
+  sketch's curves and regions are available only while it is active (`Document::is_active` in
+  `Pickable::is_available`) or edited, as faces and edges are only while the evaluation has them.
 - `Model` also owns the file session: path, last saved document (unsaved exactly when the
   document differs from it, and always when unknown, e.g. after restoring a rebased journal; a
   followed measurement reading that brings the document back to it clears the mark), the
@@ -82,7 +91,10 @@ paths:
   follows when it settles.
 - `SketchShapes` caches faceted outlines and each entity's `SketchState`, so a hover or selection
   change only restyles them. Image export and the headless PNG build their own scene, without
-  highlights and in the standard palette, since high contrast is a viewing aid.
+  highlights and in the standard palette, since high contrast is a viewing aid: the image export
+  and the version preview in the palette of the 3D view's dark or light canvas, since they are
+  drawn on its background (`Background::Viewport`), the headless PNG and 3MF thumbnail in the
+  dark one (`snapshot::of_bodies` takes the canvas).
 - Every scene colour and line weight comes from the `ScenePalette` of the viewport's `Contrast`
   (`scene_palette.rs`, set from the High contrast preference each frame), never a constant in
   `scene.rs`; the overlay batch carries the contrast too. Colours shared with canvas labels
@@ -216,7 +228,9 @@ paths:
   triangles, and the body is then marked approximate with the mesh's chord
   (`MassAccuracy::Mesh`).
 - A body is drawn in its appearance colour, else the default (`body_appearance::DEFAULT_COLOUR`);
-  a failed or outdated feature on it tints it as before. While a sketch is edited, bodies are
+  a failed or outdated feature on it tints it as before. In high contrast every body and face
+  colour passes through `ScenePalette::body`, which lightens one too dark for edges and face
+  highlights to hold 3:1 on it (`app-look.md`). While a sketch is edited, bodies are
   dimmed and not pickable.
 - Every failed feature whose error has a `place` gets a marker there in the error colour, drawn in
   front of the model with a "<feature> failed here" label that screen readers read.
@@ -531,7 +545,9 @@ paths:
 - Opening the view with no plane, and Add a plane (`SectionCommand::Add`), adds one through the
   centre of the model's bounds (offset rounded to 0.1 mm) on the first principal plane not in use
   (XZ, YZ, XY), up to `MAX_SECTION_PLANES`; Remove (`SectionCommand::Remove`, or the card's bin)
-  drops one. The commands act on the current plane, the one added or edited last, marked Current.
+  drops one. The commands act on the current plane, the one added or edited last, marked Current;
+  removing a plane above it moves `current` down with it (`SectionTool::remove`), so it stays the
+  same plane, and removing the current one makes the next current.
 - `SectionTool::planes` resolves the planes each frame into `ViewportState::set_section`;
   `ViewportState::shown_section` adds the sketch slice (`app-sketching.md`) and hands them to
   `SceneCache::set_section`, which sets `Scene::section` on the cached scene without rebuilding it

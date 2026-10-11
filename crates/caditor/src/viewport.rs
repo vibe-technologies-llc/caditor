@@ -1,15 +1,15 @@
 use std::{sync::Arc, time::Duration};
 
 use caditor_document::{
-    CarriedParameters, FeatureId, FeatureKind, PasteOrigin, SavedView, Transaction,
+    CarriedParameters, Document, FeatureId, FeatureKind, PasteOrigin, SavedView, Transaction,
 };
 use caditor_file::PastedGeometry;
 use caditor_geometry::{Aabb, Plane, Point2, Point3, Ray, Rotation3, Vector2, Vector3};
 use caditor_kernel::EdgeName;
 use caditor_render::{
-    Camera, MAX_SECTION_PLANES, PickResult, PlaneProjection, ProjectionMode, Reflection, Scene,
-    SectionPlane, SurfaceSize, View, Viewpoint, ViewportRect, grid_minor_spacing, is_cut_away,
-    section_slack,
+    Camera, MAX_SECTION_PLANES, PickHit, PickResult, PlaneProjection, ProjectionMode, Reflection,
+    Scene, SectionPlane, SurfaceSize, View, Viewpoint, ViewportRect, grid_minor_spacing,
+    is_cut_away, section_slack,
 };
 use caditor_sketch::{ConstraintId, Entity, EntityId, Faceting, MAX_LENGTH, Sketch, SketchClip};
 use egui::{
@@ -91,6 +91,7 @@ const INITIAL_DISTANCE: f64 = 200.0;
 const SUBJECT_ITEMS_READ: usize = 16;
 const ZOOM_PER_SCROLL_POINT: f64 = 0.0025;
 const HIT_CURSOR_TOLERANCE_POINTS: f64 = 1.5;
+const SEEN_DEPTH_SLACK_POINTS: f64 = 7.5;
 const PROMPT_MARGIN: f32 = 16.0;
 const PROMPT_MAX_WIDTH: f32 = 720.0;
 const READOUT_ROOM: f32 = 200.0;
@@ -251,8 +252,15 @@ struct Click {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+struct PendingClick {
+    at: PickSource,
+    click: Click,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
 struct Press {
     cursor: Vector2,
+    view: View,
     hovered: Option<Pickable>,
     current: bool,
 }
@@ -322,7 +330,7 @@ pub struct ViewportState {
     selection: Selection,
     pub(crate) hovered: Option<Pickable>,
     hover_source: Option<PickSource>,
-    pending_click: Option<Click>,
+    pending_click: Option<PendingClick>,
     pointer_hit: Option<PointerHit>,
     cursor: Option<Vector2>,
     rect: Option<Rect>,
@@ -350,7 +358,7 @@ pub struct ViewportState {
     list_hold: bool,
     last_cursor: Option<Vector2>,
     context_menu: Option<ViewMenu>,
-    menu_waits_for_pick: bool,
+    menu_waits_for_pick: Option<PickSource>,
     menus_opened: u64,
     list_at: Option<Vector2>,
     row_to_choose: Option<FeatureId>,
@@ -426,6 +434,21 @@ enum FitAsked {
 struct Problem {
     place: Point3,
     label: String,
+}
+
+fn with_their_bodies(document: &Document, rows: Vec<FeatureId>) -> Vec<FeatureId> {
+    let mut lit = rows.clone();
+    let bodies = rows.iter().filter_map(|row| document.feature(*row)?.body());
+    for body in bodies {
+        if !lit.contains(&body) {
+            lit.push(body);
+        }
+    }
+    lit
+}
+
+fn hides_what_lies_behind(pickable: Pickable) -> bool {
+    matches!(pickable, Pickable::Face { .. } | Pickable::ShellFace { .. })
 }
 
 fn copied_text(
@@ -559,7 +582,7 @@ impl ViewportState {
             list_hold: false,
             last_cursor: None,
             context_menu: None,
-            menu_waits_for_pick: false,
+            menu_waits_for_pick: None,
             menus_opened: 0,
             list_at: None,
             row_to_choose: None,
@@ -953,7 +976,7 @@ impl ViewportState {
         self.list_hold = false;
         self.last_cursor = None;
         self.context_menu = None;
-        self.menu_waits_for_pick = false;
+        self.menu_waits_for_pick = None;
         self.list_at = None;
         self.scenes = SceneCache::default();
         self.description.forget();
@@ -1217,7 +1240,7 @@ impl ViewportState {
         };
         hovered.sort_unstable();
         hovered.dedup();
-        let chosen_rows = self.rows_to_highlight(context);
+        let chosen_rows = with_their_bodies(model.document(), self.rows_to_highlight(context));
         let view = self.view();
         let sources = scene_sources(
             model,
@@ -1419,7 +1442,7 @@ impl ViewportState {
             aids: ViewAids::default(),
             analyses: &Analyses::default(),
             contrast: Contrast::Standard,
-            canvas: Canvas::Dark,
+            canvas: self.canvas,
             draft: None,
         };
         let context = editing.context();
@@ -1451,7 +1474,13 @@ impl ViewportState {
 
     pub fn thumbnail(&self, model: &Model, bodies: &[FeatureId], size: SurfaceSize) -> ImageView {
         let meshes = self.bodies.only(bodies);
-        let snapshot = snapshot::of_bodies(model.document(), model.evaluation(), &meshes, size);
+        let snapshot = snapshot::of_bodies(
+            model.document(),
+            model.evaluation(),
+            &meshes,
+            size,
+            Canvas::default(),
+        );
         ImageView {
             view: snapshot.view,
             scene: snapshot.scene,
@@ -1555,7 +1584,7 @@ impl ViewportState {
         self.picks_in_flight = Some((picks, view));
         self.apply_pick(&PickResult {
             cursor,
-            hits: vec![caditor_render::PickHit {
+            hits: vec![PickHit {
                 id,
                 offset_points: 0.0,
                 position: Point3::ZERO,
@@ -1656,8 +1685,6 @@ impl ViewportState {
         if self.cursor.is_none() {
             self.hovered = None;
             self.hover_source = None;
-            self.pending_click = None;
-            self.menu_waits_for_pick = false;
             self.pointer_hit = None;
             self.last_pick = None;
         }
@@ -1808,8 +1835,9 @@ impl ViewportState {
             )
         });
         if pressed && response.hovered() {
-            self.press = self.cursor.map(|cursor| Press {
+            self.press = self.cursor.zip(self.view()).map(|(cursor, view)| Press {
                 cursor,
+                view,
                 hovered: self.hovered,
                 current: self.hover_is_current(),
             });
@@ -1827,7 +1855,11 @@ impl ViewportState {
                 (self.navigation.input_mode == InputMode::Laptop && input.modifiers.alt)
                     || input.pointer.middle_down()
             });
-            let press = self.press.take().filter(|_| !navigating);
+            let press = self
+                .press
+                .take()
+                .filter(|_| !navigating)
+                .map(|press| self.caught_up(press));
             let arcing = press.is_some_and(|press| self.arc_from_press(model, editing, press));
             self.draw_press = press
                 .filter(|_| {
@@ -2142,7 +2174,10 @@ impl ViewportState {
             && editing.picking().is_none()
             && !editing.is_choosing_plane()
         {
-            if self.paint && paint_selection::takes_faces(self.active_filter()) {
+            if self.paint
+                && self.style.picks_faces()
+                && paint_selection::takes_faces(self.active_filter())
+            {
                 return Some(PrimaryDrag::Paint(Painting::new(
                     self.selection.clone(),
                     press.cursor,
@@ -2260,7 +2295,8 @@ impl ViewportState {
         let document = model.document();
         let evaluation = model.evaluation();
         let scale = f64::from(self.pixels_per_point);
-        let mut caught: Vec<Pickable> = match Catch::of(self.active_filter()) {
+        let faces_pick = self.style.picks_faces();
+        let mut caught: Vec<Pickable> = match Catch::of(self.active_filter(), faces_pick) {
             Catch::SketchGeometry => {
                 let section = self.scenes.section();
                 let slack = section_slack(view.viewpoint().distance);
@@ -2305,7 +2341,7 @@ impl ViewportState {
                     .iter()
                     .filter(|(body, _)| visibility::is_shown(document, *body))
                     .collect();
-                let occlusion = if self.select_through {
+                let occlusion = if self.select_through || !faces_pick {
                     box_selection::Occlusion::open()
                 } else {
                     box_selection::Occlusion::of(
@@ -2455,10 +2491,11 @@ impl ViewportState {
         let drawing = editing
             .active()
             .is_some_and(|active| active.tool.draws() || active.tool.modifies());
-        if self.hover_is_current()
-            && let Some(click) = self.pending_click.take()
+        if let Some(pending) = self.pending_click
+            && let Some(hovered) = self.hover_at(pending.at)
         {
-            self.perform_click(click, model, editing, drawing, actions);
+            self.pending_click = None;
+            self.perform_click_at(pending, hovered, model, editing, drawing, actions);
         }
         let placed_by_dragging = editing.active().is_some_and(|active| active.tool.draws())
             && response.drag_stopped_by(PointerButton::Primary);
@@ -2482,8 +2519,103 @@ impl ViewportState {
         if drawing || self.hover_is_current() {
             self.perform_click(click, model, editing, drawing, actions);
         } else {
-            self.pending_click = Some(click);
+            self.pending_click = self.pick_source().map(|at| PendingClick { at, click });
         }
+    }
+
+    fn perform_click_at(
+        &mut self,
+        pending: PendingClick,
+        hovered: Option<Pickable>,
+        model: &Model,
+        editing: &SketchEditing,
+        drawing: bool,
+        actions: &mut Vec<Action>,
+    ) {
+        if self.hover_is_current() && self.hover_source == Some(pending.at) {
+            self.perform_click(pending.click, model, editing, drawing, actions);
+            return;
+        }
+        let kept = (self.cursor, self.sketch_cursor, self.hovered);
+        let cursor = pending.at.cursor;
+        self.cursor = Some(cursor);
+        self.sketch_cursor = editing
+            .feature()
+            .and_then(|feature| self.on_sketch(model, feature, cursor));
+        self.hovered = hovered;
+        self.track_drawing(model, editing);
+
+        self.perform_click(pending.click, model, editing, drawing, actions);
+
+        (self.cursor, self.sketch_cursor, self.hovered) = kept;
+        self.track_drawing(model, editing);
+    }
+
+    fn pick_source(&self) -> Option<PickSource> {
+        Some(PickSource {
+            cursor: self.cursor?,
+            view: self.view()?,
+        })
+    }
+
+    fn hover_at(&self, at: PickSource) -> Option<Option<Pickable>> {
+        if self.hover_source == Some(at) {
+            return Some(self.hovered);
+        }
+        let replaced = self.cursor.is_none() || self.hover_is_current();
+        replaced.then(|| self.seen_through(at))
+    }
+
+    fn caught_up(&self, press: Press) -> Press {
+        if press.current {
+            return press;
+        }
+        let at = PickSource {
+            cursor: press.cursor,
+            view: press.view,
+        };
+        Press {
+            hovered: self.seen_through(at),
+            current: true,
+            ..press
+        }
+    }
+
+    fn seen_through(&self, at: PickSource) -> Option<Pickable> {
+        let built = self.scenes.built()?;
+        let hits = built
+            .scene
+            .hits_through(&at.view, at.cursor, self.pixels_per_point);
+        let reached = built.picks.within_reach(&hits);
+        let depth = |hit: &PickHit| at.view.view_depth(hit.position);
+        let front = reached
+            .iter()
+            .filter(|(pickable, _)| hides_what_lies_behind(*pickable))
+            .map(|(_, hit)| depth(hit))
+            .fold(f64::INFINITY, f64::min);
+        let deepest_seen = if front.is_finite() {
+            front
+                + at.view.units_per_pixel_at(front)
+                    * f64::from(self.pixels_per_point)
+                    * SEEN_DEPTH_SLACK_POINTS
+        } else {
+            f64::INFINITY
+        };
+        let seen = reached
+            .into_iter()
+            .map(|(_, hit)| hit)
+            .filter(|hit| depth(hit) <= deepest_seen)
+            .collect();
+        built
+            .picks
+            .best_hit(
+                &PickResult {
+                    cursor: at.cursor,
+                    hits: seen,
+                },
+                self.active_filter(),
+            )
+            .map(|(pickable, _)| pickable)
     }
 
     fn place_press_point(
@@ -4307,11 +4439,11 @@ impl ViewportState {
     }
 
     fn context_click(&mut self, response: &Response, model: &Model, editing: &SketchEditing) {
-        if self.menu_waits_for_pick && self.hover_is_current() {
-            self.menu_waits_for_pick = false;
-            if let Some(cursor) = self.cursor {
-                self.open_menu(cursor, self.hovered, self.hovered.is_some(), model, editing);
-            }
+        if let Some(at) = self.menu_waits_for_pick
+            && let Some(hovered) = self.hover_at(at)
+        {
+            self.menu_waits_for_pick = None;
+            self.open_menu(at.cursor, hovered, hovered.is_some(), model, editing);
         }
         if !response.secondary_clicked() {
             return;
@@ -4320,7 +4452,7 @@ impl ViewportState {
             return;
         };
         if self.menu_selects(editing) && !self.hover_is_current() {
-            self.menu_waits_for_pick = true;
+            self.menu_waits_for_pick = self.pick_source();
             self.context_menu = None;
         } else {
             self.open_menu(cursor, self.hovered, self.hovered.is_some(), model, editing);
