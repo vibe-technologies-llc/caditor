@@ -407,7 +407,7 @@ fn read_placed<T>(
         if placements.transforms.len() > budget {
             structure.truncated = true;
         }
-        let transforms: Vec<(Similarity, Option<String>, Vec<u64>)> = placements
+        let transforms: Vec<(Similarity, Option<Arc<str>>, Vec<u64>)> = placements
             .transforms
             .into_iter()
             .zip(
@@ -474,7 +474,7 @@ fn read_placed<T>(
                         .or_insert_with(|| presentation.look(&parts, &faces, &path, &mut consulted))
                         .clone();
                     let name = match occurrence {
-                        Some(occurrence) if occurrences_name_each => occurrence,
+                        Some(occurrence) if occurrences_name_each => occurrence.to_string(),
                         _ if count > 1 && instance > 0 => format!("{name} {}", instance + 1),
                         _ => name.clone(),
                     };

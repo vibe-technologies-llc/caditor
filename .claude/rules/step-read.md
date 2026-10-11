@@ -67,7 +67,14 @@ paths:
   text go through `read_step`.
 - Hostile-input bounds: `MAX_SPLINE_DEGREE`, checked knot arithmetic before expansion, one
   `MAX_WORK` budget per file for everything built, `MAX_DEPTH` and `MAX_INSTANCES` (the placements
-  walked for one part) for assemblies. Copies are capped per file in solid order:
+  walked for one part) for assemblies, and `MAX_WALKED_PLACEMENTS` for the placements the walk
+  keeps across the whole file (`Structure::walk` memoises each representation's `Placements` behind
+  an `Arc`): once it is spent each further walk keeps one placement per parent, so every part is
+  still placed somewhere and memory stays bounded by the file's own links, and the note says only
+  the first copies were imported. Occurrence, product and layer names are `Arc<str>` shared by every
+  placement and item they name, a styled item's context list is one `Arc<[u64]>` shared by each
+  of its styles (`Instanced::by_context` holds the one id a style adds), and repeated style and
+  context references are read once (`once_each`). Copies are capped per file in solid order:
   `read_step_copies` places at most `MAX_SHARED_COPIES` (10,000, as many as `MAX_INSTANCES`),
   since its copies share one solid each, and `read_step` at most `MAX_SEPARATE_COPIES` (1000),
   since each of its copies is a solid of its own; once the cap is spent no later part is walked,

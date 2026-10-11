@@ -1,4 +1,7 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 use caditor_geometry::{Plane, RigidTransform, Similarity, Vector3};
 
@@ -10,30 +13,32 @@ use crate::read::{
 
 pub(crate) const MAX_INSTANCES: usize = 10_000;
 pub(crate) const MAX_DEPTH: usize = 32;
+pub(crate) const MAX_WALKED_PLACEMENTS: usize = 20 * MAX_INSTANCES;
 const OPERATOR_FIELDS: usize = 8;
 
 #[derive(Debug, Clone, PartialEq)]
 struct Parent {
     representation: u64,
     transform: Option<Similarity>,
-    occurrence: Option<String>,
+    occurrence: Option<Arc<str>>,
     links: Vec<u64>,
 }
 
 struct Occurrence {
     child: u64,
-    name: Option<String>,
+    name: Option<Arc<str>>,
     usage: u64,
 }
 
 pub(crate) struct Structure {
     item_representation: BTreeMap<u64, u64>,
     contexts: BTreeMap<u64, u64>,
-    names: BTreeMap<u64, String>,
+    names: BTreeMap<u64, Arc<str>>,
     identical: BTreeMap<u64, BTreeSet<u64>>,
     parents: BTreeMap<u64, Vec<Parent>>,
     units: BTreeMap<u64, Units>,
     walked: BTreeMap<u64, Walk>,
+    walked_placements: usize,
     pub truncated: bool,
 }
 
@@ -47,6 +52,7 @@ impl Structure {
             parents: BTreeMap::new(),
             units: BTreeMap::new(),
             walked: BTreeMap::new(),
+            walked_placements: 0,
             truncated: false,
         };
         for entity in graph.entities() {
@@ -106,7 +112,7 @@ impl Structure {
         self.class(representation)
             .into_iter()
             .find_map(|member| self.names.get(&member))
-            .map(String::as_str)
+            .map(AsRef::as_ref)
     }
 
     fn relationship(&mut self, graph: &Graph<'_>, entity: Entity<'_>, context: &Context<'_>) {
@@ -244,15 +250,17 @@ impl Structure {
     }
 
     pub fn placements(&mut self, representation: u64) -> Placements {
-        self.walk(representation, 0)
+        Arc::unwrap_or_clone(self.walk(representation, 0))
     }
 
-    fn walk(&mut self, representation: u64, depth: usize) -> Placements {
+    fn walk(&mut self, representation: u64, depth: usize) -> Arc<Placements> {
         let class = self.class(representation);
         let key = class.first().copied().unwrap_or(representation);
         match self.walked.get(&key) {
-            Some(Walk::Done(placements)) => return placements.clone(),
-            Some(Walk::InProgress) => return Placements::unplaced(Unplaced::InsideItself),
+            Some(Walk::Done(placements)) => return Arc::clone(placements),
+            Some(Walk::InProgress) => {
+                return Arc::new(Placements::unplaced(Unplaced::InsideItself));
+            }
             None => {}
         }
         let parents: Vec<Parent> = class
@@ -277,34 +285,53 @@ impl Structure {
                 unplaced: None,
                 left_out: false,
             };
-            for parent in parents {
-                let Some(transform) = parent.transform else {
+            let walked_parents: Vec<(Parent, Option<Arc<Placements>>)> = parents
+                .into_iter()
+                .map(|parent| {
+                    let outer = parent
+                        .transform
+                        .is_some()
+                        .then(|| self.walk(parent.representation, depth + 1));
+                    (parent, outer)
+                })
+                .collect();
+            for (parent, outer) in walked_parents {
+                let (Some(transform), Some(outer)) = (parent.transform, outer) else {
                     placed.left_out = true;
                     continue;
                 };
-                let outer = self.walk(parent.representation, depth + 1);
                 placed.left_out |= outer.left_out;
                 if outer.transforms.is_empty() {
                     placed.unplaced = placed.unplaced.or(outer.unplaced);
                 }
-                let outer_paths = outer.paths.into_iter().chain(std::iter::repeat(Vec::new()));
-                for (outer, outer_path) in outer.transforms.into_iter().zip(outer_paths) {
-                    if placed.transforms.len() >= MAX_INSTANCES {
+                let unwalked: &[u64] = &[];
+                let outer_paths = outer
+                    .paths
+                    .iter()
+                    .map(Vec::as_slice)
+                    .chain(std::iter::repeat(unwalked));
+                for (taken, (outer, outer_path)) in
+                    outer.transforms.iter().zip(outer_paths).enumerate()
+                {
+                    let walked = self.walked_placements + placed.transforms.len();
+                    let budget_spent = walked >= MAX_WALKED_PLACEMENTS && taken > 0;
+                    if placed.transforms.len() >= MAX_INSTANCES || budget_spent {
                         self.truncated = true;
                         break;
                     }
-                    placed.transforms.push(transform.then(&outer));
+                    placed.transforms.push(transform.then(outer));
                     placed.occurrences.push(parent.occurrence.clone());
                     placed.paths.push(
                         class
                             .iter()
                             .chain(&parent.links)
-                            .chain(&outer_path)
+                            .chain(outer_path)
                             .copied()
                             .collect(),
                     );
                 }
             }
+            self.walked_placements += placed.transforms.len();
             if !placed.transforms.is_empty() {
                 placed.unplaced = None;
             } else if placed.unplaced.is_none() && placed.left_out {
@@ -312,7 +339,8 @@ impl Structure {
             }
             placed
         };
-        self.walked.insert(key, Walk::Done(placements.clone()));
+        let placements = Arc::new(placements);
+        self.walked.insert(key, Walk::Done(Arc::clone(&placements)));
         placements
     }
 }
@@ -327,7 +355,7 @@ pub(crate) enum Unplaced {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Placements {
     pub transforms: Vec<Similarity>,
-    pub occurrences: Vec<Option<String>>,
+    pub occurrences: Vec<Option<Arc<str>>>,
     pub paths: Vec<Vec<u64>>,
     pub unplaced: Option<Unplaced>,
     pub left_out: bool,
@@ -387,7 +415,10 @@ fn occurrences(graph: &Graph<'_>) -> BTreeMap<u64, Occurrence> {
         let Ok(child) = usage_fields.reference(4) else {
             continue;
         };
-        let name = usage_fields.name(1).or_else(|| usage_fields.name(5));
+        let name = usage_fields
+            .name(1)
+            .or_else(|| usage_fields.name(5))
+            .map(Arc::from);
         found.insert(
             relationship,
             Occurrence {
@@ -403,7 +434,7 @@ fn occurrences(graph: &Graph<'_>) -> BTreeMap<u64, Occurrence> {
 #[derive(Debug, Clone)]
 enum Walk {
     InProgress,
-    Done(Placements),
+    Done(Arc<Placements>),
 }
 
 fn frame(geometry: &Geometry<'_>, id: u64) -> Option<Similarity> {
@@ -519,7 +550,7 @@ fn assembly_children(graph: &Graph<'_>, definitions: &BTreeMap<u64, Vec<u64>>) -
 fn product_names(
     graph: &Graph<'_>,
     definitions: &BTreeMap<u64, Vec<u64>>,
-) -> BTreeMap<u64, String> {
+) -> BTreeMap<u64, Arc<str>> {
     let mut names = BTreeMap::new();
     for (definition, representations) in definitions {
         let name = graph
@@ -539,9 +570,9 @@ fn product_names(
                 let fields = graph.entity(product).ok()?.fields().ok()?;
                 fields.name(1).or_else(|| fields.name(0))
             });
-        if let Some(name) = name {
+        if let Some(name) = name.map(Arc::<str>::from) {
             for representation in representations {
-                names.insert(*representation, name.clone());
+                names.insert(*representation, Arc::clone(&name));
             }
         }
     }
@@ -606,8 +637,11 @@ mod tests {
         let started = std::time::Instant::now();
         let placements = structure.placements(100);
         assert!(started.elapsed().as_secs() < 5);
-        assert_eq!(placements.transforms.len(), MAX_INSTANCES);
+        assert!(!placements.transforms.is_empty());
+        assert!(placements.transforms.len() <= MAX_INSTANCES);
         assert!(structure.truncated);
+        let links = usize::try_from(relation - 10_000).unwrap();
+        assert!(structure.walked_placements <= MAX_WALKED_PLACEMENTS + links);
     }
 
     #[test]
@@ -678,7 +712,7 @@ mod tests {
         };
         let frame = structure.placements(101);
         assert_eq!(frame.transforms, [moved(10.0, 0.0)]);
-        assert_eq!(frame.occurrences, [Some("Frame:1".to_owned())]);
+        assert_eq!(frame.occurrences, [Some(Arc::from("Frame:1"))]);
         let bolt = structure.placements(102);
         assert_eq!(bolt.transforms.len(), 1);
         let origin = bolt.transforms[0].apply_point(caditor_geometry::Point3::ZERO);
@@ -686,7 +720,7 @@ mod tests {
             origin.distance(caditor_geometry::Point3::new(10.0, 5.0, 0.0)) < 1e-12,
             "{origin}"
         );
-        assert_eq!(bolt.occurrences, [Some("Bolt:1".to_owned())]);
+        assert_eq!(bolt.occurrences, [Some(Arc::from("Bolt:1"))]);
         assert_eq!(structure.placements(100).transforms, [Similarity::IDENTITY]);
     }
 

@@ -1,4 +1,7 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 use crate::read::{
     finish::{Finish, appearance_finish},
@@ -136,15 +139,26 @@ impl Unread {
 
 struct Instanced {
     styled: u64,
-    context: Vec<u64>,
+    context: Arc<[u64]>,
+    by_context: Option<u64>,
     stated: Stated,
+}
+
+impl Instanced {
+    fn elements(&self) -> impl Iterator<Item = &u64> {
+        self.context.iter().chain(&self.by_context)
+    }
+
+    fn length(&self) -> usize {
+        self.context.len() + usize::from(self.by_context.is_some())
+    }
 }
 
 pub(crate) struct Presentation {
     styles: BTreeMap<u64, Stated>,
     overrides: BTreeMap<u64, Stated>,
     instanced: BTreeMap<u64, Vec<Instanced>>,
-    layers: BTreeMap<u64, String>,
+    layers: BTreeMap<u64, Arc<str>>,
     unread: BTreeMap<u64, Unread>,
     troubles: BTreeMap<u64, BTreeSet<u64>>,
 }
@@ -200,7 +214,12 @@ struct Styling {
     styles: Vec<u64>,
     item: u64,
     overriding: bool,
-    context: Option<Vec<u64>>,
+    context: Option<Arc<[u64]>>,
+}
+
+fn once_each(ids: Vec<u64>) -> Vec<u64> {
+    let mut seen = BTreeSet::new();
+    ids.into_iter().filter(|id| seen.insert(*id)).collect()
 }
 
 fn styling(entity: &Entity<'_>) -> Option<Styling> {
@@ -212,9 +231,9 @@ fn styling(entity: &Entity<'_>) -> Option<Styling> {
             _ => return None,
         };
         let context = (kind == "CONTEXT_DEPENDENT_OVER_RIDING_STYLED_ITEM")
-            .then(|| fields.references(4).unwrap_or_default());
+            .then(|| Arc::from(once_each(fields.references(4).unwrap_or_default())));
         return Some(Styling {
-            styles: fields.references(1).ok()?,
+            styles: once_each(fields.references(1).ok()?),
             item: fields.reference(2).ok()?,
             overriding,
             context,
@@ -222,12 +241,12 @@ fn styling(entity: &Entity<'_>) -> Option<Styling> {
     }
     let fields = entity.find("STYLED_ITEM")?;
     Some(Styling {
-        styles: fields.references(0).ok()?,
+        styles: once_each(fields.references(0).ok()?),
         item: fields.reference(1).ok()?,
         overriding: entity.is("OVER_RIDING_STYLED_ITEM"),
         context: entity
             .find("CONTEXT_DEPENDENT_OVER_RIDING_STYLED_ITEM")
-            .map(|fields| fields.references(0).unwrap_or_default()),
+            .map(|fields| Arc::from(once_each(fields.references(0).unwrap_or_default()))),
     })
 }
 
@@ -281,10 +300,13 @@ impl Presentation {
                     .extend(reading.problems.keys().copied());
                 presentation.unread.extend(reading.problems);
             }
+            let shared: Arc<[u64]> = styling.context.clone().unwrap_or_else(|| Arc::from([]));
             let stated = general.stated();
             if stated.states_anything() {
                 match &styling.context {
-                    Some(context) => presentation.instance(item, entity.id, context, stated),
+                    Some(context) => {
+                        presentation.instance(item, entity.id, Arc::clone(context), None, stated);
+                    }
                     None if styling.overriding => {
                         let earlier = presentation.overrides.entry(item).or_default();
                         *earlier = earlier.under(stated);
@@ -298,9 +320,13 @@ impl Presentation {
             for (context, sides) in by_context {
                 let stated = sides.stated();
                 if stated.states_anything() {
-                    let mut whole = styling.context.clone().unwrap_or_default();
-                    whole.push(context);
-                    presentation.instance(item, entity.id, &whole, stated);
+                    presentation.instance(
+                        item,
+                        entity.id,
+                        Arc::clone(&shared),
+                        Some(context),
+                        stated,
+                    );
                 }
             }
         }
@@ -311,21 +337,30 @@ impl Presentation {
             let (Some(name), Ok(items)) = (fields.name(0), fields.references(2)) else {
                 continue;
             };
+            let name: Arc<str> = Arc::from(name);
             for item in items {
                 let item = styled_items.get(&item).copied().unwrap_or(item);
                 presentation
                     .layers
                     .entry(inner_item(graph, item))
-                    .or_insert_with(|| name.clone());
+                    .or_insert_with(|| Arc::clone(&name));
             }
         }
         presentation
     }
 
-    fn instance(&mut self, item: u64, styled: u64, context: &[u64], stated: Stated) {
+    fn instance(
+        &mut self,
+        item: u64,
+        styled: u64,
+        context: Arc<[u64]>,
+        by_context: Option<u64>,
+        stated: Stated,
+    ) {
         self.instanced.entry(item).or_default().push(Instanced {
             styled,
-            context: context.to_vec(),
+            context,
+            by_context,
             stated,
         });
     }
@@ -358,13 +393,8 @@ impl Presentation {
         consulted.items.insert(item);
         let matching = instances
             .iter()
-            .filter(|instance| {
-                instance
-                    .context
-                    .iter()
-                    .all(|element| path.contains(element))
-            })
-            .max_by_key(|instance| instance.context.len());
+            .filter(|instance| instance.elements().all(|element| path.contains(element)))
+            .max_by_key(|instance| instance.length());
         match matching {
             Some(instance) => {
                 consulted.matched.insert(instance.styled);
@@ -452,12 +482,12 @@ impl Presentation {
 
     fn layer(&self, parts: &SolidParts) -> Option<String> {
         if let Some(layer) = self.layers.get(&parts.id) {
-            return Some(layer.clone());
+            return Some(layer.to_string());
         }
         if let Some(layer) = parts.shells.iter().find_map(|shell| self.layers.get(shell)) {
-            return Some(layer.clone());
+            return Some(layer.to_string());
         }
-        let mut seen: Option<&String> = None;
+        let mut seen: Option<&Arc<str>> = None;
         for face in &parts.faces {
             let layer = self.layers.get(face)?;
             match seen {
@@ -465,7 +495,7 @@ impl Presentation {
                 _ => seen = Some(layer),
             }
         }
-        seen.cloned()
+        seen.map(ToString::to_string)
     }
 
     pub fn note(&self, consulted: &Consulted) -> Option<String> {

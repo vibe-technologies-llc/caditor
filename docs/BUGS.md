@@ -165,18 +165,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   8.7 s against 7.6 s. Healing still traces an edge only between exactly two distinct faces, so an
   edge used twice by one face (a cylinder seam) with a vertex a few micrometres off is refused
   outright when the file declares no precision.
-- [medium · easy] A hostile STEP file can exhaust memory in the structure and presentation passes,
-  whose bounds are per item rather than per file: `Structure::walk` (`read/structure.rs`) caps
-  placements at `MAX_INSTANCES` (10,000) per representation but memoises every walked
-  representation's whole `Placements` in `walked`, each placement with its own occurrence name
-  `String` and a path `Vec` growing about two ids per level, so layers of representations that all
-  have the next layer's as parents leave hundreds of nodes holding 10,000 placements each from a
-  file of a few hundred KB (`structure.rs`'s many-copies test asserts only time); and
-  `presentation.rs` clones a layer's name for every item it lists and a styling context `Vec` for
-  every repeated style reference (`instance`), as `product_names` clones a product's name per
-  representation, so one long name listed against many ids multiplies into tens of GB. Share
-  paths and names (`Arc<[u64]>`, `Arc<str>`) and spend one file-wide placement budget, as `Work`
-  bounds the parts.
 - [medium · medium] The VZ330 assembly (an Autodesk export at 0.01 mm, 3,894 copies) leaves 63
   parts out, 43 of them as "a vertex 0.00001 to 0.0015 mm away from the end of its edge" (the M4
   T-nuts, "Part 9 (1)" to "Part 14 (1)", "CPAP duct 18mm (1)"), all well within the file's
