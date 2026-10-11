@@ -1170,3 +1170,38 @@ fn a_dimension_moved_to_the_far_piece_of_a_trim_keeps_its_placed_label() {
     let on_piece = |constraint: &Constraint| matches!(constraint, Constraint::Angle { from, .. } if *from == piece);
     assert_eq!(labelled(&sketch, on_piece), vec![Some(PLACED_LABEL)]);
 }
+
+#[test]
+fn an_end_held_only_by_an_inactive_fix_or_coincident_is_extended() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::ZERO, Point2::new(5.0, 0.0));
+    let (_, end) = ends(&sketch, line);
+    sketch.add_line(Point2::new(20.0, -5.0), Point2::new(20.0, 5.0));
+    let neighbour = sketch.add_point(Point2::new(5.0, 0.0));
+    let fixed = sketch
+        .add_constraint(Constraint::Fix {
+            point: end,
+            at: Point2::new(5.0, 0.0),
+        })
+        .unwrap();
+    let joined = sketch
+        .add_constraint(Constraint::Coincident(end, neighbour))
+        .unwrap();
+
+    assert!(matches!(
+        sketch.check_free_end(line, end),
+        Err(ExtendError::Fixed { .. })
+    ));
+
+    sketch.set_active(fixed, false).unwrap();
+
+    assert!(matches!(
+        sketch.check_free_end(line, end),
+        Err(ExtendError::Joined { .. })
+    ));
+
+    sketch.set_active(joined, false).unwrap();
+
+    assert_eq!(sketch.check_free_end(line, end), Ok(()));
+    assert!(sketch.extend(line, Point2::new(4.0, 0.0)).is_ok());
+}

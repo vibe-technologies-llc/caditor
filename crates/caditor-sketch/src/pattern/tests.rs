@@ -764,3 +764,24 @@ fn an_elliptical_arc_with_ends_on_its_major_axis_repeats_without_redundancy() {
         });
     }
 }
+
+#[test]
+fn an_inactive_coincident_does_not_hold_a_point_on_the_pattern_centre() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::ZERO, Point2::new(8.0, 0.0));
+    let (root, _) = ends(&sketch, line);
+    let coincident = sketch
+        .add_constraint(Constraint::Coincident(root, EntityId::ORIGIN))
+        .unwrap();
+    sketch.set_active(coincident, false).unwrap();
+
+    sketch
+        .circular_pattern(&[line], EntityId::ORIGIN, &turns(3))
+        .unwrap();
+
+    assert!(
+        sketch
+            .active_constraints()
+            .any(|(_, constraint)| *constraint == Constraint::Coincident(root, EntityId::ORIGIN))
+    );
+}

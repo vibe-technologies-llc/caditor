@@ -17,7 +17,11 @@ paths:
 - Any constraint can be inactive (`Sketch::set_active`): a set of `ConstraintId`s beside the
   constraints, part of `same_content`. The solver, `Sketch::evaluate`, the joint classes and `restating` and
   `contradicting` read `active_constraints()` only, so an inactive constraint no longer holds, never
-  conflicts or counts as redundant, and a new one is not refused for restating it. A dimension
+  conflicts or counts as redundant, and a new one is not refused for restating it. Mirror, the
+  patterns, extend and the sketch fillet ask what holds through `active_constraints_using` (a
+  `Symmetric`, `Coincident`, `Midpoint` or `Fix` left inactive neither makes a point its own image,
+  holds it on the mirror line or centre, nor keeps an end from extending, and the fillet's
+  `merge_point` drops a moved constraint only as a duplicate of an active one). A dimension
   left inactive is a reference: its displayed value is `Sketch::measured` of the solved geometry.
   Removing a constraint forgets the flag and the label offset; whatever takes a kept constraint
   out and puts it back carries both with it (`detach_constraint`, `attach_constraint`,

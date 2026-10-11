@@ -1050,3 +1050,36 @@ fn a_disabled_dimension_on_the_second_corner_point_stays_disabled_and_placed_whe
     assert!(!sketch.is_active(moved));
     assert_eq!(sketch.label_offset(moved), Some(PLACED_LABEL));
 }
+
+#[test]
+fn a_moved_constraint_is_not_dropped_as_a_duplicate_of_an_inactive_one() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let first = sketch.add_line(Point2::new(-20.0, 10.0), Point2::ZERO);
+    let second = sketch.add_line(Point2::ZERO, Point2::new(20.0, 10.0));
+    let (_, kept) = ends(&sketch, first);
+    let (merged, _) = ends(&sketch, second);
+    let inactive = sketch
+        .add_constraint(Constraint::Fix {
+            point: kept,
+            at: Point2::ZERO,
+        })
+        .unwrap();
+    sketch.set_active(inactive, false).unwrap();
+    sketch
+        .add_constraint(Constraint::Fix {
+            point: merged,
+            at: Point2::ZERO,
+        })
+        .unwrap();
+    let corner = sketch.fillet_corners().into_iter().next().unwrap();
+
+    sketch.fillet(&corner, 4.0, mm(4.0)).unwrap();
+
+    assert!(sketch.active_constraints().any(|(_, constraint)| {
+        *constraint
+            == Constraint::Fix {
+                point: kept,
+                at: Point2::ZERO,
+            }
+    }));
+}

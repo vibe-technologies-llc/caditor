@@ -1074,7 +1074,7 @@ impl Sketch {
         for id in self.constraints_using(from) {
             let moved = self.detach_constraint(id)?.with_entity_replaced(from, into);
             let duplicate = self
-                .constraints()
+                .active_constraints()
                 .any(|(_, existing)| *existing == moved.constraint);
             if !duplicate && self.check_constraint(&moved.constraint).is_ok() {
                 self.attach_constraint(id, moved)?;

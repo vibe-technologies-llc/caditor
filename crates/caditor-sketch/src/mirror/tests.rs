@@ -363,3 +363,50 @@ fn a_curve_joined_by_coincident_to_a_mirrored_point_takes_its_image() {
     assert_eq!(count_of(&sketch, "Symmetric"), 2);
     assert_clean(&solve(&sketch));
 }
+
+#[test]
+fn an_inactive_symmetric_is_not_taken_as_the_image_of_its_point() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::new(10.0, 10.0), Point2::new(20.0, 10.0));
+    let (start, _) = ends(&sketch, line);
+    let stray = sketch.add_point(Point2::new(-10.0, 25.0));
+    let symmetric = sketch
+        .add_constraint(Constraint::Symmetric {
+            first: start,
+            second: stray,
+            about: EntityId::VERTICAL_AXIS,
+        })
+        .unwrap();
+    sketch.set_active(symmetric, false).unwrap();
+
+    let copies = sketch.mirror(&[line], EntityId::VERTICAL_AXIS).unwrap();
+
+    let (copy_start, _) = ends(&sketch, copies[0]);
+    assert_ne!(copy_start, stray);
+    assert_near(sketch.point(copy_start).unwrap(), Point2::new(-10.0, 10.0));
+    assert!(sketch.active_constraints().any(|(_, constraint)| {
+        *constraint
+            == Constraint::Symmetric {
+                first: start,
+                second: copy_start,
+                about: EntityId::VERTICAL_AXIS,
+            }
+    }));
+}
+
+#[test]
+fn an_inactive_coincident_does_not_hold_a_point_on_the_mirror_line() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::new(0.0, 5.0), Point2::new(10.0, 5.0));
+    let (start, _) = ends(&sketch, line);
+    let coincident = sketch
+        .add_constraint(Constraint::Coincident(start, EntityId::VERTICAL_AXIS))
+        .unwrap();
+    sketch.set_active(coincident, false).unwrap();
+
+    sketch.mirror(&[line], EntityId::VERTICAL_AXIS).unwrap();
+
+    assert!(sketch.active_constraints().any(
+        |(_, constraint)| *constraint == Constraint::Coincident(start, EntityId::VERTICAL_AXIS)
+    ));
+}

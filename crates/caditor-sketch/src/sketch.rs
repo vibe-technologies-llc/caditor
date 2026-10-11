@@ -1225,6 +1225,13 @@ impl Sketch {
             .collect()
     }
 
+    pub fn active_constraints_using(&self, id: EntityId) -> Vec<ConstraintId> {
+        self.active_constraints()
+            .filter(|(_, constraint)| constraint.references(id))
+            .map(|(user, _)| user)
+            .collect()
+    }
+
     pub fn remove_unused_entity(&mut self, id: EntityId) -> Result<Entity, SketchError> {
         self.check_editable(id)?;
         if self.uses.contains_key(&id) {

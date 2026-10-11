@@ -308,19 +308,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Sketching
 
-- [medium · easy] Mirror, patterns, extend and the sketch fillet treat inactive constraints as
-  holding, against `sketch.md`'s rule that an inactive constraint no longer holds:
-  `Sketch::constraints_using` returns every constraint, and `mirrored_directly` and
-  `symmetric_partner` (`mirror.rs`) take a point held `Symmetric` only by an inactive constraint
-  as already mirrored, so after deactivating a `Symmetric` between P and Q and moving Q, mirroring
-  a line ending at P joins the copy to Q where it now stands, with no symmetry, while the preview
-  (`mirror_image`) showed the true reflection; `held_on` (mirror, and `tie_turns` in
-  `pattern.rs`) counts an inactive `Coincident` or `Midpoint` as holding a point on the line or
-  centre, so no tie is added and the copy comes apart when dragged; `check_free_end`
-  (`trim.rs`) refuses to extend an end held only by an inactive `Fix` or `Coincident`; and
-  `merge_point` (`fillet.rs`) drops a moved constraint as a duplicate of an inactive one. Add an
-  `active_constraints_using` and use it at each, with tests deactivating a `Symmetric`, a
-  `Coincident` and a `Fix`.
 - [medium · easy] Taking back the last point while Draw symmetrically is on ends the chain instead
   of undoing the segment: `Drawing::remove_last` undoes a segment only when the newest undo label
   is the one the segment was stored with ("Draw line", `segment_label`), but

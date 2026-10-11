@@ -369,7 +369,7 @@ impl Sketch {
 
     fn symmetric_partner(&self, point: EntityId, about: EntityId) -> Option<EntityId> {
         self.mirrored_directly(point, about).or_else(|| {
-            self.constraints_using(point)
+            self.active_constraints_using(point)
                 .into_iter()
                 .filter_map(|id| self.constraint(id))
                 .filter_map(|constraint| match *constraint {
@@ -383,7 +383,7 @@ impl Sketch {
     }
 
     fn mirrored_directly(&self, point: EntityId, about: EntityId) -> Option<EntityId> {
-        self.constraints_using(point)
+        self.active_constraints_using(point)
             .into_iter()
             .filter_map(|id| self.constraint(id))
             .find_map(|constraint| match *constraint {
@@ -407,7 +407,7 @@ impl Sketch {
             return true;
         }
         let axis = about.is_reference();
-        self.constraints_using(point)
+        self.active_constraints_using(point)
             .into_iter()
             .filter_map(|id| self.constraint(id))
             .any(|constraint| match *constraint {

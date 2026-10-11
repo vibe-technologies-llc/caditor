@@ -1349,7 +1349,7 @@ impl Sketch {
                 other: self.entity_label(other),
             });
         }
-        for id in self.constraints_using(end) {
+        for id in self.active_constraints_using(end) {
             match self.constraint(id) {
                 Some(Constraint::Fix { .. }) => {
                     return Err(ExtendError::Fixed {
