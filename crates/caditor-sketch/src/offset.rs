@@ -655,6 +655,9 @@ impl Chain {
             return Err(OffsetError::NotPositive);
         }
         let by = side.sign() * distance;
+        if let Some(outline) = self.without_vanishing_arcs(side, distance, by)? {
+            return Ok(outline);
+        }
         let tolerance = TOLERANCE * self.scale().max(distance);
         let untrimmed: Vec<Course> = self
             .elements
@@ -724,6 +727,83 @@ impl Chain {
             return Err(OffsetError::CrossesItself);
         }
         Ok(outline)
+    }
+
+    fn without_vanishing_arcs(
+        &self,
+        side: Side,
+        distance: f64,
+        by: f64,
+    ) -> Result<Option<Outline>, OffsetError> {
+        let vanishing = |element: &Element| {
+            matches!(element.course, Course::Arc { .. }) && element.course.offset(by).is_none()
+        };
+        let Some(first_vanishing) = self.elements.iter().position(vanishing) else {
+            return Ok(None);
+        };
+        let collapses = || OffsetError::Collapses {
+            entity: self
+                .elements
+                .get(first_vanishing)
+                .map_or(EntityId::ORIGIN, |element| element.curve),
+            label: self.label(first_vanishing),
+        };
+        let count = self.elements.len();
+        let kept: Vec<usize> = (0..count)
+            .filter(|index| {
+                self.elements
+                    .get(*index)
+                    .is_some_and(|element| !vanishing(element))
+            })
+            .collect();
+        let at_an_open_end = !self.closed
+            && (self.elements.first().is_some_and(vanishing)
+                || self.elements.last().is_some_and(vanishing));
+        if kept.len() < 2 || at_an_open_end || !self.neighbours_cross_where_arcs_vanish(&kept) {
+            return Err(collapses());
+        }
+        let reduced = Chain {
+            elements: kept
+                .iter()
+                .filter_map(|index| self.elements.get(*index).copied())
+                .collect(),
+            labels: kept.iter().map(|index| self.label(*index)).collect(),
+            closed: self.closed,
+            around: None,
+        };
+        let mut outline = reduced.outline(side, distance).map_err(|_| collapses())?;
+        let original = |index: usize| kept.get(index).copied().unwrap_or(index);
+        for part in &mut outline.parts {
+            part.made = match part.made {
+                Made::Offset(index) => Made::Offset(original(index)),
+                Made::Corner(index) => Made::Corner(original(index)),
+                Made::Cap(end) => Made::Cap(end),
+            };
+        }
+        Ok(Some(outline))
+    }
+
+    fn neighbours_cross_where_arcs_vanish(&self, kept: &[usize]) -> bool {
+        let count = kept.len();
+        let total = self.elements.len();
+        let pairs = if self.closed { count } else { count - 1 };
+        (0..pairs).all(|position| {
+            let (Some(&first), Some(&second)) =
+                (kept.get(position), kept.get((position + 1) % count))
+            else {
+                return false;
+            };
+            if (first + 1) % total == second {
+                return true;
+            }
+            let (Some(before), Some(after)) = (self.elements.get(first), self.elements.get(second))
+            else {
+                return false;
+            };
+            let leaving = before.course.end_tangent();
+            let entering = after.course.start_tangent();
+            leaving.perp_dot(entering).abs() > SMOOTH_ANGLE
+        })
     }
 
     pub fn both_sides(&self, distance: f64, caps: Caps) -> Result<Vec<Outline>, OffsetError> {

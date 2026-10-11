@@ -636,8 +636,7 @@ fn a_lens_of_two_arcs_offset_outwards_closes_without_a_redundant_constraint() {
     assert!(grown > 12.0, "{grown}");
 }
 
-#[test]
-fn a_rounded_rectangle_offset_inwards_keeps_every_corner_concentric() {
+fn rounded_rectangle() -> (Sketch, Vec<EntityId>) {
     let mut sketch = Sketch::new(Plane::XY);
     let sides = [
         sketch.add_line(Point2::new(5.0, 0.0), Point2::new(35.0, 0.0)),
@@ -684,8 +683,14 @@ fn a_rounded_rectangle_offset_inwards_keeps_every_corner_concentric() {
             .add_constraint(Constraint::Tangent(corners[index], sides[(index + 1) % 4]))
             .unwrap();
     }
+    let curves = sides.iter().chain(&corners).copied().collect();
+    (sketch, curves)
+}
+
+#[test]
+fn a_rounded_rectangle_offset_inwards_keeps_every_corner_concentric() {
+    let (mut sketch, curves) = rounded_rectangle();
     let freedom = solve(&sketch).solution.degrees_of_freedom();
-    let curves: Vec<EntityId> = sides.iter().chain(&corners).copied().collect();
     let inside = sketch
         .offset_chain(&curves)
         .unwrap()
@@ -703,6 +708,75 @@ fn a_rounded_rectangle_offset_inwards_keeps_every_corner_concentric() {
     assert_clean(&solved);
     assert_eq!(solved.solution.degrees_of_freedom(), freedom);
     assert_eq!(count_of(&sketch, "Distance"), 1);
+}
+
+#[test]
+fn corners_an_inward_offset_shrinks_to_nothing_are_left_sharp() {
+    let (mut sketch, curves) = rounded_rectangle();
+    let freedom = solve(&sketch).solution.degrees_of_freedom();
+    let inside = sketch
+        .offset_chain(&curves)
+        .unwrap()
+        .side_of(Point2::new(20.0, 10.0));
+
+    let copies = sketch.offset(&curves, inside, 6.0, mm(6.0)).unwrap();
+
+    assert_eq!(copies.len(), 4);
+    assert!(copies.iter().all(|copy| sketch.circle(*copy).is_none()));
+    let solved = solve(&sketch);
+    assert_clean(&solved);
+    assert_eq!(solved.solution.degrees_of_freedom(), freedom);
+    assert_eq!(count_of(&sketch, "Distance"), 4);
+    let corners: Vec<Point2> = copies
+        .iter()
+        .filter_map(|copy| solved.geometry.line_endpoints(*copy))
+        .map(|(start, _)| start)
+        .collect();
+    for expected in [(6.0, 6.0), (34.0, 6.0), (34.0, 14.0), (6.0, 14.0)] {
+        let expected = Point2::new(expected.0, expected.1);
+        assert!(
+            corners
+                .iter()
+                .any(|corner| corner.distance(expected) < EXACT),
+            "{expected} not among {corners:?}"
+        );
+    }
+}
+
+#[test]
+fn a_slot_whose_round_ends_vanish_still_refuses() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let bottom = sketch.add_line(Point2::new(0.0, -2.0), Point2::new(10.0, -2.0));
+    let right = sketch.add_arc(
+        Point2::new(10.0, 0.0),
+        Point2::new(10.0, -2.0),
+        Point2::new(10.0, 2.0),
+    );
+    let top = sketch.add_line(Point2::new(10.0, 2.0), Point2::new(0.0, 2.0));
+    let left = sketch.add_arc(
+        Point2::new(0.0, 0.0),
+        Point2::new(0.0, 2.0),
+        Point2::new(0.0, -2.0),
+    );
+    let curves = [bottom, right, top, left];
+    for (index, curve) in curves.iter().enumerate() {
+        let (_, end) = ends(&sketch, *curve);
+        let (start, _) = ends(&sketch, curves[(index + 1) % 4]);
+        sketch
+            .add_constraint(Constraint::Coincident(end, start))
+            .unwrap();
+    }
+    let inside = sketch
+        .offset_chain(&curves)
+        .unwrap()
+        .side_of(Point2::new(5.0, 0.0));
+
+    let refused = sketch.offset(&curves, inside, 3.0, mm(3.0));
+
+    assert!(
+        matches!(refused, Err(OffsetError::Collapses { .. })),
+        "{refused:?}"
+    );
 }
 
 fn gap_to(sketch: &Sketch, ellipse: EntityId, point: Point2) -> f64 {

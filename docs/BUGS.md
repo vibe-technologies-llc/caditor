@@ -121,15 +121,13 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Sketching
 
-- [medium · hard] Offset keeps one offset curve per original, so an offset that would drop a curve
-  is refused: a 30×20 rounded rectangle (2 mm tangent corner arcs) offset inward by 2 mm or more is
-  `Collapses` on its first arc, where an arc shrinking to nothing should leave a sharp corner and
-  the lines meet beyond it, and an outline with a notch narrower than twice the distance (a 30×20
-  rectangle with a 2 mm wide, 2 mm deep notch in its top, offset outward 1.5 mm) is `UsedUp` on a
-  notch wall, where the notch should close up. The inner wall of a moulded or printed box drawn as
-  its outline's offset by the wall thickness meets both. `Chain::outline` (`offset.rs`) would drop
-  a vanishing arc, or the run of curves a closing notch uses up, and re-meet the neighbours,
-  leaving out the dropped curves' constraints as trim does.
+- [medium · hard] Offset keeps a curve per original but for arcs shrunk to nothing
+  (`Chain::without_vanishing_arcs`), so an offset that would use up a line is refused: an outline
+  with a notch narrower than twice the distance (a 30×20 rectangle with a 2 mm wide, 2 mm deep
+  notch in its top, offset outward 1.5 mm) is `UsedUp` on a notch wall, where the notch should
+  close up. The inner wall of a moulded or printed box drawn as its outline's offset by the wall
+  thickness meets it. `Chain::outline` (`offset.rs`) would drop the run of curves a closing notch
+  uses up and re-meet the neighbours, as it now does for a vanishing arc.
 
 ## Sketch solver
 

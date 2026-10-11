@@ -216,7 +216,12 @@ every constraint still true of it. Joints are judged by a `TOLERANCE` relative t
   chain (splines, branches and separate chains refused; a lone ellipse is below), walked from a free end so `Side` means the
   same thing on the working copy. `Chain::outline` joins offset curves: smooth joints meet, line
   corners meet sharp, a convex corner with an arc gets a round arc about the original corner, a
-  concave one is trimmed where the carriers cross.
+  concave one is trimmed where the carriers cross. An arc of a chain with other curves whose offset
+  shrinks to nothing is left out (`Chain::without_vanishing_arcs`): the outline is made from the
+  chain without it, its neighbours re-met sharp (so each holds the distance), and the parts are
+  mapped back to the original elements; an arc at an open chain's end, a chain left with fewer
+  than two curves, or neighbours that would not cross (a slot's parallel sides) still refuse as
+  `Collapses`.
   - `offset` holds the distance with the typed expression on the first curve and after every sharp
     corner; after a smooth joint or round corner it follows from the `Tangent` there, so a line only
     gets `Parallel` and an arc nothing. The closing `Coincident` of a closed chain is added last, so

@@ -8,7 +8,9 @@ Click to place it, or type the distance and press Enter. A negative distance goe
 side, so select, choose Offset, type the distance and press Enter without the mouse.
 
 The copy stays at that distance as the original changes. Smooth joints stay smooth and corners
-between lines stay sharp.
+between lines stay sharp. A rounded corner that the distance shrinks to nothing, such as the inside
+of a rounded rectangle offset by more than its corner radius, is left out and its neighbours meet
+in a sharp corner.
 
 ## Both sides
 
