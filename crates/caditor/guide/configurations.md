@@ -6,7 +6,11 @@ M6 and M8 screws) live in one file. {command:model.configurations} opens the tab
 - Each row is a configuration; the one marked active is the one the model shows.
 - **Configure a value** adds a column: a [parameter](parameters)'s expression, whether a feature is
   suppressed, or a body's colour.
-- **Add configuration**, rename, duplicate and delete manage the rows.
+- **Add configuration**, rename, duplicate and delete manage the rows. Deleting the active
+  configuration switches to the one below it, or the one above when it was the last.
+- A parameter's cell is refused when, with the other values of that configuration, the parameter
+  would depend on itself, so every configuration can always be switched to. To swap which of two
+  values follows the other, first type a plain value into the one that uses the other.
 - A parameter named in a configuration, as a column or in a cell, counts as in use. Deleting it
   writes its value into those cells and removes its column.
 

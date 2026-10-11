@@ -4,6 +4,7 @@ use caditor_expression::{Expression, ParameterId};
 
 use crate::{
     body_appearance::Rgb,
+    dependencies::DependencyGraph,
     document::{Document, FeatureId, ParameterUser},
     edit::{Edit, EditError, Transaction},
     views::view_name,
@@ -182,6 +183,15 @@ impl Configurations {
                 .sum::<usize>()
     }
 
+    fn successor(&self, id: ConfigurationId) -> Option<&Configuration> {
+        let index = self.rows.iter().position(|row| row.id == id)?;
+        self.rows.get(index + 1).or_else(|| {
+            index
+                .checked_sub(1)
+                .and_then(|before| self.rows.get(before))
+        })
+    }
+
     fn fresh_id(&mut self) -> ConfigurationId {
         let id = ConfigurationId(self.next_id);
         self.next_id = self.next_id.saturating_add(1);
@@ -349,7 +359,8 @@ impl Document {
     pub(crate) fn out_of_step(&self, row: &Configuration) -> Option<ConfiguredValue> {
         self.configurations.values.iter().copied().find(|value| {
             self.live_setting(*value)
-                .is_some_and(|live| row.setting(*value) != Some(&live))
+                .zip(row.setting(*value))
+                .is_some_and(|(live, held)| held != &live)
         })
     }
 
@@ -516,7 +527,7 @@ impl Document {
         let mut edits = Vec::new();
         let mut table = Configurations::clone(&self.configurations);
         if table.is_active(id) {
-            let next = table.rows.iter().find(|other| other.id != id);
+            let next = table.successor(id);
             edits.push(Edit::SetActiveConfiguration { active: None });
             if let Some(next) = next {
                 edits.extend(self.applying(next)?);
@@ -580,10 +591,42 @@ impl Document {
                 self.setting_edit(value, setting)?,
             ));
         }
+        if let (ConfiguredValue::Parameter(target), Setting::Expression(expression)) =
+            (value, &setting)
+        {
+            self.check_row_cycle(row, target, expression)?;
+        }
         let mut table = Configurations::clone(&self.configurations);
         if let Some(row) = table.rows.iter_mut().find(|row| row.id == id) {
             row.settings.insert(value, setting);
         }
         Ok(self.with_table(label, table))
+    }
+
+    fn check_row_cycle(
+        &self,
+        row: &Configuration,
+        target: ParameterId,
+        expression: &Expression,
+    ) -> Result<(), EditError> {
+        let mut graph = DependencyGraph::of(self);
+        let cells = row.settings.iter().filter_map(|(value, setting)| {
+            let id = value.parameter().filter(|id| *id != target)?;
+            Some((id, setting.expression()?))
+        });
+        for (id, cell) in cells {
+            graph.set(id, cell);
+        }
+        let Some(cycle) = graph.cycle(target, expression) else {
+            return Ok(());
+        };
+        let names: Vec<&str> = cycle
+            .iter()
+            .map(|step| self.parameter_name(*step).unwrap_or("?"))
+            .collect();
+        Err(EditError::Cycle {
+            name: self.parameter_name(target).unwrap_or_default().to_owned(),
+            path: names.join(" → "),
+        })
     }
 }

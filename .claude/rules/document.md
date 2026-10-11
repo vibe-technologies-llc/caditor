@@ -266,15 +266,20 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   selection set naming a deleted body: such a column is skipped when switching, and the ID
   counters are raised past every ID named.
 - `Edit::SetActiveConfiguration` changes only which row is active, refused
-  (`ConfigurationOutOfStep`) when the row's settings are not the live values. `activating` is the
+  (`ConfigurationOutOfStep`) when the row's settings are not the live values; a column the row
+  holds no setting for (added while a configured colour's feature made no body) is not out of
+  step, and switching leaves its live value as it is. `activating` is the
   one undoable switch: none active, then the row's settings applied as ordinary edits (values that
   use parameters first set to 0, then those using none, then the rest, so values referring to each
   other never pass a cycle), then the row active. Recompute sees only the changed values.
 - The builders (`adding_configuration`, `duplicating_configuration`, `renaming_configuration`,
   `moving_configuration`, `deleting_configuration`, `configuring`, `unconfiguring`,
   `setting_configuration`) each make one transaction. A new row copies the live values and is
-  active when none is; deleting the active row first switches to the next one; setting a cell
-  of the active row is the live edit itself.
+  active when none is; deleting the active row first switches to the row after it, else the one
+  before; setting a cell of the active row is the live edit itself, and a parameter cell of
+  another row is refused as `Cycle` when, with that row's other cells in place of the live
+  expressions, it would make the parameter depend on itself (`check_row_cycle`), so every row
+  can be switched to.
 
 ## Body appearance (`body_appearance.rs`)
 

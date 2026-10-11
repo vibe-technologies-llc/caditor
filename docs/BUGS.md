@@ -123,31 +123,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Application
 
-- [medium · easy] A cell of an inactive configuration takes an expression that makes a parameter
-  depend on itself, and that configuration can then never be switched to:
-  `Document::setting_configuration` writes an inactive row's cell straight into the table
-  (`SetConfigurations`, whose checks cover names, counts and ids, not cycles), and the app's cell
-  (`configurations.rs`, `field::parameter_expression`) only parses and evaluates it against the
-  live values, so with `a = 5 mm`, `b = a * 2` both configured, `b / 2` typed into another row's
-  `a` cell is accepted, and switching to that row, from its radio, the palette or an export of
-  every configuration, is refused as "This would make b depend on itself" with nothing pointing
-  at the cell. The active row's cell goes through `SetParameterExpression` and is refused at once.
-  Check the row's merged graph (the live expressions with that row's cells in place) for a cycle
-  when a cell is set; pin it in `configurations_tests.rs` beside
-  `values_using_each_other_swap_without_a_passing_cycle`.
-- [low · easy] A configuration added while a configured body colour's feature makes no body can
-  never be switched to once it makes one again: `live_settings_of` leaves out a column whose live
-  setting is none, so `adding_configuration` and `duplicating_configuration` store the row
-  without it, and `out_of_step` counts a row with no setting for a column as out of step
-  (`row.setting(v) != Some(&live)`), so `SetActiveConfiguration` refuses it with
-  `ConfigurationOutOfStep` and every-configuration export fails for it, while the cell reads
-  Default and choosing Default is dropped as no change. Configure Extrude 2's colour, switch it to
-  Add, add a configuration, switch it back to New body and switch to that configuration. Ignore
-  columns a row holds no setting for, or fill them from the live values when the table is set.
-- [low · easy] Deleting the active configuration switches to the first other row, not the next one
-  `document.md` names: `deleting_configuration` takes `rows.iter().find(|other| other.id != id)`,
-  so with M4, M6 and M8 and M6 active the model becomes M4. The one test deletes the first row,
-  where the two agree. Take the row after the deleted one, else the one before.
 - [low · easy] A feature created at a rollback bar inside a folder splits the folder in two of the
   same name: `TransactionBuilder::add_feature` inserts `Feature::new` (no group) at the bar, and
   nothing applies the membership rule moves follow (`grouping::membership_edits`), so with A and B

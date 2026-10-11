@@ -158,14 +158,14 @@ fn values_using_each_other_swap_without_a_passing_cycle() {
     set(
         &mut editor,
         flipped,
-        ConfiguredValue::Parameter(a),
-        Setting::Expression(half),
+        ConfiguredValue::Parameter(b),
+        Setting::Expression(ten),
     );
     set(
         &mut editor,
         flipped,
-        ConfiguredValue::Parameter(b),
-        Setting::Expression(ten),
+        ConfiguredValue::Parameter(a),
+        Setting::Expression(half),
     );
 
     switch(&mut editor, flipped);
@@ -174,6 +174,131 @@ fn values_using_each_other_swap_without_a_passing_cycle() {
     assert_eq!(text(editor.document(), a), "b / 2");
     assert_eq!(values.value(a).unwrap().value, 5.0);
     assert_eq!(values.value(b).unwrap().value, 10.0);
+}
+
+#[test]
+fn a_cell_making_a_parameter_depend_on_itself_in_its_row_is_refused() {
+    let mut document = Document::default();
+    let a = parameter(&mut document, "a", "5 mm");
+    let b = parameter(&mut document, "b", "a * 2");
+    let mut editor = Editor::new(document);
+    add(&mut editor, "Plain");
+    for value in [a, b] {
+        let configure = editor
+            .document()
+            .configuring(ConfiguredValue::Parameter(value))
+            .unwrap();
+        editor.apply(configure).unwrap();
+    }
+    let other = add(&mut editor, "Other");
+
+    let half = expression(editor.document(), "b / 2");
+    let refused = editor.document().setting_configuration(
+        other,
+        ConfiguredValue::Parameter(a),
+        Setting::Expression(half),
+    );
+
+    assert_eq!(
+        refused.err(),
+        Some(EditError::Cycle {
+            name: "a".to_owned(),
+            path: "a → b → a".to_owned(),
+        })
+    );
+    assert_eq!(
+        editor
+            .document()
+            .configuration_setting(other, ConfiguredValue::Parameter(a)),
+        Some(Setting::Expression(expression(editor.document(), "5 mm")))
+    );
+}
+
+#[test]
+fn deleting_the_active_configuration_in_the_middle_switches_to_the_row_after_it() {
+    let mut document = Document::default();
+    let size = parameter(&mut document, "size", "4 mm");
+    let mut editor = Editor::new(document);
+    add(&mut editor, "M4");
+    let configure = editor
+        .document()
+        .configuring(ConfiguredValue::Parameter(size))
+        .unwrap();
+    editor.apply(configure).unwrap();
+    let middle = add(&mut editor, "M6");
+    let last = add(&mut editor, "M8");
+    let eight = expression(editor.document(), "8 mm");
+    set(
+        &mut editor,
+        last,
+        ConfiguredValue::Parameter(size),
+        Setting::Expression(eight),
+    );
+    switch(&mut editor, middle);
+
+    let deletion = editor.document().deleting_configuration(middle).unwrap();
+    editor.apply(deletion).unwrap();
+
+    assert_eq!(editor.document().configurations().active, Some(last));
+    assert_eq!(text(editor.document(), size), "8 mm");
+
+    let deletion = editor.document().deleting_configuration(last).unwrap();
+    editor.apply(deletion).unwrap();
+
+    assert_eq!(editor.document().configurations().rows.len(), 1);
+    assert_eq!(text(editor.document(), size), "4 mm");
+}
+
+#[test]
+fn a_configuration_added_while_a_configured_colour_makes_no_body_can_be_switched_to() {
+    let Pair {
+        document,
+        plate,
+        peg,
+    } = pair();
+    let mut editor = Editor::new(document);
+    let first = add(&mut editor, "First");
+    let configure = editor
+        .document()
+        .configuring(ConfiguredValue::Colour(peg))
+        .unwrap();
+    editor.apply(configure).unwrap();
+    let joined = with_operation(editor.document(), peg, BodyOperation::Add(plate));
+    editor.apply(joined).unwrap();
+    let later = add(&mut editor, "Later");
+    let separate = with_operation(editor.document(), peg, BodyOperation::NewBody);
+    editor.apply(separate).unwrap();
+
+    assert_eq!(
+        editor
+            .document()
+            .configuration_setting(later, ConfiguredValue::Colour(peg)),
+        None
+    );
+
+    switch(&mut editor, later);
+
+    assert_eq!(editor.document().configurations().active, Some(later));
+
+    switch(&mut editor, first);
+
+    assert_eq!(editor.document().configurations().active, Some(first));
+}
+
+fn with_operation(document: &Document, id: FeatureId, operation: BodyOperation) -> Transaction {
+    let FeatureKind::Solid(SolidFeature::Extrude(mut extrude)) =
+        document.feature(id).unwrap().kind.clone()
+    else {
+        panic!("not an extrusion");
+    };
+    extrude.operation = operation;
+    Transaction::single(
+        "Change",
+        Edit::SetFeatureKind {
+            id,
+            kind: FeatureKind::Solid(SolidFeature::Extrude(extrude)),
+        },
+    )
 }
 
 #[test]
