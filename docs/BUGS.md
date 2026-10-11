@@ -325,13 +325,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   move. Keep the revision they were taken at and close the field when it moves on, or take the
   points afresh at Enter; pin it beside
   `the_sketch_bar_selects_everything_and_moves_it_to_a_typed_point`.
-- [low · easy] Rotating or scaling a lone ellipse moves it: `sketch_drag::extent_centre` bounds an
-  ellipse by its centre point, its one major-axis end and a square of its minor radius, never the
-  opposite end of the major axis, so an ellipse centred at the origin with its major end at
-  (10, 0) and minor radius 4 turns about (3, 0) instead of its centre, against
-  `app-sketching.md`'s "the centre of the selection's extent". Count both ends of the major axis
-  (or the true extent) for ellipses and elliptical arcs; pin it beside
-  `a_selection_turns_about_a_lone_selected_point_or_else_about_its_centre`.
 
 ## Sketch solver
 

@@ -129,7 +129,8 @@ paths:
   unless a unit is named, counter-clockwise) or "Scale by" (a factor above zero), committed and
   solved like a drag, so constraints still hold where they disagree. They turn or scale about the
   one selected point no selected curve uses (a lone point or the origin), which stays put, else
-  about the centre of the selection's extent (circles' rims included); a scale also scales the
+  about the centre of the selection's extent (circles' rims and whole ellipses included,
+  `ellipse_half_extent`, so a lone ellipse or elliptical arc turns about its own centre); a scale also scales the
   selected circles' radii. A lone point with nothing to turn it about is refused in words.
 - Copy, Cut and Paste (`Command::CopyGeometry`, `CutGeometry`, `PasteGeometry`, Ctrl+C, Ctrl+X,
   Ctrl+V, the Sketch menu and the palette) work on the edited sketch's selected geometry through a

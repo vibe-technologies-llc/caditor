@@ -527,18 +527,20 @@ fn extent_centre(
     circles: &[(EntityId, f64)],
 ) -> Point2 {
     let rims = circles.iter().filter_map(|(circle, radius)| {
-        let centre = match sketch.entity(*circle) {
+        let (centre, half) = match sketch.entity(*circle) {
+            Some(Entity::Circle { center, .. }) => {
+                (sketch.point(*center)?, Vector2::splat(*radius))
+            }
             Some(
-                Entity::Circle { center, .. }
-                | Entity::Ellipse { center, .. }
-                | Entity::EllipticalArc { center, .. },
-            ) => sketch.point(*center)?,
+                Entity::Ellipse { center, major, .. } | Entity::EllipticalArc { center, major, .. },
+            ) => {
+                let centre = sketch.point(*center)?;
+                let reach = sketch.point(*major)? - centre;
+                (centre, ellipse_half_extent(reach, *radius))
+            }
             _ => return None,
         };
-        Some([
-            centre - Vector2::splat(*radius),
-            centre + Vector2::splat(*radius),
-        ])
+        Some([centre - half, centre + half])
     });
     let (low, high) = points.iter().map(|(_, at)| [*at, *at]).chain(rims).fold(
         (
@@ -548,6 +550,17 @@ fn extent_centre(
         |(low, high), [from, to]| (low.min(from), high.max(to)),
     );
     (low + high) * 0.5
+}
+
+fn ellipse_half_extent(major: Vector2, minor_radius: f64) -> Vector2 {
+    let Some(direction) = major.try_normalize() else {
+        return Vector2::splat(minor_radius);
+    };
+    let along = major.length();
+    Vector2::new(
+        (along * direction.x).hypot(minor_radius * direction.y),
+        (along * direction.y).hypot(minor_radius * direction.x),
+    )
 }
 
 fn subject(sketch: &Sketch, entities: &[EntityId]) -> String {
@@ -1098,6 +1111,23 @@ mod tests {
         assert!(about_centre.scaled(f64::NAN).is_err());
         assert!(Transforming::of(&sketch, feature, &[pivot], Transform::Rotate).is_err());
         assert!(Transforming::of(&sketch, feature, &[EntityId::ORIGIN], Transform::Scale).is_err());
+    }
+
+    #[test]
+    fn a_lone_ellipse_turns_and_scales_about_its_centre_not_its_major_end() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let level = sketch.add_ellipse(Point2::ZERO, Point2::new(10.0, 0.0), 4.0);
+        let slanted = sketch.add_ellipse(Point2::new(20.0, 5.0), Point2::new(23.0, 9.0), 2.0);
+        let feature = feature();
+
+        for (ellipse, centre) in [(level, Point2::ZERO), (slanted, Point2::new(20.0, 5.0))] {
+            for transform in [Transform::Rotate, Transform::Scale] {
+                let transforming =
+                    Transforming::of(&sketch, feature, &[ellipse], transform).unwrap();
+
+                assert!(transforming.pivot.distance(centre) < 1e-12);
+            }
+        }
     }
 
     #[test]
