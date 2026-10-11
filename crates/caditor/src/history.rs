@@ -16,6 +16,7 @@ use crate::{
 
 const LIST_HEIGHT: f32 = 320.0;
 pub const TITLE: &str = "Version history";
+pub const ANOTHER_BEING_CHANGED: &str = "Another version is being changed";
 const DAMAGED: &str = "This version is damaged inside the file, so it cannot be restored. The \
                        other versions are not affected.";
 
@@ -137,7 +138,7 @@ impl VersionHistory {
         let (path, Listing::Loaded(history)) = self.shown.as_ref()? else {
             return None;
         };
-        if self.keeping.is_some() {
+        if !self.is_idle() {
             return None;
         }
         let version = history
@@ -148,11 +149,15 @@ impl VersionHistory {
         Some((path.clone(), version.state.clone()))
     }
 
+    pub fn is_idle(&self) -> bool {
+        self.restoring.is_none() && self.keeping.is_none()
+    }
+
     pub fn start_keeping(&mut self, index: usize) -> Option<PathBuf> {
         let (path, Listing::Loaded(history)) = self.shown.as_ref()? else {
             return None;
         };
-        if self.keeping.is_some() || self.restoring.is_some() {
+        if !self.is_idle() {
             return None;
         }
         history
@@ -312,7 +317,7 @@ fn versions(
                             {
                                 widgets::spinner(ui);
                             } else {
-                                let idle = history.restoring.is_none() && history.keeping.is_none();
+                                let idle = history.is_idle();
                                 let (label, hover, wanted) = if previewed {
                                     (
                                         version_preview::HIDE,
@@ -339,7 +344,7 @@ fn versions(
                                     .on_hover_text(
                                         "Bring the model back to this version; Undo reverses it",
                                     )
-                                    .on_disabled_hover_text("Another version is being changed")
+                                    .on_disabled_hover_text(ANOTHER_BEING_CHANGED)
                                     .clicked()
                                 {
                                     command = Some(HistoryCommand::Restore(version.index));
@@ -360,7 +365,7 @@ fn versions(
                                 if ui
                                     .add_enabled(idle, widgets::button(label))
                                     .on_hover_text(hover)
-                                    .on_disabled_hover_text("Another version is being changed")
+                                    .on_disabled_hover_text(ANOTHER_BEING_CHANGED)
                                     .clicked()
                                 {
                                     command = Some(HistoryCommand::Keep {
@@ -375,7 +380,7 @@ fn versions(
             });
     });
     if let Some(preview) = &history.preview
-        && let Some(chosen) = version_preview::show(ui, preview)
+        && let Some(chosen) = version_preview::show(ui, preview, history.is_idle())
     {
         command = Some(chosen);
     }
@@ -439,6 +444,48 @@ mod tests {
         assert!(history.start_restoring(0).is_some());
         history.finish_restoring(&path, &Err(LoadError::Empty));
         assert!(history.start_restoring(0).is_some());
+    }
+
+    #[test]
+    fn a_restore_is_refused_while_another_restore_or_a_keep_runs() {
+        let path = PathBuf::from("/models/plate.caditor");
+        let state = SavedState {
+            saved_at: UNIX_EPOCH,
+            label: None,
+        };
+        let versions = (0..2)
+            .map(|index| Version {
+                index,
+                state: state.clone(),
+                available: true,
+                kept: false,
+            })
+            .collect();
+        let mut history = VersionHistory::default();
+        history.open(path.clone());
+        history.listed(
+            &path,
+            Ok(History {
+                current: None,
+                versions,
+            }),
+        );
+
+        assert!(history.is_idle());
+        assert!(history.start_restoring(0).is_some());
+        assert!(!history.is_idle());
+        assert_eq!(history.start_restoring(1), None);
+        assert_eq!(history.start_restoring(0), None);
+        assert_eq!(history.start_keeping(1), None);
+
+        history.finish_restoring(&path, &Err(LoadError::VersionUnavailable));
+
+        assert!(history.is_idle());
+        assert_eq!(history.start_restoring(0), None);
+        assert!(history.start_keeping(1).is_some());
+        assert_eq!(history.start_restoring(1), None);
+        history.finish_keeping();
+        assert!(history.start_restoring(1).is_some());
     }
 
     #[test]

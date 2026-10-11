@@ -7,14 +7,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Files and recovery
 
-- [low · easy] Restore this version on the preview card ignores the one-restore-at-a-time rule:
-  the card's button (`version_preview.rs`) is always enabled while the rows' are disabled when not
-  `idle`, and `VersionHistory::start_restoring` refuses only while a Keep runs, so a restore from
-  the card while one from a row is loading starts a second, `finish_restoring` applies whichever
-  result arrives under the index started last (marking the wrong version Damaged when the first
-  fails as `VersionUnavailable`), and both land as "Restore earlier version" steps, the last to
-  finish winning. During a Keep the card's button silently does nothing. Disable it as the rows
-  are and refuse a restore while one runs.
 - [low · easy] Discarding recovered changes whose journal is already gone fails for good, worded
   as the operating system's text: `recovery::discard` returns `NotFound` when the journal no
   longer exists (another window discarded or restored it), the notice prints the `io::Error` as

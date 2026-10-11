@@ -402,6 +402,10 @@ paths:
   row shows a spinner and the other buttons are disabled (`VersionHistory::start_keeping`); the
   list is read again when it finishes, and a failure is a notice naming the reason. Like Restore,
   Keep is a button in each row reached by Tab, with no palette command of its own.
+- One restore or Keep runs at a time (`VersionHistory::is_idle`): while either runs, every
+  Restore and Keep, the preview card's Restore this version included, is disabled with the reason
+  on hover (`history::ANOTHER_BEING_CHANGED`), and `start_restoring` and `start_keeping` refuse,
+  so `finish_restoring` always marks the version it started.
 - Restore loads in the background and applies `Document::transaction_to` as one undoable change,
   so Undo brings back what was there; the next save keeps the replaced state as a version. A
   version that proves damaged when restored (`LoadError::VersionUnavailable`) is marked from then

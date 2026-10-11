@@ -14,6 +14,9 @@ change.
 - **Keep** marks a version so it is never thinned out; **Stop keeping** removes the mark. Kept
   versions show a bookmark and the word Kept.
 
+One version is restored or kept at a time: while one is, the other Restore and Keep buttons, the
+preview's included, wait until it is done.
+
 ## Thinning
 
 To keep files small, older versions thin out by age: the ten newest always stay, then one an hour

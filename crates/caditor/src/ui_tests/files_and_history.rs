@@ -561,6 +561,49 @@ fn a_kept_version_is_previewed_in_the_background_without_touching_the_model() {
     assert!(harness.files.version_preview().is_none());
 }
 
+#[test]
+fn the_preview_card_offers_no_restore_while_a_version_is_being_restored() {
+    let dir = TempDir::new().unwrap();
+    let plate = Sample::Plate.document().unwrap();
+    let mut harness = Harness::starting(Some(dir.path()), plate, Workspace::new());
+    let path = dir.path().join("plate.caditor");
+    harness.answer_dialog(Some(path));
+    harness.command(FileCommand::SaveAs);
+    harness.wait_until("the model is saved", |harness| {
+        harness.model.path().is_some() && !harness.model.is_saving()
+    });
+    harness.edit_width("45 mm");
+    harness.command(FileCommand::Save);
+    harness.wait_until("the change is saved", |harness| !harness.model.is_dirty());
+    harness.edit_width("47 mm");
+    harness.command(FileCommand::History(HistoryCommand::Show));
+    harness.wait_until("the versions are listed", |harness| {
+        harness.shows(version_preview::SHOW)
+    });
+    harness.click(version_preview::SHOW);
+    harness.wait_until("the preview is ready", |harness| {
+        harness.shows("Restore this version")
+    });
+
+    let release = harness.files.hold_jobs();
+    harness.click("Restore");
+    harness.click("Restore this version");
+    release.send(()).unwrap();
+    assert!(harness.files.wait_for_jobs(FILE_TIMEOUT));
+    harness.wait_until("the version is restored", |harness| {
+        harness.files.version_preview().is_none()
+    });
+    assert!(harness.files.wait_for_jobs(FILE_TIMEOUT));
+    harness.frame();
+    harness.frame();
+
+    assert!(notice_starts(&harness, "Restored the version saved"));
+    assert_eq!(harness.expression_text("width"), "50 mm");
+    assert_eq!(harness.model.undo_label(), Some("Restore earlier version"));
+    harness.perform(Action::Undo);
+    assert_eq!(harness.expression_text("width"), "47 mm");
+}
+
 fn start_image_export(harness: &mut Harness, target: std::path::PathBuf) {
     harness.key(Key::E, Modifiers::COMMAND | Modifiers::SHIFT);
     harness.frame();

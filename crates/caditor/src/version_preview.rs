@@ -456,7 +456,7 @@ fn drawn(size: SurfaceSize, pixels: &[u8]) -> Option<Arc<ColorImage>> {
     })
 }
 
-pub fn show(ui: &mut Ui, preview: &Preview) -> Option<HistoryCommand> {
+pub fn show(ui: &mut Ui, preview: &Preview, idle: bool) -> Option<HistoryCommand> {
     let mut command = None;
     widgets::card(ui, |ui| {
         ui.label(widgets::strong(format!(
@@ -490,8 +490,9 @@ pub fn show(ui: &mut Ui, preview: &Preview) -> Option<HistoryCommand> {
                         ui.set_max_width(ui.available_width().max(SHOWN_PICTURE.x));
                         details(ui, ready);
                         if ui
-                            .add(widgets::button("Restore this version"))
+                            .add_enabled(idle, widgets::button("Restore this version"))
                             .on_hover_text("Bring the model back to this version; Undo reverses it")
+                            .on_disabled_hover_text(history::ANOTHER_BEING_CHANGED)
                             .clicked()
                         {
                             command = Some(HistoryCommand::Restore(preview.index));
