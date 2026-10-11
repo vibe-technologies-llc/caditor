@@ -36,6 +36,7 @@ const SWITCH_BISECTIONS: usize = 48;
 const SHORTEST_PIECE: f64 = 10.0 * LINEAR_RESOLUTION;
 const JOINT_GAP: f64 = 10.0 * LINEAR_RESOLUTION;
 const BREAK_OFFSET: f64 = 1e-4;
+const FOLDING_SPEED: f64 = 0.1;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct RunSides {
@@ -502,7 +503,10 @@ fn run_stations(
             return Ok(stations);
         }
         if count * 2 > MAX_STATIONS {
-            return Err(BlendError::Intricate(edge));
+            let sections = crosses
+                .iter()
+                .chain(middles.iter().map(|(_, middle)| middle));
+            return Err(intricate_or_folding(edge, sections));
         }
         let mut doubled = Vec::with_capacity(2 * count + 1);
         for (cross, (_, middle)) in crosses.iter().zip(&middles) {
@@ -512,6 +516,26 @@ fn run_stations(
         doubled.push(last);
         crosses = doubled;
         count *= 2;
+    }
+}
+
+fn folds(cross: &Cross) -> bool {
+    cross
+        .feet
+        .iter()
+        .map(|foot| foot.point)
+        .chain(cross.center)
+        .any(|reached| 1.0 - (reached - cross.point).dot(cross.bend) <= FOLDING_SPEED)
+}
+
+fn intricate_or_folding<'a>(
+    edge: EdgeId,
+    sections: impl IntoIterator<Item = &'a Cross>,
+) -> BlendError {
+    if sections.into_iter().any(folds) {
+        BlendError::TooLarge(edge)
+    } else {
+        BlendError::Intricate(edge)
     }
 }
 
@@ -738,7 +762,8 @@ fn join_runs(runs: &mut [Stations], closed: bool) -> Result<(), BlendError> {
         ) else {
             continue;
         };
-        let joined = met(&before, &after).ok_or(BlendError::Intricate(edge))?;
+        let joined =
+            met(&before, &after).ok_or_else(|| intricate_or_folding(edge, [&before, &after]))?;
         if let Some(slot) = runs.get_mut(index).and_then(|run| run.crosses.last_mut()) {
             let mut ending = joined;
             for (foot, earlier) in ending.feet.iter_mut().zip(&before.feet) {

@@ -283,6 +283,10 @@ paths:
   `MAX_STATIONS` (`Intricate` beyond). The station tangents of a piece blend linearly into the
   joint tangents, and the two sections meeting at a joint, solved on slightly different faces, are
   averaged when within `JOINT_GAP` (else `Intricate`), so neighbouring pieces share it exactly.
+  Either refusal is `TooLarge` instead when a section's foot or ball centre reaches past
+  `1 - FOLDING_SPEED` of the way to the edge's centre of curvature (`folds`, the loft's speed rule
+  below), since the blend then folds back on itself, as a rim fillet does over rounded corners no
+  larger than it.
 - The tool (`loft.rs`) is a prism of ruled B-spline faces through each section's outline: the
   chord between the feet overhanging both by `OVERHANG` of its length, so it crosses the faces
   transversally, and an apex `APEX_REACH` reaches out along the feet's normal bisector (into the

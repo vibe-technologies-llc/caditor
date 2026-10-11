@@ -496,3 +496,18 @@ fn the_top_rim_of_a_box_widening_upwards_is_rounded() {
 
     assert_top_rim_rounded("widening", &body, -4.0, 2.0);
 }
+
+#[test]
+fn a_rim_fillet_no_smaller_than_the_rounded_corners_below_it_is_too_large() {
+    for (angle, corner, radius) in [(3.0, 2.0, 2.0), (3.0, 1.0, 2.0), (5.0, 2.0, 2.5)] {
+        let body = with_rounded_corners(angle, corner, false);
+        let top = rim_at(&body, 30.0);
+
+        let refused = blend(&body, &top[..1], fillet(radius), 99);
+
+        assert!(
+            matches!(refused, Err(BlendError::TooLarge(_))),
+            "{angle} deg, corners {corner}, fillet {radius}: {refused:?}"
+        );
+    }
+}

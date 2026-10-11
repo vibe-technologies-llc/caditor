@@ -115,8 +115,8 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   corners as `TooLarge`; 4 mm corners at -4° work. The ball's side contact there moves from a
   corner's cylinder onto the side plane partway along the straight rim, a switch the run
   splitting and the rounding's retraced edges do not yet follow. Tapering the other way works down
-  to corners a little larger than the fillet; corners no larger than the fillet are refused as
-  `Intricate`, which should read as `TooLarge`.
+  to corners a little larger than the fillet, and corners no larger than it are refused as
+  `TooLarge`.
 
 
 ## Sketching
