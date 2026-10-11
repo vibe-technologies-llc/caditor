@@ -5,6 +5,59 @@ its reproduction or pinning test where one exists.
 
 Entries are tagged and ordered as `ROADMAP.md` describes.
 
+## Files and recovery
+
+- [high · easy] The "changed by another program" prompt outlives a switch to another model, and
+  its Replace then saves the model open now over the old file, keeping neither the outside
+  contents nor the old file's versions: `FileEvent::ChangedOnDisk(path)` sets
+  `Files::changed_on_disk` with no session (the one prompt the `Since` checks left untagged),
+  nothing clears it when another model opens, and `OutsideChange(Replace)` calls
+  `Model::save_replacing_outside_changes(path)` on whatever model is open, whose storage worker
+  reads versions from its own file (none when untitled). Open A, let another program save over
+  it, edit and press Ctrl+S, then Ctrl+N before the save reports: the save's report waits behind
+  "Save changes to “A”?" (the guard is drawn first), Continue without saving opens the new model,
+  "“A” was changed by another program" follows, and Replace writes the empty model over
+  A.caditor. Keep the session with the prompt and drop a stale one with
+  `not_written_for_another_model`, as Save As and exports do; pin it beside
+  `saving_over_a_file_another_program_changed_asks_before_replacing_it`.
+- [medium · easy] Closing the window while a file dialog is open makes the unsaved-changes
+  prompt's Save As… do nothing, and the next ordinary save then quits caditor: the title bar's
+  Close is drawn over dialogs (`window_frame::over_dialogs`) and `FileCommand::Quit` is refused
+  only while closing or waiting for exports, not while `picking`; `GuardChoice::Save` sets
+  `after_save = Some(Quit)` and an untitled model's `save` calls `pick(SaveAs)`, which returns at
+  once while another pick is pending, and a cancelled Import or Export pick never clears
+  `after_save` (only Save As and Open do, `picked`), so the save the user makes later runs
+  `request(Quit)` and the window closes. Refuse the prompt's Save while a dialog is open (or stop
+  the pending pick first), and clear `after_save` when a pick it did not start ends; pin it in
+  `ui_tests/import_jobs.rs` with `hold_dialogs`.
+- [low · easy] Restore this version on the preview card ignores the one-restore-at-a-time rule:
+  the card's button (`version_preview.rs`) is always enabled while the rows' are disabled when not
+  `idle`, and `VersionHistory::start_restoring` refuses only while a Keep runs, so a restore from
+  the card while one from a row is loading starts a second, `finish_restoring` applies whichever
+  result arrives under the index started last (marking the wrong version Damaged when the first
+  fails as `VersionUnavailable`), and both land as "Restore earlier version" steps, the last to
+  finish winning. During a Keep the card's button silently does nothing. Disable it as the rows
+  are and refuse a restore while one runs.
+- [low · easy] Discarding recovered changes whose journal is already gone fails for good, worded
+  as the operating system's text: `recovery::discard` returns `NotFound` when the journal no
+  longer exists (another window discarded or restored it), the notice prints the `io::Error` as
+  is ("No such file or directory (os error 2)") and keeps the card, and every retry fails the same
+  way. `PreferencesNotSaved` and `RecentNotSaved` print raw `io::Error` text the same way
+  ("Permission denied (os error 13)"), where saves and loads word theirs through `WriteFailure`
+  and `ReadFailure`. Count a journal already gone as discarded and word the three errors; pin it beside
+  `a_discard_that_fails_keeps_the_recovery_offer_and_says_the_changes_can_still_be_restored`.
+- [low · medium] The startup recovery scan is not reconciled with what the window did while it
+  ran: `Event::Started` offers every journal it found again (`Files::offer` drops only those
+  still listed), so work restored or discarded from the card opening a model showed before the
+  scan finished is offered again, and restoring that stale copy replaces the edits made since; and
+  the scan holds each journal's lock (`try_lock`) through replay and a whole load, so an open
+  reaching `journal_for` meanwhile is refused as "already open in another caditor window", as is
+  a Save As target check. Remember the journals restored or discarded this session and skip them
+  and the open model's own journal when the scan reports, and retry an open briefly on
+  `InUse`; pin it near `unsaved_work_from_a_crash_is_offered_and_restored_with_its_history` with
+  `hold_jobs` delaying `Started`.
+
+
 ## Kernel
 
 - [high · hard] Booleans between the fixture solids in random placements all succeed on the
@@ -68,6 +121,30 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   edge along the same curve between the same cap and the faces of its `Collinear` pieces, or the
   feature marked as having lost part of its choice with a fix
   (`blend_tests::a_notch_trimmed_into_a_filleted_edge_keeps_both_pieces_rounded`, ignored).
+- [medium · easy] Switching a panel's mode moves a named value into a field of another caption, and
+  the value is then no longer the field's own: a parameter named in Distance (`h = 20`) and carried
+  to Total distance by Extent › Symmetric (`solid_panel::reshaped`), to Total angle or Forward by a
+  revolve's Extent (`turn_row`), or to First distance by a chamfer's Distances › Two
+  (`blend_tools::FormChoice::applied_to`) keeps its `ParameterOwner::Feature` with the old
+  caption, and `Document::owned_parameter` matches the caption, so the field shows `h` instead of
+  `h = 20 mm`, typing `h = 30` there is refused as a name already taken, the reach or turn arrow
+  is driven ("Total distance follows h", `manipulator::Held::of`), and a plain number typed over it
+  leaves `h` unused but still listed as "Extrude 1 · Distance". Choosing a hole Size, a primitive
+  Shape or a chamfer form that drops the angle replaces a named value without `releasing` it
+  either. Carry the owner to the new caption (`Edit::SetParameterOwner`) in the switch's
+  transaction, and release what a switch drops; pin it beside
+  `values_named_in_their_fields_are_listed_as_model_parameters_and_used_by_name`.
+- [medium · easy] Typing a value over a hovered handle skips the rule its panel field holds:
+  `manipulator::Typing::parse` checks only dimension and units, and `Typing::transaction` builds
+  the change through `reach_handles::typed`, `turn_handles::typed` or `value_handles::written`
+  and checks it with `field::checked`, a trial apply that tests no ranges, so `0` over a fillet's
+  size, `2.5` over a pattern count, `-10` over a one-sided distance, `60 deg` over a taper or
+  `400 deg` over a revolve's angle is committed as an "Edit …" change and the feature, and those
+  after it, fail, where the panel row (`Rule`) and a drag (`Measured::accepts`) both keep it out.
+  Give `Typing` the slot's `feature_fields::Rule` and refuse in the field, as `app-modelling.md`
+  says a refusal does; pin it beside
+  `hovering_an_arrow_and_typing_a_value_sets_it_and_previews_it_first`
+  (`ui_tests/feature_handles.rs`).
 - [medium · medium] Reported by the user: a Remove extrusion typed far past the body (100000 mm, to
   cut through without measuring) does not cut, so the exact depth must be found. Not reproduced:
   in `caditor-document`, a box, a cylinder, a thin block and a filleted block cut by rectangles
@@ -128,6 +205,105 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   saying it is the value of the old feature. The table's "Used by" menu (`parameter_table.rs`)
   omits configuration users through the same call. Count configuration users there and keep the
   parameter pending until its removal succeeds.
+- [low · easy] Update references is offered from an evaluation of an older revision: the tree's
+  callout, its row menu and the palette (`feature_tree.rs`, `reference_update`) take
+  `status.healing` from `Model::evaluation`, which until the new revision reports is still the
+  last one's (features a running recompute has not reached keep theirs too), and
+  `Healing::update` (`healing.rs`) refuses only when the feature's own kind changed. Undo the
+  hole drawn in `a_region_matched_again_after_a_hole_is_drawn_warns_until_its_references_are_updated`
+  and click Update references before the recompute reports: "Update references of Base" writes
+  the region captured on the sketch with the hole into a model without it, giving a new healing
+  warning (for a fillet, "A chosen edge is no longer part of the body"). Keep the revision the
+  held evaluation is of and offer the update only while it is the current one and the feature
+  is not pending.
+- [low · medium] A hole's Position X and Y keep a number where an expression was typed:
+  `hole_panel::position_rows` previews `width / 2` with its value and then stores the evaluated
+  millimetres in the hidden sketch's point (`hole_placement::moved`), as `place_handles::typed`
+  does for "x, y" typed over the square, so the hole stays put when `width` changes, against the
+  `ux.md` rule that numeric fields take expressions of named parameters; a primitive's Position
+  fields keep the expression (`primitive_panel.rs`). Refuse an expression using parameters there
+  with a pointer to Place by, or hold the point with horizontal and vertical distances from the
+  sketch origin (which `hole_placement::read` would then have to accept); pin it beside the test
+  typing into `("hole-position", …)` in `ui_tests.rs`.
+
+
+## Application
+
+- [medium · easy] A cell of an inactive configuration takes an expression that makes a parameter
+  depend on itself, and that configuration can then never be switched to:
+  `Document::setting_configuration` writes an inactive row's cell straight into the table
+  (`SetConfigurations`, whose checks cover names, counts and ids, not cycles), and the app's cell
+  (`configurations.rs`, `field::parameter_expression`) only parses and evaluates it against the
+  live values, so with `a = 5 mm`, `b = a * 2` both configured, `b / 2` typed into another row's
+  `a` cell is accepted, and switching to that row, from its radio, the palette or an export of
+  every configuration, is refused as "This would make b depend on itself" with nothing pointing
+  at the cell. The active row's cell goes through `SetParameterExpression` and is refused at once.
+  Check the row's merged graph (the live expressions with that row's cells in place) for a cycle
+  when a cell is set; pin it in `configurations_tests.rs` beside
+  `values_using_each_other_swap_without_a_passing_cycle`.
+- [medium · easy] Measure's mass cards give the centroid in world coordinates while Relative to
+  names a coordinate system: `measure_panel::mass_card` and `total_card` format
+  `properties.centroid` as it is (`MeasureContext` carries no `Relative`), while the "Centre of
+  mass of <body>" reading card beside it goes through `Relative::reading`, so one panel shows two
+  coordinates for one point, and the mass card's Keep this measurement along X, Y and Z
+  (`Keepable::of_mass_row`, `positions(None)`) keeps a reading along the world's axes, against
+  `app.md`'s "reads every position … in the chosen coordinate system". Map the centroid through
+  the panel's `Relative` and pass the frame to `of_mass_row` (inertia stays along the model axes as
+  the rule says); pin it beside
+  `measure_reads_positions_and_offsets_in_the_chosen_coordinate_system`
+  (`ui_tests/coordinate_systems.rs`).
+- [low · easy] A configuration added while a configured body colour's feature makes no body can
+  never be switched to once it makes one again: `live_settings_of` leaves out a column whose live
+  setting is none, so `adding_configuration` and `duplicating_configuration` store the row
+  without it, and `out_of_step` counts a row with no setting for a column as out of step
+  (`row.setting(v) != Some(&live)`), so `SetActiveConfiguration` refuses it with
+  `ConfigurationOutOfStep` and every-configuration export fails for it, while the cell reads
+  Default and choosing Default is dropped as no change. Configure Extrude 2's colour, switch it to
+  Add, add a configuration, switch it back to New body and switch to that configuration. Ignore
+  columns a row holds no setting for, or fill them from the live values when the table is set.
+- [low · easy] Deleting the active configuration switches to the first other row, not the next one
+  `document.md` names: `deleting_configuration` takes `rows.iter().find(|other| other.id != id)`,
+  so with M4, M6 and M8 and M6 active the model becomes M4. The one test deletes the first row,
+  where the two agree. Take the row after the deleted one, else the one before.
+- [low · easy] A feature created at a rollback bar inside a folder splits the folder in two of the
+  same name: `TransactionBuilder::add_feature` inserts `Feature::new` (no group) at the bar, and
+  nothing applies the membership rule moves follow (`grouping::membership_edits`), so with A and B
+  grouped as "Group 1" and rolled back to A, a new sketch lands between them ungrouped, the tree
+  draws two "Group 1" folders, and Rename group and Ungroup (`group_run`) reach one half. Give an
+  inserted feature the group its neighbours at the bar share; pin it beside
+  `moving_into_the_middle_of_a_group_joins_it_and_moving_out_leaves_it` (`grouping_tests.rs`).
+- [low · easy] The tree's choice keeps features an undo removed: `PanelState::chosen` and
+  `toggle_chosen` (`panels.rs`) never drop ids missing from the document, cleared only by a new
+  session and by deletions made from the tree, so after pasting a feature (which chooses the copy)
+  and pressing Ctrl+Z, Ctrl+clicking two rows and dragging one shows "That feature no longer
+  exists" (`move_features`, `MissingFeature`) and moves nothing. Drop missing ids when the
+  revision changes; pin it in `ui_tests/feature_tree_choice.rs`.
+- [low · easy] Undoing back to the saved state of a model with a kept measurement leaves it marked
+  unsaved: `Model::changed` judges `dirty` right after the undo, while the measured parameter
+  still holds the reading `follow_readings` wrote for the undone revision, and the next
+  evaluation writes the old reading back without judging it again (`dirty` is set only in
+  `changed`, after a save and on load), so the title keeps its Unsaved pill and Close or Open asks
+  to save a model equal to the saved one. Clear `dirty` when a follow brings the document back to
+  the saved one (never set it there, as following never makes a model unsaved); pin it beside
+  `a_measured_distance_is_kept_in_the_model_and_follows_upstream_edits`
+  (`ui_tests/cancel_and_parameters.rs`).
+- [low · easy] Clear face colours, and the selected faces' body-colour swatch, also drop the
+  opacity and finish a STEP import gave faces: `body_appearance.rs` clears with
+  `faces: Vec::new()` and `with_face_colours` with no colour filters the selected faces' entries
+  out, though a `FaceColour` also carries `opacity` and `finish`, which no control sets, so an
+  imported glass face turns opaque and plain and only Undo brings it back; repainting keeps them,
+  and `app-look.md` says clearing does. Reset only the colour of entries holding an opacity or
+  finish; pin it beside `selected_faces_take_a_colour_of_their_own_from_the_body_card`.
+- [low · easy] The theme check never holds muted text on `sunken`, which the menu bar's Search
+  commands label and every field's placeholder (egui's weak text on `text_edit_bg_color`) draw:
+  `appearance::required_pairs` has `Text` on `Sunken` but not `TextMuted`, so a loaded theme with
+  `"sunken": "#3c4250"` passes with those at about 3.9:1, against `ux.md`'s 4.5:1 for every panel
+  text colour. Add the pair; pin it with the refusal tests in `themes.rs`.
+- [low · easy] The Preferences guide page uses markup the guide does not read: `preferences.md`
+  has a `### Your own themes` heading and a fenced JSON example, and `guide::parse` knows only
+  `# `, `## ` and `- `, so the heading shows its hashes and the example runs into one paragraph
+  starting "json {" that is no longer valid JSON if copied. Use `##` and code spans (or teach the
+  parser fences) and test that no page has a line the parser does not read.
 
 
 ## Sketching
@@ -145,6 +321,22 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   `merge_point` (`fillet.rs`) drops a moved constraint as a duplicate of an inactive one. Add an
   `active_constraints_using` and use it at each, with tests deactivating a `Symmetric`, a
   `Coincident` and a `Fix`.
+- [medium · easy] Taking back the last point while Draw symmetrically is on ends the chain instead
+  of undoing the segment: `Drawing::remove_last` undoes a segment only when the newest undo label
+  is the one the segment was stored with ("Draw line", `segment_label`), but
+  `symmetric_drawing::mirrored` renames the transaction "Draw line symmetrically", so Backspace,
+  Delete or Take back the last point after drawing (10, 0) to (20, 10) about the vertical axis
+  leaves both halves drawn and ends the chain, against `app-sketching.md`'s "taking back undoes
+  the last segment when it is the newest undo step". Store the label the transaction will carry;
+  pin it in `ui_tests/sketch_symmetry.rs`.
+- [medium · easy] Smart dimension on a slanted line and an arc sharing an end never adds their
+  angle: `dimensioning::fitting` gives `Angle` for them (`Sketch::angle_vertex`), but
+  `offset_ends` counts `(Line, Arc)` as having horizontal and vertical offsets, so
+  `awaits_placement` holds the second click for a placing one, the prompt offers horizontal and
+  vertical distances, and `placed`, with no arm for the pair, adds a horizontal, vertical or
+  aligned distance to the arc's centre; only Enter gives the angle. Level and upright lines are
+  unaffected. Make `offset_ends` give none when the two share an end, as `fitting` decides first;
+  pin it beside `a_point_or_circle_off_a_slanted_line_and_two_circles_wait_to_be_placed`.
 - [medium · hard] Offset keeps one offset curve per original, so an offset that would drop a curve
   is refused: a 30×20 rounded rectangle (2 mm tangent corner arcs) offset inward by 2 mm or more is
   `Collapses` on its first arc, where an arc shrinking to nothing should leave a sharp corner and
@@ -154,6 +346,21 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   its outline's offset by the wall thickness meets both. `Chain::outline` (`offset.rs`) would drop
   a vanishing arc, or the run of curves a closing notch uses up, and re-meet the neighbours,
   leaving out the dropped curves' constraints as trim does.
+- [low · easy] Rotate, Scale and Move selected geometry act on the positions taken when their
+  field opened: `sketch_drag::Transforming` and `Moving` hold the points as they stood then, the
+  waiting field (focus lost without Enter) keeps them (`ViewportState::typed_owner` follows only
+  the sketch and tool), and Enter sends targets worked out from those positions, so a drag of the
+  same geometry or an undo made while the field waited is silently undone by the turn, scale or
+  move. Keep the revision they were taken at and close the field when it moves on, or take the
+  points afresh at Enter; pin it beside
+  `the_sketch_bar_selects_everything_and_moves_it_to_a_typed_point`.
+- [low · easy] Rotating or scaling a lone ellipse moves it: `sketch_drag::extent_centre` bounds an
+  ellipse by its centre point, its one major-axis end and a square of its minor radius, never the
+  opposite end of the major axis, so an ellipse centred at the origin with its major end at
+  (10, 0) and minor radius 4 turns about (3, 0) instead of its centre, against
+  `app-sketching.md`'s "the centre of the selection's extent". Count both ends of the major axis
+  (or the true extent) for ellipses and elliptical arcs; pin it beside
+  `a_selection_turns_about_a_lone_selected_point_or_else_about_its_centre`.
 
 ## Sketch solver
 
@@ -216,6 +423,70 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Viewer
 
+- [medium · easy] A click waiting for its pick acts on whatever lies under the pointer when the
+  pointer stops, not on what was clicked: `Click` keeps no cursor, and the pending click is
+  performed once `hover_is_current` holds, which compares the hover with the pointer's current
+  position and view, so a click released while the pick for its spot is still on the GPU (one to
+  three frames, longer while the camera animates) followed by a move onto another face or empty
+  space selects that face or clears the selection, and a move out of the view drops it. `Press`
+  already keeps its cursor and catches up when the pick for it arrives; the view's context menu
+  waits the same way as the click (`menu_waits_for_pick`), and `begin_primary` uses
+  `press.hovered` even when the press's pick never came. Keep the cursor with the click and
+  perform it on the pick for that cursor (or `Scene::hits_through` there once a later pick
+  replaced it), as `app.md` promises a click "never acts on a stale hover";
+  `a_click_waits_for_the_pick_under_the_cursor_rather_than_using_an_old_one` covers only a
+  pointer that stays still.
+- [medium · easy] Curves of a suppressed or rolled-back sketch stay selected and acted on:
+  `Pickable::SketchEntity::is_available` (`selection.rs`) asks only that the entity exists and the
+  sketch is not hidden (`visibility::is_shown` reads `hidden` alone), never `Document::is_active`,
+  so a curve selected before its sketch is suppressed or rolled back stays in the selection while
+  it is no longer drawn: Fit view (F) frames it, the status bar counts it, Look at faces its plane
+  and Extrude and Revolve still take its sketch (`solid_tools::sweep_source`). Faces, edges and
+  regions drop out when the evaluation loses them. Require an active feature outside the edited
+  sketch; pin it beside `a_suppressed_sketch_counts_toward_fitting_the_view_no_more`.
+- [medium · easy] Box and paint selection ignore the display style: `select_in_model`
+  (`viewport.rs`) never reads the style, so in Wireframe and X-ray, where faces are not picked
+  (Wireframe draws none, X-ray draws them without pick ids), a box with the default Everything
+  filter (`Catch::of` gives `Faces`) still takes faces that cannot be clicked and none of the
+  edges that are all the user sees, the Edges and Vertices filters leave out the back edges as
+  hidden behind a body (the depth map rasterises every shown body's triangles unless Select
+  through is on) though the style draws them through and a click picks them, and a paint stroke in
+  Wireframe takes nothing after clearing the selection at its start. Where the style shows no
+  pickable faces, let Everything catch edges and nothing occlude (`Occlusion::open`), and keep
+  paint to the box there; pin it beside
+  `select_through_lets_a_box_take_the_edges_and_corners_hidden_behind_the_model`.
+- [medium · easy] Exported images draw the dark view's palette on the light view's background:
+  `ViewportState::image` builds the scene with `canvas: Canvas::Dark` fixed, while the "3D view"
+  background (`Background::Viewport`) is the renderer's current one, light when the 3D view is
+  light, so a free sketch on Paper or with the view set to light exports in near-white curves on
+  near-white (`STANDARD`'s free curve and origin on `Canvas::Light`), against `app-files.md`'s
+  image drawn as shown. Version-history previews build theirs with `Canvas::default()` too
+  (`snapshot.rs`), drawn on the light background there. Pass the view's canvas; pin it beside
+  `exporting_an_image_writes_a_png_of_the_view_without_highlights_at_the_chosen_size`.
+- [medium · medium] High contrast holds edges and face highlights to 3:1 only on the default body
+  colour: `scene::body_color` draws a sound body in its painted colour in every palette and
+  `face_looks` keeps face colours, while `scene_palette.rs`'s
+  `high_contrast_edges_and_highlighted_faces_stand_out_on_a_body` checks `body_edge`,
+  `faces.selected` and `faces.hovered` against `DEFAULT_COLOUR` alone, so on the offered Charcoal
+  swatch edges read about 1.9:1 and a selected face about 1.3:1, the selection invisible (a black
+  or dark grey STEP import the same), and in dark high contrast selected edges on the White swatch
+  about 2:1, against `ux.md`'s "edges and highlighted faces to 3:1 on a body". Draw bodies in the
+  tested body colour in high contrast, as finishes already are dropped there, or choose edge and
+  highlight colours by the body's luminance, and extend the test to every swatch.
+- [low · easy] Removing a section plane above the current one moves Current to another plane:
+  `SectionTool::remove` (`section.rs`) removes the cut and only clamps `current`, never moving it
+  down when the removed index lies below it, so with three planes and the second current, the
+  first one's bin leaves the third marked Current, and the palette's Flip, Use selected and Remove
+  (which act on `current_mut`) change a plane the user did not choose. Move `current` down with
+  the planes after it; pin it beside the `section.rs` tests.
+- [low · easy] Fit view with a modifying feature's row chosen frames everything, and hovering or
+  choosing that row lights nothing: `BuiltScene::bounds_of_features` (`scene.rs`) looks rows up in
+  the body meshes, keyed by the feature that made each body, so a fillet, shell, hole, combine or
+  cut extrusion row gives no bounds and Fit falls back to the whole model, against "frames the
+  chosen rows' bodies" (`app-look.md`, the Navigation guide page); `Highlight::is_of_chosen_row`
+  compares the same raw ids. Map each row through `Feature::body` first, as
+  `visibility::hideable_rows` does; pin it beside
+  `fitting_the_view_frames_the_rows_chosen_in_the_tree_when_nothing_is_selected`.
 - [low · medium · blocked by: wgpu's GL backend] On GL and other devices without texture view
   formats the multisample resolve still averages in gamma space. A resolve of its own (a pass
   reading the samples through a `texture_multisampled_2d` and averaging them in linear light) was
