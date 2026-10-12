@@ -164,6 +164,12 @@ const BOX_FILL_OPACITY: f32 = 0.12;
 const BOX_STROKE_WIDTH: f32 = 1.0;
 const BOX_DASH: f32 = 6.0;
 const BOX_GAP: f32 = 4.0;
+const THROUGH_STROKE_WIDTH: f32 = 4.0;
+pub const TAKING_SEEN_PROMPT: &str = "Taking only what can be seen";
+pub const TAKING_HIDDEN_PROMPT: &str = "Taking what is hidden behind too";
+pub const HOLD_ALT_HINT: &str = "Alt: also take what is hidden";
+pub const LET_GO_OF_ALT_HINT: &str = "Alt: let go to take only what can be seen";
+const SELECT_THROUGH_ON_HINT: &str = "Select through is on: View › Selection tools turns it off";
 const NOTHING_TO_HIGHLIGHT: &str = "Nothing in the view can be picked";
 const MEASURE_LABEL_LIFT: f32 = 6.0;
 const PROBLEM_LABEL_LIFT: f32 = 9.0;
@@ -406,6 +412,7 @@ pub struct ViewportState {
     lasso: bool,
     paint: bool,
     select_through: bool,
+    through_held: bool,
     typed_dimensions: bool,
     symmetry: Option<Symmetry>,
     mirror: Option<Mirror>,
@@ -632,6 +639,7 @@ impl ViewportState {
             lasso: false,
             paint: false,
             select_through: false,
+            through_held: false,
             typed_dimensions: true,
             symmetry: None,
             mirror: None,
@@ -1855,11 +1863,12 @@ impl ViewportState {
         editing: &SketchEditing,
         actions: &mut Vec<Action>,
     ) {
-        let (pressed, released, toggle) = ui.input(|input| {
+        let (pressed, released, toggle, alt) = ui.input(|input| {
             (
                 input.pointer.primary_pressed(),
                 input.pointer.primary_released(),
                 input.modifiers.shift || input.modifiers.command,
+                input.modifiers.alt,
             )
         });
         if pressed && response.hovered() {
@@ -1908,6 +1917,11 @@ impl ViewportState {
                 self.primary = None;
             }
         }
+        self.through_held = alt
+            && matches!(
+                self.primary,
+                Some(PrimaryDrag::ModelBox { .. } | PrimaryDrag::Paint(_))
+            );
         let edited = editing
             .active()
             .filter(|active| !active.tool.draws())
@@ -2049,7 +2063,7 @@ impl ViewportState {
                 &view,
                 *at,
                 self.pixels_per_point,
-                self.select_through,
+                self.reaches_through(),
             ) {
                 if !painted.contains(&face)
                     && !self.selection.contains(face)
@@ -2375,12 +2389,14 @@ impl ViewportState {
                         units_per_point: view.units_per_pixel_at(depth) * scale,
                     })
                 };
+                let screen = |point: Point3| Some(view.project(point)? / scale);
                 let shown: Vec<_> = self
                     .bodies
                     .iter()
                     .filter(|(body, _)| visibility::is_shown(document, *body))
+                    .filter(|(_, mesh)| box_selection::may_reach(mesh.bounds(), &screen, area))
                     .collect();
-                let occlusion = if self.select_through || !faces_pick {
+                let occlusion = if self.reaches_through() || !faces_pick {
                     box_selection::Occlusion::open()
                 } else {
                     box_selection::Occlusion::of(
@@ -4841,9 +4857,13 @@ impl ViewportState {
         view_cube::show_axis_triad(ui, rect, orientation, self.contrast.palette(self.canvas));
 
         let painter = ui.painter();
-        if let Some(PrimaryDrag::Box { area, .. } | PrimaryDrag::ModelBox { area }) = &self.primary
-        {
-            paint_area(painter, rect, area);
+        match &self.primary {
+            Some(PrimaryDrag::Box { area, .. }) => paint_area(painter, rect, area, false),
+            Some(PrimaryDrag::ModelBox { area }) => {
+                let through = self.reach_matters() && self.reaches_through();
+                paint_area(painter, rect, area, through);
+            }
+            _ => {}
         }
         if let Some((line, label)) = &self.measured
             && let Some(view) = self.view()
@@ -5065,7 +5085,9 @@ impl ViewportState {
         key_hints: &KeyHints,
     ) -> Option<(String, String)> {
         let document = model.document();
-        if editing.is_choosing_plane() {
+        if let Some(reach) = self.reach_prompt(key_hints) {
+            Some(reach)
+        } else if editing.is_choosing_plane() {
             Some((CHOOSE_PLANE_PROMPT.to_owned(), CHOOSE_PLANE_HINT.to_owned()))
         } else if let Some(picking) = editing.picking() {
             Some((
@@ -5200,6 +5222,35 @@ impl ViewportState {
                     )
                 })
         }
+    }
+
+    fn reaches_through(&self) -> bool {
+        self.select_through || self.through_held
+    }
+
+    fn reach_matters(&self) -> bool {
+        match &self.primary {
+            Some(PrimaryDrag::ModelBox { .. }) => {
+                self.style.picks_faces()
+                    && Catch::of(self.active_filter(), true) != Catch::SketchGeometry
+            }
+            Some(PrimaryDrag::Paint(_)) => true,
+            _ => false,
+        }
+    }
+
+    fn reach_prompt(&self, key_hints: &KeyHints) -> Option<(String, String)> {
+        if !self.reach_matters() {
+            return None;
+        }
+        let (text, keys) = if self.select_through {
+            (TAKING_HIDDEN_PROMPT, key_hints.select_through_on.clone())
+        } else if self.through_held {
+            (TAKING_HIDDEN_PROMPT, LET_GO_OF_ALT_HINT.to_owned())
+        } else {
+            (TAKING_SEEN_PROMPT, HOLD_ALT_HINT.to_owned())
+        };
+        Some((text.to_owned(), keys))
     }
 
     fn dimension_hover(
@@ -5374,57 +5425,48 @@ fn paint_prompt(painter: &egui::Painter, rect: Rect, band: Rect, text: &str, key
     })
 }
 
-fn paint_area(painter: &egui::Painter, rect: Rect, area: &ScreenArea) {
+fn paint_area(painter: &egui::Painter, rect: Rect, area: &ScreenArea, through: bool) {
+    let chrome = canvas::chrome(painter.ctx());
     let corner = |at: Vector2| rect.min + egui::Vec2::new(at.x as f32, at.y as f32);
-    let area = match area {
-        ScreenArea::Box(area) => *area,
-        ScreenArea::Lasso(points) => {
-            let outline: Vec<egui::Pos2> = points.iter().map(|point| corner(*point)).collect();
-            painter.add(Shape::closed_line(
-                outline,
-                Stroke::new(BOX_STROKE_WIDTH, canvas::chrome(painter.ctx()).selected),
-            ));
-            return;
-        }
-    };
-    let drawn = Rect::from_two_pos(corner(area.from), corner(area.to));
-    match area.mode() {
-        BoxMode::Window => {
-            painter.rect_filled(
-                drawn,
-                0.0,
-                canvas::chrome(painter.ctx())
-                    .selected
-                    .gamma_multiply(BOX_FILL_OPACITY),
-            );
-            painter.rect_stroke(
-                drawn,
-                0.0,
-                Stroke::new(BOX_STROKE_WIDTH, canvas::chrome(painter.ctx()).selected),
-                egui::StrokeKind::Inside,
-            );
-        }
-        BoxMode::Crossing => {
-            painter.rect_filled(
-                drawn,
-                0.0,
-                canvas::chrome(painter.ctx())
-                    .snap
-                    .gamma_multiply(BOX_FILL_OPACITY),
-            );
-            let outline = [
+    let (outline, colour, dashed) = match area {
+        ScreenArea::Lasso(points) => (
+            points.iter().map(|point| corner(*point)).collect(),
+            chrome.selected,
+            false,
+        ),
+        ScreenArea::Box(area) => {
+            let drawn = Rect::from_two_pos(corner(area.from), corner(area.to));
+            let (colour, dashed) = match area.mode() {
+                BoxMode::Window => (chrome.selected, false),
+                BoxMode::Crossing => (chrome.snap, true),
+            };
+            painter.rect_filled(drawn, 0.0, colour.gamma_multiply(BOX_FILL_OPACITY));
+            let outline: Vec<egui::Pos2> = vec![
                 drawn.left_top(),
                 drawn.right_top(),
                 drawn.right_bottom(),
                 drawn.left_bottom(),
-                drawn.left_top(),
             ];
-            painter.extend(Shape::dashed_line(
-                &outline,
-                Stroke::new(BOX_STROKE_WIDTH, canvas::chrome(painter.ctx()).snap),
-                BOX_DASH,
-                BOX_GAP,
-            ));
+            (outline, colour, dashed)
+        }
+    };
+    let Some(first) = outline.first().copied() else {
+        return;
+    };
+    let closed: Vec<egui::Pos2> = outline.into_iter().chain([first]).collect();
+    let strokes = if through {
+        vec![
+            Stroke::new(THROUGH_STROKE_WIDTH, colour),
+            Stroke::new(BOX_STROKE_WIDTH, chrome.panel),
+        ]
+    } else {
+        vec![Stroke::new(BOX_STROKE_WIDTH, colour)]
+    };
+    for stroke in strokes {
+        if dashed {
+            painter.extend(Shape::dashed_line(&closed, stroke, BOX_DASH, BOX_GAP));
+        } else {
+            painter.add(Shape::line(closed.clone(), stroke));
         }
     }
 }
@@ -5744,6 +5786,7 @@ struct KeyHints {
     sides: Option<String>,
     targets: String,
     whole_body: String,
+    select_through_on: String,
     tools: Vec<(Tool, String)>,
 }
 
@@ -5779,11 +5822,16 @@ impl KeyHints {
             Some(keys) => format!("{keys}: the whole body   {targets}"),
             None => targets.clone(),
         };
+        let select_through_on = match commands.keys(Command::ToggleSelectThrough) {
+            Some(keys) => format!("{keys}: turn Select through off"),
+            None => SELECT_THROUGH_ON_HINT.to_owned(),
+        };
         Self {
             navigation,
             highlight,
             targets,
             whole_body,
+            select_through_on,
             fit: commands.with_keys(Command::FitView, "Frame the view around it"),
             home: commands.with_keys(
                 Command::View(StandardView::Isometric),
