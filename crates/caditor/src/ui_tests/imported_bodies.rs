@@ -144,7 +144,7 @@ fn an_imported_body_is_placed_from_its_details_and_keeps_its_place_when_reloaded
     let body = harness.document().features().last().unwrap().id();
     let name = harness.document().feature(body).unwrap().name.clone();
 
-    harness.click("Close");
+    harness.click_button(crate::widgets::CLOSE_DIALOG);
     harness.click_button(&format!("Show details of {name}"));
     harness.let_animations_finish();
     let described = harness.shows(crate::import_panel::DESCRIPTION);

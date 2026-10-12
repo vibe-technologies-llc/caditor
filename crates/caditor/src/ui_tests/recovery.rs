@@ -40,7 +40,7 @@ fn opening_a_damaged_file_reports_what_was_lost_and_keeps_the_original_on_save()
         harness.shows("A damaged part of the file was skipped; anything it held was left out.")
     );
     assert_eq!(harness.model.document().features().len(), 1);
-    harness.click("Close");
+    harness.click_button(crate::widgets::CLOSE_DIALOG);
     assert!(!harness.shows("Parts of “damaged.caditor” could not be read"));
 
     harness.command(FileCommand::Save);
@@ -72,7 +72,7 @@ fn an_unreadable_journal_is_kept_aside_and_reported_when_its_model_opens() {
     assert_eq!(kept.len(), 1);
     let note = caditor_file::describe_set_aside(&root.as_path().join(&kept[0]));
     assert!(harness.shows(&note), "{note}");
-    harness.click("Close");
+    harness.click_button(crate::widgets::CLOSE_DIALOG);
     assert!(!harness.model.is_dirty());
 }
 

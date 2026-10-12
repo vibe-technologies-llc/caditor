@@ -13,7 +13,6 @@ use egui::{
 use crate::{
     appearance::{self, BORDER_WIDTH, CARD_RADIUS, SPACE_M, SPACE_S, WIDGET_RADIUS},
     commands::{self, Command, Keymap, Offer},
-    dialog_parts::BodyRoom,
     editing::{SketchEditing, Tool},
     fonts, icons,
     model::{Model, display_name},
@@ -34,7 +33,6 @@ const RECENT_SHOWN: usize = 5;
 const HINT_WIDTH: f32 = 360.0;
 const HINT_BOTTOM_CLEARANCE: f32 = 16.0;
 const SAMPLE_ICON_SIZE: f32 = 24.0;
-const WELCOME_HEIGHT_SHARE: f32 = 0.9;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Hint {
@@ -307,28 +305,23 @@ pub fn welcome(ctx: &egui::Context, keymap: &Keymap, recent: &[PathBuf]) -> Opti
                  and unsaved work survives a crash.",
                 ui,
             ));
-            let mut room = BodyRoom::measure(ui, "welcome", WELCOME_HEIGHT_SHARE);
-            let mut choice = egui::ScrollArea::vertical()
-                .max_height(room.height)
-                .show(ui, |ui| {
-                    let mut choice = None;
-                    if !recent.is_empty() {
-                        ui.add_space(SPACE_M);
-                        choice = recent_files(ui, recent);
-                    }
+            let mut choice = widgets::dialog_body(ui, |ui| {
+                let mut choice = None;
+                if !recent.is_empty() {
                     ui.add_space(SPACE_M);
-                    ui.label(widgets::section_title(
-                        "Open a sample to see how a model is built",
-                    ));
-                    for sample in Sample::ALL {
-                        if sample_card(ui, sample) {
-                            choice = Some(WelcomeChoice::Sample(sample));
-                        }
+                    choice = recent_files(ui, recent);
+                }
+                ui.add_space(SPACE_M);
+                ui.label(widgets::section_title(
+                    "Open a sample to see how a model is built",
+                ));
+                for sample in Sample::ALL {
+                    if sample_card(ui, sample) {
+                        choice = Some(WelcomeChoice::Sample(sample));
                     }
-                    choice
-                })
-                .inner;
-            room.body_ended(ui);
+                }
+                choice
+            });
             let palette = keymap.first(Command::Palette).map_or_else(
                 || Command::Palette.title(),
                 |shortcut| commands::display(&shortcut),
@@ -361,7 +354,6 @@ pub fn welcome(ctx: &egui::Context, keymap: &Keymap, recent: &[PathBuf]) -> Opti
                     choice = Some(WelcomeChoice::Open);
                 }
             });
-            room.dialog_ended(ui);
             choice
         },
     );

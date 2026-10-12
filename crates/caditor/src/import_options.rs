@@ -155,90 +155,92 @@ pub fn dialog(
     let title = format!("Import “{}”", display_name(Some(&arranging.path)));
     let response = widgets::dialog(ctx, "import-drawing", &title, DialogWidth::Medium, |ui| {
         let mut command = None;
-        let Arrangement { options, plane } = &arranging.arrangement;
-        let arranged = arranging.drawing.arranged(options);
+        let blocker = widgets::dialog_body(ui, |ui| {
+            let Arrangement { options, plane } = &arranging.arrangement;
+            let arranged = arranging.drawing.arranged(options);
 
-        export::heading(ui, "Units");
-        let units: Vec<(DrawingUnit, &str, String)> = DrawingUnit::ALL
-            .iter()
-            .map(|unit| (*unit, unit_label(*unit), unit_hover(*unit)))
-            .collect();
-        let choices: Vec<(DrawingUnit, &str, &str)> = units
-            .iter()
-            .map(|(unit, label, hover)| (*unit, *label, hover.as_str()))
-            .collect();
-        if let Some(unit) = preferences::choice(ui, &choices, options.unit) {
-            command = Some(ImportOptionsCommand::Unit(unit));
-        }
-
-        export::heading(ui, "Scale");
-        let field = field::commit_field(
-            ui,
-            Id::new("import-scale"),
-            &options.scale.to_string(),
-            widgets::FIELD_WIDTH,
-            false,
-            parse_scale,
-        );
-        if let Some(scale) = field.committed {
-            command = Some(ImportOptionsCommand::Scale(scale));
-        }
-        if let Some(message) = &field.error {
-            widgets::error_row(ui, message);
-        }
-
-        export::heading(ui, "Position");
-        let mut recentre = options.recentre;
-        if widgets::checkbox(ui, &mut recentre, "Centre the drawing on the origin")
-            .on_hover_text("Move the middle of the drawing's outline to the sketch's origin")
-            .changed()
-        {
-            command = Some(ImportOptionsCommand::Recentre(recentre));
-        }
-
-        if !into_edited_sketch {
-            export::heading(ui, "Sketch plane");
-            let planes: Vec<(PlaneChoice, &str, &str)> = PlaneChoice::ALL
+            export::heading(ui, "Units");
+            let units: Vec<(DrawingUnit, &str, String)> = DrawingUnit::ALL
                 .iter()
-                .map(|choice| (*choice, choice.label(), choice.hover()))
+                .map(|unit| (*unit, unit_label(*unit), unit_hover(*unit)))
                 .collect();
-            if let Some(choice) = preferences::choice(ui, &planes, *plane) {
-                command = Some(ImportOptionsCommand::Plane(choice));
+            let choices: Vec<(DrawingUnit, &str, &str)> = units
+                .iter()
+                .map(|(unit, label, hover)| (*unit, *label, hover.as_str()))
+                .collect();
+            if let Some(unit) = preferences::choice(ui, &choices, options.unit) {
+                command = Some(ImportOptionsCommand::Unit(unit));
             }
-        }
 
-        if arranging.drawing.layers.len() > 1 {
-            layers(ui, arranging, &mut command);
-        }
+            export::heading(ui, "Scale");
+            let field = field::commit_field(
+                ui,
+                Id::new("import-scale"),
+                &options.scale.to_string(),
+                widgets::FIELD_WIDTH,
+                false,
+                parse_scale,
+            );
+            if let Some(scale) = field.committed {
+                command = Some(ImportOptionsCommand::Scale(scale));
+            }
+            if let Some(message) = &field.error {
+                widgets::error_row(ui, message);
+            }
 
-        ui.add_space(SPACE_M);
-        let units = model.units();
-        let summary = match arranged.bounds() {
-            Some((low, high)) => format!(
-                "{} drawn, {} wide and {} high.",
-                feature_tree::count(arranged.curve_count(), "curve", "curves"),
-                units.measured_length(high.x - low.x),
-                units.measured_length(high.y - low.y),
-            ),
-            None => "The drawing is empty.".to_owned(),
-        };
-        ui.label(widgets::muted(summary, ui));
-        let chosen = arranging
-            .drawing
-            .chosen_curve_count(&options.left_out_layers);
-        if chosen > MAX_DRAWING_CURVES {
-            widgets::callout(ui, Tone::Warning, |ui| {
-                ui.add(Label::new(too_many_curves(chosen)).wrap());
-            });
-        }
+            export::heading(ui, "Position");
+            let mut recentre = options.recentre;
+            if widgets::checkbox(ui, &mut recentre, "Centre the drawing on the origin")
+                .on_hover_text("Move the middle of the drawing's outline to the sketch's origin")
+                .changed()
+            {
+                command = Some(ImportOptionsCommand::Recentre(recentre));
+            }
 
-        let blocker = if !options.is_valid() {
-            Some(NOT_A_SCALE)
-        } else if arranged.curves.is_empty() {
-            Some(NO_LAYERS)
-        } else {
-            None
-        };
+            if !into_edited_sketch {
+                export::heading(ui, "Sketch plane");
+                let planes: Vec<(PlaneChoice, &str, &str)> = PlaneChoice::ALL
+                    .iter()
+                    .map(|choice| (*choice, choice.label(), choice.hover()))
+                    .collect();
+                if let Some(choice) = preferences::choice(ui, &planes, *plane) {
+                    command = Some(ImportOptionsCommand::Plane(choice));
+                }
+            }
+
+            if arranging.drawing.layers.len() > 1 {
+                layers(ui, arranging, &mut command);
+            }
+
+            ui.add_space(SPACE_M);
+            let units = model.units();
+            let summary = match arranged.bounds() {
+                Some((low, high)) => format!(
+                    "{} drawn, {} wide and {} high.",
+                    feature_tree::count(arranged.curve_count(), "curve", "curves"),
+                    units.measured_length(high.x - low.x),
+                    units.measured_length(high.y - low.y),
+                ),
+                None => "The drawing is empty.".to_owned(),
+            };
+            ui.label(widgets::muted(summary, ui));
+            let chosen = arranging
+                .drawing
+                .chosen_curve_count(&options.left_out_layers);
+            if chosen > MAX_DRAWING_CURVES {
+                widgets::callout(ui, Tone::Warning, |ui| {
+                    ui.add(Label::new(too_many_curves(chosen)).wrap());
+                });
+            }
+
+            if !options.is_valid() {
+                Some(NOT_A_SCALE)
+            } else if arranged.curves.is_empty() {
+                Some(NO_LAYERS)
+            } else {
+                None
+            }
+        });
         widgets::footer(ui, |ui| {
             let import = ui.add_enabled(blocker.is_none(), widgets::primary_button(ui, "Import"));
             let import = match blocker {

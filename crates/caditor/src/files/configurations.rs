@@ -7,7 +7,7 @@ use caditor_document::{
 use caditor_file::{
     ConfigurationFileError, configurations_csv, read_configurations, write_configurations,
 };
-use egui::{Grid, ScrollArea, Ui};
+use egui::{Grid, Ui};
 
 use super::{Event, FileCommand, Files, Purpose, WriteKind, parameters::capitalised};
 use crate::{
@@ -387,33 +387,34 @@ pub fn dialog(ctx: &egui::Context, draft: &ConfigurationImportDraft) -> Option<F
                 command = Some(ConfigurationFileCommand::Replace(replace));
             }
             ui.add_space(SPACE_S);
-            let height = widgets::list_height(ui.ctx(), LIST_HEIGHT);
             widgets::card(ui, |ui| {
-                ScrollArea::vertical().max_height(height).show(ui, |ui| {
-                    Grid::new(COLUMN_GRID)
-                        .num_columns(3)
-                        .spacing([SPACE_S * 2.0, SPACE_S])
-                        .show(ui, |ui| {
-                            for column in &plan.columns {
-                                ui.label(widgets::strong(column.header.as_str()));
-                                column_pill(ui, &column.outcome);
-                                ui.add(egui::Label::new(column_detail(column)).wrap());
-                                ui.end_row();
-                            }
-                        });
-                    ui.separator();
-                    Grid::new(ROW_GRID)
-                        .num_columns(3)
-                        .spacing([SPACE_S * 2.0, SPACE_S])
-                        .show(ui, |ui| {
-                            for row in &plan.rows {
-                                ui.label(widgets::strong(row.name.as_str()));
-                                row_pill(ui, &row.outcome);
-                                ui.add(egui::Label::new(row_detail(row)).wrap());
-                                ui.end_row();
-                            }
-                        });
-                });
+                widgets::DialogBody::default()
+                    .list(ui.ctx(), LIST_HEIGHT)
+                    .show(ui, |ui| {
+                        Grid::new(COLUMN_GRID)
+                            .num_columns(3)
+                            .spacing([SPACE_S * 2.0, SPACE_S])
+                            .show(ui, |ui| {
+                                for column in &plan.columns {
+                                    ui.label(widgets::strong(column.header.as_str()));
+                                    column_pill(ui, &column.outcome);
+                                    ui.add(egui::Label::new(column_detail(column)).wrap());
+                                    ui.end_row();
+                                }
+                            });
+                        ui.separator();
+                        Grid::new(ROW_GRID)
+                            .num_columns(3)
+                            .spacing([SPACE_S * 2.0, SPACE_S])
+                            .show(ui, |ui| {
+                                for row in &plan.rows {
+                                    ui.label(widgets::strong(row.name.as_str()));
+                                    row_pill(ui, &row.outcome);
+                                    ui.add(egui::Label::new(row_detail(row)).wrap());
+                                    ui.end_row();
+                                }
+                            });
+                    });
             });
             let blocker = plan
                 .transaction

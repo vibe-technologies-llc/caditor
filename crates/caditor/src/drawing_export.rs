@@ -542,69 +542,70 @@ pub fn dialog(
         .is_some_and(|source| !source.sketches().is_empty());
     let response = widgets::dialog(ctx, "export-drawing", title, DialogWidth::Medium, |ui| {
         let mut command = None;
-        export::heading(ui, "Layout");
-        let layouts = [
-            (
-                Layout::SideBySide,
-                "Side by side",
-                "Each part in a row, bottoms level; a single sketch keeps its own coordinates",
-            ),
-            (
-                Layout::Nested,
-                "Nested on a sheet",
-                "Parts packed close together on a sheet of the width you set, to save material",
-            ),
-        ];
-        if let Some(layout) = preferences::choice(ui, &layouts, exporter.layout) {
-            command = Some(FileCommand::DrawingExport(DrawingCommand::Layout(layout)));
-        }
-        if exporter.layout == Layout::Nested {
-            ui.add_space(SPACE_S);
-            sheet_fields(ui, model, exporter, &mut command);
-        }
-        export::heading(ui, "Contents");
-        if offered_faces > 0 {
-            let mut included = exporter.faces;
-            if widgets::checkbox(
-                ui,
-                &mut included,
-                format!(
-                    "The {} selected in the view",
-                    count(offered_faces, "flat face", "flat faces")
+        widgets::dialog_body(ui, |ui| {
+            export::heading(ui, "Layout");
+            let layouts = [
+                (
+                    Layout::SideBySide,
+                    "Side by side",
+                    "Each part in a row, bottoms level; a single sketch keeps its own coordinates",
                 ),
-            )
-            .on_hover_text(
-                "Write the outlines and holes of the faces selected in the view into the same \
-                     drawing as the sketches",
-            )
-            .changed()
-            {
-                command = Some(FileCommand::DrawingExport(DrawingCommand::Faces(included)));
+                (
+                    Layout::Nested,
+                    "Nested on a sheet",
+                    "Parts packed close together on a sheet of the width you set, to save material",
+                ),
+            ];
+            if let Some(layout) = preferences::choice(ui, &layouts, exporter.layout) {
+                command = Some(FileCommand::DrawingExport(DrawingCommand::Layout(layout)));
             }
-        }
-        let mut annotations = exporter.annotations;
-        let hint = if sketches_shown {
-            "Write each sketch's dimensions, in millimetres and degrees, on a Dimensions layer, and \
+            if exporter.layout == Layout::Nested {
+                ui.add_space(SPACE_S);
+                sheet_fields(ui, model, exporter, &mut command);
+            }
+            export::heading(ui, "Contents");
+            if offered_faces > 0 {
+                let mut included = exporter.faces;
+                if widgets::checkbox(
+                    ui,
+                    &mut included,
+                    format!(
+                        "The {} selected in the view",
+                        count(offered_faces, "flat face", "flat faces")
+                    ),
+                )
+                .on_hover_text(
+                    "Write the outlines and holes of the faces selected in the view into the same \
+                     drawing as the sketches",
+                )
+                .changed()
+                {
+                    command = Some(FileCommand::DrawingExport(DrawingCommand::Faces(included)));
+                }
+            }
+            let mut annotations = exporter.annotations;
+            let hint = if sketches_shown {
+                "Write each sketch's dimensions, in millimetres and degrees, on a Dimensions layer, and \
              each sketch's name below it on a Labels layer"
-        } else {
-            "Write each face's name below it on a Labels layer"
-        };
-        let caption = if sketches_shown {
-            "Dimensions and names"
-        } else {
-            "Names"
-        };
-        if widgets::checkbox(ui, &mut annotations, caption)
-            .on_hover_text(hint)
-            .changed()
-        {
-            command = Some(FileCommand::DrawingExport(DrawingCommand::Annotations(
-                annotations,
-            )));
-        }
-        if sketches_shown {
-            let mut keep = keeps_construction;
-            if widgets::checkbox(ui, &mut keep, "Construction geometry")
+            } else {
+                "Write each face's name below it on a Labels layer"
+            };
+            let caption = if sketches_shown {
+                "Dimensions and names"
+            } else {
+                "Names"
+            };
+            if widgets::checkbox(ui, &mut annotations, caption)
+                .on_hover_text(hint)
+                .changed()
+            {
+                command = Some(FileCommand::DrawingExport(DrawingCommand::Annotations(
+                    annotations,
+                )));
+            }
+            if sketches_shown {
+                let mut keep = keeps_construction;
+                if widgets::checkbox(ui, &mut keep, "Construction geometry")
                 .on_hover_text(
                     "Write construction curves on a dashed Construction layer instead of leaving \
                      them out",
@@ -613,12 +614,13 @@ pub fn dialog(
             {
                 command = Some(FileCommand::KeepDrawingConstruction(keep));
             }
-        }
-        ui.add_space(SPACE_M);
-        ui.label(widgets::muted(
-            summary(exporter.layout, sketches, faces),
-            ui,
-        ));
+            }
+            ui.add_space(SPACE_M);
+            ui.label(widgets::muted(
+                summary(exporter.layout, sketches, faces),
+                ui,
+            ));
+        });
         widgets::footer(ui, |ui| {
             if ui.add(widgets::primary_button(ui, "Export…")).clicked() {
                 command = Some(FileCommand::DrawingExport(DrawingCommand::Choose));

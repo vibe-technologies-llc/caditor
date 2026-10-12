@@ -1990,8 +1990,8 @@ pub fn delete_dialog(
             "{} {verb} on {subject}:",
             count(dependents.len(), "feature", "features")
         ));
-        egui::ScrollArea::vertical()
-            .max_height(widgets::list_height(ui.ctx(), DEPENDENTS_HEIGHT))
+        widgets::DialogBody::default()
+            .list(ui.ctx(), DEPENDENTS_HEIGHT)
             .show(ui, |ui| {
                 dependent_rows(ui, document, &ids, &dependents);
             });

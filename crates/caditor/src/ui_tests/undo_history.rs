@@ -168,7 +168,7 @@ fn the_undo_history_goes_back_and_forward_several_steps_at_once() {
     assert_eq!(harness.document().parameters().len(), before + 3);
     assert_eq!(harness.model.redo_steps().count(), 0);
 
-    harness.click("Close");
+    harness.click_button(crate::widgets::CLOSE_DIALOG);
     assert!(!harness.workspace.undo_history_open);
 }
 

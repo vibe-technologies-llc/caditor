@@ -845,14 +845,16 @@ pub fn note_dialog(
     let response = widgets::dialog(ctx, "parameter-note", &title, DialogWidth::Medium, |ui| {
         ui.label(widgets::muted(NOTE_EXPLANATION, ui));
         ui.add_space(SPACE_S);
-        let field = widgets::text_field(ui, |ui| {
-            ui.add(
-                TextEdit::multiline(&mut draft.text)
-                    .id(Id::new(NOTE_FIELD))
-                    .char_limit(MAX_PARAMETER_NOTE_CHARS)
-                    .desired_rows(NOTE_ROWS)
-                    .desired_width(f32::INFINITY),
-            )
+        let field = widgets::dialog_body(ui, |ui| {
+            widgets::text_field(ui, |ui| {
+                ui.add(
+                    TextEdit::multiline(&mut draft.text)
+                        .id(Id::new(NOTE_FIELD))
+                        .char_limit(MAX_PARAMETER_NOTE_CHARS)
+                        .desired_rows(NOTE_ROWS)
+                        .desired_width(f32::INFINITY),
+                )
+            })
         });
         widgets::named(field.clone(), &title);
         if std::mem::take(&mut draft.focus_pending) {

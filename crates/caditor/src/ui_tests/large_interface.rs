@@ -5,7 +5,7 @@ use tempfile::TempDir;
 
 use super::{
     CAMERA_SETTLE, Harness, Wheel, add_block, add_peg, combine_nearly_touching_blocks,
-    extruded_plate,
+    extruded_plate, write_drawing,
 };
 use crate::{
     analysis::Kind,
@@ -23,6 +23,7 @@ use crate::{
 
 const LARGEST: f32 = 2.0;
 const SLACK: f32 = 0.5;
+const LAYERS: usize = 4;
 
 fn at_scale(scale: f32, dir: &TempDir) -> Harness {
     let mut workspace = Workspace::new();
@@ -289,6 +290,35 @@ fn the_export_dialog_keeps_its_buttons_on_screen_with_every_choice_at_the_larges
 
     assert!(harness.shows("Format"));
     assert_clear_of_the_window_controls(&harness, "Export", &["Export…", "Cancel"]);
+}
+
+#[test]
+fn a_dialog_body_taller_than_the_window_scrolls_under_a_footer_that_stays_on_screen() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = at_scale(LARGEST, &dir);
+    let plan = dir.path().join("plan.dxf");
+    let entities: String = (0..LAYERS)
+        .map(|layer| {
+            format!("0\nLINE\n8\nLayer {layer}\n10\n0\n20\n{layer}\n11\n40\n21\n{layer}\n")
+        })
+        .collect();
+    write_drawing(&plan, Some(4), &entities);
+    let title = "Import “plan.dxf”";
+    let summary = "4 curves drawn, 40.000 mm wide and 3.000 mm high.";
+
+    harness.answer_dialog(Some(plan));
+    harness.command(FileCommand::Import { into: None });
+    harness.wait_for_import_options("plan.dxf");
+    harness.let_animations_finish();
+
+    assert!(!harness.fully_shown(summary));
+    assert_clear_of_the_window_controls(&harness, title, &["Import", "Cancel"]);
+
+    let units = text_rect(&harness, "Units").center();
+    harness.wheel_until_shown(units, summary, Wheel::Down);
+
+    assert!(harness.fully_shown(summary));
+    assert_clear_of_the_window_controls(&harness, title, &["Import", "Cancel"]);
 }
 
 #[test]

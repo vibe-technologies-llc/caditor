@@ -1,9 +1,8 @@
 use caditor_document::{Document, Edit, ModelProperties, ModelProperty, Transaction};
-use egui::{Id, ScrollArea, TextEdit, Ui};
+use egui::{Id, TextEdit, Ui};
 
 use crate::{
     appearance::SPACE_S,
-    dialog_parts::BodyRoom,
     widgets::{self, DialogWidth},
 };
 
@@ -16,7 +15,6 @@ const EXPLANATION: &str = "Describe the model for the people and programs it goe
                            model. Every field may stay empty.";
 const DIALOG_ID: &str = "model-properties";
 const NOTES_ROWS: usize = 5;
-const HEIGHT_SHARE: f32 = 0.8;
 
 const SINGLE_LINE: [ModelProperty; 6] = [
     ModelProperty::Title,
@@ -72,21 +70,15 @@ pub fn dialog(
     let response = widgets::dialog(ctx, DIALOG_ID, TITLE, DialogWidth::Medium, |ui| {
         ui.label(widgets::muted(EXPLANATION, ui));
         ui.add_space(SPACE_S);
-        let mut room = BodyRoom::measure(ui, DIALOG_ID, HEIGHT_SHARE);
-        ScrollArea::vertical()
-            .max_height(room.height)
-            .show(ui, |ui| fields(ui, draft));
-        room.body_ended(ui);
-        let save = widgets::footer(ui, |ui| {
+        widgets::dialog_body(ui, |ui| fields(ui, draft));
+        widgets::footer(ui, |ui| {
             if ui.add(widgets::primary_button(ui, SAVE_LABEL)).clicked() {
                 return Some(true);
             }
             ui.add(widgets::button(CANCEL_LABEL))
                 .clicked()
                 .then_some(false)
-        });
-        room.dialog_ended(ui);
-        save
+        })
     });
     let closed = response.should_close().then_some(false);
     match response.inner.or(closed)? {

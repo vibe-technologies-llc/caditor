@@ -12,7 +12,6 @@ use crate::{
     bodies::{self, FaceKey},
     body_selection,
     commands::Command,
-    dialog_parts::BodyRoom,
     icons,
     model::Model,
     selection::{Pickable, Selection},
@@ -21,7 +20,6 @@ use crate::{
 };
 
 pub const TITLE: &str = "Selection sets";
-pub const CLOSE_LABEL: &str = "Close";
 pub const SAVE_LABEL: &str = "Save selection";
 pub const NAME_CAPTION: &str = "Name";
 pub const NOTHING_TO_KEEP: &str =
@@ -32,7 +30,6 @@ const EXPLANATION: &str = "Keep a group of faces, edges or bodies under a name a
 const EMPTY: &str = "No selection set is saved yet. Select faces, edges or bodies, then save them \
                      here or with the Save the selection as a set command.";
 const DIALOG_ID: &str = "selection-sets";
-const HEIGHT_SHARE: f32 = 0.8;
 const LIST_HEIGHT: widgets::ListHeight = widgets::ListHeight::Medium;
 const SELECT_HOVER: &str = "Select what this set holds";
 const UPDATE_HOVER: &str = "Replace it with the current selection";
@@ -415,21 +412,7 @@ pub fn dialog(
     let response = widgets::dialog(ctx, DIALOG_ID, TITLE, DialogWidth::Medium, |ui| {
         ui.label(widgets::muted(EXPLANATION, ui));
         ui.add_space(SPACE_S);
-        let mut room = BodyRoom::measure(ui, DIALOG_ID, HEIGHT_SHARE);
-        let outcome = ScrollArea::vertical()
-            .max_height(room.height)
-            .show(ui, |ui| body(ui, model, selection, draft))
-            .inner;
-        room.body_ended(ui);
-        let closed = widgets::footer(ui, |ui| {
-            ui.add(widgets::primary_button(ui, CLOSE_LABEL)).clicked()
-        });
-        room.dialog_ended(ui);
-        match (outcome, closed) {
-            (Some(outcome), _) => Some(outcome),
-            (None, true) => Some(Outcome::Close),
-            (None, false) => None,
-        }
+        widgets::dialog_body(ui, |ui| body(ui, model, selection, draft))
     });
     let closed = response.should_close().then_some(Outcome::Close);
     response.inner.or(closed)

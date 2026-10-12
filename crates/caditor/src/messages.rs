@@ -1,5 +1,3 @@
-use egui::{Layout, ScrollArea};
-
 use crate::{
     appearance::{self, SPACE_M, SPACE_S},
     history::ago,
@@ -21,9 +19,8 @@ pub fn dialog(ctx: &egui::Context, model: &Model) -> bool {
         ui.add_space(SPACE_M);
         let tokens = appearance::tokens(ui);
         let mut any = false;
-        ScrollArea::vertical()
-            .max_height(widgets::list_height(ui.ctx(), LIST_HEIGHT))
-            .auto_shrink([false, true])
+        widgets::DialogBody::default()
+            .list(ui.ctx(), LIST_HEIGHT)
             .show(ui, |ui| {
                 for recorded in model.recorded_notices() {
                     any = true;
@@ -42,20 +39,6 @@ pub fn dialog(ctx: &egui::Context, model: &Model) -> bool {
         if !any {
             ui.label(widgets::muted(EMPTY, ui));
         }
-        ui.add_space(SPACE_M);
-        ui.with_layout(Layout::top_down(egui::Align::Min), |ui| {
-            widgets::footer_split(
-                ui,
-                |_| None,
-                |ui| {
-                    ui.add(widgets::primary_button(ui, "Close"))
-                        .clicked()
-                        .then_some(())
-                },
-            )
-        })
-        .inner
-        .is_some()
     });
-    response.inner || response.should_close()
+    response.should_close()
 }

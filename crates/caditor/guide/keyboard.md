@@ -49,7 +49,8 @@ adds a [constraint](constraints), such as {command:constraint.horizontal}.
 
 Tab moves between fields and buttons, Enter confirms and Escape cancels. A value is committed when
 you press Enter or leave the field; Escape puts back the old value. In dialogs, Enter runs the
-highlighted main button.
+highlighted main button. A dialog's buttons stay at its bottom while what is above them scrolls;
+one with nothing to do but close has only the close button in its corner, and Escape.
 
 Ctrl and Alt shortcuts work while a field has focus: the field is committed first, so
 {command:file.save} saves a value you have just typed.
