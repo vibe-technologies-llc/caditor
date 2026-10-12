@@ -299,7 +299,8 @@ pub fn command(command: Command) -> &'static str {
         Command::CancelExport
         | Command::CancelImageExport
         | Command::CancelImport
-        | Command::CancelRecompute => phosphor::STOP_CIRCLE,
+        | Command::CancelRecompute
+        | Command::CancelPaste => phosphor::STOP_CIRCLE,
         Command::Recompute => phosphor::ARROW_CLOCKWISE,
         Command::RenameFeature | Command::RenameGroup => RENAME,
         Command::GroupFeatures => FEATURE_GROUP,

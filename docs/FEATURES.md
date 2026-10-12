@@ -230,12 +230,10 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Application
 
-- [medium · hard] Pasting features cannot carry a feature that picks faces or edges of another
-  copied feature (a fillet copied with its extrusion): face and edge names are digests over the
-  feature id, so the copy is left out with the reason. Renaming them needs each picked face or edge
-  found again in the copy's recomputed result (by matching it in the original's) before the paste
-  is applied. Pasted features also take no group, and a copy from another model keeps none of its
-  references outside the copied set.
+- [low · medium] Pasted features take no group (the one at the bar), and a copy from another model
+  keeps none of its references outside the copied set. A sketch's section projection of a copied
+  body is still left out, its edge being named by the sketch's own cut (`section.rs`), and a corner
+  picked on a body outside the copy is not followed onto copied faces around it.
 - [low · medium] The configurations table cannot leave or enter the model as a spreadsheet:
   parameters round-trip through CSV with a preview (`caditor-file` `parameters.rs`,
   `Document::plan_parameter_import`), but configurations, the variant families usually kept in a

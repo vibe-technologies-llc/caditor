@@ -262,3 +262,46 @@ fn features_and_directions_name_faces_apart() {
     assert_eq!(height(sketch_plane_cap(&up)), 0.0);
     assert_eq!(height(sketch_plane_cap(&down)), 0.0);
 }
+
+#[test]
+fn renaming_an_origins_features_keeps_what_made_the_face() {
+    let rename = |feature: u64| feature + 100;
+    let copy = FaceCopy {
+        pattern: 4,
+        index: [2, 0],
+    };
+    let side = FaceOrigin::Side {
+        feature: 3,
+        entity: 7,
+    };
+
+    assert_eq!(
+        side.with_features(&rename),
+        FaceOrigin::Side {
+            feature: 103,
+            entity: 7
+        }
+    );
+    assert_eq!(
+        side.copied(copy).with_features(&rename),
+        FaceOrigin::Side {
+            feature: 103,
+            entity: 7
+        }
+        .copied(FaceCopy {
+            pattern: 104,
+            index: [2, 0],
+        })
+    );
+    assert_eq!(
+        FaceOrigin::Imported {
+            feature: 5,
+            face: 9
+        }
+        .with_features(&|feature| feature),
+        FaceOrigin::Imported {
+            feature: 5,
+            face: 9
+        }
+    );
+}

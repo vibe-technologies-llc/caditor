@@ -127,10 +127,34 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 - `Document::paste_features` plans one transaction inserting copies at the rollback bar in tree
   order, each under a fresh id (`add_copied_feature`), named "<name> copy", keeping hidden,
   suppressed and appearance; its group is the one at the bar.
-- `FeatureKind::rename_features` rewrites plain feature ids a kind holds. Inputs inside the copy are
-  renamed through placeholders above `PLACEHOLDER_BASE`; one still among the copied ids afterwards
-  is held deeper (a face or edge reference names its feature in its digest), so the feature is left
-  out as `PasteRefusal::CopiedGeometry`, and users of a left-out one as `LeftOutInput`.
+- `FeatureKind::rename_features` rewrites every plain feature id a kind holds, those inside axis,
+  plane and point references, measured items, mate targets and datums included. Inputs inside the
+  copy are renamed through placeholders above `PLACEHOLDER_BASE`; one still named as a plain id
+  afterwards is `PasteRefusal::Unfollowed`, and users of a left-out feature are `LeftOutInput`.
+- One still among the origin features (a face or edge reference names its feature in its digest),
+  or a body a corner (`VertexName`) is picked on, is a pick of copied geometry (`copied_picks` counts
+  such features). `paste_features` leaves the feature out as `CopiedGeometry`.
+  `paste_features_finding_picks` (`paste_picks.rs`; `PickSearch` carries the evaluator, a
+  `CancelToken` and progress, and the app runs it off the UI thread) finds each pick again on the
+  copies instead, feature by feature in tree order:
+  - It recomputes the document with the copies planned so far (one `Recompute` for the whole
+    paste, so each run adds only the new copies) and reads each picked body as it stands there.
+  - The original's side is the same evaluation when pasting into the same model with every copied
+    feature unchanged and before the bar, else a document rebuilt from the copies alone under their
+    own ids, parameters as literals (`rebuilt`; a copy using a feature outside it gives none,
+    `PicksUnreadable`). The pick resolves there as the original resolves it, in the state the
+    original feature saw.
+  - Matching is by structure first: faces, edges and corners are keyed by the `FaceOrigin`s around
+    them with the copied features renamed (`FaceOrigin::with_features`). One alike on each side is
+    the match; else the origins of the neighbours (a face's neighbouring faces, an edge's ends)
+    decide; only then the place (`same_places`: a face's edge middles and corners, an edge's ends
+    and middle, within `SAME_PLACE`). Several left is `PickAmbiguous`, none `PickNotFound`; a copy
+    that did not compute is `CopyUncomputed`. Each match is captured again on the copy and must
+    resolve back to itself, so a pick is never moved to a wrong face.
+  - A feature whose picks are not all found is left out with the reason; one still naming a copied
+    feature among its origins afterwards (a section projection) is left out as `CopiedGeometry`.
+    A cancel ends the whole paste as `PasteError::Cancelled`. The result is the same one
+    transaction as `paste_features`.
 - Inputs outside the copy are kept when pasting into the same model (`PasteOrigin::ThisDocument`)
   if they exist before the bar, else refused (`OutsideFeature`), the same id naming something else
   in another model.

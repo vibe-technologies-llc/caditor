@@ -1,6 +1,7 @@
-use caditor_document::{
-    CarriedParameters, Feature, FeaturePaste, LeftOut, PasteError, feature_parameters,
-};
+use std::time::Duration;
+
+use caditor_document::{CarriedParameters, Feature, FeatureId, copied_picks, feature_parameters};
+use egui::Ui;
 
 use crate::{
     clipboard,
@@ -9,11 +10,14 @@ use crate::{
     feature_tree::count,
     model::{Action, Model, Notice},
     panels::PanelState,
+    pasting::{self, NOT_PASTING, PasteRequest, Planned, STILL_PASTING},
+    widgets,
 };
 
 const NOTHING_CHOSEN: &str = "Choose the features to copy in the tree first";
 const IN_SKETCH: &str = "Finish the sketch first; in a sketch, paste pastes sketch geometry";
 const NOTHING_TO_PASTE: &str = "Nothing was pasted: copy features in the tree first.";
+const PROGRESS_REFRESH: Duration = Duration::from_millis(100);
 
 pub fn commands(
     model: &Model,
@@ -41,8 +45,10 @@ pub fn commands(
             Err(reason) => actions.push(Action::Inform(Notice::warning(reason))),
         }
     }
+    follow_finished_paste(model, state);
     let pastable = match editing.active() {
         Some(_) => Err(IN_SKETCH),
+        None if model.is_pasting() => Err(STILL_PASTING),
         None => Ok(()),
     };
     if commands.invoke(Command::PasteFeatures, &pastable) {
@@ -82,56 +88,74 @@ fn paste(model: &Model, text: &str, state: &mut PanelState, actions: &mut Vec<Ac
             return;
         }
     };
+    if copied_picks(&copied.features) > 0 {
+        actions.push(Action::Paste(Box::new(PasteRequest {
+            features: copied.features,
+            parameters: copied.parameters,
+            origin: copied.origin,
+            notes: copied.notes,
+        })));
+        return;
+    }
     let planned =
         model
             .document()
             .paste_features(&copied.features, &copied.parameters, copied.origin);
-    match planned {
-        Ok(paste) => {
-            let note = paste_note(&paste, &copied.notes);
-            if let Some(first) = paste.pasted.first() {
-                state.reveal(*first);
-            }
-            state.choose_all(&paste.pasted);
-            actions.push(Action::Apply(paste.transaction));
-            if let Some(note) = note {
-                actions.push(Action::Inform(Notice::warning(note)));
+    match pasting::planned(planned, &copied.notes) {
+        Planned::Paste {
+            transaction,
+            pasted,
+            notice,
+        } => {
+            choose_pasted(&pasted, state);
+            actions.push(Action::Apply(transaction));
+            if let Some(notice) = notice {
+                actions.push(Action::Inform(notice));
             }
         }
-        Err(PasteError::NothingPasted { left_out }) => {
-            let mut parts = vec!["Nothing was pasted.".to_owned()];
-            parts.extend(left_out.iter().map(left_out_sentence));
-            parts.extend(copied.notes);
-            actions.push(Action::Inform(Notice::warning(parts.join(" "))));
-        }
-        Err(error) => actions.push(Action::Inform(Notice::warning(format!(
-            "Nothing was pasted: {error}."
-        )))),
+        Planned::Refused(notice) => actions.push(Action::Inform(notice)),
     }
 }
 
-fn left_out_sentence(left_out: &LeftOut) -> String {
-    format!(
-        "“{}” was left out because {}.",
-        left_out.name, left_out.reason
-    )
+fn choose_pasted(pasted: &[FeatureId], state: &mut PanelState) {
+    if let Some(first) = pasted.first() {
+        state.reveal(*first);
+    }
+    state.choose_all(pasted);
 }
 
-fn paste_note(paste: &FeaturePaste, notes: &[String]) -> Option<String> {
-    let mut parts: Vec<String> = paste.left_out.iter().map(left_out_sentence).collect();
-    if paste.inlined > 0 {
-        let one = paste.inlined == 1;
-        parts.push(format!(
-            "{} written as {}, since this model has no parameter of {} name.",
-            count(paste.inlined, "value", "values"),
-            if one { "a number" } else { "numbers" },
-            if one { "its" } else { "their" },
-        ));
+fn follow_finished_paste(model: &Model, state: &mut PanelState) {
+    let Some(finished) = model.pasted() else {
+        return;
+    };
+    if state.paste_shown >= finished.serial {
+        return;
     }
-    parts.extend(notes.iter().cloned());
-    if parts.is_empty() {
-        return None;
+    state.paste_shown = finished.serial;
+    choose_pasted(&finished.features, state);
+}
+
+pub fn activity(
+    ui: &mut Ui,
+    model: &Model,
+    commands: &mut CommandFrame<'_>,
+    actions: &mut Vec<Action>,
+) {
+    let running = model.paste_progress().ok_or(NOT_PASTING);
+    let mut cancel = commands.invoke(Command::CancelPaste, &running);
+    if let Ok(progress) = running {
+        widgets::spinner(ui);
+        ui.label(pasting::progress_text(progress));
+        cancel |= ui
+            .add(widgets::button("Cancel"))
+            .on_hover_text(commands.with_keys(
+                Command::CancelPaste,
+                "Stop finding the faces and edges the copies pick, and paste nothing",
+            ))
+            .clicked();
+        ui.ctx().request_repaint_after(PROGRESS_REFRESH);
     }
-    let pasted = count(paste.pasted.len(), "feature", "features");
-    Some(format!("Pasted {pasted}. {}", parts.join(" ")))
+    if cancel {
+        actions.push(Action::CancelPaste);
+    }
 }

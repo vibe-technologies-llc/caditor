@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
-use caditor_kernel::{EdgeNaming, EdgeReference, FaceReference, RegionReference, resolve_regions};
+use caditor_kernel::{
+    EdgeNaming, EdgeReference, FaceReference, RegionReference, VertexName, resolve_regions,
+};
 
 use crate::{
     attachment::SketchAttachment,
@@ -16,6 +18,7 @@ use crate::{
     measurement::{MeasuredItem, Measurement, Reading},
     movement::TurnCentre,
     pattern::PatternKind,
+    projection::ProjectionSource,
     recompute::Inputs,
     solid::{
         ExtrudeEnd, ExtrudeExtent, RegionChoice, RevolveAxis, RevolveExtent, SolidFeature,
@@ -118,6 +121,8 @@ pub(crate) trait ReferenceVisitor {
     );
 
     fn regions(&mut self, sketch: FeatureId, choice: &mut RegionChoice);
+
+    fn vertex(&mut self, _body: FeatureId, _vertex: &mut VertexName, _what: &str) {}
 }
 
 pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor) {
@@ -363,11 +368,35 @@ fn visit_point(point: &mut PointReference, role: &str, visitor: &mut impl Refere
         PointReference::SurfaceCentre { body, face } => {
             visitor.face(*body, face, &format!("the face giving its {role}"));
         }
+        PointReference::Vertex { body, vertex } => {
+            visitor.vertex(*body, vertex, &format!("the corner giving its {role}"));
+        }
         PointReference::Origin
         | PointReference::Datum(_)
-        | PointReference::Vertex { .. }
         | PointReference::Sketch { .. }
         | PointReference::Frame(_) => {}
+    }
+}
+
+pub(crate) fn visit_projections(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor) {
+    let FeatureKind::Sketch(sketch) = kind else {
+        return;
+    };
+    for source in sketch.projections.values_mut() {
+        match source {
+            ProjectionSource::Edge { body, edge } => {
+                visitor.edges(*body, std::slice::from_mut(edge), &|_| {
+                    "an edge it projects".to_owned()
+                });
+            }
+            ProjectionSource::Vertex { body, vertex } => {
+                visitor.vertex(*body, vertex, "a corner it projects");
+            }
+            ProjectionSource::Section { .. }
+            | ProjectionSource::SketchEntity { .. }
+            | ProjectionSource::DatumPlane { .. }
+            | ProjectionSource::PrincipalPlane { .. } => {}
+        }
     }
 }
 

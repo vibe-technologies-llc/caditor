@@ -29,6 +29,7 @@ use crate::{
     editing::EditingCommand,
     files::FileCommand,
     last_values::LastValues,
+    pasting::{self, PasteFinished, PasteProgress, PasteRequest, PastedFeatures, Pastes, Planned},
     preferences::PreferencesCommand,
     scene,
     selection::SelectionFilter,
@@ -59,6 +60,8 @@ pub enum Action {
     Inform(Notice),
     Drag(DragCommand),
     Trial(ConstraintTrial),
+    Paste(Box<PasteRequest>),
+    CancelPaste,
     Preview {
         feature: FeatureId,
         draft: Option<Transaction>,
@@ -243,6 +246,9 @@ pub struct Model {
     draft: Option<DraftPreview>,
     drafts: u64,
     trials: Trials,
+    pastes: Pastes,
+    pasted: Option<PastedFeatures>,
+    pastes_finished: u64,
     threads_cosmetic: bool,
 }
 
@@ -292,6 +298,9 @@ impl Model {
             draft: None,
             drafts: 0,
             trials: Trials::default(),
+            pastes: Pastes::default(),
+            pasted: None,
+            pastes_finished: 0,
             threads_cosmetic: false,
         };
         model.start_storage(None, None);
@@ -1014,6 +1023,16 @@ impl Model {
                 self.try_constraints(trial);
                 Ok(None)
             }
+            Action::Paste(request) => {
+                self.start_paste(*request);
+                Ok(None)
+            }
+            Action::CancelPaste => {
+                if self.pastes.cancel() {
+                    self.set_notice(Notice::info(pasting::STOPPED));
+                }
+                Ok(None)
+            }
             Action::Preview { feature, draft } => {
                 self.preview(feature, draft);
                 Ok(None)
@@ -1220,6 +1239,65 @@ impl Model {
         true
     }
 
+    fn start_paste(&mut self, request: PasteRequest) {
+        let wake = (self.services.make_waker)();
+        let revision = self.revision();
+        if let Err(refusal) = self
+            .pastes
+            .start(request, self.editor.document(), revision, wake)
+        {
+            self.set_notice(Notice::warning(refusal));
+        }
+    }
+
+    fn pasting_finished(&mut self, finished: Option<PasteFinished>) -> bool {
+        match finished {
+            None => return false,
+            Some(PasteFinished::Outdated(request)) => self.start_paste(*request),
+            Some(PasteFinished::Cancelled) => self.set_notice(Notice::info(pasting::STOPPED)),
+            Some(PasteFinished::Planned(Planned::Refused(notice))) => self.set_notice(notice),
+            Some(PasteFinished::Planned(Planned::Paste {
+                transaction,
+                pasted,
+                notice,
+            })) => {
+                self.perform(Action::Apply(transaction));
+                if let Some(notice) = notice {
+                    self.set_notice(notice);
+                }
+                self.pastes_finished += 1;
+                self.pasted = Some(PastedFeatures {
+                    serial: self.pastes_finished,
+                    features: pasted,
+                });
+            }
+        }
+        true
+    }
+
+    pub fn is_pasting(&self) -> bool {
+        self.pastes.is_running()
+    }
+
+    pub fn paste_progress(&self) -> Option<PasteProgress> {
+        self.pastes.progress()
+    }
+
+    pub fn pasted(&self) -> Option<&PastedFeatures> {
+        self.pasted.as_ref()
+    }
+
+    #[cfg(test)]
+    pub fn hold_pastes(&mut self, held: bool) {
+        self.pastes.hold(held);
+    }
+
+    #[cfg(test)]
+    pub fn finish_pasting(&mut self) {
+        let finished = self.pastes.wait(self.revision());
+        self.pasting_finished(finished);
+    }
+
     pub fn is_checking_constraints(&self) -> bool {
         self.trials.is_running()
     }
@@ -1261,6 +1339,8 @@ impl Model {
     fn poll_recompute(&mut self) -> bool {
         let verdict = self.trials.poll(self.revision());
         let judged = self.judged(verdict);
+        let finished = self.pastes.poll(self.revision());
+        let judged = self.pasting_finished(finished) | judged;
         let polled = self.display.dragging.poll();
         let stored = judged
             | self.poll_storage()
@@ -1438,6 +1518,8 @@ impl Model {
     ) {
         let predecessor = self.storage.take().map(|storage| storage.close(true));
         self.trials.cancel();
+        self.pastes.cancel();
+        self.pasted = None;
         self.revision_offset = self.revision() + 1;
         self.editor = session.editor;
         self.saved = session.saved;

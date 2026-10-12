@@ -90,6 +90,7 @@ mod paint_selection;
 mod palette_and_notices;
 mod panel_fields;
 mod parameter_files;
+mod paste_picks;
 mod pattern_grid;
 mod pick_list;
 mod primitives;

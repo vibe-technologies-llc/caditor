@@ -130,6 +130,7 @@ pub struct PanelState {
     pub parameter_uses: ParameterUses,
     pub tree_filter: String,
     pub parameter_filter: String,
+    pub paste_shown: u64,
     pub plain_row_height: Option<f32>,
     pub plain_body_row_height: Option<f32>,
     pub plain_constraint_height: Option<f32>,

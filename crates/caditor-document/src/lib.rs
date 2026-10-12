@@ -31,6 +31,7 @@ mod origins;
 mod parameter_import;
 mod parameter_list;
 mod paste;
+mod paste_picks;
 mod pattern;
 mod pattern_path;
 mod pieces;
@@ -123,6 +124,7 @@ pub use crate::{
         Carried, CarriedParameter, CarriedParameters, CarryError, FeaturePaste, LeftOut,
         PasteError, PasteOrigin, PasteRefusal, feature_parameters, literal,
     },
+    paste_picks::{PickSearch, copied_picks},
     pattern::{
         CircularPattern, CopyOrientation, CurvePattern, CurveSpacing, Instance, LinearDirection,
         LinearSpacing, MAX_PATTERN_INSTANCES, ORIGINAL_INSTANCE, Pattern, PatternKind,
@@ -228,6 +230,8 @@ mod parallel_tests;
 mod parameter_import_tests;
 #[cfg(test)]
 mod parameter_tests;
+#[cfg(test)]
+mod paste_picks_tests;
 #[cfg(test)]
 mod paste_tests;
 #[cfg(test)]

@@ -360,6 +360,47 @@ impl FaceOrigin {
         }
     }
 
+    #[must_use]
+    pub fn with_features(self, rename: &dyn Fn(u64) -> u64) -> Self {
+        match self {
+            Self::Side { feature, entity } => Self::Side {
+                feature: rename(feature),
+                entity,
+            },
+            Self::StartCap { feature } => Self::StartCap {
+                feature: rename(feature),
+            },
+            Self::EndCap { feature } => Self::EndCap {
+                feature: rename(feature),
+            },
+            Self::Fillet { feature } => Self::Fillet {
+                feature: rename(feature),
+            },
+            Self::Chamfer { feature } => Self::Chamfer {
+                feature: rename(feature),
+            },
+            Self::Shell { feature } => Self::Shell {
+                feature: rename(feature),
+            },
+            Self::Imported { feature, face } => Self::Imported {
+                feature: rename(feature),
+                face,
+            },
+            Self::Copy {
+                copy,
+                feature,
+                made,
+            } => Self::Copy {
+                copy: FaceCopy {
+                    pattern: rename(copy.pattern),
+                    index: copy.index,
+                },
+                feature: rename(feature),
+                made,
+            },
+        }
+    }
+
     pub fn with_copy(self, copy: Option<FaceCopy>) -> Self {
         match copy {
             Some(copy) => self.copied(copy),

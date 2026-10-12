@@ -63,7 +63,11 @@ it again after a stop.
 - {command:model.filter_features} filters the rows by name, by kind, such as "fillet", or by
   state: "failed", "outdated", "suppressed" or "hidden".
 - {command:model.copy_features} and {command:model.paste_features} copy features through the
-  clipboard, within a model or into another.
+  clipboard, within a model or into another. A fillet, shell, sketch on a face or anything else
+  copied with the features whose faces, edges or corners it picks is pasted onto the copies:
+  caditor finds each pick again on them in the background, with progress in the status bar and
+  {command:model.cancel_paste} to stop. A pick it cannot find, or cannot tell from another, leaves
+  that feature out and the notice says why.
 
 ## Kinds of features
 
