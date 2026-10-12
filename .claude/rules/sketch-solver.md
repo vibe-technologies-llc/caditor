@@ -14,12 +14,25 @@ paths:
 - Damped Gauss-Newton with minimal-norm steps per independent part: SVD up to `DENSE_LIMIT`
   variables, above that CGLS on the sparse Jacobian with a sparse factorisation for the analysis
   (`sparse.rs`). Every equation has an analytic gradient.
-- Convergence is checked after every step and cancellation before it, so the diagnosis budget
-  counts steps taken; the analysis polls cancellation before each part, constraint and null-space
+- When a whole Gauss-Newton step does not lower the cost, the step is Newton's on the cost
+  (`numeric/newton.rs`): near a least-squares point that cannot reach zero the Jacobian is nearly
+  singular along what only the residuals' curvature resists (a chain bending), so a Gauss-Newton
+  step there overshoots and its line search crawls. The Hessian is the Gauss-Newton term plus each
+  residual times its second derivatives, by finite differences of the analytic gradients (`PROBE`
+  of the part's scale) with columns sharing no equation perturbed together, so a part costs a few
+  linearisations. It is factored by sparse Cholesky (`sparse::Cholesky`, in the analysis's
+  minimum-degree order) under a Levenberg-Marquardt shift, raised from `LEAST_DAMPING` until it
+  factors and the whole step lowers the cost, then lowered as far as the model predicted the fall
+  well. After a Newton step the next tries Newton first; a Gauss-Newton line search stays the
+  fallback, and solves whose Gauss-Newton steps all land whole are unchanged.
+- Convergence is checked after every step and cancellation before it (and before each further
+  Newton shift), so the diagnosis budget counts steps taken; the analysis polls cancellation before each part, constraint and null-space
   solve. Tests bound cost with `solve/tally.rs` work units (`fit.rs` adds its passes over the
   samples), never wall-clock time.
 - An attempt ends converged, at a least-squares minimum, pressed against a collapse (such a minimum
-  with a moving line or arc span, or a radius, near the collapse length) or unfinished. Retries
+  with a moving line or arc span, or a radius, near the collapse length) or unfinished. A minimum
+  is a Newton step under the least shift predicting under a thousandth of the cost
+  (`SETTLED_FALL`), no step lowering the cost, or three steps each gaining under a thousandth. Retries
   perturb each part by a fraction of its own extent.
 - Each part solves at its own scale (largest coordinate or length dimension, at least 1, rounded up
   to a power of two; `system.rs`), which sets tolerance, step limit and degenerate lengths.
@@ -204,7 +217,10 @@ paths:
   constraint whose step does not get there falls back to a descent, and dropping one factors the
   smaller set again. The factorisation costs one step and each solve through it
   `1/SOLVES_PER_STEP` (an ignored stress test in `diagnosis_tests.rs`, run by the nightly job: a
-  300-line chain costs about 26,000 units by steps against 540,000 by descents).
+  300-line chain costs about 27,000 units by steps against 540,000 by descents). The verdict's
+  descents settle in a few Newton steps: from the drawing of a 300-line chain about 46,000 units
+  for all three attempts, against 192,000 by line search alone, and a 600-line chain is named
+  within the budget.
 - Only a set judged unable to hold is reported, minimal by its witnesses; recompute reports it as
   the feature's error with `FeatureError.constraints` and `FixTarget::Constraint`.
 - Every failed part is diagnosed on its own budget, newest first, up to `DIAGNOSED_PARTS` (the rest

@@ -10,7 +10,7 @@ use crate::solve::{
 
 const LOOSE: f64 = 1.0;
 const REACH_TOLERANCE: f64 = 1e-10;
-const PROBE: f64 = 1e-7;
+pub(super) const PROBE: f64 = 1e-7;
 const FLATTEST: f64 = 1e-3;
 
 struct Aim {

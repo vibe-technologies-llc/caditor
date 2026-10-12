@@ -6,6 +6,7 @@ use caditor_geometry::{Plane, Point2};
 use crate::{
     Constraint, ConstraintId, Entity, EntityId, EntityState, Redundancy, Sketch, SketchError,
     Solved,
+    solve::sparse::{Cholesky, Row},
 };
 
 const EXACT: f64 = 1e-9;
@@ -2067,4 +2068,51 @@ fn an_arm_dragged_past_its_reach_straightens_toward_the_pointer() {
     assert!(at(&solved, elbow).distance(Point2::new(10.0, 0.0)) < 1e-6);
     assert!(followed.point(hand).unwrap().distance(toward * 20.0) < 1e-6);
     assert!(followed.point(elbow).unwrap().distance(toward * 10.0) < 1e-6);
+}
+
+fn tridiagonal(diagonal: f64, beside: f64, width: usize) -> Vec<Row> {
+    (0..width)
+        .map(|column| {
+            let mut row = Vec::new();
+            if column > 0 {
+                row.push((column - 1, beside));
+            }
+            row.push((column, diagonal));
+            if column + 1 < width {
+                row.push((column + 1, beside));
+            }
+            row
+        })
+        .collect()
+}
+
+#[test]
+fn a_sparse_cholesky_factorisation_solves_a_positive_definite_system_and_refuses_an_indefinite_one()
+{
+    let matrix = tridiagonal(2.0, -1.0, 6);
+    let indefinite = tridiagonal(1.0, -1.0, 6);
+    let load = [1.0, 0.0, -2.0, 3.0, 0.5, 1.0];
+
+    let solution = Cholesky::factor(&matrix, 0.0, 1e-12, &matrix)
+        .unwrap()
+        .solve(&load);
+    let shifted = Cholesky::factor(&indefinite, 1.0, 1e-12, &indefinite)
+        .unwrap()
+        .solve(&load);
+    let refused = Cholesky::factor(&indefinite, 0.0, 1e-12, &indefinite);
+
+    for (row, wanted) in matrix.iter().zip(load) {
+        let product: f64 = row
+            .iter()
+            .map(|(column, value)| value * solution[*column])
+            .sum();
+        assert!(
+            (product - wanted).abs() < EXACT,
+            "{product} is not {wanted}"
+        );
+    }
+    for (by_shift, direct) in shifted.iter().zip(&solution) {
+        assert!((by_shift - direct).abs() < EXACT);
+    }
+    assert!(refused.is_none());
 }

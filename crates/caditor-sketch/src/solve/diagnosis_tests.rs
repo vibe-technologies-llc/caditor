@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::{cell::Cell, collections::BTreeSet};
 
 use caditor_expression::{EvalError, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Vector2};
@@ -7,7 +7,7 @@ use crate::{
     Constraint, ConstraintId, Entity, EntityId, Sketch, SketchError, Solved,
     solve::{
         diagnosis::{DIAGNOSIS_WORK, diagnose_failure},
-        numeric::{Failure, STIFF, Solver, components},
+        numeric::{Descent, Failure, STIFF, Solver, components},
         system::System,
         witness::Factored,
     },
@@ -431,10 +431,73 @@ fn a_conflict_through_a_chain_of_three_hundred_lines_is_named_within_the_budget(
     );
 }
 
+fn descent_from_drawn(chain: &Chain) -> (Descent, usize) {
+    let dimensions = chain.sketch.evaluate(&no_parameters).unwrap();
+    let system = System::build(&chain.sketch, &dimensions).unwrap();
+    let conflict: BTreeSet<ConstraintId> = chain.spanning().into_iter().collect();
+    let active: Vec<usize> = (0..system.equations.len())
+        .filter(|index| {
+            system.equations[*index]
+                .owner
+                .is_some_and(|owner| conflict.contains(&owner))
+        })
+        .collect();
+    let mut values = system.values.clone();
+    let parts = components(&system, &active, &values);
+    let [part] = parts.as_slice() else {
+        panic!("expected one part, found {}", parts.len());
+    };
+    let steps = Cell::new(0);
+    let counting = || {
+        steps.set(steps.get() + 1);
+        false
+    };
+    let stiff = BTreeSet::new();
+    let solver = Solver {
+        system: &system,
+        cancelled: &counting,
+        stiff: &stiff,
+        stiffness: STIFF,
+    };
+
+    let descent = solver.descend(part, &mut values).unwrap();
+
+    (descent, steps.get() * part.equations.len())
+}
+
+#[test]
+fn a_conflict_through_three_hundred_lines_settles_from_its_drawing_in_a_few_steps() {
+    let chain = out_of_reach(300);
+
+    let (descent, units) = descent_from_drawn(&chain);
+
+    let Descent::Failed(settled) = descent else {
+        panic!("a chain out of reach cannot solve");
+    };
+    assert!(settled.conclusive);
+    assert!(units < DIAGNOSIS_WORK / 8, "{units} units");
+}
+
+#[test]
+#[ignore = "diagnoses a conflict through six hundred lines, best run in release"]
+fn a_conflict_through_a_chain_of_six_hundred_lines_is_named_within_the_budget() {
+    let chain = out_of_reach(600);
+
+    let named = diagnosed(&chain, DIAGNOSIS_WORK);
+
+    assert!(
+        named
+            == SketchError::Conflict {
+                constraints: chain.spanning()
+            },
+        "{named:?}"
+    );
+}
+
 #[test]
 #[ignore = "names a conflict across hundreds of entities, best run in release"]
 fn a_conflict_across_hundreds_of_entities_is_named_within_its_work_bound() {
-    const WORK_PER_SQUARED_LINE: usize = 24_000;
+    const WORK_PER_SQUARED_LINE: usize = 6_000;
     for count in [100, 150] {
         let chain = out_of_reach(count);
 
