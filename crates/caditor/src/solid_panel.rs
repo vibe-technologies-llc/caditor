@@ -1,8 +1,8 @@
 use caditor_document::{
     AxisReference, AxisSide, BodyOperation, Document, Extrude, ExtrudeEnd, ExtrudeExtent, Feature,
     FeatureId, PlaneReference, RegionChoice, Revolve, RevolveAxis, RevolveExtent, SolidFeature,
-    SolidStart, Sweep, SweepPath, Transaction, Wall, capitalized, describe_axis, describe_origin,
-    describe_plane, displayed_axis,
+    SolidStart, Sweep, SweepPath, Transaction, Wall, along_plane, capitalized, describe_axis,
+    describe_origin, describe_plane, displayed_axis,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_geometry::Point2;
@@ -15,8 +15,8 @@ use crate::{
     datum_tools,
     editing::EditingCommand,
     feature_fields::{
-        self, Choice, MISSING_BODY, MISSING_SKETCH, Picker, Quantity, REVERSE_DIRECTION, Rule,
-        Segment, Shown,
+        self, AxisRow, Choice, ListChoosing, MISSING_BODY, MISSING_SKETCH, Picker, Quantity,
+        REVERSE_DIRECTION, Rule, Segment, Shown,
     },
     feature_tree::count,
     field, hole_panel, icons,
@@ -36,6 +36,7 @@ const WHOLE_PROFILE: &str = "Turn the whole profile, which must lie on one side 
 const ONE_SIDE_OF_AXIS: &str =
     "Turn only the part of the profile on one side of the axis, cut where the axis crosses it";
 pub const KEEP_OTHER_SIDE: &str = "Keep the other side of the axis";
+pub const AXIS: &str = "Axis";
 pub const ALSO_CUTS: &str = "Also cuts";
 pub const ADD_CUT_BODY: &str = "Add another body";
 const START_OFFSET: &str = "Start offset";
@@ -347,14 +348,21 @@ impl Panel<'_> {
                     }
                 }
             });
-            if widgets::choose_in_view(
+            let chosen = feature_fields::list_in_view(
                 ui,
-                feature_fields::choosing_list(ui, opened),
+                opened,
                 "Click regions in the view to include or leave them out.",
                 "Show the regions of the sketch so you can click them",
-            ) {
-                self.actions
-                    .push(Action::Editing(EditingCommand::OpenSolid(self.id())));
+            );
+            match chosen {
+                Some(ListChoosing::Start) => self
+                    .actions
+                    .push(Action::Editing(EditingCommand::OpenSolid(self.id()))),
+                Some(ListChoosing::Stop) => {
+                    self.actions
+                        .push(Action::Editing(EditingCommand::CloseSolid));
+                }
+                None => {}
             }
         });
         ui.end_row();
@@ -1011,57 +1019,72 @@ impl Panel<'_> {
     }
 
     fn axis_row(&mut self, ui: &mut Ui, revolve: &Revolve) {
-        widgets::caption(ui, "Axis");
         let model = self.model;
-        let sketch = model
-            .document()
+        let document = model.document();
+        let id = self.id();
+        let sketch = document
             .feature(revolve.sketch)
             .and_then(|feature| feature.kind.sketch());
-        let axis_name = solid_tools::axis_name(model.document(), revolve.sketch, &revolve.axis);
-        ui.vertical(|ui| {
-            self.combo(ui, "axis", axis_name.clone(), |panel| {
-                let Some(sketch) = sketch else {
-                    return Vec::new();
-                };
-                let lines = sketch
-                    .entities()
-                    .filter_map(|(id, entity)| matches!(entity, Entity::Line { .. }).then_some(id));
-                let model_axis = revolve.axis.model().map(|_| Choice {
-                    label: axis_name.clone(),
-                    selected: true,
-                    change: Err(String::new()),
-                });
-                [Reference::HorizontalAxis.id(), Reference::VerticalAxis.id()]
-                    .into_iter()
-                    .chain(lines)
-                    .map(|axis| Choice {
-                        label: sketch.entity_label(axis),
-                        selected: revolve.axis == RevolveAxis::Sketch(axis),
-                        change: panel
-                            .change(SolidFeature::Revolve(Revolve {
-                                axis: RevolveAxis::Sketch(axis),
-                                ..revolve.clone()
-                            }))
-                            .map(Action::Apply),
-                    })
-                    .chain(model_axis)
-                    .collect()
-            });
-            let picker = Picker {
-                feature: self.id(),
+        let row = AxisRow {
+            caption: AXIS,
+            shown: Some(solid_tools::axis_name(
+                document,
+                revolve.sketch,
+                &revolve.axis,
+            )),
+            picker: Picker {
+                feature: id,
                 slot: Slot::RevolveAxis,
                 selected: feature_fields::offered_change(
                     ui.ctx(),
                     model,
                     self.selection,
-                    (self.id(), Slot::RevolveAxis),
-                    || selected_axis_change(model, self.selection, self.id(), revolve),
+                    (id, Slot::RevolveAxis),
+                    || selected_axis_change(model, self.selection, id, revolve),
                 ),
                 hover: "Turn about the selected axis, edge or round face",
-            };
-            feature_fields::reference_picker(ui, model, picker, self.actions);
-        });
-        ui.end_row();
+            },
+        };
+        let turned_about = |axis| {
+            self.change(SolidFeature::Revolve(Revolve {
+                axis,
+                ..revolve.clone()
+            }))
+        };
+        let listed = || {
+            let lines = sketch.into_iter().flat_map(|sketch| {
+                let lines = sketch
+                    .entities()
+                    .filter_map(|(id, entity)| matches!(entity, Entity::Line { .. }).then_some(id));
+                [Reference::HorizontalAxis.id(), Reference::VerticalAxis.id()]
+                    .into_iter()
+                    .chain(lines)
+                    .map(|line| {
+                        let axis = RevolveAxis::Sketch(line);
+                        let selected = revolve.axis == axis;
+                        Choice {
+                            label: sketch.entity_label(line),
+                            selected,
+                            change: if selected {
+                                Err(feature_fields::ALREADY_CHOSEN.to_owned())
+                            } else {
+                                turned_about(axis).map(Action::Apply)
+                            },
+                        }
+                    })
+            });
+            let model_axes =
+                feature_fields::model_axis_choices(model, id, revolve.axis.model(), &|axis| {
+                    match off_sketch_plane(model, (id, revolve.sketch), &axis) {
+                        Some(reason) => Err(reason),
+                        None => turned_about(RevolveAxis::Model(axis)),
+                    }
+                });
+            lines.chain(model_axes).collect()
+        };
+        let mut actions = Vec::new();
+        feature_fields::axis_row(ui, model, row, Some(&listed), &mut actions);
+        self.actions.extend(actions);
     }
 
     fn side_rows(&mut self, ui: &mut Ui, revolve: &Revolve) {
@@ -1750,6 +1773,23 @@ pub fn selected_axis_change(
             "Select an axis, a straight edge or a round face made before this feature".to_owned(),
         ),
     }
+}
+
+fn off_sketch_plane(
+    model: &Model,
+    (feature, sketch): (FeatureId, FeatureId),
+    axis: &AxisReference,
+) -> Option<String> {
+    let (document, evaluation) = (model.document(), model.evaluation());
+    let plane = scene::sketch_plane(document, evaluation, sketch)?;
+    let ray = displayed_axis(evaluation, feature, axis)?;
+    let sketch_name = feature_fields::feature_name(document, sketch).unwrap_or("the sketch");
+    (!along_plane(ray, &plane)).then(|| {
+        format!(
+            "{} does not lie in the plane of {sketch_name}",
+            capitalized(&describe_axis(document, axis))
+        )
+    })
 }
 
 fn larger_side(model: &Model, feature: FeatureId, revolve: &Revolve) -> Option<AxisSide> {

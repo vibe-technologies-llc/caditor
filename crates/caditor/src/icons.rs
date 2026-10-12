@@ -39,6 +39,7 @@ pub const COLLAPSED: &str = phosphor::CARET_RIGHT;
 pub const FAILED: &str = phosphor::WARNING_CIRCLE;
 pub const OUTDATED: &str = phosphor::PAUSE_CIRCLE;
 pub const PENDING: &str = phosphor::CIRCLE_NOTCH;
+pub const AWAITING_INPUT: &str = phosphor::HAND_POINTING;
 pub const UP_TO_DATE: &str = phosphor::CHECK_CIRCLE;
 pub const INFO: &str = phosphor::INFO;
 pub const WARNING: &str = phosphor::WARNING;

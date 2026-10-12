@@ -75,6 +75,15 @@ paths:
   point `place` where the kernel gives one) and keeps its last good result. `Failure::Error` boxes
   it, keeping every `Result` small. Dependents fail with a pointer back to it; everything else is
   unaffected. A panic inside an `Evaluator` is caught and becomes that feature's error.
+- A feature missing an input it is still being set up for is `Waiting` with a `MissingInput` (an
+  enum, one variant per missing input carrying what it names: `Axis` of a circular pattern, `Path`
+  of a sweep, `Regions { sketch }` of an extrusion, revolve or sweep with none chosen, `Edges { body
+  }` of a blend, `FacesToMove` of an offset face, `FacesToSplit` of a split face), returned as
+  `Failure::Waiting`. `waiting_words` ("Waiting for an axis") and `prompt` (what to choose, naming
+  sketch or body from the document) word it where shown, so its cache entry holds no names. It is
+  not a failure (`failures`, `failed_count` and F8 leave it out) but otherwise acts as one: it keeps
+  its last good result, its body's later features build on the state before it, and dependents
+  fail through `missing_upstream` as for any feature without a result.
 - Features below the rollback bar are `RolledBack` and suppressed ones `Suppressed`, never
   evaluated, with cache entries kept so rolling forward or unsuppressing reuses them. A feature
   using a suppressed one fails naming it (`FixTarget::Unsuppress`); one using a feature that no

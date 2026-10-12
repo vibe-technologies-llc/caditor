@@ -461,6 +461,12 @@ fn failures(document: &Document, evaluation: &Evaluation) -> Vec<String> {
                     "{} failed: {} {}",
                     feature.name, error.reason, error.remedy
                 )),
+                FeatureState::Waiting(missing) => Some(format!(
+                    "{} is not finished: {}. {}",
+                    feature.name,
+                    missing.waiting_words(),
+                    missing.prompt(document)
+                )),
                 _ => None,
             }
         })

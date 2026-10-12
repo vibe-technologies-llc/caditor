@@ -31,7 +31,7 @@ pub(crate) fn same_line(first: Ray, second: Ray) -> bool {
     parallel(first.direction(), second.direction()) && on_line(first, second.origin())
 }
 
-pub(crate) fn along_plane(ray: Ray, plane: &Plane) -> bool {
+pub fn along_plane(ray: Ray, plane: &Plane) -> bool {
     perpendicular(ray.direction(), plane.normal())
         && plane.signed_distance(ray.origin()).abs() <= POSITION_TOLERANCE
 }

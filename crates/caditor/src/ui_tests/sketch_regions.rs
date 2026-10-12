@@ -227,15 +227,17 @@ fn clearing_the_chosen_regions_leaves_none_until_one_is_clicked() {
     harness.settle();
 
     assert!(chosen_keys(&harness, extrude).is_empty());
-    let Some(caditor_document::FeatureState::Failed(error)) = harness
-        .model
-        .evaluation()
-        .feature(extrude)
-        .map(|status| status.state.clone())
-    else {
-        panic!("an extrusion of no region fails");
-    };
-    assert_eq!(error.reason, "No region of the sketch is chosen.");
+    assert_eq!(
+        harness
+            .model
+            .evaluation()
+            .feature(extrude)
+            .map(|status| status.state.clone()),
+        Some(caditor_document::FeatureState::Waiting(
+            caditor_document::MissingInput::Regions { sketch }
+        )),
+        "an extrusion of no region waits for one"
+    );
     assert!(!harness.shows(crate::solid_panel::CLEAR_REGIONS));
 
     let other = region_holding(&harness, sketch, OUTSIDE_THE_SECOND);

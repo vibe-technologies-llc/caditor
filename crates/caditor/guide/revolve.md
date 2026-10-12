@@ -5,7 +5,9 @@ them into one.
 
 The axis is the line, construction line, sketch axis, datum axis, principal axis, straight edge or
 round face selected last; select it together with the sketch before choosing Revolve. In the
-panel, {command:model.use_selected_axis} or Choose in the view changes it.
+panel the **Axis** list offers the sketch's axes and lines and the principal, datum and coordinate
+system axes (one not lying in the sketch plane is offered greyed, saying why);
+{command:model.use_selected_axis} or Choose in the view changes it too.
 
 The **Sketch** row has a button beside it to edit the sketch revolved, and
 {command:model.edit_sketch} does the same from a face the revolve made.

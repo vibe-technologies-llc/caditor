@@ -14,7 +14,7 @@ use crate::{
     document::{Feature, FeatureId},
     origins,
     pieces::{Resolution, Unresolved, pieces_of_one_face, tally},
-    recompute::{CancelToken, Failure, FeatureResult, Inputs, SketchResult},
+    recompute::{CancelToken, Failure, FeatureResult, Inputs, MissingInput, SketchResult},
     solid::{SolidResult, profile_curves},
     split::{
         HalfSpaceError, MixedCurves, SplitAlong, Sweep, SweptError, half_space_solid,
@@ -152,6 +152,7 @@ impl SplitFace {
 
 struct Context<'a> {
     resolver: Resolver<'a>,
+    body: FeatureId,
     body_name: String,
     tool: String,
 }
@@ -159,6 +160,10 @@ struct Context<'a> {
 impl Context<'_> {
     fn error(&self, reason: String, remedy: &str) -> Failure {
         self.resolver.own_error(reason, remedy)
+    }
+
+    fn no_faces(&self) -> Failure {
+        Failure::Waiting(MissingInput::FacesToSplit { body: self.body })
     }
 
     fn misses(&self) -> Failure {
@@ -205,10 +210,7 @@ impl Context<'_> {
     fn split_failure(&self, solid: &Solid, tool: &Solid, error: FaceSplitError) -> Failure {
         match error {
             FaceSplitError::Cancelled(_) => Failure::Cancelled,
-            FaceSplitError::NoFaces => self.error(
-                "No face is chosen to split.".to_owned(),
-                "Choose the faces to split.",
-            ),
+            FaceSplitError::NoFaces => self.no_faces(),
             FaceSplitError::Undivided => self.misses(),
             FaceSplitError::Boolean(error) => {
                 let document = self.resolver.inputs.document;
@@ -471,12 +473,7 @@ fn wrapping_surface(
             }
         }
     }
-    unrolled.ok_or_else(|| {
-        context.error(
-            "No face is chosen to split.".to_owned(),
-            "Choose the faces to split.",
-        )
-    })
+    unrolled.ok_or_else(|| context.no_faces())
 }
 
 fn same_cylinder(first: &Cylinder, second: &Cylinder) -> bool {
@@ -740,6 +737,7 @@ pub(crate) fn evaluate(
         .unwrap_or_default();
     let context = Context {
         resolver: Resolver { feature, inputs },
+        body: definition.body,
         body_name,
         tool: tool_words(inputs, &definition.along),
     };

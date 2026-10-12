@@ -7,7 +7,7 @@ use egui::{Id, Ui};
 use crate::{
     bodies,
     editing::EditingCommand,
-    feature_fields::{self, Choice, Picker, Shown},
+    feature_fields::{self, Choice, ListChoosing, Picker, Shown},
     feature_tree::count,
     model::{Action, Model},
     reference_picking::{self, Picking, Slot},
@@ -115,16 +115,23 @@ fn faces_row(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mu
                 ));
             }
         }
-        if widgets::choose_in_view(
+        let chosen = feature_fields::list_in_view(
             ui,
-            feature_fields::choosing_list(ui, opened),
+            opened,
             "Click faces in the view to split them or leave them out again.",
             "Show the body as it is before this feature so you can click faces",
-        ) {
-            if let Some(transaction) = split_face_tools::with_selected_faces(model, id, selection) {
-                actions.push(Action::Apply(transaction));
+        );
+        match chosen {
+            Some(ListChoosing::Start) => {
+                if let Some(transaction) =
+                    split_face_tools::with_selected_faces(model, id, selection)
+                {
+                    actions.push(Action::Apply(transaction));
+                }
+                actions.push(Action::Editing(EditingCommand::OpenSolid(id)));
             }
-            actions.push(Action::Editing(EditingCommand::OpenSolid(id)));
+            Some(ListChoosing::Stop) => actions.push(Action::Editing(EditingCommand::CloseSolid)),
+            None => {}
         }
     });
     if !previewed.is_empty() {

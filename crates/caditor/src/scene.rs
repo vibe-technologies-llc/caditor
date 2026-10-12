@@ -1393,6 +1393,7 @@ impl<'a> ConstraintStates<'a> {
                 states.conflicting = entities_of(definition, &error.constraints);
             }
             FeatureState::Failed(_)
+            | FeatureState::Waiting(_)
             | FeatureState::Outdated
             | FeatureState::Suppressed
             | FeatureState::RolledBack => states.failed = true,
@@ -3107,7 +3108,7 @@ fn body_health(document: &Document, evaluation: &Evaluation, body: FeatureId) ->
     for feature in document.features_on_body(body) {
         match evaluation.feature(feature.id()).map(|status| &status.state) {
             Some(FeatureState::Failed(_)) => return Health::Failed,
-            Some(FeatureState::Outdated) => health = Health::Outdated,
+            Some(FeatureState::Outdated | FeatureState::Waiting(_)) => health = Health::Outdated,
             Some(FeatureState::UpToDate | FeatureState::Suppressed | FeatureState::RolledBack)
             | None => {}
         }
@@ -3127,7 +3128,7 @@ impl Healths {
             let health = healths.entry(body).or_insert(Health::Sound);
             match evaluation.feature(feature.id()).map(|status| &status.state) {
                 Some(FeatureState::Failed(_)) => *health = Health::Failed,
-                Some(FeatureState::Outdated) => {
+                Some(FeatureState::Outdated | FeatureState::Waiting(_)) => {
                     if *health == Health::Sound {
                         *health = Health::Outdated;
                     }

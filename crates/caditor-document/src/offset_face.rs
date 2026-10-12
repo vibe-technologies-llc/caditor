@@ -11,7 +11,9 @@ use crate::{
     document::{Feature, FeatureId, list_names},
     origins,
     pieces::{Resolution, Unresolved, pieces_of_one_face, tally},
-    recompute::{CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
+    recompute::{
+        CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs, MissingInput,
+    },
     solid::SolidResult,
 };
 
@@ -143,10 +145,9 @@ impl Context<'_> {
                 "Enter a larger distance, positive to grow the body and negative to shrink it."
                     .to_owned(),
             ),
-            OffsetError::NothingToMove => self.error(
-                "No face is chosen to move.".to_owned(),
-                "Choose the faces to move.".to_owned(),
-            ),
+            OffsetError::NothingToMove => Failure::Waiting(MissingInput::FacesToMove {
+                body: self.definition.body,
+            }),
             OffsetError::MissingFace(_) => self.error(
                 format!(
                     "A face to move is no longer part of the body of {}.",

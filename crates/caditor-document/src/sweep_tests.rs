@@ -124,7 +124,7 @@ fn a_curve_of_the_path_cannot_be_deleted_while_the_sweep_follows_it() {
 }
 
 #[test]
-fn a_sweep_with_no_path_fails_asking_for_one() {
+fn a_sweep_with_no_path_waits_asking_for_one() {
     let mut document = Document::default();
     let mut transaction = document.transaction("Build");
     let profile = transaction.add_feature("Profile", FeatureKind::from(disc(1.0)));
@@ -134,13 +134,16 @@ fn a_sweep_with_no_path_fails_asking_for_one() {
     );
     document.apply(transaction.finish()).unwrap();
 
-    let error = failure(&evaluate(&document), sweep);
+    let evaluation = evaluate(&document);
 
-    assert_eq!(error.reason, "No path is chosen for Sweep 1.");
+    assert_eq!(
+        evaluation.feature(sweep).unwrap().state,
+        FeatureState::Waiting(MissingInput::Path)
+    );
     assert!(
-        error.remedy.contains("Choose the curves"),
-        "{}",
-        error.remedy
+        MissingInput::Path
+            .prompt(&document)
+            .contains("Choose the curves")
     );
 }
 

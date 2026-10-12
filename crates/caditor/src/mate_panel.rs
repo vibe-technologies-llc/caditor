@@ -1,12 +1,12 @@
 use caditor_document::{
-    AngleSides, Feature, FeatureId, Mate, MatePair, PointTarget, capitalized, describe_axis,
-    describe_origin, describe_plane, describe_point,
+    AngleSides, AxisReference, Feature, FeatureId, Mate, MatePair, PointTarget, capitalized,
+    describe_axis, describe_origin, describe_plane, describe_point,
 };
 use caditor_expression::{Dimension, Expression};
 use egui::{Id, Ui};
 
 use crate::{
-    feature_fields::{self, Picker, Quantity, Rule, Shown},
+    feature_fields::{self, AxisRow, Picker, Quantity, Rule, Shown},
     mate_tools::{self, MatePart},
     model::{Action, Model},
     reference_picking::Slot,
@@ -26,6 +26,7 @@ pub const DISTANCE: &str = "Distance";
 pub const ANGLE: &str = "Angle";
 pub const AXIS_TO_MATE: &str = "Axis to mate";
 pub const ONTO_AXIS: &str = "Onto axis";
+pub const ONTO: &str = "Onto";
 const MOVING_HOVER: &str = "Mate the selected face, axis or point of the body instead";
 const TARGET_HOVER: &str = "Mate onto the selected face, plane, axis or point instead";
 
@@ -48,7 +49,7 @@ impl Panel<'_> {
         self.feature.id()
     }
 
-    fn reference_row(&mut self, ui: &mut Ui, caption: &str, shown: String, end: End) {
+    fn picker(&self, ctx: &egui::Context, end: End) -> Picker<'static> {
         let (model, selection, id, mate) = (self.model, self.selection, self.id(), self.mate);
         let (target, part) = match end {
             End::Moving(part) => (false, part),
@@ -59,24 +60,23 @@ impl Panel<'_> {
         } else {
             Slot::MateMoving(part)
         };
-        let picker = Picker {
+        Picker {
             feature: id,
             slot,
-            selected: feature_fields::offered_change(
-                ui.ctx(),
-                model,
-                selection,
-                (id, slot),
-                || {
-                    if target {
-                        mate_tools::target_change(model, selection, id, mate, part)
-                    } else {
-                        mate_tools::moving_change(model, selection, id, mate, part)
-                    }
-                },
-            ),
+            selected: feature_fields::offered_change(ctx, model, selection, (id, slot), || {
+                if target {
+                    mate_tools::target_change(model, selection, id, mate, part)
+                } else {
+                    mate_tools::moving_change(model, selection, id, mate, part)
+                }
+            }),
             hover: if target { TARGET_HOVER } else { MOVING_HOVER },
-        };
+        }
+    }
+
+    fn reference_row(&mut self, ui: &mut Ui, caption: &str, shown: String, end: End) {
+        let picker = self.picker(ui.ctx(), end);
+        let model = self.model;
         feature_fields::reference_row(
             ui,
             model,
@@ -88,12 +88,34 @@ impl Panel<'_> {
         );
     }
 
+    fn axis_row(&mut self, ui: &mut Ui, caption: &str, axis: &AxisReference, end: End) {
+        let (model, id, mate) = (self.model, self.id(), self.mate);
+        let row = AxisRow {
+            caption,
+            shown: Some(capitalized(&describe_axis(model.document(), axis))),
+            picker: self.picker(ui.ctx(), end),
+        };
+        let mut actions = Vec::new();
+        match end {
+            End::Moving(_) => feature_fields::axis_row(ui, model, row, None, &mut actions),
+            End::Target(part) => {
+                let listed = || {
+                    feature_fields::model_axis_choices(model, id, Some(axis), &|axis| {
+                        mate_tools::target_axis_change(model, id, mate, part, axis)
+                    })
+                };
+                feature_fields::axis_row(ui, model, row, Some(&listed), &mut actions);
+            }
+        }
+        self.actions.extend(actions);
+    }
+
     fn moving(&mut self, ui: &mut Ui, caption: &str, shown: String) {
         self.reference_row(ui, caption, shown, End::Moving(MatePart::Main));
     }
 
     fn onto(&mut self, ui: &mut Ui, shown: String) {
-        self.reference_row(ui, "Onto", shown, End::Target(MatePart::Main));
+        self.reference_row(ui, ONTO, shown, End::Target(MatePart::Main));
     }
 
     fn distance_row(&mut self, ui: &mut Ui, distance: &Expression) {
@@ -182,18 +204,26 @@ pub fn show(
                 panel.flip_row(ui, FACE_SAME_WAY);
             }
             MatePair::Axes(axes) => {
-                panel.moving(ui, AXIS_TO_MATE, describe_axis(document, &axes.axis));
-                panel.onto(ui, describe_axis(document, &axes.target));
+                panel.axis_row(ui, AXIS_TO_MATE, &axes.axis, End::Moving(MatePart::Main));
+                panel.axis_row(ui, ONTO, &axes.target, End::Target(MatePart::Main));
                 panel.flip_row(ui, AXIS_OTHER_WAY);
             }
             MatePair::FaceAxis(both) => {
                 let face = describe_origin(document, both.faces.face.origin());
                 panel.moving(ui, "Face to mate", face);
                 panel.onto(ui, describe_plane(document, &both.faces.target));
-                let axis = describe_axis(document, &both.axes.axis);
-                panel.reference_row(ui, AXIS_TO_MATE, axis, End::Moving(MatePart::Axis));
-                let target = describe_axis(document, &both.axes.target);
-                panel.reference_row(ui, ONTO_AXIS, target, End::Target(MatePart::Axis));
+                panel.axis_row(
+                    ui,
+                    AXIS_TO_MATE,
+                    &both.axes.axis,
+                    End::Moving(MatePart::Axis),
+                );
+                panel.axis_row(
+                    ui,
+                    ONTO_AXIS,
+                    &both.axes.target,
+                    End::Target(MatePart::Axis),
+                );
                 panel.distance_row(ui, &both.faces.distance);
                 panel.flip_row(ui, FACE_SAME_WAY);
             }
@@ -205,8 +235,9 @@ pub fn show(
                         panel.onto(ui, describe_plane(document, &faces.target));
                     }
                     AngleSides::Axes(axes) => {
-                        panel.moving(ui, "Axis to turn", describe_axis(document, &axes.axis));
-                        panel.onto(ui, describe_axis(document, &axes.target));
+                        let moving = End::Moving(MatePart::Main);
+                        panel.axis_row(ui, "Axis to turn", &axes.axis, moving);
+                        panel.axis_row(ui, ONTO, &axes.target, End::Target(MatePart::Main));
                     }
                 }
                 panel.angle_row(ui, &angle.angle);

@@ -30,7 +30,7 @@ use crate::{
     document::{Feature, FeatureId, list_names},
     recompute::{
         CancelToken, Evaluation, Failure, FeatureError, FeatureResult, FixTarget, Inputs,
-        SketchResult,
+        MissingInput, SketchResult,
     },
     sweep::{SWEEP_SHAPE, Sweep, SweepPath, swept},
     tolerance,
@@ -1065,6 +1065,12 @@ impl Context<'_> {
         FixTarget::Feature(self.sketch_id)
     }
 
+    pub(crate) fn no_regions(&self) -> Failure {
+        Failure::Waiting(MissingInput::Regions {
+            sketch: self.sketch_id,
+        })
+    }
+
     fn curves(&self, entities: &[u64]) -> String {
         let labels: Vec<String> = entities
             .iter()
@@ -1634,11 +1640,7 @@ fn profile_failure(context: &Context<'_>, error: &ProfileError) -> Failure {
                 context.in_sketch(),
             )
         }
-        ProfileError::EmptySelection => context.error(
-            "No region of the sketch is chosen.".to_owned(),
-            "Choose at least one region.".to_owned(),
-            context.own(),
-        ),
+        ProfileError::EmptySelection => context.no_regions(),
         ProfileError::MissingRegion(_) => context.error(
             format!("A chosen region of {sketch} no longer exists, because the sketch changed."),
             "Choose the regions again.".to_owned(),
@@ -1696,11 +1698,7 @@ pub(crate) fn sweep_failure(context: &Context<'_>, shape: &str, error: &SweepErr
     let sketch = &context.sketch_name;
     match error {
         SweepError::Cancelled(_) => Failure::Cancelled,
-        SweepError::NoRegions => context.error(
-            "No region of the sketch is chosen.".to_owned(),
-            "Choose at least one region.".to_owned(),
-            context.own(),
-        ),
+        SweepError::NoRegions => context.no_regions(),
         SweepError::NonFinite | SweepError::ZeroLength => context.error(
             format!("The {shape} has no length."),
             "Enter a distance other than zero.".to_owned(),
@@ -2286,8 +2284,9 @@ impl Ends<'_> {
                 return self.stop_at(body, side);
             }
             Err(error @ (ReachError::Curved(_) | ReachError::SeveralFaces(_))) => {
-                let Failure::Error(found) = self.next_failure(solid, body, side, &error) else {
-                    return Err(Failure::Cancelled);
+                let found = match self.next_failure(solid, body, side, &error) {
+                    Failure::Error(found) => found,
+                    other @ (Failure::Waiting(_) | Failure::Cancelled) => return Err(other),
                 };
                 return Err(self.error(
                     format!("{} So the end cannot be offset from it.", found.reason),
@@ -2367,10 +2366,7 @@ impl Ends<'_> {
         };
         match error {
             ReachError::Cancelled(_) => Failure::Cancelled,
-            ReachError::NoRegions => self.error(
-                "No region of the sketch is chosen.".to_owned(),
-                "Choose at least one region.".to_owned(),
-            ),
+            ReachError::NoRegions => self.context.no_regions(),
             ReachError::Nothing => self.error(
                 format!(
                     "The profile of {sketch} meets nothing of the body of {body} {}.",
@@ -2529,10 +2525,7 @@ impl Stopping<'_> {
         )
         .map_err(|error| match error {
             StopError::Cancelled(_) => Failure::Cancelled,
-            StopError::NoRegions => self.error(
-                "No region of the sketch is chosen.".to_owned(),
-                "Choose at least one region.".to_owned(),
-            ),
+            StopError::NoRegions => self.context.no_regions(),
             StopError::Straddles => self.error(
                 format!(
                     "The profile of {sketch} starts partly inside the body of {body_name} and \

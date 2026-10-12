@@ -158,7 +158,10 @@ pub fn body_state_before(
                     .ok_or(StateError::NotRecomputed);
             }
             FeatureState::Outdated => return Err(StateError::NotRecomputed),
-            FeatureState::Failed(_) | FeatureState::Suppressed | FeatureState::RolledBack => {}
+            FeatureState::Failed(_)
+            | FeatureState::Waiting(_)
+            | FeatureState::Suppressed
+            | FeatureState::RolledBack => {}
         }
     }
     Err(StateError::MadeAfter)

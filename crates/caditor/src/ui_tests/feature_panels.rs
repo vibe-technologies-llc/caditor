@@ -7,8 +7,8 @@ use caditor_sketch::Sketch;
 use egui::{Id, Key, Modifiers};
 
 use super::{
-    CAMERA_SETTLE, Harness, choose, datum_of, datum_plane_of, extruded_plate, pattern_of,
-    rectangle, run_from_palette, volume_about,
+    CAMERA_SETTLE, Harness, blend_of, choose, datum_of, datum_plane_of, extruded_plate, pattern_of,
+    rectangle, run_from_palette, top_edge_along_x, volume_about,
 };
 use crate::{
     bodies,
@@ -58,12 +58,12 @@ fn a_circular_pattern_waits_for_an_axis_clicked_in_the_view_instead_of_choosing_
         panic!("the pattern is circular");
     };
     let waiting = waiting.axis.clone();
-    let failure = harness
+    let state = harness
         .model
         .evaluation()
-        .failures()
-        .find(|(feature, _)| *feature == pattern)
-        .map(|(_, failure)| failure.reason.clone());
+        .feature(pattern)
+        .map(|status| status.state.clone());
+    let told = harness.shows("Waiting for an axis");
     click_in_view(&mut harness, Pickable::Axis(Axis::Y));
     let PatternKind::Circular(chosen) = &pattern_of(&harness, pattern).kind else {
         panic!("the pattern stays circular");
@@ -73,10 +73,14 @@ fn a_circular_pattern_waits_for_an_axis_clicked_in_the_view_instead_of_choosing_
     assert_eq!(asked, Some(Slot::PatternDirection));
     assert!(prompted);
     assert_eq!(waiting, None);
-    assert!(
-        failure.is_some_and(|failure| failure.contains("No axis is chosen")),
-        "the pattern says it has no axis yet"
+    assert_eq!(
+        state,
+        Some(caditor_document::FeatureState::Waiting(
+            caditor_document::MissingInput::Axis
+        )),
+        "the pattern waits for an axis rather than failing"
     );
+    assert!(told);
     assert_eq!(chosen, Some(AxisReference::Principal(PrincipalAxis::Y)));
     assert_eq!(picking_slot(&harness), None);
 }
@@ -1007,4 +1011,70 @@ fn a_tapped_holes_thread_takes_its_hand_and_depth_from_the_hole_panel() {
     assert_eq!(placed.len(), 1);
     assert_eq!(placed[0].designation, "M6-6H-LH");
     assert!((placed[0].placement.length - 4.0).abs() < 1e-6);
+}
+
+#[test]
+fn a_circular_pattern_waiting_for_its_axis_reads_none_chosen_and_its_callout_offers_to_choose_it() {
+    let mut harness = Harness::new();
+    extruded_plate(&mut harness);
+    harness.select([]);
+    harness.click("Circular pattern");
+    harness.settle();
+    let pattern = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the pattern is open");
+    harness.hold_still();
+
+    let none_chosen = harness.shows(feature_fields::NONE_CHOSEN);
+    let keeps_choosing = harness.shows(feature_fields::KEEPS_CHOOSING);
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.settle();
+    let closed = harness.workspace.editing.solid();
+    let failed = harness.model.evaluation().failed_count();
+    let told = harness.shows("Waiting for an axis");
+    let asked =
+        harness.shows("Choose an axis, straight edge or round face for the copies to turn about.");
+    harness.click(CHOOSE_IN_VIEW);
+    harness.settle();
+
+    assert!(none_chosen, "an unset axis reads None chosen");
+    assert!(!keeps_choosing, "one click chooses the axis, so no pill");
+    assert_eq!(closed, None);
+    assert_eq!(failed, 0, "a pattern waiting for its axis has not failed");
+    assert!(told && asked);
+    assert_eq!(harness.workspace.editing.solid(), Some(pattern));
+    assert_eq!(picking_slot(&harness), Some(Slot::PatternDirection));
+}
+
+#[test]
+fn an_edge_list_choosing_in_the_view_says_it_keeps_choosing_and_stop_choosing_closes_the_fillet() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    let front = top_edge_along_x(&harness, plate, 0.0);
+    harness.select([Pickable::Edge {
+        body: plate,
+        edge: front,
+    }]);
+    harness.click("Fillet");
+    harness.settle();
+    let fillet = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the fillet is open");
+    harness.hold_still();
+
+    let prompted = harness.shows("Click edges in the view to add them or leave them out.");
+    let keeps_choosing = harness.shows(feature_fields::KEEPS_CHOOSING);
+    harness.click(feature_fields::STOP_CHOOSING);
+    harness.settle();
+
+    assert!(prompted);
+    assert!(keeps_choosing);
+    assert_eq!(harness.workspace.editing.solid(), None);
+    assert_eq!(blend_of(&harness, fillet).edges.len(), 1);
 }

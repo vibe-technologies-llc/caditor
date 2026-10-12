@@ -50,7 +50,12 @@ A failed feature is marked in its row with what went wrong and what to do; featu
 depend on it keep working. Show where frames the place in the view, and when the fix lies in the
 feature's own settings its Edit button opens it. {command:model.first_failed} goes to the next
 failure after the chosen row and {command:model.previous_failed} to the one before, both wrapping
-around. A feature whose reference had to be found again shows a warning with Update references,
+around.
+
+A feature still being set up, such as a circular pattern with no axis, a sweep with no path or an
+extrusion with no region chosen, is not a failure: its row shows a pointing hand and says what it is
+waiting for ("Waiting for an axis"), with what to choose and a Choose in the view button. It makes
+nothing until then, and features that use what it would make wait on it as on a failed one. A feature whose reference had to be found again shows a warning with Update references,
 offered once the recompute has checked the model as it now stands.
 
 The model recomputes in the background, so the window never waits. {command:model.recompute} runs
@@ -63,7 +68,7 @@ it again after a stop.
   it. Pasted anywhere else, features copied from a folder land in a folder of the same name, so
   pasting right below the folder they came from adds them to it.
 - {command:model.filter_features} filters the rows by name, by kind, such as "fillet", or by
-  state: "failed", "outdated", "suppressed" or "hidden".
+  state: "failed", "outdated", "waiting", "suppressed" or "hidden".
 - {command:model.copy_features} and {command:model.paste_features} copy features through the
   clipboard, within a model or into another. A fillet, shell, sketch on a face or anything else
   copied with the features whose faces, edges or corners it picks is pasted onto the copies:

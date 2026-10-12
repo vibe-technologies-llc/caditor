@@ -178,8 +178,10 @@ selected sketch curves (`view_menu::SKETCH_TOOLS`) reach it. Panel rows, keys an
 ## Feature panels
 
 - Every panel runs in one order: its shape switch (Extent, Shape) or, for a shell or datum, a muted
-  description; then references, values and options; then Body. Small exclusive choices are `segmented`;
-  longer lists stay combo boxes.
+  description (a panel with both, a hole, puts the description first); then references, values and
+  options; then Body. Small exclusive choices are `segmented`; longer lists stay combo boxes. A hole
+  runs Shape, Sketch, Placed on before its sizes (a slot's Length and Angle with the values), and a
+  move's Make a copy comes before Body.
 - Every value row (`feature_fields::Quantity` carries the feature) and sketch dimension is a
   `field::NamedField`: typing `name = expression` names the value (`document.md`, Model parameters). A
   new name is one transaction inserting a parameter owned by the field (`ParameterOwner::Feature` with
@@ -205,8 +207,28 @@ selected sketch curves (`view_menu::SKETCH_TOOLS`) reach it. Panel rows, keys an
   signatures carry no editing state). While choosing, a click (or the activated keyboard highlight) is
   tried as the selection for that slot: it applies and stops, or leaves a warning notice with the
   reason. A datum axis keeps a first plane pending until a second crosses it. Escape stops choosing
-  before anything else; opening another feature or closing this one stops it too. Lists of regions,
-  blend edges and shell faces use `choose_in_view`, which opens the feature so clicks toggle entries.
+  before anything else; opening another feature or closing this one stops it too. While a slot is
+  being chosen its row shows the prompt and Stop choosing (`feature_fields::choosing_prompt`, shared
+  by every reference row, the shell's Own thickness and the hole's anchors and Add another hole).
+  Lists of regions, blend edges and shell, offset and split faces use `feature_fields::list_in_view`:
+  Choose in the view (`widgets::choose_in_view`, the shared `CHOOSE_IN_VIEW` wording) opens the
+  feature so clicks toggle entries, and while it is open the row shows the prompt and Stop choosing,
+  which closes the feature keeping its changes, as Escape does.
+- A slot that goes on choosing after a click (`Slot::keeps_choosing`: the sweep's path, the shell's
+  own thickness faces, Add another hole) and every list row while open show an info pill
+  `KEEPS_CHOOSING` ("Keeps choosing until Esc") beside Stop; a single-click slot has none.
+- Axis references are one row, `feature_fields::axis_row` (Revolve, Pattern, Mate, Move): a combo of
+  what the feature can use, with the picker under it, reading None chosen when unset.
+  `model_axis_choices` lists the principal, datum and coordinate system axes above the feature
+  (`pattern_tools::listed_axes`) plus the current one; a revolve adds its sketch's axes and lines and
+  offers a model axis off the sketch plane disabled with the reason (`caditor_document::along_plane`);
+  a mate lists them only for the axis it mates onto (`mate_tools::target_axis_change`), the moving
+  axis being one of its body's, picked only.
+- A feature waiting for an input (`FeatureState::Waiting`, `document-recompute.md`) is no failure:
+  its tree row shows `icons::AWAITING_INPUT` in the info tone with `MissingInput::waiting_words` as
+  hint, and an info callout with the words, `MissingInput::prompt` and, while closed, Choose in the
+  view starting the slot (`Slot::PatternDirection`, `Slot::SweepPath`) or opening the feature for a
+  list (`feature_tree::waiting`). State words take "waiting" for the filter.
 
 ## Extrude and Revolve
 
@@ -255,8 +277,8 @@ selected sketch curves (`view_menu::SKETCH_TOOLS`) reach it. Panel rows, keys an
   before it is offered. Regions are fills on the front layer, so the see-through preview never covers
   them; `Pickable::Region` clicks add or leave out, turning `RegionChoice::All` into explicit keys.
   `Command::ClearChosenRegions` (Alt+Shift+R, the panel's Clear, palette; `solid_tools::clear_regions`,
-  on the open feature else the tree's row) chooses none in one undoable change; the feature then fails
-  saying no region is chosen. Double-clicking a face opens the feature that made it.
+  on the open feature else the tree's row) chooses none in one undoable change; the feature then waits
+  for regions (`MissingInput::Regions`). Double-clicking a face opens the feature that made it.
 - Each extrusion side has an end kind; one that cannot apply is offered disabled with the reason on
   hover. Up to face takes the selected face or plane captured where the extrusion sits in the tree
   (`solid_panel::selected_target`, through `datum_tools::plane_reference`), or one selected curved face
@@ -363,8 +385,8 @@ selected sketch curves (`view_menu::SKETCH_TOOLS`) reach it. Panel rows, keys an
   `selected_change`; Choose in the view; the cross clears it), Orientation (`SQUARE_TO_PATH`,
   `PARALLEL`, a segmented choice that becomes a list when narrow) and Body. While choosing the
   path each click toggles a curve or edge (`toggled_path`: the same sketch or body toggles, another
-  starts a new path) and choosing goes on until Escape (`reference_picking::click` keeps
-  `Slot::SweepPath`). Edges are captured in the body as the sweep sees it
+  starts a new path) and choosing goes on until Escape (`reference_picking::click` keeps every
+  `Slot::keeps_choosing` slot). With no path it waits (`MissingInput::Path`). Edges are captured in the body as the sweep sees it
   (`Evaluation::body_result_seen_by`, else as shown).
 - It has no arrows or values; Reverse direction refuses it (it follows its path from the profile)
   and `body_reach` decides nothing for it.
@@ -842,11 +864,12 @@ selected sketch curves (`view_menu::SKETCH_TOOLS`) reach it. Panel rows, keys an
   body itself count only when nothing else is selected), else for a linear pattern the X axis
   (`pattern_tools::source`). A circular pattern never takes an axis it was not given: with none
   selected it opens with no axis and the Axis slot waiting for a click in the view
-  (`Slot::PatternDirection`, as a sweep waits for its path), failing in words until one is chosen;
+  (`Slot::PatternDirection`, as a sweep waits for its path), waiting (not failing) until one is chosen;
   switching another kind to Circular keeps a linear pattern's first direction and otherwise leaves
   the axis unchosen. While open the patterned body is shown with its directions or axis drawn
-  like a revolve's axis. Direction, Second direction (also None) and Axis list the principal axes and
-  datum axes made before the pattern (`pattern_tools::listed_axes`, set through `with_axis`).
+  like a revolve's axis. Direction, Second direction (also None) and Axis are `axis_row`s listing the
+  principal axes and datum axes made before the pattern (`pattern_tools::listed_axes`, set through
+  `with_axis`), an unset one reading None chosen.
 - Each linear direction has a Measured switch (Each, Overall), captioned Spacing or Total length.
   Switching keeps the copies in place when the count is a plain number (`pattern_panel::respaced`: a
   literal multiplied or divided, else the expression times or over the steps), otherwise it keeps the

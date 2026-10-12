@@ -78,7 +78,7 @@ impl SketchSummary {
                     problem: None,
                 }
             }
-            Some(FeatureState::Outdated) | None => Self {
+            Some(FeatureState::Outdated | FeatureState::Waiting(_)) | None => Self {
                 status: SketchStatus::NotSolved,
                 redundant: 0,
                 open_ends: 0,

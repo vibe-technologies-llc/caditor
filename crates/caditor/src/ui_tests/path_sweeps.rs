@@ -152,8 +152,16 @@ fn sweep_with_no_path_selected_starts_choosing_it_in_the_view() {
             .map(|picking| picking.slot),
         Some(Slot::SweepPath)
     );
-    let reason = failure_reason(&harness, sweep).expect("a sweep without a path fails");
-    assert_eq!(reason, "No path is chosen for Sweep 1.");
+    assert_eq!(
+        harness
+            .model
+            .evaluation()
+            .feature(sweep)
+            .map(|status| status.state.clone()),
+        Some(FeatureState::Waiting(caditor_document::MissingInput::Path))
+    );
+    assert!(harness.shows("Waiting for a path"));
+    assert!(harness.shows(crate::feature_fields::KEEPS_CHOOSING));
 
     harness.click_pickable(
         Plane::XY,

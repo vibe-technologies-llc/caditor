@@ -40,6 +40,7 @@ const NO_TARGET_POINT: &str = "Select a point, corner, flat face or plane made b
 const NO_SECOND_PART: &str = "This mate holds one pair; only a flush and concentric mate also \
                               holds an axis";
 const ALREADY: &str = "The mate already uses the selected face or axis";
+const NOT_ON_AXES: &str = "This mate does not line up axes there";
 const GONE: &str = "The feature no longer exists";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -485,6 +486,36 @@ fn target_pair(
             MatePart::Axis,
         ) => return Err(NO_SECOND_PART),
     })
+}
+
+pub fn target_axis_change(
+    model: &Model,
+    feature: FeatureId,
+    mate: &Mate,
+    part: MatePart,
+    axis: AxisReference,
+) -> Result<Transaction, String> {
+    let pair = match (&mate.pair, part) {
+        (MatePair::Axes(axes), MatePart::Main) => MatePair::Axes(Box::new(AxisMate {
+            target: axis,
+            ..axes.as_ref().clone()
+        })),
+        (MatePair::FaceAxis(both), MatePart::Axis) => {
+            let mut both = both.as_ref().clone();
+            both.axes.target = axis;
+            MatePair::FaceAxis(Box::new(both))
+        }
+        (MatePair::Angle(angle), MatePart::Main) => {
+            let mut angle = angle.as_ref().clone();
+            let AngleSides::Axes(axes) = &mut angle.sides else {
+                return Err(NOT_ON_AXES.to_owned());
+            };
+            axes.target = axis;
+            MatePair::Angle(Box::new(angle))
+        }
+        _ => return Err(NOT_ON_AXES.to_owned()),
+    };
+    changed(model, feature, mate, pair)
 }
 
 pub fn moving_change(

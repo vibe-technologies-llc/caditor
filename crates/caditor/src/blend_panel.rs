@@ -10,7 +10,7 @@ use crate::{
     blend_tools::{self, FORMS, FormChoice, KINDS},
     bodies,
     editing::EditingCommand,
-    feature_fields::{self, Quantity, Rule, Segment},
+    feature_fields::{self, ListChoosing, Quantity, Rule, Segment},
     feature_tree::count,
     field,
     model::{Action, Model},
@@ -332,17 +332,22 @@ fn edges_row(ui: &mut Ui, row: &EdgesRow<'_>, cache: &mut RowCache, actions: &mu
                 ));
             }
         }
-        if widgets::choose_in_view(
+        let chosen = feature_fields::list_in_view(
             ui,
-            feature_fields::choosing_list(ui, opened),
+            opened,
             "Click edges in the view to add them or leave them out.",
             "Show the body as it was before this feature, with its edges and those selected now \
              highlighted, so you can click edges to add or leave out",
-        ) {
-            if let Some(transaction) = blend_tools::with_selected_edges(model, id, selection) {
-                actions.push(Action::Apply(transaction));
+        );
+        match chosen {
+            Some(ListChoosing::Start) => {
+                if let Some(transaction) = blend_tools::with_selected_edges(model, id, selection) {
+                    actions.push(Action::Apply(transaction));
+                }
+                actions.push(Action::Editing(EditingCommand::OpenSolid(id)));
             }
-            actions.push(Action::Editing(EditingCommand::OpenSolid(id)));
+            Some(ListChoosing::Stop) => actions.push(Action::Editing(EditingCommand::CloseSolid)),
+            None => {}
         }
     });
     if !previewed.is_empty() {
