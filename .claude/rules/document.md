@@ -354,7 +354,10 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   emits them for kept constraints that differ. Setting an entity changes only its value, never its
   kind or points.
 - `Edit::SetSketchProjection` gives an entity a `ProjectionSource` (or none) and sets the projected
-  flag on it and its points in one step. A projected entity is never removed while flagged
+  flag on it and its points in one step. The flags always follow `projections`: an entity is
+  flagged when it or a curve using it has a source, so taking one projection off leaves a point
+  with its own source, or shared with another projected curve, flagged, and undo restores exactly
+  the flags before. A projected entity is never removed while flagged
   (`StillProjected`), so `remove_sketch_items` first takes the projection off every doomed
   projected entity and takes a projected curve's points with it (undo restores in opposite order).
 - `reshape_sketch(feature, before, after)` turns a sketch edited as a whole (trim, extend) into
