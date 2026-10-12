@@ -41,6 +41,7 @@ const NO_SECOND_PART: &str = "This mate holds one pair; only a flush and concent
                               holds an axis";
 const ALREADY: &str = "The mate already uses the selected face or axis";
 const NOT_ON_AXES: &str = "This mate does not line up axes there";
+const NOT_ON_PLANES: &str = "This mate does not rest on a plane there";
 const GONE: &str = "The feature no longer exists";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -514,6 +515,47 @@ pub fn target_axis_change(
             MatePair::Angle(Box::new(angle))
         }
         _ => return Err(NOT_ON_AXES.to_owned()),
+    };
+    changed(model, feature, mate, pair)
+}
+
+pub fn target_plane_change(
+    model: &Model,
+    feature: FeatureId,
+    mate: &Mate,
+    plane: PlaneReference,
+) -> Result<Transaction, String> {
+    let pair = match &mate.pair {
+        MatePair::Faces(faces) => MatePair::Faces(Box::new(FaceMate {
+            target: plane,
+            ..faces.as_ref().clone()
+        })),
+        MatePair::FaceAxis(both) => {
+            let mut both = both.as_ref().clone();
+            both.faces.target = plane;
+            MatePair::FaceAxis(Box::new(both))
+        }
+        MatePair::Angle(angle) => {
+            let mut angle = angle.as_ref().clone();
+            let AngleSides::Faces(faces) = &mut angle.sides else {
+                return Err(NOT_ON_PLANES.to_owned());
+            };
+            faces.target = plane;
+            MatePair::Angle(Box::new(angle))
+        }
+        MatePair::Tangent(tangent) => MatePair::Tangent(Box::new(FacePair {
+            target: plane,
+            ..tangent.as_ref().clone()
+        })),
+        MatePair::Point(point) if matches!(point.target, PointTarget::Plane(_)) => {
+            MatePair::Point(Box::new(PointMate {
+                target: PointTarget::Plane(plane),
+                ..point.as_ref().clone()
+            }))
+        }
+        MatePair::Axes(_) | MatePair::Point(_) | MatePair::FaceOnRound(_) => {
+            return Err(NOT_ON_PLANES.to_owned());
+        }
     };
     changed(model, feature, mate, pair)
 }

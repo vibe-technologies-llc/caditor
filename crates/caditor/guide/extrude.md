@@ -22,7 +22,8 @@ In the open panel, click regions in the view to add or leave them out, and
 - **One side** runs to an end; **Symmetric** runs the same distance both ways; **Two sides** gives
   each side its own end.
 - Each end is a **Distance**, **Through all**, **Up to next** (the next face of the body it
-  changes) or **Up to face** (a face or plane you select).
+  changes) or **Up to face** (a face or plane you select, or a plane picked from the list that
+  appears under the end).
 - A cut whose distance reaches more than ten times the size of the bodies it cuts offers **Cut
   through all instead**, which keeps cutting through however the bodies grow.
 - **Past the face** moves an Up to next or Up to face end beyond the face it reaches, or short of
@@ -53,7 +54,8 @@ In the open panel, click regions in the view to add or leave them out, and
   makes the distance negative, the extrusion fails and says to enter a distance above zero, rather than
   flipping again.
 
-**Start** begins at the sketch plane, an offset from it, or another face or plane, and the
+**Start** begins at the sketch plane, an offset from it, or another face or plane (a face you
+select or click, or a plane picked from the **Starts at** list), and the
 distance arrows stand at the ends measured from there. **Taper** angles the sides inward or
 outward.
 

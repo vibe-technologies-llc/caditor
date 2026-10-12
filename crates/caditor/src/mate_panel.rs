@@ -1,14 +1,16 @@
 use caditor_document::{
-    AngleSides, AxisReference, Feature, FeatureId, Mate, MatePair, PointTarget, capitalized,
-    describe_axis, describe_origin, describe_plane, describe_point,
+    AngleSides, AxisReference, Feature, FeatureId, Mate, MatePair, PlaneReference, PointTarget,
+    capitalized, describe_axis, describe_origin, describe_point,
 };
 use caditor_expression::{Dimension, Expression};
 use egui::{Id, Ui};
 
 use crate::{
+    datum_tools,
     feature_fields::{self, AxisRow, Picker, Quantity, Rule, Shown},
     mate_tools::{self, MatePart},
     model::{Action, Model},
+    plane_selector,
     reference_picking::Slot,
     selection::Selection,
     widgets,
@@ -110,6 +112,27 @@ impl Panel<'_> {
         self.actions.extend(actions);
     }
 
+    fn plane_row(&mut self, ui: &mut Ui, caption: &str, plane: &PlaneReference) {
+        let (model, id, mate) = (self.model, self.id(), self.mate);
+        let row = plane_selector::Row {
+            caption,
+            id: Id::new(("mate-plane", caption, id)),
+            planes: datum_tools::listed_planes(model.document(), id),
+            current: Some(plane),
+            picker: self.picker(ui.ctx(), End::Target(MatePart::Main)),
+            remove: None,
+        };
+        let mut actions = Vec::new();
+        plane_selector::row(
+            ui,
+            model,
+            row,
+            |plane| mate_tools::target_plane_change(model, id, mate, plane.clone()),
+            &mut actions,
+        );
+        self.actions.extend(actions);
+    }
+
     fn moving(&mut self, ui: &mut Ui, caption: &str, shown: String) {
         self.reference_row(ui, caption, shown, End::Moving(MatePart::Main));
     }
@@ -199,7 +222,7 @@ pub fn show(
                     "Face to mate",
                     describe_origin(document, faces.face.origin()),
                 );
-                panel.onto(ui, describe_plane(document, &faces.target));
+                panel.plane_row(ui, ONTO, &faces.target);
                 panel.distance_row(ui, &faces.distance);
                 panel.flip_row(ui, FACE_SAME_WAY);
             }
@@ -211,7 +234,7 @@ pub fn show(
             MatePair::FaceAxis(both) => {
                 let face = describe_origin(document, both.faces.face.origin());
                 panel.moving(ui, "Face to mate", face);
-                panel.onto(ui, describe_plane(document, &both.faces.target));
+                panel.plane_row(ui, ONTO, &both.faces.target);
                 panel.axis_row(
                     ui,
                     AXIS_TO_MATE,
@@ -232,7 +255,7 @@ pub fn show(
                     AngleSides::Faces(faces) => {
                         let face = describe_origin(document, faces.face.origin());
                         panel.moving(ui, "Face to turn", face);
-                        panel.onto(ui, describe_plane(document, &faces.target));
+                        panel.plane_row(ui, ONTO, &faces.target);
                     }
                     AngleSides::Axes(axes) => {
                         let moving = End::Moving(MatePart::Main);
@@ -245,12 +268,7 @@ pub fn show(
             MatePair::Tangent(tangent) => {
                 let face = describe_origin(document, tangent.face.origin());
                 panel.moving(ui, "Round face", face);
-                panel.reference_row(
-                    ui,
-                    "Rests on",
-                    describe_plane(document, &tangent.target),
-                    End::Target(MatePart::Main),
-                );
+                panel.plane_row(ui, "Rests on", &tangent.target);
                 panel.flip_row(ui, OTHER_SIDE);
             }
             MatePair::FaceOnRound(resting) => {
@@ -266,11 +284,10 @@ pub fn show(
             }
             MatePair::Point(point) => {
                 panel.moving(ui, "Point to mate", describe_point(document, &point.point));
-                let target = match &point.target {
-                    PointTarget::Point(target) => describe_point(document, target),
-                    PointTarget::Plane(plane) => describe_plane(document, plane),
-                };
-                panel.onto(ui, target);
+                match &point.target {
+                    PointTarget::Point(target) => panel.onto(ui, describe_point(document, target)),
+                    PointTarget::Plane(plane) => panel.plane_row(ui, ONTO, plane),
+                }
             }
         }
         feature_fields::feature_row(ui, document, "Body", mate.body);

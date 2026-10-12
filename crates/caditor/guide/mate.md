@@ -4,7 +4,8 @@
 It has no button or key; use the Model menu or {command:palette}. Select the body's part first,
 then what it goes onto:
 
-- a flat face of the body, then another body's face or a plane: the faces lie **flush**, or at a
+- a flat face of the body, then another body's face or a plane (a plane can be picked from the
+  **Onto** list as well as selected or clicked): the faces lie **flush**, or at a
   distance;
 - a straight edge or round face of the body, then another axis: the axes line up
   (**concentric**);

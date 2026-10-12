@@ -42,6 +42,7 @@ paths:
   - "crates/caditor/src/visibility.rs"
   - "crates/caditor/src/sketch_placement.rs"
   - "crates/caditor/src/new_sketch_panel.rs"
+  - "crates/caditor/src/plane_selector.rs"
   - "crates/caditor/src/reference_rows.rs"
   - "crates/caditor/src/principal_tree.rs"
   - "crates/caditor/src/feature_tree.rs"
@@ -231,6 +232,17 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   offers a model axis off the sketch plane disabled with the reason (`caditor_document::along_plane`);
   a mate lists them only for the axis it mates onto (`mate_tools::target_axis_change`), the moving
   axis being one of its body's, picked only.
+- Plane references are one row, `plane_selector::row` (Extrude and Revolve's Up to and Starts at, a
+  hole's Up to, Datum plane's Starts from, a coordinate system's XY plane, a primitive's Placed on, a
+  mate's Onto or Rests on a plane, Mirror's Mirror across): a combo of every plane the feature can
+  use (`datum_tools::listed_planes`: principal planes, then datum planes, then coordinate system
+  planes made before it and not suppressed) with the picker under it, so a plane is chosen from the
+  list, selected or clicked. The combo shows the current plane, a face included although a face is
+  never listed (faces are chosen in the view), and reads Choose a plane while a slot is being chosen
+  with nothing set. Choosing from the list is the same one change Use selected makes (a panel passes
+  `plane_selector::row` a closure building its `Transaction`, so every refusal is the panel's own)
+  and stops choosing the slot. `plane_selector::combo` is the bare list, shared with the New sketch
+  card and the section view.
 - A feature waiting for an input (`FeatureState::Waiting`, `document-recompute.md`) is no failure:
   its tree row shows `icons::AWAITING_INPUT` in the info tone with `MissingInput::waiting_words` as
   hint, and an info callout with the words, `MissingInput::prompt` and, while closed, Choose in the
@@ -767,8 +779,8 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
 - Mirror body (Alt+Shift+M) takes the body of the selection like Move and creates a `Mirror` that keeps
   the original, across the one principal or datum plane selected with it, else the one selected flat
   face (of that body or another), else the YZ plane (`datum_tools::chosen_plane`); a selected datum axis
-  or point, a datum after the bar or several planes are refused. The panel chooses a principal plane
-  from a combo, or any earlier plane or flat face with Use selected, Choose in the view (slot
+  or point, a datum after the bar or several planes are refused. The panel chooses a principal, datum or
+  coordinate system plane from a combo, or any earlier plane or flat face with Use selected, Choose in the view (slot
   `MirrorPlane`) or the palette's Mirror across selected.
 - With rows chosen in the tree that a pattern would repeat (`pattern_tools::repeatable`), Mirror body
   mirrors those features instead (`MirrorSource::mirrored`), named "Mirror features N"; its Mirrors rows
@@ -987,7 +999,7 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   wherever one is taken from the selection (`datum_tools` `plane_reference`, `axis_reference`,
   `chosen_plane`, `sketch_placement::DatumTarget`), so patterns, mirrors, splits, primitives, revolves,
   moves, datums and sketches use them, and they are listed in the pattern and move axis lists
-  (`pattern_tools::listed_axes`) and the mirror and split plane lists (`datum_tools::listed_planes`) for
+  (`pattern_tools::listed_axes`) and every plane list (`datum_tools::listed_planes`, `plane_selector.rs`) for
   every system above the feature. Its origin marker is a point wherever one is taken from the selection
   (`PointReference::Frame`), so a datum point, plane or axis through a system's origin needs no point of
   its own.
@@ -1001,10 +1013,10 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
 - New sketch starts on the one selected principal plane, datum plane, coordinate system plane or flat
   face (`sketch_placement::sketch_target`, several refused with `SEVERAL_TO_SKETCH_ON`, as Place on the
   selection does); while choosing a plane a click on any of them does the same. Choosing also shows a
-  New sketch card above the tree (`new_sketch_panel.rs`): a Plane combo of the principal planes and
-  every datum and coordinate system plane before the bar (`Document::active_features`), each disabled
-  with the reason `new_sketch_on_datum` gives when it cannot take a sketch, choosing one sending the
-  same `EditingCommand` a click does; Cancel sends `CancelNewSketch`, as Escape does, so a plane is
+  New sketch card above the tree (`new_sketch_panel.rs`): a Plane combo (`plane_selector::combo`) of
+  the principal planes and every datum and coordinate system plane before the bar
+  (`datum_tools::listed_planes_at_the_bar`), each disabled with the reason `new_sketch_on_datum` gives
+  when it cannot take a sketch, choosing one sending the same `EditingCommand` a click does; Cancel sends `CancelNewSketch`, as Escape does, so a plane is
   chosen without the pointer.
 - The attachment is captured from the body's state where the sketch sits in the tree: a face made
   further down is refused with the reason, and one whose body is not recomputed that far says so

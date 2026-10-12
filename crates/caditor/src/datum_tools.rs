@@ -166,14 +166,49 @@ pub fn frames_before(document: &Document, before: usize) -> Vec<FeatureId> {
 
 pub fn listed_planes(document: &Document, feature: FeatureId) -> Vec<PlaneReference> {
     let before = document.feature_index(feature).unwrap_or(usize::MAX);
-    let frames = frames_before(document, before)
-        .into_iter()
-        .flat_map(|frame| PrincipalPlane::ALL.map(|plane| PlaneReference::Frame { frame, plane }));
+    planes_within(document, before)
+}
+
+pub fn listed_planes_at_the_bar(document: &Document) -> Vec<PlaneReference> {
+    planes_within(document, document.bar_index())
+}
+
+fn planes_within(document: &Document, limit: usize) -> Vec<PlaneReference> {
+    let earlier = || {
+        document
+            .features()
+            .take(limit)
+            .filter(|candidate| !candidate.suppressed)
+    };
+    let datums = earlier()
+        .filter(|candidate| is_plane(document, candidate.id()))
+        .map(|datum| PlaneReference::Datum(datum.id()));
+    let frames = earlier()
+        .filter(|candidate| candidate.kind.datum().is_some_and(Datum::is_frame))
+        .flat_map(|frame| {
+            PrincipalPlane::ALL.map(|plane| PlaneReference::Frame {
+                frame: frame.id(),
+                plane,
+            })
+        });
     PrincipalPlane::ALL
         .into_iter()
         .map(PlaneReference::Principal)
+        .chain(datums)
         .chain(frames)
         .collect()
+}
+
+pub fn plane_pickable(plane: &PlaneReference) -> Option<Pickable> {
+    match plane {
+        PlaneReference::Principal(plane) => Some(Pickable::Plane(*plane)),
+        PlaneReference::Datum(feature) => Some(Pickable::Datum(*feature)),
+        PlaneReference::Frame { frame, plane } => Some(Pickable::FramePlane {
+            feature: *frame,
+            plane: *plane,
+        }),
+        PlaneReference::Face(_) => None,
+    }
 }
 
 pub fn is_plane(document: &Document, feature: FeatureId) -> bool {

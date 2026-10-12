@@ -3,7 +3,8 @@
 Datums are reference geometry: planes to sketch on, axes to revolve or pattern about, points to
 measure from. They have no volume and are not exported.
 
-- {command:model.plane} starts from the selected plane or flat face, offset from it or turned
+- {command:model.plane} starts from the selected plane or flat face (or a plane picked from the
+  **Starts from** list), offset from it or turned
   about a selected axis. Three points make a plane through them, two planes one midway, an axis and
   a point one through both, and a curved face with a point one touching the face.
 - {command:model.axis} runs along a selected edge, round face or sketch line, where two planes

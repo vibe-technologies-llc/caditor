@@ -4,7 +4,8 @@
 it), and with it the plane to mirror across: a principal or datum plane or a flat face. With no
 plane selected, it mirrors across the YZ plane.
 
-The panel chooses the plane from a list or from the selection, and **Keep the original** decides
+The panel chooses the plane from a list of the principal, datum and coordinate system planes
+before it, or from the selection or the view, and **Keep the original** decides
 whether the original stays.
 
 ## Mirroring features

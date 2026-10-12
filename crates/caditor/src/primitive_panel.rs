@@ -1,14 +1,15 @@
 use caditor_document::{
     BodyOperation, Feature, FeatureId, Primitive, PrimitiveAnchor, PrimitiveKind, SizeRule,
-    capitalized, describe_plane,
+    capitalized,
 };
 use caditor_expression::{Dimension, Expression};
-use egui::{Id, Label, Ui};
+use egui::{Id, Ui};
 
 use crate::{
+    datum_tools,
     feature_fields::{self, Choice, MISSING_BODY, Picker, Quantity, Rule, Segment},
     model::{Action, Model},
-    primitive_tools,
+    plane_selector, primitive_tools,
     reference_picking::Slot,
     selection::Selection,
     widgets,
@@ -94,8 +95,6 @@ impl Panel<'_> {
     }
 
     fn plane_rows(&mut self, ui: &mut Ui) {
-        let document = self.model.document();
-        widgets::caption(ui, "Placed on");
         let picker = Picker {
             feature: self.id(),
             slot: Slot::PrimitivePlace,
@@ -115,12 +114,23 @@ impl Panel<'_> {
             ),
             hover: PICK_HOVER,
         };
-        let text = capitalized(&describe_plane(document, &self.primitive.plane));
-        ui.vertical(|ui| {
-            ui.add(Label::new(text).wrap());
-            feature_fields::reference_picker(ui, self.model, picker, self.actions);
-        });
-        ui.end_row();
+        let row = plane_selector::Row {
+            caption: "Placed on",
+            id: Id::new(("primitive-plane", self.id())),
+            planes: datum_tools::listed_planes(self.model.document(), self.id()),
+            current: Some(&self.primitive.plane),
+            picker,
+            remove: None,
+        };
+        let mut actions = Vec::new();
+        plane_selector::row(
+            ui,
+            self.model,
+            row,
+            |plane| primitive_tools::placed_on(self.model, self.id(), self.primitive, plane),
+            &mut actions,
+        );
+        self.actions.extend(actions);
     }
 
     fn value_row(

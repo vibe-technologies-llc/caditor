@@ -1,15 +1,16 @@
 use caditor_expression::{Dimension, Expression};
 use caditor_geometry::Point3;
 use caditor_render::{CutFace, MAX_SECTION_PLANES};
-use egui::{Id, Label, Sides, TextWrapMode, Ui};
+use egui::{Id, Label, Sides, Ui};
 
 use crate::{
     appearance::{SPACE_M, SPACE_S},
-    feature_fields, field,
+    datum_tools, feature_fields, field,
     guide::Page,
     icons,
     layout::RightPanel,
     model::Model,
+    plane_selector,
     section::{self, Cut, SectionTool},
     selection::{Pickable, PrincipalPlane, Selection},
     widgets::{self, FIELD_WIDTH, PanelTitle, Tone},
@@ -27,6 +28,7 @@ pub const ADD: &str = "Add a plane";
 pub const CURRENT: &str = "Current";
 pub const THROUGH: &str = "Through";
 pub const PLANE: &str = "Plane";
+const CHOOSE_FACES_IN_VIEW: &str = "Select a flat face and use Use selected";
 pub const USE_SELECTED_HOVER: &str = "Put the plane on the selected plane, flat face or sketch";
 pub const OFFSET: &str = "Offset";
 pub const OFFSET_HOVER: &str = "How far the plane moves into the side it keeps";
@@ -103,7 +105,7 @@ fn value_row(ui: &mut Ui, model: &Model, value: &Value<'_>, expression: &mut Exp
     committed.is_some()
 }
 
-fn base_rows(ui: &mut Ui, context: &SectionContext<'_>, cut: &mut Cut) -> bool {
+fn base_rows(ui: &mut Ui, context: &SectionContext<'_>, index: usize, cut: &mut Cut) -> bool {
     let mut changed = false;
     widgets::caption(ui, THROUGH);
     let choices: Vec<(&str, &str)> = PRINCIPAL
@@ -122,7 +124,21 @@ fn base_rows(ui: &mut Ui, context: &SectionContext<'_>, cut: &mut Cut) -> bool {
     ui.end_row();
 
     widgets::caption(ui, PLANE);
-    ui.add(Label::new(cut.base_name(context.model)).wrap_mode(TextWrapMode::Wrap));
+    let document = context.model.document();
+    let chosen = plane_selector::combo_showing(
+        ui,
+        Id::new(("section-plane-base", index)),
+        document,
+        (cut.base_name(context.model).into(), |plane| {
+            datum_tools::plane_pickable(plane) == Some(cut.base)
+        }),
+        datum_tools::listed_planes_at_the_bar(document),
+        |plane| datum_tools::plane_pickable(plane).ok_or_else(|| CHOOSE_FACES_IN_VIEW.to_owned()),
+    );
+    if let Some(base) = chosen {
+        cut.base = base;
+        changed = true;
+    }
     ui.end_row();
 
     ui.label("");
@@ -147,7 +163,7 @@ fn base_rows(ui: &mut Ui, context: &SectionContext<'_>, cut: &mut Cut) -> bool {
 
 fn cut_rows(ui: &mut Ui, context: &SectionContext<'_>, index: usize, cut: &mut Cut) -> bool {
     let model = context.model;
-    let mut changed = base_rows(ui, context, cut);
+    let mut changed = base_rows(ui, context, index, cut);
     for (caption, hover, slot, dimension, expression) in [
         (
             OFFSET,

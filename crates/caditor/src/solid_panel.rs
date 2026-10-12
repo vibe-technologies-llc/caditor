@@ -2,7 +2,7 @@ use caditor_document::{
     AxisReference, AxisSide, BodyOperation, Document, Extrude, ExtrudeEnd, ExtrudeExtent, Feature,
     FeatureId, PlaneReference, RegionChoice, Revolve, RevolveAxis, RevolveExtent, SolidFeature,
     SolidStart, Sweep, SweepPath, Transaction, Wall, along_plane, capitalized, describe_axis,
-    describe_origin, describe_plane, displayed_axis,
+    describe_origin, displayed_axis,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_geometry::Point2;
@@ -22,6 +22,7 @@ use crate::{
     field, hole_panel, icons,
     model::{Action, Model},
     move_manipulator::Reach,
+    plane_selector,
     reference_picking::{self, Picking, Side, Slot},
     reversing, scene,
     selection::{self, Pickable, Selection},
@@ -29,6 +30,13 @@ use crate::{
     solid_tools::{self, DEFAULT_BACKWARD_ANGLE, DEFAULT_PARTIAL_ANGLE},
     sweep_tools, widgets,
 };
+
+struct PlaneRow<'a> {
+    caption: &'a str,
+    current: Option<&'a PlaneReference>,
+    picker: Picker<'a>,
+    remove: Option<&'a str>,
+}
 
 const EDIT_SKETCH_HOVER: &str = "Show and edit the sketch this sweeps, to change its profile";
 const FULL_TURN_DEGREES: f64 = 360.0;
@@ -218,6 +226,33 @@ impl Panel<'_> {
 
     fn picking(&self, ui: &Ui, slot: Slot) -> bool {
         reference_picking::current(ui.ctx()).is_some_and(|picking| picking.is_for(self.id(), slot))
+    }
+
+    fn plane_row(
+        &mut self,
+        ui: &mut Ui,
+        row: PlaneRow<'_>,
+        rebuild: impl Fn(PlaneReference) -> SolidFeature,
+    ) -> bool {
+        let model = self.model;
+        let feature = self.id();
+        let mut actions = Vec::new();
+        let removed = plane_selector::row(
+            ui,
+            model,
+            plane_selector::Row {
+                caption: row.caption,
+                id: Id::new(("plane-row", row.caption, feature)),
+                planes: datum_tools::listed_planes(model.document(), feature),
+                current: row.current,
+                picker: row.picker,
+                remove: row.remove,
+            },
+            |plane| self.change(rebuild(plane.clone())),
+            &mut actions,
+        );
+        self.actions.extend(actions);
+        removed
     }
 
     fn combo(
@@ -439,6 +474,7 @@ impl Panel<'_> {
         });
         ui.end_row();
         let slot = Slot::ExtrudeTarget(rows.side);
+        let kept_offset = end.offset().cloned();
         let picker = Picker {
             feature: self.id(),
             slot,
@@ -473,16 +509,18 @@ impl Panel<'_> {
                 }
             }
             ExtrudeEnd::UpToFace { target, .. } => {
-                let shown = Shown::Named(capitalized(&describe_plane(self.document(), target)));
-                feature_fields::reference_row(
-                    ui,
-                    self.model,
-                    rows.face,
-                    shown,
+                let row = PlaneRow {
+                    caption: rows.face,
+                    current: Some(target),
                     picker,
-                    None,
-                    self.actions,
-                );
+                    remove: None,
+                };
+                self.plane_row(ui, row, |plane| {
+                    with_extent_of(
+                        extrude,
+                        rebuild(ExtrudeEnd::up_to_face(plane).with_offset(kept_offset.clone())),
+                    )
+                });
                 self.offset_row(ui, rows, extrude, end, rebuild);
                 return;
             }
@@ -506,15 +544,18 @@ impl Panel<'_> {
             ExtrudeEnd::ThroughAll => {}
         }
         if self.picking(ui, slot) {
-            feature_fields::reference_row(
-                ui,
-                self.model,
-                rows.face,
-                Shown::NoneChosen,
+            let row = PlaneRow {
+                caption: rows.face,
+                current: None,
                 picker,
-                None,
-                self.actions,
-            );
+                remove: None,
+            };
+            self.plane_row(ui, row, |plane| {
+                with_extent_of(
+                    extrude,
+                    rebuild(ExtrudeEnd::up_to_face(plane).with_offset(kept_offset.clone())),
+                )
+            });
         }
     }
 
@@ -972,32 +1013,22 @@ impl Panel<'_> {
             ),
             hover: "Start from the selected flat face or plane instead",
         };
-        if let Some(target) = on_face {
-            let shown = Shown::Named(capitalized(&describe_plane(self.document(), target)));
-            let removed = feature_fields::reference_row(
-                ui,
-                self.model,
-                "Starts at",
-                shown,
+        if on_face.is_some() || self.picking(ui, Slot::StartPlane) {
+            let row = PlaneRow {
+                caption: "Starts at",
+                current: on_face,
                 picker,
-                Some("Start at the sketch plane again"),
-                self.actions,
-            );
+                remove: on_face.map(|_| "Start at the sketch plane again"),
+            };
+            let removed = self.plane_row(ui, row, |plane| {
+                solid_tools::with_start(solid, Some(SolidStart::Plane(plane)))
+            });
             if removed {
                 self.apply(solid_tools::with_start(solid, None));
             }
-            return;
-        }
-        if self.picking(ui, Slot::StartPlane) {
-            feature_fields::reference_row(
-                ui,
-                self.model,
-                "Starts at",
-                Shown::NoneChosen,
-                picker,
-                None,
-                self.actions,
-            );
+            if on_face.is_some() {
+                return;
+            }
         }
         let distance = start
             .and_then(SolidStart::distance)
@@ -1233,11 +1264,9 @@ impl Panel<'_> {
         target: Option<&PlaneReference>,
     ) {
         let id = self.id();
-        let shown = match target {
-            Some(target) => Shown::Named(capitalized(&describe_plane(self.document(), target))),
-            None if self.picking(ui, Slot::RevolveTarget) => Shown::NoneChosen,
-            None => return,
-        };
+        if target.is_none() && !self.picking(ui, Slot::RevolveTarget) {
+            return;
+        }
         let picker = Picker {
             feature: id,
             slot: Slot::RevolveTarget,
@@ -1250,7 +1279,19 @@ impl Panel<'_> {
             ),
             hover: "Turn up to the selected face or plane through the axis instead",
         };
-        feature_fields::reference_row(ui, self.model, "Up to", shown, picker, None, self.actions);
+        let reversed = matches!(revolve.extent, RevolveExtent::UpTo { reversed: true, .. });
+        let row = PlaneRow {
+            caption: "Up to",
+            current: target,
+            picker,
+            remove: None,
+        };
+        self.plane_row(ui, row, |plane| {
+            SolidFeature::Revolve(Revolve {
+                extent: RevolveExtent::up_to(plane, reversed),
+                ..revolve.clone()
+            })
+        });
     }
 
     fn operation_rows(&mut self, ui: &mut Ui) {

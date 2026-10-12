@@ -6,7 +6,8 @@ the model is closed.
 
 - {command:view.section_add} adds a plane through the middle of the model; up to six cut at once.
 - Each plane starts from the XY, XZ or YZ plane, or from a datum plane, a coordinate system's
-  plane, a flat face or a sketch, taken with {command:view.section_use_selected}. It follows that
+  plane, a flat face or a sketch, taken with {command:view.section_use_selected}; the **Plane**
+  list picks a principal, datum or coordinate system plane without selecting it. It follows that
   geometry when the model changes.
 - **Offset** moves the plane, **Tilt** and **Turn** turn it; each takes units and
   [expressions](expressions).
