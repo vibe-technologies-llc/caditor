@@ -715,7 +715,13 @@ pattern, Coordinate system, Scale model and Configurations. Panel rows, keys and
   expression.
 - Instances is a grid of `widgets::instance_toggle`s, one per instance at its step along each
   direction, checked when made; clicking one leaves it out or brings it back as one undoable change, the
-  original disabled. Switching between linear and circular clears the left-out instances.
+  original disabled. The grid is laid out like the copies in a view along the pattern's directions
+  taken as +X and +Y on screen (the top and front views): columns run left to right with the first
+  direction, rows run bottom to top with the second, so the original is at the bottom left; a reversed
+  direction (`Pattern::reversed_directions`) flips its axis, keeping the original on the side it sits
+  relative to its copies. The grid does not follow the camera, so it is not re-laid while orbiting.
+  Rows are built from the top down (`grid_order`), which is also the keyboard order. Switching between
+  linear and circular clears the left-out instances.
 - Curve pattern and Point pattern (`Command::CurvePattern`, `PointPattern`; Model › Patterns) take the
   body as Linear and Circular do, except that a selection of sketch geometry alone, like an empty one,
   leaves the body to the last one standing (anything else naming no body, such as an axis, plane or

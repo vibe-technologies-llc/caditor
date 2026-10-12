@@ -40,9 +40,10 @@ otherwise a principal axis is used.
 - In the view, an arrow at the last copy of each direction drags the spacing; the count is typed
   in the panel. A circular pattern has two arrows along its turn, for its total angle and its
   count. Type a value with the pointer on an arrow to set it.
-- **Instances**: a grid with one box per copy. Uncheck a box, or click a copy in the view, to
-  leave it out; a point pattern leaves out a copy you click and **Bring the copies back** returns
-  them.
+- **Instances**: a grid with one box per copy, laid out like the copies seen from the top or
+  front: the original at the bottom left, the first direction running to the right and the second
+  upwards (reversing a direction flips it). Uncheck a box, or click a copy in the view, to leave it
+  out; a point pattern leaves out a copy you click and **Bring the copies back** returns them.
 
 Counts and spacings take [expressions](expressions). See also
 [patterns in a sketch](sketch-patterns).
