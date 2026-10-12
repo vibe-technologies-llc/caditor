@@ -763,7 +763,7 @@ fn a_fillet_on_an_edge_another_feature_made_depends_on_that_feature() {
     );
     assert_eq!(document.dependents_of(&[boss]), vec![fillet]);
     assert!(matches!(
-        document.check(&Transaction::single(
+        document.check_moves(&Transaction::single(
             "Move",
             Edit::MoveFeature {
                 id: fillet,
@@ -773,7 +773,7 @@ fn a_fillet_on_an_edge_another_feature_made_depends_on_that_feature() {
         Err(EditError::AboveDependency { .. })
     ));
     assert!(matches!(
-        document.check(&Transaction::single(
+        document.check_moves(&Transaction::single(
             "Move",
             Edit::MoveFeature { id: boss, index },
         )),

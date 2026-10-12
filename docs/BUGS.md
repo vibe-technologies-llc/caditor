@@ -105,6 +105,13 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   splitting and the rounding's retraced edges do not yet follow. Tapering the other way works down
   to corners a little larger than the fillet, and corners no larger than it are refused as
   `TooLarge`.
+- [low · medium] A model file whose feature uses one stored after it (only a damaged or hand-made
+  file; caditor never saves one) loads with the user above what it uses, since loading appends
+  features and an insert checks only the inserted feature's own references. Undoing a deletion or
+  kind change of that user, or undoing a move that lifts the used feature above it, is then
+  refused (`MissingFeature`, `BelowDependent`): the undo would restore an order no edit allows. An
+  insert refusing to land below a feature using it would close it, but needs a cheap way to find
+  the users of an ID, since loading and `transaction_to` insert every feature.
 
 
 ## Sketching

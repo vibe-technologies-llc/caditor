@@ -1,6 +1,6 @@
 use caditor_expression::Expression;
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
-use caditor_kernel::SamplingTolerance;
+use caditor_kernel::{FaceName, FaceOrigin, FaceReference, SamplingTolerance};
 use caditor_sketch::Sketch;
 
 use crate::*;
@@ -534,6 +534,61 @@ fn a_feature_using_one_that_is_gone_can_be_inserted_and_its_id_is_never_handed_o
         "It uses a feature that no longer exists."
     );
     assert_eq!(above_its_sketch, Err(EditError::MissingFeature));
+}
+
+#[test]
+fn undoing_a_move_above_a_face_user_brings_back_the_order_it_was_inserted_in() {
+    let model = model();
+    let mut document = model.document.clone();
+    document
+        .apply(document.roll_to(RollbackBar::Before(model.hole), "Roll back"))
+        .unwrap();
+    let made_by_note = FaceReference::new(
+        FaceName::from_digest(1),
+        Some(FaceOrigin::EndCap {
+            feature: model.note.raw(),
+        }),
+        [],
+    );
+    let mut transaction = document.transaction("Shell");
+    transaction.add_feature(
+        "Shell",
+        FeatureKind::Shell(Shell {
+            body: model.base,
+            open: vec![made_by_note],
+            thickness: Expression::parse_stored("1 mm").unwrap(),
+            side: ShellSide::Inside,
+            faces: Vec::new(),
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    let inserted = document.clone();
+
+    let undo = document
+        .apply(Transaction::single(
+            "Move",
+            Edit::MoveFeature {
+                id: model.note,
+                index: 0,
+            },
+        ))
+        .unwrap();
+    let rows = document.tree_rows().len();
+    let back_below = document.move_row(TreeRow::Feature(model.note), rows, "Move");
+
+    assert_eq!(names(&inserted)[2..4], ["Shell", "Hole sketch"]);
+    assert_eq!(names(&document)[0], "Note");
+    assert_eq!(
+        back_below,
+        Err(EditError::BelowDependent {
+            name: "Note".to_owned(),
+            other: "Shell".to_owned()
+        })
+    );
+
+    document.apply(undo).unwrap();
+
+    assert!(document.same_content(&inserted));
 }
 
 #[test]
