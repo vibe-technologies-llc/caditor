@@ -73,7 +73,14 @@ paths:
   times the whole app pass (`app::show`, actions, scene build, pick answer) over `large_sketch`
   idle, with the pointer moving and with the line tool, and over the plate with a tree row
   chosen; `frame_costs_on_a_large_sketch_and_a_large_model` (`viewport.rs`) times the scene alone,
-  a whole-body hover with the Bodies filter included.
+  a whole-body hover with the Bodies filter included. `frame_costs_on_a_large_assembly`
+  (`viewport.rs`) settles 1,600 copies of the samples, or the STEP file `CADITOR_IMPORT_FILE`
+  names, times the scene idle and with the hover changing, prints the shown edge segments by the
+  size of their body on screen, and with a graphics adapter draws 1920×1080 frames at 4x through
+  a `ViewportRenderer` of its own once every upload is done: still frames turning a little (whole,
+  without edges and vertices, without silhouettes, faces only) and frames with the hover changing
+  and a pick, each split into the scene, the UI thread's drawing and the wait for the GPU;
+  `CADITOR_BENCH_CASE` runs only the cases whose name contains it.
 - The renderer's upload state reaches the interface through `ViewportState::set_uploading`, which
   a test calls itself; `Harness::repaint_after` is the repaint delay egui reported for the last
   frame (`Duration::MAX` when nothing asked), so a test can hold that a widget's timer runs only

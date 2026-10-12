@@ -1,12 +1,14 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
+    iter,
     sync::Arc,
 };
 
 use caditor_document::{
-    Datum, DatumResult, Document, Evaluation, Feature, FeatureId, FeatureResult, FeatureState,
-    PrincipalAxis, PrincipalGeometry, RegionChoice, RevolveAxis, SketchRegion, SolidFeature,
-    SolidResult, body_parts, datum_outline, displayed_axis, displayed_frame, placed_threads,
+    BodyAppearance, Datum, DatumResult, Document, Evaluation, Feature, FeatureId, FeatureResult,
+    FeatureState, PrincipalAxis, PrincipalGeometry, RegionChoice, RevolveAxis, SketchRegion,
+    SolidFeature, SolidResult, body_parts, datum_outline, displayed_axis, displayed_frame,
+    placed_threads,
 };
 use caditor_geometry::{Aabb, Plane, Point2, Point3, Ray, RigidTransform};
 use caditor_kernel::{EdgeName, RegionKey, RegionMesh, RegionReference, resolve_regions};
@@ -50,6 +52,8 @@ const BOUNDS_SEGMENT_ANGLE: f64 = std::f64::consts::PI / 60.0;
 const SKETCH_SEGMENT_BUDGET: usize = 1 << 19;
 const MAX_COARSENINGS: u32 = 64;
 const REFERENCE_MARGIN: f64 = 1.2;
+const BODY_PICKS_FROM: usize = 1 << 26;
+const BODY_PICKS_RESTART: usize = 1 << 31;
 
 const BODY: Color = Color::from_rgb8(
     body_appearance::DEFAULT_COLOUR.red,
@@ -105,32 +109,110 @@ impl PickPriority {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct PickTable {
+#[derive(Debug, Clone, PartialEq)]
+pub struct PickBlock {
+    first: usize,
+    end: usize,
     entries: Vec<(Pickable, PickPriority)>,
 }
 
-impl PickTable {
+impl Default for PickBlock {
+    fn default() -> Self {
+        Self::spanning(0, BODY_PICKS_FROM)
+    }
+}
+
+impl PickBlock {
+    fn spanning(first: usize, room: usize) -> Self {
+        Self {
+            first,
+            end: first.saturating_add(room),
+            entries: Vec::new(),
+        }
+    }
+
     fn register(&mut self, pickable: Pickable, priority: PickPriority) -> Option<PickId> {
-        let id = PickId::from_index(self.entries.len())?;
+        let index = self.first + self.entries.len();
+        if index >= self.end {
+            return None;
+        }
+        let id = PickId::from_index(index)?;
         self.entries.push((pickable, priority));
         Some(id)
     }
 
+    fn get(&self, index: usize) -> Option<(Pickable, PickPriority)> {
+        self.entries.get(index.checked_sub(self.first)?).copied()
+    }
+
+    #[cfg(test)]
+    fn id_of(&self, pickable: Pickable) -> Option<PickId> {
+        self.entries
+            .iter()
+            .position(|(candidate, _)| *candidate == pickable)
+            .and_then(|position| PickId::from_index(self.first + position))
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct PickTable {
+    own: PickBlock,
+    bodies_after: usize,
+    bodies: Vec<Arc<PickBlock>>,
+    by_first: Vec<(usize, usize)>,
+}
+
+impl PickTable {
+    #[cfg(test)]
+    fn register(&mut self, pickable: Pickable, priority: PickPriority) -> Option<PickId> {
+        self.own.register(pickable, priority)
+    }
+
+    fn of(own: PickBlock, bodies_after: usize, bodies: Vec<Arc<PickBlock>>) -> Self {
+        let mut by_first: Vec<(usize, usize)> = bodies
+            .iter()
+            .enumerate()
+            .map(|(at, block)| (block.first, at))
+            .collect();
+        by_first.sort_unstable();
+        Self {
+            own,
+            bodies_after,
+            bodies,
+            by_first,
+        }
+    }
+
     fn resolve(&self, id: PickId) -> Option<(Pickable, PickPriority)> {
-        self.entries.get(id.index()).copied()
+        let index = id.index();
+        if index < BODY_PICKS_FROM {
+            return self.own.get(index);
+        }
+        let at = self
+            .by_first
+            .partition_point(|(first, _)| *first <= index)
+            .checked_sub(1)?;
+        let (_, block) = self.by_first.get(at)?;
+        self.bodies.get(*block)?.get(index)
     }
 
     #[cfg(test)]
     pub fn id_of(&self, pickable: Pickable) -> Option<PickId> {
-        self.entries
-            .iter()
-            .position(|(candidate, _)| *candidate == pickable)
-            .and_then(PickId::from_index)
+        self.own
+            .id_of(pickable)
+            .or_else(|| self.bodies.iter().find_map(|block| block.id_of(pickable)))
     }
 
     pub fn pickables(&self) -> impl Iterator<Item = Pickable> + '_ {
-        self.entries.iter().map(|(pickable, _)| *pickable)
+        let (before, after) = self
+            .own
+            .entries
+            .split_at(self.bodies_after.min(self.own.entries.len()));
+        before
+            .iter()
+            .chain(self.bodies.iter().flat_map(|block| block.entries.iter()))
+            .chain(after)
+            .map(|(pickable, _)| *pickable)
     }
 
     pub fn best_hit(
@@ -196,7 +278,11 @@ impl Highlight<'_> {
             Pickable::SketchEntity { feature, .. } | Pickable::Datum(feature) => Some(feature),
             _ => None,
         };
-        owner.is_some_and(|owner| self.chosen_rows.contains(&owner))
+        owner.is_some_and(|owner| self.is_chosen_row(owner))
+    }
+
+    fn is_chosen_row(&self, owner: FeatureId) -> bool {
+        self.chosen_rows.contains(&owner)
     }
 
     fn is_lit(&self, pickable: Pickable) -> bool {
@@ -314,6 +400,176 @@ impl BuiltScene {
             Some(edited) => edited.bounds,
             None => self.model.unwrap_or(self.everything),
         }
+    }
+}
+
+#[derive(Clone, Default)]
+pub struct BodyParts {
+    kept: BTreeMap<FeatureId, BodyPart>,
+    looks: BTreeMap<FeatureId, KeptLooks>,
+    next_pick: usize,
+}
+
+#[derive(Clone)]
+struct KeptLooks {
+    appearance: BodyAppearance,
+    result: Option<Shared<FeatureResult>>,
+    palette: usize,
+    looks: SameLooks,
+}
+
+#[derive(Debug, Clone)]
+struct SameLooks(Arc<FaceLooks>);
+
+impl PartialEq for SameLooks {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0) || self.0 == other.0
+    }
+}
+
+impl BodyParts {
+    fn picks_for(&mut self, mesh: &BodyMesh) -> PickBlock {
+        let room = mesh.faces.len() + mesh.edges.len() + mesh.vertices.len();
+        let first = self.next_pick.max(BODY_PICKS_FROM);
+        self.next_pick = first.saturating_add(room.max(1));
+        PickBlock::spanning(first, room)
+    }
+
+    fn face_looks(
+        &mut self,
+        previous: &mut BTreeMap<FeatureId, KeptLooks>,
+        (document, evaluation): (&Document, &Evaluation),
+        feature: &Feature,
+        palette: &ScenePalette,
+    ) -> SameLooks {
+        if feature.appearance.faces.is_empty() {
+            return SameLooks(Arc::new(face_looks(document, evaluation, feature, palette)));
+        }
+        let body = feature.id();
+        let result = evaluation
+            .body_result(body)
+            .map(|result| Shared(Arc::clone(result)));
+        let palette_key = std::ptr::from_ref(palette).addr();
+        let kept = match previous.remove(&body) {
+            Some(kept)
+                if kept.appearance == feature.appearance
+                    && kept.result == result
+                    && kept.palette == palette_key =>
+            {
+                kept
+            }
+            Some(_) | None => KeptLooks {
+                appearance: feature.appearance.clone(),
+                result,
+                palette: palette_key,
+                looks: SameLooks(Arc::new(face_looks(document, evaluation, feature, palette))),
+            },
+        };
+        let looks = kept.looks.clone();
+        self.looks.insert(body, kept);
+        looks
+    }
+
+    fn restart_when_exhausted(&mut self) {
+        if self.next_pick > BODY_PICKS_RESTART {
+            self.kept.clear();
+            self.next_pick = BODY_PICKS_FROM;
+        }
+    }
+}
+
+#[derive(Clone)]
+struct BodyPart {
+    look: BodyLook,
+    lit: BodyLit,
+    picks: Arc<PickBlock>,
+    drawn: DrawnBody,
+}
+
+#[derive(Clone, Default)]
+struct DrawnBody {
+    meshes: Vec<MeshInstance>,
+    translucent_meshes: Vec<MeshInstance>,
+    flat_meshes: Vec<MeshInstance>,
+    reflective_meshes: Vec<MeshInstance>,
+    silhouettes: Vec<Silhouette>,
+    batch: Option<Arc<Batch>>,
+}
+
+#[derive(Debug)]
+struct Shared<T>(Arc<T>);
+
+impl<T> Clone for Shared<T> {
+    fn clone(&self) -> Self {
+        Self(Arc::clone(&self.0))
+    }
+}
+
+impl<T> PartialEq for Shared<T> {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct BodyLook {
+    mesh: Shared<ShadedMesh>,
+    analysed: Option<Shared<Analysed>>,
+    color: Option<Color>,
+    faces: SameLooks,
+    dashed: bool,
+    opacity: Option<f32>,
+    pickable: bool,
+    placement: Option<RigidTransform>,
+    style: DisplayStyle,
+    palette: usize,
+    reflective: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+struct BodyLit {
+    chosen: bool,
+    selected: Vec<Pickable>,
+    hovered: Vec<Pickable>,
+}
+
+#[derive(Default)]
+struct LitBodies {
+    selected: BTreeMap<FeatureId, Vec<Pickable>>,
+    hovered: BTreeMap<FeatureId, Vec<Pickable>>,
+}
+
+impl LitBodies {
+    fn of(highlight: &Highlight<'_>) -> Self {
+        let mut lit = Self::default();
+        for pickable in highlight.selection.iter() {
+            if let Some(body) = body_of(pickable) {
+                lit.selected.entry(body).or_default().push(pickable);
+            }
+        }
+        for pickable in highlight.hovered {
+            if let Some(body) = body_of(*pickable) {
+                lit.hovered.entry(body).or_default().push(*pickable);
+            }
+        }
+        lit
+    }
+
+    fn of_body(&self, highlight: &Highlight<'_>, body: FeatureId) -> BodyLit {
+        BodyLit {
+            chosen: highlight.is_chosen_row(body),
+            selected: self.selected.get(&body).cloned().unwrap_or_default(),
+            hovered: self.hovered.get(&body).cloned().unwrap_or_default(),
+        }
+    }
+}
+
+fn body_of(pickable: Pickable) -> Option<FeatureId> {
+    match pickable {
+        Pickable::Face { body, .. }
+        | Pickable::Edge { body, .. }
+        | Pickable::Vertex { body, .. } => Some(body),
+        _ => None,
     }
 }
 
@@ -494,6 +750,20 @@ pub fn build(
     context: Context,
     shapes: &mut SketchShapes,
 ) -> BuiltScene {
+    build_keeping(
+        sources,
+        highlight,
+        context,
+        (shapes, &mut BodyParts::default()),
+    )
+}
+
+pub fn build_keeping(
+    sources: &Sources<'_>,
+    highlight: &Highlight<'_>,
+    context: Context,
+    (shapes, parts): (&mut SketchShapes, &mut BodyParts),
+) -> BuiltScene {
     let Sources {
         document,
         evaluation,
@@ -524,7 +794,10 @@ pub fn build(
         flat_meshes: Vec::new(),
         reflective_meshes: Vec::new(),
         silhouettes: Vec::new(),
-        picks: PickTable::default(),
+        picks: PickBlock::default(),
+        bodies_after: 0,
+        bodies: Vec::new(),
+        body_batches: Vec::new(),
         highlight,
         style,
         palette,
@@ -601,10 +874,21 @@ pub fn build(
     let open_view = open.map(|open| (open, OpenView::of(evaluation, bodies, open)));
     let moved = bodies.moved();
     let mut split_preview = None;
+    let healths = Healths::of(document, evaluation);
+    let shown: BTreeMap<FeatureId, &Feature> = document
+        .features()
+        .filter(|feature| !feature.hidden)
+        .map(|feature| (feature.id(), feature))
+        .collect();
+    let lit_bodies = LitBodies::of(highlight);
+    parts.restart_when_exhausted();
+    let mut previous = std::mem::take(&mut parts.kept);
+    let mut previous_looks = std::mem::take(&mut parts.looks);
+    builder.bodies_after = builder.picks.entries.len();
     for (body, mesh) in bodies.iter() {
-        if !visibility::is_shown(document, body) {
+        let Some(&feature) = shown.get(&body) else {
             continue;
-        }
+        };
         match open_view {
             Some((open, OpenView::Before)) if open.body == body => {
                 split_preview =
@@ -622,13 +906,14 @@ pub fn build(
             Some(draft) if draft.body == body && editing.is_none() => draft.mesh.as_ref(),
             Some(_) | None => mesh,
         };
+        let health = healths.of_body(body);
         let color = match editing {
             Some(_) => None,
-            None => Some(body_color(palette, document, evaluation, body)),
+            None => Some(health_color(palette, feature, health)),
         };
-        let opacity = document
-            .feature(body)
-            .and_then(|feature| feature.appearance.opacity)
+        let opacity = feature
+            .appearance
+            .opacity
             .map(|percent| f32::from(percent) / 100.0);
         let ghosted = matches!(open_view, Some((open, OpenView::Ghost)) if open.body == body);
         let opacity = match previewed.contains(&body) && !ghosted {
@@ -636,25 +921,47 @@ pub fn build(
             false => opacity,
         };
         let faces = match color {
-            Some(color) if color == palette.body(painted(document, body)) => {
-                face_looks(document, evaluation, body, palette)
-            }
-            Some(_) | None => FaceLooks::default(),
+            Some(color) if color == palette.body(painted_by(feature)) => parts.face_looks(
+                &mut previous_looks,
+                (document, evaluation),
+                feature,
+                palette,
+            ),
+            Some(_) | None => SameLooks(Arc::default()),
         };
-        let dashed = palette.troubled_edges_dashed
-            && editing.is_none()
-            && body_health(document, evaluation, body) != Health::Sound;
+        let dashed = palette.troubled_edges_dashed && editing.is_none() && health != Health::Sound;
         let placement = moved
             .filter(|(moved, _)| *moved == body)
             .map(|(_, placement)| placement);
-        builder.body(
-            body,
-            mesh,
-            (color, &faces, dashed),
+        let look = BodyLook {
+            mesh: Shared(Arc::clone(&mesh.mesh)),
+            analysed: builder.analysed(mesh).map(Shared),
+            color,
+            faces,
+            dashed,
             opacity,
-            editing.is_none() || context.projecting,
+            pickable: editing.is_none() || context.projecting,
             placement,
-        );
+            style: builder.style,
+            palette: std::ptr::from_ref(palette).addr(),
+            reflective: builder.reflection.is_some(),
+        };
+        let lit = lit_bodies.of_body(highlight, body);
+        let part = match previous.remove(&body) {
+            Some(part) if part.look == look && part.lit == lit => part,
+            Some(part) if part.look == look => {
+                let picks =
+                    PickBlock::spanning(part.picks.first, part.picks.end - part.picks.first);
+                let mut restyled = builder.body_part(body, mesh, (look, lit), picks);
+                if restyled.drawn.batch == part.drawn.batch {
+                    restyled.drawn.batch = part.drawn.batch;
+                }
+                restyled
+            }
+            Some(_) | None => builder.body_part(body, mesh, (look, lit), parts.picks_for(mesh)),
+        };
+        builder.add_part(&part);
+        parts.kept.insert(body, part);
         if aids.centres_of_mass
             && editing.is_none()
             && let Some(mass) = mesh.mass()
@@ -716,13 +1023,19 @@ pub fn build(
             silhouettes: builder.silhouettes,
             reflection: aids.reflection.unwrap_or_default(),
             section: Vec::new(),
-            batches: vec![Arc::new(builder.scene)],
+            batches: iter::once(Arc::new(builder.scene))
+                .chain(builder.body_batches)
+                .collect(),
             grid: Some(Grid {
                 plane: grid_plane,
                 color: palette.grid,
             }),
         },
-        picks: Arc::new(builder.picks),
+        picks: Arc::new(PickTable::of(
+            builder.picks,
+            builder.bodies_after,
+            builder.bodies,
+        )),
         generation: 0,
         everything,
         model,
@@ -898,7 +1211,10 @@ struct Builder<'a> {
     flat_meshes: Vec<MeshInstance>,
     reflective_meshes: Vec<MeshInstance>,
     silhouettes: Vec<Silhouette>,
-    picks: PickTable,
+    picks: PickBlock,
+    bodies_after: usize,
+    bodies: Vec<Arc<PickBlock>>,
+    body_batches: Vec<Arc<Batch>>,
     highlight: &'a Highlight<'a>,
     style: DisplayStyle,
     palette: &'static ScenePalette,
@@ -907,7 +1223,69 @@ struct Builder<'a> {
     control_polygons: bool,
 }
 
-impl Builder<'_> {
+impl<'a> Builder<'a> {
+    fn body_part(
+        &self,
+        body: FeatureId,
+        mesh: &BodyMesh,
+        (look, lit): (BodyLook, BodyLit),
+        picks: PickBlock,
+    ) -> BodyPart {
+        let mut part = Builder {
+            scene: Batch::default(),
+            meshes: Vec::new(),
+            translucent_meshes: Vec::new(),
+            overlay_meshes: Vec::new(),
+            flat_meshes: Vec::new(),
+            reflective_meshes: Vec::new(),
+            silhouettes: Vec::new(),
+            picks,
+            bodies_after: 0,
+            bodies: Vec::new(),
+            body_batches: Vec::new(),
+            highlight: self.highlight,
+            style: self.style,
+            palette: self.palette,
+            analysis: self.analysis,
+            reflection: self.reflection,
+            control_polygons: self.control_polygons,
+        };
+        part.body(
+            body,
+            mesh,
+            (look.color, &look.faces.0, look.dashed),
+            look.opacity,
+            look.pickable,
+            look.placement,
+        );
+        BodyPart {
+            look,
+            lit,
+            picks: Arc::new(part.picks),
+            drawn: DrawnBody {
+                meshes: part.meshes,
+                translucent_meshes: part.translucent_meshes,
+                flat_meshes: part.flat_meshes,
+                reflective_meshes: part.reflective_meshes,
+                silhouettes: part.silhouettes,
+                batch: (!part.scene.is_empty()).then(|| Arc::new(part.scene)),
+            },
+        }
+    }
+
+    fn add_part(&mut self, part: &BodyPart) {
+        let drawn = &part.drawn;
+        self.meshes.extend(drawn.meshes.iter().cloned());
+        self.translucent_meshes
+            .extend(drawn.translucent_meshes.iter().cloned());
+        self.flat_meshes.extend(drawn.flat_meshes.iter().cloned());
+        self.reflective_meshes
+            .extend(drawn.reflective_meshes.iter().cloned());
+        self.silhouettes.extend(drawn.silhouettes.iter().cloned());
+        self.body_batches.extend(drawn.batch.iter().cloned());
+        self.bodies.push(Arc::clone(&part.picks));
+    }
+
     fn emphasis(&self, pickable: Pickable) -> f32 {
         self.highlight
             .emphasis(pickable, self.palette.selection_widening)
@@ -1233,7 +1611,7 @@ impl Builder<'_> {
                     || Arc::clone(&mesh.mesh),
                     |analysed| Arc::clone(&analysed.mesh),
                 ),
-                faces,
+                faces: faces.into(),
                 placement,
             };
             if self.reflection.is_some() && color.is_some() && placement.is_none() {
@@ -1245,21 +1623,26 @@ impl Builder<'_> {
                     let alphas: Vec<f32> =
                         mesh.faces.iter().map(|face| own_alpha(face, 1.0)).collect();
                     if alphas.iter().any(|alpha| *alpha < 1.0) {
-                        let mut see_through = instance.clone();
-                        for ((solid, clear), alpha) in instance
+                        let (solid, clear): (Vec<FaceStyle>, Vec<FaceStyle>) = instance
                             .faces
-                            .iter_mut()
-                            .zip(&mut see_through.faces)
+                            .iter()
                             .zip(alphas)
-                        {
-                            if alpha < 1.0 {
-                                solid.color = solid.color.with_alpha(0.0);
-                                clear.color = clear.color.with_alpha(alpha);
-                            } else {
-                                clear.color = clear.color.with_alpha(0.0);
-                            }
-                        }
-                        self.translucent_meshes.push(see_through);
+                            .map(|(style, alpha)| {
+                                let with = |alpha: f32| FaceStyle {
+                                    color: style.color.with_alpha(alpha),
+                                    ..*style
+                                };
+                                match alpha < 1.0 {
+                                    true => (with(0.0), with(alpha)),
+                                    false => (*style, with(0.0)),
+                                }
+                            })
+                            .unzip();
+                        self.translucent_meshes.push(MeshInstance {
+                            faces: clear.into(),
+                            ..instance.clone()
+                        });
+                        instance.faces = solid.into();
                     }
                 }
                 self.meshes.push(instance);
@@ -1462,7 +1845,8 @@ impl Builder<'_> {
                     finish: None,
                 };
                 cut.faces.len()
-            ],
+            ]
+            .into(),
             placement: None,
         });
         for edge in &cut.edges {
@@ -1521,7 +1905,7 @@ impl Builder<'_> {
         };
         self.meshes.push(MeshInstance {
             mesh: Arc::clone(&mesh.mesh),
-            faces,
+            faces: faces.into(),
             placement: None,
         });
         self.plain_silhouette(&mesh.mesh);
@@ -1699,7 +2083,7 @@ impl Builder<'_> {
             };
             self.meshes.push(MeshInstance {
                 mesh: Arc::clone(&open.before.mesh),
-                faces,
+                faces: faces.into(),
                 placement: None,
             });
             self.plain_silhouette(&open.before.mesh);
@@ -2346,7 +2730,7 @@ pub fn region_references(
         .collect()
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 struct FaceLooks {
     colours: BTreeMap<FaceKey, Color>,
     opacities: BTreeMap<FaceKey, f32>,
@@ -2363,12 +2747,11 @@ impl FaceLooks {
 fn face_looks(
     document: &Document,
     evaluation: &Evaluation,
-    body: FeatureId,
+    feature: &Feature,
     palette: &ScenePalette,
 ) -> FaceLooks {
-    let Some(appearance) = document.feature(body).map(|feature| &feature.appearance) else {
-        return FaceLooks::default();
-    };
+    let body = feature.id();
+    let appearance = &feature.appearance;
     let finish = appearance
         .finish
         .filter(|_| palette.shows_finishes)
@@ -2420,13 +2803,10 @@ fn face_looks(
     }
 }
 
-fn painted(document: &Document, body: FeatureId) -> Color {
-    document
-        .feature(body)
-        .and_then(|feature| feature.appearance.colour)
-        .map_or(BODY, |colour| {
-            Color::from_rgb8(colour.red, colour.green, colour.blue)
-        })
+fn painted_by(feature: &Feature) -> Color {
+    feature.appearance.colour.map_or(BODY, |colour| {
+        Color::from_rgb8(colour.red, colour.green, colour.blue)
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2452,6 +2832,45 @@ fn body_health(document: &Document, evaluation: &Evaluation, body: FeatureId) ->
     health
 }
 
+struct Healths(BTreeMap<FeatureId, Health>);
+
+impl Healths {
+    fn of(document: &Document, evaluation: &Evaluation) -> Self {
+        let mut healths = BTreeMap::new();
+        for feature in document.features() {
+            let Some(body) = feature.body() else {
+                continue;
+            };
+            let health = healths.entry(body).or_insert(Health::Sound);
+            match evaluation.feature(feature.id()).map(|status| &status.state) {
+                Some(FeatureState::Failed(_)) => *health = Health::Failed,
+                Some(FeatureState::Outdated) => {
+                    if *health == Health::Sound {
+                        *health = Health::Outdated;
+                    }
+                }
+                Some(
+                    FeatureState::UpToDate | FeatureState::Suppressed | FeatureState::RolledBack,
+                )
+                | None => {}
+            }
+        }
+        Self(healths)
+    }
+
+    fn of_body(&self, body: FeatureId) -> Health {
+        self.0.get(&body).copied().unwrap_or(Health::Sound)
+    }
+}
+
+fn health_color(palette: &ScenePalette, feature: &Feature, health: Health) -> Color {
+    palette.body(match health {
+        Health::Sound => painted_by(feature),
+        Health::Outdated => palette.outdated_body,
+        Health::Failed => palette.failed_body,
+    })
+}
+
 fn body_color(
     palette: &ScenePalette,
     document: &Document,
@@ -2459,7 +2878,7 @@ fn body_color(
     body: FeatureId,
 ) -> Color {
     palette.body(match body_health(document, evaluation, body) {
-        Health::Sound => painted(document, body),
+        Health::Sound => document.feature(body).map_or(BODY, painted_by),
         Health::Outdated => palette.outdated_body,
         Health::Failed => palette.failed_body,
     })
@@ -2639,9 +3058,14 @@ fn model_bounds(sources: &Sources<'_>) -> Option<Aabb> {
         .filter(|feature| !feature.hidden)
         .filter_map(|feature| sketches.bounds(evaluation, feature, sketch_points_bounds))
         .reduce(Aabb::union);
+    let shown: BTreeSet<FeatureId> = document
+        .features()
+        .filter(|feature| !feature.hidden)
+        .map(Feature::id)
+        .collect();
     let shown_bodies = bodies
         .iter()
-        .filter(|(body, _)| visibility::is_shown(document, *body))
+        .filter(|(body, _)| shown.contains(body))
         .filter_map(|(_, mesh)| mesh.bounds())
         .reduce(Aabb::union);
     match (sketches, shown_bodies) {
@@ -2822,9 +3246,10 @@ mod tests {
             None,
         );
 
-        assert_eq!(built.picks.entries.len(), 3 + 3 + 1 + 3);
+        assert_eq!(built.picks.own.entries.len(), 3 + 3 + 1 + 3);
         let line_pick = built
             .picks
+            .own
             .entries
             .iter()
             .position(|(pickable, _)| {
@@ -2865,6 +3290,7 @@ mod tests {
     fn picks_of(built: &BuiltScene) -> Vec<Pickable> {
         built
             .picks
+            .own
             .entries
             .iter()
             .map(|(pickable, _)| *pickable)
@@ -2874,6 +3300,7 @@ mod tests {
     fn line_color(built: &BuiltScene, pickable: Pickable) -> Color {
         let pick = built
             .picks
+            .own
             .entries
             .iter()
             .position(|(candidate, _)| *candidate == pickable)
@@ -3410,6 +3837,7 @@ mod tests {
             let pickable = Pickable::SketchEntity { feature, entity };
             let registered: Vec<_> = built
                 .picks
+                .own
                 .entries
                 .iter()
                 .enumerate()

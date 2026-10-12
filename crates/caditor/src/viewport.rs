@@ -1459,7 +1459,7 @@ impl ViewportState {
             .view(f64::from(size.width), f64::from(size.height));
         let level = FacetLevel::following(self.scenes.level(), FacetLevel::wanted_chord(&view));
         let unselected = Selection::default();
-        let mut built = scene::build(
+        let mut built = scene::build_keeping(
             &sources,
             &Highlight {
                 selection: &unselected,
@@ -1467,7 +1467,10 @@ impl ViewportState {
                 chosen_rows: &[],
             },
             context,
-            &mut SketchShapes::new(scene::drawn_faceting(&sources, context, level.faceting())),
+            (
+                &mut SketchShapes::new(scene::drawn_faceting(&sources, context, level.faceting())),
+                &mut self.scenes.body_parts().clone(),
+            ),
         );
         built.scene.grid = None;
         built.scene.section = self.scenes.section().to_vec();
@@ -6012,6 +6015,81 @@ mod tests {
         Drawn { picked, ..drawn }
     }
 
+    fn pick_ids(built: &BuiltScene) -> Vec<(Pickable, Option<PickId>)> {
+        built
+            .picks
+            .pickables()
+            .map(|pickable| (pickable, built.picks.id_of(pickable)))
+            .collect()
+    }
+
+    fn kept_batches(before: &BuiltScene, after: &BuiltScene) -> usize {
+        after
+            .scene
+            .batches
+            .iter()
+            .filter(|batch| {
+                before
+                    .scene
+                    .batches
+                    .iter()
+                    .any(|earlier| Arc::ptr_eq(earlier, batch))
+            })
+            .count()
+    }
+
+    #[test]
+    fn each_body_draws_its_own_batch_and_a_hover_or_a_hidden_body_moves_no_other_pick_id() {
+        let mut model = model_of(super::timing::copies_document(3));
+        settle(&mut model);
+        let editing = SketchEditing::default();
+        let mut state = state_with_cursor();
+        let first = state.build_scene(&model, &editing).unwrap().clone();
+        let edge_of = |built: &BuiltScene, wanted: FeatureId| {
+            built
+                .picks
+                .pickables()
+                .find(|pickable| matches!(pickable, Pickable::Edge { body, .. } if *body == wanted))
+                .unwrap()
+        };
+        let bodies: Vec<FeatureId> = model
+            .document()
+            .features()
+            .map(|feature| feature.id())
+            .collect();
+        let face = first
+            .picks
+            .pickables()
+            .find(|pickable| matches!(pickable, Pickable::Face { body, .. } if *body == bodies[0]))
+            .unwrap();
+
+        state.hovered = Some(face);
+        let face_hovered = state.build_scene(&model, &editing).unwrap().clone();
+        state.hovered = Some(edge_of(&first, bodies[0]));
+        let edge_hovered = state.build_scene(&model, &editing).unwrap().clone();
+        state.hovered = None;
+        let unhovered = state.build_scene(&model, &editing).unwrap().clone();
+        let hidden = visibility::toggle(model.document().feature(bodies[1]).unwrap()).unwrap();
+        model.perform(Action::Apply(hidden));
+        settle(&mut model);
+        let one_hidden = state.build_scene(&model, &editing).unwrap().clone();
+        let without_the_hidden = |built: &BuiltScene| {
+            pick_ids(built)
+                .into_iter()
+                .filter(|(pickable, _)| visibility::owner(*pickable) != Some(bodies[1]))
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(first.scene.batches.len(), 4);
+        assert_eq!(pick_ids(&face_hovered), pick_ids(&first));
+        assert_eq!(pick_ids(&edge_hovered), pick_ids(&first));
+        assert_eq!(kept_batches(&first, &face_hovered), 3);
+        assert_eq!(kept_batches(&first, &edge_hovered), 2);
+        assert_eq!(one_hidden.scene.batches.len(), 3);
+        assert_eq!(without_the_hidden(&one_hidden), without_the_hidden(&first));
+        assert_eq!(kept_batches(&unhovered, &one_hidden), 2);
+    }
+
     #[test]
     fn an_unchanged_frame_reuses_the_scene_and_asks_for_no_pick() {
         let (document, ..) = sketched(Plane::XY);
@@ -6805,6 +6883,415 @@ pub mod timing {
                 state.hovered = None;
             }
         });
+    }
+
+    const ASSEMBLY_FILE: &str = "CADITOR_IMPORT_FILE";
+    const COPIES_ACROSS: usize = 40;
+    const COPY_SPACING: f64 = 160.0;
+    const ASSEMBLY_TIMEOUT: Duration = Duration::from_secs(3600);
+    const GPU_FRAMES: u32 = 30;
+    const FULL_HD: (u32, u32) = (1920, 1080);
+    const TARGET_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
+
+    fn assembly_document() -> Document {
+        let cancel = caditor_document::CancelToken::never();
+        let mut document = Document::default();
+        let bodies = match std::env::var_os(ASSEMBLY_FILE) {
+            Some(path) => {
+                let started = Instant::now();
+                let imported =
+                    caditor_file::read_step_file(std::path::Path::new(&path), &cancel).unwrap();
+                eprintln!(
+                    "read {} bodies in {:?}",
+                    imported.bodies.len(),
+                    started.elapsed()
+                );
+                imported.bodies
+            }
+            None => copies_of_the_samples(COPIES_ACROSS * COPIES_ACROSS),
+        };
+        let transaction = caditor_file::bodies_transaction(&document, &bodies, "Import");
+        document.apply(transaction).unwrap();
+        document
+    }
+
+    pub fn copies_document(copies: usize) -> Document {
+        let mut document = Document::default();
+        let transaction =
+            caditor_file::bodies_transaction(&document, &copies_of_the_samples(copies), "Import");
+        document.apply(transaction).unwrap();
+        document
+    }
+
+    fn copies_of_the_samples(copies: usize) -> Vec<caditor_file::ImportedBody> {
+        let cancel = caditor_document::CancelToken::never();
+        let solids: Vec<caditor_kernel::Solid> = crate::samples::Sample::ALL
+            .into_iter()
+            .map(|sample| {
+                let document = sample.document().unwrap();
+                let evaluation = caditor_document::Recompute::default().run_without_display(
+                    &document,
+                    &caditor_document::ModelEvaluator,
+                    &cancel,
+                );
+                let (body, _) = evaluation.bodies().next().unwrap();
+                evaluation
+                    .body_result(body)
+                    .unwrap()
+                    .solid()
+                    .unwrap()
+                    .solid
+                    .clone()
+            })
+            .collect();
+        (0..copies)
+            .map(|index| {
+                let solid = &solids[index % solids.len()];
+                let at = Vector3::new(
+                    (index % COPIES_ACROSS) as f64 * COPY_SPACING,
+                    (index / COPIES_ACROSS) as f64 * COPY_SPACING,
+                    0.0,
+                );
+                let placed = solid
+                    .transformed(&caditor_geometry::RigidTransform::translation(at).unwrap())
+                    .unwrap();
+                caditor_file::ImportedBody {
+                    name: format!("Copy {index}"),
+                    import: caditor_document::Import::new("copy", placed, ""),
+                    colour: None,
+                    opacity: None,
+                    finish: None,
+                    group: None,
+                    faces: Vec::new(),
+                }
+            })
+            .collect()
+    }
+
+    fn settled_assembly() -> Model {
+        let started = Instant::now();
+        let mut model = model_of(assembly_document());
+        while matches!(model.status(), RecomputeStatus::Running { .. }) || model.bodies_pending() {
+            assert!(
+                started.elapsed() < ASSEMBLY_TIMEOUT,
+                "the recompute did not finish"
+            );
+            model.poll();
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        eprintln!("evaluated and meshed in {:?}", started.elapsed());
+        model
+    }
+
+    struct Gpu {
+        device: wgpu::Device,
+        queue: wgpu::Queue,
+        target: wgpu::TextureView,
+    }
+
+    impl Gpu {
+        fn open() -> Option<Self> {
+            let instance = wgpu::Instance::new(
+                wgpu::InstanceDescriptor::new_without_display_handle_from_env(),
+            );
+            let adapter =
+                pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+                    power_preference: wgpu::PowerPreference::HighPerformance,
+                    ..wgpu::RequestAdapterOptions::default()
+                }))
+                .ok()?;
+            eprintln!("drawing on {}", adapter.get_info().name);
+            let (device, queue) =
+                pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+                    required_limits: adapter.limits(),
+                    ..wgpu::DeviceDescriptor::default()
+                }))
+                .ok()?;
+            let target = device
+                .create_texture(&wgpu::TextureDescriptor {
+                    label: Some("timing target"),
+                    size: wgpu::Extent3d {
+                        width: FULL_HD.0,
+                        height: FULL_HD.1,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: TARGET_FORMAT,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                    view_formats: &[],
+                })
+                .create_view(&wgpu::TextureViewDescriptor::default());
+            Some(Self {
+                device,
+                queue,
+                target,
+            })
+        }
+
+        fn renderer(&self) -> caditor_render::ViewportRenderer {
+            caditor_render::ViewportRenderer::new(&self.device, TARGET_FORMAT, 4)
+        }
+
+        fn draw(
+            &self,
+            renderer: &mut caditor_render::ViewportRenderer,
+            request: &ViewportRequest,
+            scene: &Scene,
+        ) -> (Duration, Duration) {
+            let started = Instant::now();
+            let mut encoder = self
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+            renderer.draw(
+                &self.device,
+                &self.queue,
+                &mut encoder,
+                &caditor_render::SurfaceTarget {
+                    view: &self.target,
+                    width: FULL_HD.0,
+                    height: FULL_HD.1,
+                },
+                Some(&caditor_render::ViewportFrame {
+                    rect: request.rect,
+                    view: &request.view,
+                    scene,
+                    pick_at: request.pick_at,
+                    pixels_per_point: request.pixels_per_point,
+                }),
+            );
+            let submission = self.queue.submit([encoder.finish()]);
+            let wake: caditor_render::Wake = Arc::new(|| {});
+            renderer.after_submit(&self.device, &wake, submission);
+            let submitted = Instant::now();
+            self.device
+                .poll(wgpu::PollType::wait_indefinitely())
+                .unwrap();
+            let waited = submitted.elapsed();
+            if request.pick_at.is_some() {
+                while renderer.picking().poll(&self.device) == caditor_render::PickPoll::Pending {
+                    std::thread::yield_now();
+                }
+            }
+            (submitted - started, waited)
+        }
+    }
+
+    fn full_hd_state() -> ViewportState {
+        let mut state = ViewportState::new();
+        state.rect = Some(Rect::from_min_size(
+            pos2(0.0, 0.0),
+            vec2(FULL_HD.0 as f32, FULL_HD.1 as f32),
+        ));
+        state.cursor = Some(Vector2::new(960.0, 540.0));
+        state
+    }
+
+    struct Timed {
+        built: Duration,
+        drawn: Duration,
+        waited: Duration,
+    }
+
+    impl Timed {
+        fn report(name: &str, frames: &[Self]) {
+            let count = frames.len().max(1) as u32;
+            let sum = |part: fn(&Self) -> Duration| frames.iter().map(part).sum::<Duration>();
+            let worst = frames
+                .iter()
+                .map(|frame| frame.built + frame.drawn + frame.waited)
+                .max()
+                .unwrap_or_default();
+            eprintln!(
+                "{name:<40} scene {:>10.3?}, drawing on the UI thread {:>10.3?}, GPU {:>10.3?}, worst frame {worst:.3?}",
+                sum(|frame| frame.built) / count,
+                sum(|frame| frame.drawn) / count,
+                sum(|frame| frame.waited) / count,
+            );
+        }
+    }
+
+    struct Drawing<'a> {
+        gpu: &'a Gpu,
+        model: &'a Model,
+    }
+
+    impl Drawing<'_> {
+        fn frames(
+            &self,
+            name: &str,
+            scene: Option<fn(&Scene) -> Scene>,
+            mut change: impl FnMut(&mut ViewportState, u32),
+        ) {
+            if !is_benched(name) {
+                return;
+            }
+            let editing = SketchEditing::default();
+            let mut state = full_hd_state();
+            let mut renderer = self.gpu.renderer();
+            let mut timed = Vec::new();
+            let mut warming = 0;
+            let mut frame = 0;
+            while timed.len() < GPU_FRAMES as usize {
+                change(&mut state, frame);
+                frame += 1;
+                let started = Instant::now();
+                state.build_scene(self.model, &editing);
+                let request = state.request(true).unwrap();
+                let built_scene = state.scene().unwrap();
+                let left_out = scene.map(|leave_out| leave_out(built_scene));
+                let shown = left_out.as_ref().unwrap_or(built_scene);
+                let built = started.elapsed();
+                let (drawn, waited) = self.gpu.draw(&mut renderer, &request, shown);
+                if renderer.is_uploading() || warming < WARM_UP {
+                    warming += u32::from(!renderer.is_uploading());
+                    continue;
+                }
+                timed.push(Timed {
+                    built,
+                    drawn,
+                    waited,
+                });
+            }
+            Timed::report(name, &timed);
+        }
+    }
+
+    fn segments_by_size_on_screen(view: &View, scene: &Scene) {
+        let sizes = [8.0, 32.0, 128.0, 512.0, f64::INFINITY];
+        let mut segments = [0usize; 5];
+        let mut batches = [0usize; 5];
+        for batch in &scene.batches {
+            let shown = batch.lines.iter().filter(|line| line.color.alpha > 0.0);
+            let Some(bounds) =
+                Aabb::from_points(shown.clone().flat_map(|line| [line.start, line.end]))
+            else {
+                continue;
+            };
+            let depth = view.view_depth(bounds.center()).max(view.near_plane());
+            let pixels = bounds.max().distance(bounds.min()) / view.units_per_pixel_at(depth);
+            let bucket = sizes.iter().position(|size| pixels < *size).unwrap_or(4);
+            segments[bucket] += shown.count();
+            batches[bucket] += 1;
+        }
+        eprintln!(
+            "shown edge segments of batches under 8, 32, 128, 512 px and larger: {segments:?} in {batches:?} batches"
+        );
+    }
+
+    fn is_benched(name: &str) -> bool {
+        std::env::var("CADITOR_BENCH_CASE")
+            .ok()
+            .is_none_or(|only| name.contains(&only))
+    }
+
+    fn turned_a_little(state: &mut ViewportState, frame: u32) {
+        let step = if frame.is_multiple_of(2) { 2.0 } else { -2.0 };
+        let target = state.camera.viewpoint().target;
+        state.camera.orbit(target, Vector2::new(step, 0.0), 1000.0);
+    }
+
+    #[test]
+    #[ignore = "a timing benchmark: CADITOR_IMPORT_FILE=model.step cargo test --release -p caditor frame_costs_on_a_large_assembly -- --ignored --nocapture"]
+    fn frame_costs_on_a_large_assembly() {
+        let model = settled_assembly();
+        let editing = SketchEditing::default();
+        let mut state = full_hd_state();
+        let started = Instant::now();
+        let built = state.build_scene(&model, &editing).unwrap().clone();
+        let scene = &built.scene;
+        eprintln!(
+            "first scene in {:?}: {} meshes of {} faces and {} triangles, {} silhouettes, {} batches, {} line segments, {} markers",
+            started.elapsed(),
+            scene.meshes.len(),
+            scene
+                .meshes
+                .iter()
+                .map(|instance| instance.faces.len())
+                .sum::<usize>(),
+            scene
+                .meshes
+                .iter()
+                .map(|instance| instance.mesh.triangle_count())
+                .sum::<usize>(),
+            scene.silhouettes.len(),
+            scene.batches.len(),
+            scene.lines().count(),
+            scene.markers().count(),
+        );
+        if let Some(view) = state.view() {
+            segments_by_size_on_screen(&view, &built.scene);
+        }
+        let faces: Vec<Pickable> = {
+            let mut seen = std::collections::BTreeSet::new();
+            built
+                .picks
+                .pickables()
+                .filter(|pickable| match pickable {
+                    Pickable::Face { body, .. } => seen.insert(*body),
+                    _ => false,
+                })
+                .step_by(97)
+                .take(16)
+                .collect()
+        };
+        let hovering = |state: &mut ViewportState, frame: u32| {
+            hover(state, faces[frame as usize % faces.len()]);
+        };
+
+        let scenario = Scenario {
+            model: &model,
+            editing: &editing,
+        };
+        if is_benched("assembly, scene") {
+            scenario.time("assembly, scene idle", |_, _| {});
+            scenario.time("assembly, scene with the hover changing", hovering);
+        }
+
+        let Some(gpu) = Gpu::open() else {
+            eprintln!("no graphics adapter, so no frame is drawn");
+            return;
+        };
+        let drawing = Drawing {
+            gpu: &gpu,
+            model: &model,
+        };
+        drawing.frames("still, turning a little", None, turned_a_little);
+        drawing.frames(
+            "still, turning, no edges or vertices",
+            Some(|scene| Scene {
+                batches: Vec::new(),
+                ..scene.clone()
+            }),
+            turned_a_little,
+        );
+        drawing.frames(
+            "still, turning, no silhouettes",
+            Some(|scene| Scene {
+                silhouettes: Vec::new(),
+                ..scene.clone()
+            }),
+            turned_a_little,
+        );
+        drawing.frames(
+            "still, turning, faces only",
+            Some(|scene| Scene {
+                silhouettes: Vec::new(),
+                batches: Vec::new(),
+                ..scene.clone()
+            }),
+            turned_a_little,
+        );
+        drawing.frames("hover changing, with a pick", None, hovering);
+        drawing.frames(
+            "whole body hover changing, with a pick",
+            None,
+            |state, frame| {
+                state.set_filter(SelectionFilter::Bodies);
+                hovering(state, frame);
+            },
+        );
     }
 }
 

@@ -589,7 +589,7 @@ fn draws_and_picks_a_box(device: &wgpu::Device, queue: &wgpu::Queue) {
     let scene = Scene {
         meshes: vec![MeshInstance {
             mesh,
-            faces: styles,
+            faces: styles.into(),
             placement: None,
         }],
         batches: vec![Arc::new(Batch {
@@ -664,7 +664,7 @@ fn sectioned_box(cut_face: CutFace, normal: Vector3) -> Scene {
     Scene {
         meshes: vec![MeshInstance {
             mesh: Arc::new(box_mesh(20.0)),
-            faces: styles,
+            faces: styles.into(),
             placement: None,
         }],
         section: vec![SectionPlane {
@@ -754,7 +754,8 @@ fn a_see_through_face_is_not_capped_in_the_pick_pass_so_a_click_reaches_what_is_
     let through_hole = view.project(Point3::new(5.0, 10.0, 0.0)).unwrap();
     let below = PickId::from_index(24).unwrap();
     let mut scene = sectioned_box(CutFace::Filled, Vector3::Z);
-    scene.meshes[0].faces[5].color = Color::from_rgb8(40, 200, 40).with_alpha(0.0);
+    Arc::make_mut(&mut scene.meshes[0].faces)[5].color =
+        Color::from_rgb8(40, 200, 40).with_alpha(0.0);
     scene.meshes.push(MeshInstance {
         mesh: Arc::new(box_mesh(20.0)),
         faces: (0..6)
@@ -858,7 +859,8 @@ fn face_colours_and_the_eye_follow_every_frame_with_one_renderer() {
                     finish: None,
                 };
                 6
-            ],
+            ]
+            .into(),
             placement: None,
         }],
         ..Scene::default()
@@ -916,7 +918,8 @@ fn faces_that_cannot_be_picked_still_hide_what_is_behind_them_from_picking() {
                     finish: None,
                 };
                 6
-            ],
+            ]
+            .into(),
             placement: None,
         }],
         batches: vec![Arc::new(Batch {
@@ -975,7 +978,8 @@ fn a_line_dashed_where_hidden_also_draws_dashed_where_a_face_covers_it_and_picks
                     finish: None,
                 };
                 6
-            ],
+            ]
+            .into(),
             placement: None,
         }],
         batches: vec![Arc::new(Batch {
@@ -1097,7 +1101,8 @@ fn the_front_layer_draws_and_picks_over_faces_in_front_of_it() {
                     finish: None,
                 };
                 6
-            ],
+            ]
+            .into(),
             placement: None,
         }],
         translucent_meshes: Vec::new(),
@@ -1199,7 +1204,7 @@ fn reference_fills_are_picked_only_where_nothing_else_is() {
     let scene = Scene {
         meshes: vec![MeshInstance {
             mesh: Arc::new(box_mesh(20.0)),
-            faces: styles,
+            faces: styles.into(),
             placement: None,
         }],
         batches: vec![Arc::new(Batch {
@@ -1385,7 +1390,8 @@ fn a_viewport_of_no_size_keeps_its_meshes_until_the_scene_drops_them() {
                     finish: None,
                 };
                 6
-            ],
+            ]
+            .into(),
             placement: None,
         }],
         ..Scene::default()
@@ -1633,7 +1639,8 @@ fn a_translucent_mesh_blends_over_what_is_behind_it_and_is_never_picked() {
                 finish: None,
             };
             6
-        ],
+        ]
+        .into(),
         placement: None,
     };
     let glass = MeshInstance {
@@ -1645,7 +1652,8 @@ fn a_translucent_mesh_blends_over_what_is_behind_it_and_is_never_picked() {
                 finish: None,
             };
             6
-        ],
+        ]
+        .into(),
         placement: None,
     };
     let both = Scene {
@@ -1695,7 +1703,8 @@ fn an_overlay_mesh_shows_through_whatever_covers_it_and_is_never_picked() {
                 finish: None,
             };
             6
-        ],
+        ]
+        .into(),
         placement: None,
     };
     let inside = MeshInstance {
@@ -1707,7 +1716,8 @@ fn an_overlay_mesh_shows_through_whatever_covers_it_and_is_never_picked() {
                 finish: None,
             };
             6
-        ],
+        ]
+        .into(),
         placement: None,
     };
     let both = Scene {
@@ -1750,7 +1760,8 @@ fn a_flat_mesh_shows_its_colour_unlit_hides_what_is_behind_it_and_is_picked() {
                 finish: None,
             };
             6
-        ],
+        ]
+        .into(),
         placement: None,
     };
     let scene = Scene {
@@ -1943,7 +1954,8 @@ fn silhouetted(mesh: &Arc<ShadedMesh>, with_faces: bool) -> Scene {
                     color: Color::from_rgb8(120, 120, 120),
                     pick: PickId::from_index(0),
                     finish: None,
-                }],
+                }]
+                .into(),
                 placement: None,
             }],
             false => Vec::new(),
@@ -2062,7 +2074,8 @@ fn a_silhouette_dashed_where_hidden_shows_dashes_only_where_a_face_covers_it_and
                 finish: None,
             };
             6
-        ],
+        ]
+        .into(),
         placement: None,
     };
     let scene = |dashed_where_hidden: bool| {
@@ -2140,7 +2153,8 @@ fn reflective_scene(reflection: Reflection, pick: PickId) -> Scene {
                 color: Color::from_rgb8(200, 200, 200),
                 pick: Some(pick),
                 finish: None,
-            }],
+            }]
+            .into(),
             placement: None,
         }],
         reflection,
@@ -2330,7 +2344,8 @@ fn a_face_on_the_grid_plane_hides_the_grid_and_a_reference_fill_without_speckles
                 color: face,
                 pick: PickId::from_index(5),
                 finish: None,
-            }],
+            }]
+            .into(),
             placement: None,
         }],
         batches: vec![Arc::new(Batch {
@@ -2409,7 +2424,7 @@ fn an_edge_beyond_a_face_seen_at_a_grazing_angle_is_not_eaten_by_it() {
     let scene = Scene {
         meshes: vec![MeshInstance {
             mesh: Arc::new(box_mesh(20.0)),
-            faces: styles,
+            faces: styles.into(),
             placement: None,
         }],
         batches: vec![Arc::new(Batch {
@@ -2534,7 +2549,8 @@ fn faces_that_cannot_be_picked_hide_faces_and_reference_fills_as_pickable_ones_d
                 finish: None,
             };
             6
-        ],
+        ]
+        .into(),
         placement: None,
     };
     let behind = MeshInstance {
@@ -2774,7 +2790,7 @@ fn an_orthographic_view_draws_and_picks_faces_behind_its_eye_with_edges_over_the
     let scene = Scene {
         meshes: vec![MeshInstance {
             mesh: Arc::new(box_mesh(20.0)),
-            faces: styles,
+            faces: styles.into(),
             placement: None,
         }],
         batches: vec![Arc::new(Batch {
@@ -3023,7 +3039,8 @@ fn every_offered_anti_aliasing_level_smooths_edges_and_keeps_front_geometry_and_
                     finish: None,
                 };
                 6
-            ],
+            ]
+            .into(),
             placement: None,
         }],
         batches: vec![Arc::new(Batch {
@@ -3209,7 +3226,8 @@ fn an_exported_image_is_drawn_in_tiles_at_its_own_size_with_the_chosen_backgroun
                     finish: None,
                 };
                 6
-            ],
+            ]
+            .into(),
             placement: None,
         }],
         ..Scene::default()
@@ -3295,7 +3313,8 @@ fn green_box_scene() -> Scene {
                     finish: None,
                 };
                 6
-            ],
+            ]
+            .into(),
             placement: None,
         }],
         ..Scene::default()
@@ -3435,7 +3454,8 @@ fn a_window_less_renderer_draws_an_image_without_a_surface() {
                     finish: None,
                 };
                 6
-            ],
+            ]
+            .into(),
             placement: None,
         }],
         ..Scene::default()
@@ -3640,7 +3660,8 @@ fn hovered(scene: &Scene, frame: u32) -> Scene {
     let mut hovered = scene.clone();
     let count = hovered.meshes.len() as u32;
     if let Some(instance) = hovered.meshes.get_mut((frame % count.max(1)) as usize)
-        && let Some(face) = instance.faces.get_mut((frame % LARGE_MESH_SIDE) as usize)
+        && let Some(face) =
+            Arc::make_mut(&mut instance.faces).get_mut((frame % LARGE_MESH_SIDE) as usize)
     {
         face.color = Color::from_rgb8(255, 200, 40);
     }
@@ -3794,7 +3815,8 @@ fn small_meshes() -> Scene {
                     color: Color::from_rgb8(160, 164, 172),
                     pick: PickId::from_index(index as usize),
                     finish: None,
-                }],
+                }]
+                .into(),
                 placement: RigidTransform::translation(at),
             }
         })
@@ -4176,6 +4198,143 @@ fn only_a_changed_batch_is_uploaded_again_and_a_dropped_one_stops_drawing() {
     assert!(Arc::ptr_eq(uploaded[0].as_ref().unwrap(), &base));
 }
 
+fn marker_batch(x: f64) -> Arc<Batch> {
+    Arc::new(Batch {
+        markers: vec![Marker {
+            position: Point3::new(x, 20.0, 0.0),
+            color: Color::from_rgb8(255, 255, 255),
+            diameter: 9.0,
+            layer: Layer::Model,
+            pick: PickId::from_index(1),
+        }],
+        ..Batch::default()
+    })
+}
+
+#[test]
+fn batches_are_kept_by_identity_so_one_coming_or_going_uploads_only_itself() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let view = looking_down(100.0, f64::from(SIZE), f64::from(SIZE));
+    let [first, second, third, fourth] = [-20.0, -10.0, 0.0, 10.0].map(marker_batch);
+    let of = |batches: &[&Arc<Batch>]| Scene {
+        batches: batches.iter().map(|batch| Arc::clone(batch)).collect(),
+        ..Scene::default()
+    };
+    let fourth_at = view.project(Point3::new(10.0, 20.0, 0.0)).unwrap();
+    let mut renderer = viewport_renderer(&device, 4);
+    let mut draw = |scene: &Scene| {
+        let drawn = render_with(
+            &mut renderer,
+            &device,
+            &queue,
+            &full_frame(&view, scene, fourth_at),
+        );
+        (drawn, renderer.work().uploads)
+    };
+
+    let (_, all) = draw(&of(&[&first, &second, &third]));
+    let (_, one_gone) = draw(&of(&[&first, &third]));
+    let (shown, one_come) = draw(&of(&[&first, &fourth, &third]));
+    let (_, reordered) = draw(&of(&[&fourth, &first, &third]));
+    let uploaded = renderer.uploaded();
+
+    assert_eq!([all, one_gone, one_come, reordered], [3, 3, 4, 4]);
+    assert!(pixel(&shown, fourth_at)[0] > 200);
+    assert_eq!(
+        shown.pick.hits.first().map(|hit| hit.id),
+        PickId::from_index(1)
+    );
+    assert!(
+        uploaded
+            .iter()
+            .zip([&fourth, &first, &third])
+            .all(|(uploaded, batch)| Arc::ptr_eq(uploaded.as_ref().unwrap(), batch))
+    );
+}
+
+#[test]
+fn new_batches_past_the_upload_budget_wait_for_the_next_frames() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let view = looking_down(100.0, f64::from(SIZE), f64::from(SIZE));
+    let scene = Scene {
+        batches: [-20.0, -10.0, 0.0].map(marker_batch).into(),
+        ..Scene::default()
+    };
+    let point = view.project(Point3::new(0.0, 20.0, 0.0)).unwrap();
+    let mut renderer = viewport_renderer(&device, 1);
+    renderer.set_mesh_upload_bytes(1);
+    let frame = |renderer: &mut ViewportRenderer| {
+        render_with(renderer, &device, &queue, &full_frame(&view, &scene, point));
+        (renderer.uploaded().len(), renderer.is_uploading())
+    };
+
+    let frames = [
+        frame(&mut renderer),
+        frame(&mut renderer),
+        frame(&mut renderer),
+        frame(&mut renderer),
+    ];
+
+    assert_eq!(frames, [(1, true), (2, true), (3, false), (3, false)]);
+}
+
+#[test]
+fn edges_small_on_screen_draw_fewer_segments_and_close_ones_every_segment() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let segments = 1024;
+    let corner = |index: usize| {
+        let angle = std::f64::consts::TAU * index as f64 / segments as f64;
+        Point3::new(10.0 * angle.cos(), 10.0 * angle.sin(), 0.0)
+    };
+    let scene = Scene {
+        batches: vec![Arc::new(Batch {
+            lines: (0..segments)
+                .map(|index| Line {
+                    start: corner(index),
+                    end: corner(index + 1),
+                    color: LINE_COLOR,
+                    width: 1.0,
+                    layer: Layer::Model,
+                    pick: PickId::from_index(0),
+                    stroke: Stroke::Solid,
+                })
+                .collect(),
+            ..Batch::default()
+        })],
+        ..Scene::default()
+    };
+    let mut renderer = viewport_renderer(&device, 4);
+    let mut levels_at = |distance: f64| {
+        let view = looking_down(distance, f64::from(SIZE), f64::from(SIZE));
+        let centre = DVec2::splat(f64::from(SIZE) / 2.0);
+        render_with(
+            &mut renderer,
+            &device,
+            &queue,
+            &full_frame(&view, &scene, centre),
+        );
+        renderer.drawn_levels()
+    };
+
+    let close = levels_at(30.0);
+    let far = levels_at(3000.0);
+    let farther = levels_at(30000.0);
+
+    assert_eq!(close, vec![(0, segments as u32)]);
+    assert!(far[0].0 > 0 && far[0].1 < segments as u32 / 4, "{far:?}");
+    assert!(
+        farther[0].0 >= far[0].0 && farther[0].1 <= far[0].1,
+        "{farther:?}"
+    );
+    assert_eq!(renderer.work().uploads, 1);
+}
+
 #[test]
 fn zooming_in_a_hundredfold_keeps_the_uploaded_scene_since_its_rounding_stays_far_below_a_pixel() {
     let Some((device, queue)) = gpu() else {
@@ -4427,7 +4586,8 @@ fn a_placed_mesh_draws_and_picks_where_its_placement_puts_it() {
                 color: Color::from_rgb8(255, 40, 40),
                 pick: PickId::from_index(0),
                 finish: None,
-            }],
+            }]
+            .into(),
             placement: Some(placement),
         }],
         ..Scene::default()
@@ -4462,7 +4622,8 @@ fn a_far_placed_mesh_and_silhouette_draw_as_fresh_ones_once_the_eye_moves_within
                 color: Color::from_rgb8(120, 120, 120),
                 pick: PickId::from_index(0),
                 finish: None,
-            }],
+            }]
+            .into(),
             placement,
         }],
         silhouettes: vec![Silhouette {
@@ -4601,7 +4762,7 @@ fn an_unchanged_frame_copies_the_kept_view_and_every_change_draws_it_again() {
         ..scene()
     };
     let mut restyled = shown.clone();
-    restyled.meshes[0].faces[4].color = Color::from_rgb8(230, 160, 30);
+    Arc::make_mut(&mut restyled.meshes[0].faces)[4].color = Color::from_rgb8(230, 160, 30);
     let mut overlaid = restyled.clone();
     overlaid.batches.push(Arc::new(Batch {
         lines: vec![Line {
@@ -4802,7 +4963,8 @@ fn a_metal_finish_shades_its_faces_as_metal_while_faces_without_one_shade_as_bef
                     color: brass,
                     pick: None,
                     finish: Some(POLISHED_METAL),
-                }],
+                }]
+                .into(),
                 placement: RigidTransform::translation(Vector3::new(-30.0, 30.0, 0.0)),
             },
         ],

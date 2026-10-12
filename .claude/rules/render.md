@@ -23,7 +23,8 @@ paths:
   trusting no caller's generation: a frame draws the view when the view uniform's bytes (view,
   anchor, scale, shading, reflection, section) or the grid's changed, a mesh or silhouette cache
   wrote a placement or styles or draws a different list (`DrawnOrder`, the mesh addresses in
-  draw order), a batch slot uploaded or the batch count changed, the fills were sorted again, or
+  draw order), a batch uploaded or the batches drawn changed (by identity or order), the fills
+  were sorted again, or
   the rect or the grid's presence differs from what the kept view holds (`kept::Shown`); anything
   new the 3D pass reads must join that check (`Prepared::changed`, worked out in `upload`). New
   scene targets (resize, multisampling, linear resolve, a new device) start empty. The kept view
@@ -117,7 +118,9 @@ paths:
 
 ## Meshes
 
-- A `MeshInstance` is an `Arc<ShadedMesh>` plus a `FaceStyle` (colour, pick id, finish) per face. Buffers
+- A `MeshInstance` is an `Arc<ShadedMesh>` plus a shared slice (`Arc<[FaceStyle]>`) of a
+  `FaceStyle` (colour, pick id, finish) per face, so an app keeping instances between scenes hands
+  them over without copying the styles, and a cache holding the same slice compares nothing. Buffers
   upload once per `Arc` into the `MeshPool` the five mesh caches share (keyed by the `Arc`'s
   address, the entry holding the `Arc`) and drop when no list of the scene holds the mesh; each
   cache keeps only its styles, placement and bind group per mesh, so moving a mesh between lists
@@ -170,9 +173,10 @@ paths:
   analysis and `through.rs` work on the triangles without a copy of the mesh.
 - Per-face styles live in an `Rgba32Uint` texture (`StyleLayout`: colour, pick id, packed
   finish, a spare word) read by face index in the vertex shader, so hover and selection cost nothing in geometry. A restyle writes only the texture rows
-  whose styles changed, each as one span from its first to its last changed face, and updates the
-  kept copy in place (`changed_spans`); past `MAX_STYLE_SPANS` such rows, or when the face count
-  changes, the whole texture is written.
+  whose styles changed, each as one span from its first to its last changed face
+  (`changed_spans`), and keeps the slice it wrote, so a frame handing the same slice again costs a
+  pointer comparison and only a new slice is compared face by face; past `MAX_STYLE_SPANS` such
+  rows, or when the face count changes, the whole texture is written.
 - Faces are lit two-sided and write depth, hiding edges and sketches behind them in view and
   picking alike (everything but `Layer::Front`). A face without a pick id writes id 0 with its
   depth in the pick pass, not discarded. Enhanced shading scales highlight and rim with the face
@@ -221,11 +225,20 @@ paths:
 - Reverse-Z, infinite far plane, `Depth32Float`, multisampled at the level in use (never stored;
   colour is resolved into the kept view, through the linear resolve pass where views allow it,
   and copied onto the surface). The UI is drawn on the surface after the copy.
-- Each batch has a `GpuBatch` slot of `GrowableBuffer`s. A slot uploads only when its `Arc`
-  differs or the anchor moved, so an idle frame or a camera move writes no vertices. A batch past
+- Each batch has a `GpuBatch` of `GrowableBuffer`s, made only for what the batch holds (lines,
+  markers, fills, and their style tables), found again each frame by its `Arc`'s address rather
+  than its position (`upload_batches`), so a batch kept while others come, go or change places
+  uploads nothing (offscreen test) and an app may hand over thousands (one per body, `app.md`). A
+  batch uploads only when it is new or the anchor moved, so an idle frame or a camera move writes
+  no vertices; a new one reuses the buffers of one that left. New batches upload under a byte
+  budget a frame of their own (`MESH_UPLOAD_BYTES_PER_FRAME` again, beside the meshes' one), at
+  least one a frame however large; one left waiting is not drawn yet and keeps
+  `Renderer::is_uploading` true (offscreen test). After the anchor moves every batch uploads at
+  once, since a batch drawn at the old anchor would be misplaced. A batch past
   `max_buffer_size` draws only its first whole primitives (logged once). A buffer an upload
   outgrows is replaced by one a quarter larger than the upload (aligned), and one an upload fills
-  to under a quarter by one fitting that upload the same way, so the band between keeps it.
+  to under a quarter by one fitting that upload the same way, so the band between keeps it. Each
+  pass sets a batch pipeline once for all the batches it draws (`Once`), not once a batch.
 - Vertex, index and silhouette records are packed one fixed-size `gpu::record` at a time straight
   into wgpu's staging memory (`gpu::write_records` over `Queue::write_buffer_with`), so no CPU copy
   of a batch or mesh outlives its upload (a batch's lines keep only a list of references and the
@@ -265,6 +278,21 @@ paths:
   its vertices carry only the position and the fill's index, which `vs_fill` reads through
   `style_texel`; the colour and pick fill pipelines bind the table as group 1 like the line
   pipelines, so fills need no storage buffer either.
+- A batch of at least `FEWEST_SEGMENTS_MADE_COARSER` shown segments also uploads up to four
+  coarser levels of its shown lines after them in the same buffer (`coarser_lines`), each made for
+  a tolerance of one of `COARSER_LINE_SHARES` of the batch's size (`LineStrips::simplified`): a
+  strip lying wholly within the tolerance of its first point is left out, a speck smaller than a
+  fraction of a pixel at that level, and every other one is thinned by Douglas–Peucker over its
+  corners, keeping both ends and every corner where the pick id changes, so a coarser segment never
+  spans two picks. A level is kept only while it keeps at most `COARSER_LINES_MOST_KEPT` of the
+  segments of the one before. Each frame the colour pass draws, for its shown lines and their
+  hidden dashes, the coarsest level whose tolerance stays within `COARSER_LINES_ERROR_PIXELS` at
+  the batch's nearest corner (`BatchBounds::pixels_across`, every segment when a corner is behind
+  the near plane), worked out from the whole view, so image tiles draw the level of the whole
+  image (offscreen and `lines.rs` tests); the pick pass always draws every segment. Most of a
+  large assembly's segments belong to bodies a few dozen pixels across (3.8 of the VZ330's 4.8
+  million edge segments are in bodies under 32 px when it is fitted at 1920×1080), which then cost
+  a few segments each.
 - Draw order: every batch's lines, then markers, then fills. Translucent fills sort back to front
   by centroid depth across all batches, front-layer fills last (`FillOrder`).
 - Model geometry draws over reference geometry (datum planes, axes) through a per-`Layer` depth

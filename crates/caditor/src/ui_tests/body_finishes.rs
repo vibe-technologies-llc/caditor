@@ -38,7 +38,7 @@ fn drawn_finishes(harness: &mut Harness) -> Vec<Option<SurfaceFinish>> {
         .scene
         .meshes
         .iter()
-        .flat_map(|mesh| &mesh.faces)
+        .flat_map(|mesh| mesh.faces.iter())
         .map(|face| face.finish)
         .collect()
 }

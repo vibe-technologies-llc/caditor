@@ -89,6 +89,24 @@ paths:
   that key.
   The hovered `Pickable`s handed in `Highlight` are sorted and deduplicated, since every scene item
   looks itself up with a binary search.
+- Each shown body is a `BodyPart` the cache keeps between rebuilds (`scene::BodyParts`): its mesh
+  instances, its silhouette, a batch of its own holding its edges and vertices, and a block of
+  pick ids of its own (`PickBlock`, ids from `BODY_PICKS_FROM` up). A rebuild reuses a part whose
+  `BodyLook` (mesh, colour, face looks, opacity, dashes, placement, pickability, display style,
+  palette, analysis, reflection) and `BodyLit` (its selected and hovered items, and whether its
+  tree row is chosen, worked out once a rebuild for every body by `LitBodies`) are unchanged,
+  restyles one whose highlight alone changed within the same pick ids (keeping its batch's `Arc`
+  when its edges look the same, so a face hover uploads no lines), and gives a changed look a new
+  block. So a hover or selection change restyles and uploads only the bodies it touches, and no
+  pick id moves when bodies come, go or change
+  (`each_body_draws_its_own_batch_and_a_hover_or_a_hidden_body_moves_no_other_pick_id`). The
+  scene's batches are its own (sketches, references, threads, the open feature), then the bodies'
+  in body order, then the overlay. The `PickTable` holds the scene's own block and the bodies'
+  blocks, resolves an id by binary search over the blocks' first ids and lists the pickables in
+  the order they were made (the scene's own before the bodies, the bodies, the rest). The
+  allocator starts over, rebuilding every part, once past `BODY_PICKS_RESTART`. Body health is
+  worked out for every body in one pass over the features (`Healths`). Image export builds from a
+  copy of the kept parts, so it reuses every unhighlighted one.
 - Previews, the trim preview and the measured line form a second batch, rebuilt only when it
   differs; it has no pick ids, so it never asks for a pick.
 - A pick is asked for when the cursor, the view or the base's generation differs from the last

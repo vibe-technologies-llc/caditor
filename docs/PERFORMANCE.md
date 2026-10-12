@@ -55,20 +55,10 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## STEP import
 
-- [high · hard] A large STEP import still stalls the interface while its bodies arrive: every
-  showing rebuilds the base scene, whose one batch holds every body edge as line segments (13.2
-  million for the VZ330 assembly before edges were sampled sparingly, 0.25 to 0.4 s a rebuild on
-  the UI thread in release, and the renderer uploads the whole batch again unbudgeted). Drawing a
-  still frame of the VZ330 then took about 190 ms on the GPU (RX 9070 XT, 1920×1080, 4x): 100 ms of
-  edge lines, 28 ms of meshes, 20 ms of silhouettes; time it again, and consider a coarser mesh for
-  bodies small on screen (batches are culled by their bounds, which only pays once bodies are
-  batches of their own). Each body's edges and vertices could be a
-  batch of its own, cached while its `BodyMesh`, style and highlight are unchanged, with pick ids
-  that do not shift when other bodies come and go; hovering over a large model rebuilds the same
-  way. Reading is now bound by single parts: the VZ330's lead screw (406 faces, helical splines of
-  7 by 1441 control points) takes most of the 71 s alone, in healing and `find_crossing`; opening a
-  saved model reads every import text with `read_step` again, crossing check included
-  (`step_cache.rs`).
+- [high · hard] Reading a large STEP file is bound by single parts: the VZ330's lead screw (406
+  faces, helical splines of 7 by 1441 control points) takes most of the 71 s alone, in healing and
+  `find_crossing`; opening a saved model reads every import text with `read_step` again, crossing
+  check included (`step_cache.rs`).
 
 ## Interface
 
@@ -92,11 +82,21 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   bodies of an import are tens of thousands of faces), and `InsertFeature` checks ids and names in
   O(F), so a transaction adding N imports is O(N²). An index from id to position, kept by every
   structural edit (or rebuilt lazily), makes them logarithmic.
-- [medium · hard] The cached scene is one batch: any change to its content (each drag solution, an
-  edit, an evaluation, a new faceting level) facets every drawn sketch again, and a hover or
-  selection change restyles and uploads all of it, over a millisecond to rebuild and about half of
-  that to upload for a sketch of 24,000 curves in a release build. A batch per feature, with pick
-  ids of its own, would limit both to what changed.
+- [medium · hard] The cached scene's own batch holds every drawn sketch: any change to its
+  content (each drag solution, an edit, an evaluation, a new faceting level) facets every drawn
+  sketch again, and a hover or selection change restyles and uploads all of it, over a millisecond
+  to rebuild and about half of that to upload for a sketch of 24,000 curves in a release build.
+  Bodies are parts of their own with pick ids of their own (`app.md`); a batch per sketch, kept the
+  same way, would limit both to what changed.
+- [medium · hard] A still frame of a large assembly is bound by its draws: on the VZ330 (3,894
+  bodies, 15.6 million triangles, 4.8 million edge segments, fitted at 1920×1080, 4x, RX 9070 XT)
+  a frame turning a little takes about 22 ms on the GPU (9 without edges, 4 with faces alone,
+  coarser edge levels included) and 12 to 16 ms on the UI thread, most of it encoding three to six
+  commands for each mesh, silhouette and body batch (`frame_costs_on_a_large_assembly`). Edges of
+  bodies large on screen still draw every segment, and meshes and silhouettes have no coarser
+  level for bodies a few pixels across. Body batches packed into shared buffers with one style
+  table (a body one draw, neighbours one draw), placements at dynamic offsets of one uniform
+  buffer, and a coarser mesh without a silhouette for bodies small on screen would cut both.
 - [low · easy] The sketch fillet clones the whole sketch every frame it aims at a crossing:
   `Filleting::hovered` calls `aim.found_in(&mut sketch.clone())` while a first curve is chosen and
   the pointer is over a second, and `prepared` clones it again every frame once a crossing corner

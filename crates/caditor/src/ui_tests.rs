@@ -19024,7 +19024,7 @@ fn painted_faces(harness: &mut Harness, colour: caditor_render::Color) -> usize 
         .scene
         .meshes
         .iter()
-        .flat_map(|mesh| &mesh.faces)
+        .flat_map(|mesh| mesh.faces.iter())
         .filter(|face| face.color == colour)
         .count()
 }

@@ -14,7 +14,7 @@ use crate::{
     interference_panel::Mark,
     isocurves::IsocurveDrawing,
     manipulator::Drawn,
-    scene::{self, BuiltScene, Highlight, SketchShapes, Sources},
+    scene::{self, BodyParts, BuiltScene, Highlight, SketchShapes, Sources},
     scene_palette::{Canvas, Contrast},
     selection::Pickable,
     view_aids::ViewAids,
@@ -118,6 +118,7 @@ pub struct SceneCache {
     level: Option<FacetLevel>,
     content: Option<Content>,
     shapes: SketchShapes,
+    bodies: BodyParts,
     highlighted: Option<Highlighted>,
     built: Option<BuiltScene>,
     base_batches: usize,
@@ -136,6 +137,7 @@ impl Default for SceneCache {
             level: None,
             content: None,
             shapes: SketchShapes::new(FacetLevel::WITHOUT_A_VIEW.faceting()),
+            bodies: BodyParts::default(),
             highlighted: None,
             built: None,
             base_batches: 0,
@@ -179,11 +181,11 @@ impl SceneCache {
             return;
         }
 
-        let mut built = scene::build(
+        let mut built = scene::build_keeping(
             inputs.sources,
             &inputs.highlight,
             inputs.context,
-            &mut self.shapes,
+            (&mut self.shapes, &mut self.bodies),
         );
         self.generation = self.generation.wrapping_add(1);
         built.generation = self.generation;
@@ -246,6 +248,10 @@ impl SceneCache {
 
     pub fn section(&self) -> &[SectionPlane] {
         &self.section
+    }
+
+    pub fn body_parts(&self) -> &BodyParts {
+        &self.bodies
     }
 
     pub fn built(&self) -> Option<&BuiltScene> {

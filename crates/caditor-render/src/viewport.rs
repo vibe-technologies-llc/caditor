@@ -1,5 +1,6 @@
 use std::{ops::Range, sync::Arc};
 
+use ahash::{AHashMap, AHashSet};
 use caditor_geometry::{Aabb, Plane, Point2, Point3, Vector3};
 use glam::{DVec2, Vec3};
 
@@ -14,8 +15,8 @@ use crate::{
     mesh::{MESH_VERTEX_STRIDE, MeshCache, MeshPool, StyleLayout, UploadBudget, pack_color},
     picking::{self, PickPrepared, PickTargets, PickWindow, Picking},
     scene::{
-        Batch, Color, CutFace, Fill, Grid, Layer, MAX_SECTION_PLANES, Marker, PickId, Reflection,
-        Scene, SectionPlane, ViewportRect, section_slack,
+        Batch, Color, CutFace, Fill, Grid, Layer, Line, MAX_SECTION_PLANES, Marker, PickId,
+        Reflection, Scene, SectionPlane, ViewportRect, section_slack,
     },
     settings::Shading,
     silhouette::{SILHOUETTE_STRIDE, SilhouetteCache},
@@ -62,6 +63,10 @@ const MESH_UPLOAD_BYTES_PER_FRAME: u64 = 8 << 20;
 const SECTIONED_LABEL: &str = "sectioned";
 const STROKE_FRINGE_POINTS: f64 = 2.0;
 const TARGET_SIDE_STEP: u32 = 256;
+const COARSER_LINE_SHARES: [f64; 4] = [1.0 / 512.0, 1.0 / 128.0, 1.0 / 32.0, 1.0 / 8.0];
+const COARSER_LINES_ERROR_PIXELS: f64 = 0.3;
+const COARSER_LINES_MOST_KEPT: f64 = 0.75;
+const FEWEST_SEGMENTS_MADE_COARSER: usize = 64;
 
 pub struct ViewportFrame<'a> {
     pub rect: ViewportRect,
@@ -517,16 +522,16 @@ struct FillDraw {
 struct GpuBatch {
     shown: Option<Arc<Batch>>,
     anchor: Point3,
-    lines: GrowableBuffer,
+    lines: Option<GrowableBuffer>,
     line_styles: Option<StyleTable>,
     fill_styles: Option<StyleTable>,
-    markers: GrowableBuffer,
-    fills: GrowableBuffer,
+    markers: Option<GrowableBuffer>,
+    fills: Option<GrowableBuffer>,
     line_count: u32,
-    shown_lines: u32,
     #[cfg(test)]
     line_segments: (u64, u64),
-    hidden_runs: Vec<Range<u32>>,
+    levels: Vec<LineLevel>,
+    level: usize,
     bounds: Option<BatchBounds>,
     marker_count: u32,
     shown_markers: u32,
@@ -537,20 +542,20 @@ struct GpuBatch {
 }
 
 impl GpuBatch {
-    fn new(device: &wgpu::Device) -> Self {
+    fn empty() -> Self {
         Self {
             shown: None,
             anchor: Point3::ZERO,
-            lines: GrowableBuffer::new(device, "line points", wgpu::BufferUsages::VERTEX),
+            lines: None,
             line_styles: None,
             fill_styles: None,
-            markers: GrowableBuffer::new(device, "markers", wgpu::BufferUsages::VERTEX),
-            fills: GrowableBuffer::new(device, "fills", wgpu::BufferUsages::VERTEX),
+            markers: None,
+            fills: None,
             line_count: 0,
-            shown_lines: 0,
             #[cfg(test)]
             line_segments: (0, 0),
-            hidden_runs: Vec::new(),
+            levels: Vec::new(),
+            level: 0,
             bounds: None,
             marker_count: 0,
             shown_markers: 0,
@@ -561,11 +566,11 @@ impl GpuBatch {
         }
     }
 
-    fn refused(device: &wgpu::Device, batch: &Arc<Batch>, anchor: Point3) -> Self {
+    fn refused(batch: &Arc<Batch>, anchor: Point3) -> Self {
         Self {
             shown: Some(Arc::clone(batch)),
             anchor,
-            ..Self::new(device)
+            ..Self::empty()
         }
     }
 
@@ -584,43 +589,72 @@ impl GpuBatch {
             slot,
             styles,
         } = uploaded;
-        let strips = LineStrips::of(&batch.lines, device.limits().max_texture_dimension_2d);
-        self.line_count = line_instances(self.lines.upload(
-            device,
-            queue,
+        let largest_side = device.limits().max_texture_dimension_2d;
+        let strips = LineStrips::of(&batch.lines, largest_side);
+        self.bounds = BatchBounds::of(batch);
+        let coarser = coarser_lines(&strips, self.bounds.map_or(0.0, |bounds| bounds.size));
+        let coarser_strips: Vec<(f64, LineStrips<'_>)> = coarser
+            .iter()
+            .map(|(share, lines)| (*share, LineStrips::of(lines, largest_side)))
+            .collect();
+        let full_points = if batch.lines.is_empty() {
+            0
+        } else {
+            strips.point_count()
+        };
+        let uploaded_points = upload_into(
+            &mut self.lines,
+            (device, queue),
+            "line points",
             Records {
-                count: strips.point_count(),
+                count: full_points
+                    + coarser_strips
+                        .iter()
+                        .map(|(_, coarse)| coarse.point_count())
+                        .sum::<u64>(),
                 per_primitive: 1,
-                records: strips.points(anchor),
+                records: strips.points(anchor).chain(
+                    coarser_strips
+                        .iter()
+                        .flat_map(|(_, coarse)| coarse.points(anchor)),
+                ),
             },
-        ));
-        self.shown_lines = count(strips.shown_instances()).min(self.line_count);
+        );
+        self.line_count = line_instances(uploaded_points.min(full_points));
         #[cfg(test)]
         {
             self.line_segments = strips.segments();
         }
-        let drawn = self.line_count;
-        self.hidden_runs = strips
-            .hidden_runs()
-            .into_iter()
-            .map(|run| run.start.min(drawn)..run.end.min(drawn))
-            .filter(|run| !run.is_empty())
-            .collect();
-        let line_layout = strips.style_layout(device.limits().max_texture_dimension_2d);
-        self.line_styles = Some(StyleTable::written(
-            self.line_styles.take(),
-            (device, queue),
-            styles,
-            "line styles",
-            line_layout,
-            &strips.style_texels(line_layout),
-        ));
-        self.bounds = BatchBounds::of(batch);
+        self.levels = vec![LineLevel::of(&strips, (0, self.line_count), 0.0)];
+        let mut first = full_points;
+        for (share, coarse) in &coarser_strips {
+            let end = first + coarse.point_count();
+            if end <= uploaded_points {
+                let instances = line_instances(coarse.point_count());
+                self.levels
+                    .push(LineLevel::of(coarse, (count(first), instances), *share));
+            }
+            first = end;
+        }
+        self.level = 0;
+        let line_layout = strips.style_layout(largest_side);
+        let kept_line_styles = self.line_styles.take();
+        self.line_styles = (self.line_count > 0).then(|| {
+            StyleTable::written(
+                kept_line_styles,
+                (device, queue),
+                styles,
+                "line styles",
+                line_layout,
+                &strips.style_texels(line_layout),
+            )
+        });
 
         let (shown_markers, markers) = shown_first(&batch.markers, |marker| marker.color);
-        self.marker_count = count(self.markers.upload(
-            device,
-            queue,
+        self.marker_count = count(upload_into(
+            &mut self.markers,
+            (device, queue),
+            "markers",
             Records {
                 count: batch.markers.len() as u64,
                 per_primitive: 1,
@@ -639,28 +673,31 @@ impl GpuBatch {
                     .filter(move |fill| FillGroup::of(fill) == group)
             })
             .collect();
-        let fill_layout = StyleLayout::new(ordered.len(), device.limits().max_texture_dimension_2d);
-        self.fill_styles = Some(StyleTable::written(
-            self.fill_styles.take(),
+        self.fill_vertices = count(upload_into(
+            &mut self.fills,
             (device, queue),
-            styles,
-            "fill styles",
-            fill_layout,
-            &style_texel_bytes(ordered.iter().map(|fill| fill_texel(fill)), fill_layout),
+            "fills",
+            Records {
+                count: groups.total(),
+                per_primitive: 3,
+                records: ordered
+                    .iter()
+                    .enumerate()
+                    .flat_map(|(index, fill)| fill_vertices(fill, anchor, index_word(index))),
+            },
         ));
-        self.fill_vertices =
-            count(self.fills.upload(
-                device,
-                queue,
-                Records {
-                    count: groups.total(),
-                    per_primitive: 3,
-                    records:
-                        ordered.iter().enumerate().flat_map(|(index, fill)| {
-                            fill_vertices(fill, anchor, index_word(index))
-                        }),
-                },
-            ));
+        let fill_layout = StyleLayout::new(ordered.len(), device.limits().max_texture_dimension_2d);
+        let kept_fill_styles = self.fill_styles.take();
+        self.fill_styles = (self.fill_vertices > 0).then(|| {
+            StyleTable::written(
+                kept_fill_styles,
+                (device, queue),
+                styles,
+                "fill styles",
+                fill_layout,
+                &style_texel_bytes(ordered.iter().map(|fill| fill_texel(fill)), fill_layout),
+            )
+        });
         let uploaded = self.fill_vertices;
         self.fill_spans = spans
             .into_iter()
@@ -679,21 +716,32 @@ impl GpuBatch {
         self.anchor = anchor;
     }
 
-    fn draw_lines(
-        &self,
-        pass: &mut wgpu::RenderPass<'_>,
-        pipeline: &wgpu::RenderPipeline,
-        instances: u32,
-    ) {
-        if self.bind_lines(pass, pipeline, instances) {
-            pass.draw_indexed(0..gpu::QUAD_INDEX_COUNT, 0, 0..instances);
+    fn draw_all_lines(&self, pass: &mut wgpu::RenderPass<'_>, pipeline: &mut Once<'_>) {
+        if self.bind_lines(pass, pipeline, (0, self.line_count)) {
+            pass.draw_indexed(0..gpu::QUAD_INDEX_COUNT, 0, 0..self.line_count);
         }
     }
 
-    fn draw_hidden_lines(&self, pass: &mut wgpu::RenderPass<'_>, pipeline: &wgpu::RenderPipeline) {
-        let end = self.hidden_runs.last().map_or(0, |run| run.end);
-        if self.bind_lines(pass, pipeline, end) {
-            for run in &self.hidden_runs {
+    fn drawn_level(&self) -> Option<&LineLevel> {
+        self.levels.get(self.level).or_else(|| self.levels.first())
+    }
+
+    fn draw_shown_lines(&self, pass: &mut wgpu::RenderPass<'_>, pipeline: &mut Once<'_>) {
+        let Some(level) = self.drawn_level() else {
+            return;
+        };
+        if self.bind_lines(pass, pipeline, (level.first, level.shown)) {
+            pass.draw_indexed(0..gpu::QUAD_INDEX_COUNT, 0, 0..level.shown);
+        }
+    }
+
+    fn draw_hidden_lines(&self, pass: &mut wgpu::RenderPass<'_>, pipeline: &mut Once<'_>) {
+        let Some(level) = self.drawn_level() else {
+            return;
+        };
+        let end = level.hidden_runs.last().map_or(0, |run| run.end);
+        if self.bind_lines(pass, pipeline, (level.first, end)) {
+            for run in &level.hidden_runs {
                 pass.draw_indexed(0..gpu::QUAD_INDEX_COUNT, 0, run.clone());
             }
         }
@@ -702,20 +750,36 @@ impl GpuBatch {
     fn bind_lines(
         &self,
         pass: &mut wgpu::RenderPass<'_>,
-        pipeline: &wgpu::RenderPipeline,
-        instances: u32,
+        pipeline: &mut Once<'_>,
+        (first, instances): (u32, u32),
     ) -> bool {
-        let Some(styles) = self.line_styles.as_ref().filter(|_| instances > 0) else {
+        let (Some(styles), Some(lines)) = (self.line_styles.as_ref(), self.lines.as_ref()) else {
             return false;
         };
-        pass.set_pipeline(pipeline);
+        if instances == 0 {
+            return false;
+        }
+        pipeline.set(pass);
         pass.set_bind_group(1, &styles.bind_group, &[]);
         for slot in 0..LINE_POINT_SLOTS {
-            let first = u64::from(slot) * LINE_POINT_STRIDE;
-            let end = u64::from(slot + instances) * LINE_POINT_STRIDE;
-            pass.set_vertex_buffer(slot, self.lines.slice_between(first, end));
+            let start = u64::from(first + slot) * LINE_POINT_STRIDE;
+            let end = u64::from(first + slot + instances) * LINE_POINT_STRIDE;
+            pass.set_vertex_buffer(slot, lines.slice_between(start, end));
         }
         true
+    }
+
+    fn choose_level(&mut self, view: &View) {
+        self.level = match (self.bounds, self.levels.len()) {
+            (Some(bounds), 2..) => {
+                let pixels = bounds.pixels_across(view);
+                self.levels
+                    .iter()
+                    .rposition(|level| level.share * pixels <= COARSER_LINES_ERROR_PIXELS)
+                    .unwrap_or(0)
+            }
+            (Some(_) | None, _) => 0,
+        };
     }
 
     fn seen_in(&self, window: &ClipWindow) -> bool {
@@ -726,39 +790,36 @@ impl GpuBatch {
     fn draw_markers(
         &self,
         pass: &mut wgpu::RenderPass<'_>,
-        pipeline: &wgpu::RenderPipeline,
+        pipeline: &mut Once<'_>,
         instances: u32,
     ) {
-        if instances == 0 {
+        let Some(markers) = self.markers.as_ref().filter(|_| instances > 0) else {
             return;
-        }
-        pass.set_pipeline(pipeline);
-        pass.set_vertex_buffer(0, self.markers.slice(u64::from(instances) * MARKER_STRIDE));
+        };
+        pipeline.set(pass);
+        pass.set_vertex_buffer(0, markers.slice(u64::from(instances) * MARKER_STRIDE));
         pass.draw_indexed(0..gpu::QUAD_INDEX_COUNT, 0, 0..instances);
     }
 
     fn bind_fills(&self, pass: &mut wgpu::RenderPass<'_>, vertices: u32) -> bool {
-        let Some(styles) = &self.fill_styles else {
+        let (Some(styles), Some(fills)) = (&self.fill_styles, &self.fills) else {
             return false;
         };
         pass.set_bind_group(1, &styles.bind_group, &[]);
-        pass.set_vertex_buffer(
-            0,
-            self.fills.slice(u64::from(vertices) * FILL_VERTEX_STRIDE),
-        );
+        pass.set_vertex_buffer(0, fills.slice(u64::from(vertices) * FILL_VERTEX_STRIDE));
         true
     }
 
     fn draw_pick_fills(
         &self,
         pass: &mut wgpu::RenderPass<'_>,
-        pipeline: &wgpu::RenderPipeline,
+        pipeline: &mut Once<'_>,
         vertices: Range<u32>,
     ) {
-        if vertices.is_empty() {
+        if vertices.is_empty() || self.fills.is_none() {
             return;
         }
-        pass.set_pipeline(pipeline);
+        pipeline.set(pass);
         if self.bind_fills(pass, vertices.end) {
             pass.draw(vertices, 0..1);
         }
@@ -774,6 +835,59 @@ impl GpuBatch {
                 .reference_pick_vertices
                 .saturating_add(self.nearer_pick_vertices)
     }
+
+    fn upload_bytes(batch: &Batch) -> u64 {
+        let fill_vertices: u64 = batch
+            .fills
+            .iter()
+            .map(|fill| u64::from(fill_vertex_count(fill)))
+            .sum();
+        (batch.lines.len() as u64)
+            .saturating_mul(LINE_POINT_STRIDE)
+            .saturating_add((batch.markers.len() as u64).saturating_mul(MARKER_STRIDE))
+            .saturating_add(fill_vertices.saturating_mul(FILL_VERTEX_STRIDE))
+            .max(1)
+    }
+}
+
+fn batch_key(batch: &Arc<Batch>) -> usize {
+    Arc::as_ptr(batch).addr()
+}
+
+struct Once<'p> {
+    pipeline: &'p wgpu::RenderPipeline,
+    set: bool,
+}
+
+impl<'p> Once<'p> {
+    fn of(pipeline: &'p wgpu::RenderPipeline) -> Self {
+        Self {
+            pipeline,
+            set: false,
+        }
+    }
+
+    fn set(&mut self, pass: &mut wgpu::RenderPass<'_>) {
+        if !self.set {
+            pass.set_pipeline(self.pipeline);
+            self.set = true;
+        }
+    }
+}
+
+fn upload_into<const N: usize>(
+    buffer: &mut Option<GrowableBuffer>,
+    (device, queue): (&wgpu::Device, &wgpu::Queue),
+    label: &'static str,
+    records: Records<impl Iterator<Item = [u8; N]>>,
+) -> u64 {
+    if records.count == 0 {
+        *buffer = None;
+        return 0;
+    }
+    buffer
+        .get_or_insert_with(|| GrowableBuffer::new(device, label, wgpu::BufferUsages::VERTEX))
+        .upload(device, queue, records)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -864,10 +978,25 @@ fn grouped_fill_spans(fills: &[Fill], slot: usize) -> (FillGroups, Vec<FillSpan>
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct BatchBounds {
     corners: [Point3; 8],
+    size: f64,
     reach_points: f64,
 }
 
 impl BatchBounds {
+    fn pixels_across(&self, view: &View) -> f64 {
+        let nearest = self
+            .corners
+            .iter()
+            .map(|corner| view.view_depth(*corner))
+            .fold(f64::INFINITY, f64::min);
+        let in_front = view.is_orthographic() || nearest > view.near_plane();
+        let units_per_pixel = view.units_per_pixel_at(nearest);
+        match in_front && units_per_pixel > 0.0 {
+            true => self.size / units_per_pixel,
+            false => f64::INFINITY,
+        }
+    }
+
     fn of(batch: &Batch) -> Option<Self> {
         let points = batch
             .lines
@@ -893,9 +1022,51 @@ impl BatchBounds {
             .fold(0.0_f32, f32::max);
         Some(Self {
             corners: bounds.corners(),
+            size: bounds.max().distance(bounds.min()),
             reach_points: f64::from(widest_line.max(widest_marker)) * 0.5 + STROKE_FRINGE_POINTS,
         })
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct LineLevel {
+    first: u32,
+    shown: u32,
+    hidden_runs: Vec<Range<u32>>,
+    share: f64,
+}
+
+impl LineLevel {
+    fn of(strips: &LineStrips<'_>, (first, instances): (u32, u32), share: f64) -> Self {
+        Self {
+            first,
+            shown: count(strips.shown_instances()).min(instances),
+            hidden_runs: strips
+                .hidden_runs()
+                .into_iter()
+                .map(|run| run.start.min(instances)..run.end.min(instances))
+                .filter(|run| !run.is_empty())
+                .collect(),
+            share,
+        }
+    }
+}
+
+fn coarser_lines(strips: &LineStrips<'_>, size: f64) -> Vec<(f64, Vec<Line>)> {
+    let mut segments = strips.shown_segments();
+    let mut coarser = Vec::new();
+    if segments < FEWEST_SEGMENTS_MADE_COARSER || size.is_nan() || size <= 0.0 {
+        return coarser;
+    }
+    for share in COARSER_LINE_SHARES {
+        let lines = strips.simplified(size * share);
+        if lines.len() as f64 > segments as f64 * COARSER_LINES_MOST_KEPT {
+            continue;
+        }
+        segments = lines.len();
+        coarser.push((share, lines));
+    }
+    coarser
 }
 
 fn shown_first<T>(
@@ -932,6 +1103,7 @@ pub struct ViewportRenderer {
     grid_uniform: Uniform,
     quad_indices: QuadIndices,
     batches: Vec<GpuBatch>,
+    batches_waiting: usize,
     anchor: Option<Point3>,
     fill_order: FillOrder,
     #[cfg(test)]
@@ -1003,6 +1175,7 @@ impl ViewportRenderer {
             grid_layout,
             styles_layout,
             batches: Vec::new(),
+            batches_waiting: 0,
             anchor: None,
             fill_order: FillOrder::default(),
             #[cfg(test)]
@@ -1094,7 +1267,7 @@ impl ViewportRenderer {
     }
 
     pub fn is_uploading(&self) -> bool {
-        self.mesh_pool.is_uploading() || self.silhouettes.is_uploading()
+        self.mesh_pool.is_uploading() || self.silhouettes.is_uploading() || self.batches_waiting > 0
     }
 
     #[cfg(test)]
@@ -1275,6 +1448,7 @@ impl ViewportRenderer {
             grid_uniform: Uniform::new(device, &self.grid_layout, "grid", GRID_UNIFORM_SIZE),
             quad_indices: self.quad_indices.clone(),
             batches: Vec::new(),
+            batches_waiting: 0,
             anchor: None,
             fill_order: FillOrder::default(),
             #[cfg(test)]
@@ -1434,17 +1608,24 @@ impl ViewportRenderer {
         self.quad_indices.bind(pass);
         self.silhouettes
             .draw(pass, &self.pipelines.silhouettes, window);
-        let seen = || self.batches.iter().filter(|batch| batch.seen_in(window));
-        for batch in seen() {
-            batch.draw_lines(pass, &self.pipelines.lines, batch.shown_lines);
+        let seen: Vec<&GpuBatch> = self
+            .batches
+            .iter()
+            .filter(|batch| batch.seen_in(window))
+            .collect();
+        let mut lines = Once::of(&self.pipelines.lines);
+        for batch in &seen {
+            batch.draw_shown_lines(pass, &mut lines);
         }
-        for batch in seen() {
-            batch.draw_hidden_lines(pass, &self.pipelines.hidden_lines);
+        let mut hidden_lines = Once::of(&self.pipelines.hidden_lines);
+        for batch in &seen {
+            batch.draw_hidden_lines(pass, &mut hidden_lines);
         }
         self.silhouettes
             .draw_hidden(pass, &self.pipelines.hidden_silhouettes, window);
-        for batch in seen() {
-            batch.draw_markers(pass, &self.pipelines.markers, batch.shown_markers);
+        let mut markers = Once::of(&self.pipelines.markers);
+        for batch in &seen {
+            batch.draw_markers(pass, &mut markers, batch.shown_markers);
         }
         if grid {
             pass.set_pipeline(&self.pipelines.grid);
@@ -1487,13 +1668,18 @@ impl ViewportRenderer {
         let (Some(targets), Some(window)) = (self.picking.prepared(), self.pick_window) else {
             return;
         };
-        let seen = || self.batches.iter().filter(|batch| batch.seen_in(&window));
+        let seen: Vec<&GpuBatch> = self
+            .batches
+            .iter()
+            .filter(|batch| batch.seen_in(&window))
+            .collect();
         let mut behind = begin_pick_pass(encoder, targets, "pick reference fills", true);
         behind.set_bind_group(0, &self.pick_view_uniform.bind_group, &[]);
-        for batch in seen() {
+        let mut reference_fills = Once::of(&self.pipelines.pick.reference_fills);
+        for batch in &seen {
             batch.draw_pick_fills(
                 &mut behind,
-                &self.pipelines.pick.reference_fills,
+                &mut reference_fills,
                 batch.reference_pick_fills(),
             );
         }
@@ -1510,19 +1696,18 @@ impl ViewportRenderer {
         self.reflective.draw(&mut pass, meshes, &window);
         self.translucent
             .draw(&mut pass, &self.pipelines.pick.translucent_meshes, &window);
-        for batch in seen() {
-            batch.draw_pick_fills(
-                &mut pass,
-                &self.pipelines.pick.fills,
-                batch.nearer_pick_fills(),
-            );
+        let mut fills = Once::of(&self.pipelines.pick.fills);
+        for batch in &seen {
+            batch.draw_pick_fills(&mut pass, &mut fills, batch.nearer_pick_fills());
         }
         self.quad_indices.bind(&mut pass);
-        for batch in seen() {
-            batch.draw_lines(&mut pass, &self.pipelines.pick.lines, batch.line_count);
+        let mut lines = Once::of(&self.pipelines.pick.lines);
+        for batch in &seen {
+            batch.draw_all_lines(&mut pass, &mut lines);
         }
-        for batch in seen() {
-            batch.draw_markers(&mut pass, &self.pipelines.pick.markers, batch.marker_count);
+        let mut markers = Once::of(&self.pipelines.pick.markers);
+        for batch in &seen {
+            batch.draw_markers(&mut pass, &mut markers, batch.marker_count);
         }
         drop(pass);
         self.picking.encode_readback(encoder, *view, cursor);
@@ -1614,6 +1799,7 @@ impl ViewportRenderer {
         }
 
         let anchor = anchored.anchor;
+        let batch_budget = budget;
         faults.meshes = [
             (&mut self.meshes, &scene.meshes),
             (&mut self.translucent, &scene.translucent_meshes),
@@ -1645,8 +1831,11 @@ impl ViewportRenderer {
         .any(MeshCache::changed)
             || self.silhouettes.changed();
         let (batches_changed, refused_batches) =
-            self.upload_batches(device, queue, &scene.batches, anchor);
+            self.upload_batches(device, queue, &scene.batches, (anchor, batch_budget));
         faults.batches = refused_batches;
+        for batch in &mut self.batches {
+            batch.choose_level(view);
+        }
         let reordered = self.order_fills(Facing::of(view), batches_changed);
         Prepared {
             faults,
@@ -1670,49 +1859,87 @@ impl ViewportRenderer {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         batches: &[Arc<Batch>],
-        anchor: Point3,
+        (anchor, mut budget): (Point3, UploadBudget),
     ) -> (bool, u32) {
-        let mut changed = self.batches.len() != batches.len();
-        let mut refused = 0;
-        self.batches.truncate(batches.len());
-        for (slot, batch) in batches.iter().enumerate() {
-            if slot >= self.batches.len() {
-                self.batches.push(GpuBatch::new(device));
-            }
-            let Some(gpu) = self.batches.get_mut(slot) else {
-                continue;
-            };
-            if !gpu.holds(batch, anchor) {
-                let ((), error) = gpu::scoped(device, || {
-                    gpu.upload(
-                        device,
-                        queue,
-                        Uploaded {
-                            batch,
-                            anchor,
-                            slot,
-                            styles: &self.styles_layout,
-                        },
-                    );
-                });
-                if let Some(error) = error {
-                    log::warn!(
-                        "the graphics device refused a batch of {} lines, {} markers and {} fills, so it is not drawn: {error}",
-                        batch.lines.len(),
-                        batch.markers.len(),
-                        batch.fills.len()
-                    );
-                    *gpu = GpuBatch::refused(device, batch, anchor);
-                    refused += 1;
+        let unchanged = self.batches_waiting == 0
+            && self.batches.len() == batches.len()
+            && self
+                .batches
+                .iter()
+                .zip(batches)
+                .all(|(gpu, batch)| gpu.holds(batch, anchor));
+        if unchanged {
+            return (false, 0);
+        }
+        if self
+            .batches
+            .iter()
+            .any(|gpu| gpu.shown.is_some() && gpu.anchor != anchor)
+        {
+            budget = UploadBudget::UNLIMITED;
+        }
+        let wanted: AHashSet<usize> = batches.iter().map(batch_key).collect();
+        let mut kept: AHashMap<usize, GpuBatch> = AHashMap::new();
+        let mut spare: Vec<GpuBatch> = Vec::new();
+        for gpu in self.batches.drain(..) {
+            let key = gpu.shown.as_ref().map(batch_key);
+            match key {
+                Some(key) if gpu.anchor == anchor && wanted.contains(&key) => {
+                    if let Some(twin) = kept.insert(key, gpu) {
+                        spare.push(twin);
+                    }
                 }
-                changed = true;
-                #[cfg(test)]
-                {
-                    self.work.uploads += 1;
-                }
+                Some(_) | None => spare.push(gpu),
             }
         }
-        (changed, refused)
+        let mut refused = 0;
+        let mut uploaded_any = false;
+        self.batches_waiting = 0;
+        for batch in batches {
+            if let Some(gpu) = kept.remove(&batch_key(batch)) {
+                self.batches.push(gpu);
+                continue;
+            }
+            let affordable = budget.grant(1, GpuBatch::upload_bytes(batch)) == 1;
+            if !affordable && uploaded_any {
+                self.batches_waiting += 1;
+                continue;
+            }
+            if !affordable {
+                budget = UploadBudget::of(0);
+            }
+            uploaded_any = true;
+            let mut gpu = spare.pop().unwrap_or_else(GpuBatch::empty);
+            let slot = self.batches.len();
+            let ((), error) = gpu::scoped(device, || {
+                gpu.upload(
+                    device,
+                    queue,
+                    Uploaded {
+                        batch,
+                        anchor,
+                        slot,
+                        styles: &self.styles_layout,
+                    },
+                );
+            });
+            if let Some(error) = error {
+                log::warn!(
+                    "the graphics device refused a batch of {} lines, {} markers and {} fills, so it is not drawn: {error}",
+                    batch.lines.len(),
+                    batch.markers.len(),
+                    batch.fills.len()
+                );
+                gpu = GpuBatch::refused(batch, anchor);
+                refused += 1;
+            }
+            self.batches.push(gpu);
+            #[cfg(test)]
+            {
+                self.work.uploads += 1;
+            }
+        }
+        (true, refused)
     }
 
     fn order_fills(&mut self, facing: Facing, changed: bool) -> bool {
@@ -1721,11 +1948,14 @@ impl ViewportRenderer {
             return false;
         }
         order.spans.clear();
-        order.spans.extend(
-            self.batches
-                .iter()
-                .flat_map(|batch| batch.fill_spans.iter().cloned()),
-        );
+        order
+            .spans
+            .extend(self.batches.iter().enumerate().flat_map(|(slot, batch)| {
+                batch.fill_spans.iter().map(move |span| FillSpan {
+                    slot,
+                    ..span.clone()
+                })
+            }));
         sort_back_to_front(&mut order.spans, facing);
         coalesce(&order.spans, &mut order.draws);
         order.sorted_for = Some(facing);
@@ -1769,6 +1999,19 @@ impl ViewportRenderer {
         self.batches
             .iter()
             .map(|batch| batch.shown.clone())
+            .collect()
+    }
+
+    #[cfg(test)]
+    pub fn drawn_levels(&self) -> Vec<(usize, u32)> {
+        self.batches
+            .iter()
+            .map(|batch| {
+                (
+                    batch.level,
+                    batch.drawn_level().map_or(0, |level| level.shown),
+                )
+            })
             .collect()
     }
 

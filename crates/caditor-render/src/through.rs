@@ -499,7 +499,7 @@ mod tests {
         Scene {
             meshes: vec![MeshInstance {
                 mesh,
-                faces: vec![style(Some(id(1))), style(Some(id(2))), style(None)],
+                faces: vec![style(Some(id(1))), style(Some(id(2))), style(None)].into(),
                 placement: None,
             }],
             batches: vec![Arc::new(Batch {
@@ -637,12 +637,12 @@ mod tests {
             meshes: vec![
                 MeshInstance {
                     mesh: near,
-                    faces: cube_styles(1),
+                    faces: cube_styles(1).into(),
                     placement: None,
                 },
                 MeshInstance {
                     mesh: far,
-                    faces: cube_styles(11),
+                    faces: cube_styles(11).into(),
                     placement: None,
                 },
             ],

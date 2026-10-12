@@ -463,16 +463,20 @@ pub struct FaceStyle {
 #[derive(Debug, Clone)]
 pub struct MeshInstance {
     pub mesh: Arc<ShadedMesh>,
-    pub faces: Vec<FaceStyle>,
+    pub faces: Arc<[FaceStyle]>,
     pub placement: Option<RigidTransform>,
 }
 
 impl PartialEq for MeshInstance {
     fn eq(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.mesh, &other.mesh)
-            && self.faces == other.faces
+            && same_styles(&self.faces, &other.faces)
             && self.placement == other.placement
     }
+}
+
+fn same_styles(written: &Arc<[FaceStyle]>, faces: &Arc<[FaceStyle]>) -> bool {
+    Arc::ptr_eq(written, faces) || **written == **faces
 }
 
 #[derive(Debug, Default, PartialEq)]
@@ -867,7 +871,7 @@ struct GpuMesh {
     layout: StyleLayout,
     placement: wgpu::Buffer,
     styles: wgpu::Texture,
-    written: Option<Vec<FaceStyle>>,
+    written: Option<Arc<[FaceStyle]>>,
     placed: Option<PlacedAt>,
     corners: Option<[Point3; 8]>,
     bind_group: wgpu::BindGroup,
@@ -1001,7 +1005,13 @@ impl GpuMesh {
             placement: instance.placement,
             anchor,
         };
-        self.placed != Some(placed) || self.written.as_deref() != Some(instance.faces.as_slice())
+        self.placed != Some(placed) || !self.has_written(&instance.faces)
+    }
+
+    fn has_written(&self, faces: &Arc<[FaceStyle]>) -> bool {
+        self.written
+            .as_ref()
+            .is_some_and(|written| same_styles(written, faces))
     }
 
     fn needs_unpicking(&self, anchor: Point3) -> bool {
@@ -1020,7 +1030,7 @@ impl GpuMesh {
         anchor: Point3,
     ) {
         self.write_placement(queue, bytes, instance.placement, anchor);
-        if self.written.as_deref() != Some(instance.faces.as_slice()) {
+        if !self.has_written(&instance.faces) {
             self.write_face_styles(queue, bytes, &instance.faces);
         }
     }
@@ -1028,7 +1038,7 @@ impl GpuMesh {
     fn keep_showing_unpicked(&mut self, queue: &wgpu::Queue, bytes: &mut Bytes, anchor: Point3) {
         let placement = self.placed.and_then(|placed| placed.placement);
         self.write_placement(queue, bytes, placement, anchor);
-        let unpicked: Option<Vec<FaceStyle>> = self
+        let unpicked: Option<Arc<[FaceStyle]>> = self
             .written
             .as_ref()
             .filter(|written| written.iter().any(|style| style.pick.is_some()))
@@ -1077,8 +1087,13 @@ impl GpuMesh {
         queue.write_buffer(&self.placement, 0, bytes.as_slice());
     }
 
-    fn write_face_styles(&mut self, queue: &wgpu::Queue, bytes: &mut Bytes, faces: &[FaceStyle]) {
-        let spans = match self.written.as_mut() {
+    fn write_face_styles(
+        &mut self,
+        queue: &wgpu::Queue,
+        bytes: &mut Bytes,
+        faces: &Arc<[FaceStyle]>,
+    ) {
+        let spans = match self.written.as_ref() {
             Some(written) if written.len() == faces.len() => {
                 changed_spans(written, faces, self.layout)
             }
@@ -1095,13 +1110,9 @@ impl GpuMesh {
                     target.write(queue, bytes, span);
                 }
             }
-            None => {
-                target.write_whole(queue, bytes);
-                let written = self.written.get_or_insert_with(Vec::new);
-                written.clear();
-                written.extend_from_slice(faces);
-            }
+            None => target.write_whole(queue, bytes),
         }
+        self.written = Some(Arc::clone(faces));
     }
 }
 
@@ -1114,22 +1125,16 @@ struct StyleSpan {
 }
 
 fn changed_spans(
-    written: &mut [FaceStyle],
+    written: &[FaceStyle],
     faces: &[FaceStyle],
     layout: StyleLayout,
 ) -> Option<Vec<StyleSpan>> {
     let columns = layout.columns.max(1) as usize;
     let mut spans: Vec<StyleSpan> = Vec::new();
-    for (index, (old, new)) in written
-        .iter_mut()
-        .zip(faces)
-        .enumerate()
-        .take(layout.texels())
-    {
+    for (index, (old, new)) in written.iter().zip(faces).enumerate().take(layout.texels()) {
         if old == new {
             continue;
         }
-        *old = *new;
         let row = u32::try_from(index / columns).unwrap_or(u32::MAX);
         let column = u32::try_from(index % columns).unwrap_or(u32::MAX);
         match spans.last_mut() {
@@ -1606,7 +1611,6 @@ mod tests {
         for face in [3, 5, 6, 25] {
             after[face] = style(9);
         }
-        let mut written = before.clone();
         let scattered: Vec<FaceStyle> = (0..40).map(|face| style(face as u8)).collect();
         let tall = StyleLayout {
             columns: 1,
@@ -1614,9 +1618,9 @@ mod tests {
             faces: 40,
         };
 
-        let spans = changed_spans(&mut written, &after, layout);
-        let unchanged = changed_spans(&mut written.clone(), &after, layout);
-        let everywhere = changed_spans(&mut before.clone(), &scattered, tall);
+        let spans = changed_spans(&before, &after, layout);
+        let unchanged = changed_spans(&after, &after, layout);
+        let everywhere = changed_spans(&before, &scattered, tall);
 
         assert_eq!(
             spans,
@@ -1631,7 +1635,6 @@ mod tests {
                 },
             ])
         );
-        assert_eq!(written, after);
         assert_eq!(unchanged, Some(Vec::new()));
         assert_eq!(everywhere, None);
     }

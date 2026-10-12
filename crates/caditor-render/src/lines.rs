@@ -236,6 +236,40 @@ impl<'a> LineStrips<'a> {
             .chain(trailing)
     }
 
+    pub(crate) fn shown_segments(&self) -> usize {
+        self.strips
+            .iter()
+            .take(self.shown_strips)
+            .map(|strip| strip.lines.len())
+            .sum()
+    }
+
+    pub(crate) fn simplified(&self, tolerance: f64) -> Vec<Line> {
+        let mut simplified = Vec::new();
+        for strip in self.strips.iter().take(self.shown_strips) {
+            let Some(lines) = self.lines.get(strip.lines.clone()) else {
+                continue;
+            };
+            if is_within(lines, tolerance) {
+                continue;
+            }
+            let kept = kept_corners(lines, tolerance);
+            for pair in kept.windows(2) {
+                let &[from, to] = pair else {
+                    continue;
+                };
+                let (Some(first), Some(end)) = (lines.get(from), corner(lines, to)) else {
+                    continue;
+                };
+                simplified.push(Line {
+                    end,
+                    ..Line::clone(first)
+                });
+            }
+        }
+        simplified
+    }
+
     pub(crate) fn style_layout(&self, largest_side: u32) -> StyleLayout {
         StyleLayout::new(self.styles.len(), largest_side)
     }
@@ -266,6 +300,81 @@ fn point_record(
             .u32(PickId::raw(line.pick))
             .u32(word);
     })
+}
+
+fn corner(lines: &[&Line], index: usize) -> Option<Point3> {
+    match lines.get(index) {
+        Some(line) => Some(line.start),
+        None if index == lines.len() => lines.last().map(|line| line.end),
+        None => None,
+    }
+}
+
+fn is_within(lines: &[&Line], tolerance: f64) -> bool {
+    let Some(first) = lines.first() else {
+        return true;
+    };
+    lines.iter().all(|line| {
+        first.start.distance(line.start) <= tolerance && first.start.distance(line.end) <= tolerance
+    })
+}
+
+fn kept_corners(lines: &[&Line], tolerance: f64) -> Vec<usize> {
+    let count = lines.len();
+    let mut kept = vec![false; count + 1];
+    for (index, pair) in lines.windows(2).enumerate() {
+        if let ([before, after], Some(keep)) = (pair, kept.get_mut(index + 1)) {
+            *keep = before.pick != after.pick;
+        }
+    }
+    for end in [0, count] {
+        if let Some(keep) = kept.get_mut(end) {
+            *keep = true;
+        }
+    }
+    let anchors: Vec<usize> = (0..=count)
+        .filter(|index| kept.get(*index).copied().unwrap_or(false))
+        .collect();
+    let mut pending: Vec<(usize, usize)> = anchors
+        .windows(2)
+        .filter_map(|pair| match *pair {
+            [from, to] => Some((from, to)),
+            _ => None,
+        })
+        .collect();
+    while let Some((from, to)) = pending.pop() {
+        let (Some(start), Some(end)) = (corner(lines, from), corner(lines, to)) else {
+            continue;
+        };
+        let farthest = (from + 1..to)
+            .filter_map(|index| {
+                let point = corner(lines, index)?;
+                Some((index, distance_to_segment(point, start, end)))
+            })
+            .max_by(|a, b| a.1.total_cmp(&b.1));
+        if let Some((index, distance)) = farthest
+            && distance > tolerance
+            && let Some(keep) = kept.get_mut(index)
+        {
+            *keep = true;
+            pending.push((from, index));
+            pending.push((index, to));
+        }
+    }
+    (0..=count)
+        .filter(|index| kept.get(*index).copied().unwrap_or(false))
+        .collect()
+}
+
+fn distance_to_segment(point: Point3, start: Point3, end: Point3) -> f64 {
+    let along = end - start;
+    let length_squared = along.length_squared();
+    let share = if length_squared > 0.0 {
+        ((point - start).dot(along) / length_squared).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    point.distance(start + along * share)
 }
 
 fn joins(before: (&Line, u32), after: (&Line, u32)) -> bool {
@@ -476,6 +585,64 @@ mod tests {
 
         assert_eq!(strips.hidden_runs(), vec![0..4, 7..8]);
         assert!(LineStrips::of(&lines[4..5], 64).hidden_runs().is_empty());
+    }
+
+    #[test]
+    fn simplified_strips_stay_within_the_tolerance_keep_where_the_pick_changes_and_drop_specks() {
+        let segments = 256;
+        let corner = |index: usize| {
+            let angle = std::f64::consts::TAU * (index % segments) as f64 / segments as f64;
+            [10.0 * angle.cos(), 10.0 * angle.sin()]
+        };
+        let lines: Vec<Line> = (0..segments)
+            .map(|index| Line {
+                pick: PickId::from_index(index / 128),
+                ..solid(corner(index), corner(index + 1))
+            })
+            .collect();
+        let speck = [
+            solid([20.0, 20.0], [20.03, 20.0]),
+            solid([20.03, 20.0], [20.03, 20.03]),
+        ];
+        let with_speck: Vec<Line> = lines.iter().chain(&speck).cloned().collect();
+        let strips = LineStrips::of(&with_speck, 64);
+        let tolerance = 0.05;
+
+        let simplified = strips.simplified(tolerance);
+        let kept: Vec<Point3> = simplified.iter().map(|line| line.start).collect();
+        let distance_to_kept = |point: Point3| {
+            simplified
+                .iter()
+                .map(|line| distance_to_segment(point, line.start, line.end))
+                .fold(f64::INFINITY, f64::min)
+        };
+
+        assert_eq!(strips.shown_segments(), segments + speck.len());
+        assert!(simplified.iter().all(|line| line.start.x < 15.0));
+        assert!(simplified.len() < segments / 4, "{} kept", simplified.len());
+        assert!(simplified.len() > 8);
+        assert!(
+            lines
+                .iter()
+                .all(|line| distance_to_kept(line.start) <= tolerance)
+        );
+        assert!(kept.contains(&lines[128].start));
+        assert!(simplified.iter().all(|line| {
+            line.pick
+                == lines
+                    .iter()
+                    .find(|original| original.start == line.start)
+                    .unwrap()
+                    .pick
+        }));
+        assert_eq!(simplified.last().unwrap().end, lines[0].start);
+        assert_eq!(
+            LineStrips::of(&simplified, 64).strips,
+            vec![Strip {
+                lines: 0..simplified.len(),
+                closed: true
+            }]
+        );
     }
 
     #[test]
