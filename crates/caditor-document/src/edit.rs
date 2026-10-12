@@ -11,9 +11,9 @@ use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, SketchError};
 
 use crate::{
     attachment::SketchAttachment,
+    blend::ChamferForm,
     body_appearance::{
         BodyAppearance, MAX_BODY_NAME_CHARS, MAX_MATERIAL_NAME_CHARS, MIN_OPACITY_PERCENT,
-        OPAQUE_PERCENT, material_name,
     },
     configurations::{
         ConfigurationId, Configurations, ConfiguredValue, MAX_CONFIGURATION_NAME_CHARS,
@@ -31,6 +31,7 @@ use crate::{
     projection::ProjectionSource,
     properties::{ModelProperties, ModelProperty},
     selection_sets::{MAX_SELECTION_SETS, MAX_SET_MEMBERS, MAX_SET_NAME_CHARS, SelectionSets},
+    split_face::SplitCarry,
     views::{MAX_SAVED_VIEWS, MAX_VIEW_NAME_CHARS, SavedViews},
 };
 
@@ -492,6 +493,10 @@ pub enum EditError {
     Sketch { name: String, error: SketchError },
     #[error("{0} is not a sketch")]
     NotASketch(String),
+    #[error(
+        "A line where a plane crosses a sketch must reach some length either way, not {0}. Project the plane again."
+    )]
+    ProjectionReach(f64),
     #[error("{0} does not make a body")]
     NotABody(String),
     #[error(
@@ -528,6 +533,40 @@ pub enum EditError {
         name: String,
         users: String,
     },
+}
+
+fn settled_kind(mut kind: FeatureKind) -> FeatureKind {
+    match &mut kind {
+        FeatureKind::Pattern(pattern) => {
+            pattern.settle_skipped();
+            keep_once(&mut pattern.repeated);
+        }
+        FeatureKind::Mirror(mirror) => keep_once(&mut mirror.mirrored),
+        FeatureKind::Mate(mate) => mate.flipped &= mate.flips(),
+        FeatureKind::Blend(blend) => blend.flipped &= blend.form != ChamferForm::Equal,
+        FeatureKind::SplitFace(split) if split.along.sketch().is_none() => {
+            split.carry = SplitCarry::Square;
+        }
+        _ => {}
+    }
+    kind
+}
+
+fn keep_once(features: &mut Vec<FeatureId>) {
+    let mut seen = BTreeSet::new();
+    features.retain(|feature| seen.insert(*feature));
+}
+
+fn check_reach(source: &ProjectionSource) -> Result<(), EditError> {
+    match source {
+        ProjectionSource::DatumPlane { reach, .. }
+        | ProjectionSource::PrincipalPlane { reach, .. }
+            if !(reach.is_finite() && *reach > 0.0) =>
+        {
+            Err(EditError::ProjectionReach(*reach))
+        }
+        _ => Ok(()),
+    }
 }
 
 fn check_appearance(appearance: &BodyAppearance) -> Result<(), EditError> {
@@ -928,6 +967,9 @@ impl Document {
             }
         }
         if let FeatureKind::Sketch(sketch) = kind {
+            for source in sketch.projections.values() {
+                check_reach(source)?;
+            }
             for source in sketch
                 .projected_sketches()
                 .filter_map(|id| self.feature(id))
@@ -1000,6 +1042,7 @@ impl Document {
     }
 
     fn set_feature_kind(&mut self, id: FeatureId, kind: FeatureKind) -> Result<Edit, EditError> {
+        let kind = settled_kind(kind);
         let index = self.feature_position(id)?;
         let existing = self.feature(id).ok_or(EditError::MissingFeature)?;
         let name = existing.name.clone();
@@ -1259,8 +1302,28 @@ impl Document {
             Arc::make_mut(&mut feature).name = trimmed;
         }
         self.check_feature_name(&feature.name, feature.id())?;
+        if feature.kind.features().contains(&feature.id()) {
+            return Err(EditError::MissingFeature);
+        }
         self.check_feature_references(&feature.kind, index)?;
         self.check_measurement_order(&feature, index)?;
+        let appearance = feature.appearance.clone().settled();
+        if appearance != feature.appearance {
+            Arc::make_mut(&mut feature).appearance = appearance;
+        }
+        if matches!(
+            feature.kind,
+            FeatureKind::Pattern(_)
+                | FeatureKind::Mirror(_)
+                | FeatureKind::Mate(_)
+                | FeatureKind::SplitFace(_)
+                | FeatureKind::Blend(_)
+        ) {
+            let kind = settled_kind(feature.kind.clone());
+            if kind != feature.kind {
+                Arc::make_mut(&mut feature).kind = kind;
+            }
+        }
         check_appearance(&feature.appearance)?;
         self.check_parameters_exist(feature.appearance.parameters())?;
         let id = feature.id();
@@ -1348,18 +1411,9 @@ impl Document {
     fn set_body_appearance(
         &mut self,
         id: FeatureId,
-        mut appearance: BodyAppearance,
+        appearance: BodyAppearance,
     ) -> Result<Edit, EditError> {
-        appearance.material = appearance.material.as_deref().and_then(material_name);
-        appearance.opacity = appearance
-            .opacity
-            .filter(|opacity| *opacity < OPAQUE_PERCENT);
-        appearance.name = appearance
-            .name
-            .as_deref()
-            .map(|name| name.split(['\r', '\n']).collect::<Vec<_>>().join(" "))
-            .as_deref()
-            .and_then(material_name);
+        let appearance = appearance.settled();
         let existing = self.feature(id).ok_or(EditError::MissingFeature)?;
         if !existing.makes_body() {
             return Err(EditError::NotABody(existing.name.clone()));

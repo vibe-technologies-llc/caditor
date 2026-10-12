@@ -4,9 +4,7 @@ use caditor_document::Document;
 
 use crate::{
     binary::{self, History},
-    journal::{
-        JournalEntry, JournalHead, Logged, Mirror, decode_journal, encode_journal, replay,
-    },
+    journal::{JournalEntry, JournalHead, Logged, Mirror, decode_journal, encode_journal, replay},
     load::{LoadError, Loaded},
     recent::RecentFiles,
     settings::Settings,
@@ -20,11 +18,13 @@ pub fn history(bytes: &[u8]) -> History {
     binary::history(bytes)
 }
 
-pub fn save_over(document: &Document, previous: Option<&[u8]>, seconds: u64) -> Option<Vec<u8>> {
+pub fn save_over(
+    document: &Document,
+    previous: Option<&[u8]>,
+    seconds: u64,
+) -> Result<Vec<u8>, impl std::error::Error> {
     let now = SystemTime::UNIX_EPOCH + Duration::from_secs(seconds);
-    binary::encode_over(document, previous, now, None)
-        .ok()
-        .map(|encoded| encoded.bytes)
+    binary::encode_over(document, previous, now, None).map(|encoded| encoded.bytes)
 }
 
 pub fn load_version(bytes: &[u8], index: usize) -> Result<Loaded, LoadError> {

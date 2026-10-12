@@ -837,3 +837,34 @@ fn a_pattern_of_features_repeats_primitives_adding_to_and_cutting_the_body() {
         60.0 * 10.0 * 4.0 - hole + boss - 3.0 * 8.0 + 3.0 * peg,
     );
 }
+
+#[test]
+fn a_pattern_never_keeps_the_original_or_a_step_past_the_most_copies_skipped() {
+    let mut model = model(linear);
+
+    let mut skipping = Pattern::new(model.base, linear(model.count));
+    skipping.skipped = [ORIGINAL_INSTANCE, [1, 0], [MAX_PATTERN_INSTANCES, 0]].into();
+    set_pattern(&mut model, skipping.clone()).unwrap();
+    let set_skipped = model
+        .document
+        .feature(model.pattern)
+        .unwrap()
+        .kind
+        .pattern()
+        .unwrap()
+        .skipped
+        .clone();
+    let mut transaction = model.document.transaction("Copy");
+    let copy = transaction.add_feature("Pattern 2", FeatureKind::from(skipping));
+    model.document.apply(transaction.finish()).unwrap();
+    let inserted = model
+        .document
+        .feature(copy)
+        .unwrap()
+        .kind
+        .pattern()
+        .unwrap();
+
+    assert_eq!(set_skipped, [[1, 0]].into());
+    assert_eq!(inserted.skipped, set_skipped);
+}

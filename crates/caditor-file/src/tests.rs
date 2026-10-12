@@ -4417,6 +4417,42 @@ fn a_mirror_holding_both_features_and_faces_keeps_both() {
 }
 
 #[test]
+fn a_journaled_appearance_is_written_as_the_document_settles_it() {
+    use caditor_document::{BodyAppearance, FaceColour, Rgb};
+    use caditor_kernel::{FaceName, FaceReference};
+    let (_, base, _) = solid_model();
+    let appearance = BodyAppearance {
+        material: Some("  ".to_owned()),
+        name: Some("Left\r\nside".to_owned()),
+        opacity: Some(100),
+        faces: vec![FaceColour {
+            face: FaceReference::new(FaceName::from_digest(5), None, []),
+            colour: Rgb::new(1, 2, 3),
+            opacity: Some(117),
+            finish: None,
+        }],
+        ..BodyAppearance::default()
+    };
+    let asked = |appearance| {
+        Transaction::single(
+            "Appearance",
+            Edit::SetBodyAppearance {
+                id: base,
+                appearance,
+            },
+        )
+    };
+
+    let journaled =
+        serde_json::to_string(&format::transaction_record(&asked(appearance.clone()))).unwrap();
+
+    assert_eq!(
+        format::restore_transaction(through_binary(&journaled)),
+        Some(asked(appearance.settled()))
+    );
+}
+
+#[test]
 fn a_move_turning_about_its_body_centre_is_a_kind_older_readers_report_and_reads_back() {
     use caditor_document::{Move, TurnCentre};
     let (mut document, base, _) = solid_model();
@@ -7141,7 +7177,8 @@ fn combines_are_saved_and_loaded() {
 }
 
 #[test]
-fn a_combine_with_several_tools_or_a_kept_tool_is_a_kind_older_readers_report_and_reads_back() {
+fn a_combine_with_several_tools_even_repeated_or_a_kept_tool_is_a_kind_older_readers_report_and_reads_back()
+ {
     use caditor_document::{
         BodyOperation, Combine, CombineOperation, Extrude, ExtrudeExtent, RegionChoice,
         SolidFeature,
@@ -7185,6 +7222,13 @@ fn a_combine_with_several_tools_or_a_kept_tool_is_a_kind_older_readers_report_an
             ..Combine::new(base, second, CombineOperation::Join)
         }),
     );
+    let repeated = transaction.add_feature(
+        "Combine 3",
+        FeatureKind::Combine(Combine {
+            more_tools: vec![second, third, third],
+            ..Combine::new(base, second, CombineOperation::Cut)
+        }),
+    );
     document.apply(transaction.finish()).unwrap();
 
     let text = encode(&document).unwrap();
@@ -7200,7 +7244,7 @@ fn a_combine_with_several_tools_or_a_kept_tool_is_a_kind_older_readers_report_an
     assert!(older.document.feature(kept_only).is_none());
     assert!(!older.issues.is_empty());
 
-    for id in [combine, kept_only] {
+    for id in [combine, kept_only, repeated] {
         let kind = document.feature(id).unwrap().kind.clone();
         let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id, kind });
         let journaled = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
@@ -9153,6 +9197,33 @@ fn a_chamfer_by_two_distances_or_an_angle_is_a_kind_older_readers_report() {
     assert_eq!(kind_of(&angled_loaded.document), angled_saved);
     assert!(!equal_text.contains("shaped_chamfer"));
     assert!(equal_text.contains("\"chamfer\":{"));
+}
+
+#[test]
+fn a_fillet_keeps_the_chamfer_form_it_would_switch_back_to() {
+    use caditor_document::{BlendKind, ChamferForm};
+    let (mut document, blend) = filleted_model();
+    let mut kind = document.feature(blend).unwrap().kind.clone();
+    if let FeatureKind::Blend(definition) = &mut kind {
+        definition.kind = BlendKind::Fillet;
+        definition.form = ChamferForm::TwoDistances {
+            second: Expression::parse_stored("2 mm").unwrap(),
+        };
+        definition.flipped = true;
+    }
+    document
+        .apply(Transaction::single(
+            "Reshape",
+            Edit::SetFeatureKind { id: blend, kind },
+        ))
+        .unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+
+    assert!(text.contains("\"shaped_chamfer\":{\"feature\":{\"fillet\":"));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
 }
 
 #[test]

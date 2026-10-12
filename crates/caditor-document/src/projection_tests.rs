@@ -457,3 +457,37 @@ fn an_elliptical_edge_of_a_body_projects_onto_a_parallel_plane_as_an_ellipse() {
     assert!((center.distance(major) - 6.0).abs() < 1e-9);
     assert!((minor_radius - 3.0).abs() < 1e-9);
 }
+
+#[test]
+fn a_crossing_line_reaching_no_length_is_refused() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Sketch");
+    let sketch = transaction.add_feature("Sketch", FeatureKind::from(Sketch::new(Plane::XY)));
+    document.apply(transaction.finish()).unwrap();
+    let point = EntityId::from_raw(0);
+    let mut transaction = document.transaction("Point");
+    transaction.add_sketch_entity(sketch, Entity::Point(Point2::ZERO));
+    document.apply(transaction.finish()).unwrap();
+    let project = |reach| {
+        Transaction::single(
+            "Project",
+            Edit::SetSketchProjection {
+                feature: sketch,
+                id: point,
+                source: Some(ProjectionSource::PrincipalPlane {
+                    plane: PrincipalPlane::Xz,
+                    reach,
+                }),
+            },
+        )
+    };
+
+    let refused = [f64::NAN, 0.0, -1.0, f64::INFINITY].map(|reach| document.check(&project(reach)));
+
+    assert!(
+        refused
+            .iter()
+            .all(|refusal| matches!(refusal, Err(EditError::ProjectionReach(_))))
+    );
+    assert_eq!(document.check(&project(10.0)), Ok(()));
+}

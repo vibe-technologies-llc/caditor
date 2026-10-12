@@ -4,7 +4,9 @@ mod references;
 
 use std::fmt;
 
-use caditor_document::{CancelToken, Document, Edit, Editor, Evaluation, ModelEvaluator, Recompute, Transaction};
+use caditor_document::{
+    CancelToken, Document, Edit, Editor, Evaluation, ModelEvaluator, Recompute, Transaction,
+};
 use caditor_file::JournalEntry;
 use libfuzzer_sys::arbitrary::{Result, Unstructured};
 
@@ -115,7 +117,7 @@ pub fn check_inverse(document: &Document, transaction: &Transaction) {
             let mut restored = applied.clone();
             if let Err(error) = restored.apply(inverse) {
                 panic!(
-                    "the inverse of a change from {} could not be applied: {error}",
+                    "the inverse of a change from {} could not be applied: {error}\n{transaction:#?}",
                     generators(transaction)
                 );
             }

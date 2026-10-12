@@ -7,16 +7,17 @@ use std::{
 use caditor_document::{
     AngleMate, AngleSides, AxisMate, AxisSide, AxisTurn, Between, Blend, BlendKind, BodyOperation,
     BodyPlacement, ChamferForm, CircularPattern, Combine, CombineOperation, CopyOrientation,
-    CurvePattern, CurveSpacing, CurveStation, Datum, DatumAxis, DatumFrame, DatumPlane,
-    DatumPoint, EdgeGroup, Extrude, ExtrudeEnd, ExtrudeExtent, FaceAxisMate, FaceMate,
-    FaceOnRound, FacePair, FaceTangent, FeatureId, FeatureKind, FinePitch, Hole, HoleBottom, HoleDepth,
-    HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle, Import, LinearDirection,
+    CurvePattern, CurveSpacing, CurveStation, Datum, DatumAxis, DatumFrame, DatumPlane, DatumPoint,
+    EdgeGroup, Extrude, ExtrudeEnd, ExtrudeExtent, FaceAxisMate, FaceMate, FaceOnRound, FacePair,
+    FaceTangent, FeatureId, FeatureKind, FinePitch, Hole, HoleBottom, HoleDepth, HoleFit,
+    HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle, Import, LinearDirection,
     LinearSpacing, Mate, MatePair, MeasuredItem, Measurement, MetricSize, Mirror, Move, Of,
-    OffsetFace, Pattern, PatternKind, PlaneRotation, PlaneThrough, PointBy, PointMate,
-    PointTarget, PointsPattern, Primitive, PrincipalPlane, PrimitiveAnchor, PrimitiveShape, Reading, RegionChoice,
-    Remove, Revolve, RevolveAxis, RevolveExtent, Scale, Shell, SketchAttachment, SketchFeature, SolidFeature,
-    SolidStart, Split, SplitAlong, SplitCarry, SplitFace, TappedThread, Thread, ThreadFamily,
-    ThreadHand, ThreadLength, ThreadSide, TurnCentre, Wall, sketch_regions,
+    OffsetFace, Pattern, PatternKind, PlaneRotation, PlaneThrough, PointBy, PointMate, PointTarget,
+    PointsPattern, Primitive, PrimitiveAnchor, PrimitiveShape, PrincipalPlane, Reading,
+    RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Scale, Shell, SketchAttachment,
+    SketchFeature, SolidFeature, SolidStart, Split, SplitAlong, SplitCarry, SplitFace,
+    TappedThread, Thread, ThreadFamily, ThreadForm, ThreadHand, ThreadLength, ThreadSide,
+    TurnCentre, Wall, sketch_regions,
 };
 use caditor_expression::Expression;
 use caditor_geometry::{Plane, Point2};
@@ -220,12 +221,8 @@ fn sketch_kind(input: &mut Unstructured, scene: &Scene) -> Result<FeatureKind> {
     let on = plane(input)?;
     let drawn = sketch(input, on)?;
     let attachment = match input.int_in_range(0u8..=5)? {
-        0 => Some(SketchAttachment::Face(
-            scene.face_attachment(input)?,
-        )),
-        1 => Some(SketchAttachment::Datum(
-            scene.datum(input)?,
-        )),
+        0 => Some(SketchAttachment::Face(scene.face_attachment(input)?)),
+        1 => Some(SketchAttachment::Datum(scene.datum(input)?)),
         2 => Some(SketchAttachment::Frame {
             frame: scene.datum(input)?,
             plane: *input.choose(&PrincipalPlane::ALL)?,
@@ -246,10 +243,7 @@ pub fn operation(input: &mut Unstructured, scene: &Scene) -> Result<BodyOperatio
     })
 }
 
-fn optional_distance(
-    input: &mut Unstructured,
-    scene: &Scene,
-) -> Result<Option<Box<Expression>>> {
+fn optional_distance(input: &mut Unstructured, scene: &Scene) -> Result<Option<Box<Expression>>> {
     Ok(if input.arbitrary::<bool>()? {
         Some(Box::new(scene.distance(input)?))
     } else {
@@ -274,7 +268,11 @@ fn extrude_end(input: &mut Unstructured, scene: &Scene) -> Result<ExtrudeEnd> {
     })
 }
 
-fn regions(input: &mut Unstructured, scene: &Scene, sketch: Option<FeatureId>) -> Result<RegionChoice> {
+fn regions(
+    input: &mut Unstructured,
+    scene: &Scene,
+    sketch: Option<FeatureId>,
+) -> Result<RegionChoice> {
     if !input.ratio(1u8, 4)? {
         return Ok(RegionChoice::All);
     }
@@ -683,6 +681,7 @@ fn hole(input: &mut Unstructured, scene: &Scene) -> Result<Hole> {
             } else {
                 None
             },
+            form: thread_form(input)?,
         },
     })
 }
@@ -930,6 +929,15 @@ fn thread(input: &mut Unstructured, scene: &Scene) -> Result<Thread> {
             ThreadLength::Depth(scene.distance(input)?)
         },
         reversed: input.arbitrary()?,
+        form: thread_form(input)?,
+    })
+}
+
+fn thread_form(input: &mut Unstructured) -> Result<ThreadForm> {
+    Ok(if input.arbitrary::<bool>()? {
+        ThreadForm::Cosmetic
+    } else {
+        ThreadForm::Modelled
     })
 }
 

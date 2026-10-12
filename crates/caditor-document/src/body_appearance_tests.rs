@@ -279,6 +279,46 @@ fn a_body_may_be_see_through_down_to_a_tenth_and_full_opacity_is_stored_as_none(
 }
 
 #[test]
+fn a_face_more_than_opaque_is_held_opaque_and_an_inserted_body_settles_its_appearance() {
+    let mut pair = pair();
+    let past_opaque = BodyAppearance {
+        opacity: Some(120),
+        faces: vec![FaceColour {
+            face: caditor_kernel::FaceReference::new(
+                caditor_kernel::FaceName::from_digest(7),
+                None,
+                [],
+            ),
+            colour: Rgb::new(1, 2, 3),
+            opacity: Some(250),
+            finish: None,
+        }],
+        ..BodyAppearance::default()
+    };
+
+    pair.document
+        .apply(set(&pair, past_opaque.clone()))
+        .unwrap();
+    let set_appearance = pair
+        .document
+        .feature(pair.plate)
+        .unwrap()
+        .appearance
+        .clone();
+    let mut copy = pair.document.feature(pair.plate).unwrap().clone();
+    copy.appearance = past_opaque;
+    copy.name = "Plate copy".to_owned();
+    let mut transaction = pair.document.transaction("Copy");
+    let copied = transaction.add_copied_feature(copy);
+    pair.document.apply(transaction.finish()).unwrap();
+    let inserted = &pair.document.feature(copied).unwrap().appearance;
+
+    assert_eq!(set_appearance.opacity, None);
+    assert_eq!(set_appearance.faces[0].opacity, Some(OPAQUE_PERCENT));
+    assert_eq!(*inserted, set_appearance);
+}
+
+#[test]
 fn an_opacity_snaps_to_the_nearest_step_and_solid_is_the_step_above_the_first() {
     let snapped: Vec<Option<u8>> = [100, 88, 87, 80, 62, 60, 40, 37, 12, 0]
         .into_iter()

@@ -699,3 +699,31 @@ fn only_faces_of_one_cylinder_or_cone_lie_on_one_unrolled_surface() {
 
     assert_eq!(found, vec![(true, false), (true, false)]);
 }
+
+#[test]
+fn only_a_split_along_a_sketch_keeps_how_it_carries_the_curves() {
+    let mut model = model(|_| SplitAlong::Plane(PlaneReference::Principal(PrincipalPlane::Yz)));
+    let mut wrapped = model
+        .document
+        .feature(model.split)
+        .unwrap()
+        .kind
+        .split_face()
+        .unwrap()
+        .clone();
+    wrapped.carry = SplitCarry::Wrapped;
+
+    model
+        .document
+        .apply(Transaction::single(
+            "Edit",
+            Edit::SetFeatureKind {
+                id: model.split,
+                kind: FeatureKind::SplitFace(wrapped),
+            },
+        ))
+        .unwrap();
+    let kept = model.document.feature(model.split).unwrap().kind.clone();
+
+    assert_eq!(kept.split_face().unwrap().carry, SplitCarry::Square);
+}

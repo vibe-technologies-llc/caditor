@@ -2,9 +2,10 @@ use std::collections::BTreeMap;
 
 use caditor_document::{
     BodyAppearance, Configuration, ConfigurationId, Configurations, ConfiguredValue, Edit,
-    FaceColour, FeatureId, Finish, ModelProperties, ModelProperty, NamedView, Outline, ParameterOwner,
-    PrincipalGeometry, PrincipalPlane, ProjectionSource, Rgb, RollbackBar, SavedView, SavedViews,
-    SelectionSet, SelectionSets, SetMember, Setting, SketchAttachment, Transaction,
+    FaceColour, FeatureId, Finish, ModelProperties, ModelProperty, NamedView, Outline,
+    ParameterOwner, PrincipalGeometry, PrincipalPlane, ProjectionSource, Rgb, RollbackBar,
+    SavedView, SavedViews, SelectionSet, SelectionSets, SetMember, Setting, SketchAttachment,
+    Transaction,
 };
 use caditor_geometry::{Point3, Rotation3, Vector2};
 use caditor_sketch::{ConstraintId, Entity, EntityId, Sketch};
@@ -572,11 +573,13 @@ fn selection_sets(input: &mut Unstructured, scene: &Scene) -> Result<SelectionSe
 }
 
 fn configured_value(input: &mut Unstructured, scene: &Scene) -> Result<ConfiguredValue> {
-    Ok(match (input.int_in_range(0u8..=2)?, scene.parameter(input)?) {
-        (0, Some(parameter)) => ConfiguredValue::Parameter(parameter),
-        (1, _) => ConfiguredValue::Suppressed(scene.feature(input)?),
-        _ => ConfiguredValue::Colour(scene.body(input)?),
-    })
+    Ok(
+        match (input.int_in_range(0u8..=2)?, scene.parameter(input)?) {
+            (0, Some(parameter)) => ConfiguredValue::Parameter(parameter),
+            (1, _) => ConfiguredValue::Suppressed(scene.feature(input)?),
+            _ => ConfiguredValue::Colour(scene.body(input)?),
+        },
+    )
 }
 
 fn setting(input: &mut Unstructured, scene: &Scene, value: ConfiguredValue) -> Result<Setting> {
@@ -686,9 +689,7 @@ pub fn model_edit(input: &mut Unstructured, scene: &Scene) -> Result<Option<Tran
         9 => document
             .deleting_configuration(configuration_id(input, scene)?)
             .ok(),
-        10 => document
-            .configuring(configured_value(input, scene)?)
-            .ok(),
+        10 => document.configuring(configured_value(input, scene)?).ok(),
         11 => Some(document.unconfiguring(configured_value(input, scene)?)),
         12 => {
             let value = configured_value(input, scene)?;

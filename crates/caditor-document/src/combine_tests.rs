@@ -554,3 +554,30 @@ fn a_tool_chosen_twice_or_equal_to_the_target_fails_the_combine() {
     };
     assert_eq!(error.reason, "A body cannot be combined with itself.");
 }
+
+#[test]
+fn every_mirrored_or_repeated_feature_is_held_once() {
+    let mut pair = pair();
+    let (plate, peg) = (pair.plate, pair.peg);
+
+    let mirror =
+        Mirror::new(plate, PlaneReference::Principal(PrincipalPlane::Yz)).mirroring(vec![peg, peg]);
+    let mut pattern = Pattern::new(
+        plate,
+        PatternKind::Circular(CircularPattern {
+            axis: AxisReference::Principal(PrincipalAxis::Z),
+            count: Expression::Number(2.0),
+            angle: Expression::parse_stored("360 deg").unwrap(),
+            reversed: false,
+        }),
+    );
+    pattern.repeated = vec![peg, peg];
+    let mut transaction = pair.document.transaction("Several");
+    let mirrored = transaction.add_feature("Mirror 1", FeatureKind::Mirror(mirror));
+    let patterned = transaction.add_feature("Pattern 1", FeatureKind::from(pattern));
+    pair.document.apply(transaction.finish()).unwrap();
+    let kind = |id| pair.document.feature(id).unwrap().kind.clone();
+
+    assert_eq!(kind(mirrored).mirror().unwrap().mirrored, [peg]);
+    assert_eq!(kind(patterned).pattern().unwrap().repeated, [peg]);
+}

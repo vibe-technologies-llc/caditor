@@ -704,3 +704,15 @@ fn a_feature_moved_up_with_what_it_uses_never_passes_it_on_the_way() {
 
     assert_eq!(names(&document), ["Profile", "Block", "Spare"]);
 }
+
+#[test]
+fn a_feature_cannot_be_inserted_using_itself() {
+    let mut document = Document::default();
+    let own = FeatureId::from_raw(document.next_feature_id());
+
+    let mut transaction = document.transaction("Remove");
+    transaction.add_feature("Remove 1", FeatureKind::Remove(Remove { body: own }));
+    let refused = document.apply(transaction.finish());
+
+    assert_eq!(refused, Err(EditError::MissingFeature));
+}

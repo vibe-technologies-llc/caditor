@@ -188,6 +188,22 @@ pub enum DensityError {
 }
 
 impl BodyAppearance {
+    #[must_use]
+    pub fn settled(mut self) -> Self {
+        self.material = self.material.as_deref().and_then(material_name);
+        self.opacity = self.opacity.filter(|opacity| *opacity < OPAQUE_PERCENT);
+        self.name = self
+            .name
+            .as_deref()
+            .map(|name| name.split(['\r', '\n']).collect::<Vec<_>>().join(" "))
+            .as_deref()
+            .and_then(material_name);
+        for face in &mut self.faces {
+            face.opacity = face.opacity.map(|opacity| opacity.min(OPAQUE_PERCENT));
+        }
+        self
+    }
+
     pub fn is_default(&self) -> bool {
         self == &Self::default()
     }

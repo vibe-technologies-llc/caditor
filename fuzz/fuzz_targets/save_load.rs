@@ -6,8 +6,9 @@ use caditor_fuzz::document::{References, run};
 use libfuzzer_sys::{arbitrary::Unstructured, fuzz_target};
 
 fn save(document: &Document, previous: Option<&[u8]>, seconds: u64) -> Vec<u8> {
-    let Some(bytes) = fuzzing::save_over(document, previous, seconds) else {
-        panic!("a document could not be saved");
+    let bytes = match fuzzing::save_over(document, previous, seconds) {
+        Ok(bytes) => bytes,
+        Err(error) => panic!("a document could not be saved: {error}"),
     };
     let loaded = match caditor_file::decode(&bytes) {
         Ok(loaded) => loaded,
@@ -29,8 +30,14 @@ fn check_journal(journal: &Journal, editor: &Editor) {
         panic!("the recovery journal could not be read back");
     };
     assert!(replayed.issues.is_empty(), "{:?}", replayed.issues);
-    assert_eq!(replayed.unreadable_entries, 0, "a journal entry could not be read");
-    assert!(!replayed.stopped_early, "replaying the journal stopped early");
+    assert_eq!(
+        replayed.unreadable_entries, 0,
+        "a journal entry could not be read"
+    );
+    assert!(
+        !replayed.stopped_early,
+        "replaying the journal stopped early"
+    );
     assert_eq!(replayed.replayed, journal.logged());
     assert!(
         replayed.document.same_content(editor.document()),
@@ -45,12 +52,17 @@ fuzz_target!(|bytes: &[u8]| {
     let mut file = save(editor.document(), None, 1);
     let mut journal = Journal::new(editor.document().clone());
 
-    run(&mut input, &mut editor, &References::default(), |editor, entry| {
-        journal.log(entry);
-        let seconds = saved.len() as u64 + 1;
-        file = save(editor.document(), Some(&file), seconds);
-        saved.push(editor.document().clone());
-    });
+    run(
+        &mut input,
+        &mut editor,
+        &References::default(),
+        |editor, entry| {
+            journal.log(entry);
+            let seconds = saved.len() as u64 + 1;
+            file = save(editor.document(), Some(&file), seconds);
+            saved.push(editor.document().clone());
+        },
+    );
 
     check_journal(&journal, &editor);
     for version in fuzzing::history(&file).versions {

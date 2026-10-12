@@ -699,3 +699,17 @@ fn a_flat_face_resting_on_a_face_that_is_not_round_fails_naming_it() {
         "{reason}"
     );
 }
+
+#[test]
+fn a_mate_with_no_side_is_never_flipped() {
+    let mut model = model();
+    let pair = MatePair::Point(Box::new(PointMate {
+        point: PointReference::Origin,
+        target: PointTarget::Point(PointReference::Origin),
+    }));
+
+    let mate = add_mate(&mut model, pair, true);
+    let kept = model.document.feature(mate).unwrap().kind.mate().unwrap();
+
+    assert!(!kept.flipped);
+}
