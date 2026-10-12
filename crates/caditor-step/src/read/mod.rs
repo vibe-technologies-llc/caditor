@@ -7,6 +7,7 @@ mod look_tests;
 mod loose;
 mod offset;
 mod presentation;
+mod snap;
 mod spline;
 mod structure;
 #[cfg(test)]
@@ -38,7 +39,9 @@ use crate::{
         structure::{
             MAX_DEPTH, MAX_INSTANCES as MAX_SHARED_COPIES, Placements, Structure, Unplaced,
         },
-        topology::{Bending, Built, Healing, Lost, SolidShells, Topology, short, unreadable_faces},
+        topology::{
+            Bending, Built, Healing, Lost, Snapping, SolidShells, Topology, short, unreadable_faces,
+        },
         units::Units,
     },
 };
@@ -327,6 +330,7 @@ fn read_placed<T>(
     let mut repaired = 0;
     let mut faceted_bodies = Vec::new();
     let mut bent_bodies = Vec::new();
+    let mut snapped_bodies = Vec::new();
     let mut unchecked_notes = Vec::new();
     let mut lost_notes = Vec::new();
     let encloses = |entity: &Entity<'_>| {
@@ -441,6 +445,7 @@ fn read_placed<T>(
                 unchecked,
                 faceted,
                 bent,
+                snapped,
                 faces,
                 lost,
             }) => {
@@ -451,6 +456,9 @@ fn read_placed<T>(
                 }
                 if !faceted {
                     repaired += healed;
+                }
+                if snapped.faces > 0 {
+                    snapped_bodies.push((name.clone(), snapped, units.precision));
                 }
                 if let Some(bending) = bent.filter(|bending| bending.faces > 0) {
                     bent_bodies.push((name.clone(), bending, units.precision));
@@ -505,6 +513,11 @@ fn read_placed<T>(
     model
         .notes
         .extend(faceted_bodies.iter().map(|name| faceted_note(name)));
+    model.notes.extend(
+        snapped_bodies
+            .iter()
+            .map(|(name, snapping, precision)| snapped_note(name, *snapping, *precision)),
+    );
     model.notes.extend(
         bent_bodies
             .iter()
@@ -706,6 +719,21 @@ fn bent_note(name: &str, bending: Bending, precision: Option<f64>) -> String {
     format!(
         "In “{name}”, {faces} bent by up to {} mm so that they meet their neighbours exactly{within}.",
         short(bending.farthest)
+    )
+}
+
+fn snapped_note(name: &str, snapping: Snapping, precision: Option<f64>) -> String {
+    let (faces, neighbours) = if snapping.faces == 1 {
+        ("1 flat face was".to_owned(), "its")
+    } else {
+        (format!("{} flat faces were", snapping.faces), "their")
+    };
+    let within = precision.map_or_else(String::new, |precision| {
+        format!(", within the file's precision of {} mm", short(precision))
+    });
+    format!(
+        "In “{name}”, {faces} moved by up to {} mm to meet {neighbours} neighbours exactly{within}.",
+        short(snapping.farthest)
     )
 }
 
@@ -931,7 +959,12 @@ fn healed(geometry: &Geometry<'_>, id: u64, shells: &SolidShells) -> Result<Buil
     let built = |healing| Topology::new(geometry, healing).solid(id, shells);
     built(Healing::Exact).or_else(|problem| {
         let looser: &[Healing] = match geometry.units.precision {
-            Some(_) => &[Healing::Extended, Healing::Bent, Healing::Faceted],
+            Some(_) => &[
+                Healing::Extended,
+                Healing::Snapped,
+                Healing::Bent,
+                Healing::Faceted,
+            ],
             None => &[Healing::Extended],
         };
         for healing in looser {

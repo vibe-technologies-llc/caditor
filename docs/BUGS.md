@@ -166,19 +166,18 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   the flank runs out), "Body6" and its copies (a side closed around a periodic spline, then the
   same L-shaped face), "Body7" and "front handle1" (the bound test
   above), "CPAP duct 15mm" (a side bent to 2.504e-8 mm of its targets against `BEND_TOLERANCE`'s
-  2.5e-8) and rigid faces a few micrometres apart that bending cannot move: "Pulley (1)" has a
-  plane tangent to a cylinder 3.4e-6 mm off it, "Micro Switch" two pairs of parallel planes
-  1e-4 mm apart meeting at one corner.
-- [medium · medium] Rigid faces (planes, cylinders, cones, spheres, tori) that meet within the
-  file's declared precision but not within `LINEAR_RESOLUTION` turn the whole body into flat
-  facets, since bending moves only splines (`step-read.md`, "Bent faces"). Snapping would make
-  them exact: a plane parallel to another within the precision, or tangent to a cylinder or cone
-  within it, is moved or turned by that gap onto its partner before the build, each move bounded
-  by the precision and noted like a bend. The VZ330's "Pulley (1)" (a plane 3.4e-6 mm off a
-  tangent cylinder) and "Micro Switch" (parallel planes 1e-4 mm apart) are the cases to start
-  from; fixing the bent path's own blockers above (closed sides of periodic splines, the bound
-  test's tolerance, `BEND_TOLERANCE` at 2.5e-8 mm, thread flanks running out) covers most of the
-  other 65 faceted bodies of that file.
+  2.5e-8). Fixing these blockers of the bent path (closed sides of periodic splines, the bound
+  test's tolerance, `BEND_TOLERANCE` at 2.5e-8 mm, thread flanks running out) would cover most of
+  the 67. Two others, "Pulley (1)" (a plane 3.4e-6 mm off the cylinder it is tangent to) and
+  "Micro Switch" (two pairs of parallel planes 1e-4 mm apart meeting at one corner), are what
+  snapping (`step-read.md`, "Snapped faces") now makes exact in fixtures built after them; reading
+  the file again should confirm they import exact.
+- [medium · medium] Only planes are snapped (`step-read.md`, "Snapped faces"): curved rigid faces
+  that meet within the file's declared precision but not within `LINEAR_RESOLUTION` (two
+  cylinders, or a cylinder and a torus, tangent a few micrometres off; coaxial faces whose axes
+  differ by a hair) still turn the whole body into flat facets, since bending moves only splines.
+  Snapping them would move the face with fewer neighbours onto its partner's axis or radius, each
+  move bounded by the precision and noted like a plane's.
 - [medium · medium] The VZ330 assembly (an Autodesk export at 0.01 mm, 3,894 copies) leaves 14
   parts out. Thirteen are refused as "a vertex 0.00001 to 0.0015 mm away from the end of its
   edge", the exact build's refusal at faces meeting tangentially further apart than the
