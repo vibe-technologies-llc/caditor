@@ -1384,7 +1384,8 @@ impl Builder<'_> {
 
     fn circular(&self, circular: &CircularPattern, centre: Point3) -> Vec<Gauge> {
         let found = || {
-            let ray = displayed_axis(self.model.evaluation(), self.feature, &circular.axis)?;
+            let axis = circular.axis.as_ref()?;
+            let ray = displayed_axis(self.model.evaluation(), self.feature, axis)?;
             let sign = if circular.reversed { -1.0 } else { 1.0 };
             let along = ray.direction() * sign;
             let foot = ray.origin() + along * (centre - ray.origin()).dot(along);

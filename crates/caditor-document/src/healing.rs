@@ -256,7 +256,11 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
                     visit_axis(&mut second.axis, "second direction", visitor);
                 }
             }
-            PatternKind::Circular(circular) => visit_axis(&mut circular.axis, "axis", visitor),
+            PatternKind::Circular(circular) => {
+                if let Some(axis) = &mut circular.axis {
+                    visit_axis(axis, "axis", visitor);
+                }
+            }
             PatternKind::Points(points) => visit_point(&mut points.base, "base point", visitor),
             PatternKind::Curve(_) => {}
         },

@@ -1332,7 +1332,8 @@ pub(crate) struct PatternRecord {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct CircularPatternRecord {
     pub body: u64,
-    pub axis: AxisReferenceRecord,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub axis: Option<AxisReferenceRecord>,
     pub count: String,
     pub angle: String,
     pub reversed: bool,
@@ -3313,7 +3314,7 @@ fn pattern_record(pattern: &Pattern) -> FeatureKindRecord {
         PatternKind::Circular(circular) => grid_pattern_record(
             PatternShapeRecord::Circular(Box::new(CircularPatternRecord {
                 body,
-                axis: axis_record(&circular.axis),
+                axis: circular.axis.as_ref().map(axis_record),
                 count: circular.count.to_stored_text(),
                 angle: circular.angle.to_stored_text(),
                 reversed: circular.reversed,
@@ -6510,11 +6511,14 @@ fn restore_circular_pattern(
     feature: &str,
     issues: &mut Vec<String>,
 ) -> Pattern {
-    let axis = restore_axis(&record.axis).unwrap_or_else(|| {
-        issues.push(format!(
-            "The axis of “{feature}” could not be read, so it turns about the Z axis."
-        ));
-        AxisReference::Principal(PrincipalAxis::Z)
+    let axis = record.axis.as_ref().and_then(|axis| {
+        let restored = restore_axis(axis);
+        if restored.is_none() {
+            issues.push(format!(
+                "The axis of “{feature}” could not be read; choose the axis it turns about."
+            ));
+        }
+        restored
     });
     Pattern::new(
         FeatureId::from_raw(record.body),

@@ -43,7 +43,7 @@ pub struct LinearDirection {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CircularPattern {
-    pub axis: AxisReference,
+    pub axis: Option<AxisReference>,
     pub count: Expression,
     pub angle: Expression,
     pub reversed: bool,
@@ -121,7 +121,9 @@ impl PatternKind {
                 first.heap_size() + second.as_ref().map_or(0, LinearDirection::heap_size)
             }
             Self::Circular(circular) => {
-                circular.axis.heap_size() + circular.count.heap_size() + circular.angle.heap_size()
+                circular.axis.as_ref().map_or(0, AxisReference::heap_size)
+                    + circular.count.heap_size()
+                    + circular.angle.heap_size()
             }
             Self::Curve(curve) => curve.count.heap_size() + curve.spacing.heap_size(),
             Self::Points(points) => points.base.heap_size(),
@@ -309,7 +311,7 @@ impl Pattern {
                 .chain(second)
                 .map(|direction| &direction.axis)
                 .collect(),
-            PatternKind::Circular(circular) => vec![&circular.axis],
+            PatternKind::Circular(circular) => circular.axis.iter().collect(),
             PatternKind::Curve(_) | PatternKind::Points(_) => Vec::new(),
         }
     }
@@ -545,7 +547,16 @@ impl Context<'_> {
                  axis.",
             ));
         }
-        let axis = self.resolver.axis(&circular.axis)?;
+        let Some(axis) = &circular.axis else {
+            return Err(self.error(
+                format!(
+                    "No axis is chosen for {} to turn about.",
+                    self.resolver.feature.name
+                ),
+                "Choose an axis, straight edge or round face to turn the copies about.",
+            ));
+        };
+        let axis = self.resolver.axis(axis)?;
         let full_turn = (angle - FULL_TURN).abs() <= ANGLE_TOLERANCE;
         let step = match (full_turn, count) {
             (true, _) => FULL_TURN / f64::from(count),

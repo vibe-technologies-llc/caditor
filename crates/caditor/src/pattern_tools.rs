@@ -15,6 +15,7 @@ use crate::{
     last_values::{Remembered, Starts},
     model::{Action, Model, Notice},
     move_tools,
+    reference_picking::{Picking, Slot},
     selection::{Pickable, Selection},
     sketch_pattern_tools, solid_tools,
     units::LengthUnit,
@@ -97,13 +98,10 @@ impl Shape {
     pub fn follows_sketch(self) -> bool {
         matches!(self, Self::Curve | Self::Points)
     }
+}
 
-    fn default_axis(self) -> AxisReference {
-        match self {
-            Self::Linear | Self::Curve | Self::Points => AxisReference::Principal(PrincipalAxis::X),
-            Self::Circular => AxisReference::Principal(PrincipalAxis::Z),
-        }
-    }
+fn linear_default_axis() -> AxisReference {
+    AxisReference::Principal(PrincipalAxis::X)
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -285,14 +283,14 @@ fn kind_for(
     model: &Model,
     shape: Shape,
     source: (FeatureId, &[FeatureId]),
-    axis: AxisReference,
+    axis: Option<AxisReference>,
 ) -> PatternKind {
     match shape {
         Shape::Linear => PatternKind::Linear {
             first: direction(
                 model,
                 source,
-                axis,
+                axis.unwrap_or_else(linear_default_axis),
                 Starts::of(model).count(Remembered::LinearCount, DEFAULT_LINEAR_COUNT),
                 model.length_unit(),
             ),
@@ -316,10 +314,12 @@ pub fn create(
     let kind = match (shape.follows_sketch(), source.sketch) {
         (true, Some(sketch)) => sketch_pattern_tools::kind(shape, sketch, model.length_unit()),
         (true, None) => return Err(sketch_pattern_tools::NO_PATH.to_owned()),
-        (false, _) => {
-            let axis = source.axis.clone().unwrap_or_else(|| shape.default_axis());
-            kind_for(model, shape, (source.body, &source.repeated), axis)
-        }
+        (false, _) => kind_for(
+            model,
+            shape,
+            (source.body, &source.repeated),
+            source.axis.clone(),
+        ),
     };
     let name = editing::next_feature_name(document, shape.title());
     let mut transaction = document.transaction(format!("Create {name}"));
@@ -332,10 +332,19 @@ pub fn create(
 
 pub fn create_actions(model: &Model, shape: Shape, source: &PatternSource) -> Vec<Action> {
     match create(model, shape, source) {
-        Ok((transaction, feature)) => vec![
-            Action::Apply(transaction),
-            Action::Editing(EditingCommand::OpenSolid(feature)),
-        ],
+        Ok((transaction, feature)) => {
+            let mut actions = vec![
+                Action::Apply(transaction),
+                Action::Editing(EditingCommand::OpenSolid(feature)),
+            ];
+            if shape == Shape::Circular && source.axis.is_none() {
+                actions.push(Action::Editing(EditingCommand::Pick(Picking::new(
+                    feature,
+                    Slot::PatternDirection,
+                ))));
+            }
+            actions
+        }
         Err(reason) => vec![Action::Inform(Notice::warning(format!(
             "{}: {reason}.",
             shape.title()
@@ -421,12 +430,7 @@ pub fn reshaped(
             sketch_pattern_tools::reshaped_kind(model, pattern, shape, before)?
         }
         (PatternKind::Curve(curve), Shape::Linear | Shape::Circular) => {
-            let mut kind = kind_for(
-                model,
-                shape,
-                (pattern.body, &pattern.repeated),
-                shape.default_axis(),
-            );
+            let mut kind = kind_for(model, shape, (pattern.body, &pattern.repeated), None);
             match &mut kind {
                 PatternKind::Linear { first, .. } => first.count = curve.count.clone(),
                 PatternKind::Circular(circular) => circular.count = curve.count.clone(),
@@ -434,15 +438,12 @@ pub fn reshaped(
             }
             kind
         }
-        (PatternKind::Points(_), Shape::Linear | Shape::Circular) => kind_for(
-            model,
-            shape,
-            (pattern.body, &pattern.repeated),
-            shape.default_axis(),
-        ),
+        (PatternKind::Points(_), Shape::Linear | Shape::Circular) => {
+            kind_for(model, shape, (pattern.body, &pattern.repeated), None)
+        }
         (PatternKind::Linear { first, .. }, Shape::Circular) => {
             PatternKind::Circular(CircularPattern {
-                axis: first.axis.clone(),
+                axis: Some(first.axis.clone()),
                 count: first.count.clone(),
                 angle: solid_tools::degrees(FULL_TURN),
                 reversed: first.reversed,
@@ -452,7 +453,7 @@ pub fn reshaped(
             let mut first = direction(
                 model,
                 (pattern.body, &pattern.repeated),
-                circular.axis.clone(),
+                circular.axis.clone().unwrap_or_else(linear_default_axis),
                 Expression::Number(DEFAULT_LINEAR_COUNT),
                 model.length_unit(),
             );
@@ -520,11 +521,11 @@ pub fn with_axis(
             }
         }
         (PatternKind::Circular(circular), Reference::First) => {
-            if circular.axis == axis {
+            if circular.axis.as_ref() == Some(&axis) {
                 return Err("It already turns about the selection");
             }
             PatternKind::Circular(CircularPattern {
-                axis,
+                axis: Some(axis),
                 ..circular.clone()
             })
         }

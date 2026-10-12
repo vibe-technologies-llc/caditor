@@ -13,8 +13,10 @@ A new linear or circular pattern starts from the count last used on one, kept be
 - Choose extrusions, revolves, holes or primitives in the tree to repeat only those features on
   their body, such as a row of holes.
 
-Select an axis, straight edge, round face or sketch line with it to set the direction or axis;
-otherwise a principal axis is used.
+Select an axis, straight edge, round face or sketch line with it to set the direction or axis. A
+linear pattern otherwise runs along the X axis. A circular pattern never picks an axis for you: with
+none selected it opens waiting for you to click the axis, straight edge or round face to turn about,
+and makes no copies until you do.
 
 ## Along a curve or at points
 

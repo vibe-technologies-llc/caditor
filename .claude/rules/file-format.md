@@ -154,7 +154,8 @@ Conventions for every record below:
   different result; a case the inner kind can express is written as the inner kind.
 - Stored texts are expression text; an unreadable one loads as the fallback given, reported. An
   unreadable reference (plane, axis, point, face) loads as the XY plane, the Z axis, the origin or
-  a reference to no face (the feature then fails until chosen again), as noted, reported.
+  a reference to no face (the feature then fails until chosen again), as noted, reported; a circular
+  pattern's `axis` is optional (left out when none is chosen) and an unreadable one loads as none.
 - `frame` references a coordinate system by id (`frame` plus `axis` or `plane`; a point reference
   to a system's origin is `frame` with its id).
 

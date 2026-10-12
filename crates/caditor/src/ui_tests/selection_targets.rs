@@ -114,7 +114,7 @@ fn an_edge_naming_the_body_does_not_become_the_pattern_direction() {
     };
     assert_eq!(
         circular.axis,
-        AxisReference::Principal(caditor_document::PrincipalAxis::Z)
+        Some(AxisReference::Principal(caditor_document::PrincipalAxis::Z))
     );
 }
 

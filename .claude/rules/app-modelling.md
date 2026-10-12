@@ -839,8 +839,12 @@ selected sketch curves (`view_menu::SKETCH_TOOLS`) reach it. Panel rows, keys an
 - Otherwise Linear and Circular pattern take the body of the selected faces, edges or vertices or of the
   tree (`move_tools::chosen_body`), the last body standing only with nothing selected, and the one
   selected axis, straight edge, round face or sketch line as direction or axis (edges and faces of the
-  body itself count only when nothing else is selected), else a principal axis
-  (`pattern_tools::source`). While open the patterned body is shown with its directions or axis drawn
+  body itself count only when nothing else is selected), else for a linear pattern the X axis
+  (`pattern_tools::source`). A circular pattern never takes an axis it was not given: with none
+  selected it opens with no axis and the Axis slot waiting for a click in the view
+  (`Slot::PatternDirection`, as a sweep waits for its path), failing in words until one is chosen;
+  switching another kind to Circular keeps a linear pattern's first direction and otherwise leaves
+  the axis unchosen. While open the patterned body is shown with its directions or axis drawn
   like a revolve's axis. Direction, Second direction (also None) and Axis list the principal axes and
   datum axes made before the pattern (`pattern_tools::listed_axes`, set through `with_axis`).
 - Each linear direction has a Measured switch (Each, Overall), captioned Spacing or Total length.

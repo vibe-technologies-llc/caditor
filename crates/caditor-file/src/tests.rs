@@ -4369,7 +4369,7 @@ fn patterned_model() -> (Document, FeatureId, FeatureId) {
         FeatureKind::from(Pattern::new(
             base,
             PatternKind::Circular(CircularPattern {
-                axis: AxisReference::Face {
+                axis: Some(AxisReference::Face {
                     body: base,
                     face: FaceReference::new(
                         FaceName::from_digest(0xfa),
@@ -4379,7 +4379,7 @@ fn patterned_model() -> (Document, FeatureId, FeatureId) {
                         }),
                         [FaceName::from_digest(3)],
                     ),
-                },
+                }),
                 count: transaction.parse("4").unwrap(),
                 angle: transaction.parse("180 deg").unwrap(),
                 reversed: false,
@@ -4844,7 +4844,7 @@ fn curve_and_point_patterns_are_kinds_older_readers_report_and_read_back() {
 }
 
 #[test]
-fn a_pattern_whose_axis_cannot_be_read_falls_back_and_is_reported() {
+fn a_pattern_whose_axis_cannot_be_read_is_reported_and_a_circular_one_waits_for_an_axis() {
     use caditor_document::{AxisReference, PatternKind, PrincipalAxis};
     let (document, linear, circular) = patterned_model();
     let text = encode(&document)
@@ -4856,7 +4856,7 @@ fn a_pattern_whose_axis_cannot_be_read_falls_back_and_is_reported() {
         loaded.issues,
         [
             "The direction of “Linear pattern 1” could not be read, so it runs along the X axis.",
-            "The axis of “Circular pattern 1” could not be read, so it turns about the Z axis.",
+            "The axis of “Circular pattern 1” could not be read; choose the axis it turns about.",
         ]
     );
     let restored = loaded
@@ -4881,7 +4881,7 @@ fn a_pattern_whose_axis_cannot_be_read_falls_back_and_is_reported() {
     let PatternKind::Circular(turned) = &restored.kind else {
         panic!("the pattern stays circular");
     };
-    assert_eq!(turned.axis, AxisReference::Principal(PrincipalAxis::Z));
+    assert_eq!(turned.axis, None);
 }
 
 fn datum_model() -> (Document, FeatureId, FeatureId) {

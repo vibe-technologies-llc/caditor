@@ -1,5 +1,6 @@
 use caditor_document::{
-    Datum, DatumAxis, DatumResult, Edit, FeatureId, PatternKind, PlaneThrough, PointBy, Transaction,
+    AxisReference, Datum, DatumAxis, DatumResult, Edit, FeatureId, PatternKind, PlaneThrough,
+    PointBy, PrincipalAxis, Transaction,
 };
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
 use caditor_sketch::Sketch;
@@ -35,6 +36,49 @@ fn picking_slot(harness: &Harness) -> Option<Slot> {
         .editing
         .picking()
         .map(|picking| picking.slot)
+}
+
+#[test]
+fn a_circular_pattern_waits_for_an_axis_clicked_in_the_view_instead_of_choosing_one() {
+    let mut harness = Harness::new();
+    extruded_plate(&mut harness);
+    harness.select([]);
+    harness.click("Circular pattern");
+    harness.settle();
+    let pattern = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the pattern is open");
+    harness.hold_still();
+
+    let asked = picking_slot(&harness);
+    let prompted = harness.shows("Click an axis, straight edge or round face to turn about");
+    let PatternKind::Circular(waiting) = &pattern_of(&harness, pattern).kind else {
+        panic!("the pattern is circular");
+    };
+    let waiting = waiting.axis.clone();
+    let failure = harness
+        .model
+        .evaluation()
+        .failures()
+        .find(|(feature, _)| *feature == pattern)
+        .map(|(_, failure)| failure.reason.clone());
+    click_in_view(&mut harness, Pickable::Axis(Axis::Y));
+    let PatternKind::Circular(chosen) = &pattern_of(&harness, pattern).kind else {
+        panic!("the pattern stays circular");
+    };
+    let chosen = chosen.axis.clone();
+
+    assert_eq!(asked, Some(Slot::PatternDirection));
+    assert!(prompted);
+    assert_eq!(waiting, None);
+    assert!(
+        failure.is_some_and(|failure| failure.contains("No axis is chosen")),
+        "the pattern says it has no axis yet"
+    );
+    assert_eq!(chosen, Some(AxisReference::Principal(PrincipalAxis::Y)));
+    assert_eq!(picking_slot(&harness), None);
 }
 
 #[test]

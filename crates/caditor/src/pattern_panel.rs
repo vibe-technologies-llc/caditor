@@ -760,7 +760,7 @@ impl Panel<'_> {
         self.reference_row(
             ui,
             "Axis",
-            Some(&circular.axis),
+            circular.axis.as_ref(),
             (Reference::First, Slot::PatternDirection),
             "Turn about the selected axis, straight edge or round face",
         );

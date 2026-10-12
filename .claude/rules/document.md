@@ -864,6 +864,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   pattern naming it. A copy that misses the body changes nothing. The cut copies are the pattern's
   `cuts`; their faces are `FaceOrigin::Copy` of the pattern.
 - Axes are `AxisReference`s resolved like a datum's at the pattern's place; body and datum counted.
+  A circular pattern's axis is optional (`CircularPattern::axis`): none is a pattern not yet given
+  one, which fails alone asking to choose it (as a sweep with `SweepPath::Unchosen`).
 - Counts are whole and from 1, at most `MAX_PATTERN_INSTANCES` in all (directions multiplied), each
   copy costing a boolean. The reach may not pass `MAX_SIZE`; parallel directions are refused. A
   linear direction's length is `measured` between neighbouring copies or, as

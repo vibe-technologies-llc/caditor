@@ -794,7 +794,11 @@ fn pattern_buttons(
                     (Shape::Circular, Some(axis)) => {
                         format!("Repeat {subject} around {}", describe_axis(document, axis))
                     }
-                    (Shape::Circular | Shape::Curve | Shape::Points, None) => format!(
+                    (Shape::Circular, None) => format!(
+                        "Repeat {subject} around an axis, straight edge or round face: select one \
+                         first, or click it once the pattern opens"
+                    ),
+                    (Shape::Curve | Shape::Points, None) => format!(
                         "Repeat {subject} around the Z axis, or around an axis or round face you \
                          select first"
                     ),

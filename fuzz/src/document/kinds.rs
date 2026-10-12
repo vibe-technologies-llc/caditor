@@ -763,7 +763,11 @@ fn pattern(input: &mut Unstructured, scene: &Scene) -> Result<Pattern> {
             },
         },
         1 => PatternKind::Circular(CircularPattern {
-            axis: scene.axis(input)?,
+            axis: if input.ratio(1, 8)? {
+                None
+            } else {
+                Some(scene.axis(input)?)
+            },
             count: scene.count(input)?,
             angle: scene.turn(input)?,
             reversed: input.arbitrary()?,

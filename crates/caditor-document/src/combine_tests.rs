@@ -565,7 +565,7 @@ fn every_mirrored_or_repeated_feature_is_held_once() {
     let mut pattern = Pattern::new(
         plate,
         PatternKind::Circular(CircularPattern {
-            axis: AxisReference::Principal(PrincipalAxis::Z),
+            axis: Some(AxisReference::Principal(PrincipalAxis::Z)),
             count: Expression::Number(2.0),
             angle: Expression::parse_stored("360 deg").unwrap(),
             reversed: false,

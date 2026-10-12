@@ -712,6 +712,10 @@ fn dragging_a_circular_pattern_s_turn_arrows_adds_copies_and_changes_its_angle()
     harness.select([]);
     harness.click("Circular pattern");
     harness.settle();
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    harness.click_pickable(Plane::XY, Point2::new(0.0, 0.0), Pickable::Axis(Axis::Z));
+    harness.settle();
     let pattern = open_feature(&harness);
     let read = |harness: &Harness| {
         let FeatureKind::Pattern(pattern) = kind_of(harness, pattern) else {

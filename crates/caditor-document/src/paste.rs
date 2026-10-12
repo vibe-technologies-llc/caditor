@@ -638,7 +638,11 @@ impl FeatureKind {
                             rename_axis(&mut second.axis, rename);
                         }
                     }
-                    PatternKind::Circular(circular) => rename_axis(&mut circular.axis, rename),
+                    PatternKind::Circular(circular) => {
+                        if let Some(axis) = &mut circular.axis {
+                            rename_axis(axis, rename);
+                        }
+                    }
                 }
             }
             Self::Remove(remove) => remove.body = rename(remove.body),

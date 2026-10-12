@@ -1158,7 +1158,9 @@ fn anchored(kind: &mut FeatureKind) -> Vec<Anchored<'_>> {
             .into_iter()
             .collect(),
         FeatureKind::Pattern(pattern) => match &mut pattern.kind {
-            PatternKind::Circular(circular) => vec![Anchored::Axis(&mut circular.axis)],
+            PatternKind::Circular(circular) => {
+                circular.axis.iter_mut().map(Anchored::Axis).collect()
+            }
             PatternKind::Points(points) => vec![Anchored::Point(&mut points.base)],
             PatternKind::Linear { .. } | PatternKind::Curve(_) => Vec::new(),
         },

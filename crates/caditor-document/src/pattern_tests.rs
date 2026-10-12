@@ -288,7 +288,7 @@ fn overlapping_copies_and_a_second_direction_join_into_one_body() {
 fn a_circular_pattern_spaces_copies_evenly_around_a_full_turn_or_over_its_angle() {
     let mut model = model(|count| {
         PatternKind::Circular(CircularPattern {
-            axis: AxisReference::Principal(PrincipalAxis::Z),
+            axis: Some(AxisReference::Principal(PrincipalAxis::Z)),
             count: Expression::Parameter(count),
             angle: Expression::parse("360 deg", &|_| None).unwrap(),
             reversed: false,
@@ -303,7 +303,7 @@ fn a_circular_pattern_spaces_copies_evenly_around_a_full_turn_or_over_its_angle(
     set_kind(
         &mut model,
         PatternKind::Circular(CircularPattern {
-            axis: AxisReference::Principal(PrincipalAxis::Z),
+            axis: Some(AxisReference::Principal(PrincipalAxis::Z)),
             count,
             angle: Expression::parse("90 deg", &|_| None).unwrap(),
             reversed: true,
@@ -409,7 +409,7 @@ fn pattern_errors_name_the_problem_and_the_fix() {
     set_kind(
         &mut model,
         PatternKind::Circular(CircularPattern {
-            axis: AxisReference::Principal(PrincipalAxis::Z),
+            axis: Some(AxisReference::Principal(PrincipalAxis::Z)),
             count,
             angle: Expression::parse("400 deg", &|_| None).unwrap(),
             reversed: false,
@@ -443,7 +443,7 @@ fn a_pattern_keeps_its_body_and_datum_axis_in_use_and_undoes_as_one_step() {
     set_kind(
         &mut model,
         PatternKind::Circular(CircularPattern {
-            axis: AxisReference::Datum(axis),
+            axis: Some(AxisReference::Datum(axis)),
             count: count.clone(),
             angle: Expression::parse("360 deg", &|_| None).unwrap(),
             reversed: false,
@@ -476,7 +476,7 @@ fn a_pattern_keeps_its_body_and_datum_axis_in_use_and_undoes_as_one_step() {
         set_kind(
             &mut model,
             PatternKind::Circular(CircularPattern {
-                axis: AxisReference::Datum(base),
+                axis: Some(AxisReference::Datum(base)),
                 count,
                 angle: Expression::Number(360.0),
                 reversed: false,
