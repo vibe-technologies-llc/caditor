@@ -7066,7 +7066,7 @@ fn a_typed_arc_goes_the_shorter_way_and_x_sends_it_the_long_way() {
     assert!(offer(&harness, Command::ReverseArc).availability.is_err());
     type_point(&mut harness, "0, 0");
     type_point(&mut harness, "10 mm, 0");
-    assert!(harness.shows_hint("X: the other way round   The arc follows your sweep around the centre, a typed end the shorter way   Esc: cancel the arc   Type x, y or length < angle for an exact point"));
+    assert!(harness.shows_hint("X: the other way round   The arc follows your sweep around the centre, a typed end the shorter way   Esc: cancel the arc   x,y or length<angle: type an exact point"));
     type_point(&mut harness, "0, -10 mm");
     let arcs = entities_of_kind(harness.sketch(feature), "Arc");
     let short = harness.sketch(feature).arc(arcs[0]).unwrap();
@@ -7374,7 +7374,7 @@ fn refused(harness: &mut Harness, text: &str, refusal: Refusal) {
 }
 
 fn with_type_hint(hint: &str, keys: &str) -> String {
-    format!("{hint}   {keys}   Type x, y or length < angle for an exact point")
+    format!("{hint}   {keys}   x,y or length<angle: type an exact point")
 }
 
 fn radii(sketch: &Sketch, kind: &str) -> Vec<f64> {
@@ -7503,6 +7503,7 @@ fn every_way_of_drawing_is_a_command_in_the_palette_and_in_a_menu_on_its_button(
     assert_readable(&harness, "The sketch bar with its mode menus");
 
     harness.click("Sketch");
+    harness.hover("Drawing tools");
     harness.hover("Ways to draw shapes");
     harness.click("Draw polygon from one side");
     harness.frame();

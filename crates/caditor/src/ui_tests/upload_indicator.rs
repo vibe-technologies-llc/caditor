@@ -39,7 +39,7 @@ fn the_graphics_card_indicator_shows_while_meshes_upload_and_not_otherwise() {
 
     assert!(!idle);
     assert!(during);
-    assert_eq!(spoken, 2);
+    assert_eq!(spoken, 1);
     assert!(!after);
     assert_eq!(still_spoken, 0);
     assert!(harness.shows(status_bar::UP_TO_DATE));

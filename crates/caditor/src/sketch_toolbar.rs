@@ -166,6 +166,7 @@ const HEADER_LINE_GAP: f32 = SPACE_S;
 const HEADER_COUNT_GAP: f32 = SPACE_XS;
 const BADGE_SIDE: f32 = CONTROL_HEIGHT;
 const FINISH_HEIGHT: f32 = CONTROL_HEIGHT;
+const FINISH_MARGIN: f32 = SPACE_XS;
 const ACCENT_LINE_WIDTH: f32 = 2.0;
 const BAR_MARGIN: Margin = Margin {
     top: ribbon::BAR_MARGIN.top + ACCENT_LINE_WIDTH as i8,
@@ -556,7 +557,6 @@ impl Bar<'_, '_> {
     fn show(&mut self, ui: &mut Ui) {
         ui.spacing_mut().item_spacing = Vec2::splat(ribbon::TOOL_GAP);
         let full = ui.available_width();
-        let band = widgets::tool_height(ui);
         let header = self.header_width(ui).min(full);
         let finish_id = Id::new("sketch-bar-finish");
         let widths: Vec<(Group, f32)> = ribbon::remembered_widths(ui, RIBBON, &Group::ALL)
@@ -590,7 +590,7 @@ impl Bar<'_, '_> {
                 ribbon::row(ui, RIBBON, &row, |ui, group| self.group(ui, group, packing));
                 if index == 0 && !finish_apart {
                     ui.allocate_ui_with_layout(
-                        vec2(ui.available_width(), band),
+                        vec2(ui.available_width(), ribbon::height(ui, packing.captions)),
                         Layout::right_to_left(Align::Center),
                         |ui| self.finish(ui, finish_id),
                     );
@@ -1148,6 +1148,7 @@ impl Bar<'_, '_> {
     }
 
     fn finish(&mut self, ui: &mut Ui, width_id: Id) {
+        ui.add_space(FINISH_MARGIN);
         let invoked = self.commands.available(Command::FinishSketch);
         let keys = self
             .commands
@@ -1161,9 +1162,9 @@ impl Bar<'_, '_> {
             .on_hover_text(format!("Leave the sketch. Everything is kept. ({keys})"));
         let look = Command::LookAtSketch;
         let look_help = self.commands.with_keys(look, &look.title());
-        let looking = widgets::icon_button(ui, icons::command(look), &look_help);
+        let looking = widgets::framed_icon_button(ui, icons::command(look), &look_help);
         let both = response.rect.union(looking.rect);
-        widgets::remember_width(ui, width_id, both.width());
+        widgets::remember_width(ui, width_id, both.width() + FINISH_MARGIN);
         if response.clicked() || invoked {
             self.request.finish = true;
         }

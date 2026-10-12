@@ -58,6 +58,7 @@ use crate::{
     },
     import::{self, DrawingPlan, IMPORT_HINT, Placement, ReplacementSource, SourceRefusal},
     import_options::{self, Arrangement, Arranging, ImportOptionsCommand},
+    menu_bar,
     model::{Action, FileEvent, Model, Notice, RecomputeStatus, WakerFactory, display_name},
     onboarding,
     portal::{self, DialogError, FileRequest, Filter, Mode},
@@ -85,6 +86,9 @@ pub const KEEP_CONSTRUCTION_HINT: &str = "Export sketch writes construction geom
                                           it out";
 const OPEN_SAMPLE: &str = "Open sample";
 const NOT_IMPORTING: &str = "No import is running";
+const HISTORY_AND_DETAILS: &str = "Versions and details";
+const IMPORT_MENU: &str = "Import";
+const EXPORT_MENU: &str = "Export";
 const NO_RECENT: &str = "No model has been opened or saved yet";
 const NOT_FOUND: &str = "(not found)";
 const NOTHING_EXPORTED: &str = "Nothing has been exported from this model yet. Export it once and \
@@ -3642,36 +3646,33 @@ pub fn menu(
             ui.separator();
             item(ui, &mut chosen, Command::Save);
             item(ui, &mut chosen, Command::SaveAs);
-            let revert = ui
-                .add_enabled_ui(revertible.is_ok(), |ui| {
-                    menu_item(ui, commands, Command::RevertToSaved)
-                })
-                .inner;
-            let revert = match revertible {
-                Ok(()) => revert.on_hover_text(REVERT_HINT),
-                Err(reason) => revert.on_disabled_hover_text(reason),
-            };
-            if revert.clicked() {
-                chosen.push(Command::RevertToSaved);
-            }
-            ui.add_enabled_ui(history.is_ok(), |ui| {
-                item(ui, &mut chosen, Command::VersionHistory);
-            })
-            .response
-            .on_disabled_hover_text("Save the model to start keeping its versions.");
-            item(ui, &mut chosen, Command::ModelProperties);
+            menu_bar::submenu(
+                ui,
+                icons::command(Command::VersionHistory),
+                HISTORY_AND_DETAILS,
+                |ui| {
+                    let revert = ui
+                        .add_enabled_ui(revertible.is_ok(), |ui| {
+                            menu_item(ui, commands, Command::RevertToSaved)
+                        })
+                        .inner;
+                    let revert = match revertible {
+                        Ok(()) => revert.on_hover_text(REVERT_HINT),
+                        Err(reason) => revert.on_disabled_hover_text(reason),
+                    };
+                    if revert.clicked() {
+                        chosen.push(Command::RevertToSaved);
+                    }
+                    ui.add_enabled_ui(history.is_ok(), |ui| {
+                        item(ui, &mut chosen, Command::VersionHistory);
+                    })
+                    .response
+                    .on_disabled_hover_text("Save the model to start keeping its versions.");
+                    item(ui, &mut chosen, Command::ModelProperties);
+                },
+            );
             ui.separator();
-            let hints = [
-                (Command::Import, Some(IMPORT_HINT)),
-                (Command::Export, None),
-                (Command::ExportAgain, Some(EXPORT_AGAIN_HINT)),
-                (Command::ExportImage, Some(IMAGE_HINT)),
-                (Command::ExportSketch, Some(SKETCH_HINT)),
-                (Command::ExportFace, Some(FACE_HINT)),
-                (Command::ImportParameters, Some(parameters::IMPORT_HINT)),
-                (Command::ExportParameters, Some(parameters::EXPORT_HINT)),
-            ];
-            for (command, hint) in hints {
+            let hinted = |ui: &mut Ui, chosen: &mut Vec<Command>, command: Command, hint| {
                 let unavailable = match command {
                     Command::ExportSketch => Some(NOT_A_SKETCH),
                     Command::ExportFace => Some(NOT_A_FACE),
@@ -3706,25 +3707,50 @@ pub fn menu(
                 if response.clicked() {
                     chosen.push(command);
                 }
-            }
-            let keep = widgets::menu_choice(
-                ui,
-                icons::command(Command::KeepDrawingConstruction),
-                &Command::KeepDrawingConstruction.title(),
-                commands.keys(Command::KeepDrawingConstruction),
-                files.keeps_drawing_construction(),
-            )
-            .on_hover_text(KEEP_CONSTRUCTION_HINT);
-            if keep.clicked() {
-                chosen.push(Command::KeepDrawingConstruction);
-            }
+            };
+            menu_bar::submenu(ui, icons::command(Command::Import), IMPORT_MENU, |ui| {
+                hinted(ui, &mut chosen, Command::Import, Some(IMPORT_HINT));
+                hinted(
+                    ui,
+                    &mut chosen,
+                    Command::ImportParameters,
+                    Some(parameters::IMPORT_HINT),
+                );
+            });
+            menu_bar::submenu(ui, icons::command(Command::Export), EXPORT_MENU, |ui| {
+                hinted(ui, &mut chosen, Command::Export, None);
+                hinted(
+                    ui,
+                    &mut chosen,
+                    Command::ExportAgain,
+                    Some(EXPORT_AGAIN_HINT),
+                );
+                hinted(ui, &mut chosen, Command::ExportImage, Some(IMAGE_HINT));
+                hinted(ui, &mut chosen, Command::ExportSketch, Some(SKETCH_HINT));
+                hinted(ui, &mut chosen, Command::ExportFace, Some(FACE_HINT));
+                hinted(
+                    ui,
+                    &mut chosen,
+                    Command::ExportParameters,
+                    Some(parameters::EXPORT_HINT),
+                );
+                ui.separator();
+                let keep = widgets::menu_choice(
+                    ui,
+                    icons::command(Command::KeepDrawingConstruction),
+                    &Command::KeepDrawingConstruction.title(),
+                    commands.keys(Command::KeepDrawingConstruction),
+                    files.keeps_drawing_construction(),
+                )
+                .on_hover_text(KEEP_CONSTRUCTION_HINT);
+                if keep.clicked() {
+                    chosen.push(Command::KeepDrawingConstruction);
+                }
+            });
             if files.has_recoverable() {
                 ui.separator();
                 item(ui, &mut chosen, Command::RecoverUnsaved);
             }
-            ui.separator();
-            item(ui, &mut chosen, Command::Preferences);
-            item(ui, &mut chosen, Command::KeyboardShortcuts);
             ui.separator();
             item(ui, &mut chosen, Command::Quit);
         });

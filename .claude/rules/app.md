@@ -515,8 +515,8 @@ paths:
   (`Page::of_feature`), else the first open side panel, else the edited sketch or plane choice, else
   the tree's selected row; with none, the contents with the search field focused. Run again on the
   page it would open, it closes the guide.
-- Each side panel's header has a help button (`guide_panel::help_button`) and an open feature's card
-  ends with "Help on <page>" (`help_link`); both ask through egui temp data (`guide::ask`, taken by
+- Each side panel's header has a help button (`guide_panel::help_button`); feature cards have none
+  (F1 opens their page). It asks through egui temp data (`guide::ask`, taken by
   `app::guide_commands` next frame). A new tool, feature kind or side panel gets a page (the
   exhaustive `Page::of_tool`, `of_feature` and `of_panel` fail to compile otherwise), and a change
   to what a tool does updates its page in the same commit.

@@ -318,28 +318,6 @@ pub fn help_button(ui: &mut Ui, page: Page) {
     }
 }
 
-pub fn help_link(ui: &mut Ui, page: Page) {
-    let text = format!("Help on {}", decapitalized(page.title()));
-    let button = widgets::small_button(ui, icons::HELP, &text);
-    if ui
-        .add(button)
-        .on_hover_text("Open its page in the user guide")
-        .clicked()
-    {
-        guide::ask(ui.ctx(), page);
-    }
-}
-
-fn decapitalized(title: &str) -> String {
-    let mut characters = title.chars();
-    match characters.next() {
-        Some(first) if !title.starts_with("STEP") => {
-            first.to_lowercase().chain(characters).collect()
-        }
-        Some(_) | None => title.to_owned(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

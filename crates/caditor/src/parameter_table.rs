@@ -18,9 +18,6 @@ use crate::{
 };
 
 pub const ADD_LABEL: &str = "Add parameter";
-pub const EMPTY_PARAMETERS: &str = "Parameters are named values that any dimension can use, such \
-                                    as width / 2. Type depth = 20 mm in a dimension or a \
-                                    feature's field to name that value too.";
 pub const MODEL_PARAMETERS: &str = "Model parameters";
 const MODEL_PARAMETERS_EXPLANATION: &str = "Dimensions and feature values given a name by typing \
                                             name = value in their field. Other expressions use \
@@ -66,12 +63,10 @@ const NOTE_EXPLANATION: &str = "What the parameter is for, where its value comes
 pub fn show(ui: &mut Ui, model: &Model, state: &mut PanelState, actions: &mut Vec<Action>) {
     let document = model.document();
     if document.parameters().is_empty() {
-        widgets::empty_state(ui, icons::PARAMETERS, EMPTY_PARAMETERS, |ui| {
-            let button = widgets::small_button(ui, icons::ADD, ADD_LABEL);
-            if ui.add(button).clicked() {
-                add(model, state, actions);
-            }
-        });
+        let button = widgets::small_button(ui, icons::ADD, ADD_LABEL);
+        if ui.add(button).clicked() {
+            add(model, state, actions);
+        }
         return;
     }
     let query = filter_field(ui, state, document.parameters().len());

@@ -78,7 +78,6 @@ use crate::{
     toggles,
     trimming::{self, Trimming},
     typed_point::{self, TypedPoint},
-    upload_badge,
     view_aids::ViewAids,
     view_cube::{self, CubeAction, CubeTexts},
     view_history::{Gesture, ViewHistory},
@@ -151,7 +150,7 @@ const SNAPPING_OFF_HINT: &str = "Snapping off";
 const SKETCH_NOT_SHOWN: &str = "The sketch is being recalculated: try again in a moment";
 const TAKE_BACK_HINT: &str = "Backspace: take back the last point";
 const HELD_SNAP_HINT: &str = "Alt: snap to the grid or nearby geometry";
-const TYPE_POINT_HINT: &str = "Type x, y or length < angle for an exact point";
+const TYPE_POINT_HINT: &str = "x,y or length<angle: type an exact point";
 const TYPED_POINT_HINT: &str = "@: from the last point   A length alone goes toward the pointer   \
                                 < angle alone: lock the direction   length <: lock the length   \
                                 Enter: place   Esc: cancel";
@@ -4840,9 +4839,6 @@ impl ViewportState {
             None => {}
         }
         view_cube::show_axis_triad(ui, rect, orientation, self.contrast.palette(self.canvas));
-        if self.uploading {
-            upload_badge::show(ui, rect);
-        }
 
         let painter = ui.painter();
         if let Some(PrimaryDrag::Box { area, .. } | PrimaryDrag::ModelBox { area }) = &self.primary
@@ -5710,11 +5706,13 @@ enum SketchFacing {
 
 fn entering(camera: &Camera, heading: &View, sketch: &EditedSketch) -> Viewpoint {
     let size = heading.size();
-    let facing = Viewpoint::facing(
-        &sketch.plane,
-        sketch.bounds.center(),
-        heading.viewpoint().distance,
-    );
+    let (centre, distance) = (sketch.bounds.center(), heading.viewpoint().distance);
+    let seen_from_behind = sketch.plane.signed_distance(heading.viewpoint().eye()) < 0.0;
+    let facing = if seen_from_behind {
+        Viewpoint::facing_from_behind(&sketch.plane, centre, distance)
+    } else {
+        Viewpoint::facing(&sketch.plane, centre, distance)
+    };
     camera
         .view_from(facing, size.x, size.y)
         .fitted(sketch.bounds)
@@ -5947,6 +5945,28 @@ mod tests {
         assert_eq!(state.hovered, Some(Pickable::Origin));
         assert_eq!(state.hit_under(cursor), Some(Point3::ZERO));
         assert_eq!(state.hit_under(cursor + Vector2::new(5.0, 0.0)), None);
+    }
+
+    #[test]
+    fn entering_a_sketch_faces_it_from_the_side_the_camera_is_on() {
+        for (from_below, forward) in [(false, -Vector3::Z), (true, Vector3::Z)] {
+            let (document, feature, _, _) = sketched(Plane::XY);
+            let model = model_of(document);
+            let mut state = state_with_cursor();
+            state.build_scene(&model, &SketchEditing::default());
+            state.camera = Camera::new(if from_below {
+                Viewpoint::facing_from_behind(&Plane::XY, Point3::ZERO, 100.0)
+            } else {
+                Viewpoint::facing(&Plane::XY, Point3::ZERO, 100.0)
+            });
+
+            state.build_scene(&model, &SketchEditing::editing(feature));
+            state.advance(Duration::from_secs(1));
+
+            let viewpoint = state.camera.viewpoint();
+            assert!(viewpoint.forward().distance(forward) < 1e-9);
+            assert!(viewpoint.up().distance(Vector3::Y) < 1e-9);
+        }
     }
 
     #[test]

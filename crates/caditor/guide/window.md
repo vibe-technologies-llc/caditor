@@ -3,7 +3,8 @@
 ## Menus and ribbon
 
 The menu bar holds File, Edit, View, Model, Sketch and Help, with the model's name in the middle
-and Search commands at the right. Click the model's name for its details: where it is saved,
+and, at the right, the gear that opens Preferences and Search commands. Related commands sit
+together in submenus. Click the model's name for its details: where it is saved,
 Save, Version history and Model properties.
 
 The ribbon under it holds the most used tools in groups. Hover a button to see what it does, its

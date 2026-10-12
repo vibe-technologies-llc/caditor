@@ -108,6 +108,20 @@ impl Viewpoint {
         }
     }
 
+    pub fn facing_from_behind(plane: &Plane, target: Point3, distance: f64) -> Self {
+        let orientation = Rotation3::from_mat3(&DMat3::from_cols(
+            -plane.x_axis(),
+            plane.y_axis(),
+            -plane.normal(),
+        ))
+        .normalize();
+        Self {
+            target,
+            orientation,
+            distance: distance.clamp(MIN_DISTANCE, MAX_DISTANCE),
+        }
+    }
+
     pub fn forward(&self) -> Vector3 {
         self.orientation * Vector3::NEG_Z
     }

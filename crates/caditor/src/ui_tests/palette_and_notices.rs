@@ -62,6 +62,7 @@ fn the_palette_shows_whether_a_toggle_is_on_and_quiet_toggles_say_what_changed()
 
     harness.perform(Action::DismissNotice);
     harness.click("View");
+    harness.hover("Projection and snapping");
     harness.click("Turn snapping on or off");
     harness.frame();
 

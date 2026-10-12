@@ -148,7 +148,7 @@ paths:
   edges of a failed or outdated body (`scene::body_health`), outside sketch editing.
 - Key hints (`canvas::Hints`) are `Key: action` text, items three spaces apart, as key caps
   (alternatives joined by " or ") beside a muted action, plain where the part before ": " is not
-  keys. Each key, "or" and action is its own text, so tests use `shows_hint`.
+  keys, on a bordered panel; typing coordinates is one (`x,y or length<angle: type an exact point`). Each key, "or" and action is its own text, so tests use `shows_hint`.
 - Overlay text keeps clear of the view cube: a failure or interference label covering the cube or
   its buttons moves left of them (`viewport::clear_of`); the prompt and its hints centre in the band
   left of `view_cube::area`, its key hints left out when they would reach the bottom strip of triad
@@ -236,8 +236,12 @@ paths:
 
 - The menu bar (File, Edit, View, Model, Sketch, Help) is built from the commands with their icons
   and shortcuts; items enable from the previous frame's offers (`Workspace::last_offers`) with the
-  reason on hover. Then come the model title, the Search commands field (opens the palette on click;
-  keys as `widgets::key_cap`s) and, with caditor's title bar, the logo (leading) and window buttons.
+  reason on hover. Menus keep few entries: related commands sit in submenus (`menu_bar::submenu`), e.g. File's
+  Versions and details, Import and Export, Edit's Select, View's Projection and snapping, Selection
+  tools, Show and hide, Inspect and Window and interface, Model's Modify shape and Sketch's Drawing
+  tools, Modify geometry, Select geometry and Constrain automatically. Then come the model title, a
+  Preferences icon button (the gear; no menu entry) and the Search commands field (opens the palette
+  on click; keys as `widgets::key_cap`s) and, with caditor's title bar, the logo (leading) and window buttons.
   Model keeps its creation tools at the top level and groups the rest in submenus (Patterns, Datums,
   Bodies, Features, Rollback, Parameters, Recompute).
 - The model title (file icon, name, Unsaved pill, "› sketch" while one is edited) sits centred on the
@@ -269,7 +273,8 @@ paths:
   status pill under it, two lines whatever the status, width clamped to the title and at least the
   widest status so constraining never moves the groups or the view; `app-sketching.md`, Status
   pills), then Select, Draw, Modify, Constrain and Dimension. Finish sketch is a primary button at
-  the right of the first row. Shape tools with several ways to draw carry a `corner_menu_button`
+  the right of the first row, with Look at sketch beside it as a framed `framed_icon_button`; both are
+  `CONTROL_HEIGHT` tall and centred on the whole bar, captions included. Shape tools with several ways to draw carry a `corner_menu_button`
   listing them as `menu_choice`s; the compact Sketch fillet, Offset, Mirror and Project buttons a
   `compact_corner_menu_button` listing the tools without a button of their own, then the host's ways
   when it has some (Offset's).
@@ -279,10 +284,9 @@ paths:
   (`POLYGON_TOOLS`, labelled Polygon whichever is shown), so the sketch bar fits one row at 1400
   points. A group's corner menu lists its tools, then the ways of the one shown.
 - While the renderer is still uploading (`Renderer::is_uploading`, set each frame on
-  `ViewportState::set_uploading` before the interface runs), the view shows `upload_badge`
-  (`icons::UPLOADING` and "Loading to the graphics card" in `Chrome::muted`, under the view cube's
-  buttons) and the status bar's file activity ends with a `widgets::spinner` and the same text
-  (`StatusContext::uploading`). The badge draws no timer and the spinner shows only in frames the
+  `ViewportState::set_uploading` before the interface runs), the status bar's file
+  activity ends with a `widgets::spinner` and `upload_badge::TEXT` (`StatusContext::uploading`),
+  the only place it is shown. The spinner shows only in frames the
   uploads already ask for, so the last upload frame is followed by one with neither and no repaint
   request (`ui_tests/upload_indicator.rs`).
 - The status bar (`status_bar.rs`) runs recompute | file activity | notice, then right-aligned
@@ -332,8 +336,8 @@ paths:
   resize, unless the share caps it, and becomes the shared width.
 - Features and Parameters are collapsible `widgets::panel_section`s that open by themselves when a
   rename or focus request needs something inside: a header band (the count as a pill) and, when
-  open, a muted sentence saying what the section holds (`FEATURES_EXPLANATION`,
-  `PARAMETERS_EXPLANATION`), also the header's hover. Nested sections (sketch cards, Measure,
+  open, nothing but its content: what the section holds is the header's hover only
+  (`FEATURES_EXPLANATION`, `PARAMETERS_EXPLANATION`). Nested sections (sketch cards, Measure,
   Preferences) stay plain `widgets::section`s. Empty, each is an `empty_state` offering the first
   step (New sketch, Open a sample, Add parameter). The rollback bar always carries a caption: End of
   model, or how many features it rolls back.

@@ -137,12 +137,15 @@ pub const RADIUS: f32 = 3.0;
 pub const MARGIN: f32 = 12.0;
 pub const BUTTON_HEIGHT: f32 = CONTROL_HEIGHT;
 
-const HINT_PADDING: Vec2 = vec2(6.0, 4.0);
-const KEY_PADDING: Vec2 = vec2(4.0, 1.0);
+const HINT_PADDING: Vec2 = vec2(10.0, 7.0);
+const HINT_RADIUS: f32 = 6.0;
+const HINT_SIZE: f32 = 12.5;
+const KEY_PADDING: Vec2 = vec2(6.0, 2.0);
+const KEY_RADIUS: f32 = 4.0;
 const KEY_EDGE_WIDTH: f32 = 1.0;
-const ATOM_GAP: f32 = 4.0;
-const ITEM_GAP: f32 = 14.0;
-const ROW_GAP: f32 = 4.0;
+const ATOM_GAP: f32 = 6.0;
+const ITEM_GAP: f32 = 18.0;
+const ROW_GAP: f32 = 6.0;
 const MIN_WRAPPED_ACTION: f32 = 48.0;
 const HINT_SEPARATOR: &str = "   ";
 const KEY_SEPARATOR: &str = ": ";
@@ -340,7 +343,12 @@ struct Atom {
 impl Atom {
     fn text(painter: &Painter, text: &str, wrap_width: f32) -> Self {
         let muted = chrome(painter.ctx()).muted;
-        let galley = painter.layout(text.to_owned(), small(), muted, wrap_width);
+        let galley = painter.layout(
+            text.to_owned(),
+            FontId::proportional(HINT_SIZE),
+            muted,
+            wrap_width,
+        );
         Self {
             size: galley.size(),
             galley,
@@ -350,7 +358,11 @@ impl Atom {
 
     fn key(painter: &Painter, key: &str) -> Self {
         let text = chrome(painter.ctx()).text;
-        let galley = painter.layout_no_wrap(key.to_owned(), emphasis(), text);
+        let galley = painter.layout_no_wrap(
+            key.to_owned(),
+            FontId::new(HINT_SIZE, fonts::medium()),
+            text,
+        );
         Self {
             size: galley.size() + KEY_PADDING * 2.0,
             galley,
@@ -477,7 +489,15 @@ impl Hints {
             return rect;
         }
         if self.padding != Vec2::ZERO {
-            paint_backdrop(painter, rect);
+            let chrome = chrome(painter.ctx());
+            let contrast = contrast(painter.ctx());
+            painter.rect(
+                rect,
+                HINT_RADIUS,
+                chrome.backdrop(contrast),
+                Stroke::new(KEY_EDGE_WIDTH, chrome.control_edge),
+                StrokeKind::Inside,
+            );
         }
         let inner = rect.shrink2(self.padding);
         let mut top = inner.top();
@@ -509,7 +529,7 @@ fn paint_atom(painter: &Painter, rect: Rect, atom: Atom) {
     if atom.key {
         painter.rect(
             rect,
-            RADIUS,
+            KEY_RADIUS,
             chrome.key_cap,
             Stroke::new(KEY_EDGE_WIDTH, chrome.key_cap_edge),
             StrokeKind::Inside,

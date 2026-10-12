@@ -25,9 +25,7 @@ use crate::{
     feature_clipboard, feature_groups,
     field::{self, DimensionTarget},
     files::FileCommand,
-    fonts,
-    guide::Page,
-    guide_panel, hole_panel, icons, import_panel, manipulator, mate_panel, measurement_panel,
+    fonts, hole_panel, icons, import_panel, manipulator, mate_panel, measurement_panel,
     mirror_panel, mirror_tools,
     model::{Action, Model, Notice},
     move_panel, move_tools, offset_face_panel,
@@ -79,6 +77,8 @@ pub const EMPTY_TREE: &str = "The model has no features yet. Start with New sket
      sample to see how one is built.";
 pub const DIMENSIONS_TITLE: &str = "Dimensions";
 pub const CONSTRAINTS_TITLE: &str = "Constraints";
+const CARD_ROW_INDENT: f32 = SPACE_M;
+const CARD_ROW_GAP: f32 = SPACE_M;
 pub const ROLLBACK_BAR_NAME: &str = "Rollback bar";
 pub const END_OF_MODEL: &str = "End of model";
 const ROLLBACK_BAR_HINT: &str = "Drag to roll the model back to any point: features below the \
@@ -774,9 +774,6 @@ fn feature_row(
                     } else {
                         inactive_note(ui, document, actions, row);
                         ui.add_enabled_ui(false, |ui| body(ui, model, state, actions, row));
-                    }
-                    if row.edited {
-                        guide_panel::help_link(ui, Page::of_feature(&row.feature.kind));
                     }
                 });
             })
@@ -2950,15 +2947,18 @@ fn sketch_body(
     edited: bool,
 ) {
     let summary = SketchSummary::of(model.evaluation(), feature.id());
-    ui.horizontal_wrapped(|ui| match sketch_status::show(ui, &summary, edited) {
-        Some(StatusRequest::ShowProblem(focus)) => state.request_focus(focus),
-        Some(StatusRequest::Run(command)) => state.sketch_command = Some(command),
-        None => {}
+    ui.horizontal_wrapped(|ui| {
+        match sketch_status::show(ui, &summary, edited) {
+            Some(StatusRequest::ShowProblem(focus)) => state.request_focus(focus),
+            Some(StatusRequest::Run(command)) => state.sketch_command = Some(command),
+            None => {}
+        }
+        ui.add_space(SPACE_S);
+        ui.label(widgets::muted(
+            count(sketch.entities().len(), "entity", "entities"),
+            ui,
+        ));
     });
-    ui.label(widgets::muted(
-        count(sketch.entities().len(), "entity", "entities"),
-        ui,
-    ));
     let (dimensions, constraints): (Vec<_>, Vec<_>) = sketch
         .constraints()
         .partition(|(_, definition)| definition.dimension().is_some());
@@ -2994,40 +2994,44 @@ fn sketch_body(
             widgets::reveal_section(ui.ctx(), &id);
         }
         widgets::section(ui, &id, title, Some(listed.len()), None, |ui| {
-            let basis = RowBasis {
-                revision: model.revision(),
-                evaluation: model.evaluation_generation(),
-                width: ui.available_width(),
-            };
-            let mut reserved = Reserved::default();
-            for (constraint, definition) in listed {
-                let row = card_row(&card, state, constraint, definition);
-                let dimension = definition.dimension().is_some();
-                let key = (feature.id(), constraint);
-                let known = match (row, dimension) {
-                    (CardRow::Plain, false) => state.plain_constraint_height,
-                    (CardRow::Plain, true) => state.plain_dimension_height,
-                    (CardRow::Varied, _) => state.varied_row_heights.get(basis, key),
-                    (CardRow::Live, _) => None,
+            ui.spacing_mut().indent = CARD_ROW_INDENT;
+            ui.spacing_mut().item_spacing.y = CARD_ROW_GAP;
+            ui.indent(("card rows", &id), |ui| {
+                let basis = RowBasis {
+                    revision: model.revision(),
+                    evaluation: model.evaluation_generation(),
+                    width: ui.available_width(),
                 };
-                if let Some(height) = known
-                    && !reserved.near_view(ui, height)
-                {
-                    reserved.add(height);
-                    continue;
+                let mut reserved = Reserved::default();
+                for (constraint, definition) in listed {
+                    let row = card_row(&card, state, constraint, definition);
+                    let dimension = definition.dimension().is_some();
+                    let key = (feature.id(), constraint);
+                    let known = match (row, dimension) {
+                        (CardRow::Plain, false) => state.plain_constraint_height,
+                        (CardRow::Plain, true) => state.plain_dimension_height,
+                        (CardRow::Varied, _) => state.varied_row_heights.get(basis, key),
+                        (CardRow::Live, _) => None,
+                    };
+                    if let Some(height) = known
+                        && !reserved.near_view(ui, height)
+                    {
+                        reserved.add(height);
+                        continue;
+                    }
+                    reserved.allocate(ui);
+                    let top = ui.cursor().min.y;
+                    constraint_row(ui, &card, state, actions, constraint, definition);
+                    let height = ui.cursor().min.y - top - ui.spacing().item_spacing.y;
+                    match (row, dimension) {
+                        (CardRow::Live, _) => {}
+                        (CardRow::Varied, _) => state.varied_row_heights.record(basis, key, height),
+                        (CardRow::Plain, false) => state.plain_constraint_height = Some(height),
+                        (CardRow::Plain, true) => state.plain_dimension_height = Some(height),
+                    }
                 }
                 reserved.allocate(ui);
-                let top = ui.cursor().min.y;
-                constraint_row(ui, &card, state, actions, constraint, definition);
-                let height = ui.cursor().min.y - top - ui.spacing().item_spacing.y;
-                match (row, dimension) {
-                    (CardRow::Live, _) => {}
-                    (CardRow::Varied, _) => state.varied_row_heights.record(basis, key, height),
-                    (CardRow::Plain, false) => state.plain_constraint_height = Some(height),
-                    (CardRow::Plain, true) => state.plain_dimension_height = Some(height),
-                }
-            }
-            reserved.allocate(ui);
+            });
         });
     }
 }

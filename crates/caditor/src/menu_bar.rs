@@ -37,6 +37,14 @@ const WAYS_TO_DRAW: &str = "Ways to draw shapes";
 const SKETCH_ONLY: &str = "Only while a sketch is being edited";
 const NOT_HERE: &str = "Not available right now";
 const NOT_SAVED: &str = "Save the model to start keeping its versions";
+const MODEL_SHAPING: [&[Command]; 1] = [&[
+    Command::Fillet,
+    Command::Chamfer,
+    Command::Shell,
+    Command::OffsetFace,
+    Command::SplitFace,
+    Command::Combine,
+]];
 const MODEL_PATTERNS: [&[Command]; 2] = [
     &[Command::LinearPattern, Command::CircularPattern],
     &[Command::CurvePattern, Command::PointPattern],
@@ -218,9 +226,21 @@ fn trailing(
     actions: &mut Vec<Action>,
     id: Id,
 ) {
+    let settings = widgets::icon_button(
+        ui,
+        icons::command(Command::Preferences),
+        &commands.with_keys(Command::Preferences, &Command::Preferences.title()),
+    );
+    if settings.clicked() {
+        commands.trigger(Command::Preferences);
+    }
     let search = search(ui, commands);
     let spacing = ui.spacing().item_spacing.x;
-    widgets::remember_width(ui, id, search.rect.width() + spacing + NAME_ROOM);
+    widgets::remember_width(
+        ui,
+        id,
+        settings.rect.width() + search.rect.width() + 2.0 * spacing + NAME_ROOM,
+    );
     title(ui, model, context, commands, actions);
 }
 
@@ -550,41 +570,55 @@ impl Menus<'_> {
             ui.separator();
             self.item(ui, Command::DeleteSelection);
             ui.separator();
-            self.items(
-                ui,
-                [
-                    Command::SelectAllShapes,
-                    Command::SelectTangentEdges,
-                    Command::SelectTangentFaces,
-                    Command::SelectHole,
-                    Command::SelectFaceEdges,
-                    Command::SelectLoop,
-                    Command::SelectFeatureFaces,
-                    Command::SelectSimilar,
-                    Command::SelectInverse,
-                    Command::SelectBody,
-                ],
-            );
             submenu(
                 ui,
-                icons::command(Command::SelectionSets),
-                "Selection sets",
+                icons::command(Command::SelectAllShapes),
+                "Select",
                 |ui| {
-                    self.items(ui, [Command::SaveSelectionSet, Command::SelectionSets]);
-                    if !self.sets.sets.is_empty() {
-                        ui.separator();
-                    }
-                    for (index, set) in self.sets.sets.iter().enumerate() {
-                        let picked = widgets::menu_item(
-                            ui,
-                            icons::command(Command::SelectionSets),
-                            &set.name,
-                            None,
-                        );
-                        if picked.clicked() {
-                            self.picked_sets.push(index);
-                        }
-                    }
+                    self.items(
+                        ui,
+                        [
+                            Command::SelectAllShapes,
+                            Command::SelectBody,
+                            Command::SelectInverse,
+                        ],
+                    );
+                    ui.separator();
+                    self.items(
+                        ui,
+                        [
+                            Command::SelectTangentEdges,
+                            Command::SelectTangentFaces,
+                            Command::SelectHole,
+                            Command::SelectFaceEdges,
+                            Command::SelectLoop,
+                            Command::SelectFeatureFaces,
+                            Command::SelectSimilar,
+                        ],
+                    );
+                    ui.separator();
+                    submenu(
+                        ui,
+                        icons::command(Command::SelectionSets),
+                        "Selection sets",
+                        |ui| {
+                            self.items(ui, [Command::SaveSelectionSet, Command::SelectionSets]);
+                            if !self.sets.sets.is_empty() {
+                                ui.separator();
+                            }
+                            for (index, set) in self.sets.sets.iter().enumerate() {
+                                let picked = widgets::menu_item(
+                                    ui,
+                                    icons::command(Command::SelectionSets),
+                                    &set.name,
+                                    None,
+                                );
+                                if picked.clicked() {
+                                    self.picked_sets.push(index);
+                                }
+                            }
+                        },
+                    );
                 },
             );
             ui.separator();
@@ -666,65 +700,106 @@ impl Menus<'_> {
                 },
             );
             ui.separator();
-            self.item(ui, Command::ToggleProjection);
-            self.choice(ui, Command::AutomaticProjection);
-            self.choice(ui, Command::ToggleSnapping);
-            self.choice(ui, Command::ToggleGridSnapping);
-            self.choice(ui, Command::ToggleLasso);
-            self.choice(ui, Command::TogglePaintSelection);
-            self.choice(ui, Command::ToggleSelectThrough);
-            self.choice(ui, Command::ToggleGlyphs);
-            self.choice(ui, Command::ToggleDimensions);
-            self.choice(ui, Command::ToggleCentresOfMass);
-            self.choice(ui, Command::ToggleControlPolygons);
-            self.choice(ui, Command::ToggleCosmeticThreads);
-            ui.separator();
-            self.item(ui, Command::FullScreen);
-            ui.separator();
-            self.item(ui, Command::Measure);
-            self.item(ui, Command::Interference);
-            self.item(ui, Command::Analysis(AnalysisCommand::Draft));
-            self.item(ui, Command::Analysis(AnalysisCommand::Radius));
-            self.item(ui, Command::Analysis(AnalysisCommand::Reach));
-            self.item(ui, Command::Analysis(AnalysisCommand::Curvature));
-            self.item(ui, Command::Analysis(AnalysisCommand::Zebra));
-            self.item(ui, Command::Analysis(AnalysisCommand::Chrome));
-            self.item(ui, Command::Analysis(AnalysisCommand::Comb));
-            self.item(ui, Command::Analysis(AnalysisCommand::Isocurves));
-            self.choice(ui, Command::Section(SectionCommand::Toggle));
-            self.item(ui, Command::Section(SectionCommand::Add));
-            ui.separator();
-            self.items(
+            submenu(
                 ui,
-                [
-                    Command::HideSelection,
-                    Command::HideOthers,
-                    Command::ToggleVisibility,
-                    Command::ShowAll,
-                    Command::TogglePrincipal,
-                    Command::ToggleSketches,
-                    Command::ToggleDatums,
-                    Command::ToggleBodies,
-                ],
+                icons::command(Command::ToggleProjection),
+                "Projection and snapping",
+                |ui| {
+                    self.item(ui, Command::ToggleProjection);
+                    self.choice(ui, Command::AutomaticProjection);
+                    ui.separator();
+                    self.choice(ui, Command::ToggleSnapping);
+                    self.choice(ui, Command::ToggleGridSnapping);
+                },
             );
-            ui.separator();
-            self.items(
+            submenu(
                 ui,
-                [
-                    Command::HighlightNext,
-                    Command::HighlightPrevious,
-                    Command::ActivateHighlighted,
-                    Command::ListUnderPointer,
-                ],
+                icons::command(Command::ToggleLasso),
+                "Selection tools",
+                |ui| {
+                    self.choice(ui, Command::ToggleLasso);
+                    self.choice(ui, Command::TogglePaintSelection);
+                    self.choice(ui, Command::ToggleSelectThrough);
+                    ui.separator();
+                    self.items(
+                        ui,
+                        [
+                            Command::HighlightNext,
+                            Command::HighlightPrevious,
+                            Command::ActivateHighlighted,
+                            Command::ListUnderPointer,
+                        ],
+                    );
+                },
             );
-            ui.separator();
-            self.items(
+            submenu(
                 ui,
-                [
-                    Command::LargerInterface,
-                    Command::SmallerInterface,
-                    Command::NormalInterface,
-                ],
+                icons::command(Command::ToggleDimensions),
+                "Show and hide",
+                |ui| {
+                    self.choice(ui, Command::ToggleGlyphs);
+                    self.choice(ui, Command::ToggleDimensions);
+                    self.choice(ui, Command::ToggleCentresOfMass);
+                    self.choice(ui, Command::ToggleControlPolygons);
+                    self.choice(ui, Command::ToggleCosmeticThreads);
+                    ui.separator();
+                    self.items(
+                        ui,
+                        [
+                            Command::HideSelection,
+                            Command::HideOthers,
+                            Command::ToggleVisibility,
+                            Command::ShowAll,
+                        ],
+                    );
+                    ui.separator();
+                    self.items(
+                        ui,
+                        [
+                            Command::TogglePrincipal,
+                            Command::ToggleSketches,
+                            Command::ToggleDatums,
+                            Command::ToggleBodies,
+                        ],
+                    );
+                },
+            );
+            submenu(ui, icons::command(Command::Measure), "Inspect", |ui| {
+                self.items(ui, [Command::Measure, Command::Interference]);
+                ui.separator();
+                self.items(
+                    ui,
+                    [
+                        Command::Analysis(AnalysisCommand::Draft),
+                        Command::Analysis(AnalysisCommand::Radius),
+                        Command::Analysis(AnalysisCommand::Reach),
+                        Command::Analysis(AnalysisCommand::Curvature),
+                        Command::Analysis(AnalysisCommand::Zebra),
+                        Command::Analysis(AnalysisCommand::Chrome),
+                        Command::Analysis(AnalysisCommand::Comb),
+                        Command::Analysis(AnalysisCommand::Isocurves),
+                    ],
+                );
+                ui.separator();
+                self.choice(ui, Command::Section(SectionCommand::Toggle));
+                self.item(ui, Command::Section(SectionCommand::Add));
+            });
+            submenu(
+                ui,
+                icons::command(Command::FullScreen),
+                "Window and interface",
+                |ui| {
+                    self.item(ui, Command::FullScreen);
+                    ui.separator();
+                    self.items(
+                        ui,
+                        [
+                            Command::LargerInterface,
+                            Command::SmallerInterface,
+                            Command::NormalInterface,
+                        ],
+                    );
+                },
             );
         });
     }
@@ -743,17 +818,7 @@ impl Menus<'_> {
             );
             self.group(ui, Command::NewBox, "Primitives", &MODEL_PRIMITIVES);
             ui.separator();
-            self.items(
-                ui,
-                [
-                    Command::Fillet,
-                    Command::Chamfer,
-                    Command::Shell,
-                    Command::OffsetFace,
-                    Command::SplitFace,
-                    Command::Combine,
-                ],
-            );
+            self.group(ui, Command::Fillet, "Modify shape", &MODEL_SHAPING);
             self.group(ui, Command::LinearPattern, "Patterns", &MODEL_PATTERNS);
             self.group(ui, Command::DatumPlane, "Datums", &MODEL_DATUMS);
             ui.separator();
@@ -784,72 +849,101 @@ impl Menus<'_> {
                 .into_iter()
                 .filter(|tool| !tool.dimensions())
                 .partition(|tool| *tool == Tool::Select || *tool == Tool::Gear || tool.draws());
-            self.items(ui, drawing.into_iter().map(Command::SketchTool));
-            ui.separator();
-            submenu(ui, icons::tool(Tool::Rectangle), WAYS_TO_DRAW, |ui| {
-                for tool in [
-                    Tool::Rectangle,
-                    Tool::Circle,
-                    Tool::Polygon,
-                    Tool::Slot,
-                    Tool::BlendCurve,
-                    Tool::Offset,
-                ] {
-                    if tool != Tool::Rectangle {
-                        ui.separator();
+            submenu(ui, icons::tool(Tool::Line), "Drawing tools", |ui| {
+                self.items(ui, drawing.into_iter().map(Command::SketchTool));
+                ui.separator();
+                submenu(ui, icons::tool(Tool::Rectangle), WAYS_TO_DRAW, |ui| {
+                    for tool in [
+                        Tool::Rectangle,
+                        Tool::Circle,
+                        Tool::Polygon,
+                        Tool::Slot,
+                        Tool::BlendCurve,
+                        Tool::Offset,
+                    ] {
+                        if tool != Tool::Rectangle {
+                            ui.separator();
+                        }
+                        self.items(ui, ShapeMode::of_tool(tool).map(Command::ShapeMode));
                     }
-                    self.items(ui, ShapeMode::of_tool(tool).map(Command::ShapeMode));
-                }
+                });
+                submenu(
+                    ui,
+                    icons::command(Command::TypeValue),
+                    "Drawing aids",
+                    |ui| {
+                        self.items(
+                            ui,
+                            [
+                                Command::ChainArc,
+                                Command::ReverseArc,
+                                Command::MoreSides,
+                                Command::FewerSides,
+                            ],
+                        );
+                        ui.separator();
+                        self.item(ui, Command::TypeValue);
+                        self.choice(ui, Command::ToggleTypedDimensions);
+                        self.choice(ui, Command::DrawSymmetrically);
+                        self.choice(ui, Command::Section(SectionCommand::SliceSketch));
+                        self.choice(ui, Command::ToggleFirstDimensionScales);
+                    },
+                );
             });
-            self.items(
+            submenu(
                 ui,
-                [
-                    Command::ChainArc,
-                    Command::ReverseArc,
-                    Command::MoreSides,
-                    Command::FewerSides,
-                ],
+                icons::command(Command::Construction),
+                "Modify geometry",
+                |ui| {
+                    self.item(ui, Command::Construction);
+                    self.items(ui, modifying.into_iter().map(Command::SketchTool));
+                    ui.separator();
+                    self.items(
+                        ui,
+                        [
+                            Command::SplitCurve,
+                            Command::BreakCurves,
+                            Command::RespaceFitSplines,
+                        ],
+                    );
+                    ui.separator();
+                    self.items(
+                        ui,
+                        [
+                            Command::MoveGeometry,
+                            Command::RotateGeometry,
+                            Command::ScaleGeometry,
+                        ],
+                    );
+                    ui.separator();
+                    self.items(
+                        ui,
+                        [
+                            Command::CopyGeometry,
+                            Command::CutGeometry,
+                            Command::PasteGeometry,
+                        ],
+                    );
+                    ui.separator();
+                    self.item(ui, Command::IntersectBody);
+                },
             );
-            self.item(ui, Command::TypeValue);
-            self.choice(ui, Command::ToggleTypedDimensions);
-            self.choice(ui, Command::DrawSymmetrically);
-            self.choice(ui, Command::Section(SectionCommand::SliceSketch));
-            self.choice(ui, Command::ToggleFirstDimensionScales);
-            ui.separator();
-            self.item(ui, Command::Construction);
-            self.items(ui, modifying.into_iter().map(Command::SketchTool));
-            self.items(
+            submenu(
                 ui,
-                [
-                    Command::SplitCurve,
-                    Command::BreakCurves,
-                    Command::RespaceFitSplines,
-                    Command::MoveGeometry,
-                    Command::RotateGeometry,
-                    Command::ScaleGeometry,
-                    Command::SelectAll,
-                    Command::SelectFree,
-                    Command::SelectOpenEnds,
-                    Command::SelectRedundant,
-                ],
+                icons::command(Command::SelectAll),
+                "Select geometry",
+                |ui| {
+                    self.items(
+                        ui,
+                        [
+                            Command::SelectAll,
+                            Command::SelectFree,
+                            Command::SelectOpenEnds,
+                            Command::SelectRedundant,
+                        ],
+                    );
+                },
             );
-            self.items(
-                ui,
-                [
-                    Command::FindRelations,
-                    Command::DimensionFromDatum,
-                    Command::CheckSketch,
-                ],
-            );
-            self.items(
-                ui,
-                [
-                    Command::CopyGeometry,
-                    Command::CutGeometry,
-                    Command::PasteGeometry,
-                ],
-            );
-            self.item(ui, Command::IntersectBody);
             ui.separator();
             let (dimensions, geometric): (Vec<ConstraintTool>, Vec<ConstraintTool>) =
                 ConstraintTool::ALL
@@ -869,6 +963,21 @@ impl Menus<'_> {
                     self.item(ui, Command::SketchTool(Tool::Dimension));
                     ui.separator();
                     self.items(ui, dimensions.into_iter().map(Command::Constraint));
+                },
+            );
+            submenu(
+                ui,
+                icons::command(Command::FindRelations),
+                "Constrain automatically",
+                |ui| {
+                    self.items(
+                        ui,
+                        [
+                            Command::FindRelations,
+                            Command::DimensionFromDatum,
+                            Command::CheckSketch,
+                        ],
+                    );
                 },
             );
         });

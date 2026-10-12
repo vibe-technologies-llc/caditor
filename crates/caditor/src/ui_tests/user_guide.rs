@@ -50,11 +50,6 @@ fn panels_link_to_their_page_and_the_guide_searches_every_page() {
     let mut harness = Harness::new();
     harness.draw_on_new_sketch();
 
-    harness.click("Help on sketches");
-    harness.frame();
-
-    assert_eq!(harness.workspace.guide.page(), Some(Page::Sketches));
-
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
     harness.key(Key::Escape, Modifiers::NONE);

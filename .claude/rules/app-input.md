@@ -100,7 +100,7 @@ paths:
 - `Keymap` in `Preferences` stores only overrides, as `keys.<id>` lists of text, so unreadable or
   newer entries survive and a command with no readable binding keeps its defaults. Esc, Enter and
   Tab are reserved. A binding used in an overlapping scope asks before moving.
-- The shortcut editor (`shortcut_editor.rs`; Preferences, File menu, palette) filters by word starts
+- The shortcut editor (`shortcut_editor.rs`; Preferences, Help menu, palette) filters by word starts
   of "category: title" (`palette::starts_words`) or by keys (`commands::is_named_by`: every key
   named, any order and case); Changed only shows commands differing from defaults. Add records the
   next key press. Reset first collects defaults another command now holds
@@ -228,7 +228,7 @@ paths:
 - Viewport commands cover measure, standard views, projection, orbit, pan, zoom and looking straight
   at the selection (`look_at::look_target`, framed like Fit view). Repeating it while the view
   already looks that way turns a quarter turn about that direction (`look_at::quarter_turned`);
-  entering a sketch only faces it. Fit view, Show where, looking at a face or sketch and the orbit,
+  entering a sketch only faces it, from the side of its plane the camera is on (`viewport::entering`, `Viewpoint::facing_from_behind`). Fit view, Show where, looking at a face or sketch and the orbit,
   pan and zoom keys start from where the camera is heading (`Camera::destination_view`), not the
   view shown mid-turn; keys glide (`Camera::glide_to`) and the orbit step is
   `KEYBOARD_ORBIT_FRACTION` of the view's height times the orbit speed preference. The view cube

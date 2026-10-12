@@ -223,6 +223,14 @@ pub fn icon_button(ui: &mut Ui, glyph: &str, hover: &str) -> Response {
     .on_hover_text(hover)
 }
 
+pub fn framed_icon_button(ui: &mut Ui, glyph: &str, hover: &str) -> Response {
+    let tokens = appearance::tokens(ui);
+    let button = Button::new(icon(glyph).color(tokens.text))
+        .min_size(Vec2::splat(CONTROL_HEIGHT))
+        .corner_radius(CornerRadius::same(WIDGET_RADIUS));
+    ui.add(Named::new(button, hover)).on_hover_text(hover)
+}
+
 pub fn slider(ui: &mut Ui, slider: Slider<'_>) -> Response {
     let value = ui.spacing().interact_size.x + ui.spacing().item_spacing.x;
     let track = (ui.available_width() - value)
@@ -1448,18 +1456,6 @@ fn section_with(
         state.set_open(true);
     }
     state.show_body_unindented(ui, |ui| {
-        if let Some(explanation) = header.explanation {
-            ui.add_space(SPACE_XS);
-            ui.add(
-                Label::new(
-                    RichText::new(explanation)
-                        .text_style(TextStyle::Small)
-                        .color(tokens.text_muted),
-                )
-                .wrap(),
-            );
-            ui.add_space(SPACE_XS);
-        }
         body(ui);
     });
     state.store(ui.ctx());
