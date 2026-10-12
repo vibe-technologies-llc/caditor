@@ -301,6 +301,93 @@ fn with_operation(document: &Document, id: FeatureId, operation: BodyOperation) 
     )
 }
 
+fn restored_reaches(from: &Document, target: &Document) -> bool {
+    let mut restored = from.clone();
+    restored
+        .apply(from.transaction_to(target, "Restore"))
+        .unwrap();
+    restored.same_content(target)
+}
+
+fn held_colour(document: &Document, id: ConfigurationId, peg: FeatureId) -> Option<&Setting> {
+    document
+        .configurations()
+        .row(id)
+        .unwrap()
+        .setting(ConfiguredValue::Colour(peg))
+}
+
+#[test]
+fn switching_to_a_row_without_a_live_value_records_it_and_undo_takes_it_back() {
+    let Pair {
+        document,
+        plate,
+        peg,
+    } = pair();
+    let mut editor = Editor::new(document);
+    let first = add(&mut editor, "First");
+    let configure = editor
+        .document()
+        .configuring(ConfiguredValue::Colour(peg))
+        .unwrap();
+    editor.apply(configure).unwrap();
+    let joined = with_operation(editor.document(), peg, BodyOperation::Add(plate));
+    editor.apply(joined).unwrap();
+    let later = add(&mut editor, "Later");
+    let separate = with_operation(editor.document(), peg, BodyOperation::NewBody);
+    editor.apply(separate).unwrap();
+    let before = editor.document().clone();
+
+    switch(&mut editor, later);
+    let switched = editor.document().clone();
+    editor.undo().unwrap();
+
+    assert_eq!(held_colour(&before, later, peg), None);
+    assert_eq!(
+        held_colour(&switched, later, peg),
+        switched.live_setting(ConfiguredValue::Colour(peg)).as_ref()
+    );
+    assert!(held_colour(&switched, later, peg).is_some());
+    assert!(restored_reaches(&before, &switched));
+    assert!(editor.document().same_content(&before));
+    assert_eq!(editor.document().configurations().active, Some(first));
+}
+
+#[test]
+fn a_feature_starting_or_ending_a_body_writes_or_drops_its_colour_in_the_active_row() {
+    let Pair {
+        document,
+        plate,
+        peg,
+    } = pair();
+    let mut editor = Editor::new(document);
+    let first = add(&mut editor, "First");
+    let configure = editor
+        .document()
+        .configuring(ConfiguredValue::Colour(peg))
+        .unwrap();
+    editor.apply(configure).unwrap();
+    let with_body = editor.document().clone();
+
+    let joined = with_operation(editor.document(), peg, BodyOperation::Add(plate));
+    editor.apply(joined).unwrap();
+    let without_body = editor.document().clone();
+    let separate = with_operation(editor.document(), peg, BodyOperation::NewBody);
+    editor.apply(separate).unwrap();
+    let separated = editor.document().clone();
+    editor.undo().unwrap();
+
+    assert!(held_colour(&with_body, first, peg).is_some());
+    assert_eq!(held_colour(&without_body, first, peg), None);
+    assert_eq!(
+        held_colour(&separated, first, peg),
+        held_colour(&with_body, first, peg)
+    );
+    assert!(restored_reaches(&with_body, &without_body));
+    assert!(restored_reaches(&without_body, &separated));
+    assert!(editor.document().same_content(&without_body));
+}
+
 #[test]
 fn deleting_the_active_configuration_switches_to_the_next() {
     let mut document = Document::default();

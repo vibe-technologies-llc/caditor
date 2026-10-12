@@ -611,6 +611,8 @@ fn check_storable(raw: u64) -> Result<(), EditError> {
     Ok(())
 }
 
+type Relation = fn(&Measured, &FeatureKind) -> BTreeSet<FeatureId>;
+
 #[derive(Debug, Clone, Copy)]
 enum FollowedValue {
     Parameter(ParameterId),
@@ -635,9 +637,10 @@ fn followed_value(edit: &Edit) -> Option<FollowedValue> {
         Edit::InsertParameter { parameter, .. } => Some(FollowedValue::Parameter(parameter.id())),
         Edit::SetParameterExpression { id, .. } => Some(FollowedValue::Parameter(*id)),
         Edit::InsertFeature { feature, .. } => Some(FollowedValue::Feature(feature.id())),
-        Edit::SetFeatureSuppressed { id, .. } | Edit::SetBodyAppearance { id, .. } => {
-            Some(FollowedValue::Feature(*id))
-        }
+        Edit::RemoveFeature { id }
+        | Edit::SetFeatureKind { id, .. }
+        | Edit::SetFeatureSuppressed { id, .. }
+        | Edit::SetBodyAppearance { id, .. } => Some(FollowedValue::Feature(*id)),
         _ => None,
     }
 }
@@ -817,6 +820,18 @@ impl Document {
 
     pub fn check(&self, transaction: &Transaction) -> Result<(), EditError> {
         self.clone().apply(transaction.clone()).map(|_| ())
+    }
+
+    pub fn check_moves(&self, transaction: &Transaction) -> Result<(), EditError> {
+        let mut document = self.clone();
+        let mut graph = ParameterGraph::default();
+        for edit in transaction.edits() {
+            if let Edit::MoveFeature { id, index } = edit {
+                document.check_move_order(*id, *index)?;
+            }
+            document.apply_edit(edit.clone(), &mut graph)?;
+        }
+        self.check(transaction)
     }
 
     fn apply_edit(&mut self, edit: Edit, graph: &mut ParameterGraph) -> Result<Edit, EditError> {
@@ -1538,6 +1553,7 @@ impl Document {
         if let Some(active) = configurations.active
             && let Some(row) = configurations.rows.iter_mut().find(|row| row.id == active)
         {
+            row.settings.retain(|value, _| live.contains_key(value));
             row.settings.extend(live);
         }
         for id in configurations.parameters_named() {
@@ -1579,18 +1595,22 @@ impl Document {
                 return Err(EditError::ConfigurationOutOfStep(row.name.clone()));
             }
         }
-        let previous = if self.configurations.active == active {
-            active
-        } else {
-            std::mem::replace(&mut Arc::make_mut(&mut self.configurations).active, active)
-        };
-        Ok(Edit::SetActiveConfiguration { active: previous })
+        let before = Arc::clone(&self.configurations);
+        if self.configurations.active != active {
+            Arc::make_mut(&mut self.configurations).active = active;
+        }
+        let columns = self.configurations.values.clone();
+        if self.settle_active_row(&columns) {
+            return Ok(Edit::SetConfigurations {
+                configurations: Box::new(Arc::unwrap_or_clone(before)),
+            });
+        }
+        Ok(Edit::SetActiveConfiguration {
+            active: before.active,
+        })
     }
 
     fn follow_active_configuration(&mut self, value: FollowedValue) {
-        let Some(active) = self.configurations.active else {
-            return;
-        };
         let columns: Vec<ConfiguredValue> = self
             .configurations
             .values
@@ -1598,15 +1618,21 @@ impl Document {
             .copied()
             .filter(|column| value.covers(*column))
             .collect();
+        self.settle_active_row(&columns);
+    }
+
+    fn settle_active_row(&mut self, columns: &[ConfiguredValue]) -> bool {
+        let Some(active) = self.configurations.active else {
+            return false;
+        };
+        let mut settled = false;
         for column in columns {
-            let Some(live) = self.live_setting(column) else {
-                continue;
-            };
-            let current = self
+            let live = self.live_setting(*column);
+            let held = self
                 .configurations
                 .row(active)
-                .and_then(|row| row.setting(column));
-            if current == Some(&live) {
+                .and_then(|row| row.setting(*column));
+            if held == live.as_ref() {
                 continue;
             }
             if let Some(row) = Arc::make_mut(&mut self.configurations)
@@ -1614,9 +1640,14 @@ impl Document {
                 .iter_mut()
                 .find(|row| row.id == active)
             {
-                row.settings.insert(column, live);
+                match live {
+                    Some(live) => row.settings.insert(*column, live),
+                    None => row.settings.remove(column),
+                };
+                settled = true;
             }
         }
+        settled
     }
 
     fn set_principal_hidden(&mut self, geometry: PrincipalGeometry, hidden: bool) -> Edit {
@@ -1643,10 +1674,21 @@ impl Document {
         if index >= self.features.len() {
             return Err(EditError::OutOfRange(index));
         }
+        self.check_passing(id, index, Measured::features_read_by)?;
+        self.features.move_to(from, index);
+        Ok(Edit::MoveFeature { id, index: from })
+    }
+
+    fn check_passing(
+        &self,
+        id: FeatureId,
+        index: usize,
+        relation: Relation,
+    ) -> Result<(), EditError> {
         let moving = self.feature(id).ok_or(EditError::MissingFeature)?;
         let name = moving.name.clone();
         let measured = Measured::of(self);
-        let mut uses = measured.dependencies_of(&moving.kind);
+        let mut uses = relation(&measured, &moving.kind);
         uses.remove(&id);
         let others: Vec<&Feature> = self.features().filter(|other| other.id() != id).collect();
         let (above, below) = others.split_at(index.min(others.len()));
@@ -1658,13 +1700,22 @@ impl Document {
         }
         if let Some(user) = above
             .iter()
-            .find(|other| measured.dependencies_of(&other.kind).contains(&id))
+            .find(|other| relation(&measured, &other.kind).contains(&id))
         {
             return Err(EditError::BelowDependent {
                 name,
                 other: user.name.clone(),
             });
         }
+        Ok(())
+    }
+
+    fn check_move_order(&self, id: FeatureId, index: usize) -> Result<(), EditError> {
+        self.check_passing(id, index, Measured::dependencies_of)?;
+        let moving = self.feature(id).ok_or(EditError::MissingFeature)?;
+        let name = moving.name.clone();
+        let others: Vec<&Feature> = self.features().filter(|other| other.id() != id).collect();
+        let (above, below) = others.split_at(index.min(others.len()));
         let consumed = moving.kind.consumed_bodies();
         let used: Vec<FeatureId> = moving
             .kind
@@ -1703,8 +1754,7 @@ impl Document {
                 body: self.feature_name(body),
             });
         }
-        self.features.move_to(from, index);
-        Ok(Edit::MoveFeature { id, index: from })
+        Ok(())
     }
 
     fn feature_name(&self, id: FeatureId) -> String {

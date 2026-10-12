@@ -127,7 +127,7 @@ impl Document {
             edits.push(Edit::SetRollbackBar { bar });
         }
         let transaction = Transaction::new(label, edits);
-        self.check(&transaction)?;
+        self.check_moves(&transaction)?;
         Ok(transaction)
     }
 
@@ -230,7 +230,7 @@ impl Document {
             edits.push(Edit::SetRollbackBar { bar });
         }
         let transaction = Transaction::new(label, edits);
-        self.check(&transaction)?;
+        self.check_moves(&transaction)?;
         Ok(transaction)
     }
 }

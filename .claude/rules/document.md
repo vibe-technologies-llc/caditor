@@ -32,9 +32,13 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 - Edits carry their IDs, so redo restores them; counters never move backwards. Parameter and
   feature IDs stay below `FIRST_UNSTORABLE_ID` (`ReservedId`).
 - Edits refuse to break invariants: references to a feature below the one using it or to itself
-  (an insert naming its own id too), unknown
-  parameters, parameter cycles, deleting a parameter in use, moving a feature past one it depends
-  on, two features sharing a name (loading renames the second, with a report). A parameter the
+  (an insert naming its own id too), unknown parameters, parameter cycles, deleting a parameter in
+  use, moving a feature past one it uses by `features()` or a measurement it reads (what inserts
+  and kind changes check, `Measured::features_read_by`), two features sharing a name (loading
+  renames the second, with a report). Weaker ties (`origin_features`, a Combine consuming a used
+  body) are not invariants, since inserts and kind changes may break them, so `MoveFeature` does not
+  refuse them and the inverse of a move always applies; `move_row` and `move_features` do (Rollback
+  bar below). A parameter the
   configurations name (`Configurations::parameters_named`: a configured column or a cell of any
   row) is in use: `used_parameters` and `parameter_users` count it and `RemoveParameter` refuses it.
 - Deleting a feature others use is allowed: they keep its ID and fail with a reason until the
@@ -272,18 +276,23 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   suppression, a body's colour), rows are named `Configuration`s with a stable `ConfigurationId`
   from the table's own counter (`next_id`, never lowered, ignored by `same_content`), each with a
   `Setting` per column. `transaction_to` deactivates it first.
-- One row may be `active`, and its settings are always the live values: an edit changing a
-  configured value (`SetParameterExpression`, `InsertParameter`, `SetFeatureSuppressed`,
-  `SetBodyAppearance`, `InsertFeature`) also writes it into the active row (its inverse writes it
-  back), and `SetConfigurations` overwrites the active row from the live values.
+- One row may be `active`, and its settings are exactly the live values: one for every configured
+  value the model has, none for one it lacks (a feature deleted, or one making no body for a
+  colour). An edit changing a configured value or whether it exists (`SetParameterExpression`,
+  `InsertParameter`, `SetFeatureSuppressed`, `SetBodyAppearance`, `InsertFeature`,
+  `RemoveFeature`, `SetFeatureKind`) writes it into or drops it from the active row
+  (`settle_active_row`; its inverse writes it back), and `SetConfigurations` settles the active row
+  the same way. So undo, `transaction_to` and a saved file all see the row the model holds.
   `configuration_setting` reads a row, the live value for the active one.
 - `Edit::SetConfigurations` sets the table whole (names trimmed, one line, unique ignoring case,
   `MAX_CONFIGURATION_NAME_CHARS`, `MAX_CONFIGURATIONS` rows, `MAX_CONFIGURED_VALUES` columns;
   settings of the wrong kind or for no column dropped). Columns may name things no longer in the
   model: such a column is skipped when switching and ID counters are raised past every ID named.
-- `Edit::SetActiveConfiguration` changes only the active row, refused (`ConfigurationOutOfStep`)
+- `Edit::SetActiveConfiguration` changes the active row, refused (`ConfigurationOutOfStep`)
   when the row's settings are not the live values; a column the row has no setting for is not out
-  of step and keeps its live value. `activating` is the one undoable switch: none active, the row's
+  of step and keeps its live value, which the row then records (a setting for a value the model
+  lacks is dropped). When that settling changed the row, its inverse is a `SetConfigurations` of
+  the table before. `activating` is the one undoable switch: none active, the row's
   settings applied as ordinary edits (values using parameters first set to 0, then those using none,
   then the rest, so values referring to each other never pass a cycle), then the row active.
 - Builders each make one transaction: `adding_configuration`, `duplicating_configuration`,
@@ -339,7 +348,10 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   `MoveFeature` plus, when the bar's place changes, one `SetRollbackBar`, so a feature crossing the
   bar is rolled back or forward. A refused place returns `AboveDependency` or `BelowDependent`
   naming the feature in the way, or `BelowConsumer` or `AboveConsumedUse` when a feature using a
-  body (`bodies_used`) would come below the Combine consuming it.
+  body (`bodies_used`) would come below the Combine consuming it. `Document::check_moves` holds
+  these checks, each `MoveFeature` judged in the state the steps before it leave, then checks the
+  transaction as `check` does; the plain edit refuses only the invariant part, so undoing a move
+  that lifted a feature above one holding its faces (left there by an insert) puts it back.
 - `move_features` moves several to one gap in tree order as `MoveFeature`s ordered so no step
   passes a feature over one it uses that is moving too: those below the gap rise first, each right
   under it, then those above sink in reverse. Each step is checked like a single move.
@@ -379,10 +391,10 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 - `bodies_used`, `planes_used` and `axes_used` extend `features()`, so dependents, moves and
   deletions account for them. `origin_features` (features that made the faces and edges a feature
   holds, from the references' `FaceOrigin`s) join them in `dependencies()`, which `dependents_of`,
-  `MoveFeature` and the delete dialog use. Inserts and kind changes check only `features()`, so a
-  model saved with a reference to a face made further down still loads and edits. A reference to a
-  patterned copy's face depends on both the pattern and the original's feature; `origin_feature`
-  (which a double-click opens) is the pattern.
+  the tree's moves (`check_moves`) and the delete dialog use. Inserts and kind changes check only
+  `features()`, so a model saved with a reference to a face made further down still loads and
+  edits. A reference to a patterned copy's face depends on both the pattern and the original's
+  feature; `origin_feature` (which a double-click opens) is the pattern.
 - Kernel and profile errors become sentences naming the curves, edges or faces involved. Boolean
   failures of extrusions, revolves, holes and combines go through `trouble.rs`: the faces of the
   `BooleanSite` named by origin ("where A meets B"), the site's point as the error's `place`, and a
@@ -1051,7 +1063,7 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 - `Measured` maps measured parameters to their measurements and every parameter reading one,
   directly or through others, to the measurements it reads (`measurements_read`, from evaluation
   order). A feature using a measured or derived parameter depends on its measurements
-  (`dependencies_of`, which `dependents_of`, `MoveFeature` and the app's Uses and Used by take).
+  (`dependencies_of`, which `dependents_of`, the tree's moves and the app's Uses and Used by take).
   Edits refuse a feature at or above a measurement it reads (a sketch's `SetDimension` and
   `AddSketchConstraint` too), an expression change making a parameter read a measurement some
   feature using it (`reading_users`) does not stand below, and a measurement placed below a feature

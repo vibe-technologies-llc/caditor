@@ -367,10 +367,9 @@ fn boss_on_peg(pair: &mut Pair) -> FeatureId {
 }
 
 fn moved(document: &Document, id: FeatureId, index: usize) -> Result<(), EditError> {
-    let mut document = document.clone();
     let mut transaction = document.transaction("Move");
     transaction.edit(Edit::MoveFeature { id, index });
-    document.apply(transaction.finish()).map(|_| ())
+    document.check_moves(&transaction.finish())
 }
 
 #[test]
