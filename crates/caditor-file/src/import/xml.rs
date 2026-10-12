@@ -350,7 +350,7 @@ impl<'t> Parser<'t> {
             return Err(XmlError::TooManyElements);
         }
         let index = self.tree.elements.len();
-        if index % ELEMENTS_BETWEEN_INTERRUPT_POLLS == 0 && check_interrupt().is_err() {
+        if index.is_multiple_of(ELEMENTS_BETWEEN_INTERRUPT_POLLS) && check_interrupt().is_err() {
             return Err(XmlError::Cancelled);
         }
         let mut prefixes = Vec::new();
