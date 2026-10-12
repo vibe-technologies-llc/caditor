@@ -250,6 +250,12 @@ impl Batch {
     pub fn is_empty(&self) -> bool {
         self.lines.is_empty() && self.markers.is_empty() && self.fills.is_empty()
     }
+
+    pub fn shrink_to_fit(&mut self) {
+        self.lines.shrink_to_fit();
+        self.markers.shrink_to_fit();
+        self.fills.shrink_to_fit();
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]

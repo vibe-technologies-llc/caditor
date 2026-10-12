@@ -649,6 +649,7 @@ dependencies = [
  "caditor-geometry",
  "caditor-kernel",
  "caditor-sketch",
+ "caditor-zstd",
  "log",
  "parking_lot",
  "rayon-core",

@@ -14,7 +14,7 @@ use std::{
 use caditor_document::{
     BodyAppearance, BodyPlacement, CancelToken, DEFAULT_BODY_COLOUR, Document, Edit, FaceColour,
     FeatureKind, Finish, Import, MAX_GROUP_NAME_CHARS, OPAQUE_PERCENT, ParameterValues, Rgb,
-    Transaction, group_name, nearest_opacity_step,
+    StepText, Transaction, group_name, nearest_opacity_step,
 };
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Point3, Similarity, Vector3};
@@ -51,7 +51,7 @@ const PLACEMENT_DIGITS: f64 = 1e9;
 const PLACEMENT_SLACK: f64 = LINEAR_RESOLUTION / 10.0;
 const GIMBAL_LOCK: f64 = 1e-9;
 
-type Stored = Option<Vec<(Arc<Solid>, Arc<str>)>>;
+type Stored = Option<Vec<(Arc<Solid>, StepText)>>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ImportedBody {
@@ -383,7 +383,7 @@ fn shared(lumps: Option<Vec<(Solid, String)>>) -> Stored {
     lumps.map(|lumps| {
         lumps
             .into_iter()
-            .map(|(solid, step)| (Arc::new(solid), Arc::from(step)))
+            .map(|(solid, step)| (Arc::new(solid), StepText::new(&step)))
             .collect()
     })
 }
@@ -391,7 +391,7 @@ fn shared(lumps: Option<Vec<(Solid, String)>>) -> Stored {
 fn placed_copies(
     source: &str,
     copy: &StepCopy,
-    lumps: &[(Arc<Solid>, Arc<str>)],
+    lumps: &[(Arc<Solid>, StepText)],
 ) -> Option<Vec<ImportedBody>> {
     let placement = if copy.placement == Similarity::IDENTITY {
         BodyPlacement::default()
@@ -405,7 +405,7 @@ fn placed_copies(
             .iter()
             .zip(faces)
             .map(|((solid, step), faces)| ImportedBody {
-                import: Import::shared(source, Arc::clone(solid), Arc::clone(step))
+                import: Import::shared(source, Arc::clone(solid), step.clone())
                     .placed(placement.clone()),
                 name: copy.name.clone(),
                 colour: copy.colour.map(rgb),

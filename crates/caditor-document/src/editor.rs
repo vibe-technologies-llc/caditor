@@ -315,18 +315,31 @@ mod tests {
         document::{FeatureId, FeatureKind},
         edit::Edit,
         import::Import,
+        step_text::StepText,
     };
+
+    fn noise(bytes: usize) -> String {
+        let mut state: u64 = 0x9e37_79b9_7f4a_7c15;
+        (0..bytes)
+            .map(|_| {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                char::from(b'!' + (state % 94) as u8)
+            })
+            .collect()
+    }
+
+    fn held(bytes: usize) -> usize {
+        StepText::new(&noise(bytes)).held_bytes()
+    }
 
     fn import_of(bytes: usize) -> Transaction {
         let mut document = Document::default();
         let mut transaction = document.transaction(format!("Import {bytes}"));
         transaction.add_feature(
             "Imported",
-            FeatureKind::Import(Import::new(
-                "part.step",
-                Solid::default(),
-                "x".repeat(bytes),
-            )),
+            FeatureKind::Import(Import::new("part.step", Solid::default(), noise(bytes))),
         );
         let transaction = transaction.finish();
         document.apply(transaction.clone()).unwrap();
@@ -337,10 +350,12 @@ mod tests {
     fn a_transaction_counts_the_imports_it_holds() {
         let small = import_of(0).approximate_size();
         let large = import_of(1 << 20).approximate_size();
+        let text = held(1 << 20);
 
         assert!(small < 4096, "{small}");
-        assert!(large >= small + (1 << 20));
-        assert!(large < small + (1 << 20) + 4096);
+        assert!(text > 1 << 19, "{text}");
+        assert!(large >= small + text);
+        assert!(large < small + text + 4096);
     }
 
     fn spline_of(controls: u64) -> Transaction {
@@ -434,7 +449,7 @@ mod tests {
     #[test]
     fn large_steps_push_the_oldest_out_of_the_byte_budget() {
         let mut steps = Steps::default();
-        let budget = (5 << 20) + (64 << 10);
+        let budget = held(2 << 20) + held(3 << 20) + (64 << 10);
 
         steps.push_within(import_of(1 << 20), 0, budget);
         steps.push_within(import_of(2 << 20), 1, budget);

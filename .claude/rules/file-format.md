@@ -292,10 +292,13 @@ Bodies and solids:
   only then); unreadable loads empty, reported. Placed anywhere
   but the origin it is `placed_import` (same fields plus `offset` and `turn`, three texts each,
   unreadable 0 mm or 0 deg); at the origin still `import`.
+- A record's `step` is a `StepField`: `Read` holds the text a file gave, `Kept` the model's
+  compressed `StepText` (`document.md`), unpacked only while serialising, so building records never
+  copies a text and a text that will not unpack fails the save instead of writing an empty import.
 - A model or journal snapshot (`feature_records`) keeps each STEP text once: a `placed_import`
   whose text an earlier import in tree order holds writes `shares`, that text's blake3 digest in
-  hex, instead of `step` (`WrittenTexts` hashes only to write the digest or to compare with an
-  earlier same-length text that is not the same `Arc`). Loading (`ImportTexts`) gives every import
+  hex, instead of `step` (`WrittenTexts` unpacks and hashes only to write the digest or to compare
+  with an earlier same-length text that is not the same `StepText`). Loading (`ImportTexts`) gives every import
   of one text the same text and solid; a missing shared text loads the import empty, reported. An
   `import` record always holds its text; journaled edits hold theirs whole.
 - `step_cache.rs`: process-wide LRU of shared solids (`Arc<Solid>`, handed to `Import::shared`) by

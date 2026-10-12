@@ -145,6 +145,11 @@ impl PickBlock {
         self.entries.get(index.checked_sub(self.first)?).copied()
     }
 
+    fn finished(mut self) -> Arc<Self> {
+        self.entries.shrink_to_fit();
+        Arc::new(self)
+    }
+
     #[cfg(test)]
     fn id_of(&self, pickable: Pickable) -> Option<PickId> {
         self.entries
@@ -608,6 +613,11 @@ impl LitParts {
     }
 }
 
+fn finished(mut batch: Batch) -> Option<Arc<Batch>> {
+    batch.shrink_to_fit();
+    (!batch.is_empty()).then(|| Arc::new(batch))
+}
+
 #[derive(Clone)]
 struct DrawnPart<Look> {
     look: Look,
@@ -638,11 +648,11 @@ impl Parts {
             Some(_) | None => (self.picks_for(room), None),
         };
         let drawing = draw(picks);
-        let batch = (!drawing.batch.is_empty()).then(|| Arc::new(drawing.batch));
+        let batch = finished(drawing.batch);
         DrawnPart {
             look,
             lit,
-            picks: Arc::new(drawing.picks),
+            picks: drawing.picks.finished(),
             batch: match earlier {
                 Some(earlier) if batch.as_ref() == Some(&earlier) => Some(earlier),
                 Some(_) | None => batch,
@@ -1550,14 +1560,14 @@ impl<'a> Builder<'a> {
         BodyPart {
             look,
             lit,
-            picks: Arc::new(part.picks),
+            picks: part.picks.finished(),
             drawn: DrawnBody {
                 meshes: part.meshes,
                 translucent_meshes: part.translucent_meshes,
                 flat_meshes: part.flat_meshes,
                 reflective_meshes: part.reflective_meshes,
                 silhouettes: part.silhouettes,
-                batch: (!part.scene.is_empty()).then(|| Arc::new(part.scene)),
+                batch: finished(part.scene),
             },
         }
     }

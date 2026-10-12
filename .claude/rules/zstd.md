@@ -5,8 +5,9 @@ paths:
 
 # caditor-zstd
 
-- Safe wrapper over Trifecta Tech Foundation's Rust zstd port (`libzstd-rs-sys`, pre-release); only
-  `caditor-file` uses it.
+- Safe wrapper over Trifecta Tech Foundation's Rust zstd port (`libzstd-rs-sys`, pre-release);
+  `caditor-file` uses it, and `caditor-document` packs an import's kept STEP text with it
+  (`StepText`, `document.md`).
 - The port is pure Rust except `huf_decompress_amd64.S`, which its `build.rs` assembles with `cc` on
   x86_64 Unix: building needs a C compiler (`gcc` in the PKGBUILD's `makedepends`), no C library is
   linked. No other Rust zstd covers prefix deltas, so the exception stands.

@@ -10,6 +10,7 @@ use crate::{
     recompute::{Failure, FeatureError, FeatureResult, FixTarget, Inputs},
     scaling::{MAX_SCALE_FACTOR, MIN_SCALE_FACTOR},
     solid::SolidResult,
+    step_text::StepText,
 };
 
 #[derive(Debug, Clone)]
@@ -17,16 +18,16 @@ pub struct Import {
     pub source: String,
     pub path: Option<PathBuf>,
     pub solid: Arc<Solid>,
-    pub step: Arc<str>,
+    pub step: StepText,
     pub placement: BodyPlacement,
 }
 
 impl Import {
-    pub fn new(source: impl Into<String>, solid: Solid, step: impl Into<Arc<str>>) -> Self {
+    pub fn new(source: impl Into<String>, solid: Solid, step: impl Into<StepText>) -> Self {
         Self::shared(source, Arc::new(solid), step)
     }
 
-    pub fn shared(source: impl Into<String>, solid: Arc<Solid>, step: impl Into<Arc<str>>) -> Self {
+    pub fn shared(source: impl Into<String>, solid: Arc<Solid>, step: impl Into<StepText>) -> Self {
         Self {
             source: source.into(),
             path: None,
@@ -51,9 +52,7 @@ impl Import {
     }
 
     pub fn same_shape(&self, other: &Self) -> bool {
-        self.source == other.source
-            && self.path == other.path
-            && (Arc::ptr_eq(&self.step, &other.step) || self.step == other.step)
+        self.source == other.source && self.path == other.path && self.step == other.step
     }
 }
 

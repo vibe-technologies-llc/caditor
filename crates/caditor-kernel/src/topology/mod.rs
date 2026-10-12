@@ -41,7 +41,7 @@ use crate::{
     sense::Sense,
     shared::SharedBuffer,
     surface::{Surface, Torus},
-    tessellation::{self, DisplayMesh, Mesh, TessellationError},
+    tessellation::{self, DisplayMesh, Mesh, MeshedSolid, TessellationError},
     tolerance::{MeshQuality, SamplingTolerance},
 };
 
@@ -825,7 +825,7 @@ impl Solid {
     pub fn display_mesh_reusing(
         &self,
         quality: &MeshQuality,
-        earlier: Option<&DisplayMesh>,
+        earlier: Option<MeshedSolid<'_>>,
     ) -> Result<DisplayMesh, TessellationError> {
         tessellation::tessellate_for_display(
             self,

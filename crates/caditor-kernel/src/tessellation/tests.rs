@@ -852,10 +852,22 @@ fn display_mesh_costs() {
     let every_thread = median(&|| plate.display_mesh(&quality).unwrap().triangles().len());
     let changed = median(&|| dimpled.display_mesh(&quality).unwrap().triangles().len());
     let reusing = median(&|| {
-        let meshed = dimpled.display_mesh_reusing(&quality, Some(&earlier));
+        let meshed = dimpled.display_mesh_reusing(
+            &quality,
+            Some(MeshedSolid {
+                solid: &plate,
+                mesh: &earlier,
+            }),
+        );
         meshed.unwrap().reused_faces()
     });
-    let reused = dimpled.display_mesh_reusing(&quality, Some(&earlier));
+    let reused = dimpled.display_mesh_reusing(
+        &quality,
+        Some(MeshedSolid {
+            solid: &plate,
+            mesh: &earlier,
+        }),
+    );
     let small = perforated_plate(3, 2);
     let coarse = small.default_tolerance();
     let small_alone = median(&|| {
@@ -910,13 +922,31 @@ fn a_changed_body_reuses_the_mesh_of_every_face_it_kept() {
 
     let earlier = plate.display_mesh_reusing(&quality, None).unwrap();
     let again = plate
-        .display_mesh_reusing(&quality, Some(&earlier))
+        .display_mesh_reusing(
+            &quality,
+            Some(MeshedSolid {
+                solid: &plate,
+                mesh: &earlier,
+            }),
+        )
         .unwrap();
     let reusing = dimpled
-        .display_mesh_reusing(&quality, Some(&earlier))
+        .display_mesh_reusing(
+            &quality,
+            Some(MeshedSolid {
+                solid: &plate,
+                mesh: &earlier,
+            }),
+        )
         .unwrap();
     let coarser = plate
-        .display_mesh_reusing(&MeshQuality::COARSE, Some(&earlier))
+        .display_mesh_reusing(
+            &MeshQuality::COARSE,
+            Some(MeshedSolid {
+                solid: &plate,
+                mesh: &earlier,
+            }),
+        )
         .unwrap();
 
     assert_eq!(earlier.reused_faces(), 0);
@@ -945,7 +975,13 @@ fn a_lengthened_extrusion_reuses_the_mesh_of_the_faces_it_left_alone() {
 
     let earlier = block.display_mesh_reusing(&quality, None).unwrap();
     let reusing = longer
-        .display_mesh_reusing(&quality, Some(&earlier))
+        .display_mesh_reusing(
+            &quality,
+            Some(MeshedSolid {
+                solid: &block,
+                mesh: &earlier,
+            }),
+        )
         .unwrap();
 
     assert_ne!(block.bounding_box(), longer.bounding_box());

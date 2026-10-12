@@ -16,7 +16,7 @@ use caditor_document::{
     PointsPattern, Primitive, PrimitiveAnchor, PrimitiveShape, PrincipalPlane, Reading,
     RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Scale, Shell, ShellSide,
     SketchAttachment, SketchFeature, SolidFeature, SolidStart, Split, SplitAlong, SplitCarry,
-    SplitFace, Sweep, SweepPath, TappedThread, Thread, ThreadFamily, ThreadForm, ThreadHand,
+    SplitFace, StepText, Sweep, SweepPath, TappedThread, Thread, ThreadFamily, ThreadForm, ThreadHand,
     ThreadLength, ThreadSide, TurnCentre, Wall, sketch_regions,
 };
 use caditor_expression::Expression;
@@ -900,8 +900,8 @@ pub fn datum(input: &mut Unstructured, scene: &Scene) -> Result<Datum> {
     })
 }
 
-fn imported_block() -> Option<(Arc<Solid>, Arc<str>)> {
-    static BLOCK: OnceLock<Option<(Arc<Solid>, Arc<str>)>> = OnceLock::new();
+fn imported_block() -> Option<(Arc<Solid>, StepText)> {
+    static BLOCK: OnceLock<Option<(Arc<Solid>, StepText)>> = OnceLock::new();
     BLOCK
         .get_or_init(|| {
             let corners = [
@@ -933,7 +933,7 @@ fn imported_block() -> Option<(Arc<Solid>, Arc<str>)> {
                 faces: &[],
             };
             let step = write_step(&[body], "Block", SystemTime::UNIX_EPOCH).ok()?;
-            Some((Arc::new(solid), Arc::from(step)))
+            Some((Arc::new(solid), StepText::new(&step)))
         })
         .clone()
 }

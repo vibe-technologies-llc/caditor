@@ -1,9 +1,7 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, ops::Range};
 
 use crate::{
-    naming::FaceName,
-    sense::Sense,
-    surface::Surface,
+    naming::{Digest, FaceName},
     tessellation::{
         Mesh,
         density::Density,
@@ -11,71 +9,76 @@ use crate::{
         patch::{FacePatch, PatchPosition, PatchShape, PatchVertex},
     },
     tolerance::SamplingTolerance,
+    topology::{Face, Solid},
 };
+
+const BOUNDARY_KEY: u8 = 0x30;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct FaceKey {
-    pub surface: Surface,
-    pub sense: Sense,
     pub tolerance: SamplingTolerance,
     pub density: Option<Density>,
-    pub loops: Vec<Vec<BoundaryPoint>>,
+    pub boundary: u128,
+    pub positions: Vec<u32>,
 }
 
 impl FaceKey {
-    fn relabelling(&self, later: &Self) -> Option<BTreeMap<u32, u32>> {
-        let alike = self.surface == later.surface
-            && self.sense == later.sense
-            && self.tolerance == later.tolerance
-            && self.density == later.density
-            && self.loops.len() == later.loops.len();
-        if !alike {
+    pub(crate) fn of(
+        tolerance: SamplingTolerance,
+        density: Option<Density>,
+        loops: &[Vec<BoundaryPoint>],
+    ) -> Self {
+        let mut digest = Digest::new(BOUNDARY_KEY);
+        digest.count(loops.len());
+        for points in loops {
+            digest.count(points.len());
+            for point in points {
+                digest.u64(point.uv.x.to_bits());
+                digest.u64(point.uv.y.to_bits());
+            }
+        }
+        Self {
+            tolerance,
+            density,
+            boundary: digest.finish(),
+            positions: loops.iter().flatten().map(|point| point.position).collect(),
+        }
+    }
+}
+
+fn relabelling(earlier: &[u32], later: &[u32]) -> Option<BTreeMap<u32, u32>> {
+    if earlier.len() != later.len() {
+        return None;
+    }
+    let mut forward = BTreeMap::new();
+    let mut backward = BTreeMap::new();
+    for (earlier, later) in earlier.iter().zip(later) {
+        let onto = *forward.entry(*earlier).or_insert(*later);
+        let from = *backward.entry(*later).or_insert(*earlier);
+        if onto != *later || from != *earlier {
             return None;
         }
-        let mut forward = BTreeMap::new();
-        let mut backward = BTreeMap::new();
-        for (earlier, later) in self.loops.iter().zip(&later.loops) {
-            if earlier.len() != later.len() {
-                return None;
-            }
-            for (earlier, later) in earlier.iter().zip(later) {
-                let same_place = earlier.uv.x.to_bits() == later.uv.x.to_bits()
-                    && earlier.uv.y.to_bits() == later.uv.y.to_bits();
-                let onto = *forward.entry(earlier.position).or_insert(later.position);
-                let from = *backward.entry(later.position).or_insert(earlier.position);
-                if !same_place || onto != later.position || from != earlier.position {
-                    return None;
-                }
-            }
-        }
-        Some(forward)
     }
-
-    fn relabelled(mut self, renumbered: &[u32]) -> Self {
-        for point in self.loops.iter_mut().flatten() {
-            if let Some(position) = renumbered.get(point.position as usize) {
-                point.position = *position;
-            }
-        }
-        self
-    }
-
-    fn heap_size(&self) -> usize {
-        self.density.as_ref().map_or(0, Density::heap_size)
-            + size_of_val(self.loops.as_slice())
-            + self
-                .loops
-                .iter()
-                .map(|points| size_of_val(points.as_slice()))
-                .sum::<usize>()
-    }
+    Some(forward)
 }
 
 #[derive(Debug, Clone, PartialEq)]
 struct MeshedFace {
-    key: FaceKey,
+    name: FaceName,
     slot: usize,
     shape: PatchShape,
+    tolerance: SamplingTolerance,
+    density: Option<Box<Density>>,
+    boundary: u128,
+    positions: Range<usize>,
+}
+
+impl MeshedFace {
+    fn matches(&self, key: &FaceKey) -> bool {
+        self.boundary == key.boundary
+            && self.tolerance == key.tolerance
+            && self.density.as_deref() == key.density.as_ref()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -86,40 +89,62 @@ pub(crate) struct KeptFace {
     pub shape: PatchShape,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct MeshedSolid<'a> {
+    pub solid: &'a Solid,
+    pub mesh: &'a DisplayMesh,
+}
+
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct DisplayMesh {
     mesh: Mesh,
-    faces: BTreeMap<FaceName, Vec<MeshedFace>>,
+    faces: Vec<MeshedFace>,
+    boundaries: Vec<u32>,
     reused: usize,
 }
 
 impl DisplayMesh {
     pub(crate) fn new(
         mesh: Mesh,
-        kept: impl IntoIterator<Item = KeptFace>,
+        kept: Vec<KeptFace>,
         renumbered: Option<&[u32]>,
         reused: usize,
     ) -> Self {
-        let mut faces: BTreeMap<FaceName, Vec<MeshedFace>> = BTreeMap::new();
-        for KeptFace {
-            name,
-            key,
-            slot,
-            shape,
-        } in kept
-        {
-            let key = match renumbered {
-                Some(renumbered) => key.relabelled(renumbered),
-                None => key,
-            };
-            faces
-                .entry(name)
-                .or_default()
-                .push(MeshedFace { key, slot, shape });
-        }
+        let mut boundaries =
+            Vec::with_capacity(kept.iter().map(|face| face.key.positions.len()).sum());
+        let mut faces: Vec<MeshedFace> = kept
+            .into_iter()
+            .map(
+                |KeptFace {
+                     name,
+                     key,
+                     slot,
+                     shape,
+                 }| {
+                    let first = boundaries.len();
+                    boundaries.extend(key.positions.iter().map(|position| {
+                        renumbered
+                            .and_then(|renumbered| renumbered.get(*position as usize))
+                            .copied()
+                            .unwrap_or(*position)
+                    }));
+                    MeshedFace {
+                        name,
+                        slot,
+                        shape,
+                        tolerance: key.tolerance,
+                        density: key.density.map(Box::new),
+                        boundary: key.boundary,
+                        positions: first..boundaries.len(),
+                    }
+                },
+            )
+            .collect();
+        faces.sort_by_key(|face| face.name);
         Self {
             mesh,
             faces,
+            boundaries,
             reused,
         }
     }
@@ -139,19 +164,33 @@ impl DisplayMesh {
     pub fn approximate_size(&self) -> usize {
         size_of::<Self>() - size_of::<Mesh>()
             + self.mesh.approximate_size()
+            + size_of_val(self.faces.as_slice())
+            + size_of_val(self.boundaries.as_slice())
             + self
                 .faces
-                .values()
-                .flatten()
-                .map(|face| size_of_val(face) + face.key.heap_size())
+                .iter()
+                .filter_map(|face| face.density.as_deref())
+                .map(|density| size_of::<Density>() + density.heap_size())
                 .sum::<usize>()
     }
 
-    pub(crate) fn patch(&self, name: FaceName, key: &FaceKey) -> Option<FacePatch> {
-        self.faces.get(&name)?.iter().find_map(|meshed| {
-            let relabelling = meshed.key.relabelling(key)?;
-            self.extract(meshed, &relabelling)
-        })
+    pub(crate) fn patch(&self, solid: &Solid, face: &Face, key: &FaceKey) -> Option<FacePatch> {
+        let name = face.name();
+        let first = self.faces.partition_point(|meshed| meshed.name < name);
+        self.faces
+            .get(first..)?
+            .iter()
+            .take_while(|meshed| meshed.name == name)
+            .filter(|meshed| meshed.matches(key))
+            .find_map(|meshed| {
+                let earlier = solid.face(self.mesh.faces.get(meshed.slot)?.face)?;
+                if earlier.sense() != face.sense() || earlier.surface() != face.surface() {
+                    return None;
+                }
+                let positions = self.boundaries.get(meshed.positions.clone())?;
+                let relabelling = relabelling(positions, &key.positions)?;
+                self.extract(meshed, &relabelling)
+            })
     }
 
     fn extract(&self, meshed: &MeshedFace, relabelling: &BTreeMap<u32, u32>) -> Option<FacePatch> {

@@ -1960,7 +1960,7 @@ fn an_import_keeps_the_path_it_was_read_from_only_when_known() {
 fn placed_copies_of_one_part_keep_its_step_text_once_and_share_it_when_loaded() {
     let mut document = Document::default();
     let mut transaction = document.transaction("Import");
-    let text: std::sync::Arc<str> = std::sync::Arc::from("ISO-10303-21; part");
+    let text = caditor_document::StepText::from("ISO-10303-21; part");
     let copy = |x: f64| {
         let mut placement = caditor_document::BodyPlacement::default();
         placement.offset[0] = Expression::Measure(x, Unit::Millimetre);
@@ -1993,7 +1993,7 @@ fn placed_copies_of_one_part_keep_its_step_text_once_and_share_it_when_loaded() 
     assert_eq!(loaded.document, document);
     assert!(
         held.windows(2)
-            .all(|pair| std::sync::Arc::ptr_eq(&pair[0].step, &pair[1].step))
+            .all(|pair| pair[0].step.address() == pair[1].step.address())
     );
     assert!(
         lost.issues

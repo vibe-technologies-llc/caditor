@@ -49,9 +49,18 @@ fn within_timeout(started: Instant) -> bool {
     Instant::now() < started + IMPORT_TIMEOUT
 }
 
+fn resident_mib(field: &str) -> Option<f64> {
+    let status = std::fs::read_to_string("/proc/self/status").ok()?;
+    let line = status.lines().find(|line| line.starts_with(field))?;
+    let kib: f64 = line.split_whitespace().nth(1)?.parse().ok()?;
+    Some(kib / 1024.0)
+}
+
 fn report(stage: &str, started: Instant, detail: impl std::fmt::Display) {
+    let resident = resident_mib("VmRSS:").unwrap_or_default();
+    let peak = resident_mib("VmHWM:").unwrap_or_default();
     eprintln!(
-        "{stage:<44} {:>10.3} s  {detail}",
+        "{stage:<44} {:>10.3} s  {resident:>7.0} MiB resident, {peak:>7.0} peak  {detail}",
         started.elapsed().as_secs_f64()
     );
 }
@@ -282,7 +291,9 @@ fn in_app(path: &Path) {
 }
 
 fn after_loading(harness: &mut Harness) {
+    let started = Instant::now();
     harness.settle();
+    report("in the app: settled", started, "");
     harness.command(FileCommand::DismissReport);
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.pass();

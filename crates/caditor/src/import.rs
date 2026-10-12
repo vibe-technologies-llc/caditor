@@ -1,7 +1,6 @@
 use std::{
     collections::BTreeSet,
     path::{self, Path, PathBuf},
-    sync::Arc,
 };
 
 use caditor_document::{
@@ -434,7 +433,7 @@ fn stored_len<'a>(kinds: impl Iterator<Item = &'a FeatureKind>) -> usize {
     let mut texts = BTreeSet::new();
     kinds
         .map(|kind| match kind.import() {
-            Some(import) if !texts.insert(Arc::as_ptr(&import.step).cast::<u8>()) => {
+            Some(import) if !texts.insert(import.step.address()) => {
                 import.source.len() + import.path_len()
             }
             _ => kind.stored_text_len(),

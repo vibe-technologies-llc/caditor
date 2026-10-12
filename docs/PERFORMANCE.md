@@ -87,6 +87,23 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   preimage of the snap radius on the sketch plane, unbounded near the horizon.
 
 
+## Memory
+
+- [medium · hard] The VZ330 assembly (3,967 bodies, 16.3 million triangles) holds about 5.4 GiB
+  once imported (`import_costs`, `CADITOR_IMPORT_IN_THE_APP_ONLY=1`, resident after settling; a
+  jemalloc heap profile attributes it). The largest part left is solids: each copy of a part keeps
+  its own `Solid` (`Solid::imported` names faces after the copy's feature, and placed copies are
+  `transformed` with new curves and surfaces), about 1.4 GiB beside one canonical solid per part. A
+  `Face` is 320 bytes because `Surface` is sized by its B-spline (232) and revolution (184)
+  variants while planes and cylinders need under 90; boxing those two would save about 300 MiB.
+  Sharing geometry between copies (names and placement over one solid) would save most of the
+  rest but reaches every kernel reader.
+- [low · medium] The kernel mesh keeps an f64 normal per vertex (`MeshVertex`, 32 bytes, about
+  400 MiB on the VZ330) that every consumer turns into f32, and the scene draws body edges as one
+  88-byte `Line` per segment (two f64 ends, colour, width, pick, stroke; about 450 MiB), while the
+  kernel holds the same polylines as u32 indices. A body's edges as one styled run over the
+  kernel's polylines would cut the latter by an order of magnitude.
+
 ## Sketch solver
 
 - [medium · hard] A drag frame solves geometry only (`solve_geometry_from`, no rank or

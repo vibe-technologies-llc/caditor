@@ -1056,8 +1056,14 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 
 - Keeps the source file's name, its path (`Import::path`, set by `Import::from_file` only for valid
   UTF-8), the solid and the canonical single-solid STEP text it was read from (what the file
-  stores), both `Arc`s shared by copies of one part (`Import::shared`); equality compares name, path,
-  text and placement. The body is `Solid::imported`, so later features hold its faces and edges like
+  stores), both shared by copies of one part (`Import::shared`); equality compares name, path,
+  text and placement.
+- The text is a `StepText` (`step_text.rs`): zstd at `Level::FAST` behind an `Arc`, plain when
+  packing fails or does not shrink it, unpacked only to save (`text`, a `StepTextError` when it will
+  not). The text is needed only to write the file, and caditor's STEP text is about six times its
+  packed size (the VZ330 kept 984 MiB of it unpacked). Packing is deterministic, so two packed texts
+  are equal exactly when their frames are; `len` is the text's length (what a file record holds),
+  `held_bytes` what memory holds (what undo counts), `address` the shared buffer's identity. The body is `Solid::imported`, so later features hold its faces and edges like
   any body's.
 - `placement` (`BodyPlacement`, `movement.rs`) turns the body about X, Y then Z through the origin,
   then shifts it, as a `Move` does, all expressions (any sign) counted in the feature's parameters

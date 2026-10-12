@@ -1543,10 +1543,7 @@ mod step {
 
         assert!(import.notes.is_empty(), "{:?}", import.notes);
         assert_eq!(names, ["Block", "Pin", "Pin 2"]);
-        assert!(std::sync::Arc::ptr_eq(
-            &pin.import.step,
-            &second.import.step
-        ));
+        assert_eq!(pin.import.step.address(), second.import.step.address());
         assert!(std::sync::Arc::ptr_eq(
             &pin.import.solid,
             &second.import.solid
@@ -1586,7 +1583,7 @@ mod step {
             .features()
             .filter_map(|feature| feature.kind.import())
             .collect();
-        assert!(std::sync::Arc::ptr_eq(&held[1].step, &held[2].step));
+        assert_eq!(held[1].step.address(), held[2].step.address());
         assert!(std::sync::Arc::ptr_eq(&held[1].solid, &held[2].solid));
     }
 

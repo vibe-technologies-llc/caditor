@@ -22,7 +22,7 @@ use thiserror::Error;
 pub(crate) use self::mass::{Moments, TriangleIndex};
 pub use self::{
     mass::{MassProperties, SecondMoment},
-    reuse::DisplayMesh,
+    reuse::{DisplayMesh, MeshedSolid},
 };
 use self::{
     patch::{FacePatch, PatchPosition, PatchShape},
@@ -290,7 +290,7 @@ impl Tolerances {
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum Keys<'a> {
     Skipped,
-    Kept { earlier: Option<&'a DisplayMesh> },
+    Kept { earlier: Option<MeshedSolid<'a>> },
 }
 
 pub(crate) fn tessellate(
@@ -716,15 +716,9 @@ impl<'a> Tessellator<'a> {
                 reused: false,
             });
         };
-        let key = FaceKey {
-            surface: face.surface().clone(),
-            sense: face.sense(),
-            tolerance: budget.tolerance,
-            density: budget.density.clone(),
-            loops: loops.clone(),
-        };
+        let key = FaceKey::of(budget.tolerance, budget.density.clone(), &loops);
         let earlier = earlier
-            .and_then(|earlier| earlier.patch(face.name(), &key))
+            .and_then(|earlier| earlier.mesh.patch(earlier.solid, face, &key))
             .filter(|patch| {
                 patch.shape.in_pieces == pieces::allowed(patch.shape.points, budget.placed)
             });
@@ -797,6 +791,9 @@ impl<'a> Tessellator<'a> {
     fn finish(mut self) -> DisplayMesh {
         let mut mesh = self.mesh;
         mesh.chord = self.tolerances.base.chord();
+        mesh.triangles
+            .reserve_exact(self.triangles.values().map(Vec::len).sum());
+        mesh.faces.reserve_exact(self.solid.faces().count());
         let mut kept = Vec::with_capacity(self.kept.len());
         for (slot, (id, face)) in self.solid.faces().enumerate() {
             let start = mesh.triangles.len();
@@ -825,6 +822,8 @@ impl<'a> Tessellator<'a> {
             })
             .collect();
         let renumbered = self.orphans.then(|| mesh.drop_unused());
+        mesh.positions.shrink_to_fit();
+        mesh.vertices.shrink_to_fit();
         DisplayMesh::new(mesh, kept, renumbered.as_deref(), self.reused.len())
     }
 }

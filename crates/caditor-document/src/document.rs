@@ -176,7 +176,7 @@ impl FeatureKind {
             Self::Import(import) => {
                 import.source.len()
                     + import.path_len()
-                    + import.step.len()
+                    + import.step.held_bytes()
                     + import.solid.approximate_size()
                     + import.placement.heap_size()
             }

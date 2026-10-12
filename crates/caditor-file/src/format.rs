@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     cell::OnceCell,
     collections::{BTreeMap, BTreeSet},
     path::PathBuf,
@@ -22,7 +23,7 @@ use caditor_document::{
     PrimitiveAnchor, PrimitiveShape, PrincipalAxis, PrincipalGeometry, PrincipalPlane,
     ProjectionSource, Reading, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rgb,
     RollbackBar, SavedView, SavedViews, Scale, Shell, ShellSide, SketchAttachment, SketchFeature,
-    SolidFeature, SolidStart, Split, SplitAlong, SplitCarry, SplitFace, Sweep, SweepPath,
+    SolidFeature, SolidStart, Split, SplitAlong, SplitCarry, SplitFace, StepText, Sweep, SweepPath,
     TappedThread, Thread, ThreadFamily, ThreadForm, ThreadHand, ThreadLength, ThreadSide,
     ThreadSize, Transaction, TurnCentre, Wall, group_name, material_name, view_name,
 };
@@ -875,12 +876,75 @@ pub(crate) const FEATURE_KINDS: [&str; 77] = [
     "sweep",
 ];
 
+#[derive(Debug, Clone)]
+pub(crate) enum StepField {
+    Read(String),
+    Kept(StepText),
+}
+
+impl StepField {
+    pub(crate) fn text(&self) -> Option<Cow<'_, str>> {
+        match self {
+            Self::Read(text) => Some(Cow::Borrowed(text)),
+            Self::Kept(step) => step.text().ok(),
+        }
+    }
+
+    fn kept(&self) -> StepText {
+        match self {
+            Self::Read(text) => StepText::new(text),
+            Self::Kept(step) => step.clone(),
+        }
+    }
+}
+
+impl From<String> for StepField {
+    fn from(text: String) -> Self {
+        Self::Read(text)
+    }
+}
+
+impl From<&str> for StepField {
+    fn from(text: &str) -> Self {
+        Self::Read(text.to_owned())
+    }
+}
+
+impl PartialEq for StepField {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Kept(step), Self::Kept(other)) => step == other,
+            _ => self
+                .text()
+                .is_some_and(|text| other.text().as_ref() == Some(&text)),
+        }
+    }
+}
+
+impl Serialize for StepField {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Self::Read(text) => serializer.serialize_str(text),
+            Self::Kept(step) => match step.text() {
+                Ok(text) => serializer.serialize_str(&text),
+                Err(error) => Err(serde::ser::Error::custom(error)),
+            },
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for StepField {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        String::deserialize(deserializer).map(Self::Read)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct ImportRecord {
     pub source: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
-    pub step: String,
+    pub step: StepField,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -889,7 +953,7 @@ pub(crate) struct PlacedImportRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub step: Option<String>,
+    pub step: Option<StepField>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shares: Option<String>,
     pub offset: [String; 3],
@@ -898,14 +962,14 @@ pub(crate) struct PlacedImportRecord {
 
 #[derive(Debug, Default)]
 pub(crate) struct ImportTexts {
-    texts: BTreeMap<String, Arc<str>>,
+    texts: BTreeMap<String, StepText>,
     solids: BTreeMap<String, Arc<Solid>>,
 }
 
 struct StoredShape<'a> {
     source: &'a str,
     path: Option<&'a String>,
-    step: Option<&'a str>,
+    step: Option<&'a StepField>,
     shares: Option<&'a str>,
 }
 
@@ -2033,23 +2097,26 @@ pub(crate) fn feature_records(document: &Document) -> impl Iterator<Item = Featu
     document.features().map(move |feature| {
         let shares = feature.kind.import().and_then(|import| {
             let seen = written.earlier(&import.step)?;
-            (!import.placement.is_unmoved()).then(|| seen.digest().to_hex().to_string())
+            let digest = seen.digest()?;
+            (!import.placement.is_unmoved()).then(|| digest.to_hex().to_string())
         });
         feature_record_sharing(feature, shares)
     })
 }
 
 struct WrittenText {
-    text: Arc<str>,
-    digest: OnceCell<blake3::Hash>,
+    text: StepText,
+    digest: OnceCell<Option<blake3::Hash>>,
 }
 
 impl WrittenText {
-    fn digest(&self) -> blake3::Hash {
-        *self
-            .digest
-            .get_or_init(|| blake3::hash(self.text.as_bytes()))
+    fn digest(&self) -> Option<blake3::Hash> {
+        *self.digest.get_or_init(|| digest_of(&self.text))
     }
+}
+
+fn digest_of(text: &StepText) -> Option<blake3::Hash> {
+    text.text().ok().map(|text| blake3::hash(text.as_bytes()))
 }
 
 #[derive(Default)]
@@ -2058,23 +2125,25 @@ struct WrittenTexts {
 }
 
 impl WrittenTexts {
-    fn earlier(&mut self, text: &Arc<str>) -> Option<&WrittenText> {
+    fn earlier(&mut self, text: &StepText) -> Option<&WrittenText> {
         let same_length = self.by_length.entry(text.len()).or_default();
         if let Some(at) = same_length
             .iter()
-            .position(|seen| Arc::ptr_eq(&seen.text, text))
+            .position(|seen| seen.text.address() == text.address())
         {
             return same_length.get(at);
         }
         let digest = OnceCell::new();
-        if !same_length.is_empty() {
-            let hash = *digest.get_or_init(|| blake3::hash(text.as_bytes()));
-            if let Some(at) = same_length.iter().position(|seen| seen.digest() == hash) {
-                return same_length.get(at);
-            }
+        if !same_length.is_empty()
+            && let Some(hash) = *digest.get_or_init(|| digest_of(text))
+            && let Some(at) = same_length
+                .iter()
+                .position(|seen| seen.digest() == Some(hash))
+        {
+            return same_length.get(at);
         }
         same_length.push(WrittenText {
-            text: Arc::clone(text),
+            text: text.clone(),
             digest,
         });
         None
@@ -2768,13 +2837,15 @@ fn unframed_import_record(import: &Import, shares: Option<String>) -> FeatureKin
         return FeatureKindRecord::Import(ImportRecord {
             source,
             path,
-            step: import.step.to_string(),
+            step: StepField::Kept(import.step.clone()),
         });
     }
     FeatureKindRecord::PlacedImport(Box::new(PlacedImportRecord {
         source,
         path,
-        step: shares.is_none().then(|| import.step.to_string()),
+        step: shares
+            .is_none()
+            .then(|| StepField::Kept(import.step.clone())),
         shares,
         offset: import
             .placement
@@ -5786,28 +5857,38 @@ fn restore_import(
     issues: &mut Vec<String>,
 ) -> Import {
     let source = record.source;
-    let (digest, hash, text) = match (record.step, record.shares) {
-        (Some(step), _) => {
-            let hash = blake3::hash(step.as_bytes());
-            let digest = hash.to_hex().to_string();
-            let text = texts
-                .texts
-                .entry(digest.clone())
-                .or_insert_with(|| Arc::from(step))
-                .clone();
-            (digest, Some(hash), text)
-        }
+    let unshaped = || (String::new(), None, StepText::new(""), None);
+    let (digest, hash, step, plain) = match (record.step, record.shares) {
+        (Some(field), _) => match field.text() {
+            Some(plain) => {
+                let hash = blake3::hash(plain.as_bytes());
+                let digest = hash.to_hex().to_string();
+                let step = texts
+                    .texts
+                    .entry(digest.clone())
+                    .or_insert_with(|| field.kept())
+                    .clone();
+                (digest, Some(hash), step, Some(plain))
+            }
+            None => {
+                issues.push(format!(
+                    "The shape of “{name}”, imported from “{source}”, could not be unpacked, so \
+                     the feature has no shape."
+                ));
+                unshaped()
+            }
+        },
         (None, Some(shares)) => match texts.texts.get(shares) {
-            Some(text) => (shares.to_owned(), None, text.clone()),
+            Some(step) => (shares.to_owned(), None, step.clone(), None),
             None => {
                 issues.push(format!(
                     "The shape of “{name}”, imported from “{source}”, was kept with another \
                      import that could not be read, so the feature has no shape."
                 ));
-                (String::new(), None, Arc::from(""))
+                unshaped()
             }
         },
-        (None, None) => (String::new(), None, Arc::from("")),
+        (None, None) => unshaped(),
     };
     let parse = |text: &str| match hash {
         Some(hash) => crate::step_cache::first_solid_hashed(text, hash),
@@ -5815,24 +5896,30 @@ fn restore_import(
     };
     let solid = match texts.solids.get(&digest) {
         Some(solid) => solid.clone(),
-        None => match parse(&text) {
-            Ok(read) => {
-                let read = read.unwrap_or_default();
-                if !digest.is_empty() {
-                    texts.solids.insert(digest, read.clone());
+        None => {
+            let plain = match plain {
+                Some(plain) => plain,
+                None => Cow::Owned(step.text().map(Cow::into_owned).unwrap_or_default()),
+            };
+            match parse(&plain) {
+                Ok(read) => {
+                    let read = read.unwrap_or_default();
+                    if !digest.is_empty() {
+                        texts.solids.insert(digest, read.clone());
+                    }
+                    read
                 }
-                read
+                Err(error) => {
+                    issues.push(format!(
+                        "The shape of “{name}”, imported from “{source}”, could not be read \
+                         ({error}), so the feature has no shape."
+                    ));
+                    Arc::new(Solid::default())
+                }
             }
-            Err(error) => {
-                issues.push(format!(
-                    "The shape of “{name}”, imported from “{source}”, could not be read \
-                     ({error}), so the feature has no shape."
-                ));
-                Arc::new(Solid::default())
-            }
-        },
+        }
     };
-    let import = Import::shared(source, solid, text);
+    let import = Import::shared(source, solid, step);
     match record.path {
         Some(path) => import.from_file(PathBuf::from(path)),
         None => import,
@@ -5848,7 +5935,7 @@ fn restore_placed_import(
     let shape = StoredShape {
         source: &record.source,
         path: record.path.as_ref(),
-        step: record.step.as_deref(),
+        step: record.step.as_ref(),
         shares: record.shares.as_deref(),
     };
     let import = restore_import(&shape, name, texts, issues);

@@ -12,11 +12,11 @@ use caditor_kernel::{
     Accuracy, AngularExtent, Axis2, BooleanError, BooleanOperation, DisplayMesh, EdgeId, EdgeName,
     FaceId, FaceName, FaceOrigin, GeometryError, Heights, LINEAR_RESOLUTION, LinearBound,
     LinearExtent, MAX_SIZE, MAX_TAPER_DEGREES, MassProperties, MeasureError, Mesh, MeshQuality,
-    OpenEnd, Profile, ProfileCurve, ProfileError, ReachError, ReferenceError, Region, RegionMesh,
-    RegionReference, SamplingTolerance, Selection, Solid, StopError, SweepError, TessellationError,
-    VertexId, VertexName, WallError, WallSide, boolean, extrude_along, extrude_tapered, heights,
-    heights_along, mass_properties_tessellating, next_face, resolve_regions, revolve, stop_at_body,
-    vertex_names, wall_regions,
+    MeshedSolid, OpenEnd, Profile, ProfileCurve, ProfileError, ReachError, ReferenceError, Region,
+    RegionMesh, RegionReference, SamplingTolerance, Selection, Solid, StopError, SweepError,
+    TessellationError, VertexId, VertexName, WallError, WallSide, boolean, extrude_along,
+    extrude_tapered, heights, heights_along, mass_properties_tessellating, next_face,
+    resolve_regions, revolve, stop_at_body, vertex_names, wall_regions,
 };
 use caditor_sketch::{Entity, EntityId, Reference, Sketch};
 
@@ -909,7 +909,12 @@ impl SolidResult {
         if self.is_meshed() {
             return;
         }
-        let earlier = earlier.and_then(Self::display_mesh);
+        let earlier = earlier.and_then(|earlier| {
+            Some(MeshedSolid {
+                solid: &earlier.solid,
+                mesh: earlier.display_mesh()?,
+            })
+        });
         let tessellated = panic::catch_unwind(AssertUnwindSafe(|| {
             self.bounding_box();
             self.solid.display_mesh_reusing(quality, earlier)

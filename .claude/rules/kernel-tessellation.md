@@ -96,10 +96,15 @@ paths:
   positions are contiguous and in order of first use. The app's `ShadedMesh` relies on it to read a
   body's mesh in place (`render.md`).
 - `Solid::display_mesh_reusing(quality, earlier)` returns a `DisplayMesh`: the mesh and, per face,
-  a key (`reuse.rs`) of everything triangulating it reads (surface, sense, tolerance, pole density,
-  boundary loops in uv with position labels). A face whose name has an equal key in the earlier mesh
-  (uv to the bit, labels equal in pattern) reads its patch back, labels mapped, instead of being
-  triangulated; the result equals meshing afresh (a patch whose pieces decision would differ in the
+  a key (`reuse.rs`) of everything triangulating it reads besides its surface: tolerance, pole
+  density (boxed, rare), a 128-bit digest (`Digest`) of the boundary loops' lengths and uv bits, and
+  the loops' position labels in one array the whole mesh shares; faces are one `Vec` sorted by name.
+  The surface and sense are not copied into the key: `earlier` is a `MeshedSolid`, the earlier mesh
+  with the solid it was made from, and a candidate's surface and sense are read from that solid's
+  face at the key's slot. A face key is a few dozen bytes plus four per boundary point, since an
+  assembly of millions of faces keeps one per face (a full surface per key held 1.2 GiB of the
+  VZ330). A face whose name has an equal key in the earlier mesh (uv equal by digest, labels equal
+  in pattern) reads its patch back, labels mapped, instead of being triangulated; the result equals meshing afresh (a patch whose pieces decision would differ in the
   new body is made again). The display tolerance follows the solid's extent rounded to the nearest
   power of two (`MeshQuality::display_tolerance`, within √2 of the quality's chord), so a small edit
   of the box keeps the tolerance and every untouched face
