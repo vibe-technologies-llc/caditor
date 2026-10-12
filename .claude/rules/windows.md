@@ -18,7 +18,7 @@ so call sites stay platform-free.
 ## `caditor-windows`, the Win32 boundary
 
 - The second crate allowed `unsafe` (after `caditor-zstd`): `unsafe_code = "deny"` with
-  `#[allow(unsafe_code)]` on each item, and the workspace clippy lints listed in its manifest
+  `#[expect(unsafe_code, reason = "…")]` on each item, and the workspace clippy lints listed in its manifest
   (`conventions_tests.rs` checks both). Its root is `#![cfg(windows)]`, so it is empty elsewhere
   and only Windows CI and `cargo xwin` lint it. It uses `windows-sys` with only the `Win32_*`
   features it calls, and offers only safe functions:

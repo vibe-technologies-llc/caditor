@@ -14,7 +14,7 @@ paths:
   compression window reaches across prefix and data, with long-distance matching. Decoding accepts
   any window up to zstd's maximum, since the output is allocated at the checked size anyway.
 - One of the three crates with `unsafe` (with `caditor-windows` and `caditor-wayland`;
-  `unsafe_code = "deny"`, allowed per call site); contexts are owned by guards that free them on drop.
+  `unsafe_code = "deny"`, expected per call site); contexts are owned by guards that free them on drop.
 - The decoder reads untrusted data: frames must record their content size, and decompression
   refuses one larger than the caller's limit or decoding to a different size than recorded.
 - The port works out the history size as the output's end minus the prefix's address before it

@@ -41,7 +41,7 @@ pub fn on_session_end(
     })?;
     let procedure: unsafe extern "system" fn(HWND, u32, WPARAM, LPARAM) -> LRESULT =
         session_procedure;
-    #[allow(unsafe_code)]
+    #[expect(unsafe_code, reason = "the Win32 call is unsafe to make")]
     let previous = unsafe {
         SetWindowLongPtrW(
             window.get() as HWND,
@@ -56,7 +56,7 @@ pub fn on_session_end(
     Ok(())
 }
 
-#[allow(unsafe_code)]
+#[expect(unsafe_code, reason = "the Win32 call is unsafe to make")]
 unsafe extern "system" fn session_procedure(
     window: HWND,
     message: u32,
@@ -89,7 +89,7 @@ impl DialogParent {
 impl HasWindowHandle for DialogParent {
     fn window_handle(&self) -> Result<WindowHandle<'_>, HandleError> {
         let raw = RawWindowHandle::Win32(Win32WindowHandle::new(self.0));
-        #[allow(unsafe_code)]
+        #[expect(unsafe_code, reason = "the Win32 call is unsafe to make")]
         let handle = unsafe { WindowHandle::borrow_raw(raw) };
         Ok(handle)
     }
@@ -104,7 +104,7 @@ impl HasDisplayHandle for DialogParent {
 pub fn show_error(title: &str, text: &str) -> bool {
     let title = wide(title);
     let text = wide(text);
-    #[allow(unsafe_code)]
+    #[expect(unsafe_code, reason = "the Win32 call is unsafe to make")]
     let shown = unsafe {
         MessageBoxW(
             ptr::null_mut(),

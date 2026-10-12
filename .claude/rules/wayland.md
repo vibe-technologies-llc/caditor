@@ -13,7 +13,7 @@ dialogs) is done on winit's own connection by `caditor-wayland`.
 ## `caditor-wayland`, the Wayland boundary
 
 - The third crate allowed `unsafe` (with `caditor-zstd` and `caditor-windows`):
-  `unsafe_code = "deny"` with `#[allow(unsafe_code)]` on each item, and the workspace clippy lints
+  `unsafe_code = "deny"` with `#[expect(unsafe_code, reason = "…")]` on each item, and the workspace clippy lints
   listed in its manifest (`conventions_tests.rs` checks both). Its root is `#![cfg(unix)]`, so it is
   empty on Windows. It offers only safe functions.
 - `WindowConnection::of_window` (`connection.rs`, the only `unsafe`) takes the window as an `Arc`

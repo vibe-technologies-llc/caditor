@@ -120,7 +120,7 @@ pub fn decompress_after(frame: &[u8], prefix: &[u8], limit: usize) -> Result<Vec
 }
 
 pub fn content_size(frame: &[u8]) -> Result<u64, ZstdError> {
-    #[allow(unsafe_code)]
+    #[expect(unsafe_code, reason = "the zstd port is called through raw pointers")]
     let size = unsafe { ZSTD_getFrameContentSize(frame.as_ptr().cast(), frame.len()) };
     match size {
         ZSTD_CONTENTSIZE_ERROR => Err(ZstdError::NotAFrame),
@@ -130,7 +130,7 @@ pub fn content_size(frame: &[u8]) -> Result<u64, ZstdError> {
 }
 
 fn single_frame(data: &[u8]) -> Result<(), ZstdError> {
-    #[allow(unsafe_code)]
+    #[expect(unsafe_code, reason = "the zstd port is called through raw pointers")]
     let length = unsafe { ZSTD_findFrameCompressedSize(data.as_ptr().cast(), data.len()) };
     let frame = checked(length)?;
     if frame != data.len() {
@@ -182,7 +182,7 @@ struct Compressor(NonNull<ZSTD_CCtx>);
 
 impl Compressor {
     fn new() -> Result<Self, ZstdError> {
-        #[allow(unsafe_code)]
+        #[expect(unsafe_code, reason = "the zstd port is called through raw pointers")]
         let context = unsafe { ZSTD_createCCtx() };
         NonNull::new(context)
             .map(Self)
@@ -202,14 +202,14 @@ impl Compressor {
     }
 
     fn set(&self, parameter: ZSTD_cParameter, value: c_int) -> Result<(), ZstdError> {
-        #[allow(unsafe_code)]
+        #[expect(unsafe_code, reason = "the zstd port is called through raw pointers")]
         let code = unsafe { ZSTD_CCtx_setParameter(self.0.as_ptr(), parameter, value) };
         checked(code).map(drop)
     }
 
     fn compress(&self, data: &[u8], prefix: &[u8]) -> Result<Vec<u8>, ZstdError> {
         if !prefix.is_empty() {
-            #[allow(unsafe_code)]
+            #[expect(unsafe_code, reason = "the zstd port is called through raw pointers")]
             let code = unsafe {
                 ZSTD_CCtx_refPrefix(self.0.as_ptr(), prefix.as_ptr().cast(), prefix.len())
             };
@@ -217,7 +217,7 @@ impl Compressor {
         }
         let capacity = checked(ZSTD_compressBound(data.len()))?;
         let mut frame = vec![0_u8; capacity];
-        #[allow(unsafe_code)]
+        #[expect(unsafe_code, reason = "the zstd port is called through raw pointers")]
         let written = unsafe {
             ZSTD_compress2(
                 self.0.as_ptr(),
@@ -234,7 +234,7 @@ impl Compressor {
 
 impl Drop for Compressor {
     fn drop(&mut self) {
-        #[allow(unsafe_code)]
+        #[expect(unsafe_code, reason = "the zstd port is called through raw pointers")]
         unsafe {
             ZSTD_freeCCtx(self.0.as_ptr());
         }
@@ -245,7 +245,7 @@ struct Decompressor(NonNull<ZSTD_DCtx>);
 
 impl Decompressor {
     fn new() -> Result<Self, ZstdError> {
-        #[allow(unsafe_code)]
+        #[expect(unsafe_code, reason = "the zstd port is called through raw pointers")]
         let context = unsafe { ZSTD_createDCtx() };
         NonNull::new(context)
             .map(Self)
@@ -253,7 +253,7 @@ impl Decompressor {
     }
 
     fn accept_any_window(&self) -> Result<(), ZstdError> {
-        #[allow(unsafe_code)]
+        #[expect(unsafe_code, reason = "the zstd port is called through raw pointers")]
         let code = unsafe {
             ZSTD_DCtx_setParameter(
                 self.0.as_ptr(),
@@ -272,14 +272,14 @@ impl Decompressor {
     ) -> Result<Vec<u8>, ZstdError> {
         self.accept_any_window()?;
         if !prefix.is_empty() {
-            #[allow(unsafe_code)]
+            #[expect(unsafe_code, reason = "the zstd port is called through raw pointers")]
             let code = unsafe {
                 ZSTD_DCtx_refPrefix(self.0.as_ptr(), prefix.as_ptr().cast(), prefix.len())
             };
             checked(code)?;
         }
         let mut content = vec![0_u8; expected.saturating_add(SPARE_ROOM)];
-        #[allow(unsafe_code)]
+        #[expect(unsafe_code, reason = "the zstd port is called through raw pointers")]
         let written = unsafe {
             ZSTD_decompressDCtx(
                 self.0.as_ptr(),
@@ -300,7 +300,7 @@ impl Decompressor {
 
 impl Drop for Decompressor {
     fn drop(&mut self) {
-        #[allow(unsafe_code)]
+        #[expect(unsafe_code, reason = "the zstd port is called through raw pointers")]
         unsafe {
             ZSTD_freeDCtx(self.0.as_ptr());
         }

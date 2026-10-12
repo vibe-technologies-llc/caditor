@@ -1,4 +1,9 @@
-use std::{cell::OnceCell, collections::BTreeMap, path::PathBuf, sync::Arc};
+use std::{
+    cell::OnceCell,
+    collections::{BTreeMap, BTreeSet},
+    path::PathBuf,
+    sync::Arc,
+};
 
 use caditor_document::{
     AngleMate, AngleSides, AxisMate, AxisReference, AxisSide, AxisTurn, Between, Blend, BlendKind,
@@ -4658,9 +4663,10 @@ fn restore_kind(
             match &mut kind {
                 FeatureKind::Pattern(pattern) => {
                     let mut repeated = Vec::new();
+                    let mut seen = BTreeSet::new();
                     for raw in &repeating.repeated {
                         let feature = FeatureId::from_raw(*raw);
-                        if !repeated.contains(&feature) {
+                        if seen.insert(feature) {
                             repeated.push(feature);
                         }
                     }
@@ -4678,9 +4684,10 @@ fn restore_kind(
             match &mut kind {
                 FeatureKind::Mirror(mirror) => {
                     let mut mirrored = Vec::new();
+                    let mut seen = BTreeSet::new();
                     for raw in &mirroring.mirrored {
                         let feature = FeatureId::from_raw(*raw);
-                        if !mirrored.contains(&feature) {
+                        if seen.insert(feature) {
                             mirrored.push(feature);
                         }
                     }
@@ -5267,9 +5274,10 @@ fn restore_kind(
             match &mut kind {
                 FeatureKind::Combine(combine) => {
                     let mut more_tools = Vec::new();
+                    let mut seen = BTreeSet::new();
                     for raw in &tools.more_tools {
                         let tool = FeatureId::from_raw(*raw);
-                        if tool != combine.tool && !more_tools.contains(&tool) {
+                        if tool != combine.tool && seen.insert(tool) {
                             more_tools.push(tool);
                         }
                     }

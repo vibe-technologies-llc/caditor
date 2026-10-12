@@ -23,7 +23,7 @@ paths:
   the ban is lifted.
 - `unsafe_code = "forbid"` workspace-wide and every member sets `[lints] workspace = true`; prefer
   a safe API even at a small cost. Unavoidable `unsafe` lives in the smallest crate possible,
-  relaxed to `deny` there and allowed only at the exact item (`caditor-zstd`,
+  relaxed to `deny` there and expected (`#[expect(unsafe_code, reason = "…")]`) only at the exact item (`caditor-zstd`,
   `caditor-windows` and `caditor-wayland`, which list the workspace clippy lints themselves). `conventions_tests.rs`
   checks both.
 - Platform code lives in whole `cfg(unix)` and `cfg(windows)` items behind one interface

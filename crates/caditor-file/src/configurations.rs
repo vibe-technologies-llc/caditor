@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use caditor_document::{
     Configuration, ConfigurationId, Configurations, ConfiguredValue, Document, FIRST_UNSTORABLE_ID,
@@ -178,11 +178,12 @@ fn restore_values(
     issues: &mut Vec<String>,
 ) -> Vec<ConfiguredValue> {
     let mut values = Vec::new();
+    let mut seen = BTreeSet::new();
     let mut unreadable = 0_usize;
     for record in records {
         match record {
             Lenient::Read(record) => match restore_value(record) {
-                Some(value) if !values.contains(&value) => values.push(value),
+                Some(value) if seen.insert(value) => values.push(value),
                 Some(_) => {}
                 None => unreadable += 1,
             },

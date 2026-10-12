@@ -12,6 +12,8 @@ publish = false
 unsafe_code = "forbid"
 
 [workspace.lints.clippy]
+allow_attributes = "deny"
+allow_attributes_without_reason = "deny"
 disallowed_types = "deny"
 expect_used = "deny"
 indexing_slicing = "deny"

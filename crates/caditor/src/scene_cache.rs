@@ -124,7 +124,7 @@ pub struct SceneCache {
     base_batches: usize,
     overlay: Overlay,
     overlay_batch: Option<Arc<Batch>>,
-    highlightable: Option<Vec<Pickable>>,
+    highlightable: Option<Highlightable>,
     section: Vec<SectionPlane>,
     grid: Option<Color>,
     palette_grid: Option<Color>,
@@ -277,11 +277,19 @@ impl SceneCache {
     }
 
     pub fn highlightable(&mut self) -> &[Pickable] {
+        &self.highlightable_set().ordered
+    }
+
+    pub fn can_highlight(&mut self, pickable: Pickable) -> bool {
+        self.highlightable_set().members.contains(&pickable)
+    }
+
+    fn highlightable_set(&mut self) -> &Highlightable {
         let built = &self.built;
         self.highlightable.get_or_insert_with(|| {
             built
                 .as_ref()
-                .map(|built| distinct(built.picks.pickables()))
+                .map(|built| Highlightable::of(built.picks.pickables()))
                 .unwrap_or_default()
         })
     }
@@ -291,9 +299,18 @@ impl SceneCache {
     }
 }
 
-fn distinct(pickables: impl Iterator<Item = Pickable>) -> Vec<Pickable> {
-    let mut seen = BTreeSet::new();
-    pickables
-        .filter(|pickable| seen.insert(*pickable))
-        .collect()
+#[derive(Default)]
+struct Highlightable {
+    ordered: Vec<Pickable>,
+    members: BTreeSet<Pickable>,
+}
+
+impl Highlightable {
+    fn of(pickables: impl Iterator<Item = Pickable>) -> Self {
+        let mut members = BTreeSet::new();
+        let ordered = pickables
+            .filter(|pickable| members.insert(*pickable))
+            .collect();
+        Self { ordered, members }
+    }
 }

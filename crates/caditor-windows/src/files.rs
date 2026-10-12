@@ -38,7 +38,7 @@ impl FileId {
     pub fn of(file: &File) -> io::Result<Self> {
         let mut info = FILE_ID_INFO::default();
         let size = u32::try_from(size_of::<FILE_ID_INFO>()).map_err(io::Error::other)?;
-        #[allow(unsafe_code)]
+        #[expect(unsafe_code, reason = "the Win32 call is unsafe to make")]
         let done = unsafe {
             GetFileInformationByHandleEx(
                 file.as_raw_handle(),
@@ -73,7 +73,7 @@ pub fn final_path(path: &Path) -> io::Result<PathBuf> {
     let mut buffer = vec![0u16; FINAL_PATH_ROOM];
     loop {
         let room = u32::try_from(buffer.len()).map_err(io::Error::other)?;
-        #[allow(unsafe_code)]
+        #[expect(unsafe_code, reason = "the Win32 call is unsafe to make")]
         let written = unsafe {
             GetFinalPathNameByHandleW(
                 file.as_raw_handle(),
@@ -109,7 +109,7 @@ fn without_verbatim(units: &[u16]) -> Vec<u16> {
 pub fn replace_file(replacement: &Path, replaced: &Path) -> io::Result<()> {
     let replacement = verbatim(replacement)?;
     let replaced = verbatim(replaced)?;
-    #[allow(unsafe_code)]
+    #[expect(unsafe_code, reason = "the Win32 call is unsafe to make")]
     let done = unsafe {
         ReplaceFileW(
             replaced.as_ptr(),
@@ -130,7 +130,7 @@ pub fn replace_file(replacement: &Path, replaced: &Path) -> io::Result<()> {
 pub fn move_file_durably(from: &Path, to: &Path) -> io::Result<()> {
     let from = verbatim(from)?;
     let to = verbatim(to)?;
-    #[allow(unsafe_code)]
+    #[expect(unsafe_code, reason = "the Win32 call is unsafe to make")]
     let done = unsafe {
         MoveFileExW(
             from.as_ptr(),

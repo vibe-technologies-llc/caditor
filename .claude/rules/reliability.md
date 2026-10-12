@@ -8,7 +8,9 @@ A crash or any loss of the user's work is a catastrophic failure, not an edge ca
   `unimplemented` and `unreachable` (root `Cargo.toml`); `clippy.toml` relaxes them for tests.
 - Return `Result`: `thiserror` errors in library crates, `anyhow` in the binary. Use `.get()`, not
   indexing.
-- Never `#[allow]` around the lints; restructure so a type carries the invariant.
+- Never `#[allow]` around the lints; restructure so a type carries the invariant. The workspace denies
+  `allow_attributes` and `allow_attributes_without_reason`, so the one place a lint is lifted, the
+  `unsafe` crates, uses `#[expect(…, reason = "…")]`.
 
 ## Recover instead of exiting
 

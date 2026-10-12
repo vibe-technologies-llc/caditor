@@ -4,7 +4,7 @@ mod dxf;
 mod entity_tests;
 mod mesh;
 #[cfg(test)]
-mod mesh_tests;
+pub(crate) mod mesh_tests;
 mod model;
 mod sketch;
 mod svg;

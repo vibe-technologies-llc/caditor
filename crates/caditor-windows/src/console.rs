@@ -25,7 +25,7 @@ pub fn on_console_close(callback: impl Fn() + Send + Sync + 'static) -> io::Resu
             "a console close handler is already installed",
         )
     })?;
-    #[allow(unsafe_code)]
+    #[expect(unsafe_code, reason = "the Win32 call is unsafe to make")]
     let done = unsafe { SetConsoleCtrlHandler(Some(console_event), ADD) };
     if done == 0 {
         Err(io::Error::last_os_error())
@@ -34,7 +34,7 @@ pub fn on_console_close(callback: impl Fn() + Send + Sync + 'static) -> io::Resu
     }
 }
 
-#[allow(unsafe_code)]
+#[expect(unsafe_code, reason = "the Win32 call is unsafe to make")]
 unsafe extern "system" fn console_event(_event: u32) -> BOOL {
     if let Some(callback) = ON_CLOSE.get() {
         callback();
@@ -43,12 +43,12 @@ unsafe extern "system" fn console_event(_event: u32) -> BOOL {
 }
 
 pub fn attach_parent_console() -> bool {
-    #[allow(unsafe_code)]
+    #[expect(unsafe_code, reason = "the Win32 call is unsafe to make")]
     let output = unsafe { GetStdHandle(STD_OUTPUT_HANDLE) };
     if !output.is_null() && output != INVALID_HANDLE_VALUE {
         return false;
     }
-    #[allow(unsafe_code)]
+    #[expect(unsafe_code, reason = "the Win32 call is unsafe to make")]
     let attached = unsafe { AttachConsole(ATTACH_PARENT_PROCESS) };
     attached != 0
 }

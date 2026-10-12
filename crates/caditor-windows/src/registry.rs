@@ -21,7 +21,7 @@ pub fn machine_guid() -> Option<String> {
     let value = wide(MACHINE_GUID);
     let mut buffer = [0u16; GUID_UNITS];
     let mut size = u32::try_from(size_of_val(&buffer)).ok()?;
-    #[allow(unsafe_code)]
+    #[expect(unsafe_code, reason = "the Win32 call is unsafe to make")]
     let status = unsafe {
         RegGetValueW(
             HKEY_LOCAL_MACHINE,
@@ -50,7 +50,7 @@ pub fn boot_id() -> Option<u32> {
     let value = wide(BOOT_ID);
     let mut boot = 0u32;
     let mut size = u32::try_from(size_of::<u32>()).ok()?;
-    #[allow(unsafe_code)]
+    #[expect(unsafe_code, reason = "the Win32 call is unsafe to make")]
     let status = unsafe {
         RegGetValueW(
             HKEY_LOCAL_MACHINE,

@@ -1320,7 +1320,7 @@ impl ViewportState {
                 .map(|manipulator| manipulator.drawn(self.manipulator_hover)),
         });
         if let Some(highlight) = self.keyboard_highlight
-            && !self.scenes.highlightable().contains(&highlight)
+            && !self.scenes.can_highlight(highlight)
             && !(matches!(highlight, Pickable::SketchConstraint { .. })
                 && highlight.is_available(document, evaluation, context))
             && !self.model_dimensions.holds(highlight)

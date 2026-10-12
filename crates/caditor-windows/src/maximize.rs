@@ -93,7 +93,7 @@ pub fn on_maximize_button(
     })?;
     let procedure: unsafe extern "system" fn(HWND, u32, WPARAM, LPARAM) -> LRESULT =
         maximize_procedure;
-    #[allow(unsafe_code)]
+    #[expect(unsafe_code, reason = "the Win32 call is unsafe to make")]
     let previous = unsafe {
         SetWindowLongPtrW(
             window.get() as HWND,
@@ -140,7 +140,7 @@ pub(crate) fn client_point(lparam: LPARAM) -> POINT {
     }
 }
 
-#[allow(unsafe_code)]
+#[expect(unsafe_code, reason = "the Win32 call is unsafe to make")]
 fn over_button(window: HWND, lparam: LPARAM) -> bool {
     let Some(rect) = *BUTTON.lock() else {
         return false;
@@ -150,7 +150,7 @@ fn over_button(window: HWND, lparam: LPARAM) -> bool {
     converted != 0 && rect.contains(point.x, point.y)
 }
 
-#[allow(unsafe_code)]
+#[expect(unsafe_code, reason = "the Win32 call is unsafe to make")]
 fn track_leaving(window: HWND) {
     let mut request = TRACKMOUSEEVENT {
         cbSize: size_of::<TRACKMOUSEEVENT>() as u32,
@@ -161,14 +161,14 @@ fn track_leaving(window: HWND) {
     unsafe { TrackMouseEvent(&mut request) };
 }
 
-#[allow(unsafe_code)]
+#[expect(unsafe_code, reason = "the Win32 call is unsafe to make")]
 fn toggle_maximized(window: HWND) {
     let zoomed = unsafe { IsZoomed(window) } != 0;
     let command = if zoomed { SW_RESTORE } else { SW_MAXIMIZE };
     unsafe { ShowWindow(window, command) };
 }
 
-#[allow(unsafe_code)]
+#[expect(unsafe_code, reason = "the Win32 call is unsafe to make")]
 unsafe extern "system" fn maximize_procedure(
     window: HWND,
     message: u32,

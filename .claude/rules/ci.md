@@ -83,6 +83,9 @@ paths:
   on Windows, `RUSTUP_WINDOWS_SHA256`) against its pinned checksum; never `curl | sh`. Tool binaries (`cargo-deny`, `cargo-fuzz`, WiX) are checked
   against pinned SHA-256 sums; `rust-formatter` is built from `RUST_FORMATTER_REV`.
 - Actions are pinned by commit with their version in the step name.
+- `conventions_tests.rs` checks that every `uses:` is a full commit with its version in the step
+  name, that no workflow holds a value of `versions.env`, and that the fuzz matrix, `fuzz/Cargo.toml`
+  and `fuzz/fuzz_targets` list the same targets, each with seeds and a dictionary that exist.
 - `.github/bump-pins.sh` raises every pin to its latest release; review the diff and let CI pass
   before committing it.
 - `deny.toml` covers licences, sources, advisories and bans, each exception with its reason.
@@ -96,7 +99,7 @@ paths:
 - `fuzz/` is its own cargo workspace for `cargo fuzz` on nightly, one target per file in
   `fuzz/fuzz_targets`. CI runs them with `--target x86_64-unknown-linux-gnu`, since the released
   cargo-fuzz binary is built for musl and otherwise builds for musl, which AddressSanitizer refuses. Byte targets feed parsers and loaders (expression, DXF, SVG, model files, journal,
-  zstd, STEP, preferences, recent files); `model_sealed` and the resealed journal target recompute
+  zstd, STEP, meshes, preferences, recent files); `model_sealed` and the resealed journal target recompute
   chunk checksums so the decoders behind them are reached, while `journal_torn` leaves a damaged
   tail torn.
 - Structured targets (`profile_sweep`, `boolean`, `sketch_solve`, `document`, `save_load`) decode

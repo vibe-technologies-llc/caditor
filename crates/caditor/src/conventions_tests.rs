@@ -477,3 +477,162 @@ fn rule_paths_match_like_globs() {
     ));
     assert!(!matches("**/*.rs", "crates/caditor/Cargo.toml"));
 }
+
+const GITHUB_FOLDER: &str = ".github";
+const COMMIT_LENGTH: usize = 40;
+
+fn workflow_files() -> Vec<(String, String)> {
+    let root = repository().join(GITHUB_FOLDER);
+    let mut files: Vec<(String, String)> = ["workflows", "actions/install-rust"]
+        .into_iter()
+        .flat_map(|folder| {
+            fs::read_dir(root.join(folder))
+                .unwrap()
+                .map(|entry| entry.unwrap().path())
+                .filter(|path| {
+                    path.extension()
+                        .is_some_and(|found| found == "yml" || found == "yaml")
+                })
+                .collect::<Vec<_>>()
+        })
+        .map(|path| {
+            let name = path.file_name().unwrap().to_string_lossy().into_owned();
+            (name, fs::read_to_string(&path).unwrap())
+        })
+        .collect();
+    files.sort();
+    files
+}
+
+fn matrix_targets(workflow: &str) -> Vec<(String, String, String)> {
+    let field = |entry: &str, key: &str| {
+        let after = entry.split_once(&format!("{key}: "))?.1;
+        let end = after.find([',', ' ', '}']).unwrap_or(after.len());
+        Some(after.get(..end)?.to_owned())
+    };
+    let mut targets: Vec<(String, String, String)> = workflow
+        .lines()
+        .map(str::trim)
+        .filter(|line| line.starts_with("- { target: "))
+        .map(|line| {
+            (
+                field(line, "target").unwrap(),
+                field(line, "seeds").unwrap(),
+                field(line, "dictionary").unwrap(),
+            )
+        })
+        .collect();
+    targets.sort();
+    targets
+}
+
+#[test]
+fn fuzz_targets_are_listed_alike_by_files_manifest_and_ci_matrix() {
+    let root = repository();
+    let from_files: Vec<String> = {
+        let mut names: Vec<String> = fs::read_dir(root.join("fuzz/fuzz_targets"))
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter_map(|path| Some(path.file_stem()?.to_string_lossy().into_owned()))
+            .collect();
+        names.sort();
+        names
+    };
+    let manifest = fs::read_to_string(root.join("fuzz/Cargo.toml")).unwrap();
+    let from_manifest: Vec<String> = {
+        let mut names: Vec<String> = manifest
+            .lines()
+            .filter_map(|line| line.trim().strip_prefix("name = \""))
+            .filter_map(|rest| Some(rest.strip_suffix('"')?.to_owned()))
+            .filter(|name| name != "caditor-fuzz")
+            .collect();
+        names.sort();
+        names
+    };
+    let workflow = fs::read_to_string(root.join(".github/workflows/ci.yml")).unwrap();
+    let matrix = matrix_targets(&workflow);
+    let from_matrix: Vec<String> = matrix.iter().map(|(target, _, _)| target.clone()).collect();
+
+    assert!(from_files.len() > 1);
+    assert_eq!(
+        from_manifest, from_files,
+        "fuzz/Cargo.toml and fuzz_targets"
+    );
+    assert_eq!(
+        from_matrix, from_files,
+        "the ci.yml fuzz matrix and fuzz_targets"
+    );
+
+    for (target, seeds, dictionary) in matrix {
+        assert!(
+            root.join("fuzz/seeds").join(&seeds).is_dir(),
+            "{target} names seeds {seeds} that do not exist"
+        );
+        assert!(
+            dictionary == "none"
+                || root
+                    .join("fuzz/dictionaries")
+                    .join(format!("{dictionary}.dict"))
+                    .is_file(),
+            "{target} names a dictionary {dictionary} that does not exist"
+        );
+    }
+}
+
+#[test]
+fn every_action_is_pinned_by_commit_with_its_version_in_the_step_name() {
+    let files = workflow_files();
+
+    assert!(files.iter().any(|(name, _)| name == "ci.yml"));
+
+    for (file, text) in files {
+        let lines: Vec<&str> = text.lines().map(str::trim).collect();
+        for (index, line) in lines.iter().enumerate() {
+            let Some(used) = line.strip_prefix("uses: ") else {
+                continue;
+            };
+            if used.starts_with("./") {
+                continue;
+            }
+            let (action, commit) = used
+                .split_once('@')
+                .unwrap_or_else(|| panic!("{file}: {used} names no commit"));
+            assert!(
+                commit.len() == COMMIT_LENGTH && commit.chars().all(|c| c.is_ascii_hexdigit()),
+                "{file}: {used} is not pinned by a full commit"
+            );
+            let step_name = lines
+                .get(..index)
+                .unwrap()
+                .iter()
+                .rev()
+                .find_map(|earlier| earlier.strip_prefix("- name: "))
+                .unwrap_or_else(|| panic!("{file}: {used} has no step name"));
+            assert!(
+                step_name.contains(&format!("({action} v")),
+                "{file}: the step '{step_name}' does not name {action}'s version"
+            );
+        }
+    }
+}
+
+#[test]
+fn no_pin_is_copied_into_a_workflow() {
+    let versions =
+        fs::read_to_string(repository().join(GITHUB_FOLDER).join("versions.env")).unwrap();
+    let pins: Vec<(&str, &str)> = versions
+        .lines()
+        .filter_map(|line| line.split_once('='))
+        .collect();
+
+    assert!(pins.len() > 5);
+
+    for (file, text) in workflow_files() {
+        for (name, value) in &pins {
+            assert!(
+                !text.contains(value),
+                "{file} holds the value of {name}; read it from the environment"
+            );
+        }
+    }
+}

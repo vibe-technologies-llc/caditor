@@ -4,16 +4,18 @@ use caditor_zstd::Level;
 
 use super::*;
 use crate::{
-    TextOutlines,
+    MeshFormat, TextOutlines,
     binary::{
         JOURNAL_MAGIC, MODEL_MAGIC, reseal, save_bytes,
         testing::{stored_copy, with_slices_of},
     },
+    import::mesh_tests::{binary_stl, cube_obj, placed_cube_3mf, text_stl},
     journal::{JournalHead, Mirror, decode_journal, encode_journal, replay},
 };
 
 const WRITE_SEEDS: &str = "CADITOR_WRITE_FUZZ_SEEDS";
 const SEED_SLICE: usize = 512;
+const MESH_FORMATS: [MeshFormat; 3] = [MeshFormat::Stl, MeshFormat::Obj, MeshFormat::ThreeMf];
 const INTER: &[u8] = include_bytes!("../../../caditor/assets/fonts/InterVariable.ttf");
 const INTER_ITALIC: &[u8] =
     include_bytes!("../../../caditor/assets/fonts/InterVariable-Italic.ttf");
@@ -96,6 +98,16 @@ fn seed_journal_entries() -> (Document, Vec<JournalEntry>) {
     (base, entries)
 }
 
+fn seed_mesh(format: MeshFormat, file: &[u8]) -> Vec<u8> {
+    let tag = MESH_FORMATS
+        .iter()
+        .position(|known| *known == format)
+        .unwrap();
+    let mut seed = vec![u8::try_from(tag).unwrap()];
+    seed.extend_from_slice(file);
+    seed
+}
+
 fn seed_frame(prefix: &[u8], data: &[u8]) -> Vec<u8> {
     let frame = caditor_zstd::compress_after(data, prefix, Level::FAST).unwrap();
     let mut seed = vec![u8::try_from(prefix.len()).unwrap()];
@@ -134,6 +146,41 @@ fn write_fuzz_seeds() {
         ("zstd/plain", seed_frame(&[], text)),
         ("zstd/after-prefix", seed_frame(&text[..32], text)),
     ];
+    write_seeds(seeds);
+}
+
+#[test]
+#[ignore = "writes the mesh fuzz seeds when CADITOR_WRITE_FUZZ_SEEDS is set"]
+fn write_mesh_fuzz_seeds() {
+    if std::env::var_os(WRITE_SEEDS).is_none() {
+        return;
+    }
+    let seeds = [
+        (
+            "mesh/cube-binary.stl",
+            seed_mesh(MeshFormat::Stl, &binary_stl()),
+        ),
+        (
+            "mesh/cube-text.stl",
+            seed_mesh(MeshFormat::Stl, text_stl(0).as_bytes()),
+        ),
+        (
+            "mesh/cube-open.stl",
+            seed_mesh(MeshFormat::Stl, text_stl(1).as_bytes()),
+        ),
+        (
+            "mesh/cube.obj",
+            seed_mesh(MeshFormat::Obj, cube_obj().as_bytes()),
+        ),
+        (
+            "mesh/cube.3mf",
+            seed_mesh(MeshFormat::ThreeMf, &placed_cube_3mf()),
+        ),
+    ];
+    write_seeds(seeds);
+}
+
+fn write_seeds<const N: usize>(seeds: [(&str, Vec<u8>); N]) {
     for (name, bytes) in seeds {
         let path = seeds_dir().join(name);
         fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -201,6 +248,17 @@ fn step_dxf_and_svg_seeds_import() {
         )
         .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
         assert!(!drawing.curves.is_empty(), "{}", path.display());
+    }
+}
+
+#[test]
+fn mesh_seeds_import() {
+    for (path, bytes) in seeds_in("mesh") {
+        let (&tag, file) = bytes.split_first().unwrap();
+        let format = MESH_FORMATS[usize::from(tag)];
+        let import = parse_mesh(file, format, "seed", "seed")
+            .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+        assert!(!import.bodies.is_empty(), "{}", path.display());
     }
 }
 

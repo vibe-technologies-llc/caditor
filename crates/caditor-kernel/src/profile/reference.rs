@@ -98,6 +98,11 @@ impl RegionReference {
         &self,
         regions: impl IntoIterator<Item = &'a Region>,
     ) -> Result<RegionMatch, ProfileError> {
+        let regions: Vec<&Region> = regions.into_iter().collect();
+        if regions.iter().any(|region| region.key() == self.key) {
+            return Ok(RegionMatch::Same(self.key));
+        }
+
         let sides: BTreeSet<(u64, Side)> = self
             .boundary
             .iter()
@@ -106,9 +111,6 @@ impl RegionReference {
 
         let mut likenesses: Vec<(Likeness, RegionKey)> = Vec::new();
         for region in regions {
-            if region.key() == self.key {
-                return Ok(RegionMatch::Same(self.key));
-            }
             let boundary: BTreeSet<BoundaryPiece> =
                 region.pieces().map(BoundaryPiece::of).collect();
             let shared_sides = boundary

@@ -11,7 +11,7 @@ const NO_WAIT: u32 = 0;
 const NOT_INHERITED: i32 = 0;
 
 pub fn process_running(process: u32) -> bool {
-    #[allow(unsafe_code)]
+    #[expect(unsafe_code, reason = "the Win32 call is unsafe to make")]
     let handle = unsafe {
         OpenProcess(
             PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE,
@@ -24,7 +24,7 @@ pub fn process_running(process: u32) -> bool {
             == i32::try_from(ERROR_ACCESS_DENIED).ok();
     }
     let process = Process(handle);
-    #[allow(unsafe_code)]
+    #[expect(unsafe_code, reason = "the Win32 call is unsafe to make")]
     let waited = unsafe { WaitForSingleObject(process.0, NO_WAIT) };
     waited == WAIT_TIMEOUT
 }
@@ -33,7 +33,7 @@ struct Process(HANDLE);
 
 impl Drop for Process {
     fn drop(&mut self) {
-        #[allow(unsafe_code)]
+        #[expect(unsafe_code, reason = "the Win32 call is unsafe to make")]
         unsafe {
             CloseHandle(self.0);
         }

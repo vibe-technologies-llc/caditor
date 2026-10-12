@@ -43,10 +43,10 @@ impl WindowConnection {
         else {
             return Ok(None);
         };
-        #[allow(unsafe_code)]
+        #[expect(unsafe_code, reason = "adopting winit's Wayland pointers is unsafe")]
         let backend = unsafe { Backend::from_foreign_display(display.display.as_ptr().cast()) };
         let connection = Connection::from_backend(backend);
-        #[allow(unsafe_code)]
+        #[expect(unsafe_code, reason = "adopting winit's Wayland pointers is unsafe")]
         let surface =
             unsafe { ObjectId::from_ptr(WlSurface::interface(), surface.surface.as_ptr().cast()) }?;
         let surface = WlSurface::from_id(&connection, surface)?;

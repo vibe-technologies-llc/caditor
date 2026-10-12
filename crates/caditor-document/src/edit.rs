@@ -1574,10 +1574,7 @@ impl Document {
     }
 
     fn check_feature_name(&self, name: &str, id: FeatureId) -> Result<(), EditError> {
-        let taken = self
-            .features()
-            .any(|other| other.id() != id && other.name == name);
-        if taken {
+        if self.features.name_taken_besides(name, id) {
             return Err(EditError::DuplicateFeatureName(name.to_owned()));
         }
         Ok(())

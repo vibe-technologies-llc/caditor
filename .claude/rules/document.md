@@ -61,7 +61,9 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   app calls them per body and per row, and an import of thousands of bodies made those loops
   quadratic. The features making or changing each body (`Feature::body`) are grouped on first
   ask (`Document::features_on_body`, which `face_splits` and the scene's body health read) and
-  forgotten by any change to the list or to a feature in it.
+  forgotten by any change to the list or to a feature in it. Names are indexed the same way
+  (`FeatureList::name_taken_besides`, kept by inserts and removals and forgotten by a feature
+  changing), so adding thousands of features checks each name by lookup.
 - `Document::inline_parameter` builds the one transaction deleting a parameter in use: its
   expression (not its value, so links to the parameters it uses survive) is substituted into every
   parameter, sketch dimension, feature and body density using it (`Expression::inlining`, which

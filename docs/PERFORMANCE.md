@@ -40,13 +40,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   in parallel would need its own decomposition, and a narrower reach loses the triangles bridging
   between holes. The remaining exact in-circle predicates (under a tenth of tessellation time) are
   on cocircular boundary samples of mirror-symmetric holes, which no helper reaches.
-- [low · easy] `RegionReference::resolve` (`profile/reference.rs`) builds a likeness summary of
-  every region it passes before reaching the one whose key matches: per region, a `BTreeSet` of
-  its pieces with a digest each, the set of their sides and a containment test, all thrown away
-  when a later region matches, so `resolve_regions` costs chosen regions times regions on every
-  recompute of a feature with `RegionChoice::Chosen` (`solid.rs`'s `chosen_regions`,
-  `healing.rs`), unmeasured but quadratic for a grid sketch with most cells chosen. Look the keys
-  up first and summarise only for the references whose key is gone.
 - [low · hard] `SolidResult::cuts`/`joins` keep every tool solid with every history entry,
   though only patterns, mirrors and an open feature read them; a removal's tool shares little
   with the result, since a difference reverses the tool's kept faces and their pcurves (an
@@ -70,15 +63,8 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Interface
 
-- [low · easy] Two interface lookups still walk a list per item: with a face analysis open
-  `Analyses::of` retains and scans every entry once per body, so the legend is O(B²) a frame and
-  computes `shown_meshes` again; and while a keyboard highlight is set, `highlightable().contains`
-  scans every pickable of the scene (listed once per scene) each frame.
-- [low · easy] `InsertFeature` compares a new feature's name with every other's
-  (`check_feature_name`), so a transaction adding N imports makes O(N²) comparisons, about 7.6
-  million for the VZ330's 3,894 bodies. A name index beside `FeatureList`'s id index would make it
-  a lookup, but renames reach a feature through `FeatureList::get_mut_by_id` and would have to keep
-  it.
+- [low · easy] With a face analysis open `Analyses::of` retains and scans every entry once per
+  body, so the legend is O(B²) a frame and computes `shown_meshes` again.
 - [medium · hard] The cached scene's own batch holds every drawn sketch: any change to its
   content (each drag solution, an edit, an evaluation, a new faceting level) facets every drawn
   sketch again, and a hover or selection change restyles and uploads all of it, over a millisecond
@@ -131,16 +117,12 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 ## Hostile files
 
 - [low · easy] Crafted files take quadratic time in readers documented as near linear, on a
-  worker that Cancel only abandons: model loading dedupes `FeaturePattern::repeated`,
-  `FeatureMirror::mirrored` and `CombineTools::more_tools` with `Vec::contains` (`format.rs`) and
-  configured values before applying `MAX_CONFIGURED_VALUES` (`configurations.rs`'s
-  `restore_values`), so one record of half a million ids, a few KB compressed, takes minutes,
-  against `file-format.md`'s "near-linear on hostile files"; the XML reader shared by SVG and 3MF
-  interns namespaces by a linear scan (`xml.rs`, `intern`) and resolves each prefix by walking
-  every open scope (`resolved`), with no cap on attributes per tag or on nesting, and never polls
-  the interrupt; SVG `use` checks for a loop through every XML ancestor (`svg/mod.rs`), deeper
-  than `MAX_NESTING` bounds its own walk; STEP reading rebuilds an equivalence class by search for
-  every relationship and owned representation (`read/structure.rs`, `class` in
-  `relationship`) and drops fins with `kept.remove(0)` (`read/topology.rs`), charging the work
-  budget once per face. Dedupe through `UntrustedSet`, intern and resolve through maps, cap tags
-  and depth, test subtrees by document-order ranges, label the classes once and pop from a deque.
+  worker that Cancel only abandons: the XML reader shared by SVG and 3MF interns namespaces by a
+  linear scan (`xml.rs`, `intern`) and resolves each prefix by walking every open scope
+  (`resolved`), with no cap on attributes per tag or on nesting, and never polls the interrupt; SVG
+  `use` checks for a loop through every XML ancestor (`svg/mod.rs`), deeper than `MAX_NESTING`
+  bounds its own walk; STEP reading rebuilds an equivalence class by search for every relationship
+  and owned representation (`read/structure.rs`, `class` in `relationship`) and drops fins with
+  `kept.remove(0)` (`read/topology.rs`), charging the work budget once per face. Intern and resolve
+  through maps, cap tags and depth, test subtrees by document-order ranges, label the classes once
+  and pop from a deque.

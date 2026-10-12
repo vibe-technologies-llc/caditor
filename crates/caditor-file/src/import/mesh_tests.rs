@@ -52,7 +52,7 @@ fn only_volume(imported: &ModelImport) -> f64 {
     volume(&body.import.solid)
 }
 
-fn binary_stl() -> Vec<u8> {
+pub(crate) fn binary_stl() -> Vec<u8> {
     let mut bytes = vec![0u8; 80];
     bytes.extend(12u32.to_le_bytes());
     for triangle in TRIANGLES {
@@ -101,10 +101,9 @@ fn a_binary_stl_cube_imports_as_one_body_of_six_faces_read_in_millimetres() {
     );
 }
 
-#[test]
-fn a_text_stl_with_a_missing_triangle_is_closed_and_says_so() {
+pub(crate) fn text_stl(skipped: usize) -> String {
     let mut text = "solid cube\n".to_owned();
-    for triangle in TRIANGLES.iter().skip(1) {
+    for triangle in TRIANGLES.iter().skip(skipped) {
         text.push_str("facet normal 0 0 0\nouter loop\n");
         for corner in triangle {
             let [x, y, z] = CORNERS[*corner];
@@ -113,6 +112,12 @@ fn a_text_stl_with_a_missing_triangle_is_closed_and_says_so() {
         text.push_str("endloop\nendfacet\n");
     }
     text.push_str("endsolid cube\n");
+    text
+}
+
+#[test]
+fn a_text_stl_with_a_missing_triangle_is_closed_and_says_so() {
+    let text = text_stl(1);
 
     let imported = parse_mesh(text.as_bytes(), MeshFormat::Stl, "cube.stl", "cube").unwrap();
 
@@ -124,8 +129,7 @@ fn a_text_stl_with_a_missing_triangle_is_closed_and_says_so() {
     );
 }
 
-#[test]
-fn an_obj_of_quads_with_relative_indices_imports() {
+pub(crate) fn cube_obj() -> String {
     let mut text = String::new();
     for [x, y, z] in CORNERS {
         writeln!(text, "v {x} {y} {z}").unwrap();
@@ -140,14 +144,19 @@ fn an_obj_of_quads_with_relative_indices_imports() {
     ] {
         writeln!(text, "f {a}/1 {b}/1 {} {}", c - 9, d).unwrap();
     }
+    text
+}
+
+#[test]
+fn an_obj_of_quads_with_relative_indices_imports() {
+    let text = cube_obj();
 
     let imported = parse_mesh(text.as_bytes(), MeshFormat::Obj, "cube.obj", "cube").unwrap();
 
     assert!((only_volume(&imported) - 1000.0).abs() < 1e-6);
 }
 
-#[test]
-fn a_3mf_places_its_components_and_converts_its_unit() {
+pub(crate) fn placed_cube_3mf() -> Vec<u8> {
     let mut model = String::from(
         "<?xml version=\"1.0\"?><model unit=\"centimeter\" \
          xmlns=\"http://schemas.microsoft.com/3dmanufacturing/core/2015/02\"><resources>\
@@ -173,11 +182,12 @@ fn a_3mf_places_its_components_and_converts_its_unit() {
          </resources><build><item objectid=\"2\" transform=\"1 0 0 0 1 0 0 0 1 5 0 0\"/></build>\
          </model>",
     );
-    let package = archive(&[ZipEntry {
-        name: "3D/3dmodel.model",
-        contents: model.as_bytes(),
-    }])
-    .unwrap();
+    model_package(&model)
+}
+
+#[test]
+fn a_3mf_places_its_components_and_converts_its_unit() {
+    let package = placed_cube_3mf();
 
     let imported = parse_mesh(&package, MeshFormat::ThreeMf, "cube.3mf", "cube").unwrap();
 

@@ -11,7 +11,7 @@ pub fn battery_flag() -> io::Result<u8> {
         BatteryLifeTime: 0,
         BatteryFullLifeTime: 0,
     };
-    #[allow(unsafe_code)]
+    #[expect(unsafe_code, reason = "the Win32 call is unsafe to make")]
     let read = unsafe { GetSystemPowerStatus(&mut status) };
     if read == 0 {
         Err(io::Error::last_os_error())

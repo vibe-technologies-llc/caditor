@@ -16,6 +16,7 @@ pub struct FeatureList {
 struct Index {
     positions: BTreeMap<FeatureId, usize>,
     by_body: OnceLock<Arc<BTreeMap<FeatureId, Vec<FeatureId>>>>,
+    by_name: OnceLock<Arc<BTreeMap<String, Vec<FeatureId>>>>,
 }
 
 impl PartialEq for FeatureList {
@@ -49,14 +50,29 @@ impl FeatureList {
             .map_or(&[], Vec::as_slice)
     }
 
+    pub fn name_taken_besides(&self, name: &str, id: FeatureId) -> bool {
+        self.index
+            .by_name
+            .get_or_init(|| Arc::new(grouped_by_name(&self.items)))
+            .get(name)
+            .is_some_and(|holders| holders.iter().any(|holder| *holder != id))
+    }
+
     pub fn get_mut_by_id(&mut self, id: FeatureId) -> Option<&mut Arc<Feature>> {
         let index = self.position(id)?;
         self.index.by_body = OnceLock::new();
+        self.index.by_name = OnceLock::new();
         self.items.get_mut(index)
     }
 
     pub fn insert(&mut self, index: usize, feature: Arc<Feature>) {
         let index = index.min(self.items.len());
+        if let Some(names) = self.index.by_name.get_mut() {
+            Arc::make_mut(names)
+                .entry(feature.name.clone())
+                .or_default()
+                .push(feature.id());
+        }
         self.items.insert(index, feature);
         self.reindex(index, self.items.len());
     }
@@ -67,6 +83,15 @@ impl FeatureList {
         }
         let feature = self.items.remove(index);
         self.index.positions.remove(&feature.id());
+        if let Some(names) = self.index.by_name.get_mut() {
+            let names = Arc::make_mut(names);
+            if let Some(holders) = names.get_mut(&feature.name) {
+                holders.retain(|holder| *holder != feature.id());
+                if holders.is_empty() {
+                    names.remove(&feature.name);
+                }
+            }
+        }
         self.reindex(index, self.items.len());
         Some(feature)
     }
@@ -94,6 +119,17 @@ fn grouped_by_body(items: &[Arc<Feature>]) -> BTreeMap<FeatureId, Vec<FeatureId>
         if let Some(body) = feature.body() {
             grouped.entry(body).or_default().push(feature.id());
         }
+    }
+    grouped
+}
+
+fn grouped_by_name(items: &[Arc<Feature>]) -> BTreeMap<String, Vec<FeatureId>> {
+    let mut grouped: BTreeMap<String, Vec<FeatureId>> = BTreeMap::new();
+    for feature in items {
+        grouped
+            .entry(feature.name.clone())
+            .or_default()
+            .push(feature.id());
     }
     grouped
 }
@@ -206,5 +242,37 @@ mod tests {
         assert_eq!(changed, (vec![3], vec![1, 2]));
         assert!(removed.is_empty());
         assert!(on_body(&list, 9).is_empty());
+    }
+
+    #[test]
+    fn taken_names_follow_inserts_removals_and_renames() {
+        let mut list = FeatureList::default();
+        let one = FeatureId::from_raw(1);
+        let two = FeatureId::from_raw(2);
+
+        list.insert(0, feature(1));
+        let asked_before = list.name_taken_besides("Feature 2", two);
+        list.insert(1, feature(2));
+        let after_insert = (
+            list.name_taken_besides("Feature 2", one),
+            list.name_taken_besides("Feature 2", two),
+        );
+
+        if let Some(renamed) = list.get_mut_by_id(two) {
+            Arc::make_mut(renamed).name = "Boss".to_owned();
+        }
+        let after_rename = (
+            list.name_taken_besides("Feature 2", one),
+            list.name_taken_besides("Boss", one),
+            list.name_taken_besides("Boss", two),
+        );
+
+        list.remove(1);
+        let after_removal = list.name_taken_besides("Boss", one);
+
+        assert!(!asked_before);
+        assert_eq!(after_insert, (true, false));
+        assert_eq!(after_rename, (false, true, false));
+        assert!(!after_removal);
     }
 }

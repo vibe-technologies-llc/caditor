@@ -9,6 +9,8 @@ publish.workspace = true
 unsafe_code = "deny"
 
 [lints.clippy]
+allow_attributes = "deny"
+allow_attributes_without_reason = "deny"
 disallowed_types = "deny"
 expect_used = "deny"
 indexing_slicing = "deny"
@@ -34,7 +36,6 @@ windows-sys = {
         "Win32_System_Registry",
         "Win32_System_Threading",
         "Win32_UI_Input_KeyboardAndMouse",
-        "Win32_UI_Shell",
         "Win32_UI_WindowsAndMessaging"
     ]
 }
