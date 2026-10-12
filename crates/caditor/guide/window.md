@@ -7,12 +7,18 @@ and, at the right, the gear that opens Preferences and Search commands. Related 
 together in submenus. Click the model's name for its details: where it is saved,
 Save, Version history and Model properties.
 
-The ribbon under it holds the most used tools in groups. Hover a button to see what it does, its
-shortcut, or why it is not available now. While a sketch is edited a second ribbon holds the sketch
-tools, with its own Undo and Redo. A small arrow or triangle in a button's corner opens a menu of
+The ribbon under it holds the most used tools in groups: History, Sketch, Solid, Modify, Pattern,
+Reference and Analyse. Hover a button to see what it does, its shortcut, or why it is not available
+now. Click a group's name, with the small arrow beside it, to open a menu of every command the group has,
+the ones without a button of their own included, each with its shortcut; choose one to run it as
+its button would. Escape or a click elsewhere closes the menu, and with the keyboard the arrow keys
+move through it and Enter runs the one highlighted. The Analyse group holds Measure, Check
+interference, the face analyses, the curvature comb, isocurves, the section view and the centres
+of mass, and its menu marks the ones that are open. While a sketch is edited a second ribbon holds
+the sketch tools, with its own Undo and Redo. A small arrow or triangle in a button's corner opens a menu of
 more tools or ways to draw; hover it to see what the menu holds. When the window is short for the
 interface size, the ribbons show their tools as icons alone, named on hover, so the view keeps its
-room. Tools without a button are in the menus and in {command:palette}.
+room, and each group's menu opens from a small arrow in the corner of its last tool. Tools without a button are in the menus and in {command:palette}.
 
 ## The model panel
 

@@ -126,6 +126,18 @@ pub fn captioned(
     content: impl FnOnce(&mut Ui) -> f32,
 ) -> (Rect, f32) {
     let galley = caption.map(|caption| caption_galley(ui, caption));
+    captioned_by(ui, galley, show_caption, content, |ui, rect, galley| {
+        ui.put(rect, Label::new(galley).selectable(false));
+    })
+}
+
+pub fn captioned_by(
+    ui: &mut Ui,
+    galley: Option<Arc<Galley>>,
+    show_caption: bool,
+    content: impl FnOnce(&mut Ui) -> f32,
+    caption: impl FnOnce(&mut Ui, Rect, Arc<Galley>),
+) -> (Rect, f32) {
     let shown = ui.vertical(|ui| {
         let content = content(ui);
         let Some(galley) = galley else {
@@ -137,7 +149,7 @@ pub fn captioned(
             let width = ui.min_rect().width().max(galley.size().x);
             let height = ui.text_style_height(&TextStyle::Small);
             let rect = Rect::from_min_size(pos2(ui.min_rect().left(), top), vec2(width, height));
-            ui.put(rect, Label::new(galley).selectable(false));
+            caption(ui, rect, galley);
         }
         natural
     });
@@ -155,7 +167,7 @@ pub fn explained(response: Response, title: &str, help: &Result<String, String>)
     }
 }
 
-fn caption_galley(ui: &Ui, text: &str) -> Arc<Galley> {
+pub fn caption_galley(ui: &Ui, text: &str) -> Arc<Galley> {
     let muted = appearance::tokens(ui).text_muted;
     WidgetText::from(
         RichText::new(text)

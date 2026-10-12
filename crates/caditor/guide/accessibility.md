@@ -5,7 +5,8 @@
   [working from the keyboard](keyboard).
 - **Interface size**: {command:view.interface_larger} and {command:view.interface_smaller} scale
   the whole interface from 75% to 200%; {command:view.interface_normal} goes back to 100%. Panels
-  and toolbars wrap rather than cut off.
+  and toolbars wrap rather than cut off. Each ribbon group's menu of commands is a button named
+  "<group> commands", reached with Tab, that opens with Enter or Space.
 - **High contrast** in [Preferences](preferences) › Appearance strengthens text, outlines and focus
   rings, and reaches the 3D view: lines and points stand out against the background and bodies,
   a body too dark for its edges and highlighted faces to show is drawn lighter,

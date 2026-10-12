@@ -525,6 +525,10 @@ impl<'a> MenuEntries<'a> {
 
     pub fn choice(&mut self, ui: &mut Ui, command: Command) {
         let chosen = self.toggles.is_on(command);
+        self.marked(ui, command, chosen);
+    }
+
+    pub fn marked(&mut self, ui: &mut Ui, command: Command, chosen: bool) {
         let availability = self.availability(command);
         let keys = self.keys(command);
         let response = ui.add_enabled_ui(availability.is_ok(), |ui| {
@@ -1045,7 +1049,7 @@ impl Menus<'_> {
     }
 }
 
-fn step_title(command: Command, step: Option<&str>, available: bool) -> String {
+pub fn step_title(command: Command, step: Option<&str>, available: bool) -> String {
     match step {
         Some(step) if available => format!("{} {step}", command.title()),
         _ => command.title(),

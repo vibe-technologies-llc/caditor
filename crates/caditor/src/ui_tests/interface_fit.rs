@@ -125,7 +125,7 @@ fn the_sketch_bar_fits_one_row_wraps_at_200_percent_and_names_every_button() {
     assert_eq!(sketch_bar_problems(&harness, visible), Vec::<String>::new());
     assert!(harness.button_rect("Parallel").top() > harness.button_rect("Point").bottom());
     assert!(!harness.shows("Constrain"));
-    assert!(!harness.shows("Inspect"));
+    assert!(!harness.shows("Analyse"));
     assert!(harness.shows(sketch_toolbar::FINISH_LABEL));
     assert_readable(&harness, "The sketch bar at 200%");
     for name in sketch_bar_buttons() {

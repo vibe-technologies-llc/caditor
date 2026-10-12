@@ -81,6 +81,18 @@ impl AnalysisCommand {
         }
     }
 
+    pub fn kind(self) -> Option<Kind> {
+        match self {
+            Self::Draft => Some(Kind::Draft),
+            Self::Radius => Some(Kind::Radius),
+            Self::Reach => Some(Kind::Reach),
+            Self::Curvature => Some(Kind::Curvature),
+            Self::Zebra => Some(Kind::Zebra),
+            Self::Chrome => Some(Kind::Chrome),
+            Self::UseSelected | Self::Reverse | Self::Comb | Self::Isocurves => None,
+        }
+    }
+
     pub fn title(self) -> &'static str {
         match self {
             Self::Draft => "Analyse draft",
