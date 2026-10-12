@@ -512,7 +512,12 @@ and, for off-ribbon tools, a partner's corner menu.
 - Preview curves are faceted like the sketch's (`Drawing::preview` and `Trimming::preview` take the
   scene's `Faceting`); the snap target, a direction's reference line and each track's anchor (its
   point, or the curves its middle, crossing or quadrant lies on) (`Drawing::snap_entities`) replace
-  the GPU hover while a drawing tool is active.
+  the GPU hover while a drawing tool is active. An outline's centre, hovered or a track's anchor,
+  shows every piece of its loop, and for `Centre` the two corners its `Symmetric` holds, since
+  `Target` names only the piece the outline search started from: `ShownOutlines` finds the loop
+  again from that piece (`snap::outline_through`) when the centre starts being shown and keeps it
+  while it stays shown, so `Target` stays `Copy` and no outline search runs per frame. Grabs show
+  no snap highlight.
 
 ## Constraint tools
 

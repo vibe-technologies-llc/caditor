@@ -722,6 +722,7 @@ pub struct Drawing {
     grid: Option<f64>,
     hold: Option<Hold>,
     acquired: Acquired,
+    outlines: ShownOutlines,
     extension_guide: Option<[Point2; 2]>,
     typed: Vec<TypedMark>,
     typed_hover: Option<TypedMark>,
@@ -729,6 +730,84 @@ pub struct Drawing {
     pointed: Option<Pointed>,
     bodies: Arc<BodySnaps>,
     about: Option<EntityId>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+struct ShownOutlines(Vec<(EntityId, Vec<EntityId>)>);
+
+impl ShownOutlines {
+    fn keep(&mut self, sketch: &Sketch, hover: Option<Placement>) {
+        let wanted = hover.map_or([None; 4], |hover| {
+            [
+                hover.snap.target(),
+                hover.tracks.level.map(|track| track.anchor),
+                hover.tracks.upright.map(|track| track.anchor),
+                hover.tracks.slanted.map(|track| track.anchor),
+            ]
+            .map(|target| target.and_then(outline_of))
+        });
+        self.0
+            .retain(|(outline, _)| wanted.contains(&Some(*outline)));
+        for outline in wanted.into_iter().flatten() {
+            if !self.0.iter().any(|(kept, _)| *kept == outline) {
+                let pieces =
+                    snap::outline_through(sketch, outline).unwrap_or_else(|| vec![outline]);
+                self.0.push((outline, pieces));
+            }
+        }
+    }
+
+    fn keep_none(&mut self) {
+        self.0.clear();
+    }
+
+    fn add_pieces(&self, outline: EntityId, shown: &mut Vec<EntityId>) {
+        match self.0.iter().find(|(kept, _)| *kept == outline) {
+            Some((_, pieces)) => shown.extend_from_slice(pieces),
+            None => shown.push(outline),
+        }
+    }
+
+    fn show(&self, target: Target, shown: &mut Vec<EntityId>) {
+        match target {
+            Target::Centre {
+                outline,
+                corners: (first, second),
+            } => {
+                self.add_pieces(outline, shown);
+                shown.extend([first, second]);
+            }
+            Target::Centroid(outline) => self.add_pieces(outline, shown),
+            Target::Pending(_)
+            | Target::Point(_)
+            | Target::Curve(_)
+            | Target::Extension(_)
+            | Target::Midpoint(_)
+            | Target::Quadrant { .. }
+            | Target::AxisEnd { .. }
+            | Target::Tangent(_)
+            | Target::Intersection(..)
+            | Target::Body(_) => {
+                shown.extend(target.entity().into_iter().chain(target.second_entity()))
+            }
+        }
+    }
+}
+
+fn outline_of(target: Target) -> Option<EntityId> {
+    match target {
+        Target::Centre { outline, .. } | Target::Centroid(outline) => Some(outline),
+        Target::Pending(_)
+        | Target::Point(_)
+        | Target::Curve(_)
+        | Target::Extension(_)
+        | Target::Midpoint(_)
+        | Target::Quadrant { .. }
+        | Target::AxisEnd { .. }
+        | Target::Tangent(_)
+        | Target::Intersection(..)
+        | Target::Body(_) => None,
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -887,19 +966,15 @@ impl Drawing {
         let Some(hover) = self.hover else {
             return Vec::new();
         };
-        hover
-            .snap
-            .entity()
-            .into_iter()
-            .chain(hover.snap.target().and_then(Target::second_entity))
-            .chain(hover.snap.direction().and_then(Direction::reference))
-            .chain(
-                hover
-                    .tracks
-                    .anchors()
-                    .flat_map(|anchor| anchor.entity().into_iter().chain(anchor.second_entity())),
-            )
-            .collect()
+        let mut shown = Vec::new();
+        if let Some(target) = hover.snap.target() {
+            self.outlines.show(target, &mut shown);
+        }
+        shown.extend(hover.snap.direction().and_then(Direction::reference));
+        for anchor in hover.tracks.anchors() {
+            self.outlines.show(anchor, &mut shown);
+        }
+        shown
     }
 
     pub fn sync(
@@ -1145,6 +1220,7 @@ impl Drawing {
         {
             self.acquired.note(sketch, target, hover.position);
         }
+        self.outlines.keep(sketch, self.hover);
         if self.choosing_arc_end()
             && let (Some(sweep), Some(hover)) = (&mut self.sweep, self.hover)
         {
@@ -1640,6 +1716,7 @@ impl Drawing {
     pub fn leave(&mut self) {
         self.end_typed_preview();
         self.hover = None;
+        self.outlines.keep_none();
     }
 
     pub fn cancel(&mut self) {
@@ -4208,6 +4285,82 @@ mod tests {
             drawing.preview(Faceting::within(0.01)).guides,
             vec![[Point2::new(30.0, 20.0), Point2::new(70.0, 20.0)]]
         );
+    }
+
+    fn placing_points(sketch: &Sketch) -> Drawing {
+        let mut drawing = drawing_a_line(sketch, Placement::free(Point2::ZERO));
+        drawing.context = drawing.context.map(|(feature, _)| (feature, Shape::Point));
+        drawing.placed.clear();
+        drawing
+    }
+
+    fn outline_of_lines(sketch: &mut Sketch, corners: &[Point2]) -> Vec<EntityId> {
+        corners
+            .iter()
+            .zip(corners.iter().cycle().skip(1))
+            .map(|(from, to)| sketch.add_line(*from, *to))
+            .collect()
+    }
+
+    fn sorted(mut entities: Vec<EntityId>) -> Vec<EntityId> {
+        entities.sort_unstable();
+        entities
+    }
+
+    #[test]
+    fn the_centre_of_an_outline_highlights_every_piece_and_the_corners_holding_it() {
+        let mut sketch = Sketch::new(caditor_geometry::Plane::XY);
+        let sides = outline_of_lines(
+            &mut sketch,
+            &[
+                Point2::new(10.0, 10.0),
+                Point2::new(50.0, 10.0),
+                Point2::new(50.0, 30.0),
+                Point2::new(10.0, 30.0),
+            ],
+        );
+        let mut drawing = placing_points(&sketch);
+
+        let centre = hovered_at(&mut drawing, &sketch, Point2::new(30.2, 20.3)).unwrap();
+        let Snap::Target(Target::Centre {
+            corners: (first, second),
+            ..
+        }) = centre.snap
+        else {
+            panic!("the centre of the rectangle should be the snap");
+        };
+        let mut whole = sides.clone();
+        whole.extend([first, second]);
+        let on_centre = drawing.snap_entities();
+        let below = hovered_at(&mut drawing, &sketch, Point2::new(30.3, -20.0)).unwrap();
+        let tracking_centre = drawing.snap_entities();
+
+        assert_eq!(sorted(on_centre), sorted(whole.clone()));
+        assert_eq!(below.position, Point2::new(30.0, -20.0));
+        assert_eq!(sorted(tracking_centre), sorted(whole));
+    }
+
+    #[test]
+    fn the_centre_of_an_odd_outline_highlights_every_piece() {
+        let mut sketch = Sketch::new(caditor_geometry::Plane::XY);
+        let stray = sketch.add_line(Point2::new(0.0, 60.0), Point2::new(40.0, 60.0));
+        let sides = outline_of_lines(
+            &mut sketch,
+            &[
+                Point2::new(10.0, 10.0),
+                Point2::new(40.0, 10.0),
+                Point2::new(10.0, 40.0),
+            ],
+        );
+        let mut drawing = placing_points(&sketch);
+
+        let centre = hovered_at(&mut drawing, &sketch, Point2::new(20.2, 19.8)).unwrap();
+
+        assert!(matches!(centre.snap, Snap::Target(Target::Centroid(_))));
+        assert_eq!(sorted(drawing.snap_entities()), sorted(sides));
+        assert!(!drawing.snap_entities().contains(&stray));
+        drawing.leave();
+        assert_eq!(drawing.snap_entities(), Vec::new());
     }
 
     #[test]

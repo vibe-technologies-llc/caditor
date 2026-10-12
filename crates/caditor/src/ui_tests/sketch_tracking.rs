@@ -1,8 +1,8 @@
 use caditor_geometry::{Plane, Point2, Vector2};
-use caditor_sketch::{EntityId, Sketch};
+use caditor_sketch::{Constraint, EntityId, Sketch};
 use egui::{Key, Modifiers};
 
-use super::{Harness, edit_free_sketch, entities_of_kind, line_ends, near};
+use super::{Harness, constraints_of_kind, edit_free_sketch, entities_of_kind, line_ends, near};
 
 fn placed_alone(sketch: &Sketch, before: &[EntityId]) -> EntityId {
     let [placed] = entities_of_kind(sketch, "Point")
@@ -84,4 +84,40 @@ fn a_point_placed_square_to_a_line_through_its_middle_lands_on_its_perpendicular
     );
     assert!(at.distance(Point2::new(5.0, 45.0)) < 0.1, "{at}");
     assert!(free_of_constraints(sketch, placed));
+}
+
+#[test]
+fn hovering_the_centre_of_a_rectangle_highlights_all_of_it_and_the_corners_holding_the_point() {
+    let mut harness = Harness::new();
+    let feature = harness.draw_on_new_sketch();
+    harness.use_tool(Key::R);
+    harness.click_at(Point2::new(10.0, 10.0));
+    harness.click_at(Point2::new(50.0, 30.0));
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.settle();
+    let sides = entities_of_kind(harness.sketch(feature), "Line");
+    let corners = entities_of_kind(harness.sketch(feature), "Point");
+
+    harness.use_tool(Key::P);
+    harness.point_at(Point2::new(30.2, 20.1));
+    assert!(harness.shows_containing("Centre of the outline of Line"));
+    let highlighted = harness.workspace.viewport.snap_highlight();
+    harness.click_at(Point2::new(30.2, 20.1));
+    harness.settle();
+
+    let symmetric = constraints_of_kind(harness.sketch(feature), "Symmetric");
+    let [Constraint::Symmetric { first, second, .. }] = symmetric[..] else {
+        panic!("one symmetry about the centre is expected");
+    };
+    assert_eq!(sides.len(), 4);
+    assert!(sides.iter().all(|side| highlighted.contains(side)));
+    assert!(highlighted.contains(&first) && highlighted.contains(&second));
+    assert_eq!(
+        highlighted
+            .iter()
+            .filter(|entity| corners.contains(entity))
+            .count(),
+        2
+    );
 }

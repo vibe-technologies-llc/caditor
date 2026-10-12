@@ -6,7 +6,9 @@ snapped point keeps the relation as a constraint, so a line ending on a circle s
 ## What it snaps to
 
 - Points, the sketch origin and the middle of lines, arcs and elliptical arcs.
-- The centre of a closed outline such as a rectangle, slot or regular polygon.
+- The centre of a closed outline such as a rectangle, slot or regular polygon. The whole outline
+  lights up, and on an outline of an even number of sides so do the two corners that will hold the
+  point there.
 - Where two curves cross, and the right, top, left and bottom of circles and arcs.
 - The far end of an ellipse's major axis and the ends of its minor axis; the point stays at the
   end however the ellipse is turned.

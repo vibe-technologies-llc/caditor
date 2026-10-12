@@ -1018,6 +1018,16 @@ fn loop_through(sketch: &Sketch, piece: EntityId) -> Option<(Vec<OutlineLine>, V
     Some((lines, steps))
 }
 
+pub fn outline_through(sketch: &Sketch, piece: EntityId) -> Option<Vec<EntityId>> {
+    let (lines, steps) = loop_through(sketch, piece)?;
+    Some(
+        steps
+            .iter()
+            .filter_map(|step| lines.get(step.piece).map(|line| line.id))
+            .collect(),
+    )
+}
+
 fn centres(sketch: &Sketch, ignored: &[EntityId]) -> Vec<Snapped> {
     let lines = outline_pieces(sketch);
     let tolerance = joined_tolerance(&lines);
