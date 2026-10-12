@@ -11,8 +11,8 @@ use std::{
 };
 
 use caditor_document::{
-    CancelToken, CarriedParameters, Document, Feature, FeatureId, FeaturePaste, LeftOut,
-    ModelEvaluator, PasteError, PasteOrigin, PickSearch, Transaction,
+    CancelToken, CarriedParameters, Document, Evaluator, Feature, FeatureId, FeaturePaste, LeftOut,
+    ModelEvaluator, PasteError, PasteOrigin, PickSearch, Recompute, Recomputer, Transaction,
 };
 
 use crate::{
@@ -68,7 +68,15 @@ pub struct PasteProgress {
 
 enum Outcome {
     Planned(Result<FeaturePaste, PasteError>),
+    Interrupted,
     Crashed,
+}
+
+pub struct PasteTarget<'a> {
+    pub document: &'a Document,
+    pub revision: u64,
+    pub threads_cosmetic: bool,
+    pub worker: Option<&'a Recomputer>,
 }
 
 struct Running {
@@ -104,8 +112,7 @@ impl Pastes {
     pub fn start(
         &mut self,
         request: PasteRequest,
-        document: &Document,
-        revision: u64,
+        target: PasteTarget<'_>,
         wake: Waker,
     ) -> Result<(), &'static str> {
         if self.running.is_some() {
@@ -117,33 +124,48 @@ impl Pastes {
         let total = Arc::new(AtomicUsize::new(0));
         let (sender, outcome) = mpsc::channel();
         let job = Job {
-            document: document.clone(),
+            document: target.document.clone(),
             request: Arc::clone(&request),
+            threads_cosmetic: target.threads_cosmetic,
             cancelled: Arc::clone(&cancelled),
             found: Arc::clone(&found),
             total: Arc::clone(&total),
         };
-        let spawned = thread::Builder::new()
-            .name("paste".to_owned())
-            .spawn(move || {
-                let outcome = panic::catch_unwind(AssertUnwindSafe(|| job.run())).map_or_else(
-                    |_| {
-                        log::error!("finding the picks of pasted features panicked");
-                        Outcome::Crashed
-                    },
-                    Outcome::Planned,
-                );
+        let deliver =
+            move |cache: &mut Recompute, evaluator: &dyn Evaluator, superseded: &CancelToken| {
+                let outcome =
+                    panic::catch_unwind(AssertUnwindSafe(|| job.run(cache, evaluator, superseded)))
+                        .unwrap_or_else(|_| {
+                            log::error!("finding the picks of pasted features panicked");
+                            Outcome::Crashed
+                        });
                 if sender.send(outcome).is_ok() {
                     wake();
                 }
-            });
-        if let Err(error) = spawned {
+            };
+        let queued = match target.worker {
+            Some(worker) => worker
+                .submit_on_cache(Box::new(deliver))
+                .map_err(|error| error.to_string()),
+            None => thread::Builder::new()
+                .name("paste".to_owned())
+                .spawn(move || {
+                    deliver(
+                        &mut Recompute::default(),
+                        &ModelEvaluator,
+                        &CancelToken::never(),
+                    );
+                })
+                .map(|_| ())
+                .map_err(|error| error.to_string()),
+        };
+        if let Err(error) = queued {
             log::warn!("could not start pasting: {error}");
             return Err(CRASHED);
         }
         self.running = Some(Running {
             request,
-            revision,
+            revision: target.revision,
             cancelled,
             found,
             total,
@@ -183,11 +205,9 @@ impl Pastes {
 
     fn finish(&mut self, outcome: Outcome, revision: u64) -> Option<PasteFinished> {
         let running = self.running.take()?;
-        if running.revision != revision {
-            let request = Arc::unwrap_or_clone(running.request);
-            return Some(PasteFinished::Outdated(Box::new(request)));
-        }
         Some(match outcome {
+            _ if running.revision != revision => outdated(running),
+            Outcome::Interrupted => outdated(running),
             Outcome::Planned(Err(PasteError::Cancelled)) => PasteFinished::Cancelled,
             Outcome::Planned(planned) => {
                 PasteFinished::Planned(self::planned(planned, &running.request.notes))
@@ -205,32 +225,53 @@ impl Pastes {
     }
 }
 
+fn outdated(running: Running) -> PasteFinished {
+    PasteFinished::Outdated(Box::new(Arc::unwrap_or_clone(running.request)))
+}
+
 struct Job {
     document: Document,
     request: Arc<PasteRequest>,
+    threads_cosmetic: bool,
     cancelled: Arc<AtomicBool>,
     found: Arc<AtomicUsize>,
     total: Arc<AtomicUsize>,
 }
 
 impl Job {
-    fn run(self) -> Result<FeaturePaste, PasteError> {
+    fn run(
+        self,
+        cache: &mut Recompute,
+        evaluator: &dyn Evaluator,
+        superseded: &CancelToken,
+    ) -> Outcome {
         let cancelled = Arc::clone(&self.cancelled);
-        let cancel = CancelToken::new(move || cancelled.load(Ordering::Relaxed));
+        let interrupted = superseded.clone();
+        let cancel = CancelToken::new(move || {
+            cancelled.load(Ordering::Relaxed) || interrupted.is_cancelled()
+        });
         let progress = |found: usize, total: usize| {
             self.found.store(found, Ordering::Relaxed);
             self.total.store(total, Ordering::Relaxed);
         };
-        self.document.paste_features_finding_picks(
+        let planned = self.document.paste_features_finding_picks(
             &self.request.features,
             &self.request.parameters,
             self.request.origin,
             &PickSearch {
-                evaluator: &ModelEvaluator,
+                evaluator,
                 cancel: &cancel,
                 progress: &progress,
+                threads_cosmetic: self.threads_cosmetic,
             },
-        )
+            cache,
+        );
+        match planned {
+            Err(PasteError::Cancelled) if !self.cancelled.load(Ordering::Relaxed) => {
+                Outcome::Interrupted
+            }
+            planned => Outcome::Planned(planned),
+        }
     }
 }
 

@@ -135,10 +135,12 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   or a body a corner (`VertexName`) is picked on, is a pick of copied geometry (`copied_picks` counts
   such features). `paste_features` leaves the feature out as `CopiedGeometry`.
   `paste_features_finding_picks` (`paste_picks.rs`; `PickSearch` carries the evaluator, a
-  `CancelToken` and progress, and the app runs it off the UI thread) finds each pick again on the
+  `CancelToken`, progress and whether threads are shown cosmetic, as the model's recompute shows
+  them; the app runs it on a copy of the recompute worker's cache) finds each pick again on the
   copies instead, feature by feature in tree order:
-  - It recomputes the document with the copies planned so far (one `Recompute` for the whole
-    paste, so each run adds only the new copies) and reads each picked body as it stands there.
+  - It recomputes the document with the copies planned so far on the `Recompute` it is given (the
+    worker's cache, so only the copies and what follows them are evaluated, and each later run adds
+    only the new copies) and reads each picked body as it stands there.
   - The original's side is the same evaluation when pasting into the same model with every copied
     feature unchanged and before the bar, else a document rebuilt from the copies alone under their
     own ids, parameters as literals (`rebuilt`; a copy using a feature outside it gives none,

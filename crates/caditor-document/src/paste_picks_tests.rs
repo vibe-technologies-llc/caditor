@@ -1,3 +1,5 @@
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Plane, Point2, Point3};
 use caditor_kernel::{EdgeReference, FaceOrigin, Solid, VertexName, vertex_names};
@@ -127,8 +129,33 @@ fn finding(
             evaluator: &ModelEvaluator,
             cancel,
             progress: &|_, _| {},
+            threads_cosmetic: false,
         },
+        &mut Recompute::default(),
     )
+}
+
+#[derive(Default)]
+struct Counted {
+    evaluated: AtomicUsize,
+}
+
+impl Counted {
+    fn take(&self) -> usize {
+        self.evaluated.swap(0, Ordering::SeqCst)
+    }
+}
+
+impl Evaluator for Counted {
+    fn evaluate(
+        &self,
+        feature: &Feature,
+        inputs: &Inputs<'_>,
+        cancel: &CancelToken,
+    ) -> Result<FeatureResult, Failure> {
+        self.evaluated.fetch_add(1, Ordering::SeqCst);
+        ModelEvaluator.evaluate(feature, inputs, cancel)
+    }
 }
 
 fn blend_of(document: &Document, feature: FeatureId) -> Blend {
@@ -211,6 +238,81 @@ fn a_fillet_copied_with_its_extrusion_rounds_the_copy_of_its_edge() {
         ),
         1
     );
+}
+
+fn block(document: &mut Document, index: u32) {
+    let mut sketch = Sketch::new(Plane::XY);
+    let left = 20.0 * f64::from(index + 1);
+    let corners = [
+        Point2::new(left, 0.0),
+        Point2::new(left + 5.0, 0.0),
+        Point2::new(left + 5.0, 5.0),
+        Point2::new(left, 5.0),
+    ];
+    for corner in 0..4 {
+        sketch.add_line(corners[corner], corners[(corner + 1) % 4]);
+    }
+    let outline = add(document, &format!("Block outline {index}"), sketch.into());
+    add(
+        document,
+        &format!("Block {index}"),
+        extrude(outline, Expression::measure(3.0, Unit::Millimetre)),
+    );
+}
+
+#[test]
+fn a_paste_on_the_models_cache_evaluates_only_the_copies_its_picks_lie_on() {
+    let Model {
+        mut document,
+        outline,
+        base,
+    } = model();
+    let before = evaluate(&document);
+    let edge = edge_at(before.body(base).unwrap(), Point3::new(10.0, 4.0, 4.0));
+    let fillet = add(
+        &mut document,
+        "Fillet 1",
+        blend(BlendKind::Fillet, base, vec![edge]),
+    );
+    for index in 0..6 {
+        block(&mut document, index);
+    }
+    let features = copied(&document, &[outline, base, fillet]);
+    let parameters = carried(&document, &features);
+    let counted = Counted::default();
+    let search = PickSearch {
+        evaluator: &counted,
+        cancel: &CancelToken::never(),
+        progress: &|_, _| {},
+        threads_cosmetic: false,
+    };
+    let mut model_cache = Recompute::default();
+
+    model_cache.run(&document, &counted, &CancelToken::never(), &|_, _| {});
+    let model_features = counted.take();
+    let warm = document.paste_features_finding_picks(
+        &features,
+        &parameters,
+        PasteOrigin::ThisDocument,
+        &search,
+        &mut model_cache.draft_copy(),
+    );
+    let on_the_cache = counted.take();
+    let cold = document.paste_features_finding_picks(
+        &features,
+        &parameters,
+        PasteOrigin::ThisDocument,
+        &search,
+        &mut Recompute::default(),
+    );
+    let from_nothing = counted.take();
+
+    assert_eq!(model_features, document.features().len());
+    assert_eq!(model_features, 15);
+    assert_eq!(on_the_cache, 2, "only the copies of the outline and base");
+    assert_eq!(from_nothing, model_features + 2);
+    assert_eq!(warm, cold);
+    assert!(warm.unwrap().left_out.is_empty());
 }
 
 #[test]
