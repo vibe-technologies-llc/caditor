@@ -23,6 +23,8 @@ pub const NOTHING_CHOSEN: &str = "Select faces of bodies to draw their parameter
                                   follow the selection and stay when you select something \
                                   else.";
 pub const WORKING: &str = "Working out the lines…";
+pub const STOPPED: &str = "Stopped. Change a setting or the selected faces to draw the lines.";
+const STOP_HOVER: &str = "Stop working out the lines and draw none";
 pub const FAILED: &str = "The lines of the chosen faces could not be worked out. Select them \
                           again or other faces.";
 pub const LINES: &str = "Lines each way";
@@ -133,9 +135,19 @@ fn faces(ui: &mut Ui, units: Units, isocurves: &Isocurves) {
     });
 }
 
-fn findings(ui: &mut Ui, units: Units, tool: &IsocurveTool, shown: Option<&Isocurves>) {
+fn findings(ui: &mut Ui, units: Units, tool: &mut IsocurveTool, shown: Option<&Isocurves>) {
     if tool.is_working() {
-        ui.label(widgets::muted(WORKING, ui));
+        if widgets::progress(WORKING)
+            .wrapping()
+            .cancel(STOP_HOVER)
+            .show(ui)
+        {
+            tool.stop();
+        }
+        ui.add_space(SPACE_S);
+    }
+    if tool.is_stopped() {
+        widgets::callout(ui, Tone::Info, |ui| ui.label(STOPPED));
         ui.add_space(SPACE_S);
     }
     let Some(shown) = shown else {

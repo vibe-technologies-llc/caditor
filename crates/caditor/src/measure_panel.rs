@@ -700,7 +700,7 @@ pub fn show(
             ui.ctx().copy_text(everything_text);
         }
         if measuring && !context.selection.is_empty() {
-            ui.label(widgets::muted(MEASURING, ui));
+            widgets::progress(MEASURING).show(ui);
         }
     };
     let panel = widgets::side_panel_parts(ui, room, PANEL, &HEADER, header_actions, |ui| {

@@ -435,15 +435,11 @@ pub fn activity(
     let running = exporter.running_description().ok_or(NOT_EXPORTING);
     let mut cancel = commands.invoke(Command::CancelImageExport, &running);
     if let Ok(description) = running {
-        widgets::spinner(ui);
-        ui.label(description);
-        cancel |= ui
-            .add(widgets::button("Cancel"))
-            .on_hover_text(commands.with_keys(
-                Command::CancelImageExport,
-                "Stop the image export without writing the file",
-            ))
-            .clicked();
+        let hover = commands.with_keys(
+            Command::CancelImageExport,
+            "Stop the image export without writing the file",
+        );
+        cancel |= widgets::progress(description).cancel(hover).show(ui);
     }
     if cancel {
         actions.push(Action::File(FileCommand::ExportImage(ImageCommand::Cancel)));

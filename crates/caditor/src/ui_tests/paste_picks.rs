@@ -134,6 +134,37 @@ fn a_paste_still_finding_its_picks_can_be_cancelled_and_adds_nothing() {
 }
 
 #[test]
+fn a_running_paste_shows_one_polite_progress_line_whose_cancel_stops_it() {
+    let mut harness = Harness::new();
+    let copied = filleted_plate(&mut harness);
+    let before = harness.document().features().len();
+    let text = copy_features(&mut harness, &copied);
+
+    harness.model.hold_pastes(true);
+    harness.events.push(Event::Paste(text));
+    harness.frame();
+    harness.context.enable_accesskit();
+    harness.frame();
+    harness.frame();
+    let announced = harness.accessible.iter().any(|(_, node)| {
+        node.value()
+            .is_some_and(|value| value.starts_with("Pasting "))
+            && node.live() == Some(egui::accesskit::Live::Polite)
+    });
+    harness.context.disable_accesskit();
+    harness.click("Cancel");
+    harness.frame();
+    harness.model.hold_pastes(false);
+    harness.settle();
+
+    assert!(announced, "the progress line is a polite live region");
+    assert!(harness.shows(pasting::STOPPED));
+    assert!(!harness.model.is_pasting());
+    assert!(!harness.shows("Cancel"));
+    assert_eq!(harness.document().features().len(), before);
+}
+
+#[test]
 fn features_pasted_from_a_folder_land_in_it_as_one_undoable_change() {
     let mut harness = Harness::new();
     let copied = filleted_plate(&mut harness);

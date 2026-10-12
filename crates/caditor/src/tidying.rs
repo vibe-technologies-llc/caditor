@@ -116,6 +116,7 @@ pub enum Progress<'a> {
     Closed,
     NotSettled,
     Working,
+    Stopped,
     Found(&'a Found),
     Failed(&'a str),
 }
@@ -147,6 +148,7 @@ pub struct Tidying {
     pub datum: EntityId,
     feature: Option<FeatureId>,
     running: Option<Running>,
+    stopped: Option<Basis>,
     answered: Option<(Basis, Answer)>,
 }
 
@@ -160,6 +162,7 @@ impl Default for Tidying {
             datum: EntityId::ORIGIN,
             feature: None,
             running: None,
+            stopped: None,
             answered: None,
         }
     }
@@ -183,8 +186,16 @@ impl Tidying {
     }
 
     fn cancel(&mut self) {
+        self.stopped = None;
         if let Some(running) = self.running.take() {
             running.cancelled.store(true, Ordering::Relaxed);
+        }
+    }
+
+    pub fn stop(&mut self) {
+        if let Some(running) = self.running.take() {
+            running.cancelled.store(true, Ordering::Relaxed);
+            self.stopped = Some(running.basis);
         }
     }
 
@@ -227,6 +238,9 @@ impl Tidying {
         {
             return;
         }
+        if self.stopped.as_ref() == Some(&basis) {
+            return;
+        }
         if let Some(running) = &self.running
             && running.basis == basis
         {
@@ -251,6 +265,7 @@ impl Tidying {
             (Some((_, Ok(found))), _) => Progress::Found(found),
             (Some((_, Err(reason))), _) => Progress::Failed(reason),
             (None, Some(_)) => Progress::Working,
+            (None, None) if self.stopped.is_some() => Progress::Stopped,
             (None, None) => Progress::NotSettled,
         }
     }

@@ -316,6 +316,7 @@ pub struct IsocurveTool {
     left_out: usize,
     followed: Option<u64>,
     job: Option<Job>,
+    stopped: Option<Basis>,
     generation: u64,
     finished: Finished,
     shown: Option<(Basis, Arc<Isocurves>)>,
@@ -334,6 +335,7 @@ impl Default for IsocurveTool {
             left_out: 0,
             followed: None,
             job: None,
+            stopped: None,
             generation: 0,
             finished: Finished::default(),
             shown: None,
@@ -368,6 +370,17 @@ impl IsocurveTool {
 
     fn cancel(&mut self) {
         self.job = None;
+        self.stopped = None;
+    }
+
+    pub fn stop(&mut self) {
+        if let Some(job) = self.job.take() {
+            self.stopped = Some(job.basis.clone());
+        }
+    }
+
+    pub fn is_stopped(&self) -> bool {
+        self.job.is_none() && self.stopped.is_some()
     }
 
     pub fn faces(&self) -> &[Pickable] {
@@ -420,7 +433,8 @@ impl IsocurveTool {
         } else {
             self.take_finished();
             let started = self.job.as_ref().is_some_and(|job| job.basis == basis);
-            if !self.shows(&basis) && !started {
+            let held = self.stopped.as_ref() == Some(&basis);
+            if !self.shows(&basis) && !started && !held {
                 self.start(model, basis);
             }
         }

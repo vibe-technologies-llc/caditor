@@ -196,7 +196,18 @@ paths:
   - `segmented` falls back to a dropdown when wider than the room, so it never widens a panel.
     Every `widgets::combo` (that dropdown and `feature_fields::combo` included) truncates its chosen
     text rather than wrap it, is `COMBO_WIDTH` wide unless given a width, ties itself to the property
-    caption before it (`tie_to_caption`) and can take its hover through `Combo::hover`.
+    caption before it (`tie_to_caption`) and can take its hover through `Combo::hover`. Its list is
+    as tall as its entries up to `ListHeight::Tall` (`list_height`, so never over the window's share)
+    and scrolls beyond that, rather than egui's 200 points that cut a long list off.
+  - Progress is one widget, `widgets::progress(label)`: a spinner, the label (a polite live region,
+    the spinner hidden), an optional `count(shown, total)` in muted text, and a Cancel button only
+    when the caller passes `cancel(hover)`; `show` returns whether Cancel was clicked. `wrapping`
+    lets it wrap in a panel or dialog; the status bar keeps it on one line. Every wait in the
+    interface uses it (recompute, files, export, paste, tidy, isocurves, interference, analysis,
+    measuring, previews), so a wait without Cancel is a worker with no cancel token
+    (`docs/PERFORMANCE.md`). A cancelled tidy, isocurve or interference worker remembers the basis
+    it was stopped on (`Tidying::stop`, `IsocurveTool::stop`, `Interference::stop`) and does not
+    restart until the inputs change or the user asks again, saying so in an info callout.
   - One focus ring: `paint_focus_ring` in the panels' focus colour, `paint_focus_ring_in` with a
     colour and radius of the caller's; the 3D view's controls and the view cube pass the chrome's
     `focus`, which the canvas tests hold over the backdrop.
@@ -312,7 +323,7 @@ paths:
   points. A group's corner menu lists its tools, then the ways of the one shown.
 - While the renderer is still uploading (`Renderer::is_uploading`, set each frame on
   `ViewportState::set_uploading` before the interface runs), the status bar's file
-  activity ends with a `widgets::spinner` and `upload_badge::TEXT` (`StatusContext::uploading`),
+  activity ends with a `widgets::progress` of `upload_badge::TEXT` (`StatusContext::uploading`),
   the only place it is shown. The spinner shows only in frames the
   uploads already ask for, so the last upload frame is followed by one with neither and no repaint
   request (`ui_tests/upload_indicator.rs`).
@@ -320,7 +331,10 @@ paths:
   selection | unit | size. Recompute is progress (the feature running, and how long once past two
   seconds, from `Progress`) with Cancel, Up to date, or a failed `status_pill` that is a button
   focusing the next failed feature after the tree's primary row (`status_bar::failed_after`,
-  wrapping, as Go to the next failed feature, F8, does; Shift+F8 the previous); a cancelled or
+  wrapping, as Go to the next failed feature, F8, does; Shift+F8 the previous). A feature waiting
+  for something to be chosen (`FeatureState::Waiting`) is counted by an info pill beside it, "N
+  waiting", the same button focusing the next waiting feature (`status_bar::waiting_after`), and
+  Up to date shows only when nothing has failed or waits; a cancelled or
   stopped recompute is a warning or error pill with a Recompute or Restart button, its text a live
   region (`widgets::announced_status_pill`: polite for a warning, assertive for an error). Those
   hovers name their command's keys (`status_bar::Hovers`, `CommandFrame::with_keys`). The unit opens

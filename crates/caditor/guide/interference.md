@@ -12,3 +12,5 @@ Each finding is a card: an overlap gives the volume and size of the shared mater
 the bodies meet. **Show where** frames it in the view, where overlaps are outlined and every finding
 is marked. Findings appear as each pair is checked, and only pairs whose bodies changed are checked
 again after an edit.
+**Cancel** beside the count stops checking and keeps what is found; **Check again** finishes the
+rest.
