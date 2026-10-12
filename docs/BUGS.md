@@ -56,13 +56,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Modelling
 
-- [medium · medium] An edge reference outside a blend still keeps only the piece that kept its
-  curve's id when an upstream sketch edit splits the edge, silently: a measured edge
-  (`MeasuredItem::Edge`, whose length a parameter may read), a point at an edge's middle
-  (`PointBy::EdgeMiddle`), a station along an edge (`CurveStation`) and a selection set's edge
-  resolve with `EdgeReference::resolve_in` alone. Blends follow the split through the sketch's
-  recorded pieces (`split_edges.rs`, `kernel-naming.md`); these need the same, or a failure in
-  words where one edge is expected and the edge became several.
 - [medium · medium] Reported by the user: a Remove extrusion typed far past the body (100000 mm, to
   cut through without measuring) does not cut, so the exact depth must be found. Not reproduced:
   in `caditor-document`, a box, a cylinder, a thin block and a filleted block cut by rectangles

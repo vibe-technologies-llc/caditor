@@ -62,7 +62,9 @@ When items lie behind each other, hold the mouse button still for half a second,
 
 {command:select.save_set} keeps the selected faces, edges and bodies in the model under a name.
 {command:select.sets} selects, replaces, renames or deletes them, and a set can feed any tool, such
-as a [fillet](fillet-and-chamfer).
+as a [fillet](fillet-and-chamfer). An edge in a set whose sketch curve is later cut in two by
+[Trim](trim-and-extend) or split selects every piece of it; when some piece can no longer be traced,
+the set selects the rest and says what it missed.
 
 ## From the keyboard
 

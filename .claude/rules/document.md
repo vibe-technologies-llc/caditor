@@ -202,9 +202,11 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   `SetNameTooLong`, `SetNameTaken`, `SetEmpty`, `SetTooLarge` (`MAX_SET_MEMBERS`), `TooManySets`
   (`MAX_SELECTION_SETS`). A set may name a body no longer in the model, so the feature ID counter
   is raised past every named body.
-- `SelectionSet::resolve` finds what a set means in an `Evaluation` and heals like any reference: a
-  body is every face of its solid, a face or edge resolves by reference in the body's shown solid
-  (a tie takes every candidate). What it cannot find is a `SetLoss` per body, which the app words.
+- `SelectionSet::resolve` finds what a set means in an `Evaluation` (taking the `Document` for the
+  sketches' split pieces) and heals like any reference: a body is every face of its solid, a face
+  or edge resolves by reference in the body's shown solid (a tie takes every candidate; an edge
+  whose sketch curve was split takes every piece, `SplitEdges::follow`, `kernel-naming.md`). What it
+  cannot find, a partly traced split edge included, is a `SetLoss` per body, which the app words.
 
 ### Configurations (`configurations.rs`)
 
@@ -870,7 +872,10 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   (refused when the point is on the axis, or the face is no longer a cylinder or cone).
   `PlaneThrough::SquareToCurve` stands square to an edge of any curve kind at a `CurveStation`
   (body, `EdgeReference`, length expression: arc length from the edge's start, back from its end
-  when negative; past either end fails naming the edge's length). `PlaneThrough::Lines` holds two
+  when negative; past either end fails naming the edge's length). A station's edge and an edge
+  middle's resolve through `SplitEdges::run` (`kernel-naming.md`): an edge a sketch edit split into
+  pieces still running end to end is walked as one `EdgeRun`; pieces with a gap or only partly
+  traced fail in words asking to choose the piece or edge again. `PlaneThrough::Lines` holds two
   lines (`AxisReference`s) that cross or are parallel (the same line, or neither, fails naming both).
   `Datum::PointBy` is a datum point with no offsets: `LinesCross`, `AxisAndPlane` (parallel or
   lying in it fails), `ThreePlanes` (two parallel or all three sharing a line fail), `Along` a
@@ -895,7 +900,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   through; on a principal axis the world coordinate, on a coordinate system's axis the coordinate
   in it). An item is a `PointReference`, `AxisReference`, `PlaneReference`, an edge or face of a
   body, a sketch entity (on the sketch's solved plane) or a whole body (`MeasuredItem::Body`, as it
-  stands at the measurement), resolved at the measurement's place (`Resolver`), so its bodies,
+  stands at the measurement), resolved at the measurement's place (`Resolver`; an edge through
+  `SplitEdges::follow`, its split pieces read together, `kernel-naming.md`), so its bodies,
   datums, frames and sketches count as used (`MeasuredItem::features`) and healing visits its edges
   and faces. It changes no body (`Feature::body` is none) and can be hidden.
 - Result `FeatureResult::Measurement` (`MeasurementResult`: the value as a `Quantity` in mm,

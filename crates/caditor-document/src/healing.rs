@@ -118,7 +118,7 @@ pub(crate) trait ReferenceVisitor {
         what: &dyn Fn(usize) -> String,
     );
 
-    fn blend_edges(
+    fn followed_edges(
         &mut self,
         body: FeatureId,
         edges: &mut [EdgeReference],
@@ -138,7 +138,7 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
         FeatureKind::Solid(solid) => visit_solid(solid, visitor),
         FeatureKind::Blend(blend) => {
             let count = blend.edges.len();
-            visitor.blend_edges(blend.body, &mut blend.edges, &|index| {
+            visitor.followed_edges(blend.body, &mut blend.edges, &|index| {
                 if count == 1 {
                     "its edge".to_owned()
                 } else {
@@ -325,7 +325,7 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
             }
             PointBy::Along(station) => visit_station(station, visitor),
             PointBy::EdgeMiddle { body, edge } => {
-                visitor.edges(*body, std::slice::from_mut(edge.as_mut()), &|_| {
+                visitor.followed_edges(*body, std::slice::from_mut(edge.as_mut()), &|_| {
                     "the edge it sits at the middle of".to_owned()
                 });
             }
@@ -397,7 +397,7 @@ fn visit_measurement(measurement: &mut Measurement, visitor: &mut impl Reference
             }
             MeasuredItem::Edge { body, edge } => {
                 let what = format!("the edge giving its {role}");
-                visitor.edges(*body, std::slice::from_mut(edge.as_mut()), &|_| {
+                visitor.followed_edges(*body, std::slice::from_mut(edge.as_mut()), &|_| {
                     what.clone()
                 });
             }
@@ -410,7 +410,7 @@ fn visit_measurement(measurement: &mut Measurement, visitor: &mut impl Reference
 }
 
 fn visit_station(station: &mut CurveStation, visitor: &mut impl ReferenceVisitor) {
-    visitor.edges(
+    visitor.followed_edges(
         station.body,
         std::slice::from_mut(station.edge.as_mut()),
         &|_| "the edge it follows".to_owned(),
@@ -629,7 +629,7 @@ impl ReferenceVisitor for Healer<'_> {
         self.match_edges(body, edges, what, SplitPieces::Ignored);
     }
 
-    fn blend_edges(
+    fn followed_edges(
         &mut self,
         body: FeatureId,
         edges: &mut [EdgeReference],

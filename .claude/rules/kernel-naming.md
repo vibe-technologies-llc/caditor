@@ -61,7 +61,8 @@ paths:
   per solid and uses `capture_in` and `resolve_in`.
 - An edge along an extrusion's or revolve's side whose sketch curve was later split by trim, split
   or break is followed onto its pieces (`SplitEdges::follow`, `caditor-document/src/split_edges.rs`,
-  used by blends). The split-off piece's side face has a new name, so the reference resolves to
+  used by blends, measured edges, edge middles, stations along an edge and selection sets). The
+  split-off piece's side face has a new name, so the reference resolves to
   the edge on the kept curve alone; the pieces are known from provenance, not geometry: the sketch
   records the curve each piece was split from (`Sketch::split_from`, `pieces_of`, `sketch.md`).
   Ends are compared with the face names around each vertex rewritten to the reference's (every
@@ -74,5 +75,15 @@ paths:
   ordered, is `Followed::PartlyLost`: the blend fails saying the edge was split and only some
   pieces can be traced, with the fix to choose them again (`BlendUnresolved::PartlyFollowed`). An
   end matched nowhere (changed by something else) keeps the one edge, as before. Healing leaves a
-  widened reference as it is (`ReferenceVisitor::blend_edges`), so Update references never narrows
-  it to one piece.
+  widened reference as it is (`ReferenceVisitor::followed_edges`, which every user of
+  `SplitEdges` goes through), so Update references never narrows it to one piece.
+- Each user takes the pieces as what it means by the edge. A selection set's edge is every piece (a
+  set is many things already); a partly traced one keeps the pieces traced and reports a
+  `SetLoss::Edge`. A measured edge (`Located::Pieces`) reads its length and sweep as the pieces'
+  sum, its radius from any of them (one circle), and a distance, offset or angle from the nearest
+  piece; partly traced fails asking to measure again. An edge middle and a station along an edge
+  need one curve to walk: `SplitEdges::run` chains the pieces end to end into an `EdgeRun`
+  (`edge_run.rs`, oriented like the piece the reference resolves to, so distances from the start
+  keep their sense) and walks it by arc length. Pieces with a gap between them (`Unrun::Gapped`)
+  or partly traced (`Unrun::PartlyTraced`) fail in words asking to choose the piece or edge again,
+  never moving to one piece silently.
