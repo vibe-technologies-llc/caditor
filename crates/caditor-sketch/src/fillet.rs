@@ -16,7 +16,7 @@ use crate::{
 
 mod crossing;
 
-pub use crossing::Pick;
+pub use crossing::{CrossingPlan, Pick};
 
 const TOLERANCE: f64 = 1e-7;
 const SMOOTH_ANGLE: f64 = 1e-6;

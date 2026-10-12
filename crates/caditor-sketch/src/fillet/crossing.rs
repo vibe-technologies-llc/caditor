@@ -20,6 +20,20 @@ pub struct Pick {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CrossingPlan(Planned);
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Planned {
+    Existing(Corner),
+    Join {
+        curves: [EntityId; 2],
+        courses: [Course; 2],
+        changes: [Change; 2],
+        corner: Point2,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
 enum Course {
     Line {
         start: Point2,
@@ -285,6 +299,30 @@ impl Sketch {
     }
 
     pub fn join_at_crossing(&mut self, picks: [Pick; 2]) -> Result<Corner, FilletError> {
+        let plan = self.crossing_plan(picks)?;
+        self.join_planned(&plan)
+    }
+
+    pub fn join_planned(&mut self, plan: &CrossingPlan) -> Result<Corner, FilletError> {
+        let (curves, courses, changes, corner) = match plan.0 {
+            Planned::Existing(existing) => return Ok(existing),
+            Planned::Join {
+                curves,
+                courses,
+                changes,
+                corner,
+            } => (curves, courses, changes, corner),
+        };
+        let mut working = self.clone();
+        let shared = working
+            .join_curves(curves, &courses, &changes, corner)
+            .map_err(FilletError::Edit)?;
+        let joined = working.corner_at(shared)?;
+        *self = working;
+        Ok(joined)
+    }
+
+    pub fn crossing_plan(&self, picks: [Pick; 2]) -> Result<CrossingPlan, FilletError> {
         let [first, second] = picks;
         if first.curve == second.curve {
             return Err(FilletError::SameCurve {
@@ -306,7 +344,7 @@ impl Sketch {
         if let Ok(existing) = self.corner_between(first.curve, second.curve)
             && existing.position.distance(corner) <= tolerance
         {
-            return Ok(existing);
+            return Ok(CrossingPlan(Planned::Existing(existing)));
         }
         let far = other_crossing(&crossings, corner, tolerance);
         let changes = [
@@ -343,18 +381,17 @@ impl Sketch {
                 Change::Kept(_) | Change::Moved { .. } | Change::Opened { .. } => {}
             }
         }
-        let mut working = self.clone();
-        let shared = working
-            .join_curves(&picks, &courses, &changes, corner)
-            .map_err(FilletError::Edit)?;
-        let joined = working.corner_at(shared)?;
-        *self = working;
-        Ok(joined)
+        Ok(CrossingPlan(Planned::Join {
+            curves: [first.curve, second.curve],
+            courses,
+            changes,
+            corner,
+        }))
     }
 
     fn join_curves(
         &mut self,
-        picks: &[Pick; 2],
+        curves: [EntityId; 2],
         courses: &[Course; 2],
         changes: &[Change; 2],
         corner: Point2,
@@ -376,7 +413,7 @@ impl Sketch {
             self.add_constraint(Constraint::Coincident(one, other))?;
         }
         let mut far_ends = Vec::new();
-        for ((pick, course), change) in picks.iter().zip(courses).zip(changes) {
+        for ((curve, course), change) in curves.into_iter().zip(courses).zip(changes) {
             match (*course, *change) {
                 (_, Change::Kept(_)) => {}
                 (
@@ -391,7 +428,7 @@ impl Sketch {
                         Entity::Line { start, end: shared }
                     };
                     self.drop_length_dimensions(start, end)?;
-                    self.restructure(pick.curve, line, &[], keeps_length)?;
+                    self.restructure(curve, line, &[], keeps_length)?;
                     self.drop_if_unused(moved)?;
                 }
                 (
@@ -416,7 +453,7 @@ impl Sketch {
                         }
                     };
                     self.drop_length_dimensions(start, end)?;
-                    self.restructure(pick.curve, arc, &[], keeps_sweep)?;
+                    self.restructure(curve, arc, &[], keeps_sweep)?;
                     self.drop_if_unused(moved)?;
                 }
                 (
@@ -440,18 +477,17 @@ impl Sketch {
                             end: shared,
                         }
                     };
-                    self.restructure(pick.curve, arc, &[], |_| true)?;
-                    far_ends.push((far_end, pick.curve));
+                    self.restructure(curve, arc, &[], |_| true)?;
+                    far_ends.push((far_end, curve));
                 }
                 (_, Change::Moved { .. } | Change::Reached { .. } | Change::Opened { .. }) => {
-                    return Err(SketchError::NoSuchEntity(pick.curve));
+                    return Err(SketchError::NoSuchEntity(curve));
                 }
             }
         }
         for (far_end, curve) in far_ends {
-            let other = picks
-                .iter()
-                .map(|pick| pick.curve)
+            let other = curves
+                .into_iter()
                 .find(|other| *other != curve)
                 .ok_or(SketchError::NoSuchEntity(curve))?;
             self.add_constraint(Constraint::Coincident(far_end, other))?;

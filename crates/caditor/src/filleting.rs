@@ -4,8 +4,8 @@ use caditor_document::{FeatureId, Transaction};
 use caditor_expression::{Dimension, Expression, Unit};
 use caditor_geometry::Point2;
 use caditor_sketch::{
-    Bevel, ChamferSize, Corner, Dimensioned, Entity, EntityId, Faceting, FilletError, Pick,
-    Rounding, Sketch,
+    Bevel, ChamferSize, Corner, CrossingPlan, Dimensioned, Entity, EntityId, Faceting, FilletError,
+    Pick, Rounding, Sketch,
 };
 
 use crate::{
@@ -204,10 +204,28 @@ impl Deref for Working<'_> {
 
 type Join = Result<(Arc<Sketch>, Vec<Corner>), FilletError>;
 
+#[derive(Debug, Clone, PartialEq)]
+enum JoinKey {
+    Aim(Aim),
+    Plan(Result<CrossingPlan, FilletError>),
+}
+
+impl JoinKey {
+    fn of(sketch: &Sketch, aims: &[Aim]) -> Vec<Self> {
+        aims.iter()
+            .enumerate()
+            .map(|(index, aim)| match aim {
+                Aim::Crossing(picks) if index == 0 => Self::Plan(sketch.crossing_plan(*picks)),
+                _ => Self::Aim(*aim),
+            })
+            .collect()
+    }
+}
+
 #[derive(Debug, Clone)]
 struct Joined {
     version: SketchVersion,
-    aims: Vec<Aim>,
+    keys: Vec<JoinKey>,
     outcome: Join,
 }
 
@@ -307,10 +325,11 @@ impl Filleting {
         if let Some(corners) = corners {
             return Ok((Working::Displayed(sketch), corners));
         }
+        let keys = JoinKey::of(sketch, aims);
         let kept = self
             .joined
             .as_ref()
-            .filter(|joined| Some(joined.version) == version && joined.aims == aims);
+            .filter(|joined| Some(joined.version) == version && joined.keys == keys);
         let outcome = match kept {
             Some(joined) => joined.outcome.clone(),
             None => {
@@ -318,10 +337,10 @@ impl Filleting {
                 {
                     self.joins += 1;
                 }
-                let outcome = join(sketch, aims);
+                let outcome = join(sketch, aims, &keys);
                 self.joined = version.map(|version| Joined {
                     version,
-                    aims: aims.to_vec(),
+                    keys,
                     outcome: outcome.clone(),
                 });
                 outcome
@@ -784,11 +803,18 @@ fn same_aim(first: &Aim, second: &Aim) -> bool {
     }
 }
 
-fn join(sketch: &Sketch, aims: &[Aim]) -> Join {
+fn join(sketch: &Sketch, aims: &[Aim], keys: &[JoinKey]) -> Join {
+    if let Some(JoinKey::Plan(Err(error))) = keys.first() {
+        return Err(error.clone());
+    }
     let mut working = sketch.clone();
     let corners = aims
         .iter()
-        .map(|aim| aim.found_in(&mut working))
+        .zip(keys)
+        .map(|(aim, key)| match key {
+            JoinKey::Plan(plan) => working.join_planned(plan.as_ref().map_err(Clone::clone)?),
+            JoinKey::Aim(_) => aim.found_in(&mut working),
+        })
         .collect::<Result<Vec<Corner>, FilletError>>()?;
     Ok((Arc::new(working), corners))
 }
@@ -993,6 +1019,21 @@ mod tests {
         filleting.hover(&sketch, None, &Flat, pointer(0.0, -30.0));
         filleting.hover(&sketch, None, &Flat, pointer(0.0, -30.0));
         assert_eq!(filleting.joins, 7);
+    }
+
+    #[test]
+    fn moving_along_the_second_curve_joins_again_only_when_the_kept_side_changes() {
+        let (sketch, mut filleting) = crossed();
+
+        for along in [30.0, 25.0, 20.0, 12.0, 4.0] {
+            filleting.hover(&sketch, version(1), &Flat, pointer(0.0, along));
+            assert!(matches!(filleting.hover, Some(Ok(Aim::Crossing(_)))));
+        }
+        assert_eq!(filleting.joins, 1);
+
+        filleting.hover(&sketch, version(1), &Flat, pointer(0.0, -20.0));
+        filleting.hover(&sketch, version(1), &Flat, pointer(0.0, -35.0));
+        assert_eq!(filleting.joins, 2);
     }
 
     #[test]
