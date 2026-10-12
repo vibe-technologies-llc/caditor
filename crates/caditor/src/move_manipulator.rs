@@ -93,7 +93,7 @@ impl Reach {
 
     pub fn field_rule(self) -> Rule {
         match self {
-            Self::Only => Rule::AboveZeroOrReverse,
+            Self::Only => Rule::FlipWhenNegative,
             Self::Symmetric | Self::Forward | Self::Backward => Rule::AboveZero,
         }
     }

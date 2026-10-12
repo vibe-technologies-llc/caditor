@@ -58,7 +58,7 @@ use crate::{
     preferences::{InputMode, Navigation, PreferenceChange, PreferencesCommand},
     primitive_tools, projecting,
     reference_picking::{self, Slot},
-    saved_views,
+    reversing, saved_views,
     scene::{self, BuiltScene, EditedSketch, Highlight, PickTable, SketchShapes, Sources},
     scene_cache::{Overlay, Revisions, SceneCache, SceneInputs},
     scene_description::{Item, SceneDescription},
@@ -2003,7 +2003,11 @@ impl ViewportState {
                         .transaction(model)
                         .filter(|_| manipulating.has_moved())
                     {
-                        Some(transaction) => actions.push(Action::Apply(transaction)),
+                        Some(transaction) => {
+                            let announced = reversing::announcement(model.document(), &transaction);
+                            actions.push(Action::Apply(transaction));
+                            actions.extend(announced.map(Action::Inform));
+                        }
                         None => actions.push(Action::Preview {
                             feature: manipulating.feature,
                             draft: None,
@@ -4159,7 +4163,9 @@ impl ViewportState {
             Ok(transaction) => {
                 self.typed_handle = None;
                 self.typed_handle_preview = None;
+                let announced = reversing::announcement(model.document(), &transaction);
                 actions.push(Action::Apply(transaction));
+                actions.extend(announced.map(Action::Inform));
             }
             Err(error) => {
                 self.typed_handle_preview = None;

@@ -38,9 +38,18 @@ In the open panel, click regions in the view to add or leave them out, and
   and pulls to a flat face it passes, the readout saying what it stopped at; hold Ctrl to drag
   freely. With the pointer on an arrow, type a value and press Enter to set that field exactly;
   it is previewed as you type, and Escape leaves it as it was. A value the field itself would
-  refuse, such as a negative distance, is refused there too, saying why.
+  refuse, such as zero, is refused there too, saying why.
 - {command:model.reverse_direction} sends a one-sided extrusion the other way, like the panel's
   **Reverse direction**.
+- Typing a **negative distance** on one side goes the other way. The distance becomes its positive
+  value and the extrusion is reversed in the same change; on an **Add** it also switches to **Remove**
+  and the other way round, so a sketch on a top face that grew up cuts down into the body, and a
+  notice says what changed. A new body or an intersection only reverses. An expression that comes out
+  negative, such as `-depth` or `width - 30`, keeps its parameters (`depth`, `-(width - 30)`). It is one
+  undo, and dragging the arrow back through its start does the same. Symmetric and two-sided
+  distances, and zero, are refused. The flip happens when the value is typed: if a parameter later
+  makes the distance negative, the extrusion fails and says to enter a distance above zero, rather than
+  flipping again.
 
 **Start** begins at the sketch plane, an offset from it, or another face or plane, and the
 distance arrows stand at the ends measured from there. **Taper** angles the sides inward or

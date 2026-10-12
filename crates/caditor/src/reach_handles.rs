@@ -14,6 +14,7 @@ use crate::{
         ARROW_POINTS, Arrow, END_ON, GAP_POINTS, HIT_POINTS, Handle, HandleSegment, Reach,
         segment_distance, step_for,
     },
+    reversing::{self, Flip},
     scene_palette::ScenePalette,
     units::Units,
 };
@@ -334,6 +335,17 @@ impl ReachDrag {
         }
     }
 
+    fn limited(&self, distance: f64) -> f64 {
+        match self.reach {
+            Reach::Only => distance.abs().max(self.step).copysign(distance),
+            Reach::Symmetric | Reach::Forward | Reach::Backward => distance.max(self.step),
+        }
+    }
+
+    fn flips(&self) -> bool {
+        self.distance < 0.0
+    }
+
     pub fn follow(&mut self, ray: Ray, free: bool, snap: Option<Snap>) -> bool {
         let pulled = ray
             .closest_along_line(self.end, self.direction)
@@ -357,7 +369,7 @@ impl ReachDrag {
                 (rounded, None)
             }
         };
-        let distance = distance.max(self.step);
+        let distance = self.limited(distance);
         let changed = distance != self.distance || snap != self.snapped;
         self.distance = distance;
         self.snapped = snap;
@@ -369,7 +381,7 @@ impl ReachDrag {
     }
 
     pub fn transaction(&self, model: &Model, feature: FeatureId) -> Option<Transaction> {
-        let distance = model.units().length.measured(self.distance);
+        let distance = model.units().length.measured(self.distance.abs());
         let held = held(model, feature, &self.start, self.reach)?;
         let mut extrude = self.start.clone();
         let mut named = Vec::new();
@@ -378,6 +390,11 @@ impl ReachDrag {
             distance,
             &mut named,
         );
+        let extrude = if self.flips() {
+            reversing::flipped_extrude(&extrude)
+        } else {
+            extrude
+        };
         let kind = FeatureKind::Solid(SolidFeature::Extrude(extrude));
         manipulator::keeping_names(model.document(), feature, kind, named)
     }
@@ -386,10 +403,18 @@ impl ReachDrag {
         let shown = format!(
             "{} {}",
             self.reach.caption(),
-            units.readout_text(self.distance)
+            units.readout_text(self.distance.abs())
         );
-        match self.snapped {
+        let shown = match self.snapped {
             Some(snap) => format!("{shown} {}", snap.kind.words()),
+            None => shown,
+        };
+        let flip = self
+            .flips()
+            .then(|| Flip::between(&self.start, &reversing::flipped_extrude(&self.start)))
+            .flatten();
+        match flip {
+            Some(flip) => format!("{shown}, {}", flip.words()),
             None => shown,
         }
     }
@@ -403,9 +428,18 @@ pub fn typed(
 ) -> Option<Transaction> {
     let start = committed_extrude(model, feature)?;
     let held = held(model, feature, start, reach)?;
+    let (value, negative) = match reach {
+        Reach::Only => reversing::unsigned(model.parameters(), value),
+        Reach::Symmetric | Reach::Forward | Reach::Backward => (value, false),
+    };
     let mut extrude = start.clone();
     let mut named = Vec::new();
     held.set(slot_mut(&mut extrude.extent, reach)?, value, &mut named);
+    let extrude = if negative {
+        reversing::flipped_extrude(&extrude)
+    } else {
+        extrude
+    };
     let kind = FeatureKind::Solid(SolidFeature::Extrude(extrude));
     manipulator::keeping_names(model.document(), feature, kind, named)
 }

@@ -85,6 +85,7 @@ mod import_costs;
 mod import_jobs;
 mod large_interface;
 mod model_dimensions;
+mod negative_distances;
 mod paint_selection;
 mod palette_and_notices;
 mod panel_fields;
@@ -8483,8 +8484,8 @@ fn extruding_a_drawn_rectangle_makes_a_shaded_body_that_follows_its_distance() {
     harness.settle();
     assert!((harness.body_volume(extrude) - 15000.0).abs() < 1.0);
 
-    harness.type_into_field(field, "-5 mm");
-    assert!(harness.shows(crate::feature_fields::ABOVE_ZERO_OR_REVERSE));
+    harness.type_into_field(field, "0 mm");
+    assert!(harness.shows(crate::feature_fields::NOT_ZERO_OR_REVERSE));
     assert_eq!(distance_of(&harness, extrude), "25 mm");
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();

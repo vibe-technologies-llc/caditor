@@ -21,6 +21,8 @@ pub const ABOVE_ZERO: &str = "Enter a value above zero";
 pub const ZERO_OR_MORE: &str = "Enter a value of zero or more";
 pub const ABOVE_ZERO_OR_REVERSE: &str =
     "Enter a value above zero. Use Reverse direction to go the other way";
+pub const NOT_ZERO_OR_REVERSE: &str =
+    "Enter a value other than zero; a negative one goes the other way";
 pub const TURN: &str = "Enter an angle above 0° and up to 360°";
 pub const TURNS_TOGETHER: &str =
     "Enter an angle above 0°; both angles together may turn up to 360°";
@@ -42,6 +44,7 @@ pub enum Rule {
     AboveZero,
     ZeroOrMore,
     AboveZeroOrReverse,
+    FlipWhenNegative,
     Turn,
     TurnBeside(f64),
     Count,
@@ -59,6 +62,7 @@ impl Rule {
             Self::AboveZero => (value <= 0.0).then_some(ABOVE_ZERO),
             Self::ZeroOrMore => (value < 0.0).then_some(ZERO_OR_MORE),
             Self::AboveZeroOrReverse => (value <= 0.0).then_some(ABOVE_ZERO_OR_REVERSE),
+            Self::FlipWhenNegative => (value == 0.0).then_some(NOT_ZERO_OR_REVERSE),
             Self::Turn => (value <= 0.0 || value > FULL_TURN_DEGREES).then_some(TURN),
             Self::TurnBeside(other) => {
                 (value <= 0.0 || value + other > FULL_TURN_DEGREES).then_some(TURNS_TOGETHER)
