@@ -47,6 +47,7 @@ mod selection_sets;
 mod shell;
 mod solid;
 mod split;
+mod split_edges;
 mod split_face;
 mod surface_tool;
 mod thread;
@@ -818,6 +819,7 @@ mod tests {
                     id: point,
                     entity: Entity::Point(Point2::ZERO),
                     construction: false,
+                    split_from: None,
                 },
             ))
             .unwrap();

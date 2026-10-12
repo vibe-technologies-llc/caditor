@@ -310,6 +310,7 @@ fn sketch_edit(input: &mut Unstructured, document: &Document) -> Result<Option<E
             id: EntityId::from_raw(sketch.next_id()),
             entity: Entity::Point(point(input)?),
             construction: false,
+            split_from: None,
         },
         1 => Edit::RemoveSketchEntity {
             feature,

@@ -462,7 +462,7 @@ fn ambiguous_edges_and_faces_count_only_when_their_pieces_are_one_edge_or_face()
         form: ChamferForm::Equal,
         flipped: false,
     };
-    let pieces = blend.resolve(solid).unwrap();
+    let pieces = blend.resolve(&document, solid).unwrap();
     let back_top_reference = edge_at(solid, Point3::new(2.0, 8.0, 4.0));
     let back_top = back_top_reference.resolve(solid).unwrap();
     let lost = FaceName::from_digest(5);
@@ -491,7 +491,7 @@ fn ambiguous_edges_and_faces_count_only_when_their_pieces_are_one_edge_or_face()
 
     assert_eq!(pieces.len(), 2);
     assert_eq!(
-        listed.resolutions(solid),
+        listed.resolutions(&document, solid),
         vec![
             Resolution::Pieces(pieces.clone()),
             Resolution::One(back_top),
@@ -1004,40 +1004,282 @@ fn a_pasted_fillet_takes_the_parameters_of_the_chamfer_form_it_keeps() {
     assert!(!pasted.kind.uses_parameter(second));
 }
 
-#[test]
-#[ignore = "roadmap: a filleted edge split by a later sketch edit keeps only one piece"]
-fn a_notch_trimmed_into_a_filleted_edge_keeps_both_pieces_rounded() {
-    let mut model = model();
-    let outline = match &model.document.feature(model.base).unwrap().kind {
+fn outline_of(document: &Document, base: FeatureId) -> FeatureId {
+    match &document.feature(base).unwrap().kind {
         FeatureKind::Solid(SolidFeature::Extrude(extrude)) => extrude.sketch,
         _ => panic!("the base is an extrusion"),
-    };
-    let before = match &model.document.feature(outline).unwrap().kind {
-        FeatureKind::Sketch(definition) => definition.sketch.clone(),
-        _ => panic!("the outline is a sketch"),
-    };
-    let mut after = before.clone();
-    after.add_line(Point2::new(4.0, 0.0), Point2::new(4.0, 2.0));
-    after.add_line(Point2::new(4.0, 2.0), Point2::new(6.0, 2.0));
-    after.add_line(Point2::new(6.0, 2.0), Point2::new(6.0, 0.0));
-    let front = after
+    }
+}
+
+fn sketch_of(document: &Document, outline: FeatureId) -> Sketch {
+    document
+        .feature(outline)
+        .unwrap()
+        .kind
+        .sketch()
+        .unwrap()
+        .clone()
+}
+
+fn front_line_through(sketch: &Sketch, x: f64) -> caditor_sketch::EntityId {
+    sketch
         .entities()
-        .find(|(_, entity)| matches!(entity, caditor_sketch::Entity::Line { .. }))
         .map(|(id, _)| id)
+        .find(|id| {
+            sketch.line_endpoints(*id).is_some_and(|(start, end)| {
+                start.y.abs() < 1e-9
+                    && end.y.abs() < 1e-9
+                    && (start.x.min(end.x)..=start.x.max(end.x)).contains(&x)
+            })
+        })
+        .unwrap()
+}
+
+fn notched(sketch: &Sketch, from: f64, to: f64) -> Sketch {
+    let mut after = sketch.clone();
+    after.add_line(Point2::new(from, 0.0), Point2::new(from, 2.0));
+    after.add_line(Point2::new(from, 2.0), Point2::new(to, 2.0));
+    after.add_line(Point2::new(to, 2.0), Point2::new(to, 0.0));
+    let front = front_line_through(&after, 0.5 * (from + to));
+    after
+        .trim(front, Point2::new(0.5 * (from + to), 0.0))
         .unwrap();
-    after.trim(front, Point2::new(5.0, 0.0)).unwrap();
-    let mut transaction = model.document.transaction("Notch");
-    transaction.reshape_sketch(outline, &before, &after);
-    model.document.apply(transaction.finish()).unwrap();
+    after
+}
+
+fn reshape_outline(document: &mut Document, outline: FeatureId, after: &Sketch) {
+    let before = sketch_of(document, outline);
+    let mut transaction = document.transaction("Notch");
+    transaction.reshape_sketch(outline, &before, after);
+    document.apply(transaction.finish()).unwrap();
+}
+
+fn notch(document: &mut Document, outline: FeatureId, from: f64, to: f64) {
+    let after = notched(&sketch_of(document, outline), from, to);
+    reshape_outline(document, outline, &after);
+}
+
+fn front_top_fillet(document: &mut Document, base: FeatureId, at: f64) -> FeatureId {
+    let mut engine = Recompute::default();
+    let evaluation = evaluate(document, &mut engine);
+    let edge = edge_at(evaluation.body(base).unwrap(), Point3::new(at, 0.0, 4.0));
+    let mut transaction = document.transaction("Fillet");
+    let fillet = transaction.add_feature(
+        "Fillet 1",
+        FeatureKind::Blend(Blend {
+            kind: BlendKind::Fillet,
+            body: base,
+            groups: Vec::new(),
+            edges: vec![edge],
+            size: mm("0.5"),
+            form: ChamferForm::Equal,
+            flipped: false,
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    fillet
+}
+
+fn block() -> (Document, FeatureId, FeatureId) {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    let outline = transaction.add_feature(
+        "Outline",
+        FeatureKind::from(rectangle((0.0, 0.0), (10.0, 8.0))),
+    );
+    let base = transaction.add_feature("Base", extruded(outline, "4", BodyOperation::NewBody));
+    document.apply(transaction.finish()).unwrap();
+    (document, outline, base)
+}
+
+fn rounded_lengths(document: &Document, fillet: FeatureId) -> Vec<f64> {
+    let evaluation = evaluate(document, &mut Recompute::default());
+    let solid = &evaluation
+        .body_before(fillet)
+        .unwrap()
+        .solid()
+        .unwrap()
+        .solid;
+    let blend = document.feature(fillet).unwrap().kind.blend().unwrap();
+    let mut lengths: Vec<f64> = blend
+        .resolve(document, solid)
+        .unwrap()
+        .into_iter()
+        .map(|edge| {
+            let edge = solid.edge(edge).unwrap();
+            edge.curve().length(edge.interval())
+        })
+        .collect();
+    lengths.sort_by(f64::total_cmp);
+    lengths
+}
+
+#[test]
+fn a_notch_trimmed_into_a_filleted_edge_keeps_both_pieces_rounded() {
+    let mut model = model();
+    let outline = outline_of(&model.document, model.base);
+    notch(&mut model.document, outline, 4.0, 6.0);
 
     let evaluation = evaluate(&model.document, &mut model.engine);
     let notched = rounded_volume(4.0, 1.0) - 2.0 * 2.0 * 4.0 + 2.0 * spandrel(1.0);
+    let found = volume(&evaluation, model.base);
+    let healing = evaluation.feature(model.fillet).unwrap().healing.clone();
+    let blend = model
+        .document
+        .feature(model.fillet)
+        .unwrap()
+        .kind
+        .blend()
+        .unwrap();
 
     assert_eq!(evaluation.failed_count(), 0);
-    let found = volume(&evaluation, model.base);
     assert!(
         (found - notched).abs() < 0.02,
         "volume {found} instead of {notched}"
+    );
+    if let Some(healing) = healing {
+        let FeatureKind::Blend(refreshed) = &healing.refreshed else {
+            panic!("a blend heals into a blend");
+        };
+        assert_eq!(refreshed.edges.first(), blend.edges.first());
+    }
+}
+
+#[test]
+fn a_notch_trimmed_twice_keeps_every_piece_rounded_and_undoes() {
+    let (mut document, outline, base) = block();
+    let fillet = front_top_fillet(&mut document, base, 5.0);
+    let original = sketch_of(&document, outline);
+
+    notch(&mut document, outline, 3.0, 4.0);
+    notch(&mut document, outline, 6.0, 7.0);
+    let pieces = rounded_lengths(&document, fillet);
+    let mut transaction = document.transaction("Back");
+    transaction.reshape_sketch(outline, &sketch_of(&document, outline), &original);
+    document.apply(transaction.finish()).unwrap();
+
+    assert_eq!(pieces.len(), 3);
+    assert!(
+        (pieces.iter().sum::<f64>() - 8.0).abs() < 1e-6,
+        "{pieces:?}"
+    );
+    assert_eq!(rounded_lengths(&document, fillet).len(), 1);
+}
+
+#[test]
+fn a_fillet_chosen_after_a_notch_keeps_to_the_piece_chosen() {
+    let (mut document, outline, base) = block();
+    notch(&mut document, outline, 4.0, 6.0);
+    let fillet = front_top_fillet(&mut document, base, 2.0);
+
+    let alone = rounded_lengths(&document, fillet);
+    add_hole_in(&mut document, outline);
+    let after_hole = rounded_lengths(&document, fillet);
+    notch(&mut document, outline, 1.0, 2.0);
+    let split_again = rounded_lengths(&document, fillet);
+
+    assert_eq!(alone.len(), 1);
+    assert!((alone.iter().sum::<f64>() - 4.0).abs() < 1e-6, "{alone:?}");
+    assert_eq!(after_hole, alone);
+    assert_eq!(split_again.len(), 2);
+    assert!(
+        (split_again.iter().sum::<f64>() - 3.0).abs() < 1e-6,
+        "{split_again:?}"
+    );
+}
+
+#[test]
+fn a_notch_trimmed_into_a_filleted_arc_keeps_both_arc_pieces_rounded() {
+    let at = |radius: f64, degrees: f64| {
+        let angle = degrees.to_radians();
+        Point2::new(5.0 + radius * angle.cos(), radius * angle.sin())
+    };
+    let mut document = Document::default();
+    let mut outline = Sketch::new(Plane::XY);
+    outline.add_line(Point2::new(0.0, 0.0), Point2::new(10.0, 0.0));
+    let arc = outline.add_arc(
+        Point2::new(5.0, 0.0),
+        Point2::new(10.0, 0.0),
+        Point2::new(0.0, 0.0),
+    );
+    let mut transaction = document.transaction("Build");
+    let outline_id = transaction.add_feature("Outline", FeatureKind::from(outline.clone()));
+    let base = transaction.add_feature("Base", extruded(outline_id, "4", BodyOperation::NewBody));
+    document.apply(transaction.finish()).unwrap();
+    let evaluation = evaluate(&document, &mut Recompute::default());
+    let edge = edge_at(evaluation.body(base).unwrap(), Point3::new(5.0, 5.0, 4.0));
+    let mut transaction = document.transaction("Fillet");
+    let fillet = transaction.add_feature(
+        "Fillet 1",
+        FeatureKind::Blend(Blend {
+            kind: BlendKind::Fillet,
+            body: base,
+            groups: Vec::new(),
+            edges: vec![edge],
+            size: mm("0.5"),
+            form: ChamferForm::Equal,
+            flipped: false,
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+
+    let mut after = outline.clone();
+    after.add_line(at(5.0, 80.0), at(3.0, 80.0));
+    after.add_line(at(3.0, 80.0), at(3.0, 100.0));
+    after.add_line(at(3.0, 100.0), at(5.0, 100.0));
+    after.trim(arc, Point2::new(5.0, 5.0)).unwrap();
+    reshape_outline(&mut document, outline_id, &after);
+    let pieces = rounded_lengths(&document, fillet);
+    let evaluation = evaluate(&document, &mut Recompute::default());
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert_eq!(pieces.len(), 2);
+    assert!(
+        (pieces.iter().sum::<f64>() - 5.0 * PI * 160.0 / 180.0).abs() < 1e-6,
+        "{pieces:?}"
+    );
+}
+
+#[test]
+fn a_split_off_piece_moved_off_the_line_fails_the_fillet_in_words() {
+    let mut model = model();
+    let outline = outline_of(&model.document, model.base);
+    let mut after = notched(&sketch_of(&model.document, outline), 4.0, 6.0);
+    let collinear: Vec<_> = after
+        .constraints()
+        .filter(|(_, constraint)| matches!(constraint, caditor_sketch::Constraint::Collinear(..)))
+        .map(|(id, _)| id)
+        .collect();
+    for id in collinear {
+        after.remove_constraint(id).unwrap();
+    }
+    let at_notch: Vec<_> = after
+        .entities()
+        .filter(|(_, entity)| {
+            matches!(entity, caditor_sketch::Entity::Point(point)
+                if point.distance(Point2::new(6.0, 0.0)) < 1e-9)
+        })
+        .map(|(id, _)| id)
+        .collect();
+    for id in at_notch {
+        after
+            .replace_entity(id, caditor_sketch::Entity::Point(Point2::new(6.0, -1.0)))
+            .unwrap();
+    }
+    reshape_outline(&mut model.document, outline, &after);
+
+    let evaluation = evaluate(&model.document, &mut model.engine);
+    let error = failure(&evaluation, model.fillet);
+
+    assert!(
+        error.reason.contains("split into pieces by a sketch edit"),
+        "{}",
+        error.reason
+    );
+    assert!(
+        error.remedy.contains("Choose the pieces"),
+        "{}",
+        error.remedy
     );
 }
 
@@ -1112,6 +1354,7 @@ fn rounded_count(document: &Document, evaluation: &Evaluation, fillet: FeatureId
     let blend = document.feature(fillet).unwrap().kind.blend().unwrap();
     blend
         .resolve(
+            document,
             &evaluation
                 .body_before(fillet)
                 .unwrap()
@@ -1300,10 +1543,10 @@ fn the_rim_a_hole_leaves_through_the_far_tapered_side_is_rounded_and_chamfered()
         block,
         SketchFeature {
             sketch,
-            attachment: Some(SketchAttachment::Face(FaceAttachment {
+            attachment: Some(SketchAttachment::Face(Box::new(FaceAttachment {
                 body: block,
                 face: FaceReference::capture(&solid, front).unwrap(),
-            })),
+            }))),
             projections: std::collections::BTreeMap::new(),
         },
     );

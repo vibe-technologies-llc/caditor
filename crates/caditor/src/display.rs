@@ -280,6 +280,7 @@ mod tests {
                     id: EntityId::from_raw(100),
                     entity: Entity::Point(Point2::new(5.0, 5.0)),
                     construction: false,
+                    split_from: None,
                 },
             ))
             .unwrap();

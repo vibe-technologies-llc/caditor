@@ -29,6 +29,7 @@ impl TransactionBuilder<'_> {
             id,
             entity,
             construction,
+            split_from: None,
         });
         id
     }
@@ -277,10 +278,17 @@ impl Removal {
     }
 }
 
+struct AddedEntity {
+    id: EntityId,
+    entity: Entity,
+    construction: bool,
+    split_from: Option<EntityId>,
+}
+
 struct Reshape {
     removed_constraints: Vec<ConstraintId>,
     removed_entities: Vec<EntityId>,
-    added_entities: Vec<(EntityId, Entity, bool)>,
+    added_entities: Vec<AddedEntity>,
     changed_entities: Vec<(EntityId, Entity)>,
     construction: Vec<(EntityId, bool)>,
     added_constraints: Vec<(ConstraintId, Constraint, bool, Option<Vector2>)>,
@@ -341,8 +349,13 @@ impl Reshape {
         let (added_points, added_curves): (Vec<_>, Vec<_>) = after
             .entities()
             .filter(|(id, _)| fresh(id))
-            .map(|(id, entity)| (id, entity.clone(), after.is_construction(id)))
-            .partition(|(_, entity, _)| entity.points().is_empty());
+            .map(|(id, entity)| AddedEntity {
+                id,
+                entity: entity.clone(),
+                construction: after.is_construction(id),
+                split_from: after.split_from(id),
+            })
+            .partition(|added| added.entity.points().is_empty());
         let changed_entities = after
             .entities()
             .filter(|(id, entity)| {
@@ -418,11 +431,12 @@ impl Reshape {
         let added_entities = self
             .added_entities
             .into_iter()
-            .map(|(id, entity, construction)| Edit::AddSketchEntity {
+            .map(|added| Edit::AddSketchEntity {
                 feature,
-                id,
-                entity,
-                construction,
+                id: added.id,
+                entity: added.entity,
+                construction: added.construction,
+                split_from: added.split_from,
             });
         let changed_entities =
             self.changed_entities
@@ -506,13 +520,21 @@ impl Document {
         id: EntityId,
         entity: Entity,
         construction: bool,
+        split_from: Option<EntityId>,
     ) -> Result<Edit, EditError> {
         let (name, sketch) = self.sketch_mut(feature)?;
-        let inserted = sketch.insert_entity(id, entity).and_then(|()| {
-            construction
-                .then(|| sketch.set_construction(id, true))
-                .transpose()
-        });
+        let inserted = sketch
+            .insert_entity(id, entity)
+            .and_then(|()| {
+                construction
+                    .then(|| sketch.set_construction(id, true))
+                    .transpose()
+            })
+            .and_then(|_| {
+                split_from
+                    .map(|original| sketch.set_split_from(id, Some(original)))
+                    .transpose()
+            });
         inserted.map_err(|error| EditError::Sketch { name, error })?;
         Ok(Edit::RemoveSketchEntity { feature, id })
     }
@@ -613,12 +635,14 @@ impl Document {
             });
         }
         let construction = sketch.is_construction(id);
+        let split_from = sketch.split_from(id);
         match sketch.remove_unused_entity(id) {
             Ok(entity) => Ok(Edit::AddSketchEntity {
                 feature,
                 id,
                 entity,
                 construction,
+                split_from,
             }),
             Err(SketchError::InUse { entity, label }) => Err(EditError::EntityInUse {
                 feature: name,

@@ -77,7 +77,7 @@ pub fn face_plane(solid: &Solid, face: FaceId) -> Option<Plane> {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum SketchAttachment {
-    Face(FaceAttachment),
+    Face(Box<FaceAttachment>),
     Datum(FeatureId),
     Frame {
         frame: FeatureId,
@@ -116,7 +116,7 @@ impl SketchAttachment {
 
     pub fn heap_size(&self) -> usize {
         match self {
-            Self::Face(attachment) => attachment.face.heap_size(),
+            Self::Face(attachment) => size_of::<FaceAttachment>() + attachment.face.heap_size(),
             Self::Datum(_) | Self::Frame { .. } => 0,
         }
     }
@@ -133,7 +133,7 @@ impl SketchFeature {
     pub fn on_face(sketch: Sketch, attachment: FaceAttachment) -> Self {
         Self {
             sketch,
-            attachment: Some(SketchAttachment::Face(attachment)),
+            attachment: Some(SketchAttachment::Face(Box::new(attachment))),
             projections: BTreeMap::new(),
         }
     }

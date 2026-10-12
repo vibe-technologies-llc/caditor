@@ -351,6 +351,7 @@ mod tests {
                 id: EntityId::from_raw(1),
                 entity: Entity::spline((2..2 + controls).map(EntityId::from_raw).collect()),
                 construction: false,
+                split_from: None,
             },
         )
     }

@@ -527,6 +527,7 @@ fn constraints_are_checked_by_the_sketch_and_the_document() {
                 id: shape.sides[0],
                 entity: Entity::Point(Point2::ZERO),
                 construction: false,
+                split_from: None,
             },
         )),
         Err(EditError::Sketch {
@@ -906,4 +907,48 @@ fn a_chain_whose_line_must_fold_back_recomputes_to_the_shape_diagnosis_found() {
     assert_eq!(status.state, crate::FeatureState::UpToDate);
     assert!(result.solution.is_fully_constrained());
     assert!((reach - 20.0).abs() < 1e-6, "{reach}");
+}
+
+#[test]
+fn a_trimmed_piece_keeps_the_curve_it_came_from_through_reshaping_removal_and_undo() {
+    let mut document = Document::default();
+    let mut drawn = Sketch::new(Plane::XY);
+    let line = drawn.add_line(Point2::ZERO, Point2::new(40.0, 0.0));
+    drawn.add_line(Point2::new(10.0, -5.0), Point2::new(10.0, 5.0));
+    drawn.add_line(Point2::new(30.0, -5.0), Point2::new(30.0, 5.0));
+    let mut transaction = document.transaction("New sketch");
+    let feature = transaction.add_feature("Outline", FeatureKind::from(drawn.clone()));
+    document.apply(transaction.finish()).unwrap();
+    let mut trimmed = drawn.clone();
+    let caditor_sketch::Trimmed::Split { piece } =
+        trimmed.trim(line, Point2::new(20.0, 0.0)).unwrap()
+    else {
+        panic!("the line is split");
+    };
+    let sketch = |document: &Document| {
+        document
+            .feature(feature)
+            .unwrap()
+            .kind
+            .sketch()
+            .unwrap()
+            .clone()
+    };
+
+    let mut transaction = document.transaction("Trim");
+    transaction.reshape_sketch(feature, &drawn, &trimmed);
+    document.apply(transaction.finish()).unwrap();
+    let reshaped = sketch(&document);
+    let mut transaction = document.transaction("Delete");
+    transaction.remove_sketch_items(feature, [piece], []);
+    let restore = document.apply(transaction.finish()).unwrap();
+    let removed = sketch(&document);
+    document.apply(restore).unwrap();
+    let restored = sketch(&document);
+
+    assert_eq!(reshaped.split_from(piece), Some(line));
+    assert!(reshaped.same_content(&trimmed));
+    assert_eq!(removed.split_from(piece), None);
+    assert_eq!(restored.split_from(piece), Some(line));
+    assert!(restored.same_content(&reshaped));
 }

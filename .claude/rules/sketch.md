@@ -181,10 +181,16 @@ relative to the extent.
   - Dropped: `Midpoint` and `Equal` on a shortened line; `Midpoint`, `ArcLength` and `Sweep` on a
     shortened or extended arc (`keeps_sweep`; the sketch fillet does the same); any distance
     dimension between the two old ends or points joined to them by `Coincident`.
-  - A split-off piece gets fresh IDs and the construction flag. A line piece is `Collinear` with the
-    kept part (or keeps horizontal or vertical and a new end on the kept line); an arc piece gets
-    its own centre, `Concentric` and `Equal`. Tangent, parallel, perpendicular and angle
-    constraints to a curve joined only at the far end move to the piece holding that end.
+  - A split-off piece gets fresh IDs, the construction flag and `split_from`: the curve it came
+    from (that curve's own original when it is a piece itself), so every piece of one curve names
+    the same original (`Sketch::pieces_of`) and blends follow an edge onto them
+    (`kernel-naming.md`). It is a map beside the entities, part of `same_geometry`, forgotten with
+    the entity, kept by `restructure`, saved as the entity record's `split_from` key; split and
+    break record it the same way (`add_piece`). A piece split from itself is `SplitFromItself`.
+  - A line piece is `Collinear` with the kept part (or keeps horizontal or vertical and a new end
+    on the kept line); an arc piece gets its own centre, `Concentric` and `Equal`. Tangent,
+    parallel, perpendicular and angle constraints to a curve joined only at the far end move to the
+    piece holding that end.
   - A new end joins its cutter: `Coincident` with the cutter's end point when the cut lies there,
     else a point on the cutter (an axis included). End points no curve uses are removed.
   - `extend` moves an end to the nearest crossing beyond it and joins it the same way; an end

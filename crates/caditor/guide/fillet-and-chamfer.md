@@ -13,6 +13,12 @@ one lights it in the view. Leaving out one edge of a face or body taken whole tu
 its edges as they are now, less the one left out. Edges that continue smoothly are taken together
 as a chain.
 
+An edge chosen along an extruded or revolved side keeps all of itself when its sketch curve is
+later cut in two by [Trim](trim-and-extend) or split: every piece along the old edge stays rounded,
+and the panel lists the edge as split into pieces. An edge chosen after the cut stays on its own
+piece. When a piece no longer lies along the old edge, the fillet stops and says the edge was
+split, so you can choose the pieces again rather than lose one without notice.
+
 - Fillet takes a **Radius**, Chamfer a **Distance**. An arrow at the middle of the first edge,
   standing on the rounded or cut face, drags it; type a value with the pointer on the arrow to set
   it exactly.

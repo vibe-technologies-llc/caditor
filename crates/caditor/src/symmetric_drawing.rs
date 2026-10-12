@@ -145,6 +145,7 @@ fn image_edits(
             id,
             entity: entity.clone(),
             construction: image.is_construction(id),
+            split_from: None,
         });
     let constraints = image
         .constraints()

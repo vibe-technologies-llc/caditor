@@ -242,7 +242,7 @@ pub fn place(
         Edit::SetSketchPlacement {
             feature: sketch,
             plane,
-            attachment: Some(SketchAttachment::Face(attachment)),
+            attachment: Some(SketchAttachment::Face(Box::new(attachment))),
         },
     );
     document

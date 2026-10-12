@@ -1143,6 +1143,7 @@ impl Sketch {
         keeps: impl Fn(&Constraint) -> bool,
     ) -> Result<(), SketchError> {
         let construction = self.is_construction(curve);
+        let split_from = self.split_from(curve);
         let mut kept = Vec::new();
         for id in self.constraints_using(curve) {
             let detached = self.detach_constraint(id)?;
@@ -1155,6 +1156,7 @@ impl Sketch {
         if construction {
             self.set_construction(curve, true)?;
         }
+        self.set_split_from(curve, split_from)?;
         for (id, detached) in kept {
             self.attach_constraint(id, detached)?;
         }
@@ -1218,6 +1220,8 @@ impl Sketch {
         if self.is_construction(curve) {
             self.set_construction(piece, true)?;
         }
+        let original = self.split_from(curve).unwrap_or(curve);
+        self.set_split_from(piece, Some(original))?;
         Ok(piece)
     }
 

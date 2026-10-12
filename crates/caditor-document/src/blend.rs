@@ -2,17 +2,18 @@ use std::collections::BTreeSet;
 
 use caditor_expression::{Dimension, EvalError, Expression, ParameterId};
 use caditor_kernel::{
-    BlendError, BlendShape, EdgeId, EdgeNaming, EdgeReference, FaceId, FaceOrigin, FaceReference,
-    Solid, VertexId, blend,
+    BlendError, BlendShape, EdgeId, EdgeReference, FaceId, FaceOrigin, FaceReference, Solid,
+    VertexId, blend,
 };
 
 use crate::{
     describe::{describe_edge, edge_faces},
-    document::{Feature, FeatureId},
+    document::{Document, Feature, FeatureId},
     origins,
-    pieces::{Resolution, Unresolved, pieces_of_one_edge, pieces_of_one_face, tally},
+    pieces::{Resolution, Unresolved, pieces_of_one_face, tally},
     recompute::{CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
     solid::SolidResult,
+    split_edges::{Followed, SplitEdges},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -141,6 +142,7 @@ fn blendable(solid: &Solid, edges: impl Iterator<Item = EdgeId>) -> Vec<EdgeId> 
 pub enum BlendUnresolved {
     Edges(Unresolved),
     Faces(Unresolved),
+    PartlyFollowed(usize),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -235,8 +237,8 @@ impl Blend {
             .collect()
     }
 
-    pub fn entry_edges(&self, solid: &Solid) -> Vec<Vec<EdgeId>> {
-        self.resolutions(solid)
+    pub fn entry_edges(&self, document: &Document, solid: &Solid) -> Vec<Vec<EdgeId>> {
+        self.resolutions(document, solid)
             .iter()
             .map(|resolution| resolution.found().to_vec())
             .chain(
@@ -247,19 +249,26 @@ impl Blend {
             .collect()
     }
 
-    pub fn resolutions(&self, solid: &Solid) -> Vec<Resolution<EdgeId>> {
-        let naming = EdgeNaming::new(solid);
-        self.edges
-            .iter()
-            .map(|reference| {
-                Resolution::of(reference.resolve_in(&naming), |pieces| {
-                    pieces_of_one_edge(solid, pieces)
-                })
-            })
+    pub fn resolutions(&self, document: &Document, solid: &Solid) -> Vec<Resolution<EdgeId>> {
+        self.followed(document, solid)
+            .into_iter()
+            .map(Followed::resolution)
             .collect()
     }
 
-    pub fn resolve(&self, solid: &Solid) -> Result<Vec<EdgeId>, BlendUnresolved> {
+    pub(crate) fn followed(&self, document: &Document, solid: &Solid) -> Vec<Followed> {
+        let split = SplitEdges::new(document, solid);
+        self.edges
+            .iter()
+            .map(|reference| split.follow(reference))
+            .collect()
+    }
+
+    pub fn resolve(
+        &self,
+        document: &Document,
+        solid: &Solid,
+    ) -> Result<Vec<EdgeId>, BlendUnresolved> {
         let groups = self.group_resolutions(solid);
         let faces = groups
             .iter()
@@ -269,7 +278,16 @@ impl Blend {
             })
             .collect();
         tally(faces).map_err(BlendUnresolved::Faces)?;
-        let mut edges = tally(self.resolutions(solid)).map_err(BlendUnresolved::Edges)?;
+        let followed = self.followed(document, solid);
+        let partly = followed
+            .iter()
+            .filter(|followed| matches!(followed, Followed::PartlyLost(_)))
+            .count();
+        if partly > 0 {
+            return Err(BlendUnresolved::PartlyFollowed(partly));
+        }
+        let resolutions = followed.into_iter().map(Followed::resolution).collect();
+        let mut edges = tally(resolutions).map_err(BlendUnresolved::Edges)?;
         edges.extend(groups.iter().flat_map(|group| group.edges(solid)));
         edges.sort_unstable();
         edges.dedup();
@@ -544,32 +562,35 @@ pub(crate) fn evaluate(
     let Some(solid) = inputs.body(definition.body) else {
         return Err(inputs.missing_body(definition.body));
     };
-    let edges = definition.resolve(solid).map_err(|unresolved| {
-        let body = &context.body_name;
-        let (unresolved, one, several) = match unresolved {
-            BlendUnresolved::Edges(unresolved) => (unresolved, "edge", "edges"),
-            BlendUnresolved::Faces(unresolved) => (unresolved, "face", "faces"),
-        };
-        let reason = match unresolved {
-            Unresolved::Missing(1) => {
-                format!("A chosen {one} is no longer part of the body of {body}.")
-            }
-            Unresolved::Missing(missing) => {
-                format!("{missing} chosen {several} are no longer part of the body of {body}.")
-            }
-            Unresolved::Unrelated(1) => format!(
-                "A chosen {one} now matches several separate {several} of the body of {body}."
-            ),
-            Unresolved::Unrelated(unrelated) => format!(
-                "{unrelated} chosen {several} now match several separate {several} of the body \
+    let edges = definition
+        .resolve(inputs.document, solid)
+        .map_err(|unresolved| {
+            let body = &context.body_name;
+            let (unresolved, one, several) = match unresolved {
+                BlendUnresolved::Edges(unresolved) => (unresolved, "edge", "edges"),
+                BlendUnresolved::Faces(unresolved) => (unresolved, "face", "faces"),
+                BlendUnresolved::PartlyFollowed(count) => return partly_followed(&context, count),
+            };
+            let reason = match unresolved {
+                Unresolved::Missing(1) => {
+                    format!("A chosen {one} is no longer part of the body of {body}.")
+                }
+                Unresolved::Missing(missing) => {
+                    format!("{missing} chosen {several} are no longer part of the body of {body}.")
+                }
+                Unresolved::Unrelated(1) => format!(
+                    "A chosen {one} now matches several separate {several} of the body of {body}."
+                ),
+                Unresolved::Unrelated(unrelated) => format!(
+                    "{unrelated} chosen {several} now match several separate {several} of the body \
                  of {body}."
-            ),
-        };
-        context.error(
-            reason,
-            format!("Choose the {several} again, or undo the change that removed them."),
-        )
-    })?;
+                ),
+            };
+            context.error(
+                reason,
+                format!("Choose the {several} again, or undo the change that removed them."),
+            )
+        })?;
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }
@@ -579,4 +600,21 @@ pub(crate) fn evaluate(
         definition.body,
         result,
     )))
+}
+
+fn partly_followed(context: &Context<'_>, count: usize) -> Failure {
+    let reason = if count == 1 {
+        "A chosen edge was split into pieces by a sketch edit, and only some of the pieces can \
+         still be traced back to it."
+            .to_owned()
+    } else {
+        format!(
+            "{count} chosen edges were split into pieces by a sketch edit, and only some of the \
+             pieces can still be traced back to them."
+        )
+    };
+    context.error(
+        reason,
+        "Choose the pieces of the edge again, or undo the sketch edit that split it.".to_owned(),
+    )
 }

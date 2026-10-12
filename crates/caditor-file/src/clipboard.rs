@@ -146,7 +146,7 @@ pub fn sketch_clipboard_text(
             .entities()
             .filter(|(id, _)| !id.is_reference())
             .map(|(id, entity)| {
-                Lenient::Read(entity_record(id, entity, holder.is_construction(id)))
+                Lenient::Read(entity_record(id, entity, holder.is_construction(id), None))
             })
             .collect(),
         constraints: holder

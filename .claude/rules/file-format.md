@@ -26,10 +26,11 @@ paths:
 
 - `crates/caditor-file/corpus/<format>-<version>/` holds files caditor wrote in each shipped
   version of each format it owns: `model-1/` (every record kind, feature record kind, sketch entity
-  and constraint kind, a version history with a kept version and block-alignment padding, sliced
-  content, a thread and a tapped hole carrying `modelled`), `journal-1/` (every journaled edit, apply, undo and redo whole and by reference, a
-  rebased snapshot, sliced content) and `parameters-1/` (an exported parameter file). Committed as
-  binary (`.gitattributes` `-text`), a few KiB each.
+  and constraint kind and entity flag, `pieces.caditor` holding trimmed and broken pieces with their
+  `split_from`, a version history with a kept version and block-alignment padding, sliced
+  content, a thread and a tapped hole carrying `modelled`), `journal-1/` (every journaled edit,
+  apply, undo and redo whole and by reference, a rebased snapshot, sliced content) and
+  `parameters-1/` (an exported parameter file). Committed as binary (`.gitattributes` `-text`), a few KiB each.
 - Write-once: a corpus file is never rewritten, regenerated or deleted. `KEPT` lists every file with
   the blake3 digest of a description of what it reads as (issues, records re-encoded by today's
   encoder, every version for models; header, base, entries and the replayed result for journals;
@@ -44,10 +45,11 @@ paths:
   every current `FORMAT_VERSION`, `JOURNAL_VERSION` and `PARAMETERS_VERSION`
   (`the_format_corpus_holds_files_of_every_current_version`), and until some file holds every
   variant of `Record`, `FeatureKindRecord`, `EntityKindRecord`, `ConstraintKindRecord`,
-  `EditRecord`, `ChunkKind` and `Codec` and a model and a journal hold content sliced over several
-  chunks (`the_format_corpus_holds_every_kind_this_version_writes`, reading the variants from
-  serde). So a version bump or a new kind adds a builder to `corpus_of_this_version` under a new
-  file name and runs the writer, in the same commit.
+  `EditRecord`, `ChunkKind` and `Codec`, every entity flag (`ENTITY_FLAGS`), and a model and a
+  journal hold content sliced over several chunks
+  (`the_format_corpus_holds_every_kind_this_version_writes`, reading the variants from serde). So a
+  version bump, a new kind or a new entity flag adds a builder to `corpus_of_this_version` under a
+  new file name and runs the writer, in the same commit.
 - The fuzz seed writer refuses any path inside the corpus (`seeds::seed_path`).
 
 ## Container (`binary/`)
@@ -310,7 +312,11 @@ Sketch entities:
 - `ellipse` (`center`, `major`, `minor_radius`), `elliptical_arc` (plus `start`, `end`). Radii are
   `major_radius` and `minor_radius` constraints (`ellipse`, `value`, falling back to the drawn
   radius); `on_minor_axis` (`point`, `ellipse`). Naming an unknown kind skips the flags (`id`,
-  `name`, `construction`, `inactive`, `label`).
+  `name`, `construction`, `split_from`, `inactive`, `label`).
+- An entity record has `construction` when true and `split_from` (the id of the curve it was split
+  from, `sketch.md`) when set, both left out otherwise, in the model and in a journaled
+  `add_sketch_entity`. A `split_from` the sketch refuses (the entity itself) is reported and
+  dropped, the curve kept.
 - A reader not knowing one reports it as a kind from a newer version and keeps the points.
 
 ## Loading

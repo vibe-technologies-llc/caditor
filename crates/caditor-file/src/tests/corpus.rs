@@ -44,6 +44,7 @@ use crate::{
 };
 
 const WRITE_CORPUS: &str = "CADITOR_WRITE_FORMAT_CORPUS";
+const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
@@ -103,6 +104,10 @@ const KEPT: [(&str, &str); 20] = [
     (
         "model-1/patterns.caditor",
         "ec1a7a437ffe10cba80a68813ae78ff8513ee236945d2ded0811d26847b7f147",
+    ),
+    (
+        "model-1/pieces.caditor",
+        "f4745712d55b915884d644d687473b879d96e9ba8f066938a5358ba1a16023b2",
     ),
     (
         "model-1/primitives.caditor",
@@ -424,6 +429,11 @@ fn the_format_corpus_holds_every_kind_this_version_writes() {
         &covered.entities,
     );
     require_every(
+        "sketch entity flag",
+        &ENTITY_FLAGS.map(str::to_owned).into(),
+        &covered.entity_flags,
+    );
+    require_every(
         "sketch constraint",
         &variants_of::<ConstraintKindRecord>(),
         &covered.constraints,
@@ -530,6 +540,7 @@ struct Covered {
     records: BTreeSet<String>,
     features: BTreeSet<String>,
     entities: BTreeSet<String>,
+    entity_flags: BTreeSet<String>,
     constraints: BTreeSet<String>,
     edits: BTreeSet<String>,
     chunks: BTreeSet<String>,
@@ -594,8 +605,14 @@ impl Covered {
                 .unwrap_or_default()
         };
         for entity in items("entities") {
-            self.entities
-                .extend(keys_without(&entity, &["id", "construction"]));
+            let fields: Vec<&str> = ["id"].into_iter().chain(ENTITY_FLAGS).collect();
+            self.entities.extend(keys_without(&entity, &fields));
+            self.entity_flags.extend(
+                ENTITY_FLAGS
+                    .iter()
+                    .filter(|flag| entity.get(**flag).is_some())
+                    .map(|flag| (*flag).to_owned()),
+            );
         }
         for constraint in items("constraints") {
             self.constraints
@@ -635,6 +652,7 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
     };
     let mut files = vec![
         (model("sketches"), saved(&sketches(), "Sketches")),
+        (model("pieces"), saved(&pieces(), "Pieces")),
         (model("extents"), saved(&extents_model().0, "Extents")),
         (model("starts"), saved(&starts_model().0, "Starts")),
         (model("sweeps"), saved(&sweeps(), "Sweeps")),
@@ -682,6 +700,30 @@ fn end_cap(digest: u128) -> FaceReference {
         Some(FaceOrigin::EndCap { feature: 1 }),
         [FaceName::from_digest(2)],
     )
+}
+
+fn pieces() -> Document {
+    let mut drawn = Sketch::new(Plane::XY);
+    let line = drawn.add_line(Point2::ZERO, Point2::new(40.0, 0.0));
+    let arc = drawn.add_arc(Point2::new(20.0, 0.0), Point2::new(40.0, 0.0), Point2::ZERO);
+    for x in [10.0, 15.0, 25.0, 30.0] {
+        drawn.add_line(Point2::new(x, -5.0), Point2::new(x, 25.0));
+    }
+    drawn.trim(line, Point2::new(20.0, 0.0)).unwrap();
+    drawn.trim(arc, Point2::new(20.0, 20.0)).unwrap();
+    let pieces: Vec<EntityId> = drawn
+        .entities()
+        .map(|(id, _)| id)
+        .filter(|id| drawn.split_from(*id).is_some())
+        .collect();
+    for piece in pieces {
+        drawn.break_curve(piece).unwrap();
+    }
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Pieces");
+    transaction.add_feature("Trimmed", FeatureKind::from(drawn));
+    document.apply(transaction.finish()).unwrap();
+    document
 }
 
 fn sketches() -> Document {
