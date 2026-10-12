@@ -13,6 +13,30 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   hole in the wrong place or a fillet to remove means remodelling it from scratch. Direct edits
   become features of their own, named from the faces they move, so they stay parametric and
   undoable.
+- [medium · medium] Threads are only cosmetic in the app: the kernel cuts a real helical thread
+  (`caditor_kernel::thread`, the ISO 68-1 form for a shaft or a bore, either hand, running out or
+  stopping square, `kernel-operations.md`), but no feature calls it, so exports carry the
+  cosmetic thread only. What remains, so a print or a machined part comes out threaded:
+  - the document: `Thread` (and a tapped `Hole`'s thread) gains a form, Modelled or Cosmetic, new
+    threads Modelled; a modelled one modifies its body (failure containment and worded errors
+    like any body-modifying feature, the kernel's `ThreadError`s put in words naming the face),
+    the form is an optional key in the file so older files read as Cosmetic, and undo,
+    configurations, the clipboard and the journal carry it; ISO metric maps to the kernel's form
+    (D1 and d1 from the basic profile; tolerance classes change nothing modelled),
+    trapezoidal and parallel pipe forms are approximated by flat crests and roots, taper pipe
+    stays cosmetic;
+  - the Thread panel and the Hole panel's thread section get a Form row (Modelled, Cosmetic),
+    keyboard reachable, one undoable change per edit;
+  - a model-wide "show modelled threads as cosmetic" switch (palette command, View or Model menu,
+    a row in the Thread panel saying when it is on) that evaluates and shows modelled threads as
+    cosmetic while editing, and an export option "Threads: Modelled / As shown" defaulting to
+    Modelled (headless `--export` exports modelled), since an M4×20 thread costs 0.7 to 0.9 s of
+    recompute and a model with dozens of tapped holes would otherwise recompute for tens of
+    seconds;
+  - `scene::Builder::threads` skips modelled threads (the geometry shows itself) and keeps the
+    dashed drawing for cosmetic ones; the STEP `thread` property is still written for both forms;
+  - the Thread, Hole and export guide pages and `document.md`, `app-modelling.md`,
+    `file-format.md`.
 - [medium · hard] Offset face moves planes, cylinders, cones, spheres and tori only: a spline,
   extrusion or revolution face becomes its offset surface (which needs a surface fitted within
   tolerance), and a fillet moved beside a plane that stays is refused rather than re-blended.
@@ -88,12 +112,10 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [low · hard] No silhouette split: dividing a body's faces along its outline seen from a chosen
   direction (a split face whose tool is that outline), so the parting line of a moulded or cast
   part can be a face boundary for a draft to start from.
-- [medium · hard · blocked by: the sweep feature] No helix or spiral curve and no modelled threads:
-  springs, coils and threaded holes and shafts cannot be modelled with real thread geometry (the
-  cosmetic Thread feature covers drawing and exchange). The sweep feature (same list) needs
-  the helix, and the thread feature then offers a modelled form beside the cosmetic one. A coil
-  feature would be the ready tool for springs: revolutions or height and pitch, a round or square
-  section, inside or outside the axis, and a taper angle.
+- [medium · hard · blocked by: the sweep feature] No helix or spiral curve: springs and coils
+  cannot be modelled. The sweep feature (same list) needs the helix. A coil feature would be the
+  ready tool for springs: revolutions or height and pitch, a round or square section, inside or
+  outside the axis, and a taper angle.
 - [medium · hard · blocked by: the sweep feature] No pipe: a round, square or triangular section
   swept along a path sketch, solid or with a wall thickness, with sharp or rounded corners, as the
   ready tool for tubing, handrails and cable runs.

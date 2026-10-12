@@ -15,6 +15,14 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   Lofting the chord through a few of the sections and moving the vertices onto the fillet's rows
   afterwards (along a row onto an end face where one meets it) would cut the spans the boolean
   marches through several times.
+- [medium · hard] A modelled thread is slow to cut and to measure: in release an M4×20 shaft
+  threaded its whole length takes 0.7 to 0.9 s (about a third classifying fragments by rays
+  through a hundred one-turn flank faces, a third imprinting, a fifth validating the volume) and an
+  M8 bore 12 mm deep 0.35 s. With the groove's far face exactly on the shaft (no 5 % reach) the
+  M4 took 0.5 s, the crest then being the groove's own helix rather than a marched one, but
+  coincident faces were left out until they are known to hold on every face kind. Measuring the
+  threaded M4's mass exactly (`mass_properties`) gave up on 59 of its 64 faces after about 100 s
+  and took them from the mesh: the flank integrals do not converge within `FACE_EVALUATIONS`.
 - [medium · hard] A boolean still validates the volume of every shell it touches by meshing the
   whole shell, and passes every face of the body through `Plan::build` and the cheap checks, so a
   sequence of hole features stays quadratic with a smaller constant: in release the 144th hole of
