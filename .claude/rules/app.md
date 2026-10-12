@@ -538,6 +538,9 @@ paths:
   Tab stop. Text painted over it (prompt, hover description, snap and measure labels) is also a
   `Label` node (`canvas::announce`), the prompt and keyboard-highlight description polite live
   regions.
+- The about dialog names `THIRD-PARTY-NOTICES.txt`, the licences of the other fonts and of the
+  linked libraries that every package installs beside `LICENSE` (`notices.md`); a test in `about.rs`
+  holds the packaging scripts, the PKGBUILD, the MSI and their checks to naming it.
 - Wayland app ID, X11 class and Windows window class are `about::APP_ID`, which must match the
   desktop entry's name.
 - The logo is `packaging/caditor.svg`; `packaging/render-icons.sh` renders it into

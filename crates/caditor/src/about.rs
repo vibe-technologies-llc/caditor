@@ -13,6 +13,7 @@ const PARAGRAPH_GAP: f32 = SPACE_M;
 const LOGO_SIDE: f32 = 64.0;
 const COPY_VERSION: &str = "Copy version";
 const TAGLINE: &str = "Parametric CAD";
+const NOTICES_FILE: &str = "THIRD-PARTY-NOTICES.txt";
 
 pub fn version_line() -> String {
     format!("{NAME} {VERSION}")
@@ -44,6 +45,14 @@ pub fn dialog(ctx: &egui::Context) -> bool {
         ui.add_space(PARAGRAPH_GAP);
         ui.label(widgets::muted(
             "The interface is set in Inter (SIL Open Font License 1.1) with Phosphor icons (MIT).",
+            ui,
+        ));
+        ui.add_space(PARAGRAPH_GAP);
+        ui.label(widgets::muted(
+            format!(
+                "The licences of every other font and library caditor is built from are in \
+                 {NOTICES_FILE}, installed beside the licence."
+            ),
             ui,
         ));
         widgets::footer_split(
@@ -79,6 +88,11 @@ mod tests {
     const MIME_TYPE: &str = include_str!("../../../packaging/caditor-mime.xml");
     const ARCH_PACKAGE: &str = include_str!("../../../packaging/arch/PKGBUILD");
     const WINDOWS_INSTALLER: &str = include_str!("../../../packaging/windows/caditor.wxs");
+    const WINDOWS_BUILD: &str = include_str!("../../../packaging/windows/build-release.ps1");
+    const WINDOWS_CHECK: &str = include_str!("../../../packaging/windows/check-install.ps1");
+    const ARCHIVE_BUILD: &str = include_str!("../../../packaging/build-release.sh");
+    const ARCHIVE_CHECK: &str = include_str!("../../../packaging/check-install.sh");
+    const PACKAGE_CHECK: &str = include_str!("../../../packaging/check-packages.sh");
 
     #[test]
     fn the_desktop_entry_launches_and_matches_this_window() {
@@ -107,6 +121,21 @@ mod tests {
         assert!(ARCH_PACKAGE.starts_with(&format!("pkgname={NAME}\npkgver={VERSION}\n")));
         assert!(ARCH_PACKAGE.contains(&format!("/usr/share/applications/{APP_ID}.desktop")));
         assert!(ARCH_PACKAGE.contains(&format!("/usr/bin/{NAME}\"")));
+    }
+
+    #[test]
+    fn every_package_and_its_check_carry_the_notices_this_dialog_names() {
+        for source in [
+            ARCH_PACKAGE,
+            WINDOWS_INSTALLER,
+            WINDOWS_BUILD,
+            WINDOWS_CHECK,
+            ARCHIVE_BUILD,
+            ARCHIVE_CHECK,
+            PACKAGE_CHECK,
+        ] {
+            assert!(source.contains(NOTICES_FILE));
+        }
     }
 
     #[test]

@@ -53,6 +53,11 @@ Copy-Item (Join-Path $targetDir 'release/caditor.exe') $stage
 Copy-Item README.md $stage
 Copy-Item LICENSE (Join-Path $stage 'licenses/LICENSE.txt')
 Copy-Item crates/caditor/assets/fonts/Inter-LICENSE.txt (Join-Path $stage 'licenses')
+Invoke-Checked cargo @(
+    'run', '--release', '--locked', '--quiet', '-p', 'caditor-notices', '--',
+    '--target', 'x86_64-pc-windows-msvc',
+    (Join-Path $stage 'licenses/THIRD-PARTY-NOTICES.txt')
+)
 
 $reported = (& (Join-Path $stage 'caditor.exe') --version | Out-String).Trim()
 if ($reported -ne "caditor $version") {

@@ -52,6 +52,10 @@
         KeyPath="yes" />
       <File Id="LICENSE.txt" Source="$(Stage)\licenses\LICENSE.txt" KeyPath="no" />
       <File Id="Inter_LICENSE.txt" Source="$(Stage)\licenses\Inter-LICENSE.txt" KeyPath="no" />
+      <File
+        Id="THIRD_PARTY_NOTICES.txt"
+        Source="$(Stage)\licenses\THIRD-PARTY-NOTICES.txt"
+        KeyPath="no" />
       <RemoveFolder Id="RemoveLicensesFolder" Directory="LicensesFolder" On="uninstall" />
     </Component>
 
