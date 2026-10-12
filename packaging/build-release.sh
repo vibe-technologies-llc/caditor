@@ -59,6 +59,7 @@ case "${1:-}" in
 esac
 
 need cargo "the Rust toolchain"
+need rustc "the Rust toolchain"
 need desktop-file-validate "desktop-file-utils"
 need appstreamcli "appstream"
 need zstd "zstd"
@@ -88,6 +89,9 @@ stage="$dist/$name"
 SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH:-$(git log -1 --format=%ct)}
 export SOURCE_DATE_EPOCH
 
+host=$(rustc -vV | sed -n 's/^host: //p')
+[ -n "$host" ] || fail "rustc does not report its host target"
+
 cargo build --release --locked -p caditor
 
 rm -rf "$stage" "$dist/$name.tar.zst" "$dist/$name.tar.zst.sha256"
@@ -105,6 +109,9 @@ install -D -m 644 packaging/caditor-mime.xml "$stage/share/mime/packages/caditor
 install -D -m 644 LICENSE "$stage/share/licenses/caditor/LICENSE"
 install -D -m 644 crates/caditor/assets/fonts/Inter-LICENSE.txt \
     "$stage/share/licenses/caditor/Inter-LICENSE.txt"
+cargo run --release --locked --quiet -p caditor-notices -- --target "$host" \
+    "$stage/share/licenses/caditor/THIRD-PARTY-NOTICES.txt"
+chmod 644 "$stage/share/licenses/caditor/THIRD-PARTY-NOTICES.txt"
 install -D -m 644 README.md "$stage/share/doc/caditor/README.md"
 install -m 755 packaging/install.sh "$stage/install.sh"
 install -m 644 packaging/INSTALL.md "$stage/INSTALL.md"

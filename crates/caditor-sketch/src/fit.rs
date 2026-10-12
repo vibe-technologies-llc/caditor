@@ -3,6 +3,7 @@ use caditor_geometry::{Point2, Vector2};
 use crate::{
     banded::Banded,
     curve::{BSpline, MAX_SPLINE_DEGREE, basis_values},
+    solve::tally,
 };
 
 const MIN_CONTROL_POINTS: usize = 4;
@@ -169,6 +170,7 @@ fn fit_with(
         spline = least_squares(&template, samples, &parameters, first, last)?;
     }
     correct_parameters(&spline, samples, &mut parameters);
+    tally::add(samples.len());
     let deviation = samples
         .iter()
         .zip(&parameters)
@@ -184,6 +186,7 @@ pub(crate) fn least_squares(
     first: Point2,
     last: Point2,
 ) -> Option<BSpline> {
+    tally::add(samples.len());
     let count = template.control_points().len();
     let interior = count.checked_sub(2)?;
     let mut normal = Banded::zeros(interior, template.degree());
@@ -225,6 +228,7 @@ pub(crate) fn collocate(
     points: &[Point2],
     parameters: &[f64],
 ) -> Option<Vec<Point2>> {
+    tally::add(points.len());
     let count = points.len();
     let mut matrix = Banded::zeros(count, degree);
     for (row, parameter) in parameters.iter().enumerate() {
@@ -254,6 +258,7 @@ pub(crate) fn averaged_knots(parameters: &[f64], degree: usize) -> Vec<f64> {
 }
 
 fn correct_parameters(spline: &BSpline, samples: &[Point2], parameters: &mut [f64]) {
+    tally::add(samples.len());
     for (sample, parameter) in samples.iter().zip(parameters.iter_mut()) {
         for _ in 0..NEWTON_STEPS {
             let (point, first, second) = derivatives(spline, *parameter);
@@ -299,6 +304,9 @@ mod tests {
     use std::f64::consts::{FRAC_PI_2, TAU};
 
     use super::*;
+
+    const LONG_FIT_SAMPLES: usize = 4_000;
+    const LONG_FIT_PASSES: usize = 250;
 
     fn quarter_ellipse(count: usize) -> Vec<Point2> {
         (0..=count)
@@ -440,19 +448,25 @@ mod tests {
     }
 
     #[test]
-    fn long_fits_and_interpolations_stay_fast() {
-        let samples: Vec<Point2> = (0..=4_000)
+    fn long_fits_and_interpolations_stay_within_their_passes_over_the_samples() {
+        let samples: Vec<Point2> = (0..=LONG_FIT_SAMPLES)
             .map(|index| {
                 let angle = index as f64 / 40.0;
                 Point2::new(angle * 10.0, angle.sin() * 5.0)
             })
             .collect();
-        let started = std::time::Instant::now();
-        let fitted = BSpline::fit(&samples, 1e-3, 400).unwrap();
-        assert!(fitted.deviation.is_finite());
         let through: Vec<Point2> = samples.iter().step_by(10).copied().collect();
-        assert!(BSpline::interpolate(&through).is_some());
-        assert!(BSpline::through(&through, 1e-3, 400).is_some());
-        assert!(started.elapsed().as_secs() < 10, "{:?}", started.elapsed());
+
+        let ((), steps) = tally::measure(|| {
+            let fitted = BSpline::fit(&samples, 1e-3, 400).unwrap();
+            assert!(fitted.deviation.is_finite());
+            assert!(BSpline::interpolate(&through).is_some());
+            assert!(BSpline::through(&through, 1e-3, 400).is_some());
+        });
+
+        assert!(
+            steps <= LONG_FIT_PASSES * LONG_FIT_SAMPLES,
+            "{steps} steps for {LONG_FIT_SAMPLES} samples"
+        );
     }
 }

@@ -142,6 +142,7 @@ pub struct Storage {
     commands: Sender<Command>,
     reports: Receiver<Report>,
     handover: Handover,
+    untitled: Option<PathBuf>,
 }
 
 #[derive(Clone, Default)]
@@ -178,6 +179,8 @@ impl Storage {
         let (sender, reports) = mpsc::channel();
         let handover = Handover::default();
         let handed_over = handover.clone();
+        let untitled = config.recovery_dir.as_deref().map(paths::untitled_journal);
+        let worker_untitled = untitled.clone();
         thread::Builder::new()
             .name("storage".to_owned())
             .spawn(move || {
@@ -200,7 +203,7 @@ impl Storage {
                 let mut mirror = Mirror::new(base.clone());
                 let entries = entries.into_iter().map(|entry| mirror.log(entry)).collect();
                 let mut worker = Worker {
-                    untitled: config.recovery_dir.as_deref().map(paths::untitled_journal),
+                    untitled: worker_untitled,
                     recovery_dir: config.recovery_dir,
                     rebase_after: config.rebase_journal_after,
                     file,
@@ -228,7 +231,12 @@ impl Storage {
             commands,
             reports,
             handover,
+            untitled,
         })
+    }
+
+    pub fn untitled_journal(&self) -> Option<&Path> {
+        self.untitled.as_deref()
     }
 
     pub fn handover(&self) -> Handover {
@@ -276,6 +284,24 @@ impl Storage {
 
     fn send(&self, command: Command) -> Result<(), StorageStopped> {
         self.commands.send(command).map_err(|_| StorageStopped)
+    }
+}
+
+#[cfg(feature = "test-support")]
+impl Storage {
+    pub fn stop(&self) {
+        let (done, _finished) = mpsc::sync_channel(1);
+        let _ = self.send(Command::Close {
+            discard: false,
+            done,
+        });
+        loop {
+            let (done, _flushed) = mpsc::sync_channel(1);
+            if self.send(Command::Flush(done)).is_err() {
+                return;
+            }
+            thread::yield_now();
+        }
     }
 }
 

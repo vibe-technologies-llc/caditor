@@ -43,6 +43,13 @@ paths:
   so its result is in the document by the next check. `Model::hold_sketch_results` holds back a
   trial's verdict and the drag worker's solutions (`ui_tests/stale_sketch_results.rs`);
   `Model::hold_evaluations` holds back recompute evaluations (release them before `settle`).
+- `Model::stop_storage_worker` stops the model's storage worker on command (`Storage::stop`,
+  `caditor-file`'s `test-support` feature), leaving its journal in place; `ui_tests/storage_worker.rs`
+  covers a failed record, a poll finding the worker gone, a save that cannot be sent and quitting.
+  The next frame replaces a stopped worker, so a test needing the dead one acts on the model
+  before it. Waiting for the replacement means waiting for a single new journal file before
+  inspecting it: `caditor_file::inspect` holds the lock while it decodes, and a replacement that
+  finds the old journal locked leaves it behind.
 - `Harness::render_preview` hands `Files::preview_rendered` solid rows of `PICTURE_SIZE`, so a test
   waits for `Preview::is_drawn` without a GPU.
 - File work is staged with test-only seams on `Files`: `read_models_with` (import thread's reader),

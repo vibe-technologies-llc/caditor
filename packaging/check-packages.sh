@@ -70,6 +70,8 @@ check_tree() {
     diff "$expected" "$work/found" >"$work/difference" \
         || fail "$4 holds other files than the archive: $(cat "$work/difference")"
     [ -x "$tree/${prefix}bin/caditor" ] || fail "$4's program is not executable"
+    [ -s "$tree/${prefix}share/licenses/caditor/THIRD-PARTY-NOTICES.txt" ] \
+        || fail "$4 holds no third-party notices"
     writable=$(find "$tree" -type f -perm /022)
     [ -z "$writable" ] || fail "$4 holds files others can write: $writable"
     reported=$("$tree/${prefix}bin/caditor" --version)
@@ -128,6 +130,8 @@ extracted="$work/appimage/squashfs-root"
 [ -f "$extracted/caditor.desktop" ] || fail "the .AppImage has no menu entry at its root"
 [ -f "$extracted/caditor.png" ] || fail "the .AppImage has no icon at its root"
 [ -f "$extracted/.DirIcon" ] || fail "the .AppImage has no .DirIcon"
+[ -s "$extracted/usr/share/licenses/caditor/THIRD-PARTY-NOTICES.txt" ] \
+    || fail "the .AppImage holds no third-party notices"
 desktop-file-validate "$extracted/caditor.desktop"
 grep -q '^TryExec=' "$extracted/caditor.desktop" && fail "the .AppImage's menu entry names a TryExec"
 (cd "$extracted/usr" && find . -type f | sed 's|^\./||' | LC_ALL=C sort) >"$work/found"

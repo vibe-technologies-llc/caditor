@@ -3,7 +3,7 @@ use caditor_kernel::{EdgeName, EdgeReference, FaceName, FaceOrigin, FaceReferenc
 
 use super::*;
 
-fn sets_of(base: FeatureId, other: FeatureId) -> SelectionSets {
+pub(super) fn sets_of(base: FeatureId, other: FeatureId) -> SelectionSets {
     let face = FaceReference::new(
         FaceName::from_digest(0xbeef),
         Some(FaceOrigin::EndCap {

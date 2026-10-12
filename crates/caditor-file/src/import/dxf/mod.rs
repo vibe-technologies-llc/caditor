@@ -16,17 +16,20 @@ use std::{
 
 use caditor_geometry::{Point2, Point3, Vector3};
 
-use crate::import::{
-    Drawing, ImportError, MAX_DRAWING_POINTS, MAX_DRAWING_VALUES, MAX_EXPANDED_OBJECTS,
-    MAX_READ_CURVES,
-    dxf::{
-        flatten::flatten,
-        geometry::{Affine, FitPoints, Nurbs, Shape, conic_arc},
-        hatch::boundaries,
-        mline::mline,
-        outline::{face_outline, filled_outline},
-        pairs::{Pair, line_break, read_pairs},
+use crate::{
+    import::{
+        Drawing, ImportError, MAX_DRAWING_POINTS, MAX_DRAWING_VALUES, MAX_EXPANDED_OBJECTS,
+        MAX_READ_CURVES,
+        dxf::{
+            flatten::flatten,
+            geometry::{Affine, FitPoints, Nurbs, Shape, conic_arc},
+            hatch::boundaries,
+            mline::mline,
+            outline::{face_outline, filled_outline},
+            pairs::{Pair, line_break, read_pairs},
+        },
     },
+    tally,
 };
 
 const MAX_BLOCK_DEPTH: usize = 16;
@@ -826,6 +829,7 @@ impl<'a> Interpreter<'a> {
         layer: &str,
     ) -> Result<(), ImportError> {
         self.visited = self.visited.saturating_add(shapes.len());
+        tally::add(shapes.len());
         if self.visited > MAX_EXPANDED_OBJECTS {
             return Err(ImportError::TooManyObjects);
         }
@@ -860,6 +864,7 @@ impl<'a> Interpreter<'a> {
 
     fn visit(&mut self) -> Result<(), ImportError> {
         self.visited += 1;
+        tally::add(1);
         if self.visited > MAX_EXPANDED_OBJECTS {
             return Err(ImportError::TooManyObjects);
         }

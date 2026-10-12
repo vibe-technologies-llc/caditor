@@ -14,7 +14,7 @@ pub const MAX_PARAMETERS_FILE: usize = 16 << 20;
 
 const VERSION_MARKER: &str = "caditor-parameter-file";
 const EARLIER_BUILD_MARKER: &str = "caditor-parameters";
-const CURRENT_VERSION: u32 = 1;
+pub(crate) const PARAMETERS_VERSION: u32 = 1;
 const NAME_COLUMN: &str = "name";
 const EXPRESSION_COLUMN: &str = "expression";
 const VALUE_COLUMN: &str = "value";
@@ -53,7 +53,7 @@ pub enum ParameterFileError {
 }
 
 pub fn parameters_csv(document: &Document, values: &ParameterValues) -> String {
-    let mut text = csv_row(&[VERSION_MARKER, &CURRENT_VERSION.to_string()]);
+    let mut text = csv_row(&[VERSION_MARKER, &PARAMETERS_VERSION.to_string()]);
     text.push_str(&csv_row(&[
         NAME_COLUMN,
         EXPRESSION_COLUMN,
@@ -144,7 +144,7 @@ fn check_version(record: &[String]) -> Result<(), ParameterFileError> {
         .get(1)
         .and_then(|cell| cell.trim().parse::<u32>().ok())
         .ok_or(ParameterFileError::UnreadableVersion)?;
-    if version > CURRENT_VERSION {
+    if version > PARAMETERS_VERSION {
         return Err(ParameterFileError::NewerVersion { version });
     }
     Ok(())

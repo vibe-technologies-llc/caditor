@@ -1089,3 +1089,350 @@ fn both_ways_refuses_ends_too_close_together_and_capping_an_elliptical_arc() {
         .unwrap();
     assert_eq!(made.len(), 2);
 }
+
+struct Polygon {
+    sketch: Sketch,
+    sides: Vec<EntityId>,
+    width: ConstraintId,
+}
+
+fn outline_through(corners: &[(f64, f64)]) -> Polygon {
+    let mut sketch = Sketch::new(Plane::XY);
+    let corners: Vec<Point2> = corners.iter().map(|(x, y)| Point2::new(*x, *y)).collect();
+    let count = corners.len();
+
+    let sides: Vec<EntityId> = (0..count)
+        .map(|index| sketch.add_line(corners[index], corners[(index + 1) % count]))
+        .collect();
+
+    for index in 0..count {
+        let (_, end) = ends(&sketch, sides[index]);
+        let (start, _) = ends(&sketch, sides[(index + 1) % count]);
+        sketch
+            .add_constraint(Constraint::Coincident(end, start))
+            .unwrap();
+        let (from, to) = (corners[index], corners[(index + 1) % count]);
+        if (from.y - to.y).abs() < EXACT {
+            sketch
+                .add_constraint(Constraint::Horizontal(sides[index]))
+                .unwrap();
+        } else if (from.x - to.x).abs() < EXACT {
+            sketch
+                .add_constraint(Constraint::Vertical(sides[index]))
+                .unwrap();
+        }
+    }
+    let (origin_corner, right_corner) = ends(&sketch, sides[0]);
+    sketch
+        .add_constraint(Constraint::Coincident(origin_corner, EntityId::ORIGIN))
+        .unwrap();
+    let width = sketch
+        .add_constraint(Constraint::Distance {
+            from: origin_corner,
+            to: right_corner,
+            value: mm(corners[1].x),
+        })
+        .unwrap();
+    let (bottom, top) = ends(&sketch, sides[1]);
+    sketch
+        .add_constraint(Constraint::Distance {
+            from: bottom,
+            to: top,
+            value: mm(corners[2].y),
+        })
+        .unwrap();
+    Polygon {
+        sketch,
+        sides,
+        width,
+    }
+}
+
+fn constraints_on(sketch: &Sketch, curves: &[EntityId]) -> Vec<usize> {
+    curves
+        .iter()
+        .map(|curve| sketch.constraints_using(*curve).len())
+        .collect()
+}
+
+#[test]
+fn a_notch_narrower_than_twice_the_distance_closes_and_its_neighbours_become_one_line() {
+    let Polygon {
+        mut sketch,
+        sides,
+        width,
+    } = outline_through(&[
+        (0.0, 0.0),
+        (30.0, 0.0),
+        (30.0, 20.0),
+        (16.0, 20.0),
+        (16.0, 18.0),
+        (14.0, 18.0),
+        (14.0, 20.0),
+        (0.0, 20.0),
+    ]);
+    let freedom = solve(&sketch).solution.degrees_of_freedom();
+    let closed = &sides[3..=6];
+    let held_before = constraints_on(&sketch, closed);
+    let outside = sketch
+        .offset_chain(&sides)
+        .unwrap()
+        .side_of(Point2::new(15.0, 30.0));
+
+    let copies = sketch.offset(&sides, outside, 1.5, mm(1.5)).unwrap();
+
+    assert_eq!(copies.len(), 4);
+    assert_corners(
+        &corner_positions(&sketch, &copies),
+        &[(-1.5, -1.5), (31.5, -1.5), (31.5, 21.5), (-1.5, 21.5)],
+    );
+    assert_eq!(constraints_on(&sketch, closed), held_before);
+    assert_eq!(count_of(&sketch, "Distance"), 2 + 4);
+    let solved = solve(&sketch);
+    assert_clean(&solved);
+    assert_eq!(solved.solution.degrees_of_freedom(), freedom);
+
+    sketch.set_dimension(width, mm(40.0)).unwrap();
+    let wider = solve(&sketch).geometry;
+    assert_corners(
+        &corner_positions(&wider, &copies),
+        &[(-1.5, -1.5), (41.5, -1.5), (41.5, 21.5), (-1.5, 21.5)],
+    );
+}
+
+#[test]
+fn an_inward_offset_closes_a_tab_narrower_than_twice_the_distance() {
+    let Polygon {
+        mut sketch, sides, ..
+    } = outline_through(&[
+        (0.0, 0.0),
+        (30.0, 0.0),
+        (30.0, 20.0),
+        (16.0, 20.0),
+        (16.0, 22.0),
+        (14.0, 22.0),
+        (14.0, 20.0),
+        (0.0, 20.0),
+    ]);
+    let freedom = solve(&sketch).solution.degrees_of_freedom();
+    let inside = sketch
+        .offset_chain(&sides)
+        .unwrap()
+        .side_of(Point2::new(15.0, 10.0));
+
+    let copies = sketch.offset(&sides, inside, 1.5, mm(1.5)).unwrap();
+
+    assert_eq!(copies.len(), 4);
+    assert_corners(
+        &corner_positions(&sketch, &copies),
+        &[(1.5, 1.5), (28.5, 1.5), (28.5, 18.5), (1.5, 18.5)],
+    );
+    let solved = solve(&sketch);
+    assert_clean(&solved);
+    assert_eq!(solved.solution.degrees_of_freedom(), freedom);
+}
+
+#[test]
+fn a_notch_exactly_twice_the_distance_wide_closes_and_a_wider_one_stays_open() {
+    let notch = |left: f64, right: f64| {
+        outline_through(&[
+            (0.0, 0.0),
+            (30.0, 0.0),
+            (30.0, 20.0),
+            (right, 20.0),
+            (right, 18.0),
+            (left, 18.0),
+            (left, 20.0),
+            (0.0, 20.0),
+        ])
+    };
+    let Polygon {
+        mut sketch, sides, ..
+    } = notch(13.5, 16.5);
+    let freedom = solve(&sketch).solution.degrees_of_freedom();
+    let outside = sketch
+        .offset_chain(&sides)
+        .unwrap()
+        .side_of(Point2::new(15.0, 30.0));
+
+    let copies = sketch.offset(&sides, outside, 1.5, mm(1.5)).unwrap();
+
+    assert_eq!(copies.len(), 4);
+    assert_corners(
+        &corner_positions(&sketch, &copies),
+        &[(-1.5, -1.5), (31.5, -1.5), (31.5, 21.5), (-1.5, 21.5)],
+    );
+    let solved = solve(&sketch);
+    assert_clean(&solved);
+    assert_eq!(solved.solution.degrees_of_freedom(), freedom);
+
+    let Polygon {
+        mut sketch, sides, ..
+    } = notch(13.4, 16.6);
+
+    let copies = sketch.offset(&sides, outside, 1.5, mm(1.5)).unwrap();
+
+    assert_eq!(copies.len(), 8);
+    assert_corners(
+        &corner_positions(&sketch, &copies),
+        &[
+            (-1.5, -1.5),
+            (31.5, -1.5),
+            (31.5, 21.5),
+            (15.1, 21.5),
+            (15.1, 19.5),
+            (14.9, 19.5),
+            (14.9, 21.5),
+            (-1.5, 21.5),
+        ],
+    );
+}
+
+#[test]
+fn a_closing_notch_bottom_drops_alone_and_its_slanted_walls_meet_where_their_offsets_cross() {
+    let Polygon {
+        mut sketch, sides, ..
+    } = outline_through(&[
+        (0.0, 0.0),
+        (30.0, 0.0),
+        (30.0, 20.0),
+        (17.0, 20.0),
+        (16.0, 18.0),
+        (14.0, 18.0),
+        (13.0, 20.0),
+        (0.0, 20.0),
+    ]);
+    let freedom = solve(&sketch).solution.degrees_of_freedom();
+    let held_before = constraints_on(&sketch, &sides[4..=4]);
+    let outside = sketch
+        .offset_chain(&sides)
+        .unwrap()
+        .side_of(Point2::new(15.0, 30.0));
+
+    let copies = sketch.offset(&sides, outside, 2.0, mm(2.0)).unwrap();
+
+    assert_eq!(copies.len(), 7);
+    assert_eq!(constraints_on(&sketch, &sides[4..=4]), held_before);
+    let solved = solve(&sketch);
+    assert_clean(&solved);
+    assert_eq!(solved.solution.degrees_of_freedom(), freedom);
+    let (_, meeting) = line_at(&solved.geometry, copies[3]);
+    let (from_left, _) = line_at(&solved.geometry, copies[4]);
+    assert!(meeting.distance(from_left) < EXACT);
+    assert!((meeting.x - 15.0).abs() < EXACT, "{meeting}");
+    assert!(meeting.y > 20.0, "{meeting}");
+    assert!((distance_to_line(&solved.geometry, meeting, sides[3]) - 2.0).abs() < EXACT);
+    assert!((distance_to_line(&solved.geometry, meeting, sides[5]) - 2.0).abs() < EXACT);
+}
+
+#[test]
+fn only_the_narrow_slot_inside_a_wide_notch_closes_and_the_notch_floor_becomes_one_line() {
+    let Polygon {
+        mut sketch, sides, ..
+    } = outline_through(&[
+        (0.0, 0.0),
+        (30.0, 0.0),
+        (30.0, 20.0),
+        (20.0, 20.0),
+        (20.0, 17.0),
+        (16.0, 17.0),
+        (16.0, 14.0),
+        (14.0, 14.0),
+        (14.0, 17.0),
+        (10.0, 17.0),
+        (10.0, 20.0),
+        (0.0, 20.0),
+    ]);
+    let freedom = solve(&sketch).solution.degrees_of_freedom();
+    let outside = sketch
+        .offset_chain(&sides)
+        .unwrap()
+        .side_of(Point2::new(15.0, 30.0));
+
+    let copies = sketch.offset(&sides, outside, 1.5, mm(1.5)).unwrap();
+
+    assert_eq!(copies.len(), 8);
+    assert_corners(
+        &corner_positions(&sketch, &copies),
+        &[
+            (-1.5, -1.5),
+            (31.5, -1.5),
+            (31.5, 21.5),
+            (18.5, 21.5),
+            (18.5, 18.5),
+            (11.5, 18.5),
+            (11.5, 21.5),
+            (-1.5, 21.5),
+        ],
+    );
+    let solved = solve(&sketch);
+    assert_clean(&solved);
+    assert_eq!(solved.solution.degrees_of_freedom(), freedom);
+}
+
+#[test]
+fn a_round_bottomed_notch_closes_once_its_bottom_vanishes_and_its_walls_pass_each_other() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let corners = [
+        (0.0, 0.0),
+        (30.0, 0.0),
+        (30.0, 20.0),
+        (16.0, 20.0),
+        (16.0, 18.0),
+    ]
+    .map(|(x, y)| Point2::new(x, y));
+    let after =
+        [(14.0, 18.0), (14.0, 20.0), (0.0, 20.0), (0.0, 0.0)].map(|(x, y)| Point2::new(x, y));
+
+    let mut curves: Vec<EntityId> = corners
+        .windows(2)
+        .map(|pair| sketch.add_line(pair[0], pair[1]))
+        .collect();
+    curves.push(sketch.add_arc(Point2::new(15.0, 18.0), after[0], corners[4]));
+    curves.extend(
+        after
+            .windows(2)
+            .map(|pair| sketch.add_line(pair[0], pair[1])),
+    );
+
+    let points: Vec<(EntityId, Point2)> = curves
+        .iter()
+        .flat_map(|curve| {
+            let (start, end) = ends(&sketch, *curve);
+            [start, end]
+        })
+        .map(|point| (point, sketch.point(point).unwrap()))
+        .collect();
+    for (index, (first, at)) in points.iter().enumerate() {
+        if let Some((second, _)) = points
+            .iter()
+            .skip(index + 1)
+            .find(|(_, other)| other.distance(*at) < EXACT)
+        {
+            sketch
+                .add_constraint(Constraint::Coincident(*first, *second))
+                .unwrap();
+        }
+    }
+    let freedom = solve(&sketch).solution.degrees_of_freedom();
+    let outside = sketch
+        .offset_chain(&curves)
+        .unwrap()
+        .side_of(Point2::new(15.0, 30.0));
+
+    let copies = sketch.offset(&curves, outside, 1.5, mm(1.5)).unwrap();
+
+    assert_eq!(copies.len(), 4);
+    assert!(
+        copies
+            .iter()
+            .all(|copy| sketch.line_endpoints(*copy).is_some())
+    );
+    assert_corners(
+        &corner_positions(&sketch, &copies),
+        &[(-1.5, -1.5), (31.5, -1.5), (31.5, 21.5), (-1.5, 21.5)],
+    );
+    let solved = solve(&sketch);
+    assert_clean(&solved);
+    assert_eq!(solved.solution.degrees_of_freedom(), freedom);
+}

@@ -19,5 +19,9 @@ cargo run --release -p caditor
 ## Third-party assets
 
 caditor bundles the Inter typeface, licensed under the SIL Open Font License 1.1
-(`crates/caditor/assets/fonts/Inter-LICENSE.txt`), and the Phosphor icons through
-`egui-phosphor` (MIT or Apache-2.0).
+(`crates/caditor/assets/fonts/Inter-LICENSE.txt`), and the Phosphor icons (MIT,
+`crates/caditor/assets/fonts/Phosphor-LICENSE.txt`) through `egui-phosphor`. egui adds its default
+fonts (Hack, Ubuntu Light, Noto Emoji and emoji-icon-font), and the Rust libraries it is built from
+are mostly MIT, Apache-2.0, BSD, ISC, Zlib or Unicode licensed. Every release carries their
+licences in `THIRD-PARTY-NOTICES.txt` beside `LICENSE`; `cargo run --release -p caditor-notices --
+OUTPUT` writes it for a checkout.

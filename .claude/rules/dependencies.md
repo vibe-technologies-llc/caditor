@@ -26,6 +26,10 @@ paths:
   `[target.'cfg(windows)'.dependencies]` (`rustix`, `xattr`, `signal-hook`, `zbus`,
   `caditor-wayland` on Unix; `caditor-windows`, `rfd` on Windows). A build dependency stays
   unconditional, since `cfg` there tests the host: `build.rs` checks `CARGO_CFG_TARGET_OS`.
+- `skrifa` (`std` only, through its `raw` re-export of `read-fonts`) reads outlines, the `wght` axis and
+  GPOS kerning for SVG text in `caditor-file`; it is the copy epaint builds, so no second font parser
+  is compiled. `ttf-parser` is left only through winit's `sctk-adwaita`, which is why `deny.toml`
+  ignores its unmaintained advisory; nothing of ours uses it.
 - Crates the UI tests spend their time in are built at `opt-level = 3` in the dev profile
   (`[profile.dev.package.*]`): `egui`, `emath`, `epaint` and its glyph stack (`skrifa`,
   `read-fonts`, `font-types`, `harfrust`, `vello_cpu`, `vello_common`, `fearless_simd`, the Unicode

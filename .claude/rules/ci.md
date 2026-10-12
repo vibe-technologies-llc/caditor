@@ -19,7 +19,8 @@ paths:
   skip). Clippy runs `--all-features` so the `fuzzing` modules are linted. Also: `rust-formatter
   --check`, `cargo deny` on the root and fuzz workspaces, a snapshot archive checked by
   `packaging/check-install.sh`, the `.deb`, `.rpm` and AppImage built from it by
-  `packaging/build-packages.sh` and checked, the `.deb` installed and removed with `apt-get` by
+  `packaging/build-packages.sh` and checked (every file of the archive, `THIRD-PARTY-NOTICES.txt`
+  included, must be in each), the `.deb` installed and removed with `apt-get` by
   `packaging/check-packages.sh --install`, and a minute of fuzzing per target.
 - The check job runs cargo as the unprivileged `builder` user (`as-builder`), since root ignores the
   file modes the unreadable-file tests rely on, with its own `XDG_RUNTIME_DIR=/run/user/1001` (Mesa's
@@ -114,7 +115,9 @@ paths:
   `CADITOR_WRITE_FUZZ_SEEDS=1 cargo test -p caditor-file write_fuzz_seeds -- --ignored`; tests keep
   every seed loading and the model and journal seeds in format 1
   (`model_and_journal_seeds_are_written_in_format_one`), so they are rewritten with any format
-  change. `fuzz/corpus` is not committed; CI caches it.
+  change. The seed writer refuses any path inside the write-once format corpus
+  (`crates/caditor-file/corpus`, `file-format.md`), which proves shipped formats still read.
+  `fuzz/corpus` is not committed; CI caches it.
 - `fuzz/Cargo.lock` is committed and CI fails when it is stale: after any change to the root
   dependencies, run `cargo update -w` in `fuzz/`. A Stop hook in `.claude/settings.json`
   (`.claude/hooks/fuzz-lock-fresh.sh`) runs `cargo metadata --locked` on the fuzz workspace and

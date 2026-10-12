@@ -31,6 +31,10 @@ paths:
   STEP writing; import around reading STEP and meshes. `check_interrupt` lets a crate above the
   kernel poll the same check, and `current_interrupt` lets work fanned out to other threads
   install it there.
+- Tests bound an operation by its interrupt polls (`test_support::polls_during`), which are
+  deterministic and count work from every thread, or by `tally` units for what has no poll: box
+  tree nodes visited, intersection-curve segments handed to a closest-point search, half-edges of
+  the cycles `Arrangement::contains` tests. Never by time (`rust-style.md`).
 
 ## Curves and surfaces
 

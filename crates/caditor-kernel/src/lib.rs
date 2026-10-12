@@ -27,6 +27,7 @@ mod sense;
 mod shared;
 mod shell;
 mod surface;
+mod tally;
 mod tessellation;
 #[cfg(test)]
 mod test_support;

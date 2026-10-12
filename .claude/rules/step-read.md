@@ -191,9 +191,30 @@ paths:
   faces bounded only by `VERTEX_LOOP`s get a pole-to-pole seam. `POLY_LOOP` faces get line edges
   shared by corner position and a plane from the polygon when none is named.
 
+## Snapped faces (`snap.rs`)
+
+- A body the exact and extended builds refuse is built in `Healing::Snapped` when the file declares
+  a precision, and refused at once in that mode when nothing snaps; `Healing::Bent` snaps first
+  too, so a body needing both is bent around its snapped planes.
+- Only planes move. A plane meeting a cylinder, cone or torus along an edge, with normals within
+  `PARALLEL_ANGLE`, becomes that face's tangent plane at the foot of the edge's middle sample,
+  when every sample's foot on the round face lies on that plane within a quarter of the resolution
+  and some lies farther off the plane as written (a plane meeting it across along a ruling is left
+  alone). Planes meeting along an edge or at a corner, parallel within `PARALLEL_ANGLE` and
+  apart there by more than a quarter of the resolution, join a group whose planes all become one:
+  a plane already snapped to a round face, else the one the shared edges and corners lie closest
+  to; each other keeps its normal's sense and its own x axis.
+- A move is the largest distance from the plane as written to the new one over the corners of
+  the box its edge samples span in the plane (an overestimate for a turn, exact for a shift); one
+  past the precision or under a quarter of the resolution is not made. Faces at
+  a corner or edge shared by more than `MOST_FACES_AT_A_CORNER` faces are not paired there, so a
+  crafted file stays linear. The note gives the planes moved and the largest move
+  (`a_flat_face_just_off_the_cylinder_it_is_tangent_to_is_moved_onto_it_and_imports_exact`,
+  `halves_of_a_split_face_apart_within_the_precision_are_moved_onto_one_plane_and_import_exact`).
+
 ## Bent faces (`conform.rs`)
 
-- A body the exact and extended builds refuse is built in `Healing::Bent` before `Healing::Faceted`
+- A body the snapped build refuses is built in `Healing::Bent` before `Healing::Faceted`
   when the file declares a precision. Each edge between two faces is studied from samples of its file
   curve: one whose faces' normals stay within `TANGENT_ANGLE` (measured off poles) and that runs
   along an iso-line of a spline face (within the precision; one at the domain bound is a side) is
@@ -229,7 +250,7 @@ paths:
 
 ## Faceted fallback
 
-- A body neither the exact nor the bent build accepts is built in `Healing::Faceted` when the file
+- A body neither the exact, snapped nor bent build accepts is built in `Healing::Faceted` when the file
   declares a precision: intersection edges are traced only between elementary faces, and an edge
   whose ends miss its vertices keeps the file's curve with the miss blended in (`loose::met_at_ends`).
   A vertex settles no farther than its worst gap (nor the precision): where faces meet nearly
@@ -240,5 +261,6 @@ paths:
   many faces) and imported as the one planar solid `faceted_solids` makes, with a note per body;
   otherwise the exact refusal stands. Like a mesh import it skips `find_crossing`, since
   `faceted_solids` already leaves out self-folding shells.
-- Faceted bodies lose their curved faces (no fillets on them, no exact measures). Bending covers only
-  part of such files yet; the rest is the bent-faces entry in `docs/BUGS.md`.
+- Faceted bodies lose their curved faces (no fillets on them, no exact measures). Snapping and
+  bending cover only part of such files yet; the rest is the STEP import entries in
+  `docs/BUGS.md`.

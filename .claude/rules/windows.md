@@ -106,8 +106,10 @@ so call sites stay platform-free.
 ## Installer (`packaging/windows/`)
 
 - `caditor.wxs` is WiX 5 (MS-RL; later versions carry the OSMF EULA). A per-user MSI with no wizard:
-  `%LOCALAPPDATA%\Programs\caditor` with `caditor.exe`, `README.md` and `licenses\` (the licence and
-  Inter's), a Start menu shortcut and the `.caditor` association (`caditor.model`), all under HKCU.
+  `%LOCALAPPDATA%\Programs\caditor` with `caditor.exe`, `README.md` and `licenses\` (the licence,
+  Inter's and `THIRD-PARTY-NOTICES.txt`, which `build-release.ps1` writes with `caditor-notices` for
+  the MSVC target; `notices.md`), a Start menu shortcut and the `.caditor` association
+  (`caditor.model`), all under HKCU.
   Each component's key path is an HKCU value; WiX cannot derive a GUID for a multi-file component
   that way, so `Program` and `Licences` have fixed ones. Those GUIDs and the `UpgradeCode` never
   change; same-version upgrades are allowed so a snapshot installs over itself.

@@ -52,6 +52,11 @@ prefix="$work/prefix & 100% sure"
 (cd "$package" && find bin share -type f) | while IFS= read -r file; do
     [ -f "$prefix/$file" ] || fail "$file was not installed"
 done
+for notice in LICENSE Inter-LICENSE.txt THIRD-PARTY-NOTICES.txt; do
+    [ -s "$prefix/share/licenses/caditor/$notice" ] || fail "the installed $notice is missing or empty"
+done
+grep -q "^Inter typeface" "$prefix/share/licenses/caditor/THIRD-PARTY-NOTICES.txt" \
+    || fail "THIRD-PARTY-NOTICES.txt does not list the fonts"
 "$prefix/bin/caditor" --version >/dev/null || fail "the installed program does not run"
 "$here/check-binary.sh" "$prefix/bin/caditor"
 if [ -n "${CADITOR_REQUIRE_DISPLAY:-}" ] || command -v Xvfb >/dev/null 2>&1; then

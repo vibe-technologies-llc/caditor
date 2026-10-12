@@ -12,6 +12,13 @@ between lines stay sharp. A rounded corner that the distance shrinks to nothing,
 of a rounded rectangle offset by more than its corner radius, is left out and its neighbours meet
 in a sharp corner.
 
+A notch or tab narrower than twice the distance closes up, as when an outline is offset by a wall
+thickness: its curves are left out and the curves either side meet where their copies cross, or
+become one straight line when they lie along one line, as the two halves of an edge a notch
+interrupts do. Only what the distance uses up is left out, so the walls of a notch with a narrow
+floor meet in a point and a narrow slot inside a wider notch closes onto the wider notch's floor.
+A closed notch stays closed if the original is later widened; offset again to open it.
+
 ## Both sides
 
 Offset has three ways, chosen by running {command:sketch.offset} again while it is active, from

@@ -1,9 +1,15 @@
 use std::{collections::BTreeMap, rc::Rc};
 
 use caditor_geometry::Point2;
-use ttf_parser::{
-    Face, GlyphId, OutlineBuilder, Tag,
-    gpos::{PairAdjustment, PositioningSubtable},
+use skrifa::{
+    FontRef, GlyphId, MetadataProvider, OutlineGlyphCollection, Tag,
+    instance::{Location, LocationRef, Size},
+    metrics::GlyphMetrics,
+    outline::{DrawSettings, OutlinePen},
+    raw::{
+        TableProvider,
+        tables::gpos::{Gpos, PairPos, PositionSubtables},
+    },
 };
 
 use crate::import::svg::{
@@ -11,11 +17,11 @@ use crate::import::svg::{
     path::Outline,
 };
 
-const WEIGHT_AXIS: Tag = Tag::from_bytes(b"wght");
-const KERNING: Tag = Tag::from_bytes(b"kern");
-const LATIN: Tag = Tag::from_bytes(b"latn");
-const DEFAULT_SCRIPT: Tag = Tag::from_bytes(b"DFLT");
-const MISSING: GlyphId = GlyphId(0);
+const WEIGHT_AXIS: Tag = Tag::new(b"wght");
+const KERNING: Tag = Tag::new(b"kern");
+const LATIN: Tag = Tag::new(b"latn");
+const DEFAULT_SCRIPT: Tag = Tag::new(b"DFLT");
+const MISSING: GlyphId = GlyphId::NOTDEF;
 
 pub(super) struct Typeface<'f> {
     upright: Cut<'f>,
@@ -23,11 +29,13 @@ pub(super) struct Typeface<'f> {
 }
 
 struct Cut<'f> {
-    face: Face<'f>,
+    font: FontRef<'f>,
+    glyphs: OutlineGlyphCollection<'f>,
+    positioning: Option<Gpos<'f>>,
     units_per_em: f64,
     weights: Option<(f64, f64)>,
     kerning: Vec<u16>,
-    weighted: BTreeMap<u16, Face<'f>>,
+    locations: BTreeMap<u16, Location>,
     outlines: BTreeMap<(u16, GlyphId), Rc<Outline>>,
 }
 
@@ -68,9 +76,7 @@ impl<'f> Typeface<'f> {
     pub fn advance(&mut self, instance: Instance, glyph: Option<GlyphId>) -> f64 {
         let glyph = glyph.unwrap_or(MISSING);
         self.cut_mut(instance.italic)
-            .weighted(instance.weight)
-            .glyph_hor_advance(glyph)
-            .map_or(0.0, f64::from)
+            .advance(instance.weight, glyph)
     }
 
     pub fn kerning(&self, instance: Instance, first: GlyphId, second: GlyphId) -> f64 {
@@ -104,20 +110,26 @@ impl<'f> Typeface<'f> {
 
 impl<'f> Cut<'f> {
     fn parse(data: &'f [u8]) -> Option<Self> {
-        let face = Face::parse(data, 0).ok()?;
-        let units_per_em = f64::from(face.units_per_em());
-        let weights = face
-            .variation_axes()
-            .into_iter()
-            .find(|axis| axis.tag == WEIGHT_AXIS)
-            .map(|axis| (f64::from(axis.min_value), f64::from(axis.max_value)));
-        let kerning = kerning_lookups(&face);
+        let font = FontRef::from_index(data, 0).ok()?;
+        let units_per_em = f64::from(font.head().ok()?.units_per_em());
+        let weights = font
+            .axes()
+            .iter()
+            .find(|axis| axis.tag() == WEIGHT_AXIS)
+            .map(|axis| (f64::from(axis.min_value()), f64::from(axis.max_value())));
+        let positioning = font.gpos().ok();
+        let kerning = positioning
+            .as_ref()
+            .map(kerning_lookups)
+            .unwrap_or_default();
         Some(Self {
-            face,
+            glyphs: font.outline_glyphs(),
+            font,
+            positioning,
             units_per_em,
             weights,
             kerning,
-            weighted: BTreeMap::new(),
+            locations: BTreeMap::new(),
             outlines: BTreeMap::new(),
         })
     }
@@ -132,30 +144,43 @@ impl<'f> Cut<'f> {
     }
 
     fn glyph(&self, character: char) -> Option<GlyphId> {
-        self.face
-            .glyph_index(character)
+        self.font
+            .charmap()
+            .map(character)
             .filter(|glyph| *glyph != MISSING)
     }
 
     fn kerning(&self, first: GlyphId, second: GlyphId) -> f64 {
-        let Some(positioning) = self.face.tables().gpos else {
+        let Some(lookups) = self
+            .positioning
+            .as_ref()
+            .and_then(|positioning| positioning.lookup_list().ok())
+        else {
             return 0.0;
         };
         let mut total = 0.0;
         for index in &self.kerning {
-            let Some(lookup) = positioning.lookups.get(*index) else {
+            let Ok(lookup) = lookups.lookups().get(usize::from(*index)) else {
                 continue;
             };
-            let adjusted = lookup
-                .subtables
-                .into_iter::<PositioningSubtable<'_>>()
-                .find_map(|subtable| match subtable {
-                    PositioningSubtable::Pair(pair) => pair_adjustment(pair, first, second),
-                    _ => None,
-                });
+            let Ok(PositionSubtables::Pair(subtables)) = lookup.subtables() else {
+                continue;
+            };
+            let adjusted = subtables
+                .iter()
+                .flatten()
+                .find_map(|pair| pair_adjustment(&pair, first, second));
             total += adjusted.map_or(0.0, f64::from);
         }
         total
+    }
+
+    fn advance(&mut self, weight: u16, glyph: GlyphId) -> f64 {
+        let font = self.font.clone();
+        let location = self.location(weight);
+        GlyphMetrics::new(&font, Size::unscaled(), location)
+            .advance_width(glyph)
+            .map_or(0.0, f64::from)
     }
 
     fn outline(&mut self, weight: u16, glyph: GlyphId) -> Rc<Outline> {
@@ -177,63 +202,87 @@ impl<'f> Cut<'f> {
 
     fn segments(&mut self, weight: u16, glyph: GlyphId) -> Vec<Segment> {
         let mut pen = Pen::default();
-        self.weighted(weight).outline_glyph(glyph, &mut pen);
+        let glyphs = self.glyphs.clone();
+        let location = self.location(weight);
+        if let Some(outline) = glyphs.get(glyph) {
+            let settings = DrawSettings::unhinted(Size::unscaled(), location);
+            let _ = outline.draw(settings, &mut pen);
+        }
         pen.segments
     }
 
-    fn weighted(&mut self, weight: u16) -> &Face<'f> {
-        let base = &self.face;
-        self.weighted.entry(weight).or_insert_with(|| {
-            let mut face = base.clone();
-            if weight > 0 {
-                face.set_variation(WEIGHT_AXIS, f32::from(weight));
-            }
-            face
-        })
+    fn location(&mut self, weight: u16) -> LocationRef<'_> {
+        let font = &self.font;
+        self.locations
+            .entry(weight)
+            .or_insert_with(|| {
+                if weight > 0 {
+                    font.axes().location([("wght", f32::from(weight))])
+                } else {
+                    Location::default()
+                }
+            })
+            .coords()
+            .into()
     }
 }
 
-fn kerning_lookups(face: &Face<'_>) -> Vec<u16> {
-    let Some(positioning) = face.tables().gpos else {
+fn kerning_lookups(positioning: &Gpos<'_>) -> Vec<u16> {
+    let (Ok(scripts), Ok(features)) = (positioning.script_list(), positioning.feature_list())
+    else {
         return Vec::new();
     };
-    let language = positioning
-        .scripts
-        .find(LATIN)
-        .or_else(|| positioning.scripts.find(DEFAULT_SCRIPT))
-        .and_then(|script| script.default_language);
+    let script = scripts
+        .index_for_tag(LATIN)
+        .or_else(|| scripts.index_for_tag(DEFAULT_SCRIPT))
+        .and_then(|index| scripts.get(index).ok());
+    let language = script
+        .as_ref()
+        .and_then(|script| script.default_lang_sys())
+        .and_then(Result::ok);
     let Some(language) = language else {
         return Vec::new();
     };
     let mut lookups: Vec<u16> = language
-        .feature_indices
-        .into_iter()
-        .filter_map(|index| positioning.features.get(index))
+        .feature_indices()
+        .iter()
+        .filter_map(|index| features.get(index.get()).ok())
         .filter(|feature| feature.tag == KERNING)
-        .flat_map(|feature| feature.lookup_indices)
+        .flat_map(|feature| {
+            feature
+                .lookup_list_indices()
+                .iter()
+                .map(|index| index.get())
+                .collect::<Vec<_>>()
+        })
         .collect();
     lookups.sort_unstable();
     lookups.dedup();
     lookups
 }
 
-fn pair_adjustment(pair: PairAdjustment<'_>, first: GlyphId, second: GlyphId) -> Option<i16> {
+fn pair_adjustment(pair: &PairPos<'_>, first: GlyphId, second: GlyphId) -> Option<i16> {
     match pair {
-        PairAdjustment::Format1 { coverage, sets } => {
-            let index = coverage.get(first)?;
-            let (record, _) = sets.get(index)?.get(second)?;
-            Some(record.x_advance)
+        PairPos::Format1(table) => {
+            let index = table.coverage().ok()?.get(first)?;
+            let set = table.pair_sets().get(usize::from(index)).ok()?;
+            let second = second.to_u32();
+            set.pair_value_records()
+                .iter()
+                .flatten()
+                .find(|record| record.second_glyph().to_u32() == second)
+                .and_then(|record| record.value_record1().x_advance())
         }
-        PairAdjustment::Format2 {
-            coverage,
-            classes,
-            matrix,
-        } => {
-            if !coverage.contains(first) {
-                return None;
-            }
-            let (record, _) = matrix.get((classes.0.get(first), classes.1.get(second)))?;
-            Some(record.x_advance)
+        PairPos::Format2(table) => {
+            table.coverage().ok()?.get(first)?;
+            let first_class = table.class_def1().ok()?.get(first);
+            let second_class = table.class_def2().ok()?.get(second);
+            let class1 = table.class1_records().get(usize::from(first_class)).ok()?;
+            let class2 = class1
+                .class2_records()
+                .get(usize::from(second_class))
+                .ok()?;
+            class2.value_record1().x_advance()
         }
     }
 }
@@ -262,7 +311,7 @@ fn point(x: f32, y: f32) -> Point2 {
     Point2::new(f64::from(x), f64::from(y))
 }
 
-impl OutlineBuilder for Pen {
+impl OutlinePen for Pen {
     fn move_to(&mut self, x: f32, y: f32) {
         self.start = point(x, y);
         self.at = self.start;

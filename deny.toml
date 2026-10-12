@@ -6,7 +6,7 @@ exclude-dev = true
 ignore = [
     {
         id = "RUSTSEC-2026-0192",
-        reason = "ttf-parser comes in through winit's sctk-adwaita window decorations, which have no maintained replacement yet, and through caditor-file's SVG text, which skrifa has yet to replace"
+        reason = "ttf-parser comes in only through winit's sctk-adwaita window decorations, which have no maintained replacement yet"
     }
 ]
 

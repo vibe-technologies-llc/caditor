@@ -211,6 +211,7 @@ pub struct Model {
     services: Services,
     status: RecomputeStatus,
     notice: Option<Notice>,
+    save_failure: Option<Notice>,
     drag_blocked: bool,
     recorded_notices: VecDeque<RecordedNotice>,
     revision_offset: u64,
@@ -259,6 +260,7 @@ impl Model {
             services,
             status: RecomputeStatus::UpToDate,
             notice: None,
+            save_failure: None,
             drag_blocked: false,
             recorded_notices: VecDeque::new(),
             revision_offset: 0,
@@ -676,6 +678,19 @@ impl Model {
             self.recorded_notices.truncate(MAX_RECORDED_NOTICES);
         }
         self.notice = Some(notice);
+    }
+
+    fn fail_save(&mut self, notice: Notice) {
+        self.save_failure = Some(notice.clone());
+        self.set_notice(notice);
+    }
+
+    fn clear_save_failure(&mut self) {
+        if let Some(failure) = self.save_failure.take()
+            && self.notice.as_ref() == Some(&failure)
+        {
+            self.notice = None;
+        }
     }
 
     pub fn drag_blocked(&self) -> bool {
@@ -1216,6 +1231,23 @@ impl Model {
     }
 
     #[cfg(test)]
+    pub fn stop_storage_worker(&self) {
+        if let Some(storage) = &self.storage {
+            storage.stop();
+        }
+    }
+
+    #[cfg(test)]
+    pub fn has_storage_worker(&self) -> bool {
+        self.storage.is_some()
+    }
+
+    #[cfg(test)]
+    pub fn unsaved_journal_entries(&self) -> usize {
+        self.entries.len()
+    }
+
+    #[cfg(test)]
     pub fn hold_evaluations(&mut self, held: bool) {
         self.evaluations_held = held;
     }
@@ -1313,8 +1345,8 @@ impl Model {
                 entries: self.entries.len(),
             });
         } else {
-            self.storage = None;
-            self.set_notice(Notice::failure(
+            self.restart_storage();
+            self.fail_save(Notice::failure(
                 "Could not save, because the background writer stopped. Try saving again.",
             ));
             self.file_events.push(FileEvent::SaveFailed);
@@ -1419,6 +1451,7 @@ impl Model {
         self.unprotected = None;
         self.pending_save = None;
         self.notice = None;
+        self.save_failure = None;
         self.parameters = ParameterValues::evaluate(self.editor.document());
         self.evaluation = Evaluation::default();
         self.evaluation_generation += 1;
@@ -1500,7 +1533,10 @@ impl Model {
 
     fn restart_storage(&mut self) {
         log::error!("the storage worker stopped; starting a new one");
-        self.storage = None;
+        let replaces = self
+            .storage
+            .take()
+            .and_then(|storage| storage.untitled_journal().map(Path::to_path_buf));
         if self.pending_save.take().is_some() {
             self.set_notice(Notice::failure(
                 "The save did not finish, because the background writer stopped. Try saving \
@@ -1509,7 +1545,7 @@ impl Model {
             self.file_events.push(FileEvent::SaveFailed);
         }
         self.unprotected = None;
-        self.start_storage(None, None);
+        self.start_storage(replaces, None);
     }
 
     fn poll_storage(&mut self) -> bool {
@@ -1553,6 +1589,7 @@ impl Model {
                 self.on_disk = Some(digest);
                 self.keep_original = false;
                 self.dirty = self.differs_from_saved();
+                self.clear_save_failure();
                 if let Some(notice) = saved_notice(backup.as_deref(), dropped_for_size) {
                     self.set_notice(notice);
                 }
@@ -1583,7 +1620,7 @@ impl Model {
             } => {
                 self.pending_save
                     .take_if(|pending| pending.ticket == ticket);
-                self.set_notice(Notice::failure(format!(
+                self.fail_save(Notice::failure(format!(
                     "Could not save “{}”: {error}. Use Save As to choose another location.",
                     display_name(Some(&path))
                 )));

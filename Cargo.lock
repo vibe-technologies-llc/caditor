@@ -679,9 +679,9 @@ dependencies = [
  "rustix 1.1.5",
  "serde",
  "serde_json",
+ "skrifa",
  "tempfile",
  "thiserror 2.0.21",
- "ttf-parser",
  "xattr",
  "xxhash-rust",
 ]
@@ -699,6 +699,15 @@ version = "0.1.0"
 dependencies = [
  "caditor-geometry",
  "spade",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "caditor-notices"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
  "thiserror 2.0.21",
 ]
 

@@ -63,7 +63,7 @@ pub(crate) enum ChunkKind {
 }
 
 impl ChunkKind {
-    const ALL: [Self; 13] = [
+    pub(crate) const ALL: [Self; 13] = [
         Self::Head,
         Self::Record,
         Self::VersionInfo,
@@ -93,10 +93,10 @@ pub(crate) enum Codec {
 }
 
 impl Codec {
+    pub(crate) const ALL: [Self; 3] = [Self::Stored, Self::Zstd, Self::ZstdAfterNewer];
+
     fn from_byte(byte: u8) -> Option<Self> {
-        [Self::Stored, Self::Zstd, Self::ZstdAfterNewer]
-            .into_iter()
-            .find(|codec| *codec as u8 == byte)
+        Self::ALL.into_iter().find(|codec| *codec as u8 == byte)
     }
 }
 
@@ -159,6 +159,11 @@ impl<'a> Chunk<'a> {
             whole: whole?,
             ..*self
         })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn parts(&self) -> usize {
+        self.parts
     }
 
     pub fn unpack(&self, newer: Option<&[u8]>) -> Result<Vec<u8>, UnpackError> {
@@ -236,13 +241,15 @@ pub(crate) fn damaged(pieces: &[Piece<'_>]) -> usize {
 }
 
 pub(crate) fn parse<'a>(bytes: &'a [u8], magic: &Magic) -> Option<Container<'a>> {
+    parse_scanned(bytes, magic).map(|(container, _)| container)
+}
+
+fn parse_scanned<'a>(bytes: &'a [u8], magic: &Magic) -> Option<(Container<'a>, usize)> {
     let rest = bytes.strip_prefix(magic)?;
     let version = u32::from_le_bytes(rest.get(..VERSION_LENGTH)?.try_into().ok()?);
     let body = rest.get(VERSION_LENGTH..)?;
-    Some(Container {
-        version,
-        pieces: parse_body(body),
-    })
+    let (pieces, scanned) = scan_body(body);
+    Some((Container { version, pieces }, scanned))
 }
 
 pub(crate) fn salvage(bytes: &[u8], leading: ChunkKind) -> Option<Vec<Piece<'_>>> {
@@ -255,9 +262,15 @@ pub(crate) fn salvage(bytes: &[u8], leading: ChunkKind) -> Option<Vec<Piece<'_>>
 }
 
 fn parse_body(body: &[u8]) -> Vec<Piece<'_>> {
+    scan_body(body).0
+}
+
+fn scan_body(body: &[u8]) -> (Vec<Piece<'_>>, usize) {
     let mut pieces = Pieces::default();
     let mut position = 0;
-    let mut hashing_budget = body.len().saturating_mul(HASHING_ALLOWANCE);
+    let allowance = body.len().saturating_mul(HASHING_ALLOWANCE);
+    let mut hashing_budget = allowance;
+    let mut skipped = 0;
     while position < body.len() {
         match read_chunk(body, position, &mut hashing_budget) {
             Ok((chunk, next)) => {
@@ -266,7 +279,9 @@ fn parse_body(body: &[u8]) -> Vec<Piece<'_>> {
             }
             Err(Rejected::Chunk) => {
                 pieces.damaged();
-                position = next_sync(body, position + 1);
+                let next = next_sync(body, position + 1);
+                skipped += next - position;
+                position = next;
             }
             Err(Rejected::OverBudget) => {
                 pieces.damaged();
@@ -274,7 +289,7 @@ fn parse_body(body: &[u8]) -> Vec<Piece<'_>> {
             }
         }
     }
-    pieces.finish()
+    (pieces.finish(), allowance - hashing_budget + skipped)
 }
 
 #[derive(Default)]
