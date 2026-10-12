@@ -538,14 +538,14 @@ struct Entry {
     state: State,
 }
 
-impl Entry {
-    fn is_of(&self, mesh: &Weak<ShadedMesh>, analysis: FaceAnalysis) -> bool {
-        self.mesh.ptr_eq(mesh) && self.analysis == analysis
-    }
+type MeshKey = usize;
+
+fn key_of(mesh: &Weak<ShadedMesh>) -> MeshKey {
+    Weak::as_ptr(mesh).addr()
 }
 
 pub struct Analyses {
-    entries: Arc<Mutex<Vec<Entry>>>,
+    entries: Arc<Mutex<BTreeMap<MeshKey, Entry>>>,
     finished: Arc<AtomicU64>,
     wake: Arc<Mutex<Option<Waker>>>,
     occluders: Mutex<Option<Arc<Occluders>>>,
@@ -576,6 +576,11 @@ impl Analyses {
         }
     }
 
+    #[cfg(test)]
+    fn tracked(&self) -> usize {
+        self.entries.lock().len()
+    }
+
     pub fn finished(&self) -> u64 {
         self.finished.load(Ordering::Acquire)
     }
@@ -585,8 +590,12 @@ impl Analyses {
         analysis: Option<FaceAnalysis>,
         meshes: &[Arc<ShadedMesh>],
     ) -> Option<FaceAnalysis> {
-        if analysis.is_none() {
-            self.entries.lock().clear();
+        {
+            let mut entries = self.entries.lock();
+            match analysis {
+                Some(_) => entries.retain(|_, entry| entry.mesh.strong_count() > 0),
+                None => entries.clear(),
+            }
         }
         let mut occluders = self.occluders.lock();
         let Some(FaceAnalysis::Reach { reach, .. }) = analysis else {
@@ -628,34 +637,40 @@ impl Analyses {
             Err(outcome) => return outcome,
         };
         let weak = Arc::downgrade(mesh);
+        let key = key_of(&weak);
         let mut entries = self.entries.lock();
-        entries.retain(|entry| entry.mesh.strong_count() > 0);
-        if let Some(entry) = entries.iter().find(|entry| entry.is_of(&weak, analysis)) {
+        if let Some(entry) = entries.get(&key).filter(|entry| entry.analysis == analysis) {
             return match &entry.state {
                 State::Ready(analysed) => Outcome::Ready(Arc::clone(analysed)),
                 State::Working => Outcome::Working,
                 State::Failed => Outcome::Failed,
             };
         }
-        entries.retain(|entry| !entry.mesh.ptr_eq(&weak));
+        entries.remove(&key);
         let work = mesh.triangle_count()
             + occluders
                 .as_ref()
                 .map_or(0, |occluders| occluders.triangles);
         if work <= self.inline_triangles {
             let analysed = Arc::new(Analysed::of(mesh, analysis, occluders.as_deref()));
-            entries.push(Entry {
-                mesh: weak,
-                analysis,
-                state: State::Ready(Arc::clone(&analysed)),
-            });
+            entries.insert(
+                key,
+                Entry {
+                    mesh: weak,
+                    analysis,
+                    state: State::Ready(Arc::clone(&analysed)),
+                },
+            );
             return Outcome::Ready(analysed);
         }
-        entries.push(Entry {
-            mesh: weak.clone(),
-            analysis,
-            state: State::Working,
-        });
+        entries.insert(
+            key,
+            Entry {
+                mesh: weak.clone(),
+                analysis,
+                state: State::Working,
+            },
+        );
         drop(entries);
         self.spawn(Arc::clone(mesh), weak, analysis, occluders);
         Outcome::Working
@@ -685,8 +700,8 @@ impl Analyses {
                 {
                     let mut entries = entries.lock();
                     if let Some(entry) = entries
-                        .iter_mut()
-                        .find(|entry| entry.is_of(&weak, analysis))
+                        .get_mut(&key_of(&weak))
+                        .filter(|entry| entry.analysis == analysis)
                     {
                         entry.state = match analysed {
                             Ok(analysed) => State::Ready(analysed),
@@ -702,7 +717,7 @@ impl Analyses {
         if let Err(error) = spawned {
             log::error!("could not start the analysis thread: {error}");
             let mut entries = self.entries.lock();
-            for entry in entries.iter_mut() {
+            for entry in entries.values_mut() {
                 if matches!(entry.state, State::Working) {
                     entry.state = State::Failed;
                 }
@@ -1414,5 +1429,31 @@ mod tests {
         assert!(matches!(first, Outcome::Working));
         assert!(matches!(analyses.of(mesh, analysis), Outcome::Ready(_)));
         assert!(woken.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn a_body_has_one_entry_whatever_its_analysis_and_a_gone_body_loses_it_at_the_next_prepare() {
+        let analyses = Analyses::default();
+        let mut meshes = plate();
+        let kept = meshes.first().map(Arc::clone).unwrap();
+        let radius = FaceAnalysis::Radius { limit: 5.0 };
+        let wider = FaceAnalysis::Radius { limit: 6.0 };
+
+        let Outcome::Ready(first) = analyses.of(&kept, radius) else {
+            panic!("a small mesh is analysed inline");
+        };
+        let Outcome::Ready(again) = analyses.of(&kept, radius) else {
+            panic!("a small mesh is analysed inline");
+        };
+        assert!(Arc::ptr_eq(&first, &again));
+        assert_eq!(analyses.tracked(), 1);
+
+        analyses.of(&kept, wider);
+        assert_eq!(analyses.tracked(), 1);
+
+        meshes.clear();
+        drop(kept);
+        analyses.prepare(Some(wider), &meshes);
+        assert_eq!(analyses.tracked(), 0);
     }
 }

@@ -1,5 +1,7 @@
+use std::{cell::OnceCell, sync::Arc};
+
 use caditor_expression::Dimension;
-use caditor_render::Color;
+use caditor_render::{Color, ShadedMesh};
 use egui::{Color32, Id, Label, ScrollArea, Sense, Slider, TextWrapMode, Ui, vec2};
 
 use crate::{
@@ -69,6 +71,21 @@ pub struct AnalysisContext<'a> {
     pub style: DisplayStyle,
     pub contrast: Contrast,
     pub canvas: Canvas,
+    pub shown: OnceCell<Vec<Arc<ShadedMesh>>>,
+}
+
+impl AnalysisContext<'_> {
+    fn shown(&self) -> &[Arc<ShadedMesh>] {
+        self.shown
+            .get_or_init(|| analysis::shown_meshes(self.model, self.bodies))
+    }
+
+    pub fn into_shown(self) -> Vec<Arc<ShadedMesh>> {
+        match self.shown.into_inner() {
+            Some(shown) => shown,
+            None => analysis::shown_meshes(self.model, self.bodies),
+        }
+    }
 }
 
 fn swatch_colour(colour: Color) -> Color32 {
@@ -184,15 +201,15 @@ fn pull_rows(ui: &mut Ui, context: &AnalysisContext<'_>, tool: &mut AnalysisTool
 fn legend(ui: &mut Ui, context: &AnalysisContext<'_>, analysis: FaceAnalysis) {
     let palette = context.contrast.palette(context.canvas);
     let units: Units = context.model.units();
-    let meshes = analysis::shown_meshes(context.model, context.bodies);
+    let meshes = context.shown();
     if meshes.is_empty() {
         ui.label(widgets::muted(NO_BODIES, ui));
         return;
     }
-    let Some(analysis) = context.analyses.prepare(Some(analysis), &meshes) else {
+    let Some(analysis) = context.analyses.prepare(Some(analysis), meshes) else {
         return;
     };
-    let tally = Tally::of(context.analyses, &meshes, analysis);
+    let tally = Tally::of(context.analyses, meshes, analysis);
     widgets::card(ui, |ui| {
         for band in analysis.bands() {
             let area = tally.areas.get(band).copied().unwrap_or(0.0);

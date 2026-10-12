@@ -1,4 +1,5 @@
 use std::{
+    cell::OnceCell,
     panic::{self, AssertUnwindSafe},
     path::PathBuf,
     sync::Arc,
@@ -22,7 +23,7 @@ use winit::{
 
 use crate::{
     about,
-    analysis::{self, Analysis, AnalysisCommand, AnalysisTool, Kind},
+    analysis::{Analysis, AnalysisCommand, AnalysisTool, Kind},
     analysis_panel::{self, AnalysisContext},
     appearance::{self, MAX_SCALE, MIN_SCALE, SCALE_STEP, Skin, Skins},
     body_selection, canvas,
@@ -788,7 +789,7 @@ pub fn show(
         Vec::new()
     };
     viewport.set_interference(marks);
-    let analysing = if analysis.open {
+    let (analysing, shown) = if analysis.open {
         viewport.analyses().wake_with(|| model.waker());
         let context = AnalysisContext {
             model,
@@ -798,18 +799,20 @@ pub fn show(
             style: viewport.style(),
             contrast: Contrast::of(preferences.appearance.high_contrast),
             canvas: canvas::canvas(ui.ctx()),
+            shown: OnceCell::new(),
         };
         analysis_panel::show(ui, &context, analysis, room);
-        analysis.analysis(model).ok()
+        let analysing = analysis.analysis(model).ok();
+        let shown = if analysing.and_then(Analysis::faces).is_some() {
+            context.into_shown()
+        } else {
+            Vec::new()
+        };
+        (analysing, shown)
     } else {
-        None
+        (None, Vec::new())
     };
     let faces = analysing.and_then(Analysis::faces);
-    let shown = if faces.is_some() {
-        analysis::shown_meshes(model, viewport.bodies())
-    } else {
-        Vec::new()
-    };
     let faces = viewport.analyses().prepare(faces, &shown);
     viewport.set_analysis(faces, analysing.and_then(Analysis::reflection));
     let combing = if comb.open {

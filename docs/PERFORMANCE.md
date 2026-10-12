@@ -63,8 +63,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Interface
 
-- [low · easy] With a face analysis open `Analyses::of` retains and scans every entry once per
-  body, so the legend is O(B²) a frame and computes `shown_meshes` again.
 - [medium · hard] The cached scene's own batch holds every drawn sketch: any change to its
   content (each drag solution, an edit, an evaluation, a new faceting level) facets every drawn
   sketch again, and a hover or selection change restyles and uploads all of it, over a millisecond
