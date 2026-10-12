@@ -93,6 +93,7 @@ pub enum Command {
     RepeatLast,
     NewSketch,
     FinishSketch,
+    CancelSketch,
     ReverseArc,
     ChainArc,
     TakeBackPoint,
@@ -746,6 +747,7 @@ plain_commands! {
     ScaleModel,
     Configurations,
     FinishSketch,
+    CancelSketch,
     ReverseArc,
     ChainArc,
     TakeBackPoint,
@@ -890,6 +892,7 @@ impl Command {
             Self::RepeatLast => "edit.repeat",
             Self::NewSketch => "model.new_sketch",
             Self::FinishSketch => "sketch.finish",
+            Self::CancelSketch => "sketch.cancel",
             Self::ReverseArc => "sketch.reverse_arc",
             Self::ChainArc => "sketch.chain_arc",
             Self::TakeBackPoint => "sketch.take_back_point",
@@ -1187,6 +1190,7 @@ impl Command {
             Self::RepeatLast => "Repeat the last command",
             Self::NewSketch => "New sketch",
             Self::FinishSketch => "Finish sketch",
+            Self::CancelSketch => "Cancel sketch",
             Self::ReverseArc => "Reverse the arc",
             Self::ChainArc => "Next segment: tangent arc or line",
             Self::TakeBackPoint => "Take back the last point",
@@ -1690,6 +1694,7 @@ impl Command {
             | Self::ReplaceImport
             | Self::ReloadImport => Category::Model,
             Self::FinishSketch
+            | Self::CancelSketch
             | Self::ReverseArc
             | Self::ChainArc
             | Self::TakeBackPoint
@@ -1730,6 +1735,7 @@ impl Command {
     pub fn scope(self) -> Scope {
         match self {
             Self::FinishSketch
+            | Self::CancelSketch
             | Self::ReverseArc
             | Self::ChainArc
             | Self::TakeBackPoint
@@ -1894,6 +1900,7 @@ impl Command {
             | Self::SaveSelectionSet
             | Self::SelectionSets
             | Self::FinishSketch
+            | Self::CancelSketch
             | Self::ShapeMode(_)
             | Self::ToggleConstraintActive
             | Self::SplitCurve

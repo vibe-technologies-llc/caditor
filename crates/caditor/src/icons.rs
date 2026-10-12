@@ -157,6 +157,7 @@ pub fn command(command: Command) -> &'static str {
         Command::RepeatLast => phosphor::REPEAT,
         Command::NewSketch => phosphor::PENCIL_LINE,
         Command::FinishSketch => phosphor::CHECK,
+        Command::CancelSketch => CLOSE,
         Command::ReverseArc => phosphor::ARROWS_COUNTER_CLOCKWISE,
         Command::ChainArc => self::tool(Tool::TangentArc),
         Command::TakeBackPoint => phosphor::BACKSPACE,

@@ -50,6 +50,27 @@ and, for off-ribbon tools, a partner's corner menu.
 - A context, not a mode: `editing.rs` holds the edited sketch and the active `Tool`, changed by
   `Action::Editing` commands that `app::perform` routes after the UI pass. It ends by itself when
   the sketch disappears or another document opens.
+- Entering records `editing::Entered` (the sketch, the `UndoMark` from when the batch that entered
+  it began, and whether a step of that batch added it), as an open feature records `Opened`.
+  Cancel sketch (`Command::CancelSketch`, `EditingCommand::CancelSketch`; palette, Sketch menu, the
+  compact cross left of Finish sketch on the ribbon) takes back every step since that mark as one
+  new undoable step: the steps' inverses (`Model::undo_steps_since`) concatenated into one
+  `Transaction` labelled by `cancel_title`, so Undo brings the whole session back at once; when the
+  only step is the sketch's own creation it is undone instead, so it leaves no trace and Redo makes
+  it again. It refuses as an open feature's cancel does (`changes_since`, shared with
+  `SketchEditing::cancelling`): `HistoryChanged` once Undo went below the mark, `ChangedElsewhere`
+  for a step touching more than the sketch and parameters it owns. Undo inside the session moves
+  steps to redo, so they are not among the steps since the mark and stay undone; the cancel step,
+  like any apply, clears redo. A new sketch left with no entities or constraints is removed by
+  Finish and Escape (`SketchEditing::finish`, `remove_empty`) the same way ("Remove the empty
+  Sketch N", or undoing its creation), with an info notice saying Undo or Redo brings it back.
+- Opening a feature, entering another sketch, or New sketch closing what was open
+  (`editing::switches`) is a switch: `SketchEditing::note_switch` keeps what closed and
+  `announce_switch`, run by `app::perform` after the batch, posts "Finished <closed> to edit
+  <next>" (or "to start a new sketch"), unless the batch posted a warning or error. When the batch
+  also changed the document the notice carries a `SwitchBack`: its Undo button
+  (`EditingCommand::SwitchBack`) undoes the batch's steps and restores the closed sketch's
+  `Entered` or feature's `Opened`. A feature closed for another feature says nothing.
 - Entering faces the camera to the plane, fits it, dims other features (unpickable) and keeps only
   that sketch selected. `Command::LookAtSketch` (Alt+Shift+V) returns to the facing view, and turns
   it a quarter turn when already facing.
@@ -120,7 +141,9 @@ and, for off-ribbon tools, a partner's corner menu.
   drag; button and command share availability (`Moving::offered`). Positions and the relative anchor
   are taken afresh from the displayed sketch at Enter (`Moving::refreshed`, `Transforming::refreshed`),
   so a drag or undo made while the field waited is not undone; gone geometry or a recalculating
-  sketch leaves the field open with the reason. Rotate and Scale (`Command::RotateGeometry`,
+  sketch leaves the field open with the reason; a recalculating one also queues the entry
+  (`queued::Rerun::Typed`, `ViewportState::resubmit_typed`), entered again once the sketch is shown,
+  and closing the field drops it. Rotate and Scale (`Command::RotateGeometry`,
   `ScaleGeometry`; `sketch_drag::Transforming`) open the same field as "Rotate by" (degrees unless a
   unit is named, counter-clockwise) or "Scale by" (a factor above zero), acting about the one selected
   point no selected curve uses (a lone point or the origin), else the centre of the selection's
@@ -558,7 +581,9 @@ and, for off-ribbon tools, a partner's corner menu.
   document with the transaction applied is solved on its own thread, and the transaction applies once
   it solves, or is refused in a notice naming the constraints it conflicts with. A trial past
   `PATIENCE` (or any other failure) applies it as before, so a slow sketch is never held up; a second
-  constraint while one is checked is refused saying so. The trial keeps the revision it started on
+  geometric constraint while one is checked waits as a queued action (`queued::CONSTRAINT_CHECK`,
+  `app-input.md`) and runs again from the selection once the verdict is in; `Queue::follow` carries
+  it over the revision the verdict applied. The trial keeps the revision it started on
   (`Running`), and a verdict reaching a later revision is `Verdict::Outdated`: nothing applies and a
   notice says so, so an undo pressed meanwhile stands with its redo.
 - Disable (`Command::ToggleConstraintActive`, `sketch_tools::ActivityChange`) switches the selected

@@ -26,7 +26,7 @@ use crate::{
     constraint_trial::{ConstraintTrial, Trials, Verdict},
     display::{Display, Displayed},
     drag_solver::{self, DragCommand, Finished, Join, Polled},
-    editing::EditingCommand,
+    editing::{EditingCommand, SwitchBack},
     files::FileCommand,
     last_values::LastValues,
     pasting::{
@@ -34,6 +34,7 @@ use crate::{
         Planned,
     },
     preferences::PreferencesCommand,
+    queued::{Awaited, Queue, Queued, Rerun},
     scene,
     selection::SelectionFilter,
     units::{AngleUnit, LengthUnit, Units},
@@ -63,6 +64,8 @@ pub enum Action {
     Inform(Notice),
     Drag(DragCommand),
     Trial(ConstraintTrial),
+    Queue(Box<Queued>),
+    DropQueued,
     Paste(Box<PasteRequest>),
     CancelPaste,
     Preview {
@@ -130,6 +133,7 @@ pub struct Notice {
     pub kind: NoticeKind,
     pub text: String,
     pub outlasts_edits: bool,
+    pub undo: Option<SwitchBack>,
 }
 
 impl Notice {
@@ -150,6 +154,7 @@ impl Notice {
             kind,
             text: text.into(),
             outlasts_edits: false,
+            undo: None,
         }
     }
 
@@ -162,6 +167,7 @@ impl Notice {
             kind: NoticeKind::Error,
             text: text.into(),
             outlasts_edits: true,
+            undo: None,
         }
     }
 }
@@ -249,6 +255,7 @@ pub struct Model {
     draft: Option<DraftPreview>,
     drafts: u64,
     trials: Trials,
+    queued: Queue,
     pastes: Pastes,
     pasted: Option<PastedFeatures>,
     pastes_finished: u64,
@@ -301,6 +308,7 @@ impl Model {
             draft: None,
             drafts: 0,
             trials: Trials::default(),
+            queued: Queue::default(),
             pastes: Pastes::default(),
             pasted: None,
             pastes_finished: 0,
@@ -1026,6 +1034,14 @@ impl Model {
                 self.try_constraints(trial);
                 Ok(None)
             }
+            Action::Queue(queued) => {
+                self.hold(*queued);
+                Ok(None)
+            }
+            Action::DropQueued => {
+                self.queued.let_go();
+                Ok(None)
+            }
             Action::Paste(request) => {
                 self.start_paste(*request);
                 Ok(None)
@@ -1231,7 +1247,11 @@ impl Model {
 
     fn judged(&mut self, verdict: Option<Verdict>) -> bool {
         match verdict {
-            Some(Verdict::Apply(transaction)) => self.perform(Action::Apply(transaction)),
+            Some(Verdict::Apply(transaction)) => {
+                let before = self.revision();
+                self.perform(Action::Apply(transaction));
+                self.queued.follow(before, self.revision());
+            }
             Some(Verdict::Refuse(reason)) => self.set_notice(Notice::warning(reason)),
             Some(Verdict::Outdated { label }) => self.set_notice(Notice::warning(format!(
                 "“{label}” was not applied, because the model changed while it was being \
@@ -1305,6 +1325,36 @@ impl Model {
 
     pub fn is_checking_constraints(&self) -> bool {
         self.trials.is_running()
+    }
+
+    fn awaits(&self, awaited: Awaited) -> bool {
+        match awaited {
+            Awaited::Recompute => matches!(self.status, RecomputeStatus::Running { .. }),
+            Awaited::ConstraintCheck => self.trials.is_running(),
+        }
+    }
+
+    fn hold(&mut self, queued: Queued) {
+        if self.awaits(queued.awaited()) {
+            self.queued.hold(queued, self.session(), self.revision());
+        } else {
+            self.set_notice(Notice::warning(queued.refusal(self.status)));
+        }
+    }
+
+    pub fn queued(&self) -> Option<&Queued> {
+        self.queued.current(self.session(), self.revision())
+    }
+
+    pub fn take_due(&mut self) -> Option<Rerun> {
+        let recomputing = self.awaits(Awaited::Recompute);
+        let checking = self.awaits(Awaited::ConstraintCheck);
+        let (session, revision) = (self.session(), self.revision());
+        self.queued
+            .take_due(session, revision, |awaited| match awaited {
+                Awaited::Recompute => recomputing,
+                Awaited::ConstraintCheck => checking,
+            })
     }
 
     #[cfg(test)]

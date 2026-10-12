@@ -133,6 +133,7 @@ mod primitive_panel;
 mod primitive_tools;
 mod principal_tree;
 mod projecting;
+mod queued;
 mod reach;
 mod reach_handles;
 mod reference_picking;

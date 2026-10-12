@@ -888,6 +888,7 @@ impl Menus<'_> {
     fn sketch(&mut self, ui: &mut Ui) {
         top_menu(ui, "Sketch", |ui| {
             self.item(ui, Command::FinishSketch);
+            self.item(ui, Command::CancelSketch);
             ui.separator();
             let (drawing, modifying): (Vec<Tool>, Vec<Tool>) = Tool::ALL
                 .into_iter()

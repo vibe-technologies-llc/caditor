@@ -70,6 +70,7 @@ use crate::{
         self, Appearance, PreferenceChange, Preferences, PreferencesCommand, PreferencesTab,
         PreferencesView, Restored, TitleBar,
     },
+    queued::{self, Rerun},
     reference_picking,
     repeating::{Repeat, Repetition},
     saved_views::{self, ViewsDraft},
@@ -955,10 +956,7 @@ pub fn show(
         panels.choose_only(feature);
     }
     for (command, reason) in refused {
-        actions.push(Action::Inform(Notice::warning(format!(
-            "{}: {reason}",
-            command.title()
-        ))));
+        actions.push(queued::refused(command, &command.title(), &reason));
     }
     if open_shortcuts {
         actions.push(Action::Preferences(PreferencesCommand::ShowShortcuts));
@@ -1387,8 +1385,9 @@ pub fn perform(
     model: &mut Model,
     files: &mut Files,
     workspace: &mut Workspace,
-) {
+) -> bool {
     let since = model.undo_mark();
+    let notice_before = model.notice().cloned();
     for action in actions {
         match action {
             Action::File(command) => files.perform(command, model),
@@ -1415,7 +1414,24 @@ pub fn perform(
             other => model.perform(other),
         }
     }
+    let rerun = run_due(model, workspace);
     workspace.editing.sync(model);
+    workspace
+        .editing
+        .announce_switch(model, notice_before.as_ref());
+    rerun
+}
+
+fn run_due(model: &mut Model, workspace: &mut Workspace) -> bool {
+    let Some(rerun) = model.take_due() else {
+        return false;
+    };
+    match rerun {
+        Rerun::Command(command) => workspace.deferred_commands.push(command),
+        Rerun::Editing(command) => workspace.editing.perform(command, model),
+        Rerun::Typed(entered) => workspace.viewport.resubmit_typed(entered),
+    }
+    true
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2098,8 +2114,8 @@ impl Session {
                 into: self.workspace.editing.feature(),
             }));
         }
-        let changed = !actions.is_empty();
-        perform(actions, model, files, &mut self.workspace);
+        let acted = !actions.is_empty();
+        let changed = perform(actions, model, files, &mut self.workspace) || acted;
         self.renderer
             .set_graphics(self.workspace.preferences.graphics.render());
         self.renderer

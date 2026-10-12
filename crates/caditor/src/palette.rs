@@ -11,6 +11,7 @@ use crate::{
     commands::{Command, Keymap, Offer, Scope},
     feature_tree, icons,
     panels::Focus,
+    queued::Awaited,
     toggles::{Shown, ToggleStates},
     widgets::{self, DialogWidth, ListHeight, Tone},
 };
@@ -93,6 +94,11 @@ impl Entry {
             Some(state) => format!("{}, {}", self.title, state.to_lowercase()),
             None => self.title.clone(),
         }
+    }
+
+    fn waits(&self) -> bool {
+        matches!(&self.state, State::Unavailable(reason) if Awaited::of(reason).is_some())
+            && matches!(self.choice, Choice::Command(_))
     }
 
     fn detail(&self) -> String {
@@ -501,7 +507,7 @@ impl Palette {
                 .and_then(|index| entries.into_iter().nth(index))
         });
         if let Some(entry) = response.inner {
-            if entry.state == State::Ready {
+            if entry.state == State::Ready || entry.waits() {
                 self.choose(entry.choice);
             } else {
                 self.refuse(&entry);

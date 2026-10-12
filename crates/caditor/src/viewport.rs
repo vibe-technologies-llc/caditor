@@ -60,6 +60,7 @@ use crate::{
     pick_list::{self, PickList},
     preferences::{InputMode, Navigation, PreferenceChange, PreferencesCommand},
     primitive_tools, projecting,
+    queued::{self, Queued, Rerun},
     reference_picking::{self, Slot},
     reversing, saved_views,
     scene::{self, BuiltScene, EditedSketch, Highlight, PickTable, Sources},
@@ -80,7 +81,7 @@ use crate::{
     symmetric_drawing::{self, Mirror, Symmetry},
     toggles,
     trimming::{self, Trimming},
-    typed_point::{self, TypedPoint},
+    typed_point::{self, Typed, TypedPoint},
     view_aids::ViewAids,
     view_cube::{self, CubeAction, CubeTexts},
     view_history::{Gesture, ViewHistory},
@@ -132,7 +133,6 @@ const KEYBOARD_ZOOM_FACTOR: f64 = 1.25;
 const TYPED_POINT_OFFSET: f32 = 64.0;
 const FREE_PLACEMENT_HINT: &str = "Ctrl: place freely";
 const SNAPPING_OFF_HINT: &str = "Snapping off";
-const SKETCH_NOT_SHOWN: &str = "The sketch is being recalculated: try again in a moment";
 const TAKE_BACK_HINT: &str = "Backspace: take back the last point";
 const HELD_SNAP_HINT: &str = "Alt: snap to the grid or nearby geometry";
 const TYPE_POINT_HINT: &str = "x,y or length<angle: type an exact point";
@@ -352,6 +352,7 @@ pub struct ViewportState {
     list_at: Option<Vector2>,
     row_to_choose: Option<FeatureId>,
     typed_point: TypedPoint,
+    resubmitted: Option<String>,
     typed_owner: Option<(FeatureId, Tool)>,
     typed_handle: Option<manipulator::Typing>,
     typed_handle_preview: Option<String>,
@@ -631,6 +632,7 @@ impl ViewportState {
             list_at: None,
             row_to_choose: None,
             typed_point: TypedPoint::default(),
+            resubmitted: None,
             typed_owner: None,
             typed_handle: None,
             typed_handle_preview: None,
@@ -4082,6 +4084,10 @@ impl ViewportState {
             self.typed_owner = owner;
             self.typed_point.close();
         }
+        let typed_waits = matches!(model.queued().map(Queued::rerun), Some(Rerun::Typed(_)));
+        if typed_waits && !self.typed_point.is_open() && self.resubmitted.is_none() {
+            actions.push(Action::DropQueued);
+        }
         self.moving = self
             .moving
             .take()
@@ -4425,7 +4431,7 @@ impl ViewportState {
         let Some(moving) = self.moving.take() else {
             return;
         };
-        let Some(typed) = typed else {
+        let Some(typed) = typed.or_else(|| self.take_resubmitted()) else {
             if self.typed_point.is_open() {
                 self.moving = Some(moving);
             }
@@ -4442,10 +4448,19 @@ impl ViewportState {
         match target {
             Ok(commands) => actions.extend(commands.into_iter().map(Action::Drag)),
             Err(error) => {
+                queue_typed(&typed.entered, typed_point::MOVE_LABEL, &error, actions);
                 self.typed_point.open_with(typed.entered, error);
                 self.moving = Some(moving);
             }
         }
+    }
+
+    pub fn resubmit_typed(&mut self, entered: String) {
+        self.resubmitted = Some(entered);
+    }
+
+    fn take_resubmitted(&mut self) -> Option<Typed> {
+        self.resubmitted.take().map(|entered| Typed::of(&entered))
     }
 
     fn type_label_move(
@@ -4514,7 +4529,7 @@ impl ViewportState {
         let Some(transforming) = self.transforming.take() else {
             return;
         };
-        let Some(typed) = typed else {
+        let Some(typed) = typed.or_else(|| self.take_resubmitted()) else {
             if self.typed_point.is_open() {
                 self.transforming = Some(transforming);
             }
@@ -4533,6 +4548,7 @@ impl ViewportState {
         match commands {
             Ok(commands) => actions.extend(commands.into_iter().map(Action::Drag)),
             Err(error) => {
+                queue_typed(&typed.entered, field.label, &error, actions);
                 self.typed_point.open_with(typed.entered, error);
                 self.transforming = Some(transforming);
             }
@@ -4554,7 +4570,7 @@ impl ViewportState {
             )
         });
         if escape {
-            self.escape(editing, actions);
+            self.escape(model.queued().is_some(), editing, actions);
         }
         if finish {
             if self.trimming.is_active() {
@@ -4824,9 +4840,13 @@ impl ViewportState {
         self.context_menu.as_ref().map(ViewMenu::anchor)
     }
 
-    fn escape(&mut self, editing: &SketchEditing, actions: &mut Vec<Action>) {
+    fn escape(&mut self, queued: bool, editing: &SketchEditing, actions: &mut Vec<Action>) {
         let active = editing.active();
         if self.pick_list.take().is_some() {
+            return;
+        }
+        if queued {
+            actions.push(Action::DropQueued);
             return;
         }
         if self.typed_point.is_waiting() {
@@ -5881,8 +5901,14 @@ fn fresh_from_sketch<T>(
         .document()
         .feature(feature)
         .and_then(|owner| model.displayed_sketch(owner))
-        .ok_or_else(|| SKETCH_NOT_SHOWN.to_owned())?;
+        .ok_or_else(|| queued::SKETCH_SHOWN.to_owned())?;
     refresh(&shown)
+}
+
+fn queue_typed(entered: &str, title: &str, error: &str, actions: &mut Vec<Action>) {
+    if let Some(waiting) = Queued::new(Rerun::Typed(entered.to_owned()), title, error) {
+        actions.push(Action::Queue(Box::new(waiting)));
+    }
 }
 
 fn edited_sketch<'a>(model: &'a Model, editing: &SketchEditing) -> Option<Displayed<'a>> {

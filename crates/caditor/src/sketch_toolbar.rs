@@ -21,6 +21,7 @@ use crate::{
     fonts, icons,
     model::{Action, Model, Notice},
     panels::{Focus, PanelState},
+    queued,
     ribbon::{self, explained},
     selection::Selection,
     shape_modes::{ShapeMode, ShapeModes},
@@ -35,6 +36,8 @@ use crate::{
 };
 
 pub const FINISH_LABEL: &str = "Finish sketch";
+pub const CANCEL_LABEL: &str = "Cancel sketch";
+const CANCEL_HELP: &str = "Leave the sketch and take back every change made since it was entered";
 pub const ARC_LABEL: &str = "Arc";
 pub const ARC_WAYS_LABEL: &str = "Ways to draw an arc";
 pub const ARC_TOOLS: [Tool; 3] = [Tool::Arc, Tool::ThreePointArc, Tool::TangentArc];
@@ -346,6 +349,10 @@ pub fn show(
             .map_err(|_| reason)
         });
     let select_all = sketch_drag::can_select_all(&shown).map_err(str::to_owned);
+    let cancel = editing
+        .sketch_cancelling(model)
+        .map(|_| ())
+        .map_err(|refusal| refusal.to_string());
 
     let tokens = appearance::tokens(ui);
     let mut bar = Bar {
@@ -366,6 +373,7 @@ pub fn show(
         },
         moving,
         select_all,
+        cancel,
         commands,
         request: Request::default(),
         compact: false,
@@ -393,7 +401,17 @@ pub fn show(
     if let Some(mode) = request.mode {
         actions.push(Action::Editing(EditingCommand::SetMode(mode)));
     }
-    if let Some((tool, constraints)) = request.constraints {
+    if let Some((tool, _)) = request.constraints
+        && !tool.is_dimension()
+        && model.is_checking_constraints()
+    {
+        let command = Command::Constraint(tool);
+        actions.push(queued::refused(
+            command,
+            &command.title(),
+            queued::CONSTRAINT_CHECK,
+        ));
+    } else if let Some((tool, constraints)) = request.constraints {
         let projections = if bodies.is_empty() {
             Projections::default()
         } else {
@@ -482,6 +500,9 @@ pub fn show(
     if request.finish {
         actions.push(Action::Editing(EditingCommand::Finish));
     }
+    if request.cancel {
+        actions.push(Action::Editing(EditingCommand::CancelSketch));
+    }
     actions.extend(request.history);
 }
 
@@ -520,6 +541,7 @@ struct Request {
     respacing: bool,
     delete: bool,
     finish: bool,
+    cancel: bool,
     history: Option<Action>,
 }
 
@@ -578,6 +600,7 @@ struct Bar<'a, 'b> {
     deletable: Result<(), String>,
     moving: Result<(), String>,
     select_all: Result<(), String>,
+    cancel: Result<(), String>,
     commands: &'a mut CommandFrame<'b>,
     request: Request,
     compact: bool,
@@ -1304,17 +1327,34 @@ impl Bar<'_, '_> {
         let response = ui
             .add(widgets::Named::new(button, FINISH_LABEL))
             .on_hover_text(format!("Leave the sketch. Everything is kept. ({keys})"));
+        let cancelling = self.cancel_button(ui);
         let look = Command::LookAtSketch;
         let look_help = self.commands.with_keys(look, &look.title());
         let looking = widgets::framed_icon_button(ui, icons::command(look), &look_help);
-        let both = response.rect.union(looking.rect);
-        widgets::remember_width(ui, width_id, both.width() + FINISH_MARGIN);
+        let all = response.rect.union(cancelling.rect).union(looking.rect);
+        widgets::remember_width(ui, width_id, all.width() + FINISH_MARGIN);
         if response.clicked() || invoked {
             self.request.finish = true;
         }
         if looking.clicked() {
             self.commands.trigger(look);
         }
+    }
+
+    fn cancel_button(&mut self, ui: &mut Ui) -> Response {
+        let command = Command::CancelSketch;
+        let invoked = self.commands.invoke(command, &self.cancel);
+        let button = ToolButton::new(icons::command(command), CANCEL_LABEL).compact();
+        let response = ui.add_enabled(self.cancel.is_ok(), button);
+        let help = match &self.cancel {
+            Ok(()) => Ok(self.commands.with_keys(command, CANCEL_HELP)),
+            Err(reason) => Err(format!("{CANCEL_HELP}. Not now: {reason}")),
+        };
+        let response = explained(response, CANCEL_LABEL, &help);
+        if response.clicked() || invoked {
+            self.request.cancel = true;
+        }
+        response
     }
 }
 

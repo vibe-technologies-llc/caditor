@@ -7,6 +7,7 @@ use crate::{
     bodies, body_selection, datum_tools,
     editing::{self, EditingCommand},
     model::{Action, Model},
+    queued,
     selection::{Pickable, Selection},
     solid_tools,
     units::LengthUnit,
@@ -18,7 +19,7 @@ pub const DESCRIPTION: &str =
     "Shift and turn a body, by distances and angles that can be parameters";
 const NO_BODY: &str = "Select a face or edge of the body to move";
 const SEVERAL_BODIES: &str = "Select faces or edges of one body only, or one body in the tree";
-const NO_SHAPE: &str = "The body has no shape yet; recompute the model, then try again";
+const NO_SHAPE: &str = queued::BODY_SHAPE;
 const NO_AXIS: &str =
     "Select an axis, straight edge, round face or sketch line made before this move";
 const ALREADY_ABOUT: &str = "The body already turns about the selected axis";

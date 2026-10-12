@@ -9,6 +9,7 @@ use egui::{
 use crate::{
     appearance::{self, BORDER_WIDTH, FOCUS_WIDTH, ICON_SIZE, SPACE_S},
     commands::{Command, CommandFrame},
+    editing::EditingCommand,
     feature_clipboard,
     feature_tree::count,
     files::{self, Files},
@@ -17,7 +18,7 @@ use crate::{
     offers::Offers,
     panels::{Focus, PanelState},
     preferences::{Appearance, PreferenceChange, PreferencesCommand},
-    ribbon,
+    queued, ribbon,
     selection::SelectionFilter,
     upload_badge,
     widgets::{self, Named, Tone},
@@ -36,6 +37,10 @@ const NOT_RECOMPUTING: &str = "Nothing is being recomputed";
 const NOTHING_FAILED: &str = "No feature has failed";
 const WAITING_HOVER: &str = "Show the next feature waiting for you to choose something";
 pub const SHOW_MESSAGES: &str = "Show recent messages";
+pub const UNDO_SWITCH: &str = "Undo";
+const UNDO_SWITCH_HOVER: &str =
+    "Take back what came with the switch and go back to what was being edited";
+const UNDO_SWITCH_ID: &str = "status-notice-undo";
 
 struct Hovers {
     cancel: String,
@@ -115,6 +120,7 @@ pub fn show(
             divided(ui, |ui| {
                 files::activity(ui, model, context.files, commands, actions);
                 feature_clipboard::activity(ui, model, commands, actions);
+                queued::note(ui, model, actions);
                 if context.uploading {
                     widgets::progress(upload_badge::TEXT).show(ui);
                 }
@@ -421,7 +427,10 @@ fn notice_width(ui: &Ui, model: &Model) -> Option<f32> {
         TextStyle::Body,
     );
     let icons = 3.0 * (ui.spacing().interact_size.y + ui.spacing().item_spacing.x);
-    Some(text.size().x + icons + divider_room(ui))
+    let undo = notice.undo.map_or(0.0, |_| {
+        widgets::remembered_width(ui, Id::new(UNDO_SWITCH_ID)) + ui.spacing().item_spacing.x
+    });
+    Some(text.size().x + icons + undo + divider_room(ui))
 }
 
 fn notice(ui: &mut Ui, model: &Model, hovers: &Hovers, actions: &mut Vec<Action>, wrap: bool) {
@@ -441,6 +450,15 @@ fn notice(ui: &mut Ui, model: &Model, hovers: &Hovers, actions: &mut Vec<Action>
         let response = ui.add(if wrap { label.wrap() } else { label.truncate() });
         widgets::announced(ui, &response, notice.kind.is_urgent());
     });
+    if let Some(back) = notice.undo {
+        let undo = ui
+            .add(widgets::button(UNDO_SWITCH))
+            .on_hover_text(UNDO_SWITCH_HOVER);
+        widgets::remember_width(ui, Id::new(UNDO_SWITCH_ID), undo.rect.width());
+        if undo.clicked() {
+            actions.push(Action::Editing(EditingCommand::SwitchBack(back)));
+        }
+    }
     let messages = widgets::icon_button(ui, icons::command(Command::Messages), &hovers.messages);
     let dismiss = widgets::icon_button(ui, icons::CLOSE, "Dismiss");
     widgets::remember_width(ui, buttons_id, dismiss.rect.right() - messages.rect.left());

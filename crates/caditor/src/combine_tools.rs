@@ -6,6 +6,7 @@ use crate::{
     bodies, body_selection,
     editing::{self, EditingCommand},
     model::{Action, Model},
+    queued,
     selection::Selection,
 };
 
@@ -13,7 +14,7 @@ pub const TITLE: &str = "Combine";
 pub const DESCRIPTION: &str = "Join, cut or intersect two bodies into one";
 const NEED_TWO: &str = "Select faces or edges of two bodies, or two bodies in the tree";
 const MORE_THAN_TWO: &str = "Select faces or edges of two bodies only, or two bodies in the tree";
-const NO_SHAPE: &str = "A selected body has no shape yet; recompute the model, then try again";
+const NO_SHAPE: &str = queued::BODIES_SHAPE;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BodyPair {

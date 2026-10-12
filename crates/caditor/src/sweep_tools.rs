@@ -7,9 +7,11 @@ use caditor_sketch::EntityId;
 
 use crate::{
     bodies, body_selection,
+    commands::Command,
     editing::{self, EditingCommand, SketchEditing},
     field,
     model::{Action, Model},
+    queued,
     reference_picking::{Picking, Slot},
     selection::{Pickable, Selection},
     solid_tools::{self, SweepSource},
@@ -26,7 +28,7 @@ const PATH_EDGES_OF_SEVERAL_BODIES: &str =
 const CURVES_AND_EDGES: &str = "Both sketch curves and body edges are selected for the path; \
                                 select one or the other";
 const NOT_A_PATH: &str = "Click a curve of a sketch other than the profile's, or an edge of a body";
-const NO_BODY_SHAPE: &str = "The body has no shape yet; recompute the model, then try again";
+const NO_BODY_SHAPE: &str = queued::BODY_SHAPE;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum PathPick {
@@ -250,9 +252,7 @@ pub fn create_actions(model: &Model, start: &SweepStart) -> Vec<Action> {
             }
             actions
         }
-        Err(reason) => vec![Action::Inform(crate::model::Notice::warning(format!(
-            "{TITLE}: {reason}."
-        )))],
+        Err(reason) => vec![queued::refused(Command::Sweep, TITLE, reason)],
     }
 }
 

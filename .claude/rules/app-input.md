@@ -25,6 +25,7 @@ paths:
   - "crates/caditor/src/clipboard.rs"
   - "crates/caditor/src/display_style.rs"
   - "crates/caditor/src/canvas_guidance.rs"
+  - "crates/caditor/src/queued.rs"
 ---
 
 # Input, commands and keyboard operation
@@ -162,6 +163,28 @@ paths:
 - A command's button calls `CommandFrame::invoke` with its availability, which records an `Offer`
   and says whether it triggered; a triggered unavailable command becomes a notice with the reason.
   Hover texts and menu items show the current binding (`commands::display`).
+
+## Queued actions
+
+- A refusal that only says the model is not ready is never "try again": its reason is one of
+  `queued.rs`'s constants (`BODY_SHAPE`, `BODIES_SHAPE`, `MODEL_UP_TO_THERE`, `SKETCH_SHOWN`,
+  `CONSTRAINT_CHECK`), which `Awaited::of` recognises, and the action is queued instead. The app's
+  refusal sink (`queued::refused`, also used by the tools' `create_actions` and the sketch bar for a
+  constraint while one is checked), a palette entry unavailable for such a reason (chosen anyway,
+  so it is refused and queued next frame), New sketch on a face not recomputed
+  (`Rerun::Editing`) and the sketch's Move, Rotate and Scale field (`Rerun::Typed`) all send
+  `Action::Queue`.
+- `Model` keeps one `queued::Queue`: a newer queued action replaces it. It is held only while what
+  it waits for runs (`Model::awaits`: a recompute, or a constraint trial); otherwise the refusal is
+  a warning notice saying what to do first (`Queued::refusal`). It carries the session and
+  revision it was queued on and is dropped, never run, once either changes; the one change it
+  survives is the verdict of the trial it waited for (`Queue::follow`). `app::perform` takes it
+  once nothing it waits for runs (`Model::take_due`) and reruns it: a command through
+  `Workspace::deferred_commands` (so its own `invoke` reads the selection and model afresh), an
+  `EditingCommand`, or the typed text; `perform` then asks for a frame.
+- While held, the status bar's activity shows `queued::note`, a `widgets::progress` ("<title>:
+  waiting for the model to recompute…") with Cancel; Cancel and Escape (`ViewportState::escape`,
+  right after closing the pick list) send `Action::DropQueued`.
 
 ## Saved views
 

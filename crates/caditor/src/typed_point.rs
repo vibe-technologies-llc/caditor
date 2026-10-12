@@ -75,7 +75,7 @@ pub struct Typed {
 }
 
 impl Typed {
-    fn of(entered: &str) -> Self {
+    pub fn of(entered: &str) -> Self {
         let entered = entered.trim().to_owned();
         Self {
             text: value_text(&entered).to_owned(),

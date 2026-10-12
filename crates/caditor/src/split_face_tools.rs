@@ -8,10 +8,13 @@ use caditor_kernel::{FaceId, FaceReference, Solid};
 
 use crate::{
     bodies::{self, FaceKey},
-    body_selection, datum_tools,
+    body_selection,
+    commands::Command,
+    datum_tools,
     editing::{self, EditingCommand},
     field,
     model::{Action, Model, Notice},
+    queued,
     selection::{Pickable, Selection},
     split_tools,
 };
@@ -92,8 +95,7 @@ pub fn create(
     evaluation: &Evaluation,
     source: &SplitFaceSource,
 ) -> Result<(Transaction, FeatureId), &'static str> {
-    let shown = bodies::shown(evaluation, source.body)
-        .ok_or("The body has no shape yet; recompute the model, then try again")?;
+    let shown = bodies::shown(evaluation, source.body).ok_or(queued::BODY_SHAPE)?;
     let faces: Vec<FaceReference> = source
         .faces
         .iter()
@@ -140,9 +142,7 @@ pub fn create_actions(
             .chain(told)
             .collect()
         }
-        Err(reason) => vec![Action::Inform(Notice::warning(format!(
-            "{TITLE}: {reason}."
-        )))],
+        Err(reason) => vec![queued::refused(Command::SplitFace, TITLE, reason)],
     }
 }
 
