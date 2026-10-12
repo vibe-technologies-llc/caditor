@@ -385,7 +385,10 @@ paths:
   stopped recompute is a warning or error pill with a Recompute or Restart button, its text a live
   region (`widgets::announced_status_pill`: polite for a warning, assertive for an error). Those
   hovers name their command's keys (`status_bar::Hovers`, `CommandFrame::with_keys`). The unit opens
-  Preferences; the interface size, when not 100%, goes back to it.
+  Preferences; the interface size, when not 100%, goes back to it. A notice too wide for the row
+  wraps onto a row of its own; the bar is a bottom panel sized by the frame before, so a change of
+  its height discards the pass (`widgets::remember_height`) and the new row shows in the same frame,
+  never drawn below the window for a frame or until the next repaint.
 - Notices have a `NoticeKind` drawn through its `Tone` (`NoticeKind::tone`): `Notice::info` for what
   simply happened or found nothing, `Notice::success` for a completed operation the user asked for,
   `Notice::warning` for a refusal, something not done or done in part, `Notice::error` or

@@ -2211,14 +2211,14 @@ fn drag_in_sketch(harness: &mut Harness, from: Pos2, to: Point2) {
         modifiers: Modifiers::NONE,
     });
     harness.frame();
-    let target = harness.on_screen(to);
     for step in 1..=4 {
+        let target = harness.on_screen(to);
         let position = from + (target - from) * (step as f32 / 4.0);
         harness.events.push(Event::PointerMoved(position));
         harness.frame();
     }
     harness.events.push(Event::PointerButton {
-        pos: target,
+        pos: harness.on_screen(to),
         button: PointerButton::Primary,
         pressed: false,
         modifiers: Modifiers::NONE,
