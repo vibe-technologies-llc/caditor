@@ -627,7 +627,8 @@ pub fn show(
         editing,
         offers: last_offers,
         chrome,
-        toggles: ToggleStates::of(viewport, section.open),
+        toggles: ToggleStates::of(viewport, section.open)
+            .with_cosmetic_threads(model.threads_shown_cosmetic()),
     };
     menu_bar::show(ui, model, &menu, &mut commands, actions);
     let toolbar = ToolbarContext {
@@ -946,7 +947,8 @@ pub fn show(
         Some(Repeat::Refused(reason)) => refused.push((Command::RepeatLast, reason)),
         None => {}
     }
-    let menu_toggles = ToggleStates::of(viewport, section.open);
+    let menu_toggles = ToggleStates::of(viewport, section.open)
+        .with_cosmetic_threads(model.threads_shown_cosmetic());
     let entries = MenuEntries::new(&offers, menu_toggles, &preferences.keymap);
     deferred_commands.extend(viewport.show_menu(ui.ctx(), model, editing, entries, blocked));
     if let Some(feature) = viewport.take_row_to_choose() {
@@ -992,7 +994,8 @@ pub fn show(
         if open_palette && !dialog_open {
             palette.open();
         }
-        let toggles = ToggleStates::of(viewport, section.open);
+        let toggles = ToggleStates::of(viewport, section.open)
+            .with_cosmetic_threads(model.threads_shown_cosmetic());
         palette.show(
             ui.ctx(),
             &offers,

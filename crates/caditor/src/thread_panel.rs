@@ -1,6 +1,6 @@
 use caditor_document::{
-    Bore, Feature, FeatureId, Resolution, Thread, ThreadFamily, ThreadHand, ThreadLength,
-    ThreadSide, Transaction,
+    Bore, Feature, FeatureId, Resolution, Thread, ThreadFamily, ThreadForm, ThreadHand,
+    ThreadLength, ThreadSide, Transaction,
 };
 use caditor_expression::Dimension;
 use egui::{Id, Ui};
@@ -15,8 +15,12 @@ use crate::{
     thread_tools, widgets,
 };
 
-pub const DESCRIPTION: &str =
-    "Draws a thread on a round face and names it in the exports; the solid is unchanged";
+pub const DESCRIPTION: &str = "Cuts a thread into a round face, or only draws it, and names it in \
+     the exports";
+pub const FORM: &str = "Form";
+pub const DRAWN_ONLY: &str = "Cosmetic: a taper pipe thread is drawn, never cut";
+pub const SHOWN_COSMETIC: &str = "Shown as cosmetic while modelled threads are shown as \
+     cosmetic (View menu); exports still cut it";
 pub const START_FROM_OTHER_END: &str = "Start from the other end";
 const DEFAULT_DEPTH: f64 = 10.0;
 const NO_SHAPE_YET: &str = "A face of a body that has no shape yet";
@@ -27,6 +31,15 @@ fn side_words(side: ThreadSide) -> &'static str {
     match side {
         ThreadSide::Internal => "Internal, in a bore",
         ThreadSide::External => "External, on a shaft or boss",
+    }
+}
+
+pub fn form_hover(form: ThreadForm) -> &'static str {
+    match form {
+        ThreadForm::Modelled => "Cut the helical groove into the body, for printing or machining",
+        ThreadForm::Cosmetic => {
+            "Only draw the thread and name it in the exports; faster to recompute"
+        }
     }
 }
 
@@ -112,6 +125,33 @@ impl Panel<'_> {
             widgets::caption(ui, "Side");
             ui.label(widgets::muted(side_words(side), ui));
             ui.end_row();
+        }
+    }
+
+    fn form_rows(&mut self, ui: &mut Ui) {
+        if !self.thread.size.family().can_be_modelled() {
+            widgets::caption(ui, FORM);
+            ui.label(widgets::muted(DRAWN_ONLY, ui));
+            ui.end_row();
+            return;
+        }
+        let segments = ThreadForm::ALL
+            .into_iter()
+            .map(|form| Segment {
+                label: form.label(),
+                hover: form_hover(form),
+                change: (form != self.thread.form).then(|| {
+                    self.change(Thread {
+                        form,
+                        ..self.thread.clone()
+                    })
+                }),
+            })
+            .collect();
+        let chosen = feature_fields::segmented_row(ui, FORM, &self.feature.name, segments);
+        self.actions.extend(chosen);
+        if self.thread.form == ThreadForm::Modelled && self.model.threads_shown_cosmetic() {
+            feature_fields::description_row(ui, SHOWN_COSMETIC);
         }
     }
 
@@ -332,6 +372,7 @@ pub fn show(
     widgets::properties(ui, ("thread-properties", id), |ui| {
         feature_fields::description_row(ui, DESCRIPTION);
         panel.face_row(ui);
+        panel.form_rows(ui);
         panel.designation_row(ui);
         panel.standard_row(ui);
         panel.size_row(ui);

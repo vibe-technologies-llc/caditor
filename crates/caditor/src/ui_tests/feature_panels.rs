@@ -927,6 +927,7 @@ fn a_tapped_holes_thread_takes_its_hand_and_depth_from_the_hole_panel() {
     use crate::hole_panel::{TO_A_DEPTH, WHOLE_BORE};
 
     let mut harness = Harness::new();
+    harness.perform(Action::ShowThreadsAsCosmetic(true));
     let (_, top) = extruded_plate(&mut harness);
     harness.select([top]);
     harness.click("Hole");

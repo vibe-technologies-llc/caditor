@@ -444,6 +444,9 @@ paths:
   `1 - LEAST_LAND` of the pitch wide at the far face `GrooveOverlaps`, a root not inside the face
   `RootOutsideFace`, more than `MAX_THREAD_TURNS` turns `TooManyTurns`, a length its form cannot fit
   `TooShort`.
+- `thread_tools_numbered` gives the same tools with every face's entity renumbered by the caller
+  (`Solid::with_sides_renumbered`, `FaceName::thread` of the new number, ring faces included), so a
+  hole threading several bores keeps their faces apart.
 - Faces are `FaceName::thread(feature, part)` with `FaceOrigin::Side { feature, entity: part }`:
   `GROOVE_PARTS` numbers root, leading flank, far face and trailing flank 1 to 4 plus `per_turn`
   (8) times the turn from the start, and the start and end caps 5 and 6.

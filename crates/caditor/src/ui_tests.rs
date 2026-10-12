@@ -127,6 +127,7 @@ mod storage_worker;
 mod svg_import;
 mod templates;
 mod themes;
+mod threads;
 mod typed_values;
 mod upload_indicator;
 mod user_guide;
@@ -22121,6 +22122,7 @@ fn a_hole_on_a_round_face_drills_square_into_it_where_it_is_clicked() {
 #[test]
 fn a_hole_is_drilled_on_a_selected_face_and_takes_a_metric_size_fit_and_slot_from_its_panel() {
     let mut harness = Harness::new();
+    harness.perform(Action::ShowThreadsAsCosmetic(true));
     let (plate, top) = extruded_plate(&mut harness);
 
     harness.select([top]);
@@ -22679,6 +22681,7 @@ fn thread_lines(harness: &mut Harness) -> Vec<caditor_render::Line> {
 #[test]
 fn a_thread_on_a_shaft_names_its_designation_draws_its_lines_and_takes_the_hand() {
     let mut harness = Harness::new();
+    harness.perform(Action::ShowThreadsAsCosmetic(true));
     let side = extruded_shaft(&mut harness);
     assert!(thread_lines(&mut harness).is_empty());
 

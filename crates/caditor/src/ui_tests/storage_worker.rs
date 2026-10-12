@@ -144,6 +144,8 @@ fn a_save_the_stopped_worker_cannot_take_is_reported_as_failed_and_the_next_try_
         harness.model.path().is_some() && !harness.model.is_saving()
     });
 
+    assert!(harness.model.notice().is_none());
+
     assert_eq!(
         caditor_file::load(&path).unwrap().document,
         *harness.model.document()

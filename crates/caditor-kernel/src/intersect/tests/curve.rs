@@ -1,5 +1,3 @@
-use std::time::{Duration, Instant};
-
 use caditor_geometry::{Point3, RigidTransform, Vector3};
 
 use super::*;
@@ -9,11 +7,14 @@ use crate::{
     intersect::intersect_surfaces,
     parametric::{self, Parametric},
     surface::{Cylinder, Torus},
+    tally,
     test_support::Random,
     tolerance::{INTERSECTION_TOLERANCE, SamplingTolerance},
 };
 
-const MARCHED_QUERY_TIME_LIMIT: Duration = Duration::from_secs(10);
+const MARCHED_NODES: usize = 20_000;
+const MARCHED_QUERIES: usize = 2000;
+const MARCHED_STEPS_PER_QUERY: usize = 200;
 
 fn marched() -> (Curve, Interval, [Surface; 2]) {
     let big: Surface = Cylinder::new(frame(Point3::ZERO, Vector3::Z), 2.0)
@@ -312,27 +313,27 @@ fn lengths_of_a_long_marched_curve_match_the_integral_along_it() {
 }
 
 #[test]
-fn a_marched_curve_of_tens_of_thousands_of_nodes_answers_queries_in_bounded_time() {
-    let intersection = wavy_loop(20_000);
+fn a_marched_curve_of_tens_of_thousands_of_nodes_answers_queries_in_bounded_work() {
+    let intersection = wavy_loop(MARCHED_NODES);
     let domain = intersection.domain();
     let curve = Curve::from(intersection);
     let mut random = Random::new(7);
-    let clock = Instant::now();
 
-    for _ in 0..2000 {
-        let parameter = random.between(domain.start(), domain.end());
-        let point = curve.point(parameter) + Vector3::new(0.0, 0.0, 0.1);
-        let found = curve.closest_parameter(point, domain);
-        let low = random.between(domain.start(), domain.end());
-        let length = curve.length(Interval::new(low, low + 0.5 * domain.length()).unwrap());
+    let ((), steps) = tally::measure(|| {
+        for _ in 0..MARCHED_QUERIES {
+            let parameter = random.between(domain.start(), domain.end());
+            let point = curve.point(parameter) + Vector3::new(0.0, 0.0, 0.1);
+            let found = curve.closest_parameter(point, domain);
+            let low = random.between(domain.start(), domain.end());
+            let length = curve.length(Interval::new(low, low + 0.5 * domain.length()).unwrap());
 
-        assert!(curve.point(found).distance(point) <= 0.1 + 1e-9);
-        assert!(length > 0.4 * domain.length());
-    }
+            assert!(curve.point(found).distance(point) <= 0.1 + 1e-9);
+            assert!(length > 0.4 * domain.length());
+        }
+    });
 
     assert!(
-        clock.elapsed() < MARCHED_QUERY_TIME_LIMIT,
-        "{:?}",
-        clock.elapsed()
+        steps <= MARCHED_STEPS_PER_QUERY * MARCHED_QUERIES,
+        "{steps} steps for {MARCHED_QUERIES} queries"
     );
 }

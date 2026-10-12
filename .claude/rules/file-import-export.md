@@ -14,8 +14,9 @@ paths:
 - Hostile-input limits, each an `ImportError` naming it: `MAX_DRAWING_VALUES` (`DxfFile::read`
   charges every kept record and every layer, linetype, block and MLINESTYLE entry `RECORD_VALUES`
   before keeping it, so bare `POINT` records end there too), `MAX_EXPANDED_OBJECTS` (block
-  expansion, per object and per decoded shape), `MAX_DRAWING_POINTS`. Curves past `MAX_READ_CURVES`
-  are left out with a note, the rest of an item past it counted in one step. The sketch's
+  expansion, per object and per decoded shape, both added to the `tally` the refusal tests read),
+  `MAX_DRAWING_POINTS`. Curves past `MAX_READ_CURVES` are left out with a note, the rest of an item
+  past it counted in one step. The sketch's
   `MAX_DRAWING_CURVES` applies in `Drawing::arranged` to the chosen layers' curves in drawing order
   with a note (so leaving layers out brings later curves in); `drawing_transaction` never adds more.
 - Units: `$INSUNITS` converts to millimetres with a note; unknown or missing reads as millimetres
@@ -67,8 +68,10 @@ paths:
   `ImportError::TooManyElements`, nesting past `MAX_DEPTH` is `ImportError::NestedTooDeep` and a
   tag with more than `MAX_ATTRIBUTES` attributes is `ImportError::TooManyAttributes` (3MF refuses
   the same way). The reader polls the kernel interrupt every `ELEMENTS_BETWEEN_INTERRUPT_POLLS`
-  elements, so Cancel stops a crafted file's parse as `ImportError::Cancelled`. Namespaces are interned through a map and a prefix resolves through a stack per
-  prefix, so a hostile file costs time linear in its size; each element records the last element
+  elements, so Cancel stops a crafted file's parse as `ImportError::Cancelled`. Namespaces are
+  interned through a map whose key adds one `tally` unit per entry it compares (the XML test bounds
+  the total by the declarations made) and a prefix resolves through a stack per prefix, so a
+  hostile file costs time linear in its size; each element records the last element
   of its subtree (`Node::encloses`), which is how a `use` tests for a loop. Damage keeps the
   elements before it with their open ancestors and a note names the line; damage before the root is
   `DamagedAt`.
@@ -129,7 +132,7 @@ paths:
   app passes Inter's upright (`fonts::INTER`, `InterVariable.ttf`) and italic (`fonts::INTER_ITALIC`,
   `InterVariable-Italic.ttf`, same Inter 4.1 release and licence, used by import only) faces, and
   headless importers must pass the same bytes to get the same letters. Without upright data, or
-  bytes `ttf-parser` cannot read, each `text` is counted as left out; a `None` or unreadable italic
+  bytes `skrifa` cannot read, each `text` is counted as left out; a `None` or unreadable italic
   draws italic text upright.
 - Layout (`lettering.rs`): `text`, `tspan` and `a` content gathers into letters with inherited
   style; whitespace collapses as CSS unless `xml:space="preserve"`; a `tspan` with `display: none`
@@ -156,7 +159,7 @@ paths:
   (100 to 900); italic and oblique use the italic face, upright and noted only when none was handed
   in. A character without a glyph takes the missing glyph's advance, draws nothing and is counted.
 - Glyphs (`font.rs`) are read per weight of each face (`Cut` per face, `Instance` of weight and
-  italic, one `ttf_parser::Face` per weight, outlines cached per weight and glyph); quadratic and
+  italic, one `skrifa` `Location` per weight, outlines cached per weight and glyph); quadratic and
   cubic segments become the same exact splines and lines `path` makes. A variable font keeps
   overlapping contours (Inter's `e`, `t`, `f`, `k`), which the sketch's even-depth regions would read
   as notches, so `overlap.rs` merges each glyph first: its segments build a kernel `Profile`, faces
@@ -377,7 +380,8 @@ paths:
 ## Parameter files (`parameters.rs`)
 
 - Parameters export as CSV (RFC 4180, `PARAMETERS_EXTENSION`), CRLF line ends: a version row
-  `caditor-parameter-file,1` (a spreadsheet keeps it as an ordinary two-cell row), a header row
+  `caditor-parameter-file,1` (`PARAMETERS_VERSION`, whose every shipped version keeps an exported
+  file in the format corpus, `file-format.md`; a spreadsheet keeps it as an ordinary two-cell row), a header row
   `name,expression,value,note`, then one row per parameter in list order. The expression is written
   with parameter names (`Expression::to_text`) and carries its own units; `value` is the evaluated
   value for people (`error` when it does not evaluate) and ignored on reading. Cells holding a

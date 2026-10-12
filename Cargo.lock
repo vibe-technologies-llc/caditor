@@ -679,9 +679,9 @@ dependencies = [
  "rustix 1.1.5",
  "serde",
  "serde_json",
+ "skrifa",
  "tempfile",
  "thiserror 2.0.21",
- "ttf-parser",
  "xattr",
  "xxhash-rust",
 ]

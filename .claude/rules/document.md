@@ -479,8 +479,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   `fine_pitches`, so their order is part of the file format: M12 and M20 list 1.25 and 1.5 first;
   drilled at major diameter less the pitch), or a heat-set insert), with counterbore and
   countersink sizes for socket and countersunk heads. It names a tapped hole's thread and gives
-  each round bore its cosmetic thread (Thread below), but changes nothing of the solid: the
-  expressions drive the hole. `MetricSize::offers` says which fits a size has (`fits`,
+  each round bore its thread (Thread below); the bore's size comes from the expressions, which drive
+  the hole. `MetricSize::offers` says which fits a size has (`fits`,
   `fine_fits`); `HoleStandard::offered` falls back to the first fine pitch, or to normal
   clearance, when a size lacks the fit asked for.
 - `HeatSetInsert` (hole, insert length, least wall) follows CNC Kitchen's standard brass inserts:
@@ -503,12 +503,28 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 
 ### Thread (`thread.rs`, `thread_standard.rs`)
 
-- `Thread { body, face, size, class, hand, length, reversed }` is a cosmetic thread on a
-  cylindrical face (`FaceReference`, pieces of one split face accepted), resolved in the body's
-  state at its place; it changes no solid. Result `FeatureResult::Thread` (`ThreadResult`: side,
-  designation text, evaluated depth, `ThreadPlacement`). Its body is used (`body_input`,
-  `bodies_used`) but it is not a body state (`Feature::body` is none), like a datum; the face's
-  origin features are its `origin_features`. It can be hidden.
+- `Thread { body, face, size, class, hand, length, reversed, form }` threads a cylindrical face
+  (`FaceReference`, pieces of one split face accepted), resolved in the body's state at its place.
+  `ThreadForm::Cosmetic` changes no solid: result `FeatureResult::Thread` (`ThreadResult`: side,
+  designation text, evaluated depth, `ThreadPlacement`); its body is used (`body_input`,
+  `bodies_used`) but it is not a body state (`Feature::body` is none), like a datum, and it can be
+  hidden. The face's origin features are its `origin_features`.
+- `ThreadForm::Modelled` (`Thread::is_modelled`: not for taper pipe, which stays cosmetic whatever
+  the form says) modifies its body (`Feature::body`, `modifies_body`, state before kept) after the
+  same checks: `Bore::modelled_spec` builds the kernel `ThreadSpec` (frame at the start along the
+  thread, a start at an open end runs out, the far end runs out only when the whole face is threaded
+  and that end is open, else both stop square) with `ThreadSize::modelled_profile`, and
+  `cut_thread` subtracts the kernel's `thread_tools` one by one, keeping them as the result's
+  `cuts` (so patterns and mirrors of features repeat the thread). Profiles: ISO metric is the basic
+  ISO 68-1 profile, crest and root at D (d) and D1 = d1 = D - 1.0825 P for both sides, flats P/8 and
+  P/4, whatever the class; ISO 228 Whitworth truncated flat at 2/3 H (flats P/6); trapezoidal 15°
+  flanks between the table's major and minor diameters with crest flats of the basic profile
+  (0.366 P). Kernel refusals become sentences naming the size and the face (`ThreadWords`), each
+  ending "or make the thread cosmetic"; a failing boolean gives its point. Thread faces are worded
+  "<feature> thread root/flank/crest/groove/end" (`thread::part_name`).
+- `Document::threads_as_cosmetic` is a copy with every modelled thread and tapped hole cosmetic (the
+  app recomputes it while the session shows modelled threads as cosmetic); `has_modelled_threads`
+  says whether there is any. Feature content differs, so recompute caches both evaluations.
 - `Bore::of` reads the face: internal when the face's sense is reversed (normal points at the
   axis), external otherwise; the axial extent from its edges; and which ends are open (an edge
   meets a face whose normal points away from the face's span: a mouth, counterbore floor, free end
@@ -533,9 +549,20 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   A tapped round hole (`hole_thread`: a `standard` with tapped or fine fit, size in the metric
   tables) places one thread per wall face (`Hole::is_wall`, grouped by copy and entity so a split
   bore is one thread; copies from patterns and mirrors included, `FaceOrigin::Copy`), as its
-  `TappedThread` says: class (none is the family's first internal class, 6H), hand, and the whole
-  wall or a depth (a length expression, a parameter user) from the bore's open end. The hole fails
-  alone when the class is not an internal one of the family or the depth is not a length above zero.
+  `TappedThread` says: class (none is the family's first internal class, 6H), hand, form, and the
+  whole wall or a depth (a length expression, a parameter user) from the bore's open end. The hole
+  fails alone when the class is not an internal one of the family or the depth is not a length above
+  zero. A modelled tapped hole (`Hole::is_modelled_thread`) cuts, after drilling, a thread into each
+  wall (grouped by entity) as a Thread does, with the tools from `thread_tools_numbered`: each part's
+  entity becomes `Hole::thread_entity(wall, part)` (bit 55 set, the wall entity above 16 bits of
+  part, the ring's parts marked by bit 15), so bores keep their threads apart and `is_wall` and
+  `part_name` tell them from the hole's own faces; the tools join the hole's `cuts`.
+- Placing reads the result: a modelled Thread's (a `Solid` result) and a hole's are found on the
+  final bodies by their thread faces (`thread_faces`, grouped by copy and wall): the axis and side
+  from a root face's cylinder, the extent along it from every face's edges, the start at the end of
+  the lowest turn (`modelled_placement`), marked `PlacedThread::modelled`; a hole wall with no thread
+  faces places a cosmetic thread as before. So an evaluation of `threads_as_cosmetic` places them
+  cosmetic for the same document.
 
 ### Move (`movement.rs`)
 

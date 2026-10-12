@@ -10,7 +10,7 @@ use crate::{
 
 const CLOSE: f64 = 1e-6;
 
-fn shaft() -> (Document, FeatureId) {
+pub(crate) fn shaft() -> (Document, FeatureId) {
     let mut document = Document::default();
     let mut sketch = Sketch::new(Plane::XY);
     sketch.add_circle(Point2::new(0.0, 0.0), 4.0);
@@ -34,7 +34,7 @@ fn shaft() -> (Document, FeatureId) {
     (document, shaft)
 }
 
-fn round_face(solid: &Solid) -> FaceReference {
+pub(crate) fn round_face(solid: &Solid) -> FaceReference {
     let (id, _) = solid
         .faces()
         .find(|(_, face)| matches!(face.surface(), Surface::Cylinder(_)))
@@ -50,15 +50,15 @@ fn flat_face(solid: &Solid) -> FaceReference {
     FaceReference::capture(solid, id).unwrap()
 }
 
-fn metric(name: &str) -> ThreadSize {
+pub(crate) fn metric(name: &str) -> ThreadSize {
     ThreadSize::from_id(ThreadFamily::MetricCoarse, name).unwrap()
 }
 
-fn class(family: ThreadFamily, id: &str) -> ThreadClass {
+pub(crate) fn class(family: ThreadFamily, id: &str) -> ThreadClass {
     family.class_from_id(id).unwrap()
 }
 
-fn threaded(
+pub(crate) fn threaded(
     document: &mut Document,
     body: FeatureId,
     thread: impl FnOnce(&Document) -> Thread,
@@ -71,7 +71,7 @@ fn threaded(
     feature
 }
 
-fn plain_thread(face: FaceReference, body: FeatureId) -> Thread {
+pub(crate) fn plain_thread(face: FaceReference, body: FeatureId) -> Thread {
     Thread {
         body,
         face,
@@ -80,23 +80,24 @@ fn plain_thread(face: FaceReference, body: FeatureId) -> Thread {
         hand: ThreadHand::Right,
         length: ThreadLength::Full,
         reversed: false,
+        form: ThreadForm::Cosmetic,
     }
 }
 
-fn result(evaluation: &Evaluation, feature: FeatureId) -> ThreadResult {
+pub(crate) fn result(evaluation: &Evaluation, feature: FeatureId) -> ThreadResult {
     let status = evaluation.feature(feature).unwrap();
     assert_eq!(status.state, FeatureState::UpToDate, "{:?}", status.state);
     status.result.as_deref().unwrap().thread().unwrap().clone()
 }
 
-fn failure(evaluation: &Evaluation, feature: FeatureId) -> FeatureError {
+pub(crate) fn failure(evaluation: &Evaluation, feature: FeatureId) -> FeatureError {
     match &evaluation.feature(feature).unwrap().state {
         FeatureState::Failed(error) => error.clone(),
         other => panic!("expected a failure, found {other:?}"),
     }
 }
 
-fn near(first: Point3, second: Point3) -> bool {
+pub(crate) fn near(first: Point3, second: Point3) -> bool {
     (first - second).length() < CLOSE
 }
 
@@ -216,7 +217,7 @@ fn a_wrong_class_size_or_face_fails_the_thread_alone_in_words() {
     assert_eq!(evaluation.body(shaft).unwrap(), &solid);
 }
 
-fn tapped(pair: &mut Pair) -> FeatureId {
+pub(crate) fn tapped(pair: &mut Pair) -> FeatureId {
     let mut sketch =
         Sketch::new(Plane::from_frame(Point3::new(0.0, 0.0, 4.0), Vector3::Z, Vector3::X).unwrap());
     sketch.add_point(Point2::new(5.0, 5.0));
@@ -390,7 +391,7 @@ fn designations_follow_each_standard_s_notation() {
     );
 }
 
-fn set_hole(pair: &mut Pair, hole: FeatureId, change: impl FnOnce(&mut Hole)) {
+pub(crate) fn set_hole(pair: &mut Pair, hole: FeatureId, change: impl FnOnce(&mut Hole)) {
     let mut kind = pair.document.feature(hole).unwrap().kind.clone();
     if let FeatureKind::Hole(hole) = &mut kind {
         change(hole);
@@ -413,6 +414,7 @@ fn a_tapped_hole_takes_its_class_hand_and_depth_from_the_hole() {
             class: Some(class(ThreadFamily::MetricCoarse, "5H")),
             hand: ThreadHand::Left,
             depth: Some(depth),
+            form: ThreadForm::Cosmetic,
         };
     });
     let mut engine = Recompute::default();

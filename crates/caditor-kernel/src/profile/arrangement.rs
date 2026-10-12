@@ -16,6 +16,7 @@ use crate::{
         intersect::{self, Scale},
         source::Source,
     },
+    tally,
     tolerance::LINEAR_RESOLUTION,
 };
 
@@ -203,6 +204,7 @@ impl Arrangement {
     }
 
     pub fn contains(&self, cycle: &[usize], point: Point2) -> bool {
+        tally::add(cycle.len());
         let segments = cycle.iter().filter_map(|half_edge| {
             let (piece, forward) = piece_of(*half_edge);
             self.pieces

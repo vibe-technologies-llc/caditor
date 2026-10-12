@@ -1,13 +1,15 @@
-use std::{
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::sync::Arc;
 
 use caditor_kernel::interruptible;
 
-use crate::import::xml::{MAX_ATTRIBUTES, MAX_DEPTH, XmlError, parse};
+use crate::{
+    import::xml::{MAX_ATTRIBUTES, MAX_DEPTH, XmlError, parse},
+    tally,
+};
 
 const NO_LIMIT: usize = usize::MAX;
+const BTREE_NODE_KEYS: usize = 11;
+const BTREE_FANOUT: usize = 6;
 
 fn nested(levels: usize) -> String {
     format!("{}{}", "<g>".repeat(levels), "</g>".repeat(levels))
@@ -21,14 +23,16 @@ fn a_hundred_thousand_distinct_namespaces_are_interned_without_scanning_them_all
         text.push_str(&format!("<p:a xmlns:p=\"urn:namespace:{sibling}\"/>"));
     }
     text.push_str("</root>");
-    let started = Instant::now();
 
-    let tree = parse(&text, NO_LIMIT).unwrap();
+    let (tree, comparisons) = tally::measure(|| parse(&text, NO_LIMIT).unwrap());
 
-    assert!(started.elapsed() < Duration::from_secs(10));
     let last = tree.nodes().last().unwrap();
     assert_eq!(last.namespace(), Some("urn:namespace:99999"));
     assert_eq!(tree.element_count(), siblings + 1);
+
+    let tree_height = siblings.ilog(BTREE_FANOUT) as usize + 2;
+    let searches_per_declaration = 2;
+    assert!(comparisons <= siblings * searches_per_declaration * BTREE_NODE_KEYS * tree_height);
 }
 
 #[test]

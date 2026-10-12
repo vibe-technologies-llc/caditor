@@ -6988,12 +6988,10 @@ pub mod timing {
 
     fn settled_assembly() -> Model {
         let started = Instant::now();
+        let deadline = started + ASSEMBLY_TIMEOUT;
         let mut model = model_of(assembly_document());
         while matches!(model.status(), RecomputeStatus::Running { .. }) || model.bodies_pending() {
-            assert!(
-                started.elapsed() < ASSEMBLY_TIMEOUT,
-                "the recompute did not finish"
-            );
+            assert!(Instant::now() < deadline, "the recompute did not finish");
             model.poll();
             std::thread::sleep(Duration::from_millis(2));
         }

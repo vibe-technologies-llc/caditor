@@ -20,6 +20,35 @@ paths:
   - Optional derived data (`region_references`, `copies`, `origins`) is a field written only when
     known; older readers drop it and lose only the fallback it gives.
   - Anything else that must not be lost needs a must-understand chunk.
+  - Every shipped version keeps files in the format corpus, which proves it still reads.
+
+## Format corpus (`corpus/`, `tests/corpus.rs`)
+
+- `crates/caditor-file/corpus/<format>-<version>/` holds files caditor wrote in each shipped
+  version of each format it owns: `model-1/` (every record kind, feature record kind, sketch entity
+  and constraint kind, a version history with a kept version and block-alignment padding, sliced
+  content, a thread and a tapped hole carrying `modelled`), `journal-1/` (every journaled edit, apply, undo and redo whole and by reference, a
+  rebased snapshot, sliced content) and `parameters-1/` (an exported parameter file). Committed as
+  binary (`.gitattributes` `-text`), a few KiB each.
+- Write-once: a corpus file is never rewritten, regenerated or deleted. `KEPT` lists every file with
+  the blake3 digest of a description of what it reads as (issues, records re-encoded by today's
+  encoder, every version for models; header, base, entries and the replayed result for journals;
+  the parsed rows for parameter files). On every run the suite checks the folder holds exactly the
+  listed files, each reads to its recorded digest and loads without a problem, and on a mismatch
+  prints the description. A digest changes only when today's encoder writes the same model
+  differently, never because an old file reads differently, and the commit changing it says why.
+- Adding to it: the writer
+  `CADITOR_WRITE_FORMAT_CORPUS=1 cargo test -p caditor-file write_format_corpus -- --ignored --nocapture`
+  writes the files of the current versions that do not exist yet (opened `create_new`, never over
+  one) and prints their `KEPT` lines to paste. The suite fails until the corpus holds a file of
+  every current `FORMAT_VERSION`, `JOURNAL_VERSION` and `PARAMETERS_VERSION`
+  (`the_format_corpus_holds_files_of_every_current_version`), and until some file holds every
+  variant of `Record`, `FeatureKindRecord`, `EntityKindRecord`, `ConstraintKindRecord`,
+  `EditRecord`, `ChunkKind` and `Codec` and a model and a journal hold content sliced over several
+  chunks (`the_format_corpus_holds_every_kind_this_version_writes`, reading the variants from
+  serde). So a version bump or a new kind adds a builder to `corpus_of_this_version` under a new
+  file name and runs the writer, in the same commit.
+- The fuzz seed writer refuses any path inside the corpus (`seeds::seed_path`).
 
 ## Container (`binary/`)
 
@@ -28,7 +57,8 @@ paths:
   (stored, zstd, or zstd against the next newer version as raw prefix), flags (`MUST_UNDERSTAND`,
   `CONTINUED`, `CONTINUATION`; unknown bits ignored), lengths, xxh3-64 of header and payload.
 - A bad chunk makes the reader scan to the next marker with a valid checksum; hashed bytes are
-  capped (`HASHING_ALLOWANCE`) so forged headers cannot make that quadratic.
+  capped (`HASHING_ALLOWANCE`) so forged headers cannot make that quadratic; `parse_scanned`
+  reports the bytes hashed and skipped for the test that holds it to that cap.
 - A model with damaged magic or version is salvaged (`binary::salvage`) when a head chunk passing
   its checksum starts within `SALVAGE_REACH`: it loads with the version unknown, reported as a
   damaged start, and keeps its `.damaged` copy on saving. Anything else, a journal included, is
@@ -153,8 +183,9 @@ Holes:
   `tapped_fine_3`, `heat_set_insert`); an unknown standard, fit, or a fit its size lacks loads as
   none keeping the typed sizes. A non-default tapped
   thread carries `thread` (`class` when not the first, `left_handed` when set, `depth` text when
-  not the whole wall; unknown class loads as the first, unreadable depth 10 mm): a field, since it
-  only changes the cosmetic thread.
+  not the whole wall, `modelled` when set; unknown class loads as the first, unreadable depth 10 mm,
+  absent `modelled` is cosmetic): fields, so a reader without `modelled` draws the thread it would
+  cut.
 - Wrappers, each around the records before it where noted: `hole_by_circles` (same fields, sized by its circles),
   `hole_scaled_by_circles` (also scales counterbore or countersink), `stepped_hole` (`steps`, each
   `diameter` and `depth`; unreadable 10 mm and 3 mm; inner style is a counterbore of the first
@@ -243,8 +274,9 @@ Bodies and solids:
 - `thread`: `body`, `face` (unreadable digests load as no face), `standard` (`metric_coarse`,
   `metric_fine`, `iso_228`, `iso_7`, `trapezoidal`; unknown loads as metric coarse), `size` (`M8`,
   `M8x1`, `1/2`, `Tr 20x4`; unknown loads as the nearest 8 mm), `class` (absent for ISO 228's one
-  internal class; unknown loads as the standard's first internal class), `left_handed` and
-  `reversed` when set, `depth` (absent for the whole face, unreadable 10 mm). A tapped hole's
+  internal class; unknown loads as the standard's first internal class), `left_handed`, `reversed`
+  and `modelled` when set (absent is cosmetic), `depth` (absent for the whole face, unreadable
+  10 mm). A tapped hole's
   thread is not a `thread` record (see hole).
 - `combine`: `body`, `tool`, `operation` (`join`, `cut`, `intersect`). `combine_tools`: `more_tools`
   (ids, only when any), `keep_tool` when set; repeated tool kept once. `remove`: `body`.
@@ -302,7 +334,8 @@ Sketch entities:
   cancelled is `LoadError::Cancelled`, never a partial model.
 - Near-linear on hostile files: names indexed; duplicate IDs and cycles (`DependencyGraph`) found
   before applying; each kind of record applied as one transaction, halved only where it fails; at
-  most `MAX_RECORDS` (`caditor-document`) parameters and features loaded, the rest reported.
+  most `MAX_RECORDS` (`caditor-document`) parameters and features loaded, the rest reported. The
+  `tally` counts the edits applied and the candidate names tried while loading.
 
 ## Version history
 

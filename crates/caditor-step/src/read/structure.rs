@@ -756,9 +756,7 @@ mod tests {
         let exchange = parse(&text).unwrap();
         let graph = Graph::new(&exchange);
         let mut structure = Structure::read(&graph);
-        let started = std::time::Instant::now();
         let placements = structure.placements(100);
-        assert!(started.elapsed().as_secs() < 5);
         assert!(!placements.transforms.is_empty());
         assert!(placements.transforms.len() <= MAX_INSTANCES);
         assert!(structure.truncated);

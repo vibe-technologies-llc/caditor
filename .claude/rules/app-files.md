@@ -76,6 +76,9 @@ paths:
 - A recovery offer leaves the list only when its discard succeeded; a failure keeps the card, worded
   through `caditor_file::DiscardError` (`DiscardFailure` adds a crashed job). A journal already gone
   counts as discarded.
+- A failed save (`Report::SaveFailed`, or a writer that stopped) raises its notice through
+  `Model::fail_save`; the next successful save takes that notice off the screen when it is still the
+  one shown, and leaves any other notice alone.
 - Save As appends `.caditor`, checks the target on the worker (refused while open in another window
   or holding unrecovered changes) and asks before replacing a file the dialog did not name.
 - The open thread and the Save As check wait for the model's storage handover
@@ -168,6 +171,14 @@ paths:
   features) and exports the bodies not left out; Cancel stops between and inside configurations,
   keeping files written. The model never switches. One notice lists the files and per-configuration
   refused switches, failed features and left-out bodies. Such a 3MF has no thumbnail.
+- With modelled threads in the model the dialog adds Threads (`ExportThreads`, in `ExportChoices`):
+  Modelled (the default) or As shown. Modelled while the session shows them as cosmetic
+  (`Exporter::recomputes_threads`) hands the job the document as stored and the export thread
+  recomputes it without display data before exporting the chosen bodies (`Job::modelled`,
+  `ExportReport::Modelled`, whose notice turns to a failure naming the features that failed while
+  cutting). As shown exports the evaluation shown; every configuration recomputes the document as
+  stored or as shown (`Exporter::exported_document`). The headless `--export` never shows threads
+  as cosmetic, so it exports them modelled.
 - A path lacking the format's extension gets it appended, so an export never replaces a model file;
   an existing appended name asks "Replace …?" as Save As does, and Cancel returns to the dialog.
 - Every model export records a `LastExport` in `Files` (path, `ExportChoices`, model session) and, on

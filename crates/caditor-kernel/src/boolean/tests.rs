@@ -1,7 +1,6 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     f64::consts::PI,
-    time::{Duration, Instant},
 };
 
 use caditor_geometry::{Plane, Point2, Point3, RigidTransform, Vector2, Vector3};
@@ -21,14 +20,14 @@ use crate::{
     sense::Sense,
     surface::{PlaneSurface, Surface},
     test_support::{
-        Random, assert_cancelled_anywhere, assert_watertight, cancelled_after, circle, rectangle,
-        spline,
+        Random, assert_cancelled_anywhere, assert_watertight, cancelled_after, circle,
+        polls_during, rectangle, spline,
     },
     tolerance::SamplingTolerance,
     topology::{BuildError, FaceId, Pcurve, PcurveSample},
 };
 
-const DENSE_SPLINE_TIME_LIMIT: Duration = Duration::from_secs(60);
+const DENSE_SPLINE_POLLS: usize = 250_000;
 
 fn moved(solid: Solid, offset: (f64, f64, f64)) -> Solid {
     let transform =
@@ -1548,7 +1547,7 @@ fn wavy_extrusion(control_points: usize) -> Solid {
 }
 
 #[test]
-fn an_extruded_spline_of_hundreds_of_control_points_combines_in_bounded_time() {
+fn an_extruded_spline_of_hundreds_of_control_points_combines_in_bounded_work() {
     let wavy = wavy_extrusion(500);
     let drill = moved(cylinder(3.0, 10.0), (20.0, 0.0, -2.0));
     let lid = block((0.0, -30.0, 2.5), (30.0, 30.0, 8.0));
@@ -1559,30 +1558,27 @@ fn an_extruded_spline_of_hundreds_of_control_points_combines_in_bounded_time() {
             .mass_properties()
             .volume
     };
-    let clock = Instant::now();
 
-    let whole = coarse_volume(&wavy);
-    for (name, tool) in [
-        ("a hole through the wall", &drill),
-        ("a cut across the cap", &lid),
-    ] {
-        let outside = run(&wavy, tool, BooleanOperation::Difference);
-        let inside = run(&wavy, tool, BooleanOperation::Intersection);
-        let parts = coarse_volume(&outside) + coarse_volume(&inside);
+    let ((), polls) = polls_during(|| {
+        let whole = coarse_volume(&wavy);
+        for (name, tool) in [
+            ("a hole through the wall", &drill),
+            ("a cut across the cap", &lid),
+        ] {
+            let outside = run(&wavy, tool, BooleanOperation::Difference);
+            let inside = run(&wavy, tool, BooleanOperation::Intersection);
+            let parts = coarse_volume(&outside) + coarse_volume(&inside);
 
-        assert_eq!(outside.validate(), Ok(()), "{name}");
-        assert_eq!(inside.validate(), Ok(()), "{name}");
-        assert!(
-            (parts - whole).abs() <= 1e-3 * whole,
-            "{name}: {parts} vs {whole}"
-        );
-    }
+            assert_eq!(outside.validate(), Ok(()), "{name}");
+            assert_eq!(inside.validate(), Ok(()), "{name}");
+            assert!(
+                (parts - whole).abs() <= 1e-3 * whole,
+                "{name}: {parts} vs {whole}"
+            );
+        }
+    });
 
-    assert!(
-        clock.elapsed() < DENSE_SPLINE_TIME_LIMIT,
-        "{:?}",
-        clock.elapsed()
-    );
+    assert!(polls < DENSE_SPLINE_POLLS, "{polls} polls");
 }
 
 #[test]

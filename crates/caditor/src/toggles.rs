@@ -46,6 +46,7 @@ pub struct ToggleStates {
     pub aids: ViewAids,
     pub sectioning: bool,
     pub sketch_slice: bool,
+    pub cosmetic_threads: bool,
 }
 
 impl ToggleStates {
@@ -67,6 +68,14 @@ impl ToggleStates {
             aids: viewport.aids(),
             sectioning,
             sketch_slice: viewport.sketch_slice(),
+            cosmetic_threads: false,
+        }
+    }
+
+    pub fn with_cosmetic_threads(self, cosmetic_threads: bool) -> Self {
+        Self {
+            cosmetic_threads,
+            ..self
         }
     }
 
@@ -91,6 +100,7 @@ impl ToggleStates {
             Command::ToggleDimensions => toggle(self.dimensions),
             Command::ToggleCentresOfMass => toggle(self.aids.centres_of_mass),
             Command::ToggleControlPolygons => toggle(!self.aids.control_polygons_hidden),
+            Command::ToggleCosmeticThreads => toggle(self.cosmetic_threads),
             Command::Section(SectionCommand::Toggle) => toggle(self.sectioning),
             Command::Section(SectionCommand::SliceSketch) => toggle(self.sketch_slice),
             _ => return None,
@@ -163,6 +173,7 @@ mod tests {
             aids: ViewAids::default(),
             sectioning: false,
             sketch_slice: false,
+            cosmetic_threads: true,
         };
 
         assert_eq!(states.shown(Command::ToggleSnapping), Some(Shown::On));
@@ -177,6 +188,7 @@ mod tests {
         );
         assert_eq!(states.shown(Command::Save), None);
         assert!(states.is_on(Command::ToggleControlPolygons));
+        assert!(states.is_on(Command::ToggleCosmeticThreads));
         assert!(!states.is_on(Command::Save));
     }
 

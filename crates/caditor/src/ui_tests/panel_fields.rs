@@ -509,6 +509,7 @@ fn a_scale_centre_is_taken_from_a_selected_corner_or_the_body_centre() {
 #[test]
 fn a_thread_is_moved_to_another_round_face_with_use_selected() {
     let mut harness = Harness::new();
+    harness.perform(Action::ShowThreadsAsCosmetic(true));
     harness.select([]);
     run_from_palette(&mut harness, "Cylinder");
     harness.settle();

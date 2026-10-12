@@ -16,6 +16,7 @@ use crate::read::{
     geometry::{Crossings, Geometry},
     graph::{Entity, Graph, Problem, Read, friendly},
     loose::{exact_kind, farthest, met_at_ends},
+    snap::snap,
 };
 
 const LOOP_SAMPLES: usize = 16;
@@ -36,6 +37,7 @@ const WELD_FRACTION: f64 = 1e-9;
 pub(crate) enum Healing {
     Exact,
     Extended,
+    Snapped,
     Bent,
     Faceted,
 }
@@ -58,6 +60,7 @@ pub(crate) struct Topology<'g, 'a> {
     reversed_voids: Option<BTreeSet<u64>>,
     healed: usize,
     loosest: f64,
+    snapping: Snapping,
     conformed: Conformed,
 }
 
@@ -187,6 +190,7 @@ pub(crate) struct Built {
     pub unchecked: Option<[u64; 2]>,
     pub faceted: bool,
     pub bent: Option<Bending>,
+    pub snapped: Snapping,
     pub faces: Vec<Option<u64>>,
     pub lost: Option<Lost>,
 }
@@ -201,6 +205,12 @@ pub(crate) struct Lost {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Bending {
+    pub faces: usize,
+    pub farthest: f64,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub(crate) struct Snapping {
     pub faces: usize,
     pub farthest: f64,
 }
@@ -241,6 +251,7 @@ impl<'g, 'a> Topology<'g, 'a> {
             reversed_voids: None,
             healed: 0,
             loosest: 0.0,
+            snapping: Snapping::default(),
             conformed: Conformed::default(),
         }
     }
@@ -275,6 +286,9 @@ impl<'g, 'a> Topology<'g, 'a> {
                 .as_ref()
                 .is_some_and(|reversed| reversed.contains(&void));
             shells.push(self.plan_shell(shell, flipped != reversed)?);
+        }
+        if matches!(self.healing, Healing::Snapped | Healing::Bent) {
+            self.snap(id)?;
         }
         if self.healing == Healing::Bent {
             self.conform(id)?;
@@ -365,6 +379,7 @@ impl<'g, 'a> Topology<'g, 'a> {
             unchecked,
             faceted,
             bent,
+            snapped: self.snapping,
             faces,
             lost: None,
         })
@@ -387,6 +402,30 @@ impl<'g, 'a> Topology<'g, 'a> {
             })
             .map(|(_, void)| *void)
             .collect()
+    }
+
+    fn snap(&mut self, id: u64) -> Read<()> {
+        let allowance =
+            self.geometry.units.precision.ok_or_else(|| {
+                Problem::new(id, "declares no precision to move its faces within")
+            })?;
+        let snapped = snap(&self.loose_body(allowance)?);
+        if snapped.surfaces.is_empty() && self.healing == Healing::Snapped {
+            return Err(Problem::new(
+                id,
+                "has no flat face within the file's precision of meeting a neighbour exactly",
+            ));
+        }
+        for (face, surface) in &snapped.surfaces {
+            if let Some(plan) = self.faces.get_mut(face) {
+                plan.surface = surface.clone();
+            }
+        }
+        self.snapping = Snapping {
+            faces: snapped.surfaces.len(),
+            farthest: snapped.farthest,
+        };
+        Ok(())
     }
 
     fn conform(&mut self, id: u64) -> Read<()> {

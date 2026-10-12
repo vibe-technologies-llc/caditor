@@ -1,5 +1,5 @@
 use caditor_geometry::{Point2, Vector2};
-use ttf_parser::GlyphId;
+use skrifa::GlyphId;
 
 use crate::import::{
     ImportError, MAX_READ_CURVES,
