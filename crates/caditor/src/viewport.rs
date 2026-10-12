@@ -59,7 +59,7 @@ use crate::{
     primitive_tools, projecting,
     reference_picking::{self, Slot},
     reversing, saved_views,
-    scene::{self, BuiltScene, EditedSketch, Highlight, PickTable, SketchShapes, Sources},
+    scene::{self, BuiltScene, EditedSketch, Highlight, PickTable, Sources},
     scene_cache::{Overlay, Revisions, SceneCache, SceneInputs},
     scene_description::{Item, SceneDescription},
     scene_palette::{self, Canvas, Contrast},
@@ -1472,8 +1472,11 @@ impl ViewportState {
             },
             context,
             (
-                &mut SketchShapes::new(scene::drawn_faceting(&sources, context, level.faceting())),
-                &mut self.scenes.body_parts().clone(),
+                &mut self
+                    .scenes
+                    .sketch_shapes()
+                    .faceted_at(scene::drawn_faceting(&sources, context, level.faceting())),
+                &mut self.scenes.parts().clone(),
             ),
         );
         built.scene.grid = None;
@@ -5988,7 +5991,7 @@ mod tests {
     #[derive(Debug)]
     struct Drawn {
         generation: u64,
-        base: Arc<Batch>,
+        base: Vec<Arc<Batch>>,
         picks: Arc<PickTable>,
         overlay: Option<Arc<Batch>>,
         picked: bool,
@@ -5996,7 +5999,13 @@ mod tests {
 
     impl Drawn {
         fn same_scene(&self, other: &Self) -> bool {
-            self.generation == other.generation && Arc::ptr_eq(&self.base, &other.base)
+            self.generation == other.generation
+                && self.base.len() == other.base.len()
+                && self
+                    .base
+                    .iter()
+                    .zip(&other.base)
+                    .all(|(this, that)| Arc::ptr_eq(this, that))
         }
 
         fn same_overlay(&self, other: &Self) -> bool {
@@ -6010,8 +6019,8 @@ mod tests {
         fn lines_of(&self, pickable: Pickable) -> Vec<Line> {
             let pick = self.picks.id_of(pickable);
             self.base
-                .lines
                 .iter()
+                .flat_map(|batch| batch.lines.iter())
                 .filter(|line| line.pick.is_some() && line.pick == pick)
                 .cloned()
                 .collect()
@@ -6019,12 +6028,23 @@ mod tests {
     }
 
     fn draw(state: &mut ViewportState, model: &Model, editing: &SketchEditing) -> Drawn {
-        let built = state.build_scene(model, editing).unwrap();
+        let built = state.build_scene(model, editing).unwrap().clone();
+        let overlay = state.scenes.overlay_batch().cloned();
         let drawn = Drawn {
             generation: built.generation,
-            base: Arc::clone(&built.scene.batches[0]),
+            base: built
+                .scene
+                .batches
+                .iter()
+                .filter(|batch| {
+                    overlay
+                        .as_ref()
+                        .is_none_or(|overlay| !Arc::ptr_eq(overlay, batch))
+                })
+                .cloned()
+                .collect(),
             picks: Arc::clone(&built.picks),
-            overlay: built.scene.batches.get(1).cloned(),
+            overlay,
             picked: false,
         };
         let picked = state
@@ -6106,6 +6126,122 @@ mod tests {
         assert_eq!(one_hidden.scene.batches.len(), 3);
         assert_eq!(without_the_hidden(&one_hidden), without_the_hidden(&first));
         assert_eq!(kept_batches(&unhovered, &one_hidden), 2);
+    }
+
+    fn two_sketches() -> (Document, [(FeatureId, EntityId); 2]) {
+        let (mut document, first, first_line, _) = sketched(Plane::XY);
+        let mut sketch = Sketch::new(Plane::XY);
+        let second_line = sketch.add_line(Point2::new(60.0, 0.0), Point2::new(80.0, 10.0));
+        sketch.add_circle(Point2::new(70.0, 30.0), 5.0);
+        let mut transaction = document.transaction("Add sketch");
+        let second = transaction.add_feature("Beside", FeatureKind::from(sketch));
+        document.apply(transaction.finish()).unwrap();
+        (document, [(first, first_line), (second, second_line)])
+    }
+
+    fn batch_drawing(built: &BuiltScene, pickable: Pickable) -> Arc<Batch> {
+        let pick = built.picks.id_of(pickable);
+        built
+            .scene
+            .batches
+            .iter()
+            .find(|batch| {
+                batch
+                    .lines
+                    .iter()
+                    .any(|line| line.pick.is_some() && line.pick == pick)
+            })
+            .cloned()
+            .unwrap()
+    }
+
+    fn sketch_pick_ids(built: &BuiltScene, sketch: FeatureId) -> Vec<(Pickable, Option<PickId>)> {
+        pick_ids(built)
+            .into_iter()
+            .filter(|(pickable, _)| {
+                matches!(pickable, Pickable::SketchEntity { feature, .. } if *feature == sketch)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn each_sketch_draws_its_own_batch_and_a_change_to_one_refacets_and_uploads_only_it() {
+        let (document, [(first, first_line), (second, second_line)]) = two_sketches();
+        let mut model = model_of(document);
+        settle(&mut model);
+        let editing = SketchEditing::default();
+        let mut state = state_with_cursor();
+        let [first_line, second_line] = [(first, first_line), (second, second_line)]
+            .map(|(feature, entity)| Pickable::SketchEntity { feature, entity });
+        let facetings = |state: &ViewportState| state.scenes.sketch_shapes().facetings();
+
+        let shown = state.build_scene(&model, &editing).unwrap().clone();
+        let faceted_when_shown = facetings(&state);
+        state.hovered = Some(first_line);
+        let hovered = state.build_scene(&model, &editing).unwrap().clone();
+        let faceted_when_hovered = facetings(&state);
+        state.hovered = None;
+        state.selection.replace_with(second_line);
+        let selected = state.build_scene(&model, &editing).unwrap().clone();
+        let next_id = model
+            .document()
+            .feature(first)
+            .and_then(|feature| feature.kind.sketch())
+            .map(Sketch::next_id)
+            .unwrap();
+        model.perform(Action::Apply(Transaction::single(
+            "Add a point",
+            Edit::AddSketchEntity {
+                feature: first,
+                id: EntityId::from_raw(next_id),
+                entity: caditor_sketch::Entity::Point(Point2::new(5.0, 5.0)),
+                construction: false,
+                split_from: None,
+            },
+        )));
+        settle(&mut model);
+        let changed = state.build_scene(&model, &editing).unwrap().clone();
+        let faceted_when_changed = facetings(&state);
+        let editing_first = SketchEditing::editing(first);
+        state.selection.clear();
+        let entered = state.build_scene(&model, &editing_first).unwrap().clone();
+        let faceted_when_entered = facetings(&state);
+        state.hovered = Some(first_line);
+        let hovered_while_editing = state.build_scene(&model, &editing_first).unwrap().clone();
+
+        assert_eq!(shown.scene.batches.len(), 1 + 2 + 2);
+        assert_eq!(faceted_when_shown, 2);
+        assert_eq!(faceted_when_hovered, faceted_when_shown);
+        assert_eq!(pick_ids(&hovered), pick_ids(&shown));
+        assert!(!Arc::ptr_eq(
+            &batch_drawing(&hovered, first_line),
+            &batch_drawing(&shown, first_line)
+        ));
+        assert!(Arc::ptr_eq(
+            &batch_drawing(&hovered, second_line),
+            &batch_drawing(&shown, second_line)
+        ));
+        assert_eq!(kept_batches(&shown, &hovered), 3);
+        assert_eq!(kept_batches(&hovered, &selected), 2);
+        assert_eq!(faceted_when_changed, faceted_when_shown + 1);
+        assert_eq!(
+            sketch_pick_ids(&changed, second),
+            sketch_pick_ids(&selected, second)
+        );
+        assert!(Arc::ptr_eq(
+            &batch_drawing(&changed, second_line),
+            &batch_drawing(&selected, second_line)
+        ));
+        assert_eq!(faceted_when_entered, faceted_when_changed);
+        assert_eq!(entered.scene.batches.len(), 1 + 2 + 1);
+        assert_eq!(kept_batches(&entered, &hovered_while_editing), 2);
+        assert!(hovered_while_editing.scene.batches.iter().any(|batch| {
+            entered.scene.batches[1..]
+                .iter()
+                .any(|earlier| Arc::ptr_eq(earlier, batch))
+                && !batch.lines.is_empty()
+                && batch.lines.iter().all(|line| line.pick.is_none())
+        }));
     }
 
     #[test]
@@ -6713,6 +6849,16 @@ pub mod timing {
         (document, feature)
     }
 
+    fn beside_a_small_sketch(mut document: Document) -> (Document, FeatureId) {
+        let mut sketch = Sketch::new(Plane::XY);
+        sketch.add_line(Point2::new(-60.0, 0.0), Point2::new(-30.0, 10.0));
+        sketch.add_circle(Point2::new(-50.0, 30.0), 6.0);
+        let mut transaction = document.transaction("Add a small sketch");
+        let feature = transaction.add_feature("Small sketch", FeatureKind::from(sketch));
+        document.apply(transaction.finish()).unwrap();
+        (document, feature)
+    }
+
     pub fn plate_document() -> Document {
         let mut document = Document::default();
         let mut transaction = document.transaction("Add plate");
@@ -6868,6 +7014,45 @@ pub mod timing {
                 },
             );
         });
+
+        let (document, small) = beside_a_small_sketch(model.document().clone());
+        let model = settled(document);
+        let small_entities: Vec<Pickable> = model
+            .document()
+            .feature(small)
+            .and_then(|feature| feature.kind.sketch())
+            .map(|sketch| {
+                sketch
+                    .entities()
+                    .map(|(entity, _)| Pickable::SketchEntity {
+                        feature: small,
+                        entity,
+                    })
+                    .take(2)
+                    .collect()
+            })
+            .unwrap();
+        let hovering_the_small_sketch = |state: &mut ViewportState, frame: u32| {
+            hover(state, small_entities[frame as usize % small_entities.len()]);
+        };
+        let editing = SketchEditing::default();
+        let scenario = Scenario {
+            model: &model,
+            editing: &editing,
+        };
+        scenario.time(
+            "two sketches, the small one's hover changing",
+            hovering_the_small_sketch,
+        );
+        let editing = SketchEditing::editing(small);
+        let scenario = Scenario {
+            model: &model,
+            editing: &editing,
+        };
+        scenario.time(
+            "large sketch behind the edited small one, hover changing",
+            hovering_the_small_sketch,
+        );
 
         let model = settled(plate_document());
         let editing = SketchEditing::default();

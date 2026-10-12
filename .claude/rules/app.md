@@ -85,24 +85,38 @@ paths:
   that key. The hovered `Pickable`s and chosen rows (with their bodies,
   `viewport::with_their_bodies`) in `Highlight` are sorted and deduplicated, since items look
   themselves up by binary search.
-- Each shown body is a `BodyPart` the cache keeps (`scene::BodyParts`): mesh instances, silhouette,
-  its own batch for edges and vertices, and a `PickBlock` of pick ids from `BODY_PICKS_FROM` up. A
+- Each shown body is a `BodyPart` the cache keeps (`scene::Parts`): mesh instances, silhouette,
+  its own batch for edges and vertices, and a `PickBlock` of pick ids from `PART_PICKS_FROM` up. A
   rebuild reuses a part whose `BodyLook` (mesh, colour, face looks, opacity, dashes, placement,
-  pickability, display style, palette, analysis, reflection) and `BodyLit` (selected and hovered
-  items, whether its tree row is chosen; worked out once per rebuild by `LitBodies`) are unchanged,
-  restyles one whose highlight alone changed within the same pick ids (keeping its batch's `Arc`
-  when its edges look the same), and gives a changed look a new block. A hover or selection change
-  restyles and uploads only the bodies it touches and no pick id moves when bodies come, go or
-  change (`each_body_draws_its_own_batch_and_a_hover_or_a_hidden_body_moves_no_other_pick_id`).
-- Batch order: the scene's own (sketches, references, threads, the open feature), the bodies' in
-  body order, the overlay. The `PickTable` resolves an id by binary search over the blocks' first
-  ids. The allocator restarts, rebuilding every part, past `BODY_PICKS_RESTART`. Body health is
-  worked out for all bodies in one pass (`Healths`). Image export builds from a copy of the kept
-  parts.
+  pickability, display style, palette, analysis, reflection) and `PartLit` (selected and hovered
+  items, whether its tree row is chosen; worked out once per rebuild by `LitParts`, keyed by
+  `PartKey`) are unchanged, restyles one whose highlight alone changed within the same pick ids
+  (keeping its batch's `Arc` when it looks the same), and gives a changed look a new block. A hover
+  or selection change restyles and uploads only the bodies it touches and no pick id moves when
+  bodies come, go or change
+  (`each_body_draws_its_own_batch_and_a_hover_or_a_hidden_body_moves_no_other_pick_id`).
+- Each drawn sketch is kept the same way (`Parts::keep`, a `DrawnPart`): its curves and points in a
+  batch and block of their own, keyed by a `SketchLook` (its faceted shapes' `Arc`, `Presence`,
+  control polygons, palette) and `PartLit`; a background sketch while another is edited takes no
+  highlight, so it is never restyled. Its closed regions are a second part (`RegionsLook`: the
+  sketch's `SketchSource`, whether the regions were found, pickability, layer, palette). So a drag
+  solution, an edit, an evaluation or a hover touching one sketch refacets, restyles and uploads
+  that sketch alone
+  (`each_sketch_draws_its_own_batch_and_a_change_to_one_refacets_and_uploads_only_it`).
+- Batch order: the scene's own (references, datums, threads, the open feature), the sketches', the
+  bodies' in body order, the regions', the overlay. Pickables are listed in the order they were
+  before parts existed, which the highlight commands step through: the own block's references and
+  datums, the sketches' blocks, the bodies', the rest of the own block, the regions' blocks. The
+  `PickTable` resolves an id by binary search over the blocks' first ids. The allocator restarts,
+  rebuilding every part, past `PART_PICKS_RESTART`. Body health is worked out for all bodies in one
+  pass (`Healths`). Image export builds from a copy of the kept parts and sketch shapes.
 - Previews, the trim preview and the measured line form a second batch with no pick ids, rebuilt
   only when it differs. A pick is asked for when the cursor, the view or the base's generation
   differs from the last (`PickKey`), never while the camera's viewpoint moves.
-- `SketchShapes` caches faceted outlines and each entity's `SketchState`.
+- `SketchShapes` caches each sketch's faceted outlines and each entity's `SketchState` under its
+  `SketchSource`: the feature's `Arc` in the document, its evaluation state and result `Arc`, and
+  the dragged sketch's `Arc` (`DisplayedSketches::dragged`), which together decide what is shown.
+  Unchanged sketches keep their shapes across content changes; a new faceting level refacets all.
 - Image export, the version preview, the headless PNG and the 3MF thumbnail build their own scene,
   without highlights and in the standard palette (high contrast is a viewing aid): image export and
   version preview in the palette of the 3D view's canvas (`Background::Viewport`), the headless PNG

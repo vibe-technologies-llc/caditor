@@ -1270,6 +1270,10 @@ impl Document {
         self.features.get_by_id(id).map(Arc::as_ref)
     }
 
+    pub fn shared_feature(&self, id: FeatureId) -> Option<&Arc<Feature>> {
+        self.features.get_by_id(id)
+    }
+
     pub fn body_name(&self, body: FeatureId) -> Option<&str> {
         let feature = self.feature(body)?;
         Some(feature.appearance.name.as_deref().unwrap_or(&feature.name))

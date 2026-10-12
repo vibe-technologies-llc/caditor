@@ -7,8 +7,8 @@ use std::{
 use caditor_document::{
     BodyAppearance, Datum, DatumResult, Document, Evaluation, Feature, FeatureId, FeatureResult,
     FeatureState, PrincipalAxis, PrincipalGeometry, RegionChoice, RevolveAxis, SketchRegion,
-    SolidFeature, SolidResult, body_parts, datum_outline, displayed_axis, displayed_frame,
-    placed_threads,
+    SketchResult, SolidFeature, SolidResult, body_parts, datum_outline, displayed_axis,
+    displayed_frame, placed_threads,
 };
 use caditor_geometry::{Aabb, Plane, Point2, Point3, Ray, RigidTransform};
 use caditor_kernel::{EdgeName, RegionKey, RegionMesh, RegionReference, resolve_regions};
@@ -52,8 +52,8 @@ const BOUNDS_SEGMENT_ANGLE: f64 = std::f64::consts::PI / 60.0;
 const SKETCH_SEGMENT_BUDGET: usize = 1 << 19;
 const MAX_COARSENINGS: u32 = 64;
 const REFERENCE_MARGIN: f64 = 1.2;
-const BODY_PICKS_FROM: usize = 1 << 26;
-const BODY_PICKS_RESTART: usize = 1 << 31;
+const PART_PICKS_FROM: usize = 1 << 26;
+const PART_PICKS_RESTART: usize = 1 << 31;
 
 const BODY: Color = Color::from_rgb8(
     body_appearance::DEFAULT_COLOUR.red,
@@ -118,7 +118,7 @@ pub struct PickBlock {
 
 impl Default for PickBlock {
     fn default() -> Self {
-        Self::spanning(0, BODY_PICKS_FROM)
+        Self::spanning(0, PART_PICKS_FROM)
     }
 }
 
@@ -157,9 +157,16 @@ impl PickBlock {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct PickTable {
     own: PickBlock,
-    bodies_after: usize,
-    bodies: Vec<Arc<PickBlock>>,
+    parts_after: usize,
+    parts: Vec<Arc<PickBlock>>,
+    listed_amid: usize,
     by_first: Vec<(usize, usize)>,
+}
+
+#[derive(Default)]
+struct PartPicks {
+    amid: Vec<Arc<PickBlock>>,
+    last: Vec<Arc<PickBlock>>,
 }
 
 impl PickTable {
@@ -168,8 +175,10 @@ impl PickTable {
         self.own.register(pickable, priority)
     }
 
-    fn of(own: PickBlock, bodies_after: usize, bodies: Vec<Arc<PickBlock>>) -> Self {
-        let mut by_first: Vec<(usize, usize)> = bodies
+    fn of(own: PickBlock, parts_after: usize, PartPicks { amid, last }: PartPicks) -> Self {
+        let listed_amid = amid.len();
+        let parts: Vec<Arc<PickBlock>> = amid.into_iter().chain(last).collect();
+        let mut by_first: Vec<(usize, usize)> = parts
             .iter()
             .enumerate()
             .map(|(at, block)| (block.first, at))
@@ -177,15 +186,16 @@ impl PickTable {
         by_first.sort_unstable();
         Self {
             own,
-            bodies_after,
-            bodies,
+            parts_after,
+            parts,
+            listed_amid,
             by_first,
         }
     }
 
     fn resolve(&self, id: PickId) -> Option<(Pickable, PickPriority)> {
         let index = id.index();
-        if index < BODY_PICKS_FROM {
+        if index < PART_PICKS_FROM {
             return self.own.get(index);
         }
         let at = self
@@ -193,25 +203,27 @@ impl PickTable {
             .partition_point(|(first, _)| *first <= index)
             .checked_sub(1)?;
         let (_, block) = self.by_first.get(at)?;
-        self.bodies.get(*block)?.get(index)
+        self.parts.get(*block)?.get(index)
     }
 
     #[cfg(test)]
     pub fn id_of(&self, pickable: Pickable) -> Option<PickId> {
         self.own
             .id_of(pickable)
-            .or_else(|| self.bodies.iter().find_map(|block| block.id_of(pickable)))
+            .or_else(|| self.parts.iter().find_map(|block| block.id_of(pickable)))
     }
 
     pub fn pickables(&self) -> impl Iterator<Item = Pickable> + '_ {
         let (before, after) = self
             .own
             .entries
-            .split_at(self.bodies_after.min(self.own.entries.len()));
+            .split_at(self.parts_after.min(self.own.entries.len()));
+        let (amid, last) = self.parts.split_at(self.listed_amid.min(self.parts.len()));
         before
             .iter()
-            .chain(self.bodies.iter().flat_map(|block| block.entries.iter()))
+            .chain(amid.iter().flat_map(|block| block.entries.iter()))
             .chain(after)
+            .chain(last.iter().flat_map(|block| block.entries.iter()))
             .map(|(pickable, _)| *pickable)
     }
 
@@ -404,9 +416,11 @@ impl BuiltScene {
 }
 
 #[derive(Clone, Default)]
-pub struct BodyParts {
-    kept: BTreeMap<FeatureId, BodyPart>,
+pub struct Parts {
+    bodies: BTreeMap<FeatureId, BodyPart>,
     looks: BTreeMap<FeatureId, KeptLooks>,
+    sketches: BTreeMap<FeatureId, DrawnPart<SketchLook>>,
+    regions: BTreeMap<FeatureId, DrawnPart<RegionsLook>>,
     next_pick: usize,
 }
 
@@ -427,10 +441,9 @@ impl PartialEq for SameLooks {
     }
 }
 
-impl BodyParts {
-    fn picks_for(&mut self, mesh: &BodyMesh) -> PickBlock {
-        let room = mesh.faces.len() + mesh.edges.len() + mesh.vertices.len();
-        let first = self.next_pick.max(BODY_PICKS_FROM);
+impl Parts {
+    fn picks_for(&mut self, room: usize) -> PickBlock {
+        let first = self.next_pick.max(PART_PICKS_FROM);
         self.next_pick = first.saturating_add(room.max(1));
         PickBlock::spanning(first, room)
     }
@@ -471,9 +484,11 @@ impl BodyParts {
     }
 
     fn restart_when_exhausted(&mut self) {
-        if self.next_pick > BODY_PICKS_RESTART {
-            self.kept.clear();
-            self.next_pick = BODY_PICKS_FROM;
+        if self.next_pick > PART_PICKS_RESTART {
+            self.bodies.clear();
+            self.sketches.clear();
+            self.regions.clear();
+            self.next_pick = PART_PICKS_FROM;
         }
     }
 }
@@ -481,7 +496,7 @@ impl BodyParts {
 #[derive(Clone)]
 struct BodyPart {
     look: BodyLook,
-    lit: BodyLit,
+    lit: PartLit,
     picks: Arc<PickBlock>,
     drawn: DrawnBody,
 }
@@ -527,49 +542,157 @@ struct BodyLook {
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
-struct BodyLit {
+struct PartLit {
     chosen: bool,
     selected: Vec<Pickable>,
     hovered: Vec<Pickable>,
 }
 
-#[derive(Default)]
-struct LitBodies {
-    selected: BTreeMap<FeatureId, Vec<Pickable>>,
-    hovered: BTreeMap<FeatureId, Vec<Pickable>>,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum PartKey {
+    Body(FeatureId),
+    Sketch(FeatureId),
+    Regions(FeatureId),
 }
 
-impl LitBodies {
+impl PartKey {
+    fn of(pickable: Pickable) -> Option<Self> {
+        match pickable {
+            Pickable::Face { body, .. }
+            | Pickable::Edge { body, .. }
+            | Pickable::Vertex { body, .. } => Some(Self::Body(body)),
+            Pickable::SketchEntity { feature, entity } if !entity.is_reference() => {
+                Some(Self::Sketch(feature))
+            }
+            Pickable::SketchRegion { feature, .. } => Some(Self::Regions(feature)),
+            _ => None,
+        }
+    }
+
+    fn row(self) -> Option<FeatureId> {
+        match self {
+            Self::Body(feature) | Self::Sketch(feature) => Some(feature),
+            Self::Regions(_) => None,
+        }
+    }
+}
+
+#[derive(Default)]
+struct LitParts {
+    selected: BTreeMap<PartKey, Vec<Pickable>>,
+    hovered: BTreeMap<PartKey, Vec<Pickable>>,
+}
+
+impl LitParts {
     fn of(highlight: &Highlight<'_>) -> Self {
         let mut lit = Self::default();
         for pickable in highlight.selection.iter() {
-            if let Some(body) = body_of(pickable) {
-                lit.selected.entry(body).or_default().push(pickable);
+            if let Some(part) = PartKey::of(pickable) {
+                lit.selected.entry(part).or_default().push(pickable);
             }
         }
         for pickable in highlight.hovered {
-            if let Some(body) = body_of(*pickable) {
-                lit.hovered.entry(body).or_default().push(*pickable);
+            if let Some(part) = PartKey::of(*pickable) {
+                lit.hovered.entry(part).or_default().push(*pickable);
             }
         }
         lit
     }
 
-    fn of_body(&self, highlight: &Highlight<'_>, body: FeatureId) -> BodyLit {
-        BodyLit {
-            chosen: highlight.is_chosen_row(body),
-            selected: self.selected.get(&body).cloned().unwrap_or_default(),
-            hovered: self.hovered.get(&body).cloned().unwrap_or_default(),
+    fn of_part(&self, highlight: &Highlight<'_>, part: PartKey) -> PartLit {
+        PartLit {
+            chosen: part.row().is_some_and(|row| highlight.is_chosen_row(row)),
+            selected: self.selected.get(&part).cloned().unwrap_or_default(),
+            hovered: self.hovered.get(&part).cloned().unwrap_or_default(),
         }
     }
 }
 
-fn body_of(pickable: Pickable) -> Option<FeatureId> {
-    match pickable {
-        Pickable::Face { body, .. }
-        | Pickable::Edge { body, .. }
-        | Pickable::Vertex { body, .. } => Some(body),
-        _ => None,
+#[derive(Clone)]
+struct DrawnPart<Look> {
+    look: Look,
+    lit: PartLit,
+    picks: Arc<PickBlock>,
+    batch: Option<Arc<Batch>>,
+}
+
+struct Drawing {
+    picks: PickBlock,
+    batch: Batch,
+}
+
+impl Parts {
+    fn keep<Look: PartialEq>(
+        &mut self,
+        previous: Option<DrawnPart<Look>>,
+        (look, lit): (Look, PartLit),
+        room: usize,
+        draw: impl FnOnce(PickBlock) -> Drawing,
+    ) -> DrawnPart<Look> {
+        let (picks, earlier) = match previous {
+            Some(part) if part.look == look && part.lit == lit => return part,
+            Some(part) if part.look == look => (
+                PickBlock::spanning(part.picks.first, part.picks.end - part.picks.first),
+                part.batch,
+            ),
+            Some(_) | None => (self.picks_for(room), None),
+        };
+        let drawing = draw(picks);
+        let batch = (!drawing.batch.is_empty()).then(|| Arc::new(drawing.batch));
+        DrawnPart {
+            look,
+            lit,
+            picks: Arc::new(drawing.picks),
+            batch: match earlier {
+                Some(earlier) if batch.as_ref() == Some(&earlier) => Some(earlier),
+                Some(_) | None => batch,
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct SketchLook {
+    shapes: Shared<Vec<SketchShape>>,
+    presence: Presence,
+    control_polygons: bool,
+    palette: usize,
+}
+
+#[derive(Clone, PartialEq)]
+struct RegionsLook {
+    source: SketchSource,
+    found: bool,
+    pickable: bool,
+    layer: Layer,
+    palette: usize,
+}
+
+#[derive(Clone, PartialEq)]
+struct SketchSource {
+    definition: Shared<Feature>,
+    status: Option<(FeatureState, Option<Shared<FeatureResult>>)>,
+    dragged: Option<Shared<Sketch>>,
+}
+
+impl SketchSource {
+    fn of(sources: &Sources<'_>, feature: FeatureId) -> Option<Self> {
+        Some(Self {
+            definition: Shared(Arc::clone(sources.document.shared_feature(feature)?)),
+            status: sources.evaluation.feature(feature).map(|status| {
+                (
+                    status.state.clone(),
+                    status
+                        .result
+                        .as_ref()
+                        .map(|result| Shared(Arc::clone(result))),
+                )
+            }),
+            dragged: sources
+                .sketches
+                .dragged(feature)
+                .map(|dragged| Shared(Arc::clone(dragged))),
+        })
     }
 }
 
@@ -594,10 +717,18 @@ struct SketchShape {
     control_polygon: Vec<Segment>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct SketchShapes {
     faceting: Faceting,
-    sketches: BTreeMap<FeatureId, Option<Vec<SketchShape>>>,
+    sketches: BTreeMap<FeatureId, KeptShapes>,
+    #[cfg(test)]
+    facetings: usize,
+}
+
+#[derive(Clone)]
+struct KeptShapes {
+    source: SketchSource,
+    shapes: Option<Shared<Vec<SketchShape>>>,
 }
 
 impl SketchShapes {
@@ -605,6 +736,8 @@ impl SketchShapes {
         Self {
             faceting,
             sketches: BTreeMap::new(),
+            #[cfg(test)]
+            facetings: 0,
         }
     }
 
@@ -612,16 +745,53 @@ impl SketchShapes {
         self.faceting
     }
 
-    fn of(&mut self, sources: &Sources<'_>, feature: &Feature) -> Option<&[SketchShape]> {
-        let faceting = self.faceting;
-        self.sketches
-            .entry(feature.id())
-            .or_insert_with(|| {
-                let displayed = sources.sketches.get(sources.evaluation, feature)?;
-                let states = ConstraintStates::of(sources.evaluation, feature)?;
-                Some(sketch_shapes(&displayed, &states, faceting))
-            })
-            .as_deref()
+    pub fn facet_at(&mut self, faceting: Faceting) {
+        if faceting != self.faceting {
+            self.faceting = faceting;
+            self.sketches.clear();
+        }
+    }
+
+    pub fn faceted_at(&self, faceting: Faceting) -> Self {
+        let mut shapes = self.clone();
+        shapes.facet_at(faceting);
+        shapes
+    }
+
+    #[cfg(test)]
+    pub fn facetings(&self) -> usize {
+        self.facetings
+    }
+
+    fn of(
+        &mut self,
+        previous: &mut BTreeMap<FeatureId, KeptShapes>,
+        sources: &Sources<'_>,
+        feature: &Feature,
+    ) -> Option<Shared<Vec<SketchShape>>> {
+        let source = SketchSource::of(sources, feature.id())?;
+        let kept = match previous.remove(&feature.id()) {
+            Some(kept) if kept.source == source => kept,
+            Some(_) | None => {
+                #[cfg(test)]
+                {
+                    self.facetings += 1;
+                }
+                KeptShapes {
+                    source,
+                    shapes: sources
+                        .sketches
+                        .get(sources.evaluation, feature)
+                        .zip(ConstraintStates::of(sources.evaluation, feature))
+                        .map(|(displayed, states)| {
+                            Shared(Arc::new(sketch_shapes(&displayed, &states, self.faceting)))
+                        }),
+                }
+            }
+        };
+        let shapes = kept.shapes.clone();
+        self.sketches.insert(feature.id(), kept);
+        shapes
     }
 }
 
@@ -750,19 +920,14 @@ pub fn build(
     context: Context,
     shapes: &mut SketchShapes,
 ) -> BuiltScene {
-    build_keeping(
-        sources,
-        highlight,
-        context,
-        (shapes, &mut BodyParts::default()),
-    )
+    build_keeping(sources, highlight, context, (shapes, &mut Parts::default()))
 }
 
 pub fn build_keeping(
     sources: &Sources<'_>,
     highlight: &Highlight<'_>,
     context: Context,
-    (shapes, parts): (&mut SketchShapes, &mut BodyParts),
+    (shapes, parts): (&mut SketchShapes, &mut Parts),
 ) -> BuiltScene {
     let Sources {
         document,
@@ -795,9 +960,9 @@ pub fn build_keeping(
         reflective_meshes: Vec::new(),
         silhouettes: Vec::new(),
         picks: PickBlock::default(),
-        bodies_after: 0,
-        bodies: Vec::new(),
-        body_batches: Vec::new(),
+        parts_after: 0,
+        parts: PartPicks::default(),
+        part_batches: Vec::new(),
         highlight,
         style,
         palette,
@@ -858,10 +1023,37 @@ pub fn build_keeping(
             }
         }
     }
+    let lit_parts = LitParts::of(highlight);
+    parts.restart_when_exhausted();
+    builder.parts_after = builder.picks.entries.len();
+    let palette_key = std::ptr::from_ref(palette).addr();
+    let mut previous_shapes = std::mem::take(&mut shapes.sketches);
+    let mut previous_sketches = std::mem::take(&mut parts.sketches);
     for (feature, presence) in drawn_sketches(document, editing, context.projecting) {
-        if let Some(shapes) = shapes.of(sources, feature) {
-            builder.sketch(feature.id(), shapes, presence);
-        }
+        let Some(drawn) = shapes.of(&mut previous_shapes, sources, feature) else {
+            continue;
+        };
+        let look = SketchLook {
+            shapes: drawn,
+            presence,
+            control_polygons: presence == Presence::Edited && builder.control_polygons,
+            palette: palette_key,
+        };
+        let lit = match presence {
+            Presence::Background => PartLit::default(),
+            Presence::Normal | Presence::Edited | Presence::Projectable => {
+                lit_parts.of_part(highlight, PartKey::Sketch(feature.id()))
+            }
+        };
+        let drawn = look.shapes.clone();
+        let part = parts.keep(
+            previous_sketches.remove(&feature.id()),
+            (look, lit),
+            drawn.0.len(),
+            |picks| builder.sketch_part(feature.id(), (&drawn.0, presence), picks),
+        );
+        builder.add_drawn(&part, PartListing::Amid);
+        parts.sketches.insert(feature.id(), part);
     }
     let cutting = cutting_feature(evaluation, context).filter(|_| editing.is_none());
     let open = bodies.body_before().filter(|open| {
@@ -880,11 +1072,8 @@ pub fn build_keeping(
         .filter(|feature| !feature.hidden)
         .map(|feature| (feature.id(), feature))
         .collect();
-    let lit_bodies = LitBodies::of(highlight);
-    parts.restart_when_exhausted();
-    let mut previous = std::mem::take(&mut parts.kept);
+    let mut previous = std::mem::take(&mut parts.bodies);
     let mut previous_looks = std::mem::take(&mut parts.looks);
-    builder.bodies_after = builder.picks.entries.len();
     for (body, mesh) in bodies.iter() {
         let Some(&feature) = shown.get(&body) else {
             continue;
@@ -943,10 +1132,10 @@ pub fn build_keeping(
             pickable: editing.is_none() || context.projecting,
             placement,
             style: builder.style,
-            palette: std::ptr::from_ref(palette).addr(),
+            palette: palette_key,
             reflective: builder.reflection.is_some(),
         };
-        let lit = lit_bodies.of_body(highlight, body);
+        let lit = lit_parts.of_part(highlight, PartKey::Body(body));
         let part = match previous.remove(&body) {
             Some(part) if part.look == look && part.lit == lit => part,
             Some(part) if part.look == look => {
@@ -958,10 +1147,13 @@ pub fn build_keeping(
                 }
                 restyled
             }
-            Some(_) | None => builder.body_part(body, mesh, (look, lit), parts.picks_for(mesh)),
+            Some(_) | None => {
+                let room = mesh.faces.len() + mesh.edges.len() + mesh.vertices.len();
+                builder.body_part(body, mesh, (look, lit), parts.picks_for(room))
+            }
         };
         builder.add_part(&part);
-        parts.kept.insert(body, part);
+        parts.bodies.insert(body, part);
         if aids.centres_of_mass
             && editing.is_none()
             && let Some(mass) = mesh.mass()
@@ -993,16 +1185,43 @@ pub fn build_keeping(
     if let Some(feature) = context.solid {
         builder.swept(sources, feature, reference_size);
     }
-    if let Some((feature, displayed)) = &edited {
-        let pickable = context.selecting;
-        builder.closed_regions(evaluation, feature.id(), displayed, pickable, Layer::Front);
-    }
-    if context.picks_shown_regions() {
-        for (feature, _) in drawn_sketches(document, editing, context.projecting) {
-            if let Some(displayed) = sketches.get(evaluation, feature) {
-                builder.closed_regions(evaluation, feature.id(), &displayed, true, Layer::Model);
-            }
-        }
+    let shown_regions = edited
+        .iter()
+        .map(|(feature, _)| (*feature, context.selecting, Layer::Front))
+        .chain(
+            context
+                .picks_shown_regions()
+                .then(|| drawn_sketches(document, editing, context.projecting))
+                .into_iter()
+                .flatten()
+                .map(|(feature, _)| (feature, true, Layer::Model)),
+        );
+    let mut previous_regions = std::mem::take(&mut parts.regions);
+    for (feature, pickable, layer) in shown_regions {
+        let Some(source) = SketchSource::of(sources, feature.id()) else {
+            continue;
+        };
+        let regions = found_regions(evaluation, feature.id());
+        let room = match pickable {
+            true => regions.map_or(0, <[SketchRegion]>::len),
+            false => 0,
+        };
+        let look = RegionsLook {
+            source,
+            found: regions.is_some(),
+            pickable,
+            layer,
+            palette: palette_key,
+        };
+        let lit = lit_parts.of_part(highlight, PartKey::Regions(feature.id()));
+        let part = parts.keep(
+            previous_regions.remove(&feature.id()),
+            (look, lit),
+            room,
+            |picks| builder.regions_part(sources, feature, (pickable, layer), picks),
+        );
+        builder.add_drawn(&part, PartListing::Last);
+        parts.regions.insert(feature.id(), part);
     }
 
     let reference = Aabb::from_points(plane_corners(Plane::XY, reference_size))
@@ -1024,7 +1243,7 @@ pub fn build_keeping(
             reflection: aids.reflection.unwrap_or_default(),
             section: Vec::new(),
             batches: iter::once(Arc::new(builder.scene))
-                .chain(builder.body_batches)
+                .chain(builder.part_batches)
                 .collect(),
             grid: Some(Grid {
                 plane: grid_plane,
@@ -1033,8 +1252,8 @@ pub fn build_keeping(
         },
         picks: Arc::new(PickTable::of(
             builder.picks,
-            builder.bodies_after,
-            builder.bodies,
+            builder.parts_after,
+            builder.parts,
         )),
         generation: 0,
         everything,
@@ -1047,6 +1266,20 @@ pub fn build_keeping(
                 .unwrap_or_else(|| empty_sketch_bounds(displayed.plane())),
         }),
         reference_size,
+    }
+}
+
+fn sketch_result(evaluation: &Evaluation, feature: FeatureId) -> Option<&SketchResult> {
+    evaluation
+        .feature(feature)
+        .and_then(|status| status.result.as_deref())
+        .and_then(FeatureResult::sketch)
+}
+
+fn found_regions(evaluation: &Evaluation, feature: FeatureId) -> Option<&[SketchRegion]> {
+    match sketch_result(evaluation, feature)?.regions()? {
+        Ok(regions) => Some(regions),
+        Err(_) => None,
     }
 }
 
@@ -1212,9 +1445,9 @@ struct Builder<'a> {
     reflective_meshes: Vec<MeshInstance>,
     silhouettes: Vec<Silhouette>,
     picks: PickBlock,
-    bodies_after: usize,
-    bodies: Vec<Arc<PickBlock>>,
-    body_batches: Vec<Arc<Batch>>,
+    parts_after: usize,
+    parts: PartPicks,
+    part_batches: Vec<Arc<Batch>>,
     highlight: &'a Highlight<'a>,
     style: DisplayStyle,
     palette: &'static ScenePalette,
@@ -1223,15 +1456,15 @@ struct Builder<'a> {
     control_polygons: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PartListing {
+    Amid,
+    Last,
+}
+
 impl<'a> Builder<'a> {
-    fn body_part(
-        &self,
-        body: FeatureId,
-        mesh: &BodyMesh,
-        (look, lit): (BodyLook, BodyLit),
-        picks: PickBlock,
-    ) -> BodyPart {
-        let mut part = Builder {
+    fn part_builder(&self, picks: PickBlock) -> Self {
+        Builder {
             scene: Batch::default(),
             meshes: Vec::new(),
             translucent_meshes: Vec::new(),
@@ -1240,16 +1473,72 @@ impl<'a> Builder<'a> {
             reflective_meshes: Vec::new(),
             silhouettes: Vec::new(),
             picks,
-            bodies_after: 0,
-            bodies: Vec::new(),
-            body_batches: Vec::new(),
+            parts_after: 0,
+            parts: PartPicks::default(),
+            part_batches: Vec::new(),
             highlight: self.highlight,
             style: self.style,
             palette: self.palette,
             analysis: self.analysis,
             reflection: self.reflection,
             control_polygons: self.control_polygons,
-        };
+        }
+    }
+
+    fn sketch_part(
+        &self,
+        feature: FeatureId,
+        (shapes, presence): (&[SketchShape], Presence),
+        picks: PickBlock,
+    ) -> Drawing {
+        let mut part = self.part_builder(picks);
+        part.sketch(feature, shapes, presence);
+        Drawing {
+            picks: part.picks,
+            batch: part.scene,
+        }
+    }
+
+    fn regions_part(
+        &self,
+        sources: &Sources<'_>,
+        feature: &Feature,
+        (pickable, layer): (bool, Layer),
+        picks: PickBlock,
+    ) -> Drawing {
+        let mut part = self.part_builder(picks);
+        if let Some(displayed) = sources.sketches.get(sources.evaluation, feature) {
+            part.closed_regions(
+                sources.evaluation,
+                feature.id(),
+                &displayed,
+                pickable,
+                layer,
+            );
+        }
+        Drawing {
+            picks: part.picks,
+            batch: part.scene,
+        }
+    }
+
+    fn add_drawn<Look>(&mut self, part: &DrawnPart<Look>, listing: PartListing) {
+        self.part_batches.extend(part.batch.iter().cloned());
+        let picks = Arc::clone(&part.picks);
+        match listing {
+            PartListing::Amid => self.parts.amid.push(picks),
+            PartListing::Last => self.parts.last.push(picks),
+        }
+    }
+
+    fn body_part(
+        &self,
+        body: FeatureId,
+        mesh: &BodyMesh,
+        (look, lit): (BodyLook, PartLit),
+        picks: PickBlock,
+    ) -> BodyPart {
+        let mut part = self.part_builder(picks);
         part.body(
             body,
             mesh,
@@ -1282,8 +1571,8 @@ impl<'a> Builder<'a> {
         self.reflective_meshes
             .extend(drawn.reflective_meshes.iter().cloned());
         self.silhouettes.extend(drawn.silhouettes.iter().cloned());
-        self.body_batches.extend(drawn.batch.iter().cloned());
-        self.bodies.push(Arc::clone(&part.picks));
+        self.part_batches.extend(drawn.batch.iter().cloned());
+        self.parts.amid.push(Arc::clone(&part.picks));
     }
 
     fn emphasis(&self, pickable: Pickable) -> f32 {
@@ -2258,11 +2547,7 @@ impl<'a> Builder<'a> {
         pickable: bool,
         layer: Layer,
     ) {
-        let Some(result) = evaluation
-            .feature(feature)
-            .and_then(|status| status.result.as_deref())
-            .and_then(FeatureResult::sketch)
-        else {
+        let Some(result) = sketch_result(evaluation, feature) else {
             return;
         };
         let Some(Ok(regions)) = result.regions() else {
@@ -3234,20 +3519,11 @@ mod tests {
             None,
         );
 
-        assert_eq!(built.picks.own.entries.len(), 3 + 3 + 1 + 3);
-        let line_pick = built
-            .picks
-            .own
-            .entries
-            .iter()
-            .position(|(pickable, _)| {
-                *pickable
-                    == Pickable::SketchEntity {
-                        feature,
-                        entity: line,
-                    }
-            })
-            .and_then(PickId::from_index);
+        assert_eq!(built.picks.pickables().count(), 3 + 3 + 1 + 3);
+        let line_pick = built.picks.id_of(Pickable::SketchEntity {
+            feature,
+            entity: line,
+        });
         let drawn = built
             .scene
             .lines()
@@ -3276,23 +3552,11 @@ mod tests {
     }
 
     fn picks_of(built: &BuiltScene) -> Vec<Pickable> {
-        built
-            .picks
-            .own
-            .entries
-            .iter()
-            .map(|(pickable, _)| *pickable)
-            .collect()
+        built.picks.pickables().collect()
     }
 
     fn line_color(built: &BuiltScene, pickable: Pickable) -> Color {
-        let pick = built
-            .picks
-            .own
-            .entries
-            .iter()
-            .position(|(candidate, _)| *candidate == pickable)
-            .and_then(PickId::from_index);
+        let pick = built.picks.id_of(pickable);
         built
             .scene
             .lines()
@@ -3823,18 +4087,15 @@ mod tests {
 
         for entity in [circle, arc, spline] {
             let pickable = Pickable::SketchEntity { feature, entity };
-            let registered: Vec<_> = built
+            let registered = built
                 .picks
-                .own
-                .entries
-                .iter()
-                .enumerate()
-                .filter(|(_, (candidate, _))| *candidate == pickable)
-                .collect();
-            assert_eq!(registered.len(), 1);
-            let (index, (_, priority)) = registered[0];
-            assert_eq!(*priority, PickPriority::Curve);
-            let pick = PickId::from_index(index);
+                .pickables()
+                .filter(|candidate| *candidate == pickable)
+                .count();
+            assert_eq!(registered, 1);
+            let pick = built.picks.id_of(pickable);
+            let (_, priority) = pick.and_then(|id| built.picks.resolve(id)).unwrap();
+            assert_eq!(priority, PickPriority::Curve);
             let segments = built.scene.lines().filter(|line| line.pick == pick).count();
             assert!(segments > 4, "only {segments} segments");
         }

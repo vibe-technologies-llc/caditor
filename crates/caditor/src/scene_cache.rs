@@ -14,7 +14,7 @@ use crate::{
     interference_panel::Mark,
     isocurves::IsocurveDrawing,
     manipulator::Drawn,
-    scene::{self, BodyParts, BuiltScene, Highlight, SketchShapes, Sources},
+    scene::{self, BuiltScene, Highlight, Parts, SketchShapes, Sources},
     scene_palette::{Canvas, Contrast},
     selection::Pickable,
     view_aids::ViewAids,
@@ -118,7 +118,7 @@ pub struct SceneCache {
     level: Option<FacetLevel>,
     content: Option<Content>,
     shapes: SketchShapes,
-    bodies: BodyParts,
+    parts: Parts,
     highlighted: Option<Highlighted>,
     built: Option<BuiltScene>,
     base_batches: usize,
@@ -137,7 +137,7 @@ impl Default for SceneCache {
             level: None,
             content: None,
             shapes: SketchShapes::new(FacetLevel::WITHOUT_A_VIEW.faceting()),
-            bodies: BodyParts::default(),
+            parts: Parts::default(),
             highlighted: None,
             built: None,
             base_batches: 0,
@@ -166,7 +166,7 @@ impl SceneCache {
         };
         let new_content = self.content.as_ref() != Some(&content);
         if new_content {
-            self.shapes = SketchShapes::new(scene::drawn_faceting(
+            self.shapes.facet_at(scene::drawn_faceting(
                 inputs.sources,
                 inputs.context,
                 level.faceting(),
@@ -185,7 +185,7 @@ impl SceneCache {
             inputs.sources,
             &inputs.highlight,
             inputs.context,
-            (&mut self.shapes, &mut self.bodies),
+            (&mut self.shapes, &mut self.parts),
         );
         self.generation = self.generation.wrapping_add(1);
         built.generation = self.generation;
@@ -250,8 +250,17 @@ impl SceneCache {
         &self.section
     }
 
-    pub fn body_parts(&self) -> &BodyParts {
-        &self.bodies
+    pub fn parts(&self) -> &Parts {
+        &self.parts
+    }
+
+    pub fn sketch_shapes(&self) -> &SketchShapes {
+        &self.shapes
+    }
+
+    #[cfg(test)]
+    pub fn overlay_batch(&self) -> Option<&Arc<Batch>> {
+        self.overlay_batch.as_ref()
     }
 
     pub fn built(&self) -> Option<&BuiltScene> {

@@ -195,9 +195,9 @@ paths:
 - Each batch has a `GpuBatch` of `GrowableBuffer`s, made only for what the batch holds (lines,
   markers, fills, style tables), found again each frame by its `Arc`'s address rather than position
   (`upload_batches`), so a batch kept while others come, go or change places uploads nothing and an
-  app may hand over thousands (one per body, `app.md`). A batch uploads only when new or when the
-  anchor moved, so an idle frame or a camera move writes no vertices; a new one reuses the buffers
-  of one that left. New batches upload under a byte budget a frame of their own
+  app may hand over thousands (one per body and per sketch, `app.md`). A batch uploads only when
+  new or when the anchor moved, so an idle frame or a camera move writes no vertices; a new one
+  reuses the buffers of one that left. New batches upload under a byte budget a frame of their own
   (`MESH_UPLOAD_BYTES_PER_FRAME` again), at least one a frame however large; one left waiting is
   not drawn yet and keeps `Renderer::is_uploading` true. After the anchor moves every batch uploads
   at once. A batch past `max_buffer_size` draws only its first whole primitives (logged once). A
