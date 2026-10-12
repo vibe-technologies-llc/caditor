@@ -307,7 +307,7 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   switch fillet/chamfer, a pattern between its kinds, a datum within its `Datum::kind`. Sketches
   change through sketch edits. An edit whose new kind still `makes_body` keeps the body for its
   users; one that stops making it is refused as `BodyInUse` naming the users. Update references
-  (`healing.rs`) and `complete_origins` are not refused by it.
+  (`healing.rs`) is not refused by it.
 - `bodies_used`, `planes_used` and `axes_used` extend `features()`, so dependents, moves and
   deletions account for them. `origin_features` (features that made the faces and edges a feature
   holds, from the references' `FaceOrigin`s) join them in `dependencies()`, which `dependents_of`,
@@ -315,11 +315,6 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   model saved with a reference to a face made further down still loads and edits. A reference to a
   patterned copy's face depends on both the pattern and the original's feature; `origin_feature`
   (which a double-click opens) is the pattern.
-- `complete_origins` (`origins.rs`) fills in `FaceOrigin`s of references saved without them as a
-  `SetFeatureKind` (`SetSketchPlacement` for a sketch's face) transaction: it evaluates without
-  display data with the bar below the last feature holding such a reference and takes each origin
-  from what the reference resolves to by name. Suppressed features, features not reached before the
-  cancel token trips, and references no longer found keep what they had.
 - Kernel and profile errors become sentences naming the curves, edges or faces involved. Boolean
   failures of extrusions, revolves, holes and combines go through `trouble.rs`: the faces of the
   `BooleanSite` named by origin ("where A meets B"), the site's point as the error's `place`, and a
@@ -483,8 +478,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 - `standard` (`hole_standard.rs`) is the ISO metric size and fit the sizes came from
   (`HoleStandard`: `MetricSize` M1.6 to M20; `HoleFit` close, normal, loose clearance per ISO 273,
   tapped at the coarse tap drill, tapped fine at an ISO 261 fine pitch (`FinePitch` by its place in
-  `fine_pitches`: the first is the pitch older versions offered, so M12 and M20 list 1.25 and 1.5
-  first; drilled at major diameter less the pitch), or a heat-set insert), with counterbore and
+  `fine_pitches`, so their order is part of the file format: M12 and M20 list 1.25 and 1.5 first;
+  drilled at major diameter less the pitch), or a heat-set insert), with counterbore and
   countersink sizes for socket and countersunk heads. It names a tapped hole's thread and gives
   each round bore its cosmetic thread (Thread below), but changes nothing of the solid: the
   expressions drive the hole. `MetricSize::offers` says which fits a size has (`fits`,
@@ -883,15 +878,15 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   volume, mass or position fails alone in words.
 - `parameter` (optional) is the measured parameter its reading feeds. This version never evaluates
   its own expression (`ParameterError::Unmeasured` until recompute reads it, `values.rs`); the
-  expression is kept as the latest reading for older versions and for the ordinary parameter
-  deleting the measurement leaves. `Document::following_readings` turns each up-to-date reading
-  that differs into a `SetParameterExpression` of `reading_literal`, which `Editor::follow_readings`
-  applies outside the undo history and without a new revision (the app runs it on every evaluation
-  of the current revision, `app.md`); a prepared commit or undo that drops it is followed again on
-  the next evaluation. `Document::deletion` (`keeping_readings`) also writes the stored reading into
-  each surviving measured parameter in its own transaction, so a journal replayed onto a base that
-  never followed still leaves the last reading. A failed or suppressed measurement's users still
-  fail; the stored value is no fallback.
+  expression is kept as the latest reading for the ordinary parameter deleting the measurement
+  leaves. `Document::following_readings` turns each up-to-date reading that differs into a
+  `SetParameterExpression` of `reading_literal`, which `Editor::follow_readings` applies outside the
+  undo history and without a new revision (the app runs it on every evaluation of the current
+  revision, `app.md`); a prepared commit or undo that drops it is followed again on the next
+  evaluation. `Document::deletion` (`keeping_readings`) also writes the stored reading into each
+  surviving measured parameter in its own transaction, so a journal replayed onto a base that never
+  followed still leaves the last reading. A failed or suppressed measurement's users still fail; the
+  stored value is no fallback.
 - `Measured` maps measured parameters to their measurements and every parameter reading one,
   directly or through others, to the measurements it reads (`measurements_read`, from evaluation
   order). A feature using a measured or derived parameter depends on its measurements

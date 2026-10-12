@@ -18,6 +18,9 @@ paths:
 - Model container (`file-format.md`): header, snapshot of the last saved state, one chunk per
   change (`apply`, `undo`, `redo`). Replay stops at the first damaged chunk and goes through an
   `Editor`, so undo history is restored.
+- `JOURNAL_VERSION` is 1. Decoding fails as `UnreadableJournal`: `Damaged`, `FromNewerVersion`, or
+  `FromEarlierBuild` for a journal of a development build before version 1 (magic
+  `\x89CJL\r\n\x1a\n`). Each is handled alike: never offered, set aside by `journal_for`.
 - Undo and redo are journaled by reference when possible (`UndoLast`, `RedoNext`), so undoing an
   import never repeats its STEP text; the storage worker follows the journal in a `Mirror`.
   Anything the mirror cannot follow is written whole and the mirror stops until the next save.
@@ -27,17 +30,15 @@ paths:
   `folded` and dropped, and `Report::Rebased` hands the app the new base. Undo steps of folded
   changes are not recovered.
 - A rebased snapshot is a `RebasedSnapshot` chunk, never a plain `Snapshot`: it is not the saved
-  state, so the scan must not delete it as unchanged, and an older caditor, not knowing the kind,
-  sets the journal aside as damaged instead of deleting it. A recovered session with folded
-  changes has no known saved state (`Model::saved` is `None`), so it stays modified.
+  state, so the scan must not delete it as unchanged. A recovered session with folded changes has
+  no known saved state (`Model::saved` is `None`), so it stays modified.
 - A plain snapshot is the saved state, so one failing its checksum does not withhold later
-  entries: when the header says nothing was folded (`folded` is `Some(0)`, absent in older
-  journals) and the model file's head digest equals the header's `on_disk`, `decode_journal_with`
-  takes the file as the base (`recovery::model_as_last_saved`), replays the entries onto it and
-  adds an issue. A damaged `RebasedSnapshot`, or a plain one whose model changed, is treated as
+  entries: when the header says nothing was folded (`folded` is 0) and the model file's head
+  digest equals the header's `on_disk`, `decode_journal_with` takes the file as the base
+  (`recovery::model_as_last_saved`), replays the entries onto it and adds an issue. A damaged `RebasedSnapshot`, or a plain one whose model changed, is treated as
   unreadable (below).
-- The header carries the path as raw bytes (`os::path_bytes`: Unix bytes, WTF-8 on Windows),
-  whether the file loaded with problems (a recovered session still keeps the damaged original on
+- The header carries the path as raw bytes (`file`, `os::path_bytes`: Unix bytes, WTF-8 on
+  Windows), whether the file loaded with problems (a recovered session still keeps the damaged original on
   its first save), and `on_disk`, the head digest of the file last loaded or saved, so a recovered
   session notices an outside change. The worker passes it as `SaveOptions::unless_changed_from`
   unless the request says `replace_outside_changes`, and reports `Report::ChangedOnDisk`.
@@ -77,9 +78,8 @@ paths:
   journals for that model's file waits on it first, since until then the previous worker still
   holds the lock and the file would be judged open in another window.
 - A fallback journal is named by a hash of the model's path identity (`os::journal_identity`: the
-  path as is on Unix, the case-folded final path on Windows). Lookups (`paths::journals_for`,
-  `journal_markers`) also try the hash of the path as spelled, which older Windows versions used;
-  writing uses `journal_destinations`, the identity's name alone.
+  path as is on Unix, the case-folded final path on Windows); `paths::journals_for` gives the
+  adjacent journal and that one, and a journal's marker is named the same way (`journal_marker`).
 - A `Flusher` lets the panic hook and the termination handlers (signals, closing console, end of
   a Windows session) wait for pending entries.
 
@@ -111,9 +111,9 @@ paths:
 - `discard` removes a journal no window holds, comparing by inode the same way: already gone is
   `Ok`, held or replaced by another window is `DiscardError::InUse`, other failures are `Reading`
   or `Removing` with the worded `ReadFailure` or `WriteFailure`.
-- A journal of an unreadable model (bad header or snapshot, or newer journal version) is renamed
-  by `journal_for` to `<journal>.<seconds>.unreadable` before the new journal takes its place
-  (`FileJournal::SetAside`), and opening reports where. The scan removes those after
+- A journal of an unreadable model (bad header or snapshot, a newer journal version, or one from an
+  earlier build) is renamed by `journal_for` to `<journal>.<seconds>.unreadable` before the new
+  journal takes its place (`FileJournal::SetAside`), and opening reports where. The scan removes those after
   `paths::SET_ASIDE_KEPT_SECONDS`; until then it inspects them like any journal, so the newer
   caditor that wrote them offers them for restoring, and `journal_for` offers the newest readable
   one when its own journal holds nothing (`Start::replaces`).

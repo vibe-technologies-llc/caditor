@@ -10,8 +10,8 @@ use caditor_document::{CancelToken, Document};
 use serde::{Deserialize, Serialize};
 
 use super::{
-    CHUNK_HEADER_LENGTH, Chunk, ChunkKind, Codec, MODEL_MAGIC, PackError, Piece, UnpackError,
-    damaged, parse, push_packed, push_packed_after, push_padding,
+    CHUNK_HEADER_LENGTH, Chunk, ChunkKind, Codec, EARLIER_BUILD_MODEL_MAGIC, MODEL_MAGIC,
+    PackError, Piece, UnpackError, damaged, parse, push_packed, push_packed_after, push_padding,
     retention::{self, retained},
     salvage, start_file,
     value::{self, ValueError, push_varint, read_varint},
@@ -1322,6 +1322,9 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Loaded, LoadError> {
 pub(crate) fn decode_cancellable(bytes: &[u8], cancel: &CancelToken) -> Result<Loaded, LoadError> {
     if bytes.iter().all(u8::is_ascii_whitespace) {
         return Err(LoadError::Empty);
+    }
+    if bytes.starts_with(&EARLIER_BUILD_MODEL_MAGIC) {
+        return Err(LoadError::FromEarlierBuild);
     }
     let parsed = Parsed::of(bytes).ok_or(LoadError::NotAModel)?;
     let mut issues = Vec::new();

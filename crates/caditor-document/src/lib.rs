@@ -116,7 +116,6 @@ pub use crate::{
     },
     movement::{AxisTurn, BodyPlacement, Move, MoveAxis, Pivot, TurnCentre},
     offset_face::OffsetFace,
-    origins::complete_origins,
     parameter_import::{
         ExpressionReading, ImportOutcome, ImportRefusal, ImportRow, ImportedParameter,
         ParameterImport,

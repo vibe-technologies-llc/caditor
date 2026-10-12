@@ -9,8 +9,8 @@ use super::{
         save_bytes,
     },
     testing::{
-        corrupt_chunk, decompressing_at_most, files_of_at_most, model_chunk_count, push_foreign,
-        records_as_json, sharing_from, with_slices_of,
+        as_written_by_an_earlier_build, corrupt_chunk, decompressing_at_most, files_of_at_most,
+        model_chunk_count, push_foreign, records_as_json, sharing_from, with_slices_of,
     },
     value::{from_bytes, to_bytes},
     *,
@@ -245,6 +245,41 @@ fn files_that_are_not_models_are_refused() {
     );
     assert_eq!(decode(&MODEL_MAGIC[..5]), Err(crate::LoadError::NotAModel));
     assert_eq!(decode(&JOURNAL_MAGIC), Err(crate::LoadError::NotAModel));
+}
+
+#[test]
+fn a_model_from_an_earlier_development_build_is_refused_in_words_never_salvaged() {
+    let (_, current) = saved_series(3);
+    let earlier =
+        as_written_by_an_earlier_build(&current, &MODEL_MAGIC, &EARLIER_BUILD_MODEL_MAGIC, 3);
+    let mut damaged_start = earlier.clone();
+    damaged_start[1] ^= 0x55;
+
+    let refused = decode(&earlier).unwrap_err();
+
+    assert_eq!(refused, crate::LoadError::FromEarlierBuild);
+    assert_eq!(
+        refused.to_string(),
+        "it was made by an early development build of caditor, whose files this version does \
+         not open"
+    );
+    assert_eq!(decode(&damaged_start), Err(crate::LoadError::NotAModel));
+    assert_eq!(history(&current).versions.len(), 2);
+    assert_eq!(history(&earlier).versions.len(), 0);
+    assert_eq!(
+        load_version(&earlier, 0).map(|loaded| loaded.document),
+        Err(crate::LoadError::NotAModel)
+    );
+}
+
+#[test]
+fn a_model_starts_with_its_magic_and_format_version_one() {
+    let bytes = save_bytes(&with_width(10), None, at(1_000), None).unwrap();
+
+    assert_eq!(bytes.get(..8), Some(MODEL_MAGIC.as_slice()));
+    assert_eq!(bytes.get(8..12), Some(1_u32.to_le_bytes().as_slice()));
+    assert_eq!(bytes.get(12..16), Some(SYNC.as_slice()));
+    assert_eq!(FORMAT_VERSION, 1);
 }
 
 #[test]

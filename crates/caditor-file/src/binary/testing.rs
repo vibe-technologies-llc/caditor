@@ -118,6 +118,22 @@ pub(crate) fn stored_copy(bytes: &[u8], magic: &Magic) -> Vec<u8> {
     stored
 }
 
+pub(crate) fn as_written_by_an_earlier_build(
+    bytes: &[u8],
+    magic: &Magic,
+    earlier: &Magic,
+    version: u32,
+) -> Vec<u8> {
+    const EARLIER_SYNC: &[u8; 4] = b"CDCK";
+    let container = parse(bytes, magic).unwrap();
+    let mut rewritten = start_file(earlier, version);
+    for chunk in container.chunks() {
+        rewritten.extend_from_slice(EARLIER_SYNC);
+        rewritten.extend_from_slice(&chunk.whole[EARLIER_SYNC.len()..]);
+    }
+    rewritten
+}
+
 pub(crate) fn push_foreign(bytes: &mut Vec<u8>, kind: u8, flags: u8, content: &[u8]) {
     push_raw(
         bytes,

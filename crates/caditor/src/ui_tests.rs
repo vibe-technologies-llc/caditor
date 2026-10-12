@@ -3254,7 +3254,7 @@ fn damage_chunk(bytes: &[u8], chunk: usize) -> Vec<u8> {
     let starts: Vec<usize> = bytes
         .windows(4)
         .enumerate()
-        .filter(|(_, window)| *window == b"CDCK")
+        .filter(|(_, window)| *window == b"CDCH")
         .map(|(start, _)| start)
         .collect();
     let end = starts.get(chunk + 1).copied().unwrap_or(bytes.len());
@@ -3455,7 +3455,7 @@ fn an_unreadable_journal_is_kept_aside_and_reported_when_its_model_opens() {
     let path = root.as_path().join("plate.caditor");
     caditor_file::save(&sample_document().unwrap(), &path, false).unwrap();
     let journal = root.as_path().join(".plate.caditor.journal");
-    std::fs::write(&journal, b"\x89CJL\r\n\x1a\n\xff\xff\xff\xff").unwrap();
+    std::fs::write(&journal, b"\x89CDJ\r\n\x1a\n\xff\xff\xff\xff").unwrap();
 
     let mut harness = Harness::with_directories(Some(root.as_path()));
     harness.command(FileCommand::OpenPath(path.clone()));

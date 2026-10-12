@@ -98,8 +98,7 @@ fn the_state_and_configuration_folders_are_the_local_and_roaming_application_dat
 }
 
 #[test]
-fn every_spelling_of_a_model_shares_a_fallback_journal_and_one_written_under_the_old_hash_is_found()
-{
+fn every_spelling_of_a_model_shares_a_fallback_journal() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("Model.caditor");
     let recovery = dir.path().join("recovery");
@@ -108,15 +107,12 @@ fn every_spelling_of_a_model_shares_a_fallback_journal_and_one_written_under_the
     crash_journal(&dir, &path, &sample());
     let journal = dir.path().join(".Model.caditor.journal");
     fs::create_dir_all(&recovery).unwrap();
-    let legacy = paths::fallback_named(paths::path_hash(&shouted), &recovery);
-    fs::rename(&journal, &legacy).unwrap();
+    let fallback = paths::fallback_journal(&path, &recovery);
+    fs::rename(&journal, &fallback).unwrap();
 
     let found = journal_for(&shouted, Some(&recovery));
 
-    assert_eq!(
-        paths::fallback_journal(&path, &recovery),
-        paths::fallback_journal(&shouted, &recovery)
-    );
+    assert_eq!(fallback, paths::fallback_journal(&shouted, &recovery));
     assert!(matches!(found, FileJournal::Recoverable(_)), "{found:?}");
 }
 

@@ -203,6 +203,21 @@ fn model_seeds_load_cleanly_with_every_version() {
 }
 
 #[test]
+fn model_and_journal_seeds_are_written_in_format_one() {
+    let header = |magic: &[u8]| [magic, &1_u32.to_le_bytes()].concat();
+    for (kind, magic) in [("model", MODEL_MAGIC), ("journal", JOURNAL_MAGIC)] {
+        for (path, bytes) in seeds_in(kind) {
+            assert_eq!(
+                bytes.get(..12),
+                Some(header(&magic).as_slice()),
+                "{}",
+                path.display()
+            );
+        }
+    }
+}
+
+#[test]
 fn journal_seeds_replay_every_entry() {
     for (path, bytes) in seeds_in("journal") {
         let contents = decode_journal(&bytes).unwrap();

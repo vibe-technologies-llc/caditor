@@ -5,8 +5,12 @@ paths:
 
 # File format and persistence
 
-- Binary, zstd-compressed, xxh3-checked; no text model format. Every shipped `FORMAT_VERSION` stays
-  readable forever.
+- Binary, zstd-compressed, xxh3-checked; no text model format. `FORMAT_VERSION` is 1, the first
+  shipped format; every shipped version stays readable forever.
+- Files written by development builds before version 1 start with `\x89CAD\r\n\x1a\n` and mark
+  chunks `CDCK`: loading refuses them as `LoadError::FromEarlierBuild` ("made by an early
+  development build of caditor") before any parsing, and since their chunks do not carry the
+  current marker, one whose magic is damaged is never salvaged either (`NotAModel`).
 - Evolving it:
   - Something whose loss changes what the model computes (suppression, the rollback bar) is a
     record kind of its own, not a feature field, so an older reader reports it as from a newer
@@ -19,7 +23,8 @@ paths:
 
 ## Container (`binary/`)
 
-- 8-byte magic (models, journals), LE `u32` version, chunks. Chunk: marker `CDCK`, kind, codec
+- 8-byte magic (models `\x89CDM\r\n\x1a\n`, journals `\x89CDJ\r\n\x1a\n`), LE `u32` version,
+  chunks. Chunk: marker `CDCH`, kind, codec
   (stored, zstd, or zstd against the next newer version as raw prefix), flags (`MUST_UNDERSTAND`,
   `CONTINUED`, `CONTINUATION`; unknown bits ignored), lengths, xxh3-64 of header and payload.
 - A bad chunk makes the reader scan to the next marker with a valid checksum; hashed bytes are
@@ -31,8 +36,7 @@ paths:
 - Content over `MAX_CONTENT` is sliced, each slice its own frame against the same prefix (all but
   the last `CONTINUED`, all but the first `CONTINUATION`); the parser joins a run up to
   `MAX_JOINED_CONTENT` (`Chunk::unpack`). A run broken by damage or another kind is one damaged
-  piece, so a resync mid-run never yields partial content. Older readers see only the first slice,
-  which fails its digest.
+  piece, so a resync mid-run never yields partial content.
 - Memory is bounded on hostile files: records decode one at a time (unpack, hash with
   `RecordDigest` checked against the head afterwards, parse); a load unpacks at most
   `MAX_DECOMPRESSED` in all (`Budget`); a version rebuild bounds what is alive per step
@@ -73,19 +77,18 @@ paths:
 
 ### Optional document-level records
 
-Each is written only when non-empty and is its own record kind, so an older reader reports it as
-unknown and keeps the `.damaged` copy; losing it changes nothing computed. The journal snapshot
-carries the same record under the same name, held by the setter named.
+Each is written only when non-empty and is its own record kind; losing it changes nothing computed.
+The journal snapshot carries the same record under the same name, held by the setter named.
 
 | Record | Content and loading | Journal setter |
 | --- | --- | --- |
 | `properties` | Model properties, each field only when not empty; normalised as the edit does, over-limit fields cut. | `set_model_properties` |
 | `views` | `named` (`name`, `view` of `target`, `orientation` as x, y, z, w, `distance`) and `home`. Each view read on its own (`restore_views`): unusable left out, blank name "View N", long cut, repeated numbered, past `MAX_SAVED_VIEWS` left out. | `set_saved_views` |
 | `selection_sets` | `sets`, each `name` and `members` (`body` id; `face` or `edge` with `body` and a record). `selection_sets.rs`, `restore_selection_sets`: unreadable member or emptied set left out, names repaired ("Set N"), past `MAX_SET_MEMBERS` and `MAX_SELECTION_SETS` left out. | `set_selection_sets` |
-| `configurations` | `values` (each `parameter`, `suppressed` or `colour` with its id), `rows` (`id`, `name`, `settings` each a `value` with `expression` stored text, `suppressed`, or `colour` as `#rrggbb`, absent for the default), `active`, `next_id`. The active row's values are also the model's own, so an older reader computes the same model. `configurations.rs`, `restore_configurations`: unreadable column or row left out, unreadable setting dropped, names repaired ("Configuration N"), repeated row id left out, unknown active leaves none; applied after suppression and the bar. | `set_configurations`, `set_active_configuration` |
+| `configurations` | `values` (each `parameter`, `suppressed` or `colour` with its id), `rows` (`id`, `name`, `settings` each a `value` with `expression` stored text, `suppressed`, or `colour` as `#rrggbb`, absent for the default), `active`, `next_id`. The active row's values are also the model's own, so a reader without the record computes the same model. `configurations.rs`, `restore_configurations`: unreadable column or row left out, unreadable setting dropped, names repaired ("Configuration N"), repeated row id left out, unknown active leaves none; applied after suppression and the bar. | `set_configurations`, `set_active_configuration` |
 | `named_values` | `values`, each the `parameter`'s id and its `owner` (`feature` with `feature` and `value`, or `dimension` with `sketch` and `constraint`). The parameter stays an ordinary `parameter` record. Applied after the features: unreadable entry reported and its parameter listed with the others, description cut at `MAX_VALUE_LABEL_CHARS`, entry for an absent parameter dropped silently. | `insert_parameter` carries `owner`; `set_parameter_owner` is its own record |
 
-### Field-level additions (older readers drop them)
+### Optional fields
 
 - Feature `group` (folder name; cut at `MAX_GROUP_NAME_CHARS`; journal `set_feature_group`, absent
   for none). Parameter `note` (cut at `MAX_PARAMETER_NOTE_CHARS`). Feature `hidden`. Sketch
@@ -108,16 +111,15 @@ carries the same record under the same name, held by the setter named.
   `principal_plane` with `plane` `xy`/`xz`/`yz` and `reach`). The projected flags are derived on
   load after the constraints. Unknown or unreadable source: geometry kept as ordinary, reported.
   Journal: `set_sketch_projection`, absent for none.
--
 
 ## Feature and entity records
 
 Conventions for every record below:
 
 - A wrapper record has `feature`, the record it would be without the extra, plus the extras; an
-  inner record of the wrong kind loads without the extras, reported. A wrapper exists as a kind of
-  its own because an older reader would otherwise compute a different result; a case the older kind
-  can express is still written as the older kind.
+  inner record of the wrong kind loads without the extras, reported. A wrapper is a kind of its own
+  so a reader not knowing it reports the feature as from a newer version instead of computing a
+  different result; a case the inner kind can express is written as the inner kind.
 - Stored texts are expression text; an unreadable one loads as the fallback given, reported. An
   unreadable reference (plane, axis, point, face) loads as the XY plane, the Z axis, the origin or
   a reference to no face (the feature then fails until chosen again), as noted, reported.
@@ -149,8 +151,8 @@ Holes:
   (`plain`, `counterbore` or `countersink` with texts), `reversed` when set; unreadable size loads
   as 5 mm, 10 mm, 3 mm, 90 deg. `slot`: `length`, `angle` (10 mm, 0 deg). `standard`: `size` (as
   `M3`) and `fit` (`close`, `normal`, `loose`, `tapped`, `tapped_fine`, `tapped_fine_2`,
-  `tapped_fine_3`, `heat_set_insert`); an unknown standard loads as none keeping the typed sizes;
-  fits added later and a fit its size lacks load likewise in older readers. A non-default tapped
+  `tapped_fine_3`, `heat_set_insert`); an unknown standard, fit, or a fit its size lacks loads as
+  none keeping the typed sizes. A non-default tapped
   thread carries `thread` (`class` when not the first, `left_handed` when set, `depth` text when
   not the whole wall; unknown class loads as the first, unreadable depth 10 mm): a field, since it
   only changes the cosmetic thread.
@@ -210,7 +212,7 @@ Moves, mates, mirrors, scale:
 
 Patterns:
 
-- `pattern`: `shape` `linear` or `circular` (the older record's fields, a direction's
+- `pattern`: `shape` `linear` or `circular` (the fields of `linear_pattern` or `circular_pattern`, a direction's
   `total: true` when measured overall) and `skipped` (list of `[step, step]`); any other pattern is
   still `linear_pattern` or `circular_pattern`. Loading drops skipped entries no pattern can make
   (the original, steps past `MAX_PATTERN_INSTANCES`).
@@ -247,7 +249,7 @@ Bodies and solids:
 - `combine`: `body`, `tool`, `operation` (`join`, `cut`, `intersect`). `combine_tools`: `more_tools`
   (ids, only when any), `keep_tool` when set; repeated tool kept once. `remove`: `body`.
 - Imports: `import` (source name, STEP text, absolute `path` when known and valid UTF-8, written
-  only then, so older readers lose only Reload); unreadable loads empty, reported. Placed anywhere
+  only then); unreadable loads empty, reported. Placed anywhere
   but the origin it is `placed_import` (same fields plus `offset` and `turn`, three texts each,
   unreadable 0 mm or 0 deg); at the origin still `import`.
 - A model or journal snapshot (`feature_records`) keeps each STEP text once: a `placed_import`
@@ -278,7 +280,7 @@ Sketch entities:
   `major_radius` and `minor_radius` constraints (`ellipse`, `value`, falling back to the drawn
   radius); `on_minor_axis` (`point`, `ellipse`). Naming an unknown kind skips the flags (`id`,
   `name`, `construction`, `inactive`, `label`).
-- An older reader reports each as a kind from a newer version and keeps the points.
+- A reader not knowing one reports it as a kind from a newer version and keeps the points.
 
 ## Loading
 
@@ -295,13 +297,9 @@ Sketch entities:
   dependents, `document.md`); it fails when computed, saying what it lost.
 - Records not matching the head's digest with no damaged chunk (cut between chunks) are reported as
   ending early; the model loads with problems and keeps its `.damaged` copy on the next save.
-- `load` and `load_version` (not `decode`, which fuzzing and recovery scans use) complete the
-  origins of face and edge references saved without them (`complete_origins`, `document.md`)
-  within `ORIGIN_COMPLETION_TIME`; the completed model is the saved baseline, so it opens
-  unmodified. A journal snapshot is not completed.
 - `load_cancellable` and `load_version_cancellable` run under a `CancelToken`, checked after
-  reading, between records (`binary::decode_cancellable`), after rebuilding a version and during
-  origin completion; cancelled is `LoadError::Cancelled`, never a partial model.
+  reading, between records (`binary::decode_cancellable`) and after rebuilding a version;
+  cancelled is `LoadError::Cancelled`, never a partial model.
 - Near-linear on hostile files: names indexed; duplicate IDs and cycles (`DependencyGraph`) found
   before applying; each kind of record applied as one transaction, halved only where it fails; at
   most `MAX_RECORDS` (`caditor-document`) parameters and features loaded, the rest reported.
@@ -318,9 +316,7 @@ Sketch entities:
 - `history` judges rebuildability from the chain, not by decoding (`Parsed::rebuildable`). A
   version that passes its checksum but does not rebuild to its digest is listed and refused on
   restore. When the head cannot be rebuilt, the next save drops the deltas that depended on it.
-- Info `kept: true` marks a version the user keeps (absent means not kept). A field, not a record
-  kind: an older caditor lists the version normally and writes the info chunk back as stored, but
-  its own thinning may drop the version and the flag with it.
+- Info `kept: true` marks a version the user keeps (absent means not kept).
 - Marking is a file-level change (`binary::with_version_kept`, `set_version_kept`,
   `Storage::keep_version`), not a document one: it neither dirties the model nor enters undo. It
   rewrites only the one info chunk (as a JSON-like map, so unknown fields survive), copies every

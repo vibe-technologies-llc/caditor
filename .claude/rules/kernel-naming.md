@@ -52,9 +52,8 @@ paths:
   that name still sharing a neighbour (or none recorded); among several of that name (split
   fragments), to the best neighbour match; when the name is gone, to the face of the same origin
   sharing a neighbour.
-- An `EdgeReference` is an edge's name, its two face names with `FaceOrigin`s (`None` in files from
-  before origins were kept, until the document's `complete_origins` fills them on opening) and end
-  vertex names. It resolves by name, else among edges between the same faces, told apart by
+- An `EdgeReference` is an edge's name, its two face names with `FaceOrigin`s (`None` for a face
+  that has none) and end vertex names. It resolves by name, else among edges between the same faces, told apart by
   matching ends (an edge sharing no end is never taken). With no edge between those faces (a cap
   renamed because a hole was added) it falls back to edges whose faces each keep the name, then the
   origin; `resolve_by_names_in` skips the fallback.

@@ -70,12 +70,15 @@ fn inspect_as(journal: &Path, unreadable: Unreadable) -> io::Result<Inspection> 
         .and_then(|metadata| metadata.modified())
         .ok();
 
-    let Ok(contents) = decode_journal_with(&bytes, model_as_last_saved) else {
-        log::warn!("{} is damaged and cannot be recovered", journal.display());
-        return match unreadable {
-            Unreadable::Keep => Ok(Inspection::Damaged),
-            Unreadable::SetAside => set_aside_locked(&file, journal),
-        };
+    let contents = match decode_journal_with(&bytes, model_as_last_saved) {
+        Ok(contents) => contents,
+        Err(error) => {
+            log::warn!("{} cannot be recovered: {error}", journal.display());
+            return match unreadable {
+                Unreadable::Keep => Ok(Inspection::Damaged),
+                Unreadable::SetAside => set_aside_locked(&file, journal),
+            };
+        }
     };
     let replayed = replay(contents.base.clone(), contents.entries);
     let document = replayed.editor.document();
@@ -237,13 +240,10 @@ fn set_aside_journals(recovery_dir: Option<&Path>, recent: &[PathBuf]) -> Vec<Pa
 
 pub(crate) fn mark_journal(journal: &Path, recovery_dir: &Path) -> io::Result<()> {
     let journal = std::path::absolute(journal)?;
-    if paths::journal_markers(&journal, recovery_dir)
-        .iter()
-        .any(|marker| marker.exists())
-    {
+    let marker = paths::journal_marker(&journal, recovery_dir);
+    if marker.exists() {
         return Ok(());
     }
-    let marker = paths::journal_marker(&journal, recovery_dir);
     fs::create_dir_all(recovery_dir)?;
     write_atomically(&marker, &os::path_bytes(journal.as_os_str()))
 }
@@ -252,12 +252,11 @@ pub(crate) fn unmark_journal(journal: &Path, recovery_dir: &Path) {
     let Ok(journal) = std::path::absolute(journal) else {
         return;
     };
-    for marker in paths::journal_markers(&journal, recovery_dir) {
-        match fs::remove_file(&marker) {
-            Ok(()) => {}
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(error) => log::warn!("could not remove {}: {error}", marker.display()),
-        }
+    let marker = paths::journal_marker(&journal, recovery_dir);
+    match fs::remove_file(&marker) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => log::warn!("could not remove {}: {error}", marker.display()),
     }
 }
 
@@ -278,7 +277,7 @@ fn marked_journals(recovery_dir: &Path) -> Vec<PathBuf> {
                 && journal
                     .extension()
                     .is_some_and(|extension| extension == JOURNAL_EXTENSION)
-                && paths::journal_markers(&journal, recovery_dir).contains(&marker);
+                && paths::journal_marker(&journal, recovery_dir) == marker;
             match fs::symlink_metadata(&journal) {
                 Ok(_) if usable => Some(journal),
                 Err(error) if error.kind() == io::ErrorKind::NotFound => {
@@ -359,10 +358,10 @@ pub fn describe_set_aside(kept: &Path) -> String {
         .map(|dir| format!(" in {}", dir.display()))
         .unwrap_or_default();
     format!(
-        "Unsaved changes from an earlier session could not be read, perhaps because a newer \
-         version of caditor wrote them. They were kept as “{name}”{place}, and the model opened \
-         as it was last saved. For thirty days, a version of caditor that reads them offers to \
-         restore them when it starts or opens this model."
+        "Unsaved changes from an earlier session could not be read, perhaps because they are \
+         damaged or a newer version of caditor wrote them. They were kept as “{name}”{place}, and \
+         the model opened as it was last saved. For thirty days, a version of caditor that reads \
+         them offers to restore them when it starts or opens this model."
     )
 }
 
