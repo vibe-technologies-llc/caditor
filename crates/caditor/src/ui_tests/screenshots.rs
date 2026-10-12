@@ -80,7 +80,7 @@ struct Look {
     scale: f32,
 }
 
-const LOOKS: [Look; 12] = [
+const LOOKS: [Look; 13] = [
     Look {
         name: "dark",
         theme: "dark",
@@ -115,6 +115,13 @@ const LOOKS: [Look; 12] = [
         view: "theme",
         high_contrast: false,
         scale: 2.0,
+    },
+    Look {
+        name: "dark-75",
+        theme: "dark",
+        view: "theme",
+        high_contrast: false,
+        scale: 0.75,
     },
     Look {
         name: "light-150",
@@ -591,6 +598,16 @@ fn screenshots() {
 
         model.click("View");
         shoot(&mut model, &gpu, &out, "menu-view", look);
+        model.key(Key::Escape, Modifiers::NONE);
+        model.frame();
+
+        model.click_button("Solid commands");
+        shoot(&mut model, &gpu, &out, "ribbon-menu-solid", look);
+        model.key(Key::Escape, Modifiers::NONE);
+        model.frame();
+
+        model.click_button("Analyse commands");
+        shoot(&mut model, &gpu, &out, "ribbon-menu-analyse", look);
         model.key(Key::Escape, Modifiers::NONE);
         model.frame();
 

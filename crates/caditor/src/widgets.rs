@@ -6,7 +6,7 @@ use egui::{
     Modal, Modifiers, Order, Painter, Popup, RadioButton, Rect, Response, RichText, ScrollArea,
     Sense, Sides, Slider, Stroke, StrokeKind, TextStyle, TextWrapMode, Ui, Vec2, Widget,
     WidgetInfo, WidgetText, WidgetType,
-    accesskit::{Live, Role},
+    accesskit::{HasPopup, Live, Role},
     collapsing_header::CollapsingState,
     emath::lerp,
     pos2,
@@ -1808,6 +1808,68 @@ fn corner_menu(ui: &mut Ui, rect: Rect, menu: &CornerMenu<'_>, mark: CornerMark)
         ui.label(strong(menu.name));
         ui.label(menu.contents);
     })
+}
+
+pub fn group_title(ui: &mut Ui, rect: Rect, id: Id, title: Arc<Galley>, name: &str) -> Response {
+    let tokens = appearance::tokens(ui);
+    let response = ui.interact(rect, id, Sense::click());
+    let open = group_menu_trigger(ui, &response, rect, name);
+    if ui.is_rect_visible(rect) {
+        let colour = if response.hovered() || open {
+            tokens.text
+        } else {
+            tokens.text_muted
+        };
+        let caret = unwrapped(
+            ui,
+            RichText::new(icons::EXPANDED).font(icon_font(SMALL_SIZE)),
+            TextStyle::Small,
+        );
+        let width = title.size().x + SPACE_XS + caret.size().x;
+        let left = rect.center().x - width / 2.0;
+        let title_at = pos2(left, rect.center().y - title.size().y / 2.0);
+        let caret_at = pos2(
+            left + title.size().x + SPACE_XS,
+            rect.center().y - caret.size().y / 2.0,
+        );
+        ui.painter()
+            .galley_with_override_text_color(title_at, title, colour);
+        ui.painter()
+            .galley_with_override_text_color(caret_at, caret, colour);
+    }
+    response
+}
+
+fn group_menu_trigger(ui: &Ui, response: &Response, rect: Rect, name: &str) -> bool {
+    let tokens = appearance::tokens(ui);
+    response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, ui.is_enabled(), name));
+    let open = Popup::is_id_open(ui.ctx(), Popup::default_response_id(response));
+    ui.ctx().accesskit_node_builder(response.id, |node| {
+        node.set_has_popup(HasPopup::Menu);
+        node.set_expanded(open);
+    });
+    if ui.is_rect_visible(rect) {
+        let fill = if response.is_pointer_button_down_on() {
+            tokens.pressed
+        } else if response.hovered() || open {
+            tokens.hover
+        } else {
+            Color32::TRANSPARENT
+        };
+        let stroke = if response.has_focus() {
+            Stroke::new(FOCUS_WIDTH, tokens.focus)
+        } else {
+            Stroke::NONE
+        };
+        ui.painter().rect(
+            rect,
+            CornerRadius::same(WIDGET_RADIUS),
+            fill,
+            stroke,
+            StrokeKind::Inside,
+        );
+    }
+    open
 }
 
 pub struct ToolButton<'a> {

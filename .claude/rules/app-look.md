@@ -343,9 +343,31 @@ paths:
   readers. Buttons explain themselves on hover with `ribbon::explained` (name, what it does with its
   shortcut, or why it is unavailable).
 - The main ribbon (`toolbar.rs`) is `ToolButton`s in the groups of its `Group` enum: History, Sketch,
-  Solid (Extrude, Revolve, Sweep, Hole), Modify, Pattern, Reference, Inspect; compact through
-  `toolbar::tool_button`. While a plane is being chosen for a new sketch, New sketch shows selected
-  and clicking it stops choosing (as Escape does), so the ribbon keeps its height.
+  Solid (Extrude, Revolve, Sweep, Hole), Modify, Pattern, Reference, Analyse (Measure,
+  Interference); compact through `toolbar::tool_button`. While a plane is being chosen for a new
+  sketch, New sketch shows selected and clicking it stops choosing (as Escape does), so the ribbon
+  keeps its height.
+- Every main-ribbon group opens a menu of all its commands (`Group::sections`, paragraphs split by
+  separators), buttonless ones included (Thread, the primitives, Offset face, Split face, Copy body,
+  Mirror faces, Split, Mates, Scale model, the face analyses, the comb, isocurves, Add a section
+  plane, centres of mass). Analyse is where the analysis and inspection commands live: Measure,
+  Check interference, the six face analyses, comb, isocurves, section view and centres of mass; no
+  command of another group belongs to it, and it keeps two buttons because the ribbon already fills
+  a 1400-point window, so another button would wrap it into two rows and move the view of every
+  test. The menu opens from the group's caption while captions show (`widgets::group_title`: the
+  caption and a caret, a strip as wide as the group, which `ribbon::captioned_by` draws in the
+  caption's place), else from the group's corner menu (`widgets::corner_menu_button`, the compact
+  notch on a compact ribbon) over its last tool, so neither adds width and the one-row, wrapped and
+  compact layouts pack as before. Both triggers are buttons named "<group> commands"
+  (`Group::menu_name`) and open an egui `Popup` of `PopupKind::Menu` through `widgets::fitted_menu`,
+  so Escape or a click outside closes it and it scrolls at 200%. Entries are
+  `menu_bar::MenuEntries` from the last frame's offers, keymap and `ToggleStates` (disabled with the
+  reason on hover, bound keys, checkmarks; `ToolbarContext::analysing`, `combing`, `isocurving` and
+  the measure and interference flags mark the open panels, `MenuEntries::marked`); opening it by
+  click, Enter or Space focuses the first available entry. A chosen command closes the menu and is
+  returned by `toolbar::show`; `app::show` runs it next frame through `Workspace::deferred_commands`
+  as the context menu's are, so the same `Command` path as the button, palette and keys decides what
+  happens (`ui_tests/group_menus.rs`).
 - While a sketch is edited the sketch ribbon (`sketch_toolbar.rs`) sits under it on `accent_surface`
   with an accent line along its top: a header without a caption (sketch badge, "Editing <name>"
   truncating with the full name on hover, the sketch's counts as `count_pill`s at the right and its

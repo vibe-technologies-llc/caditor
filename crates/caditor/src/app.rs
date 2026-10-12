@@ -621,6 +621,8 @@ pub fn show(
         });
     }
     let mut commands = CommandFrame::new(&preferences.keymap, triggered).with_clipboard(clipboard);
+    let toggles = ToggleStates::of(viewport, section.open)
+        .with_cosmetic_threads(model.threads_shown_cosmetic());
     let menu = MenuContext {
         views: model.document().saved_views(),
         sets: model.document().selection_sets(),
@@ -628,8 +630,7 @@ pub fn show(
         editing,
         offers: last_offers,
         chrome,
-        toggles: ToggleStates::of(viewport, section.open)
-            .with_cosmetic_threads(model.threads_shown_cosmetic()),
+        toggles,
     };
     menu_bar::show(ui, model, &menu, &mut commands, actions);
     let toolbar = ToolbarContext {
@@ -638,8 +639,17 @@ pub fn show(
         offers,
         measuring: measure.open,
         checking_interference: interference.open,
+        analysing: analysis.open.then_some(analysis.kind),
+        combing: comb.open,
+        isocurving: isocurves.open,
+        last_offers,
+        toggles,
     };
-    toolbar::show(ui, model, &toolbar, &mut commands, actions);
+    let chosen = toolbar::show(ui, model, &toolbar, &mut commands, actions);
+    if !chosen.is_empty() {
+        ui.ctx().request_repaint();
+        deferred_commands.extend(chosen);
+    }
     if commands.available(Command::Measure) {
         measure.toggle();
     }

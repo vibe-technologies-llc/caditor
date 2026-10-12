@@ -129,7 +129,7 @@ const RIBBON_GROUPS: [(&str, &[&str]); 7] = [
     ("Pattern", &["Linear pattern", "Circular pattern"]),
     ("Reference", &[toolbar::PLANE_LABEL, toolbar::AXIS_LABEL]),
     (
-        "Inspect",
+        "Analyse",
         &[toolbar::MEASURE_LABEL, toolbar::INTERFERENCE_LABEL],
     ),
 ];
