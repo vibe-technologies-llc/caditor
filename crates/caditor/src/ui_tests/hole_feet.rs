@@ -261,6 +261,7 @@ fn a_slotted_hole_shows_arrows_at_the_tips_of_its_slot() {
 #[test]
 fn a_tapped_hole_s_thread_depth_has_an_arrow_on_the_bore_and_keeps_the_size() {
     let mut harness = Harness::new();
+    harness.perform(Action::ShowThreadsAsCosmetic(true));
     let hole = open_plain_hole(&mut harness);
     let standard = HoleStandard {
         size: MetricSize::M6,
