@@ -131,20 +131,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Sketching
 
-- [next · high · medium] Tracking starts only from points that exist in the sketch: hovering a
-  line's middle shows the Midpoint snap but acquires nothing (`tracking::Acquired::note` keeps
-  sketch points and curve centres only), so moving the pointer away level with it, upright from it
-  or square to the line draws no dotted track and lands on nothing. The same holds for a crossing of
-  two curves (`Target::Intersection`), an outline's centre (`Target::Centre`, `Target::Centroid`)
-  and an ellipse's axis ends. Every point-like target hovered should be acquired and track as a
-  point does: dotted horizontal and vertical tracks through it, and from a line's middle also the
-  track square to the line through it (its perpendicular bisector), with crossings of tracks
-  offered as targets. A placed point landing on such a track needs a constraint keeping it there:
-  `HorizontalPoints`/`VerticalPoints` take sketch points, so the middle (or crossing) is tied by a
-  construction point `Midpoint` on the line made in the shape's own transaction, as projected
-  body items are, or a level-with-midpoint constraint is added; the slanted track's missing
-  point-on-a-direction constraint (below) is the same gap. Body items stay with their own entry
-  below. `next` because the user asked for it as the next sketching item.
 - [next · medium · easy] Hovering the centre of an outline (a rectangle, a regular polygon, a slot)
   highlights one piece of it, usually the line along X: `Drawing::snap_entities` highlights
   `Target::entity`, which for `Target::Centre` and `Target::Centroid` is `outline`, the piece the
@@ -177,9 +163,14 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   A pair of meshing gears at a centre distance following from the same parameters is missing, and
   so is a sprocket for roller chain (ISO 606 pitch and roller diameter, tooth count) in the same
   tool.
-- [medium · hard] The centre of an outline of odd sides and a slanted track place a point without
-  a constraint keeping it there, as the sketch has no centroid or point-on-a-direction constraint;
-  an odd outline with arcs has no centre at all. A drag snaps only its handle (the moving point
+- [medium · hard] The centre of an outline of odd sides, a slanted track and a track through
+  anything but a sketch point (a line's middle and its perpendicular bisector, a crossing of two
+  curves, an outline's centre, a quadrant, an ellipse's axis end) place a point without a
+  constraint keeping it there: the sketch has no centroid or point-on-a-direction constraint, and
+  `HorizontalPoints`/`VerticalPoints` take sketch points only, so holding a point level with a
+  middle or crossing needs a constraint taking that target itself (a solver form, a file record
+  and a glyph) rather than a construction point left in the sketch. An odd outline with arcs has
+  no centre at all. A drag snaps only its handle (the moving point
   nearest the press), not whichever moving point comes near a target.
 - [medium · hard] Splines cannot be trimmed or extended (`TrimError::Spline`). Offset takes
   one chain at a time, leaves the free ends of an open chain sliding along their curves and cannot

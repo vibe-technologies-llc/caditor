@@ -893,7 +893,12 @@ impl Drawing {
             .into_iter()
             .chain(hover.snap.target().and_then(Target::second_entity))
             .chain(hover.snap.direction().and_then(Direction::reference))
-            .chain(hover.tracks.points())
+            .chain(
+                hover
+                    .tracks
+                    .anchors()
+                    .flat_map(|anchor| anchor.entity().into_iter().chain(anchor.second_entity())),
+            )
             .collect()
     }
 
@@ -1135,8 +1140,10 @@ impl Drawing {
             Target::Extension(line) => snap::extension_guide(sketch, line, hover.position),
             _ => None,
         });
-        if let Some(target) = self.hover.and_then(|hover| hover.snap.target()) {
-            self.acquired.note(sketch, target);
+        if let Some(hover) = self.hover
+            && let Some(target) = hover.snap.target()
+        {
+            self.acquired.note(sketch, target, hover.position);
         }
         if self.choosing_arc_end()
             && let (Some(sweep), Some(hover)) = (&mut self.sweep, self.hover)
@@ -2724,12 +2731,13 @@ impl Drawing {
         };
         let tracks = match accept {
             Accept::Anything => {
-                let placed: Vec<EntityId> = self
+                let own: Vec<Target> = self
                     .placed
                     .iter()
-                    .filter_map(|placement| point_target(placement.snap))
+                    .filter_map(|placement| placement.snap.target())
+                    .filter(|target| target.is_point_like())
                     .collect();
-                tracking::nearby(sketch, screen, pointer, &self.acquired, &placed)
+                tracking::nearby(sketch, screen, pointer, &self.acquired, &[], &own)
             }
             Accept::Points | Accept::OnCircle { .. } => Tracks::default(),
         };
@@ -4158,7 +4166,10 @@ mod tests {
         let corner = hovered_at(&mut drawing, &sketch, Point2::new(40.2, 60.0)).unwrap();
 
         assert_eq!(corner.position, Point2::new(40.0, 60.0));
-        assert_eq!(corner.tracks.points().collect::<Vec<_>>(), vec![guide]);
+        assert_eq!(
+            corner.tracks.anchors().collect::<Vec<_>>(),
+            vec![Target::Point(guide)]
+        );
         assert_eq!(
             drawing.snap_label(&sketch),
             Some(format!("Vertical from Point {guide}"))
@@ -4166,6 +4177,36 @@ mod tests {
         assert_eq!(
             drawing.preview(Faceting::within(0.01)).guides,
             vec![[Point2::new(40.0, 30.0), Point2::new(40.0, 60.0)]]
+        );
+    }
+
+    #[test]
+    fn a_line_end_tracks_the_middle_of_a_line_hovered_before_and_highlights_that_line() {
+        let mut sketch = Sketch::new(caditor_geometry::Plane::XY);
+        let base = sketch.add_line(Point2::new(10.0, 10.0), Point2::new(50.0, 30.0));
+        let mut drawing = drawing_a_line(&sketch, Placement::free(Point2::ZERO));
+
+        let middle = hovered_at(&mut drawing, &sketch, Point2::new(30.2, 20.3)).unwrap();
+        let level = hovered_at(&mut drawing, &sketch, Point2::new(70.0, 20.2)).unwrap();
+
+        assert_eq!(middle.snap, Snap::Target(Target::Midpoint(base)));
+        assert_eq!(level.position, Point2::new(70.0, 20.0));
+        assert_eq!(level.snap, Snap::Free);
+        assert_eq!(
+            level.tracks.anchors().collect::<Vec<_>>(),
+            vec![Target::Midpoint(base)]
+        );
+        assert_eq!(
+            drawing.snap_label(&sketch),
+            Some(format!(
+                "Horizontal from the midpoint of {}, not kept there",
+                sketch.entity_label(base)
+            ))
+        );
+        assert_eq!(drawing.snap_entities(), vec![base]);
+        assert_eq!(
+            drawing.preview(Faceting::within(0.01)).guides,
+            vec![[Point2::new(30.0, 20.0), Point2::new(70.0, 20.0)]]
         );
     }
 

@@ -119,6 +119,7 @@ mod sketch_regions;
 mod sketch_symmetry;
 mod sketch_tangent_circles;
 mod sketch_tidying;
+mod sketch_tracking;
 mod stale_sketch_results;
 mod svg_import;
 mod templates;
@@ -17588,7 +17589,9 @@ fn a_point_drawn_square_to_a_line_from_its_end_lands_on_the_perpendicular() {
     harness.point_at(Point2::new(23.05, 14.03));
     let label = harness.sketch(feature).entity_label(line);
     let end_label = harness.sketch(feature).entity_label(end);
-    assert!(harness.shows(&format!("Perpendicular to {label} from {end_label}")));
+    assert!(harness.shows(&format!(
+        "Perpendicular to {label} from {end_label}, not kept there"
+    )));
     harness.click_at(Point2::new(23.05, 14.03));
     harness.settle();
 
