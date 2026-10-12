@@ -42,7 +42,6 @@ use self::{
     templates::Templates,
 };
 use crate::{
-    appearance,
     bodies::{self, FaceKey},
     commands::{Command, CommandFrame, RecentSlot},
     configuration_export::ConfigurationFile,
