@@ -425,12 +425,16 @@ paths:
   same healing, refusing with `HEALING_AWAITS_RECOMPUTE` until the recompute reports.
 - A row opened for editing (a sketch entered, a feature opened) collapses again when editing ends, by
   the checkmark, Enter, Escape or Finish (`PanelState::opened_for_editing`, `finished_editing`).
-- Whatever is selected in the view marks the rows of the features it belongs to as selected: a face,
-  edge or vertex its body's feature row and Bodies row, a sketch curve, region or constraint its
-  sketch, a datum its own (`Pickable::owner`, `PanelState::follow_view_selection` on each change of
-  the selection's generation, `in_view`); the first newly marked row is scrolled into view. The mark
-  is only a look (`reads_selected`): it never chooses the row, so the tree's commands and Delete act
-  on chosen rows only.
+- Whatever is selected in the view marks the rows of the features it belongs to as selected: a face
+  the feature row that made it (`viewport::tree_row_of`, the double-click's `feature_of`: a hole's
+  bore, a fillet's or chamfer's surface, a shell's wall or a pattern's copy marks that feature, not
+  the extrusion whose body it changed) and its body's Bodies row, an edge or vertex its body's feature
+  row and Bodies row, a sketch curve, region or constraint its sketch, a datum its own
+  (`Pickable::owner`, `PanelState::follow_view_selection` on each change of the selection's generation
+  or the evaluation, `in_view` for feature rows, `bodies_in_view` for Bodies rows); the first newly
+  marked feature row is scrolled into view. The mark is only a look (`reads_selected`,
+  `reads_body_selected`): it never chooses the row, so the tree's commands and Delete act on chosen
+  rows only.
 - The other way round, the rows chosen in the tree (`PanelState::chosen`, handed to the viewport each
   frame by `Viewport::show_chosen_rows`) highlight what they made as hovered geometry is: faces and
   edges of a body, curves of a sketch, a datum (`Highlight::chosen_rows`, part of the scene cache's

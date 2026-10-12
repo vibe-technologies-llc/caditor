@@ -881,7 +881,7 @@ pub fn show(
     if viewport.take_tree_dismissal() {
         panels.choose_nothing();
     }
-    panels.follow_view_selection(viewport.selection());
+    panels.follow_view_selection(viewport.selection(), model);
     interface_size(&preferences.appearance, &mut commands, actions);
     window_frame::commands(ui.ctx(), chrome.state, &mut commands);
     if blocked {

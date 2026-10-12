@@ -20,6 +20,7 @@ use crate::{
     reference_rows::RowCache,
     selection::{Pickable, Selection},
     sketch_toolbar::ConstraintOffers,
+    viewport,
     widgets::{self, SectionAction, SectionHeader},
 };
 
@@ -122,7 +123,8 @@ pub struct PanelState {
     pub selected_in_tree: Option<Vec<Pickable>>,
     pub sketch_command: Option<Command>,
     pub in_view: BTreeSet<FeatureId>,
-    view_selection: Option<u64>,
+    pub bodies_in_view: BTreeSet<FeatureId>,
+    view_selection: Option<(u64, u64)>,
     pub shown_place: Option<Point3>,
     pub reference_rows: RowCache,
     pub constraint_offers: ConstraintOffers,
@@ -275,26 +277,35 @@ impl PanelState {
         });
     }
 
-    pub fn follow_view_selection(&mut self, selection: &Selection) {
-        if self.view_selection == Some(selection.generation()) {
+    pub fn follow_view_selection(&mut self, selection: &Selection, model: &Model) {
+        let basis = (selection.generation(), model.evaluation_generation());
+        if self.view_selection == Some(basis) {
             return;
         }
-        self.view_selection = Some(selection.generation());
-        let owners = selection.owners();
-        if owners == self.in_view {
+        self.view_selection = Some(basis);
+        self.bodies_in_view = selection.owners();
+        let makers: BTreeSet<FeatureId> = selection
+            .iter()
+            .filter_map(|pickable| viewport::tree_row_of(pickable, model))
+            .collect();
+        if makers == self.in_view {
             return;
         }
-        if let Some(first) = owners.difference(&self.in_view).next() {
+        if let Some(first) = makers.difference(&self.in_view).next() {
             self.reveal(*first);
         }
-        self.in_view = owners;
+        self.in_view = makers;
     }
 
     pub fn reads_selected(&self, feature: FeatureId) -> bool {
         self.in_view.contains(&feature)
+    }
+
+    pub fn reads_body_selected(&self, body: FeatureId) -> bool {
+        self.bodies_in_view.contains(&body)
             || self
                 .selected
-                .is_some_and(|primary| primary == feature || self.also_selected.contains(&feature))
+                .is_some_and(|primary| primary == body || self.also_selected.contains(&body))
     }
 
     pub fn reveal(&mut self, feature: FeatureId) {

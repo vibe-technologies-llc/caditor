@@ -82,6 +82,7 @@ mod far_cuts;
 mod feature_handles;
 mod feature_panels;
 mod feature_tree_choice;
+mod feature_tree_marks;
 mod files_and_history;
 mod frame_costs;
 mod hole_feet;
