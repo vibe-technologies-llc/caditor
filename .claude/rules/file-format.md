@@ -205,7 +205,8 @@ Moves, mates, mirrors, scale:
   `point` or `plane`; unreadable point the origin).
 - `mirror`: `body`, `plane` (unreadable YZ), `keep_original`. `feature_mirror`: `mirrored`, ids of
   the features reflected in tree order (repeated id kept once). `face_mirror`: `faces` (unreadable
-  left out; none left mirrors the whole body, reported).
+  left out; none left mirrors the whole body, reported), around a `feature_mirror` when a mirror
+  holds both (the features win when computed, the faces are kept).
 - `scale`: `body`, `factor` (unreadable 1), three `center` lengths (unreadable 0 mm).
   `scaled_import`: inner import record, `scale` (unreadable 1), inside any `import_in_frame`.
 

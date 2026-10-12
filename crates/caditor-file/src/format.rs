@@ -3142,30 +3142,32 @@ fn grid_pattern_record(shape: PatternShapeRecord, skipped: Vec<[u32; 2]>) -> Fea
 }
 
 fn mirror_record(mirror: &Mirror) -> FeatureKindRecord {
-    let record = FeatureKindRecord::Mirror(MirrorRecord {
+    let whole = FeatureKindRecord::Mirror(MirrorRecord {
         body: mirror.body.raw(),
         plane: Lenient::Read(plane_reference_record(&mirror.plane)),
         keep_original: mirror.keep_original,
     });
-    if mirror.mirrors_faces() {
-        return FeatureKindRecord::FaceMirror(Box::new(FaceMirrorRecord {
-            feature: record,
-            faces: mirror
-                .faces
+    let features = if mirror.mirrored.is_empty() {
+        whole
+    } else {
+        FeatureKindRecord::FeatureMirror(Box::new(FeatureMirrorRecord {
+            feature: whole,
+            mirrored: mirror
+                .mirrored
                 .iter()
-                .map(|face| Lenient::Read(face_record(face)))
+                .map(|feature| feature.raw())
                 .collect(),
-        }));
+        }))
+    };
+    if mirror.faces.is_empty() {
+        return features;
     }
-    if !mirror.mirrors_features() {
-        return record;
-    }
-    FeatureKindRecord::FeatureMirror(Box::new(FeatureMirrorRecord {
-        feature: record,
-        mirrored: mirror
-            .mirrored
+    FeatureKindRecord::FaceMirror(Box::new(FaceMirrorRecord {
+        feature: features,
+        faces: mirror
+            .faces
             .iter()
-            .map(|feature| feature.raw())
+            .map(|face| Lenient::Read(face_record(face)))
             .collect(),
     }))
 }

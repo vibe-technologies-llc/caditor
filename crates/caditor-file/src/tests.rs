@@ -4385,6 +4385,37 @@ fn a_mirror_of_faces_is_a_kind_older_readers_report_and_reads_back() {
 }
 
 #[test]
+fn a_mirror_holding_both_features_and_faces_keeps_both() {
+    use caditor_document::Mirror;
+    use caditor_kernel::{FaceName, FaceReference};
+    let (mut document, base, _) = solid_model();
+    let face = FaceReference::new(FaceName::from_digest(5), None, []);
+
+    let mut transaction = document.transaction("Mirror");
+    let mirror = transaction.add_feature(
+        "Mirror 1",
+        FeatureKind::Mirror(
+            Mirror::new(base, PlaneReference::Principal(PrincipalPlane::Xz))
+                .mirroring(vec![base])
+                .mirroring_faces(vec![face]),
+        ),
+    );
+    document.apply(transaction.finish()).unwrap();
+    let kind = document.feature(mirror).unwrap().kind.clone();
+    let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: mirror, kind });
+    let journaled = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+
+    let loaded = decode_text(&encode(&document).unwrap());
+
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert_eq!(
+        format::restore_transaction(through_binary(&journaled)),
+        Some(transaction)
+    );
+}
+
+#[test]
 fn a_move_turning_about_its_body_centre_is_a_kind_older_readers_report_and_reads_back() {
     use caditor_document::{Move, TurnCentre};
     let (mut document, base, _) = solid_model();
