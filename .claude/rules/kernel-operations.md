@@ -84,6 +84,44 @@ paths:
   tried, then a window starting at an angle the chain never reaches; else `ClosesRound`. A
   selection of no region or all of them is `Misses`. The tool's faces along the window's edges
   coincide with the seam, so the cut adds no edge there.
+- `sweep(plane, regions, path, SweepOrientation, feature)` (`sweep/`) sweeps regions along a path of
+  `PathSegment`s (curve, range, the caller's key): valid or a `PathSweepError`, whose path errors
+  name segments by their index in the input (`segments()`) and which wraps `SweepError` for the
+  profile's. `path.rs` chains segments by their ends (`Branches`, `Apart`, `SegmentTooShort`),
+  walks an open chain from the end nearest the profile plane (then nearest the profile's middle),
+  and opens a closed one where it crosses the profile plane nearest the profile's middle, splitting
+  that segment (`ClosedPathMissesProfile` when it never crosses), walked so it leaves along the
+  plane's normal. Ellipses become rational splines and intersection curves interpolated ones. The
+  profile is carried by a placement starting where it is drawn: `Square` keeps its angle to the path
+  (rotation-minimising), `Parallel` only translates it; the path must leave the plane by
+  `LEAST_RISE` (`StartsAlongProfile`).
+- Each path segment (a leg) is a ring of side faces, one per profile piece; joints are sections of
+  the profile shared by the legs either side; an open path has extrude's start and end caps and
+  their names. A line leg is an extrusion along it (`side_surface`); a square arc whose placed
+  profile holds the arc's axis within `MERIDIAN_SLACK` takes revolve's surfaces (`Frame::turning`,
+  `prepare`, `surface_of`: plane, cylinder, cone, torus, `Revolution`); a parallel arc or spline
+  is the exact tensor product of the piece's spline and the path's (`sliding_surface`); a square
+  spline, or an arc the profile leans to, is fitted (`stations.rs`): the pieces' control points are
+  carried by the frames at stations doubling from `STATIONS_PER_SPAN` a span until the cubic rows
+  hold the frames halfway between within `FIT_TOLERANCE`, at most `MAX_STATIONS` (`TooIntricate`),
+  frames along a spline rotation-minimising by double reflection. Edges along a leg are lines,
+  circles about the arc's axis, the path's spline translated or the stations' trajectory, so each
+  is exactly a boundary of its faces.
+- Joints within `SMOOTH_TURN` continue the placement. A parallel sweep takes any corner as it comes
+  (the profile only translates). A square sweep mitres a corner between two lines: the profile
+  turns by the corner, the section is it projected along the incoming line onto the bisecting
+  plane (extrude's tilted `Cap`), refused as `CornerTooSharp` past `MOST_MITRE_TURN` or when the
+  mitre reaches either line's far end; any other corner is `Corner` (rounding the path in its
+  sketch is the fix). A closed path must bring the profile back within `FIT_TOLERANCE`
+  (`ClosedPathTwists`; a planar one always does), the last fitted row then made the first exactly;
+  one whole-arc leg is revolve's full turn (flat pieces annuli, sections seams).
+- Folding: a square sweep checks the motion's Jacobian `(1 − κ·r)(T·n) + (κ·n)(T·r)` at each
+  leg's start and every station for every profile sample, which must keep the start's sign above
+  `FOLD_MARGIN` (`ProfileTooLarge`: the profile reaches the bend's centre); a parallel sweep must
+  keep rising by `LEAST_RISE` along every leg (`TurnsAlongProfile`), which also makes it never cross
+  itself. A square sweep of more than one leg or with a fitted leg runs `find_crossing` after
+  validating (`CrossesItself`; inconclusive passes). Taper, twist, guide rails, round corners and
+  lofts are roadmap entries.
 - `heights(plane, regions, target)` gives the least and most signed height of a target plane over
   the profile, to tell a plane ahead from one behind or across.
 - `next_face(solid, plane, regions, reversed)` casts rays from the regions' triangle centroids

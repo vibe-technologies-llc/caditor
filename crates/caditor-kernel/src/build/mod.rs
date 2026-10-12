@@ -2,6 +2,7 @@ mod extrude;
 pub(crate) mod plan;
 mod reach;
 mod revolve;
+mod sweep;
 mod taper;
 #[cfg(test)]
 mod taper_tests;
@@ -26,6 +27,7 @@ pub use self::{
         stop_at_body,
     },
     revolve::revolve,
+    sweep::{PathSegment, PathSweepError, SweepOrientation, sweep},
     taper::{MAX_TAPER_DEGREES, extrude_tapered},
     wrap::{WrapError, wrap_regions},
     wrap_cut::wrap_chain,

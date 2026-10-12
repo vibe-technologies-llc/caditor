@@ -23,6 +23,7 @@ const SIDE_BEHIND_FACE: u8 = 0x09;
 const SPLIT_FACE: u8 = 0x0a;
 const CLOSURE_FACE: u8 = 0x0b;
 const THREAD_FACE: u8 = 0x0c;
+const SWEPT_FACE: u8 = 0x0d;
 const EDGE_BETWEEN: u8 = 0x10;
 const EDGE_BETWEEN_AT: u8 = 0x11;
 const SEAM_EDGE: u8 = 0x12;
@@ -147,6 +148,15 @@ impl FaceName {
         let mut digest = Digest::new(THREAD_FACE);
         digest.u64(feature);
         digest.u64(part);
+        Self(digest.finish())
+    }
+
+    pub fn swept(feature: u64, piece: &PieceId, path: u128, part: u8) -> Self {
+        let mut digest = Digest::new(SWEPT_FACE);
+        digest.u64(feature);
+        piece.write(&mut digest);
+        digest.u128(path);
+        digest.byte(part);
         Self(digest.finish())
     }
 

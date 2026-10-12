@@ -43,7 +43,7 @@ pub(super) struct Level {
 }
 
 impl Level {
-    fn flat(height: f64) -> Self {
+    pub(super) fn flat(height: f64) -> Self {
         Self {
             at_origin: height,
             slope: Vector2::ZERO,
@@ -87,7 +87,7 @@ impl Level {
         self.is_flat().then_some(self.at_origin)
     }
 
-    fn minus(self, other: Self) -> Self {
+    pub(super) fn minus(self, other: Self) -> Self {
         Self {
             at_origin: self.at_origin - other.at_origin,
             slope: self.slope - other.slope,
@@ -150,7 +150,7 @@ pub(super) fn settled(level: Level, regions: &[Region]) -> Level {
     }
 }
 
-struct Cap {
+pub(super) struct Cap {
     level: Level,
     plane: Plane,
     direction: Vector3,
@@ -166,7 +166,11 @@ fn moved_plane(sketch: &Plane, direction: Vector3, height: f64) -> Result<Plane,
 }
 
 impl Cap {
-    fn new(sketch: &Plane, direction: Vector3, level: Level) -> Result<Self, SweepError> {
+    pub(super) fn new(
+        sketch: &Plane,
+        direction: Vector3,
+        level: Level,
+    ) -> Result<Self, SweepError> {
         let plane = if level.is_flat() {
             moved_plane(sketch, direction, level.at_origin)?
         } else {
@@ -190,7 +194,7 @@ impl Cap {
         self.level.is_flat()
     }
 
-    fn point(&self, sketch: &Plane, point: Point2) -> Point3 {
+    pub(super) fn point(&self, sketch: &Plane, point: Point2) -> Point3 {
         if self.is_flat() {
             self.plane.to_world(point)
         } else {
@@ -198,7 +202,11 @@ impl Cap {
         }
     }
 
-    fn edge(&self, sketch: &Plane, piece: &Piece) -> Result<(Curve, Interval), SweepError> {
+    pub(super) fn edge(
+        &self,
+        sketch: &Plane,
+        piece: &Piece,
+    ) -> Result<(Curve, Interval), SweepError> {
         let range = piece.range();
         if self.is_flat() {
             return Ok((piece.curve().on_plane(&self.plane)?, range));
@@ -625,7 +633,7 @@ fn cap_pcurve(
     Pcurve::new(samples, PCURVE_TOLERANCE).map_err(|_| SweepError::Unassembled)
 }
 
-fn side_surface(
+pub(super) fn side_surface(
     bottom: &Plane,
     direction: Vector3,
     piece: &Piece,
