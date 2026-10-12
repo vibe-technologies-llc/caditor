@@ -879,7 +879,7 @@ impl Sketch {
         constraint: Constraint,
     ) -> Result<(), SketchError> {
         self.check_new_id(id.raw())?;
-        self.check_constraint(&constraint)?;
+        self.check_constraint_against(&constraint, Unmoving::ReferenceGeometry)?;
         self.count_uses(&constraint.entities(), true);
         self.constraints.insert(id, constraint);
         self.reserve_ids_below(id.raw().saturating_add(1));
@@ -980,6 +980,14 @@ impl Sketch {
     }
 
     pub fn check_constraint(&self, constraint: &Constraint) -> Result<(), SketchError> {
+        self.check_constraint_against(constraint, Unmoving::FixedGeometry)
+    }
+
+    fn check_constraint_against(
+        &self,
+        constraint: &Constraint,
+        unmoving: Unmoving,
+    ) -> Result<(), SketchError> {
         let entities = constraint.entities();
         if let Some(missing) = entities.iter().find(|entity| !self.contains(**entity)) {
             return Err(SketchError::MissingEntity(*missing));
@@ -1006,25 +1014,25 @@ impl Sketch {
                 match (spline, ellipse) {
                     (Some((point, curve)), _) => self.check_not_own_point(point, curve),
                     (None, Some((point, curve))) => {
-                        self.check_not_only_reference(&entities)?;
+                        self.check_not_only_reference(&entities, unmoving)?;
                         self.check_not_own_point(point, curve)
                     }
-                    (None, None) => self.check_point_on_curve(constraint, a, b),
+                    (None, None) => self.check_point_on_curve(constraint, a, b, unmoving),
                 }
             }
             Constraint::Horizontal(line) | Constraint::Vertical(line) => {
                 self.expect(line, &[Role::Line, Role::Elliptic], "a line or an ellipse")?;
-                self.check_not_only_reference(&entities)
+                self.check_not_only_reference(&entities, unmoving)
             }
             Constraint::HorizontalPoints(a, b) | Constraint::VerticalPoints(a, b) => {
                 self.expect(a, &[Role::Point], "a point")?;
                 self.expect(b, &[Role::Point], "a point")?;
-                self.check_not_only_reference(&entities)
+                self.check_not_only_reference(&entities, unmoving)
             }
             Constraint::HorizontalDistance { from: a, to: b, .. }
             | Constraint::VerticalDistance { from: a, to: b, .. } => {
                 self.check_axis_offset(constraint, a, b)?;
-                self.check_not_only_reference(&entities)
+                self.check_not_only_reference(&entities, unmoving)
             }
             Constraint::Perpendicular(a, b)
                 if matches!(
@@ -1033,7 +1041,7 @@ impl Sketch {
                         | (Some(Role::Circular), Some(Role::Line))
                 ) =>
             {
-                self.check_not_only_reference(&entities)
+                self.check_not_only_reference(&entities, unmoving)
             }
             Constraint::Angle { from: a, to: b, .. } if self.is_arc(a) || self.is_arc(b) => {
                 let (arc, line) = if self.is_arc(a) { (a, b) } else { (b, a) };
@@ -1041,7 +1049,7 @@ impl Sketch {
                 if arc_joint(self, arc, line).is_none() {
                     return Err(not_joined(self, constraint, a, b));
                 }
-                self.check_not_only_reference(&entities)
+                self.check_not_only_reference(&entities, unmoving)
             }
             Constraint::Parallel(a, b)
             | Constraint::Perpendicular(a, b)
@@ -1049,7 +1057,7 @@ impl Sketch {
             | Constraint::Angle { from: a, to: b, .. } => {
                 self.expect(a, &[Role::Line], "a line")?;
                 self.expect(b, &[Role::Line], "a line")?;
-                self.check_not_only_reference(&entities)
+                self.check_not_only_reference(&entities, unmoving)
             }
             Constraint::Tangent(a, b) => {
                 let needed = "a line, a circle, an arc, a spline or an ellipse";
@@ -1059,7 +1067,7 @@ impl Sketch {
                 match (first, second) {
                     (Role::Line, Role::Line) => Err(self.not_applicable(constraint, a, b)),
                     (Role::Elliptic, _) | (_, Role::Elliptic) => {
-                        self.check_not_only_reference(&entities)
+                        self.check_not_only_reference(&entities, unmoving)
                     }
                     _ => Ok(()),
                 }
@@ -1084,7 +1092,7 @@ impl Sketch {
                 if !joined_at_end(self, a, b) {
                     return Err(not_joined(self, constraint, a, b));
                 }
-                self.check_not_only_reference(&entities)
+                self.check_not_only_reference(&entities, unmoving)
             }
             Constraint::Equal(a, b) => {
                 let needed = "a line, a circle, an arc, a spline or an ellipse";
@@ -1125,7 +1133,7 @@ impl Sketch {
                     &[Role::Elliptic],
                     "an ellipse or an elliptical arc",
                 )?;
-                self.check_not_only_reference(&entities)?;
+                self.check_not_only_reference(&entities, unmoving)?;
                 self.check_not_own_point(point, ellipse)
             }
             Constraint::Symmetric {
@@ -1136,13 +1144,13 @@ impl Sketch {
                 self.expect(first, &[Role::Point], "a point")?;
                 self.expect(second, &[Role::Point], "a point")?;
                 self.expect(about, &[Role::Point, Role::Line], "a point or a line")?;
-                self.check_not_only_reference(&entities)?;
+                self.check_not_only_reference(&entities, unmoving)?;
                 self.check_not_own_point(first, about)?;
                 self.check_not_own_point(second, about)
             }
             Constraint::Fix { point, at } => {
                 self.expect(point, &[Role::Point], "a point")?;
-                self.check_not_only_reference(&entities)?;
+                self.check_not_only_reference(&entities, unmoving)?;
                 if at.is_finite() {
                     Ok(())
                 } else {
@@ -1151,14 +1159,14 @@ impl Sketch {
             }
             Constraint::Distance { from, to, .. } => match (self.role(from), self.role(to)) {
                 (Some(Role::Line | Role::Circular), Some(Role::Line | Role::Circular)) => {
-                    self.check_not_only_reference(&entities)
+                    self.check_not_only_reference(&entities, unmoving)
                 }
                 (Some(Role::Point), Some(Role::Spline)) => {
-                    self.check_not_only_reference(&entities)?;
+                    self.check_not_only_reference(&entities, unmoving)?;
                     self.check_not_own_point(from, to)
                 }
                 (Some(Role::Spline), Some(Role::Point)) => {
-                    self.check_not_only_reference(&entities)?;
+                    self.check_not_only_reference(&entities, unmoving)?;
                     self.check_not_own_point(to, from)
                 }
                 (Some(Role::Spline), Some(Role::Line | Role::Circular))
@@ -1168,22 +1176,22 @@ impl Sketch {
                     Some(Role::Line | Role::Circular | Role::Elliptic | Role::Spline),
                 )
                 | (Some(Role::Line | Role::Circular | Role::Spline), Some(Role::Elliptic)) => {
-                    self.check_not_only_reference(&entities)
+                    self.check_not_only_reference(&entities, unmoving)
                 }
                 (Some(Role::Point), Some(Role::Elliptic)) => {
-                    self.check_not_only_reference(&entities)?;
+                    self.check_not_only_reference(&entities, unmoving)?;
                     self.check_not_own_point(from, to)
                 }
                 (Some(Role::Elliptic), Some(Role::Point)) => {
-                    self.check_not_only_reference(&entities)?;
+                    self.check_not_only_reference(&entities, unmoving)?;
                     self.check_not_own_point(to, from)
                 }
-                _ => self.check_point_on_curve(constraint, from, to),
+                _ => self.check_point_on_curve(constraint, from, to, unmoving),
             },
             Constraint::AxisDiameter { point, axis, .. } => {
                 self.expect(point, &[Role::Point], "a point")?;
                 self.expect(axis, &[Role::Line], "a line")?;
-                self.check_not_only_reference(&entities)?;
+                self.check_not_only_reference(&entities, unmoving)?;
                 self.check_not_own_point(point, axis)
             }
             Constraint::Radius { entity, .. } | Constraint::Diameter { entity, .. } => self
@@ -1211,7 +1219,7 @@ impl Sketch {
                 Some(Entity::Spline {
                     kind: SplineKind::Conic { .. },
                     ..
-                }) => self.check_not_only_reference(&entities),
+                }) => self.check_not_only_reference(&entities, unmoving),
                 _ => Err(SketchError::WrongKind {
                     entity: conic,
                     found: self.entity_label(conic),
@@ -1635,8 +1643,16 @@ impl Sketch {
         }
     }
 
-    fn check_not_only_reference(&self, entities: &[EntityId]) -> Result<(), SketchError> {
-        if entities.iter().all(|entity| self.is_fixed(*entity)) {
+    fn check_not_only_reference(
+        &self,
+        entities: &[EntityId],
+        unmoving: Unmoving,
+    ) -> Result<(), SketchError> {
+        let never_moves = |entity: &EntityId| match unmoving {
+            Unmoving::FixedGeometry => self.is_fixed(*entity),
+            Unmoving::ReferenceGeometry => entity.is_reference(),
+        };
+        if entities.iter().all(never_moves) {
             Err(SketchError::OnlyReference)
         } else {
             Ok(())
@@ -1648,17 +1664,18 @@ impl Sketch {
         constraint: &Constraint,
         a: EntityId,
         b: EntityId,
+        unmoving: Unmoving,
     ) -> Result<(), SketchError> {
         let roles = (self.role(a), self.role(b));
         let (point, curve) = match roles {
             (Some(Role::Point), Some(Role::Point)) => {
-                return self.check_not_only_reference(&[a, b]);
+                return self.check_not_only_reference(&[a, b], unmoving);
             }
             (Some(Role::Point), Some(Role::Line | Role::Circular)) => (a, b),
             (Some(Role::Line | Role::Circular), Some(Role::Point)) => (b, a),
             _ => return Err(self.not_applicable(constraint, a, b)),
         };
-        self.check_not_only_reference(&[a, b])?;
+        self.check_not_only_reference(&[a, b], unmoving)?;
         self.check_not_own_point(point, curve)
     }
 
@@ -1732,6 +1749,12 @@ impl Sketch {
         self.next_id = self.next_id.saturating_add(1);
         id
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Unmoving {
+    FixedGeometry,
+    ReferenceGeometry,
 }
 
 #[cfg(test)]
@@ -2668,5 +2691,35 @@ mod tests {
         assert!(inactive >= constructed + MANY * size_of::<ConstraintId>());
         assert!(labelled >= inactive + MANY * size_of::<Vector2>());
         assert!(projected >= labelled + MANY * size_of::<EntityId>());
+    }
+
+    #[test]
+    fn an_inserted_constraint_may_rest_on_geometry_projected_since_but_not_on_references_alone() {
+        let mut sketch = Sketch::new(Plane::XY);
+
+        let circle = sketch.add_circle(Point2::new(4.0, 2.0), 3.0);
+        let centre = EntityId::from_raw(0);
+        let offset = Constraint::HorizontalDistance {
+            from: centre,
+            to: EntityId::VERTICAL_AXIS,
+            value: Expression::Number(4.0),
+        };
+        let axes = Constraint::Perpendicular(EntityId::HORIZONTAL_AXIS, EntityId::VERTICAL_AXIS);
+        sketch.set_projected(circle, true).unwrap();
+        sketch.set_projected(centre, true).unwrap();
+
+        assert_eq!(
+            sketch.check_constraint(&offset),
+            Err(SketchError::OnlyReference)
+        );
+        assert_eq!(
+            sketch.insert_constraint(ConstraintId::from_raw(10), offset),
+            Ok(())
+        );
+        assert_eq!(
+            sketch.insert_constraint(ConstraintId::from_raw(11), axes),
+            Err(SketchError::OnlyReference)
+        );
+        assert_eq!(sketch.constraints().len(), 1);
     }
 }

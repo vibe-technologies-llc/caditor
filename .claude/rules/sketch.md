@@ -43,7 +43,10 @@ paths:
   was made with. A projected edge cut into pieces upstream stays this one curve while the pieces
   join end to end (`document.md`); it never becomes several curves, so a constraint on it is kept
   or the sketch fails in words, never losing one silently. A constraint on projected or reference
-  geometry alone is `OnlyReference`. Trim, extend and the sketch fillet refuse it (`Projected`); it
+  geometry alone is `OnlyReference` when added (`add_constraint`, `check_constraint`); one inserted
+  under its ID (`insert_constraint`: undo, journal replay, loading) is refused only on reference
+  geometry alone, since projecting a curve after constraining its points leaves a kept constraint on
+  projected geometry and undoing its removal must restore it. Trim, extend and the sketch fillet refuse it (`Projected`); it
   still cuts, offsets, mirrors and takes constraints. It is profile geometry unless made construction.
 - `Sketch::open_ends`: end points of profile curves joined to nothing (their class of points,
   shared or `Coincident`, holds no other curve end and lies on no other profile curve by

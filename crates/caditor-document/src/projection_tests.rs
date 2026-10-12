@@ -1,7 +1,7 @@
-use caditor_expression::{Expression, ParameterId};
+use caditor_expression::{Expression, ParameterId, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
 use caditor_kernel::{EdgeId, EdgeReference, Solid};
-use caditor_sketch::{Entity, EntityId, Sketch};
+use caditor_sketch::{Constraint, Entity, EntityId, Sketch};
 
 use crate::*;
 
@@ -575,4 +575,41 @@ fn unprojecting_one_of_two_lines_keeps_their_shared_point_projected() {
         projected_flags(&document, sketch),
         vec![shared, far, second]
     );
+}
+
+#[test]
+fn undoing_the_removal_of_a_constraint_whose_points_were_projected_since_restores_it() {
+    let mut document = Document::default();
+
+    let mut source = Sketch::new(Plane::XY);
+    let circle = source.add_circle(Point2::new(4.0, 2.0), 3.0);
+    let centre = EntityId::from_raw(0);
+    let offset = source
+        .add_constraint(Constraint::HorizontalDistance {
+            from: centre,
+            to: EntityId::VERTICAL_AXIS,
+            value: Expression::Measure(4.0, Unit::Millimetre),
+        })
+        .unwrap();
+    let mut transaction = document.transaction("Sketch");
+    let sketch = transaction.add_feature("Sketch", FeatureKind::from(source));
+    document.apply(transaction.finish()).unwrap();
+    document
+        .apply(principal_projection(sketch, circle))
+        .unwrap();
+    let before = document.clone();
+
+    let inverse = document
+        .apply(Transaction::single(
+            "Delete",
+            Edit::RemoveSketchConstraint {
+                feature: sketch,
+                id: offset,
+            },
+        ))
+        .unwrap();
+    document.apply(inverse).unwrap();
+
+    assert_eq!(projected_flags(&document, sketch), vec![centre, circle]);
+    assert!(document.same_content(&before));
 }
