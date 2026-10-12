@@ -1,6 +1,6 @@
 use caditor_geometry::{Aabb, Point3, Vector3};
 
-use crate::intersect::boxes_overlap;
+use crate::{intersect::boxes_overlap, tally};
 
 const LEAF_SIZE: usize = 4;
 
@@ -101,6 +101,7 @@ impl BoxTree {
             let Some(node) = self.nodes.get(index) else {
                 continue;
             };
+            tally::add(1);
             if !test(&node.bounds) {
                 continue;
             }
@@ -142,6 +143,7 @@ impl BoxTree {
             let Some(node) = self.nodes.get(index) else {
                 continue;
             };
+            tally::add(1);
             if nearest_squared(&node.bounds, point) > reach {
                 continue;
             }

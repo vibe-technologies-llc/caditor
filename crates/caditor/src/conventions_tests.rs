@@ -258,6 +258,186 @@ fn the_comment_scanners_tell_comments_from_strings_and_lifetimes() {
     );
 }
 
+fn is_identifier_character(character: char) -> bool {
+    character.is_alphanumeric() || character == '_'
+}
+
+fn string_end(characters: &[char], opening: usize) -> usize {
+    let mut index = opening + 1;
+    while let Some(inside) = characters.get(index) {
+        match inside {
+            '\\' => index += 2,
+            '"' => return index + 1,
+            _ => index += 1,
+        }
+    }
+    index
+}
+
+fn raw_string_end(characters: &[char], start: usize) -> Option<usize> {
+    let hashes = characters
+        .iter()
+        .skip(start + 1)
+        .take_while(|character| **character == '#')
+        .count();
+    if characters.get(start + 1 + hashes) != Some(&'"') {
+        return None;
+    }
+    let closing: Vec<char> = std::iter::once('"')
+        .chain(std::iter::repeat_n('#', hashes))
+        .collect();
+    let body = start + 2 + hashes;
+    (body..characters.len())
+        .find(|index| characters.get(*index..*index + closing.len()) == Some(closing.as_slice()))
+        .map(|index| index + closing.len())
+}
+
+fn character_end(characters: &[char], start: usize) -> Option<usize> {
+    match (characters.get(start + 1), characters.get(start + 2)) {
+        (Some('\\'), _) => (start + 3..start + 10)
+            .find(|index| characters.get(*index) == Some(&'\''))
+            .map(|index| index + 1),
+        (Some(_), Some('\'')) => Some(start + 3),
+        _ => None,
+    }
+}
+
+fn literal_end(characters: &[char], start: usize) -> Option<usize> {
+    let before_is_identifier = start
+        .checked_sub(1)
+        .and_then(|before| characters.get(before))
+        .is_some_and(|before| is_identifier_character(*before));
+    match characters.get(start)? {
+        '"' => Some(string_end(characters, start)),
+        '\'' => character_end(characters, start),
+        'r' if !before_is_identifier => raw_string_end(characters, start),
+        _ => None,
+    }
+}
+
+fn mentions_elapsed(characters: &[char], opening: usize) -> bool {
+    let mut depth = 0_usize;
+    let mut index = opening;
+    while let Some(current) = characters.get(index) {
+        if let Some(end) = literal_end(characters, index) {
+            index = end;
+            continue;
+        }
+        match current {
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    return false;
+                }
+            }
+            character if is_identifier_character(*character) => {
+                let word: String = characters
+                    .iter()
+                    .skip(index)
+                    .take_while(|character| is_identifier_character(**character))
+                    .collect();
+                if word.contains(ELAPSED) {
+                    return true;
+                }
+                index += word.chars().count();
+                continue;
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    false
+}
+
+const ELAPSED: &str = "elapsed";
+
+fn first_timed_assertion(source: &str) -> Option<usize> {
+    let characters: Vec<char> = source.chars().collect();
+    let mut index = 0;
+    while let Some(current) = characters.get(index) {
+        if let Some(end) = literal_end(&characters, index) {
+            index = end;
+            continue;
+        }
+        if !is_identifier_character(*current) {
+            index += 1;
+            continue;
+        }
+        let word: String = characters
+            .iter()
+            .skip(index)
+            .take_while(|character| is_identifier_character(**character))
+            .collect();
+        let after = index + word.chars().count();
+        let is_assertion = word.starts_with("assert") || word.starts_with("debug_assert");
+        if is_assertion
+            && characters.get(after) == Some(&'!')
+            && characters.get(after + 1) == Some(&'(')
+            && mentions_elapsed(&characters, after + 1)
+        {
+            let line = characters
+                .iter()
+                .take(index)
+                .filter(|character| **character == '\n')
+                .count();
+            return Some(line + 1);
+        }
+        index = after;
+    }
+    None
+}
+
+#[test]
+fn no_assertion_reads_the_clock() {
+    let root = repository();
+    let timed: Vec<String> = files_with_extension(&root.join("crates"), "rs")
+        .into_iter()
+        .chain(files_with_extension(&root.join("fuzz"), "rs"))
+        .filter_map(|path| {
+            let line = first_timed_assertion(&fs::read_to_string(&path).unwrap())?;
+            Some(format!("{}:{line}", path.display()))
+        })
+        .collect();
+
+    assert!(
+        timed.is_empty(),
+        "bound the work done (a count or a tally), never wall-clock time, in {timed:#?}"
+    );
+}
+
+#[test]
+fn the_clock_scanner_tells_assertions_on_elapsed_time_from_other_code() {
+    let timed = "let a = 1;\nassert!(started.elapsed() < LIMIT);\n";
+    let split = "assert!(\n    ok,\n    \"{:?}\",\n    started.elapsed()\n);";
+    let named = "assert_eq!(elapsed_ms(run()), 1);";
+    let debug = "debug_assert!(clock.elapsed() < LIMIT);";
+
+    assert_eq!(first_timed_assertion(timed), Some(2));
+    assert_eq!(first_timed_assertion(split), Some(1));
+    assert_eq!(first_timed_assertion(named), Some(1));
+    assert_eq!(first_timed_assertion(debug), Some(1));
+
+    assert_eq!(first_timed_assertion("let took = started.elapsed();"), None);
+    assert_eq!(first_timed_assertion("assert!(\"elapsed\" == text);"), None);
+    assert_eq!(
+        first_timed_assertion("assert!(r#\"elapsed)\"# == text);"),
+        None
+    );
+    assert_eq!(
+        first_timed_assertion("assert!(count < 3);\nlet t = clock.elapsed();"),
+        None
+    );
+    assert_eq!(
+        first_timed_assertion("assert!(Instant::now() < deadline, \"late\");"),
+        None
+    );
+    assert_eq!(
+        first_timed_assertion("assert!(f(')') && clock.ok());"),
+        None
+    );
+}
+
 #[test]
 fn every_member_inherits_the_workspace_lints() {
     let root = repository();

@@ -22,13 +22,9 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   failure and the journal is taken up again, and no test stops or breaks the worker. Add a test
   seam that stops the storage worker on command and cover a failed record keeping every entry and
   starting a new worker, a failed save reported as failed, and quitting with the worker gone.
-- [medium · medium] Wall-clock asserts in the default suite, which flake on a loaded runner and
-  miss complexity regressions on a fast one: `profile/tests.rs` (2 s), `binary/tests.rs` (2 s),
-  `caditor-expression` (2 s), `read/structure.rs` (5 s), `fit.rs` and `import/tests.rs` (10 s)
-  and about seven more in the kernel and file crates; the nightly
-  `diagnosis_tests` asserts under 5 s, against `sketch-solver.md`'s "never wall-clock time". Bound
-  them by work units or iteration counts, and refuse `elapsed()` inside an assert in a
-  conventions test.
+- [low · easy] The XML test of a hundred thousand distinct namespaces asserts nothing about cost
+  since its wall-clock bound went: give `Parser::intern` a `tally` unit per entry it compares and
+  bound the total by the declarations made.
 - [low · easy] `caditor-file` depends on `ttf-parser` directly for SVG text (`import/svg/font.rs`),
   which is why `deny.toml` ignores RUSTSEC-2026-0192 (unmaintained) beside winit's sctk-adwaita,
   while the maintained `skrifa` is already built through epaint: port the outlines, `wght` axis and

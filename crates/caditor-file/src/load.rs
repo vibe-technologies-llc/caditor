@@ -24,6 +24,7 @@ use crate::{
     read::read_file,
     reason::ReadFailure,
     selection_sets::{SelectionSetsRecord, restore_selection_sets},
+    tally,
     untrusted::{UntrustedMap, UntrustedSet},
 };
 
@@ -215,6 +216,7 @@ impl TakenNames {
     fn numbered(&mut self, base: &str, separator: &str) -> String {
         let suffix = self.next_suffix.entry(base.to_owned()).or_insert(2);
         loop {
+            tally::add(1);
             let candidate = format!("{base}{separator}{suffix}");
             *suffix = suffix.saturating_add(1);
             if !self.names.contains(&candidate) {
@@ -240,6 +242,7 @@ fn apply_each<T>(
     edit: &impl Fn(&Document, usize, &T) -> Edit,
     failed: &mut impl FnMut(&mut Document, &T, EditError),
 ) {
+    tally::add(items.len());
     let edits = items
         .iter()
         .enumerate()

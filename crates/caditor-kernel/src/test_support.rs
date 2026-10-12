@@ -19,6 +19,10 @@ pub(crate) fn cancelled_after<T>(allowed: usize, work: impl FnOnce() -> T) -> (T
     (result, polls.load(Ordering::SeqCst))
 }
 
+pub(crate) fn polls_during<T>(work: impl FnOnce() -> T) -> (T, usize) {
+    cancelled_after(usize::MAX, work)
+}
+
 pub(crate) fn assert_cancelled_anywhere<T, E: Debug>(
     name: &str,
     work: impl Fn() -> Result<T, E>,

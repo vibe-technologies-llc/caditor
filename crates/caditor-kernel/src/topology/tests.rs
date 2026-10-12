@@ -1,7 +1,4 @@
-use std::{
-    f64::consts::{FRAC_PI_2, PI, TAU},
-    time::{Duration, Instant},
-};
+use std::f64::consts::{FRAC_PI_2, PI, TAU};
 
 use caditor_geometry::{Plane, Point3, RigidTransform, Vector3};
 
@@ -11,11 +8,11 @@ use crate::{
     fixtures::{self, Fixture, Tweak},
     interval::Interval,
     surface::{Cone, Cylinder, PlaneSurface, Sphere},
-    test_support::assert_cancelled_anywhere,
+    test_support::{assert_cancelled_anywhere, polls_during},
 };
 
 const PRISM_SIDES: usize = 4000;
-const PRISM_CROSSING_TIME_LIMIT: Duration = Duration::from_secs(10);
+const PRISM_CROSSING_POLLS_PER_SIDE: usize = 32;
 
 #[test]
 fn every_fixture_validates() {
@@ -942,15 +939,16 @@ fn polygonal_prism(sides: usize) -> Solid {
 }
 
 #[test]
-fn a_prism_of_many_sides_is_checked_for_crossings_in_bounded_time() {
+fn a_prism_of_many_sides_is_checked_for_crossings_in_bounded_work() {
     let prism = polygonal_prism(PRISM_SIDES);
 
-    let clock = Instant::now();
-    let check = prism.find_crossing().unwrap();
-    let elapsed = clock.elapsed();
+    let (check, polls) = polls_during(|| prism.find_crossing().unwrap());
 
     assert_eq!(check, CrossingCheck::Clear);
-    assert!(elapsed < PRISM_CROSSING_TIME_LIMIT, "{elapsed:?}");
+    assert!(
+        polls <= PRISM_CROSSING_POLLS_PER_SIDE * PRISM_SIDES,
+        "{polls} polls for {PRISM_SIDES} sides"
+    );
 }
 
 #[test]

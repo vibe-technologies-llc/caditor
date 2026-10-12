@@ -12,10 +12,16 @@ use caditor_geometry::{Plane, Point2, Vector2};
 use caditor_kernel::{MAX_SPLINE_DEGREE, SamplingTolerance};
 use caditor_sketch::{ArcGeometry, BSpline, Constraint, Entity, Sketch, SplineKind};
 
-use crate::import::{
-    Drawing, DrawingCurve, DrawingOptions, DrawingUnit, ImportError, MAX_DRAWING_CURVES,
-    MAX_READ_CURVES, MAX_SCALE, MIN_SCALE, SketchTarget, drawing_transaction, parse_dxf,
+use crate::{
+    import::{
+        Drawing, DrawingCurve, DrawingOptions, DrawingUnit, ImportError, MAX_DRAWING_CURVES,
+        MAX_EXPANDED_OBJECTS, MAX_READ_CURVES, MAX_SCALE, MIN_SCALE, SketchTarget,
+        drawing_transaction, parse_dxf,
+    },
+    tally,
 };
+
+const ZIGZAG_VERTICES: usize = 20_000;
 
 pub(super) type Pairs = Vec<(i32, String)>;
 
@@ -2107,9 +2113,11 @@ fn blocks_that_fan_out_into_millions_of_objects_are_refused_quickly() {
             vec![insert("B15", "0", &[(10, 0.0), (20, 0.0)])],
         ),
     ]);
-    let started = std::time::Instant::now();
-    assert_eq!(parse_dxf(&bytes), Err(ImportError::TooManyObjects));
-    assert!(started.elapsed().as_secs() < 10);
+
+    let (parsed, steps) = tally::measure(|| parse_dxf(&bytes));
+
+    assert_eq!(parsed, Err(ImportError::TooManyObjects));
+    assert_eq!(steps, MAX_EXPANDED_OBJECTS + 1);
 }
 
 fn zigzag(vertices: usize) -> Pairs {
@@ -2131,7 +2139,7 @@ fn a_long_polyline_in_a_huge_array_runs_out_of_its_budget_quickly() {
         header(Some(4)),
         section(
             "BLOCKS",
-            vec![block("Zigzag", (0.0, 0.0), vec![zigzag(20_000)])],
+            vec![block("Zigzag", (0.0, 0.0), vec![zigzag(ZIGZAG_VERTICES)])],
         ),
         section(
             "ENTITIES",
@@ -2150,9 +2158,14 @@ fn a_long_polyline_in_a_huge_array_runs_out_of_its_budget_quickly() {
         ),
     ]);
 
-    let started = std::time::Instant::now();
-    assert_eq!(parse_dxf(&bytes), Err(ImportError::TooManyObjects));
-    assert!(started.elapsed().as_secs() < 10);
+    let (parsed, steps) = tally::measure(|| parse_dxf(&bytes));
+
+    assert_eq!(parsed, Err(ImportError::TooManyObjects));
+    assert!(steps > MAX_EXPANDED_OBJECTS);
+    assert!(
+        steps <= MAX_EXPANDED_OBJECTS + ZIGZAG_VERTICES,
+        "{steps} steps"
+    );
 }
 
 #[test]

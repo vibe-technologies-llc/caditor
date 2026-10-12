@@ -28,7 +28,8 @@ paths:
   (stored, zstd, or zstd against the next newer version as raw prefix), flags (`MUST_UNDERSTAND`,
   `CONTINUED`, `CONTINUATION`; unknown bits ignored), lengths, xxh3-64 of header and payload.
 - A bad chunk makes the reader scan to the next marker with a valid checksum; hashed bytes are
-  capped (`HASHING_ALLOWANCE`) so forged headers cannot make that quadratic.
+  capped (`HASHING_ALLOWANCE`) so forged headers cannot make that quadratic; `parse_scanned`
+  reports the bytes hashed and skipped for the test that holds it to that cap.
 - A model with damaged magic or version is salvaged (`binary::salvage`) when a head chunk passing
   its checksum starts within `SALVAGE_REACH`: it loads with the version unknown, reported as a
   damaged start, and keeps its `.damaged` copy on saving. Anything else, a journal included, is
@@ -301,7 +302,8 @@ Sketch entities:
   cancelled is `LoadError::Cancelled`, never a partial model.
 - Near-linear on hostile files: names indexed; duplicate IDs and cycles (`DependencyGraph`) found
   before applying; each kind of record applied as one transaction, halved only where it fails; at
-  most `MAX_RECORDS` (`caditor-document`) parameters and features loaded, the rest reported.
+  most `MAX_RECORDS` (`caditor-document`) parameters and features loaded, the rest reported. The
+  `tally` counts the edits applied and the candidate names tried while loading.
 
 ## Version history
 

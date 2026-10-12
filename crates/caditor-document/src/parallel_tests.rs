@@ -231,7 +231,7 @@ impl Evaluator for SlowPockets {
 }
 
 #[test]
-fn independent_features_run_at_once_and_a_cancel_stops_them_all_promptly() {
+fn independent_features_run_at_once_and_a_cancel_stops_them_all() {
     let (document, plates) = plates(6, 2);
     let started = Arc::new(AtomicUsize::new(0));
     let spinning = Arc::new(AtomicUsize::new(0));
@@ -261,15 +261,14 @@ fn independent_features_run_at_once_and_a_cancel_stops_them_all_promptly() {
     }
     let concurrent = spinning.load(Ordering::SeqCst);
     stop.store(true, Ordering::SeqCst);
-    let cancelled_at = Instant::now();
+    let started_at_cancel = started.load(Ordering::SeqCst);
     let evaluation = evaluated.recv_timeout(TIMEOUT).unwrap();
-    let stopped_after = cancelled_at.elapsed();
     let started_in_all = started.load(Ordering::SeqCst);
     running.join().unwrap();
 
     assert!(concurrent >= 2);
-    assert!(stopped_after < Duration::from_secs(2));
     assert!(started_in_all <= plates.len());
+    assert!(started_in_all <= started_at_cancel + WORKERS);
     assert!(!evaluation.is_complete());
     for plate in &plates {
         assert_eq!(
