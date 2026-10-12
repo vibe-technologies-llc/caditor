@@ -239,6 +239,7 @@ pub enum Command {
     DeleteFeature,
     CopyFeatures,
     PasteFeatures,
+    CancelPaste,
     SuppressFeature,
     RollToHere,
     RollToEnd,
@@ -781,6 +782,7 @@ plain_commands! {
     DeleteFeature,
     CopyFeatures,
     PasteFeatures,
+    CancelPaste,
     SuppressFeature,
     RollToHere,
     RollToEnd,
@@ -1088,6 +1090,7 @@ impl Command {
             Self::DeleteFeature => "model.delete_feature",
             Self::CopyFeatures => "model.copy_features",
             Self::PasteFeatures => "model.paste_features",
+            Self::CancelPaste => "model.cancel_paste",
             Self::SuppressFeature => "model.suppress_feature",
             Self::RollToHere => "model.roll_to_here",
             Self::RollToEnd => "model.roll_to_end",
@@ -1337,6 +1340,7 @@ impl Command {
             Self::DeleteFeature => "Delete feature",
             Self::CopyFeatures => "Copy features",
             Self::PasteFeatures => "Paste features",
+            Self::CancelPaste => "Cancel the paste",
             Self::SuppressFeature => "Suppress or unsuppress feature",
             Self::RollToHere => "Roll back to here",
             Self::RollToEnd => "Roll to end",
@@ -1619,6 +1623,7 @@ impl Command {
             | Self::DeleteFeature
             | Self::CopyFeatures
             | Self::PasteFeatures
+            | Self::CancelPaste
             | Self::SuppressFeature
             | Self::RollToHere
             | Self::RollToEnd
@@ -1898,6 +1903,7 @@ impl Command {
             | Self::CancelImageExport
             | Self::CancelImport
             | Self::CancelRecompute
+            | Self::CancelPaste
             | Self::Ungroup
             | Self::RenameGroup
             | Self::MoveFeatureUp

@@ -119,6 +119,7 @@ mod pair_reading;
 mod palette;
 mod panels;
 mod parameter_table;
+mod pasting;
 mod pattern_panel;
 mod pattern_tools;
 mod patterning;

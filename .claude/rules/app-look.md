@@ -26,6 +26,7 @@ paths:
   - "crates/caditor/src/panels.rs"
   - "crates/caditor/src/feature_tree.rs"
   - "crates/caditor/src/feature_clipboard.rs"
+  - "crates/caditor/src/pasting.rs"
   - "crates/caditor/src/parameter_table.rs"
   - "crates/caditor/src/principal_tree.rs"
   - "crates/caditor/src/bodies_tree.rs"
@@ -462,9 +463,18 @@ paths:
   Model menu and palette) copy every chosen row in tree order to the system clipboard as text
   (`file-format.md`) and paste the clipboard's features as one change at the rollback bar
   (`Document::paste_features`, `document.md`), choosing and revealing the copies. A notice names each
-  feature left out with the reason (it picks faces or edges of a copied feature, or uses a feature
-  not in this model) and how many values became numbers; foreign or damaged text, or sketch
-  geometry, is refused in words, and Paste features inside a sketch says to finish it.
+  feature left out with the reason (a pick not found again on the copies, or a feature not in this
+  model) and how many values became numbers; foreign or damaged text, or sketch geometry, is
+  refused in words, and Paste features inside a sketch says to finish it.
+- When a copied feature picks faces, edges or corners of another copied one (`copied_picks`), the
+  paste goes to `Action::Paste` and `Model` runs it on a `paste` thread (`pasting.rs`, `Pastes`,
+  like constraint trials) through `Document::paste_features_finding_picks` on a copy of the
+  document. The status bar's activity shows a spinner, "Pasting N features: finding picked faces
+  and edges, i of n…" and Cancel (`Command::CancelPaste`, palette too; "Stopped pasting. Nothing
+  was added."). Paste features is refused while one runs. A result for an older revision is
+  planned again on the current one; a finished paste is applied as one change with its notice, and
+  the tree chooses and reveals the copies through `Model::pasted` (`PanelState::paste_shown`). A
+  panic in the thread pastes nothing and says so. A model switch cancels it.
 - Principal group rows: hover highlights in the view, a click or tab selects in the view (clearing
   the tree's feature selection), and a row reads as selected while its pickable is.
 - The rollback bar is a row of its own (`feature_tree::rollback_bar`, named "Rollback bar"), at the

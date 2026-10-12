@@ -9,6 +9,7 @@ use egui::{
 use crate::{
     appearance::{self, BORDER_WIDTH, FOCUS_WIDTH, ICON_SIZE, SPACE_M, SPACE_S},
     commands::{Command, CommandFrame},
+    feature_clipboard,
     feature_tree::count,
     files::{self, Files},
     icons,
@@ -112,6 +113,7 @@ pub fn show(
             recompute_status(ui, model, panels, &hovers, actions);
             divided(ui, |ui| {
                 files::activity(ui, model, context.files, commands, actions);
+                feature_clipboard::activity(ui, model, commands, actions);
                 if context.uploading {
                     widgets::spinner(ui);
                     ui.label(upload_badge::TEXT);

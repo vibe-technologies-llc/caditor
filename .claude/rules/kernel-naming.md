@@ -30,6 +30,8 @@ paths:
 - `FaceOrigin` says what a face came from. A patterned copy is `Copy`: a `FaceCopy` (pattern
   feature, copy index) with the original's feature and `Made` kind; `original()` gives the origin
   copied, `features()` both features. A copy of a copy keeps only the latest pattern.
+  `with_features` renames the features an origin names, keeping what made the face; pasting
+  compares a copy's faces with the original's by it (`document.md`).
 - `Solid::imported(feature)` names faces by position in the stored STEP text (never changes) and
   edges `between` their faces, disambiguated like sweeps.
 - Split pieces (`split_faces`, `kernel-operations.md`) are `FaceName::split` of the split feature,
