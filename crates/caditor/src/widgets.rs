@@ -3,9 +3,9 @@ use std::{f64::consts::TAU, ops::RangeInclusive, sync::Arc, time::Duration};
 use egui::{
     Align, Align2, AsIdSalt, AtomExt, Button, Checkbox, Color32, ComboBox, CornerRadius,
     CursorIcon, FocusDirection, Frame, Galley, Grid, Id, InnerResponse, Key, Label, Layout, Margin,
-    Modal, Modifiers, Painter, Popup, RadioButton, Rect, Response, RichText, ScrollArea, Sense,
-    Sides, Slider, Stroke, StrokeKind, TextStyle, TextWrapMode, Ui, Vec2, Widget, WidgetInfo,
-    WidgetText, WidgetType,
+    Modal, Modifiers, Order, Painter, Popup, RadioButton, Rect, Response, RichText, ScrollArea,
+    Sense, Sides, Slider, Stroke, StrokeKind, TextStyle, TextWrapMode, Ui, Vec2, Widget,
+    WidgetInfo, WidgetText, WidgetType,
     accesskit::{Live, Role},
     collapsing_header::CollapsingState,
     emath::lerp,
@@ -18,7 +18,7 @@ use crate::{
     appearance::{
         self, BORDER_WIDTH, CARD_RADIUS, CONTROL_HEIGHT, DIALOG_MARGIN, FOCUS_GAP, FOCUS_WIDTH,
         ICON_SIZE, SECTION, SMALL_RADIUS, SMALL_SIZE, SPACE_L, SPACE_M, SPACE_S, SPACE_SM,
-        SPACE_XS, TOOL_ICON_SIZE, Tokens, WIDGET_RADIUS,
+        SPACE_XS, TITLE_SIZE, TOOL_ICON_SIZE, Tokens, WIDGET_RADIUS,
     },
     fonts,
     guide::Page,
@@ -45,6 +45,7 @@ const TOOL_PADDING: Vec2 = vec2(SPACE_SM, SPACE_S);
 const TOOL_MIN_WIDTH: f32 = 46.0;
 const TOOL_LABEL_GAP: f32 = SPACE_XS;
 const SELECTED_WIDTH: f32 = 1.0;
+const CHECK_MARK_WIDTH: f32 = 1.75;
 pub const COMPACT_TOOL_GAP: f32 = SPACE_XS;
 pub const SPINNER_FRAME: Duration = Duration::from_millis(66);
 const SPINNER_STROKE: f32 = 3.0;
@@ -588,11 +589,41 @@ enum Emphasis {
     Danger,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct EmphasisLook {
+    fill: Color32,
+    edge: Stroke,
+    text: Color32,
+}
+
 impl Emphasis {
-    fn fills(self, tokens: &Tokens) -> [Color32; 3] {
+    fn looks(self, tokens: &Tokens) -> [EmphasisLook; 3] {
+        let filled = |fill| EmphasisLook {
+            fill,
+            edge: Stroke::NONE,
+            text: tokens.text_on_accent,
+        };
         match self {
-            Self::Primary => [tokens.accent, tokens.accent_hover, tokens.accent_pressed],
-            Self::Danger => [tokens.danger, tokens.danger_hover, tokens.danger_pressed],
+            Self::Primary => [
+                filled(tokens.accent),
+                filled(tokens.accent_hover),
+                filled(tokens.accent_pressed),
+            ],
+            Self::Danger => {
+                let edged = |fill| EmphasisLook {
+                    edge: Stroke::new(BORDER_WIDTH, fill),
+                    ..filled(fill)
+                };
+                [
+                    EmphasisLook {
+                        fill: Color32::TRANSPARENT,
+                        edge: Stroke::new(BORDER_WIDTH, tokens.danger),
+                        text: tokens.error,
+                    },
+                    edged(tokens.danger_hover),
+                    edged(tokens.danger_pressed),
+                ]
+            }
         }
     }
 }
@@ -625,24 +656,24 @@ impl EmphasizedButton {
 impl Widget for EmphasizedButton {
     fn ui(self, ui: &mut Ui) -> Response {
         let tokens = appearance::tokens(ui);
-        let [rest, hover, pressed] = self.emphasis.fills(&tokens);
+        let [rest, hover, pressed] = self.emphasis.looks(&tokens);
         let response = ui
             .scope(|ui| {
                 let widgets = &mut ui.visuals_mut().widgets;
-                for (state, fill) in [
+                for (state, look) in [
                     (&mut widgets.inactive, rest),
                     (&mut widgets.hovered, hover),
                     (&mut widgets.active, pressed),
                     (&mut widgets.open, pressed),
                 ] {
-                    state.bg_fill = fill;
-                    state.weak_bg_fill = fill;
-                    state.bg_stroke = Stroke::NONE;
-                    state.fg_stroke = Stroke::new(BORDER_WIDTH, tokens.text_on_accent);
+                    state.bg_fill = look.fill;
+                    state.weak_bg_fill = look.fill;
+                    state.bg_stroke = look.edge;
+                    state.fg_stroke = Stroke::new(BORDER_WIDTH, look.text);
                 }
-                let text = RichText::new(self.text.clone()).color(tokens.text_on_accent);
+                let text = RichText::new(self.text.clone());
                 let button = match &self.glyph {
-                    Some(glyph) => Button::new((icon(glyph).color(tokens.text_on_accent), text)),
+                    Some(glyph) => Button::new((icon(glyph), text)),
                     None => Button::new(text),
                 };
                 ui.add(Named::new(
@@ -781,6 +812,7 @@ fn segmented_menu(ui: &mut Ui, segments: &[Segment<'_>], selected: usize) -> Opt
 
 fn segmented_row(ui: &mut Ui, segments: &[Segment<'_>], selected: usize) -> Option<usize> {
     let tokens = appearance::tokens(ui);
+    let (thumb, thumb_edge) = segment_thumb(ui, &tokens);
     let mut chosen = None;
     Frame::new()
         .fill(tokens.button)
@@ -789,21 +821,22 @@ fn segmented_row(ui: &mut Ui, segments: &[Segment<'_>], selected: usize) -> Opti
         .show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = SPACE_XS;
+                if !appearance::is_high_contrast(ui) {
+                    ui.visuals_mut().widgets.hovered.bg_stroke = Stroke::NONE;
+                }
                 let segment_height = CONTROL_HEIGHT - 2.0 * f32::from(SEGMENT_INSET);
                 for (index, segment) in segments.iter().enumerate() {
                     let current = index == selected;
                     let color = if current {
-                        tokens.accent_text
-                    } else {
                         tokens.text
+                    } else {
+                        tokens.text_muted
                     };
                     let mut button = Button::new(RichText::new(segment.label).color(color))
                         .min_size(vec2(0.0, segment_height))
                         .corner_radius(CornerRadius::same(WIDGET_RADIUS - SEGMENT_INSET as u8));
                     button = if current {
-                        button
-                            .fill(tokens.raised)
-                            .stroke(Stroke::new(BORDER_WIDTH, tokens.accent_text))
+                        button.fill(thumb).stroke(thumb_edge)
                     } else {
                         button.frame_when_inactive(false)
                     };
@@ -817,6 +850,20 @@ fn segmented_row(ui: &mut Ui, segments: &[Segment<'_>], selected: usize) -> Opti
             });
         });
     chosen
+}
+
+fn segment_thumb(ui: &Ui, tokens: &Tokens) -> (Color32, Stroke) {
+    let fill = if ui.visuals().dark_mode {
+        tokens.pressed
+    } else {
+        tokens.raised
+    };
+    let edge = if appearance::is_high_contrast(ui) {
+        tokens.text
+    } else {
+        tokens.border_strong
+    };
+    (fill, Stroke::new(BORDER_WIDTH, edge))
 }
 
 pub fn key_cap(ui: &mut Ui, keys: &str) -> Response {
@@ -918,7 +965,8 @@ pub fn panel_header<R>(
     let spacing = ui.spacing().item_spacing.x;
     let heading = |ui: &mut Ui| {
         icon_label(ui, glyph, tokens.text_muted);
-        ui.add(Label::new(section_title(title)).selectable(false));
+        let title = RichText::new(title).font(egui::FontId::new(TITLE_SIZE, fonts::semibold()));
+        ui.add(Label::new(title).selectable(false));
         ui.min_rect().width()
     };
     let trailing = |ui: &mut Ui| {
@@ -1287,9 +1335,14 @@ pub fn callout<R>(ui: &mut Ui, tone: Tone, add: impl FnOnce(&mut Ui) -> R) -> R 
 
 pub fn card<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
     let tokens = appearance::tokens(ui);
+    let fill = if ui.layer_id().order == Order::Background {
+        tokens.raised
+    } else {
+        tokens.panel
+    };
     Frame::new()
-        .fill(tokens.raised)
-        .stroke(Stroke::new(BORDER_WIDTH, tokens.border))
+        .fill(fill)
+        .stroke(surface_edge(ui, &tokens))
         .corner_radius(CornerRadius::same(CARD_RADIUS))
         .inner_margin(CARD_MARGIN)
         .show(ui, |ui| {
@@ -1297,6 +1350,14 @@ pub fn card<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
             add(ui)
         })
         .inner
+}
+
+fn surface_edge(ui: &Ui, tokens: &Tokens) -> Stroke {
+    if appearance::is_high_contrast(ui) {
+        Stroke::new(BORDER_WIDTH, tokens.border)
+    } else {
+        Stroke::NONE
+    }
 }
 
 pub fn column_caption(ui: &mut Ui, text: &str) {
@@ -1519,7 +1580,7 @@ fn section_with(
         Some(_) => {
             Frame::new()
                 .fill(tokens.raised)
-                .stroke(Stroke::new(BORDER_WIDTH, tokens.border))
+                .stroke(surface_edge(ui, &tokens))
                 .corner_radius(CornerRadius::same(WIDGET_RADIUS))
                 .inner_margin(SECTION_BAND_MARGIN)
                 .show(ui, |ui| {
@@ -1777,11 +1838,12 @@ impl Widget for ToolButton<'_> {
                 (false, false, true) => tokens.hover,
                 (false, false, false) => Color32::TRANSPARENT,
             };
+            let outlined = appearance::is_high_contrast(ui);
             let stroke = if response.has_focus() {
                 Stroke::new(FOCUS_WIDTH, tokens.focus)
-            } else if self.selected {
+            } else if self.selected && outlined {
                 Stroke::new(SELECTED_WIDTH, tokens.accent_text)
-            } else if hovered {
+            } else if hovered && outlined {
                 Stroke::new(SELECTED_WIDTH, tokens.border_strong)
             } else {
                 Stroke::NONE
@@ -1860,7 +1922,7 @@ impl Widget for TabButton<'_> {
         ui.ctx()
             .accesskit_node_builder(response.id, |node| node.set_role(Role::Tab));
         if ui.is_rect_visible(rect) {
-            let fill = if self.selected {
+            let fill = if self.selected && appearance::is_high_contrast(ui) {
                 tokens.accent_subtle
             } else if response.is_pointer_button_down_on() {
                 tokens.pressed
@@ -1882,15 +1944,10 @@ impl Widget for TabButton<'_> {
             };
             ui.painter()
                 .rect(rect, radius, fill, stroke, StrokeKind::Inside);
-            let color = if self.selected {
-                tokens.accent_text
+            let (color, glyph_color) = if self.selected {
+                (tokens.text, tokens.accent_text)
             } else {
-                tokens.text
-            };
-            let glyph_color = if self.selected {
-                tokens.accent_text
-            } else {
-                tokens.text_muted
+                (tokens.text_muted, tokens.text_muted)
             };
             if self.selected {
                 let underline = rect.bottom() - TAB_UNDERLINE / 2.0;
@@ -2157,19 +2214,40 @@ pub fn footer_split<T>(
     })
 }
 
+fn with_box_look<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
+    let tokens = appearance::tokens(ui);
+    ui.scope(|ui| {
+        let widgets = &mut ui.visuals_mut().widgets;
+        widgets.inactive.bg_fill = tokens.sunken;
+        widgets.inactive.bg_stroke = Stroke::new(BORDER_WIDTH, tokens.field_border);
+        widgets.hovered.bg_stroke = Stroke::new(BORDER_WIDTH, tokens.text_muted);
+        for state in [
+            &mut widgets.inactive,
+            &mut widgets.hovered,
+            &mut widgets.active,
+        ] {
+            state.fg_stroke.width = CHECK_MARK_WIDTH;
+            state.corner_radius = CornerRadius::same(SMALL_RADIUS);
+        }
+        add(ui)
+    })
+    .inner
+}
+
 pub fn checkbox(ui: &mut Ui, checked: &mut bool, label: impl Into<String>) -> Response {
-    ui.add(Checkbox::new(checked, label.into()))
+    let label = label.into();
+    with_box_look(ui, |ui| ui.add(Checkbox::new(checked, label)))
 }
 
 pub fn unlabelled_checkbox(ui: &mut Ui, checked: &mut bool, name: &str) -> Response {
-    let response = ui.add(Checkbox::new(checked, ""));
+    let response = with_box_look(ui, |ui| ui.add(Checkbox::new(checked, "")));
     let (enabled, selected) = (response.enabled(), *checked);
     response.widget_info(|| WidgetInfo::selected(WidgetType::Checkbox, enabled, selected, name));
     response
 }
 
 pub fn unlabelled_radio(ui: &mut Ui, selected: bool, name: &str) -> Response {
-    let response = ui.add(RadioButton::new(selected, ""));
+    let response = with_box_look(ui, |ui| ui.add(RadioButton::new(selected, "")));
     let enabled = response.enabled();
     response.widget_info(|| WidgetInfo::selected(WidgetType::RadioButton, enabled, selected, name));
     response

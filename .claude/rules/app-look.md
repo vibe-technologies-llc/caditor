@@ -71,7 +71,7 @@ paths:
   number: spacing `SPACE_XS` 2, `SPACE_S` 4, `SPACE_SM` 6 (the rows' vertical rhythm), `SPACE_M` 8,
   `SPACE_L` 12, `SPACE_XL` 16 (`appearance::margin` makes an egui `Margin` of two steps); type
   `SMALL_SIZE` 11.5, `LABEL_SIZE` 12.5 (section titles, monospace, the 3D view's key hints),
-  `BODY_SIZE` 13.5, `TITLE_SIZE` 15 (titles in the 3D view), `HEADING_SIZE` 17, `PAGE_TITLE_SIZE`
+  `BODY_SIZE` 13.5, `TITLE_SIZE` 15 (titles in the 3D view, side panel headers), `HEADING_SIZE` 17, `PAGE_TITLE_SIZE`
   20 (a guide page's title); radii `SMALL_RADIUS` (key caps), `WIDGET_RADIUS`, `CARD_RADIUS`,
   `WINDOW_RADIUS`; `CONTROL_HEIGHT`, `CONTROL_MIN_WIDTH`, `BORDER_WIDTH`, `FOCUS_WIDTH` and
   `FOCUS_GAP`. The egui `Style` is built from named values only (`ITEM_SPACING`, `BUTTON_PADDING`,
@@ -187,6 +187,21 @@ paths:
   buttons, checkboxes, radio buttons or combo boxes: `conventions_tests.rs`
   (`buttons_outside_the_widget_kit_come_from_it`) fails on them outside `widgets.rs`, a call split
   over lines (`ui` then `.button(…)` on the next) included.
+- Surfaces step `sunken` (fields, check boxes) < `panel` < `raised` (cards, section bands, dialogs,
+  menus); every shipped set but high contrast holds `raised` 1.1:1 off its `panel`
+  (`every_shipped_set_outside_high_contrast_lifts_cards_off_the_panel_by_fill_alone`). A `card` stands one step off what it
+  sits on: `raised` on a panel, `panel` on a dialog or popup (any layer above `Order::Background`).
+  Outside high contrast cards and section bands separate by fill alone; strong outlines stay on
+  what takes input (fields, check boxes and radio buttons through `field_border`, hovered buttons
+  through `border_strong`) and on focus. High contrast, whose surfaces are one colour, outlines
+  cards, bands, selected tools and the segmented thumb (`surface_edge`).
+- Accent fills mark only the primary action, the current selection (selected rows, the active
+  tool's `accent_subtle` tint) and focus; `accent_surface` (the sketch ribbon, an open tree row) is
+  a faint tint. A segmented control's choice is a thumb (`raised` on light, `pressed` on dark, ringed
+  in `border_strong`) with full text beside muted others; the selected tab is full text with an
+  accent glyph and the accent underline, unselected tabs muted; `danger_button` is outlined in
+  `danger` with `error` text at rest and fills on hover and press, so it never competes with the
+  primary. Secondary text (captions, counts, unselected choices) is `text_muted`.
 - Decisions the code does not show:
   - A `ToolButton` is icon above label; `compact` is icon alone, named by its label, in a square so
     two rows match one tool button. `icon_button` is a true `CONTROL_HEIGHT` square so rows
