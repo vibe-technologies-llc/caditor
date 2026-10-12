@@ -16,6 +16,7 @@ use crate::{
     configurations::{ConfigurationId, Configurations},
     datum::{Datum, PrincipalGeometry},
     edit::{Edit, Transaction},
+    feature_list::FeatureList,
     hole::Hole,
     import::Import,
     mate::Mate,
@@ -1217,7 +1218,7 @@ pub enum ParameterUser {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Document {
     pub(crate) parameters: ParameterList,
-    pub(crate) features: Vec<Arc<Feature>>,
+    pub(crate) features: FeatureList,
     pub(crate) next_parameter_id: u64,
     pub(crate) next_feature_id: u64,
     pub(crate) hidden_principal: BTreeSet<PrincipalGeometry>,
@@ -1254,10 +1255,7 @@ impl Document {
     }
 
     pub fn feature(&self, id: FeatureId) -> Option<&Feature> {
-        self.features
-            .iter()
-            .find(|feature| feature.id == id)
-            .map(Arc::as_ref)
+        self.features.get_by_id(id).map(Arc::as_ref)
     }
 
     pub fn body_name(&self, body: FeatureId) -> Option<&str> {
@@ -1265,8 +1263,15 @@ impl Document {
         Some(feature.appearance.name.as_deref().unwrap_or(&feature.name))
     }
 
+    pub fn features_on_body(&self, body: FeatureId) -> impl Iterator<Item = &Feature> {
+        self.features
+            .on_body(body)
+            .iter()
+            .filter_map(|id| self.feature(*id))
+    }
+
     pub fn feature_index(&self, id: FeatureId) -> Option<usize> {
-        self.features.iter().position(|feature| feature.id == id)
+        self.features.position(id)
     }
 
     pub fn next_parameter_id(&self) -> u64 {
@@ -1357,7 +1362,7 @@ impl Document {
             && self
                 .features
                 .iter()
-                .zip(&other.features)
+                .zip(other.features.iter())
                 .all(|(own, theirs)| Arc::ptr_eq(own, theirs) || own.same_content(theirs))
     }
 

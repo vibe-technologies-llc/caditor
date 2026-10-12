@@ -452,7 +452,10 @@ paths:
   focus; `feature_tree::is_plain`) more than a row beyond the visible part of the panel only
   reserves the height last measured for one (`PanelState::plain_row_height`), so a tree of
   hundreds of features lays out only what is near view. The row next to each edge is laid out, so
-  Tab and the keyboard still reach the next one. A sketch card's constraint and dimension rows
+  Tab and the keyboard still reach the next one. The Bodies group does the same with its rows
+  (`bodies_tree::off_screen_height`: no colour card open under it and not focused,
+  `PanelState::plain_body_row_height`), so an open group of thousands of imported bodies costs a
+  frame what its visible rows cost. A sketch card's constraint and dimension rows
   do the same (`feature_tree::card_row`: a `CardRow::Plain` row is not redundant, not wanted for
   focus, and for a dimension its field neither focused nor holding a draft, looked up once per card
   with `field::busy`; the last heights measured are `PanelState::plain_constraint_height` and

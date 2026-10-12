@@ -90,4 +90,13 @@ paths:
   conversion, mass properties, scene, offscreen upload), then through the harness from the Import
   command to every body shown, listing each frame over 50 ms. It synthesises a file of copies of the
   samples and asserts the import stays within `SYNTHESISED_WITHIN`, or times the file
-  `CADITOR_IMPORT_FILE` names; the nightly stress job runs it.
+  `CADITOR_IMPORT_FILE` names (`CADITOR_IMPORT_IN_THE_APP_ONLY` skips the stages and times only
+  the harness); the nightly stress job runs it. Once loaded it lets the camera's fit finish
+  (`CAMERA_SETTLE`, since no pick is asked while the viewpoint moves) and times frames idle, with
+  the pointer moving over the view and between two faces of different bodies taken from the drawn
+  `PickTable` (`forced_hover`, asserting the scene was restyled and the click selected the face),
+  orbiting, panning and zooming,
+  and each change until settled (`timed_change`: a face clicked and the selection cleared, a
+  feature row clicked, a body hidden and the hiding undone through `app::perform`, the Bodies group
+  opened), then the feature tree and the open Bodies group scrolled under the wheel. The harness
+  answers a pick sharing the built scene's `PickTable` rather than cloning the scene.

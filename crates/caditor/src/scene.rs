@@ -282,7 +282,7 @@ impl Highlight<'_> {
     }
 
     fn is_chosen_row(&self, owner: FeatureId) -> bool {
-        self.chosen_rows.contains(&owner)
+        self.chosen_rows.binary_search(&owner).is_ok()
     }
 
     fn is_lit(&self, pickable: Pickable) -> bool {
@@ -2767,38 +2767,29 @@ fn face_looks(
         return plain;
     };
     let splits = document.face_splits(body);
-    let coloured = appearance.face_colours(&shown.solid, &splits);
-    let see_through = appearance.face_opacities(&shown.solid, &splits);
-    let finished = match palette.shows_finishes {
-        true => appearance.face_finishes(&shown.solid, &splits),
-        false => BTreeMap::new(),
-    };
+    let own = appearance.face_appearances(&shown.solid, &splits);
     let keys = bodies::face_keys(&shown.solid);
+    let looked = || {
+        keys.iter()
+            .filter_map(|(id, key)| Some((*key, *own.get(id)?)))
+    };
     FaceLooks {
         finish,
-        finishes: keys
-            .iter()
-            .filter_map(|(id, key)| {
-                let finish = finished.get(id)?;
-                Some((*key, body_appearance::surface(*finish)))
-            })
+        finishes: looked()
+            .filter(|_| palette.shows_finishes)
+            .filter_map(|(key, look)| Some((key, body_appearance::surface(look.finish?))))
             .collect(),
-        colours: keys
-            .iter()
-            .filter_map(|(id, key)| {
-                let colour = coloured.get(id)?;
-                Some((
-                    *key,
+        colours: looked()
+            .map(|(key, look)| {
+                let colour = look.colour;
+                (
+                    key,
                     palette.body(Color::from_rgb8(colour.red, colour.green, colour.blue)),
-                ))
+                )
             })
             .collect(),
-        opacities: keys
-            .iter()
-            .filter_map(|(id, key)| {
-                let percent = see_through.get(id)?;
-                Some((*key, (f32::from(*percent) / 100.0).min(1.0)))
-            })
+        opacities: looked()
+            .filter_map(|(key, look)| Some((key, (f32::from(look.opacity?) / 100.0).min(1.0))))
             .collect(),
     }
 }
@@ -2818,10 +2809,7 @@ enum Health {
 
 fn body_health(document: &Document, evaluation: &Evaluation, body: FeatureId) -> Health {
     let mut health = Health::Sound;
-    for feature in document
-        .features()
-        .filter(|feature| feature.body() == Some(body))
-    {
+    for feature in document.features_on_body(body) {
         match evaluation.feature(feature.id()).map(|status| &status.state) {
             Some(FeatureState::Failed(_)) => return Health::Failed,
             Some(FeatureState::Outdated) => health = Health::Outdated,

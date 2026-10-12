@@ -15,16 +15,24 @@ use caditor_file::{
 use caditor_geometry::{RigidTransform, Vector3};
 use caditor_kernel::Solid;
 use caditor_render::{Background, GraphicsSettings, ImageRequest, OffscreenRenderer, SurfaceSize};
-use egui::{Event, Modifiers, PointerButton};
+use egui::{Event, Modifiers, PointerButton, Pos2};
 use tempfile::TempDir;
 
-use super::Harness;
+use super::{CAMERA_SETTLE, Harness};
 use crate::{
-    app::Workspace, bodies::BodyMeshing, files::FileCommand, samples::Sample,
-    scene_palette::Canvas, snapshot,
+    app::{self, Workspace},
+    bodies::BodyMeshing,
+    bodies_tree,
+    files::FileCommand,
+    model::Action,
+    samples::Sample,
+    scene_palette::Canvas,
+    selection::Pickable,
+    snapshot, visibility,
 };
 
 const IMPORT_FILE: &str = "CADITOR_IMPORT_FILE";
+const IN_THE_APP_ONLY: &str = "CADITOR_IMPORT_IN_THE_APP_ONLY";
 const COPIES_PER_SAMPLE: usize = 100;
 const SPACING: f64 = 150.0;
 const ROW: usize = 20;
@@ -35,6 +43,7 @@ const UPLOAD_BYTES_PER_FRAME: f64 = 8.0 * 1024.0 * 1024.0;
 const VERTEX_BYTES: usize = 28;
 const TRIANGLE_BYTES: usize = 12;
 const LOADED_FRAMES: u32 = 40;
+const SETTLING_FRAMES: u32 = 3;
 
 fn report(stage: &str, started: Instant, detail: impl std::fmt::Display) {
     eprintln!(
@@ -273,6 +282,9 @@ fn in_app(path: &Path) {
 
 fn after_loading(harness: &mut Harness) {
     harness.settle();
+    harness.command(FileCommand::DismissReport);
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.pass();
     let centre = super::SCREEN.center();
     let aside = centre + egui::vec2(40.0, 25.0);
 
@@ -285,17 +297,98 @@ fn after_loading(harness: &mut Harness) {
             harness.events.push(Event::PointerMoved(position));
         },
     );
+    let faces = two_faces(harness);
+    let before_hovering = harness.built().generation;
+    timed_frames(
+        harness,
+        "loaded, pointer moving between two faces",
+        |harness, frame| {
+            let (position, face) = if frame % 2 == 0 {
+                (centre, faces[0])
+            } else {
+                (aside, faces[1])
+            };
+            harness.events.push(Event::PointerMoved(position));
+            harness.forced_hover = Some((position, face));
+        },
+    );
+    assert!(
+        harness.built().generation > before_hovering,
+        "hovering the faces lit them"
+    );
 
+    harness.events.push(Event::PointerMoved(centre));
+    harness.forced_hover = Some((centre, faces[0]));
+    harness.pass();
+    timed_change(harness, "loaded, a face clicked to select it", |harness| {
+        press_and_release(harness, centre, PointerButton::Primary);
+    });
+    assert!(
+        harness.workspace.viewport.selection().contains(faces[0]),
+        "the click selected the face under the pointer"
+    );
+    timed_frames(harness, "loaded, a face selected, idle", |_, _| {});
+    harness.forced_hover = None;
+    timed_change(harness, "loaded, the selection cleared", |harness| {
+        harness.workspace.viewport.selection_mut().clear();
+    });
+
+    dragged(
+        harness,
+        "loaded, orbiting",
+        PointerButton::Secondary,
+        centre,
+    );
+    dragged(harness, "loaded, panning", PointerButton::Middle, centre);
+    timed_frames(harness, "loaded, zooming", |harness, frame| {
+        let delta = if frame % 2 == 0 { 60.0 } else { -60.0 };
+        harness.events.push(Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, delta),
+            phase: egui::TouchPhase::Move,
+            modifiers: Modifiers::NONE,
+        });
+    });
+    harness.settle();
+
+    in_the_trees(harness);
+}
+
+fn two_faces(harness: &mut Harness) -> [Pickable; 2] {
+    let picks = harness.built().picks;
+    let mut faces = picks
+        .pickables()
+        .filter(|pickable| matches!(pickable, Pickable::Face { .. }));
+    let first = faces.next().expect("a face is drawn");
+    let second = faces
+        .find(|face| visibility::owner(*face) != visibility::owner(first))
+        .unwrap_or(first);
+    [first, second]
+}
+
+fn press_and_release(harness: &mut Harness, position: Pos2, button: PointerButton) {
+    for pressed in [true, false] {
+        harness.events.push(Event::PointerButton {
+            pos: position,
+            button,
+            pressed,
+            modifiers: Modifiers::NONE,
+        });
+        harness.pass();
+    }
+}
+
+fn dragged(harness: &mut Harness, name: &str, button: PointerButton, centre: Pos2) {
     harness.events.push(Event::PointerMoved(centre));
     harness.pass();
     harness.events.push(Event::PointerButton {
         pos: centre,
-        button: PointerButton::Secondary,
+        button,
         pressed: true,
         modifiers: Modifiers::NONE,
     });
     harness.pass();
-    timed_frames(harness, "loaded, orbiting", |harness, frame| {
+    timed_frames(harness, name, |harness, frame| {
         let along = (frame % 40) as f32 * 3.0;
         harness
             .events
@@ -303,11 +396,112 @@ fn after_loading(harness: &mut Harness) {
     });
     harness.events.push(Event::PointerButton {
         pos: centre,
-        button: PointerButton::Secondary,
+        button,
         pressed: false,
         modifiers: Modifiers::NONE,
     });
     harness.pass();
+}
+
+fn in_the_trees(harness: &mut Harness) {
+    let first = harness
+        .document()
+        .features()
+        .next()
+        .map(|feature| (feature.id(), feature.name.clone()))
+        .expect("the import added features");
+    let hideable = visibility::toggle(harness.document().feature(first.0).unwrap()).unwrap();
+
+    harness.frame();
+    let row = harness.position_of(&first.1);
+    let over_the_tree = row + egui::vec2(0.0, 200.0);
+    timed_change(harness, "loaded, a feature row clicked", |harness| {
+        harness.events.push(Event::PointerMoved(row));
+        harness.pass();
+        press_and_release(harness, row, PointerButton::Primary);
+    });
+    timed_frames(harness, "loaded, a feature row chosen, idle", |_, _| {});
+    timed_frames(
+        harness,
+        "loaded, the feature tree scrolled",
+        |harness, frame| {
+            scroll(harness, over_the_tree, frame);
+        },
+    );
+    timed_change(harness, "loaded, a body hidden", |harness| {
+        performed(harness, Action::Apply(hideable));
+    });
+    timed_change(harness, "loaded, the hiding undone", |harness| {
+        performed(harness, Action::Undo);
+    });
+
+    let title = format!(
+        "{} ({})",
+        bodies_tree::GROUP_TITLE,
+        harness.workspace.viewport.bodies().iter().count()
+    );
+    if !harness.shows(&title) {
+        eprintln!("the Bodies group is not on screen, so its rows are not timed");
+        return;
+    }
+    let title_at = harness.position_of(&title);
+    timed_change(harness, "loaded, the Bodies group opened", |harness| {
+        harness.events.push(Event::PointerMoved(title_at));
+        harness.pass();
+        press_and_release(harness, title_at, PointerButton::Primary);
+    });
+    timed_frames(harness, "loaded, Bodies open, idle", |_, _| {});
+    timed_frames(
+        harness,
+        "loaded, Bodies open, scrolled",
+        |harness, frame| {
+            scroll(harness, over_the_tree, frame);
+        },
+    );
+}
+
+fn performed(harness: &mut Harness, action: Action) {
+    app::perform(
+        vec![action],
+        &mut harness.model,
+        &mut harness.files,
+        &mut harness.workspace,
+    );
+}
+
+fn scroll(harness: &mut Harness, over: Pos2, frame: u32) {
+    let delta = if frame < LOADED_FRAMES / 2 {
+        -60.0
+    } else {
+        60.0
+    };
+    harness.events.push(Event::PointerMoved(over));
+    harness.events.push(Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(0.0, delta),
+        phase: egui::TouchPhase::Move,
+        modifiers: Modifiers::NONE,
+    });
+}
+
+fn timed_change(harness: &mut Harness, name: &str, change: impl FnOnce(&mut Harness)) {
+    let started = Instant::now();
+    change(harness);
+    let changed = started.elapsed();
+    let mut frames = 0;
+    while harness.computing() || frames < SETTLING_FRAMES {
+        assert!(started.elapsed() < IMPORT_TIMEOUT, "{name} never settled");
+        if harness.computing() {
+            harness.model.poll();
+            thread::sleep(Duration::from_millis(1));
+        }
+        harness.pass();
+        frames += 1;
+    }
+    eprintln!(
+        "{name:<44} {changed:?} for the change, {:?} until settled over {frames} more frames",
+        started.elapsed()
+    );
 }
 
 fn timed_frames(harness: &mut Harness, name: &str, mut change: impl FnMut(&mut Harness, u32)) {
@@ -343,7 +537,9 @@ fn a_large_step_import_is_timed_stage_by_stage() {
         }
     };
     let started = Instant::now();
-    stages(&path);
+    if env::var_os(IN_THE_APP_ONLY).is_none() {
+        stages(&path);
+    }
     in_app(&path);
     let took = started.elapsed();
 

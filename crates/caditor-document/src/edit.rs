@@ -1091,8 +1091,7 @@ impl Document {
 
     fn feature_mut(&mut self, id: FeatureId) -> Result<&mut Feature, EditError> {
         self.features
-            .iter_mut()
-            .find(|feature| feature.id() == id)
+            .get_mut_by_id(id)
             .map(Arc::make_mut)
             .ok_or(EditError::MissingFeature)
     }
@@ -1286,7 +1285,10 @@ impl Document {
         if self.rollback == RollbackBar::Before(id) {
             return Err(EditError::RollbackBarAbove(self.feature_name(id)));
         }
-        let feature = self.features.remove(index);
+        let feature = self
+            .features
+            .remove(index)
+            .ok_or(EditError::MissingFeature)?;
         Ok(Edit::InsertFeature { index, feature })
     }
 
@@ -1646,8 +1648,7 @@ impl Document {
                 body: self.feature_name(body),
             });
         }
-        let feature = self.features.remove(from);
-        self.features.insert(index, feature);
+        self.features.move_to(from, index);
         Ok(Edit::MoveFeature { id, index: from })
     }
 

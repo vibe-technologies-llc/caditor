@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use caditor_document::{FeatureId, FeatureState, Progress};
+use caditor_document::{FeatureId, Progress};
 use egui::{
     Align, CornerRadius, CursorIcon, Frame, Id, Label, Layout, Margin, Rect, Response, RichText,
     Sense, Stroke, StrokeKind, TextStyle, TextWrapMode, Ui, UiBuilder, WidgetText, vec2,
@@ -359,33 +359,28 @@ enum Step {
 }
 
 fn failed_after(model: &Model, current: Option<FeatureId>, way: Step) -> Option<FeatureId> {
-    let evaluation = model.evaluation();
-    let failed: Vec<FeatureId> = model
-        .document()
-        .features()
-        .map(|feature| feature.id())
-        .filter(|id| {
-            evaluation
-                .feature(*id)
-                .is_some_and(|status| matches!(status.state, FeatureState::Failed(_)))
-        })
+    let document = model.document();
+    let mut failed: Vec<(usize, FeatureId)> = model
+        .evaluation()
+        .failures()
+        .filter_map(|(id, _)| Some((document.feature_index(id)?, id)))
         .collect();
-    let at = current.and_then(|id| model.document().feature_index(id));
-    let index_of = |id: &FeatureId| model.document().feature_index(*id);
+    failed.sort_unstable();
+    let at = current.and_then(|id| document.feature_index(id));
     match (way, at) {
         (Step::Next, Some(at)) => failed
             .iter()
-            .find(|id| index_of(id).is_some_and(|index| index > at))
+            .find(|(index, _)| *index > at)
             .or(failed.first()),
         (Step::Previous, Some(at)) => failed
             .iter()
             .rev()
-            .find(|id| index_of(id).is_some_and(|index| index < at))
+            .find(|(index, _)| *index < at)
             .or(failed.last()),
         (Step::Next, None) => failed.first(),
         (Step::Previous, None) => failed.last(),
     }
-    .copied()
+    .map(|(_, id)| *id)
 }
 
 fn notice_text(ui: &Ui, notice: &Notice) -> RichText {

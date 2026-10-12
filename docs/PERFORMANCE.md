@@ -70,26 +70,15 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Interface
 
-- [medium · easy] Frames and scene rebuilds walk linear lists once per item, unmeasured but
-  quadratic on large imports (one feature per body, so the VZ330 assembly, 3,894 bodies since
-  copies are no longer capped at 1000, is about 3,894 features):
-  `Highlight::is_of_chosen_row` scans the tree's chosen rows with `contains` for every face and
-  edge of every body on each base-scene rebuild; the Bodies tree lays out every body row each frame
-  with no off-screen skip, looking each up with `Document::feature` and building a visibility
-  `Transaction` and label per row; the feature tree tests `chosen.contains` per row and runs
-  `group_run` (a fresh `Vec` of every feature) per group header; `BodyMeshes::update` rebuilds the
-  whole body map every frame though a generation would skip it; the keyboard highlight is checked
-  with `highlightable().contains` over every pickable each frame; and with a face analysis open
+- [low · easy] Two interface lookups still walk a list per item: with a face analysis open
   `Analyses::of` retains and scans every entry once per body, so the legend is O(B²) a frame and
-  computes `shown_meshes` again. Sorted sets, generation keys and the feature tree's off-screen
-  rows would make each a lookup; time them on an import first.
-- [medium · medium] `Document::feature` and `feature_index` scan the feature list, and are called
-  inside per-body and per-item loops: `body_snap::Basis::of` runs `is_shown` for every body every
-  frame a sketch is edited, `whole_bodies` every frame the Bodies filter hovers a face,
-  `Selection::is_available` once per selected item when the selection or revision changes (whole
-  bodies of an import are tens of thousands of faces), and `InsertFeature` checks ids and names in
-  O(F), so a transaction adding N imports is O(N²). An index from id to position, kept by every
-  structural edit (or rebuilt lazily), makes them logarithmic.
+  computes `shown_meshes` again; and while a keyboard highlight is set, `highlightable().contains`
+  scans every pickable of the scene (listed once per scene) each frame.
+- [low · easy] `InsertFeature` compares a new feature's name with every other's
+  (`check_feature_name`), so a transaction adding N imports makes O(N²) comparisons, about 7.6
+  million for the VZ330's 3,894 bodies. A name index beside `FeatureList`'s id index would make it
+  a lookup, but renames reach a feature through `FeatureList::get_mut_by_id` and would have to keep
+  it.
 - [medium · hard] The cached scene's own batch holds every drawn sketch: any change to its
   content (each drag solution, an edit, an evaluation, a new faceting level) facets every drawn
   sketch again, and a hover or selection change restyles and uploads all of it, over a millisecond

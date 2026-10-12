@@ -644,6 +644,7 @@ pub struct BodyMeshes {
     draft: Option<DraftShown>,
     moved: Option<(FeatureId, RigidTransform)>,
     generation: u64,
+    updated_for: Option<(u64, u64)>,
 }
 
 impl BodyMeshes {
@@ -808,6 +809,18 @@ impl BodyMeshes {
         self.moved = draft.moved;
         if !same_draft || !same_move {
             self.changed();
+        }
+    }
+
+    pub fn update_when_changed(
+        &mut self,
+        (evaluation, evaluated): (&Evaluation, u64),
+        meshing: &BodyMeshing,
+    ) {
+        let basis = (evaluated, meshing.conversions());
+        if self.updated_for != Some(basis) {
+            self.update(evaluation, meshing);
+            self.updated_for = Some(basis);
         }
     }
 
@@ -1036,6 +1049,7 @@ pub struct BodyMeshing {
     converted: BTreeMap<usize, Conversion>,
     shown_at: Option<Instant>,
     measured: u64,
+    conversions: u64,
 }
 
 impl BodyMeshing {
@@ -1063,6 +1077,10 @@ impl BodyMeshing {
         self.measured
     }
 
+    pub fn conversions(&self) -> u64 {
+        self.conversions
+    }
+
     #[cfg(test)]
     pub fn is_measuring(&self) -> bool {
         self.converter
@@ -1087,6 +1105,7 @@ impl BodyMeshing {
             self.converter = None;
             self.converted
                 .insert(at, convert(Arc::clone(source), Weak::new()));
+            self.conversions = self.conversions.wrapping_add(1);
         }
     }
 
@@ -1117,6 +1136,7 @@ impl BodyMeshing {
                 .is_none_or(|shown| shown.elapsed() >= SHOWN_TOGETHER_FOR);
         if due && !self.held.is_empty() {
             self.converted.append(&mut self.held);
+            self.conversions = self.conversions.wrapping_add(1);
             self.shown_at = Some(Instant::now());
             arrived = true;
         }
@@ -1126,8 +1146,12 @@ impl BodyMeshing {
     pub fn retain(&mut self, keep: impl Fn(&Arc<FeatureResult>) -> bool) {
         self.pending.retain(|_, pending| keep(pending));
         self.held.retain(|_, conversion| keep(&conversion.source));
+        let before = self.converted.len();
         self.converted
             .retain(|_, conversion| keep(&conversion.source));
+        if self.converted.len() != before {
+            self.conversions = self.conversions.wrapping_add(1);
+        }
     }
 }
 

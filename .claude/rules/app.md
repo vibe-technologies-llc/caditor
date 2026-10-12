@@ -87,8 +87,9 @@ paths:
   revision, evaluation, the open feature's draft, displayed sketches, body meshes, display style,
   `Contrast`, editing `Context`, faceting level); anything new that affects the drawing must feed
   that key.
-  The hovered `Pickable`s handed in `Highlight` are sorted and deduplicated, since every scene item
-  looks itself up with a binary search.
+  The hovered `Pickable`s and the chosen rows (with their bodies, `viewport::with_their_bodies`)
+  handed in `Highlight` are sorted and deduplicated, since every scene item looks itself up with
+  a binary search.
 - Each shown body is a `BodyPart` the cache keeps between rebuilds (`scene::BodyParts`): its mesh
   instances, its silhouette, a batch of its own holding its edges and vertices, and a block of
   pick ids of its own (`PickBlock`, ids from `BODY_PICKS_FROM` up). A rebuild reuses a part whose
@@ -229,7 +230,9 @@ paths:
   whenever `SHOWN_TOGETHER_FOR` has passed since the last showing or nothing is left to convert,
   so a large import is drawn in a few batches and the base scene is rebuilt a few times rather
   than once per body. `BodyMeshes` takes each batch, keeping the previous mesh until then, so the
-  UI thread only uploads buffers. While bodies are pending the status bar's summary says how many
+  UI thread only uploads buffers; it walks the bodies again only when the evaluation
+  (`Model::evaluation_generation`) or the converted meshes (`BodyMeshing::conversions`) changed
+  (`BodyMeshes::update_when_changed`), not every frame. While bodies are pending the status bar's summary says how many
   of them are shown (`Model::bodies_preparing`, "Showing 300 of 954 bodies…"), its spinner's
   repaints also letting held batches out.
 - A face is `Pickable::Face` with a `FaceKey` (`FaceName` plus occurrence among same-named

@@ -154,7 +154,7 @@ fn rows(
     let query = filter_field(ui, state, count);
     let filtering = !query.is_empty();
     let bar = document.bar_index();
-    let chosen = state.chosen();
+    let chosen: BTreeSet<FeatureId> = state.chosen().into_iter().collect();
     let mut placed = Vec::with_capacity(count + 1);
     let mut drawn = Vec::with_capacity(count);
     let mut range_to = None;
@@ -594,7 +594,7 @@ fn off_screen_row(ui: &mut Ui, model: &Model, state: &PanelState, row: &Row<'_>)
     Some(ui.allocate_space(vec2(ui.available_width(), height)).1)
 }
 
-fn near_view(ui: &Ui, height: f32) -> bool {
+pub fn near_view(ui: &Ui, height: f32) -> bool {
     let estimate = Rect::from_min_size(ui.cursor().min, vec2(ui.available_width(), height));
     ui.clip_rect()
         .intersects(estimate.expand(height + ui.spacing().item_spacing.y))

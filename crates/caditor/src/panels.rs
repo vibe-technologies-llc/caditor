@@ -131,6 +131,7 @@ pub struct PanelState {
     pub tree_filter: String,
     pub parameter_filter: String,
     pub plain_row_height: Option<f32>,
+    pub plain_body_row_height: Option<f32>,
     pub plain_constraint_height: Option<f32>,
     pub plain_dimension_height: Option<f32>,
     pub varied_row_heights: RowHeights,
@@ -289,7 +290,10 @@ impl PanelState {
     }
 
     pub fn reads_selected(&self, feature: FeatureId) -> bool {
-        self.in_view.contains(&feature) || self.chosen().contains(&feature)
+        self.in_view.contains(&feature)
+            || self
+                .selected
+                .is_some_and(|primary| primary == feature || self.also_selected.contains(&feature))
     }
 
     pub fn reveal(&mut self, feature: FeatureId) {

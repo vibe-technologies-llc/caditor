@@ -438,13 +438,14 @@ struct Problem {
 }
 
 fn with_their_bodies(document: &Document, rows: Vec<FeatureId>) -> Vec<FeatureId> {
-    let mut lit = rows.clone();
-    let bodies = rows.iter().filter_map(|row| document.feature(*row)?.body());
-    for body in bodies {
-        if !lit.contains(&body) {
-            lit.push(body);
-        }
-    }
+    let bodies: Vec<FeatureId> = rows
+        .iter()
+        .filter_map(|row| document.feature(*row)?.body())
+        .collect();
+    let mut lit = rows;
+    lit.extend(bodies);
+    lit.sort_unstable();
+    lit.dedup();
     lit
 }
 
@@ -1161,7 +1162,10 @@ impl ViewportState {
             self.face_edited_sketch = edited.map(|_| SketchFacing::Entering);
             self.last_pick = None;
         }
-        self.bodies.update(evaluation, &display.meshing);
+        self.bodies.update_when_changed(
+            (evaluation, model.evaluation_generation()),
+            &display.meshing,
+        );
         let drafted = model.draft_body_result();
         self.bodies.update_open(
             document,

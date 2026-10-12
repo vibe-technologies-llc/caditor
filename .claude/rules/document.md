@@ -56,6 +56,12 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   near linear in the number of parameters. Their order is the user's (`MoveParameter`) and changes
   nothing computed; a parameter's `note` (`SetParameterNote`, trimmed, at most
   `MAX_PARAMETER_NOTE_CHARS`) is free text for the user only.
+- Features live in a `FeatureList` (`feature_list.rs`) indexed by ID, kept by every insert,
+  removal and move, so `Document::feature` and `feature_index` are lookups rather than scans: the
+  app calls them per body and per row, and an import of thousands of bodies made those loops
+  quadratic. The features making or changing each body (`Feature::body`) are grouped on first
+  ask (`Document::features_on_body`, which `face_splits` and the scene's body health read) and
+  forgotten by any change to the list or to a feature in it.
 - `Document::inline_parameter` builds the one transaction deleting a parameter in use: its
   expression (not its value, so links to the parameters it uses survive) is substituted into every
   parameter, sketch dimension, feature and body density using it (`Expression::inlining`, which
@@ -312,9 +318,9 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   most `MAX_DENSITY`, else a `DensityError` saying why.
 - `faces` lists `FaceColour`s, a `FaceReference` with its colour, an optional opacity (a
   percent, 100 solid on a see-through body, below `MIN_OPACITY_PERCENT` refused like the body's)
-  and an optional `Finish`, later entries winning. `face_colours`, `face_opacities` and
-  `face_finishes` map a solid's faces to them in one
-  pass: every face of the reference's name (so each fragment of a face a later feature splits
+  and an optional `Finish`, later entries winning. `face_appearances` maps a solid's faces to their
+  entries in one pass (`face_colours`, `face_opacities` and `face_finishes` read it, the scene
+  takes it once per body): every face of the reference's name (so each fragment of a face a later feature splits
   keeps its colour) or of a name a split face gives its pieces, else the face the reference
   resolves to; a face found by neither keeps the body's colour and opacity. The split names come
   from `Document::face_splits(body)` (`FaceSplits`): for each unsuppressed split face of the body

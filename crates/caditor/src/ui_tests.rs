@@ -570,7 +570,14 @@ impl Harness {
         else {
             return;
         };
-        let picks = self.built().picks;
+        let Some(picks) = self
+            .workspace
+            .viewport
+            .build_scene(&self.model, &self.workspace.editing)
+            .map(|built| Arc::clone(&built.picks))
+        else {
+            return;
+        };
         let hits = self
             .forced_hover
             .and_then(|(_, pickable)| picks.id_of(pickable))
@@ -19415,11 +19422,23 @@ fn a_body_takes_a_colour_and_a_material_whose_density_gives_its_mass() {
 }
 
 fn add_block(harness: &mut Harness, name: &str, corners: [Point2; 2], height: &str) -> FeatureId {
+    let mut transaction = harness.document().transaction(format!("Add {name}"));
+    let block = block_into(&mut transaction, name, corners, height);
+    harness.perform(Action::Apply(transaction.finish()));
+    harness.settle();
+    block
+}
+
+fn block_into(
+    transaction: &mut caditor_document::TransactionBuilder<'_>,
+    name: &str,
+    corners: [Point2; 2],
+    height: &str,
+) -> FeatureId {
     let mut outline = Sketch::new(Plane::XY);
     rectangle(&mut outline, corners[0], corners[1]);
-    let mut transaction = harness.document().transaction(format!("Add {name}"));
     let sketch = transaction.add_feature(format!("{name} sketch"), FeatureKind::from(outline));
-    let block = transaction.add_feature(
+    transaction.add_feature(
         name,
         FeatureKind::Solid(SolidFeature::Extrude(caditor_document::Extrude {
             sketch,
@@ -19432,10 +19451,7 @@ fn add_block(harness: &mut Harness, name: &str, corners: [Point2; 2], height: &s
             wall: None,
             direction: None,
         })),
-    );
-    harness.perform(Action::Apply(transaction.finish()));
-    harness.settle();
-    block
+    )
 }
 
 #[test]

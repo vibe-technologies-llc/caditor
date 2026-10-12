@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, sync::Arc};
 
 use crate::{
     document::{Document, Feature, FeatureId, TreeRow},
@@ -31,22 +31,27 @@ impl Document {
     }
 
     pub fn group_run(&self, feature: FeatureId) -> Vec<FeatureId> {
-        let features: Vec<&Feature> = self.features().collect();
-        let Some(at) = features.iter().position(|found| found.id() == feature) else {
+        let Some(at) = self.feature_index(feature) else {
             return Vec::new();
         };
-        let Some(group) = features.get(at).and_then(|found| found.group.as_deref()) else {
+        let Some(group) = self
+            .features
+            .get(at)
+            .and_then(|found| found.group.as_deref())
+        else {
             return Vec::new();
         };
-        let within = |index: &usize| {
-            features
-                .get(*index)
-                .is_some_and(|found| found.group.as_deref() == Some(group))
+        let within = |found: &&Arc<Feature>| found.group.as_deref() == Some(group);
+        let Some((above, from)) = self.features.split_at_checked(at) else {
+            return Vec::new();
         };
-        let first = (0..=at).rev().take_while(within).last().unwrap_or(at);
-        let last = (at..features.len()).take_while(within).last().unwrap_or(at);
-        (first..=last)
-            .filter_map(|index| features.get(index).map(|found| found.id()))
+        let before = above.iter().rev().take_while(within).count();
+        let after = from.iter().take_while(within).count();
+        self.features
+            .iter()
+            .skip(at - before)
+            .take(before + after)
+            .map(|found| found.id())
             .collect()
     }
 

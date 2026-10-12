@@ -4,8 +4,8 @@ use caditor_sketch::Sketch;
 use egui::{Event, Key, Modifiers, Pos2, accesskit::Role};
 
 use super::{
-    CAMERA_SETTLE, Harness, add_block, click_with, extruded_plate, feature_named, offer, rectangle,
-    run_from_palette, top_edge_along_x,
+    CAMERA_SETTLE, Harness, Wheel, add_block, block_into, click_with, extruded_plate,
+    feature_named, offer, rectangle, run_from_palette, top_edge_along_x,
 };
 use crate::{commands::Command, icons, model::Action, selection::Pickable, solid_tools};
 
@@ -449,4 +449,41 @@ fn features_an_undo_removed_leave_the_tree_s_choice() {
     assert_eq!(harness.document().features().len(), before);
     assert_eq!(pasted.len(), 1);
     assert_eq!(chosen(&harness), vec![plate]);
+}
+
+#[test]
+fn body_rows_far_out_of_view_are_not_laid_out_until_scrolled_to() {
+    const BLOCKS: usize = 60;
+
+    let mut harness = Harness::new();
+    let mut transaction = harness.document().transaction("Add blocks");
+    for index in 0..BLOCKS {
+        let along = index as f64 * 20.0;
+        block_into(
+            &mut transaction,
+            &format!("Block {index}"),
+            [Point2::new(along, 0.0), Point2::new(along + 10.0, 10.0)],
+            "5 mm",
+        );
+    }
+    harness.perform(Action::Apply(transaction.finish()));
+    harness.settle();
+    harness.click(&format!("Bodies ({BLOCKS})"));
+    harness.context.enable_accesskit();
+    harness.frame();
+    harness.frame();
+    let laid_out = |harness: &Harness, name: &str| {
+        harness.accessible_named(Role::Button, &format!("Colour and material of {name}"))
+    };
+    let first_laid_out = laid_out(&harness, "Block 0");
+    let last_laid_out = laid_out(&harness, &format!("Block {}", BLOCKS - 1));
+
+    let over_the_tree = harness.position_of("Block 0");
+    harness.wheel_until_shown(over_the_tree, "Block 40", Wheel::Down);
+    harness.frame();
+
+    assert!(first_laid_out);
+    assert!(!last_laid_out);
+    assert!(laid_out(&harness, "Block 40"));
+    assert!(!laid_out(&harness, "Block 0"));
 }

@@ -10,6 +10,7 @@ mod describe;
 mod document;
 mod edit;
 mod editor;
+mod feature_list;
 mod grouping;
 mod healing;
 mod history;

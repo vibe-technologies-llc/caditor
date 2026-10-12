@@ -1,5 +1,5 @@
 use caditor_document::{Feature, FeatureId};
-use egui::{Id, Label, RichText, Ui, collapsing_header::CollapsingState};
+use egui::{Id, Label, RichText, Ui, collapsing_header::CollapsingState, vec2};
 
 use crate::{
     appearance::{self, SPACE_S},
@@ -97,10 +97,31 @@ pub fn show(
     }
     collapsing.show_body_unindented(ui, |ui| {
         for body in &bodies {
-            item(ui, model, selection, state, actions, (*body, &bodies));
+            if let Some(height) = off_screen_height(ui, state, *body) {
+                ui.allocate_space(vec2(ui.available_width(), height));
+                continue;
+            }
+            let shown = item(ui, model, selection, state, actions, (*body, &bodies));
+            if let Some(height) = shown.filter(|_| is_plain(ui, state, *body)) {
+                state.plain_body_row_height = Some(height);
+            }
         }
     });
     collapsing.store(ui.ctx());
+}
+
+fn off_screen_height(ui: &Ui, state: &PanelState, body: FeatureId) -> Option<f32> {
+    let height = state.plain_body_row_height?;
+    (!feature_tree::near_view(ui, height) && is_plain(ui, state, body)).then_some(height)
+}
+
+fn is_plain(ui: &Ui, state: &PanelState, body: FeatureId) -> bool {
+    state.painting.is_none_or(|painting| painting.body != body)
+        && !ui.memory(|memory| memory.has_focus(row_id(body)))
+}
+
+fn row_id(body: FeatureId) -> Id {
+    Id::new(("body-row", body))
 }
 
 fn item(
@@ -110,10 +131,8 @@ fn item(
     state: &mut PanelState,
     actions: &mut Vec<Action>,
     (body, listed): (FeatureId, &[FeatureId]),
-) {
-    let Some(feature) = model.document().feature(body) else {
-        return;
-    };
+) -> Option<f32> {
+    let feature = model.document().feature(body)?;
     let name = model.document().body_name(body).unwrap_or(&feature.name);
     let painting = state.painting.filter(|painting| painting.body == body);
     let shown = !feature.hidden;
@@ -134,13 +153,7 @@ fn item(
                     .selectable(false)
                     .truncate(),
             );
-            tree_row::sense(
-                ui,
-                Id::new(("body-row", body)),
-                ui.min_rect().left(),
-                name,
-                look.selected,
-            )
+            tree_row::sense(ui, row_id(body), ui.min_rect().left(), name, look.selected)
         },
         |ui| {
             let paint = tree_row::slot(ui, |ui| paint_button(ui, name, painting.is_some()));
@@ -184,7 +197,7 @@ fn item(
         };
     }
     let Some(painting) = state.painting.filter(|painting| painting.body == body) else {
-        return;
+        return Some(row.rect.height());
     };
     let focused = tree_row::indented(ui, |ui| {
         ui.add_space(SPACE_S);
@@ -206,6 +219,7 @@ fn item(
         });
     }
     ui.add_space(SPACE_S);
+    None
 }
 
 fn row_menu(

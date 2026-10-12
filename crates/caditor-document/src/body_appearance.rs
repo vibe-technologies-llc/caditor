@@ -160,7 +160,7 @@ impl Document {
     pub fn face_splits(&self, body: FeatureId) -> FaceSplits {
         FaceSplits {
             splits: self
-                .features()
+                .features_on_body(body)
                 .filter(|feature| !feature.suppressed)
                 .filter_map(|feature| {
                     let split = feature
@@ -218,27 +218,31 @@ impl BodyAppearance {
     }
 
     pub fn face_colours(&self, solid: &Solid, splits: &FaceSplits) -> BTreeMap<FaceId, Rgb> {
-        self.face_looks(solid, splits)
+        self.face_appearances(solid, splits)
             .into_iter()
             .map(|(face, coloured)| (face, coloured.colour))
             .collect()
     }
 
     pub fn face_opacities(&self, solid: &Solid, splits: &FaceSplits) -> BTreeMap<FaceId, u8> {
-        self.face_looks(solid, splits)
+        self.face_appearances(solid, splits)
             .into_iter()
             .filter_map(|(face, coloured)| coloured.opacity.map(|opacity| (face, opacity)))
             .collect()
     }
 
     pub fn face_finishes(&self, solid: &Solid, splits: &FaceSplits) -> BTreeMap<FaceId, Finish> {
-        self.face_looks(solid, splits)
+        self.face_appearances(solid, splits)
             .into_iter()
             .filter_map(|(face, coloured)| coloured.finish.map(|finish| (face, finish)))
             .collect()
     }
 
-    fn face_looks(&self, solid: &Solid, splits: &FaceSplits) -> BTreeMap<FaceId, &FaceColour> {
+    pub fn face_appearances(
+        &self,
+        solid: &Solid,
+        splits: &FaceSplits,
+    ) -> BTreeMap<FaceId, &FaceColour> {
         let mut named: BTreeMap<FaceName, Vec<FaceId>> = BTreeMap::new();
         if !self.faces.is_empty() {
             for (id, face) in solid.faces() {
