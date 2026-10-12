@@ -142,7 +142,10 @@ paths:
   queued recompute, newest first (asking again moves a result to the front).
 - Once a run has taken `FEATURES_DONE_AFTER` it reports as it goes (`Outcome::FeaturesDone`, never
   `is_complete`). Before each feature it evaluates, the walk hands the display thread a glimpse of
-  the evaluation so far, when a feature was computed or a body settled since the last; the thread
+  the evaluation so far, when a feature was computed or a body settled since the last; building one
+  is O(features), so the walk spends at most `GLIMPSE_ALLOWANCE` or a `GLIMPSE_SHARE_OF_RUN`th of the
+  run on them (`GlimpseBudget`), and past that a glimpse is only the settled bodies, sent for meshing
+  without an evaluation (`Glimpse::evaluation` is `None`) and without replacing the latest; the thread
   reports the latest glimpse once the time is up, even while a feature is still running, and again
   after bodies are meshed for it. After the loop the run reports before the regions and meshes, and
   as meshes finish; a report that only adds meshes waits until `MESHES_REPORTED_EVERY` has passed

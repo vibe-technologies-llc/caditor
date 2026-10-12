@@ -15,7 +15,7 @@ use crate::{
 pub(crate) const MESHES_REPORTED_EVERY: Duration = Duration::from_millis(750);
 
 pub(crate) struct Glimpse {
-    pub(crate) evaluation: Evaluation,
+    pub(crate) evaluation: Option<Evaluation>,
     pub(crate) settled: Vec<SettledBody>,
 }
 
@@ -102,8 +102,11 @@ impl Presentation<'_> {
                         evaluation,
                         settled,
                     } = *glimpse;
-                    latest = Some(evaluation);
-                    only_meshes = false;
+                    if let Some(evaluation) = evaluation {
+                        latest = Some(evaluation);
+                        only_meshes = false;
+                        unreported = true;
+                    }
                     for body in settled {
                         let meshes = meshes.clone();
                         (self.mesh)(
@@ -115,7 +118,6 @@ impl Presentation<'_> {
                             }),
                         );
                     }
-                    unreported = true;
                 }
                 Ok(Shown::Meshed) => {
                     only_meshes = !unreported || only_meshes;

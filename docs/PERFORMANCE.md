@@ -102,15 +102,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   when that fails, so a long chain dragged past its reach stops instead of following. A sparse
   null-space basis, or Hessian-vector products inside CGLS, would lift the limit.
 
-## Recompute
-
-- [low · easy] A recompute builds a glimpse before every feature it evaluates: `offer_glimpse`
-  returns early only when nothing was recomputed since the last glimpse, which is never true once
-  a feature was evaluated, so `glimpse` clones the statuses, bodies and inputs and walks the rest
-  of the tree before each feature, and `into_evaluation` builds `Measured::of` again though the run
-  holds it, O(F²) for a cold open of a long tree while the presenter keeps only the latest glimpse
-  and reports none before `FEATURES_DONE_AFTER`. Build one only once a report is due.
-
 ## Hostile files
 
 - [low · easy] Crafted files take quadratic time in readers documented as near linear, on a
