@@ -189,6 +189,7 @@ pub fn command(command: Command) -> &'static str {
         Command::DeleteSelection => DELETE,
         Command::Extrude => EXTRUDE,
         Command::Revolve => REVOLVE,
+        Command::Sweep => SWEEP,
         Command::Fillet => blend(BlendKind::Fillet),
         Command::Chamfer => blend(BlendKind::Chamfer),
         Command::Shell => SHELL,
@@ -363,6 +364,7 @@ pub fn command(command: Command) -> &'static str {
 
 const EXTRUDE: &str = icon_font::EXTRUDE;
 const REVOLVE: &str = icon_font::REVOLVE;
+const SWEEP: &str = phosphor::PIPE;
 const SHELL: &str = icon_font::SHELL;
 const COMBINE: &str = phosphor::UNITE;
 const MOVE: &str = phosphor::HAND_GRABBING;
@@ -522,6 +524,7 @@ pub fn feature(kind: &FeatureKind) -> &'static str {
         FeatureKind::Sketch(_) => SKETCH,
         FeatureKind::Solid(SolidFeature::Extrude(_)) => EXTRUDE,
         FeatureKind::Solid(SolidFeature::Revolve(_)) => REVOLVE,
+        FeatureKind::Solid(SolidFeature::Sweep(_)) => SWEEP,
         FeatureKind::Blend(blend) => self::blend(blend.kind),
         FeatureKind::Shell(_) => SHELL,
         FeatureKind::OffsetFace(_) => OFFSET_FACE,

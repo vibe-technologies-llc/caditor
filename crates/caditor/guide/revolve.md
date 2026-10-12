@@ -38,3 +38,5 @@ makes a new body, as a new extrusion does.
 
 A construction line in the sketch makes a good axis: it guides the drawing and never makes a
 region.
+
+To carry a profile along a curved path rather than about an axis, use [Sweep](sweep).

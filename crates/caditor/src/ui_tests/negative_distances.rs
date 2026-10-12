@@ -23,7 +23,7 @@ fn distance_field(extrude: FeatureId) -> Id {
 fn extrusion(harness: &Harness, feature: FeatureId) -> &Extrude {
     match harness.solid(feature) {
         SolidFeature::Extrude(extrude) => extrude,
-        SolidFeature::Revolve(_) => panic!("expected an extrusion"),
+        SolidFeature::Revolve(_) | SolidFeature::Sweep(_) => panic!("expected an extrusion"),
     }
 }
 

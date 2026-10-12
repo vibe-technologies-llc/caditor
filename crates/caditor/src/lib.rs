@@ -177,6 +177,7 @@ mod split_tools;
 mod startup_check;
 mod status_bar;
 mod stepping;
+mod sweep_tools;
 mod symmetric_drawing;
 mod tangent_circling;
 mod themes;

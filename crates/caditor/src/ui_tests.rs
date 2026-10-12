@@ -96,6 +96,7 @@ mod palette_and_notices;
 mod panel_fields;
 mod parameter_files;
 mod paste_picks;
+mod path_sweeps;
 mod pattern_grid;
 mod pick_list;
 mod primitive_feet;
@@ -10012,7 +10013,7 @@ fn an_extrusion_takes_a_start_offset_from_its_panel_and_zero_clears_it() {
     let start_of = |harness: &Harness| harness.solid(extrude).clone();
     let start = |solid: SolidFeature| match solid {
         SolidFeature::Extrude(extrude) => extrude.start,
-        SolidFeature::Revolve(_) => panic!("expected an extrusion"),
+        SolidFeature::Revolve(_) | SolidFeature::Sweep(_) => panic!("expected an extrusion"),
     };
     let lowest = |harness: &Harness| {
         harness
@@ -15763,6 +15764,7 @@ fn extrude_extent(harness: &Harness, feature: FeatureId) -> &'static str {
             ExtrudeExtent::TwoSides { .. } => "two sides",
         },
         SolidFeature::Revolve(_) => "a revolve",
+        SolidFeature::Sweep(_) => "a sweep",
     }
 }
 
@@ -15871,7 +15873,7 @@ fn a_solid_feature_changes_its_extent_result_body_sketch_and_axis_from_its_panel
     choose(&mut harness, "Full turn", "Symmetric");
     let turn = match harness.solid(revolve) {
         SolidFeature::Revolve(revolve) => revolve.extent.clone(),
-        SolidFeature::Extrude(_) => panic!("expected a revolve"),
+        SolidFeature::Extrude(_) | SolidFeature::Sweep(_) => panic!("expected a revolve"),
     };
 
     assert!(starts_adding);
@@ -15917,7 +15919,7 @@ fn a_revolve_turns_up_to_a_plane_through_its_axis_chosen_in_its_panel() {
     choose(&mut harness, "Full turn", crate::solid_panel::TURN_UP_TO);
     let turned = match harness.solid(revolve) {
         SolidFeature::Revolve(revolve) => revolve.extent.clone(),
-        SolidFeature::Extrude(_) => panic!("expected a revolve"),
+        SolidFeature::Extrude(_) | SolidFeature::Sweep(_) => panic!("expected a revolve"),
     };
     let volume = harness.body_volume(revolve);
 
@@ -15960,7 +15962,7 @@ fn an_extrusion_runs_along_a_selected_sketch_line_chosen_in_its_panel() {
     );
     let direction = match harness.solid(leaning) {
         SolidFeature::Extrude(extrude) => extrude.direction.clone(),
-        SolidFeature::Revolve(_) => panic!("expected an extrusion"),
+        SolidFeature::Revolve(_) | SolidFeature::Sweep(_) => panic!("expected an extrusion"),
     };
     let volume = harness.body_volume(leaning);
     let named = harness.shows("Along");
@@ -15981,7 +15983,7 @@ fn an_extrusion_runs_along_a_selected_sketch_line_chosen_in_its_panel() {
 fn extent_of(harness: &Harness, feature: FeatureId) -> ExtrudeExtent {
     match harness.solid(feature) {
         SolidFeature::Extrude(extrude) => extrude.extent.clone(),
-        SolidFeature::Revolve(_) => panic!("expected an extrusion"),
+        SolidFeature::Revolve(_) | SolidFeature::Sweep(_) => panic!("expected an extrusion"),
     }
 }
 
@@ -16408,7 +16410,7 @@ fn a_revolve_turns_by_two_angles_set_in_its_panel() {
     harness.settle();
     let turned = match harness.solid(revolve) {
         SolidFeature::Revolve(revolve) => revolve.extent.clone(),
-        SolidFeature::Extrude(_) => panic!("expected a revolve"),
+        SolidFeature::Extrude(_) | SolidFeature::Sweep(_) => panic!("expected a revolve"),
     };
 
     assert!((both_ways - full * 210.0 / 360.0).abs() < 0.01 * full);
@@ -16449,7 +16451,7 @@ fn dragging_a_revolve_s_angle_arrows_turns_it_further() {
             ),
             other => panic!("expected two angles, not {other:?}"),
         },
-        SolidFeature::Extrude(_) => panic!("expected a revolve"),
+        SolidFeature::Extrude(_) | SolidFeature::Sweep(_) => panic!("expected a revolve"),
     };
     let (forward, backward) = angles(&harness);
     let handle = Handle::Revolve(crate::turn_handles::TurnEnd::Forward);
@@ -16573,7 +16575,7 @@ fn a_revolve_starting_off_its_sketch_plane_shows_and_drags_its_angle_arrows_ther
             }
             other => panic!("expected two angles, not {other:?}"),
         },
-        SolidFeature::Extrude(_) => panic!("expected a revolve"),
+        SolidFeature::Extrude(_) | SolidFeature::Sweep(_) => panic!("expected a revolve"),
     };
     let handle = Handle::Revolve(crate::turn_handles::TurnEnd::Forward);
 
@@ -16634,7 +16636,7 @@ fn a_revolve_crossing_its_axis_keeps_the_larger_side_and_then_the_other() {
     let revolve = open_solid(&harness);
     let side = |harness: &Harness| match harness.solid(revolve) {
         SolidFeature::Revolve(revolve) => revolve.side,
-        SolidFeature::Extrude(_) => panic!("expected a revolve"),
+        SolidFeature::Extrude(_) | SolidFeature::Sweep(_) => panic!("expected a revolve"),
     };
     let failed = matches!(
         harness
@@ -21360,7 +21362,9 @@ fn open_extrude(harness: &Harness, feature: FeatureId) -> caditor_document::Extr
         .unwrap()
     {
         caditor_document::SolidFeature::Extrude(extrude) => extrude.clone(),
-        caditor_document::SolidFeature::Revolve(_) => panic!("the feature is a revolve"),
+        caditor_document::SolidFeature::Revolve(_) | caditor_document::SolidFeature::Sweep(_) => {
+            panic!("the feature is a revolve")
+        }
     }
 }
 

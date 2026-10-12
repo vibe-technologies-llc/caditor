@@ -3,6 +3,7 @@ paths:
   - "crates/caditor/src/solid_tools.rs"
   - "crates/caditor/src/body_reach.rs"
   - "crates/caditor/src/solid_panel.rs"
+  - "crates/caditor/src/sweep_tools.rs"
   - "crates/caditor/src/blend_tools.rs"
   - "crates/caditor/src/blend_panel.rs"
   - "crates/caditor/src/shell_tools.rs"
@@ -68,7 +69,9 @@ paths:
 
 Tools without a ribbon button (it stays one row) live in the Model menu and the palette: Offset face,
 Split face, the primitives, Thread, Copy body, Split body, Mate body, Mirror faces, Curve and Point
-pattern, Coordinate system, Scale model and Configurations. Panel rows, keys and wordings are in the
+pattern, Coordinate system, Scale model and Configurations. Sweep is in neither the ribbon nor the
+Model menu (which fills the screen at 200%): the palette, Alt+Shift+W and the right-click menu of
+selected sketch curves (`view_menu::SKETCH_TOOLS`) reach it. Panel rows, keys and wordings are in the
 `*_panel.rs` files; this file holds the behaviour behind them.
 
 ## Preview while open
@@ -340,6 +343,31 @@ pattern, Coordinate system, Scale model and Configurations. Panel rows, keys and
 - A removal's panel lists under Body the other bodies it Also cuts, each with a stop button, and an Add
   another body list of `bodies_before` not yet cut; switching away from Remove from body drops them
   (`solid_tools::with_operation`).
+
+## Sweep
+
+- `Command::Sweep` (`sweep_tools.rs`, `Offers::sweep`) makes a `SolidFeature::Sweep`, so it opens,
+  chooses regions, previews, cancels and takes its Body rows as an extrusion does.
+- `sweep_tools::source` reads the selection in pick order: the profile is the edited sketch, else
+  a selected region's sketch, else the first sketch of selected curves that has regions when
+  another sketch's curves or edges are selected too, else the one sketch of selected curves when it
+  has regions, else the last shown sketch with regions no feature sweeps (`guessed_profile`); its
+  selected regions or closing curves choose regions as an extrusion's do
+  (`solid_tools::with_selected_outline`). The path is the selected curves of one other sketch
+  (`is_path_curve`: any curve but a reference, construction ones too) or the selected edges of one
+  body; mixing them, curves of two other sketches or edges of two bodies is refused in words.
+- A new sweep adds to the path edges' body, else the body of selected faces, else is a new body;
+  it hides the profile's sketch but not the path's, whose curves stay clickable. With no path it
+  opens choosing one (`Slot::SweepPath`).
+- Panel: Sketch, Regions, Path (`path_words`, "2 curves of Path"; Use selected replaces it,
+  `selected_change`; Choose in the view; the cross clears it), Orientation (`SQUARE_TO_PATH`,
+  `PARALLEL`, a segmented choice that becomes a list when narrow) and Body. While choosing the
+  path each click toggles a curve or edge (`toggled_path`: the same sketch or body toggles, another
+  starts a new path) and choosing goes on until Escape (`reference_picking::click` keeps
+  `Slot::SweepPath`). Edges are captured in the body as the sweep sees it
+  (`Evaluation::body_result_seen_by`, else as shown).
+- It has no arrows or values; Reverse direction refuses it (it follows its path from the profile)
+  and `body_reach` decides nothing for it.
 
 ## Fillets, chamfers and shells
 

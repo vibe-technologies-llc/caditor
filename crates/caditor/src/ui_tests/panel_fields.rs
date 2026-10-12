@@ -45,7 +45,7 @@ fn distance_field(extrude: FeatureId) -> Id {
 fn extrude_of(harness: &Harness, feature: FeatureId) -> Extrude {
     match harness.solid(feature) {
         SolidFeature::Extrude(extrude) => extrude.clone(),
-        SolidFeature::Revolve(_) => panic!("the feature is an extrusion"),
+        SolidFeature::Revolve(_) | SolidFeature::Sweep(_) => panic!("the feature is an extrusion"),
     }
 }
 

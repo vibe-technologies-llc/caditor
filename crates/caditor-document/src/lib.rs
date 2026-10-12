@@ -53,6 +53,7 @@ mod split;
 mod split_edges;
 mod split_face;
 mod surface_tool;
+mod sweep;
 mod thread;
 mod thread_standard;
 mod tolerance;
@@ -174,6 +175,7 @@ pub use crate::{
     split::{HalfSpaceError, Split, SplitAlong, SweptError, is_open_chain},
     split_edges::{TracedEdge, trace_edge},
     split_face::{SplitCarry, SplitFace, on_one_unrolled_surface},
+    sweep::{SWEEP_SHAPE, Sweep, SweepPath},
     thread::{
         Bore, BoreError, PlacedThread, Thread, ThreadForm, ThreadLength, ThreadPlacement,
         ThreadResult, hole_thread, placed_threads,
@@ -279,6 +281,8 @@ mod split_face_tests;
 mod split_tests;
 #[cfg(test)]
 mod start_tests;
+#[cfg(test)]
+mod sweep_tests;
 #[cfg(test)]
 mod taper_tests;
 #[cfg(test)]

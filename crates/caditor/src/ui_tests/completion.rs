@@ -48,7 +48,7 @@ fn end_distance(harness: &Harness, extrude: FeatureId) -> Expression {
             } => distance.clone(),
             other => panic!("the extrusion runs a distance one way, not {other:?}"),
         },
-        SolidFeature::Revolve(_) => panic!("the feature is an extrusion"),
+        SolidFeature::Revolve(_) | SolidFeature::Sweep(_) => panic!("the feature is an extrusion"),
     }
 }
 

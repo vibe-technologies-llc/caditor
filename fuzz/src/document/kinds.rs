@@ -16,14 +16,14 @@ use caditor_document::{
     PointsPattern, Primitive, PrimitiveAnchor, PrimitiveShape, PrincipalPlane, Reading,
     RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Scale, Shell, ShellSide,
     SketchAttachment, SketchFeature, SolidFeature, SolidStart, Split, SplitAlong, SplitCarry,
-    SplitFace, TappedThread, Thread, ThreadFamily, ThreadForm, ThreadHand, ThreadLength,
-    ThreadSide, TurnCentre, Wall, sketch_regions,
+    SplitFace, Sweep, SweepPath, TappedThread, Thread, ThreadFamily, ThreadForm, ThreadHand,
+    ThreadLength, ThreadSide, TurnCentre, Wall, sketch_regions,
 };
 use caditor_expression::Expression;
 use caditor_geometry::{Plane, Point2};
 use caditor_kernel::{
-    LinearExtent, Profile, ProfileCurve, RegionReference, Selection, Solid, WallSide, extrude,
-    interruptible,
+    LinearExtent, Profile, ProfileCurve, RegionReference, Selection, Solid, SweepOrientation,
+    WallSide, extrude, interruptible,
 };
 use caditor_sketch::EntityId;
 use caditor_step::{StepBody, write_step};
@@ -327,6 +327,37 @@ fn wall(input: &mut Unstructured, scene: &Scene) -> Result<Option<Box<Wall>>> {
     })
 }
 
+fn sweep_path(input: &mut Unstructured, scene: &Scene) -> Result<SweepPath> {
+    Ok(match input.int_in_range(0u8..=2)? {
+        0 => SweepPath::Unchosen,
+        1 => match scene.existing_sketch(input)? {
+            Some(path) => {
+                let lines = scene.sketch_lines(path);
+                let mut curves = Vec::new();
+                for _ in 0..input.int_in_range(1u8..=3)? {
+                    curves.push(if lines.is_empty() || input.ratio(1u8, 8)? {
+                        EntityId::from_raw(input.int_in_range(0u64..=32)?)
+                    } else {
+                        *input.choose(&lines)?
+                    });
+                }
+                SweepPath::Curves {
+                    sketch: path,
+                    curves,
+                }
+            }
+            None => SweepPath::Unchosen,
+        },
+        _ => {
+            let body = scene.body(input)?;
+            SweepPath::Edges {
+                body,
+                edges: scene.edges(input, body)?,
+            }
+        }
+    })
+}
+
 fn solid(input: &mut Unstructured, scene: &Scene) -> Result<Option<FeatureKind>> {
     let Some(sketch) = scene.existing_sketch(input)? else {
         return Ok(None);
@@ -340,6 +371,16 @@ fn solid(input: &mut Unstructured, scene: &Scene) -> Result<Option<FeatureKind>>
         Vec::new()
     };
     let wall = wall(input, scene)?;
+    if input.ratio(1u8, 4)? {
+        return Ok(Some(FeatureKind::Solid(SolidFeature::Sweep(Sweep {
+            sketch,
+            regions,
+            path: sweep_path(input, scene)?,
+            orientation: *input.choose(&[SweepOrientation::Square, SweepOrientation::Parallel])?,
+            operation,
+            other_bodies,
+        }))));
+    }
     let solid = if input.arbitrary::<bool>()? {
         let extent = match input.int_in_range(0u8..=2)? {
             0 => ExtrudeExtent::OneSide {

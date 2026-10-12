@@ -4087,6 +4087,93 @@ fn an_unreadable_moved_face_is_left_where_it_is_and_reported() {
     assert!(restored.kind.offset_face().unwrap().faces.is_empty());
 }
 
+fn sweep_model() -> (Document, FeatureId, FeatureId) {
+    use caditor_document::{BodyOperation, SolidFeature, Sweep, SweepPath};
+    use caditor_kernel::{EdgeName, EdgeReference, FaceName, SweepOrientation, VertexName};
+    let (mut document, base, _) = solid_model();
+    let outline = document
+        .features()
+        .find(|feature| feature.name == "Outline")
+        .unwrap()
+        .id();
+    let mut transaction = document.transaction("Sweeps");
+    let mut path = Sketch::new(Plane::YZ);
+    let first = path.add_line(Point2::ZERO, Point2::new(0.0, 5.0));
+    let second = path.add_line(Point2::new(0.0, 5.0), Point2::new(3.0, 8.0));
+    let path = transaction.add_feature("Path", FeatureKind::from(path));
+    let along_curves = transaction.add_feature(
+        "Sweep 1",
+        FeatureKind::Solid(SolidFeature::Sweep(Sweep {
+            orientation: SweepOrientation::Parallel,
+            other_bodies: vec![base],
+            operation: BodyOperation::Remove(base),
+            ..Sweep::new(
+                outline,
+                SweepPath::Curves {
+                    sketch: path,
+                    curves: vec![first, second],
+                },
+            )
+        })),
+    );
+    let along_edges = transaction.add_feature(
+        "Sweep 2",
+        FeatureKind::Solid(SolidFeature::Sweep(Sweep::new(
+            outline,
+            SweepPath::Edges {
+                body: base,
+                edges: vec![EdgeReference::new(
+                    EdgeName::from_digest(0xbeef),
+                    [FaceName::from_digest(1), FaceName::from_digest(2)],
+                    [VertexName::from_digest(3), VertexName::from_digest(4)],
+                )],
+            },
+        ))),
+    );
+    document.apply(transaction.finish()).unwrap();
+    (document, along_curves, along_edges)
+}
+
+#[test]
+fn sweeps_are_saved_and_loaded_as_a_record_of_their_own() {
+    let (document, along_curves, _) = sweep_model();
+    let text = encode(&document).unwrap();
+    assert!(text.contains("\"sweep\":{"), "{text}");
+    assert!(text.contains("\"orientation\":\"parallel\""), "{text}");
+    let loaded = decode_text(&text);
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+
+    let kind = document.feature(along_curves).unwrap().kind.clone();
+    let transaction = Transaction::single(
+        "Edit",
+        Edit::SetFeatureKind {
+            id: along_curves,
+            kind,
+        },
+    );
+    let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+    let record = through_binary(&text);
+    assert_eq!(format::restore_transaction(record), Some(transaction));
+}
+
+#[test]
+fn an_unreadable_edge_of_a_sweep_path_is_left_out_and_reported() {
+    let (document, _, along_edges) = sweep_model();
+    let text =
+        encode(&document)
+            .unwrap()
+            .replacen("0000000000000000000000000000beef", "not a digest", 1);
+    let loaded = decode_text(&text);
+    assert_eq!(
+        loaded.issues,
+        ["Some edges of the path of “Sweep 2” could not be read and were left out."]
+    );
+    let restored = loaded.document.feature(along_edges).unwrap();
+    let path = restored.kind.solid().unwrap().path().unwrap();
+    assert!(path.is_empty());
+}
+
 fn primitive_model() -> (Document, FeatureId, FeatureId) {
     use caditor_document::{BodyOperation, Primitive, PrimitiveAnchor, PrimitiveShape};
     use caditor_kernel::{FaceName, FaceOrigin, FaceReference};

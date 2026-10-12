@@ -530,6 +530,7 @@ impl Rescaler {
                     self.length(&mut wall.thickness, name)?;
                 }
             }
+            FeatureKind::Solid(SolidFeature::Sweep(_)) => {}
             FeatureKind::Blend(blend) => {
                 self.length(&mut blend.size, name)?;
                 if let ChamferForm::TwoDistances { second } = &mut blend.form {
@@ -1167,6 +1168,7 @@ fn anchored(kind: &mut FeatureKind) -> Vec<Anchored<'_>> {
             HoleDepth::Blind(_) | HoleDepth::ThroughAll | HoleDepth::UpToNext { .. } => Vec::new(),
         },
         FeatureKind::Sketch(_)
+        | FeatureKind::Solid(SolidFeature::Sweep(_))
         | FeatureKind::Blend(_)
         | FeatureKind::Shell(_)
         | FeatureKind::OffsetFace(_)

@@ -33,7 +33,7 @@ fn degenerate() -> SweepError {
     SweepError::Geometry(GeometryError::ZeroDirection)
 }
 
-struct Frame {
+pub(super) struct Frame {
     plane: Plane,
     axis: Axis2,
     origin: Point3,
@@ -46,6 +46,29 @@ struct Frame {
 }
 
 impl Frame {
+    pub(super) fn turning(
+        plane: Plane,
+        axis: Axis2,
+        (origin, direction): (Point3, Vector3),
+        low: RigidTransform,
+        sweep: f64,
+        tolerance: f64,
+    ) -> Result<Self, SweepError> {
+        let turn =
+            RigidTransform::rotation_about(origin, direction, sweep).ok_or_else(degenerate)?;
+        Ok(Self {
+            plane,
+            axis,
+            origin,
+            direction,
+            low,
+            high: low.then(&turn),
+            sweep,
+            full: false,
+            tolerance,
+        })
+    }
+
     fn radial(&self) -> Vector3 {
         self.low
             .apply_vector(lift(&self.plane, self.axis.direction().perp()))
@@ -234,18 +257,18 @@ fn side_of_axis(
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Kind {
+pub(super) enum Kind {
     OnAxis,
     Flat,
     Curved { mapped: bool },
 }
 
-struct Prepared {
-    piece: Piece,
-    kind: Kind,
+pub(super) struct Prepared {
+    pub(super) piece: Piece,
+    pub(super) kind: Kind,
 }
 
-fn prepare(frame: &Frame, piece: &Piece) -> Result<Prepared, SweepError> {
+pub(super) fn prepare(frame: &Frame, piece: &Piece) -> Result<Prepared, SweepError> {
     let axis = &frame.axis;
     match piece.curve() {
         Curve2::Line(line) => {
@@ -358,7 +381,7 @@ pub(super) fn arc_spline(
     BSpline::rational(2, knots, points, weights)
 }
 
-fn surface_of(frame: &Frame, prepared: &Prepared) -> Result<Surface, SweepError> {
+pub(super) fn surface_of(frame: &Frame, prepared: &Prepared) -> Result<Surface, SweepError> {
     let axis = &frame.axis;
     let piece = &prepared.piece;
     Ok(match (piece.curve(), prepared.kind) {

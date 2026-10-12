@@ -26,6 +26,7 @@ use crate::{
     },
     split::SplitAlong,
     split_edges::SplitEdges,
+    sweep::SweepPath,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -578,6 +579,19 @@ fn visit_solid(solid: &mut SolidFeature, visitor: &mut impl ReferenceVisitor) {
             }
             if let Some(SolidStart::Plane(target)) = &mut revolve.start {
                 visit_plane(target, "the face it starts from", visitor);
+            }
+        }
+        SolidFeature::Sweep(sweep) => {
+            visitor.regions(sweep.sketch, &mut sweep.regions);
+            if let SweepPath::Edges { body, edges } = &mut sweep.path {
+                let count = edges.len();
+                visitor.edges(*body, edges, &|index| {
+                    if count == 1 {
+                        "the edge of its path".to_owned()
+                    } else {
+                        format!("edge {} of {count} of its path", index + 1)
+                    }
+                });
             }
         }
     }

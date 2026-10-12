@@ -13,6 +13,9 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   hole in the wrong place or a fillet to remove means remodelling it from scratch. Direct edits
   become features of their own, named from the faces they move, so they stay parametric and
   undoable.
+- [medium · medium] No pipe tool: a sweep makes tubing from a drawn profile, but a pipe taking only
+  a path and a round, square or triangular section size, solid or with a wall thickness, rounding
+  the path's sharp corners, would be the ready tool for tubing, handrails and cable runs.
 - [medium · hard] Offset face moves planes, cylinders, cones, spheres and tori only: a spline,
   extrusion or revolution face becomes its offset surface (which needs a surface fitted within
   tolerance), and a fillet moved beside a plane that stays is refused rather than re-blended.
@@ -35,12 +38,19 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   body's outside where sharp edges part it from the closed faces, since a smooth or void opening
   needs the opening prism only flat faces give; a face's own thickness has no drag arrow in the
   view (only its panel field).
-- [medium · hard] Sweep along a path and loft between profiles: the kernel has only extrusion and
-  revolution, so both need new kernel operations first. A sweep takes a profile and a path (a
-  chain of edges or sketch curves), kept square to the path or parallel to the profile, with an
-  optional guide rail, taper and twist; a loft takes two or more profiles or faces (a point may
-  end it), open or closed back to the first, with optional rails or a centreline and tangent or
-  curvature-continuous conditions at its ends.
+- [medium · hard] Sweep and loft: a sweep carries a sketch's regions along a chain of sketch
+  curves or model edges, square to the path or parallel to the profile, but takes no guide rail,
+  taper or twist (so a closed path out of one plane, which brings the profile back turned, is
+  refused), mitres only sharp corners between two lines (other sharp corners are refused: no
+  round corners), and sweeps no thin wall of open curves. There is no loft: two or more profiles
+  or faces (a point may end it), open or closed back to the first, with optional rails or a
+  centreline and tangent or curvature-continuous conditions at its ends; it needs a kernel
+  operation of its own (the sweep's fitted stations, `build/sweep/stations.rs`, are a start).
+- [medium · hard] No helix or spiral curve: springs and coils cannot be modelled. The sweep takes
+  only sketch curves and model edges as its path, so a helix needs a curve of its own the path can
+  name (a datum curve, or a curve of a 3D sketch, Sketching). A coil feature would be the ready
+  tool for springs: revolutions or height and pitch, a round or square section, inside or outside
+  the axis, and a taper angle.
 - [medium · hard] Patterns stop short of what other modellers repeat: a curve pattern follows only
   the curves of one sketch, never a chain of model edges (a 3D path, the copies then turning with
   its tangent and normal), and a pattern repeats features or whole bodies but never chosen faces.
@@ -82,13 +92,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [low · hard] No silhouette split: dividing a body's faces along its outline seen from a chosen
   direction (a split face whose tool is that outline), so the parting line of a moulded or cast
   part can be a face boundary for a draft to start from.
-- [medium · hard · blocked by: the sweep feature] No helix or spiral curve: springs and coils
-  cannot be modelled. The sweep feature (same list) needs the helix. A coil feature would be the
-  ready tool for springs: revolutions or height and pitch, a round or square section, inside or
-  outside the axis, and a taper angle.
-- [medium · hard · blocked by: the sweep feature] No pipe: a round, square or triangular section
-  swept along a path sketch, solid or with a wall thickness, with sharp or rounded corners, as the
-  ready tool for tubing, handrails and cable runs.
 - [medium · hard · blocked by: direct face edits ("Bodies cannot be edited directly")] Draft angle
   on existing faces: a fixed angle from a plane, a split at a parting line with an angle on each
   side, and an angle per face, following tangent faces as one chain.
@@ -145,6 +148,13 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   one chain at a time, leaves the free ends of an open chain sliding along their curves and cannot
   offset splines; a sketch fillet cannot round a spline and drops equal lengths and midpoints of the
   lines it shortens, as trim does.
+- [medium · hard] Sketches lie on one plane, so a sweep path or rail that bends in space (a cable
+  run, a handle) cannot be drawn; only a chain of model edges gives the sweep one. A 3D sketch of
+  lines, arcs and splines, with points placed by typed coordinates in space or moved off the
+  sketch plane, would be the path; with it a sketch curve projected onto a curved face along a
+  direction or to the nearest point, and the curve where two faces meet. The solver then holds 3D
+  points and directions and the constraints that mean something there (coincident, horizontal and
+  vertical in space, parallel, perpendicular, distance, fix).
 - [low · hard] An ellipse's offset is a free fit-point spline that does not follow the ellipse:
   holding it would need a constraint keeping each fit point on the ellipse's normal at its own
   parameter (a `Distance` from the ellipse lets every fit point slide along the offset and would
@@ -154,13 +164,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [low · hard] No reference image: a photo or scan cannot be placed on a sketch plane, scaled by two
   points (or calibrated by a known distance), given an opacity, locked and traced, as a part
   copied from an existing object or a drawing needs.
-- [medium · hard · blocked by: the sweep feature ("Sweep along a path" under Modelling)]
-  Sketches lie on one plane, so a sweep path or rail that bends in space (a cable run, a handle)
-  cannot be drawn. A 3D sketch of lines, arcs and splines, with points placed by typed coordinates
-  in space or moved off the sketch plane, would be the path; with it a sketch curve projected onto
-  a curved face along a direction or to the nearest point, and the curve where two faces meet. The
-  solver then holds 3D points and directions and the constraints that mean something there
-  (coincident, horizontal and vertical in space, parallel, perpendicular, distance, fix).
 - [low · hard · blocked by: vector hidden-line removal ("Technical drawings")] Project takes edges,
   corners and the boundaries of faces, but not the outline of a body seen square to the sketch
   plane: the silhouette lines of a cylinder lying along the plane or the circle of a sphere cannot

@@ -39,6 +39,9 @@ paths:
   side share a name and are told apart by neighbours. A face colour finds its pieces by computing
   these names forward from the split features (`FaceSplits`, `document.md`), since a digest cannot
   be reversed.
+- A swept side face is `FaceName::swept` of the feature, the profile piece, the path segment's key
+  (the caller's: a sketch entity or an edge name) and its part (1 for the stretch before a closed
+  path's opening point, else 0), so a face is named by what made it, never by its place on the path.
 - A thread groove face is `FaceName::thread` of the feature and its part (`kernel-operations.md`).
   A closing face of `enclose_faces` is `FaceName::closure` of the feature and the sorted, deduped
   names of its edges.

@@ -449,6 +449,27 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   axis with a wall fails in words. Both count among the feature's expressions.
 - A feature whose body others change keeps making a new body.
 
+### Sweep (`sweep.rs`)
+
+- `SolidFeature::Sweep` (`Sweep { sketch, regions, path, orientation, operation, other_bodies }`)
+  carries the chosen regions along a `SweepPath`: `Curves { sketch, curves }` of another sketch
+  (lifted to its solved plane through `profile_curve`, each keyed by its entity id), `Edges { body,
+  edges }` (`EdgeReference`s resolved with `EdgeNaming` in the body as it stands at the sweep, each
+  keyed by its edge name's digest), or `Unchosen`. It shares `solid::evaluate` with extrusion and
+  revolve (regions, body operation, other bodies cut, boolean wording) and calls kernel `sweep`
+  with the kernel's `SweepOrientation`; it has no expressions, start, taper or wall.
+- The path's sketch is in `reference_sketches` and `features()`, its body in `bodies_used`, its
+  edges' origins among `origin_features`, and healing visits its edges. A curve of the path cannot
+  be removed (`EntityInUse`, as a revolve's axis line); a path sketch deleted fails the sweep.
+- Failures are sentences per `PathSweepError` (`sweep::failure`), naming path curves by label and
+  sketch ("Line 3 of Path") or edges by their faces: no path; a branching or separate path; a sharp
+  corner (remedy: a fillet in the path's sketch, Parallel, or straight lines so it is mitred); a
+  mitre too sharp; a profile too large for a bend (fix on the profile's sketch); a path leaving
+  along the profile's plane or, kept parallel, turning along it; a closed path missing the
+  profile's plane or bringing it back turned; a sweep running into itself. The kernel's profile
+  errors go through `sweep_failure` as "sweep". A path curve no longer in its sketch, or an edge
+  lost or tied, asks to choose the path again.
+
 ### Blend and shell (`blend.rs`, `shell.rs`)
 
 - A `Blend` is a fillet or chamfer of `size`. A chamfer's `form` is `Equal`,

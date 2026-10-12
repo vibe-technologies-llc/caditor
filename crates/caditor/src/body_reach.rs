@@ -142,6 +142,7 @@ impl Swept {
                     },
                 }
             }
+            SolidFeature::Sweep(_) => return None,
             SolidFeature::Revolve(revolve) => {
                 if !matches!(revolve.extent, RevolveExtent::Full) || revolve.side.is_some() {
                     return None;
