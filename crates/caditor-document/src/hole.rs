@@ -3,21 +3,22 @@ use std::collections::{BTreeMap, BTreeSet};
 use caditor_expression::{Dimension, EvalError, Expression, ParameterId, Quantity};
 use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
 use caditor_kernel::{
-    AngularExtent, Axis2, BooleanOperation, LINEAR_RESOLUTION, LinearExtent, MAX_SIZE, Profile,
-    ProfileCurve, ReachError, Region, Solid, boolean, extrude, next_face, revolve,
+    AngularExtent, Axis2, BooleanOperation, FaceId, FaceOrigin, LINEAR_RESOLUTION, LinearExtent,
+    MAX_SIZE, Profile, ProfileCurve, RING_ENTITY, ReachError, Region, Solid, boolean, extrude,
+    next_face, revolve,
 };
 use caditor_sketch::{Entity, EntityId, Sketch};
 
 use crate::{
     attachment::AttachmentError,
     datum::{PlaneReference, Resolver, capitalized, describe_plane},
-    describe::describe_origin,
+    describe::{describe_origin, lowercase_first},
     document::{Feature, FeatureId, list_names},
     hole_standard::HoleStandard,
     recompute::{CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
     solid::SolidResult,
-    thread::hole_thread,
-    thread_standard::{ThreadClass, ThreadHand, ThreadSide},
+    thread::{self, Bore, ThreadForm, ThreadWords, cut_thread, hole_thread},
+    thread_standard::{ThreadClass, ThreadDesignation, ThreadHand, ThreadSide},
     tolerance,
     trouble::boolean_trouble,
 };
@@ -26,6 +27,11 @@ pub const MAX_HOLES: usize = 100;
 pub const MAX_HOLE_STEPS: usize = 8;
 const PARTS: u64 = 16;
 const STEP_SHIFT: u32 = 56;
+const THREAD_SHIFT: u32 = 55;
+const THREAD_PART_BITS: u32 = 16;
+const THREAD_PART_MASK: u64 = (1 << THREAD_PART_BITS) - 1;
+const THREAD_WALL_MASK: u64 = (1 << (THREAD_SHIFT - THREAD_PART_BITS)) - 1;
+const THREAD_RING_PART: u64 = 1 << (THREAD_PART_BITS - 1);
 const MARGIN: f64 = 1.0;
 const THROUGH_ALL_REACH: f64 = 0.05;
 const END_OFFSET: &str = "end offset";
@@ -216,6 +222,7 @@ pub struct TappedThread {
     pub class: Option<ThreadClass>,
     pub hand: ThreadHand,
     pub depth: Option<Expression>,
+    pub form: ThreadForm,
 }
 
 impl Hole {
@@ -294,10 +301,42 @@ impl Hole {
     }
 
     pub(crate) fn is_wall(entity: u64) -> bool {
-        entity >> STEP_SHIFT == 0 && entity % PARTS == HolePart::Wall as u64
+        entity >> THREAD_SHIFT == 0 && entity % PARTS == HolePart::Wall as u64
+    }
+
+    pub fn is_modelled_thread(&self) -> bool {
+        self.thread.form == ThreadForm::Modelled
+            && hole_thread(self).is_some_and(|thread| thread.size.family().can_be_modelled())
+    }
+
+    pub(crate) fn thread_entity(wall: u64, part: u64) -> u64 {
+        let code = match part.checked_sub(RING_ENTITY) {
+            Some(ring) => THREAD_RING_PART | ring,
+            None => part,
+        };
+        (1 << THREAD_SHIFT)
+            | ((wall & THREAD_WALL_MASK) << THREAD_PART_BITS)
+            | (code & THREAD_PART_MASK)
+    }
+
+    pub(crate) fn thread_part(entity: u64) -> Option<(u64, u64)> {
+        if entity >> THREAD_SHIFT != 1 {
+            return None;
+        }
+        let wall = (entity >> THREAD_PART_BITS) & THREAD_WALL_MASK;
+        let code = entity & THREAD_PART_MASK;
+        let part = if code & THREAD_RING_PART == 0 {
+            code
+        } else {
+            RING_ENTITY + (code & !THREAD_RING_PART)
+        };
+        Some((wall, part))
     }
 
     pub fn part_name(entity: u64) -> String {
+        if let Some((_, part)) = Self::thread_part(entity) {
+            return thread::part_name(part).to_owned();
+        }
         let step = entity >> STEP_SHIFT;
         let part = HolePart::ALL
             .into_iter()
@@ -545,9 +584,9 @@ impl Context<'_> {
         Ok(value)
     }
 
-    fn tapped_thread(&self, definition: &Hole) -> Result<(), Failure> {
+    fn tapped_thread(&self, definition: &Hole) -> Result<Option<f64>, Failure> {
         let Some(designation) = hole_thread(definition) else {
-            return Ok(());
+            return Ok(None);
         };
         let family = designation.size.family();
         if !family
@@ -566,10 +605,65 @@ impl Context<'_> {
                 ),
             ));
         }
-        if let Some(depth) = &definition.thread.depth {
-            self.length(depth, "thread depth")?;
+        definition
+            .thread
+            .depth
+            .as_ref()
+            .map(|depth| self.length(depth, "thread depth"))
+            .transpose()
+    }
+
+    fn tap(
+        &self,
+        body: &Solid,
+        designation: ThreadDesignation,
+        depth: Option<f64>,
+    ) -> Result<(Solid, Vec<Solid>), Failure> {
+        let raw = self.feature.id().raw();
+        let mut walls: BTreeMap<u64, Vec<FaceId>> = BTreeMap::new();
+        for (id, face) in body.faces() {
+            if let Some(FaceOrigin::Side { feature, entity }) = face.origin()
+                && feature == raw
+                && Hole::is_wall(entity)
+            {
+                walls.entry(entity).or_default().push(id);
+            }
         }
-        Ok(())
+        let mut tapped = body.clone();
+        let mut tools = Vec::new();
+        for (wall, faces) in walls {
+            let face = describe_origin(
+                self.inputs.document,
+                faces
+                    .first()
+                    .and_then(|face| body.face(*face))
+                    .and_then(|face| face.origin()),
+            );
+            let Ok(bore) = Bore::of(body, &faces) else {
+                continue;
+            };
+            let Some(spec) = bore.modelled_spec(designation.size, designation.hand, depth, false)
+            else {
+                continue;
+            };
+            let number = |part: u64| Hole::thread_entity(wall, part);
+            let words = ThreadWords {
+                size: designation.size,
+                side: bore.side,
+                face: &lowercase_first(&face),
+            };
+            let (cut, made) = cut_thread(&tapped, &spec, raw, Some(&number)).map_err(|error| {
+                match words.words(&error) {
+                    None => Failure::Cancelled,
+                    Some(worded) => self
+                        .error(worded.reason, worded.remedy)
+                        .placed(worded.place),
+                }
+            })?;
+            tapped = cut;
+            tools.extend(made);
+        }
+        Ok((tapped, tools))
     }
 
     fn steps(
@@ -1243,7 +1337,7 @@ pub(crate) fn evaluate(
 ) -> Result<FeatureResult, Failure> {
     let context = Context { feature, inputs };
     let values = context.values(definition, None)?;
-    context.tapped_thread(definition)?;
+    let thread_depth = context.tapped_thread(definition)?;
     let sketch_name = context.name(definition.sketch);
     let Some(FeatureResult::Sketch(sketch)) =
         inputs.features.get(&definition.sketch).map(AsRef::as_ref)
@@ -1387,6 +1481,13 @@ pub(crate) fn evaluate(
             body = cut;
             tools.push(drill);
         }
+    }
+    if definition.is_modelled_thread()
+        && let Some(designation) = hole_thread(definition)
+    {
+        let (tapped, threads) = context.tap(&body, designation, thread_depth)?;
+        body = tapped;
+        tools.extend(threads);
     }
     Ok(FeatureResult::Solid(
         SolidResult::new(definition.body, body).cutting(tools),

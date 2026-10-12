@@ -694,6 +694,21 @@ impl Solid {
         self
     }
 
+    pub(crate) fn with_sides_renumbered(mut self, renumber: impl Fn(u64) -> u64) -> Self {
+        for face in &mut self.faces {
+            if let Some(FaceOrigin::Side { feature, entity }) = face.origin {
+                let entity = renumber(entity);
+                face.origin = Some(FaceOrigin::Side { feature, entity });
+                face.name = FaceName::thread(feature, entity);
+            }
+        }
+        let names = self.derived_edge_names();
+        for (edge, name) in self.edges.iter_mut().zip(names) {
+            edge.name = name;
+        }
+        self
+    }
+
     pub(crate) fn with_face_names(mut self, rename: impl Fn(FaceName) -> FaceName) -> Self {
         for face in &mut self.faces {
             face.name = rename(face.name);

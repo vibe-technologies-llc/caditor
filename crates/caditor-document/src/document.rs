@@ -37,7 +37,7 @@ use crate::{
     solid::{BodyOperation, SolidFeature},
     split::Split,
     split_face::SplitFace,
-    thread::Thread,
+    thread::{Thread, ThreadForm},
     views::SavedViews,
 };
 
@@ -512,17 +512,20 @@ impl FeatureKind {
     }
 
     pub fn modifies_body(&self) -> bool {
-        matches!(
-            self,
-            Self::Blend(_)
-                | Self::Shell(_)
-                | Self::OffsetFace(_)
-                | Self::SplitFace(_)
-                | Self::Combine(_)
-                | Self::Move(_)
-                | Self::Mate(_)
-                | Self::Hole(_)
-        )
+        match self {
+            Self::Thread(thread) => thread.is_modelled(),
+            _ => matches!(
+                self,
+                Self::Blend(_)
+                    | Self::Shell(_)
+                    | Self::OffsetFace(_)
+                    | Self::SplitFace(_)
+                    | Self::Combine(_)
+                    | Self::Move(_)
+                    | Self::Mate(_)
+                    | Self::Hole(_)
+            ),
+        }
     }
 
     pub fn solid(&self) -> Option<&SolidFeature> {
@@ -1147,6 +1150,7 @@ impl Feature {
             FeatureKind::Pattern(pattern) => Some(pattern.body),
             FeatureKind::Import(_) => Some(self.id),
             FeatureKind::Remove(remove) => Some(remove.body),
+            FeatureKind::Thread(thread) if thread.is_modelled() => Some(thread.body),
             FeatureKind::Sketch(_)
             | FeatureKind::Datum(_)
             | FeatureKind::Thread(_)
@@ -1167,6 +1171,14 @@ impl Feature {
             }
         }
         bodies
+    }
+
+    pub fn has_modelled_thread(&self) -> bool {
+        match &self.kind {
+            FeatureKind::Thread(thread) => thread.is_modelled(),
+            FeatureKind::Hole(hole) => hole.is_modelled_thread(),
+            _ => false,
+        }
     }
 
     pub fn makes_body(&self) -> bool {
@@ -1323,6 +1335,30 @@ impl Document {
     pub fn is_active(&self, id: FeatureId) -> bool {
         self.feature(id)
             .is_some_and(|feature| !feature.suppressed && !self.is_rolled_back(id))
+    }
+
+    pub fn has_modelled_threads(&self) -> bool {
+        self.features().any(Feature::has_modelled_thread)
+    }
+
+    pub fn threads_as_cosmetic(&self) -> Self {
+        let mut shown = self.clone();
+        let modelled: Vec<FeatureId> = self
+            .features()
+            .filter(|feature| feature.has_modelled_thread())
+            .map(Feature::id)
+            .collect();
+        for id in modelled {
+            if let Some(feature) = shown.features.get_mut_by_id(id) {
+                let feature = Arc::make_mut(feature);
+                match &mut feature.kind {
+                    FeatureKind::Thread(thread) => thread.form = ThreadForm::Cosmetic,
+                    FeatureKind::Hole(hole) => hole.thread.form = ThreadForm::Cosmetic,
+                    _ => {}
+                }
+            }
+        }
+        shown
     }
 
     pub fn active_features(&self) -> impl DoubleEndedIterator<Item = &Feature> {

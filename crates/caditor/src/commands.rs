@@ -216,6 +216,7 @@ pub enum Command {
     ToggleDimensions,
     ToggleCentresOfMass,
     ToggleControlPolygons,
+    ToggleCosmeticThreads,
     MinimizeWindow,
     MaximizeWindow,
     FullScreen,
@@ -660,6 +661,7 @@ plain_commands! {
     ToggleDimensions,
     ToggleCentresOfMass,
     ToggleControlPolygons,
+    ToggleCosmeticThreads,
     Measure,
     Interference,
     LargerInterface,
@@ -1059,6 +1061,7 @@ impl Command {
             Self::ToggleDimensions => "view.toggle_dimensions",
             Self::ToggleCentresOfMass => "view.toggle_centres_of_mass",
             Self::ToggleControlPolygons => "view.toggle_control_polygons",
+            Self::ToggleCosmeticThreads => "view.toggle_cosmetic_threads",
             Self::MinimizeWindow => "view.minimize_window",
             Self::MaximizeWindow => "view.maximize_window",
             Self::FullScreen => "view.full_screen",
@@ -1311,6 +1314,7 @@ impl Command {
             Self::ToggleDimensions => "Show or hide dimensions on the model",
             Self::ToggleCentresOfMass => "Show or hide centres of mass",
             Self::ToggleControlPolygons => "Show or hide spline control polygons",
+            Self::ToggleCosmeticThreads => "Show modelled threads as cosmetic",
             Self::MinimizeWindow => "Minimize the window",
             Self::MaximizeWindow => "Maximize or restore the window",
             Self::FullScreen => "Enter or leave full screen",
@@ -1398,6 +1402,13 @@ impl Command {
                 "fit all",
             ],
             Self::View(StandardView::Isometric) => &["home", "default view"],
+            Self::ToggleCosmeticThreads => &[
+                "thread",
+                "modelled thread",
+                "cosmetic thread",
+                "faster",
+                "simplified",
+            ],
             Self::Undo => &["revert", "take back"],
             Self::Redo => &["again"],
             Self::RepeatLast => &["again", "do it again", "same"],
@@ -1554,6 +1565,7 @@ impl Command {
             | Self::ToggleDimensions
             | Self::ToggleCentresOfMass
             | Self::ToggleControlPolygons
+            | Self::ToggleCosmeticThreads
             | Self::MinimizeWindow
             | Self::MaximizeWindow
             | Self::FullScreen => Category::View,
@@ -1905,6 +1917,7 @@ impl Command {
             | Self::ToggleDimensions
             | Self::ToggleCentresOfMass
             | Self::ToggleControlPolygons
+            | Self::ToggleCosmeticThreads
             | Self::MinimizeWindow
             | Self::MaximizeWindow
             | Self::SaveView

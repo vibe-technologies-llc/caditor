@@ -171,6 +171,14 @@ paths:
   features) and exports the bodies not left out; Cancel stops between and inside configurations,
   keeping files written. The model never switches. One notice lists the files and per-configuration
   refused switches, failed features and left-out bodies. Such a 3MF has no thumbnail.
+- With modelled threads in the model the dialog adds Threads (`ExportThreads`, in `ExportChoices`):
+  Modelled (the default) or As shown. Modelled while the session shows them as cosmetic
+  (`Exporter::recomputes_threads`) hands the job the document as stored and the export thread
+  recomputes it without display data before exporting the chosen bodies (`Job::modelled`,
+  `ExportReport::Modelled`, whose notice turns to a failure naming the features that failed while
+  cutting). As shown exports the evaluation shown; every configuration recomputes the document as
+  stored or as shown (`Exporter::exported_document`). The headless `--export` never shows threads
+  as cosmetic, so it exports them modelled.
 - A path lacking the format's extension gets it appended, so an export never replaces a model file;
   an existing appended name asks "Replace …?" as Save As does, and Cancel returns to the dialog.
 - Every model export records a `LastExport` in `Files` (path, `ExportChoices`, model session) and, on

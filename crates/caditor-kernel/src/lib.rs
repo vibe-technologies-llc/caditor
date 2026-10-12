@@ -103,6 +103,7 @@ pub use crate::{
     thread::{
         GROOVE_PARTS, Handedness, MAX_THREAD_TURNS, RING_ENTITY, SPANS_PER_TURN, ThreadEnd,
         ThreadError, ThreadForm, ThreadSpec, ThreadedFace, thread, thread_tools,
+        thread_tools_numbered,
     },
     tolerance::{
         ANGULAR_RESOLUTION, INTERSECTION_TOLERANCE, LINEAR_RESOLUTION, MAX_SIZE, MODEL_EXTENT,

@@ -253,6 +253,7 @@ pub fn command(command: Command) -> &'static str {
         Command::ToggleDimensions => phosphor::ARROWS_OUT_LINE_HORIZONTAL,
         Command::ToggleCentresOfMass => phosphor::TARGET,
         Command::ToggleControlPolygons => phosphor::POLYGON,
+        Command::ToggleCosmeticThreads => phosphor::LIGHTNING,
         Command::MinimizeWindow => MINIMIZE,
         Command::MaximizeWindow => MAXIMIZE,
         Command::FullScreen => FULL_SCREEN,

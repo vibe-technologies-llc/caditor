@@ -7,6 +7,7 @@ use crate::{
     hole::Hole,
     pattern::PatternKind,
     primitive::Cap,
+    thread,
 };
 
 pub fn describe_surface(document: &Document, face: &FaceAttachment) -> String {
@@ -70,6 +71,9 @@ fn describe_made(document: &Document, origin: FaceOrigin) -> String {
         }
         FaceOrigin::EndCap { .. } if let Some(primitive) = feature.kind.primitive() => {
             format!("{name} {}", primitive.shape.cap_name(Cap::End))
+        }
+        FaceOrigin::Side { entity, .. } if feature.kind.thread().is_some() => {
+            format!("{name} {}", thread::part_name(entity))
         }
         FaceOrigin::Side { entity, .. } if feature.kind.hole().is_some() => {
             let part = Hole::part_name(entity);

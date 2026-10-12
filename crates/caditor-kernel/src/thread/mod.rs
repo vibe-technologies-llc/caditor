@@ -235,6 +235,17 @@ pub fn thread(solid: &Solid, spec: &ThreadSpec, feature: u64) -> Result<Solid, T
     Ok(body)
 }
 
+pub fn thread_tools_numbered(
+    spec: &ThreadSpec,
+    feature: u64,
+    number: &dyn Fn(u64) -> u64,
+) -> Result<Vec<Solid>, ThreadError> {
+    Ok(thread_tools(spec, feature)?
+        .into_iter()
+        .map(|tool| tool.with_sides_renumbered(number))
+        .collect())
+}
+
 pub fn thread_tools(spec: &ThreadSpec, feature: u64) -> Result<Vec<Solid>, ThreadError> {
     check(spec)?;
     let form = spec.form;

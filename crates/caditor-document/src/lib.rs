@@ -164,8 +164,8 @@ pub use crate::{
     split::{HalfSpaceError, Split, SplitAlong, SweptError, is_open_chain},
     split_face::{SplitCarry, SplitFace, on_one_unrolled_surface},
     thread::{
-        Bore, BoreError, PlacedThread, Thread, ThreadLength, ThreadPlacement, ThreadResult,
-        hole_thread, placed_threads,
+        Bore, BoreError, PlacedThread, Thread, ThreadForm, ThreadLength, ThreadPlacement,
+        ThreadResult, hole_thread, placed_threads,
     },
     thread_standard::{
         ThreadClass, ThreadDesignation, ThreadFamily, ThreadHand, ThreadSide, ThreadSize,
@@ -216,6 +216,8 @@ mod mirror_tests;
 mod model_parameter_tests;
 #[cfg(test)]
 mod model_scale_tests;
+#[cfg(test)]
+mod modelled_thread_tests;
 #[cfg(test)]
 mod movement_tests;
 #[cfg(test)]

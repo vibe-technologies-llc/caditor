@@ -35,7 +35,8 @@ A new hole starts from the diameter and blind depth last used on one, kept betwe
 The panel sets:
 
 - **Size**: Custom, or a metric screw size with its **Fit** (close, normal, loose, or tapped with
-  the thread named, its class, hand and length).
+  the thread named, its form, class, hand and length). A tapped hole's **Thread form** is
+  **Modelled** for a new hole, cutting the thread into each bore, or **Cosmetic**, only drawn.
 - **Style**: Plain, Counterbore, Countersink or Stepped, with the head sizes.
 - **Diameter**, or **Sized by** the sketch's circles.
 - **Shape**: Round, or Slot with a length and angle.
@@ -46,4 +47,5 @@ The panel sets:
 Choosing a size fills in exact values; typing any size makes the hole Custom again, and the
 drills are previewed as you type. {command:model.reverse_direction} drills the other way, like
 **Reverse direction**. A tapped hole
-shows its thread in the view like a [thread](thread).
+shows its thread like a [thread](thread): as the cut when modelled, drawn when cosmetic or while
+modelled threads are shown as cosmetic.

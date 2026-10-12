@@ -1,9 +1,14 @@
+use caditor_kernel::ThreadForm as ThreadProfile;
+
 use crate::hole_standard::{HoleStandard, pitch_text};
 
 const INCH: f64 = 25.4;
 const METRIC_INTERNAL_MINOR: f64 = 1.082_532;
 const METRIC_EXTERNAL_MINOR: f64 = 1.226_869;
 const WHITWORTH_MINOR: f64 = 1.280_654;
+const METRIC_FLANK_DEGREES: f64 = 30.0;
+const WHITWORTH_FLANK_DEGREES: f64 = 27.5;
+const TRAPEZOIDAL_FLANK_DEGREES: f64 = 15.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ThreadFamily {
@@ -108,6 +113,10 @@ impl ThreadFamily {
             .into_iter()
             .flat_map(|side| self.classes(side).iter().copied())
             .find(|class| class.id() == id)
+    }
+
+    pub fn can_be_modelled(self) -> bool {
+        self != Self::TaperPipe
     }
 
     pub fn nearest(self, diameter: f64, side: ThreadSide) -> ThreadSize {
@@ -297,6 +306,50 @@ impl ThreadSize {
             ThreadSide::Internal => self.major_diameter(side),
             ThreadSide::External => self.minor_diameter(side),
         }
+    }
+
+    pub fn modelled_profile(self, side: ThreadSide) -> Option<ThreadProfile> {
+        let pitch = self.pitch;
+        let (flank_degrees, minor, crest_flat) = match (self.family, side) {
+            (ThreadFamily::MetricCoarse | ThreadFamily::MetricFine, ThreadSide::Internal) => (
+                METRIC_FLANK_DEGREES,
+                self.major - METRIC_INTERNAL_MINOR * pitch,
+                pitch / 4.0,
+            ),
+            (ThreadFamily::MetricCoarse | ThreadFamily::MetricFine, ThreadSide::External) => (
+                METRIC_FLANK_DEGREES,
+                self.major - METRIC_INTERNAL_MINOR * pitch,
+                pitch / 8.0,
+            ),
+            (ThreadFamily::ParallelPipe, _) => (
+                WHITWORTH_FLANK_DEGREES,
+                self.minor_diameter(side),
+                pitch / 6.0,
+            ),
+            (ThreadFamily::Trapezoidal, _) => {
+                let flank = TRAPEZOIDAL_FLANK_DEGREES.to_radians().tan();
+                (
+                    TRAPEZOIDAL_FLANK_DEGREES,
+                    self.minor_diameter(side),
+                    pitch / 2.0 * (1.0 - flank),
+                )
+            }
+            (ThreadFamily::TaperPipe, _) => return None,
+        };
+        let major = self.major_diameter(side);
+        let flank_angle = flank_degrees.to_radians();
+        let depth = (major - minor) / 2.0;
+        let (crest_radius, root_radius) = match side {
+            ThreadSide::Internal => (minor / 2.0, major / 2.0),
+            ThreadSide::External => (major / 2.0, minor / 2.0),
+        };
+        Some(ThreadProfile {
+            pitch,
+            flank_angle,
+            root_radius,
+            root_width: pitch - crest_flat - 2.0 * depth * flank_angle.tan(),
+            crest_radius,
+        })
     }
 
     pub fn fits(self, diameter: f64, side: ThreadSide) -> bool {

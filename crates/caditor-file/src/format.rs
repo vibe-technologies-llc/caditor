@@ -23,8 +23,8 @@ use caditor_document::{
     ProjectionSource, Reading, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rgb,
     RollbackBar, SavedView, SavedViews, Scale, Shell, SketchAttachment, SketchFeature,
     SolidFeature, SolidStart, Split, SplitAlong, SplitCarry, SplitFace, TappedThread, Thread,
-    ThreadFamily, ThreadHand, ThreadLength, ThreadSide, ThreadSize, Transaction, TurnCentre, Wall,
-    group_name, material_name, view_name,
+    ThreadFamily, ThreadForm, ThreadHand, ThreadLength, ThreadSide, ThreadSize, Transaction,
+    TurnCentre, Wall, group_name, material_name, view_name,
 };
 use caditor_expression::{BinaryOperator, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Rotation3, Vector2, Vector3};
@@ -545,6 +545,8 @@ pub(crate) struct ThreadRecord {
     pub depth: Option<String>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub reversed: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub modelled: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1107,6 +1109,8 @@ pub(crate) struct TappedThreadRecord {
     pub left_handed: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub depth: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub modelled: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2936,6 +2940,7 @@ fn tapped_thread_record(thread: &TappedThread) -> Option<TappedThreadRecord> {
         class: thread.class.map(|class| class.id().to_owned()),
         left_handed: thread.hand == ThreadHand::Left,
         depth: thread.depth.as_ref().map(Expression::to_stored_text),
+        modelled: thread.form == ThreadForm::Modelled,
     })
 }
 
@@ -2975,6 +2980,7 @@ fn restore_tapped_thread(
             .depth
             .as_ref()
             .map(|depth| restore_value(depth, "thread depth", "10 mm", feature, issues)),
+        form: form_of(record.modelled),
     }
 }
 
@@ -7040,6 +7046,7 @@ fn thread_record(thread: &Thread) -> ThreadRecord {
             ThreadLength::Depth(depth) => Some(depth.to_stored_text()),
         },
         reversed: thread.reversed,
+        modelled: thread.form == ThreadForm::Modelled,
     }
 }
 
@@ -7284,6 +7291,15 @@ fn restore_thread(record: &ThreadRecord, feature: &str, issues: &mut Vec<String>
         },
         length,
         reversed: record.reversed,
+        form: form_of(record.modelled),
+    }
+}
+
+fn form_of(modelled: bool) -> ThreadForm {
+    if modelled {
+        ThreadForm::Modelled
+    } else {
+        ThreadForm::Cosmetic
     }
 }
 

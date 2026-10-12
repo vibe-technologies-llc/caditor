@@ -54,6 +54,7 @@ pub enum Action {
     Redo,
     Recompute,
     CancelRecompute,
+    ShowThreadsAsCosmetic(bool),
     DismissNotice,
     Inform(Notice),
     Drag(DragCommand),
@@ -242,7 +243,12 @@ pub struct Model {
     draft: Option<DraftPreview>,
     drafts: u64,
     trials: Trials,
+    threads_cosmetic: bool,
 }
+
+pub const THREADS_COSMETIC_ON: &str = "Modelled threads are shown as cosmetic while you edit, so \
+     the model recomputes faster; exports still cut them unless Threads is set to As shown.";
+pub const THREADS_COSMETIC_OFF: &str = "Modelled threads are cut into their bodies again.";
 
 impl Model {
     pub fn new(document: Document, services: Services) -> Self {
@@ -286,6 +292,7 @@ impl Model {
             draft: None,
             drafts: 0,
             trials: Trials::default(),
+            threads_cosmetic: false,
         };
         model.start_storage(None, None);
         model.recompute(Retry::Nothing);
@@ -294,6 +301,22 @@ impl Model {
 
     pub fn length_unit(&self) -> LengthUnit {
         self.length_unit
+    }
+
+    pub fn threads_shown_cosmetic(&self) -> bool {
+        self.threads_cosmetic
+    }
+
+    pub fn document_as_shown(&self) -> Document {
+        self.as_shown(self.editor.document().clone())
+    }
+
+    fn as_shown(&self, document: Document) -> Document {
+        if self.threads_cosmetic && document.has_modelled_threads() {
+            document.threads_as_cosmetic()
+        } else {
+            document
+        }
     }
 
     pub fn waker(&self) -> Waker {
@@ -446,9 +469,10 @@ impl Model {
             shown,
             held: false,
         });
+        let submitted = self.as_shown(document);
         if previewed
             && let Some(recomputer) = &mut self.recomputer
-            && let Err(error) = recomputer.submit_draft(document, self.drafts)
+            && let Err(error) = recomputer.submit_draft(submitted, self.drafts)
         {
             log::warn!("the preview was not computed: {error}");
         }
@@ -506,6 +530,30 @@ impl Model {
     fn hold_draft(&mut self) {
         if let Some(draft) = &mut self.draft {
             draft.held = true;
+        }
+    }
+
+    fn resubmit_draft(&mut self) {
+        let Some(draft) = &self.draft else {
+            return;
+        };
+        if matches!(draft.kind, FeatureKind::Move(_)) {
+            return;
+        }
+        let mut document = self.editor.document().clone();
+        if document.apply(draft.transaction.clone()).is_err() {
+            return;
+        }
+        let submitted = self.as_shown(document);
+        self.drafts += 1;
+        let serial = self.drafts;
+        if let Some(draft) = &mut self.draft {
+            draft.serial = serial;
+        }
+        if let Some(recomputer) = &mut self.recomputer
+            && let Err(error) = recomputer.submit_draft(submitted, serial)
+        {
+            log::warn!("the preview was not computed: {error}");
         }
     }
 
@@ -935,6 +983,19 @@ impl Model {
                 if let Some(recomputer) = &mut self.recomputer {
                     recomputer.cancel();
                 }
+                Ok(None)
+            }
+            Action::ShowThreadsAsCosmetic(cosmetic) => {
+                if cosmetic != self.threads_cosmetic {
+                    self.threads_cosmetic = cosmetic;
+                    self.recompute(Retry::Nothing);
+                    self.resubmit_draft();
+                }
+                self.set_notice(Notice::info(if cosmetic {
+                    THREADS_COSMETIC_ON
+                } else {
+                    THREADS_COSMETIC_OFF
+                }));
                 Ok(None)
             }
             Action::DismissNotice => {
@@ -1611,7 +1672,7 @@ impl Model {
                 }
             }
         }
-        let document = self.editor.document().clone();
+        let document = self.as_shown(self.editor.document().clone());
         let revision = self.revision();
         let submitted = self.recomputer.as_mut().map(|recomputer| match retry {
             Retry::Nothing => recomputer.submit(document, revision),

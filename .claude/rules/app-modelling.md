@@ -447,8 +447,9 @@ pattern, Coordinate system, Scale model and Configurations. Panel rows, keys and
   sketch and opens the panel.
 - Panel specifics: a size sets exact millimetre values, and typing any hole, counterbore or
   countersink size makes it Custom. Fit is the size's `fits` (Close, Normal, Loose, Tapped, Fine,
-  Insert from M2 to M8); tapped ones add Pitch (when the size has several fine pitches), Thread class,
-  hand and length (Whole bore, To a depth, key `thread-depth`), an insert a note with its length and
+  Insert from M2 to M8); tapped ones add Pitch (when the size has several fine pitches), Thread form
+  (Modelled, Cosmetic; `hole_tools::new_hole` makes new holes Modelled, the note under Fit says
+  whether the bore is cut or drawn), Thread class, hand and length (Whole bore, To a depth, key `thread-depth`), an insert a note with its length and
   least wall. Style (Plain, Counterbore, Countersink, Stepped) takes the size's head dimensions when it
   has them, else defaults; Stepped starts from the counterbore and a step midway to the hole. Sized by
   Circles sets `CirclesAndHeads` and shows while the sketch has circles or the hole is sized by them.
@@ -559,14 +560,25 @@ pattern, Coordinate system, Scale model and Configurations. Panel rows, keys and
   (`thread_tools::selected_face`; a flat face, several faces or anything else selected with it is
   refused in words) and creates a `Thread` named "Thread on <the face in words>" (numbered when taken),
   of the ISO metric coarse size nearest the face (minor diameter for a bore, major for a shaft), the
-  side's first class, right-handed and the whole face long, then opens it.
+  side's first class, right-handed, the whole face long and `ThreadForm::Modelled`, then opens it.
+- Form (Modelled, Cosmetic, `thread_panel::form_rows`, a segmented row: one undoable change per
+  click, keyboard reachable like every segmented row) sits under the face; a taper pipe thread shows
+  `DRAWN_ONLY` instead. While modelled threads are shown as cosmetic, a modelled thread's panel (and
+  a modelled tapped hole's) says so (`thread_panel::SHOWN_COSMETIC`).
 - The panel reads face and side from the body as the thread sees it (`thread_tools::threaded_bore`).
   Switching Standard takes the standard's size nearest the face and its first class for the side; Class
   is hidden when the side has only one. The Face row takes another face with Use selected or Choose in
   the view (`Slot::ThreadFace`, `thread_tools::face_change`): the one round face `selected_face`
   accepts, existing where the thread sits, keeping the size while it fits the new face (else the
   standard's nearest) and the class while the side offers it.
-- Threads are drawn on shown bodies (`scene::Builder::threads`, from `placed_threads`), outside sketch
+- Show modelled threads as cosmetic (`Command::ToggleCosmeticThreads`, View menu and palette, a
+  toggle shown On/Off through `ToggleStates::cosmetic_threads`; invoked in `status_bar`) is session
+  state on `Model` (`threads_shown_cosmetic`), not content: while on, `Model::recompute` and draft
+  previews submit `Document::threads_as_cosmetic` (`Model::as_shown`), so the evaluation shown has
+  every modelled thread evaluated as cosmetic, and switching back reuses the cached cuts. Toggling
+  resubmits an open draft and says what changed (`THREADS_COSMETIC_ON`, `THREADS_COSMETIC_OFF`).
+- Only cosmetic threads are drawn (`PlacedThread::modelled` is skipped: the cut shows itself).
+  They are drawn on shown bodies (`scene::Builder::threads`, from `placed_threads`), outside sketch
   editing: the thread's circle (major diameter for a bore, minor for a shaft) solid at its start, the
   same circle dashed at its end and four dashed lines along it, each `Stroke::DashedWhereHidden`, in
   `ScenePalette::thread` (3:1 on a body in high contrast), the open thread in the selected colour and

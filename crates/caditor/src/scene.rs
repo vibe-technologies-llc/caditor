@@ -2312,7 +2312,7 @@ impl<'a> Builder<'a> {
                 .collect(),
             None => placed_threads(document, evaluation),
         };
-        for thread in placed {
+        for thread in placed.into_iter().filter(|thread| !thread.modelled) {
             let opened = open == Some(thread.feature);
             let hidden = document
                 .feature(thread.feature)

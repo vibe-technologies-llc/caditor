@@ -1,11 +1,15 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use caditor_expression::{Dimension, EvalError, Expression, ParameterId};
-use caditor_geometry::{Point3, Vector3};
-use caditor_kernel::{FaceCopy, FaceId, FaceOrigin, FaceReference, Solid, Surface};
+use caditor_geometry::{Plane, Point3, Vector3};
+use caditor_kernel::{
+    BooleanOperation, FaceCopy, FaceId, FaceOrigin, FaceReference, GROOVE_PARTS, Handedness,
+    MAX_SIZE, MAX_THREAD_TURNS, RING_ENTITY, Solid, Surface, ThreadEnd, ThreadError, ThreadSpec,
+    ThreadedFace, boolean, thread_tools, thread_tools_numbered,
+};
 
 use crate::{
-    describe::{describe_origin, edge_faces},
+    describe::{describe_origin, edge_faces, lowercase_first},
     document::{Document, Feature, FeatureId},
     hole::{Hole, HoleShape},
     hole_standard::pitch_text,
@@ -15,13 +19,33 @@ use crate::{
         CancelToken, Evaluation, Failure, FeatureError, FeatureResult, FeatureState, FixTarget,
         Inputs,
     },
+    solid::SolidResult,
     thread_standard::{ThreadClass, ThreadDesignation, ThreadHand, ThreadSide, ThreadSize},
+    trouble,
     values::ParameterValues,
 };
 
 const EDGE_SAMPLES: usize = 16;
 const END_TOLERANCE: f64 = 1e-6;
 const FACING_OUT: f64 = 1e-3;
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub enum ThreadForm {
+    Modelled,
+    #[default]
+    Cosmetic,
+}
+
+impl ThreadForm {
+    pub const ALL: [Self; 2] = [Self::Modelled, Self::Cosmetic];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Modelled => "Modelled",
+            Self::Cosmetic => "Cosmetic",
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ThreadLength {
@@ -38,9 +62,14 @@ pub struct Thread {
     pub hand: ThreadHand,
     pub length: ThreadLength,
     pub reversed: bool,
+    pub form: ThreadForm,
 }
 
 impl Thread {
+    pub fn is_modelled(&self) -> bool {
+        self.form == ThreadForm::Modelled && self.size.family().can_be_modelled()
+    }
+
     pub fn designation(&self) -> ThreadDesignation {
         ThreadDesignation {
             size: self.size,
@@ -124,6 +153,7 @@ pub struct PlacedThread {
     pub side: ThreadSide,
     pub pitch: f64,
     pub placement: ThreadPlacement,
+    pub modelled: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -226,13 +256,67 @@ impl Bore {
         self.high - self.low
     }
 
+    fn starts_high(&self, reversed: bool) -> bool {
+        (self.open_high || !self.open_low) != reversed
+    }
+
+    fn ends(&self, depth: Option<f64>, reversed: bool) -> (ThreadEnd, ThreadEnd) {
+        let (start_open, far_open) = if self.starts_high(reversed) {
+            (self.open_high, self.open_low)
+        } else {
+            (self.open_low, self.open_high)
+        };
+        let whole = depth.is_none_or(|depth| depth >= self.length() - END_TOLERANCE);
+        let finish = |open: bool| {
+            if open {
+                ThreadEnd::RunsOut
+            } else {
+                ThreadEnd::Stops
+            }
+        };
+        (finish(start_open), finish(whole && far_open))
+    }
+
+    pub fn modelled_spec(
+        &self,
+        size: ThreadSize,
+        hand: ThreadHand,
+        depth: Option<f64>,
+        reversed: bool,
+    ) -> Option<ThreadSpec> {
+        let form = size.modelled_profile(self.side)?;
+        let placement = self.placement(depth, reversed, size.drawn_diameter(self.side));
+        let frame = Plane::from_frame(
+            placement.start,
+            placement.direction,
+            placement.direction.any_orthonormal_vector(),
+        )?;
+        let (start, end) = self.ends(depth, reversed);
+        Some(ThreadSpec {
+            frame,
+            face: match self.side {
+                ThreadSide::Internal => ThreadedFace::Bore,
+                ThreadSide::External => ThreadedFace::Shaft,
+            },
+            face_radius: self.diameter / 2.0,
+            form,
+            hand: match hand {
+                ThreadHand::Right => Handedness::Right,
+                ThreadHand::Left => Handedness::Left,
+            },
+            length: placement.length,
+            start,
+            end,
+        })
+    }
+
     pub fn placement(
         &self,
         depth: Option<f64>,
         reversed: bool,
         thread_diameter: f64,
     ) -> ThreadPlacement {
-        let from_high = (self.open_high || !self.open_low) != reversed;
+        let from_high = self.starts_high(reversed);
         let (at, direction) = if from_high {
             (self.high, -self.axis)
         } else {
@@ -440,6 +524,228 @@ fn millimetres(value: f64) -> String {
     format!("{} mm", pitch_text(value))
 }
 
+pub(crate) fn cut_thread(
+    body: &Solid,
+    spec: &ThreadSpec,
+    feature: u64,
+    numbered: Option<&dyn Fn(u64) -> u64>,
+) -> Result<(Solid, Vec<Solid>), ThreadError> {
+    let tools = match numbered {
+        Some(number) => thread_tools_numbered(spec, feature, number)?,
+        None => thread_tools(spec, feature)?,
+    };
+    let mut threaded = body.clone();
+    for tool in &tools {
+        threaded = boolean(&threaded, tool, BooleanOperation::Difference)?;
+    }
+    Ok((threaded, tools))
+}
+
+pub(crate) struct ThreadWords<'a> {
+    pub size: ThreadSize,
+    pub side: ThreadSide,
+    pub face: &'a str,
+}
+
+pub(crate) struct Worded {
+    pub reason: String,
+    pub remedy: String,
+    pub place: Option<Point3>,
+}
+
+impl ThreadWords<'_> {
+    pub fn words(&self, error: &ThreadError) -> Option<Worded> {
+        let size = self.size.label();
+        let face = self.face;
+        let cosmetic = "or make the thread cosmetic";
+        let worded = |reason: String, remedy: String| Worded {
+            reason,
+            remedy,
+            place: None,
+        };
+        Some(match error {
+            ThreadError::Cancelled(_) => return None,
+            ThreadError::TooShort { length, needed } => worded(
+                format!(
+                    "The modelled {size} thread on {face} is {} long, shorter than the {} its \
+                     form needs.",
+                    millimetres(*length),
+                    millimetres(*needed)
+                ),
+                format!("Thread a longer length or choose a finer pitch, {cosmetic}."),
+            ),
+            ThreadError::TooManyTurns { turns } => worded(
+                format!(
+                    "The modelled {size} thread on {face} would turn {turns:.0} times, more than \
+                     the {MAX_THREAD_TURNS} a modelled thread can."
+                ),
+                format!("Thread a shorter length, {cosmetic}."),
+            ),
+            ThreadError::TooLarge => worded(
+                format!(
+                    "The modelled {size} thread on {face} would reach farther than {MAX_SIZE} mm \
+                     from the origin."
+                ),
+                format!("Move the body nearer the origin, {cosmetic}."),
+            ),
+            ThreadError::RootOutsideFace => {
+                let (what, too) = match self.side {
+                    ThreadSide::Internal => ("bore", "wide"),
+                    ThreadSide::External => ("shaft", "narrow"),
+                };
+                worded(
+                    format!(
+                        "The {what} at {face} is too {too} for the root of a modelled {size} \
+                         thread, so there is nothing to cut."
+                    ),
+                    format!("Choose another size or change the {what}'s diameter, {cosmetic}."),
+                )
+            }
+            ThreadError::NonFinite
+            | ThreadError::NoPitch
+            | ThreadError::FlankAngle
+            | ThreadError::NoRootWidth
+            | ThreadError::GrooveOverlaps
+            | ThreadError::CrestBeyondRoot => worded(
+                format!("The form of the {size} thread on {face} cannot be modelled."),
+                format!("Choose another size, {cosmetic}."),
+            ),
+            ThreadError::Geometry(_)
+            | ThreadError::GrooveUnassembled
+            | ThreadError::Groove(_)
+            | ThreadError::Ring(_) => worded(
+                format!("The groove of the modelled {size} thread on {face} could not be built."),
+                format!("Change the thread's length or size slightly, {cosmetic}."),
+            ),
+            ThreadError::Cut(error) => Worded {
+                reason: format!(
+                    "The modelled {size} thread could not be cut into {face}: where it meets \
+                     the faces around it, the result would not be a valid solid."
+                ),
+                remedy: format!(
+                    "Change the thread's length slightly or move what touches its ends, \
+                     {cosmetic}."
+                ),
+                place: trouble::place(error),
+            },
+        })
+    }
+}
+
+pub(crate) fn part_name(part: u64) -> &'static str {
+    if part >= RING_ENTITY {
+        return "thread crest";
+    }
+    let (_, side) = GROOVE_PARTS.turn_of(part);
+    match side {
+        side if side == GROOVE_PARTS.root => "thread root",
+        side if side == GROOVE_PARTS.leading_flank || side == GROOVE_PARTS.trailing_flank => {
+            "thread flank"
+        }
+        side if side == GROOVE_PARTS.far => "thread groove",
+        _ => "thread end",
+    }
+}
+
+fn root_turn(part: u64) -> Option<u64> {
+    if part >= RING_ENTITY {
+        return None;
+    }
+    let (turn, side) = GROOVE_PARTS.turn_of(part);
+    (side == GROOVE_PARTS.root).then_some(turn)
+}
+
+fn mean_along(solid: &Solid, faces: &[FaceId], along: &dyn Fn(Point3) -> f64) -> Option<f64> {
+    let samples: Vec<f64> = face_edges(solid, faces)
+        .into_iter()
+        .flat_map(|(_, points)| points)
+        .map(along)
+        .collect();
+    (!samples.is_empty()).then(|| samples.iter().sum::<f64>() / samples.len() as f64)
+}
+
+fn modelled_placement(
+    solid: &Solid,
+    faces: &[(FaceId, u64)],
+    size: ThreadSize,
+) -> Option<(ThreadSide, ThreadPlacement)> {
+    let roots: Vec<(FaceId, u64)> = faces
+        .iter()
+        .filter_map(|(face, part)| Some((*face, root_turn(*part)?)))
+        .collect();
+    let (first_root, _) = roots.first()?;
+    let root = solid.face(*first_root)?;
+    let Surface::Cylinder(cylinder) = root.surface() else {
+        return None;
+    };
+    let side = if root.sense().is_same() {
+        ThreadSide::External
+    } else {
+        ThreadSide::Internal
+    };
+    let frame = cylinder.frame();
+    let origin = frame.origin();
+    let axis = frame.normal().normalize_or_zero();
+    let along = |point: Point3| (point - origin).dot(axis);
+    let ids: Vec<FaceId> = faces.iter().map(|(face, _)| *face).collect();
+    let extent: Vec<f64> = face_edges(solid, &ids)
+        .into_iter()
+        .flat_map(|(_, points)| points)
+        .map(along)
+        .collect();
+    let low = extent.iter().copied().fold(f64::INFINITY, f64::min);
+    let high = extent.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    if !low.is_finite() || !high.is_finite() || high - low <= END_TOLERANCE {
+        return None;
+    }
+    let turns = roots.iter().map(|(_, turn)| *turn);
+    let first_turn = turns.clone().min()?;
+    let last_turn = turns.max()?;
+    let at_turn = |wanted: u64| -> Vec<FaceId> {
+        roots
+            .iter()
+            .filter(|(_, turn)| *turn == wanted)
+            .map(|(face, _)| *face)
+            .collect()
+    };
+    let starts_low = first_turn == last_turn
+        || mean_along(solid, &at_turn(first_turn), &along)
+            <= mean_along(solid, &at_turn(last_turn), &along);
+    let (at, direction) = if starts_low {
+        (low, axis)
+    } else {
+        (high, -axis)
+    };
+    Some((
+        side,
+        ThreadPlacement {
+            start: origin + axis * at,
+            direction,
+            length: high - low,
+            radius: cylinder.radius(),
+            thread_radius: size.drawn_diameter(side) / 2.0,
+        },
+    ))
+}
+
+type ThreadFaces = BTreeMap<(Option<FaceCopy>, u64), Vec<(FaceId, u64)>>;
+
+fn thread_faces(solid: &Solid, part: &dyn Fn(FaceOrigin) -> Option<(u64, u64)>) -> ThreadFaces {
+    let mut grouped = ThreadFaces::new();
+    for (id, face) in solid.faces() {
+        let Some(origin) = face.origin() else {
+            continue;
+        };
+        if let Some((group, part)) = part(origin.original()) {
+            grouped
+                .entry((origin.copy(), group))
+                .or_default()
+                .push((id, part));
+        }
+    }
+    grouped
+}
+
 pub(crate) fn evaluate(
     feature: &Feature,
     definition: &Thread,
@@ -489,6 +795,40 @@ pub(crate) fn evaluate(
     if !definition.size.fits(bore.diameter, side) {
         return Err(context.misfit(&bore));
     }
+    if definition.is_modelled() {
+        let face = faces.first().map_or_else(
+            || "the threaded face".to_owned(),
+            |face| lowercase_first(&context.describe_face(solid, *face)),
+        );
+        let Some(spec) =
+            bore.modelled_spec(definition.size, definition.hand, depth, definition.reversed)
+        else {
+            return Err(context.error(
+                format!(
+                    "The {} thread on {face} cannot be modelled.",
+                    definition.size.label()
+                ),
+                "Make the thread cosmetic.".to_owned(),
+            ));
+        };
+        let worded = ThreadWords {
+            size: definition.size,
+            side,
+            face: &face,
+        };
+        let (threaded, tools) =
+            cut_thread(solid, &spec, feature.id().raw(), None).map_err(|error| {
+                match worded.words(&error) {
+                    None => Failure::Cancelled,
+                    Some(words) => context
+                        .error(words.reason, words.remedy)
+                        .placed(words.place),
+                }
+            })?;
+        return Ok(FeatureResult::Solid(
+            SolidResult::new(definition.body, threaded).cutting(tools),
+        ));
+    }
     Ok(FeatureResult::Thread(ThreadResult {
         side,
         designation: definition.designation().text(),
@@ -523,6 +863,10 @@ pub fn placed_threads(document: &Document, evaluation: &Evaluation) -> Vec<Place
             (feature.kind.thread(), result)
         {
             placed.extend(place_thread(feature.id(), thread, evaluated, &standing));
+        } else if let (Some(thread), Some(FeatureResult::Solid(_))) =
+            (feature.kind.thread(), result)
+        {
+            placed.extend(place_modelled(feature.id(), thread, &standing));
         } else if let Some(hole) = feature.kind.hole() {
             placed.extend(hole_threads(
                 feature.id(),
@@ -530,6 +874,39 @@ pub fn placed_threads(document: &Document, evaluation: &Evaluation) -> Vec<Place
                 &standing,
                 &evaluation.parameters,
             ));
+        }
+    }
+    placed
+}
+
+fn place_modelled(
+    feature: FeatureId,
+    thread: &Thread,
+    standing: &[(FeatureId, &Solid)],
+) -> Vec<PlacedThread> {
+    let raw = feature.raw();
+    let own = |origin: FaceOrigin| match origin {
+        FaceOrigin::Side {
+            feature: maker,
+            entity,
+        } if maker == raw => Some((0, entity)),
+        _ => None,
+    };
+    let designation = thread.designation().text();
+    let mut placed = Vec::new();
+    for (body, solid) in standing {
+        for faces in thread_faces(solid, &own).values() {
+            if let Some((side, placement)) = modelled_placement(solid, faces, thread.size) {
+                placed.push(PlacedThread {
+                    feature,
+                    body: *body,
+                    designation: designation.clone(),
+                    side,
+                    pitch: thread.size.pitch(),
+                    placement,
+                    modelled: true,
+                });
+            }
         }
     }
     placed
@@ -561,6 +938,7 @@ fn place_thread(
                 thread.reversed,
                 thread.size.drawn_diameter(bore.side),
             ),
+            modelled: false,
         })
     })
 }
@@ -608,15 +986,41 @@ fn hole_threads(
         },
     };
     let text = designation.text();
+    let raw = feature.raw();
+    let own = |origin: FaceOrigin| match origin {
+        FaceOrigin::Side {
+            feature: maker,
+            entity,
+        } if maker == raw => Hole::thread_part(entity),
+        _ => None,
+    };
     let mut placed = Vec::new();
     for (body, solid) in standing {
+        let modelled = thread_faces(solid, &own);
         let mut walls: BTreeMap<(Option<FaceCopy>, u64), Vec<FaceId>> = BTreeMap::new();
         for (id, face) in solid.faces() {
             if let Some(wall) = face.origin().and_then(|origin| hole_wall(feature, origin)) {
                 walls.entry(wall).or_default().push(id);
             }
         }
-        for faces in walls.values() {
+        for faces in modelled.values() {
+            let Some((side, placement)) = modelled_placement(solid, faces, designation.size) else {
+                continue;
+            };
+            placed.push(PlacedThread {
+                feature,
+                body: *body,
+                designation: text.clone(),
+                side,
+                pitch: designation.size.pitch(),
+                placement,
+                modelled: true,
+            });
+        }
+        for (wall, faces) in &walls {
+            if modelled.contains_key(wall) {
+                continue;
+            }
             let Ok(bore) = Bore::of(solid, faces) else {
                 continue;
             };
@@ -627,6 +1031,7 @@ fn hole_threads(
                 side: bore.side,
                 pitch: designation.size.pitch(),
                 placement: bore.placement(depth, false, designation.size.drawn_diameter(bore.side)),
+                modelled: false,
             });
         }
     }
