@@ -22,6 +22,7 @@ use crate::{
 
 const UV_MERGE: f64 = 1e-9;
 const JOINT_PARAMETER_GAP: f64 = 1e-6;
+const OFF_POLE_JOINT_PARAMETER_GAP: f64 = 1e-3;
 const GRID_CLEARANCE: f64 = 0.3;
 const GRID_NUDGE: f64 = 1e-6;
 const TINY_COORDINATE: f64 = 1e-30;
@@ -401,8 +402,12 @@ fn joined(surface: &Surface, a: &BoundaryPoint, b: &BoundaryPoint) -> bool {
         return false;
     }
     let gap = b.uv - a.uv;
-    let limit = JOINT_PARAMETER_GAP * (1.0 + a.uv.abs().max_element());
-    if gap.abs().max_element() > limit {
+    let scale = 1.0 + a.uv.abs().max_element();
+    let parameter_gap = gap.abs().max_element();
+    let off_poles = || surface.pole_at(a.uv).is_none() && surface.pole_at(b.uv).is_none();
+    let close_in_parameters = parameter_gap <= JOINT_PARAMETER_GAP * scale
+        || (parameter_gap <= OFF_POLE_JOINT_PARAMETER_GAP * scale && off_poles());
+    if !close_in_parameters {
         return false;
     }
     let derivatives = surface.evaluate(a.uv.x, a.uv.y);

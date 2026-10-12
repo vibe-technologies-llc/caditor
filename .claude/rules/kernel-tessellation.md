@@ -52,7 +52,11 @@ paths:
   untouched. On the top of a plate with 113 holes the whole triangulation fell from 11 to 3 ms,
   and exact predicates from about a quarter of all tessellation time to under a tenth.
 - Boundary points at one vertex whose parameters differ by a spatially negligible gap are merged,
-  and a pinched vertex takes the uv of its first pass, so joints do not become spikes.
+  and a pinched vertex takes the uv of its first pass, so joints do not become spikes. The gap may
+  reach `OFF_POLE_JOINT_PARAMETER_GAP` relative to the parameters away from poles (on a fillet of
+  0.012 mm radius, ends a tenth of a micrometre apart are 8e-6 rad apart, and the two ends crossed
+  each other's chords), but only `JOINT_PARAMETER_GAP` at a pole, where every u is the same point
+  and the pole line must be kept.
 - Where two boundary polylines leave one point along the same chord (tangent curves sampled at the
   same angular step: a crescent tip, internally tangent circles, a cusp), the longer end segment is
   bisected first (at most `MAX_END_PARTINGS` rounds) for every face of that edge, so the loops part

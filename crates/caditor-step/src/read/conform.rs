@@ -221,6 +221,7 @@ fn study(body: &LooseBody<'_>, edge: &LooseEdge) -> Option<Study> {
     let angle = feet[0]
         .iter()
         .zip(&feet[1])
+        .filter(|(on_a, on_b)| a.pole_at(**on_a).is_none() && b.pole_at(**on_b).is_none())
         .filter_map(|(on_a, on_b)| {
             let normals = (a.normal(on_a.x, on_a.y)?, b.normal(on_b.x, on_b.y)?);
             Some(normals.0.cross(normals.1).length().min(1.0).asin())
@@ -385,11 +386,26 @@ fn ordered(body: &LooseBody<'_>, studies: &[Option<Study>]) -> Read<Vec<u64>> {
 }
 
 fn role(body: &LooseBody<'_>, study: &Study, rank: &BTreeMap<u64, usize>) -> Role {
-    if study.angle > TANGENT_ANGLE {
-        return Role::Traced;
-    }
     let [a, b] = study.faces;
     let rigid = |face: u64| spline_of(body.faces.get(&face)).is_none();
+    if study.angle > TANGENT_ANGLE {
+        let on_side = |face: u64, line: Option<Line>| {
+            spline_of(body.faces.get(&face))
+                .zip(line)
+                .is_some_and(|(spline, line)| domain_bound(spline, line).is_some())
+        };
+        return match study.lines {
+            [_, line] if rigid(a) && on_side(b, line) => Role::Bent {
+                master: a,
+                slave: b,
+            },
+            [line, _] if rigid(b) && on_side(a, line) => Role::Bent {
+                master: b,
+                slave: a,
+            },
+            _ => Role::Traced,
+        };
+    }
     match (rigid(a), rigid(b), study.lines) {
         (true, true, _) => Role::Traced,
         (true, false, [_, Some(_)]) => Role::Bent {
@@ -424,6 +440,22 @@ fn role(body: &LooseBody<'_>, study: &Study, rank: &BTreeMap<u64, usize>) -> Rol
             slave: a,
         },
         _ => Role::Traced,
+    }
+}
+
+fn domain_bound(spline: &BSplineSurface, line: Line) -> Option<Bound> {
+    let domain = if line.fixed_u {
+        spline.u_domain()
+    } else {
+        spline.v_domain()
+    };
+    let tolerance = LINE_SIDE * domain.length();
+    if line.value <= domain.start() + tolerance {
+        Some(Bound::Lower)
+    } else if line.value >= domain.end() - tolerance {
+        Some(Bound::Upper)
+    } else {
+        None
     }
 }
 
@@ -808,18 +840,15 @@ impl Bender<'_, '_> {
     }
 
     fn bound_of(&self, face: u64, spline: &BSplineSurface, line: &FaceLine) -> Read<Bound> {
+        if let Some(bound) = domain_bound(spline, line.line) {
+            return Ok(bound);
+        }
         let domain = if line.line.fixed_u {
             spline.u_domain()
         } else {
             spline.v_domain()
         };
         let tolerance = LINE_SIDE * domain.length();
-        if line.line.value <= domain.start() + tolerance {
-            return Ok(Bound::Lower);
-        }
-        if line.line.value >= domain.end() - tolerance {
-            return Ok(Bound::Upper);
-        }
         let (mut above, mut below) = (0usize, 0usize);
         for (index, study) in self.studies.iter().enumerate() {
             let Some(study) = study else {

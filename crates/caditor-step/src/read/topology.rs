@@ -55,6 +55,7 @@ pub(crate) struct Topology<'g, 'a> {
     fins: BTreeSet<u64>,
     face_entities: Vec<u64>,
     left_out: BTreeSet<u64>,
+    reversed_voids: Option<BTreeSet<u64>>,
     healed: usize,
     loosest: f64,
     conformed: Conformed,
@@ -237,6 +238,7 @@ impl<'g, 'a> Topology<'g, 'a> {
             fins: BTreeSet::new(),
             face_entities: Vec::new(),
             left_out: BTreeSet::new(),
+            reversed_voids: None,
             healed: 0,
             loosest: 0.0,
             conformed: Conformed::default(),
@@ -248,33 +250,46 @@ impl<'g, 'a> Topology<'g, 'a> {
         self
     }
 
-    pub fn solid(mut self, id: u64, shells: &SolidShells) -> Read<Built> {
+    pub fn solid(mut self, id: u64, solid_shells: &SolidShells) -> Read<Built> {
         let graph = self.geometry.graph;
         let SolidShells {
             outer,
             lumps,
             voids,
-        } = shells;
+        } = solid_shells;
         let mut shells = vec![self.plan_shell(*outer, false)?];
         for lump in lumps {
             shells.push(self.plan_shell(*lump, false)?);
         }
         for void in voids.iter().copied() {
             let void_entity = graph.entity(void)?;
-            shells.push(match void_entity.kind() {
+            let (shell, flipped) = match void_entity.kind() {
                 "ORIENTED_CLOSED_SHELL" => {
                     let fields = void_entity.record("ORIENTED_CLOSED_SHELL")?;
-                    let orientation = fields.logical(3)?;
-                    self.plan_shell(fields.reference(2)?, !orientation)?
+                    (fields.reference(2)?, !fields.logical(3)?)
                 }
-                _ => self.plan_shell(void, true)?,
-            });
+                _ => (void, true),
+            };
+            let reversed = self
+                .reversed_voids
+                .as_ref()
+                .is_some_and(|reversed| reversed.contains(&void));
+            shells.push(self.plan_shell(shell, flipped != reversed)?);
         }
         if self.healing == Healing::Bent {
             self.conform(id)?;
         }
         for shell in &shells {
             self.build_shell(shell)?;
+        }
+        if self.reversed_voids.is_none() {
+            let outward = self.outward_voids(voids, 1 + lumps.len());
+            if !outward.is_empty() {
+                let mut again =
+                    Topology::new(self.geometry, self.healing).leaving_out(self.left_out);
+                again.reversed_voids = Some(outward);
+                return again.solid(id, solid_shells);
+            }
         }
         let healed = self.healed;
         let precision = self.geometry.units.precision;
@@ -353,6 +368,25 @@ impl<'g, 'a> Topology<'g, 'a> {
             faces,
             lost: None,
         })
+    }
+
+    fn outward_voids(&self, voids: &[u64], first_void_shell: usize) -> BTreeSet<u64> {
+        if voids.is_empty() {
+            return BTreeSet::new();
+        }
+        let Ok(inward) = self.builder.inward_shells() else {
+            return BTreeSet::new();
+        };
+        voids
+            .iter()
+            .enumerate()
+            .filter(|(offset, _)| {
+                !inward
+                    .iter()
+                    .any(|shell| shell.index() == first_void_shell + offset)
+            })
+            .map(|(_, void)| *void)
+            .collect()
     }
 
     fn conform(&mut self, id: u64) -> Read<()> {

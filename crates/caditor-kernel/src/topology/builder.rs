@@ -319,6 +319,10 @@ impl SolidBuilder {
         Ok(!self.solid.void_shells()?.is_empty())
     }
 
+    pub fn inward_shells(&self) -> Result<BTreeSet<ShellId>, TessellationError> {
+        self.solid.void_shells()
+    }
+
     pub fn unvalidated_mesh(&self, quality: &MeshQuality) -> Result<FaceMesh, TessellationError> {
         let tolerance = quality.tolerance(self.solid.extent());
         let mesh = tessellation::tessellate(&self.solid, &tolerance)?;
@@ -395,10 +399,42 @@ impl SolidBuilder {
             ) else {
                 continue;
             };
-            if let Some(data) = self.solid.coedges.get_mut(second.index()) {
-                data.pcurve = data.pcurve.shifted(offset);
+            let carried = self.folded_at_pole(&surface, *first, *second);
+            for coedge in [*second].into_iter().chain(carried) {
+                if let Some(data) = self.solid.coedges.get_mut(coedge.index()) {
+                    data.pcurve = data.pcurve.shifted(offset);
+                }
             }
         }
+    }
+
+    fn folded_at_pole(
+        &self,
+        surface: &Surface,
+        first: CoedgeId,
+        second: CoedgeId,
+    ) -> Vec<CoedgeId> {
+        let Some(first_data) = self.solid.coedge(first) else {
+            return Vec::new();
+        };
+        let Some(face_loop) = self.solid.face_loop(first_data.owner) else {
+            return Vec::new();
+        };
+        let members = &face_loop.coedges;
+        let follows = members
+            .iter()
+            .position(|coedge| *coedge == first)
+            .and_then(|position| members.get(position + 1))
+            == Some(&second);
+        if !follows || surface.pole_at(first_data.pcurve.end()).is_none() {
+            return Vec::new();
+        }
+        members
+            .iter()
+            .skip_while(|coedge| **coedge != second)
+            .skip(1)
+            .copied()
+            .collect()
     }
 }
 

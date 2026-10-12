@@ -160,9 +160,9 @@ fn solve_positive((a, b, c): (f64, f64, f64), gradient: Point2) -> Option<Point2
             -(a * gradient.y - b * gradient.x) / determinant,
         );
         step.is_finite().then_some(step)
-    } else if a > 0.0 && c <= 1e-14 * scale {
+    } else if a > 0.0 && c.abs() <= 1e-14 * scale {
         Some(Point2::new(-gradient.x / a, 0.0))
-    } else if c > 0.0 && a <= 1e-14 * scale {
+    } else if c > 0.0 && a.abs() <= 1e-14 * scale {
         Some(Point2::new(0.0, -gradient.y / c))
     } else {
         None

@@ -59,7 +59,10 @@ paths:
   direction; a net with more spans than that also keeps a box tree of each span's control hull, and
   a point no seed reaches within the resolution is sought from the nearest of a few samples in each
   span whose hull holds it (at most `MAX_SPAN_SEARCHES`), so a point on a dense, rough net always
-  finds its foot.
+  finds its foot. Each refining step is Newton on the squared distance, falling back to
+  Gauss–Newton when the Hessian is not positive definite; a one-direction step is taken only when
+  the other direction's term is zero, never when it is negative, which left a projection stuck on a
+  spline's corner where the side curved back from the point (the VZ330 latch's 0.054 mm "gap").
 - Splines reach `MAX_SPLINE_DEGREE` (25, as OpenCascade allows). Evaluation keeps its basis tables
   on the stack at the width the degree needs (`CUBIC_WIDTH` up to cubic, `NARROW_WIDTH` up to
   degree 9, `WIDE_WIDTH` above), so the common cubic never zeroes a table sized for degree 25.
@@ -141,7 +144,10 @@ paths:
   wrapping a periodic surface has a seam edge used twice in its loop, opposite senses, one period
   apart in uv.
 - Poles have no degenerate edges: the pole is a vertex, the uv loop closes along the pole line
-  between the two coedges meeting there, and a pcurve end at a pole takes its v exactly.
+  between the two coedges meeting there, and a pcurve end at a pole takes its v exactly. A seam
+  that runs out to a pole and straight back in the middle of a loop (a screw's cone tip, the rest
+  of the loop winding once round) has its return set one period over and the coedges after it in
+  the loop carried along (`SolidBuilder::align_seams`), so the loop closes where it started.
 
 - `Solid::bounding_box` is a bound, not an estimate: the box of the edges and vertices, widened by
   each doubly curved face's interior extremes. A sphere's and a torus's extremes along each axis

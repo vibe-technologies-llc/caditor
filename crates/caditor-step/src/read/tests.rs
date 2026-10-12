@@ -202,6 +202,25 @@ fn files_from_opencascade_import_with_their_volumes() {
 }
 
 #[test]
+fn a_void_written_facing_outward_is_turned_to_face_its_cavity() {
+    let original = include_str!("samples/void.step");
+    let outward = original.replace(
+        "ORIENTED_CLOSED_SHELL('',*,#166,.F.)",
+        "ORIENTED_CLOSED_SHELL('',*,#166,.T.)",
+    );
+
+    let cavity = sample(&outward);
+
+    assert_ne!(outward, original);
+    assert!(cavity.notes.is_empty(), "{:?}", cavity.notes);
+    assert_eq!(cavity.solids[0].solid.shells().count(), 2);
+    assert_volume(
+        &cavity.solids[0].solid,
+        8000.0 - 4.0 / 3.0 * std::f64::consts::PI * 125.0,
+    );
+}
+
+#[test]
 fn assembly_parts_are_placed_and_named_after_their_products() {
     let model = sample(include_str!("samples/assembly.step"));
     let names: Vec<&str> = model
@@ -2263,6 +2282,70 @@ fn a_spline_face_ending_just_short_of_its_neighbours_is_continued_to_meet_them()
 
     assert_eq!(model.solids.len(), 1);
     assert_volume(&model.solids[0].solid, 1000.0);
+}
+
+fn built_with(
+    text: &str,
+    solid: u64,
+    healing: super::topology::Healing,
+) -> Result<super::topology::Built, String> {
+    use super::{
+        geometry::{Geometry, MAX_WORK, Work},
+        graph::Graph,
+        structure::Structure,
+        topology::{SolidShells, Topology},
+    };
+
+    let exchange = crate::part21::parse(text).unwrap();
+    let graph = Graph::new(&exchange);
+    let mut structure = Structure::read(&graph);
+    let representation = structure.representation_of(solid).unwrap();
+    let units = structure.units_of(&graph, representation);
+    let geometry = Geometry::new(graph, units, Work::new(MAX_WORK));
+    let shells = SolidShells::of(&graph, solid).unwrap();
+
+    Topology::new(&geometry, healing)
+        .solid(solid, &shells)
+        .map_err(|problem| problem.to_string())
+}
+
+#[test]
+fn a_spline_side_bowing_short_of_the_plane_it_meets_across_is_bent_onto_it() {
+    let bow = 0.003;
+    let text = box_with_top(|entities| {
+        let net: Vec<String> = [[0.0; 3], [10.0, 10.0 - 2.0 * bow, 10.0]]
+            .into_iter()
+            .map(|xs| {
+                let row: Vec<String> = xs
+                    .into_iter()
+                    .zip([0.0, 5.0, 10.0])
+                    .map(|(x, y)| {
+                        format!(
+                            "#{}",
+                            entities.point(caditor_geometry::Point3::new(x, y, 10.0))
+                        )
+                    })
+                    .collect();
+                format!("({})", row.join(","))
+            })
+            .collect();
+        entities.add(format!(
+            "B_SPLINE_SURFACE_WITH_KNOTS('',1,2,({}),.UNSPECIFIED.,.F.,.F.,.F.,(2,2),(3,3),\
+             (0.,1.),(0.,1.),.UNSPECIFIED.)",
+            net.join(",")
+        ))
+    });
+    let brep = text.matches('\n').count() as u64 - 6;
+    let declared = with_precision(&text, "ADVANCED_BREP_SHAPE_REPRESENTATION", brep, "1.E-2");
+
+    let bent = built_with(&declared, brep, super::topology::Healing::Bent).unwrap();
+
+    assert!(
+        text.contains(&format!("#{brep}=MANIFOLD_SOLID_BREP")),
+        "{text}"
+    );
+    assert_eq!(bent.bent.map(|bending| bending.faces), Some(1));
+    assert_volume(&bent.solid, 1000.0);
 }
 
 #[test]

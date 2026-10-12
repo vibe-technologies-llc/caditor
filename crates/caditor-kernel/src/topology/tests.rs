@@ -10,7 +10,7 @@ use crate::{
     curve::{Circle, Line},
     fixtures::{self, Fixture, Tweak},
     interval::Interval,
-    surface::{Cylinder, PlaneSurface, Sphere},
+    surface::{Cone, Cylinder, PlaneSurface, Sphere},
     test_support::assert_cancelled_anywhere,
 };
 
@@ -111,6 +111,41 @@ fn a_sphere_loop_closes_along_its_poles() {
         assert!((end.y.abs() - PI / 2.0).abs() < 1e-12);
         assert!(((end.x - start.x).abs() - TAU).abs() < 1e-12);
     }
+}
+
+#[test]
+fn a_seam_to_a_cone_apex_between_two_arcs_carries_the_rest_of_the_loop_round() {
+    let (radius, height) = (2.0, 3.0);
+    let mut fixture = Fixture::new();
+    let near = fixture.vertex(Point3::new(radius, 0.0, 0.0));
+    let far = fixture.vertex(Point3::new(-radius, 0.0, 0.0));
+    let apex = fixture.vertex(Point3::new(0.0, 0.0, height));
+    let rim = Circle::new(Plane::XY, radius).unwrap();
+    let first_half = fixture.edge(rim, Interval::new(0.0, PI).unwrap(), near, far);
+    let second_half = fixture.edge(rim, Interval::new(PI, TAU).unwrap(), far, near);
+    let (seam, _) = fixture.line(far, apex);
+
+    fixture.face(
+        Cone::new(Plane::XY, radius, (-radius).atan2(height)).unwrap(),
+        Sense::Same,
+        &[vec![
+            (first_half, Sense::Same),
+            (seam, Sense::Same),
+            (seam, Sense::Reversed),
+            (second_half, Sense::Same),
+        ]],
+    );
+    fixture.face(
+        PlaneSurface::new(Plane::XY.flipped()).unwrap(),
+        Sense::Same,
+        &[vec![
+            (second_half, Sense::Reversed),
+            (first_half, Sense::Reversed),
+        ]],
+    );
+    let solid = fixture.builder.build();
+
+    assert!(solid.is_ok(), "{solid:?}");
 }
 
 #[test]

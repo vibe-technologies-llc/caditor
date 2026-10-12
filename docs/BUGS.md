@@ -156,14 +156,15 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   end-to-end join of two fillets slanted on both (2.6e-3 rad apart); one has a side that is a pole
   or seam; one has an iso-line edge whose neighbours' feet fall on both sides of it within the
   file's noise (the bound test needs a tolerance from the precision rather than the domain); one
-  bends a face whose boundary then crosses itself in uv. The bent path has no STEP test yet (a
-  fixture of a spline tangent to its neighbour a few micrometres off), and that file now reads in
-  8.7 s against 7.6 s. Healing still traces an edge only between exactly two distinct faces, so an
-  edge used twice by one face (a cylinder seam) with a vertex a few micrometres off is refused
-  outright when the file declares no precision. In the VZ330 assembly 82 bodies import as facets
-  this way, among them the M4 T-nuts (a thread flank whose iso-line edge has the face on both
-  sides of it further along, as the flank runs out), "Body6" and its copies (a side closed around
-  a periodic spline, then the same L-shaped face), "Body7" and "front handle1" (the bound test
+  bends a face whose boundary then crosses itself in uv. The bent path's one STEP test bends a
+  spline side onto a plane it meets across; a fixture of a spline tangent to its neighbour a few
+  micrometres off is still missing, and that file now reads in 8.7 s against 7.6 s. Healing still
+  traces an edge only between exactly two distinct faces, so an edge used twice by one face (a
+  cylinder seam) with a vertex a few micrometres off is refused outright when the file declares no
+  precision. In the VZ330 assembly 67 bodies import as facets this way, among them six of the ten
+  M4 T-nuts (a thread flank whose iso-line edge has the face on both sides of it further along, as
+  the flank runs out), "Body6" and its copies (a side closed around a periodic spline, then the
+  same L-shaped face), "Body7" and "front handle1" (the bound test
   above), "CPAP duct 15mm" (a side bent to 2.504e-8 mm of its targets against `BEND_TOLERANCE`'s
   2.5e-8) and rigid faces a few micrometres apart that bending cannot move: "Pulley (1)" has a
   plane tangent to a cylinder 3.4e-6 mm off it, "Micro Switch" two pairs of parallel planes
@@ -177,18 +178,29 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   tangent cylinder) and "Micro Switch" (parallel planes 1e-4 mm apart) are the cases to start
   from; fixing the bent path's own blockers above (closed sides of periodic splines, the bound
   test's tolerance, `BEND_TOLERANCE` at 2.5e-8 mm, thread flanks running out) covers most of the
-  other 80 faceted bodies of that file.
-- [medium · medium] The VZ330 assembly (an Autodesk export at 0.01 mm, 3,894 copies) leaves 31
-  parts out, 15 of them as "a vertex 0.00001 to 0.0015 mm away from the end of its edge", the
-  exact build's refusal at faces meeting tangentially further apart than the resolution, where the
-  faceted fallback then fails on its own: in "Part 9 (1)" to "Part 14 (1)" a corner patch's edge
-  curve ends 0.011 to 0.017 mm from its vertex (its x mirrored), in "Component25" and "M3 30mm
-  Adjustement screw (1)" an edge lies 2.3 and 3.8 mm off a face, "Gigabit Ethernet Port" and
-  "Goliath Air cooled" mesh into a face boundary crossing itself in uv, "front handle1" and
-  "front handle2" leave an edge of no length, "User Library-USB - C" has faces 0.011 mm apart,
-  "M3_Short v1" does not close and "Goliath long duct" keeps a vertex 0.012 mm off its edge. The
-  rest are edges that cannot be followed across a face (7), faces too far apart (6), meshes that
-  fail the validity check (2) and overlapping shells (1). Reproduce by reading the file with
+  other 65 faceted bodies of that file.
+- [medium · medium] The VZ330 assembly (an Autodesk export at 0.01 mm, 3,894 copies) leaves 14
+  parts out. Thirteen are refused as "a vertex 0.00001 to 0.0015 mm away from the end of its
+  edge", the exact build's refusal at faces meeting tangentially further apart than the
+  resolution, where the faceted fallback then fails on its own: in "Part 9 (1)" to "Part 14 (1)" a
+  corner patch's edge curve ends 0.011 to 0.017 mm from its vertex (its x mirrored), in
+  "Component25" and "M3 30mm Adjustement screw (1)" an edge lies 2.3 and 3.8 mm off a face,
+  "Goliath Air cooled" meshes into a face boundary crossing itself in uv, "front handle1" and
+  "front handle2" leave an edge of no length, "User Library-USB - C" has faces 0.011 mm apart and
+  "Goliath long duct" keeps a vertex 0.012 mm off its edge. "Lead Screw lower bracket" has "an
+  edge that could not be followed across its face": a thin spline strip meets its neighbours
+  nearly tangentially, and tracing its edges across them zigzags (a 0.057 mm edge traced 0.34 mm
+  long, whose pcurve then needs more than 65,536 samples). Refusing such traces (longer than the
+  file's curve by more than the precision) only moves the refusal on: settling two vertices
+  0.003 mm apart slides each about 0.002 mm along the tangency, their order along the 1 mm circle
+  between them flips, and that edge runs almost a full turn and misses its vertex by 0.0004 mm.
+  Settling should keep a vertex's order along the edges it ends, or move it no farther than the
+  precision, as the faceted build does. Four bodies refused before for other reasons import only
+  as facets: "M3 Nut" (three faces meeting so nearly tangentially that their common point lies
+  0.0115 mm along, on the next vertex, so the ellipse edge between them has no length; bending
+  gets within 2e-6 mm), "Top plate MGN9H (1)" and "Top plate MGN9C (1)" (a helical thread face
+  whose boundary backtracks at a junction in uv, so it crosses itself), and "goliath heatsink fan
+  duct (1)" (the lead screw bracket's tangent strip). Reproduce by reading the file with
   `read_step_copies` in release (about 80 s); `STEP_CORPUS` reads through `read_step`, which
   places only the first 1000 copies.
 - [low · hard] A face whose surface cannot be read is left out (`step-read.md`, "Unreadable

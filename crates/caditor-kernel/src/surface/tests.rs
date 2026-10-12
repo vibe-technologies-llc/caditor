@@ -628,3 +628,34 @@ fn projection_onto_a_profile_of_many_spans_finds_the_nearest_foot() {
         }
     }
 }
+
+#[test]
+fn projection_leaves_a_corner_where_the_surface_curves_back_from_the_point() {
+    let rail = [
+        Point3::new(0.0, 0.0, 0.0),
+        Point3::new(0.15, 0.0, 0.15),
+        Point3::new(1.8, 0.0, 1.7),
+        Point3::new(1.92, 0.0, 1.8),
+    ];
+    let lifted = rail.map(|point| point + Vector3::new(0.0, 0.6, 0.0));
+    let spline = BSplineSurface::new(
+        3,
+        1,
+        vec![0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0],
+        vec![0.0, 0.0, 0.06, 0.06],
+        4,
+        rail.iter().chain(&lifted).copied().collect(),
+        None,
+    )
+    .unwrap();
+    let surface = Surface::BSpline(spline);
+    let foot = Point2::new(0.9375, 0.0);
+    let point = surface.point_at(foot);
+
+    let found = [None, Some(Point2::new(1.0, 0.0))].map(|hint| surface.project(point, hint));
+
+    for uv in found {
+        assert!(surface.point_at(uv).distance(point) < 1e-9, "{uv}");
+        assert!((uv - foot).length() < 1e-9, "{uv}");
+    }
+}

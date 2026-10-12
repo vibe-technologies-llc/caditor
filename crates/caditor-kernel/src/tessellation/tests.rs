@@ -357,6 +357,61 @@ fn a_self_crossing_boundary_is_an_error_not_a_panic() {
 }
 
 #[test]
+fn a_thin_round_whose_edge_ends_a_tenth_of_a_micrometre_off_its_corners_meshes() {
+    use caditor_geometry::Plane;
+
+    use crate::{
+        curve::{Circle, Line},
+        fixtures::Fixture,
+        sense::Sense,
+        surface::Cylinder,
+    };
+
+    let radius = 0.012;
+    let height = 2.0;
+    let at = |angle: f64, z: f64| Point3::new(radius * angle.cos(), radius * angle.sin(), z);
+    let into_face = Vector3::new(-1e-7, 0.0, 0.0);
+    let past_end = Vector3::new(0.0, 0.0, 2e-8);
+    let top = Plane::from_frame(Point3::new(0.0, 0.0, height), Vector3::Z, Vector3::X).unwrap();
+    let quarter = Interval::new(0.5 * PI, PI).unwrap();
+    let mut fixture = Fixture::new();
+
+    let [a, b, c, d] = [
+        at(0.5 * PI, 0.0),
+        at(PI, 0.0),
+        at(PI, height),
+        at(0.5 * PI, height),
+    ]
+    .map(|point| fixture.vertex(point));
+    let bottom = fixture.edge(Circle::new(Plane::XY, radius).unwrap(), quarter, a, b);
+    let side = fixture.line(b, c);
+    let upper = fixture.edge(Circle::new(top, radius).unwrap(), quarter, d, c);
+    let from = at(0.5 * PI, height) + into_face + past_end;
+    let to = at(0.5 * PI, 0.0) + into_face - past_end;
+    let shifted = fixture.edge(
+        Line::through(from, to).unwrap(),
+        Interval::new(0.0, from.distance(to)).unwrap(),
+        d,
+        a,
+    );
+    fixture.face(
+        Cylinder::new(Plane::XY, radius).unwrap(),
+        Sense::Same,
+        &[vec![
+            (bottom, Sense::Same),
+            side,
+            (upper, Sense::Reversed),
+            (shifted, Sense::Same),
+        ]],
+    );
+    let solid = fixture.build_unchecked();
+
+    let mesh = solid.tessellate(&SamplingTolerance::for_extent(height));
+
+    assert!(mesh.is_ok(), "{mesh:?}");
+}
+
+#[test]
 fn a_cone_meshes_without_slivers_at_its_apex_at_any_tolerance() {
     for (radius, height) in [(3.0, 4.0), (1.0, 20.0), (20.0, 1.0)] {
         let cone = fixtures::cone(radius, height);

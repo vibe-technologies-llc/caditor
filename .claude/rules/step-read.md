@@ -216,6 +216,10 @@ paths:
   of each other, since exporters (Fusion 360 threads) trim a spline exactly where its neighbours
   meet it and their common corner lies a hair beyond. It is a retry, never the first build, as
   continuing a spline that winds over itself can mislead projection.
+- A void that faces outward once its `ORIENTED_CLOSED_SHELL`'s orientation is applied (Autodesk
+  writes the shell already facing its cavity and still marks it `.F.`, the VZ330's "Body58") is
+  turned round and the body built again (`Topology::outward_voids`, from the signed volumes of
+  `SolidBuilder::inward_shells`), since a shell facing outward inside the body cannot be a void.
 - A fin, an edge a loop runs out along and straight back (Autodesk exports leave them on
   cylinders), bounds nothing and is left out with its tip vertex, unless one of its ends is a pole
   of the face, where such a fold is the seam reaching an apex.
@@ -227,10 +231,14 @@ paths:
 
 - A body the exact and extended builds refuse is built in `Healing::Bent` before
   `Healing::Faceted` when the file declares a precision. Each edge between two faces is studied from samples of its file curve:
-  one whose faces' normals stay within `TANGENT_ANGLE` and that runs along an iso-line of a spline
-  face (within the precision; one at the domain bound is a side) is bent, with one face its master
-  and a spline it runs along its slave; every other edge is traced after bending with
-  `IntersectionCurve::through`.
+  one whose faces' normals stay within `TANGENT_ANGLE` (measured off poles, where a spline's normal
+  says nothing) and that runs along an iso-line of a spline face (within the precision; one at the
+  domain bound is a side) is bent, with one face its master and a spline it runs along its slave.
+  An edge meeting a rigid face across is bent too when it runs along a side of a spline, the rigid
+  face its master: a side ending within the precision short of the plane it meets leaves nothing
+  to trace (the VZ330's exhaust covers, knobs and four T-nuts;
+  `a_spline_side_bowing_short_of_the_plane_it_meets_across_is_bent_onto_it`).
+  Every other edge is traced after bending with `IntersectionCurve::through`.
 - Rigid faces (every surface but a spline) are always masters. Between two splines the master is
   the one the edge is slanted on, else the one earlier in an order that puts those first and smaller
   nets before larger; a ring of such constraints refuses the mode.
