@@ -16,12 +16,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   selection sets) and 3 of the 20 feature kinds, and no target journals generated edits and
   replays them. Generate the rest, replay the journal in `save_load`, and add an exhaustive
   `match` on `Edit` so a new variant fails to compile until a generator covers it.
-- [medium · medium] Nothing tests the app when the storage worker dies or stops: `Model::send_save`
-  failing to send, `restart_storage` after a failed `record` and `poll_storage` returning an error
-  (`caditor/src/model.rs`) decide whether pending journal entries are kept, a save reports its
-  failure and the journal is taken up again, and no test stops or breaks the worker. Add a test
-  seam that stops the storage worker on command and cover a failed record keeping every entry and
-  starting a new worker, a failed save reported as failed, and quitting with the worker gone.
 - [medium · medium] Wall-clock asserts in the default suite, which flake on a loaded runner and
   miss complexity regressions on a fast one: `profile/tests.rs` (2 s), `binary/tests.rs` (2 s),
   `caditor-expression` (2 s), `read/structure.rs` (5 s), `fit.rs` and `import/tests.rs` (10 s)

@@ -73,6 +73,12 @@ paths:
 - After a write error (`Report::JournalFailed`) it keeps the lock, stops appending and rewrites
   the whole journal every `RETRY_INTERVAL` until it succeeds (`Report::JournalRestored`). A
   replaced journal is removed only once the new one is written.
+- A worker that stops (a command or a poll finds its channels closed) is replaced by the app
+  (`Model::restart_storage`) with the model's base and every entry since it, so no entry is lost;
+  a save in flight is reported as failed. An untitled document's new worker names a new journal
+  and removes the dead worker's (`Storage::untitled_journal`, `Start::replaces`), so the stop
+  leaves one journal to recover, not two. The `test-support` feature adds `Storage::stop`, which
+  the app's tests enable as a dev-dependency, to stop a worker on command.
 - A worker started for another model (`Start::after`, the previous worker's `Closing`) waits up to
   `PREDECESSOR_TIMEOUT`, then completes its `Handover` (`Storage::handover`); anything inspecting
   journals for that model's file waits on it first, since until then the previous worker still

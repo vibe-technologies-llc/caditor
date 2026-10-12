@@ -123,6 +123,7 @@ mod sketch_tangent_circles;
 mod sketch_tidying;
 mod sketch_tracking;
 mod stale_sketch_results;
+mod storage_worker;
 mod svg_import;
 mod templates;
 mod themes;
