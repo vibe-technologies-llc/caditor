@@ -16,6 +16,7 @@ button at the bottom adds the whole proposal as one change, which Undo takes bac
 button fixes just that one.
 
 The panel works on the sketch as last solved and is redone after every change. It closes when you
-finish the sketch.
+finish the sketch. On a large sketch it shows its progress with **Cancel**, which stops the search
+until you change a setting.
 
 See also [how constrained a sketch is](sketch-status).

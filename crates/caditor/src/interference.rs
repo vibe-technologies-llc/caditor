@@ -323,6 +323,7 @@ pub struct Report {
     pub bodies: Bodies,
     pub found: Vec<(Pair, Finding)>,
     pub pending: usize,
+    pub stopped: bool,
 }
 
 impl Report {
@@ -359,6 +360,7 @@ pub struct Interference {
     submitted: BTreeMap<Pair, [Arc<FeatureResult>; 2]>,
     checked: BTreeMap<Pair, Checked>,
     changed: bool,
+    stopped: bool,
 }
 
 impl Interference {
@@ -400,7 +402,16 @@ impl Interference {
         std::mem::take(&mut self.changed).then(|| self.report(model))
     }
 
+    pub fn stop(&mut self) {
+        self.ticket = self.ticket.wrapping_add(1);
+        self.current.store(self.ticket, Ordering::SeqCst);
+        self.submitted.clear();
+        self.stopped = true;
+        self.changed = true;
+    }
+
     fn start(&mut self, model: &Model, basis: &Basis) {
+        self.stopped = false;
         self.ticket = self.ticket.wrapping_add(1);
         self.current.store(self.ticket, Ordering::SeqCst);
         self.submitted.clear();
@@ -503,6 +514,7 @@ impl Interference {
                 bodies: Bodies::among(&[], &BTreeSet::new()),
                 found: Vec::new(),
                 pending: 0,
+                stopped: false,
             };
         };
         let evaluation = model.evaluation();
@@ -523,6 +535,7 @@ impl Interference {
             bodies: basis.bodies.clone(),
             found,
             pending: self.submitted.len(),
+            stopped: self.stopped,
         }
     }
 
@@ -534,6 +547,7 @@ impl Interference {
         self.submitted.clear();
         self.checked.clear();
         self.changed = false;
+        self.stopped = false;
     }
 }
 

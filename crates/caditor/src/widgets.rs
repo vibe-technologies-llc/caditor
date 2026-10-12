@@ -30,6 +30,7 @@ use crate::{
 const DIALOG_EDGE: f32 = SPACE_M;
 const MIN_DIALOG_WIDTH: f32 = 240.0;
 const LIST_SCREEN_SHARE: f32 = 0.4;
+const COMBO_HEIGHT: ListHeight = ListHeight::Tall;
 const MIN_LIST_HEIGHT: f32 = 96.0;
 const MIN_MENU_SHARE: f32 = 0.5;
 pub const FIELD_WIDTH: f32 = 120.0;
@@ -125,6 +126,58 @@ pub fn icon(glyph: &str) -> RichText {
 
 pub fn muted(text: impl Into<String>, ui: &Ui) -> RichText {
     RichText::new(text).color(appearance::tokens(ui).text_muted)
+}
+
+pub struct Progress {
+    label: String,
+    count: Option<(usize, usize)>,
+    cancel: Option<String>,
+    wrapping: bool,
+}
+
+pub fn progress(label: impl Into<String>) -> Progress {
+    Progress {
+        label: label.into(),
+        count: None,
+        cancel: None,
+        wrapping: false,
+    }
+}
+
+impl Progress {
+    pub fn count(mut self, shown: usize, total: usize) -> Self {
+        self.count = Some((shown, total));
+        self
+    }
+
+    pub fn cancel(mut self, hover: impl Into<String>) -> Self {
+        self.cancel = Some(hover.into());
+        self
+    }
+
+    pub fn wrapping(mut self) -> Self {
+        self.wrapping = true;
+        self
+    }
+
+    pub fn show(self, ui: &mut Ui) -> bool {
+        let add = |ui: &mut Ui| {
+            let spinner = spinner(ui);
+            decorative(ui, &spinner);
+            let label = ui.add(Label::new(self.label.as_str()).selectable(false));
+            announced(ui, &label, false);
+            if let Some((shown, total)) = self.count {
+                ui.label(muted(format!("{shown} of {total}"), ui));
+            }
+            self.cancel
+                .is_some_and(|hover| ui.add(button("Cancel")).on_hover_text(hover).clicked())
+        };
+        if self.wrapping {
+            ui.horizontal_wrapped(add).inner
+        } else {
+            ui.horizontal(add).inner
+        }
+    }
 }
 
 pub fn spinner(ui: &mut Ui) -> Response {
@@ -2428,6 +2481,7 @@ impl<H: AsIdSalt> Combo<H> {
     pub fn show<R>(self, ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> InnerResponse<Option<R>> {
         let mut combo = ComboBox::from_id_salt(self.id_salt)
             .selected_text(self.selected)
+            .height(list_height(ui.ctx(), COMBO_HEIGHT))
             .wrap_mode(TextWrapMode::Truncate);
         if let Some(width) = self.width {
             combo = combo.width(width);

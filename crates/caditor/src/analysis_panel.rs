@@ -225,7 +225,7 @@ fn legend(ui: &mut Ui, context: &AnalysisContext<'_>, analysis: FaceAnalysis) {
         }
     });
     if tally.working {
-        ui.label(widgets::muted(WORKING, ui));
+        widgets::progress(WORKING).wrapping().show(ui);
     }
     if tally.failed {
         widgets::callout(ui, Tone::Warning, |ui| ui.label(FAILED));

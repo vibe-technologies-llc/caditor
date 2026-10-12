@@ -467,17 +467,13 @@ pub fn show(ui: &mut Ui, preview: &Preview, idle: bool) -> Option<HistoryCommand
         )));
         match &preview.state {
             State::Working { progress, .. } => {
-                ui.horizontal_wrapped(|ui| {
-                    widgets::spinner(ui);
-                    ui.label(progress.stage().text());
-                    if ui
-                        .add(widgets::button("Cancel"))
-                        .on_hover_text(CANCEL)
-                        .clicked()
-                    {
-                        command = Some(HistoryCommand::StopPreview);
-                    }
-                });
+                if widgets::progress(progress.stage().text())
+                    .wrapping()
+                    .cancel(CANCEL)
+                    .show(ui)
+                {
+                    command = Some(HistoryCommand::StopPreview);
+                }
             }
             State::Failed(failure) => {
                 widgets::callout(ui, Tone::Error, |ui| {
@@ -554,10 +550,7 @@ fn picture(ui: &mut Ui, picture: &Picture, ticket: u64) {
             );
         }
         Picture::Waiting(_) | Picture::Drawing => placeholder(ui, |ui| {
-            ui.horizontal(|ui| {
-                widgets::spinner(ui);
-                ui.label("Drawing…");
-            });
+            widgets::progress("Drawing…").show(ui);
         }),
         Picture::NoBodies => placeholder(ui, |ui| {
             ui.label(widgets::muted("No bodies to show", ui));

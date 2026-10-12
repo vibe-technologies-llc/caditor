@@ -39,9 +39,11 @@ open at that width from then on, also the next time caditor starts.
 
 ## The status bar
 
-From the left: the recompute (with Cancel while it runs, or the failed features), file work such
-as saving or exporting or loading bodies to the graphics card, and the latest message. On the
-right: what is selected, its size or the distance between two selected items, the
+From the left: the recompute (with Cancel while it runs, or the failed features and, in blue, how
+many features are waiting for you to choose something; click either to go to the next one), file
+work such as saving or exporting or loading bodies to the graphics card, and the latest message.
+Work that can be stopped, such as a recompute, an import, an export or a paste, has a Cancel
+beside it. On the right: what is selected, its size or the distance between two selected items, the
 [selection filter](selection) while one is on (click it to select anything again), the length unit
 (click it for [Preferences](preferences)) and the interface size when it is not 100% (click it to
 go back to 100%). Hovering a button there names its keys.

@@ -31,6 +31,9 @@ pub const UNCHECKED: &str = "Whether these bodies overlap could not be worked ou
 pub const EVERYTHING: &str = "Every body shown, pair by pair. Select faces, edges or vertices of \
                               bodies to check those alone.";
 pub const CHOSEN: &str = "The selected bodies, pair by pair.";
+pub const CHECKING: &str = "Checking pairs…";
+pub const CHECK_AGAIN: &str = "Check again";
+const STOP_HOVER: &str = "Stop checking and list what is found so far";
 pub const MAX_LISTED: usize = 50;
 const UNMESHED: &str = "The shared volume could not be meshed, so its size is not known.";
 const PANEL: RightPanel = RightPanel { id: "interference" };
@@ -98,6 +101,9 @@ pub fn summary(report: &Report) -> Option<(Tone, String)> {
     if report.is_checking() {
         return None;
     }
+    if report.stopped {
+        return Some((Tone::Info, stopped_text(report)));
+    }
     let count = |wanted: fn(&Finding) -> bool| {
         report
             .contacts()
@@ -133,14 +139,12 @@ pub fn summary(report: &Report) -> Option<(Tone, String)> {
     Some((tone, text))
 }
 
-pub fn progress(report: &Report) -> Option<String> {
-    report.is_checking().then(|| {
-        format!(
-            "Checking… {} of {} pairs",
-            report.checked(),
-            report.checked() + report.pending
-        )
-    })
+pub fn stopped_text(report: &Report) -> String {
+    format!(
+        "Stopped after {} of {} pairs. Check again to finish.",
+        report.checked(),
+        report.bodies.pairs.len()
+    )
 }
 
 fn approximately(text: String, approximate: bool) -> String {
@@ -305,9 +309,10 @@ pub fn show(ui: &mut Ui, model: &Model, tool: &mut InterferenceTool, room: f32) 
     let cards = cards(document, report, unit);
     let unlisted = unlisted(report);
     let summary = summary(report);
-    let progress = progress(report);
     let scope = scope_text(document, &report.bodies);
     let mut shown = None;
+    let mut stop = false;
+    let mut again = false;
     let actions = |ui: &mut Ui| {
         let everything = summary
             .iter()
@@ -323,16 +328,26 @@ pub fn show(ui: &mut Ui, model: &Model, tool: &mut InterferenceTool, room: f32) 
         {
             ui.ctx().copy_text(everything);
         }
-        if let Some(progress) = &progress {
-            ui.label(widgets::muted(progress, ui));
-        }
     };
     let panel = widgets::side_panel(ui, room, PANEL, &HEADER, actions, |ui| {
         ui.label(widgets::muted(&scope, ui));
         ui.add_space(SPACE_S);
+        if report.is_checking() {
+            let total = report.checked() + report.pending;
+            stop = widgets::progress(CHECKING)
+                .count(report.checked(), total)
+                .wrapping()
+                .cancel(STOP_HOVER)
+                .show(ui);
+            ui.add_space(SPACE_S);
+        }
         if let Some((tone, text)) = &summary {
             let response = widgets::callout(ui, *tone, |ui| ui.label(text));
             widgets::announced(ui, &response, *tone == Tone::Error);
+            ui.add_space(SPACE_S);
+            if report.stopped {
+                again = ui.add(widgets::button(CHECK_AGAIN)).clicked();
+            }
             ui.add_space(SPACE_M);
         }
         for (index, (card, place)) in cards.iter().enumerate() {
@@ -352,6 +367,12 @@ pub fn show(ui: &mut Ui, model: &Model, tool: &mut InterferenceTool, room: f32) 
             ));
         }
     });
+    if stop {
+        tool.interference.stop();
+    }
+    if again {
+        tool.forget();
+    }
     if panel.closed {
         tool.toggle();
     }

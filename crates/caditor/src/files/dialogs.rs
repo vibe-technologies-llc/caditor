@@ -41,10 +41,7 @@ pub(super) fn opening(ctx: &egui::Context, path: &Path, origin: Origin) -> Optio
     };
     let response = widgets::dialog(ctx, "opening", &title, DialogWidth::Medium, |ui| {
         widgets::dialog_body(ui, |ui| {
-            ui.horizontal(|ui| {
-                widgets::spinner(ui);
-                ui.label(widgets::muted(doing, ui));
-            });
+            widgets::progress(doing).wrapping().show(ui);
         });
         widgets::footer(ui, |ui| {
             ui.add(widgets::button("Cancel"))
@@ -110,10 +107,9 @@ pub(super) fn closing(ctx: &egui::Context, since: Instant) -> Option<FileCommand
     let slow = waited >= QUIT_ANYWAY_AFTER;
     widgets::waiting_dialog(ctx, "closing", "Closing…", |ui| {
         widgets::dialog_body(ui, |ui| {
-            ui.horizontal(|ui| {
-                widgets::spinner(ui);
-                ui.label(widgets::muted("Finishing writing to disk…", ui));
-            });
+            widgets::progress("Finishing writing to disk…")
+                .wrapping()
+                .show(ui);
             if slow {
                 ui.label("This is taking longer than usual, for example because the disk is slow.");
             }
@@ -157,10 +153,7 @@ pub(super) fn finishing_exports(
         |ui| {
             widgets::dialog_body(ui, |ui| {
                 for description in running {
-                    ui.horizontal(|ui| {
-                        widgets::spinner(ui);
-                        ui.label(description);
-                    });
+                    widgets::progress(description).wrapping().show(ui);
                 }
                 let explanation = match (cancellable, waiting.stopping) {
                     (false, _) => "caditor closes as soon as the file is written.",

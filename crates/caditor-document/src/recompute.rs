@@ -532,6 +532,19 @@ impl Evaluation {
             })
     }
 
+    pub fn waiting(&self) -> impl Iterator<Item = (FeatureId, MissingInput)> {
+        self.features
+            .iter()
+            .filter_map(|(id, status)| match status.state {
+                FeatureState::Waiting(missing) => Some((*id, missing)),
+                _ => None,
+            })
+    }
+
+    pub fn waiting_count(&self) -> usize {
+        self.waiting().count()
+    }
+
     pub fn failed_count(&self) -> usize {
         self.features
             .values()

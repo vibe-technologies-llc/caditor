@@ -1051,6 +1051,42 @@ fn a_circular_pattern_waiting_for_its_axis_reads_none_chosen_and_its_callout_off
 }
 
 #[test]
+fn a_feature_waiting_for_input_shows_a_waiting_pill_that_selects_it_instead_of_up_to_date() {
+    let mut harness = Harness::new();
+    extruded_plate(&mut harness);
+    harness.select([]);
+    harness.click("Circular pattern");
+    harness.settle();
+    let pattern = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the pattern is open");
+    harness.hold_still();
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.settle();
+    harness.select([]);
+    harness.frame();
+
+    let waiting = harness.shows("1 waiting");
+    let up_to_date = harness.shows(crate::status_bar::UP_TO_DATE);
+    let failed = harness.model.evaluation().failed_count();
+    harness.click("1 waiting");
+    harness.frame();
+    harness.frame();
+
+    assert!(waiting, "a waiting feature is counted beside the failures");
+    assert!(
+        !up_to_date,
+        "a model with a waiting feature is not up to date"
+    );
+    assert_eq!(failed, 0);
+    assert_eq!(harness.workspace.panels.selected, Some(pattern));
+}
+
+#[test]
 fn an_edge_list_choosing_in_the_view_says_it_keeps_choosing_and_stop_choosing_closes_the_fillet() {
     let mut harness = Harness::new();
     let (plate, _) = extruded_plate(&mut harness);

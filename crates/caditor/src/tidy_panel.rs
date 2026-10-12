@@ -22,6 +22,8 @@ use crate::{
 pub const TITLE: &str = "Constrain automatically";
 pub const CLOSE: &str = "Close Constrain automatically";
 pub const WORKING: &str = "Looking through the sketch…";
+pub const STOPPED: &str = "Stopped. Change a setting to look through the sketch again.";
+const STOP_HOVER: &str = "Stop looking through the sketch and propose nothing";
 pub const NO_RELATIONS: &str = "The drawing shows no relation the sketch does not already hold.";
 pub const NO_DIMENSIONS: &str = "Nothing is left free for a dimension from the datum to hold.";
 pub const NO_FLAWS: &str = "No flaws found: every end is joined or clearly apart, no curve lies \
@@ -94,6 +96,7 @@ pub fn show(
         return shown;
     };
     let mut accepted = false;
+    let mut stopped = false;
     let panel = widgets::side_panel_parts(
         ui,
         room,
@@ -134,10 +137,16 @@ pub fn show(
                         wrapped(ui, widgets::muted(tidying::NOT_SETTLED, ui));
                     }
                     Progress::Working => {
-                        ui.horizontal(|ui| {
-                            widgets::spinner(ui);
-                            ui.label(WORKING);
-                        });
+                        if widgets::progress(WORKING)
+                            .wrapping()
+                            .cancel(STOP_HOVER)
+                            .show(ui)
+                        {
+                            stopped = true;
+                        }
+                    }
+                    Progress::Stopped => {
+                        widgets::callout(ui, Tone::Info, |ui| wrapped(ui, STOPPED));
                     }
                     Progress::Failed(reason) => {
                         widgets::callout(ui, Tone::Error, |ui| wrapped(ui, reason));
@@ -153,6 +162,9 @@ pub fn show(
         shown
             .actions
             .extend(accept(model, feature, tidying.task, tidying.datum, found));
+    }
+    if stopped {
+        tidying.stop();
     }
     if panel.closed {
         tidying.close();
@@ -352,10 +364,7 @@ fn found_proposal(
             flaws_list(ui, model, feature, &found.sketch, flaws, shown);
         }
         _ => {
-            ui.horizontal(|ui| {
-                widgets::spinner(ui);
-                ui.label(WORKING);
-            });
+            widgets::progress(WORKING).wrapping().show(ui);
         }
     }
 }

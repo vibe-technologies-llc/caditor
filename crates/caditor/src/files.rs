@@ -3814,12 +3814,10 @@ pub fn activity(
         ));
     }
     if model.is_saving() {
-        widgets::spinner(ui);
-        ui.label("Saving…");
+        widgets::progress("Saving…").show(ui);
     }
     if files.is_picking() {
-        widgets::spinner(ui);
-        ui.label("Waiting for the file dialog…");
+        widgets::progress("Waiting for the file dialog…").show(ui);
         let stop = ui.add(widgets::button("Stop waiting")).on_hover_text(
             "The file dialog may be behind this window. Stop waiting to use caditor again; what \
              is chosen in that dialog afterwards is ignored. (Esc)",
@@ -3846,15 +3844,13 @@ fn import_activity(
         .ok_or(NOT_IMPORTING);
     let mut cancel = commands.invoke(Command::CancelImport, &running);
     if let Ok((path, stage)) = running {
-        widgets::spinner(ui);
-        ui.label(import_text(path, stage));
-        cancel |= ui
-            .add(widgets::button("Cancel"))
-            .on_hover_text(commands.with_keys(
-                Command::CancelImport,
-                "Stop reading the file and add nothing to the model",
-            ))
-            .clicked();
+        let hover = commands.with_keys(
+            Command::CancelImport,
+            "Stop reading the file and add nothing to the model",
+        );
+        cancel |= widgets::progress(import_text(path, stage))
+            .cancel(hover)
+            .show(ui);
     }
     if cancel {
         actions.push(Action::File(FileCommand::CancelImport));

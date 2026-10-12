@@ -34,6 +34,7 @@ const DIVIDER_WIDTH: f32 = SPACE_S;
 const NO_NOTICE: &str = "There is no notice to dismiss";
 const NOT_RECOMPUTING: &str = "Nothing is being recomputed";
 const NOTHING_FAILED: &str = "No feature has failed";
+const WAITING_HOVER: &str = "Show the next feature waiting for you to choose something";
 pub const SHOW_MESSAGES: &str = "Show recent messages";
 
 struct Hovers {
@@ -115,8 +116,7 @@ pub fn show(
                 files::activity(ui, model, context.files, commands, actions);
                 feature_clipboard::activity(ui, model, commands, actions);
                 if context.uploading {
-                    widgets::spinner(ui);
-                    ui.label(upload_badge::TEXT);
+                    widgets::progress(upload_badge::TEXT).show(ui);
                 }
             });
             let fixed = widgets::remembered_width(ui, trailing_id) + selection_icon_room(ui);
@@ -269,16 +269,11 @@ fn recompute_status(
 ) {
     match model.status() {
         RecomputeStatus::Running { since } if since.elapsed() >= SHOW_PROGRESS_AFTER => {
-            widgets::spinner(ui);
             let text = match model.progress() {
                 Some(progress) if progress.total > 0 => recomputing_text(&progress),
                 Some(_) | None => "Recomputing…".to_owned(),
             };
-            ui.label(text);
-            let cancel = ui
-                .add(widgets::button("Cancel"))
-                .on_hover_text(&hovers.cancel);
-            if cancel.clicked() {
+            if widgets::progress(text).cancel(&hovers.cancel).show(ui) {
                 actions.push(Action::CancelRecompute);
             }
             ui.ctx().request_repaint_after(PROGRESS_REFRESH);
@@ -314,34 +309,41 @@ fn recompute_status(
 
 fn summary(ui: &mut Ui, model: &Model, panels: &mut PanelState, hovers: &Hovers) {
     if let Some((shown, bodies)) = model.bodies_preparing() {
-        widgets::spinner(ui);
-        ui.label(format!("Showing {shown} of {bodies} bodies…"));
+        widgets::progress(format!("Showing {shown} of {bodies} bodies…")).show(ui);
         return;
     }
     let tokens = appearance::tokens(ui);
-    match model.evaluation().failed_count() {
-        0 => {
-            widgets::icon_label(ui, icons::UP_TO_DATE, tokens.success);
-            ui.label(widgets::muted(UP_TO_DATE, ui));
+    let failed = model.evaluation().failed_count();
+    let waiting = model.evaluation().waiting_count();
+    if failed == 0 && waiting == 0 {
+        widgets::icon_label(ui, icons::UP_TO_DATE, tokens.success);
+        ui.label(widgets::muted(UP_TO_DATE, ui));
+    }
+    if failed > 0 {
+        let text = format!("{} failed", count(failed, "feature", "features"));
+        if feature_pill(ui, Tone::Error, &text, &hovers.failed).clicked()
+            && let Some(feature) = failed_after(model, panels.selected, Step::Next)
+        {
+            panels.request_focus(Focus::Feature(feature));
         }
-        failed => {
-            let text = format!("{} failed", count(failed, "feature", "features"));
-            if failed_pill(ui, &text, &hovers.failed).clicked()
-                && let Some(feature) = failed_after(model, panels.selected, Step::Next)
-            {
-                panels.request_focus(Focus::Feature(feature));
-            }
+    }
+    if waiting > 0 {
+        let text = format!("{waiting} waiting");
+        if feature_pill(ui, Tone::Info, &text, WAITING_HOVER).clicked()
+            && let Some(feature) = waiting_after(model, panels.selected, Step::Next)
+        {
+            panels.request_focus(Focus::Feature(feature));
         }
     }
 }
 
-fn failed_pill(ui: &mut Ui, text: &str, hover: &str) -> Response {
+fn feature_pill(ui: &mut Ui, tone: Tone, text: &str, hover: &str) -> Response {
     let tokens = appearance::tokens(ui);
-    let pill = widgets::status_pill(ui, Tone::Error, text);
+    let pill = widgets::status_pill(ui, tone, text);
     let response = widgets::named(pill.interact(Sense::click()), text)
         .on_hover_cursor(CursorIcon::PointingHand)
         .on_hover_text(hover);
-    widgets::announced(ui, &response, true);
+    widgets::announced(ui, &response, tone == Tone::Error);
     let pressed = response.is_pointer_button_down_on();
     if pressed || response.hovered() {
         let width = if pressed { FOCUS_WIDTH } else { BORDER_WIDTH };
@@ -349,7 +351,7 @@ fn failed_pill(ui: &mut Ui, text: &str, hover: &str) -> Response {
         ui.painter().rect_stroke(
             response.rect,
             radius,
-            Stroke::new(width, tokens.error),
+            Stroke::new(width, tone.color(&tokens)),
             StrokeKind::Inside,
         );
     }
@@ -366,26 +368,39 @@ enum Step {
 }
 
 fn failed_after(model: &Model, current: Option<FeatureId>, way: Step) -> Option<FeatureId> {
+    let failed = model.evaluation().failures().map(|(id, _)| id);
+    in_tree_order(model, failed, current, way)
+}
+
+fn waiting_after(model: &Model, current: Option<FeatureId>, way: Step) -> Option<FeatureId> {
+    let waiting = model.evaluation().waiting().map(|(id, _)| id);
+    in_tree_order(model, waiting, current, way)
+}
+
+fn in_tree_order(
+    model: &Model,
+    features: impl Iterator<Item = FeatureId>,
+    current: Option<FeatureId>,
+    way: Step,
+) -> Option<FeatureId> {
     let document = model.document();
-    let mut failed: Vec<(usize, FeatureId)> = model
-        .evaluation()
-        .failures()
-        .filter_map(|(id, _)| Some((document.feature_index(id)?, id)))
+    let mut ordered: Vec<(usize, FeatureId)> = features
+        .filter_map(|id| Some((document.feature_index(id)?, id)))
         .collect();
-    failed.sort_unstable();
+    ordered.sort_unstable();
     let at = current.and_then(|id| document.feature_index(id));
     match (way, at) {
-        (Step::Next, Some(at)) => failed
+        (Step::Next, Some(at)) => ordered
             .iter()
             .find(|(index, _)| *index > at)
-            .or(failed.first()),
-        (Step::Previous, Some(at)) => failed
+            .or(ordered.first()),
+        (Step::Previous, Some(at)) => ordered
             .iter()
             .rev()
             .find(|(index, _)| *index < at)
-            .or(failed.last()),
-        (Step::Next, None) => failed.first(),
-        (Step::Previous, None) => failed.last(),
+            .or(ordered.last()),
+        (Step::Next, None) => ordered.first(),
+        (Step::Previous, None) => ordered.last(),
     }
     .map(|(_, id)| *id)
 }

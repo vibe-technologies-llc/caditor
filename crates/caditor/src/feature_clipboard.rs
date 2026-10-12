@@ -144,15 +144,13 @@ pub fn activity(
     let running = model.paste_progress().ok_or(NOT_PASTING);
     let mut cancel = commands.invoke(Command::CancelPaste, &running);
     if let Ok(progress) = running {
-        widgets::spinner(ui);
-        ui.label(pasting::progress_text(progress));
-        cancel |= ui
-            .add(widgets::button("Cancel"))
-            .on_hover_text(commands.with_keys(
-                Command::CancelPaste,
-                "Stop finding the faces and edges the copies pick, and paste nothing",
-            ))
-            .clicked();
+        let hover = commands.with_keys(
+            Command::CancelPaste,
+            "Stop finding the faces and edges the copies pick, and paste nothing",
+        );
+        cancel |= widgets::progress(pasting::progress_text(progress))
+            .cancel(hover)
+            .show(ui);
         ui.ctx().request_repaint_after(PROGRESS_REFRESH);
     }
     if cancel {
