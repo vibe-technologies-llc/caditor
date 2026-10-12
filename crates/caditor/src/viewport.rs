@@ -1,8 +1,8 @@
 use std::{sync::Arc, time::Duration};
 
 use caditor_document::{
-    CarriedParameters, Document, Evaluation, Feature, FeatureId, FeatureKind, PasteOrigin,
-    SavedView, Transaction,
+    BlendKind, CarriedParameters, Datum, Document, Evaluation, Feature, FeatureId, FeatureKind,
+    PasteOrigin, PatternKind, SavedView, SolidFeature, Transaction,
 };
 use caditor_file::PastedGeometry;
 use caditor_geometry::{Aabb, Plane, Point2, Point3, Ray, Rotation3, Vector2, Vector3};
@@ -27,14 +27,16 @@ use crate::{
     body_selection,
     body_snap::BodySnaps,
     box_selection::{self, Catch},
-    canvas, clipboard,
+    canvas::{self, HintList, KeyHint, Rank},
+    canvas_guidance::{self, HoverDelay, OrbitMark, PointerLabel, RefusalNote, Start, Waited},
+    clipboard,
     comb::CombDrawing,
     commands::{CameraMove, Command, CommandFrame, Pasted, StandardView},
     dimensioning,
     display::Displayed,
     display_style::DisplayStyle,
     drag_solver::DragCommand,
-    drawing::{Drawing, Ended, Preview},
+    drawing::{self, Drawing, Ended, Preview},
     editing::{self, EditingCommand, SketchEditing, Tool},
     faceting::FacetLevel,
     feature_tree,
@@ -48,7 +50,7 @@ use crate::{
     measure::MeasuredLine,
     measurement_tools,
     menu_bar::MenuEntries,
-    model::{Action, Model, Notice, RecomputeStatus},
+    model::{Action, Model, Notice, NoticeKind, RecomputeStatus},
     model_dimensions::{self, ModelDimensions, Outside},
     modifying::{Hint, Modifying, Outcome, SketchVersion},
     move_manipulator::Handle,
@@ -92,11 +94,8 @@ const SUBJECT_ITEMS_READ: usize = 16;
 const ZOOM_PER_SCROLL_POINT: f64 = 0.0025;
 const HIT_CURSOR_TOLERANCE_POINTS: f64 = 1.5;
 const SEEN_DEPTH_SLACK_POINTS: f64 = 7.5;
-const PROMPT_MARGIN: f32 = 16.0;
-const PROMPT_MAX_WIDTH: f32 = 720.0;
 const READOUT_ROOM: f32 = 200.0;
 const DRAG_DRAWS_FROM_PRESS: f64 = 12.0;
-const SIZE_READOUT_OFFSET: egui::Vec2 = vec2(14.0, 26.0);
 pub const PLACE_AT_A_POINT: &str = "While drawing, Space places at the highlighted point or curve: \
                                     highlight one of the sketch's points or curves, or the origin.";
 const VIEWPORT_NAME: &str = "3D view";
@@ -108,40 +107,25 @@ pub const PROJECTED_STAYS: &str =
     "Projected geometry follows the model geometry it comes from; change the model instead";
 pub const REFERENCE_STAYS: &str = "The origin and axes stay put";
 const READOUT_GAP: f32 = 4.0;
+const READOUT_LIFTS: u8 = 3;
 const NOTHING_TO_COPY: &str = "Select sketch geometry to copy";
 const NOTHING_TO_PASTE: &str = "Nothing was pasted: copy or cut sketch geometry first.";
 const PASTE_SHIFT_FRACTION: f64 = 0.25;
 const PASTE_SHIFT_FLOOR: f64 = 1.0;
 pub const CHOOSE_PLANE_PROMPT: &str = "Click a plane or a flat face to sketch on";
 const CHOOSE_PLANE_HINT: &str = "Esc: cancel";
-const CHOOSE_REGIONS_PROMPT: &str = "Click regions of the sketch to include or leave them out";
-const CHOOSE_REGIONS_HINT: &str = "Esc: done";
-const CHOOSE_EDGES_PROMPT: &str = "Click edges to add them or leave them out";
+const DONE_HINT: &str = "Esc: done";
+pub const SELECT_PROMPT: &str = "Choose a tool to draw, or click geometry to select it";
+pub const EMPTY_MODEL_TITLE: &str = "Start the model";
+pub const EMPTY_MODEL_TEXT: &str =
+    "Sketch on a plane and extrude it, start from a box, or import a file.";
+pub const START_WITH_SKETCH: &str = "Start with a sketch";
+pub const START_WITH_BOX: &str = "Start with a box";
+pub const START_WITH_IMPORT: &str = "Import a file…";
 const PROJECT_PROMPT: &str =
     "Click an edge, corner or face of a body, or a curve of another sketch, to project it";
 const INTERSECT_PROMPT: &str = "Click a face to draw where the sketch cuts it, Shift-click for its \
      whole body, or click a datum plane";
-const CHOOSE_FACES_PROMPT: &str = "Click faces to open them or close them again";
-const CHOOSE_MOVED_FACES_PROMPT: &str = "Click faces to move them or leave them out again";
-const CHOOSE_SPLIT_FACES_PROMPT: &str = "Click faces to split them or leave them out again";
-const CHOOSE_BODIES_PROMPT: &str = "Choose the operation and the two bodies in the feature's panel";
-const CHOOSE_MOVE_PROMPT: &str =
-    "Drag an arrow or a square, or enter the turns and distances in the feature's panel";
-const CHOOSE_SCALE_PROMPT: &str = "Enter the factor and the centre in the feature's panel, or choose the centre in the view from it";
-const CHOOSE_THREAD_PROMPT: &str = "Choose the thread's size and length in the feature's panel, or choose its face in the view from it";
-const CHANGE_IN_PANEL_PROMPT: &str = "Change the feature in its panel";
-const CHOOSE_MIRROR_PROMPT: &str =
-    "Choose the plane in the feature's panel, or select a plane or flat face and use it from there";
-const CHOOSE_SPLIT_PROMPT: &str = "Choose what to split along in the feature's panel, or select a \
-                                   plane, flat face, sketch curve or other body and use it from \
-                                   there";
-const CHOOSE_MATE_PROMPT: &str = "Choose the faces or axes to mate in the feature's panel, or \
-                                  select one and use it from there";
-const CHOOSE_HOLE_PROMPT: &str = "Choose the hole's style and sizes in the feature's panel";
-const CHOOSE_PRIMITIVE_PROMPT: &str =
-    "Enter the sizes and position in the feature's panel, or choose in the view where it goes";
-const CHOOSE_REFERENCES_PROMPT: &str = "Select planes, faces, axes or edges for the feature's panel, or choose them in the view from it";
-const SNAP_LABEL_OFFSET: egui::Vec2 = vec2(14.0, 10.0);
 const KEYBOARD_ORBIT_FRACTION: f64 = 1.0 / 12.0;
 const KEYBOARD_PAN_FRACTION: f64 = 0.1;
 const KEYBOARD_ZOOM_FACTOR: f64 = 1.25;
@@ -176,7 +160,6 @@ const MEASURE_LABEL_LIFT: f32 = 6.0;
 const PROBLEM_LABEL_LIFT: f32 = 9.0;
 const PLACE_SHARE: f64 = 0.2;
 const MIN_PLACE_REACH: f64 = 1.0;
-const BACK_TO_SELECT: &str = "Esc: back to Select";
 const LIST_NOT_WITH_TOOL: &str =
     "This tool picks its own targets: press Esc to go back to Select first";
 const NO_VIEW_YET: &str = "The 3D view is not shown yet";
@@ -431,6 +414,19 @@ pub struct ViewportState {
     dimensioning: Option<FeatureId>,
     body_snaps: Arc<BodySnaps>,
     body_hovered: Option<Pickable>,
+    more_keys: bool,
+    chosen_commands: Vec<Command>,
+    refusal: Option<RefusalNote>,
+    hover_delay: HoverDelay,
+    orbit_mark: Option<OrbitMark>,
+    pointer_labels: Vec<Rect>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Described {
+    Highlighted(String),
+    Hovered(String),
+    Tool(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -697,6 +693,12 @@ impl ViewportState {
             dimensioning: None,
             body_snaps: Arc::default(),
             body_hovered: None,
+            more_keys: false,
+            chosen_commands: Vec::new(),
+            refusal: None,
+            hover_delay: HoverDelay::default(),
+            orbit_mark: None,
+            pointer_labels: Vec::new(),
         }
     }
 
@@ -1095,6 +1097,16 @@ impl ViewportState {
         &mut self.selection
     }
 
+    #[cfg(test)]
+    pub fn show_more_keys(&mut self, shown: bool) {
+        self.more_keys = shown;
+    }
+
+    #[cfg(test)]
+    pub fn orbit_mark(&self) -> Option<OrbitMark> {
+        self.orbit_mark
+    }
+
     pub fn is_drawing(&self) -> bool {
         self.drawing.in_progress()
     }
@@ -1262,7 +1274,21 @@ impl ViewportState {
             .hovered
             .filter(|hovered| hovered.is_available(document, evaluation, context));
         let highlighted = self.highlighted();
-        let mut hovered: Vec<Pickable> = if self.drawing.is_active() {
+        let grabbed = match &self.primary {
+            Some(PrimaryDrag::Grab(grab)) => Some(grab),
+            _ => None,
+        };
+        let mut hovered: Vec<Pickable> = if let Some(grab) = grabbed {
+            edited
+                .zip(edited_sketch(model, editing))
+                .into_iter()
+                .flat_map(|(feature, sketch)| {
+                    grab.snap_entities(&sketch)
+                        .into_iter()
+                        .map(move |entity| Pickable::SketchEntity { feature, entity })
+                })
+                .collect()
+        } else if self.drawing.is_active() {
             edited
                 .into_iter()
                 .flat_map(|feature| {
@@ -1793,6 +1819,9 @@ impl ViewportState {
         };
         if !ui.input(|input| input.pointer.any_down()) {
             self.history.stop_dragging();
+            if let Some(mark) = &mut self.orbit_mark {
+                mark.held = false;
+            }
         }
         if response.drag_started() {
             self.drag_anchor = self.cursor.and_then(|cursor| self.hit_under(cursor));
@@ -1880,6 +1909,11 @@ impl ViewportState {
 
     fn orbit_by(&mut self, view: &View, drag: Vector2, rect: Rect, anchor: Option<Point3>) {
         let pivot = anchor.unwrap_or(view.viewpoint().target);
+        self.orbit_mark = Some(OrbitMark {
+            pivot,
+            at: self.clock,
+            held: true,
+        });
         self.camera.orbit(
             pivot,
             drag * self.navigation.orbit_speed,
@@ -2204,11 +2238,24 @@ impl ViewportState {
 
     fn grab_preview(&self) -> Preview {
         match &self.primary {
-            Some(PrimaryDrag::Grab(grab)) => Preview {
-                snap: grab.landing().map(|landing| landing.position),
-                guides: grab.guides().to_vec(),
-                ..Preview::default()
-            },
+            Some(PrimaryDrag::Grab(grab)) => {
+                let landing = grab.landing();
+                let body_edge = landing
+                    .and_then(|landing| match landing.target {
+                        Some(Target::Body(target)) => self.body_snaps.path(target),
+                        _ => None,
+                    })
+                    .unwrap_or_default();
+                let edge_guides = body_edge.windows(2).filter_map(|pair| match pair {
+                    [start, end] => Some([*start, *end]),
+                    _ => None,
+                });
+                Preview {
+                    snap: landing.map(|landing| landing.position),
+                    guides: grab.guides().iter().copied().chain(edge_guides).collect(),
+                    ..Preview::default()
+                }
+            }
             _ => Preview::default(),
         }
     }
@@ -2594,6 +2641,34 @@ impl ViewportState {
     }
 
     fn click(
+        &mut self,
+        ui: &egui::Ui,
+        response: &Response,
+        model: &Model,
+        editing: &SketchEditing,
+        actions: &mut Vec<Action>,
+    ) {
+        let before = actions.len();
+        self.act_on_click(ui, response, model, editing, actions);
+        let refused = actions
+            .get(before..)
+            .unwrap_or_default()
+            .iter()
+            .rev()
+            .find_map(|action| match action {
+                Action::Inform(notice)
+                    if matches!(notice.kind, NoticeKind::Warning | NoticeKind::Error) =>
+                {
+                    Some(notice.text.clone())
+                }
+                _ => None,
+            });
+        if let Some(text) = refused {
+            self.refusal = Some(RefusalNote::new(text, self.clock));
+        }
+    }
+
+    fn act_on_click(
         &mut self,
         ui: &egui::Ui,
         response: &Response,
@@ -4689,6 +4764,22 @@ impl ViewportState {
         entries: MenuEntries<'_>,
         blocked: bool,
     ) -> Vec<Command> {
+        let mut chosen = std::mem::take(&mut self.chosen_commands);
+        if blocked {
+            chosen.clear();
+        }
+        chosen.extend(self.show_context_menu(ctx, model, editing, entries, blocked));
+        chosen
+    }
+
+    fn show_context_menu(
+        &mut self,
+        ctx: &egui::Context,
+        model: &Model,
+        editing: &SketchEditing,
+        entries: MenuEntries<'_>,
+        blocked: bool,
+    ) -> Vec<Command> {
         let Some(menu) = self.context_menu.as_ref() else {
             return Vec::new();
         };
@@ -4987,86 +5078,31 @@ impl ViewportState {
             }
         }
         let band = top_band(rect);
-        let prompt = self.prompt(model, editing, key_hints).map(|(text, keys)| {
-            let area = paint_prompt(painter, rect, band, &text, &keys);
-            let spoken = format!("{text}. {keys}");
-            canvas::announce(ui, area, "prompt", &spoken, Some(Live::Polite));
-            area
-        });
-        self.paint_description(ui, model, editing, key_hints, band, prompt);
-        let snap_label = editing
-            .feature()
-            .and_then(|feature| editing::edited_sketch(document, feature))
-            .and_then(|sketch| {
-                self.drawing
-                    .snap_label(sketch)
-                    .or_else(|| match &self.primary {
-                        Some(PrimaryDrag::Grab(grab)) => grab.landing_label(sketch),
-                        _ => None,
-                    })
-            });
-        if let (Some(label), Some(cursor)) = (snap_label, self.cursor) {
-            let position = rect.min
-                + egui::Vec2::new(cursor.x as f32, cursor.y as f32) / self.pixels_per_point;
-            let shown = canvas::label(
-                painter,
-                position + SNAP_LABEL_OFFSET,
-                Align2::LEFT_TOP,
-                &label,
-                canvas::small(),
-                canvas::chrome(painter.ctx()).snap,
-            );
-            canvas::announce(ui, shown, "snap", &label, None);
-        }
-        let moved = match &self.primary {
-            Some(PrimaryDrag::Manipulate(manipulating)) => {
-                Some(manipulating.readout(model.units()))
-            }
-            _ => None,
-        };
-        if let (Some(size), Some(cursor)) =
-            (self.drawing.readout(model.units()).or(moved), self.cursor)
-        {
-            let position = rect.min
-                + egui::Vec2::new(cursor.x as f32, cursor.y as f32) / self.pixels_per_point;
-            let shown = canvas::label(
-                painter,
-                position + SIZE_READOUT_OFFSET,
-                Align2::LEFT_TOP,
-                &size,
-                canvas::small(),
-                canvas::chrome(painter.ctx()).text,
-            );
-            canvas::announce(ui, shown, "drawing size", &size, None);
-        }
-        let unmovable = match &self.primary {
-            Some(PrimaryDrag::Unmovable { held, .. }) => Some(held.reason().to_owned()),
-            _ => None,
-        };
-        let blocked = model.drag_blocked().then(|| {
-            editing
-                .feature()
-                .and_then(|feature| model.sketch_conflict(feature))
-                .map_or_else(
-                    || DRAG_BLOCKED.to_owned(),
-                    |conflict| format!("{DRAG_CONFLICT}: {conflict}"),
+        let mut taken: Vec<Rect> = vec![view_cube::area(rect)];
+        let prompt = self
+            .prompt(model, editing, key_hints)
+            .map(|(text, keys)| {
+                canvas_guidance::show_prompt(
+                    ui,
+                    rect,
+                    band,
+                    view_cube::TRIAD_WIDTH,
+                    &canvas_guidance::Prompt {
+                        text: &text,
+                        keys: &keys,
+                    },
+                    &mut self.more_keys,
                 )
-        });
-        if let Some(cue) = unmovable.or(blocked)
-            && let Some(cursor) = self.cursor
-        {
-            let position = rect.min
-                + egui::Vec2::new(cursor.x as f32, cursor.y as f32) / self.pixels_per_point;
-            let shown = canvas::label(
-                painter,
-                position + SNAP_LABEL_OFFSET,
-                Align2::LEFT_TOP,
-                &cue,
-                canvas::small(),
-                canvas::chrome(painter.ctx()).warning,
-            );
-            canvas::announce(ui, shown, "drag blocked", &cue, Some(Live::Polite));
+            })
+            .or_else(|| self.show_empty_state(ui, rect, band, model, editing, key_hints));
+        taken.extend(prompt);
+        self.paint_orbit_pivot(ui, rect);
+        let keyboard_description = self.paint_pointer_labels(ui, rect, model, editing);
+        taken.extend(self.pointer_labels.iter().copied());
+        if let Some(described) = keyboard_description {
+            taken.push(self.paint_keyboard_description(ui, key_hints, band, prompt, &described));
         }
+        let painter = ui.painter();
         let readout_left = rect.left() + view_cube::TRIAD_WIDTH;
         let bottom_left = pos2(readout_left, rect.bottom() - canvas::MARGIN);
         let grid_text = self
@@ -5081,7 +5117,7 @@ impl ViewportState {
                     f64::from(self.pixels_per_point),
                 ))
             });
-        let clear_of_prompt = |area: Rect| prompt.is_none_or(|prompt| !area.intersects(prompt));
+        let labels: Vec<Rect> = self.annotations.label_rects().collect();
         let grid_area = grid_text.and_then(|text| {
             let label = canvas::Label::new(
                 painter,
@@ -5091,15 +5127,16 @@ impl ViewportState {
                 f32::INFINITY,
             );
             let wanted = Align2::LEFT_BOTTOM.anchor_size(bottom_left, label.size());
-            clear_of_prompt(wanted).then(|| {
+            canvas_guidance::first_clear(&[wanted], &taken, rect).map(|wanted| {
                 let area = label.paint(painter, wanted.min);
                 let response = ui.interact(area, ui.id().with("grid spacing"), Sense::hover());
                 response.widget_info(|| WidgetInfo::labeled(WidgetType::Label, true, &text));
                 area
             })
         });
+        taken.extend(grid_area);
         let readout_bottom = grid_area.map_or(bottom_left.y, |area| area.top() - READOUT_GAP);
-        if let Some(position) = self.sketch_cursor {
+        let readout_area = self.sketch_cursor.and_then(|position| {
             let text = format!(
                 "x {}   y {}",
                 model.length_unit().readout_text(position.x),
@@ -5112,12 +5149,26 @@ impl ViewportState {
                 canvas::chrome(painter.ctx()).text,
                 f32::INFINITY,
             );
-            let wanted =
-                Align2::LEFT_BOTTOM.anchor_size(pos2(readout_left, readout_bottom), label.size());
-            if clear_of_prompt(wanted) {
-                label.paint(painter, wanted.min);
-            }
-        }
+            let size = label.size();
+            let above = Align2::LEFT_BOTTOM.anchor_size(pos2(readout_left, readout_bottom), size);
+            let beside = grid_area.map(|grid| {
+                Align2::LEFT_BOTTOM
+                    .anchor_size(pos2(grid.right() + canvas::MARGIN, grid.bottom()), size)
+            });
+            let candidates: Vec<Rect> =
+                [above]
+                    .into_iter()
+                    .chain(beside)
+                    .chain((1..=READOUT_LIFTS).map(|lift| {
+                        above.translate(vec2(0.0, -(size.y + READOUT_GAP) * lift as f32))
+                    }))
+                    .collect();
+            let clear_of_labels: Vec<Rect> = taken.iter().chain(&labels).copied().collect();
+            canvas_guidance::first_clear(&candidates, &clear_of_labels, rect)
+                .or_else(|| canvas_guidance::first_clear(&[above], &taken, rect))
+                .map(|placed| label.paint(painter, placed.min))
+        });
+        taken.extend(readout_area);
         let grid_right = grid_area.map_or(readout_left, |area| area.right() + canvas::MARGIN);
         let hints_left = if editing.feature().is_some() {
             grid_right.max(readout_left + READOUT_ROOM)
@@ -5132,13 +5183,257 @@ impl ViewportState {
         );
         let anchor = rect.right_bottom() - vec2(canvas::MARGIN, canvas::MARGIN);
         let placed = Align2::RIGHT_BOTTOM.anchor_size(anchor, hints.size());
-        let clear = !placed.intersects(view_cube::area(rect))
-            && prompt.is_none_or(|prompt| !placed.intersects(prompt))
-            && placed.left() >= hints_left
-            && placed.top() >= rect.top();
-        if clear {
+        if placed.left() >= hints_left
+            && let Some(placed) = canvas_guidance::first_clear(&[placed], &taken, rect)
+        {
             hints.paint(painter, placed.min);
         }
+    }
+
+    fn show_empty_state(
+        &mut self,
+        ui: &Ui,
+        rect: Rect,
+        band: Rect,
+        model: &Model,
+        editing: &SketchEditing,
+        key_hints: &KeyHints,
+    ) -> Option<Rect> {
+        let empty = model.document().features().next().is_none()
+            && editing.feature().is_none()
+            && editing.solid().is_none()
+            && !editing.is_choosing_plane()
+            && self.primary.is_none();
+        if !empty {
+            return None;
+        }
+        let (card, chosen) = canvas_guidance::show_empty_state(
+            ui,
+            rect,
+            band,
+            &canvas_guidance::EmptyState {
+                title: EMPTY_MODEL_TITLE,
+                text: EMPTY_MODEL_TEXT,
+                starts: &key_hints.starts,
+            },
+        );
+        self.chosen_commands.extend(chosen);
+        Some(card)
+    }
+
+    fn paint_orbit_pivot(&mut self, ui: &Ui, rect: Rect) {
+        let Some(mark) = self.orbit_mark else {
+            return;
+        };
+        if !mark.shown(self.clock) {
+            self.orbit_mark = None;
+            return;
+        }
+        if !mark.held {
+            let remaining = canvas_guidance::ORBIT_MARK_LINGER - (self.clock - mark.at);
+            ui.ctx()
+                .request_repaint_after(Duration::from_secs_f64(remaining.max(0.0)));
+        }
+        let Some(pixel) = self.view().and_then(|view| view.project(mark.pivot)) else {
+            return;
+        };
+        let at = rect.min + egui::Vec2::new(pixel.x as f32, pixel.y as f32) / self.pixels_per_point;
+        if rect.contains(at) {
+            canvas_guidance::paint_pivot(ui, at, self.contrast.palette(self.canvas));
+        }
+    }
+
+    fn paint_pointer_labels(
+        &mut self,
+        ui: &Ui,
+        rect: Rect,
+        model: &Model,
+        editing: &SketchEditing,
+    ) -> Option<String> {
+        self.pointer_labels.clear();
+        let chrome = canvas::chrome(ui.ctx());
+        let mut labels = Vec::new();
+        if let Some(note) = &self.refusal {
+            match note.opacity(self.clock) {
+                Some(opacity) => {
+                    let wait = note.repaint_after(self.clock);
+                    ui.ctx()
+                        .request_repaint_after(Duration::from_secs_f64(wait));
+                    labels.push(
+                        PointerLabel::new("refused", note.text(), chrome.warning).faded(opacity),
+                    );
+                }
+                None => self.refusal = None,
+            }
+        }
+        let document = model.document();
+        let snap_label = editing
+            .feature()
+            .and_then(|feature| editing::edited_sketch(document, feature))
+            .and_then(|sketch| {
+                self.drawing
+                    .snap_label(sketch)
+                    .or_else(|| match &self.primary {
+                        Some(PrimaryDrag::Grab(grab)) => grab.landing_label(sketch),
+                        _ => None,
+                    })
+            });
+        labels.extend(snap_label.map(|label| PointerLabel::new("snap", label, chrome.snap)));
+        let moved = match &self.primary {
+            Some(PrimaryDrag::Manipulate(manipulating)) => {
+                Some(manipulating.readout(model.units()))
+            }
+            _ => None,
+        };
+        labels.extend(
+            self.drawing
+                .readout(model.units())
+                .or(moved)
+                .map(|size| PointerLabel::new("drawing size", size, chrome.text)),
+        );
+        let unmovable = match &self.primary {
+            Some(PrimaryDrag::Unmovable { held, .. }) => Some(held.reason().to_owned()),
+            _ => None,
+        };
+        let blocked = model.drag_blocked().then(|| {
+            editing
+                .feature()
+                .and_then(|feature| model.sketch_conflict(feature))
+                .map_or_else(
+                    || DRAG_BLOCKED.to_owned(),
+                    |conflict| format!("{DRAG_CONFLICT}: {conflict}"),
+                )
+        });
+        labels.extend(
+            unmovable.or(blocked).map(|cue| {
+                PointerLabel::new("drag blocked", cue, chrome.warning).live(Live::Polite)
+            }),
+        );
+        let described = self.description_words(model, editing);
+        let mut keyboard_description = None;
+        match described {
+            Some(Described::Highlighted(text)) => keyboard_description = Some(text),
+            Some(Described::Tool(text)) => {
+                self.hover_delay.waited(None, self.clock);
+                labels.push(PointerLabel::new("description", text, chrome.text).description());
+            }
+            Some(Described::Hovered(text)) => {
+                match self.hover_delay.waited(Some(&text), self.clock) {
+                    Waited::Shown => labels
+                        .push(PointerLabel::new("description", text, chrome.text).description()),
+                    Waited::Waiting(remaining) => ui
+                        .ctx()
+                        .request_repaint_after(Duration::from_secs_f64(remaining)),
+                    Waited::Nothing => {}
+                }
+            }
+            None => {
+                self.hover_delay.waited(None, self.clock);
+            }
+        }
+        let Some(cursor) = self.cursor else {
+            return keyboard_description.or_else(|| {
+                labels
+                    .into_iter()
+                    .find(|label| label.name == "description")
+                    .map(|label| label.text)
+            });
+        };
+        let pointer =
+            rect.min + egui::Vec2::new(cursor.x as f32, cursor.y as f32) / self.pixels_per_point;
+        self.pointer_labels = canvas_guidance::paint_beside_pointer(ui, pointer, rect, labels);
+        keyboard_description
+    }
+
+    fn description_words(&self, model: &Model, editing: &SketchEditing) -> Option<Described> {
+        let hovered = self.annotations.hovered().or(self.highlighted());
+        let projecting = editing.active().filter(|active| active.tool.projects());
+        if let Some(handle) = self.manipulator_hover.filter(|_| self.primary.is_none()) {
+            return Some(Described::Tool(
+                self.manipulator
+                    .as_ref()
+                    .map_or_else(|| handle.words(), |shown| shown.words(model, handle)),
+            ));
+        }
+        let tool = if let Some(active) = projecting {
+            hovered
+                .filter(|hovered| projecting::projectable(model, active, *hovered))
+                .and_then(|hovered| projecting::describe(model, active, hovered))
+        } else if self.trimming.is_active() {
+            edited_sketch(model, editing).and_then(|sketch| self.trimming.label(&sketch))
+        } else if self.modifying.is_active() && !self.modifying.gathers() {
+            edited_sketch(model, editing)
+                .and_then(|sketch| self.modifying.label(&sketch, model.length_unit()))
+        } else if let Some(label) = self
+            .modifying
+            .gathers()
+            .then(|| edited_sketch(model, editing))
+            .flatten()
+            .and_then(|sketch| self.modifying.label(&sketch, model.length_unit()))
+        {
+            Some(label)
+        } else if let Some(feature) = self.dimensioning {
+            self.dimension_hover(model, feature, hovered)
+        } else if let Some((open, copy)) =
+            editing.solid().zip(hovered).and_then(|(open, hovered)| {
+                pattern_tools::clicked_copy(model, open, hovered).map(|copy| (open, copy))
+            })
+        {
+            Some(pattern_tools::leave_out_words(
+                model.document(),
+                open,
+                &copy,
+            ))
+        } else {
+            let words = hovered
+                .filter(|_| !self.drawing.is_active())
+                .map(|hovered| hovered.describe(model.document(), model.evaluation()))?;
+            return Some(match self.keyboard_highlight {
+                Some(_) => Described::Highlighted(words),
+                None => Described::Hovered(words),
+            });
+        };
+        let words = tool?;
+        Some(match self.keyboard_highlight {
+            Some(_) => Described::Highlighted(words),
+            None => Described::Tool(words),
+        })
+    }
+
+    fn paint_keyboard_description(
+        &self,
+        ui: &Ui,
+        key_hints: &KeyHints,
+        band: Rect,
+        prompt: Option<Rect>,
+        description: &str,
+    ) -> Rect {
+        let painter = ui.painter();
+        let label = canvas::Label::new(
+            painter,
+            description,
+            canvas::body(),
+            canvas::chrome(painter.ctx()).text,
+            band.width(),
+        );
+        let mut min = band.left_top();
+        if let Some(prompt) = prompt
+            && Rect::from_min_size(min, label.size()).intersects(prompt)
+        {
+            min.y = prompt.bottom() + canvas::MARGIN / 2.0;
+        }
+        let shown = label.paint(painter, min);
+        let live = self.keyboard_highlight.is_some().then_some(Live::Polite);
+        canvas::announce(ui, shown, "description", description, live);
+        if self.keyboard_highlight.is_none() {
+            return shown;
+        }
+        let hinted = canvas::Hints::new(painter, &key_hints.highlight, band.width(), Align::Min)
+            .paint(
+                painter,
+                shown.left_bottom() + vec2(0.0, canvas::MARGIN / 3.0),
+            );
+        shown.union(hinted)
     }
 
     fn prompt(
@@ -5146,44 +5441,28 @@ impl ViewportState {
         model: &Model,
         editing: &SketchEditing,
         key_hints: &KeyHints,
-    ) -> Option<(String, String)> {
+    ) -> Option<(String, HintList)> {
         let document = model.document();
         if let Some(reach) = self.reach_prompt(key_hints) {
             Some(reach)
         } else if editing.is_choosing_plane() {
-            Some((CHOOSE_PLANE_PROMPT.to_owned(), CHOOSE_PLANE_HINT.to_owned()))
+            Some((
+                CHOOSE_PLANE_PROMPT.to_owned(),
+                HintList::parsed(CHOOSE_PLANE_HINT),
+            ))
         } else if let Some(picking) = editing.picking() {
             Some((
                 reference_picking::prompt(model, picking),
-                reference_picking::STOP_HINT.to_owned(),
+                HintList::parsed(reference_picking::STOP_HINT),
             ))
         } else if let Some(feature) = editing.solid() {
             let kind = document.feature(feature).map(|feature| &feature.kind);
-            let prompt = match kind {
-                Some(FeatureKind::Blend(_)) => CHOOSE_EDGES_PROMPT,
-                Some(FeatureKind::Shell(_)) => CHOOSE_FACES_PROMPT,
-                Some(FeatureKind::OffsetFace(_)) => CHOOSE_MOVED_FACES_PROMPT,
-                Some(FeatureKind::SplitFace(_)) => CHOOSE_SPLIT_FACES_PROMPT,
-                Some(FeatureKind::Combine(_)) => CHOOSE_BODIES_PROMPT,
-                Some(FeatureKind::Move(_)) => CHOOSE_MOVE_PROMPT,
-                Some(FeatureKind::Scale(_)) => CHOOSE_SCALE_PROMPT,
-                Some(FeatureKind::Mirror(_)) => CHOOSE_MIRROR_PROMPT,
-                Some(FeatureKind::Split(_)) => CHOOSE_SPLIT_PROMPT,
-                Some(FeatureKind::Mate(_)) => CHOOSE_MATE_PROMPT,
-                Some(FeatureKind::Hole(_)) => CHOOSE_HOLE_PROMPT,
-                Some(FeatureKind::Primitive(_)) => CHOOSE_PRIMITIVE_PROMPT,
-                Some(FeatureKind::Datum(_) | FeatureKind::Pattern(_)) => CHOOSE_REFERENCES_PROMPT,
-                Some(FeatureKind::Thread(_)) => CHOOSE_THREAD_PROMPT,
-                Some(FeatureKind::Solid(_)) => CHOOSE_REGIONS_PROMPT,
-                Some(
-                    FeatureKind::Sketch(_)
-                    | FeatureKind::Import(_)
-                    | FeatureKind::Remove(_)
-                    | FeatureKind::Measurement(_),
-                )
-                | None => CHANGE_IN_PANEL_PROMPT,
+            let (text, clicks) = feature_prompt(kind);
+            let keys = match clicks {
+                Clicks::InTheView => HintList::parsed(DONE_HINT),
+                Clicks::InThePanel => HintList::default(),
             };
-            Some((prompt.to_owned(), CHOOSE_REGIONS_HINT.to_owned()))
+            Some((text.to_owned(), keys))
         } else if editing
             .active()
             .is_some_and(|active| active.tool.intersects())
@@ -5202,91 +5481,110 @@ impl ViewportState {
                 &staged.picks,
                 self.sketch_cursor,
             );
-            Some((text, keys.to_owned()))
+            Some((text, HintList::parsed(keys)))
         } else if let Some(prompt) = self.trimming.prompt() {
             Some((prompt.to_owned(), key_hints.targets.clone()))
         } else if let Some(prompt) = self.modifying.prompt() {
             (!self.typed_point.is_open()).then(|| {
                 let keys = match prompt.hint {
                     Hint::Targets => key_hints.targets.clone(),
-                    Hint::Keys(keys) => keys.to_owned(),
-                    Hint::Text(keys) => keys,
+                    Hint::Keys(keys) => HintList::parsed(keys),
+                    Hint::Text(keys) => HintList::parsed(&keys),
                 };
                 let keys = match self.modifying.mode(editing.modes()) {
-                    Some(mode) => format!("{}   {keys}", key_hints.mode(mode)),
+                    Some(mode) => key_hints.mode(mode).and(keys),
                     None => keys,
                 };
                 (prompt.text.to_owned(), keys)
             })
+        } else if let Some(prompt) = self.drawing.prompt() {
+            (!self.typed_point.is_open()).then(|| {
+                let text = match &self.mirror {
+                    Some(mirror) => symmetric_drawing::prompt(&prompt.text, &mirror.label),
+                    None => prompt.text.clone(),
+                };
+                (text, self.drawing_hints(&prompt, key_hints))
+            })
         } else {
-            self.drawing
-                .prompt()
-                .filter(|_| !self.typed_point.is_open())
-                .map(|prompt| {
-                    let mode = self
-                        .drawing
-                        .mode()
-                        .map(|mode| format!("{}   ", key_hints.mode(mode)))
-                        .unwrap_or_default();
-                    let reverse = key_hints
-                        .reverse
-                        .as_ref()
-                        .filter(|_| self.drawing.reversible().is_ok())
-                        .map(|reverse| format!("{reverse}   "))
-                        .unwrap_or_default();
-                    let sides = key_hints
-                        .sides
-                        .as_ref()
-                        .filter(|_| {
-                            self.drawing.more_sides().is_ok() || self.drawing.fewer_sides().is_ok()
-                        })
-                        .map(|sides| format!("{sides}   "))
-                        .unwrap_or_default();
-                    let take_back = if self.drawing.in_progress() {
-                        format!("   {TAKE_BACK_HINT}")
-                    } else {
-                        String::new()
-                    };
-                    let chain_arc = key_hints
-                        .chain_arc
-                        .as_ref()
-                        .filter(|_| self.drawing.chain_arc().is_ok())
-                        .map(|keys| {
-                            let next = if self.drawing.arcs_next() {
-                                "a line instead"
-                            } else {
-                                "a tangent arc next"
-                            };
-                            format!("{keys}: {next}   ")
-                        })
-                        .unwrap_or_default();
-                    let placement = if self.snapping {
-                        FREE_PLACEMENT_HINT
-                    } else {
-                        SNAPPING_OFF_HINT
-                    };
-                    let typed_sides = if self.drawing.can_type_sides() {
-                        format!("   {TYPED_SIDES_HINT}")
-                    } else if self.drawing.can_type_rho() {
-                        format!("   {TYPED_RHO_HINT}")
-                    } else {
-                        String::new()
-                    };
-                    let text = match &self.mirror {
-                        Some(mirror) => symmetric_drawing::prompt(&prompt.text, &mirror.label),
-                        None => prompt.text,
-                    };
-                    (
-                        text,
-                        format!(
-                            "{mode}{chain_arc}{reverse}{sides}{}{take_back}   {placement}   {HELD_SNAP_HINT}   {TYPE_POINT_HINT}{typed_sides}",
-                            prompt.keys
-                        ),
-                    )
-                })
+            self.select_prompt(editing, key_hints)
         }
     }
 
+    fn drawing_hints(&self, prompt: &drawing::Prompt, key_hints: &KeyHints) -> HintList {
+        let mut keys = self
+            .drawing
+            .mode()
+            .map(|mode| key_hints.mode(mode))
+            .unwrap_or_default();
+        if let Some(chain_arc) = key_hints
+            .chain_arc
+            .as_ref()
+            .filter(|_| self.drawing.chain_arc().is_ok())
+        {
+            let next = if self.drawing.arcs_next() {
+                "a line instead"
+            } else {
+                "a tangent arc next"
+            };
+            keys.push(KeyHint::new(chain_arc, next).ranked(Rank::Useful));
+        }
+        if let Some(reverse) = key_hints
+            .reverse
+            .as_ref()
+            .filter(|_| self.drawing.reversible().is_ok())
+        {
+            keys.push(reverse.clone());
+        }
+        if let Some(sides) = key_hints
+            .sides
+            .as_ref()
+            .filter(|_| self.drawing.more_sides().is_ok() || self.drawing.fewer_sides().is_ok())
+        {
+            keys.push(sides.clone());
+            keys = keys.and(HintList::parsed_as(SCRUB_HINT, Rank::Extra));
+        }
+        keys = keys.and(prompt.hints());
+        if self.drawing.in_progress() {
+            keys = keys.and(HintList::parsed(TAKE_BACK_HINT));
+        }
+        if self.snapping {
+            keys = keys.and(HintList::parsed_as(FREE_PLACEMENT_HINT, Rank::Extra));
+        } else {
+            keys = keys.and(HintList::parsed(SNAPPING_OFF_HINT));
+        }
+        keys = keys.and(HintList::parsed_as(HELD_SNAP_HINT, Rank::Extra));
+        keys = keys.and(HintList::parsed_as(TYPE_POINT_HINT, Rank::Useful));
+        if self.drawing.can_type_sides() {
+            keys = keys.and(HintList::parsed_as(TYPED_SIDES_HINT, Rank::Extra));
+        } else if self.drawing.can_type_rho() {
+            keys = keys.and(HintList::parsed_as(TYPED_RHO_HINT, Rank::Extra));
+        }
+        keys
+    }
+
+    fn select_prompt(
+        &self,
+        editing: &SketchEditing,
+        key_hints: &KeyHints,
+    ) -> Option<(String, HintList)> {
+        let active = editing.active()?;
+        if active.tool != Tool::Select || self.typed_point.is_open() || self.primary.is_some() {
+            return None;
+        }
+        let mut keys = HintList::default()
+            .with(KeyHint::new("Drag", "move geometry").ranked(Rank::Useful))
+            .with(KeyHint::new("Shift+click", "add to the selection").ranked(Rank::Extra));
+        if self.selection.is_empty() {
+            let finish = match &key_hints.finish {
+                Some(finish) => format!("Esc or {finish}"),
+                None => "Esc".to_owned(),
+            };
+            keys.push(KeyHint::new(&finish, "finish the sketch"));
+        } else {
+            keys.push(KeyHint::new("Esc", "clear the selection"));
+        }
+        Some((SELECT_PROMPT.to_owned(), keys))
+    }
     fn reaches_through(&self) -> bool {
         self.select_through || self.through_held
     }
@@ -5302,16 +5600,16 @@ impl ViewportState {
         }
     }
 
-    fn reach_prompt(&self, key_hints: &KeyHints) -> Option<(String, String)> {
+    fn reach_prompt(&self, key_hints: &KeyHints) -> Option<(String, HintList)> {
         if !self.reach_matters() {
             return None;
         }
         let (text, keys) = if self.select_through {
             (TAKING_HIDDEN_PROMPT, key_hints.select_through_on.clone())
         } else if self.through_held {
-            (TAKING_HIDDEN_PROMPT, LET_GO_OF_ALT_HINT.to_owned())
+            (TAKING_HIDDEN_PROMPT, HintList::parsed(LET_GO_OF_ALT_HINT))
         } else {
-            (TAKING_SEEN_PROMPT, HOLD_ALT_HINT.to_owned())
+            (TAKING_SEEN_PROMPT, HintList::parsed(HOLD_ALT_HINT))
         };
         Some((text.to_owned(), keys))
     }
@@ -5349,86 +5647,6 @@ impl ViewportState {
             hovered_id,
         ))
     }
-
-    fn paint_description(
-        &self,
-        ui: &egui::Ui,
-        model: &Model,
-        editing: &SketchEditing,
-        key_hints: &KeyHints,
-        band: Rect,
-        prompt: Option<Rect>,
-    ) {
-        let hovered = self.annotations.hovered().or(self.highlighted());
-        let projecting = editing.active().filter(|active| active.tool.projects());
-        let description =
-            if let Some(handle) = self.manipulator_hover.filter(|_| self.primary.is_none()) {
-                Some(
-                    self.manipulator
-                        .as_ref()
-                        .map_or_else(|| handle.words(), |shown| shown.words(model, handle)),
-                )
-            } else if let Some(active) = projecting {
-                hovered
-                    .filter(|hovered| projecting::projectable(model, active, *hovered))
-                    .and_then(|hovered| projecting::describe(model, active, hovered))
-            } else if self.trimming.is_active() {
-                edited_sketch(model, editing).and_then(|sketch| self.trimming.label(&sketch))
-            } else if self.modifying.is_active() && !self.modifying.gathers() {
-                edited_sketch(model, editing)
-                    .and_then(|sketch| self.modifying.label(&sketch, model.length_unit()))
-            } else if let Some(label) = self
-                .modifying
-                .gathers()
-                .then(|| edited_sketch(model, editing))
-                .flatten()
-                .and_then(|sketch| self.modifying.label(&sketch, model.length_unit()))
-            {
-                Some(label)
-            } else if let Some(feature) = self.dimensioning {
-                self.dimension_hover(model, feature, hovered)
-            } else if let Some((open, copy)) =
-                editing.solid().zip(hovered).and_then(|(open, hovered)| {
-                    pattern_tools::clicked_copy(model, open, hovered).map(|copy| (open, copy))
-                })
-            {
-                Some(pattern_tools::leave_out_words(
-                    model.document(),
-                    open,
-                    &copy,
-                ))
-            } else {
-                hovered
-                    .filter(|_| !self.drawing.is_active())
-                    .map(|hovered| hovered.describe(model.document(), model.evaluation()))
-            };
-        let Some(description) = description else {
-            return;
-        };
-        let painter = ui.painter();
-        let label = canvas::Label::new(
-            painter,
-            description.clone(),
-            canvas::body(),
-            canvas::chrome(painter.ctx()).text,
-            band.width(),
-        );
-        let mut min = band.left_top();
-        if let Some(prompt) = prompt
-            && Rect::from_min_size(min, label.size()).intersects(prompt)
-        {
-            min.y = prompt.bottom() + canvas::MARGIN / 2.0;
-        }
-        let shown = label.paint(painter, min);
-        let live = self.keyboard_highlight.is_some().then_some(Live::Polite);
-        canvas::announce(ui, shown, "description", &description, live);
-        if self.keyboard_highlight.is_some() {
-            canvas::Hints::new(painter, &key_hints.highlight, band.width(), Align::Min).paint(
-                painter,
-                shown.left_bottom() + vec2(0.0, canvas::MARGIN / 3.0),
-            );
-        }
-    }
 }
 
 fn pressed_without_repeat(input: &egui::InputState, pressed: Key) -> bool {
@@ -5454,38 +5672,95 @@ fn top_band(rect: Rect) -> Rect {
     )
 }
 
-fn paint_prompt(painter: &egui::Painter, rect: Rect, band: Rect, text: &str, keys: &str) -> Rect {
-    let width = band.width().min(PROMPT_MAX_WIDTH);
-    let title = canvas::Label::new(
-        painter,
-        text,
-        canvas::title(),
-        canvas::chrome(painter.ctx()).prompt,
-        width,
-    );
-    let hints = canvas::Hints::new(painter, keys, width, Align::Center);
-    let reach = PROMPT_MARGIN + title.size().y + canvas::MARGIN / 2.0 + hints.size().y;
-    let hints = (rect.top() + reach <= rect.bottom() - view_cube::TRIAD_WIDTH).then_some(hints);
-    let hints_width = hints.as_ref().map_or(0.0, |hints| hints.size().x);
-    let half = title.size().x.max(hints_width) / 2.0;
-    let x = rect
-        .center()
-        .x
-        .min(band.right() - half)
-        .max(band.left() + half);
-    let shown = title.paint_at(
-        painter,
-        pos2(x, rect.top() + PROMPT_MARGIN),
-        Align2::CENTER_TOP,
-    );
-    hints.map_or(shown, |hints| {
-        let hinted = hints.paint_at(
-            painter,
-            pos2(x, shown.bottom() + canvas::MARGIN / 2.0),
-            Align2::CENTER_TOP,
-        );
-        shown.union(hinted)
-    })
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Clicks {
+    InTheView,
+    InThePanel,
+}
+
+fn feature_prompt(kind: Option<&FeatureKind>) -> (&'static str, Clicks) {
+    let in_view = |text| (text, Clicks::InTheView);
+    let in_panel = |text| (text, Clicks::InThePanel);
+    match kind {
+        Some(FeatureKind::Blend(blend)) => match blend.kind {
+            BlendKind::Fillet => in_view("Click edges to fillet, and again to leave one out"),
+            BlendKind::Chamfer => in_view("Click edges to chamfer, and again to leave one out"),
+        },
+        Some(FeatureKind::Shell(_)) => {
+            in_view("Click a face to shell the body open there, and again to close it")
+        }
+        Some(FeatureKind::OffsetFace(_)) => {
+            in_view("Click faces to move them, and again to leave one out")
+        }
+        Some(FeatureKind::SplitFace(_)) => {
+            in_view("Click faces to split, and again to leave one out")
+        }
+        Some(FeatureKind::Solid(SolidFeature::Extrude(_))) => {
+            in_view("Click regions of the sketch to extrude, and again to leave one out")
+        }
+        Some(FeatureKind::Solid(SolidFeature::Revolve(_))) => {
+            in_view("Click regions of the sketch to revolve, and again to leave one out")
+        }
+        Some(FeatureKind::Solid(SolidFeature::Sweep(_))) => {
+            in_view("Click regions of the sketch to sweep, and again to leave one out")
+        }
+        Some(FeatureKind::Pattern(pattern)) => in_view(match pattern.kind {
+            PatternKind::Linear { .. } => {
+                "Click a copy to leave it out; set the direction, count and spacing in the panel"
+            }
+            PatternKind::Circular(_) => {
+                "Click a copy to leave it out; set the axis, count and angle in the panel"
+            }
+            PatternKind::Curve(_) => {
+                "Click a copy to leave it out; set the curve to follow and the count in the panel"
+            }
+            PatternKind::Points(_) => {
+                "Click a copy to leave it out; set the sketch whose points the copies go to in \
+                 the panel"
+            }
+        }),
+        Some(FeatureKind::Datum(datum)) => in_panel(match datum {
+            Datum::Plane(_) => "Choose in the panel the plane or flat face the plane starts from",
+            Datum::PlaneThrough(_) => {
+                "Choose in the panel the points, planes or edges the plane passes through"
+            }
+            Datum::Axis(_) => {
+                "Choose in the panel the edge, axis, planes or points the axis runs along"
+            }
+            Datum::Point(_) | Datum::PointBy(_) => {
+                "Choose in the panel the corner, edge or point where the point goes"
+            }
+            Datum::Frame(_) => "Choose in the panel the frame's origin, X axis and XY plane",
+        }),
+        Some(FeatureKind::Combine(_)) => {
+            in_panel("Choose the operation and the two bodies in the panel")
+        }
+        Some(FeatureKind::Move(_)) => {
+            in_panel("Drag an arrow or a square, or type the turns and distances in the panel")
+        }
+        Some(FeatureKind::Scale(_)) => {
+            in_panel("Type the factor and choose the centre in the panel")
+        }
+        Some(FeatureKind::Mirror(_)) => in_panel("Choose the plane to mirror across in the panel"),
+        Some(FeatureKind::Split(_)) => in_panel("Choose what to split along in the panel"),
+        Some(FeatureKind::Mate(_)) => in_panel("Choose the faces or axes to mate in the panel"),
+        Some(FeatureKind::Hole(_)) => {
+            in_panel("Choose the hole's style and sizes, and where it goes, in the panel")
+        }
+        Some(FeatureKind::Primitive(_)) => {
+            in_panel("Type the sizes and choose where the shape goes in the panel")
+        }
+        Some(FeatureKind::Thread(_)) => {
+            in_panel("Choose the face to thread, its size and its length in the panel")
+        }
+        Some(
+            FeatureKind::Sketch(_)
+            | FeatureKind::Import(_)
+            | FeatureKind::Remove(_)
+            | FeatureKind::Measurement(_),
+        )
+        | None => in_panel("Change the feature in its panel"),
+    }
 }
 
 fn paint_area(painter: &egui::Painter, rect: Rect, area: &ScreenArea, through: bool) {
@@ -5848,55 +6123,62 @@ fn looking_at(camera: &Camera, heading: &View, target: LookTarget, bounds: Aabb)
 }
 
 struct KeyHints {
-    navigation: String,
-    highlight: String,
+    navigation: HintList,
+    highlight: HintList,
     fit: String,
     home: String,
     views: Vec<(StandardView, String)>,
-    reverse: Option<String>,
+    reverse: Option<KeyHint>,
     chain_arc: Option<String>,
-    sides: Option<String>,
-    targets: String,
-    whole_body: String,
-    select_through_on: String,
+    sides: Option<KeyHint>,
+    targets: HintList,
+    whole_body: HintList,
+    select_through_on: HintList,
+    finish: Option<String>,
     tools: Vec<(Tool, String)>,
+    starts: Vec<Start>,
 }
 
 impl KeyHints {
     fn new(commands: &CommandFrame<'_>, input_mode: InputMode) -> Self {
-        let mouse = input_mode.navigation_hint();
-        let navigation = match commands.keys(Command::FitView) {
-            Some(keys) => format!("{mouse}   {keys}: fit"),
-            None => mouse.to_owned(),
-        };
+        let mut navigation = HintList::parsed(input_mode.navigation_hint());
+        if let Some(keys) = commands.keys(Command::FitView) {
+            navigation.push(KeyHint::new(&keys, "fit"));
+        }
         let highlight = [
             (Command::ActivateHighlighted, "select or pick"),
             (Command::HighlightNext, "next"),
             (Command::HighlightPrevious, "previous"),
         ]
         .into_iter()
-        .filter_map(|(command, what)| Some(format!("{}: {what}", commands.keys(command)?)))
-        .chain(["Enter: open   Esc: stop highlighting".to_owned()])
-        .collect::<Vec<_>>()
-        .join("   ");
-        let targets = [
+        .filter_map(|(command, what)| Some(KeyHint::new(&commands.keys(command)?, what)))
+        .chain([
+            KeyHint::new("Enter", "open"),
+            KeyHint::new("Esc", "stop highlighting"),
+        ])
+        .collect();
+        let targets: HintList = [
             (Command::HighlightNext, "next"),
             (Command::HighlightPrevious, "previous"),
         ]
         .into_iter()
-        .filter_map(|(command, what)| Some(format!("{}: {what}", commands.keys(command)?)))
-        .chain([format!(
-            "Enter: act on the highlighted one   {BACK_TO_SELECT}"
-        )])
-        .collect::<Vec<_>>()
-        .join("   ");
+        .filter_map(|(command, what)| {
+            Some(KeyHint::new(&commands.keys(command)?, what).ranked(Rank::Useful))
+        })
+        .chain([
+            KeyHint::new("Enter", "act on the highlighted one").ranked(Rank::Useful),
+            KeyHint::new("Esc", "back to Select"),
+        ])
+        .collect();
         let whole_body = match commands.keys(Command::IntersectBody) {
-            Some(keys) => format!("{keys}: the whole body   {targets}"),
+            Some(keys) => HintList::default()
+                .with(KeyHint::new(&keys, "the whole body"))
+                .and(targets.clone()),
             None => targets.clone(),
         };
         let select_through_on = match commands.keys(Command::ToggleSelectThrough) {
-            Some(keys) => format!("{keys}: turn Select through off"),
-            None => SELECT_THROUGH_ON_HINT.to_owned(),
+            Some(keys) => HintList::default().with(KeyHint::new(&keys, "turn Select through off")),
+            None => HintList::parsed(SELECT_THROUGH_ON_HINT),
         };
         Self {
             navigation,
@@ -5915,7 +6197,7 @@ impl KeyHints {
                 .collect(),
             reverse: commands
                 .keys(Command::ReverseArc)
-                .map(|keys| format!("{keys}: the other way round")),
+                .map(|keys| KeyHint::new(&keys, "the other way round")),
             chain_arc: commands
                 .keys(Command::ChainArc)
                 .or_else(|| commands.keys(Command::SketchTool(Tool::TangentArc))),
@@ -5923,22 +6205,47 @@ impl KeyHints {
                 .keys(Command::MoreSides)
                 .zip(commands.keys(Command::FewerSides))
                 .map(|(more, fewer)| {
-                    format!("{more} or {fewer}: more or fewer sides   {SCRUB_HINT}")
+                    KeyHint::new(&format!("{more} or {fewer}"), "more or fewer sides")
                 }),
+            finish: commands.keys(Command::FinishSketch),
             tools: Tool::ALL
                 .into_iter()
                 .filter_map(|tool| Some((tool, commands.keys(Command::SketchTool(tool))?)))
                 .collect(),
+            starts: [
+                (
+                    Command::NewSketch,
+                    START_WITH_SKETCH,
+                    "Sketch on the plane or flat face you click next, then extrude it",
+                ),
+                (
+                    Command::NewBox,
+                    START_WITH_BOX,
+                    "Add a box and set its sizes in its panel",
+                ),
+                (
+                    Command::Import,
+                    START_WITH_IMPORT,
+                    "Bring in a STEP, mesh, DXF or SVG file",
+                ),
+            ]
+            .into_iter()
+            .map(|(command, label, hover)| Start {
+                command,
+                label,
+                hover: commands.with_keys(command, hover),
+            })
+            .collect(),
         }
     }
 
-    fn mode(&self, mode: ShapeMode) -> String {
+    fn mode(&self, mode: ShapeMode) -> HintList {
         let keys = self
             .tools
             .iter()
             .find(|(tool, _)| *tool == mode.tool())
             .map(|(_, keys)| keys.as_str());
-        mode.hint(keys)
+        HintList::parsed_as(&mode.hint(keys), Rank::Useful)
     }
 }
 

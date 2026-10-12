@@ -177,3 +177,39 @@ fn the_prompt_and_key_hints_wrap_clear_of_the_view_cube_in_a_small_view() {
     let first = rows.iter().copied().fold(f32::INFINITY, f32::min);
     assert!(rows.iter().any(|top| *top > first + 30.0), "{rows:?}");
 }
+
+#[test]
+fn the_cursor_readout_keeps_clear_of_dimension_labels_and_inside_the_view_at_twice_the_size() {
+    let mut harness = Harness::new();
+    harness.perform(Action::Preferences(PreferencesCommand::Change(
+        PreferenceChange::Scale(2.0),
+    )));
+    harness.frame();
+    bracket_profile(&mut harness);
+    harness.use_tool(Key::R);
+    let view = harness.workspace.viewport.rect().unwrap();
+    harness
+        .events
+        .push(Event::PointerMoved(view.lerp_inside(egui::vec2(0.45, 0.6))));
+    harness.frame();
+    harness.frame();
+
+    let labels: Vec<Rect> = harness
+        .texts
+        .iter()
+        .filter(|(text, rect)| text.contains(" = ") && view.intersects(*rect))
+        .map(|(_, rect)| *rect)
+        .collect();
+    let readouts: Vec<Rect> = harness
+        .texts
+        .iter()
+        .filter(|(text, _)| text.starts_with("x ") && text.contains("   y "))
+        .map(|(_, rect)| *rect)
+        .collect();
+    for readout in &readouts {
+        assert!(view.contains_rect(*readout), "{readout:?} leaves {view:?}");
+        for label in &labels {
+            assert!(!readout.intersects(*label), "{readout:?} covers {label:?}");
+        }
+    }
+}

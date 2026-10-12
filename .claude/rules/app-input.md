@@ -24,9 +24,45 @@ paths:
   - "crates/caditor/src/sectioned_screen.rs"
   - "crates/caditor/src/clipboard.rs"
   - "crates/caditor/src/display_style.rs"
+  - "crates/caditor/src/canvas_guidance.rs"
 ---
 
 # Input, commands and keyboard operation
+
+## Guidance in the 3D view
+
+- Key hints are data, not text: a `canvas::HintList` of `KeyHint`s (keys, or none for a plain
+  note, an action and a `Rank`: `Main`, `Useful`, `Extra`). Sources still written as
+  `Key: action` text (modify tools, Smart dimension, reference picking, the input modes) go
+  through `HintList::parsed`. The prompt's list (`ViewportState::prompt`, a drawing tool's from
+  `drawing::Prompt::hints` and `drawing_hints`) folds past `MOST_UNFOLDED` items: the most wanted
+  by rank show in their own order and a `canvas::MORE_KEYS` chip (a focusable button, expanded
+  state for AccessKit) shows the rest until Fewer keys folds them, kept while caditor runs
+  (`ViewportState::more_keys`). The prompt is a polite live region reading what is shown and how
+  many keys are folded (`HintList::spoken_folded`), all of them once expanded. Navigation and
+  keyboard-highlight hints never fold.
+- Prompts (`canvas_guidance::show_prompt`): an open feature's says what a click does
+  (`viewport::feature_prompt`, "Click edges to fillet…") with `Esc: done` only where clicks act
+  (blend, shell, offset and split faces, extrude, revolve and sweep regions, pattern copies),
+  else where in its panel to look, per datum and pattern kind; Select in an edited sketch has
+  `SELECT_PROMPT` with Esc finishing or clearing.
+- An empty model (no feature, nothing open, no plane being chosen) shows a card at the prompt's
+  place (`canvas_guidance::show_empty_state`): Start with a sketch, Start with a box, Import a
+  file…, canvas buttons whose commands reach the app through `ViewportState::show_menu`
+  (`chosen_commands`), so they run next frame like a context menu's.
+- Beside the pointer, stacked without overlap and kept inside the view
+  (`canvas_guidance::paint_beside_pointer`, flipping left or above near an edge): a refused click's
+  note (any warning or error notice the click produced, `RefusalNote`, fading over its last
+  `NOTE_FADE_SECONDS` of `NOTE_SECONDS`), the snap label, the size readout, the drag-blocked cue and
+  the hover description. A tool's words (trim, modify, project, Smart dimension, handles, pattern
+  copies) show at once; a plain hover's after `HOVER_DELAY` on the same words (`HoverDelay`,
+  repainting when it is due). A keyboard highlight's description stays at the band's top left
+  with the highlight keys.
+- The fixed chrome is placed after the prompt and the pointer labels and keeps clear of them and of
+  the view cube (`canvas_guidance::first_clear`): the grid label, the cursor readout (above the
+  grid label, else beside it, else lifted up to `READOUT_LIFTS` rows, each also clear of the edited
+  sketch's dimension labels, `Annotations::label_rects`; else where it clears only the chrome) and
+  the navigation hints, each left out when nothing fits inside the view.
 
 ## Numeric fields
 

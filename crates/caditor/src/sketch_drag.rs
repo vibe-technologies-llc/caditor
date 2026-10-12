@@ -149,6 +149,23 @@ impl Grab {
         self
     }
 
+    pub fn snap_entities(&self, sketch: &Sketch) -> Vec<EntityId> {
+        let Some(landing) = self.landing else {
+            return Vec::new();
+        };
+        let moving = self.moving_with(sketch);
+        let mut shown: Vec<EntityId> = landing
+            .target
+            .into_iter()
+            .chain(landing.tracks.anchors())
+            .flat_map(Target::involved)
+            .filter(|entity| !moving.contains(entity))
+            .collect();
+        shown.sort_unstable();
+        shown.dedup();
+        shown
+    }
+
     pub fn landing_label(&self, sketch: &Sketch) -> Option<String> {
         let landing = self.landing?;
         match landing.target {

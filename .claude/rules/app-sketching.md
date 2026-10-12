@@ -527,8 +527,10 @@ and, for off-ribbon tools, a partner's corner menu.
   shows every piece of its loop, and for `Centre` the two corners its `Symmetric` holds, since
   `Target` names only the piece the outline search started from: `ShownOutlines` finds the loop
   again from that piece (`snap::outline_through`) when the centre starts being shown and keeps it
-  while it stays shown, so `Target` stays `Copy` and no outline search runs per frame. Grabs show
-  no snap highlight.
+  while it stays shown, so `Target` stays `Copy` and no outline search runs per frame. A grab
+  highlights its landing the same way (`Grab::snap_entities`: the target's and track anchors'
+  entities, never one that moves with it), a body edge it lands on drawn as guides along the edge
+  (`ViewportState::grab_preview`).
 
 ## Constraint tools
 

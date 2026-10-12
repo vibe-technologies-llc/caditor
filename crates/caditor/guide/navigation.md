@@ -13,7 +13,9 @@ Navigation:
 A right-click that does not move opens the view's [context menu](selection) instead of turning
 the view. The bottom right corner of the view shows the buttons of the mode you chose. Zooming goes toward
 the pointer. Orbit and zoom speeds and the zoom direction are in Preferences too; the zoom
-direction also turns round Blender's Ctrl+middle-drag zoom.
+direction also turns round Blender's Ctrl+middle-drag zoom. Orbiting turns about the point under
+the pointer when the drag began, else the view's centre; a small ring marks that point while the
+view turns and fades just after.
 
 Double-click the middle button to fit the view, as {command:view.fit} does. This works in every
 input mode, since none of them uses the middle button's double-click for anything else.

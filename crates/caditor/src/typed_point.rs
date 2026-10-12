@@ -358,7 +358,12 @@ impl TypedPoint {
                         })
                         .inner;
                     ui.add_space(HINT_GAP);
-                    let hints = canvas::Hints::bare(ui.painter(), hint, inner_width, Align::Min);
+                    let hints = canvas::Hints::bare(
+                        ui.painter(),
+                        &canvas::HintList::parsed(hint),
+                        inner_width,
+                        Align::Min,
+                    );
                     let (rect, _) = ui.allocate_exact_size(hints.size(), Sense::hover());
                     hints.paint(ui.painter(), rect.min);
                     field

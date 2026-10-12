@@ -442,6 +442,7 @@ fn a_typed_arc_goes_the_shorter_way_and_x_sends_it_the_long_way() {
     assert!(offer(&harness, Command::ReverseArc).availability.is_err());
     type_point(&mut harness, "0, 0");
     type_point(&mut harness, "10 mm, 0");
+    harness.expand_keys();
     assert!(harness.shows_hint("X: the other way round   The arc follows your sweep around the centre, a typed end the shorter way   Esc: cancel the arc   x,y or length<angle: type an exact point"));
     type_point(&mut harness, "0, -10 mm");
     let arcs = entities_of_kind(harness.sketch(feature), "Arc");
@@ -792,6 +793,7 @@ fn pressing_a_shape_key_again_cycles_its_ways_of_drawing_and_each_is_remembered(
     assert!(harness.shows("Click where a side of the hexagon starts"));
     harness.use_tool(Key::G);
     assert!(harness.shows("Click the hexagon's centre"));
+    harness.expand_keys();
     assert!(harness.shows_hint(&with_type_hint(
         "Polygon from its centre and a corner   G: from its centre and a side's middle   ] or \
          [: more or fewer sides   Shift: move sideways to set the sides",

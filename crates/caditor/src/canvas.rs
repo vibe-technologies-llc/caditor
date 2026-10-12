@@ -146,6 +146,10 @@ const HINT_RADIUS: f32 = WIDGET_RADIUS as f32;
 const HINT_SIZE: f32 = appearance::LABEL_SIZE;
 const KEY_PADDING: Vec2 = vec2(SPACE_SM, SPACE_XS);
 const KEY_RADIUS: f32 = SMALL_RADIUS as f32;
+const CHIP_PADDING: Vec2 = vec2(SPACE_M, SPACE_XS);
+const MOST_UNFOLDED: usize = 4;
+pub const MORE_KEYS: &str = "More keys";
+pub const FEWER_KEYS: &str = "Fewer keys";
 const EDGE_WIDTH: f32 = BORDER_WIDTH;
 const ATOM_GAP: f32 = SPACE_SM;
 const ITEM_GAP: f32 = SPACE_XL;
@@ -336,9 +340,189 @@ pub fn hint_texts(text: &str) -> Vec<&str> {
         .collect()
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+pub enum Rank {
+    #[default]
+    Main,
+    Useful,
+    Extra,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KeyHint {
+    keys: Vec<String>,
+    action: String,
+    rank: Rank,
+}
+
+impl KeyHint {
+    pub fn new(keys: &str, action: impl Into<String>) -> Self {
+        Self {
+            keys: keys.split(ALTERNATIVE).map(str::to_owned).collect(),
+            action: action.into(),
+            rank: Rank::Main,
+        }
+    }
+
+    pub fn note(text: impl Into<String>) -> Self {
+        Self {
+            keys: Vec::new(),
+            action: text.into(),
+            rank: Rank::Main,
+        }
+    }
+
+    #[must_use]
+    pub fn ranked(self, rank: Rank) -> Self {
+        Self { rank, ..self }
+    }
+
+    pub fn rank(&self) -> Rank {
+        self.rank
+    }
+
+    pub fn spoken(&self) -> String {
+        if self.keys.is_empty() {
+            self.action.clone()
+        } else {
+            format!(
+                "{}{KEY_SEPARATOR}{}",
+                self.keys.join(ALTERNATIVE),
+                self.action
+            )
+        }
+    }
+
+    fn of(part: HintPart<'_>, rank: Rank) -> Self {
+        match part {
+            HintPart::Keys { keys, action } => Self {
+                keys: keys.into_iter().map(str::to_owned).collect(),
+                action: action.to_owned(),
+                rank,
+            },
+            HintPart::Text(text) => Self::note(text).ranked(rank),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct HintList(Vec<KeyHint>);
+
+impl HintList {
+    pub fn parsed(text: &str) -> Self {
+        Self::parsed_as(text, Rank::Main)
+    }
+
+    pub fn parsed_as(text: &str, rank: Rank) -> Self {
+        hint_parts(text)
+            .into_iter()
+            .map(|part| KeyHint::of(part, rank))
+            .collect()
+    }
+
+    pub fn push(&mut self, hint: KeyHint) {
+        self.0.push(hint);
+    }
+
+    #[must_use]
+    pub fn with(mut self, hint: KeyHint) -> Self {
+        self.push(hint);
+        self
+    }
+
+    #[must_use]
+    pub fn and(mut self, other: Self) -> Self {
+        self.0.extend(other.0);
+        self
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn folds(&self) -> bool {
+        self.0.len() > MOST_UNFOLDED
+    }
+
+    fn shown_places(&self, expanded: bool) -> Vec<usize> {
+        let mut order: Vec<usize> = (0..self.0.len()).collect();
+        if expanded || !self.folds() {
+            return order;
+        }
+        order.sort_by_key(|index| self.0.get(*index).map(KeyHint::rank));
+        order.truncate(MOST_UNFOLDED);
+        order.sort_unstable();
+        order
+    }
+
+    pub fn shown(&self, expanded: bool) -> Vec<&KeyHint> {
+        self.shown_places(expanded)
+            .into_iter()
+            .filter_map(|index| self.0.get(index))
+            .collect()
+    }
+
+    pub fn hidden(&self, expanded: bool) -> Vec<&KeyHint> {
+        let shown = self.shown_places(expanded);
+        self.0
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| !shown.contains(index))
+            .map(|(_, hint)| hint)
+            .collect()
+    }
+
+    pub fn spoken_folded(&self, expanded: bool) -> String {
+        let shown = spoken(self.shown(expanded).into_iter());
+        match self.hidden(expanded).len() {
+            0 => shown,
+            hidden => format!("{shown}. {}", more_keys_words(hidden)),
+        }
+    }
+
+    #[cfg(test)]
+    pub fn texts(&self) -> Vec<&str> {
+        self.0
+            .iter()
+            .flat_map(|hint| {
+                let mut texts = Vec::new();
+                for (index, key) in hint.keys.iter().enumerate() {
+                    if index > 0 {
+                        texts.push(ALTERNATIVE_WORD);
+                    }
+                    texts.push(key.as_str());
+                }
+                texts.push(hint.action.as_str());
+                texts
+            })
+            .collect()
+    }
+}
+
+impl FromIterator<KeyHint> for HintList {
+    fn from_iter<I: IntoIterator<Item = KeyHint>>(iter: I) -> Self {
+        Self(iter.into_iter().collect())
+    }
+}
+
+fn spoken<'a>(hints: impl Iterator<Item = &'a KeyHint>) -> String {
+    hints.map(KeyHint::spoken).collect::<Vec<_>>().join(". ")
+}
+
+pub fn more_keys_words(hidden: usize) -> String {
+    format!("{MORE_KEYS} ({hidden})")
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AtomKind {
+    Text,
+    Key,
+    Chip,
+}
+
 struct Atom {
     galley: Arc<Galley>,
-    key: bool,
+    kind: AtomKind,
     size: Vec2,
 }
 
@@ -354,7 +538,7 @@ impl Atom {
         Self {
             size: galley.size(),
             galley,
-            key: false,
+            kind: AtomKind::Text,
         }
     }
 
@@ -368,7 +552,17 @@ impl Atom {
         Self {
             size: galley.size() + KEY_PADDING * 2.0,
             galley,
-            key: true,
+            kind: AtomKind::Key,
+        }
+    }
+
+    fn chip(painter: &Painter, words: String) -> Self {
+        let text = chrome(painter.ctx()).text;
+        let galley = painter.layout_no_wrap(words, FontId::new(HINT_SIZE, fonts::medium()), text);
+        Self {
+            size: galley.size() + CHIP_PADDING * 2.0,
+            galley,
+            kind: AtomKind::Chip,
         }
     }
 }
@@ -390,23 +584,21 @@ impl Item {
             .fold(0.0, f32::max)
     }
 
-    fn of(painter: &Painter, part: &HintPart<'_>, inner_width: f32) -> Self {
-        match part {
-            HintPart::Text(text) => Self {
-                atoms: vec![Atom::text(painter, text, inner_width)],
-            },
-            HintPart::Keys { keys, action } => {
-                let mut item = Self {
-                    atoms: Self::of_keys(painter, keys),
-                };
-                let wrap = (inner_width - item.width() - ATOM_GAP).max(MIN_WRAPPED_ACTION);
-                item.atoms.push(Atom::text(painter, action, wrap));
-                item
-            }
+    fn of(painter: &Painter, hint: &KeyHint, inner_width: f32) -> Self {
+        if hint.keys.is_empty() {
+            return Self {
+                atoms: vec![Atom::text(painter, &hint.action, inner_width)],
+            };
         }
+        let mut item = Self {
+            atoms: Self::of_keys(painter, &hint.keys),
+        };
+        let wrap = (inner_width - item.width() - ATOM_GAP).max(MIN_WRAPPED_ACTION);
+        item.atoms.push(Atom::text(painter, &hint.action, wrap));
+        item
     }
 
-    fn of_keys(painter: &Painter, keys: &[&str]) -> Vec<Atom> {
+    fn of_keys(painter: &Painter, keys: &[String]) -> Vec<Atom> {
         let mut atoms = Vec::new();
         for (index, key) in keys.iter().enumerate() {
             if index > 0 {
@@ -424,6 +616,20 @@ struct Row {
     height: f32,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ChipLook {
+    pub hovered: bool,
+    pub pressed: bool,
+    pub focused: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Folding {
+    Whole,
+    Folded,
+    Expanded,
+}
+
 pub struct Hints {
     rows: Vec<Row>,
     align: Align,
@@ -432,25 +638,63 @@ pub struct Hints {
 }
 
 impl Hints {
-    pub fn new(painter: &Painter, text: &str, max_width: f32, align: Align) -> Self {
-        Self::laid_out(painter, text, max_width, align, HINT_PADDING)
+    pub fn new(painter: &Painter, hints: &HintList, max_width: f32, align: Align) -> Self {
+        Self::laid_out(
+            painter,
+            hints,
+            max_width,
+            align,
+            HINT_PADDING,
+            Folding::Whole,
+        )
     }
 
-    pub fn bare(painter: &Painter, text: &str, max_width: f32, align: Align) -> Self {
-        Self::laid_out(painter, text, max_width, align, Vec2::ZERO)
+    pub fn bare(painter: &Painter, hints: &HintList, max_width: f32, align: Align) -> Self {
+        Self::laid_out(painter, hints, max_width, align, Vec2::ZERO, Folding::Whole)
+    }
+
+    pub fn folded(
+        painter: &Painter,
+        hints: &HintList,
+        max_width: f32,
+        align: Align,
+        expanded: bool,
+    ) -> Self {
+        let folding = match (hints.folds(), expanded) {
+            (false, _) => Folding::Whole,
+            (true, false) => Folding::Folded,
+            (true, true) => Folding::Expanded,
+        };
+        Self::laid_out(painter, hints, max_width, align, HINT_PADDING, folding)
     }
 
     fn laid_out(
         painter: &Painter,
-        text: &str,
+        hints: &HintList,
         max_width: f32,
         align: Align,
         padding: Vec2,
+        folding: Folding,
     ) -> Self {
         let inner_width = (max_width - padding.x * 2.0).max(0.0);
+        let expanded = folding != Folding::Folded;
+        let mut items: Vec<Item> = hints
+            .shown(expanded)
+            .into_iter()
+            .map(|hint| Item::of(painter, hint, inner_width))
+            .collect();
+        let chip = match folding {
+            Folding::Whole => None,
+            Folding::Folded => Some(more_keys_words(hints.hidden(false).len())),
+            Folding::Expanded => Some(FEWER_KEYS.to_owned()),
+        };
+        if let Some(words) = chip {
+            items.push(Item {
+                atoms: vec![Atom::chip(painter, words)],
+            });
+        }
         let mut rows: Vec<Row> = Vec::new();
-        for part in hint_parts(text) {
-            let item = Item::of(painter, &part, inner_width);
+        for item in items {
             let (width, height) = (item.width(), item.height());
             match rows.last_mut() {
                 Some(row) if row.width + ITEM_GAP + width <= inner_width => {
@@ -480,12 +724,52 @@ impl Hints {
         self.size
     }
 
-    pub fn paint_at(self, painter: &Painter, anchor: Pos2, align: Align2) -> Rect {
-        let rect = align.anchor_size(anchor, self.size);
-        self.paint(painter, rect.min)
+    fn atoms(&self) -> impl Iterator<Item = &Atom> {
+        self.rows
+            .iter()
+            .flat_map(|row| &row.items)
+            .flat_map(|item| &item.atoms)
+    }
+
+    pub fn chip_rect(&self, min: Pos2) -> Option<Rect> {
+        self.placed(min)
+            .into_iter()
+            .zip(self.atoms())
+            .find(|(_, atom)| atom.kind == AtomKind::Chip)
+            .map(|(rect, _)| rect)
+    }
+
+    fn placed(&self, min: Pos2) -> Vec<Rect> {
+        let inner = Rect::from_min_size(min, self.size).shrink2(self.padding);
+        let mut top = inner.top();
+        let mut placed = Vec::new();
+        for row in &self.rows {
+            let mut x = match self.align {
+                Align::Min => inner.left(),
+                Align::Center => inner.center().x - row.width / 2.0,
+                Align::Max => inner.right() - row.width,
+            };
+            for item in &row.items {
+                for atom in &item.atoms {
+                    let atom_rect = Rect::from_min_size(
+                        Pos2::new(x, top + (row.height - atom.size.y) / 2.0),
+                        atom.size,
+                    );
+                    placed.push(atom_rect);
+                    x = atom_rect.right() + ATOM_GAP;
+                }
+                x += ITEM_GAP - ATOM_GAP;
+            }
+            top += row.height + ROW_GAP;
+        }
+        placed
     }
 
     pub fn paint(self, painter: &Painter, min: Pos2) -> Rect {
+        self.paint_with(painter, min, ChipLook::default())
+    }
+
+    pub fn paint_with(self, painter: &Painter, min: Pos2, look: ChipLook) -> Rect {
         let rect = Rect::from_min_size(min, self.size);
         if self.rows.is_empty() {
             return rect;
@@ -501,44 +785,58 @@ impl Hints {
                 StrokeKind::Inside,
             );
         }
-        let inner = rect.shrink2(self.padding);
-        let mut top = inner.top();
-        for row in self.rows {
-            let mut x = match self.align {
-                Align::Min => inner.left(),
-                Align::Center => inner.center().x - row.width / 2.0,
-                Align::Max => inner.right() - row.width,
-            };
-            for item in row.items {
-                for atom in item.atoms {
-                    let atom_rect = Rect::from_min_size(
-                        Pos2::new(x, top + (row.height - atom.size.y) / 2.0),
-                        atom.size,
-                    );
-                    paint_atom(painter, atom_rect, atom);
-                    x = atom_rect.right() + ATOM_GAP;
-                }
-                x += ITEM_GAP - ATOM_GAP;
-            }
-            top += row.height + ROW_GAP;
+        let placed = self.placed(min);
+        let atoms = self
+            .rows
+            .into_iter()
+            .flat_map(|row| row.items)
+            .flat_map(|item| item.atoms);
+        for (atom_rect, atom) in placed.into_iter().zip(atoms) {
+            paint_atom(painter, atom_rect, atom, look);
         }
         rect
     }
 }
 
-fn paint_atom(painter: &Painter, rect: Rect, atom: Atom) {
+fn paint_atom(painter: &Painter, rect: Rect, atom: Atom, look: ChipLook) {
     let chrome = chrome(painter.ctx());
-    if atom.key {
-        painter.rect(
-            rect,
-            KEY_RADIUS,
-            chrome.key_cap,
-            Stroke::new(EDGE_WIDTH, chrome.key_cap_edge),
-            StrokeKind::Inside,
-        );
-        painter.galley(rect.min + KEY_PADDING, atom.galley, chrome.text);
-    } else {
-        painter.galley(rect.min, atom.galley, chrome.muted);
+    match atom.kind {
+        AtomKind::Key => {
+            painter.rect(
+                rect,
+                KEY_RADIUS,
+                chrome.key_cap,
+                Stroke::new(EDGE_WIDTH, chrome.key_cap_edge),
+                StrokeKind::Inside,
+            );
+            painter.galley(rect.min + KEY_PADDING, atom.galley, chrome.text);
+        }
+        AtomKind::Chip => {
+            let fill = if look.pressed {
+                chrome.control_pressed
+            } else if look.hovered || look.focused {
+                chrome.control_hovered
+            } else {
+                chrome.backdrop(contrast(painter.ctx()))
+            };
+            painter.rect(
+                rect,
+                HINT_RADIUS,
+                fill,
+                Stroke::new(EDGE_WIDTH, chrome.control_edge),
+                StrokeKind::Inside,
+            );
+            painter.galley(rect.min + CHIP_PADDING, atom.galley, chrome.text);
+            if look.focused {
+                widgets::paint_focus_ring_in(
+                    painter,
+                    rect.expand(FOCUS_GAP),
+                    HINT_RADIUS,
+                    chrome.focus,
+                );
+            }
+        }
+        AtomKind::Text => painter.galley(rect.min, atom.galley, chrome.muted),
     }
 }
 
@@ -718,6 +1016,64 @@ mod tests {
                 assert!(ratio >= READABLE, "{name} the {what} cell is {ratio:.2}:1");
             }
         }
+    }
+
+    #[test]
+    fn a_long_hint_list_shows_its_most_wanted_items_in_their_order_and_hides_the_rest() {
+        let hints = HintList::default()
+            .with(KeyHint::note("Rectangle from two corners").ranked(Rank::Useful))
+            .with(KeyHint::new("Ctrl", "place freely").ranked(Rank::Extra))
+            .with(KeyHint::new("Esc", "cancel"))
+            .with(KeyHint::new("Alt", "snap").ranked(Rank::Extra))
+            .with(KeyHint::new("R", "from its centre").ranked(Rank::Useful))
+            .with(KeyHint::new("Backspace", "take back"));
+
+        let shown: Vec<String> = hints
+            .shown(false)
+            .iter()
+            .map(|hint| hint.spoken())
+            .collect();
+        let hidden: Vec<String> = hints
+            .hidden(false)
+            .iter()
+            .map(|hint| hint.spoken())
+            .collect();
+
+        assert!(hints.folds());
+        assert_eq!(
+            shown,
+            [
+                "Rectangle from two corners",
+                "Esc: cancel",
+                "R: from its centre",
+                "Backspace: take back"
+            ]
+        );
+        assert_eq!(hidden, ["Ctrl: place freely", "Alt: snap"]);
+        assert_eq!(hints.shown(true).len(), 6);
+        assert!(hints.hidden(true).is_empty());
+        assert!(hints.spoken_folded(false).ends_with(&more_keys_words(2)));
+    }
+
+    #[test]
+    fn a_short_hint_list_never_folds() {
+        let hints = HintList::parsed("Esc: cancel   Ctrl: place freely   ] or [: sides");
+
+        assert!(!hints.folds());
+        assert_eq!(hints.shown(false).len(), 3);
+        assert_eq!(
+            hints.texts(),
+            [
+                "Esc",
+                "cancel",
+                "Ctrl",
+                "place freely",
+                "]",
+                "or",
+                "[",
+                "sides"
+            ]
+        );
     }
 
     #[test]
