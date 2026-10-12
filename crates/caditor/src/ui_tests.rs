@@ -65,6 +65,7 @@ mod custom_colours;
 mod datums;
 mod dialogs;
 mod dimension_labels;
+mod display_styles;
 mod drawing_import;
 mod exporting;
 mod extrude_from_selection;
