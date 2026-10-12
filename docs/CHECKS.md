@@ -29,10 +29,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   `diagnosis_tests` asserts under 5 s, against `sketch-solver.md`'s "never wall-clock time". Bound
   them by work units or iteration counts, and refuse `elapsed()` inside an assert in a
   conventions test.
-- [low · easy] `caditor-file` depends on `ttf-parser` directly for SVG text (`import/svg/font.rs`),
-  which is why `deny.toml` ignores RUSTSEC-2026-0192 (unmaintained) beside winit's sctk-adwaita,
-  while the maintained `skrifa` is already built through epaint: port the outlines, `wght` axis and
-  GPOS kerning to `skrifa` and `read-fonts` and the direct dependency goes.
 - [low · medium] Slow tests to keep an eye on: with egui, its glyph stack and the PNG encoder built
   optimised in the dev profile (`dependencies.md`) a UI test takes a few tenths of a second, and
   none of the ten that took over a second (the screen-reader test, the shortcut reset tests, the

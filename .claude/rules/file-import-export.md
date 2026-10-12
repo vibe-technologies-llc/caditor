@@ -129,7 +129,7 @@ paths:
   app passes Inter's upright (`fonts::INTER`, `InterVariable.ttf`) and italic (`fonts::INTER_ITALIC`,
   `InterVariable-Italic.ttf`, same Inter 4.1 release and licence, used by import only) faces, and
   headless importers must pass the same bytes to get the same letters. Without upright data, or
-  bytes `ttf-parser` cannot read, each `text` is counted as left out; a `None` or unreadable italic
+  bytes `skrifa` cannot read, each `text` is counted as left out; a `None` or unreadable italic
   draws italic text upright.
 - Layout (`lettering.rs`): `text`, `tspan` and `a` content gathers into letters with inherited
   style; whitespace collapses as CSS unless `xml:space="preserve"`; a `tspan` with `display: none`
@@ -156,7 +156,7 @@ paths:
   (100 to 900); italic and oblique use the italic face, upright and noted only when none was handed
   in. A character without a glyph takes the missing glyph's advance, draws nothing and is counted.
 - Glyphs (`font.rs`) are read per weight of each face (`Cut` per face, `Instance` of weight and
-  italic, one `ttf_parser::Face` per weight, outlines cached per weight and glyph); quadratic and
+  italic, one `skrifa` `Location` per weight, outlines cached per weight and glyph); quadratic and
   cubic segments become the same exact splines and lines `path` makes. A variable font keeps
   overlapping contours (Inter's `e`, `t`, `f`, `k`), which the sketch's even-depth regions would read
   as notches, so `overlap.rs` merges each glyph first: its segments build a kernel `Profile`, faces

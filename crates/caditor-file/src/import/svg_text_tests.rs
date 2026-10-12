@@ -2,7 +2,13 @@ use std::collections::BTreeMap;
 
 use caditor_geometry::Point2;
 use caditor_kernel::{Profile, ProfileCurve, Selection};
-use ttf_parser::{Face, GlyphId, OutlineBuilder, Rect, Tag};
+use skrifa::{
+    FontRef, GlyphId, MetadataProvider,
+    instance::{Location, Size},
+    metrics::GlyphMetrics,
+    outline::{DrawSettings, OutlinePen},
+    raw::TableProvider,
+};
 
 use crate::import::{Drawing, DrawingCurve, ImportError, TextOutlines, parse_svg};
 
@@ -118,7 +124,7 @@ struct Extent {
     points: Vec<Point2>,
 }
 
-impl OutlineBuilder for Extent {
+impl OutlinePen for Extent {
     fn move_to(&mut self, x: f32, y: f32) {
         self.points.push(Point2::new(x.into(), y.into()));
     }
@@ -141,24 +147,42 @@ impl OutlineBuilder for Extent {
     fn close(&mut self) {}
 }
 
-fn regular() -> Face<'static> {
-    let mut face = Face::parse(INTER, 0).unwrap();
-    face.set_variation(Tag::from_bytes(b"wght"), 400.0).unwrap();
-    face
+struct Face {
+    font: FontRef<'static>,
+    location: Location,
 }
 
-fn glyph(face: &Face<'_>, character: char) -> GlyphId {
-    face.glyph_index(character).unwrap()
+impl Face {
+    fn units_per_em(&self) -> u16 {
+        self.font.head().unwrap().units_per_em()
+    }
 }
 
-fn glyph_extent(face: &Face<'_>, character: char) -> Bounds {
+fn regular() -> Face {
+    let font = FontRef::from_index(INTER, 0).unwrap();
+    let location = font.axes().location([("wght", 400.0)]);
+    Face { font, location }
+}
+
+fn glyph(face: &Face, character: char) -> GlyphId {
+    face.font.charmap().map(character).unwrap()
+}
+
+fn glyph_extent(face: &Face, character: char) -> Bounds {
     let mut extent = Extent::default();
-    let _: Option<Rect> = face.outline_glyph(glyph(face, character), &mut extent);
+    let outline = face
+        .font
+        .outline_glyphs()
+        .get(glyph(face, character))
+        .unwrap();
+    let settings = DrawSettings::unhinted(Size::unscaled(), &face.location);
+    outline.draw(settings, &mut extent).unwrap();
     Bounds::of(extent.points)
 }
 
-fn advance(face: &Face<'_>, character: char) -> f64 {
-    f64::from(face.glyph_hor_advance(glyph(face, character)).unwrap())
+fn advance(face: &Face, character: char) -> f64 {
+    let metrics = GlyphMetrics::new(&face.font, Size::unscaled(), &face.location);
+    f64::from(metrics.advance_width(glyph(face, character)).unwrap())
 }
 
 fn assert_close(actual: f64, expected: f64) {

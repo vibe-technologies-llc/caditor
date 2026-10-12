@@ -28,8 +28,8 @@ parking_lot.workspace = true
 png.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, features = ["float_roundtrip"] }
+skrifa.workspace = true
 thiserror.workspace = true
-ttf-parser.workspace = true
 xxhash-rust.workspace = true
 
 [target.'cfg(unix)'.dependencies]
