@@ -289,12 +289,12 @@ impl Token {
 
 pub const DARK: Tokens = Tokens {
     panel: Color32::from_rgb(22, 24, 29),
-    raised: Color32::from_rgb(30, 33, 40),
+    raised: Color32::from_rgb(32, 35, 43),
     sunken: Color32::from_rgb(15, 17, 21),
     stripe: Color32::from_rgb(27, 30, 36),
-    button: Color32::from_rgb(38, 42, 51),
-    hover: Color32::from_rgb(47, 52, 64),
-    pressed: Color32::from_rgb(55, 61, 74),
+    button: Color32::from_rgb(41, 45, 55),
+    hover: Color32::from_rgb(50, 55, 67),
+    pressed: Color32::from_rgb(58, 64, 78),
     border: Color32::from_rgb(42, 46, 55),
     border_strong: Color32::from_rgb(70, 77, 91),
     field_border: Color32::from_rgb(104, 112, 128),
@@ -305,8 +305,8 @@ pub const DARK: Tokens = Tokens {
     accent_hover: Color32::from_rgb(40, 97, 204),
     accent_pressed: Color32::from_rgb(33, 83, 178),
     accent_text: Color32::from_rgb(122, 167, 255),
-    accent_subtle: Color32::from_rgb(31, 49, 80),
-    accent_surface: Color32::from_rgb(26, 36, 54),
+    accent_subtle: Color32::from_rgb(32, 45, 70),
+    accent_surface: Color32::from_rgb(25, 30, 40),
     focus: Color32::from_rgb(122, 167, 255),
     error: Color32::from_rgb(255, 123, 114),
     error_subtle: Color32::from_rgb(58, 31, 34),
@@ -321,13 +321,13 @@ pub const DARK: Tokens = Tokens {
 };
 
 pub const LIGHT: Tokens = Tokens {
-    panel: Color32::from_rgb(244, 245, 247),
+    panel: Color32::from_rgb(240, 242, 245),
     raised: Color32::WHITE,
     sunken: Color32::from_rgb(252, 252, 253),
-    stripe: Color32::from_rgb(237, 239, 242),
-    button: Color32::from_rgb(232, 234, 238),
-    hover: Color32::from_rgb(222, 225, 231),
-    pressed: Color32::from_rgb(210, 214, 222),
+    stripe: Color32::from_rgb(233, 236, 240),
+    button: Color32::from_rgb(229, 232, 237),
+    hover: Color32::from_rgb(219, 223, 230),
+    pressed: Color32::from_rgb(207, 212, 221),
     border: Color32::from_rgb(221, 224, 230),
     border_strong: Color32::from_rgb(170, 176, 188),
     field_border: Color32::from_rgb(128, 135, 148),
@@ -338,8 +338,8 @@ pub const LIGHT: Tokens = Tokens {
     accent_hover: Color32::from_rgb(29, 84, 212),
     accent_pressed: Color32::from_rgb(24, 70, 182),
     accent_text: Color32::from_rgb(29, 78, 216),
-    accent_subtle: Color32::from_rgb(221, 232, 253),
-    accent_surface: Color32::from_rgb(228, 236, 251),
+    accent_subtle: Color32::from_rgb(220, 230, 248),
+    accent_surface: Color32::from_rgb(230, 236, 248),
     focus: Color32::from_rgb(37, 99, 235),
     error: Color32::from_rgb(192, 38, 45),
     error_subtle: Color32::from_rgb(253, 232, 232),
@@ -355,12 +355,12 @@ pub const LIGHT: Tokens = Tokens {
 
 pub const MIDNIGHT: Tokens = Tokens {
     panel: Color32::from_rgb(14, 20, 36),
-    raised: Color32::from_rgb(20, 28, 48),
+    raised: Color32::from_rgb(22, 31, 53),
     sunken: Color32::from_rgb(9, 13, 25),
     stripe: Color32::from_rgb(18, 25, 43),
-    button: Color32::from_rgb(28, 38, 62),
-    hover: Color32::from_rgb(36, 48, 78),
-    pressed: Color32::from_rgb(44, 58, 92),
+    button: Color32::from_rgb(30, 41, 66),
+    hover: Color32::from_rgb(38, 51, 82),
+    pressed: Color32::from_rgb(46, 61, 96),
     border: Color32::from_rgb(32, 42, 66),
     border_strong: Color32::from_rgb(60, 74, 108),
     field_border: Color32::from_rgb(98, 114, 150),
@@ -371,8 +371,8 @@ pub const MIDNIGHT: Tokens = Tokens {
     accent_hover: Color32::from_rgb(46, 80, 192),
     accent_pressed: Color32::from_rgb(38, 68, 168),
     accent_text: Color32::from_rgb(138, 170, 255),
-    accent_subtle: Color32::from_rgb(30, 44, 86),
-    accent_surface: Color32::from_rgb(22, 32, 62),
+    accent_subtle: Color32::from_rgb(30, 42, 78),
+    accent_surface: Color32::from_rgb(20, 28, 50),
     focus: Color32::from_rgb(138, 170, 255),
     error: Color32::from_rgb(255, 128, 120),
     error_subtle: Color32::from_rgb(52, 24, 34),
@@ -388,12 +388,12 @@ pub const MIDNIGHT: Tokens = Tokens {
 
 pub const GRAPHITE: Tokens = Tokens {
     panel: Color32::from_rgb(32, 32, 34),
-    raised: Color32::from_rgb(40, 40, 43),
+    raised: Color32::from_rgb(41, 41, 44),
     sunken: Color32::from_rgb(24, 24, 26),
     stripe: Color32::from_rgb(37, 37, 40),
-    button: Color32::from_rgb(50, 50, 54),
-    hover: Color32::from_rgb(60, 60, 65),
-    pressed: Color32::from_rgb(70, 70, 76),
+    button: Color32::from_rgb(52, 52, 57),
+    hover: Color32::from_rgb(62, 62, 67),
+    pressed: Color32::from_rgb(72, 72, 78),
     border: Color32::from_rgb(54, 54, 58),
     border_strong: Color32::from_rgb(84, 84, 90),
     field_border: Color32::from_rgb(120, 120, 128),
@@ -404,8 +404,8 @@ pub const GRAPHITE: Tokens = Tokens {
     accent_hover: Color32::from_rgb(10, 102, 92),
     accent_pressed: Color32::from_rgb(8, 88, 80),
     accent_text: Color32::from_rgb(96, 214, 196),
-    accent_subtle: Color32::from_rgb(28, 62, 58),
-    accent_surface: Color32::from_rgb(30, 46, 45),
+    accent_subtle: Color32::from_rgb(30, 56, 53),
+    accent_surface: Color32::from_rgb(33, 42, 42),
     focus: Color32::from_rgb(96, 214, 196),
     error: Color32::from_rgb(255, 134, 124),
     error_subtle: Color32::from_rgb(62, 34, 34),
@@ -420,13 +420,13 @@ pub const GRAPHITE: Tokens = Tokens {
 };
 
 pub const PAPER: Tokens = Tokens {
-    panel: Color32::from_rgb(246, 243, 236),
-    raised: Color32::from_rgb(253, 251, 246),
+    panel: Color32::from_rgb(243, 239, 230),
+    raised: Color32::from_rgb(254, 253, 249),
     sunken: Color32::from_rgb(255, 254, 251),
-    stripe: Color32::from_rgb(238, 234, 225),
-    button: Color32::from_rgb(234, 229, 218),
-    hover: Color32::from_rgb(224, 218, 205),
-    pressed: Color32::from_rgb(212, 205, 190),
+    stripe: Color32::from_rgb(235, 230, 220),
+    button: Color32::from_rgb(231, 225, 213),
+    hover: Color32::from_rgb(221, 214, 200),
+    pressed: Color32::from_rgb(209, 201, 186),
     border: Color32::from_rgb(224, 218, 206),
     border_strong: Color32::from_rgb(176, 168, 152),
     field_border: Color32::from_rgb(132, 124, 110),
@@ -437,8 +437,8 @@ pub const PAPER: Tokens = Tokens {
     accent_hover: Color32::from_rgb(156, 70, 18),
     accent_pressed: Color32::from_rgb(136, 60, 14),
     accent_text: Color32::from_rgb(150, 62, 10),
-    accent_subtle: Color32::from_rgb(250, 226, 206),
-    accent_surface: Color32::from_rgb(250, 236, 222),
+    accent_subtle: Color32::from_rgb(246, 228, 212),
+    accent_surface: Color32::from_rgb(245, 233, 219),
     focus: Color32::from_rgb(176, 82, 24),
     error: Color32::from_rgb(176, 30, 30),
     error_subtle: Color32::from_rgb(252, 228, 224),
@@ -454,12 +454,12 @@ pub const PAPER: Tokens = Tokens {
 
 pub const SLATE: Tokens = Tokens {
     panel: Color32::from_rgb(32, 36, 44),
-    raised: Color32::from_rgb(38, 43, 52),
+    raised: Color32::from_rgb(40, 45, 55),
     sunken: Color32::from_rgb(25, 28, 35),
-    stripe: Color32::from_rgb(35, 39, 48),
-    button: Color32::from_rgb(50, 56, 67),
-    hover: Color32::from_rgb(60, 67, 80),
-    pressed: Color32::from_rgb(70, 78, 93),
+    stripe: Color32::from_rgb(36, 40, 49),
+    button: Color32::from_rgb(52, 58, 70),
+    hover: Color32::from_rgb(62, 69, 83),
+    pressed: Color32::from_rgb(72, 80, 96),
     border: Color32::from_rgb(52, 58, 69),
     border_strong: Color32::from_rgb(82, 91, 107),
     field_border: Color32::from_rgb(128, 138, 156),
@@ -470,8 +470,8 @@ pub const SLATE: Tokens = Tokens {
     accent_hover: Color32::from_rgb(38, 92, 180),
     accent_pressed: Color32::from_rgb(32, 80, 158),
     accent_text: Color32::from_rgb(140, 182, 255),
-    accent_subtle: Color32::from_rgb(46, 64, 96),
-    accent_surface: Color32::from_rgb(42, 52, 70),
+    accent_subtle: Color32::from_rgb(44, 58, 84),
+    accent_surface: Color32::from_rgb(38, 45, 58),
     focus: Color32::from_rgb(140, 182, 255),
     error: Color32::from_rgb(255, 140, 130),
     error_subtle: Color32::from_rgb(70, 40, 44),
@@ -487,7 +487,7 @@ pub const SLATE: Tokens = Tokens {
 
 pub const STUDIO: Tokens = Tokens {
     panel: Color32::from_rgb(234, 236, 239),
-    raised: Color32::from_rgb(246, 247, 249),
+    raised: Color32::from_rgb(248, 249, 251),
     sunken: Color32::from_rgb(250, 251, 252),
     stripe: Color32::from_rgb(227, 230, 234),
     button: Color32::from_rgb(222, 225, 230),
@@ -503,8 +503,8 @@ pub const STUDIO: Tokens = Tokens {
     accent_hover: Color32::from_rgb(0, 91, 122),
     accent_pressed: Color32::from_rgb(0, 78, 105),
     accent_text: Color32::from_rgb(0, 88, 118),
-    accent_subtle: Color32::from_rgb(208, 228, 236),
-    accent_surface: Color32::from_rgb(220, 234, 240),
+    accent_subtle: Color32::from_rgb(212, 226, 234),
+    accent_surface: Color32::from_rgb(222, 231, 237),
     focus: Color32::from_rgb(0, 104, 138),
     error: Color32::from_rgb(180, 30, 38),
     error_subtle: Color32::from_rgb(248, 226, 226),
@@ -1077,6 +1077,22 @@ pub mod tests {
                     VISIBLE_OUTLINE,
                 );
             }
+        }
+    }
+
+    #[test]
+    fn every_shipped_set_outside_high_contrast_lifts_cards_off_the_panel_by_fill_alone() {
+        const SURFACE_STEP: f32 = 1.1;
+
+        for skin in every_skin().into_iter().filter(|skin| !skin.high_contrast) {
+            let tokens = skin.tokens;
+
+            assert_readable(
+                &format!("raised on panel ({skin:?})"),
+                tokens.raised,
+                tokens.panel,
+                SURFACE_STEP,
+            );
         }
     }
 

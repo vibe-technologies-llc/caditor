@@ -19,10 +19,10 @@ const ACCENT_STEP: f32 = 0.04;
 const ACCENT_STEPS: u8 = 25;
 const HOVER_SHADE: f32 = 0.12;
 const PRESSED_SHADE: f32 = 0.24;
-const DARK_SUBTLE_SHARE: f32 = 0.26;
+const DARK_SUBTLE_SHARE: f32 = 0.22;
 const LIGHT_SUBTLE_SHARE: f32 = 0.16;
-const DARK_SURFACE_SHARE: f32 = 0.14;
-const LIGHT_SURFACE_SHARE: f32 = 0.09;
+const DARK_SURFACE_SHARE: f32 = 0.08;
+const LIGHT_SURFACE_SHARE: f32 = 0.07;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum Theme {

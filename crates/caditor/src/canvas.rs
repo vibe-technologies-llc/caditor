@@ -49,7 +49,7 @@ pub struct Chrome {
     pub cube_divider: Color32,
 }
 
-const DARK_BACKDROP: Color32 = Color32::from_rgba_premultiplied(16, 18, 23, 225);
+const DARK_BACKDROP: Color32 = Color32::from_rgba_premultiplied(21, 24, 29, 235);
 const DARK_SELECTED: Color32 = Color32::from_rgb(96, 176, 255);
 const DARK_HOVERED: Color32 = Color32::from_rgb(255, 196, 84);
 const DARK_SNAP: Color32 = Color32::from_rgb(80, 226, 236);
@@ -86,7 +86,7 @@ const LIGHT_SELECTED: Color32 = Color32::from_rgb(0, 80, 176);
 const LIGHT_SNAP: Color32 = Color32::from_rgb(0, 90, 104);
 
 pub const LIGHT_CHROME: Chrome = Chrome {
-    backdrop: Color32::from_rgba_premultiplied(224, 225, 226, 230),
+    backdrop: Color32::from_rgba_premultiplied(234, 236, 239, 242),
     panel: Color32::from_rgb(248, 249, 251),
     text: Color32::from_rgb(24, 27, 33),
     muted: Color32::from_rgb(64, 70, 82),

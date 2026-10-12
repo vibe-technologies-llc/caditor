@@ -21,7 +21,8 @@ start. **Restore defaults** resets only the tab you are on, and offers Undo.
   mid-grey 3D view), Studio (light panels with a light grey 3D view), and any themes of your own.
   Click a card, or move between them with the arrow keys and press Enter; the whole window
   changes at once.
-- **Accent**: the colour of buttons, selections and links, the theme's own or one of six others.
+- **Accent**: the colour of each panel's or dialog's main button, of selections, links and the
+  keyboard focus, the theme's own or one of six others.
   An accent that would make text hard to read in the chosen theme is greyed out.
 - **3D view**: the background of the 3D view, a swatch for each: with the theme (Paper and Studio
   have light ones, Slate a grey one), or always Dark, Grey, Studio grey, Blue-grey, Light or White,
