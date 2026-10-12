@@ -118,11 +118,12 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Sketch solver
 
-- [medium · hard] Trimming a conflict of n constraints costs about n² units of `DIAGNOSIS_WORK`:
-  each kept constraint's witness step solves through the factorisation of the whole set
-  (`1/SOLVES_PER_STEP` of a step each). On a chain of 1,000 lines with its far end fixed out of
-  reach the search takes about 150,000 units and trimming about 285,000 (27,000 at 300 lines,
-  104,000 at 600), leaving too little for the verdict's descents, so it is reported as not solving.
+- [medium · hard] A conflict through a chain of more than about 1,050 lines with its far end fixed
+  out of reach is reported as not solving: the diagnosis's two descents outgrow `DIAGNOSIS_WORK`.
+  At 1,000 lines the support's descent from the drawing takes about 225,000 units and the closest
+  witness's about 219,000 (trimming 12,000), some 85% of it in the two perturbed retries (23 to 32
+  steps each against 2 to 16 for the unperturbed attempt), which untangle a start scattered by a
+  fraction of the whole chain's extent before Newton steps settle it.
 - [medium · hard] A sketch solved from a degenerate start can fail to solve again from its own
   result: a spline with four coincident control points, tangent to a zero-size arc on one of them,
   with a zero distance from that arc to the spline's first point. `sketch_solve` finds such cases

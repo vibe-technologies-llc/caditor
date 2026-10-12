@@ -197,10 +197,11 @@ paths:
   shape (a line that would have to fold back) are solved from where diagnosis reached, or
   `SketchError::Unsolvable` when it reached nowhere. The evidence is numerical, not a proof.
 - The first candidate is the support of the failed solve's least-squares point (skipped when
-  pressed against a collapse); when it holds, or there is none, QuickXplain-style divide and
-  conquer over the part's constraints holding the newest one looks for one. Probes solve the
-  sub-parts from the closest known state, remember each outcome by its equations and share one
-  budget, `DIAGNOSIS_WORK`.
+  pressed against a collapse), probed from the drawn shape so that probe is also the verdict's
+  descent from the drawing; when it holds, or there is none, QuickXplain-style divide and conquer
+  over the part's constraints holding the newest one looks for one. Other probes solve the
+  sub-parts from the closest known state; all remember each outcome by its equations and share
+  one budget, `DIAGNOSIS_WORK`.
 - A probe's failure only steers the search. The set found is trimmed, oldest first, of every
   constraint without which it still fails; each kept constraint comes with a witness, a solution of
   the set without it. A descent is conclusive when its unperturbed attempt ends at a least-squares
@@ -216,11 +217,26 @@ paths:
   each halving what the rest leaves) until every part of the rest holds within its tolerance. A
   constraint whose step does not get there falls back to a descent, and dropping one factors the
   smaller set again. The factorisation costs one step and each solve through it
-  `1/SOLVES_PER_STEP` (an ignored stress test in `diagnosis_tests.rs`, run by the nightly job: a
-  300-line chain costs about 27,000 units by steps against 540,000 by descents). The verdict's
-  descents settle in a few Newton steps: from the drawing of a 300-line chain about 46,000 units
-  for all three attempts, against 192,000 by line search alone, and a 600-line chain is named
-  within the budget.
+  `1/SOLVES_PER_STEP`; a solve is as long as the part, so stepping every constraint costs work
+  quadratic in the conflict's size.
+- So a witness is first moved from the last one (`Factored::transferred`): the strain the previous
+  witness left on its own constraint is shifted onto the next, solving only the variables of the
+  two constraints (then 1, 2, 4 and 8 hops further through the rest's equations, up to a quarter
+  of the part) and the rest's equations touching them by Gauss-Newton (at most `TRANSFER_STEPS`,
+  each halving what they leave), everything else held where it was. A witness serves as the start
+  (`Strained`) only when every equation of the part but its constraint's holds as a part of its
+  own (the smallest scale, so the strictest tolerance) and the part's spans are clear of a
+  collapse at the part's own scale (the largest, so the strictest), so the moved witness need only
+  check what it moved. A transfer may spend no more than the step it replaces (its constraint's
+  rows times a solve), else the step is taken. Along a chain each transfer moves one joint: a
+  300-line chain trims in about 3,600 units against 27,000 by steps (a normal-suite test bounds it
+  at 20 per line, and checks every witness holds the rest), 1,000 lines in about 12,000 against
+  285,000.
+- The verdict's descents settle in a few Newton steps: from the drawing of a 300-line chain about
+  46,000 units for all three attempts, against 192,000 by line search alone. A 300-line chain is
+  diagnosed in about 103,000 units (the support's descent from the drawing 46,000, trimming 3,600,
+  the closest witness's descent 53,000), a 1,000-line chain in about 456,000, so both are named
+  within the budget (ignored stress tests in `diagnosis_tests.rs`, run by the nightly job).
 - Only a set judged unable to hold is reported, minimal by its witnesses; recompute reports it as
   the feature's error with `FeatureError.constraints` and `FixTarget::Constraint`.
 - Every failed part is diagnosed on its own budget, newest first, up to `DIAGNOSED_PARTS` (the rest
