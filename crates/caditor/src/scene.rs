@@ -2171,15 +2171,15 @@ impl<'a> Builder<'a> {
                 choice: FaceChoice::Opening,
                 ..
             } => {
-                let flat_before: BTreeSet<FaceKey> = open
+                let openable_before: BTreeSet<FaceKey> = open
                     .before
                     .faces
                     .iter()
-                    .filter(|face| face.flat)
+                    .filter(|face| face.openable)
                     .map(|face| face.key)
                     .collect();
                 self.choosable_faces(open.feature, &mesh.faces, opened, color, |face| {
-                    flat_before.contains(&face.key)
+                    openable_before.contains(&face.key)
                 })
             }
             OpenChoice::Edges { .. } | OpenChoice::Nothing => mesh
@@ -2356,7 +2356,7 @@ impl<'a> Builder<'a> {
             let faces = match opened {
                 Some((opened, choice)) => {
                     self.choosable_faces(open.feature, &open.before.faces, opened, color, |face| {
-                        face.flat || choice != FaceChoice::Opening
+                        face.openable || choice != FaceChoice::Opening
                     })
                 }
                 None => open

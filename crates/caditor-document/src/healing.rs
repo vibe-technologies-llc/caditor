@@ -208,6 +208,15 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
                 };
                 visitor.face(shell.body, face, &what);
             }
+            let count = shell.faces.len();
+            for (index, entry) in shell.faces.iter_mut().enumerate() {
+                let what = if count == 1 {
+                    "its face of its own thickness".to_owned()
+                } else {
+                    format!("face of its own thickness {} of {count}", index + 1)
+                };
+                visitor.face(shell.body, &mut entry.face, &what);
+            }
         }
         FeatureKind::OffsetFace(offset) => {
             let count = offset.faces.len();

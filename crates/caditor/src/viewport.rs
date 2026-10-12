@@ -121,7 +121,7 @@ const PROJECT_PROMPT: &str =
     "Click an edge, corner or face of a body, or a curve of another sketch, to project it";
 const INTERSECT_PROMPT: &str = "Click a face to draw where the sketch cuts it, Shift-click for its \
      whole body, or click a datum plane";
-const CHOOSE_FACES_PROMPT: &str = "Click flat faces to open them or close them again";
+const CHOOSE_FACES_PROMPT: &str = "Click faces to open them or close them again";
 const CHOOSE_MOVED_FACES_PROMPT: &str = "Click faces to move them or leave them out again";
 const CHOOSE_SPLIT_FACES_PROMPT: &str = "Click faces to split them or leave them out again";
 const CHOOSE_BODIES_PROMPT: &str = "Choose the operation and the two bodies in the feature's panel";
@@ -5617,6 +5617,15 @@ fn pick_action(
         return Some(
             pickable
                 .map(|pickable| hole_tools::place_click(model, picking.feature, pickable, ray))
+                .unwrap_or_default(),
+        );
+    }
+    if let Some(picking) = editing.picking()
+        && picking.slot == Slot::ShellOwnThickness
+    {
+        return Some(
+            pickable
+                .map(|pickable| shell_tools::own_thickness_click(model, picking.feature, pickable))
                 .unwrap_or_default(),
         );
     }

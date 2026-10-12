@@ -224,6 +224,8 @@ fn opening(model: &mut Model, name: &str, top: FaceReference) -> FeatureId {
             body: model.base,
             open: vec![top],
             thickness: Expression::parse("1 mm", &|_| None).unwrap(),
+            side: ShellSide::Inside,
+            faces: Vec::new(),
         }),
     );
     model.document.apply(transaction.finish()).unwrap();

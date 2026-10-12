@@ -719,6 +719,8 @@ mod tests {
             body,
             open: Vec::new(),
             thickness: millimetres(1.0),
+            side: caditor_document::ShellSide::Inside,
+            faces: Vec::new(),
         });
         let parameters = ParameterValues::default();
 

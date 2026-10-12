@@ -536,7 +536,11 @@ impl Rescaler {
                     self.length(second, name)?;
                 }
             }
-            FeatureKind::Shell(shell) => self.length(&mut shell.thickness, name)?,
+            FeatureKind::Shell(shell) => {
+                for thickness in shell.expressions_mut() {
+                    self.length(thickness, name)?;
+                }
+            }
             FeatureKind::OffsetFace(offset) => self.length(&mut offset.distance, name)?,
             FeatureKind::Mate(mate) => {
                 for distance in mate.lengths_mut() {

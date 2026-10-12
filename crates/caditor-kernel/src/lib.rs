@@ -92,7 +92,7 @@ pub use crate::{
     },
     sense::Sense,
     shared::SharedBuffer,
-    shell::{OffsetError, ShellError, offset_faces, shell},
+    shell::{OffsetError, ShellError, ShellSide, Walls, offset_faces, shell, shell_walls},
     surface::{
         BSplineSurface, BendError, BendTarget, BentSide, Cone, Cylinder, Extrusion,
         MAX_BENT_CONTROL_POINTS, MAX_SIDE_CONTROL_POINTS, PlaneSurface, Pole, Revolution, SideBend,

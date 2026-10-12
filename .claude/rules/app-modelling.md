@@ -343,7 +343,7 @@ pattern, Coordinate system, Scale model and Configurations. Panel rows, keys and
 
 ## Fillets, chamfers and shells
 
-- Fillet, Chamfer and Shell take the selected edges (or flat faces) of one body and create a feature
+- Fillet, Chamfer and Shell take the selected edges (or faces) of one body and create a feature
   that opens. Fillet and Chamfer also take selected faces, each standing for its boundary edges, and a
   lone body chosen in the tree for every edge of it (`blend_tools::selected_edges`, `Offers::blend`, an
   `EdgeSource` of edges picked one by one and `GroupSource`s; seams left out, each edge once, an edge on
@@ -351,14 +351,15 @@ pattern, Coordinate system, Scale model and Configurations. Panel rows, keys and
   expanded on every recompute (`document.md`), so an edge a later change adds is rounded too; the panel
   lists it as "All edges of <face>" or "All edges of <body>" (`blend_panel::group_row`). A click on an
   edge an `EdgeGroup` stands for (`blend_tools::toggle_edge`) replaces the group with its current edges
-  less the clicked one's chain. Edges and flat faces of the body before the feature
-  (`BodyMeshes::body_before`) are `Pickable::BlendEdge` and `Pickable::ShellFace`, drawn as in Preview
-  while open; a click toggles one.
+  less the clicked one's chain. Edges and openable faces (flat, cylinder, cone, sphere, torus:
+  `openable_face`, `BodyFace::openable`) of the body before the feature (`BodyMeshes::body_before`)
+  are `Pickable::BlendEdge` and `Pickable::ShellFace`, drawn as in Preview while open; a click
+  toggles one, and opening a face drops its own thickness (`shell_tools::without_own_thickness`).
 - Choose in the view on a fillet or chamfer first adds the edges selected in the view of its body and
   its selected faces as `EdgeGroup`s (`blend_tools::with_selected_edges`, one undoable change, edges
   already in a chosen chain and faces whose edges are all chosen skipped), then opens it. A shell's and
   an offset face's do the same with the selected faces of their body
-  (`shell_tools::with_selected_faces`, flat faces only; `offset_face_tools::with_selected_faces`;
+  (`shell_tools::with_selected_faces`, openable faces only; `offset_face_tools::with_selected_faces`;
   already chosen skipped), the panels taking the selection through their `FacesRow`.
 - A chamfer's Distances (Equal, Two, Angle; `blend_tools::FormChoice`) follow Shape: Two names the size
   First distance and adds Second distance (starting as the first), Angle adds an angle field (45 deg to
@@ -366,6 +367,16 @@ pattern, Coordinate system, Scale model and Configurations. Panel rows, keys and
   Measure from the other face (`flipped`). The palette has the same on the open feature or the tree's
   current one (`blend_tools::form_change`, `flip_change`), refused in words on anything but a chamfer
   and the flip on an equal one.
+- A shell's panel runs Open faces, Thickness, Own thickness, Walls, Body. Walls is a `segmented`
+  Inside, Outside or Both sides (`shell_tools::side_change`, "Set the walls of <shell> to <side>").
+  Own thickness lists each face given a thickness of its own as a value row captioned with the face
+  (`feature_fields::expression_row_removable`, owned as "Thickness of <face>", a remove button giving
+  it the shell's thickness again); Choose faces starts `Slot::ShellOwnThickness`, which keeps
+  choosing: each click on a face of the body (`shell_tools::own_thickness_click`, routed before other
+  picking like `HoleAdd`) adds it at the shell's thickness or removes it, one undoable change each,
+  an opened or unoffsettable face refused in a notice. The thickness arrow stands on the first opened
+  flat face's rim pointing into the wall: inward for Inside, outward for Outside, outward at half
+  scale for Both sides.
 - Hovering a row of the edges, opened, moved or split faces in an open fillet's, chamfer's, shell's,
   offset face's or split face's panel lights that edge or face (its pieces when split) as hovered
   (`widgets::removable_row_hovered`, `RowCache::preview`, handed to `ViewportState::preview_entities`

@@ -348,9 +348,26 @@ paths:
 
 # Shell (`shell/`)
 
-- `shell(solid, open, thickness, feature)` offsets every face by the thickness and subtracts the
-  result. Only flat faces open. Offsets are exact planes, cylinders, spheres, tori and cones (a cone
-  offset past its apex is framed again on the same nappe).
+- `shell_walls(solid, open, &Walls, feature)` offsets every face by its thickness and subtracts the
+  result; `shell(solid, open, thickness, feature)` is `Walls::inside(thickness)`. `Walls` holds the
+  thickness, a `ShellSide` and `faces`, a thickness of their own per face (`Walls::of`; refused on
+  an opened face as `OpenedFaceThickness`, below the resolution as `InvalidFaceThickness`). Offsets
+  are exact planes, cylinders, spheres, tori and cones (a cone offset past its apex is framed again
+  on the same nappe); splines, extrusions and revolutions are `UnsupportedFace`.
+- `ShellSide` splits each face's thickness between inside and outside (`inward_share`: `Inside` 1,
+  `Outside` 0, `BothSides` half). The outward part first grows the body (`grown`, `Offsets::grown`:
+  every closed face moved out by it, opened faces left where they are so the walls end flush with
+  them, `Naming::Kept` so the outer faces keep their names, a concave round tighter than it dropping
+  like any collapse); `find_crossing` on the grown body refuses walls running into each other as
+  `Walls` naming the original faces (matched by name). The inward part is the inner solid as below,
+  subtracted from the grown body (`Hollowing::body`); outside alone leaves every closed face at 0,
+  so the cavity is the body as it was, its faces named after the shell. A void's opening prism
+  starts the outward part inside the void (`Hollowing::beyond`) and reaches the opened face's
+  thickness, so the lining grown into the void opens too.
+- Flat faces open, and so do cylinder, cone, sphere and torus faces that can be offset outward
+  (outside every void, no smooth edge to a closed face): their inner face passes through the opening.
+  Any other curved opening is `CurvedOpening`, since the swept opening below needs a plane, and a
+  curved opening never falls back to it (the outward attempt's error is reported).
 - `inner.rs` solves each vertex on the offset surfaces of its faces; a vertex its faces leave free
   is also held to the axial plane through any round seam at it, so both ends of a seam stay on one
   ruling. `edge.rs` rebuilds a line or circle edge through its offset ends when that lies on both
@@ -386,8 +403,9 @@ paths:
   - a vertex of four to `MAX_SPLIT_FACES` faces whose offsets do not meet is split along a
     triangulation of its cycle of faces (`split.rs`) when its edges are all convex, all concave, or
     convex but for one concave edge; other corners are `Corner`.
-- An opened face with no smooth edge to a closed face is offset outward, so the inner solid passes
-  through it and the body needs room only across its walls; the attempt counts only when every
+- An opened face with no smooth edge to a closed face is offset outward by the largest thickness
+  (`Walls::reach`), so the inner solid passes through it and the body needs room only across its
+  walls; the attempt counts only when every
   closed face's inner face, dropped ones aside, survives the subtraction. A face of a void
   (`Solid::void_shells`) is never offset outward: its opening is a prism of its own outline
   reaching the thickness into the material.
@@ -396,7 +414,8 @@ paths:
   half the body in every direction. The prism's sides are square to the opened face, so a closed
   face meeting it at a sharp edge and leaning over it (outward normal along the opened face's, a
   chamfer round the rim) would be cut thinner than the thickness: `ShellError::Overhang`, refused
-  before building.
+  before building. An opened face the inner solid leaves where it is (walls outside) has no prism
+  cutting into a wall, so it is not checked.
 - `ShellError::Walls` names the faces whose offsets failed to build or settle, up to
   `NAMED_WALL_FACES`; a failure spread over more names none. When the outward attempt only fails to
   keep every wall and the inward one fails with an error naming its cause

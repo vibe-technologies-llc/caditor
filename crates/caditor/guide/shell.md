@@ -7,13 +7,26 @@ While it is open, click faces in the view to open or close them; the opened face
 selected colour. **Choose in the view** in the panel first opens the faces of the body selected
 then. The panel lists them, each with a button to close it again (hovering one lights it in the
 view), and sets the **Thickness**. Typing it previews the result before you press Enter. An arrow
-on the rim of the first opened face drags the thickness.
+on the rim of the first opened flat face drags the thickness, standing on the side the walls
+grow.
 
 A new shell starts from the thickness last used on one, kept between sessions (a thickness naming
 a parameter the model lacks falls back to 1 mm).
 
-Only flat faces can be opened. The walls grow inward from the body's faces, so its outside stays
-as it was.
+**Walls** says where the walls go: **Inside** hollows them out within the body's faces, so its
+outside stays as it was; **Outside** grows them beyond the faces, so the hollow is the body as it
+was; **Both sides** puts half of each wall either side. The opened faces stay where they are, so
+the walls end flush with them.
+
+**Own thickness** gives chosen faces a wall of their own thickness, such as a thicker floor. Press
+**Choose faces** and click faces in the view: each click gives a face its own thickness, starting
+at the shell's, or gives it the shell's thickness again; press Escape when done. Each face then
+has its own field, which takes units, expressions and parameters like the thickness, and a button
+to remove it. An opened face has no wall, so it cannot take a thickness of its own.
+
+Flat faces open, and so do round faces (cylinders, cones, spheres and tori) on the outside of the
+body that meet the faces left closed at sharp edges. Faces swept from splines or curves can be
+neither opened nor offset yet.
 Faces leaning over an opening, such as a chamfer around it, keep their thickness up to the
 opening; when the thickness would close the opening or cut such a wall thinner, the shell names
 the face and asks for a smaller thickness instead.

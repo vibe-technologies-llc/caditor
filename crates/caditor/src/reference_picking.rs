@@ -15,7 +15,7 @@ use crate::{
     pattern_tools::{self, Reference},
     primitive_tools, scale_tools,
     selection::{Pickable, Selection},
-    sketch_pattern_tools, solid_panel, split_face_tools, split_tools, thread_tools,
+    shell_tools, sketch_pattern_tools, solid_panel, split_face_tools, split_tools, thread_tools,
 };
 
 pub const STOP_HINT: &str = "Esc: stop choosing";
@@ -60,6 +60,7 @@ pub enum Slot {
     HoleEdge(EntityId),
     HoleConcentric(EntityId),
     HoleAdd,
+    ShellOwnThickness,
 }
 
 pub const MAX_HELD: usize = 2;
@@ -153,6 +154,11 @@ pub fn prompt(model: &Model, picking: Picking) -> String {
         Slot::HoleConcentric(_) => "Click a round edge to centre the hole on".to_owned(),
         Slot::HoleAdd => {
             "Click the face where each further hole goes, or press Escape to stop adding them"
+                .to_owned()
+        }
+        Slot::ShellOwnThickness => {
+            "Click a face to give it its own thickness or the shell's again, or press Escape to \
+             stop"
                 .to_owned()
         }
         Slot::ExtrudeDirection => "Click a straight edge, an axis or a sketch line to extrude \
@@ -304,6 +310,9 @@ pub fn change(
         }
         (Slot::HoleAdd, FeatureKind::Hole(hole)) => {
             hole_placement::add_change(model, selection, feature, hole)
+        }
+        (Slot::ShellOwnThickness, FeatureKind::Shell(_)) => {
+            shell_tools::own_thickness_change(model, selection, feature)
         }
         (Slot::MirrorPlane, FeatureKind::Mirror(mirror)) => {
             mirror_tools::plane_change(model, selection, feature, mirror)

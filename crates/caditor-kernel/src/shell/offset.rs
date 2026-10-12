@@ -46,9 +46,13 @@ pub enum OffsetError {
 impl From<ShellError> for OffsetError {
     fn from(error: ShellError) -> Self {
         match error {
-            ShellError::InvalidThickness => Self::InvalidDistance,
+            ShellError::InvalidThickness
+            | ShellError::InvalidFaceThickness(_)
+            | ShellError::OpenedFaceThickness(_) => Self::InvalidDistance,
             ShellError::MissingFace(face) => Self::MissingFace(face),
-            ShellError::UnsupportedFace(face) => Self::UnsupportedFace(face),
+            ShellError::UnsupportedFace(face) | ShellError::CurvedOpening(face) => {
+                Self::UnsupportedFace(face)
+            }
             ShellError::UnsupportedEdge(edge) => Self::UnsupportedEdge(edge),
             ShellError::TooCurved(face) => Self::TooCurved(face),
             ShellError::Corner(vertex) => Self::Corner(vertex),

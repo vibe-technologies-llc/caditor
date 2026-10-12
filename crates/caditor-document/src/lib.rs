@@ -164,7 +164,7 @@ pub use crate::{
         MAX_SELECTION_SETS, MAX_SET_MEMBERS, MAX_SET_NAME_CHARS, SelectionSet, SelectionSets,
         SetItem, SetLoss, SetMember, SetResolution, set_name,
     },
-    shell::Shell,
+    shell::{FaceThickness, Shell, ShellSide, openable_face},
     solid::{
         AxisSide, BodyOperation, ExactMass, Extrude, ExtrudeEnd, ExtrudeExtent, NameIndex,
         ReachedEnd, ReachedSide, RegionChoice, Revolve, RevolveAxis, RevolveExtent, SketchRegion,
