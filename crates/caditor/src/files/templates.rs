@@ -13,11 +13,12 @@ use egui::Ui;
 
 use super::{
     Event, FileCommand, Files, Intent, Opened, Opening, Origin, Output, Purpose, Since, WriteKind,
-    internal_load_error, menu_item, submenu_label, with_extension,
+    internal_load_error, with_extension,
 };
 use crate::{
-    commands::{Command, CommandFrame},
+    commands::Command,
     icons,
+    menu_bar::{self, MenuEntries},
     model::{Action, Model, Notice, display_name},
     widgets,
 };
@@ -321,41 +322,26 @@ impl Files {
     }
 }
 
-pub fn menu(
-    ui: &mut Ui,
-    files: &Files,
-    commands: &CommandFrame<'_>,
-    chosen: &mut Vec<Command>,
-    actions: &mut Vec<Action>,
-) {
-    let response = ui.menu_button(
-        submenu_label(ui, icons::TEMPLATE, NEW_FROM_TEMPLATE),
-        |ui| {
-            widgets::fitted_menu(ui, |ui| {
-                for path in files.templates.listed() {
-                    let name = title(&display_name(Some(path)));
-                    let item = widgets::menu_item(ui, icons::TEMPLATE, &name, None).on_hover_text(
-                        format!("Start a new untitled model as a copy of {}", path.display()),
-                    );
-                    if item.clicked() {
-                        actions.push(Action::File(FileCommand::NewFromTemplate(Some(
-                            path.clone(),
-                        ))));
-                    }
-                }
-                if files.templates.listed().is_empty() {
-                    ui.label(widgets::muted(NO_TEMPLATES, ui));
-                }
-                ui.separator();
-                for command in [Command::NewFromTemplate, Command::SaveAsTemplate] {
-                    if menu_item(ui, commands, command).clicked() {
-                        chosen.push(command);
-                    }
-                }
-            });
-        },
-    );
-    widgets::named(response.response, NEW_FROM_TEMPLATE);
+pub fn menu(ui: &mut Ui, files: &Files, entries: &mut MenuEntries<'_>, actions: &mut Vec<Action>) {
+    menu_bar::submenu(ui, icons::TEMPLATE, NEW_FROM_TEMPLATE, |ui| {
+        for path in files.templates.listed() {
+            let name = title(&display_name(Some(path)));
+            let item = widgets::menu_item(ui, icons::TEMPLATE, &name, None).on_hover_text(format!(
+                "Start a new untitled model as a copy of {}",
+                path.display()
+            ));
+            if item.clicked() {
+                actions.push(Action::File(FileCommand::NewFromTemplate(Some(
+                    path.clone(),
+                ))));
+            }
+        }
+        if files.templates.listed().is_empty() {
+            ui.label(widgets::muted(NO_TEMPLATES, ui));
+        }
+        ui.separator();
+        entries.items(ui, [Command::NewFromTemplate, Command::SaveAsTemplate]);
+    });
 }
 
 #[cfg(test)]

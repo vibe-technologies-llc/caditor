@@ -26,6 +26,10 @@ marked Changed, and Changed only lists just those. Taking keys another command u
 them or by resetting a command to keys someone else now has, asks first. Escape, Enter and Tab
 cannot be bound. Shortcuts shown in this guide are your current ones.
 
+The default keys follow a pattern while a sketch is edited: a letter alone picks a tool or runs
+a sketch command, such as {command:sketch.line} or {command:sketch.chamfer}, and Shift with a letter
+adds a [constraint](constraints), such as {command:constraint.horizontal}.
+
 ## In the view
 
 - The arrows orbit, Shift with the arrows pans, and Page Up and Page Down zoom; see

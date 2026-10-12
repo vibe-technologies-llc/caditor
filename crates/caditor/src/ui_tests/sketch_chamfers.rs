@@ -17,7 +17,7 @@ fn corner_fixture(harness: &mut Harness) -> FeatureId {
 }
 
 fn chosen_corner(harness: &mut Harness) {
-    harness.use_tool_with(Key::B, Modifiers::SHIFT);
+    harness.use_tool(Key::V);
     assert_eq!(harness.tool(), Some(Tool::Chamfer));
     harness.point_at(CORNER);
     harness.click_at(CORNER);

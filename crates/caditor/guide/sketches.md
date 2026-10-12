@@ -21,6 +21,9 @@ Escape ends editing.
 
 - Pick a tool from the sketch ribbon, by its key, or from {command:palette}. Escape steps back one
   stage at a time and then returns to Select; holding it down takes only one step.
+- A button with a small triangle in its corner holds more tools, such as Tangent circle under
+  Offset: click the triangle for the menu, or hover it to see what is inside. Undo and Redo sit
+  at the start of the sketch ribbon too.
 - While a shape is half drawn, Backspace or Delete takes back the last point.
 - Changing how a shape is drawn halfway keeps its first point when it means the same in the new
   way, such as a rectangle's first corner or a circle's or polygon's centre; otherwise finish or

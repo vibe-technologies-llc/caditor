@@ -85,7 +85,7 @@ fn a_sketch_chamfer_cuts_both_corners_between_two_selected_lines_and_their_neigh
     let lines = entities_of_kind(harness.sketch(feature), "Line");
 
     harness.select(entity_pickables(feature, &lines[..3]));
-    harness.use_tool_with(Key::B, Modifiers::SHIFT);
+    harness.use_tool(Key::V);
     harness.frame();
     assert!(harness.shows_containing("Cut 2 corners"));
     type_point(&mut harness, "2");
@@ -353,7 +353,6 @@ fn the_tools_off_the_sketch_bar_are_in_the_corner_menus_of_their_partners_at_75_
     harness.frame();
 
     let menus = [
-        (sketch_toolbar::CORNER_TOOLS, Tool::Chamfer),
         (sketch_toolbar::CURVE_FROM_GEOMETRY_TOOLS, Tool::BlendCurve),
         (sketch_toolbar::COPYING_TOOLS, Tool::CircularPattern),
         (sketch_toolbar::MODEL_GEOMETRY_TOOLS, Tool::Intersect),

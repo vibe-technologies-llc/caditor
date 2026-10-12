@@ -1,7 +1,108 @@
-use egui::{Id, Key, Modifiers, Pos2, Rect};
+use caditor_geometry::Point2;
+use egui::{Id, Key, Modifiers, Pos2, Rect, accesskit::Role};
 
-use super::{Harness, lowest_in, sketch_bar};
-use crate::{editing::Tool, sketch_toolbar, toolbar};
+use super::{Harness, entities_of_kind, lowest_in, sketch_bar};
+use crate::{editing::Tool, sketch_toolbar, sweep_tools, toolbar};
+
+fn button_in(harness: &mut Harness, area: Rect, name: &str) -> Rect {
+    harness.read_screen();
+    harness
+        .accessible
+        .iter()
+        .filter(|(_, node)| node.role() == Role::Button && node.label() == Some(name))
+        .filter_map(|(_, node)| node.bounds())
+        .map(|bounds| {
+            Rect::from_min_max(
+                Pos2::new(bounds.x0 as f32, bounds.y0 as f32),
+                Pos2::new(bounds.x1 as f32, bounds.y1 as f32),
+            )
+        })
+        .find(|rect| area.contains(rect.center()))
+        .unwrap_or_else(|| panic!("no button named '{name}' in {area:?}"))
+}
+
+#[test]
+fn sweep_has_a_button_in_the_solid_group_and_a_row_in_the_model_menu() {
+    let mut harness = Harness::new();
+    harness.frame();
+
+    let revolve = harness.button_rect("Revolve");
+    let sweep = harness.button_rect(sweep_tools::TITLE);
+    let hole = harness.button_rect("Hole");
+
+    assert!(revolve.right() <= sweep.left() && sweep.right() <= hole.left());
+    assert!(ribbon(&harness).contains_rect(sweep));
+
+    harness.hover(sweep_tools::TITLE);
+    assert!(harness.shows_containing(toolbar::SWEEP_HOVER));
+
+    harness.click("Model");
+    let row = |label: &str| lowest_in(&harness, Rect::EVERYTHING, label).y;
+    assert_eq!(harness.count_shown(sweep_tools::TITLE), 2);
+    assert!(row("Revolve") < row(sweep_tools::TITLE));
+    assert!(row(sweep_tools::TITLE) < row("Hole"));
+}
+
+#[test]
+fn the_sketch_bar_undoes_and_redoes_the_last_change() {
+    let mut harness = Harness::new();
+    let feature = harness.draw_on_new_sketch();
+    harness.use_tool(Key::P);
+    harness.click_at(Point2::new(10.0, 10.0));
+    harness.settle();
+    let points = |harness: &Harness| entities_of_kind(harness.sketch(feature), "Point").len();
+    let bar = sketch_bar(&harness);
+
+    assert_eq!(points(&harness), 1);
+
+    let undo = button_in(&mut harness, bar, "Undo");
+    harness.click_screen(undo.center());
+    harness.settle();
+    assert_eq!(points(&harness), 0);
+
+    let redo = button_in(&mut harness, bar, "Redo");
+    harness.click_screen(redo.center());
+    harness.settle();
+    assert_eq!(points(&harness), 1);
+    assert_eq!(harness.editing(), Some(feature));
+}
+
+#[test]
+fn sketch_chamfer_has_its_own_button_beside_sketch_fillet() {
+    let mut harness = Harness::new();
+    harness.draw_on_new_sketch();
+    let bar = sketch_bar(&harness);
+
+    let fillet = button_in(&mut harness, bar, Tool::Fillet.label());
+    let chamfer = button_in(&mut harness, bar, Tool::Chamfer.label());
+
+    assert!((fillet.top() - chamfer.top()).abs() < 0.5);
+    assert!(chamfer.left() >= fillet.right());
+
+    harness.click_screen(chamfer.center());
+    harness.frame();
+    assert_eq!(harness.tool(), Some(Tool::Chamfer));
+}
+
+#[test]
+fn a_corner_menu_lists_the_tools_it_holds_on_hover() {
+    let mut harness = Harness::new();
+    harness.draw_on_new_sketch();
+
+    let partners = &sketch_toolbar::CURVE_FROM_GEOMETRY_TOOLS;
+    harness.hover_button(partners.name);
+    let contents = partners.contents();
+
+    assert!(harness.shows(&contents), "{contents}");
+    for tool in partners.tools() {
+        assert!(contents.contains(tool.label()), "{contents}");
+    }
+
+    harness.hover_button(sketch_toolbar::ARC_WAYS_LABEL);
+    for tool in sketch_toolbar::ARC_TOOLS {
+        assert!(harness.shows_containing(tool.label()), "{tool:?}");
+    }
+}
 
 fn ribbon(harness: &Harness) -> Rect {
     egui::containers::panel::PanelState::load(&harness.context, Id::new("toolbar"))
@@ -12,7 +113,7 @@ fn ribbon(harness: &Harness) -> Rect {
 const RIBBON_GROUPS: [(&str, &[&str]); 7] = [
     ("History", &["Undo", "Redo"]),
     ("Sketch", &[toolbar::NEW_SKETCH_LABEL]),
-    ("Solid", &["Extrude", "Revolve", "Hole"]),
+    ("Solid", &["Extrude", "Revolve", sweep_tools::TITLE, "Hole"]),
     (
         "Modify",
         &[

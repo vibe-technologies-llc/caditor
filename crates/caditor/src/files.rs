@@ -1,5 +1,4 @@
 use std::{
-    borrow::Cow,
     collections::{BTreeMap, BTreeSet, VecDeque},
     ffi::OsString,
     fs, io,
@@ -41,7 +40,7 @@ use self::{
 use crate::{
     appearance::{self, SPACE_S},
     bodies::{self, FaceKey},
-    commands::{Command, CommandFrame, Offer, RecentSlot},
+    commands::{Command, CommandFrame, RecentSlot},
     configuration_export::ConfigurationFile,
     dialog_parts,
     drawing_export::{
@@ -58,7 +57,7 @@ use crate::{
     },
     import::{self, DrawingPlan, IMPORT_HINT, Placement, ReplacementSource, SourceRefusal},
     import_options::{self, Arrangement, Arranging, ImportOptionsCommand},
-    menu_bar,
+    menu_bar::{self, MenuEntries},
     model::{Action, FileEvent, Model, Notice, RecomputeStatus, WakerFactory, display_name},
     onboarding,
     portal::{self, DialogError, FileRequest, Filter, Mode},
@@ -3577,9 +3576,8 @@ fn canonical_location(path: &Path) -> PathBuf {
 pub fn menu(
     ui: &mut Ui,
     model: &Model,
-    files: &Files,
-    editing: &SketchEditing,
-    offers: &[Offer],
+    (files, editing): (&Files, &SketchEditing),
+    entries: &mut MenuEntries<'_>,
     commands: &mut CommandFrame<'_>,
     actions: &mut Vec<Action>,
 ) {
@@ -3599,162 +3597,96 @@ pub fn menu(
     };
     let again = files.export_again_name(model);
     let revertible = model.saved_version().map(|_| ());
-    let mut chosen = Vec::new();
-    let file_menu = ui.menu_button("File", |ui| {
-        widgets::fitted_menu(ui, |ui| {
-            let item = |ui: &mut Ui, chosen: &mut Vec<Command>, command: Command| {
-                if menu_item(ui, commands, command).clicked() {
-                    chosen.push(command);
-                }
-            };
-            item(ui, &mut chosen, Command::New);
-            templates::menu(ui, files, commands, &mut chosen, actions);
-            item(ui, &mut chosen, Command::Open);
-            ui.add_enabled_ui(!files.recent().is_empty(), |ui| {
-                let recent = ui.menu_button(submenu_label(ui, icons::RECENT, OPEN_RECENT), |ui| {
-                    widgets::fitted_menu(ui, |ui| {
-                        for path in files.recent() {
-                            let row = recent_item(ui, path, files.is_missing(path));
-                            if row.chosen {
-                                actions.push(Action::File(FileCommand::OpenPath(path.clone())));
-                            }
-                            if row.removed {
-                                actions.push(Action::File(FileCommand::ForgetRecent(path.clone())));
-                            }
-                        }
-                        ui.separator();
-                        item(ui, &mut chosen, Command::ClearRecent);
-                    });
-                });
-                widgets::named(recent.response, OPEN_RECENT);
-            })
-            .response
-            .on_disabled_hover_text(NO_RECENT);
-            let samples = ui.menu_button(submenu_label(ui, icons::SAMPLE, OPEN_SAMPLE), |ui| {
-                widgets::fitted_menu(ui, |ui| {
-                    for sample in Sample::ALL {
-                        let response = widgets::menu_item(ui, icons::SAMPLE, sample.title(), None)
-                            .on_hover_text(sample.description());
-                        if response.clicked() {
-                            chosen.push(Command::OpenSample(sample));
-                        }
+    let file_menu = menu_bar::top_menu(ui, "File", |ui| {
+        entries.item(ui, Command::New);
+        templates::menu(ui, files, entries, actions);
+        entries.item(ui, Command::Open);
+        ui.add_enabled_ui(!files.recent().is_empty(), |ui| {
+            menu_bar::submenu(ui, icons::RECENT, OPEN_RECENT, |ui| {
+                for path in files.recent() {
+                    let row = recent_item(ui, path, files.is_missing(path));
+                    if row.chosen {
+                        actions.push(Action::File(FileCommand::OpenPath(path.clone())));
                     }
-                });
-            });
-            widgets::named(samples.response, OPEN_SAMPLE);
-            ui.separator();
-            item(ui, &mut chosen, Command::Save);
-            item(ui, &mut chosen, Command::SaveAs);
-            menu_bar::submenu(
-                ui,
-                icons::command(Command::VersionHistory),
-                HISTORY_AND_DETAILS,
-                |ui| {
-                    let revert = ui
-                        .add_enabled_ui(revertible.is_ok(), |ui| {
-                            menu_item(ui, commands, Command::RevertToSaved)
-                        })
-                        .inner;
-                    let revert = match revertible {
-                        Ok(()) => revert.on_hover_text(REVERT_HINT),
-                        Err(reason) => revert.on_disabled_hover_text(reason),
-                    };
-                    if revert.clicked() {
-                        chosen.push(Command::RevertToSaved);
+                    if row.removed {
+                        actions.push(Action::File(FileCommand::ForgetRecent(path.clone())));
                     }
-                    ui.add_enabled_ui(history.is_ok(), |ui| {
-                        item(ui, &mut chosen, Command::VersionHistory);
-                    })
-                    .response
-                    .on_disabled_hover_text("Save the model to start keeping its versions.");
-                    item(ui, &mut chosen, Command::ModelProperties);
-                },
-            );
-            ui.separator();
-            let hinted = |ui: &mut Ui, chosen: &mut Vec<Command>, command: Command, hint| {
-                let unavailable = match command {
-                    Command::ExportSketch => Some(NOT_A_SKETCH),
-                    Command::ExportFace => Some(NOT_A_FACE),
-                    Command::ExportParameters => Some(parameters::NO_PARAMETERS),
-                    _ => None,
-                };
-                let availability = match (command, unavailable) {
-                    (Command::ExportAgain, _) => again.clone().map(|_| ()).map_err(Cow::Borrowed),
-                    (_, Some(reason)) => offers
-                        .iter()
-                        .find(|offer| offer.command == command)
-                        .map_or_else(
-                            || Err(Cow::Borrowed(reason)),
-                            |offer| offer.availability.clone(),
-                        ),
-                    (_, None) => Ok(()),
-                };
-                let title = match (command, &again) {
-                    (Command::ExportAgain, Ok(name)) => command.title_with(name),
-                    _ => command.title(),
-                };
-                let response = ui
-                    .add_enabled_ui(availability.is_ok(), |ui| {
-                        titled_menu_item(ui, commands, command, &title)
-                    })
-                    .inner;
-                let response = match (hint, &availability) {
-                    (_, Err(reason)) => response.on_disabled_hover_text(reason.as_ref()),
-                    (Some(hint), Ok(())) => response.on_hover_text(hint),
-                    (None, Ok(())) => response,
-                };
-                if response.clicked() {
-                    chosen.push(command);
                 }
-            };
-            menu_bar::submenu(ui, icons::command(Command::Import), IMPORT_MENU, |ui| {
-                hinted(ui, &mut chosen, Command::Import, Some(IMPORT_HINT));
-                hinted(
-                    ui,
-                    &mut chosen,
-                    Command::ImportParameters,
-                    Some(parameters::IMPORT_HINT),
-                );
-            });
-            menu_bar::submenu(ui, icons::command(Command::Export), EXPORT_MENU, |ui| {
-                hinted(ui, &mut chosen, Command::Export, None);
-                hinted(
-                    ui,
-                    &mut chosen,
-                    Command::ExportAgain,
-                    Some(EXPORT_AGAIN_HINT),
-                );
-                hinted(ui, &mut chosen, Command::ExportImage, Some(IMAGE_HINT));
-                hinted(ui, &mut chosen, Command::ExportSketch, Some(SKETCH_HINT));
-                hinted(ui, &mut chosen, Command::ExportFace, Some(FACE_HINT));
-                hinted(
-                    ui,
-                    &mut chosen,
-                    Command::ExportParameters,
-                    Some(parameters::EXPORT_HINT),
-                );
                 ui.separator();
-                let keep = widgets::menu_choice(
-                    ui,
-                    icons::command(Command::KeepDrawingConstruction),
-                    &Command::KeepDrawingConstruction.title(),
-                    commands.keys(Command::KeepDrawingConstruction),
-                    files.keeps_drawing_construction(),
-                )
-                .on_hover_text(KEEP_CONSTRUCTION_HINT);
-                if keep.clicked() {
-                    chosen.push(Command::KeepDrawingConstruction);
-                }
+                entries.item(ui, Command::ClearRecent);
             });
-            if files.has_recoverable() {
-                ui.separator();
-                item(ui, &mut chosen, Command::RecoverUnsaved);
+        })
+        .response
+        .on_disabled_hover_text(NO_RECENT);
+        menu_bar::submenu(ui, icons::SAMPLE, OPEN_SAMPLE, |ui| {
+            for sample in Sample::ALL {
+                let command = Command::OpenSample(sample);
+                let availability = entries.availability(command);
+                entries.entry(
+                    ui,
+                    command,
+                    sample.title(),
+                    availability,
+                    Some(sample.description()),
+                );
             }
-            ui.separator();
-            item(ui, &mut chosen, Command::Quit);
         });
+        ui.separator();
+        entries.items(ui, [Command::Save, Command::SaveAs]);
+        menu_bar::submenu(
+            ui,
+            icons::command(Command::VersionHistory),
+            HISTORY_AND_DETAILS,
+            |ui| {
+                entries.hinted(ui, Command::RevertToSaved, REVERT_HINT);
+                entries.items(ui, [Command::VersionHistory, Command::ModelProperties]);
+            },
+        );
+        ui.separator();
+        menu_bar::submenu(ui, icons::command(Command::Import), IMPORT_MENU, |ui| {
+            entries.hinted(ui, Command::Import, IMPORT_HINT);
+            entries.hinted(ui, Command::ImportParameters, parameters::IMPORT_HINT);
+        });
+        menu_bar::submenu(ui, icons::command(Command::Export), EXPORT_MENU, |ui| {
+            entries.item(ui, Command::Export);
+            let title = entries.detail(Command::ExportAgain).map_or_else(
+                || Command::ExportAgain.title(),
+                |name| Command::ExportAgain.title_with(name),
+            );
+            let availability = entries.availability(Command::ExportAgain);
+            entries.entry(
+                ui,
+                Command::ExportAgain,
+                &title,
+                availability,
+                Some(EXPORT_AGAIN_HINT),
+            );
+            entries.hinted(ui, Command::ExportImage, IMAGE_HINT);
+            for (command, unoffered, hint) in [
+                (Command::ExportSketch, NOT_A_SKETCH, SKETCH_HINT),
+                (Command::ExportFace, NOT_A_FACE, FACE_HINT),
+            ] {
+                let availability = entries.availability_or(command, unoffered);
+                entries.entry(ui, command, &command.title(), availability, Some(hint));
+            }
+            entries.hinted(ui, Command::ExportParameters, parameters::EXPORT_HINT);
+            ui.separator();
+            entries.choice_with(
+                ui,
+                Command::KeepDrawingConstruction,
+                files.keeps_drawing_construction(),
+                KEEP_CONSTRUCTION_HINT,
+            );
+        });
+        if files.has_recoverable() {
+            ui.separator();
+            entries.item(ui, Command::RecoverUnsaved);
+        }
+        ui.separator();
+        entries.item(ui, Command::Quit);
     });
-    if file_menu.response.clicked() {
+    let chosen = entries.take_chosen();
+    if file_menu.clicked() {
         actions.push(Action::File(FileCommand::ListTemplates));
         actions.push(Action::File(FileCommand::CheckRecent));
     }
@@ -3972,19 +3904,6 @@ pub fn is_model_file(path: &Path) -> bool {
         .is_some_and(|extension| extension.eq_ignore_ascii_case(FILE_EXTENSION))
 }
 
-fn menu_item(ui: &mut Ui, commands: &CommandFrame<'_>, command: Command) -> egui::Response {
-    titled_menu_item(ui, commands, command, &command.title())
-}
-
-fn titled_menu_item(
-    ui: &mut Ui,
-    commands: &CommandFrame<'_>,
-    command: Command,
-    title: &str,
-) -> egui::Response {
-    widgets::menu_item(ui, icons::command(command), title, commands.keys(command))
-}
-
 fn recent_item(ui: &mut Ui, path: &Path, missing: bool) -> widgets::RemovableItem {
     let name = display_name(Some(path));
     let folder = if missing {
@@ -4009,13 +3928,6 @@ fn recent_item(ui: &mut Ui, path: &Path, missing: bool) -> widgets::RemovableIte
             hover: &hover,
             remove: &remove,
         },
-    )
-}
-
-fn submenu_label(ui: &Ui, glyph: &str, title: &str) -> (egui::RichText, String) {
-    (
-        widgets::icon(glyph).color(appearance::tokens(ui).text_muted),
-        title.to_owned(),
     )
 }
 

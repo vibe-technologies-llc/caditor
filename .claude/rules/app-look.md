@@ -261,16 +261,22 @@ paths:
 
 ## Menu bar, ribbon and status bar
 
+- The menu bar, the main ribbon and the status bar share one frame (`ribbon::bar_frame`,
+  `ribbon::BAR_MARGIN`); the sketch ribbon adds its accent line to the top margin.
 - The menu bar (File, Edit, View, Model, Sketch, Help) is built from the commands with their icons
-  and shortcuts; items enable from the previous frame's offers (`Workspace::last_offers`) with the
-  reason on hover. Menus keep few entries: related commands sit in submenus (`menu_bar::submenu`), e.g. File's
-  Versions and details, Import and Export, Edit's Select, View's Projection and snapping, Selection
-  tools, Show and hide, Inspect and Window and interface, Model's Modify shape and Sketch's Drawing
-  tools, Modify geometry, Select geometry and Constrain automatically. Then come the model title, a
-  Preferences icon button (the gear; no menu entry) and the Search commands field (opens the palette
-  on click; keys as `widgets::key_cap`s) and, with caditor's title bar, the logo (leading) and window buttons.
-  Model keeps its creation tools at the top level and groups the rest in submenus (Patterns, Datums,
-  Bodies, Features, Rollback, Parameters, Recompute).
+  and shortcuts; every menu, File's included (`files::menu`, `templates::menu`), draws its command
+  entries through `menu_bar::MenuEntries` (`entry`, `hinted`, `choice_with` for a hover hint or a
+  check the `ToggleStates` do not hold, `availability_or` for a command not offered every frame),
+  enabled from the previous frame's offers (`Workspace::last_offers`) with the reason on hover.
+  Menus keep few entries: related commands sit in submenus (`menu_bar::submenu`), e.g. File's
+  New from template, Open recent, Open sample, Versions and details, Import and Export, Edit's
+  Select, View's Projection and snapping, Selection tools, Show and hide, Inspect and Window and
+  interface, Model's Modify shape and Sketch's Drawing tools, Modify geometry, Select geometry and
+  Constrain automatically. Then come the model title, a Preferences icon button (the gear; no menu
+  entry) and the Search commands field (opens the palette on click; keys as `widgets::key_cap`s)
+  and, with caditor's title bar, the logo (leading) and window buttons. Model keeps its creation
+  tools (New sketch, Extrude, Revolve, Sweep, Hole, Thread, Primitives) at the top level and groups
+  the rest in submenus (Patterns, Datums, Bodies, Features, Rollback, Parameters, Recompute).
 - The model title (file icon, name, Unsaved pill, "› sketch" while one is edited) sits centred on the
   window when it fits between menus and search, else as near as it can; clicking opens the model
   details (path, saved state, Save, Save as…, Version history…, Model properties…, Copy file
@@ -286,25 +292,38 @@ paths:
   (`menu_bar::submenu`) work as the menu bar's do.
 - Both ribbons are built by `ribbon.rs`: whole groups packed into rows by last frame's natural widths
   (`remembered_width`), so widths never depend on the selection or active tool and selecting never
-  moves the 3D view. Captions show only while the ribbon fits one row. The main ribbon turns compact
-  (icon-only `ToolButton`s, `toolbar::tool_button`) while its labelled rows would take more than
-  `MOST_LABELLED_SHARE` of the window's height, judged from labelled widths remembered apart from
-  compact ones. Buttons explain themselves on hover with `ribbon::explained` (name, what it does
-  with its shortcut, or why it is unavailable).
-- The main ribbon (`toolbar.rs`) is `ToolButton`s in the groups of its `Group` enum. While a plane is
-  being chosen for a new sketch, New sketch shows selected and clicking it stops choosing (as Escape
-  does), so the ribbon keeps its height.
+  moves the 3D view. Groups keep one rhythm on both: `DIVIDER_SPACE` with a divider between groups,
+  `TOOL_GAP` between buttons, `ROW_GAP` between rows, captions `CAPTION_GAP` under their buttons,
+  shown only while the ribbon fits one labelled row. Each ribbon turns compact while its labelled
+  rows would take more than `MOST_LABELLED_SHARE` of the window's height
+  (`ribbon::labelled_too_tall`), judged from labelled widths remembered apart from compact ones (a
+  second ribbon name). Compact buttons are icon-only `ToolButton`s named by their label for screen
+  readers. Buttons explain themselves on hover with `ribbon::explained` (name, what it does with its
+  shortcut, or why it is unavailable).
+- The main ribbon (`toolbar.rs`) is `ToolButton`s in the groups of its `Group` enum: History, Sketch,
+  Solid (Extrude, Revolve, Sweep, Hole), Modify, Pattern, Reference, Inspect; compact through
+  `toolbar::tool_button`. While a plane is being chosen for a new sketch, New sketch shows selected
+  and clicking it stops choosing (as Escape does), so the ribbon keeps its height.
 - While a sketch is edited the sketch ribbon (`sketch_toolbar.rs`) sits under it on `accent_surface`
   with an accent line along its top: a header without a caption (sketch badge, "Editing <name>"
   truncating with the full name on hover, the sketch's counts as `count_pill`s at the right and its
   status pill under it, two lines whatever the status, width clamped to the title and at least the
   widest status so constraining never moves the groups or the view; `app-sketching.md`, Status
-  pills), then Select, Draw, Modify, Constrain and Dimension. Finish sketch is a primary button at
-  the right of the first row, with Look at sketch beside it as a framed `framed_icon_button`; both are
-  `CONTROL_HEIGHT` tall and centred on the whole bar, captions included. Shape tools with several ways to draw carry a `corner_menu_button`
-  listing them as `menu_choice`s; the compact Sketch fillet, Offset, Mirror and Project buttons a
-  `compact_corner_menu_button` listing the tools without a button of their own, then the host's ways
-  when it has some (Offset's).
+  pills), then History (compact Undo over Redo, named for the step as the main ribbon's are, sending
+  `Action::Undo` and `Redo` without invoking the commands the main ribbon invokes), Select, Draw,
+  Modify, Constrain and Dimension. Compact (`Bar::compact`, at 200% in the screenshot window) the
+  header drops its badge, Select and the Draw buttons go icon-only and Draw folds into
+  `COMPACT_DRAW_ROWS` rows, so the bar packs into two rows; every button keeps its accessible name.
+  Finish sketch is a primary button at the right of the first row, with Look at sketch beside it as
+  a framed `framed_icon_button`; both are `CONTROL_HEIGHT` tall and centred on the whole bar,
+  captions included.
+- Corner menus: shape tools with several ways to draw carry a `widgets::corner_menu_button` (a caret
+  at the top right, `compact_corner_menu_button` on a compact ribbon) listing them as
+  `menu_choice`s; the compact Offset, Mirror and Project buttons a `compact_corner_menu_button` (a
+  notch at the bottom right) listing the tools without a button of their own, then the host's ways
+  when it has some (Offset's). Both marks are drawn in the text colour (accent while one of their
+  tools is active), and each takes a `widgets::CornerMenu` whose hover names the menu and lists
+  what is inside (`Partners::contents`, `sketch_toolbar::menu_contents`).
 - Several tools share one Draw button showing the one last used or chosen, each keeping its own key
   and command, which the button handles whichever is shown: the three arcs (`ARC_TOOLS`), Spline,
   Ellipse, Elliptical arc and Conic (`CURVE_TOOLS`, a `ToolGroup`), Polygon and Spur gear
@@ -317,7 +336,9 @@ paths:
   uploads already ask for, so the last upload frame is followed by one with neither and no repaint
   request (`ui_tests/upload_indicator.rs`).
 - The status bar (`status_bar.rs`) runs recompute | file activity | notice, then right-aligned
-  selection | unit | size. Recompute is progress (the feature running, and how long once past two
+  selection | its size or pair reading | selection filter (while not Everything) | unit | interface
+  size (while not 100%); the filter, unit and interface size are `small_button`s with an icon.
+  Recompute is progress (the feature running, and how long once past two
   seconds, from `Progress`) with Cancel, Up to date, or a failed `status_pill` that is a button
   focusing the next failed feature after the tree's primary row (`status_bar::failed_after`,
   wrapping, as Go to the next failed feature, F8, does; Shift+F8 the previous); a cancelled or

@@ -17,6 +17,7 @@ use crate::{
     icons, logo,
     model::{Action, Model},
     preferences::PreferencesCommand,
+    ribbon,
     section::SectionCommand,
     selection::SelectionFilter,
     shape_modes::ShapeMode,
@@ -144,6 +145,7 @@ pub fn show(
 ) {
     let trailing_id = Id::new("menu-bar-trailing");
     let panel = egui::Panel::top("menu-bar")
+        .frame(ribbon::bar_frame(ui.style()))
         .show_separator_line(true)
         .show(ui, |ui| {
             if let Some(drag) = window_frame::drag_region(ui, context.chrome) {
@@ -154,12 +156,13 @@ pub fn show(
                 if context.chrome.built_in() {
                     logo::show(ui, ui.spacing().interact_size.y);
                 }
+                let mut entries =
+                    MenuEntries::new(context.offers, context.toggles, commands.keymap());
                 files::menu(
                     ui,
                     model,
-                    context.files,
-                    context.editing,
-                    context.offers,
+                    (context.files, context.editing),
+                    &mut entries,
                     commands,
                     actions,
                 );
@@ -170,7 +173,7 @@ pub fn show(
                     visited: Vec::new(),
                     sets: context.sets,
                     picked_sets: Vec::new(),
-                    entries: MenuEntries::new(context.offers, context.toggles, commands.keymap()),
+                    entries,
                 };
                 menus.edit(ui);
                 menus.view(ui);
@@ -469,11 +472,49 @@ impl<'a> MenuEntries<'a> {
         title: &str,
         availability: Result<(), Cow<'static, str>>,
     ) {
+        self.entry(ui, command, title, availability, None);
+    }
+
+    pub fn hinted(&mut self, ui: &mut Ui, command: Command, hint: &str) {
+        let availability = self.availability(command);
+        self.entry(ui, command, &command.title(), availability, Some(hint));
+    }
+
+    pub fn availability_or(
+        &self,
+        command: Command,
+        unoffered: &'static str,
+    ) -> Result<(), Cow<'static, str>> {
+        self.offers
+            .iter()
+            .find(|offer| offer.command == command)
+            .map_or(Err(Cow::Borrowed(unoffered)), |offer| {
+                offer.availability.clone()
+            })
+    }
+
+    pub fn entry(
+        &mut self,
+        ui: &mut Ui,
+        command: Command,
+        title: &str,
+        availability: Result<(), Cow<'static, str>>,
+        hint: Option<&str>,
+    ) {
         let keys = self.keys(command);
         let response = ui.add_enabled_ui(availability.is_ok(), |ui| {
             widgets::menu_item(ui, icons::command(command), title, keys)
         });
-        self.respond(command, response.inner, &availability);
+        self.respond(command, response.inner, &availability, hint);
+    }
+
+    pub fn choice_with(&mut self, ui: &mut Ui, command: Command, chosen: bool, hint: &str) {
+        let availability = self.availability(command);
+        let keys = self.keys(command);
+        let response = ui.add_enabled_ui(availability.is_ok(), |ui| {
+            widgets::menu_choice(ui, icons::command(command), &command.title(), keys, chosen)
+        });
+        self.respond(command, response.inner, &availability, Some(hint));
     }
 
     pub fn offered(&mut self, ui: &mut Ui, command: Command, title: &str) {
@@ -489,7 +530,7 @@ impl<'a> MenuEntries<'a> {
         let response = ui.add_enabled_ui(availability.is_ok(), |ui| {
             widgets::menu_choice(ui, icons::command(command), &command.title(), keys, chosen)
         });
-        self.respond(command, response.inner, &availability);
+        self.respond(command, response.inner, &availability, None);
     }
 
     pub fn items(&mut self, ui: &mut Ui, commands: impl IntoIterator<Item = Command>) {
@@ -509,14 +550,16 @@ impl<'a> MenuEntries<'a> {
         command: Command,
         response: Response,
         availability: &Result<(), Cow<'static, str>>,
+        hint: Option<&str>,
     ) {
         if self.focus_first && availability.is_ok() {
             response.request_focus();
             self.focus_first = false;
         }
-        let response = match availability {
-            Ok(()) => response,
-            Err(reason) => response.on_disabled_hover_text(reason.as_ref()),
+        let response = match (availability, hint) {
+            (Err(reason), _) => response.on_disabled_hover_text(reason.as_ref()),
+            (Ok(()), Some(hint)) => response.on_hover_text(hint),
+            (Ok(()), None) => response,
         };
         if response.clicked() {
             self.chosen.push(command);
@@ -812,6 +855,7 @@ impl Menus<'_> {
                     Command::NewSketch,
                     Command::Extrude,
                     Command::Revolve,
+                    Command::Sweep,
                     Command::Hole,
                     Command::Thread,
                 ],
@@ -1007,8 +1051,9 @@ fn step_title(command: Command, step: Option<&str>, available: bool) -> String {
     }
 }
 
-fn top_menu(ui: &mut Ui, title: &str, add: impl FnOnce(&mut Ui)) {
-    ui.menu_button(title, |ui| widgets::fitted_menu(ui, add));
+pub fn top_menu(ui: &mut Ui, title: &str, add: impl FnOnce(&mut Ui)) -> Response {
+    ui.menu_button(title, |ui| widgets::fitted_menu(ui, add))
+        .response
 }
 
 pub fn submenu(ui: &mut Ui, glyph: &str, title: &str, add: impl FnOnce(&mut Ui)) {

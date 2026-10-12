@@ -69,9 +69,9 @@ paths:
 
 Tools without a ribbon button (it stays one row) live in the Model menu and the palette: Offset face,
 Split face, the primitives, Thread, Copy body, Split body, Mate body, Mirror faces, Curve and Point
-pattern, Coordinate system, Scale model and Configurations. Sweep is in neither the ribbon nor the
-Model menu (which fills the screen at 200%): the palette, Alt+Shift+W and the right-click menu of
-selected sketch curves (`view_menu::SKETCH_TOOLS`) reach it. Panel rows, keys and wordings are in the
+pattern, Coordinate system, Scale model and Configurations. Sweep has a button in the Solid group
+and a Model menu row, and is in the right-click menu of selected sketch curves
+(`view_menu::SKETCH_TOOLS`). Panel rows, keys and wordings are in the
 `*_panel.rs` files; this file holds the behaviour behind them.
 
 ## Preview while open

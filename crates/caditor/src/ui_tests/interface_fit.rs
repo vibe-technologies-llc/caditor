@@ -45,7 +45,6 @@ fn sketch_bar_buttons() -> Vec<String> {
             sketch_toolbar::SELECT_ALL_LABEL,
             sketch_toolbar::DELETE_LABEL,
             sketch_toolbar::FINISH_LABEL,
-            sketch_toolbar::CORNER_TOOLS.name,
             sketch_toolbar::CURVE_FROM_GEOMETRY_TOOLS.name,
             sketch_toolbar::COPYING_TOOLS.name,
             sketch_toolbar::MODEL_GEOMETRY_TOOLS.name,

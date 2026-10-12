@@ -1,8 +1,8 @@
 use std::{fmt::Debug, hash::Hash, sync::Arc};
 
 use egui::{
-    Galley, Id, Label, Margin, Rect, Response, RichText, Stroke, TextStyle, TextWrapMode, Ui,
-    WidgetText, pos2, vec2,
+    Frame, Galley, Id, Label, Margin, Rect, Response, RichText, Stroke, Style, TextStyle,
+    TextWrapMode, Ui, WidgetText, pos2, vec2,
 };
 
 use crate::{
@@ -20,8 +20,25 @@ pub const BAR_MARGIN: Margin = Margin {
     top: SPACE_S as i8,
     bottom: SPACE_S as i8,
 };
+pub const MOST_LABELLED_SHARE: f32 = 0.2;
 const CAPTION_GAP: f32 = SPACE_XS;
 const WIDTH_TOLERANCE: f32 = 0.5;
+
+pub fn bar_frame(style: &Style) -> Frame {
+    Frame::side_top_panel(style).inner_margin(BAR_MARGIN)
+}
+
+pub fn labelled_too_tall(ui: &Ui, rows: usize) -> bool {
+    rows_height(ui, rows) > MOST_LABELLED_SHARE * ui.ctx().content_rect().height()
+}
+
+pub fn listed(names: &[&str]) -> String {
+    match names {
+        [] => String::new(),
+        [only] => (*only).to_owned(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    }
+}
 
 pub fn width_id(ribbon: &'static str, group: impl Hash + Debug) -> Id {
     Id::new((ribbon, "group-width", group))
@@ -155,6 +172,17 @@ mod tests {
     use super::*;
 
     const WIDTHS: [(char, f32); 4] = [('a', 200.0), ('b', 50.0), ('c', 500.0), ('d', 50.0)];
+
+    #[test]
+    fn names_are_listed_in_words() {
+        assert_eq!(listed(&[]), "");
+        assert_eq!(listed(&["Offset"]), "Offset");
+        assert_eq!(listed(&["Offset", "Blend curve"]), "Offset and Blend curve");
+        assert_eq!(
+            listed(&["Offset", "Tangent circle", "Blend curve"]),
+            "Offset, Tangent circle and Blend curve"
+        );
+    }
 
     #[test]
     fn groups_fill_each_row_before_wrapping_and_the_first_row_can_leave_room() {
