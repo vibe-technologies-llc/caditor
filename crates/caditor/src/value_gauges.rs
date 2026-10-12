@@ -87,7 +87,6 @@ pub enum Measured {
     EndOffset(Reach),
     PrimitiveSize(usize),
     PatternSpacing(usize),
-    PatternCount(usize),
     CircularAngle,
     CircularCount,
 }
@@ -153,7 +152,7 @@ impl Measured {
     pub fn amount(self) -> Amount {
         match self {
             Self::PlaneAngle | Self::Taper | Self::CircularAngle => Amount::Angle,
-            Self::PatternCount(_) | Self::CircularCount => Amount::Count,
+            Self::CircularCount => Amount::Count,
             Self::HoleDepth
             | Self::HoleDiameter
             | Self::OffsetDistance
@@ -179,7 +178,7 @@ impl Measured {
             }
             Self::Taper => Rule::Taper,
             Self::PatternSpacing(_) => Rule::AboveZeroOrReverse,
-            Self::PatternCount(_) | Self::CircularCount => Rule::Count,
+            Self::CircularCount => Rule::Count,
             Self::CircularAngle => Rule::Turn,
             Self::PrimitiveSize(index) => {
                 let rule = kind
@@ -212,14 +211,13 @@ impl Measured {
                 let (what, _) = kind.primitive()?.shape.sizes().into_iter().nth(index)?;
                 return Some(capitalized(what));
             }
-            Self::PatternSpacing(index) | Self::PatternCount(index) => {
+            Self::PatternSpacing(index) => {
                 let mut probe = kind.clone();
                 let direction = direction_mut(&mut probe, index)?;
                 let captions = pattern_panel::direction_captions(index);
-                match (self, direction.measured) {
-                    (Self::PatternCount(_), _) => captions.count,
-                    (_, LinearSpacing::BetweenCopies) => captions.spacing,
-                    (_, LinearSpacing::Total) => captions.total,
+                match direction.measured {
+                    LinearSpacing::BetweenCopies => captions.spacing,
+                    LinearSpacing::Total => captions.total,
                 }
             }
         };
@@ -238,7 +236,7 @@ impl Measured {
             Self::Taper => "Drag to change the extrusion's taper",
             Self::EndOffset(_) => "Drag to change how far the end goes past the face",
             Self::CircularAngle => "Drag to change the pattern's total angle",
-            Self::PatternCount(_) | Self::CircularCount => "Drag to add or remove copies",
+            Self::CircularCount => "Drag to add or remove copies",
             Self::PatternSpacing(_) => match self.caption(kind).as_deref() {
                 Some(caption) => {
                     return format!("Drag to change the pattern's {}", caption.to_lowercase());
@@ -324,7 +322,6 @@ impl Measured {
                 _ => None,
             },
             Self::PatternSpacing(index) => Some(&mut direction_mut(kind, index)?.spacing),
-            Self::PatternCount(index) => Some(&mut direction_mut(kind, index)?.count),
             Self::CircularAngle => Some(&mut circular_mut(kind)?.angle),
             Self::CircularCount => Some(&mut circular_mut(kind)?.count),
         }
@@ -362,7 +359,6 @@ impl Measured {
             | Self::WallThickness
             | Self::PrimitiveSize(_)
             | Self::PatternSpacing(_)
-            | Self::PatternCount(_)
             | Self::CircularAngle
             | Self::CircularCount => {}
         }
@@ -372,7 +368,7 @@ impl Measured {
         match self {
             Self::Taper => TAPER_STEP_DEGREES,
             Self::PlaneAngle | Self::CircularAngle => STEP_DEGREES,
-            Self::PatternCount(_) | Self::CircularCount => 1.0,
+            Self::CircularCount => 1.0,
             Self::HoleDepth
             | Self::HoleDiameter
             | Self::OffsetDistance
@@ -411,7 +407,7 @@ impl Measured {
                 value.clamp(-steepest, steepest)
             }
             Self::CircularAngle => value.clamp(step, FULL_TURN_DEGREES),
-            Self::PatternCount(_) | Self::CircularCount => value.round().clamp(1.0, most_copies),
+            Self::CircularCount => value.round().clamp(1.0, most_copies),
         }
     }
 }
@@ -874,22 +870,19 @@ impl Builder<'_> {
         let Some((along, count, spacing)) = found() else {
             return Vec::new();
         };
-        let (each, scale) = match direction.measured {
-            LinearSpacing::BetweenCopies => (spacing, count - 1.0),
-            LinearSpacing::Total if count > 1.0 => (spacing / (count - 1.0), 1.0),
-            LinearSpacing::Total => (spacing, 1.0),
+        if count < 2.0 {
+            return Vec::new();
+        }
+        let scale = match direction.measured {
+            LinearSpacing::BetweenCopies => count - 1.0,
+            LinearSpacing::Total => 1.0,
         };
-        let spaced = (count >= 2.0).then(|| {
-            Gauge::line(
-                Measured::PatternSpacing(index),
-                (centre, along),
-                scale,
-                spacing,
-            )
-        });
-        let counted = (each > 0.0)
-            .then(|| Gauge::line(Measured::PatternCount(index), (centre, along), each, count));
-        spaced.into_iter().chain(counted).collect()
+        vec![Gauge::line(
+            Measured::PatternSpacing(index),
+            (centre, along),
+            scale,
+            spacing,
+        )]
     }
 
     fn circular(&self, circular: &CircularPattern, centre: Point3) -> Vec<Gauge> {

@@ -313,7 +313,7 @@ fn dragging_a_box_s_arrows_changes_its_length_and_height() {
 }
 
 #[test]
-fn dragging_a_linear_pattern_s_arrows_removes_a_copy_and_changes_its_spacing() {
+fn dragging_a_linear_pattern_s_one_arrow_changes_its_spacing_and_keeps_its_count() {
     let mut harness = Harness::new();
     extruded_plate(&mut harness);
     harness.select([]);
@@ -340,20 +340,15 @@ fn dragging_a_linear_pattern_s_arrows_removes_a_copy_and_changes_its_spacing() {
     };
     let (count, spacing) = first(&harness);
 
-    drag_value_arrow(&mut harness, Measured::PatternCount(0), -0.6 * spacing);
-    let (fewer, same) = first(&harness);
-
-    assert_eq!(harness.model.undo_label(), Some("Edit Linear pattern 1"));
-    assert_eq!(fewer, count - 1.0);
-    assert_eq!(same, spacing);
-
     let step = drag_value_arrow(
         &mut harness,
         Measured::PatternSpacing(0),
-        -4.0 * (fewer - 1.0),
+        -4.0 * (count - 1.0),
     );
-    let (_, narrower) = first(&harness);
+    let (same, narrower) = first(&harness);
 
+    assert_eq!(harness.model.undo_label(), Some("Edit Linear pattern 1"));
+    assert_eq!(same, count);
     assert!(
         (spacing - narrower - 4.0).abs() <= step,
         "{spacing} to {narrower} with steps of {step}"

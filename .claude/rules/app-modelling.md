@@ -502,9 +502,10 @@ pattern, Coordinate system, Scale model and Configurations. Panel rows, keys and
   `sin(a/2)` of the size for faces turned by `a`); a shell's and a thin wall's Thickness; an extrusion's
   Taper (shown with no taper too, zero clearing it) and an end Up to face's Past the face; a
   primitive's sizes (`primitive_arrows`, the mapping worked out from the footprint and anchor); a
-  linear pattern's Spacing (or Total length) and Count per direction, and a circular pattern's Total
-  angle and Count (halfway round to the original for a full turn) as turn arrows. Counts always step by
-  one.
+  linear pattern's Spacing (or Total length) per direction, at its last copy and only with two copies
+  or more (a Count arrow on the same line read as a duplicate, so the count is typed), and a circular
+  pattern's Total angle and Count (halfway round to the original for a full turn) as turn arrows.
+  Counts always step by one.
 - `Manipulator` holds them beside the primary handles as `Reach`, `Revolve` and `Place`'s second part,
   or alone as `Manipulator::Value`, hit before the primary handles. Since value arrows stand at model
   positions while primary handles keep their size on screen, one coming within `CLEARANCE_POINTS` on
