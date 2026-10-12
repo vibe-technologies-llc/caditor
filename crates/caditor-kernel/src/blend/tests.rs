@@ -145,13 +145,59 @@ fn edges_meeting_at_corners_are_mitred_or_rounded() {
         "all",
         &result.tessellate(&result.default_tolerance()).unwrap(),
     );
-    assert_eq!(blend_faces(&result).len(), 12);
+    assert_eq!(blend_faces(&result).len(), 20);
     let result = run(&solid, &every, fillet(1.0));
     let inner: f64 = 8.0;
     let rounded = inner.powi(3) + 6.0 * inner * inner + 3.0 * PI * inner + 4.0 / 3.0 * PI;
     check("rounded box", &result, rounded);
     assert_eq!(blend_faces(&result).len(), 20);
     assert_eq!(result.faces().count(), 26);
+}
+
+fn corner_faces(solid: &Solid) -> Vec<FaceId> {
+    solid
+        .faces()
+        .filter(|(_, face)| {
+            face.origin() == Some(FaceOrigin::Chamfer { feature: 50 })
+                && face.loops().iter().all(|id| {
+                    solid
+                        .face_loop(*id)
+                        .is_some_and(|face_loop| face_loop.coedges().len() == 3)
+                })
+        })
+        .map(|(id, _)| id)
+        .collect()
+}
+
+#[test]
+fn three_chamfers_meeting_at_a_box_corner_end_on_a_triangle() {
+    let solid = cuboid(Vector3::splat(10.0));
+
+    let every: Vec<EdgeId> = solid.edges().map(|(id, _)| id).collect();
+    let corner = [
+        edge_through(&solid, (5.0, 10.0, 10.0)),
+        edge_through(&solid, (10.0, 5.0, 10.0)),
+        edge_through(&solid, (10.0, 10.0, 5.0)),
+    ];
+    let all = run(&solid, &every, BlendShape::Chamfer { distance: 1.0 });
+    let one = run(&solid, &corner, BlendShape::Chamfer { distance: 1.0 });
+    let uneven = run(
+        &solid,
+        &corner,
+        BlendShape::TwoDistanceChamfer {
+            first: 1.0,
+            second: 2.0,
+            flipped: false,
+        },
+    );
+
+    check("every edge", &all, 1000.0 - 164.0 / 3.0);
+    assert_eq!(all.faces().count(), 26);
+    assert_eq!(corner_faces(&all).len(), 8);
+    check("one corner", &one, 1000.0 - 43.0 / 3.0);
+    assert_eq!(corner_faces(&one).len(), 1);
+    assert_eq!(uneven.validate(), Ok(()));
+    assert_eq!(corner_faces(&uneven).len(), 1);
 }
 
 #[test]

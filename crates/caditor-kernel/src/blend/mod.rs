@@ -1,4 +1,5 @@
 mod chain;
+mod chamfer_corner;
 mod corner;
 mod feet;
 mod general;
@@ -25,6 +26,7 @@ use thiserror::Error;
 
 use self::{
     chain::Chain,
+    chamfer_corner::ChamferCorner,
     corner::Corner,
     round_end::{Cut, Round},
     section::{
@@ -1759,28 +1761,39 @@ fn apply_plan(
     if let Some(edge) = feet::crossing(solid, &feet) {
         return Err(BlendError::TooLarge(edge));
     }
-    let corners = match shape {
+    let vertices: BTreeSet<VertexId> = chosen
+        .iter()
+        .filter_map(|edge| solid.edge(*edge))
+        .flat_map(|edge| [edge.start(), edge.end()])
+        .collect();
+    let (corners, chamfer_corners): (BTreeMap<VertexId, Corner>, Vec<ChamferCorner>) = match shape {
         BlendShape::Fillet { radius } => {
             let convex: BTreeMap<EdgeId, bool> = planned
                 .iter()
                 .map(|(geometry, _, _)| (geometry.edge, geometry.section.convex))
                 .collect();
-            let vertices: BTreeSet<VertexId> = chosen
-                .iter()
-                .filter_map(|edge| solid.edge(*edge))
-                .flat_map(|edge| [edge.start(), edge.end()])
-                .collect();
-            vertices
+            let corners = vertices
                 .into_iter()
                 .filter_map(|vertex| {
                     corner::find(solid, topology, &convex, radius, vertex)
                         .map(|corner| (vertex, corner))
                 })
-                .collect()
+                .collect();
+            (corners, Vec::new())
         }
         BlendShape::Chamfer { .. }
         | BlendShape::TwoDistanceChamfer { .. }
-        | BlendShape::AngledChamfer { .. } => BTreeMap::new(),
+        | BlendShape::AngledChamfer { .. } => {
+            let bevelled: chamfer_corner::Bevelled = planned
+                .iter()
+                .map(|(geometry, blend, reach)| (geometry.edge, (*geometry, *blend, *reach)))
+                .collect();
+            let corners = vertices
+                .into_iter()
+                .filter_map(|vertex| chamfer_corner::find(solid, topology, &bevelled, vertex))
+                .collect();
+            (BTreeMap::new(), corners)
+        }
     };
     let around = Surroundings {
         solid,
@@ -1788,7 +1801,7 @@ fn apply_plan(
         chosen: &chosen_set,
         corners: &corners,
     };
-    let mut tools = Vec::with_capacity(planned.len() + corners.len());
+    let mut tools = Vec::with_capacity(planned.len() + corners.len() + chamfer_corners.len());
     let mut blend_names = BTreeMap::new();
     for (geometry, blend, reach) in &planned {
         interrupt::check()?;
@@ -1807,6 +1820,14 @@ fn apply_plan(
         interrupt::check()?;
         tools.push(Tool {
             solid: corner.tool(solid, feature, &blend_names)?,
+            convex: true,
+            edge: None,
+        });
+    }
+    for corner in &chamfer_corners {
+        interrupt::check()?;
+        tools.push(Tool {
+            solid: corner.tool(solid, feature)?,
             convex: true,
             edge: None,
         });

@@ -30,7 +30,7 @@ pub(super) struct Corner {
     radius: f64,
 }
 
-fn meet(planes: [(Vector3, f64); 3]) -> Option<Point3> {
+pub(super) fn meet(planes: [(Vector3, f64); 3]) -> Option<Point3> {
     let [(a, da), (b, db), (c, dc)] = planes;
     let determinant = a.dot(b.cross(c));
     if determinant.abs() <= SINGULAR {
@@ -39,7 +39,7 @@ fn meet(planes: [(Vector3, f64); 3]) -> Option<Point3> {
     Some((b.cross(c) * da + c.cross(a) * db + a.cross(b) * dc) / determinant)
 }
 
-fn plane_normal(solid: &Solid, face: FaceId) -> Option<Vector3> {
+pub(super) fn plane_normal(solid: &Solid, face: FaceId) -> Option<Vector3> {
     let definition = solid.face(face)?;
     let Surface::Plane(plane) = definition.surface() else {
         return None;
@@ -137,13 +137,20 @@ fn oriented(points: &[Point3], outward: Vector3) -> bool {
     normal.dot(outward) >= 0.0
 }
 
-struct Builder {
-    plan: Plan,
+pub(super) struct Builder {
+    pub plan: Plan,
     edges: BTreeMap<(usize, usize), (usize, bool)>,
 }
 
 impl Builder {
-    fn line(&mut self, from: usize, to: usize) -> Result<(), BlendError> {
+    pub fn new() -> Self {
+        Self {
+            plan: Plan::default(),
+            edges: BTreeMap::new(),
+        }
+    }
+
+    pub fn line(&mut self, from: usize, to: usize) -> Result<(), BlendError> {
         let edge = self.plan.line(from, to, EdgeName::NONE)?;
         self.edges.insert((from, to), (edge, true));
         self.edges.insert((to, from), (edge, false));
@@ -175,7 +182,7 @@ impl Builder {
         Ok(())
     }
 
-    fn face(
+    pub fn face(
         &mut self,
         cycle: &[usize],
         outward: Vector3,
@@ -247,10 +254,7 @@ impl Corner {
                 })
                 .collect()
         };
-        let mut builder = Builder {
-            plan: Plan::default(),
-            edges: BTreeMap::new(),
-        };
+        let mut builder = Builder::new();
         let top = builder.plan.vertex(
             meet([
                 lifted(0).ok_or_else(failed)?,

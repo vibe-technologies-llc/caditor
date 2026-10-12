@@ -335,7 +335,8 @@ paths:
   on a slanted face extend past it when the extension changes nothing, else are clipped by its
   plane. An end at a corner of two or more flat faces (where earlier chamfers met) extends past all
   of them when the tool leaves through each and every edge at the corner is of the edge's kind
-  (`out_through_corner`), so the tool cuts the corner as the chamfers' half-spaces would. Where the
+  (`out_through_corner`), so the edge's tool reaches the corner as its chamfer's half-space would
+  (three convex chamfers on flat faces then also take a triangle corner, below). Where the
   extension would change something and the end face belongs to another chosen straight edge of the
   same kind sharing one flat face (concave edges round a boss's outside corner, convex edges into
   an inside corner), both ends are mitred (`mitre`): each tool extends past the vertex and is
@@ -357,6 +358,15 @@ paths:
   `survey.rs` (ignored) chamfers every corner of twenty bodies.
 - Three convex straight edges filleted at a vertex of three planes get a spherical corner
   (`corner.rs`: a hexahedron minus the rolling ball); other corners mitre.
+- Three convex straight (`Sweep::Along`) edges chamfered at a vertex of three planes end on a flat
+  triangle (`chamfer_corner.rs`), as other CAD tools make it, rather than the three half-spaces
+  meeting in a point: on each face the two chamfers' foot lines meet at a point, and the corner
+  plane passes through those three. The corner's tool is a tetrahedron of the three face planes
+  lifted by `CLEARANCE` times the reach and that plane, subtracted with the edges' tools; its face
+  is `FaceName::corner(feature, VertexName::of_faces(..))` with `FaceOrigin::Chamfer`. Each strip
+  then ends on one side of the triangle (a box with every edge chamfered has 6 + 12 + 8 faces). The
+  corner is left to the half-spaces when the vertex or the three chamfers' tip does not lie beyond
+  the plane, or the plane does not cross each edge within its length.
 
 # Patterns (`pattern/`)
 
@@ -433,12 +443,18 @@ paths:
     (`narrow_to_ridge`): the pair is kept when, solved again with the other pair vanishing, its two
     edges, merged into one between the faces beyond them, neither turn over nor shrink to nothing;
     only when neither pair holds do all four vertices merge into one;
-  - a one-loop face whose kept edges form two sides apart, at least one a chain (a rim split by
-    another face's seam), is dropped only when its offset outline turns over: the loop's offset
-    vertices projected onto the original surface enclose a uv area of opposite sign or none
-    (`Layout::outline_inverts`), since counting chains alone closes faces of a chamfered box that
-    survive. Such a dropped face is a `Band` closing into a ridge between the faces beyond its two
-    sides (`Rim`s, both walked from one end of the band to the other): each joint of one side lies
+  - when a settle round finds faces whose every edge reversed (a chamfer's corner triangle
+    shrinking to a point) among other shrinking faces, those collapse alone first, if a layout
+    with just them builds (`closing_whole_first`); otherwise the whole set collapses as before;
+  - a one-loop face whose kept edges form two sides apart is dropped by how its offset outline
+    turns: the loop's offset vertices projected onto the original surface enclose a uv area of
+    opposite sign or none (`Layout::outline_inverts`). With at least one side a chain (a rim split
+    by another face's seam) the face drops only when the outline is found turned over; with two
+    single edges it drops unless the outline is found still the right way round, so the rim
+    strips beside a corner triangle survive when the top above them opens outward. Counting
+    edges alone closes faces of a chamfered box that survive. Such a dropped face is a `Band`
+    closing into a ridge between the faces beyond its two sides (`Rim`s, both walked from one end
+    of the band to the other): each joint of one side lies
     across the rim of the other side nearest to it on the original body, which orders the joints of
     both sides along the ridge (`ridge`, refused when they do not follow each other in order), and
     is solved on the offsets of the faces beyond the rims on both sides (a vertex of two offset
@@ -449,10 +465,19 @@ paths:
     `ShellError::ClosesBesideClosing`, naming both faces;
   - vanishing edges merge their vertices; a merged vertex must lie strictly inside the offset of
     each face that shrank away there, and beyond an opened face offset outward, so the cavity still
-    opens through it, else the edge shrinking to nothing is reported;
-  - a vertex of four to `MAX_SPLIT_FACES` faces whose offsets do not meet is split along a
+    opens through it, else the edge shrinking to nothing is reported (`Collapses::closes_over`);
+  - a vertex of four to `MAX_SPLIT_FACES` (12) faces whose offsets do not meet is split along a
     triangulation of its cycle of faces (`split.rs`) when its edges are all convex, all concave, or
-    convex but for one concave edge; other corners are `Corner`.
+    convex but for one concave edge; other corners are `Corner`. A cluster of merged vertices that
+    cannot be placed at one point is split the same way (`Cluster`): the cycle walks spokes (an
+    edge and the cluster vertex it leaves), so a face may come round more than once and an edge
+    with both ends in the cluster gets a split point at each end; dropped faces are walked through,
+    a band's two rims contracted onto one slot; split points that coincide are merged with no edge
+    between them, and a triangle naming one face twice is refused. Every split point must lie
+    strictly inside each face that shrank away there, and at least one beyond an opened face
+    offset outward: a top closing between converging rim chamfers becomes a roof whose ridge or
+    apex alone pokes through the opening, its corners below it. A top whose roof stays below the
+    opened face cannot open and is refused.
 - An opened face with no smooth edge to a closed face is offset outward by the largest thickness
   (`Walls::reach`), so the inner solid passes through it and the body needs room only across its
   walls; the attempt counts only when every

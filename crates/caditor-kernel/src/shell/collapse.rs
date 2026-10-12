@@ -15,7 +15,7 @@ fn parallel(a: Vector3, b: Vector3) -> bool {
     a.cross(b).length() <= PARALLEL
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(super) enum Collapse {
     Axis(Vector3),
     Centre,
@@ -120,7 +120,7 @@ fn past_apex(offsets: &Offsets<'_>, face: FaceId) -> Option<Collapse> {
     (narrows_to_face && passed < -OFFSET_TOLERANCE).then_some(Collapse::Apex(cone))
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(super) struct Collapses(BTreeMap<FaceId, Collapse>);
 
 impl Collapses {
@@ -203,20 +203,28 @@ impl Collapses {
         &self,
         offsets: &Offsets<'_>,
         faces: &BTreeSet<FaceId>,
-        point: Point3,
+        points: &[Point3],
     ) -> Result<(), ShellError> {
         for face in faces {
             let Some(collapse) = self.0.get(face) else {
                 continue;
             };
+            let residuals: Option<Vec<f64>> = points
+                .iter()
+                .map(|point| Some(offsets.residual(*face, *point, None)?.0))
+                .collect();
             let covered = !collapse.shrinks_away()
-                || offsets
-                    .residual(*face, point, None)
-                    .is_some_and(|(residual, _)| {
-                        let inside = residual < -OFFSET_TOLERANCE;
-                        let through_opening = residual - offsets.distance(*face) > OFFSET_TOLERANCE;
-                        inside && (through_opening || !offsets.is_outward(*face))
-                    });
+                || residuals.is_some_and(|residuals| {
+                    let inside = residuals
+                        .iter()
+                        .all(|residual| *residual < -OFFSET_TOLERANCE);
+                    let through_opening = residuals
+                        .iter()
+                        .any(|residual| residual - offsets.distance(*face) > OFFSET_TOLERANCE);
+                    !residuals.is_empty()
+                        && inside
+                        && (through_opening || !offsets.is_outward(*face))
+                });
             if !covered {
                 return Err(self
                     .refusal(offsets.solid, *face)
