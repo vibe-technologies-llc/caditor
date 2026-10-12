@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     f64::consts::FRAC_PI_2,
 };
 
@@ -563,7 +563,7 @@ impl<'g, 'a> Topology<'g, 'a> {
     }
 
     fn fins_in(&mut self, uses: &[(u64, bool)], surface: &Surface) -> Read<BTreeSet<u64>> {
-        let mut kept: Vec<(u64, bool)> = Vec::with_capacity(uses.len());
+        let mut kept: VecDeque<(u64, bool)> = VecDeque::with_capacity(uses.len());
         let mut fins = BTreeSet::new();
         let folds_back = |(edge, orientation): (u64, bool), other: Option<&(u64, bool)>| {
             other.is_some_and(|(other, other_orientation)| {
@@ -571,20 +571,20 @@ impl<'g, 'a> Topology<'g, 'a> {
             })
         };
         for used in uses.iter().copied() {
-            if folds_back(used, kept.last()) && !self.reaches_pole(used.0, surface)? {
-                kept.pop();
+            if folds_back(used, kept.back()) && !self.reaches_pole(used.0, surface)? {
+                kept.pop_back();
                 fins.insert(used.0);
             } else {
-                kept.push(used);
+                kept.push_back(used);
             }
         }
         while kept.len() > 2 {
-            match kept.last().copied() {
+            match kept.back().copied() {
                 Some(last)
-                    if folds_back(last, kept.first()) && !self.reaches_pole(last.0, surface)? =>
+                    if folds_back(last, kept.front()) && !self.reaches_pole(last.0, surface)? =>
                 {
-                    kept.pop();
-                    kept.remove(0);
+                    kept.pop_back();
+                    kept.pop_front();
                     fins.insert(last.0);
                 }
                 _ => break,

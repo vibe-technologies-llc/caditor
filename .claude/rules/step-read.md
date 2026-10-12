@@ -59,7 +59,9 @@ paths:
   `MAX_WALKED_PLACEMENTS` for placements kept across the file (`Structure::walk` memoises each
   representation's `Placements` behind an `Arc`): once spent each further walk keeps one placement
   per parent, so every part is still placed and memory stays bounded, with a note that only the first
-  copies were imported. Names are shared `Arc<str>`, a styled item's context list one `Arc<[u64]>`
+  copies were imported. Representations a plain relationship makes identical join one class as the
+  relationships are read (`Classes`, smaller into larger, never searched per lookup), and a face
+  loop's fins are peeled from a deque, so a crafted file costs time linear in its size. Names are shared `Arc<str>`, a styled item's context list one `Arc<[u64]>`
   (`Instanced::by_context` holds the one id a style adds), repeated style and context references are
   read once (`once_each`). Copies are capped per file in solid order, with the same note:
   `read_step_copies` at `MAX_SHARED_COPIES` (its copies share one solid each), `read_step` at

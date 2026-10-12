@@ -626,7 +626,9 @@ fn closing_the_window_while_an_image_export_runs_waits_for_it_to_finish() {
     harness.renders_held = true;
 
     start_image_export(&mut harness, dir.path().join("plate"));
-    assert!(harness.files.exports_running());
+    harness.wait_until("the image export is queued", |harness| {
+        harness.files.exports_running()
+    });
 
     click_window_button(&mut harness, icons::CLOSE);
     harness.frame();
@@ -656,7 +658,9 @@ fn quitting_while_an_export_runs_can_be_called_off_or_stop_the_export_and_quit()
     harness.click("3MF");
     harness.answer_dialog(Some(dir.path().join("plate")));
     harness.click("Export…");
-    assert!(harness.files.exports_running());
+    harness.wait_until("the export is queued", |harness| {
+        harness.files.exports_running()
+    });
 
     harness.command(FileCommand::Quit);
     harness.click("Close without saving");

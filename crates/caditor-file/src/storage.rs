@@ -132,7 +132,7 @@ pub struct StorageStopped;
 
 enum Command {
     Record(JournalEntry),
-    Save(SaveRequest),
+    Save(Box<SaveRequest>),
     Keep(KeepRequest),
     Flush(SyncSender<()>),
     Close { discard: bool, done: SyncSender<()> },
@@ -240,7 +240,7 @@ impl Storage {
     }
 
     pub fn save(&self, request: SaveRequest) -> Result<(), StorageStopped> {
-        self.send(Command::Save(request))
+        self.send(Command::Save(Box::new(request)))
     }
 
     pub fn keep_version(&self, request: KeepRequest) -> Result<(), StorageStopped> {
@@ -376,7 +376,7 @@ impl Worker {
     fn handle(&mut self, command: Command) -> Flow {
         match command {
             Command::Record(entry) => self.append(entry),
-            Command::Save(request) => self.save(request),
+            Command::Save(request) => self.save(*request),
             Command::Keep(request) => self.keep_version(request),
             Command::Flush(done) => {
                 self.sync();

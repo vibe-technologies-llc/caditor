@@ -606,6 +606,53 @@ fn reused_elements_are_placed_and_symbols_drawn() {
 }
 
 #[test]
+fn thousands_of_uses_deep_inside_the_group_they_reuse_are_each_left_out_as_a_loop() {
+    let levels = 90;
+    let uses = 20_000;
+    let body = format!(
+        r#"<line x1="0" y1="0" x2="1" y2="0"/>{}{}{}"#,
+        "<g id=\"outer\">".to_string() + &"<g>".repeat(levels),
+        r##"<use href="#outer"/>"##.repeat(uses),
+        "</g>".repeat(levels) + "</g>"
+    );
+
+    let drawing = read(&body);
+
+    assert_eq!(drawing.curves.len(), 1);
+    assert!(
+        drawing.notes.contains(&format!(
+            "{uses} elements nested too deeply or reusing themselves were left out."
+        )),
+        "{:?}",
+        drawing.notes
+    );
+}
+
+#[test]
+fn an_svg_nested_past_the_xml_limit_is_refused_in_words() {
+    let body = format!("{}{}", "<g>".repeat(2_000), "</g>".repeat(2_000));
+
+    let error = parse_svg(&svg(&body)).unwrap_err();
+
+    assert_eq!(error, ImportError::NestedTooDeep);
+    assert!(error.to_string().starts_with("its elements nest more than"));
+}
+
+#[test]
+fn an_svg_element_with_thousands_of_attributes_is_refused_in_words() {
+    let attributes: String = (0..3_000).map(|n| format!(" a{n}=\"1\"")).collect();
+
+    let error = parse_svg(&svg(&format!("<g{attributes}/>"))).unwrap_err();
+
+    assert_eq!(error, ImportError::TooManyAttributes);
+    assert!(
+        error
+            .to_string()
+            .starts_with("one of its elements has more than")
+    );
+}
+
+#[test]
 fn dashed_strokes_import_as_construction() {
     let drawing = read(
         r#"<g stroke-dasharray="4 2">
@@ -754,7 +801,17 @@ fn hostile_drawings_are_refused_or_cut_short_without_panicking() {
         "<g>".repeat(depth),
         "</g>".repeat(depth)
     );
-    let drawing = parse_svg(deep.as_bytes()).unwrap();
+    assert_eq!(
+        parse_svg(deep.as_bytes()).map(|_| ()),
+        Err(ImportError::NestedTooDeep)
+    );
+
+    let deep_enough_to_be_cut_short = format!(
+        "{SVG_OPEN}{}<line x1=\"0\" y1=\"0\" x2=\"1\" y2=\"0\"/>{}<line x1=\"0\" y1=\"1\" x2=\"1\" y2=\"1\"/></svg>",
+        "<g>".repeat(500),
+        "</g>".repeat(500)
+    );
+    let drawing = parse_svg(deep_enough_to_be_cut_short.as_bytes()).unwrap();
     assert_eq!(drawing.curves.len(), 1);
     assert!(
         drawing

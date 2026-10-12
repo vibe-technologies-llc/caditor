@@ -64,8 +64,13 @@ paths:
   `MAX_ENTITY_DEPTH` or expanding past `MAX_ENTITY_WORK` is damage). Text is kept only inside
   `style`, `text`, `tspan`, `textPath` and `a`, as pieces between the children (`Node::content`)
   since layout needs their order. Past `MAX_DRAWING_ELEMENTS` the file is
-  `ImportError::TooManyElements`. Damage keeps the elements before it with their open ancestors and
-  a note names the line; damage before the root is `DamagedAt`.
+  `ImportError::TooManyElements`, nesting past `MAX_DEPTH` is `ImportError::NestedTooDeep` and a
+  tag with more than `MAX_ATTRIBUTES` attributes is `ImportError::TooManyAttributes` (3MF refuses
+  the same way). Namespaces are interned through a map and a prefix resolves through a stack per
+  prefix, so a hostile file costs time linear in its size; each element records the last element
+  of its subtree (`Node::encloses`), which is how a `use` tests for a loop. Damage keeps the
+  elements before it with their open ancestors and a note names the line; damage before the root is
+  `DamagedAt`.
 - The root `svg` sizes the drawing (`sizing.rs`): with a viewBox and a width or height, a user unit
   is that length in millimetres over the viewBox's side (`preserveAspectRatio` meet takes the
   smaller, slice the larger, none each); mm, cm, in, pt, pc, px convert and every unit but

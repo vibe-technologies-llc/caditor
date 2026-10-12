@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
 };
@@ -34,7 +35,7 @@ pub(crate) struct Structure {
     item_representation: BTreeMap<u64, u64>,
     contexts: BTreeMap<u64, u64>,
     names: BTreeMap<u64, Arc<str>>,
-    identical: BTreeMap<u64, BTreeSet<u64>>,
+    classes: Classes,
     parents: BTreeMap<u64, Vec<Parent>>,
     units: BTreeMap<u64, Units>,
     walked: BTreeMap<u64, Walk>,
@@ -48,7 +49,7 @@ impl Structure {
             item_representation: BTreeMap::new(),
             contexts: BTreeMap::new(),
             names: BTreeMap::new(),
-            identical: BTreeMap::new(),
+            classes: Classes::default(),
             parents: BTreeMap::new(),
             units: BTreeMap::new(),
             walked: BTreeMap::new(),
@@ -109,9 +110,10 @@ impl Structure {
     }
 
     pub fn name_of(&self, representation: u64) -> Option<&str> {
-        self.class(representation)
-            .into_iter()
-            .find_map(|member| self.names.get(&member))
+        self.classes
+            .of(representation)
+            .iter()
+            .find_map(|member| self.names.get(member))
             .map(AsRef::as_ref)
     }
 
@@ -129,8 +131,7 @@ impl Structure {
             .find("REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION")
             .and_then(|with| with.reference(0).ok());
         let Some(transformation) = transformation else {
-            self.identical.entry(first).or_default().insert(second);
-            self.identical.entry(second).or_default().insert(first);
+            self.classes.join(first, second);
             return;
         };
         let occurrence = context.occurrences.get(&entity.id);
@@ -141,7 +142,7 @@ impl Structure {
                 .is_some_and(|representations| {
                     representations
                         .iter()
-                        .any(|owned| self.class(*owned).contains(&representation))
+                        .any(|owned| self.classes.same(*owned, representation))
                 })
         };
         let child_is_first = match occurrence {
@@ -236,26 +237,12 @@ impl Structure {
         })
     }
 
-    fn class(&self, representation: u64) -> BTreeSet<u64> {
-        let mut class = BTreeSet::from([representation]);
-        let mut pending = vec![representation];
-        while let Some(current) = pending.pop() {
-            for other in self.identical.get(&current).into_iter().flatten() {
-                if class.insert(*other) {
-                    pending.push(*other);
-                }
-            }
-        }
-        class
-    }
-
     pub fn placements(&mut self, representation: u64) -> Placements {
         Arc::unwrap_or_clone(self.walk(representation, 0))
     }
 
     fn walk(&mut self, representation: u64, depth: usize) -> Arc<Placements> {
-        let class = self.class(representation);
-        let key = class.first().copied().unwrap_or(representation);
+        let key = self.classes.key(representation);
         match self.walked.get(&key) {
             Some(Walk::Done(placements)) => return Arc::clone(placements),
             Some(Walk::InProgress) => {
@@ -263,6 +250,7 @@ impl Structure {
             }
             None => {}
         }
+        let class = self.classes.of(representation).into_owned();
         let parents: Vec<Parent> = class
             .iter()
             .flat_map(|member| self.parents.get(member).into_iter().flatten())
@@ -342,6 +330,76 @@ impl Structure {
         let placements = Arc::new(placements);
         self.walked.insert(key, Walk::Done(Arc::clone(&placements)));
         placements
+    }
+}
+
+#[derive(Default)]
+struct Classes {
+    labels: BTreeMap<u64, usize>,
+    members: Vec<BTreeSet<u64>>,
+}
+
+impl Classes {
+    fn label(&mut self, representation: u64) -> usize {
+        if let Some(label) = self.labels.get(&representation) {
+            return *label;
+        }
+        let label = self.members.len();
+        self.members.push(BTreeSet::from([representation]));
+        self.labels.insert(representation, label);
+        label
+    }
+
+    fn join(&mut self, first: u64, second: u64) {
+        let (first, second) = (self.label(first), self.label(second));
+        if first == second {
+            return;
+        }
+        let size = |label: usize| self.members.get(label).map_or(0, BTreeSet::len);
+        let (kept, absorbed) = if size(first) >= size(second) {
+            (first, second)
+        } else {
+            (second, first)
+        };
+        let moved = self
+            .members
+            .get_mut(absorbed)
+            .map(std::mem::take)
+            .unwrap_or_default();
+        for representation in &moved {
+            self.labels.insert(*representation, kept);
+        }
+        if let Some(members) = self.members.get_mut(kept) {
+            members.extend(moved);
+        }
+    }
+
+    fn of(&self, representation: u64) -> Cow<'_, BTreeSet<u64>> {
+        match self
+            .labels
+            .get(&representation)
+            .and_then(|label| self.members.get(*label))
+        {
+            Some(members) => Cow::Borrowed(members),
+            None => Cow::Owned(BTreeSet::from([representation])),
+        }
+    }
+
+    fn key(&self, representation: u64) -> u64 {
+        self.labels
+            .get(&representation)
+            .and_then(|label| self.members.get(*label))
+            .and_then(|members| members.first())
+            .copied()
+            .unwrap_or(representation)
+    }
+
+    fn same(&self, first: u64, second: u64) -> bool {
+        first == second
+            || self
+                .labels
+                .get(&first)
+                .is_some_and(|label| self.labels.get(&second) == Some(label))
     }
 }
 
@@ -604,6 +662,70 @@ mod tests {
 
     fn file(data: &str) -> String {
         format!("ISO-10303-21;HEADER;ENDSEC;DATA;{ORIGIN}{data}ENDSEC;END-ISO-10303-21;")
+    }
+
+    #[test]
+    fn a_long_chain_of_identical_representations_is_one_class_labelled_as_it_grows() {
+        let links = 50_000_u64;
+        let mut classes = Classes::default();
+
+        for representation in 0..links {
+            classes.join(representation, representation + 1);
+        }
+
+        assert!(classes.same(0, links));
+        assert!(classes.same(links, 0));
+        assert!(!classes.same(0, links + 1));
+        assert_eq!(classes.key(links), 0);
+        assert_eq!(classes.of(17).len() as u64, links + 1);
+    }
+
+    #[test]
+    fn classes_merge_only_what_a_relationship_joined() {
+        let mut classes = Classes::default();
+
+        classes.join(5, 6);
+        classes.join(7, 8);
+
+        assert!(classes.same(5, 6));
+        assert!(!classes.same(6, 7));
+        assert_eq!(classes.key(8), 7);
+        assert_eq!(classes.of(99).as_ref(), &BTreeSet::from([99]));
+        assert_eq!(classes.key(99), 99);
+
+        classes.join(8, 5);
+
+        assert!(classes.same(6, 7));
+        assert_eq!(classes.key(8), 5);
+    }
+
+    #[test]
+    fn thousands_of_identical_relationships_are_read_and_named_without_searching() {
+        let links = 20_000_u64;
+        let mut data = String::new();
+        for link in 0..=links {
+            data.push_str(&representation(100 + link));
+        }
+        for link in 0..links {
+            write!(
+                data,
+                "#{}=REPRESENTATION_RELATIONSHIP('','',#{},#{});",
+                1_000_000 + link,
+                100 + link,
+                101 + link
+            )
+            .unwrap();
+        }
+        let text = file(&data);
+        let exchange = parse(&text).unwrap();
+        let graph = Graph::new(&exchange);
+
+        let mut structure = Structure::read(&graph);
+
+        assert!(structure.classes.same(100, 100 + links));
+        assert_eq!(structure.classes.key(100 + links), 100);
+        assert_eq!(structure.name_of(100), None);
+        assert!(!structure.placements(100 + links / 2).transforms.is_empty());
     }
 
     #[test]

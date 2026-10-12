@@ -2015,6 +2015,74 @@ fn an_edge_a_loop_runs_out_along_and_straight_back_is_left_out() {
     assert_volume(&model.solids[0].solid, fixtures::volume(&solid));
 }
 
+#[test]
+fn thousands_of_fins_folded_around_a_loop_are_all_left_out() {
+    let solid = fixtures::plate_with_hole();
+    let text = written("plate", &solid);
+    let folds = 20_000;
+
+    let edge_loop = text
+        .lines()
+        .find(|line| line.contains("=EDGE_LOOP('',("))
+        .unwrap();
+    let loop_id = &edge_loop[..edge_loop.find('=').unwrap()];
+    let first_use = arguments(&text, loop_id)[1];
+    let used = arguments(&text, first_use);
+    let edge = arguments(&text, used[3]);
+    let start = if used[4] == ".T." { edge[1] } else { edge[2] };
+    let start_point = arguments(&text, arguments(&text, start)[1]);
+    let corner: Vec<f64> = start_point[1..]
+        .iter()
+        .map(|value| value.parse().unwrap())
+        .collect();
+
+    let mut fin = format!(
+        "#9001=CARTESIAN_POINT('',({:?},{:?},{:?}));\n\
+         #9002=VERTEX_POINT('',#9001);\n\
+         #9003=CARTESIAN_POINT('',({:?},{:?},{:?}));\n\
+         #9004=DIRECTION('',(0.,0.6,0.8));#9005=VECTOR('',#9004,1.);\n\
+         #9006=LINE('',#9003,#9005);\n",
+        corner[0] + 0.002,
+        corner[1] + 3.0,
+        corner[2] + 4.0,
+        corner[0] - 0.002,
+        corner[1],
+        corner[2],
+    );
+    let mut outward = Vec::with_capacity(folds);
+    let mut back = Vec::with_capacity(folds);
+    for fold in 0..folds {
+        let edge = 10_000 + fold * 3;
+        fin.push_str(&format!(
+            "#{edge}=EDGE_CURVE('',{start},#9002,#9006,.T.);\n\
+             #{}=ORIENTED_EDGE('',*,*,#{edge},.T.);#{}=ORIENTED_EDGE('',*,*,#{edge},.F.);\n",
+            edge + 1,
+            edge + 2,
+        ));
+        outward.push(format!("#{}", edge + 1));
+        back.push(format!("#{}", edge + 2));
+    }
+    back.reverse();
+    fin.push_str("ENDSEC;\nEND-ISO-10303-21;");
+    let opening = format!("{loop_id}=EDGE_LOOP('',(");
+    let uses_end = edge_loop.rfind("))").unwrap();
+    let wrapped = format!(
+        "{opening}{},{},{}));",
+        outward.join(","),
+        &edge_loop[opening.len()..uses_end],
+        back.join(",")
+    );
+    let with_fins = text
+        .replace(edge_loop, &wrapped)
+        .replace("ENDSEC;\nEND-ISO-10303-21;", &fin);
+    let model = sample(&with_fins);
+
+    assert_ne!(with_fins, text);
+    assert!(model.notes.is_empty(), "{:?}", model.notes);
+    assert_eq!(model.solids.len(), 1);
+    assert_eq!(model.solids[0].solid.edges().count(), solid.edges().count());
+}
+
 #[derive(Default)]
 struct Entities {
     lines: Vec<String>,
