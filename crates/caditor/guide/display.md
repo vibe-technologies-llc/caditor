@@ -9,7 +9,8 @@ View › Display style chooses how bodies are drawn:
 - **Shaded without edges**: edges appear only when hovered or selected.
 - **Wireframe**: edges only; faces are neither drawn nor picked.
 - **Hidden lines removed**: flat white faces with edges over them, like a drawing.
-- **X-ray**: see-through faces with edges on top.
+- **X-ray**: see-through faces with edges on top. Choosing it again turns it off and returns to the
+  style it replaced.
 
 The style is kept while caditor runs and also shapes exported images.
 

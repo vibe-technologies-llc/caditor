@@ -390,6 +390,7 @@ pub struct ViewportState {
     filter: SelectionFilter,
     filter_applies: bool,
     style: DisplayStyle,
+    style_before_see_through: DisplayStyle,
     contrast: Contrast,
     canvas: Canvas,
     grid: Option<egui::Color32>,
@@ -670,6 +671,7 @@ impl ViewportState {
             filter: SelectionFilter::default(),
             filter_applies: true,
             style: DisplayStyle::default(),
+            style_before_see_through: DisplayStyle::default(),
             contrast: Contrast::default(),
             canvas: Canvas::default(),
             grid: None,
@@ -853,7 +855,18 @@ impl ViewportState {
     }
 
     pub fn set_style(&mut self, style: DisplayStyle) {
+        if !self.style.is_translucent() {
+            self.style_before_see_through = self.style;
+        }
         self.style = style;
+    }
+
+    fn choose_style(&mut self, style: DisplayStyle) {
+        if style == self.style && style.is_translucent() {
+            self.style = self.style_before_see_through;
+        } else {
+            self.set_style(style);
+        }
     }
 
     pub fn set_contrast(&mut self, contrast: Contrast) {
@@ -3237,7 +3250,7 @@ impl ViewportState {
         }
         for style in DisplayStyle::ALL {
             if commands.available(Command::Style(style)) {
-                self.set_style(style);
+                self.choose_style(style);
             }
         }
         for filter in SelectionFilter::ALL {

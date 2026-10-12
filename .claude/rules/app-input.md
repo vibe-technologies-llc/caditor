@@ -436,7 +436,9 @@ paths:
   view turns (`render.md`); with hidden edges dashed a coloured body's silhouette is
   `dashed_where_hidden` and never picks. It applies to bodies outside sketch editing, reaches the
   scene through `Sources::style` and `Revisions::style`, shapes image exports too and is kept for
-  the session.
+  the session. X-ray also turns off: choosing it while it is the style returns to the style it
+  replaced (`ViewportState::choose_style`; `set_style` remembers the last opaque one), so the View
+  menu and the palette switch it both ways like the other toggles.
 
 ## Typed-point field
 
