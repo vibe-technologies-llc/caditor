@@ -10,6 +10,7 @@ use caditor_sketch::EntityId;
 use crate::{
     describe::edge_faces,
     document::{Document, FeatureId},
+    edge_run::EdgeRun,
     pieces::{Resolution, pieces_of_one_edge},
     tolerance::POSITION_TOLERANCE,
 };
@@ -38,6 +39,14 @@ impl Followed {
             Self::Resolved(Resolution::Pieces(_)) | Self::PartlyLost(_)
         )
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Unrun {
+    Missing,
+    Tied,
+    Gapped,
+    PartlyTraced,
 }
 
 pub(crate) struct SplitEdges<'a> {
@@ -81,6 +90,24 @@ impl<'a> SplitEdges<'a> {
             Some(followed) => followed,
             None => Followed::Resolved(Resolution::One(found)),
         }
+    }
+
+    pub(crate) fn run(&self, reference: &EdgeReference) -> Result<EdgeRun<'a>, Unrun> {
+        let pieces = match self.follow(reference) {
+            Followed::Resolved(Resolution::One(found)) => {
+                return self
+                    .solid
+                    .edge(found)
+                    .map(|edge| EdgeRun::single(found, edge))
+                    .ok_or(Unrun::Missing);
+            }
+            Followed::Resolved(Resolution::Pieces(pieces)) => pieces,
+            Followed::Resolved(Resolution::Tied(_)) => return Err(Unrun::Tied),
+            Followed::Resolved(Resolution::Missing) => return Err(Unrun::Missing),
+            Followed::PartlyLost(_) => return Err(Unrun::PartlyTraced),
+        };
+        let leading = reference.resolve_in(&self.naming).ok();
+        EdgeRun::chained(self.solid, &pieces, leading).ok_or(Unrun::Gapped)
     }
 
     fn widen(

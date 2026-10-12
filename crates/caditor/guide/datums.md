@@ -20,4 +20,10 @@ angles, previewed in the view as you type them; an open offset plane also has an
 its offset, and a turned plane an arrow along its turn that drags its angle. {command:model.datum_use_selected} defines it again from the selection. Double-click a
 datum in the view to open it.
 
+A point at the middle of an edge, or at a distance along one, and a plane square to an edge keep to
+the whole edge when [Trim](trim-and-extend) or split later cuts its sketch curve in two: while the
+pieces still run on end to end, the middle and the distance are taken along all of them. When a gap
+opens between the pieces there is no one edge left to follow, so the datum stops and says so, and
+you choose the piece it should follow, rather than it moving to one piece without notice.
+
 See also [coordinate systems](coordinate-systems).

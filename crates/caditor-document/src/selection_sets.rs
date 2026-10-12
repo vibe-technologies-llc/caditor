@@ -1,10 +1,13 @@
 use std::collections::BTreeSet;
 
-use caditor_kernel::{
-    EdgeId, EdgeNaming, EdgeReference, FaceId, FaceReference, ReferenceError, Solid,
-};
+use caditor_kernel::{EdgeId, EdgeReference, FaceId, FaceReference, ReferenceError, Solid};
 
-use crate::{document::FeatureId, recompute::Evaluation, views::view_name};
+use crate::{
+    document::{Document, FeatureId},
+    recompute::Evaluation,
+    split_edges::{Followed, SplitEdges},
+    views::view_name,
+};
 
 pub const MAX_SET_NAME_CHARS: usize = 60;
 pub const MAX_SELECTION_SETS: usize = 64;
@@ -139,10 +142,10 @@ fn candidates<Id>(resolved: Result<Id, ReferenceError<Id>>) -> Vec<Id> {
 }
 
 impl SelectionSet {
-    pub fn resolve(&self, evaluation: &Evaluation) -> SetResolution {
+    pub fn resolve(&self, document: &Document, evaluation: &Evaluation) -> SetResolution {
         let mut resolved = SetResolution::default();
         let mut seen: BTreeSet<SetItem> = BTreeSet::new();
-        let mut namings: Vec<(FeatureId, EdgeNaming)> = Vec::new();
+        let mut splits: Vec<(FeatureId, SplitEdges<'_>)> = Vec::new();
         for member in &self.members {
             let body = member.body();
             let Some(solid) = evaluation
@@ -162,15 +165,19 @@ impl SelectionSet {
                     .map(|face| SetItem::Face { body, face })
                     .collect(),
                 SetMember::Edge { edge, .. } => {
-                    let naming = match namings.iter().position(|(named, _)| *named == body) {
-                        Some(index) => namings.get(index).map(|(_, naming)| naming),
+                    let split = match splits.iter().position(|(split, _)| *split == body) {
+                        Some(index) => splits.get(index).map(|(_, split)| split),
                         None => {
-                            namings.push((body, EdgeNaming::new(solid)));
-                            namings.last().map(|(_, naming)| naming)
+                            splits.push((body, SplitEdges::new(document, solid)));
+                            splits.last().map(|(_, split)| split)
                         }
                     };
-                    naming
-                        .map(|naming| candidates(edge.resolve_in(naming)))
+                    let followed = split.map(|split| split.follow(edge));
+                    if matches!(followed, Some(Followed::PartlyLost(_))) {
+                        resolved.lost.push(SetLoss::Edge(body));
+                    }
+                    followed
+                        .map(|followed| followed.resolution().found().to_vec())
                         .unwrap_or_default()
                         .into_iter()
                         .map(|edge| SetItem::Edge { body, edge })

@@ -1,4 +1,5 @@
 use std::{
+    cmp::Ordering,
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
 };
@@ -6,9 +7,9 @@ use std::{
 use caditor_expression::{Dimension, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Point3, Vector3};
 use caditor_kernel::{
-    Accuracy, Axis, Curve, EdgeForm, EdgeId, EdgeReference, Element, FaceForm, FaceId,
-    FaceReference, Interval, MeasureError, ReferenceError, Solid, angle, curve_measure, distance,
-    edge_measure, face_area, face_form,
+    Accuracy, Axis, Curve, EdgeForm, EdgeId, EdgeMeasure, EdgeReference, Element, FaceForm, FaceId,
+    FaceReference, Interval, MeasureError, ReferenceError, Separation, Solid, angle, curve_measure,
+    distance, edge_measure, face_area, face_form,
 };
 use caditor_sketch::EntityId;
 
@@ -21,8 +22,10 @@ use crate::{
     document::{Document, Feature, FeatureId, FeatureKind},
     edit::{Edit, Transaction},
     origins, paste,
+    pieces::Resolution,
     recompute::{CancelToken, Evaluation, Failure, FeatureResult, FeatureState, Inputs},
     solid::{ExactMass, profile_curve},
+    split_edges::{Followed, SplitEdges},
     values::{ParameterError, ParameterValues, evaluation_order},
 };
 
@@ -421,6 +424,10 @@ enum Located<'a> {
         solid: &'a Solid,
         edge: EdgeId,
     },
+    Pieces {
+        solid: &'a Solid,
+        edges: Vec<EdgeId>,
+    },
     Face {
         solid: &'a Solid,
         face: FaceId,
@@ -433,21 +440,25 @@ enum Located<'a> {
 }
 
 impl Located<'_> {
-    fn element(&self) -> Element<'_> {
+    fn elements(&self) -> Vec<Element<'_>> {
         match self {
-            Self::Point(point) => Element::Point(*point),
-            Self::Axis(axis) => Element::Axis(*axis),
-            Self::Plane { origin, normal } => Element::Plane {
+            Self::Point(point) => vec![Element::Point(*point)],
+            Self::Axis(axis) => vec![Element::Axis(*axis)],
+            Self::Plane { origin, normal } => vec![Element::Plane {
                 origin: *origin,
                 normal: *normal,
-            },
-            Self::Edge { solid, edge } => Element::Edge { solid, edge: *edge },
-            Self::Face { solid, face } => Element::Face { solid, face: *face },
-            Self::Curve { curve, interval } => Element::Curve {
+            }],
+            Self::Edge { solid, edge } => vec![Element::Edge { solid, edge: *edge }],
+            Self::Pieces { solid, edges } => edges
+                .iter()
+                .map(|edge| Element::Edge { solid, edge: *edge })
+                .collect(),
+            Self::Face { solid, face } => vec![Element::Face { solid, face: *face }],
+            Self::Curve { curve, interval } => vec![Element::Curve {
                 curve,
                 interval: *interval,
-            },
-            Self::Body(mass) => Element::Point(mass.properties.centroid),
+            }],
+            Self::Body(mass) => vec![Element::Point(mass.properties.centroid)],
         }
     }
 
@@ -456,14 +467,58 @@ impl Located<'_> {
             Self::Point(point) => *point,
             Self::Axis(axis) => axis.origin,
             Self::Plane { origin, .. } => *origin,
-            Self::Edge { solid, edge } => solid.edge(*edge).map_or(Point3::ZERO, |definition| {
-                definition.curve().point(definition.interval().middle())
-            }),
+            Self::Edge { solid, edge } => edge_middle(solid, *edge),
+            Self::Pieces { solid, edges } => {
+                let count = edges.len().max(1) as f64;
+                edges
+                    .iter()
+                    .map(|edge| edge_middle(solid, *edge))
+                    .sum::<Point3>()
+                    / count
+            }
             Self::Face { solid, face } => face_middle(solid, *face),
             Self::Curve { curve, interval } => curve.point(interval.middle()),
             Self::Body(mass) => mass.properties.centroid,
         }
     }
+}
+
+fn measure_pieces(solid: &Solid, edges: &[EdgeId]) -> Result<Vec<EdgeMeasure>, MeasureError> {
+    edges
+        .iter()
+        .map(|edge| edge_measure(solid, *edge))
+        .collect()
+}
+
+fn edge_middle(solid: &Solid, edge: EdgeId) -> Point3 {
+    solid.edge(edge).map_or(Point3::ZERO, |definition| {
+        definition.curve().point(definition.interval().middle())
+    })
+}
+
+struct Nearest<'a> {
+    from: Element<'a>,
+    to: Element<'a>,
+    separation: Option<Separation>,
+}
+
+fn nearest<'a>(from: &'a Located<'_>, to: &'a Located<'_>) -> Option<Nearest<'a>> {
+    let targets = to.elements();
+    let pairs = from.elements().into_iter().flat_map(|from| {
+        targets.iter().map(move |to| Nearest {
+            from,
+            to: *to,
+            separation: distance(from, *to).ok(),
+        })
+    });
+    pairs.min_by(
+        |first, second| match (first.separation, second.separation) {
+            (Some(first), Some(second)) => first.distance.total_cmp(&second.distance),
+            (Some(_), None) => Ordering::Less,
+            (None, Some(_)) => Ordering::Greater,
+            (None, None) => Ordering::Equal,
+        },
+    )
 }
 
 fn face_middle(solid: &Solid, face: FaceId) -> Point3 {
@@ -515,22 +570,37 @@ impl<'a> Measuring<'a> {
             MeasuredItem::Edge { body, edge } => {
                 let solid = self.body(*body)?;
                 let name = feature_name(document, *body);
-                match edge.resolve(solid) {
-                    Ok(found) => Located::Edge { solid, edge: found },
-                    Err(ReferenceError::Missing) => {
+                match SplitEdges::new(document, solid).follow(edge) {
+                    Followed::Resolved(Resolution::One(found)) => {
+                        Located::Edge { solid, edge: found }
+                    }
+                    Followed::Resolved(Resolution::Pieces(edges)) => {
+                        Located::Pieces { solid, edges }
+                    }
+                    Followed::Resolved(Resolution::Missing) => {
                         return Err(self.resolver.own_error(
                             format!("The edge it measures is no longer part of {name}."),
                             "Measure again with an edge that is there now, or delete this \
                              measurement.",
                         ));
                     }
-                    Err(ReferenceError::Ambiguous(_)) => {
+                    Followed::Resolved(Resolution::Tied(_)) => {
                         return Err(self.resolver.own_error(
                             format!(
                                 "The edge of {name} it measures is now several edges, so it is \
                                  unclear which one to follow."
                             ),
                             "Measure again with the edge you mean.",
+                        ));
+                    }
+                    Followed::PartlyLost(_) => {
+                        return Err(self.resolver.own_error(
+                            format!(
+                                "The edge of {name} it measures was split into pieces by a \
+                                 sketch edit, and only some of the pieces still lie along it."
+                            ),
+                            "Measure again with the edge or piece you mean, or undo the sketch \
+                             edit that split it.",
                         ));
                     }
                 }
@@ -682,11 +752,9 @@ pub(crate) fn evaluate(
             if cancel.is_cancelled() {
                 return Err(Failure::Cancelled);
             }
-            let separation = distance(from.element(), to.element());
-            let line = separation
-                .as_ref()
-                .ok()
-                .map(|separation| (separation.from, separation.to));
+            let nearest = nearest(&from, &to);
+            let separation = nearest.as_ref().and_then(|nearest| nearest.separation);
+            let line = separation.map(|separation| (separation.from, separation.to));
             let anchor = line.map_or_else(
                 || from.anchor().midpoint(to.anchor()),
                 |(start, end)| start.midpoint(end),
@@ -700,7 +768,7 @@ pub(crate) fn evaluate(
             };
             match quantity {
                 Between::Distance => {
-                    let separation = separation.map_err(|_| {
+                    let separation = separation.ok_or_else(|| {
                         measuring.unmeasurable(format!(
                             "The distance between {} could not be worked out.",
                             words()
@@ -714,7 +782,8 @@ pub(crate) fn evaluate(
                     }
                 }
                 Between::Angle => {
-                    let found = angle(from.element(), to.element()).ok().flatten();
+                    let found =
+                        nearest.and_then(|nearest| angle(nearest.from, nearest.to).ok().flatten());
                     let found = found.ok_or_else(|| {
                         measuring.unmeasurable(format!(
                             "{} have no angle between them.",
@@ -750,13 +819,15 @@ pub(crate) fn evaluate(
             if cancel.is_cancelled() {
                 return Err(Failure::Cancelled);
             }
-            let separation = distance(from.element(), to.element()).map_err(|_| {
-                measuring.unmeasurable(format!(
-                    "The offset between {} and {} could not be worked out.",
-                    first.describe(document),
-                    second.describe(document)
-                ))
-            })?;
+            let separation = nearest(&from, &to)
+                .and_then(|nearest| nearest.separation)
+                .ok_or_else(|| {
+                    measuring.unmeasurable(format!(
+                        "The offset between {} and {} could not be worked out.",
+                        first.describe(document),
+                        second.describe(document)
+                    ))
+                })?;
             MeasurementResult {
                 value: Quantity::length(separation.offset().dot(direction).abs()),
                 line: Some((separation.from, separation.to)),
@@ -815,6 +886,18 @@ pub(crate) fn evaluate(
                     let measured = curve_measure(curve, *interval);
                     (Quantity::length(measured.length), measured.length_accuracy)
                 }
+                (Of::Length, Located::Pieces { solid, edges }) => {
+                    let measured = measure_pieces(solid, edges).map_err(|_| {
+                        measuring.unmeasurable(format!(
+                            "The length of {described} could not be worked out."
+                        ))
+                    })?;
+                    let length = measured.iter().map(|piece| piece.length).sum();
+                    let accuracy = measured.iter().fold(Accuracy::Exact, |accuracy, piece| {
+                        accuracy.and(piece.length_accuracy)
+                    });
+                    (Quantity::length(length), accuracy)
+                }
                 (Of::Radius, Located::Edge { solid, edge }) => {
                     match edge_measure(solid, *edge).map(|measured| measured.form) {
                         Ok(EdgeForm::Circle { radius, .. }) => {
@@ -831,6 +914,22 @@ pub(crate) fn evaluate(
                 (Of::Radius, Located::Curve { curve, interval }) => {
                     match curve_measure(curve, *interval).form {
                         EdgeForm::Circle { radius, .. } => {
+                            (Quantity::length(radius), Accuracy::Exact)
+                        }
+                        _ => {
+                            return Err(measuring.unmeasurable(format!(
+                                "{} is no longer round, so it has no radius.",
+                                capitalised(&described)
+                            )));
+                        }
+                    }
+                }
+                (Of::Radius, Located::Pieces { solid, edges }) => {
+                    match measure_pieces(solid, edges)
+                        .as_deref()
+                        .map(|measured| measured.first().map(|piece| piece.form))
+                    {
+                        Ok(Some(EdgeForm::Circle { radius, .. })) => {
                             (Quantity::length(radius), Accuracy::Exact)
                         }
                         _ => {
@@ -866,6 +965,25 @@ pub(crate) fn evaluate(
                             (Quantity::angle(sweep.to_degrees()), Accuracy::Exact)
                         }
                         _ => return Err(measuring.unmeasurable(no_sweep(&described))),
+                    }
+                }
+                (Of::Sweep, Located::Pieces { solid, edges }) => {
+                    let sweeps: Option<Vec<f64>> =
+                        measure_pieces(solid, edges).ok().and_then(|measured| {
+                            measured
+                                .iter()
+                                .map(|piece| match piece.form {
+                                    EdgeForm::Circle { sweep, .. } => Some(sweep),
+                                    _ => None,
+                                })
+                                .collect()
+                        });
+                    match sweeps {
+                        Some(sweeps) => (
+                            Quantity::angle(sweeps.iter().sum::<f64>().to_degrees()),
+                            Accuracy::Exact,
+                        ),
+                        None => return Err(measuring.unmeasurable(no_sweep(&described))),
                     }
                 }
                 (Of::Sweep, Located::Curve { curve, interval }) => {

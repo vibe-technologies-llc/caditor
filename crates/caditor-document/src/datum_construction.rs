@@ -1,8 +1,7 @@
 use caditor_expression::Dimension;
 use caditor_geometry::{Plane, Point3, Ray, Vector3};
 use caditor_kernel::{
-    Curve, Edge, EdgeId, EdgeReference, FaceId, FaceReference, Interval, LINEAR_RESOLUTION,
-    MeshQuality, ReferenceError, Surface,
+    EdgeReference, FaceId, FaceReference, LINEAR_RESOLUTION, MeshQuality, ReferenceError, Surface,
 };
 
 use crate::{
@@ -12,63 +11,48 @@ use crate::{
     },
     describe::describe_origin,
     document::FeatureId,
+    edge_run::EdgeRun,
     recompute::Failure,
+    split_edges::{SplitEdges, Unrun},
     tolerance,
 };
 
-const LENGTH_BISECTIONS: usize = 50;
 const PLANES_MEET_TOLERANCE: f64 = 1e-6;
 
-fn parameter_at_length(curve: &Curve, interval: Interval, along: f64) -> f64 {
-    match curve {
-        Curve::Line(_) => interval.start() + along,
-        Curve::Circle(circle) => interval.start() + along / circle.radius(),
-        _ => {
-            let (mut low, mut high) = (interval.start(), interval.end());
-            for _ in 0..LENGTH_BISECTIONS {
-                let middle = 0.5 * (low + high);
-                let reached = Interval::new(interval.start(), middle)
-                    .map_or(0.0, |range| curve.length(range));
-                if reached < along {
-                    low = middle;
-                } else {
-                    high = middle;
-                }
-            }
-            0.5 * (low + high)
-        }
-    }
-}
-
-fn resolved_edge<'a>(
+fn resolved_run<'a>(
     resolver: &'a Resolver<'_>,
     body: FeatureId,
     reference: &EdgeReference,
-) -> Result<&'a Edge, Failure> {
+) -> Result<EdgeRun<'a>, Failure> {
     let document = resolver.inputs.document;
     let solid = resolver.body(body)?;
     let name = feature_name(document, body);
-    let edge: EdgeId = match reference.resolve(solid) {
-        Ok(found) => found,
-        Err(ReferenceError::Ambiguous(_)) => {
-            return Err(resolver.own_error(
-                format!("The edge of {name} it follows is now several edges."),
-                "Choose the edge again.",
-            ));
-        }
-        Err(ReferenceError::Missing) => {
-            return Err(resolver.own_error(
+    SplitEdges::new(document, solid)
+        .run(reference)
+        .map_err(|unrun| match unrun {
+            Unrun::Missing => resolver.own_error(
                 format!("The edge it follows is no longer part of {name}."),
                 "Choose another edge for it.",
-            ));
-        }
-    };
-    solid.edge(edge).ok_or_else(|| {
-        resolver.own_error(
-            format!("The edge it follows is no longer part of {name}."),
-            "Choose another edge for it.",
-        )
-    })
+            ),
+            Unrun::Tied => resolver.own_error(
+                format!("The edge of {name} it follows is now several edges."),
+                "Choose the edge again.",
+            ),
+            Unrun::Gapped => resolver.own_error(
+                format!(
+                    "The edge of {name} it follows is now several pieces with gaps between them, \
+                     so there is no one edge to follow."
+                ),
+                "Choose the piece it should follow, or undo the edit that split the edge.",
+            ),
+            Unrun::PartlyTraced => resolver.own_error(
+                format!(
+                    "The edge of {name} it follows was split into pieces by a sketch edit, and \
+                     only some of the pieces can still be traced back to it."
+                ),
+                "Choose the edge again, or undo the sketch edit that split it.",
+            ),
+        })
 }
 
 fn station_point(
@@ -76,11 +60,10 @@ fn station_point(
     station: &CurveStation,
 ) -> Result<(Point3, Vector3), Failure> {
     let name = feature_name(resolver.inputs.document, station.body);
-    let definition = resolved_edge(resolver, station.body, &station.edge)?;
+    let run = resolved_run(resolver, station.body, &station.edge)?;
     let distance = resolver.value(&station.distance, "distance", Dimension::LENGTH)?;
-    let interval = definition.interval();
-    let curve = definition.curve();
-    let length = curve.length(interval);
+    let length = run.length();
+
     if distance.abs() > length + LINEAR_RESOLUTION {
         return Err(resolver.own_error(
             format!(
@@ -90,20 +73,21 @@ fn station_point(
             "Shorten the distance, or choose a longer edge.",
         ));
     }
+
     let along = if distance >= 0.0 {
         distance
     } else {
         length + distance
     };
-    let parameter = interval.clamp(parameter_at_length(curve, interval, along.max(0.0)));
-    let derivatives = curve.evaluate(parameter);
-    if !derivatives.point.is_finite() || derivatives.first.length() <= f64::EPSILON {
+    let (point, tangent) = run.at(along.max(0.0));
+
+    if !point.is_finite() || tangent.length() <= f64::EPSILON {
         return Err(resolver.own_error(
             format!("The edge of {name} it follows has no direction at that distance."),
             "Change the distance.",
         ));
     }
-    Ok((derivatives.point, derivatives.first))
+    Ok((point, tangent))
 }
 
 pub(crate) fn square_to_curve(
@@ -190,11 +174,8 @@ fn edge_middle(
     body: FeatureId,
     reference: &EdgeReference,
 ) -> Result<Point3, Failure> {
-    let definition = resolved_edge(resolver, body, reference)?;
-    let interval = definition.interval();
-    let curve = definition.curve();
-    let half = 0.5 * curve.length(interval);
-    Ok(curve.point(interval.clamp(parameter_at_length(curve, interval, half))))
+    let run = resolved_run(resolver, body, reference)?;
+    Ok(run.at(0.5 * run.length()).0)
 }
 
 fn resolved_faces(

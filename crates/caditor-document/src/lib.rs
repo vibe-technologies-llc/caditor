@@ -8,6 +8,7 @@ mod datum_construction;
 mod dependencies;
 mod describe;
 mod document;
+mod edge_run;
 mod edit;
 mod editor;
 mod feature_list;
@@ -257,6 +258,8 @@ mod shell_tests;
 mod sketch_tests;
 #[cfg(test)]
 mod solid_tests;
+#[cfg(test)]
+mod split_edge_reference_tests;
 #[cfg(test)]
 mod split_face_tests;
 #[cfg(test)]

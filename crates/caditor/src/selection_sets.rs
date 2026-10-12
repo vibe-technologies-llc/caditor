@@ -315,7 +315,7 @@ pub fn choose(model: &Model, index: usize, in_sketch: bool) -> Result<Chosen, St
         .sets
         .get(index)
         .ok_or_else(|| "That selection set no longer exists".to_owned())?;
-    let resolved = set.resolve(evaluation);
+    let resolved = set.resolve(document, evaluation);
     let mut missed = Missed::default();
     for lost in resolved.lost {
         match lost {

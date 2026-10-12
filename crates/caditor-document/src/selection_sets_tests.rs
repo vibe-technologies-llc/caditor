@@ -163,7 +163,7 @@ fn a_body_member_resolves_to_every_face_and_a_lost_body_is_named() {
         members: vec![SetMember::Body(pair.peg), SetMember::Body(missing)],
     };
 
-    let resolved = chosen.resolve(&evaluation);
+    let resolved = chosen.resolve(&pair.document, &evaluation);
 
     assert_eq!(resolved.found.len(), 6);
     assert!(
@@ -209,7 +209,7 @@ fn a_face_and_an_edge_are_found_again_after_a_later_cut_changes_the_body() {
     pair.document.apply(transaction.finish()).unwrap();
 
     let cut = evaluate(&pair.document, &mut Recompute::default());
-    let resolved = chosen.resolve(&cut);
+    let resolved = chosen.resolve(&pair.document, &cut);
 
     let solid = &cut.body_result(pair.plate).unwrap().solid().unwrap().solid;
     let notched = top.resolve(solid).unwrap();

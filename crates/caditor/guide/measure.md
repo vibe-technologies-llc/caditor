@@ -79,7 +79,10 @@ passes through. Each change is one change Undo takes back.
 
 What it measures is followed like any reference: faces, edges and corners keep their names across
 upstream edits. When one is gone the measurement fails with the reason, and features using its
-value fail with it, pointing back to it; everything else carries on. The parameter's stored value
+value fail with it, pointing back to it; everything else carries on. An edge whose sketch curve is
+later cut in two by [Trim](trim-and-extend) or split keeps all its pieces: its length is theirs
+added up, and a distance or angle is taken from the nearest piece. When a piece no longer lies
+along the old edge, the measurement stops and says the edge was split, so you can measure again. The parameter's stored value
 follows each reading, so deleting the measurement leaves its parameter, if something uses it, as
 an ordinary parameter holding the last reading, and the features using it keep their shape.
 
