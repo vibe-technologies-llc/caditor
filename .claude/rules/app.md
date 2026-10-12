@@ -82,9 +82,9 @@ paths:
   its content or highlight changes. Content is everything that can change the drawing (document
   revision, evaluation, the open feature's draft, displayed sketches, body meshes, display style,
   `Contrast`, editing `Context`, faceting level); anything new that affects the drawing must feed
-  that key. The hovered `Pickable`s and chosen rows (with their bodies,
-  `viewport::with_their_bodies`) in `Highlight` are sorted and deduplicated, since items look
-  themselves up by binary search.
+  that key. The hovered `Pickable`s (with the faces and edges chosen modifying rows made) and
+  chosen rows (with the bodies of rows that made no face, `viewport::LitRows`) in `Highlight` are
+  sorted and deduplicated, since items look themselves up by binary search.
 - Each shown body is a `BodyPart` the cache keeps (`scene::Parts`): mesh instances, silhouette,
   its own batch for edges and vertices, and a `PickBlock` of pick ids from `PART_PICKS_FROM` up. A
   rebuild reuses a part whose `BodyLook` (mesh, colour, face looks, opacity, dashes, placement,

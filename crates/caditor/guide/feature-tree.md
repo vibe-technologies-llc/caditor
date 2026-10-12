@@ -30,8 +30,9 @@ changed; the card says why and offers Unsuppress or Roll forward to here.
 
 Click a row to choose it; Ctrl-click and Shift-click choose several. While the tree is filtered,
 Shift-click takes only the rows shown. Escape with nothing selected in the view, or a click on
-empty space in the view, lets go of the chosen rows. Hovering a row lights what it made in the
-view.
+empty space in the view, lets go of the chosen rows. Choosing or hovering a row lights what it
+made in the view: a body's row the whole body, a row that changes a body, such as a hole or a
+fillet, only the faces it made, so each hole lights on its own.
 
 The eye on a row hides or shows what it made. The "⋯" button holds the same actions as the
 right-click menu; Hide or Show there, like Suppress, acts on every chosen row. Uses and Used by

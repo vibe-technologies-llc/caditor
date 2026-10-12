@@ -85,6 +85,7 @@ mod feature_tree_choice;
 mod files_and_history;
 mod frame_costs;
 mod hole_feet;
+mod hole_highlights;
 mod hole_place_handles;
 mod import_costs;
 mod import_jobs;
@@ -9859,7 +9860,7 @@ fn fitting_the_view_frames_the_rows_chosen_in_the_tree_when_nothing_is_selected(
 }
 
 #[test]
-fn a_modifying_features_row_frames_and_lights_the_body_it_changes() {
+fn a_modifying_features_row_frames_the_body_it_changes_and_lights_the_faces_it_made() {
     let mut harness = Harness::new();
     let (plate, top) = extruded_plate(&mut harness);
     let mut far = Sketch::new(Plane::XY);
@@ -9884,24 +9885,26 @@ fn a_modifying_features_row_frames_and_lights_the_body_it_changes() {
     harness.key(Key::Escape, Modifiers::NONE);
     harness.settle();
     harness.select([]);
-    let face_colour = |harness: &mut Harness| {
+    let rounded = pickable_described(&mut harness, "Extrude 1 › Fillet 1 face");
+    let face_colour = |harness: &mut Harness, face: Pickable| {
         let built = harness.built();
-        let pick = built.picks.id_of(top);
+        let pick = built.picks.id_of(face);
         built
             .scene
             .meshes
             .iter()
             .flat_map(|instance| instance.faces.iter())
-            .find(|face| face.pick == pick)
-            .map(|face| face.color)
-            .expect("the top face is drawn")
+            .find(|drawn| drawn.pick == pick)
+            .map(|drawn| drawn.color)
+            .expect("the face is drawn")
     };
-    let plain = face_colour(&mut harness);
+    let plain = face_colour(&mut harness, top);
 
     harness.workspace.panels.choose_only(fillet);
     harness.frame();
     harness.frame();
-    let lit = face_colour(&mut harness);
+    let made = face_colour(&mut harness, rounded);
+    let untouched = face_colour(&mut harness, top);
     harness.key(Key::F, Modifiers::NONE);
     harness.frame();
     harness.workspace.viewport.advance(CAMERA_SETTLE);
@@ -9909,7 +9912,8 @@ fn a_modifying_features_row_frames_and_lights_the_body_it_changes() {
     let target = harness.workspace.viewport.viewpoint().target;
 
     assert!(harness.document().feature(fillet).is_some());
-    assert_ne!(lit, plain);
+    assert_ne!(made, plain);
+    assert_eq!(untouched, plain);
     assert!(
         target.x < 100.0,
         "the view is framed on the filleted body: {target:?}"
