@@ -8,7 +8,8 @@ Primitives are ready-made bodies sized by numbers: {command:model.box}, {command
 
 With a plane or a flat face selected, the primitive stands there: on a face at its middle, added to
 that face's body. With nothing selected it starts at the origin and asks you to click a plane or
-face to put it on; Escape leaves it where it is.
+face to put it on; Escape leaves it where it is, and so does a click on the primitive's own
+face, edge or corner, which selects it.
 
 While it is open, a square and two arrows stand where it is placed: drag the square to move it
 anywhere on its plane, or an arrow to move it along one direction. Arrows on its faces drag its
