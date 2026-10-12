@@ -68,8 +68,10 @@ paths:
   `ImportError::TooManyElements`, nesting past `MAX_DEPTH` is `ImportError::NestedTooDeep` and a
   tag with more than `MAX_ATTRIBUTES` attributes is `ImportError::TooManyAttributes` (3MF refuses
   the same way). The reader polls the kernel interrupt every `ELEMENTS_BETWEEN_INTERRUPT_POLLS`
-  elements, so Cancel stops a crafted file's parse as `ImportError::Cancelled`. Namespaces are interned through a map and a prefix resolves through a stack per
-  prefix, so a hostile file costs time linear in its size; each element records the last element
+  elements, so Cancel stops a crafted file's parse as `ImportError::Cancelled`. Namespaces are
+  interned through a map whose key adds one `tally` unit per entry it compares (the XML test bounds
+  the total by the declarations made) and a prefix resolves through a stack per prefix, so a
+  hostile file costs time linear in its size; each element records the last element
   of its subtree (`Node::encloses`), which is how a `use` tests for a loop. Damage keeps the
   elements before it with their open ancestors and a note names the line; damage before the root is
   `DamagedAt`.
