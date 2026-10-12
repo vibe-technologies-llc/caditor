@@ -21,7 +21,7 @@ starts where the path crosses the profile's plane and closes on itself.
 - **Path** names the curves or edges followed. Use selected follows the selected ones instead;
   Choose in the view starts choosing: each click on a curve or edge adds it to the path, a second
   click leaves it out, and Escape stops. The cross clears the path.
-- **Profile**: **Square to path** turns the profile with the path, keeping its angle to it as a
+- **Orientation**: **Square to path** turns the profile with the path, keeping its angle to it as a
   bent pipe does; **Parallel** only moves it along the path, keeping it parallel to its sketch.
 - **New body**, **Add**, **Remove from body** or **Intersect with body**, as for an extrusion.
 

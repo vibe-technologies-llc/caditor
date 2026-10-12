@@ -360,7 +360,7 @@ selected sketch curves (`view_menu::SKETCH_TOOLS`) reach it. Panel rows, keys an
   it hides the profile's sketch but not the path's, whose curves stay clickable. With no path it
   opens choosing one (`Slot::SweepPath`).
 - Panel: Sketch, Regions, Path (`path_words`, "2 curves of Path"; Use selected replaces it,
-  `selected_change`; Choose in the view; the cross clears it), Profile (`SQUARE_TO_PATH`,
+  `selected_change`; Choose in the view; the cross clears it), Orientation (`SQUARE_TO_PATH`,
   `PARALLEL`, a segmented choice that becomes a list when narrow) and Body. While choosing the
   path each click toggles a curve or edge (`toggled_path`: the same sketch or body toggles, another
   starts a new path) and choosing goes on until Escape (`reference_picking::click` keeps
