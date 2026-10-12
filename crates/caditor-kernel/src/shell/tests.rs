@@ -303,6 +303,16 @@ fn bevelled_planes(size: Vector3, chamfer: f64) -> Vec<(Vector3, f64)> {
             }
         }
     }
+    for (x, x_offset) in sides.iter().filter(|(normal, _)| normal.x != 0.0) {
+        for (y, y_offset) in sides.iter().filter(|(normal, _)| normal.y != 0.0) {
+            for (z, z_offset) in sides.iter().filter(|(normal, _)| normal.z != 0.0) {
+                planes.push((
+                    (*x + *y + *z) / 3.0_f64.sqrt(),
+                    (x_offset + y_offset + z_offset - 2.0 * chamfer) / 3.0_f64.sqrt(),
+                ));
+            }
+        }
+    }
     planes
 }
 
@@ -315,16 +325,7 @@ fn an_opened_face_between_converging_walls_shrinks_away_and_still_opens() {
         let top = face_facing(&bevelled, Vector3::Z, Point3::new(5.0, 5.0, size.z));
         let outer = bevelled_planes(size, 1.0);
         let thickness = 2.0;
-        let cavity: Vec<(Vector3, f64)> = outer
-            .iter()
-            .map(|(normal, offset)| {
-                if *normal == Vector3::Z {
-                    (*normal, *offset)
-                } else {
-                    (*normal, offset - thickness)
-                }
-            })
-            .collect();
+        let cavity = cavity_planes(&outer, thickness, true);
         check(
             &format!("bevelled {size}"),
             &run(&bevelled, &[top], thickness),
@@ -1200,16 +1201,7 @@ fn a_chamfered_box_keeps_every_face_its_walls_leave_room_for() {
         let top = face_facing(&bevelled, Vector3::Z, Point3::new(5.0, 5.0, size.z));
         let outer = bevelled_planes(size, 1.0);
         for thickness in [0.5, 1.5, 2.0, 2.5] {
-            let cavity: Vec<(Vector3, f64)> = outer
-                .iter()
-                .map(|(normal, offset)| {
-                    if *normal == Vector3::Z {
-                        (*normal, *offset)
-                    } else {
-                        (*normal, offset - thickness)
-                    }
-                })
-                .collect();
+            let cavity = cavity_planes(&outer, thickness, true);
             let name = format!("bevelled {size} at {thickness}");
             let result = run(&bevelled, &[top], thickness);
             check(
@@ -1225,6 +1217,69 @@ fn a_chamfered_box_keeps_every_face_its_walls_leave_room_for() {
                 .filter(|(_, face)| face.origin() == Some(FaceOrigin::Shell { feature: 70 }))
                 .count();
             assert_eq!(cavity_faces, walls, "{name}");
+        }
+    }
+}
+
+fn cavity_planes(outer: &[(Vector3, f64)], thickness: f64, opened: bool) -> Vec<(Vector3, f64)> {
+    outer
+        .iter()
+        .map(|(normal, offset)| {
+            if opened && *normal == Vector3::Z {
+                (*normal, *offset)
+            } else {
+                (*normal, offset - thickness)
+            }
+        })
+        .collect()
+}
+
+#[test]
+fn boxes_with_triangle_corners_shell_open_and_closed_or_refuse_cleanly() {
+    let sizes = [
+        Vector3::splat(10.0),
+        Vector3::new(40.0, 30.0, 20.0),
+        Vector3::new(100.0, 60.0, 40.0),
+    ];
+    for size in sizes {
+        let solid = cuboid(size);
+        let every: Vec<EdgeId> = solid.edges().map(|(id, _)| id).collect();
+        for chamfer in [1.0, 3.0] {
+            let bevelled =
+                blend(&solid, &every, BlendShape::Chamfer { distance: chamfer }, 5).unwrap();
+            let top = face_facing(&bevelled, Vector3::Z, Point3::new(5.0, 5.0, size.z));
+            let outer = bevelled_planes(size, chamfer);
+            for thickness in [0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0] {
+                for opened in [true, false] {
+                    let open: &[FaceId] = if opened { &[top] } else { &[] };
+                    let name = format!("{size} chamfer {chamfer} at {thickness} opened {opened}");
+                    let cavity = cavity_planes(&outer, thickness, opened);
+                    let (_, areas) = convex_facets(&cavity);
+                    let opening = areas.get(4).copied().unwrap_or(0.0);
+                    let walls = areas.iter().filter(|area| **area > 1e-9).count();
+
+                    let result = shell(&bevelled, open, thickness, 70);
+
+                    let room = if opened { opening > 1e-9 } else { walls > 3 };
+                    if !room {
+                        assert!(result.is_err(), "{name}: shelled without room");
+                        continue;
+                    }
+                    let result = result.unwrap_or_else(|error| panic!("{name}: {error}"));
+                    check(
+                        &name,
+                        &result,
+                        convex_volume(&outer) - convex_volume(&cavity),
+                    );
+                    let cavity_faces = result
+                        .faces()
+                        .filter(|(_, face)| {
+                            face.origin() == Some(FaceOrigin::Shell { feature: 70 })
+                        })
+                        .count();
+                    assert_eq!(cavity_faces, walls - usize::from(opened), "{name}");
+                }
+            }
         }
     }
 }

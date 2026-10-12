@@ -6,7 +6,7 @@ use super::{
     OFFSET_TOLERANCE, Offsets, ShellError,
     collapse::{Collapses, coedge_faces, loop_edges},
     edge::{offset_edge, reverses},
-    split::{Split, split_vertex},
+    split::{Cluster, Split, split_vertex},
 };
 use crate::{
     build::plan::{Plan, PlanCoedge, PlanError, PlanFace},
@@ -294,7 +294,7 @@ impl Corners {
         self.points
             .get(&root)
             .copied()
-            .or_else(|| self.splits.get(&root)?.ends.get(&edge).copied())
+            .or_else(|| self.splits.get(&root)?.ends.get(&(edge, vertex)).copied())
     }
 }
 
@@ -302,10 +302,12 @@ fn place_corners(
     offsets: &Offsets<'_>,
     collapses: &Collapses,
     clusters: &Clusters,
+    vanishing: &BTreeSet<EdgeId>,
     joints: &BTreeMap<VertexId, BTreeSet<FaceId>>,
     plan: &mut Plan,
 ) -> Result<Corners, ShellError> {
     let solid = offsets.solid;
+    let dropped = collapses.faces();
     let around = faces_at(solid);
     let edges = edges_at(solid);
     let mut corners = Corners::default();
@@ -352,17 +354,36 @@ fn place_corners(
             }
         };
         if let Some(point) = placed {
-            collapses.closes_over(offsets, &every, point)?;
+            collapses.closes_over(offsets, &every, &[point])?;
             corners.points.insert(root, plan.vertex(point));
             continue;
         }
-        if let Some(refusal) = every
+        let refusal = every
             .iter()
-            .find_map(|face| collapses.refusal(solid, *face))
-        {
-            return Err(refusal);
-        }
-        let split = split_vertex(offsets, root, plan).ok_or(ShellError::Corner(root))?;
+            .find_map(|face| collapses.refusal(solid, *face));
+        let split = if let [single] = members.as_slice() {
+            if let Some(refusal) = refusal {
+                return Err(refusal);
+            }
+            let cluster = Cluster {
+                members: &BTreeSet::from([*single]),
+                vanishing: &BTreeSet::new(),
+                dropped: &BTreeSet::new(),
+            };
+            split_vertex(offsets, &cluster, plan).ok_or(ShellError::Corner(root))?
+        } else {
+            let cluster = Cluster {
+                members: &members.iter().copied().collect(),
+                vanishing,
+                dropped: &dropped,
+            };
+            let refused = || refusal.clone().unwrap_or(ShellError::Corner(root));
+            let split = split_vertex(offsets, &cluster, plan).ok_or_else(refused)?;
+            collapses
+                .closes_over(offsets, &every, &split.points)
+                .map_err(|_| refused())?;
+            split
+        };
         corners.splits.insert(root, split);
     }
     Ok(corners)
@@ -621,7 +642,9 @@ impl Layout {
         let bands = bands(offsets.solid, collapses, &vanishing)?;
         let joints = joints(&clusters, &bands);
         let mut plan = Plan::default();
-        let corners = place_corners(offsets, collapses, &clusters, &joints, &mut plan)?;
+        let corners = place_corners(
+            offsets, collapses, &clusters, &vanishing, &joints, &mut plan,
+        )?;
         Ok(Self {
             vanishing,
             clusters,
@@ -682,7 +705,9 @@ impl Layout {
         match sides {
             [] => true,
             [first, second] => match (first.as_slice(), second.as_slice()) {
-                ([a], [b]) => edge(a) != edge(b),
+                ([a], [b]) => {
+                    edge(a) != edge(b) && self.outline_inverts(solid, face) != Some(false)
+                }
                 _ => self.outline_inverts(solid, face) == Some(true),
             },
             _ => false,
@@ -1002,10 +1027,14 @@ fn loops(
                         .map(|piece| PlanCoedge::new(piece.edge, sense_of(piece))),
                 );
             }
-            let detour = solid
-                .coedge_vertices(*coedge_id)
-                .and_then(|(_, end)| layout.corners.splits.get(&end))
-                .and_then(|split| split.detours.get(&face));
+            let detour = solid.coedge_vertices(*coedge_id).and_then(|(_, end)| {
+                layout
+                    .corners
+                    .splits
+                    .get(&layout.clusters.find(end))?
+                    .detours
+                    .get(&(face, end))
+            });
             if let Some(detour) = detour {
                 coedges.extend(detour.iter().cloned());
             }
@@ -1058,6 +1087,7 @@ fn settled_layout(offsets: &Offsets<'_>, collapses: &mut Collapses) -> Result<La
         if shrinking.is_empty() {
             return Ok(layout);
         }
+        let shrinking = closing_whole_first(offsets, collapses, shrinking)?;
         unsettled = shrinking.keys().copied().collect();
         let peaks: Vec<(FaceId, BTreeSet<EdgeId>, [BTreeSet<EdgeId>; 2])> = shrinking
             .iter()
@@ -1071,6 +1101,34 @@ fn settled_layout(offsets: &Offsets<'_>, collapses: &mut Collapses) -> Result<La
         }
     }
     Err(ShellError::walls_at(unsettled))
+}
+
+fn closing_whole_first(
+    offsets: &Offsets<'_>,
+    collapses: &Collapses,
+    shrinking: BTreeMap<FaceId, BTreeSet<EdgeId>>,
+) -> Result<BTreeMap<FaceId, BTreeSet<EdgeId>>, ShellError> {
+    let solid = offsets.solid;
+    let whole: BTreeMap<FaceId, BTreeSet<EdgeId>> = shrinking
+        .iter()
+        .filter(|(face, across)| {
+            loop_edges(solid, **face)
+                .iter()
+                .all(|edge| across.contains(edge))
+        })
+        .map(|(face, across)| (*face, across.clone()))
+        .collect();
+    if whole.is_empty() || whole.len() == shrinking.len() {
+        return Ok(shrinking);
+    }
+    let mut trial = collapses.clone();
+    trial.add_shrinking(whole.clone());
+    let trial_layout = Layout::new(offsets, &trial);
+    match trial_layout {
+        Ok(_) => Ok(whole),
+        Err(error @ ShellError::Cancelled(_)) => Err(error),
+        Err(_) => Ok(shrinking),
+    }
 }
 
 fn ridges(solid: &Solid, face: FaceId, across: &BTreeSet<EdgeId>) -> Option<[BTreeSet<EdgeId>; 2]> {
