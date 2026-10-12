@@ -10,6 +10,7 @@ use caditor_render::{Batch, Color, Fill, Layer, Line, Stroke, View};
 use crate::{
     feature_fields::Rule,
     handle_snap::Snap,
+    hole_handles::HoleGrip,
     manipulator::{self, Held},
     model::Model,
     move_panel,
@@ -46,6 +47,7 @@ pub enum Handle {
     TurnAbout,
     Reach(Reach),
     Place(PlaceGrip),
+    Hole(HoleGrip),
     Value(Measured),
     Revolve(TurnEnd),
 }
@@ -120,6 +122,7 @@ impl Handle {
             | Self::TurnAbout
             | Self::Reach(_)
             | Self::Place(_)
+            | Self::Hole(_)
             | Self::Value(_)
             | Self::Revolve(_) => Vec::new(),
         }
@@ -142,6 +145,7 @@ impl Handle {
                 format!("Drag to move the body in the {} plane", names.concat())
             }
             Self::Place(grip) => grip.words("it"),
+            Self::Hole(_) => "Drag to move the hole".to_owned(),
             Self::Value(_) => "Drag to change the value".to_owned(),
             Self::Revolve(end) => end.words(),
         }
@@ -352,7 +356,11 @@ impl MoveHandles {
                     .find_map(|axis| held(&move_panel::turn_caption(axis), axis.of(&movement.turn)))
             }
             Handle::TurnAbout => held(move_panel::ANGLE, &movement.about.axis_turn()?.angle),
-            Handle::Reach(_) | Handle::Place(_) | Handle::Value(_) | Handle::Revolve(_) => None,
+            Handle::Reach(_)
+            | Handle::Place(_)
+            | Handle::Hole(_)
+            | Handle::Value(_)
+            | Handle::Revolve(_) => None,
         }
     }
 
@@ -368,6 +376,7 @@ impl MoveHandles {
             | Handle::TurnAbout
             | Handle::Reach(_)
             | Handle::Place(_)
+            | Handle::Hole(_)
             | Handle::Value(_)
             | Handle::Revolve(_) => false,
         });
@@ -416,7 +425,11 @@ impl MoveHandles {
                 let index = (along.max(0.0) as usize).min(ring.len() - 1);
                 ring.get(index).copied()
             }
-            Handle::Reach(_) | Handle::Place(_) | Handle::Value(_) | Handle::Revolve(_) => None,
+            Handle::Reach(_)
+            | Handle::Place(_)
+            | Handle::Hole(_)
+            | Handle::Value(_)
+            | Handle::Revolve(_) => None,
         }
     }
 
@@ -833,7 +846,11 @@ pub fn typing(handle: Handle) -> Option<(String, Dimension, usize)> {
         }
         Handle::Turn(axis) => Some((move_panel::turn_caption(axis), Dimension::ANGLE, 1)),
         Handle::TurnAbout => Some((move_panel::ANGLE.to_owned(), Dimension::ANGLE, 1)),
-        Handle::Reach(_) | Handle::Place(_) | Handle::Value(_) | Handle::Revolve(_) => None,
+        Handle::Reach(_)
+        | Handle::Place(_)
+        | Handle::Hole(_)
+        | Handle::Value(_)
+        | Handle::Revolve(_) => None,
     }
 }
 
@@ -880,7 +897,11 @@ pub fn typed(
                 &mut named,
             );
         }
-        Handle::Reach(_) | Handle::Place(_) | Handle::Value(_) | Handle::Revolve(_) => return None,
+        Handle::Reach(_)
+        | Handle::Place(_)
+        | Handle::Hole(_)
+        | Handle::Value(_)
+        | Handle::Revolve(_) => return None,
     }
     manipulator::keeping_names(document, feature, FeatureKind::Move(movement), named)
 }
@@ -938,7 +959,11 @@ fn point_on(
             let plane = Plane::new(origin, direction(frame, axis))?;
             Some(ray.at(ray.intersect_plane(&plane)?))
         }
-        Handle::Reach(_) | Handle::Place(_) | Handle::Value(_) | Handle::Revolve(_) => None,
+        Handle::Reach(_)
+        | Handle::Place(_)
+        | Handle::Hole(_)
+        | Handle::Value(_)
+        | Handle::Revolve(_) => None,
     }
 }
 

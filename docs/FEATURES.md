@@ -62,12 +62,10 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   faces only, by their plane, while a curved face under the pointer gives nothing. Snapping a turn
   to the angle that brings a corner or edge middle into its plane, and a line handle to where it
   meets a curved face, would finish Fusion's drag-to-geometry.
-- [low · medium] A hole's placement handles (`place_handles.rs`) stand only on a lone free point
-  (`hole_tools::lone_point`): a hole of several points, or one measured from edges or centred on
-  one (`hole_placement.rs`), drags nothing. Each free point could carry its own square, and each
-  edge distance an arrow along the edge's normal committing to its `Distance` through
-  `manipulator::Held`. Place by takes only edges of bodies, not another sketch's curves, datum
-  axes or the origin.
+- [low · medium] A hole's placement handles (`hole_handles.rs`) have no drag for sliding a point
+  measured from one edge along that edge, and none for a point whose position follows parameters
+  (its hover names what drives it). Place by takes only edges of bodies, not another sketch's
+  curves, datum axes or the origin.
 - [low · medium] Mirror faces closes an opening only in one plane or on one elementary face beside
   it: an opening on an extrusion, revolution or spline face, one running all the way around a
   round face (a collar or a groove), or one spanning several curved faces is refused, since

@@ -3,7 +3,7 @@ use caditor_document::{
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_geometry::{Plane, Point2, Point3, Ray, Vector2, Vector3};
-use caditor_render::{Batch, Fill, Layer, View};
+use caditor_render::{Batch, Color, Fill, Layer, View};
 use caditor_sketch::Entity;
 
 use crate::{
@@ -41,6 +41,49 @@ impl Subject {
             Self::Primitive => "the shape",
         }
     }
+}
+
+pub fn square_around(
+    plane: &Plane,
+    centre: Point3,
+    per_point: f64,
+    forward: Vector3,
+) -> Option<[Point3; 4]> {
+    if plane.normal().dot(forward).abs() < EDGE_ON {
+        return None;
+    }
+    let half = SQUARE_HALF_POINTS * per_point;
+    let (x, y) = (plane.x_axis() * half, plane.y_axis() * half);
+    Some([
+        centre - x - y,
+        centre + x - y,
+        centre + x + y,
+        centre - x + y,
+    ])
+}
+
+pub fn square_edges(corners: [Point3; 4]) -> impl Iterator<Item = HandleSegment> {
+    (0..corners.len()).filter_map(move |index| {
+        Some((
+            *corners.get(index)?,
+            *corners.get((index + 1) % corners.len())?,
+        ))
+    })
+}
+
+pub fn square_holds(corners: &[Point3; 4], view: &View, cursor: Vector2) -> bool {
+    let projected: Option<Vec<Vector2>> =
+        corners.iter().map(|corner| view.project(*corner)).collect();
+    projected.is_some_and(|projected| within(&projected, cursor))
+}
+
+pub fn draw_square(batch: &mut Batch, corners: &[Point3; 4], colour: Color) {
+    batch.fills.push(Fill::convex(
+        corners,
+        colour.with_alpha(SQUARE_ALPHA),
+        Layer::Front,
+        None,
+    ));
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -191,18 +234,7 @@ impl PlaceHandles {
     }
 
     fn square(&self) -> Option<[Point3; 4]> {
-        if self.plane.normal().dot(self.forward).abs() < EDGE_ON {
-            return None;
-        }
-        let half = SQUARE_HALF_POINTS * self.per_point;
-        let (x, y) = (self.plane.x_axis() * half, self.plane.y_axis() * half);
-        let centre = self.centre();
-        Some([
-            centre - x - y,
-            centre + x - y,
-            centre + x + y,
-            centre - x + y,
-        ])
+        square_around(&self.plane, self.centre(), self.per_point, self.forward)
     }
 
     pub fn segments(&self) -> Vec<HandleSegment> {
@@ -210,14 +242,7 @@ impl PlaceHandles {
             .into_iter()
             .filter_map(|grip| self.arrow(grip))
             .map(|(from, tip, _)| (from, tip));
-        let edges = self.square().into_iter().flat_map(|corners| {
-            (0..corners.len()).filter_map(move |index| {
-                Some((
-                    *corners.get(index)?,
-                    *corners.get((index + 1) % corners.len())?,
-                ))
-            })
-        });
+        let edges = self.square().into_iter().flat_map(square_edges);
         arrows.chain(edges).collect()
     }
 
@@ -275,11 +300,9 @@ impl PlaceHandles {
             .filter(|(distance, _)| *distance <= reach)
             .min_by(|a, b| a.0.total_cmp(&b.0))
             .map(|(_, handle)| handle);
-        let inside = self.square().is_some_and(|corners| {
-            let projected: Option<Vec<Vector2>> =
-                corners.iter().map(|corner| view.project(*corner)).collect();
-            projected.is_some_and(|projected| within(&projected, cursor))
-        });
+        let inside = self
+            .square()
+            .is_some_and(|corners| square_holds(&corners, view, cursor));
         arrow.or_else(|| inside.then_some(Handle::Place(PlaceGrip::OnPlane)))
     }
 
@@ -303,12 +326,7 @@ impl PlaceHandles {
             }
         };
         if let Some(corners) = self.square() {
-            batch.fills.push(Fill::convex(
-                &corners,
-                colour(PlaceGrip::OnPlane).with_alpha(SQUARE_ALPHA),
-                Layer::Front,
-                None,
-            ));
+            draw_square(batch, &corners, colour(PlaceGrip::OnPlane));
         }
         for grip in ARROWS {
             let Some((from, tip, direction)) = self.arrow(grip) else {
@@ -326,6 +344,127 @@ impl PlaceHandles {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Line {
+    pub direction: Vector2,
+    pub value: f64,
+    pub least: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Slide {
+    plane: Plane,
+    grabbed: Point2,
+    step: f64,
+    from: Point2,
+    at: Point2,
+    line: Option<Line>,
+    snapped: Option<Snap>,
+}
+
+impl Slide {
+    pub fn begin(
+        plane: Plane,
+        ray: Ray,
+        step: f64,
+        from: Point2,
+        line: Option<Line>,
+    ) -> Option<Self> {
+        let grabbed = plane.to_local(ray.at(ray.intersect_plane(&plane)?));
+        Some(Self {
+            plane,
+            grabbed,
+            step,
+            from,
+            at: from,
+            line,
+            snapped: None,
+        })
+    }
+
+    pub fn plane(&self) -> &Plane {
+        &self.plane
+    }
+
+    pub fn from(&self) -> Point2 {
+        self.from
+    }
+
+    pub fn at(&self) -> Point2 {
+        self.at
+    }
+
+    pub fn snapped(&self) -> Option<Snap> {
+        self.snapped
+    }
+
+    pub fn value(&self) -> Option<f64> {
+        self.line
+            .map(|line| line.value + (self.at - self.from).dot(line.direction))
+    }
+
+    fn kept(&self, wanted: Point2) -> Point2 {
+        match self.line {
+            Some(line) => self.from + line.direction * (wanted - self.from).dot(line.direction),
+            None => wanted,
+        }
+    }
+
+    fn rounded(&self, wanted: Point2) -> Point2 {
+        match self.line {
+            Some(line) => {
+                let value = line.value + (wanted - self.from).dot(line.direction);
+                let rounded = (value / self.step).round() * self.step;
+                self.from + line.direction * (rounded - line.value)
+            }
+            None => (wanted / self.step).round() * self.step,
+        }
+    }
+
+    fn bounded(&self, placed: Point2) -> Point2 {
+        match self.line {
+            Some(Line {
+                direction,
+                value,
+                least: Some(least),
+            }) if value + (placed - self.from).dot(direction) < least => {
+                self.from + direction * (least - value)
+            }
+            _ => placed,
+        }
+    }
+
+    pub fn follow(&mut self, ray: Ray, free: bool, snap: Option<Snap>) -> bool {
+        if let Some((landed, snap)) = snap
+            .filter(|_| !free)
+            .and_then(|snap| Some((snap.on_plane(&self.plane)?, snap)))
+        {
+            let placed = self.bounded(self.kept(landed));
+            let changed = placed != self.at || self.snapped != Some(snap);
+            self.at = placed;
+            self.snapped = Some(snap);
+            return changed;
+        }
+        let unsnapped = self.snapped.take().is_some();
+        let Some(at) = ray
+            .intersect_plane(&self.plane)
+            .map(|distance| self.plane.to_local(ray.at(distance)))
+        else {
+            return unsnapped;
+        };
+        let wanted = self.kept(self.from + (at - self.grabbed));
+        let placed = if free { wanted } else { self.rounded(wanted) };
+        let placed = self.bounded(placed);
+        let changed = placed != self.at || unsnapped;
+        self.at = placed;
+        changed
+    }
+
+    pub fn has_moved(&self) -> bool {
+        self.at != self.from
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 enum Start {
     Hole(Hole),
@@ -336,13 +475,7 @@ enum Start {
 #[derive(Debug, Clone, PartialEq)]
 pub struct PlaceDrag {
     start: Start,
-    grip: PlaceGrip,
-    plane: Plane,
-    grabbed: Point2,
-    step: f64,
-    from: Point2,
-    at: Point2,
-    snapped: Option<Snap>,
+    slide: Slide,
 }
 
 impl PlaceDrag {
@@ -364,81 +497,44 @@ impl PlaceDrag {
                 (Start::Primitive(primitive.clone()), from)
             }
         };
-        let plane = handles.plane;
-        let grabbed = plane.to_local(ray.at(ray.intersect_plane(&plane)?));
-        Some(Self {
-            start,
-            grip,
-            plane,
-            grabbed,
-            step: handles.step(),
-            from,
-            at: from,
-            snapped: None,
-        })
-    }
-
-    fn kept(&self, wanted: Point2) -> Point2 {
-        match self.grip {
-            PlaceGrip::AlongX => Point2::new(wanted.x, self.from.y),
-            PlaceGrip::AlongY => Point2::new(self.from.x, wanted.y),
-            PlaceGrip::OnPlane => wanted,
-        }
+        let line = match grip {
+            PlaceGrip::AlongX => Some(Line {
+                direction: Vector2::X,
+                value: from.x,
+                least: None,
+            }),
+            PlaceGrip::AlongY => Some(Line {
+                direction: Vector2::Y,
+                value: from.y,
+                least: None,
+            }),
+            PlaceGrip::OnPlane => None,
+        };
+        let slide = Slide::begin(handles.plane, ray, handles.step(), from, line)?;
+        Some(Self { start, slide })
     }
 
     pub fn follow(&mut self, ray: Ray, free: bool, snap: Option<Snap>) -> bool {
-        if let Some((landed, snap)) = snap
-            .filter(|_| !free)
-            .and_then(|snap| Some((snap.on_plane(&self.plane)?, snap)))
-        {
-            let placed = self.kept(landed);
-            let changed = placed != self.at || self.snapped != Some(snap);
-            self.at = placed;
-            self.snapped = Some(snap);
-            return changed;
-        }
-        let unsnapped = self.snapped.take().is_some();
-        let Some(at) = ray
-            .intersect_plane(&self.plane)
-            .map(|distance| self.plane.to_local(ray.at(distance)))
-        else {
-            return unsnapped;
-        };
-        let pulled = at - self.grabbed;
-        let pulled = match self.grip {
-            PlaceGrip::AlongX => Vector2::new(pulled.x, 0.0),
-            PlaceGrip::AlongY => Vector2::new(0.0, pulled.y),
-            PlaceGrip::OnPlane => pulled,
-        };
-        let wanted = self.from + pulled;
-        let placed = if free {
-            wanted
-        } else {
-            self.kept((wanted / self.step).round() * self.step)
-        };
-        let changed = placed != self.at || unsnapped;
-        self.at = placed;
-        changed
+        self.slide.follow(ray, free, snap)
     }
 
     pub fn has_moved(&self) -> bool {
-        self.at != self.from
+        self.slide.has_moved()
     }
 
     pub fn transaction(&self, model: &Model, feature: FeatureId) -> Option<Transaction> {
         let document = model.document();
+        let (from, at) = (self.slide.from(), self.slide.at());
         match &self.start {
-            Start::Hole(hole) => hole_tools::moved(document, feature, hole, self.at).ok(),
+            Start::Hole(hole) => hole_tools::moved(document, feature, hole, at).ok(),
             Start::Curved(hole) => {
-                hole_on_curve::moved_to(model, feature, hole, self.plane.to_world(self.at)).ok()
+                hole_on_curve::moved_to(model, feature, hole, self.slide.plane().to_world(at)).ok()
             }
             Start::Primitive(primitive) => {
                 let unit = model.units().length;
                 let mut moved = primitive.clone();
                 let mut named = Vec::new();
-                for (index, (from, to)) in [(self.from.x, self.at.x), (self.from.y, self.at.y)]
-                    .into_iter()
-                    .enumerate()
+                for (index, (from, to)) in [(from.x, at.x), (from.y, at.y)].into_iter().enumerate()
                 {
                     if from == to {
                         continue;
@@ -455,12 +551,13 @@ impl PlaceDrag {
 
     pub fn readout(&self, units: Units) -> String {
         let [x, y] = POSITION_CAPTIONS;
+        let at = self.slide.at();
         let shown = format!(
             "{x} {}, {y} {}",
-            units.readout_text(self.at.x),
-            units.readout_text(self.at.y)
+            units.readout_text(at.x),
+            units.readout_text(at.y)
         );
-        match self.snapped {
+        match self.slide.snapped() {
             Some(snap) => format!("{shown} {}", snap.kind.words()),
             None => shown,
         }

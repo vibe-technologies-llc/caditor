@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use caditor_document::{
-    Document, Edit, FeatureId, FeatureKind, FeatureResult, Hole, Outline, ProjectionSource,
-    SketchFeature, Transaction, capitalized, describe_edge, face_plane,
+    Document, Edit, Evaluation, FeatureId, FeatureKind, FeatureResult, Hole, Outline,
+    ProjectionSource, SketchFeature, Transaction, capitalized, describe_edge, face_plane,
 };
 use caditor_expression::Expression;
 use caditor_geometry::{Point2, Ray};
@@ -115,6 +115,15 @@ impl Anchor {
 impl Placement {
     pub fn hole(&self, point: EntityId) -> Option<&PlacedHole> {
         self.holes.iter().find(|hole| hole.point == point)
+    }
+
+    pub fn edge_distance(&self, constraint: ConstraintId) -> Option<&EdgeDistance> {
+        self.holes.iter().find_map(|hole| match &hole.anchor {
+            Anchor::Edges(edges) => edges
+                .iter()
+                .find(|distance| distance.held.constraint == constraint),
+            Anchor::Free | Anchor::Concentric(_) => None,
+        })
     }
 
     fn held(&self, constraint: ConstraintId) -> Option<&Held> {
@@ -267,14 +276,17 @@ pub fn of_sketch(definition: &SketchFeature) -> Option<Placement> {
     Some(Placement { holes })
 }
 
-fn solved(model: &Model, sketch: FeatureId) -> Option<&Sketch> {
-    model
-        .evaluation()
+pub fn solved_in(evaluation: &Evaluation, sketch: FeatureId) -> Option<&Sketch> {
+    evaluation
         .feature(sketch)?
         .result
         .as_deref()
         .and_then(FeatureResult::sketch)
         .map(|result| &result.geometry)
+}
+
+fn solved(model: &Model, sketch: FeatureId) -> Option<&Sketch> {
+    solved_in(model.evaluation(), sketch)
 }
 
 pub fn solved_point(model: &Model, sketch: FeatureId, hole: &PlacedHole) -> Point2 {

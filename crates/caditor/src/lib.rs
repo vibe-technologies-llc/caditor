@@ -69,6 +69,7 @@ mod guide_panel;
 mod handle_snap;
 mod headless;
 mod history;
+mod hole_handles;
 mod hole_on_curve;
 mod hole_panel;
 mod hole_placement;
