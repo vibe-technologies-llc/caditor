@@ -168,6 +168,9 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   corners and the boundaries of faces, but not the outline of a body seen square to the sketch
   plane: the silhouette lines of a cylinder lying along the plane or the circle of a sphere cannot
   be brought in, so a sketch following a body's outline is drawn by hand.
+- [low · medium] A centre snap's grab highlight while dragging marks the piece the outline search
+  started from and the two corners its constraint holds, not the whole outline the drawing tools
+  highlight (`sketch_drag.rs`).
 
 ## STEP import and export
 
@@ -242,6 +245,12 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   would go through `Action`s and `Transaction`s like the UI, so scripts cannot break the model's
   rules, and would need a decision on the language and on safety (a script cannot reach files
   or the network unasked).
+- [low · easy] A feature waiting for input is reached only through the status bar's "N waiting"
+  pill: no palette command or key goes to the next waiting feature, as F8 goes to the next failed
+  one, so the keyboard cannot reach it (`ux.md`).
+- [low · medium] A queued action (`queued.rs`) is queued only from keys, menus and the palette: a
+  ribbon button stays disabled while the model recomputes, and a shell's own-thickness click in the
+  view is refused with a notice, since that click cannot be rerun as a command.
 - [low · hard] One document per process.
 - [low · hard] No localisation.
 
