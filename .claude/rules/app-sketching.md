@@ -465,11 +465,17 @@ and, for off-ribbon tools, a partner's corner menu.
   line, which the solver treats as infinite); directions and tracks join it as they do a curve.
 - Snap to the grid (`Command::ToggleGridSnapping`, off by default, session-only in
   `ViewportState::grid_snapping`) places a point no target, direction or track took on the nearest
-  crossing of the grid's minor lines (`grid_minor_spacing`, handed to `Drawing::snap_to_grid`) within
-  `POINT_TOLERANCE`; the point stays free, labelled "On the grid" (`Snap::Grid`).
+  crossing of the grid's current level (`ViewportState::snap_grid_spacing`, handed to
+  `Drawing::snap_to_grid`) within `POINT_TOLERANCE`; the point stays free, labelled "On the grid"
+  (`Snap::Grid`). The grid draws three levels, 1, 10 and 100 times `grid_minor_spacing`, each
+  fading in as its cells grow past 4 points and drawn in full from 16; the current level
+  (`caditor_render::grid_snap_spacing`) is the finest drawn in full, else the coarsest, and cells
+  are measured on screen at the view's target. The finer lines still fading in are never snapped
+  to; coarser levels lie on the current one's crossings. The canvas label ("Grid 10 mm",
+  `LengthUnit::grid_text`) names the same spacing.
 - Holding Alt while drawing or dragging holds the snap (`snap::held`, `Hold`, `Drawing::hold_snap`,
-  ahead of directions, tracks and the toggles): the point lands on the nearest grid minor crossing,
-  grid snapping on or not, unless a snappable entity lies no further on screen. Point-like targets pull
+  ahead of directions, tracks and the toggles): the point lands on the nearest crossing of the same
+  current level, grid snapping on or not, unless a snappable entity lies no further on screen. Point-like targets pull
   from `HELD_POINT_PULL` (three times the hover tolerance), then curves and extensions from
   `HELD_CURVE_PULL`, a curve snap moving to the grid crossing nearest its foot when that lies on the
   curve. Targets keep their constraints; a grid crossing is free and, for points that align or level

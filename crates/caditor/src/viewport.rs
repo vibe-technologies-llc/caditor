@@ -8,7 +8,7 @@ use caditor_geometry::{Aabb, Plane, Point2, Point3, Ray, Rotation3, Vector2, Vec
 use caditor_kernel::EdgeName;
 use caditor_render::{
     Camera, MAX_SECTION_PLANES, PickHit, PickResult, PlaneProjection, ProjectionMode, Reflection,
-    Scene, SectionPlane, SurfaceSize, View, Viewpoint, ViewportRect, grid_minor_spacing,
+    Scene, SectionPlane, SurfaceSize, View, Viewpoint, ViewportRect, grid_snap_spacing,
     is_cut_away, section_slack,
 };
 use caditor_sketch::{ConstraintId, Entity, EntityId, Faceting, MAX_LENGTH, Sketch, SketchClip};
@@ -2188,17 +2188,17 @@ impl ViewportState {
         Some((sketch, screen))
     }
 
-    fn minor_grid_spacing(&self) -> Option<f64> {
+    fn snap_grid_spacing(&self) -> Option<f64> {
         self.scenes
             .built()
             .and_then(|built| built.scene.grid.as_ref())
             .zip(self.view())
-            .map(|(grid, view)| grid_minor_spacing(grid, &view))
+            .map(|(grid, view)| grid_snap_spacing(grid, &view, f64::from(self.pixels_per_point)))
     }
 
     fn hold(&self) -> Option<Hold> {
         (self.snap_held && !self.placing_freely).then(|| Hold {
-            grid: self.minor_grid_spacing(),
+            grid: self.snap_grid_spacing(),
         })
     }
 
@@ -2457,7 +2457,7 @@ impl ViewportState {
         self.drawing
             .place_freely(self.placing_freely || !(self.snapping || self.snap_held));
         self.drawing
-            .snap_to_grid(self.minor_grid_spacing().filter(|_| self.grid_snapping));
+            .snap_to_grid(self.snap_grid_spacing().filter(|_| self.grid_snapping));
         self.drawing.hold_snap(self.hold());
         let scrub_from = self
             .cursor
@@ -4994,9 +4994,11 @@ impl ViewportState {
             .and_then(|built| built.scene.grid.as_ref())
             .zip(self.view())
             .map(|(grid, view)| {
-                model
-                    .length_unit()
-                    .grid_text(grid_minor_spacing(grid, &view))
+                model.length_unit().grid_text(grid_snap_spacing(
+                    grid,
+                    &view,
+                    f64::from(self.pixels_per_point),
+                ))
             });
         let clear_of_prompt = |area: Rect| prompt.is_none_or(|prompt| !area.intersects(prompt));
         let grid_area = grid_text.and_then(|text| {

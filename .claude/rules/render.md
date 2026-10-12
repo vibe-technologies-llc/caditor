@@ -394,8 +394,8 @@ paths:
   (`ORTHOGRAPHIC_DEPTH_BIAS`); a factor would push edges far through faces.
 - Fitting puts the eight corners of the bounds inside the field of view with a margin, exactly in
   both projections (no bounding sphere); bounds of no size keep the distance and recentre. Grid
-  spacing follows the view distance, not the eye's height (`grid_minor_spacing` gives the app what
-  the shader draws).
+  spacing follows the view distance, not the eye's height (`grid_snap_spacing` gives the app the
+  spacing of the finest level the shader draws in full, `app-sketching.md`).
 - `View::unproject` gives nothing for a non-finite depth or result, so a NaN read back from a pick
   never becomes a hit; `Camera::orbit`, `pan` and `zoom` ignore non-finite pivots, anchors and
   drags.
