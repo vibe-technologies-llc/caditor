@@ -119,7 +119,7 @@ pub fn intersect_surfaces_through(
     let window = shared_window(&first_box, &second_box);
     let raw = match analytic::intersect(first, second, &window) {
         Some(raw) => raw,
-        None => march::intersect(first, second, hints)?,
+        None => march::intersect(first, second, hints, analytic::touches(first, second))?,
     };
     finish(first, second, &window, raw)
 }

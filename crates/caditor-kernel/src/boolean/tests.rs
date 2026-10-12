@@ -1651,3 +1651,52 @@ fn crossing_holes_cut_alike_wherever_their_seams_lie() {
         }
     }
 }
+
+#[test]
+fn holes_flush_at_the_top_or_bottom_cut_through_the_point_where_they_touch() {
+    let base = block((0.0, 0.0, 0.0), (20.0, 20.0, 20.0));
+    let front = |height: f64, radius: f64| {
+        let tool = drill(
+            Point3::new(12.0, 0.0, height),
+            -Vector3::Y,
+            Vector3::X,
+            radius,
+            12.0,
+        );
+        run(&base, &tool, BooleanOperation::Difference)
+    };
+    let side = |height: f64, radius: f64| {
+        drill(
+            Point3::new(20.0, 6.0, height),
+            Vector3::X,
+            Vector3::Y,
+            radius,
+            24.0,
+        )
+    };
+    for (front_height, front_radius, side_height, side_radius) in [
+        (11.5, 2.0, 12.0, 1.5),
+        (9.0, 1.5, 10.0, 2.5),
+        (10.0, 1.0, 9.0, 2.0),
+    ] {
+        let drilled = front(front_height, front_radius);
+        let nudged = |by: f64| {
+            let cut = run(
+                &drilled,
+                &side(side_height + by, side_radius),
+                BooleanOperation::Difference,
+            );
+            volume(&cut)
+        };
+
+        let expected = 0.5 * (nudged(0.01) + nudged(-0.01));
+
+        let name = format!("{front_radius} at {front_height} and {side_radius} at {side_height}");
+        let cut = run(
+            &drilled,
+            &side(side_height, side_radius),
+            BooleanOperation::Difference,
+        );
+        check(&name, &cut, expected);
+    }
+}

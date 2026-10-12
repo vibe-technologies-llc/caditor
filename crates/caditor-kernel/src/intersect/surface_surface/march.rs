@@ -43,6 +43,7 @@ const GRID: usize = 3;
 const EXIT_BISECTIONS: usize = 48;
 const PERIOD_SLACK: f64 = 1e-9;
 const CURVATURE_SAMPLES: [f64; 3] = [0.1, 0.5, 0.9];
+const TOUCH_SLACK: f64 = 0.1;
 
 #[derive(Debug, Clone, Copy)]
 struct Seed {
@@ -158,6 +159,7 @@ struct Tracer<'a> {
     max_step: f64,
     curves: Vec<(Curve, Aabb)>,
     points: Vec<RawPoint>,
+    touches: Vec<Point3>,
 }
 
 struct Marched {
@@ -336,6 +338,41 @@ impl<'a> Tracer<'a> {
             }
         }
         Ok(seeds)
+    }
+
+    fn touch_contact(&self, from: &Contact, touch: Point3) -> Contact {
+        let [first, second] = self.patches;
+        let [first_uv, second_uv] = from.uv;
+        Contact {
+            uv: [
+                first.place_near(touch, first_uv),
+                second.place_near(touch, second_uv),
+            ],
+            point: touch,
+        }
+    }
+
+    fn touch_near(&self, from: &Contact) -> Option<Contact> {
+        self.touches
+            .iter()
+            .find(|touch| touch.distance(from.point) <= HINT_REACH)
+            .map(|touch| self.touch_contact(from, *touch))
+    }
+
+    fn touch_between(&self, from: &Contact, to: Point3) -> Option<Contact> {
+        let chord = to - from.point;
+        let length = chord.length_squared();
+        if length <= 0.0 {
+            return None;
+        }
+        self.touches
+            .iter()
+            .find(|touch| {
+                let along = ((**touch - from.point).dot(chord) / length).clamp(0.0, 1.0);
+                let nearest = from.point + chord * along;
+                nearest.distance(**touch) <= TOUCH_SLACK * length.sqrt() + TOLERANCE
+            })
+            .map(|touch| self.touch_contact(from, *touch))
     }
 
     fn distance_to_branches(&self, point: Point3) -> f64 {
@@ -710,6 +747,9 @@ impl<'a> Tracer<'a> {
             let next = match self.step(&current, tangent, &mut step) {
                 Ok(next) => next,
                 Err(Stalled::Tangent) => {
+                    if let Some(touch) = self.touch_near(&current) {
+                        end_at_touch(&mut contacts, touch);
+                    }
                     return Ok(Marched {
                         contacts,
                         closed: false,
@@ -735,6 +775,14 @@ impl<'a> Tracer<'a> {
                     });
                 }
             };
+            if let Some(touch) = self.touch_between(&current, next.contact.point) {
+                end_at_touch(&mut contacts, touch);
+                return Ok(Marched {
+                    contacts,
+                    closed: false,
+                    tangent_end: true,
+                });
+            }
             if next.on_boundary {
                 end_on_boundary(&mut contacts, next.contact, tangent);
                 return Ok(Marched {
@@ -814,16 +862,47 @@ impl<'a> Tracer<'a> {
         if contacts.len() < 2 {
             return Ok(());
         }
+        for half in halves_of_lobe(&contacts, closed) {
+            self.add_curve(half, closed);
+        }
+        Ok(())
+    }
+
+    fn add_curve(&mut self, contacts: &[Contact], closed: bool) {
         let [first, second] = self.surfaces();
         let Some(curve) =
-            IntersectionCurve::from_contacts([first.clone(), second.clone()], &contacts, closed)
+            IntersectionCurve::from_contacts([first.clone(), second.clone()], contacts, closed)
         else {
-            return Ok(());
+            return;
         };
         let curve = Curve::Intersection(curve);
         let bounds = curve.bounding_box(curve.domain().clipped(1.0));
         self.curves.push((curve, bounds));
-        Ok(())
+    }
+}
+
+fn halves_of_lobe(contacts: &[Contact], closed: bool) -> Vec<&[Contact]> {
+    let returns = contacts
+        .first()
+        .zip(contacts.last())
+        .is_some_and(|(first, last)| first.point.distance(last.point) <= TOLERANCE);
+    let middle = contacts.len() / 2;
+    match (contacts.get(..=middle), contacts.get(middle..)) {
+        (Some(before), Some(after)) if returns && !closed && contacts.len() >= 3 => {
+            vec![before, after]
+        }
+        _ => vec![contacts],
+    }
+}
+
+fn end_at_touch(contacts: &mut Vec<Contact>, touch: Contact) {
+    if contacts
+        .last()
+        .is_none_or(|last| last.point.distance(touch.point) > TOLERANCE)
+    {
+        contacts.push(touch);
+    } else if let Some(last) = contacts.last_mut() {
+        *last = touch;
     }
 }
 
@@ -859,6 +938,7 @@ pub(crate) fn intersect(
     first: &SurfacePatch,
     second: &SurfacePatch,
     hints: &[Point3],
+    touches: Vec<Point3>,
 ) -> Result<Raw, IntersectionError> {
     let smallest = first
         .bounding_box()
@@ -869,6 +949,7 @@ pub(crate) fn intersect(
         max_step: (STEP_FRACTION * smallest).max(MIN_LEAF),
         curves: Vec::new(),
         points: Vec::new(),
+        touches,
     };
     let seeds = tracer.seeds()?;
     for hint in hints {

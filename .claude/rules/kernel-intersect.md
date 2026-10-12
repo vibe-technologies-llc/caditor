@@ -59,6 +59,14 @@ paths:
 - A plane cuts a cone in the exact ellipse (or circle) only when `|n·axis| > sin α`; crossing the
   axis behind the apex means it misses. Planes at `|n·axis| <= sin α` (parabolas and hyperbolas)
   are marched; through the apex they are rulings or the apex alone.
+- Two cylinders of different radii whose axes cross at a distance equal to the sum or difference of
+  the radii touch at a point on the axes' common perpendicular (`analytic::touches`), where the
+  intersection crosses itself (two holes flush at the top or bottom). It is handed to the marcher,
+  which ends a branch exactly there when a step's chord passes within `TOUCH_SLACK` of its length,
+  or stalls tangent near it. Each lobe, from the point back to it, is returned as two halves (the
+  boolean splits a branch at its pooled vertices by nearest parameter, so a branch passes each
+  vertex once), and the point is a tangent end the boolean pools. Without it the marcher stepped
+  across the point and returned one self-crossing loop with no vertex where it crosses.
 - Everything else is marched (`march.rs`):
   - Seeds come from paired subdivision of both patches, each solved by Gauss–Newton, then a sign
     scan of the distance for tiny loops. Near-coincident patches prune little, so pairs are

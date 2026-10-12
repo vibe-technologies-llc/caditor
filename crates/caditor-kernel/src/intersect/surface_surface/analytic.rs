@@ -376,6 +376,35 @@ fn plane_extrusion(
     Some(raw)
 }
 
+pub(crate) fn touches(first: &SurfacePatch, second: &SurfacePatch) -> Vec<Point3> {
+    match (first.surface(), second.surface()) {
+        (Surface::Cylinder(one), Surface::Cylinder(other)) => cylinder_touches(one, other),
+        _ => Vec::new(),
+    }
+}
+
+fn cylinder_touches(first: &Cylinder, second: &Cylinder) -> Vec<Point3> {
+    let (a1, a2) = (first.frame().normal(), second.frame().normal());
+    let (c1, c2) = (first.frame().origin(), second.frame().origin());
+    let (r1, r2) = (first.radius(), second.radius());
+    let cross = a1.cross(a2);
+    let squared = cross.length_squared();
+    if squared <= TINY {
+        return Vec::new();
+    }
+    let offset = c2 - c1;
+    let s = offset.cross(a2).dot(cross) / squared;
+    let t = offset.cross(a1).dot(cross) / squared;
+    let (p1, p2) = (c1 + a1 * s, c2 + a2 * t);
+    let across = cross / squared.sqrt();
+    let apart = (p2 - p1).dot(across);
+    [r1, -r1]
+        .into_iter()
+        .filter(|reach| ((reach - apart).abs() - r2).abs() <= TOLERANCE)
+        .map(|reach| p1 + across * reach)
+        .collect()
+}
+
 fn cylinder_cylinder(first: &Cylinder, second: &Cylinder, window: &Aabb) -> Option<Raw> {
     let (a1, a2) = (first.frame().normal(), second.frame().normal());
     let (c1, c2) = (first.frame().origin(), second.frame().origin());
