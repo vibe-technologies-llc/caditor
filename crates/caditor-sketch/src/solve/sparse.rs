@@ -382,6 +382,121 @@ impl Triangular {
     }
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct Cholesky {
+    columns: Vec<usize>,
+    rows: Vec<Row>,
+}
+
+impl Cholesky {
+    pub fn factor<'a>(
+        matrix: &[Row],
+        shift: f64,
+        least_pivot: f64,
+        pattern: impl IntoIterator<Item = &'a Row>,
+    ) -> Option<Self> {
+        let width = matrix.len();
+        let columns = fill_reducing_order(width, pattern);
+        let mut positions = vec![0; width];
+        for (position, column) in columns.iter().enumerate() {
+            if let Some(slot) = positions.get_mut(*column) {
+                *slot = position;
+            }
+        }
+        let mut pending: Vec<BTreeMap<usize, f64>> = vec![BTreeMap::new(); width];
+        for (column, entries) in matrix.iter().enumerate() {
+            let Some(&position) = positions.get(column) else {
+                continue;
+            };
+            let Some(row) = pending.get_mut(position) else {
+                continue;
+            };
+            row.insert(position, shift);
+            for (other, value) in entries {
+                let Some(&other_position) = positions.get(*other) else {
+                    continue;
+                };
+                if other_position >= position {
+                    *row.entry(other_position).or_default() += value;
+                }
+            }
+        }
+        let mut rows = Vec::with_capacity(width);
+        for position in 0..width {
+            let row = pending.get_mut(position).map(std::mem::take)?;
+            let pivot = row.get(&position).copied().unwrap_or(0.0);
+            if pivot.is_nan() || pivot <= least_pivot {
+                return None;
+            }
+            let root = pivot.sqrt();
+            let factor_row: Row = row
+                .into_iter()
+                .map(|(later, value)| (later, value / root))
+                .collect();
+            tally::add(factor_row.len() * factor_row.len());
+            for (index, (first, first_value)) in factor_row.iter().enumerate().skip(1) {
+                let Some(target) = pending.get_mut(*first) else {
+                    continue;
+                };
+                for (second, second_value) in factor_row.iter().skip(index) {
+                    *target.entry(*second).or_default() -= first_value * second_value;
+                }
+            }
+            rows.push(factor_row);
+        }
+        Some(Self { columns, rows })
+    }
+
+    pub fn solve(&self, load: &[f64]) -> Vec<f64> {
+        let width = self.rows.len();
+        let mut forward: Vec<f64> = self
+            .columns
+            .iter()
+            .map(|column| load.get(*column).copied().unwrap_or(0.0))
+            .collect();
+        for (position, row) in self.rows.iter().enumerate() {
+            let Some((_, diagonal)) = row.first() else {
+                continue;
+            };
+            let Some(entry) = forward.get(position).map(|value| value / diagonal) else {
+                continue;
+            };
+            if let Some(slot) = forward.get_mut(position) {
+                *slot = entry;
+            }
+            tally::add(row.len());
+            for (later, value) in row.iter().skip(1) {
+                if let Some(slot) = forward.get_mut(*later) {
+                    *slot -= value * entry;
+                }
+            }
+        }
+        let mut solution = vec![0.0; width];
+        for (position, row) in self.rows.iter().enumerate().rev() {
+            let Some((_, diagonal)) = row.first() else {
+                continue;
+            };
+            tally::add(row.len());
+            let sum: f64 = row
+                .iter()
+                .skip(1)
+                .map(|(later, entry)| entry * solution.get(*later).copied().unwrap_or(0.0))
+                .sum();
+            let load = forward.get(position).copied().unwrap_or(0.0);
+            if let Some(slot) = solution.get_mut(position) {
+                *slot = (load - sum) / diagonal;
+            }
+        }
+        let mut by_column = vec![0.0; width];
+        for (column, entry) in self.columns.iter().zip(solution) {
+            if let Some(slot) = by_column.get_mut(*column) {
+                *slot = entry;
+            }
+        }
+        by_column
+    }
+}
+
 fn rotate(pivot_row: &mut Row, incoming: &[(usize, f64)]) -> Row {
     let (Some(&(_, diagonal)), Some(&(_, value))) = (pivot_row.first(), incoming.first()) else {
         return Vec::new();

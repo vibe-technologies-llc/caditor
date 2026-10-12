@@ -130,15 +130,11 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Sketch solver
 
-- [medium · hard] Before naming a conflict, diagnosis descends on it from the drawn shape and from
-  the closest witness, and damped Gauss–Newton crawls on a set that cannot hold: near its
-  least-squares point the Jacobian is nearly singular, so the line search cuts each step back and
-  it gains about 1%, too much to count as stalled. On a chain of 300 lines with its far end fixed
-  out of reach those two descents (three attempts each, most running all 100 iterations) take about
-  370,000 of the 500,000 units of `DIAGNOSIS_WORK`, against about 90,000 for the search and 26,000
-  for trimming, leaving about 14,000, so a longer chain would run out there and be reported as not
-  solving. A step regularised along the near-null direction (Levenberg–Marquardt, or the
-  factorisation trimming already makes) would reach the minimum in a few steps.
+- [medium · hard] Trimming a conflict of n constraints costs about n² units of `DIAGNOSIS_WORK`:
+  each kept constraint's witness step solves through the factorisation of the whole set
+  (`1/SOLVES_PER_STEP` of a step each). On a chain of 1,000 lines with its far end fixed out of
+  reach the search takes about 150,000 units and trimming about 285,000 (27,000 at 300 lines,
+  104,000 at 600), leaving too little for the verdict's descents, so it is reported as not solving.
 - [medium · hard] A sketch solved from a degenerate start can fail to solve again from its own
   result: a spline with four coincident control points, tangent to a zero-size arc on one of them,
   with a zero distance from that arc to the spline's first point. `sketch_solve` finds such cases

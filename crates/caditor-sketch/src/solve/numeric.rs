@@ -5,8 +5,10 @@ use std::{
 
 use nalgebra::{DMatrix, DVector, SVD};
 
+mod newton;
 mod reach;
 
+use self::newton::Damping;
 use crate::{
     id::{ConstraintId, EntityId},
     solve::{
@@ -23,7 +25,7 @@ const PRESSED_MARGIN: f64 = 16.0;
 const SUPPORT_SHARE: f64 = 1e-3;
 const MAX_ITERATIONS: usize = 100;
 const LINE_SEARCH_STEPS: usize = 40;
-const STALLED_COST_RATIO: f64 = 0.999;
+pub(super) const STALLED_COST_RATIO: f64 = 0.999;
 const STALLED_ITERATIONS: usize = 3;
 const MAX_STEP: f64 = 1.0;
 const STEP_RANK_TOLERANCE: f64 = 1e-10;
@@ -231,6 +233,29 @@ pub(crate) struct Solver<'a> {
     pub cancelled: &'a dyn Fn() -> bool,
     pub stiff: &'a BTreeSet<usize>,
     pub stiffness: f64,
+}
+
+struct Stride {
+    longest: f64,
+    curving: bool,
+    damping: Damping,
+}
+
+enum Stepped {
+    Fell(f64),
+    Settled,
+    NoStep,
+    NoDescent,
+}
+
+impl From<newton::Fell> for Stepped {
+    fn from(fell: newton::Fell) -> Self {
+        if fell.settled {
+            Self::Settled
+        } else {
+            Self::Fell(fell.remaining)
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -601,21 +626,26 @@ impl Solver<'_> {
         if component.variables.is_empty() {
             return Ok(Ending::Minimum);
         }
+        let mut stride = Stride {
+            longest: MAX_STEP * scale,
+            curving: false,
+            damping: Damping::NONE,
+        };
         let mut stalled = 0;
         for _ in 0..MAX_ITERATIONS {
             if (self.cancelled)() {
                 return Err(Cancelled);
             }
-            let Some(mut step) = self.bounded_step(part, values).1 else {
-                return Ok(Ending::Unfinished);
-            };
-            let length = step.iter().map(|delta| delta * delta).sum::<f64>().sqrt();
-            if length > MAX_STEP * scale {
-                let shrink = MAX_STEP * scale / length;
-                step.iter_mut().for_each(|delta| *delta *= shrink);
-            }
-            let Some(remaining) = self.line_search(part, &step, values) else {
-                return Ok(self.minimum(part, values));
+            let remaining = match self.descent_step(part, values, &mut stride)? {
+                Stepped::Fell(remaining) => remaining,
+                Stepped::NoStep => return Ok(Ending::Unfinished),
+                Stepped::Settled => {
+                    if self.converged(part, values) {
+                        return Ok(Ending::Converged);
+                    }
+                    return Ok(self.minimum(part, values));
+                }
+                Stepped::NoDescent => return Ok(self.minimum(part, values)),
             };
             if self.converged(part, values) {
                 return Ok(Ending::Converged);
@@ -632,19 +662,47 @@ impl Solver<'_> {
         Ok(Ending::Unfinished)
     }
 
+    fn descent_step(
+        &self,
+        part: &Part<'_>,
+        values: &mut [f64],
+        stride: &mut Stride,
+    ) -> Result<Stepped, Cancelled> {
+        if stride.curving
+            && let Some(fell) = self.newton_descent(part, values, stride)?
+        {
+            return Ok(Stepped::from(fell));
+        }
+        let Some(mut step) = self.bounded_step(part, values).1 else {
+            return Ok(Stepped::NoStep);
+        };
+        let length = step.iter().map(|delta| delta * delta).sum::<f64>().sqrt();
+        if length > stride.longest {
+            let shrink = stride.longest / length;
+            step.iter_mut().for_each(|delta| *delta *= shrink);
+        }
+        if let Some(remaining) = self.line_search(part, &step, values, 1) {
+            stride.curving = false;
+            return Ok(Stepped::Fell(remaining));
+        }
+        if !stride.curving
+            && let Some(fell) = self.newton_descent(part, values, stride)?
+        {
+            stride.curving = true;
+            return Ok(Stepped::from(fell));
+        }
+        stride.curving = false;
+        Ok(
+            match self.line_search(part, &step, values, LINE_SEARCH_STEPS) {
+                Some(remaining) => Stepped::Fell(remaining),
+                None => Stepped::NoDescent,
+            },
+        )
+    }
+
     fn bounded_step(&self, part: &Part<'_>, values: &[f64]) -> (Linearized, Option<Vec<f64>>) {
         let component = part.component;
-        let mut scales: Vec<f64> = component
-            .variables
-            .iter()
-            .map(|variable| {
-                if self.stiff.contains(variable) {
-                    self.stiffness
-                } else {
-                    1.0
-                }
-            })
-            .collect();
+        let mut scales = self.column_scales(component);
         let linearized = if component.variables.len() > DENSE_LIMIT {
             let (rows, residuals) = self.sparse_linearize(part, values);
             Linearized::Sparse(rows, residuals)
@@ -666,6 +724,20 @@ impl Solver<'_> {
         }
         let step = linearized.step(&scales, width);
         (linearized, step)
+    }
+
+    fn column_scales(&self, component: &Component) -> Vec<f64> {
+        component
+            .variables
+            .iter()
+            .map(|variable| {
+                if self.stiff.contains(variable) {
+                    self.stiffness
+                } else {
+                    1.0
+                }
+            })
+            .collect()
     }
 
     fn pushed_past_bounds(
@@ -704,7 +776,13 @@ impl Solver<'_> {
         }
     }
 
-    fn line_search(&self, part: &Part<'_>, step: &[f64], values: &mut [f64]) -> Option<f64> {
+    fn line_search(
+        &self,
+        part: &Part<'_>,
+        step: &[f64],
+        values: &mut [f64],
+        halvings: usize,
+    ) -> Option<f64> {
         let component = part.component;
         let current = self.squared_residuals(part, values);
         let start: Vec<f64> = component
@@ -713,7 +791,7 @@ impl Solver<'_> {
             .map(|variable| value(values, *variable))
             .collect();
         let mut fraction = 1.0;
-        for _ in 0..LINE_SEARCH_STEPS {
+        for _ in 0..halvings {
             self.place(component, &start, step, fraction, values);
             let candidate = self.squared_residuals(part, values);
             if self.admissible(part, values) && candidate.is_finite() && candidate < current {
@@ -1001,7 +1079,7 @@ fn clear_residual(part: &Part<'_>) -> f64 {
     CLEAR_RESIDUAL * CONVERGENCE_TOLERANCE * part.context.scale
 }
 
-fn norm(row: &[f64]) -> f64 {
+pub(super) fn norm(row: &[f64]) -> f64 {
     row.iter().map(|entry| entry * entry).sum::<f64>().sqrt()
 }
 
