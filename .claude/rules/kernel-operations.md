@@ -7,6 +7,7 @@ paths:
   - "crates/caditor-kernel/src/pattern/**"
   - "crates/caditor-kernel/src/enclose/**"
   - "crates/caditor-kernel/src/box_tree.rs"
+  - "crates/caditor-kernel/src/thread/**"
 ---
 
 # Builders (`build/`)
@@ -157,7 +158,9 @@ paths:
   mean normal of a ring around it); ties and cusps (`ANGLE_TIE`, the noise of intersection
   tangents) are decided by chords at a common distance.
 - Traced pcurves are sharpened until they hold the face's shape (`untangle.rs`): coedges whose uv
-  polygons cross (compared only where two coedges' boxes overlap) are refined to half their
+  polygons properly cross (a turn within `COLLINEAR_SINE` of the segments' lengths counts as none,
+  so the two traversals of one iso-parametric edge, equal but for rounding, never cross and get
+  halved twelve times over) (compared only where two coedges' boxes overlap) are refined to half their
   tolerance, and a fragment whose depth (`trace::depth`, the deepest point's reach to the boundary
   along both uv directions) is under twice the tolerance of some coedge gets those coedges halved,
   round after round down to a tenth of the resolution, so a sliver or a coaxial annulus narrower
@@ -481,3 +484,38 @@ paths:
   was tangent to cannot keep that tangency, so its edge is `UnsupportedEdge`; moving the whole
   tangent chain (`tangent_faces`) keeps every tangency (radii grow by the distance).
 
+# Threads (`thread/`)
+
+- `thread(solid, ThreadSpec, feature)` cuts a modelled helical thread into a shaft or bore and
+  returns a valid solid or a `ThreadError`; `thread_tools` gives the tools it subtracts. A
+  `ThreadSpec` holds the frame (origin on the axis at the thread's start, normal along the thread
+  into the material, x axis where the groove's angle is zero), the `ThreadedFace` (`Shaft`, `Bore`)
+  and its radius, a `ThreadForm` (pitch, flank half angle, root radius, axial groove width at the
+  root, crest radius), the `Handedness`, the length and how each end finishes (`ThreadEnd`):
+  `RunsOut` carries the groove `RUN_OUT` (1.5) pitches past the end, for an open end; `Stops`
+  ends it square in the plane through the axis where its widest part reaches the end, so nothing
+  past the end is cut (a shoulder or a blind bottom).
+- The tool is the groove swept along the helix, built directly as a `Plan`: per turn (pieces of at
+  most one turn, so no face's projection can land on the wrong turn) a root and a far face on exact
+  `Cylinder`s and two flanks, each a ruled rational B-spline between two helices; the helices are
+  rational quadratics, `SPANS_PER_TURN` (16) per turn with double knots, whose plan view is an exact
+  circle and whose axial position follows the angle within 8e-5 of the pitch, so every edge lies
+  exactly on its cylinders and is a boundary row of its flank (straight pcurves). The two caps are
+  planes through the axis. Where an end runs out, a piece boundary is placed where the groove's
+  middle crosses that end plane, so the plane cuts each boundary line at its middle and never
+  passes a hair from a corner.
+- The far face lies `FAR_REACH` (5 %) of the pitch beyond the face (outside a shaft, inside a
+  bore), so flanks cross the face cleanly. A shaft wider than the crest is first turned down to it,
+  and a bore narrower than the crest (the minor diameter) bored out to it, over the thread's length
+  by a revolved ring (`RING_ENTITY` entities), then the groove is cut; the far face is then beyond
+  the crest. A groove at least `1 - LEAST_LAND` of the pitch wide at the far face (turns would
+  overlap) is `GrooveOverlaps`, a root not inside the face `RootOutsideFace`, more than
+  `MAX_THREAD_TURNS` turns `TooManyTurns`, a length its form cannot fit `TooShort`.
+- Faces are `FaceName::thread(feature, part)` with `FaceOrigin::Side { feature, entity: part }`:
+  `GROOVE_PARTS` numbers root, leading flank, far face and trailing flank 1 to 4 plus `per_turn`
+  (8) times the turn from the start, and the start and end caps 5 and 6.
+- An M4×20 shaft threaded its whole length takes about 0.7 to 0.9 s in release and an M8 bore
+  12 mm deep about 0.35 s (`thread/tests.rs` prints the times); the volumes agree with the
+  analytic groove volume (the meridian section's moment times 2π over the pitch) within 1e-4.
+  Measuring a threaded body's mass exactly (`mass_properties`) does not converge on the flanks and
+  falls back to the mesh after a long search (roadmap).

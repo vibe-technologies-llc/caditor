@@ -26,6 +26,7 @@ use crate::{
 };
 
 const MAX_CIRCLE_SEGMENTS: usize = 1 << 16;
+const MAX_TIGHT_SPANS: usize = 4;
 
 pub type BSplineCurve = BSpline<Point3>;
 
@@ -134,14 +135,28 @@ impl Curve {
 
     pub(crate) fn piece_bounds(&self, range: Interval) -> Aabb {
         let coarse = self.bounding_box(range);
-        match self {
-            Self::BSpline(spline) if spline.single_span(range) => {
-                let [low, high] =
-                    parametric::tight_bounds(self, range, [coarse.min(), coarse.max()]);
-                Aabb::from_point(low).including(high)
-            }
-            _ => coarse,
+        let Self::BSpline(spline) = self else {
+            return coarse;
+        };
+        let knots = spline.knots_within(range);
+        if knots.len() >= MAX_TIGHT_SPANS {
+            return coarse;
         }
+        let mut ends = vec![range.start()];
+        ends.extend(knots);
+        ends.push(range.end());
+        ends.windows(2)
+            .filter_map(|pair| match pair {
+                [start, end] => Interval::new(*start, *end),
+                _ => None,
+            })
+            .map(|piece| {
+                let hull = self.bounding_box(piece);
+                let [low, high] = parametric::tight_bounds(self, piece, [hull.min(), hull.max()]);
+                Aabb::from_point(low).including(high)
+            })
+            .reduce(Aabb::union)
+            .unwrap_or(coarse)
     }
 
     pub fn sample(&self, range: Interval, tolerance: &SamplingTolerance) -> Vec<CurveSample> {

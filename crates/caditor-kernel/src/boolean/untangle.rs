@@ -20,6 +20,7 @@ const MAX_ROUNDS: usize = 12;
 const FINEST_TOLERANCE: f64 = 0.1 * LINEAR_RESOLUTION;
 const RELIABLE_DEPTH: f64 = 2.0;
 const DEEP_GATE: f64 = 8.0;
+const COLLINEAR_SINE: f64 = 1e-9;
 
 type CoedgeAt = (usize, usize);
 
@@ -28,7 +29,11 @@ fn flat_box([a, b]: [Point2; 2]) -> Aabb {
 }
 
 fn properly_cross([a, b]: [Point2; 2], [c, d]: [Point2; 2]) -> bool {
-    let side = |from: Point2, to: Point2, point: Point2| (to - from).perp_dot(point - from);
+    let noise = COLLINEAR_SINE * (b - a).length() * (d - c).length();
+    let side = |from: Point2, to: Point2, point: Point2| {
+        let turn = (to - from).perp_dot(point - from);
+        if turn.abs() <= noise { 0.0 } else { turn }
+    };
     let (first, second) = (side(a, b, c), side(a, b, d));
     let (third, fourth) = (side(c, d, a), side(c, d, b));
     first * second < 0.0 && third * fourth < 0.0
@@ -229,4 +234,25 @@ fn surely_deep(fragment: &Fragment, surface: &Surface, tolerance: f64) -> bool {
     let speed = derivatives.du.length().min(derivatives.dv.length());
     let thickness = area.abs() / perimeter * speed;
     thickness.is_finite() && thickness >= DEEP_GATE * tolerance
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_segment_does_not_cross_its_own_reverse_traced_with_rounding_noise() {
+        let along = [
+            Point2::new(11.884, 0.915_435_674_686_988_2),
+            Point2::new(12.0, 0.915_435_674_686_984_2),
+        ];
+        let back = [
+            Point2::new(12.0, 0.915_435_674_686_987_2),
+            Point2::new(11.884, 0.915_435_674_686_988),
+        ];
+        let across = [Point2::new(11.9, 0.9), Point2::new(11.95, 0.93)];
+
+        assert!(!properly_cross(along, back));
+        assert!(properly_cross(along, across));
+    }
 }

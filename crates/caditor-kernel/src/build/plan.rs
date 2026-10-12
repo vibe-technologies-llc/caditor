@@ -549,7 +549,7 @@ impl Plan {
     }
 }
 
-pub(super) fn outward_sense(
+pub(crate) fn outward_sense(
     surface: &Surface,
     point: Point3,
     outward: Vector3,

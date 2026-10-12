@@ -28,7 +28,7 @@ const NEGLIGIBLE_HEIGHT: f64 = 1e-3 * TOLERANCE;
 const RELATIVE_POLE_NUDGE: f64 = 1e-6;
 const RAY_REACH_MARGIN: f64 = 1.0;
 const WINDOW_MARGIN: f64 = 16.0 * TOLERANCE;
-const MAX_PERIOD_SHIFTS: usize = 9;
+const MAX_PERIOD_SHIFTS: usize = 1 << 12;
 const POLE_PROBES: usize = 5;
 const RAY_DIRECTIONS: [[f64; 3]; 12] = [
     [0.573_462, 0.612_378, 0.544_223],

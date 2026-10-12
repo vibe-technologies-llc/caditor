@@ -677,9 +677,7 @@ impl<'a> Tracer<'a> {
                     let boundary = self
                         .boundary_ahead(&current, tangent)
                         .ok_or(IntersectionError::Unfollowable)?;
-                    if boundary.point.distance(current.point) > TOLERANCE {
-                        contacts.push(boundary);
-                    }
+                    end_on_boundary(&mut contacts, boundary, tangent);
                     return Ok(Marched {
                         contacts,
                         closed: false,
@@ -700,7 +698,7 @@ impl<'a> Tracer<'a> {
                     continue;
                 }
                 if let Some(boundary) = boundary {
-                    contacts.push(boundary);
+                    end_on_boundary(&mut contacts, boundary, tangent);
                 }
                 return Ok(Marched {
                     contacts,
@@ -768,6 +766,19 @@ impl<'a> Tracer<'a> {
         let bounds = curve.bounding_box(curve.domain().clipped(1.0));
         self.curves.push((curve, bounds));
         Ok(())
+    }
+}
+
+fn end_on_boundary(contacts: &mut Vec<Contact>, boundary: Contact, tangent: Vector3) {
+    let behind = |contact: &Contact| (boundary.point - contact.point).dot(tangent) <= 0.0;
+    if contacts.len() > 1 && contacts.last().is_some_and(behind) {
+        contacts.pop();
+    }
+    let ahead_of_last = contacts
+        .last()
+        .is_none_or(|last| !behind(last) && boundary.point.distance(last.point) > TOLERANCE);
+    if ahead_of_last {
+        contacts.push(boundary);
     }
 }
 

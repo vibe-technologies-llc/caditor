@@ -43,6 +43,8 @@ paths:
   neighbours. Edges of a chosen face are renamed `between` their faces. A face colour finds the
   pieces of the face it names by computing these names forward from the split features
   (`FaceSplits`, `document.md`), since a digest cannot be read back to its original.
+- A face of a thread's groove is `FaceName::thread` of the feature and its part (side and turn,
+  `kernel-operations.md`).
 - A closing face of `enclose_faces` is `FaceName::closure` of the feature and the sorted, deduped
   names of the edges around it.
 - Boolean fragments of a split face keep its name and origin; pieces keep their edge's name and new

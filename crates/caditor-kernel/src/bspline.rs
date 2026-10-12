@@ -453,6 +453,16 @@ impl<P: Coordinates> BSpline<P> {
             .unwrap_or(&self.control_points)
     }
 
+    pub(crate) fn knots_within(&self, range: Interval) -> Vec<f64> {
+        let start = self.domain.clamp(range.start());
+        let end = self.domain.clamp(range.end());
+        let first = self.knots.partition_point(|knot| *knot <= start);
+        let last = self.knots.partition_point(|knot| *knot < end);
+        let mut knots: Vec<f64> = self.knots.get(first..last).unwrap_or_default().to_vec();
+        knots.dedup();
+        knots
+    }
+
     pub(crate) fn single_span(&self, range: Interval) -> bool {
         let start = self.domain.clamp(range.start());
         let end = self.domain.clamp(range.end());

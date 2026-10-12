@@ -104,7 +104,10 @@ impl Probe<'_> {
 
     fn project(&self, point: Point3) -> Point2 {
         let swept = self.local.get()
-            && matches!(self.surface, Surface::Extrusion(_) | Surface::Revolution(_));
+            && matches!(
+                self.surface,
+                Surface::Extrusion(_) | Surface::Revolution(_) | Surface::BSpline(_)
+            );
         let uv = match self.hint.get().filter(|_| swept) {
             Some(hint) => {
                 let local = refine_projection(self.surface, point, hint);

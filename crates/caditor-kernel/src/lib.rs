@@ -30,6 +30,7 @@ mod surface;
 mod tessellation;
 #[cfg(test)]
 mod test_support;
+mod thread;
 mod tolerance;
 mod topology;
 
@@ -97,6 +98,10 @@ pub use crate::{
     tessellation::{
         DisplayMesh, EdgePolyline, FaceTriangles, MassProperties, Mesh, MeshVertex, SecondMoment,
         TessellationError,
+    },
+    thread::{
+        GROOVE_PARTS, Handedness, MAX_THREAD_TURNS, RING_ENTITY, SPANS_PER_TURN, ThreadEnd,
+        ThreadError, ThreadForm, ThreadSpec, ThreadedFace, thread, thread_tools,
     },
     tolerance::{
         ANGULAR_RESOLUTION, INTERSECTION_TOLERANCE, LINEAR_RESOLUTION, MAX_SIZE, MODEL_EXTENT,

@@ -29,6 +29,10 @@ paths:
   stretch, is met where it crosses and not at a sample that merely reads near zero. Branches
   shorter than `MIN_BRANCH_LENGTH` are dropped.
 - Every search is budgeted; exhausting one is `IntersectionError::TooComplex`.
+- `SolidClassifier::point_in_face` tries every period shift of the uv point that lands in the
+  face's uv box (at most `MAX_PERIOD_SHIFTS`, 4096, nearest first), so a face winding many turns
+  round a periodic surface (a thread's root, healed from a strip per turn) holds a ray's hit
+  whichever representative the projection returned.
 
 ## Curves
 
@@ -36,8 +40,11 @@ paths:
   lines, circles and ellipses against elementary surfaces, else subdivides the curve on piece boxes
   (widened by a second-derivative sagitta within a spline span, since span hulls do not shrink),
   prunes by the surface's Lipschitz distance, brackets sign changes of the signed distance and
-  minimises it for touches. Within a leaf, an extrusion or revolution is projected from the previous
-  foot, and a foot whose offset is not along the normal (stalled on a boundary of the domain, where
+  minimises it for touches. A piece of a spline holding fewer than `MAX_TIGHT_SPANS` knots is boxed
+  by the tight bounds of each span part, not the control hull of every span it touches, so a
+  helix running a few tenths of a millimetre from a cylinder over hundreds of spans is pruned span
+  by span instead of a chain of 48 halvings at every knot (which was `TooComplex`). Within a leaf,
+  an extrusion, revolution or spline surface is projected from the previous foot, and a foot whose offset is not along the normal (stalled on a boundary of the domain, where
   the signed distance reads zero far from the surface) is replaced by the global projection, so a
   stale hint never brackets a false root.
 - `intersect_curves` and `intersect_curves2` are analytic for lines and 2D circles, else paired
@@ -67,7 +74,10 @@ paths:
     points near a corner of a patch is found even when no subdivision leaf seeds it; a failing
     hint is ignored.
   - Branches march both ways from each seed not already on a branch, stop exactly on the box
-    boundary, close loops through the seed and end where the normals become parallel (reported as
+    boundary (`end_on_boundary`: when the boundary point lies behind the last contact, which the
+    inside test's slack let a step or two past it, those contacts are dropped and the branch ends
+    on the boundary or at the contact before it, never with a backward hook whose node tangents
+    point against the curve, which turned the boolean's trace the wrong way at the vertex), close loops through the seed and end where the normals become parallel (reported as
     tangent points). A step that collapses where the branch runs off a bounded surface ends on the
     boundary ahead, at a pole (a cone apex on the other surface) ends there; otherwise it, and a
     branch longer than the step cap, fails as `Unfollowable`. A step is accepted only when the
