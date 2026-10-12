@@ -235,7 +235,7 @@ fn trailing(
         &commands.with_keys(Command::Preferences, &Command::Preferences.title()),
     );
     if settings.clicked() {
-        commands.trigger(Command::Preferences);
+        actions.push(Action::Preferences(PreferencesCommand::Show));
     }
     let search = search(ui, commands);
     let spacing = ui.spacing().item_spacing.x;

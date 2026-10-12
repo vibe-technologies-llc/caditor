@@ -12,6 +12,7 @@ use super::{Harness, SCREEN, sample_document};
 use crate::{
     app,
     app::Workspace,
+    commands::{Command, CommandFrame},
     graphics::{CurveQuality, FrameLimit, Graphics, Hardware},
     model::Action,
     panels::Focus,
@@ -19,6 +20,20 @@ use crate::{
     units::LengthUnit,
     widgets,
 };
+
+#[test]
+fn the_gear_in_the_menu_bar_opens_the_preferences() {
+    let mut harness = Harness::new();
+
+    let gear = CommandFrame::new(&harness.workspace.preferences.keymap, Vec::new())
+        .with_keys(Command::Preferences, &Command::Preferences.title());
+    harness.click_button(&gear);
+    harness.frame();
+    harness.show_new_windows();
+
+    assert!(harness.workspace.preferences_open);
+    assert!(harness.shows("Preferences"));
+}
 
 #[test]
 fn preferences_change_units_and_navigation_and_are_remembered() {
