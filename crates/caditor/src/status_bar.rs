@@ -106,7 +106,7 @@ pub fn show(
     let trailing_id = Id::new("status-trailing");
     let hovers = Hovers::of(commands);
     let frame = ribbon::bar_frame(ui.style());
-    egui::Panel::bottom("status").frame(frame).show(ui, |ui| {
+    let shown = egui::Panel::bottom("status").frame(frame).show(ui, |ui| {
         let notice_width = notice_width(ui, model);
         let mut trailing_wrapped = false;
         let mut notice_wrapped = false;
@@ -150,6 +150,7 @@ pub fn show(
             ui.horizontal(|ui| notice(ui, model, &hovers, actions, true));
         }
     });
+    widgets::remember_height(ui, Id::new("status-height"), shown.response.rect.height());
 }
 
 fn trailing(

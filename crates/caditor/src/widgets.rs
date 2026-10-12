@@ -2278,6 +2278,14 @@ pub fn remember_width(ui: &Ui, id: Id, width: f32) {
     }
 }
 
+pub fn remember_height(ui: &Ui, id: Id, height: f32) {
+    let known = ui.data(|data| data.get_temp::<f32>(id));
+    if known.is_none_or(|known| (known - height).abs() > WIDTH_CHANGE) {
+        ui.data_mut(|data| data.insert_temp(id, height));
+        ui.ctx().request_discard("a bar changed height");
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 struct OpenDialog {
     id: Id,

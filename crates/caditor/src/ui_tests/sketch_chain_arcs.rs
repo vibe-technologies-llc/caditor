@@ -14,6 +14,7 @@ fn line_then_corner(harness: &mut Harness) -> FeatureId {
     harness.use_tool(Key::L);
     harness.click_at(Point2::new(10.0, 10.0));
     harness.click_at(Point2::new(40.0, 10.0));
+    harness.settle();
     feature
 }
 
@@ -33,14 +34,14 @@ fn press_and_move_through(harness: &mut Harness, from: Pos2, through: &[Point2])
     harness.frame();
     let mut at = from;
     for point in through {
-        let target = harness.on_screen(*point);
         for step in 1..=4 {
+            let target = harness.on_screen(*point);
             harness.events.push(Event::PointerMoved(
                 at + (target - at) * (step as f32 / 4.0),
             ));
             harness.frame();
         }
-        at = target;
+        at = harness.on_screen(*point);
     }
     harness.events.push(Event::PointerButton {
         pos: at,

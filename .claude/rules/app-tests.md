@@ -39,6 +39,10 @@ paths:
   recovery folder), the file worker (`Files::wait_for_jobs`), and a harness's storage worker
   (`Model::close` and `Closing::wait` before another harness opens the same model, since Windows
   locks the journal until the worker lets go).
+- The view can move between frames without input: a notice the storage worker reports (a harness
+  has no recovery folder, so the first change reports one whenever the worker gets to it) or a
+  progress line changes the status bar's height and so the view's. A drag aims afresh each frame
+  (`drag_in_sketch` takes the sketch point, not a screen position fixed before the press).
 - A value typed into a sketch field right after an edit waits for `settle` first:
   `Model::settled_sketch` sees none while it recomputes.
 - A constraint trial is waited for at the end of each frame (`Model::finish_checking_constraints`),
