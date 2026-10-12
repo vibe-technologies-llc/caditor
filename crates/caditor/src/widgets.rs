@@ -280,8 +280,7 @@ pub fn icon_button(ui: &mut Ui, glyph: &str, hover: &str) -> Response {
         .frame_when_inactive(false)
         .min_size(Vec2::splat(side));
     ui.scope(|ui| {
-        let padding = ((side - ICON_SIZE) / 2.0).max(0.0);
-        ui.spacing_mut().button_padding = vec2(padding, padding.min(SPACE_XS));
+        ui.spacing_mut().button_padding = square_icon_padding(side);
         ui.add(Named::new(button, hover))
     })
     .inner
@@ -293,7 +292,17 @@ pub fn framed_icon_button(ui: &mut Ui, glyph: &str, hover: &str) -> Response {
     let button = Button::new(icon(glyph).color(tokens.text))
         .min_size(Vec2::splat(CONTROL_HEIGHT))
         .corner_radius(CornerRadius::same(WIDGET_RADIUS));
-    ui.add(Named::new(button, hover)).on_hover_text(hover)
+    ui.scope(|ui| {
+        ui.spacing_mut().button_padding = square_icon_padding(CONTROL_HEIGHT);
+        ui.add(Named::new(button, hover))
+    })
+    .inner
+    .on_hover_text(hover)
+}
+
+fn square_icon_padding(side: f32) -> Vec2 {
+    let padding = ((side - ICON_SIZE) / 2.0).max(0.0);
+    vec2(padding, padding.min(SPACE_XS))
 }
 
 pub fn slider(ui: &mut Ui, slider: Slider<'_>) -> Response {

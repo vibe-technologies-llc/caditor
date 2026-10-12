@@ -6,9 +6,11 @@ use super::{
     open_menus, sketch_bar, sketch_bar_problems,
 };
 use crate::{
+    commands::Command,
     editing::Tool,
     model::{Action, Notice},
     preferences::{PreferenceChange, PreferencesCommand},
+    ribbon,
     selection::Pickable,
     sketch_toolbar,
     sketch_tools::ConstraintTool,
@@ -319,4 +321,56 @@ fn the_ribbons_settle_on_one_layout_at_every_interface_size() {
         })
         .collect();
     assert_eq!(unsettled, Vec::<u8>::new());
+}
+
+fn sketch_bar_button_starting(harness: &Harness, name: &str) -> Rect {
+    let bar = sketch_bar(harness);
+    harness
+        .accessible
+        .iter()
+        .filter(|(_, node)| {
+            node.role() == Role::Button && node.label().is_some_and(|label| label.starts_with(name))
+        })
+        .filter_map(|(_, node)| node.bounds())
+        .map(|bounds| {
+            Rect::from_min_max(
+                Pos2::new(bounds.x0 as f32, bounds.y0 as f32),
+                Pos2::new(bounds.x1 as f32, bounds.y1 as f32),
+            )
+        })
+        .find(|rect| bar.contains(rect.center()))
+        .unwrap_or_else(|| panic!("no button named '{name}' in the sketch bar"))
+}
+
+#[test]
+fn the_buttons_beside_finish_sketch_keep_a_gap_from_it_at_every_interface_size() {
+    let mut harness = Harness::new();
+    harness.context.enable_accesskit();
+    edit_base_sketch(&mut harness);
+
+    let look = Command::LookAtSketch.title();
+    let half_gap = ribbon::TOOL_GAP / 2.0 - 0.25;
+    let overlapping: Vec<String> = (75_u8..=200)
+        .step_by(5)
+        .filter(|&percent| {
+            harness.perform(Action::Preferences(PreferencesCommand::Change(
+                PreferenceChange::Scale(f32::from(percent) / 100.0),
+            )));
+            harness.frame();
+            harness.frame();
+            harness.frame();
+            let buttons = [
+                sketch_bar_button_starting(&harness, sketch_toolbar::FINISH_LABEL),
+                sketch_bar_button_starting(&harness, sketch_toolbar::CANCEL_LABEL),
+                sketch_bar_button_starting(&harness, &look),
+            ];
+            buttons.iter().enumerate().any(|(index, first)| {
+                buttons[index + 1..]
+                    .iter()
+                    .any(|second| first.expand(half_gap).intersects(second.expand(half_gap)))
+            })
+        })
+        .map(|percent| format!("{percent}%"))
+        .collect();
+    assert_eq!(overlapping, Vec::<String>::new());
 }

@@ -204,10 +204,12 @@ paths:
   primary. Secondary text (captions, counts, unselected choices) is `text_muted`.
 - Decisions the code does not show:
   - A `ToolButton` is icon above label; `compact` is icon alone, named by its label, in a square so
-    two rows match one tool button. `icon_button` is a true `CONTROL_HEIGHT` square so rows
-    reserving that room never overflow and widen a panel. `danger_button` is for actions that throw
-    work away and never registers as the primary. `strong` is semibold, since egui's `.strong()`
-    only recolours here.
+    two rows match one tool button. `icon_button` and `framed_icon_button` are true
+    `CONTROL_HEIGHT` squares (`square_icon_padding`) so rows and columns reserving that room never
+    overflow, as Look at sketch's compact column beside Finish sketch does
+    (`the_buttons_beside_finish_sketch_keep_a_gap_from_it_at_every_interface_size`).
+    `danger_button` is for actions that throw work away and never registers as the primary.
+    `strong` is semibold, since egui's `.strong()` only recolours here.
   - `segmented` falls back to a dropdown when wider than the room, so it never widens a panel.
     Every `widgets::combo` (that dropdown and `feature_fields::combo` included) truncates its chosen
     text rather than wrap it, is `COMBO_WIDTH` wide unless given a width, ties itself to the property
