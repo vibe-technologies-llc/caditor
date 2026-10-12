@@ -210,6 +210,7 @@ pub struct Model {
     services: Services,
     status: RecomputeStatus,
     notice: Option<Notice>,
+    save_failure: Option<Notice>,
     drag_blocked: bool,
     recorded_notices: VecDeque<RecordedNotice>,
     revision_offset: u64,
@@ -253,6 +254,7 @@ impl Model {
             services,
             status: RecomputeStatus::UpToDate,
             notice: None,
+            save_failure: None,
             drag_blocked: false,
             recorded_notices: VecDeque::new(),
             revision_offset: 0,
@@ -628,6 +630,19 @@ impl Model {
             self.recorded_notices.truncate(MAX_RECORDED_NOTICES);
         }
         self.notice = Some(notice);
+    }
+
+    fn fail_save(&mut self, notice: Notice) {
+        self.save_failure = Some(notice.clone());
+        self.set_notice(notice);
+    }
+
+    fn clear_save_failure(&mut self) {
+        if let Some(failure) = self.save_failure.take()
+            && self.notice.as_ref() == Some(&failure)
+        {
+            self.notice = None;
+        }
     }
 
     pub fn drag_blocked(&self) -> bool {
@@ -1270,7 +1285,7 @@ impl Model {
             });
         } else {
             self.restart_storage();
-            self.set_notice(Notice::failure(
+            self.fail_save(Notice::failure(
                 "Could not save, because the background writer stopped. Try saving again.",
             ));
             self.file_events.push(FileEvent::SaveFailed);
@@ -1375,6 +1390,7 @@ impl Model {
         self.unprotected = None;
         self.pending_save = None;
         self.notice = None;
+        self.save_failure = None;
         self.parameters = ParameterValues::evaluate(self.editor.document());
         self.evaluation = Evaluation::default();
         self.evaluation_generation += 1;
@@ -1512,6 +1528,7 @@ impl Model {
                 self.on_disk = Some(digest);
                 self.keep_original = false;
                 self.dirty = self.differs_from_saved();
+                self.clear_save_failure();
                 if let Some(notice) = saved_notice(backup.as_deref(), dropped_for_size) {
                     self.set_notice(notice);
                 }
@@ -1542,7 +1559,7 @@ impl Model {
             } => {
                 self.pending_save
                     .take_if(|pending| pending.ticket == ticket);
-                self.set_notice(Notice::failure(format!(
+                self.fail_save(Notice::failure(format!(
                     "Could not save “{}”: {error}. Use Save As to choose another location.",
                     display_name(Some(&path))
                 )));

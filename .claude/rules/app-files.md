@@ -76,6 +76,9 @@ paths:
 - A recovery offer leaves the list only when its discard succeeded; a failure keeps the card, worded
   through `caditor_file::DiscardError` (`DiscardFailure` adds a crashed job). A journal already gone
   counts as discarded.
+- A failed save (`Report::SaveFailed`, or a writer that stopped) raises its notice through
+  `Model::fail_save`; the next successful save takes that notice off the screen when it is still the
+  one shown, and leaves any other notice alone.
 - Save As appends `.caditor`, checks the target on the worker (refused while open in another window
   or holding unrecovered changes) and asks before replacing a file the dialog did not name.
 - The open thread and the Save As check wait for the model's storage handover

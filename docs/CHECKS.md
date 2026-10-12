@@ -10,9 +10,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   selection sets) and 3 of the 20 feature kinds, and no target journals generated edits and
   replays them. Generate the rest, replay the journal in `save_load`, and add an exhaustive
   `match` on `Edit` so a new variant fails to compile until a generator covers it.
-- [low · easy] The XML test of a hundred thousand distinct namespaces asserts nothing about cost
-  since its wall-clock bound went: give `Parser::intern` a `tally` unit per entry it compares and
-  bound the total by the declarations made.
 - [low · medium] Slow tests to keep an eye on: with egui, its glyph stack and the PNG encoder built
   optimised in the dev profile (`dependencies.md`) a UI test takes a few tenths of a second, and
   none of the ten that took over a second (the screen-reader test, the shortcut reset tests, the

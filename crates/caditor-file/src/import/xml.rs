@@ -1,6 +1,8 @@
-use std::{borrow::Cow, collections::BTreeMap};
+use std::{borrow::Cow, cmp::Ordering, collections::BTreeMap};
 
 use caditor_kernel::check_interrupt;
+
+use crate::tally;
 
 pub(super) const XML_NAMESPACE: &str = "http://www.w3.org/XML/1998/namespace";
 pub(super) const MAX_DEPTH: usize = 1024;
@@ -10,6 +12,22 @@ const MAX_ENTITY_WORK: usize = 4 << 20;
 const ELEMENTS_BETWEEN_INTERRUPT_POLLS: usize = 4096;
 const TEXT_KEPT_IN: &str = "style";
 const CONTENT_KEPT_IN: [&str; 4] = ["text", "tspan", "textPath", "a"];
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct NamespaceKey<'t>(Cow<'t, str>);
+
+impl PartialOrd for NamespaceKey<'_> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for NamespaceKey<'_> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        tally::add(1);
+        self.0.cmp(&other.0)
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum XmlError {
@@ -246,7 +264,7 @@ struct Parser<'t> {
     entity_work: usize,
     scopes: Vec<Scope<'t>>,
     bindings: BTreeMap<&'t str, Vec<usize>>,
-    interned: BTreeMap<Cow<'t, str>, usize>,
+    interned: BTreeMap<NamespaceKey<'t>, usize>,
     open: Vec<(usize, &'t str)>,
     tree: Tree<'t>,
     max_elements: usize,
@@ -448,11 +466,13 @@ impl<'t> Parser<'t> {
     }
 
     fn intern(&mut self, value: Cow<'t, str>) -> usize {
-        if let Some(index) = self.interned.get(value.as_ref()) {
+        let key = NamespaceKey(value);
+        if let Some(index) = self.interned.get(&key) {
             return *index;
         }
         let index = self.tree.namespaces.len();
-        self.interned.insert(value.clone(), index);
+        let NamespaceKey(value) = key;
+        self.interned.insert(NamespaceKey(value.clone()), index);
         self.tree.namespaces.push(value);
         index
     }
