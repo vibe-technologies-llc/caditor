@@ -331,7 +331,10 @@ paths:
   (`remembered_width`), so widths never depend on the selection or active tool and selecting never
   moves the 3D view. Groups keep one rhythm on both: `DIVIDER_SPACE` with a divider between groups,
   `TOOL_GAP` between buttons, `ROW_GAP` between rows, captions `CAPTION_GAP` under their buttons,
-  shown only while the ribbon fits one labelled row. Each ribbon turns compact while its labelled
+  shown only while the ribbon fits one labelled row. A labelled group's natural width counts its
+  caption whether shown or not (`ribbon::captioned`), so hiding captions never narrows the groups
+  into fitting one row again and the layout never flips between frames
+  (`the_ribbons_settle_on_one_layout_at_every_interface_size`). Each ribbon turns compact while its labelled
   rows would take more than `MOST_LABELLED_SHARE` of the window's height
   (`ribbon::labelled_too_tall`), judged from labelled widths remembered apart from compact ones (a
   second ribbon name). Compact buttons are icon-only `ToolButton`s named by their label for screen
@@ -351,10 +354,12 @@ paths:
   Modify, Constrain and Dimension. Compact (`Bar::compact`, at 200% in the screenshot window) the
   header drops its badge, Select and the Draw buttons go icon-only and Draw folds into
   `COMPACT_DRAW_ROWS` rows, so the bar packs into two rows; every button keeps its accessible name.
-  Finish sketch is a primary button at the right of the first row, with Look at sketch beside it as
-  a framed `framed_icon_button`; both are `CONTROL_HEIGHT` tall and centred on the whole bar,
-  captions included. Cancel sketch sits between them as a compact `ToolButton` (a cross, named
-  `sketch_toolbar::CANCEL_LABEL`), disabled with the reason when the session cannot be cancelled.
+  Finish sketch is a primary button at the right of the first row, `CONTROL_HEIGHT` tall and
+  centred on the whole bar, captions included. Left of it Cancel sketch, a compact `ToolButton` (a
+  cross, named `sketch_toolbar::CANCEL_LABEL`, disabled with the reason when the session cannot be
+  cancelled), sits over Look at sketch, a framed `framed_icon_button`, the pair one compact column
+  (`Beside::Stacked`) so the bar keeps one row at 1400 points; on a row of its own (the header
+  leaving Finish no room beside the groups) the three sit side by side (`Beside::InRow`).
 - Corner menus: shape tools with several ways to draw carry a `widgets::corner_menu_button` (a caret
   at the top right, `compact_corner_menu_button` on a compact ribbon) listing them as
   `menu_choice`s; the compact Offset, Mirror and Project buttons a `compact_corner_menu_button` (a

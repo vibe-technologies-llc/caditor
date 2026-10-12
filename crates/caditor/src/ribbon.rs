@@ -122,6 +122,7 @@ pub fn height(ui: &Ui, captions: bool) -> f32 {
 pub fn captioned(
     ui: &mut Ui,
     caption: Option<&str>,
+    show_caption: bool,
     content: impl FnOnce(&mut Ui) -> f32,
 ) -> (Rect, f32) {
     let galley = caption.map(|caption| caption_galley(ui, caption));
@@ -130,12 +131,14 @@ pub fn captioned(
         let Some(galley) = galley else {
             return content;
         };
-        let top = ui.min_rect().bottom() + CAPTION_GAP;
-        let width = ui.min_rect().width().max(galley.size().x);
-        let height = ui.text_style_height(&TextStyle::Small);
-        let rect = Rect::from_min_size(pos2(ui.min_rect().left(), top), vec2(width, height));
         let natural = content.max(galley.size().x);
-        ui.put(rect, Label::new(galley).selectable(false));
+        if show_caption {
+            let top = ui.min_rect().bottom() + CAPTION_GAP;
+            let width = ui.min_rect().width().max(galley.size().x);
+            let height = ui.text_style_height(&TextStyle::Small);
+            let rect = Rect::from_min_size(pos2(ui.min_rect().left(), top), vec2(width, height));
+            ui.put(rect, Label::new(galley).selectable(false));
+        }
         natural
     });
     (shown.response.rect, shown.inner)

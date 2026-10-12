@@ -96,7 +96,7 @@ impl Queued {
 pub fn refused(command: Command, title: &str, reason: &str) -> Action {
     match Queued::new(Rerun::Command(command), title, reason) {
         Some(queued) => Action::Queue(Box::new(queued)),
-        None => Action::Inform(Notice::warning(format!("{title}: {reason}."))),
+        None => Action::Inform(Notice::warning(format!("{title}: {reason}"))),
     }
 }
 

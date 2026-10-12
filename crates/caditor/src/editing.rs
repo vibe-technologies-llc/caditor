@@ -581,7 +581,11 @@ impl SketchEditing {
         let Some(closed_name) = name(closed) else {
             return;
         };
-        let next = match self.feature().or(self.solid()) {
+        let opened = self.feature().or(self.solid());
+        if opened.is_some_and(|opened| document.dependents_of(&[closed]).contains(&opened)) {
+            return;
+        }
+        let next = match opened {
             Some(feature) => match name(feature) {
                 Some(next) => format!("edit {next}"),
                 None => return,

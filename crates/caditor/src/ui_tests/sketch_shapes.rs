@@ -14,6 +14,7 @@ use crate::{
     commands::Command,
     drawing::Refusal,
     editing::Tool,
+    model::Action,
     selection::Pickable,
     shape_modes::{CircleMode, RectangleMode, ShapeMode},
     sketch_toolbar,
@@ -1365,6 +1366,9 @@ fn escape_cancels_the_shape_in_progress_then_returns_to_select() {
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
     assert_eq!(harness.editing(), None);
+    assert!(harness.document().feature(feature).is_none());
+
+    harness.perform(Action::Redo);
     assert_eq!(*harness.document(), before);
 }
 

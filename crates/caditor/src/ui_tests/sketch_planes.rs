@@ -33,7 +33,12 @@ fn a_new_sketch_on_the_selected_plane_is_edited_until_finished() {
     harness.click("Finish sketch");
     assert_eq!(harness.editing(), None);
     assert!(!harness.shows("Editing Sketch 1"));
+    assert_eq!(harness.document().features().len(), 2);
+    assert!(harness.shows("Removed the empty Sketch 1; Redo brings it back."));
+
+    harness.perform(Action::Redo);
     assert_eq!(harness.document().features().len(), 3);
+    assert_eq!(harness.editing(), None);
 
     harness.click("New sketch");
     assert!(harness.workspace.editing.is_choosing_plane());
@@ -52,6 +57,8 @@ fn a_new_sketch_on_the_selected_plane_is_edited_until_finished() {
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
     assert_eq!(harness.editing(), None);
+    assert!(harness.document().feature(second).is_none());
+    assert_eq!(harness.document().features().len(), 3);
 }
 
 #[test]
@@ -233,4 +240,33 @@ fn a_sketch_is_placed_on_the_selected_face_and_detached_from_the_palette() {
     );
     assert_eq!(attached_body(&harness, sketch), None);
     assert_eq!(harness.sketch(sketch).plane().origin().z, 10.0);
+}
+
+#[test]
+fn leaving_a_sketch_for_a_feature_built_on_it_is_quiet_and_starting_another_says_what_closed() {
+    let mut harness = Harness::new();
+    let sketch = harness.draw_on_new_sketch();
+    harness.use_tool(Key::R);
+    harness.click_at(Point2::new(10.0, 10.0));
+    harness.click_at(Point2::new(40.0, 30.0));
+    harness.settle();
+
+    harness.click("Extrude");
+    harness.settle();
+    let announced = |harness: &Harness| {
+        harness
+            .model
+            .notice()
+            .is_some_and(|notice| notice.text.starts_with("Finished"))
+    };
+    assert!(harness.workspace.editing.solid().is_some());
+    assert!(!announced(&harness));
+
+    harness.perform(Action::Editing(EditingCommand::Enter(sketch)));
+    harness.perform(Action::Editing(EditingCommand::NewSketch(None)));
+    assert!(harness.workspace.editing.is_choosing_plane());
+    assert_eq!(
+        harness.model.notice().map(|notice| notice.text.as_str()),
+        Some("Finished Sketch 1 to start a new sketch.")
+    );
 }

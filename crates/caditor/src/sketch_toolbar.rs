@@ -528,6 +528,12 @@ impl Deletable {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Beside {
+    InRow,
+    Stacked,
+}
+
 #[derive(Default)]
 struct Request {
     focus: Option<Focus>,
@@ -662,7 +668,7 @@ impl Bar<'_, '_> {
             ui.allocate_ui_with_layout(
                 vec2(full, FINISH_HEIGHT),
                 Layout::right_to_left(Align::Center),
-                |ui| self.finish(ui, finish_id),
+                |ui| self.finish(ui, finish_id, Beside::InRow),
             );
             ui.add_space(ribbon::ROW_GAP);
         }
@@ -680,7 +686,7 @@ impl Bar<'_, '_> {
                     ui.allocate_ui_with_layout(
                         vec2(ui.available_width(), ribbon::height(ui, packing.captions)),
                         Layout::right_to_left(Align::Center),
-                        |ui| self.finish(ui, finish_id),
+                        |ui| self.finish(ui, finish_id, Beside::Stacked),
                     );
                 }
             });
@@ -688,8 +694,10 @@ impl Bar<'_, '_> {
     }
 
     fn group(&mut self, ui: &mut Ui, group: Group, packing: Packing) -> (Rect, f32) {
-        let caption = group.caption().filter(|_| packing.captions);
-        ribbon::captioned(ui, caption, |ui| self.content(ui, group, packing))
+        let caption = group.caption().filter(|_| !self.compact);
+        ribbon::captioned(ui, caption, packing.captions, |ui| {
+            self.content(ui, group, packing)
+        })
     }
 
     fn content(&mut self, ui: &mut Ui, group: Group, packing: Packing) -> f32 {
@@ -1314,7 +1322,7 @@ impl Bar<'_, '_> {
         }
     }
 
-    fn finish(&mut self, ui: &mut Ui, width_id: Id) {
+    fn finish(&mut self, ui: &mut Ui, width_id: Id, beside: Beside) {
         ui.add_space(FINISH_MARGIN);
         let invoked = self.commands.available(Command::FinishSketch);
         let keys = self
@@ -1327,18 +1335,35 @@ impl Bar<'_, '_> {
         let response = ui
             .add(widgets::Named::new(button, FINISH_LABEL))
             .on_hover_text(format!("Leave the sketch. Everything is kept. ({keys})"));
-        let cancelling = self.cancel_button(ui);
-        let look = Command::LookAtSketch;
-        let look_help = self.commands.with_keys(look, &look.title());
-        let looking = widgets::framed_icon_button(ui, icons::command(look), &look_help);
-        let all = response.rect.union(cancelling.rect).union(looking.rect);
+        let beside = match beside {
+            Beside::InRow => {
+                let cancelling = self.cancel_button(ui);
+                cancelling.rect.union(self.look_button(ui).rect)
+            }
+            Beside::Stacked => {
+                let column = vec2(widgets::compact_tool_side(ui), widgets::tool_height(ui));
+                ui.allocate_ui_with_layout(column, Layout::top_down(Align::Center), |ui| {
+                    let cancelling = self.cancel_button(ui);
+                    cancelling.rect.union(self.look_button(ui).rect)
+                })
+                .inner
+            }
+        };
+        let all = response.rect.union(beside);
         widgets::remember_width(ui, width_id, all.width() + FINISH_MARGIN);
         if response.clicked() || invoked {
             self.request.finish = true;
         }
+    }
+
+    fn look_button(&mut self, ui: &mut Ui) -> Response {
+        let look = Command::LookAtSketch;
+        let look_help = self.commands.with_keys(look, &look.title());
+        let looking = widgets::framed_icon_button(ui, icons::command(look), &look_help);
         if looking.clicked() {
             self.commands.trigger(look);
         }
+        looking
     }
 
     fn cancel_button(&mut self, ui: &mut Ui) -> Response {

@@ -18,12 +18,13 @@ Detach and {command:model.place_sketch}.
 The view turns to face the sketch, other features dim and the sketch ribbon appears. Double-click a
 sketch in the tree, or one of its curves, to edit it again later. {command:sketch.finish} or
 Escape ends editing, keeping everything; a new sketch left with nothing in it is removed then, and
-Redo or Undo brings it back. {command:sketch.cancel} (the cross beside Finish sketch) ends editing
+Redo or Undo brings it back. {command:sketch.cancel} (the cross beside Finish sketch, above Look at sketch) ends editing
 and takes back every change made since the sketch was entered, as one step Undo brings back.
 
-Opening a feature, entering another sketch or starting a new one finishes the sketch first; the
-status bar says so, such as "Finished Sketch 2 to edit Extrude 1", with an Undo button when that
-also created something, which takes it back and returns to the sketch.
+Opening a feature, entering another sketch or starting a new one finishes the sketch first. Unless
+the feature is built on the sketch, as an extrusion of it is, the status bar says so, such as
+"Finished Sketch 2 to edit Fillet 1", with an Undo button when that also created something, which
+takes it back and returns to the sketch.
 
 - Pick a tool from the sketch ribbon, by its key, or from {command:palette}. Escape steps back one
   stage at a time and then returns to Select; holding it down takes only one step.

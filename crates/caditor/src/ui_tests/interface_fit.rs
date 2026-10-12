@@ -299,3 +299,24 @@ fn the_bars_and_the_parameter_grid_wrap_or_shrink_rather_than_overlap_at_200_per
     assert!(!deletes.is_empty());
     assert!(deletes.iter().all(|rect| rect.max.x <= narrowed.max.x));
 }
+
+#[test]
+fn the_ribbons_settle_on_one_layout_at_every_interface_size() {
+    let mut harness = Harness::new();
+    edit_base_sketch(&mut harness);
+
+    let unsettled: Vec<u8> = (75_u8..=200)
+        .filter(|&percent| {
+            harness.perform(Action::Preferences(PreferencesCommand::Change(
+                PreferenceChange::Scale(f32::from(percent) / 100.0),
+            )));
+            harness.frame();
+            harness.frame();
+            harness.frame();
+            let passes = harness.context.cumulative_pass_nr();
+            harness.frame();
+            harness.context.cumulative_pass_nr() - passes > 1
+        })
+        .collect();
+    assert_eq!(unsettled, Vec::<u8>::new());
+}

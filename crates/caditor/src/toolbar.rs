@@ -116,8 +116,8 @@ pub fn show(
             }
             ui.horizontal_top(|ui| {
                 ribbon::row(ui, ribbon_name, &row, |ui, group| {
-                    let caption = captions.then(|| group.caption());
-                    ribbon::captioned(ui, caption, |ui| {
+                    let caption = (!compact).then(|| group.caption());
+                    ribbon::captioned(ui, caption, captions, |ui| {
                         ui.horizontal_top(|ui| {
                             group_buttons(ui, group, model, context, commands, actions);
                         })

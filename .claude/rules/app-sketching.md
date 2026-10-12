@@ -53,7 +53,7 @@ and, for off-ribbon tools, a partner's corner menu.
 - Entering records `editing::Entered` (the sketch, the `UndoMark` from when the batch that entered
   it began, and whether a step of that batch added it), as an open feature records `Opened`.
   Cancel sketch (`Command::CancelSketch`, `EditingCommand::CancelSketch`; palette, Sketch menu, the
-  compact cross left of Finish sketch on the ribbon) takes back every step since that mark as one
+  compact cross left of Finish sketch on the ribbon, over Look at sketch) takes back every step since that mark as one
   new undoable step: the steps' inverses (`Model::undo_steps_since`) concatenated into one
   `Transaction` labelled by `cancel_title`, so Undo brings the whole session back at once; when the
   only step is the sketch's own creation it is undone instead, so it leaves no trace and Redo makes
@@ -67,7 +67,9 @@ and, for off-ribbon tools, a partner's corner menu.
 - Opening a feature, entering another sketch, or New sketch closing what was open
   (`editing::switches`) is a switch: `SketchEditing::note_switch` keeps what closed and
   `announce_switch`, run by `app::perform` after the batch, posts "Finished <closed> to edit
-  <next>" (or "to start a new sketch"), unless the batch posted a warning or error. When the batch
+  <next>" (or "to start a new sketch"), unless the batch posted a warning or error or the feature
+  opened is built on the one closed (`Document::dependents_of`): extruding the edited sketch is the
+  expected way on and says nothing, while a switch to unrelated work is told. When the batch
   also changed the document the notice carries a `SwitchBack`: its Undo button
   (`EditingCommand::SwitchBack`) undoes the batch's steps and restores the closed sketch's
   `Entered` or feature's `Opened`. A feature closed for another feature says nothing.
