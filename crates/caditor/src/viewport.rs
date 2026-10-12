@@ -2906,6 +2906,11 @@ impl ViewportState {
         if !click.primary {
             return;
         }
+        if self.leaves_primitive_place(editing, self.hovered) {
+            actions.push(Action::Editing(EditingCommand::StopPicking));
+            self.select(model, click.toggle);
+            return;
+        }
         let ray = self
             .cursor
             .and_then(|cursor| self.view()?.ray_through(cursor));
@@ -2950,6 +2955,16 @@ impl ViewportState {
             return;
         }
         self.select(model, click.toggle);
+    }
+
+    fn leaves_primitive_place(&self, editing: &SketchEditing, pickable: Option<Pickable>) -> bool {
+        editing
+            .picking()
+            .filter(|picking| picking.slot == Slot::PrimitivePlace)
+            .zip(pickable)
+            .is_some_and(|(picking, pickable)| {
+                primitive_tools::is_part_of(picking.feature, pickable)
+            })
     }
 
     fn gather_click(&mut self, editing: &SketchEditing, hovered: Option<Pickable>) {
@@ -3413,7 +3428,13 @@ impl ViewportState {
             self.dimension_click(model, feature, Some(pickable), actions);
             return;
         }
-        match pick_action(Some(pickable), None, model, editing, false) {
+        let leaves_place = self.leaves_primitive_place(editing, Some(pickable));
+        if leaves_place {
+            actions.push(Action::Editing(EditingCommand::StopPicking));
+        }
+        let action =
+            pick_action(Some(pickable), None, model, editing, false).filter(|_| !leaves_place);
+        match action {
             Some(action) => actions.extend(action),
             None if toggle => self.toggle_chosen(model, pickable),
             None => {

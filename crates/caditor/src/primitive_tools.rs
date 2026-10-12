@@ -366,6 +366,14 @@ pub fn place_change(
     }
 }
 
+pub fn is_part_of(feature: FeatureId, pickable: Pickable) -> bool {
+    matches!(
+        pickable,
+        Pickable::Face { body, .. } | Pickable::Edge { body, .. } | Pickable::Vertex { body, .. }
+            if body == feature
+    )
+}
+
 pub fn place_click(
     model: &Model,
     feature: FeatureId,

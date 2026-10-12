@@ -4,7 +4,7 @@ use caditor_document::BodyOperation;
 use caditor_geometry::{Plane, Point2, Point3};
 use egui::{Id, Key, Modifiers};
 
-use super::{Harness, body_centre, extruded_plate, primitive_of, volume_about};
+use super::{Harness, body_centre, extruded_plate, pickable_described, primitive_of, volume_about};
 use crate::selection::{Pickable, PrincipalPlane};
 
 #[test]
@@ -75,4 +75,29 @@ fn a_cylinder_on_a_selected_face_joins_its_body_and_cuts_into_it_when_switched()
     assert_eq!(cut.operation, BodyOperation::Remove(plate));
     assert!(cut.reversed);
     assert!(volume_about(&harness, plate, 16000.0 - PI * 25.0 * 10.0));
+}
+
+#[test]
+fn activating_the_new_cylinder_s_highlighted_face_selects_it_and_stops_choosing_its_place() {
+    let mut harness = Harness::new();
+    harness.select([]);
+    harness.use_tool_with(Key::Y, Modifiers::ALT);
+    harness.settle();
+    assert!(harness.workspace.editing.picking().is_some());
+
+    let top = pickable_described(&mut harness, "Cylinder 1 › Cylinder 1 top face");
+    for _ in 0..40 {
+        if harness.workspace.viewport.keyboard_highlight() == Some(top) {
+            break;
+        }
+        harness.key(Key::N, Modifiers::NONE);
+        harness.frame();
+    }
+    assert_eq!(harness.workspace.viewport.keyboard_highlight(), Some(top));
+
+    harness.key(Key::Space, Modifiers::NONE);
+    harness.settle();
+
+    assert_eq!(harness.workspace.editing.picking(), None);
+    assert!(harness.workspace.viewport.selection().contains(top));
 }

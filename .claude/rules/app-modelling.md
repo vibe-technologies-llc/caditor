@@ -492,6 +492,9 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   datum plane or flat face places it where the pointer's ray meets it (`primitive_tools::place_click`,
   the ray handed to `pick_action`); the keyboard highlight places it at the face's middle or the
   plane's origin.
+  A click or Activate on a face, edge or corner of the primitive itself can hold no place, so it
+  leaves it where it is and selects as it would anywhere else (`ViewportState::leaves_primitive_place`,
+  `primitive_tools::is_part_of`) instead of being refused as made after the primitive.
 - Panel specifics: Shape switching takes the new shape's default sizes; Position X and Y (key
   `primitive-field`, `("at", index)`); sizes (`("size", index)`) each checked by its `SizeRule`
   (`Rule::AboveZero`, `ZeroOrMore`, or `Sides` for a count); Reverse direction is left out for Centre.

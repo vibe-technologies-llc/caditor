@@ -1,8 +1,12 @@
+use caditor_document::Document;
 use caditor_geometry::{Plane, Point2};
 use caditor_sketch::{Constraint, Entity, EntityId, Sketch};
 use egui::{Key, Modifiers};
 
-use super::{Harness, constraints_of_kind, entities_of_kind, extruded_plate, line_ends};
+use super::{
+    CAMERA_SETTLE, Harness, constraints_of_kind, entities_of_kind, extruded_plate, line_ends,
+    pickable_described, run_from_palette,
+};
 
 fn drawn_points(sketch: &Sketch) -> Vec<EntityId> {
     entities_of_kind(sketch, "Point")
@@ -135,4 +139,52 @@ fn a_circle_centred_on_a_round_edge_is_held_at_its_projected_centre() {
             .contains(&Constraint::Coincident(*center, projected_centre))
     );
     assert_eq!(sketch.projected().count(), 2);
+}
+
+#[test]
+fn a_circle_on_a_new_cylinder_s_top_face_snaps_to_its_edge_and_its_centre() {
+    let mut harness = Harness::starting(None, Document::default(), crate::app::Workspace::new());
+    harness.select([]);
+    run_from_palette(&mut harness, "Cylinder");
+    harness.settle();
+    let top = pickable_described(&mut harness, "Cylinder 1 › Cylinder 1 top face");
+    harness.click_pickable(Plane::XY, Point2::new(0.0, 0.0), top);
+    harness.settle();
+
+    assert_eq!(harness.workspace.editing.picking(), None);
+    assert!(harness.workspace.viewport.selection().contains(top));
+
+    harness.click("New sketch");
+    harness.settle();
+    let sketch = harness.editing().expect("the sketch on the top face");
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    harness.use_tool(Key::C);
+
+    harness.point_at(Point2::new(5.3, 5.2));
+    assert!(harness.shows("Centre of a round edge of Cylinder 1"));
+    harness.click_at(Point2::new(5.3, 5.2));
+    harness.point_at(Point2::new(8.5, 5.0));
+    harness.click_at(Point2::new(8.5, 5.0));
+    harness.settle();
+
+    let sketch = harness.sketch(sketch);
+    let circle = *entities_of_kind(sketch, "Circle")
+        .iter()
+        .find(|circle| !sketch.is_projected(**circle))
+        .expect("the drawn circle");
+    let Some(Entity::Circle { center, .. }) = sketch.entity(circle) else {
+        panic!("expected a circle");
+    };
+    let projected_centre = sketch
+        .projected()
+        .find_map(|id| match sketch.entity(id) {
+            Some(Entity::Circle { center, .. }) => Some(*center),
+            _ => None,
+        })
+        .expect("the round edge is projected");
+    assert!(
+        constraints_of_kind(sketch, "Coincident")
+            .contains(&Constraint::Coincident(*center, projected_centre))
+    );
 }
