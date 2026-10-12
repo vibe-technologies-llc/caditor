@@ -1,7 +1,8 @@
 use std::{sync::Arc, time::Duration};
 
 use caditor_document::{
-    CarriedParameters, Document, FeatureId, FeatureKind, PasteOrigin, SavedView, Transaction,
+    CarriedParameters, Document, Evaluation, Feature, FeatureId, FeatureKind, PasteOrigin,
+    SavedView, Transaction,
 };
 use caditor_file::PastedGeometry;
 use caditor_geometry::{Aabb, Plane, Point2, Point3, Ray, Rotation3, Vector2, Vector3};
@@ -378,6 +379,7 @@ pub struct ViewportState {
     hovered_in_tree: Option<Pickable>,
     previewed: Vec<Pickable>,
     chosen_rows: Vec<FeatureId>,
+    lit_rows: Option<(LitRowsBasis, LitRows)>,
     hovered_row: Option<FeatureId>,
     tree_dismissed: bool,
     home_applied: bool,
@@ -446,6 +448,44 @@ fn with_their_bodies(document: &Document, rows: Vec<FeatureId>) -> Vec<FeatureId
     lit.sort_unstable();
     lit.dedup();
     lit
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+struct LitRows {
+    rows: Vec<FeatureId>,
+    made: Vec<Pickable>,
+}
+
+impl LitRows {
+    fn of(document: &Document, evaluation: &Evaluation, rows: &[FeatureId]) -> Self {
+        let mut lit = Self::default();
+        for row in rows {
+            lit.rows.push(*row);
+            let Some(body) = document.feature(*row).and_then(Feature::body) else {
+                continue;
+            };
+            let made = match body == *row {
+                true => Vec::new(),
+                false => bodies::shown(evaluation, body)
+                    .map(|result| bodies::made_by(body, &result.solid, *row))
+                    .unwrap_or_default(),
+            };
+            match made.is_empty() {
+                true => lit.rows.push(body),
+                false => lit.made.extend(made),
+            }
+        }
+        lit.rows.sort_unstable();
+        lit.rows.dedup();
+        lit
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct LitRowsBasis {
+    rows: Vec<FeatureId>,
+    revision: u64,
+    evaluation: u64,
 }
 
 fn hides_what_lies_behind(pickable: Pickable) -> bool {
@@ -604,6 +644,7 @@ impl ViewportState {
             hovered_in_tree: None,
             previewed: Vec::new(),
             chosen_rows: Vec::new(),
+            lit_rows: None,
             hovered_row: None,
             tree_dismissed: false,
             home_applied: false,
@@ -956,6 +997,22 @@ impl ViewportState {
         rows
     }
 
+    fn lit_rows(&mut self, model: &Model, rows: Vec<FeatureId>) -> LitRows {
+        let basis = LitRowsBasis {
+            rows,
+            revision: model.revision(),
+            evaluation: model.evaluation_generation(),
+        };
+        match &self.lit_rows {
+            Some((kept, lit)) if *kept == basis => lit.clone(),
+            Some(_) | None => {
+                let lit = LitRows::of(model.document(), model.evaluation(), &basis.rows);
+                self.lit_rows = Some((basis, lit.clone()));
+                lit
+            }
+        }
+    }
+
     fn shown_section(&self, edited: Option<Plane>) -> Vec<SectionPlane> {
         let slice = edited
             .filter(|_| self.sketch_slice)
@@ -970,6 +1027,7 @@ impl ViewportState {
     pub fn forget_document(&mut self) {
         self.selection.clear();
         self.chosen_rows.clear();
+        self.lit_rows = None;
         self.hovered_row = None;
         self.previewed.clear();
         self.hovered = None;
@@ -1247,9 +1305,12 @@ impl ViewportState {
                 .flat_map(|highlighted| self.whole_body_of(model, highlighted))
                 .collect()
         };
+        let rows = self.rows_to_highlight(context);
+        let lit = self.lit_rows(model, rows.clone());
+        hovered.extend(lit.made);
         hovered.sort_unstable();
         hovered.dedup();
-        let chosen_rows = with_their_bodies(model.document(), self.rows_to_highlight(context));
+        let framed_rows = with_their_bodies(model.document(), rows);
         let view = self.view();
         let sources = scene_sources(
             model,
@@ -1286,7 +1347,7 @@ impl ViewportState {
             highlight: Highlight {
                 selection: &self.selection,
                 hovered: &hovered,
-                chosen_rows: &chosen_rows,
+                chosen_rows: &lit.rows,
             },
             view: view.as_ref(),
         });
@@ -1371,7 +1432,7 @@ impl ViewportState {
                     .unwrap_or(everything)
             } else {
                 built
-                    .bounds_of_features(&sources, &chosen_rows)
+                    .bounds_of_features(&sources, &framed_rows)
                     .unwrap_or(everything)
             };
             going = Some((heading.fitted(bounds), asked));

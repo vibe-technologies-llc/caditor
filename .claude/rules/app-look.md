@@ -439,8 +439,12 @@ paths:
   frame by `Viewport::show_chosen_rows`) highlight what they made as hovered geometry is: faces and
   edges of a body, curves of a sketch, a datum (`Highlight::chosen_rows`, part of the scene cache's
   highlight key), never vertices or regions. A row of a feature that changes a body it did not make
-  (fillet, shell, hole, combine, cut extrusion, move) stands for that body too:
-  `viewport::with_their_bodies` adds each row's `Feature::body`, as `visibility::hideable_rows` does.
+  (fillet, shell, hole, cut extrusion) lights only the faces whose `FaceOrigin` names it on that
+  body's shown result and the edges bounding them (`bodies::made_by`, joined to the hovered items),
+  so two holes of one body light apart; one that made no face there (combine, move, remove) lights
+  the whole body (`viewport::LitRows`, kept until the rows, revision or evaluation change). Fit view
+  still frames the whole body of such a row: `viewport::with_their_bodies` adds each row's
+  `Feature::body`, as `visibility::hideable_rows` does.
   The view's selection stays as it was, and nothing is highlighted while a sketch or feature is open
   for editing. A feature or body row under the pointer (`PanelState::hovered_row`,
   `ViewportState::hover_row`) is lit the same way while hovered, without counting as chosen.

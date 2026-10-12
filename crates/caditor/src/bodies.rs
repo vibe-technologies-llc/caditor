@@ -1241,6 +1241,29 @@ pub fn face_pickables(
         .collect()
 }
 
+pub fn made_by(body: FeatureId, solid: &Solid, feature: FeatureId) -> Vec<Pickable> {
+    let made: BTreeSet<FaceId> = solid
+        .faces()
+        .filter(|(_, face)| face.origin().map(origin_feature) == Some(feature))
+        .map(|(id, _)| id)
+        .collect();
+    let faces = face_keys(solid)
+        .into_iter()
+        .filter(|(id, _)| made.contains(id))
+        .map(|(_, face)| Pickable::Face { body, face });
+    let edges = solid
+        .edges()
+        .filter(|(id, _)| {
+            let faces = edge_faces(solid, *id);
+            faces.len() > 1 && faces.iter().any(|face| made.contains(face))
+        })
+        .map(|(_, edge)| Pickable::Edge {
+            body,
+            edge: edge.name(),
+        });
+    faces.chain(edges).collect()
+}
+
 pub fn face_origin(body: &SolidResult, key: FaceKey) -> Option<FaceOrigin> {
     body.solid.face(find_face(body, key)?)?.origin()
 }
