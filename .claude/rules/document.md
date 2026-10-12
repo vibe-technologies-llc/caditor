@@ -624,7 +624,9 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 - It fails alone, naming the point, when a size is not positive, a counterbore or countersink is
   not wider than the hole or as deep as it, the angle is outside 0 to `MAX_CONE_ANGLE` (179 deg,
   also the panel's field rule), the sketch has no points, more than `MAX_HOLES`, or a hole does not
-  cut into the body (adds no face).
+  cut into the body: no face named after its tool is left on the result
+  (`hole::leaves_a_face_of`). Counting faces would not do, since the cut may also merge faces of
+  the body, as two coplanar sides split where a circle touches the outline.
 
 ### Thread (`thread.rs`, `thread_standard.rs`)
 
