@@ -12,7 +12,7 @@ use std::{
 
 use caditor_document::{
     BodyAppearance, CancelToken, Document, Evaluation, FaceSplits, FeatureId, FeatureResult,
-    ModelProperties, Rgb, placed_threads,
+    ModelEvaluator, ModelProperties, Recompute, Rgb, placed_threads,
 };
 use caditor_file::{
     ExportBody, ExportError, ExportFace, ExportFormat, ExportThread, Exported, Look, MeshOptions,
@@ -33,7 +33,7 @@ use crate::{
     files::FileCommand,
     icons,
     image_export::ReadPixels,
-    model::{Action, Model, Notice, RecomputeStatus, display_name},
+    model::{Action, Model, Notice, NoticeKind, RecomputeStatus, display_name},
     preferences,
     units::LengthUnit,
     widgets::{self, DialogWidth, Tone},
@@ -59,6 +59,7 @@ pub enum ExportCommand {
     Include { body: FeatureId, included: bool },
     IncludeAll(bool),
     SetEveryConfiguration(bool),
+    SetThreads(ExportThreads),
     Choose,
     Cancel,
 }
@@ -68,19 +69,25 @@ pub type Finished = Box<dyn FnOnce(PathBuf, ExportReport) + Send>;
 #[derive(Debug)]
 pub enum ExportReport {
     Bodies(Result<Exported, ExportError>),
+    Modelled {
+        result: Result<Exported, ExportError>,
+        failed: usize,
+    },
     Configurations(Result<Vec<ConfigurationExported>, ExportError>),
 }
 
 impl ExportReport {
     pub fn written<'a>(&'a self, path: &'a Path) -> Vec<&'a Path> {
         match self {
-            Self::Bodies(Ok(_)) => vec![path],
+            Self::Bodies(Ok(_)) | Self::Modelled { result: Ok(_), .. } => vec![path],
             Self::Configurations(Ok(outcomes)) => outcomes
                 .iter()
                 .filter(|outcome| outcome.result.is_ok())
                 .map(|outcome| outcome.path.as_path())
                 .collect(),
-            Self::Bodies(Err(_)) | Self::Configurations(Err(_)) => Vec::new(),
+            Self::Bodies(Err(_))
+            | Self::Modelled { result: Err(_), .. }
+            | Self::Configurations(Err(_)) => Vec::new(),
         }
     }
 }
@@ -91,7 +98,41 @@ pub struct ExportChoices {
     pub resolution: MeshResolution,
     pub stl: StlEncoding,
     pub every_configuration: bool,
+    pub threads: ExportThreads,
 }
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ExportThreads {
+    #[default]
+    Modelled,
+    AsShown,
+}
+
+impl ExportThreads {
+    pub const ALL: [Self; 2] = [Self::Modelled, Self::AsShown];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Modelled => "Modelled",
+            Self::AsShown => "As shown",
+        }
+    }
+
+    fn hint(self) -> &'static str {
+        match self {
+            Self::Modelled => {
+                "Cut every modelled thread into its body, recomputing them in the background \
+                 while they are shown as cosmetic."
+            }
+            Self::AsShown => {
+                "Export the threads as the view shows them: drawn only, not cut, while modelled \
+                 threads are shown as cosmetic."
+            }
+        }
+    }
+}
+
+const MODELLED_THREADS_FAILED: &str = "while cutting the modelled threads";
 
 struct Progress {
     done: Arc<AtomicUsize>,
@@ -132,6 +173,7 @@ struct Job {
     stl: StlEncoding,
     bodies: Vec<ExportSource>,
     chosen: Vec<FeatureId>,
+    modelled: Option<Document>,
     properties: ModelProperties,
     cancel: CancelToken,
     finished: Finished,
@@ -156,6 +198,7 @@ pub struct Exporter {
     stl: StlEncoding,
     left_out: BTreeSet<FeatureId>,
     every_configuration: bool,
+    threads: ExportThreads,
     running: Option<Running>,
     waiting: Option<Waiting>,
     session: u64,
@@ -307,6 +350,7 @@ impl Exporter {
             resolution: self.resolution,
             stl: self.stl,
             every_configuration: self.every_configuration,
+            threads: self.threads,
         }
     }
 
@@ -315,6 +359,20 @@ impl Exporter {
         self.resolution = choices.resolution;
         self.stl = choices.stl;
         self.every_configuration = choices.every_configuration;
+        self.threads = choices.threads;
+    }
+
+    fn exported_document(&self, model: &Model) -> Document {
+        match self.threads {
+            ExportThreads::Modelled => model.document().clone(),
+            ExportThreads::AsShown => model.document_as_shown(),
+        }
+    }
+
+    fn recomputes_threads(&self, model: &Model) -> bool {
+        self.threads == ExportThreads::Modelled
+            && model.threads_shown_cosmetic()
+            && model.document().has_modelled_threads()
     }
 
     pub fn perform(&mut self, command: ExportCommand, model: &Model) {
@@ -330,6 +388,7 @@ impl Exporter {
             ExportCommand::SetResolution(resolution) => self.resolution = resolution,
             ExportCommand::SetStlEncoding(stl) => self.stl = stl,
             ExportCommand::SetEveryConfiguration(every) => self.every_configuration = every,
+            ExportCommand::SetThreads(threads) => self.threads = threads,
             ExportCommand::Include { body, included } => {
                 if included {
                     self.left_out.remove(&body);
@@ -391,6 +450,9 @@ impl Exporter {
             stl: self.stl,
             bodies,
             chosen,
+            modelled: self
+                .recomputes_threads(model)
+                .then(|| model.document().clone()),
             properties: model.document().properties().clone(),
             cancel: CancelToken::new(move || flag.load(Ordering::SeqCst)),
             finished,
@@ -432,6 +494,8 @@ impl Exporter {
             resolution,
             stl,
             bodies,
+            chosen,
+            modelled,
             properties,
             cancel,
             finished,
@@ -453,10 +517,38 @@ impl Exporter {
                         pixels,
                     }),
                 };
-                let exported =
-                    export_results(&target, format, &options, &bodies, &properties, &cancel);
+                let report = match modelled {
+                    Some(document) => {
+                        let evaluation = Recompute::default().run_without_display(
+                            &document,
+                            &ModelEvaluator,
+                            &cancel,
+                        );
+                        let bodies: Vec<ExportSource> = chosen
+                            .iter()
+                            .filter_map(|body| ExportSource::of(&document, &evaluation, *body))
+                            .collect();
+                        let result = if cancel.is_cancelled() {
+                            Err(ExportError::Cancelled)
+                        } else {
+                            export_results(&target, format, &options, &bodies, &properties, &cancel)
+                        };
+                        ExportReport::Modelled {
+                            result,
+                            failed: evaluation.failed_count(),
+                        }
+                    }
+                    None => ExportReport::Bodies(export_results(
+                        &target,
+                        format,
+                        &options,
+                        &bodies,
+                        &properties,
+                        &cancel,
+                    )),
+                };
                 if let Some(finished) = worker_slot.lock().take() {
-                    finished(target, ExportReport::Bodies(exported));
+                    finished(target, report);
                 }
             });
         if let Err(error) = spawned {
@@ -484,7 +576,7 @@ impl Exporter {
         let done = Arc::new(AtomicUsize::new(0));
         let total = files.len();
         let job = ConfigurationJob {
-            document: model.document().clone(),
+            document: self.exported_document(model),
             files,
             left_out: self.left_out.clone(),
             format,
@@ -527,6 +619,18 @@ impl Exporter {
     pub fn reported(&mut self, path: &Path, report: ExportReport) -> Notice {
         match report {
             ExportReport::Bodies(result) => self.finished(path, result),
+            ExportReport::Modelled { result, failed } => {
+                let notice = self.finished(path, result);
+                if failed == 0 || notice.kind != NoticeKind::Success {
+                    return notice;
+                }
+                Notice::failure(format!(
+                    "{} {} failed {MODELLED_THREADS_FAILED}, so each body is exported as it was \
+                     before them.",
+                    notice.text,
+                    count(failed, "feature", "features")
+                ))
+            }
             ExportReport::Configurations(result) => {
                 self.forget_running(path);
                 configuration_export::finished(result)
@@ -695,6 +799,7 @@ pub fn dialog(ctx: &egui::Context, model: &Model, exporter: &Exporter) -> Option
                 if exporter.format.is_mesh() {
                     resolution_choice(ui, exporter, &bodies, model.length_unit(), &mut command);
                 }
+                threads_choice(ui, model, exporter, &mut command);
                 configuration_choice(ui, model, exporter, &mut command);
                 body_choice(ui, exporter, &bodies, &mut command);
             });
@@ -798,6 +903,23 @@ fn format_hint(format: ExportFormat) -> &'static str {
             "Exact faces and edges that other CAD programs can open and keep editing."
         }
     }
+}
+
+fn threads_choice(
+    ui: &mut Ui,
+    model: &Model,
+    exporter: &Exporter,
+    command: &mut Option<ExportCommand>,
+) {
+    if !model.document().has_modelled_threads() {
+        return;
+    }
+    heading(ui, "Threads");
+    let options = ExportThreads::ALL.map(|threads| (threads, threads.name(), threads.hint()));
+    if let Some(threads) = preferences::choice(ui, &options, exporter.threads) {
+        *command = Some(ExportCommand::SetThreads(threads));
+    }
+    ui.label(widgets::muted(exporter.threads.hint(), ui));
 }
 
 fn configuration_choice(

@@ -226,6 +226,11 @@ fn recompute_commands(model: &Model, commands: &mut CommandFrame<'_>, actions: &
     if commands.available(Command::Recompute) {
         actions.push(Action::Recompute);
     }
+    if commands.available(Command::ToggleCosmeticThreads) {
+        actions.push(Action::ShowThreadsAsCosmetic(
+            !model.threads_shown_cosmetic(),
+        ));
+    }
     let running = match model.status() {
         RecomputeStatus::Running { .. } => Ok(()),
         RecomputeStatus::UpToDate | RecomputeStatus::Cancelled | RecomputeStatus::Stopped => {

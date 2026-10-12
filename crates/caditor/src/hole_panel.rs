@@ -1,7 +1,7 @@
 use caditor_document::{
     Feature, FeatureId, Hole, HoleBottom, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard,
-    HoleStep, HoleStyle, MAX_HOLE_STEPS, MetricSize, TappedThread, ThreadHand, ThreadSide,
-    Transaction, capitalized, circle_sizes, describe_plane, hole_thread, pitch_text,
+    HoleStep, HoleStyle, MAX_HOLE_STEPS, MetricSize, TappedThread, ThreadForm, ThreadHand,
+    ThreadSide, Transaction, capitalized, circle_sizes, describe_plane, hole_thread, pitch_text,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_sketch::ConstraintId;
@@ -19,7 +19,7 @@ use crate::{
     selection::Selection,
     sketch_placement,
     solid_panel::{self, END_OFFSET},
-    widgets,
+    thread_panel, widgets,
 };
 
 pub const DESCRIPTION: &str = "Drills a hole at every point of the sketch";
@@ -38,6 +38,7 @@ pub const DRILL_POINT_ANGLE: &str = "Drill point angle";
 pub const ADD_STEP: &str = "Add a step";
 pub const REMOVE_STEP: &str = "Remove the last step";
 pub const THREAD_CLASS: &str = "Thread class";
+pub const THREAD_FORM: &str = "Thread form";
 pub const THREAD_HAND: &str = "Thread hand";
 pub const THREAD_LENGTH: &str = "Thread length";
 pub const THREAD_DEPTH: &str = "Thread depth";
@@ -197,13 +198,18 @@ impl Panel<'_> {
             feature_fields::description_row(ui, &note);
         }
         if let Some(thread) = standard.thread() {
-            feature_fields::description_row(
-                ui,
-                &format!(
+            let note = if self.hole.is_modelled_thread() {
+                format!(
+                    "Thread {thread}: cut into each bore and named in the exports, ready to print \
+                     or to clean up with a tap"
+                )
+            } else {
+                format!(
                     "Thread {thread}: drawn on each bore and named in the exports, printed at the \
                      tap drill size, then cut with a tap or by a self-tapping screw"
-                ),
-            );
+                )
+            };
+            feature_fields::description_row(ui, &note);
         }
         self.thread_rows(ui);
     }
@@ -212,6 +218,24 @@ impl Panel<'_> {
         let Some(designation) = hole_thread(self.hole) else {
             return;
         };
+        let forms = ThreadForm::ALL
+            .into_iter()
+            .map(|form| Segment {
+                label: form.label(),
+                hover: thread_panel::form_hover(form),
+                change: (form != self.hole.thread.form).then(|| {
+                    self.with_thread(TappedThread {
+                        form,
+                        ..self.hole.thread.clone()
+                    })
+                }),
+            })
+            .collect();
+        let chosen = feature_fields::segmented_row(ui, THREAD_FORM, &self.feature.name, forms);
+        self.actions.extend(chosen);
+        if self.hole.is_modelled_thread() && self.model.threads_shown_cosmetic() {
+            feature_fields::description_row(ui, thread_panel::SHOWN_COSMETIC);
+        }
         let family = designation.size.family();
         let current = designation.class;
         let default = family.default_class(ThreadSide::Internal);

@@ -8507,6 +8507,7 @@ fn a_tapped_holes_thread_class_hand_and_depth_are_saved_journaled_and_loaded() {
                     class: ThreadFamily::MetricCoarse.class_from_id("5H"),
                     hand: ThreadHand::Left,
                     depth: Some(Expression::parse_stored("3 mm").unwrap()),
+                    form: caditor_document::ThreadForm::Cosmetic,
                 },
                 ..tapped
             }),
@@ -8714,7 +8715,9 @@ fn the_storage_worker_keeps_a_version_in_order_with_saves_and_only_for_its_own_f
 }
 
 fn threaded_model() -> (Document, FeatureId) {
-    use caditor_document::{Thread, ThreadFamily, ThreadHand, ThreadLength, ThreadSize};
+    use caditor_document::{
+        Thread, ThreadFamily, ThreadForm, ThreadHand, ThreadLength, ThreadSize,
+    };
     use caditor_kernel::{FaceName, FaceOrigin, FaceReference};
     let (mut document, base, _) = solid_model();
     let side = FaceReference::new(
@@ -8737,6 +8740,7 @@ fn threaded_model() -> (Document, FeatureId) {
             hand: ThreadHand::Left,
             length: ThreadLength::Depth(transaction.parse("depth * 2").unwrap()),
             reversed: true,
+            form: ThreadForm::Modelled,
         }),
     );
     document.apply(transaction.finish()).unwrap();
@@ -8751,7 +8755,7 @@ fn a_thread_is_saved_and_loaded_as_a_record_of_its_own() {
         "\"thread\":{\"body\":1,\"class\":\"7e\",\"depth\":\"$0 * 2\",\"face\":{\"face\":\
          \"0000000000000000000000000000feed\",\"neighbours\":[\"00000000000000000000000000000002\"],\
          \"origin\":{\"side\":{\"entity\":3,\"feature\":1}}},\"left_handed\":true,\
-         \"reversed\":true,\"size\":\"Tr 20x4\",\"standard\":\"trapezoidal\"}"
+         \"modelled\":true,\"reversed\":true,\"size\":\"Tr 20x4\",\"standard\":\"trapezoidal\"}"
     ));
     let loaded = decode_text(&text);
     assert_eq!(loaded.issues, Vec::<String>::new());
@@ -8762,6 +8766,66 @@ fn a_thread_is_saved_and_loaded_as_a_record_of_its_own() {
     let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
     let record = through_binary(&text);
     assert_eq!(format::restore_transaction(record), Some(transaction));
+}
+
+#[test]
+fn a_thread_or_tapped_hole_without_the_modelled_key_reads_as_cosmetic() {
+    use caditor_document::{
+        HoleFit, HoleStandard, HoleStyle, MetricSize, TappedThread, ThreadForm,
+    };
+    let (document, thread) = threaded_model();
+    let text = encode(&document).unwrap();
+    let older = decode_text(&text.replace("\"modelled\":true,", ""));
+    let restored = older
+        .document
+        .feature(thread)
+        .unwrap()
+        .kind
+        .thread()
+        .unwrap();
+
+    assert_eq!(text.matches("\"modelled\":true").count(), 1);
+    assert!(document.has_modelled_threads());
+    assert_eq!(older.issues, Vec::<String>::new());
+    assert_eq!(restored.form, ThreadForm::Cosmetic);
+    assert!(!older.document.has_modelled_threads());
+
+    let (mut holed, hole) = holed_model(HoleStyle::Plain, false);
+    let FeatureKind::Hole(definition) = holed.feature(hole).unwrap().kind.clone() else {
+        panic!("a hole");
+    };
+    let tapped = caditor_document::Hole {
+        standard: Some(HoleStandard {
+            size: MetricSize::M6,
+            fit: HoleFit::Tapped,
+        }),
+        thread: TappedThread {
+            form: ThreadForm::Modelled,
+            ..TappedThread::default()
+        },
+        ..definition
+    };
+    holed
+        .apply(Transaction::single(
+            "Tap",
+            Edit::SetFeatureKind {
+                id: hole,
+                kind: FeatureKind::Hole(tapped),
+            },
+        ))
+        .unwrap();
+    let text = encode(&holed).unwrap();
+    let modelled = decode_text(&text);
+    let older = decode_text(&text.replace("\"thread\":{\"modelled\":true}", "\"thread\":{}"));
+    let form = |loaded: &Loaded| {
+        let feature = loaded.document.feature(hole).unwrap();
+        feature.kind.hole().unwrap().thread.form
+    };
+
+    assert!(text.contains("\"thread\":{\"modelled\":true}"), "{text}");
+    assert_eq!(modelled.document, holed);
+    assert_eq!(form(&modelled), ThreadForm::Modelled);
+    assert_eq!(form(&older), ThreadForm::Cosmetic);
 }
 
 #[test]

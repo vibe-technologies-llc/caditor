@@ -153,8 +153,9 @@ Holes:
   `tapped_fine_3`, `heat_set_insert`); an unknown standard, fit, or a fit its size lacks loads as
   none keeping the typed sizes. A non-default tapped
   thread carries `thread` (`class` when not the first, `left_handed` when set, `depth` text when
-  not the whole wall; unknown class loads as the first, unreadable depth 10 mm): a field, since it
-  only changes the cosmetic thread.
+  not the whole wall, `modelled` when set; unknown class loads as the first, unreadable depth 10 mm,
+  absent `modelled` is cosmetic): fields, so a reader without `modelled` draws the thread it would
+  cut.
 - Wrappers, each around the records before it where noted: `hole_by_circles` (same fields, sized by its circles),
   `hole_scaled_by_circles` (also scales counterbore or countersink), `stepped_hole` (`steps`, each
   `diameter` and `depth`; unreadable 10 mm and 3 mm; inner style is a counterbore of the first
@@ -242,8 +243,9 @@ Bodies and solids:
 - `thread`: `body`, `face` (unreadable digests load as no face), `standard` (`metric_coarse`,
   `metric_fine`, `iso_228`, `iso_7`, `trapezoidal`; unknown loads as metric coarse), `size` (`M8`,
   `M8x1`, `1/2`, `Tr 20x4`; unknown loads as the nearest 8 mm), `class` (absent for ISO 228's one
-  internal class; unknown loads as the standard's first internal class), `left_handed` and
-  `reversed` when set, `depth` (absent for the whole face, unreadable 10 mm). A tapped hole's
+  internal class; unknown loads as the standard's first internal class), `left_handed`, `reversed`
+  and `modelled` when set (absent is cosmetic), `depth` (absent for the whole face, unreadable
+  10 mm). A tapped hole's
   thread is not a `thread` record (see hole).
 - `combine`: `body`, `tool`, `operation` (`join`, `cut`, `intersect`). `combine_tools`: `more_tools`
   (ids, only when any), `keep_tool` when set; repeated tool kept once. `remove`: `body`.

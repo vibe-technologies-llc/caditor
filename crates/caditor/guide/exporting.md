@@ -6,8 +6,8 @@
 
 - **STEP**, for other CAD programs, with the colours and opacity of bodies and faces, and threads.
 - **STL**, for 3D printing, binary or text.
-- **3MF**, for 3D printing, with a thumbnail of the model and each cosmetic thread as metadata on
-  its body, which programs that do not know it ignore.
+- **3MF**, for 3D printing, with a thumbnail of the model and each thread as metadata on its body,
+  which programs that do not know it ignore.
 - **OBJ** and **glTF** (`.glb`), for other 3D programs.
 
 {command:file.export_again} writes the same bodies again to the file the last export wrote, in the
@@ -17,6 +17,10 @@ every configuration, when one of their files was. It is offered until another mo
 
 Each kind of file dialog (opening, importing, exporting models, drawings, parameters) starts in the
 folder it was last used with while caditor runs.
+
+A model with modelled [threads](thread) offers **Threads**: **Modelled** (the default) cuts them
+into the exported bodies, recomputing them in the background while they are shown as cosmetic;
+**As shown** exports them as the view shows them. The command line always exports them modelled.
 
 Meshed formats take a resolution. The export waits for the model to finish recomputing and warns
 when a feature failed, since bodies then export as last computed. It runs in the background,

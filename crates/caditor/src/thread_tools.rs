@@ -1,6 +1,6 @@
 use caditor_document::{
     Bore, Document, Edit, Evaluation, FeatureId, FeatureKind, Resolution, Thread, ThreadFamily,
-    ThreadHand, ThreadLength, Transaction,
+    ThreadForm, ThreadHand, ThreadLength, Transaction,
 };
 use caditor_kernel::{FaceReference, Surface};
 
@@ -86,6 +86,7 @@ pub fn create(
             hand: ThreadHand::Right,
             length: ThreadLength::Full,
             reversed: false,
+            form: ThreadForm::Modelled,
         }),
     );
     Ok((transaction.finish(), feature))
