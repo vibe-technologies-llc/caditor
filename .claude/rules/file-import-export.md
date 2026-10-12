@@ -376,7 +376,7 @@ paths:
 ## Parameter files (`parameters.rs`)
 
 - Parameters export as CSV (RFC 4180, `PARAMETERS_EXTENSION`), CRLF line ends: a version row
-  `caditor-parameters,2` (a spreadsheet keeps it as an ordinary two-cell row), a header row
+  `caditor-parameter-file,1` (a spreadsheet keeps it as an ordinary two-cell row), a header row
   `name,expression,value,note`, then one row per parameter in list order. The expression is written
   with parameter names (`Expression::to_text`) and carries its own units; `value` is the evaluated
   value for people (`error` when it does not evaluate) and ignored on reading. Cells holding a
@@ -384,15 +384,15 @@ paths:
   a spreadsheet never reads one as a formula. Written with `write_atomically`.
 - `parse_parameters` finds `name` and `expression` columns by header in any order and case, an
   optional `note` (or `description`) column, ignoring others; the delimiter is the one of comma,
-  semicolon or tab the header row uses most. A leading version row (marker `caditor-parameters`,
-  case-blind, then the number) picks the reading of every expression: version 2 is typed text
-  (`ExpressionReading::Typed`); no row is version 1 and reads as stored text with names
-  (`ExpressionReading::Stored`, `Expression::parse_by_name_stored_reading`), since older exports
-  wrote `10 mm^2` for what is (10 mm)^2; a newer number is `NewerVersion`, a missing or non-numeric
-  one `UnreadableVersion`. A change to the typed grammar raises the version. A byte-order mark,
-  multi-line quoted cells and blank rows are accepted. A file over `MAX_PARAMETERS_FILE`, not UTF-8,
-  without both columns, with an unclosed quote (named by line) or over `MAX_PARAMETER_ROWS` rows is
-  refused whole; anything wrong in a row is left to `plan_parameter_import` (`document.md`).
+  semicolon or tab the header row uses most. Expressions are typed text. A leading version row
+  (marker `caditor-parameter-file`, case-blind, then the number) is optional, so a file made by hand
+  reads; a number above 1 is `NewerVersion`, a missing or non-numeric one `UnreadableVersion`. A
+  first row starting with `caditor-parameters`, the marker of development builds before version 1,
+  is refused whole as `FromEarlierBuild`. A change to the typed grammar raises the version. A
+  byte-order mark, multi-line quoted cells and blank rows are accepted. A file over
+  `MAX_PARAMETERS_FILE`, not UTF-8, without both columns, with an unclosed quote (named by line) or
+  over `MAX_PARAMETER_ROWS` rows is refused whole; anything wrong in a row is left to
+  `plan_parameter_import` (`document.md`).
 
 ## Failures
 

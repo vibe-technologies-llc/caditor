@@ -496,7 +496,7 @@ fn content_from_a_newer_version_is_reported_and_the_rest_is_kept() {
 }
 
 #[test]
-fn a_power_after_a_unit_keeps_its_value_through_loading_and_saving() {
+fn a_power_after_a_unit_in_stored_text_raises_the_unit_as_typed_text_does() {
     let values = |document: &Document| -> Vec<Quantity> {
         document
             .parameters()
@@ -510,48 +510,34 @@ fn a_power_after_a_unit_keeps_its_value_through_loading_and_saving() {
             .collect()
     };
     let area = |square_millimetres| Quantity::new(square_millimetres, Dimension::AREA);
-    let saved_by_older_versions = [
+    let stored = [
         parameter_line(0, "10 mm^2"),
         r#"{"parameter":{"expression":"10 mm²","id":1,"name":"q"}}"#.to_owned(),
         r#"{"parameter":{"expression":"2 cm^3","id":2,"name":"r"}}"#.to_owned(),
+        r#"{"parameter":{"expression":"(10 mm)^2","id":3,"name":"s"}}"#.to_owned(),
     ];
 
-    let loaded = decode_lines(&saved_by_older_versions);
-    let mut typed = Document::default();
-    let mut transaction = typed.transaction("Typed");
-    transaction.add_parameter("square", transaction.parse("10 mm^2").unwrap());
-    transaction.add_parameter("squared", transaction.parse("(10 mm)^2").unwrap());
-    typed.apply(transaction.finish()).unwrap();
+    let loaded = decode_lines(&stored);
+    let saved = crate::encode(&loaded.document).unwrap();
+    let records = records_as_json(&saved);
+    let reloaded = decode(&saved).unwrap();
 
     assert!(loaded.issues.is_empty(), "{:?}", loaded.issues);
     assert_eq!(
         values(&loaded.document),
         [
-            area(100.0),
             area(10.0),
-            Quantity::new(8000.0, Dimension::VOLUME)
+            area(10.0),
+            Quantity::new(2000.0, Dimension::VOLUME),
+            area(100.0)
         ]
     );
-
-    let saved = crate::encode(&loaded.document).unwrap();
-    let records = records_as_json(&saved);
-    let reloaded = decode(&saved).unwrap();
-    let typed_reloaded = decode(&crate::encode(&typed).unwrap()).unwrap();
-
     assert!(
         records
             .iter()
             .any(|record| record.contains(r#""(10 mm)^2""#))
     );
-    assert!(
-        records
-            .iter()
-            .any(|record| record.contains(r#""(2 cm)^3""#))
-    );
     assert_eq!(reloaded.document, loaded.document);
-    assert_eq!(values(&reloaded.document), values(&loaded.document));
-    assert_eq!(typed_reloaded.document, typed);
-    assert_eq!(values(&typed), [area(10.0), area(100.0)]);
 }
 
 #[test]

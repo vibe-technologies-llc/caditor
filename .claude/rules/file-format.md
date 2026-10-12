@@ -69,9 +69,8 @@ paths:
   must-understand; loading reports those as left out, so the original is kept as `.damaged`.
 - Records carry stable IDs. Expressions are canonical text with parameters as `$<id>`
   (`to_stored_text`, `parse_stored`); region keys and topology names are 32-digit hex; numbers
-  exact f64. Stored text keeps its own grammar where typed text changed (a power after a unit
-  raises the measure there, printing brackets it; `expression.md`), so shipped files keep their
-  values without a format change.
+  exact f64. Stored text reads as typed text does, with `$<id>` for names (`expression.md`); a
+  change to the typed grammar that would read stored text differently needs a new format version.
 - Unreadable values become reported fallbacks (the `restore_*` functions in `format.rs`), never
   refuse the file: each says what was set to what and keeps the feature.
 

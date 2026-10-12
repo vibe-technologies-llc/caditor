@@ -145,9 +145,7 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   `ParameterImport`: an `ImportOutcome` per row (Added, Changed, Kept when the model's own differs
   and `replace_existing` is off, Unchanged, Refused with an `ImportRefusal`) and one transaction, or
   none. Rows merge by name; an owned parameter keeps its owner; a note in the file replaces the
-  model's, an empty one leaves it. Each row carries the `ExpressionReading` its text is parsed with
-  (`Typed`, or `Stored` for files written before a power after a unit raised the unit;
-  `expression.md`).
+  model's, an empty one leaves it. Each row's text is parsed as typed text, names resolving.
 - Rows are refused alone: a name `check_name` refuses or seen earlier, a note too long, text that
   does not parse (names resolve to the model's parameters and the file's other rows, so rows may
   refer to later ones), a cycle on the merged graph (every row in it refused, named as a path), a

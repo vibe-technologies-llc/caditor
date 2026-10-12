@@ -364,10 +364,9 @@ paths:
 - Appearance keys: `appearance.theme` (`system`, `dark`, `light`, `midnight`, `graphite`, `paper`,
   `slate`, `studio` or `user:<file stem>`), `appearance.accent` (`theme` or a hue),
   `appearance.view` (`theme` or a canvas key: `dark`, `grey`, `studio`, `blue_grey`, `light`,
-  `white`) and `appearance.grid` (`automatic` or `#rrggbb`), read leniently: an unknown value is the
-  default, so older files (only `system`, `dark`, `light`, no grid) read as before and an older
-  caditor falls back to its own default and ignores the grid. Restore defaults on Appearance resets
-  them all. The themes folder is listed like the templates (`app-look.md`).
+  `white`) and `appearance.grid` (`automatic` or `#rrggbb`), read leniently: an unknown or missing
+  value is the default. Restore defaults on Appearance resets them all. The themes folder is listed
+  like the templates (`app-look.md`).
 - Lenient keys, all left alone by Restore defaults and handed over by `apply_preferences`: recent
   custom colours (`Preferences::recent_colours`, `body.recent_colours`, hex strings newest first, at
   most `RECENT_COLOURS_LIMIT`, set by `PreferenceChange::RecentColour`, which leaves out the fixed
