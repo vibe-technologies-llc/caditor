@@ -25,13 +25,21 @@ at them.
 ## Boxes, lassos and painting
 
 Drag across empty space to select with a box. Dragging left to right takes what lies wholly inside;
-right to left also takes what the box touches. Only what you can see is taken, unless
-{command:view.toggle_select_through} is on. In Wireframe and X-ray, where faces cannot be clicked,
-a box takes edges instead of faces, and the back edges the style shows through too.
+right to left also takes what the box touches. Only what you can see is taken: the top of the view
+says so while you drag. In Wireframe and X-ray, where faces cannot be clicked, a box takes edges
+instead of faces, and the back edges the style shows through too.
+
+To take what is hidden as well, such as a face behind another body or the back of a part, hold
+**Alt** while you drag. The box gets a double outline and the top of the view says it takes what is
+hidden too; let go of Alt before you release to take only what you can see again. Pressing Alt once
+the drag has begun always works, even where Alt and a drag would move the window or, with the
+Laptop navigation, turn the view. {command:view.toggle_select_through} does the same for every
+drag until you turn it off, from the keyboard too.
 
 - {command:view.toggle_lasso} draws a freehand outline instead of a box.
 - {command:view.toggle_paint_selection} selects faces by painting over them; in Wireframe and
-  X-ray the drag draws a box instead.
+  X-ray the drag draws a box instead. Holding Alt while painting takes every face under the brush,
+  hidden ones too.
 
 ## Choosing what to pick
 

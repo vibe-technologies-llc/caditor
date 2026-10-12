@@ -303,15 +303,31 @@ paths:
   Everything takes edges (`Catch::of`) and nothing hides anything (`Occlusion::open`). Sketch curves
   go through `sectioned_screen::SectionedScreen`: a point a section plane cuts away is left out and a
   curve counts by the part the planes keep (`Screen::kept`, `kept_span`), so a curve cut away
-  entirely is never taken, as picking never takes it. Faces count by their camera-facing triangles,
-  and only when one is seen (`triangle_is_seen`). Anything hidden behind a shown body is left out:
+  entirely is never taken, as picking never takes it. A shown body whose bounds project clear of
+  the box (by `BOUNDS_SLACK`, `box_selection::may_reach`; kept when a corner is behind the eye) is
+  passed over before anything else, so a box costs by what lies under it, not by the model.
+  Faces count by their camera-facing triangles, and only when one that meets the box is seen
+  (`triangle_is_seen`). Anything hidden behind a shown body is left out:
   `box_selection::Occlusion` rasterises the shown bodies' triangles into a depth map over the box
   (at most `MAX_CELLS` a side), a point counting as seen within `SLACK_CELLS` cells of depth of the
-  nearest surface; an edge is sampled every `SAMPLE_POINTS` on screen and counts when at least half
-  its samples are seen. A box under `SMALLEST_BOX` points takes nothing. Select through
-  (`Command::ToggleSelectThrough`; `ViewportState::select_through`, session only) swaps the depth
-  map for `Occlusion::open`, so boxes and lassos also take what is hidden (bodies too with the
-  Bodies filter).
+  nearest surface. A triangle is judged by the cells it covers (`Occlusion::sees_triangle`), its
+  corners and middle only when it covers none; an edge is sampled every `SAMPLE_POINTS` on screen
+  and counts when at least half its samples inside the map are seen (all of them when none is), so
+  a face or edge reaching out of the box is never taken through its part outside it. A box under
+  `SMALLEST_BOX` points takes nothing.
+- Reaching through: Select through (`Command::ToggleSelectThrough`; `ViewportState::select_through`,
+  session only) or Alt held during a model box, lasso or paint drag (`ViewportState::through_held`,
+  read each frame, so letting go before the release takes only what is seen) swaps the depth map
+  for `Occlusion::open`, so they also take what is hidden, faces turned away included (bodies too
+  with the Bodies filter). Alt is the one modifier left: Shift and Ctrl add, and Alt pressed after
+  the drag began reaches through in every input mode and past desktops that move windows on an
+  Alt-drag, while Alt held at the press navigates in the Laptop mode (`render.md`). While a box,
+  lasso or paint drag can hide anything (the style picks faces and the filter is not sketch
+  geometry), the prompt says which it takes (`ViewportState::reach_prompt`: `TAKING_SEEN_PROMPT`
+  with `HOLD_ALT_HINT`, or `TAKING_HIDDEN_PROMPT` with `LET_GO_OF_ALT_HINT` or how to turn Select
+  through off) and a box or lasso reaching through is drawn with a double outline
+  (`THROUGH_STROKE_WIDTH` in its colour, a `Chrome::panel` line inside), told by shape, not
+  colour.
 - Select with a lasso (`Command::ToggleLasso`; `ViewportState::lasso`, session only, since Alt-drag
   already navigates in the Laptop input mode) makes those drags, and the edited sketch's, draw a
   freehand outline (`sketch_drag::ScreenArea::Lasso`, a point every `LASSO_STEP` points, closed back

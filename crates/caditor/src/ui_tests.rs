@@ -103,6 +103,7 @@ mod pattern_grid;
 mod pick_list;
 mod primitive_feet;
 mod primitives;
+mod reach_through;
 mod remembered_starts;
 mod repeating_and_growing;
 mod scale_model;

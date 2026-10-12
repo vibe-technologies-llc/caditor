@@ -468,8 +468,8 @@ paths:
   above) or Laptop (touchpad): two-finger scroll orbits, Alt and scroll pans (egui turns Shift and
   scroll into horizontal-only scrolling, so Alt keeps both axes), pinch and Ctrl+scroll zoom,
   Alt-drag orbits and Shift+Alt-drag pans, the Alt press never starting a selection. Alt pressed
-  once a primary drag has begun in the sketch leaves the drag to it, where Alt holds the snap
-  (`app-sketching.md`). Fusion 360 (middle-drag pans, Shift+middle-drag orbits), FreeCAD (CAD style:
+  once a primary drag has begun leaves the drag to it: in the sketch Alt holds the snap
+  (`app-sketching.md`), in a model box, lasso or paint drag it reaches through (`app-input.md`). Fusion 360 (middle-drag pans, Shift+middle-drag orbits), FreeCAD (CAD style:
   middle-drag pans, middle held with left or right orbits) and Blender (middle-drag orbits,
   Shift+middle-drag pans, Ctrl+middle-drag zooms) follow those programs; every mode keeps
   right-drag orbiting and Shift+right-drag panning, the wheel zooms, and a primary drag with the
