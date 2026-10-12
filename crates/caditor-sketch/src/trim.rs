@@ -1582,7 +1582,7 @@ fn arc_ends(arc: &ArcGeometry) -> Vec<Point2> {
     vec![arc.point_at(arc.start_angle), arc.point_at(arc.end_angle())]
 }
 
-fn same_ellipse(own: &EllipseGeometry, other: &EllipseGeometry, tolerance: f64) -> bool {
+pub(crate) fn same_ellipse(own: &EllipseGeometry, other: &EllipseGeometry, tolerance: f64) -> bool {
     let axis_matches = own.major.distance(other.major) <= tolerance
         || own.major.distance(-other.major) <= tolerance;
     own.center.distance(other.center) <= tolerance

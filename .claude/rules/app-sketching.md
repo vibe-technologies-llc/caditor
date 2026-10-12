@@ -351,7 +351,7 @@ and, for off-ribbon tools, a partner's corner menu.
   duplicates dropped (`filleting::gathered`), the words saying how many were left out with the first
   one's reason; two selected curves meeting at no corner make one where they cross or would meet
   (`filleting::Aim::Crossing`, `Sketch::crossing_picks`); else the curve end under the pointer. A
-  click on a line, arc or circle away from a corner picks it as the first curve and a click on a
+  click on a line, arc, circle or elliptical arc away from a corner picks it as the first curve and a click on a
   second chooses the corner where they cross or would meet (`Sketch::join_at_crossing` on a copy,
   kept in `Filleting::joined` by the `SketchVersion` of the displayed sketch (feature, document
   revision, evaluation and displayed-sketch generations) and by the aims, a crossing aim by its

@@ -169,10 +169,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   one chain at a time, leaves the free ends of an open chain sliding along their curves and cannot
   offset splines; a sketch fillet cannot round a spline and drops equal lengths and midpoints of the
   lines it shortens, as trim does.
-- [low · medium] Sketch fillet and chamfer join two curves at their crossing only for lines, arcs
-  and circles (`Sketch::join_at_crossing`): an elliptical arc that does not already end at the
-  other curve is `NotCrossable`, though `intersect` finds its crossings; carrying its end round
-  its ellipse as extend does would let it join too.
 - [low · hard] An ellipse's offset is a free fit-point spline that does not follow the ellipse:
   holding it would need a constraint keeping each fit point on the ellipse's normal at its own
   parameter (a `Distance` from the ellipse lets every fit point slide along the offset and would

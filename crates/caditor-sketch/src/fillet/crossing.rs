@@ -2,15 +2,15 @@ use std::f64::consts::{PI, TAU};
 
 use caditor_geometry::Point2;
 
-use super::{Corner, FilletError, TOLERANCE, centers};
+use super::{Corner, FilletError, TOLERANCE, centers, whole};
 use crate::{
     constraint::Constraint,
-    curve::{ArcGeometry, direction_angle},
+    curve::{ArcGeometry, EllipseGeometry, direction_angle},
     entity::Entity,
     id::EntityId,
-    intersect::Carrier,
+    intersect::{self, Carrier, Shape},
     sketch::{Sketch, SketchError},
-    trim::{keeps_length, keeps_sweep},
+    trim::{keeps_length, keeps_sweep, same_ellipse},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -50,6 +50,16 @@ enum Course {
         radius: f64,
         center: EntityId,
     },
+    Ellipse {
+        ellipse: EllipseGeometry,
+        ends: [EntityId; 2],
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Neighbour {
+    turn: f64,
+    at: Point2,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -77,6 +87,7 @@ impl Course {
                 center: center_at,
                 radius,
             }),
+            Self::Ellipse { .. } => None,
         }
     }
 
@@ -87,6 +98,21 @@ impl Course {
             Self::Circle {
                 center_at, radius, ..
             } => center_at.abs().max_element() + radius,
+            Self::Ellipse { ellipse, .. } => {
+                ellipse.center.abs().max_element()
+                    + ellipse.major_radius().max(ellipse.minor_radius)
+            }
+        }
+    }
+
+    fn has_length(&self, tolerance: f64) -> bool {
+        match *self {
+            Self::Line { start, end, .. } => start.distance(end) > tolerance,
+            Self::Arc { arc, .. } => arc.radius > tolerance,
+            Self::Circle { radius, .. } => radius > tolerance,
+            Self::Ellipse { ellipse, .. } => {
+                ellipse.major_radius() > tolerance && ellipse.minor_radius > tolerance
+            }
         }
     }
 
@@ -111,10 +137,11 @@ impl Course {
             Self::Circle {
                 center_at, radius, ..
             } => (point.distance(center_at) - radius).abs(),
+            Self::Ellipse { ellipse, .. } => point.distance(ellipse.closest_point(point)),
         }
     }
 
-    fn longer_side(&self, corner: Point2, far: Option<Point2>) -> Point2 {
+    fn longer_side(&self, corner: Point2, others: &[Point2]) -> Point2 {
         match *self {
             Self::Line { start, end, .. } => {
                 if start.distance(corner) >= end.distance(corner) {
@@ -126,17 +153,14 @@ impl Course {
             Self::Arc { arc, .. } => {
                 let turned =
                     (direction_angle(corner - arc.center) - arc.start_angle).rem_euclid(TAU);
-                let middle = if turned >= arc.sweep {
-                    arc.sweep / 2.0
-                } else if turned >= arc.sweep - turned {
-                    turned / 2.0
-                } else {
-                    (turned + arc.sweep) / 2.0
-                };
-                arc.point_at(arc.start_angle + middle)
+                arc.point_at(arc.start_angle + middle_of_longer_part(turned, arc.sweep))
+            }
+            Self::Ellipse { ellipse, .. } => {
+                let turned = (ellipse.parameter_of(corner) - ellipse.start).rem_euclid(TAU);
+                ellipse.point_at(ellipse.start + middle_of_longer_part(turned, ellipse.sweep))
             }
             Self::Circle { .. } => {
-                let [one, other] = self.sides(corner, far);
+                let [one, other] = self.sides(corner, others);
                 if one.distance(corner) >= other.distance(corner) {
                     one
                 } else {
@@ -146,26 +170,31 @@ impl Course {
         }
     }
 
-    fn sides(&self, corner: Point2, far: Option<Point2>) -> [Point2; 2] {
+    fn sides(&self, corner: Point2, others: &[Point2]) -> [Point2; 2] {
         let (center_at, radius) = match *self {
             Self::Circle {
                 center_at, radius, ..
             } => (center_at, radius),
             Self::Arc { arc, .. } => (arc.center, arc.radius),
             Self::Line { start, end, .. } => return [start, end],
+            Self::Ellipse { ellipse, .. } => {
+                return [
+                    ellipse.point_at(ellipse.start),
+                    ellipse.point_at(ellipse.end()),
+                ];
+            }
         };
         let circle = ArcGeometry::full_circle(center_at, radius);
         let from = direction_angle(corner - center_at);
-        let gap = far.map_or(PI, |far| {
-            (direction_angle(far - center_at) - from).rem_euclid(TAU)
-        });
+        let [ahead, behind] = neighbours(center_at, corner, others)
+            .map_or([PI, PI], |found| found.map(|neighbour| neighbour.turn));
         [
-            circle.point_at(from + gap / 2.0),
-            circle.point_at(from + gap + (TAU - gap) / 2.0),
+            circle.point_at(from + ahead / 2.0),
+            circle.point_at(from + behind + (TAU - behind) / 2.0),
         ]
     }
 
-    fn change(&self, corner: Point2, near: Point2, far: Option<Point2>, tolerance: f64) -> Change {
+    fn change(&self, corner: Point2, near: Point2, others: &[Point2], tolerance: f64) -> Change {
         match *self {
             Self::Line { start, end, ends } => {
                 let span = end - start;
@@ -190,60 +219,129 @@ impl Course {
                 let turned_to = |point: Point2| {
                     (direction_angle(point - arc.center) - arc.start_angle).rem_euclid(TAU)
                 };
-                let at = turned_to(corner);
-                let slack = tolerance / arc.radius;
-                let [first, last] = ends;
-                if at <= slack || at >= TAU - slack {
-                    return Change::Kept(first);
+                Turning {
+                    at: turned_to(corner),
+                    picked: turned_to(near),
+                    sweep: arc.sweep,
+                    slack: tolerance / arc.radius,
                 }
-                if (at - arc.sweep).abs() <= slack {
-                    return Change::Kept(last);
+                .change(ends)
+            }
+            Self::Ellipse { ellipse, ends, .. } => {
+                let turned_to =
+                    |point: Point2| (ellipse.parameter_of(point) - ellipse.start).rem_euclid(TAU);
+                Turning {
+                    at: turned_to(corner),
+                    picked: turned_to(near),
+                    sweep: ellipse.sweep,
+                    slack: tolerance / ellipse.major_radius().max(ellipse.minor_radius),
                 }
-                if at > arc.sweep {
-                    return if at - arc.sweep <= TAU - at {
-                        Change::Reached {
-                            nearer: last,
-                            other: first,
-                        }
-                    } else {
-                        Change::Reached {
-                            nearer: first,
-                            other: last,
-                        }
-                    };
-                }
-                let picked = turned_to(near);
-                let picked = if picked <= arc.sweep {
-                    picked
-                } else if picked - arc.sweep < TAU - picked {
-                    arc.sweep
-                } else {
-                    0.0
-                };
-                if picked < at {
-                    Change::Moved {
-                        end: last,
-                        beyond: false,
-                    }
-                } else {
-                    Change::Moved {
-                        end: first,
-                        beyond: false,
-                    }
-                }
+                .change(ends)
             }
             Self::Circle { center_at, .. } => {
-                let far = far.unwrap_or(corner);
+                let Some([ahead, behind]) = neighbours(center_at, corner, others) else {
+                    return Change::Opened {
+                        start_at_corner: true,
+                        far: corner,
+                    };
+                };
                 let from = direction_angle(corner - center_at);
-                let gap = (direction_angle(far - center_at) - from).rem_euclid(TAU);
                 let picked = (direction_angle(near - center_at) - from).rem_euclid(TAU);
+                let forward = picked <= ahead.turn
+                    || (picked < behind.turn && picked - ahead.turn <= behind.turn - picked);
                 Change::Opened {
-                    start_at_corner: picked <= gap,
-                    far,
+                    start_at_corner: forward,
+                    far: if forward { ahead.at } else { behind.at },
                 }
             }
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Turning {
+    at: f64,
+    picked: f64,
+    sweep: f64,
+    slack: f64,
+}
+
+impl Turning {
+    fn change(self, [first, last]: [EntityId; 2]) -> Change {
+        let Self {
+            at,
+            picked,
+            sweep,
+            slack,
+        } = self;
+        if at <= slack || at >= TAU - slack {
+            return Change::Kept(first);
+        }
+        if (at - sweep).abs() <= slack {
+            return Change::Kept(last);
+        }
+        if at > sweep {
+            return if at - sweep <= TAU - at {
+                Change::Reached {
+                    nearer: last,
+                    other: first,
+                }
+            } else {
+                Change::Reached {
+                    nearer: first,
+                    other: last,
+                }
+            };
+        }
+        let picked = if picked <= sweep {
+            picked
+        } else if picked - sweep < TAU - picked {
+            sweep
+        } else {
+            0.0
+        };
+        if picked < at {
+            Change::Moved {
+                end: last,
+                beyond: false,
+            }
+        } else {
+            Change::Moved {
+                end: first,
+                beyond: false,
+            }
+        }
+    }
+}
+
+fn middle_of_longer_part(turned: f64, sweep: f64) -> f64 {
+    if turned >= sweep {
+        sweep / 2.0
+    } else if turned >= sweep - turned {
+        turned / 2.0
+    } else {
+        (turned + sweep) / 2.0
+    }
+}
+
+fn neighbours(center: Point2, corner: Point2, others: &[Point2]) -> Option<[Neighbour; 2]> {
+    let from = direction_angle(corner - center);
+    let around: Vec<Neighbour> = others
+        .iter()
+        .map(|at| Neighbour {
+            turn: (direction_angle(*at - center) - from).rem_euclid(TAU),
+            at: *at,
+        })
+        .collect();
+    let ahead = around
+        .iter()
+        .copied()
+        .min_by(|a, b| a.turn.total_cmp(&b.turn))?;
+    let behind = around
+        .iter()
+        .copied()
+        .max_by(|a, b| a.turn.total_cmp(&b.turn))?;
+    Some([ahead, behind])
 }
 
 impl Sketch {
@@ -254,7 +352,7 @@ impl Sketch {
     ) -> Result<[Pick; 2], FilletError> {
         let courses = [self.course(first)?, self.course(second)?];
         let tolerance = tolerance_of(&courses);
-        let crossings = self.crossings_of(&courses, [first, second], tolerance)?;
+        let crossings = crossings_of(&courses, tolerance);
         let corner = crossings
             .iter()
             .copied()
@@ -268,22 +366,25 @@ impl Sketch {
                 reach(*a).total_cmp(&reach(*b))
             })
             .ok_or_else(|| self.never_meet(first, second))?;
-        let far = other_crossing(&crossings, corner, tolerance);
+        let others = other_crossings(&crossings, corner, tolerance);
         let [one, other] = courses;
         let nears = match courses {
             [Course::Circle { .. }, Course::Circle { .. }] => [
-                outside(&one, &other, corner, far),
-                outside(&other, &one, corner, far),
+                outside(&one, &other, corner, &others),
+                outside(&other, &one, corner, &others),
             ],
             [Course::Circle { .. }, _] => {
-                let leaving = other.longer_side(corner, far);
-                [widest(&one, corner, far, leaving), leaving]
+                let leaving = other.longer_side(corner, &others);
+                [widest(&one, corner, &others, leaving), leaving]
             }
             [_, Course::Circle { .. }] => {
-                let leaving = one.longer_side(corner, far);
-                [leaving, widest(&other, corner, far, leaving)]
+                let leaving = one.longer_side(corner, &others);
+                [leaving, widest(&other, corner, &others, leaving)]
             }
-            _ => [one.longer_side(corner, far), other.longer_side(corner, far)],
+            _ => [
+                one.longer_side(corner, &others),
+                other.longer_side(corner, &others),
+            ],
         };
         let [near_first, near_second] = nears;
         Ok([
@@ -332,7 +433,7 @@ impl Sketch {
         }
         let courses = [self.course(first.curve)?, self.course(second.curve)?];
         let tolerance = tolerance_of(&courses);
-        let crossings = self.crossings_of(&courses, [first.curve, second.curve], tolerance)?;
+        let crossings = crossings_of(&courses, tolerance);
         let corner = crossings
             .iter()
             .copied()
@@ -346,10 +447,10 @@ impl Sketch {
         {
             return Ok(CrossingPlan(Planned::Existing(existing)));
         }
-        let far = other_crossing(&crossings, corner, tolerance);
+        let others = other_crossings(&crossings, corner, tolerance);
         let changes = [
-            courses[0].change(corner, first.near, far, tolerance),
-            courses[1].change(corner, second.near, far, tolerance),
+            courses[0].change(corner, first.near, &others, tolerance),
+            courses[1].change(corner, second.near, &others, tolerance),
         ];
         if changes
             .iter()
@@ -457,6 +558,37 @@ impl Sketch {
                     self.drop_if_unused(moved)?;
                 }
                 (
+                    Course::Ellipse {
+                        ends: [start, end], ..
+                    },
+                    Change::Moved { end: moved, .. },
+                ) => {
+                    let Some(&Entity::EllipticalArc {
+                        center,
+                        major,
+                        minor_radius,
+                        ..
+                    }) = self.entity(curve)
+                    else {
+                        return Err(SketchError::NoSuchEntity(curve));
+                    };
+                    let [kept_start, kept_end] = if moved == start {
+                        [shared, end]
+                    } else {
+                        [start, shared]
+                    };
+                    let arc = Entity::EllipticalArc {
+                        center,
+                        major,
+                        minor_radius,
+                        start: kept_start,
+                        end: kept_end,
+                    };
+                    self.drop_length_dimensions(start, end)?;
+                    self.restructure(curve, arc, &[], keeps_sweep)?;
+                    self.drop_if_unused(moved)?;
+                }
+                (
                     Course::Circle { center, .. },
                     Change::Opened {
                         start_at_corner,
@@ -523,39 +655,19 @@ impl Sketch {
                 radius,
                 center,
             },
-            Entity::EllipticalArc { .. } => {
-                return Err(FilletError::NotCrossable {
-                    entity: curve,
-                    label: label(),
-                });
-            }
+            Entity::EllipticalArc { start, end, .. } => Course::Ellipse {
+                ellipse: self.ellipse(curve).ok_or_else(not_line_or_arc)?,
+                ends: [start, end],
+            },
             Entity::Point(_) | Entity::Spline { .. } | Entity::Ellipse { .. } => {
                 return Err(not_line_or_arc());
             }
         };
         let tolerance = TOLERANCE * course.extent().max(1.0);
-        let has_length = match course {
-            Course::Line { start, end, .. } => start.distance(end) > tolerance,
-            Course::Arc { arc, .. } => arc.radius > tolerance,
-            Course::Circle { radius, .. } => radius > tolerance,
-        };
-        if has_length {
+        if course.has_length(tolerance) {
             Ok(course)
         } else {
             Err(not_line_or_arc())
-        }
-    }
-
-    fn crossings_of(
-        &self,
-        courses: &[Course; 2],
-        curves: [EntityId; 2],
-        tolerance: f64,
-    ) -> Result<Vec<Point2>, FilletError> {
-        let [first, second] = curves;
-        match (courses[0].carrier(), courses[1].carrier()) {
-            (Some(one), Some(other)) => Ok(centers(one, other, tolerance)),
-            _ => Err(self.never_meet(first, second)),
         }
     }
 
@@ -567,13 +679,39 @@ impl Sketch {
     }
 }
 
-fn outside(circle: &Course, other: &Course, corner: Point2, far: Option<Point2>) -> Point2 {
+fn crossings_of(courses: &[Course; 2], tolerance: f64) -> Vec<Point2> {
+    match courses {
+        [
+            Course::Ellipse { ellipse: one, .. },
+            Course::Ellipse { ellipse: other, .. },
+        ] => {
+            let (one, other) = (whole(one), whole(other));
+            if same_ellipse(&one, &other, tolerance) {
+                Vec::new()
+            } else {
+                intersect::ellipse_ellipse(&one, &other, tolerance)
+            }
+        }
+        [Course::Ellipse { ellipse, .. }, other] | [other, Course::Ellipse { ellipse, .. }] => {
+            other.carrier().map_or_else(Vec::new, |carrier| {
+                intersect::crossings(carrier, &Shape::Ellipse(whole(ellipse)), tolerance)
+            })
+        }
+        [one, other] => match (one.carrier(), other.carrier()) {
+            (Some(one), Some(other)) => centers(one, other, tolerance),
+            _ => Vec::new(),
+        },
+    }
+}
+
+fn outside(circle: &Course, other: &Course, corner: Point2, others: &[Point2]) -> Point2 {
     let center = match *other {
         Course::Circle { center_at, .. } => center_at,
         Course::Arc { arc, .. } => arc.center,
+        Course::Ellipse { ellipse, .. } => ellipse.center,
         Course::Line { start, .. } => start,
     };
-    let [one, two] = circle.sides(corner, far);
+    let [one, two] = circle.sides(corner, others);
     if one.distance(center) >= two.distance(center) {
         one
     } else {
@@ -581,9 +719,9 @@ fn outside(circle: &Course, other: &Course, corner: Point2, far: Option<Point2>)
     }
 }
 
-fn widest(circle: &Course, corner: Point2, far: Option<Point2>, toward: Point2) -> Point2 {
+fn widest(circle: &Course, corner: Point2, others: &[Point2], toward: Point2) -> Point2 {
     let leaving = (toward - corner).normalize_or_zero();
-    let [one, two] = circle.sides(corner, far);
+    let [one, two] = circle.sides(corner, others);
     let opening = |side: Point2| (side - corner).normalize_or_zero().dot(leaving);
     if opening(one) <= opening(two) {
         one
@@ -597,9 +735,10 @@ fn tolerance_of(courses: &[Course; 2]) -> f64 {
     TOLERANCE * extent
 }
 
-fn other_crossing(crossings: &[Point2], corner: Point2, tolerance: f64) -> Option<Point2> {
+fn other_crossings(crossings: &[Point2], corner: Point2, tolerance: f64) -> Vec<Point2> {
     crossings
         .iter()
         .copied()
-        .find(|crossing| crossing.distance(corner) > tolerance)
+        .filter(|crossing| crossing.distance(corner) > tolerance)
+        .collect()
 }

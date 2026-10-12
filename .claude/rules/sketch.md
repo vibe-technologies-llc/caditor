@@ -293,13 +293,17 @@ relative to the extent.
   (`NeverMeet`, `SameCurve`), and replaces the end on the far side of the corner from the pick with
   one shared point there, as trim does (`keeps_length`/`keeps_sweep`, distance dimensions between
   old ends dropped, unused old ends removed). An end that must move outward is checked as extend
-  checks it (`Held`); an arc whose crossing lies off it extends its nearer free end. A circle
-  becomes the arc from the corner to the carriers' other crossing on the picked side, that end held
-  on the other curve by `Coincident`, so a later join on the same circle extends it round. Curves
-  already meeting are left alone; an elliptical arc is `NotCrossable`. `crossing_picks` gives picks
-  for two selected curves: the crossing nearest both drawn curves, a line's or arc's longer part, a
-  circle's side making the blunter corner (two circles: each its side away from the other's
-  centre).
+  checks it (`Held`); an arc or elliptical arc whose crossing lies off it extends its nearer free
+  end round its circle or ellipse (by angle or ellipse parameter, as extend's `reach_around_ellipse`
+  does), keeping its minor radius. An elliptical arc's carrier is its whole ellipse
+  (`fillet::whole`): crossings by `intersect::crossings` against a line or circle carrier and
+  `intersect::ellipse_ellipse` between two, none for two arcs of one ellipse (`same_ellipse`). A
+  circle becomes the arc from the corner to the next crossing round it on the picked side (up to
+  four against an ellipse; a pick past both neighbours takes the angularly nearer side), that end
+  held on the other curve by `Coincident`, so a later join on the same circle extends it round.
+  Curves already meeting are left alone. `crossing_picks` gives picks for two selected curves: the
+  crossing nearest both drawn curves, a line's, arc's or elliptical arc's longer part, a circle's
+  side making the blunter corner (two circles: each its side away from the other's centre).
 - Chamfer (`fillet.rs`, same corners): a `ChamferSize` is one distance for both curves (`Equal`), a
   distance on each (`Distances`) or a distance on the first and the cut's angle
   (`DistanceAndAngle`), each a `Dimensioned` (typed expression and value). `bevel` finds the points
