@@ -15,8 +15,8 @@ use caditor_document::{
     ParameterValues, Pattern, PatternKind, PlaneRotation, PlaneThrough, PointBy, PointReference,
     PointsPattern, PrincipalAxis, PrincipalGeometry, ProjectionSource, RegionChoice, Remove,
     Revolve, RevolveAxis, RevolveExtent, Rgb, Scale, Shell, SketchFeature, SolidFeature,
-    SolidStart, Split, SplitAlong, SplitCarry, SplitFace, TappedThread, ThreadFamily, ThreadHand,
-    TurnCentre, Wall, point_instance,
+    SolidStart, Split, SplitAlong, SplitCarry, SplitFace, TappedThread, ThreadFamily, ThreadForm,
+    ThreadHand, TurnCentre, Wall, point_instance,
 };
 use caditor_kernel::{
     EdgeName, EdgeReference, FaceName, FaceOrigin, FaceReference, Solid, VertexName, WallSide,
@@ -47,7 +47,7 @@ const WRITE_CORPUS: &str = "CADITOR_WRITE_FORMAT_CORPUS";
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 19] = [
+const KEPT: [(&str, &str); 20] = [
     (
         "journal-1/by-reference.journal",
         "fe98725da8d9df46b19d7cede1474bcfb92bbda00d4de9c890e5bca5d0f2899f",
@@ -95,6 +95,10 @@ const KEPT: [(&str, &str); 19] = [
     (
         "model-1/measured.caditor",
         "0e800cdb471610bba2498c6d12c71a93f2e0f90f0a59e967c085aa0ea91efef5",
+    ),
+    (
+        "model-1/modelled-threads.caditor",
+        "f5ea168f759dd3556843b0360ba687d67c7f36d9dd6ff0a93bd5f4eecaeb8957",
     ),
     (
         "model-1/patterns.caditor",
@@ -635,6 +639,10 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
         (model("starts"), saved(&starts_model().0, "Starts")),
         (model("sweeps"), saved(&sweeps(), "Sweeps")),
         (model("holes"), saved(&holes(), "Holes")),
+        (
+            model("modelled-threads"),
+            saved(&modelled_threads(), "Modelled threads"),
+        ),
         (model("faces"), saved(&faces(), "Faces")),
         (model("datums"), saved(&datums(), "Datums")),
         (model("bodies"), saved(&bodies(), "Bodies")),
@@ -1124,6 +1132,7 @@ fn holes() -> Document {
                     class: ThreadFamily::MetricCoarse.class_from_id("5H"),
                     hand: ThreadHand::Left,
                     depth: Some(parse("3 mm")),
+                    form: ThreadForm::Cosmetic,
                 },
                 ..plain
             },
@@ -1236,14 +1245,46 @@ fn faces() -> Document {
             "Split face by a body",
             split(SplitAlong::Body(base), SplitCarry::Square),
         ),
-        (
-            "Thread",
-            threaded_model().0.features().last().unwrap().kind.clone(),
-        ),
+        ("Thread", thread_kind(ThreadForm::Cosmetic)),
     ];
     for (name, kind) in kinds {
         transaction.add_feature(name, kind);
     }
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
+fn thread_kind(form: ThreadForm) -> FeatureKind {
+    match threaded_model().0.features().last().unwrap().kind.clone() {
+        FeatureKind::Thread(thread) => {
+            FeatureKind::Thread(caditor_document::Thread { form, ..thread })
+        }
+        other => other,
+    }
+}
+
+fn modelled_threads() -> Document {
+    let (mut document, hole) = holed_model(HoleStyle::Plain, false);
+    let FeatureKind::Hole(drilled) = document.feature(hole).unwrap().kind.clone() else {
+        panic!("a hole");
+    };
+    let tapped = Hole {
+        standard: Some(HoleStandard {
+            size: MetricSize::M6,
+            fit: HoleFit::Tapped,
+        }),
+        thread: TappedThread {
+            form: ThreadForm::Modelled,
+            ..TappedThread::default()
+        },
+        ..drilled
+    };
+    let mut transaction = document.transaction("Modelled threads");
+    transaction.edit(Edit::SetFeatureKind {
+        id: hole,
+        kind: FeatureKind::Hole(tapped),
+    });
+    transaction.add_feature("Modelled thread", thread_kind(ThreadForm::Modelled));
     document.apply(transaction.finish()).unwrap();
     document
 }

@@ -27,7 +27,7 @@ paths:
 - `crates/caditor-file/corpus/<format>-<version>/` holds files caditor wrote in each shipped
   version of each format it owns: `model-1/` (every record kind, feature record kind, sketch entity
   and constraint kind, a version history with a kept version and block-alignment padding, sliced
-  content), `journal-1/` (every journaled edit, apply, undo and redo whole and by reference, a
+  content, a thread and a tapped hole carrying `modelled`), `journal-1/` (every journaled edit, apply, undo and redo whole and by reference, a
   rebased snapshot, sliced content) and `parameters-1/` (an exported parameter file). Committed as
   binary (`.gitattributes` `-text`), a few KiB each.
 - Write-once: a corpus file is never rewritten, regenerated or deleted. `KEPT` lists every file with
