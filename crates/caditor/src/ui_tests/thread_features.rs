@@ -25,10 +25,7 @@ fn a_thread_on_a_shaft_names_its_designation_draws_its_lines_and_takes_the_hand(
             .is_some_and(|label| label.starts_with("Create Thread on Extrude 1 side"))
     );
     assert!(harness.shows("M8-6g"));
-    assert!(harness.shows(
-        "Choose the thread's size and length in the feature's panel, or choose its face in the \
-         view from it"
-    ));
+    assert!(harness.shows("Choose the face to thread, its size and its length in the panel"));
     assert!(harness.shows("External, on a shaft or boss"));
     assert!(harness.shows(crate::thread_panel::DESCRIPTION));
 

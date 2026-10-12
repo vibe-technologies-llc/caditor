@@ -5,9 +5,10 @@ use caditor_sketch::{Constraint, Entity, EntityId, Sketch};
 use egui::{Event, Key, Modifiers, PointerButton};
 
 use super::{
-    Harness, constraints_of_kind, drag_in_sketch, edit_free_sketch, extruded_plate, sketch_entity,
+    FRAME_SECONDS, Harness, constraints_of_kind, drag_in_sketch, edit_free_sketch, extruded_plate,
+    sketch_entity,
 };
-use crate::{editing::Tool, model::Action, selection::Pickable};
+use crate::{canvas_guidance::HOVER_DELAY, editing::Tool, model::Action, selection::Pickable};
 
 fn plate_and_point(harness: &mut Harness) -> (FeatureId, EntityId) {
     extruded_plate(harness);
@@ -15,6 +16,13 @@ fn plate_and_point(harness: &mut Harness) -> (FeatureId, EntityId) {
     let point = sketch.add_point(Point2::new(60.0, 10.0));
     let feature = edit_free_sketch(harness, sketch);
     (feature, point)
+}
+
+fn rest_pointer(harness: &mut Harness) {
+    let delay_frames = (HOVER_DELAY / FRAME_SECONDS).ceil() as usize + 1;
+    for _ in 0..delay_frames {
+        harness.frame();
+    }
 }
 
 fn projected_line(sketch: &Sketch) -> EntityId {
@@ -88,6 +96,7 @@ fn a_body_corner_selected_with_a_point_takes_the_coincident_tool_projecting_it_o
     let (feature, point) = plate_and_point(&mut harness);
 
     harness.point_at(Point2::new(40.3, 0.2));
+    rest_pointer(&mut harness);
     assert!(harness.shows_containing("Corner of Extrude 1"));
     let position = harness.on_screen(Point2::new(40.3, 0.2));
     harness

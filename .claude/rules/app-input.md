@@ -62,8 +62,8 @@ paths:
 - The fixed chrome is placed after the prompt and the pointer labels and keeps clear of them and of
   the view cube (`canvas_guidance::first_clear`): the grid label, the cursor readout (above the
   grid label, else beside it, else lifted up to `READOUT_LIFTS` rows, each also clear of the edited
-  sketch's dimension labels, `Annotations::label_rects`; else where it clears only the chrome) and
-  the navigation hints, each left out when nothing fits inside the view.
+  sketch's dimension labels, `Annotations::label_rects`, so it never covers one) and the
+  navigation hints, each left out when nothing fits inside the view.
 
 ## Numeric fields
 
@@ -317,7 +317,8 @@ paths:
   it, from `Scene::hits_through` (`render.md`) through `PickTable::listed` (each pick's tolerance
   and the selection filter), named as hover names them, one row per body with the Bodies filter.
   Rows are `widgets::menu_choice`s with `icons::pickable`; the first takes focus, and the pointed or
-  focused row is drawn and described as hovered. Choosing one acts as Activate does
+  focused row is drawn as hovered and described at once at the band's top left, as a keyboard
+  highlight is (`described_in_band`), never beside the pointer under the list. Choosing one acts as Activate does
   (`ViewportState::choose`) but replaces the selection, adding with Shift or Ctrl. The press that
   opened it never counts as a click; with nothing under the pointer an info notice says so.
 - The 3D view's context menu (`view_menu.rs`, `ViewportState::context_menu`) opens on egui's

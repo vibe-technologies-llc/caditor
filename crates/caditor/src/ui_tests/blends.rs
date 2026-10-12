@@ -118,7 +118,7 @@ fn a_fillet_starts_from_the_selected_edge_and_takes_more_edges_clicked_in_the_vi
     assert_eq!(harness.model.undo_label(), Some("Create Fillet 1"));
     assert_eq!(blend_of(&harness, fillet).edges.len(), 1);
     assert!(removed_about(&harness, plate, 40.0 * spandrel(1.0)));
-    assert!(harness.shows("Click edges to add them or leave them out"));
+    assert!(harness.shows("Click edges to fillet, and again to leave one out"));
     assert!(harness.shows("Radius"));
 
     let built = harness.built_with_meshes(1);

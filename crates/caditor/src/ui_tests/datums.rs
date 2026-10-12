@@ -36,10 +36,7 @@ fn a_datum_plane_carries_a_sketch_that_follows_its_offset() {
     assert_eq!(datum_plane(&harness, plane).origin().z, 10.0);
     assert!(harness.shows("Starts from"));
     assert!(harness.shows("The XY plane"));
-    assert!(
-        harness
-            .shows("Select planes, faces, axes or edges for the feature's panel, or choose them in the view from it")
-    );
+    assert!(harness.shows("Choose in the panel the plane or flat face the plane starts from"));
 
     harness.type_into_field(Id::new(("datum-field", "offset", plane)), "25 mm");
     harness.settle();
@@ -73,8 +70,15 @@ fn a_datum_plane_carries_a_sketch_that_follows_its_offset() {
         Some(caditor_document::SketchAttachment::Datum(plane))
     );
 
-    harness.key(Key::Escape, Modifiers::NONE);
-    harness.frame();
+    harness.use_tool(Key::P);
+    harness.click_at(Point2::new(5.0, 5.0));
+    harness.settle();
+    for _ in 0..2 {
+        harness.key(Key::Escape, Modifiers::NONE);
+        harness.frame();
+    }
+    assert_eq!(harness.editing(), None);
+    assert_eq!(harness.sketch(sketch).entities().count(), 1);
     let Some(caditor_document::Datum::Plane(mut changed)) = harness
         .document()
         .feature(plane)

@@ -29,8 +29,9 @@ fn extruding_a_drawn_rectangle_makes_a_shaded_body_that_follows_its_distance() {
     assert_eq!(harness.workspace.editing.solid(), Some(extrude));
     assert_eq!(harness.solid(extrude).sketch(), sketch);
     assert_eq!(harness.solid(extrude).operation(), BodyOperation::NewBody);
-    assert!((harness.body_volume(extrude) - 6000.0).abs() < 1.0);
-    assert!(harness.shows("Click regions of the sketch to include or leave them out"));
+    let volume = harness.body_volume(extrude);
+    assert!((volume - 6000.0).abs() < 1.0, "{volume}");
+    assert!(harness.shows("Click regions of the sketch to extrude, and again to leave one out"));
 
     let built = harness.built_with_meshes(1);
     assert!(built.scene.meshes.is_empty());

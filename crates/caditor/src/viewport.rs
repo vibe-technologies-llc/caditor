@@ -5185,7 +5185,6 @@ impl ViewportState {
                     .collect();
             let clear_of_labels: Vec<Rect> = taken.iter().chain(&labels).copied().collect();
             canvas_guidance::first_clear(&candidates, &clear_of_labels, rect)
-                .or_else(|| canvas_guidance::first_clear(&[above], &taken, rect))
                 .map(|placed| label.paint(painter, placed.min))
         });
         taken.extend(readout_area);
@@ -5408,16 +5407,27 @@ impl ViewportState {
             let words = hovered
                 .filter(|_| !self.drawing.is_active())
                 .map(|hovered| hovered.describe(model.document(), model.evaluation()))?;
-            return Some(match self.keyboard_highlight {
-                Some(_) => Described::Highlighted(words),
-                None => Described::Hovered(words),
+            return Some(if self.described_in_band() {
+                Described::Highlighted(words)
+            } else {
+                Described::Hovered(words)
             });
         };
         let words = tool?;
-        Some(match self.keyboard_highlight {
-            Some(_) => Described::Highlighted(words),
-            None => Described::Tool(words),
+        Some(if self.described_in_band() {
+            Described::Highlighted(words)
+        } else {
+            Described::Tool(words)
         })
+    }
+
+    fn described_in_band(&self) -> bool {
+        self.keyboard_highlight.is_some()
+            || self
+                .pick_list
+                .as_ref()
+                .and_then(PickList::highlighted)
+                .is_some()
     }
 
     fn paint_keyboard_description(

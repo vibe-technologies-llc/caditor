@@ -206,6 +206,7 @@ fn the_cursor_readout_keeps_clear_of_dimension_labels_and_inside_the_view_at_twi
         .filter(|(text, _)| text.starts_with("x ") && text.contains("   y "))
         .map(|(_, rect)| *rect)
         .collect();
+    assert!(!labels.is_empty());
     for readout in &readouts {
         assert!(view.contains_rect(*readout), "{readout:?} leaves {view:?}");
         for label in &labels {

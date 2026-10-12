@@ -28,7 +28,7 @@ fn a_shell_opens_the_selected_face_and_takes_more_faces_clicked_in_the_view() {
     assert_eq!(harness.model.undo_label(), Some("Create Shell 1"));
     assert_eq!(shell_of(&harness, shell).open.len(), 1);
     assert!(removed_about(&harness, plate, 38.0 * 38.0 * 9.0));
-    assert!(harness.shows("Click faces to open them or close them again"));
+    assert!(harness.shows("Click a face to shell the body open there, and again to close it"));
     assert!(harness.shows("Thickness"));
 
     let built = harness.built_with_meshes(2);
@@ -191,7 +191,7 @@ fn offset_face_moves_the_selected_face_and_follows_a_typed_distance_and_clicked_
     assert_eq!(harness.model.undo_label(), Some("Create Offset face 1"));
     assert_eq!(offset_of(&harness, offset).faces.len(), 1);
     assert!(volume_about(&harness, plate, 40.0 * 40.0 * 11.0));
-    assert!(harness.shows("Click faces to move them or leave them out again"));
+    assert!(harness.shows("Click faces to move them, and again to leave one out"));
     assert!(harness.shows("Distance"));
 
     harness.type_into_field(Id::new(("offset-face-distance", offset)), "3 mm");
@@ -288,7 +288,7 @@ fn split_face_divides_the_selected_face_along_a_sketch_curve_and_takes_clicked_f
     assert_eq!(harness.model.evaluation().failed_count(), 0);
     assert_eq!(face_count(&harness, plate), 7);
     assert!(volume_about(&harness, plate, 40.0 * 40.0 * 10.0));
-    assert!(harness.shows("Click faces to split them or leave them out again"));
+    assert!(harness.shows("Click faces to split, and again to leave one out"));
     assert!(harness.shows("Faces to split"));
     assert!(harness.shows("Split along"));
 
