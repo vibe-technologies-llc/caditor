@@ -14,6 +14,7 @@ use caditor_sketch::{
 
 use crate::{
     body_snap::{BodyPart, BodySnaps, BodyTarget},
+    canvas::{HintList, KeyHint, Rank},
     editing::{self, ActiveSketch, Tool},
     model::Model,
     projecting,
@@ -38,37 +39,80 @@ const NEARBY_LINES: usize = 6;
 const HELD_TOLERANCE: f64 = 1e-9;
 const TYPED_TOLERANCE: f64 = 1e-6;
 const MIN_CLOSED_SPLINE_POINTS: usize = 3;
-const BACK_TO_SELECT: &str = "Esc: back to Select";
+type Keys = &'static [(&'static str, &'static str, Rank)];
+
+const BACK_TO_SELECT: Keys = &[("Esc", "back to Select", Rank::Main)];
 pub const LINE_CHAIN_PROMPT: &str = "Click to end the line, Enter or Escape to stop";
 pub const TANGENT_ARC_CHAIN_PROMPT: &str = "Click where the arc ends, Enter or Escape to stop";
 pub const CHAIN_ARC_PROMPT: &str = "Click where the arc ends; lines go on after it";
 pub const DRAGGED_ARC_PROMPT: &str =
     "Release where the arc ends, or back on the last point for no arc";
-const CHAIN_KEYS: &str = "Click the start to close, or the last point again to stop";
-const LINE_CHAIN_KEYS: &str = "Drag from the last point: a tangent arc   Click the start to \
-                               close, or the last point again to stop";
+const CLOSE_OR_STOP: &str = "Click the start to close, or the last point again to stop";
+const CHAIN_KEYS: Keys = &[("", CLOSE_OR_STOP, Rank::Useful)];
+const LINE_CHAIN_KEYS: Keys = &[
+    ("", "Drag from the last point: a tangent arc", Rank::Extra),
+    ("", CLOSE_OR_STOP, Rank::Useful),
+];
+const ARC_SWEEP: &str = "The arc follows your sweep around the centre, a typed end the shorter way";
+const ARC_KEYS: Keys = &[("Esc", "cancel the arc", Rank::Main)];
+const SWEPT_ARC_KEYS: Keys = &[
+    ("", ARC_SWEEP, Rank::Useful),
+    ("Esc", "cancel the arc", Rank::Main),
+];
+const SWEPT_SLOT_KEYS: Keys = &[
+    (
+        "",
+        "The slot follows your sweep around the centre, a typed end the shorter way",
+        Rank::Useful,
+    ),
+    ("Esc", "cancel the slot", Rank::Main),
+];
+const SWEPT_ELLIPTICAL_ARC_KEYS: Keys = &[
+    ("", ARC_SWEEP, Rank::Useful),
+    ("Esc", "cancel the elliptical arc", Rank::Main),
+];
+const CLOSED_SPLINE_KEYS: Keys = &[
+    ("Enter", "close the loop", Rank::Main),
+    ("Esc", "cancel", Rank::Main),
+];
+const OPEN_SPLINE_KEYS: Keys = &[
+    ("Enter or double-click", "finish", Rank::Main),
+    ("", "Click the first point to close the loop", Rank::Useful),
+    ("Esc", "cancel", Rank::Main),
+];
 pub const NOT_DRAWING_LINES: &str =
     "Only a chain of lines goes on as a tangent arc; choose the Line tool first";
 pub const NOTHING_TO_ARC_FROM: &str =
     "Draw a line first: the next segment then leaves its end as a tangent arc";
-const CANCEL_CONIC: &str = "Esc: cancel the conic";
+const CANCEL_CONIC: Keys = &[("Esc", "cancel the conic", Rank::Main)];
 const NOT_A_CONIC: &str = "Only a conic takes a rho; choose the Conic tool first";
 const RHO_OUT_OF_RANGE: &str = "Rho must lie between 0.01 and 0.99: below 0.5 the conic is part \
                                 of an ellipse, 0.5 a parabola, above 0.5 a hyperbola";
-const CONIC_KEYS: &str = "Type 0.3 rho (or any expression and rho) for its shape: below 0.5 an \
-                          ellipse, 0.5 a parabola, above a hyperbola   Esc: cancel the conic";
-const CANCEL_RECTANGLE: &str = "Esc: cancel the rectangle";
-const CANCEL_CIRCLE: &str = "Esc: cancel the circle";
-const CANCEL_SLOT: &str = "Esc: cancel the slot";
-const CANCEL_POLYGON: &str = "Esc: cancel the polygon";
-const CANCEL_ELLIPSE: &str = "Esc: cancel the ellipse";
-const CANCEL_ELLIPTICAL_ARC: &str = "Esc: cancel the elliptical arc";
+const CONIC_KEYS: Keys = &[
+    (
+        "",
+        "Type 0.3 rho (or any expression and rho) for its shape: below 0.5 an ellipse, 0.5 a \
+         parabola, above a hyperbola",
+        Rank::Useful,
+    ),
+    ("Esc", "cancel the conic", Rank::Main),
+];
+const CANCEL_RECTANGLE: Keys = &[("Esc", "cancel the rectangle", Rank::Main)];
+const CANCEL_CIRCLE: Keys = &[("Esc", "cancel the circle", Rank::Main)];
+const CANCEL_SLOT: Keys = &[("Esc", "cancel the slot", Rank::Main)];
+const CANCEL_POLYGON: Keys = &[("Esc", "cancel the polygon", Rank::Main)];
+const CANCEL_ELLIPSE: Keys = &[("Esc", "cancel the ellipse", Rank::Main)];
+const CANCEL_ELLIPTICAL_ARC: Keys = &[("Esc", "cancel the elliptical arc", Rank::Main)];
 pub const HEADING_PROMPT: &str = "The direction is locked: move the pointer to set the length and \
                                   click to place the point";
-const HEADING_KEYS: &str =
-    "Type a length for an exact one   Backspace or Esc: let go of the direction";
-const LENGTH_LOCK_KEYS: &str =
-    "Type an angle for an exact direction   Backspace or Esc: let go of it";
+const HEADING_KEYS: Keys = &[
+    ("", "Type a length for an exact one", Rank::Useful),
+    ("Backspace or Esc", "let go of the direction", Rank::Main),
+];
+const LENGTH_LOCK_KEYS: Keys = &[
+    ("", "Type an angle for an exact direction", Rank::Useful),
+    ("Backspace or Esc", "let go of it", Rank::Main),
+];
 const LENGTH_LOCK_REFUSED: &str = "A length is held from the last point once the shape has only its \
                                    first point: place it, then type the length and <";
 
@@ -701,7 +745,23 @@ pub struct Preview {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Prompt {
     pub text: String,
-    pub keys: &'static str,
+    keys: Keys,
+}
+
+impl Prompt {
+    pub fn hints(&self) -> HintList {
+        self.keys
+            .iter()
+            .map(|(keys, action, rank)| {
+                let hint = if keys.is_empty() {
+                    KeyHint::note(*action)
+                } else {
+                    KeyHint::new(keys, *action)
+                };
+                hint.ranked(*rank)
+            })
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -2649,18 +2709,11 @@ impl Drawing {
                 prompt("Click a third point on the circle", CANCEL_CIRCLE)
             }
             (Shape::Arc, 0) => prompt("Click the arc's centre", BACK_TO_SELECT),
-            (Shape::Arc, 1) => prompt("Click where the arc starts", "Esc: cancel the arc"),
-            (Shape::Arc, _) => prompt(
-                "Click where the arc ends",
-                "The arc follows your sweep around the centre, a typed end the shorter way   Esc: \
-                 cancel the arc",
-            ),
+            (Shape::Arc, 1) => prompt("Click where the arc starts", ARC_KEYS),
+            (Shape::Arc, _) => prompt("Click where the arc ends", SWEPT_ARC_KEYS),
             (Shape::ThreePointArc, 0) => prompt("Click where the arc starts", BACK_TO_SELECT),
-            (Shape::ThreePointArc, 1) => prompt("Click where the arc ends", "Esc: cancel the arc"),
-            (Shape::ThreePointArc, _) => prompt(
-                "Click a point the arc passes through",
-                "Esc: cancel the arc",
-            ),
+            (Shape::ThreePointArc, 1) => prompt("Click where the arc ends", ARC_KEYS),
+            (Shape::ThreePointArc, _) => prompt("Click a point the arc passes through", ARC_KEYS),
             (Shape::TangentArc, 0) => prompt(
                 "Click the end of a line, arc or spline to continue from",
                 BACK_TO_SELECT,
@@ -2687,11 +2740,9 @@ impl Drawing {
             (Shape::Slot(SlotMode::Arc), 1) => {
                 prompt("Click the centre of the slot's first end", CANCEL_SLOT)
             }
-            (Shape::Slot(SlotMode::Arc), 2) => prompt(
-                "Click the centre of the slot's other end",
-                "The slot follows your sweep around the centre, a typed end the shorter way   \
-                 Esc: cancel the slot",
-            ),
+            (Shape::Slot(SlotMode::Arc), 2) => {
+                prompt("Click the centre of the slot's other end", SWEPT_SLOT_KEYS)
+            }
             (Shape::Slot(_), _) => prompt("Click to set the slot's width", CANCEL_SLOT),
             (Shape::Polygon(PolygonMode::Corner | PolygonMode::SideMiddle), 0) => {
                 polygon_prompt(format!("Click the {polygon}'s centre"), BACK_TO_SELECT)
@@ -2724,11 +2775,9 @@ impl Drawing {
                 "Click where the arc starts, which also sets the minor radius",
                 CANCEL_ELLIPTICAL_ARC,
             ),
-            (Shape::EllipticalArc, _) => prompt(
-                "Click where the arc ends",
-                "The arc follows your sweep around the centre, a typed end the shorter way   Esc: \
-                 cancel the elliptical arc",
-            ),
+            (Shape::EllipticalArc, _) => {
+                prompt("Click where the arc ends", SWEPT_ELLIPTICAL_ARC_KEYS)
+            }
             (Shape::Conic, 0) => prompt("Click where the conic starts", BACK_TO_SELECT),
             (Shape::Conic, 1) => prompt("Click where the conic ends", CANCEL_CONIC),
             (Shape::Conic, _) => polygon_prompt(
@@ -2751,10 +2800,9 @@ impl Drawing {
                     "Click the next control point"
                 },
                 if mode.closes() {
-                    "Enter: close the loop   Esc: cancel"
+                    CLOSED_SPLINE_KEYS
                 } else {
-                    "Enter or double-click: finish   Click the first point: close the loop   Esc: \
-                     cancel"
+                    OPEN_SPLINE_KEYS
                 },
             ),
         }

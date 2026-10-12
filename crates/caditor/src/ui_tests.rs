@@ -51,6 +51,7 @@ mod body_finishes;
 mod body_tools;
 mod box_selection;
 mod cancel_and_parameters;
+mod canvas_guidance;
 mod canvas_overlays;
 mod click_picks;
 mod combine;
@@ -849,6 +850,11 @@ impl Harness {
         canvas::hint_texts(hint)
             .into_iter()
             .all(|text| self.shows(text))
+    }
+
+    fn expand_keys(&mut self) {
+        self.workspace.viewport.show_more_keys(true);
+        self.frame();
     }
 
     fn shows_containing(&self, text: &str) -> bool {

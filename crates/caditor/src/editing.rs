@@ -92,8 +92,13 @@ impl Tool {
             }
             Self::Point => "Place points",
             Self::Line => "Draw connected lines, one click per corner",
-            Self::Rectangle => "Draw a rectangle from two opposite corners",
-            Self::Circle => "Draw a circle from its centre and a point on it",
+            Self::Rectangle => {
+                "Draw a rectangle from two opposite corners, from its centre and a corner, or \
+                 from three points"
+            }
+            Self::Circle => {
+                "Draw a circle from its centre and a point on it, or through two or three points"
+            }
             Self::Arc => "Draw an arc from its centre, start and end",
             Self::ThreePointArc => "Draw an arc from its start and end through a third point",
             Self::TangentArc => {
@@ -110,20 +115,30 @@ impl Tool {
                 "Draw a conic from its two ends and its apex, where the tangents at its ends \
                  meet, shaped by a rho value"
             }
-            Self::Slot => "Draw a slot from the centres of its round ends and its width",
-            Self::Polygon => "Draw a regular polygon from its centre and a corner",
-            Self::Spline => "Draw a smooth curve through control points",
+            Self::Slot => {
+                "Draw a slot from the centres of its round ends, from its centre, or along an \
+                 arc, then set its width"
+            }
+            Self::Polygon => {
+                "Draw a regular polygon from its centre and a corner or a side's middle, or from \
+                 one side"
+            }
+            Self::Spline => {
+                "Draw a smooth curve shaped by control points, or passing through each point you \
+                 place, open or closed"
+            }
             Self::Trim => {
-                "Click a piece of a line, circle or arc to cut it away up to the curves crossing \
-                 it, or drag across several pieces"
+                "Click a piece of a line, circle, arc, ellipse or elliptical arc to cut it away up \
+                 to the curves crossing it, splines included, or drag across several pieces"
             }
             Self::Extend => {
                 "Click near the end of a line, arc or elliptical arc to lengthen it to the next \
                  curve in its way"
             }
             Self::Offset => {
-                "Copy the selected chain of lines, arcs or circles at a distance to one side, kept \
-                 at that distance as the original changes"
+                "Copy the selected chain of lines, arcs or circles at a distance to one or both \
+                 sides, kept at that distance as the original changes; an ellipse's copy is a \
+                 spline that does not follow it"
             }
             Self::Mirror => {
                 "Copy the selected geometry mirrored about a line or axis, kept mirrored as the \
@@ -146,12 +161,12 @@ impl Tool {
                  angle, with its pitch, base, root and tip circles, ready to extrude"
             }
             Self::Fillet => {
-                "Round the corner where two lines, arcs or elliptical arcs meet with an arc tangent \
-                 to both"
+                "Round the corner where two lines, arcs or elliptical arcs meet, or where two of \
+                 them or circles cross or would meet, with an arc tangent to both"
             }
             Self::Chamfer => {
-                "Cut the corner where two lines, arcs or elliptical arcs meet with a line the same \
-                 distance from it on both"
+                "Cut the corner where two lines, arcs or elliptical arcs meet, or where two of \
+                 them or circles cross or would meet, with a line at the distances you set"
             }
             Self::Project => {
                 "Click an edge, corner or face of a body, or a curve of another sketch, to bring \
@@ -163,8 +178,8 @@ impl Tool {
                  follows the model as it changes"
             }
             Self::Dimension => {
-                "Click the geometry to dimension: a line for its length, a circle or arc for its \
-                 size, or two items for the distance or angle between them"
+                "Click the geometry to dimension: a line for its length, a circle, arc or ellipse \
+                 for its size, or two items for the distance or angle between them"
             }
             Self::BlendCurve => {
                 "Join the ends of two lines, arcs or splines with a spline tangent to both, or \

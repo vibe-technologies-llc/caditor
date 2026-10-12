@@ -159,16 +159,16 @@ paths:
   hue. `Highlight::emphasis` widens hovered geometry by `HIGHLIGHT_EXTRA_WIDTH` and selected by the
   palette's `selection_widening` (1 standard, 2 high contrast); the high-contrast palette dashes the
   edges of a failed or outdated body (`scene::body_health`), outside sketch editing.
-- Key hints (`canvas::Hints`) are `Key: action` text, items three spaces apart, as key caps
-  (alternatives joined by " or ") beside a muted action, plain where the part before ": " is not
-  keys, on a bordered panel; typing coordinates is one (`x,y or length<angle: type an exact point`). Each key, "or" and action is its own text, so tests use `shows_hint`.
+- Key hints (`canvas::Hints`) lay out a `canvas::HintList` (`app-input.md`, Guidance in the 3D
+  view) as key caps (alternatives joined by " or ") beside a muted action, plain for a note, on a
+  bordered panel; a folded list ends in the More keys chip, a control-coloured bordered chip with
+  the focus ring. Each key, "or" and action is its own text, so tests use `shows_hint`.
 - Overlay text keeps clear of the view cube: a failure or interference label covering the cube or
   its buttons moves left of them (`viewport::clear_of`); the prompt and its hints centre in the band
   left of `view_cube::area`, its key hints left out when they would reach the bottom strip of triad
-  and readouts (`view_cube::TRIAD_WIDTH`); the hover description starts at the band's top left and
-  moves under the prompt when they meet; the grid spacing label (a screen-reader `Label`), cursor
-  readout (bottom left) and navigation hints (bottom right) are left out when meeting the prompt or
-  cube.
+  and readouts (`view_cube::TRIAD_WIDTH`); labels beside the pointer, the grid spacing label (a
+  screen-reader `Label`), cursor readout and navigation hints avoid each other as `app-input.md`
+  says.
 - The view cube is one focusable button named after the hovered target, else the nearest view, with
   that name as tooltip followed by the bound keys of a standard view's direction
   (`CubeTexts::view_keys`; Isometric only while the model keeps no redefined Isometric view); arrow

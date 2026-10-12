@@ -685,6 +685,29 @@ fn canvas_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
     shoot(model, gpu, out, "cube-hover", look);
     model.events.push(Event::PointerMoved(viewport.center()));
     model.frame();
+    model.events.push(Event::PointerButton {
+        pos: viewport.center(),
+        button: egui::PointerButton::Secondary,
+        pressed: true,
+        modifiers: Modifiers::NONE,
+    });
+    model.frame();
+    for step in 1..=4 {
+        model.events.push(Event::PointerMoved(
+            viewport.center() + egui::vec2(12.0 * step as f32, 4.0 * step as f32),
+        ));
+        model.frame();
+    }
+    shoot(model, gpu, out, "orbit", look);
+    model.events.push(Event::PointerButton {
+        pos: viewport.center() + egui::vec2(48.0, 16.0),
+        button: egui::PointerButton::Secondary,
+        pressed: false,
+        modifiers: Modifiers::NONE,
+    });
+    model.frame();
+    model.events.push(Event::PointerMoved(viewport.center()));
+    model.frame();
 
     let sketch = model
         .document()
@@ -706,6 +729,13 @@ fn canvas_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
         model.frame();
         model.key(Key::Escape, Modifiers::NONE);
         model.frame();
+        model.key(Key::Escape, Modifiers::NONE);
+        model.frame();
+        model.use_tool(Key::G);
+        model.workspace.viewport.show_more_keys(true);
+        model.frame();
+        shoot(model, gpu, out, "more-keys", look);
+        model.workspace.viewport.show_more_keys(false);
         model.key(Key::Escape, Modifiers::NONE);
         model.frame();
         model.perform(Action::Editing(EditingCommand::SetTool(Tool::Gear)));

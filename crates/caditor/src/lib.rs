@@ -19,6 +19,7 @@ mod body_selection;
 mod body_snap;
 mod box_selection;
 mod canvas;
+mod canvas_guidance;
 mod cli;
 mod clipboard;
 mod colour_selector;

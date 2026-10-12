@@ -454,7 +454,9 @@ paths:
 
 - Right-drag orbits (turntable around world Z, stopping at the poles; a rolled view turns level),
   middle-drag or Shift+right-drag pans, wheel and pinch zoom toward the point under the cursor.
-  View cube and fit changes animate.
+  View cube and fit changes animate. While an orbit runs, and for `ORBIT_MARK_LINGER` after, the
+  app rings its pivot (`ViewportState::orbit_mark`, `canvas_guidance::paint_pivot` in the palette's
+  `snap` over an `outline` halo); the renderer draws nothing for it.
 - The moves are `Viewpoint::orbited`, `panned` and `zoomed` (nothing for non-finite input), so the
   app can move the viewpoint the camera is heading to rather than the one shown. `Camera::orbit`,
   `pan` and `zoom` apply them to the shown viewpoint and end any transition; `animate_to` eases in
