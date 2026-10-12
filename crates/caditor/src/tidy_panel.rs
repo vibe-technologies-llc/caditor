@@ -2,21 +2,21 @@ use std::collections::BTreeSet;
 
 use caditor_document::FeatureId;
 use caditor_sketch::{Constraint, Entity, EntityId, Fix, Flaw, Kept, RelationKind, Sketch};
-use egui::{Label, ScrollArea, Sense, TextWrapMode, Ui};
+use egui::{Label, Sense, TextWrapMode, Ui};
 
 use crate::{
     appearance::{SPACE_M, SPACE_S},
     commands::{Command, CommandFrame},
     editing::SketchEditing,
     guide::Page,
-    guide_panel, icons,
+    icons,
     layout::RightPanel,
     model::{Action, Model},
     selection::{Pickable, Selection},
     sketch_tools,
     tidying::{self, Found, Looseness, Progress, Proposal, Task, Tidying},
     units::Units,
-    widgets::{self, Tone},
+    widgets::{self, PanelTitle, Tone},
 };
 
 pub const TITLE: &str = "Constrain automatically";
@@ -34,8 +34,12 @@ pub const NOT_EDITING: &str = "Edit a sketch first";
 const SELECT_ONE_POINT: &str = "Select one point of the sketch to measure from it";
 const PANEL: RightPanel = RightPanel {
     id: "constrain-automatically",
-    width: 320.0,
-    least: 240.0,
+};
+const HEADER: PanelTitle<'static> = PanelTitle {
+    glyph: icons::AUTOMATIC_CONSTRAINTS,
+    title: TITLE,
+    close: CLOSE,
+    help: Some(Page::AutomaticConstraints),
 };
 const MAX_LISTED: usize = 40;
 
@@ -89,72 +93,68 @@ pub fn show(
     let Some(feature) = tidying.feature() else {
         return shown;
     };
-    let mut close = false;
     let mut accepted = false;
-    PANEL.show(ui, room, |ui| {
-        ui.add_space(SPACE_S);
-        widgets::panel_header(ui, icons::AUTOMATIC_CONSTRAINTS, TITLE, |ui| {
-            close = widgets::icon_button(ui, icons::CLOSE, CLOSE).clicked();
-            guide_panel::help_button(ui, Page::AutomaticConstraints);
-        });
-        ui.add_space(SPACE_S);
-        let choices: Vec<(&str, &str)> = Task::ALL
-            .iter()
-            .map(|task| (task.label(), task.about()))
-            .collect();
-        let chosen = Task::ALL
-            .iter()
-            .position(|task| *task == tidying.task)
-            .unwrap_or_default();
-        if let Some(index) = widgets::segmented(ui, &choices, chosen)
-            && let Some(task) = Task::ALL.get(index)
-        {
-            tidying.task = *task;
-        }
-        ui.add_space(SPACE_S);
-        let primary = match tidying.progress() {
-            Progress::Found(found) => primary_label(found, tidying.task),
-            _ => None,
-        };
-        if let Some(label) = primary {
-            egui::Panel::bottom("constrain-automatically-footer")
-                .show_separator_line(false)
-                .show(ui, |ui| {
-                    accepted = footer_button(ui, &label);
-                });
-        }
-        ScrollArea::vertical().show(ui, |ui| {
-            wrapped(ui, widgets::muted(tidying.task.about(), ui));
-            ui.add_space(SPACE_S);
-            settings(ui, model, tidying, selection, feature);
-            ui.add_space(SPACE_M);
-            let task = tidying.task;
-            match tidying.progress() {
-                Progress::Closed => {}
-                Progress::NotSettled => {
-                    wrapped(ui, widgets::muted(tidying::NOT_SETTLED, ui));
-                }
-                Progress::Working => {
-                    ui.horizontal(|ui| {
-                        widgets::spinner(ui);
-                        ui.label(WORKING);
-                    });
-                }
-                Progress::Failed(reason) => {
-                    widgets::callout(ui, Tone::Error, |ui| wrapped(ui, reason));
-                }
-                Progress::Found(found) => {
-                    found_proposal(ui, model, feature, task, found, &mut shown);
-                }
+    let panel = widgets::side_panel_parts(
+        ui,
+        room,
+        PANEL,
+        &HEADER,
+        |_| {},
+        |ui| {
+            let choices: Vec<(&str, &str)> = Task::ALL
+                .iter()
+                .map(|task| (task.label(), task.about()))
+                .collect();
+            let chosen = Task::ALL
+                .iter()
+                .position(|task| *task == tidying.task)
+                .unwrap_or_default();
+            if let Some(index) = widgets::segmented(ui, &choices, chosen)
+                && let Some(task) = Task::ALL.get(index)
+            {
+                tidying.task = *task;
             }
-        });
-    });
+            ui.add_space(SPACE_S);
+            let primary = match tidying.progress() {
+                Progress::Found(found) => primary_label(found, tidying.task),
+                _ => None,
+            };
+            if let Some(label) = primary {
+                accepted = widgets::panel_footer(ui, PANEL.id, |ui| footer_button(ui, &label));
+            }
+            widgets::panel_scroll(ui, PANEL.id, |ui| {
+                wrapped(ui, widgets::muted(tidying.task.about(), ui));
+                ui.add_space(SPACE_S);
+                settings(ui, model, tidying, selection, feature);
+                ui.add_space(SPACE_M);
+                let task = tidying.task;
+                match tidying.progress() {
+                    Progress::Closed => {}
+                    Progress::NotSettled => {
+                        wrapped(ui, widgets::muted(tidying::NOT_SETTLED, ui));
+                    }
+                    Progress::Working => {
+                        ui.horizontal(|ui| {
+                            widgets::spinner(ui);
+                            ui.label(WORKING);
+                        });
+                    }
+                    Progress::Failed(reason) => {
+                        widgets::callout(ui, Tone::Error, |ui| wrapped(ui, reason));
+                    }
+                    Progress::Found(found) => {
+                        found_proposal(ui, model, feature, task, found, &mut shown);
+                    }
+                }
+            });
+        },
+    );
     if accepted && let Progress::Found(found) = tidying.progress() {
         shown
             .actions
             .extend(accept(model, feature, tidying.task, tidying.datum, found));
     }
-    if close {
+    if panel.closed {
         tidying.close();
     }
     shown
@@ -301,7 +301,7 @@ fn settings(
         ui.add_space(SPACE_S);
         for kind in RelationKind::ALL {
             let mut chosen = tidying.kinds.contains(&kind);
-            if ui.checkbox(&mut chosen, kind.label()).changed() {
+            if widgets::checkbox(ui, &mut chosen, kind.label()).changed() {
                 if chosen {
                     tidying.kinds.insert(kind);
                 } else {

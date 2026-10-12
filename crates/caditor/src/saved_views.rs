@@ -26,7 +26,7 @@ const ISOMETRIC_EXPLANATION: &str = "The Isometric view (0) shows the model from
                                      from, how near and at what angle; models open from it.";
 const DIALOG_ID: &str = "saved-views";
 const HEIGHT_SHARE: f32 = 0.8;
-const LIST_HEIGHT: f32 = 240.0;
+const LIST_HEIGHT: widgets::ListHeight = widgets::ListHeight::Medium;
 const SHOW_HOVER: &str = "Show this view";
 const UPDATE_HOVER: &str = "Replace it with the current view";
 const RENAME_HOVER: &str = "Rename it";

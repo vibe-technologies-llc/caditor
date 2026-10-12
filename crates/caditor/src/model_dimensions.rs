@@ -20,6 +20,7 @@ use crate::{
     units::Units,
     value_shapes::Drawn,
     viewport::SketchScreen,
+    widgets,
 };
 
 pub const MAX_SUBJECTS: usize = 4;
@@ -603,7 +604,7 @@ impl ModelDimensions {
                             |text| value_change(model, value, text),
                         );
                         if let Some(error) = &field.error {
-                            ui.colored_label(ui.visuals().error_fg_color, error);
+                            widgets::error_text(ui, error);
                         }
                         field
                     })

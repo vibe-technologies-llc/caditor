@@ -1,18 +1,18 @@
 use caditor_document::FeatureId;
 use caditor_sketch::{EntityId, GearCentre, Sketch, SpurGear};
-use egui::{Id, Label, ScrollArea, TextEdit, TextWrapMode, Ui};
+use egui::{Id, Label, TextEdit, TextWrapMode, Ui};
 
 use crate::{
     appearance::{SPACE_M, SPACE_S},
     editing::{EditingCommand, Tool},
     gearing::{self, GearField, GearSettings},
     guide::Page,
-    guide_panel, icons,
+    icons,
     layout::RightPanel,
     model::{Action, Model, Notice},
     modifying::length_text,
     units::LengthUnit,
-    widgets::{self, Tone},
+    widgets::{self, PanelTitle, Tone},
 };
 
 pub const TITLE: &str = "Spur gear";
@@ -21,11 +21,7 @@ pub const DESCRIPTION: &str = "Set the gear's values, then click in the sketch w
                                goes, or draw it at the selected point or the origin. Every value \
                                takes units and expressions using your parameters.";
 pub const CIRCLES: &str = "Its circles, drawn as construction geometry";
-const PANEL: RightPanel = RightPanel {
-    id: "spur-gear",
-    width: 320.0,
-    least: 240.0,
-};
+const PANEL: RightPanel = RightPanel { id: "spur-gear" };
 
 pub fn field_id(field: GearField) -> Id {
     Id::new(("spur-gear-field", field.label()))
@@ -58,40 +54,46 @@ pub fn show(
         .sketch
         .and_then(|sketch| gearing::lone_point(sketch, context.selected));
     let label = draw_label(context.sketch, centre);
-    let mut close = false;
-    let mut draw = false;
-    PANEL.show(ui, room, |ui| {
-        ui.add_space(SPACE_S);
-        widgets::panel_header(ui, icons::tool(Tool::Gear), TITLE, |ui| {
-            close = widgets::icon_button(ui, icons::CLOSE, CLOSE).clicked();
-            guide_panel::help_button(ui, Page::Gear);
-        });
-        ui.add_space(SPACE_S);
-        egui::Panel::bottom("spur-gear-footer")
-            .show_separator_line(false)
-            .show(ui, |ui| {
-                draw = widgets::footer(ui, |ui| {
+    let header = PanelTitle {
+        glyph: icons::tool(Tool::Gear),
+        title: TITLE,
+        close: CLOSE,
+        help: Some(Page::Gear),
+    };
+    let panel = widgets::side_panel_parts(
+        ui,
+        room,
+        PANEL,
+        &header,
+        |_| {},
+        |ui| {
+            let draw = widgets::panel_footer(ui, PANEL.id, |ui| {
+                widgets::footer(ui, |ui| {
                     ui.add_enabled(evaluation.gear.is_ok(), widgets::primary_button(ui, &label))
                         .clicked()
-                });
+                })
             });
-        ScrollArea::vertical().show(ui, |ui| {
-            wrapped(ui, widgets::muted(DESCRIPTION, ui));
-            ui.add_space(SPACE_S);
-            fields(ui, settings, &evaluation.problems);
-            ui.add_space(SPACE_M);
-            match &evaluation.gear {
-                Ok(gear) => circles(ui, gear, context.model.length_unit()),
-                Err(problem) => {
-                    widgets::callout(ui, Tone::Error, |ui| wrapped(ui, problem.as_str()));
+            widgets::panel_scroll(ui, PANEL.id, |ui| {
+                wrapped(ui, widgets::muted(DESCRIPTION, ui));
+                ui.add_space(SPACE_S);
+                fields(ui, settings, &evaluation.problems);
+                ui.add_space(SPACE_M);
+                match &evaluation.gear {
+                    Ok(gear) => circles(ui, gear, context.model.length_unit()),
+                    Err(problem) => {
+                        widgets::callout(ui, Tone::Error, |ui| wrapped(ui, problem.as_str()));
+                    }
                 }
-            }
-        });
-    });
-    if close {
+            });
+            draw
+        },
+    );
+    if panel.closed {
         actions.push(Action::Editing(EditingCommand::SetTool(Tool::Select)));
     }
-    if draw && let Ok(gear) = &evaluation.gear {
+    if panel.inner
+        && let Ok(gear) = &evaluation.gear
+    {
         let centre = GearCentre::Point(centre.unwrap_or(EntityId::ORIGIN));
         actions.push(
             match gearing::draw(context.model, context.feature, gear, centre) {

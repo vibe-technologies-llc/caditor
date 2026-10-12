@@ -15,7 +15,7 @@ use crate::{
     widgets::{self, DialogWidth, Tone},
 };
 
-const LAYER_LIST_HEIGHT: f32 = 140.0;
+const LAYER_LIST_HEIGHT: widgets::ListHeight = widgets::ListHeight::Short;
 const NO_LAYERS: &str = "Choose at least one layer to import";
 const NOT_A_SCALE: &str = "Enter a number from 0.000001 to 1000000";
 
@@ -189,8 +189,7 @@ pub fn dialog(
 
         export::heading(ui, "Position");
         let mut recentre = options.recentre;
-        if ui
-            .checkbox(&mut recentre, "Centre the drawing on the origin")
+        if widgets::checkbox(ui, &mut recentre, "Centre the drawing on the origin")
             .on_hover_text("Move the middle of the drawing's outline to the sketch's origin")
             .changed()
         {
@@ -290,7 +289,7 @@ fn layers(ui: &mut Ui, arranging: &Arranging, command: &mut Option<ImportOptions
                     feature_tree::count(curves, "curve", "curves")
                 );
                 let mut included = !left_out.contains(&layer);
-                if ui.checkbox(&mut included, label).changed() {
+                if widgets::checkbox(ui, &mut included, label).changed() {
                     *command = Some(ImportOptionsCommand::Layer { layer, included });
                 }
             }

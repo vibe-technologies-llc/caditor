@@ -39,7 +39,7 @@ use crate::{
     widgets::{self, DialogWidth, Tone},
 };
 
-const BODY_LIST_HEIGHT: f32 = 160.0;
+const BODY_LIST_HEIGHT: widgets::ListHeight = widgets::ListHeight::Short;
 const DIALOG_ID: &str = "export";
 const HEIGHT_SHARE: f32 = 0.8;
 const OUTDATED: &str = "Recomputing was stopped, so some features still show their earlier results. \
@@ -1053,7 +1053,7 @@ fn body_choice(
             .show(ui, |ui| {
                 for body in bodies {
                     let mut included = !exporter.left_out.contains(&body.id);
-                    if ui.checkbox(&mut included, &body.source.name).changed() {
+                    if widgets::checkbox(ui, &mut included, &body.source.name).changed() {
                         *command = Some(ExportCommand::Include {
                             body: body.id,
                             included,

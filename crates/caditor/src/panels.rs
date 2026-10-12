@@ -434,43 +434,40 @@ pub fn show(
             if state.wants_parameters() {
                 widgets::reveal_section(ui.ctx(), PARAMETERS_SECTION);
             }
-            egui::ScrollArea::vertical()
-                .auto_shrink([false, true])
-                .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
-                .show(ui, |ui| {
-                    ui.add_space(SPACE_S);
-                    if editing.is_choosing_plane() {
-                        new_sketch_panel::show(ui, model, actions);
-                        ui.add_space(SPACE_L);
-                    }
-                    let features = model.document().features().len();
-                    let header = SectionHeader {
-                        title: FEATURES_TITLE,
-                        count: Some(features),
-                        action: None,
-                        explanation: Some(FEATURES_EXPLANATION),
-                    };
-                    widgets::panel_section(ui, FEATURES_SECTION, header, |ui| {
-                        feature_tree::show(ui, model, selection, editing, state, actions);
-                    });
+            widgets::panel_scroll(ui, "model", |ui| {
+                ui.add_space(SPACE_S);
+                if editing.is_choosing_plane() {
+                    new_sketch_panel::show(ui, model, actions);
                     ui.add_space(SPACE_L);
-                    let parameters = model.document().parameters().len();
-                    let header = SectionHeader {
-                        title: PARAMETERS_TITLE,
-                        count: Some(parameters),
-                        action: Some(SectionAction {
-                            glyph: icons::ADD,
-                            hover: parameter_table::ADD_LABEL,
-                        }),
-                        explanation: Some(PARAMETERS_EXPLANATION),
-                    };
-                    let adding = widgets::panel_section(ui, PARAMETERS_SECTION, header, |ui| {
-                        parameter_table::show(ui, model, state, actions);
-                    });
-                    if adding {
-                        parameter_table::add(model, state, actions);
-                    }
+                }
+                let features = model.document().features().len();
+                let header = SectionHeader {
+                    title: FEATURES_TITLE,
+                    count: Some(features),
+                    action: None,
+                    explanation: Some(FEATURES_EXPLANATION),
+                };
+                widgets::panel_section(ui, FEATURES_SECTION, header, |ui| {
+                    feature_tree::show(ui, model, selection, editing, state, actions);
                 });
+                ui.add_space(SPACE_L);
+                let parameters = model.document().parameters().len();
+                let header = SectionHeader {
+                    title: PARAMETERS_TITLE,
+                    count: Some(parameters),
+                    action: Some(SectionAction {
+                        glyph: icons::ADD,
+                        hover: parameter_table::ADD_LABEL,
+                    }),
+                    explanation: Some(PARAMETERS_EXPLANATION),
+                };
+                let adding = widgets::panel_section(ui, PARAMETERS_SECTION, header, |ui| {
+                    parameter_table::show(ui, model, state, actions);
+                });
+                if adding {
+                    parameter_table::add(model, state, actions);
+                }
+            });
         });
     let width = panel.response.rect.width();
     state.observe_layout(ui.ctx(), width, width >= widths.max - CAPPED_SLACK);

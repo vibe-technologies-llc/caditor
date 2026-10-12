@@ -4,7 +4,7 @@ use caditor_document::{
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_kernel::MAX_TAPER_DEGREES;
-use egui::{ComboBox, Id, Label, RichText, TextWrapMode, Ui, WidgetText};
+use egui::{Id, Label, RichText, TextWrapMode, Ui, WidgetText};
 
 use crate::{
     appearance, completion, datum_tools,
@@ -365,30 +365,26 @@ pub fn combo(
     choices: impl FnOnce() -> Vec<Choice>,
 ) -> Option<Action> {
     let mut chosen = None;
-    let combo = ComboBox::from_id_salt(id)
-        .selected_text(selected)
-        .wrap_mode(TextWrapMode::Truncate)
-        .show_ui(ui, |ui| {
-            for choice in choices() {
-                let enabled = choice.change.is_ok() || choice.selected;
-                let button = widgets::button(choice.label.clone()).selected(choice.selected);
-                let response = ui.add_enabled(
-                    enabled,
-                    Named::new(button, choice.label.as_str()).selected(choice.selected),
-                );
-                let response = match &choice.change {
-                    Err(reason) if !choice.selected => response.on_disabled_hover_text(reason),
-                    Err(_) | Ok(_) => response,
-                };
-                if response.clicked()
-                    && !choice.selected
-                    && let Ok(action) = choice.change
-                {
-                    chosen = Some(action);
-                }
+    widgets::combo(id, selected).show(ui, |ui| {
+        for choice in choices() {
+            let enabled = choice.change.is_ok() || choice.selected;
+            let button = widgets::button(choice.label.clone()).selected(choice.selected);
+            let response = ui.add_enabled(
+                enabled,
+                Named::new(button, choice.label.as_str()).selected(choice.selected),
+            );
+            let response = match &choice.change {
+                Err(reason) if !choice.selected => response.on_disabled_hover_text(reason),
+                Err(_) | Ok(_) => response,
+            };
+            if response.clicked()
+                && !choice.selected
+                && let Ok(action) = choice.change
+            {
+                chosen = Some(action);
             }
-        });
-    widgets::tie_to_caption(ui, &combo.response);
+        }
+    });
     chosen
 }
 
@@ -422,7 +418,7 @@ pub fn segmented_row(
 pub fn reverse_row(ui: &mut Ui, label: &str, reversed: bool) -> Option<bool> {
     ui.label("");
     let mut flipped = reversed;
-    let changed = ui.checkbox(&mut flipped, label).changed();
+    let changed = widgets::checkbox(ui, &mut flipped, label).changed();
     ui.end_row();
     changed.then_some(flipped)
 }

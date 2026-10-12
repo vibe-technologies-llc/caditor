@@ -1,8 +1,8 @@
 use std::{cell::OnceCell, sync::Arc};
 
 use caditor_expression::Dimension;
-use caditor_render::{Color, ShadedMesh};
-use egui::{Color32, Id, Label, ScrollArea, Sense, Slider, TextWrapMode, Ui, vec2};
+use caditor_render::ShadedMesh;
+use egui::{Id, Label, Sense, Slider, TextWrapMode, Ui, vec2};
 
 use crate::{
     analysis::{
@@ -14,13 +14,13 @@ use crate::{
     display_style::DisplayStyle,
     feature_fields, field,
     guide::Page,
-    guide_panel, icons,
+    icons,
     layout::RightPanel,
     model::Model,
-    scene_palette::{Canvas, Contrast},
+    scene_palette::{self, Canvas, Contrast},
     selection::{Axis, Selection},
     units::Units,
-    widgets::{self, FIELD_WIDTH, Tone},
+    widgets::{self, FIELD_WIDTH, PanelTitle, Tone},
 };
 
 pub const TITLE: &str = "Analyse faces";
@@ -53,10 +53,12 @@ pub const CHROME_ABOUT: &str = "The bodies reflect a sky, a horizon and a light 
                                 same jumps zebra stripes do. It never changes the model.";
 pub const STRIPES: &str = "Stripes";
 pub const STRIPES_ALONG: &str = "Stripes along";
-const PANEL: RightPanel = RightPanel {
-    id: "analysis",
-    width: 300.0,
-    least: 220.0,
+const PANEL: RightPanel = RightPanel { id: "analysis" };
+const HEADER: PanelTitle<'static> = PanelTitle {
+    glyph: icons::ANALYSIS,
+    title: TITLE,
+    close: CLOSE,
+    help: Some(Page::FaceAnalysis),
 };
 const SWATCH_SIDE: f32 = 14.0;
 const SWATCH_RADIUS: f32 = 3.0;
@@ -86,15 +88,6 @@ impl AnalysisContext<'_> {
             None => analysis::shown_meshes(self.model, self.bodies),
         }
     }
-}
-
-fn swatch_colour(colour: Color) -> Color32 {
-    let channel = |value: f32| (value * 255.0).round().clamp(0.0, 255.0) as u8;
-    Color32::from_rgb(
-        channel(colour.red),
-        channel(colour.green),
-        channel(colour.blue),
-    )
 }
 
 fn limit_row(
@@ -217,8 +210,11 @@ fn legend(ui: &mut Ui, context: &AnalysisContext<'_>, analysis: FaceAnalysis) {
             ui.horizontal(|ui| {
                 let (rect, _) =
                     ui.allocate_exact_size(vec2(SWATCH_SIDE, SWATCH_SIDE), Sense::hover());
-                ui.painter()
-                    .rect_filled(rect, SWATCH_RADIUS, swatch_colour(band.colour(palette)));
+                ui.painter().rect_filled(
+                    rect,
+                    SWATCH_RADIUS,
+                    scene_palette::color32(band.colour(palette)),
+                );
                 ui.add(
                     Label::new(format!("{}: {area}", band.title()))
                         .wrap_mode(TextWrapMode::Wrap)
@@ -359,17 +355,15 @@ fn body(ui: &mut Ui, context: &AnalysisContext<'_>, tool: &mut AnalysisTool) {
 }
 
 pub fn show(ui: &mut Ui, context: &AnalysisContext<'_>, tool: &mut AnalysisTool, room: f32) {
-    let mut close = false;
-    PANEL.show(ui, room, |ui| {
-        ui.add_space(SPACE_S);
-        widgets::panel_header(ui, icons::ANALYSIS, TITLE, |ui| {
-            close = widgets::icon_button(ui, icons::CLOSE, CLOSE).clicked();
-            guide_panel::help_button(ui, Page::FaceAnalysis);
-        });
-        ui.add_space(SPACE_S);
-        ScrollArea::vertical().show(ui, |ui| body(ui, context, tool));
-    });
-    if close {
+    let shown = widgets::side_panel(
+        ui,
+        room,
+        PANEL,
+        &HEADER,
+        |_| {},
+        |ui| body(ui, context, tool),
+    );
+    if shown.closed {
         tool.open = false;
     }
 }

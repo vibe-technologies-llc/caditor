@@ -17,7 +17,7 @@ pub const CHANGED_ONLY: &str = "Changed only";
 const BINDINGS_WIDTH: f32 = 170.0;
 const ACTIONS_WIDTH: f32 = 180.0;
 const SCROLL_BAR_ROOM: f32 = 12.0;
-const LIST_HEIGHT: f32 = 420.0;
+const LIST_HEIGHT: widgets::ListHeight = widgets::ListHeight::Tall;
 const DIALOG_ID: &str = "keyboard-shortcuts";
 const HEIGHT_SHARE: f32 = 0.9;
 const CATEGORY_GAP: f32 = SPACE_M;
@@ -192,7 +192,7 @@ pub fn dialog(
         if std::mem::take(&mut editor.focus_filter) {
             filter.request_focus();
         }
-        ui.checkbox(&mut editor.changed_only, CHANGED_ONLY)
+        widgets::checkbox(ui, &mut editor.changed_only, CHANGED_ONLY)
             .on_hover_text("List only the commands whose shortcuts differ from caditor's own");
         let columns = Columns::of(ui);
         header(ui, columns);

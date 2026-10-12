@@ -4,17 +4,25 @@ use egui::{
     Vec2, WidgetInfo, WidgetType, pos2, vec2,
 };
 
-use crate::{canvas, commands::Command, icons, scene_palette::ScenePalette, selection::Axis};
+use crate::{
+    appearance::{FOCUS_GAP, SPACE_SM},
+    canvas,
+    commands::Command,
+    icons,
+    scene_palette::ScenePalette,
+    selection::Axis,
+    widgets,
+};
 
 pub const NAME: &str = "View cube";
 pub const HOME_NAME: &str = "Isometric view";
 
 const CUBE_SIZE: f32 = 104.0;
-const MARGIN: f32 = 12.0;
+const MARGIN: f32 = canvas::MARGIN;
 const PROJECTION_SCALE: f32 = 0.29;
 const INNER_CELL_EXTENT: f64 = 0.55;
 const MIN_VISIBLE_FACING: f64 = 0.02;
-const FIT_BUTTON_GAP: f32 = 6.0;
+const FIT_BUTTON_GAP: f32 = SPACE_SM;
 const DIVIDER_WIDTH: f32 = 1.0;
 const EDGE_WIDTH: f32 = 1.0;
 const PAINT_ROOM: f32 = 2.0;
@@ -295,7 +303,12 @@ pub fn show(
         }
     }
     if focused {
-        canvas::paint_focus_ring(ui.painter(), rect);
+        widgets::paint_focus_ring_in(
+            ui.painter(),
+            rect.expand(FOCUS_GAP),
+            canvas::RADIUS,
+            chrome.focus,
+        );
     }
     if orbiting {
         ui.ctx().set_cursor_icon(CursorIcon::Grabbing);

@@ -102,8 +102,8 @@ pub const EXPORT_AGAIN_HINT: &str = "Export the model again to the file it was l
 const REVERT_HINT: &str = "Undo every change made since the model was last saved, as one step \
                            that Undo takes back";
 const QUIT_ANYWAY_AFTER: Duration = Duration::from_secs(5);
-const REPORT_HEIGHT: f32 = 280.0;
-const REPLACED_HEIGHT: f32 = 160.0;
+const REPORT_HEIGHT: widgets::ListHeight = widgets::ListHeight::Medium;
+const REPLACED_HEIGHT: widgets::ListHeight = widgets::ListHeight::Short;
 const RESTORE_SUPPRESSED_HINT: &str = "Restore with every feature suppressed, for a model that \
                                        made caditor stop. Unsuppress features one at a time, or \
                                        Undo to bring them all back.";
@@ -3633,8 +3633,7 @@ pub fn menu(
             let samples = ui.menu_button(submenu_label(ui, icons::SAMPLE, OPEN_SAMPLE), |ui| {
                 widgets::fitted_menu(ui, |ui| {
                     for sample in Sample::ALL {
-                        let response = ui
-                            .button(sample.title())
+                        let response = widgets::menu_item(ui, icons::SAMPLE, sample.title(), None)
                             .on_hover_text(sample.description());
                         if response.clicked() {
                             chosen.push(Command::OpenSample(sample));

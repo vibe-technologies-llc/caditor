@@ -6,7 +6,7 @@ use egui::{Id, KeyboardShortcut, Label, Ui};
 pub use crate::themes::{Accent, Appearance, GridColour, Theme, ViewChoice};
 use crate::{
     appearance::{self, MAX_SCALE, MIN_SCALE, SCALE_STEP, SPACE_M, SPACE_S},
-    body_appearance::{SWATCHES, color32},
+    body_appearance::{self, SWATCHES, color32},
     colour_selector,
     commands::{Command, Keymap},
     defender,
@@ -981,29 +981,26 @@ fn new_models(
                 }
                 Some(name) => templates::title(name).into(),
             };
-            let combo = egui::ComboBox::from_id_salt("default-template")
-                .selected_text(selected)
-                .show_ui(ui, |ui| {
-                    let empty = widgets::menu_option(ui, current.is_none(), EMPTY_MODEL)
-                        .on_hover_text("New model starts with nothing in it");
-                    if empty.clicked() && current.is_some() {
-                        change(command, PreferenceChange::DefaultTemplate(None));
+            let combo = widgets::combo("default-template", selected).show(ui, |ui| {
+                let empty = widgets::menu_option(ui, current.is_none(), EMPTY_MODEL)
+                    .on_hover_text("New model starts with nothing in it");
+                if empty.clicked() && current.is_some() {
+                    change(command, PreferenceChange::DefaultTemplate(None));
+                }
+                for name in templates.names() {
+                    let chosen = current == Some(name);
+                    let response = widgets::menu_option(ui, chosen, &templates::title(name))
+                        .on_hover_text(format!(
+                            "New model starts as a copy of the template {name}"
+                        ));
+                    if response.clicked() && !chosen {
+                        change(
+                            command,
+                            PreferenceChange::DefaultTemplate(Some(name.to_owned())),
+                        );
                     }
-                    for name in templates.names() {
-                        let chosen = current == Some(name);
-                        let response = widgets::menu_option(ui, chosen, &templates::title(name))
-                            .on_hover_text(format!(
-                                "New model starts as a copy of the template {name}"
-                            ));
-                        if response.clicked() && !chosen {
-                            change(
-                                command,
-                                PreferenceChange::DefaultTemplate(Some(name.to_owned())),
-                            );
-                        }
-                    }
-                });
-            widgets::tie_to_caption(ui, &combo.response);
+                }
+            });
             if missing {
                 combo.response.on_hover_text(
                     "This template is no longer in the templates folder, so New model starts \
@@ -1039,7 +1036,7 @@ fn tips(ui: &mut Ui, preferences: &Preferences, command: &mut Option<Preferences
     section(ui, "Tips", "tips", None, |ui| {
         widgets::property(ui, "Getting started", |ui| {
             let mut shown = onboarding.hints;
-            if ui.checkbox(&mut shown, "Show tips in the view").changed() {
+            if widgets::checkbox(ui, &mut shown, "Show tips in the view").changed() {
                 change(command, PreferenceChange::ShowHints(shown));
             }
         });
@@ -1087,11 +1084,7 @@ fn sample(look: &Look, appearance: &Appearance) -> ThemeSample {
         accent: tokens.accent,
         canvas: skin.canvas.colour(),
         grid: scene_palette::shown_grid(skin.grid, contrast, skin.canvas),
-        body: egui::Color32::from_rgb(
-            crate::body_appearance::DEFAULT_COLOUR.red,
-            crate::body_appearance::DEFAULT_COLOUR.green,
-            crate::body_appearance::DEFAULT_COLOUR.blue,
-        ),
+        body: color32(body_appearance::DEFAULT_COLOUR),
         edge: scene_palette::on_canvas(palette.body_edge, skin.canvas),
     }
 }
@@ -1344,8 +1337,7 @@ fn appearance(
         });
         widgets::property(ui, "Contrast", |ui| {
             let mut high_contrast = current.high_contrast;
-            if ui
-                .checkbox(&mut high_contrast, "High contrast")
+            if widgets::checkbox(ui, &mut high_contrast, "High contrast")
                 .on_hover_text("Stronger text, outlined buttons and a bright focus outline")
                 .changed()
             {
@@ -1428,7 +1420,7 @@ fn navigation(ui: &mut Ui, preferences: &Preferences, command: &mut Option<Prefe
         });
         widgets::property(ui, "Scrolling", |ui| {
             let mut invert = navigation.invert_zoom;
-            if ui.checkbox(&mut invert, "Scroll up to zoom out").changed() {
+            if widgets::checkbox(ui, &mut invert, "Scroll up to zoom out").changed() {
                 change(command, PreferenceChange::InvertZoom(invert));
             }
         });

@@ -15,7 +15,7 @@ use crate::{
     widgets::{self, DialogWidth, Tone},
 };
 
-const LIST_HEIGHT: f32 = 320.0;
+const LIST_HEIGHT: widgets::ListHeight = widgets::ListHeight::Tall;
 pub const TITLE: &str = "Version history";
 pub const ANOTHER_BEING_CHANGED: &str = "Another version is being changed";
 const DAMAGED: &str = "This version is damaged inside the file, so it cannot be restored. The \

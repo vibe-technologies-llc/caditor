@@ -1,67 +1,74 @@
 use std::{f64::consts::TAU, ops::RangeInclusive, sync::Arc, time::Duration};
 
 use egui::{
-    Align, Align2, AtomExt, Button, Color32, CornerRadius, CursorIcon, FocusDirection, Frame,
-    Galley, Grid, Id, Key, Label, Layout, Margin, Modal, Modifiers, Popup, Rect, Response,
-    RichText, ScrollArea, Sense, Sides, Slider, Stroke, StrokeKind, TextStyle, TextWrapMode, Ui,
-    Vec2, Widget, WidgetInfo, WidgetText, WidgetType,
+    Align, Align2, AsIdSalt, AtomExt, Button, Checkbox, Color32, ComboBox, CornerRadius,
+    CursorIcon, FocusDirection, Frame, Galley, Grid, Id, InnerResponse, Key, Label, Layout, Margin,
+    Modal, Modifiers, Painter, Popup, RadioButton, Rect, Response, RichText, ScrollArea, Sense,
+    Sides, Slider, Stroke, StrokeKind, TextStyle, TextWrapMode, Ui, Vec2, Widget, WidgetInfo,
+    WidgetText, WidgetType,
     accesskit::{Live, Role},
     collapsing_header::CollapsingState,
     emath::lerp,
-    pos2, vec2,
+    pos2,
+    scroll_area::ScrollBarVisibility,
+    vec2,
 };
 
 use crate::{
     appearance::{
-        self, BORDER_WIDTH, CARD_RADIUS, CONTROL_HEIGHT, DIALOG_MARGIN, FOCUS_WIDTH, ICON_SIZE,
-        SECTION, SMALL_SIZE, SPACE_S, SPACE_XS, TOOL_ICON_SIZE, Tokens, WIDGET_RADIUS,
+        self, BORDER_WIDTH, CARD_RADIUS, CONTROL_HEIGHT, DIALOG_MARGIN, FOCUS_GAP, FOCUS_WIDTH,
+        ICON_SIZE, SECTION, SMALL_RADIUS, SMALL_SIZE, SPACE_L, SPACE_M, SPACE_S, SPACE_SM,
+        SPACE_XS, TOOL_ICON_SIZE, Tokens, WIDGET_RADIUS,
     },
-    fonts, icons, window_frame,
+    fonts,
+    guide::Page,
+    guide_panel, icons,
+    layout::RightPanel,
+    window_frame,
 };
 
-const DIALOG_EDGE: f32 = 8.0;
+const DIALOG_EDGE: f32 = SPACE_M;
 const MIN_DIALOG_WIDTH: f32 = 240.0;
 const LIST_SCREEN_SHARE: f32 = 0.4;
 const MIN_LIST_HEIGHT: f32 = 96.0;
 const MIN_MENU_SHARE: f32 = 0.5;
 pub const FIELD_WIDTH: f32 = 120.0;
-const PROPERTY_SPACING: [f32; 2] = [12.0, 8.0];
+const PROPERTY_SPACING: [f32; 2] = [SPACE_L, SPACE_M];
 const CAPTION_WIDTH: f32 = 84.0;
-const CARD_MARGIN: i8 = 10;
-const CALLOUT_MARGIN: Margin = Margin::symmetric(10, 8);
-const PILL_MARGIN: Margin = Margin::symmetric(8, 2);
+const CARD_MARGIN: Margin = appearance::margin(SPACE_M, SPACE_M);
+const CALLOUT_MARGIN: Margin = appearance::margin(SPACE_M, SPACE_M);
+const PILL_MARGIN: Margin = appearance::margin(SPACE_M, SPACE_XS);
 const PILL_RADIUS: u8 = 10;
-const PILL_ICON_GAP: f32 = 4.0;
+const PILL_ICON_GAP: f32 = SPACE_S;
 const BUTTON_PILL_OUTLINE: f32 = 0.5;
-const TOOL_PADDING: Vec2 = vec2(6.0, 5.0);
+const TOOL_PADDING: Vec2 = vec2(SPACE_SM, SPACE_S);
 const TOOL_MIN_WIDTH: f32 = 46.0;
-const TOOL_LABEL_GAP: f32 = 2.0;
+const TOOL_LABEL_GAP: f32 = SPACE_XS;
 const SELECTED_WIDTH: f32 = 1.0;
-pub const COMPACT_TOOL_GAP: f32 = 2.0;
-const FOCUS_GAP: f32 = 2.0;
+pub const COMPACT_TOOL_GAP: f32 = SPACE_XS;
 pub const SPINNER_FRAME: Duration = Duration::from_millis(66);
 const SPINNER_STROKE: f32 = 3.0;
 const SPINNER_INSET: f32 = 2.0;
 const SPINNER_SWEEP_DEGREES: f64 = 240.0;
 const SPINNER_POINTS: RangeInclusive<u32> = 8..=128;
 const SWATCH_INSET: f32 = 3.0;
-const SECTION_BAND_MARGIN: Margin = Margin::symmetric(2, 2);
+const SECTION_BAND_MARGIN: Margin = appearance::margin(SPACE_XS, SPACE_XS);
 const SWATCH_CHOSEN_WIDTH: f32 = 2.0;
-const SEGMENT_INSET: i8 = 2;
+const SEGMENT_INSET: i8 = SPACE_XS as i8;
 const KEY_CAP_MARGIN: Margin = Margin::symmetric(5, 1);
-const KEY_CAP_RADIUS: u8 = 4;
-const EMPTY_STATE_MARGIN: Margin = Margin::symmetric(4, 6);
+const EMPTY_STATE_MARGIN: Margin = appearance::margin(SPACE_S, SPACE_SM);
 const MIN_CORNER_BUTTON_SIDE: f32 = 14.0;
 const COMPACT_CORNER_SIDE: f32 = 11.0;
 const NOTCH_INSET: f32 = 2.5;
-const DIALOG_FOOTER_GAP: f32 = 14.0;
+const DIALOG_FOOTER_GAP: f32 = SPACE_L;
 const UNDERLINE_WIDTH: f32 = 1.0;
-const TAB_PADDING: egui::Vec2 = vec2(10.0, 6.0);
-const TAB_ICON_GAP: f32 = 6.0;
-const TAB_GAP: f32 = 2.0;
+const TAB_PADDING: egui::Vec2 = vec2(SPACE_M, SPACE_SM);
+const TAB_ICON_GAP: f32 = SPACE_SM;
+const TAB_GAP: f32 = SPACE_XS;
 const TAB_UNDERLINE: f32 = 2.0;
 const CAPTION_KEY: &str = "property-caption";
 const PANEL_HEADER_WIDTH: &str = "panel-header-width";
+const PANEL_FOOTER: &str = "panel-footer";
 const DIALOG_BODY_KEY: &str = "dialog-body";
 const CAPTION_ROOM_KEY: &str = "property-caption-room";
 const MIN_SLIDER_WIDTH: f32 = 40.0;
@@ -330,7 +337,7 @@ pub struct ThemeSample {
 
 pub const THEME_CARD_WIDTH: f32 = 128.0;
 const THEME_SAMPLE_HEIGHT: f32 = 62.0;
-const THEME_CARD_PADDING: f32 = 6.0;
+const THEME_CARD_PADDING: f32 = SPACE_SM;
 const THEME_CARD_CHOSEN_WIDTH: f32 = 2.0;
 const SAMPLE_BAR: f32 = 9.0;
 const SAMPLE_SIDE_SHARE: f32 = 0.38;
@@ -668,10 +675,14 @@ pub fn danger_button(text: impl Into<String>) -> EmphasizedButton {
 
 pub fn paint_focus_ring(ui: &Ui, rect: Rect) {
     let focus = appearance::tokens(ui).focus;
-    ui.painter().rect_stroke(
+    paint_focus_ring_in(ui.painter(), rect, f32::from(WIDGET_RADIUS), focus);
+}
+
+pub fn paint_focus_ring_in(painter: &Painter, rect: Rect, radius: f32, colour: Color32) {
+    painter.rect_stroke(
         rect,
-        CornerRadius::same(WIDGET_RADIUS + FOCUS_GAP as u8),
-        Stroke::new(FOCUS_WIDTH, focus),
+        radius + FOCUS_GAP,
+        Stroke::new(FOCUS_WIDTH, colour),
         StrokeKind::Outside,
     );
 }
@@ -749,11 +760,10 @@ fn segmented_menu(ui: &mut Ui, segments: &[Segment<'_>], selected: usize) -> Opt
     let mut chosen = None;
     let current = segments.get(selected).map_or("", |segment| segment.label);
     let salt: Vec<&str> = segments.iter().map(|segment| segment.label).collect();
-    let combo = egui::ComboBox::from_id_salt(("segmented", salt))
-        .selected_text(current)
-        .wrap_mode(TextWrapMode::Truncate)
-        .width(ui.available_width())
-        .show_ui(ui, |ui| {
+    let width = ui.available_width();
+    combo(("segmented", salt), current)
+        .width(width)
+        .show(ui, |ui| {
             for (index, segment) in segments.iter().enumerate() {
                 let response = ui
                     .add_enabled_ui(segment.refusal.is_none(), |ui| {
@@ -766,7 +776,6 @@ fn segmented_menu(ui: &mut Ui, segments: &[Segment<'_>], selected: usize) -> Opt
                 }
             }
         });
-    tie_to_caption(ui, &combo.response);
     chosen
 }
 
@@ -824,7 +833,7 @@ pub fn key_cap(ui: &mut Ui, keys: &str) -> Response {
             Frame::new()
                 .fill(tokens.button)
                 .stroke(Stroke::new(BORDER_WIDTH, tokens.border))
-                .corner_radius(CornerRadius::same(KEY_CAP_RADIUS))
+                .corner_radius(CornerRadius::same(SMALL_RADIUS))
                 .inner_margin(KEY_CAP_MARGIN)
                 .show(ui, |ui| {
                     ui.add(
@@ -929,6 +938,74 @@ pub fn panel_header<R>(
         };
     remember_width(ui, width_id, heading_width + spacing + actions_width);
     inner
+}
+
+pub struct PanelTitle<'a> {
+    pub glyph: &'a str,
+    pub title: &'a str,
+    pub close: &'a str,
+    pub help: Option<Page>,
+}
+
+pub struct SidePanel<H, R> {
+    pub closed: bool,
+    pub actions: H,
+    pub inner: R,
+}
+
+pub fn side_panel<H, R>(
+    ui: &mut Ui,
+    room: f32,
+    panel: RightPanel,
+    title: &PanelTitle<'_>,
+    actions: impl FnOnce(&mut Ui) -> H,
+    add: impl FnOnce(&mut Ui) -> R,
+) -> SidePanel<H, R> {
+    side_panel_parts(ui, room, panel, title, actions, |ui| {
+        panel_scroll(ui, panel.id, add)
+    })
+}
+
+pub fn side_panel_parts<H, R>(
+    ui: &mut Ui,
+    room: f32,
+    panel: RightPanel,
+    title: &PanelTitle<'_>,
+    actions: impl FnOnce(&mut Ui) -> H,
+    add: impl FnOnce(&mut Ui) -> R,
+) -> SidePanel<H, R> {
+    panel.show(ui, room, |ui| {
+        ui.add_space(SPACE_S);
+        let (closed, actions) = panel_header(ui, title.glyph, title.title, |ui| {
+            let closed = icon_button(ui, icons::CLOSE, title.close).clicked();
+            if let Some(page) = title.help {
+                guide_panel::help_button(ui, page);
+            }
+            (closed, actions(ui))
+        });
+        ui.add_space(SPACE_S);
+        SidePanel {
+            closed,
+            actions,
+            inner: add(ui),
+        }
+    })
+}
+
+pub fn panel_footer<R>(ui: &mut Ui, id: &str, add: impl FnOnce(&mut Ui) -> R) -> R {
+    egui::Panel::bottom(Id::new(id).with(PANEL_FOOTER))
+        .show_separator_line(false)
+        .show(ui, add)
+        .inner
+}
+
+pub fn panel_scroll<R>(ui: &mut Ui, id_salt: impl AsIdSalt, add: impl FnOnce(&mut Ui) -> R) -> R {
+    ScrollArea::vertical()
+        .id_salt(id_salt)
+        .auto_shrink([false, true])
+        .scroll_bar_visibility(ScrollBarVisibility::AlwaysVisible)
+        .show(ui, add)
+        .inner
 }
 
 fn primary_action_key() -> Id {
@@ -1214,7 +1291,7 @@ pub fn card<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
         .fill(tokens.raised)
         .stroke(Stroke::new(BORDER_WIDTH, tokens.border))
         .corner_radius(CornerRadius::same(CARD_RADIUS))
-        .inner_margin(Margin::same(CARD_MARGIN))
+        .inner_margin(CARD_MARGIN)
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             add(ui)
@@ -1306,12 +1383,17 @@ pub fn property<R>(ui: &mut Ui, text: &str, add: impl FnOnce(&mut Ui) -> R) -> R
 
 pub fn error_row(ui: &mut Ui, text: &str) {
     ui.label("");
+    error_text(ui, text);
+    ui.end_row();
+}
+
+pub fn error_text(ui: &mut Ui, text: &str) -> Response {
     let error = ui.visuals().error_fg_color;
     ui.horizontal_wrapped(|ui| {
         icon_label(ui, icons::FAILED, error);
         ui.colored_label(error, text);
-    });
-    ui.end_row();
+    })
+    .response
 }
 
 pub fn choose_in_view(ui: &mut Ui, choosing: bool, waiting: &str, hover: &str) -> bool {
@@ -2032,8 +2114,26 @@ pub fn fitting_width(ctx: &egui::Context, wanted: f32) -> f32 {
     wanted.min(room).max(MIN_DIALOG_WIDTH)
 }
 
-pub fn list_height(ctx: &egui::Context, wanted: f32) -> f32 {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ListHeight {
+    Short,
+    Medium,
+    Tall,
+}
+
+impl ListHeight {
+    pub fn points(self) -> f32 {
+        match self {
+            Self::Short => 160.0,
+            Self::Medium => 240.0,
+            Self::Tall => 360.0,
+        }
+    }
+}
+
+pub fn list_height(ctx: &egui::Context, wanted: ListHeight) -> f32 {
     wanted
+        .points()
         .min(ctx.content_rect().height() * LIST_SCREEN_SHARE)
         .max(MIN_LIST_HEIGHT)
 }
@@ -2065,6 +2165,67 @@ pub fn footer_split<T>(
             .inner;
         ended.or(started)
     })
+}
+
+pub fn checkbox(ui: &mut Ui, checked: &mut bool, label: impl Into<String>) -> Response {
+    ui.add(Checkbox::new(checked, label.into()))
+}
+
+pub fn unlabelled_checkbox(ui: &mut Ui, checked: &mut bool, name: &str) -> Response {
+    let response = ui.add(Checkbox::new(checked, ""));
+    let (enabled, selected) = (response.enabled(), *checked);
+    response.widget_info(|| WidgetInfo::selected(WidgetType::Checkbox, enabled, selected, name));
+    response
+}
+
+pub fn unlabelled_radio(ui: &mut Ui, selected: bool, name: &str) -> Response {
+    let response = ui.add(RadioButton::new(selected, ""));
+    let enabled = response.enabled();
+    response.widget_info(|| WidgetInfo::selected(WidgetType::RadioButton, enabled, selected, name));
+    response
+}
+
+pub struct Combo<H> {
+    id_salt: H,
+    selected: WidgetText,
+    width: Option<f32>,
+    hover: Option<String>,
+}
+
+pub fn combo<H: AsIdSalt>(id_salt: H, selected: impl Into<WidgetText>) -> Combo<H> {
+    Combo {
+        id_salt,
+        selected: selected.into(),
+        width: None,
+        hover: None,
+    }
+}
+
+impl<H: AsIdSalt> Combo<H> {
+    pub fn width(mut self, width: f32) -> Self {
+        self.width = Some(width);
+        self
+    }
+
+    pub fn hover(mut self, text: impl Into<String>) -> Self {
+        self.hover = Some(text.into());
+        self
+    }
+
+    pub fn show<R>(self, ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> InnerResponse<Option<R>> {
+        let mut combo = ComboBox::from_id_salt(self.id_salt)
+            .selected_text(self.selected)
+            .wrap_mode(TextWrapMode::Truncate);
+        if let Some(width) = self.width {
+            combo = combo.width(width);
+        }
+        let shown = combo.show_ui(ui, add);
+        tie_to_caption(ui, &shown.response);
+        match self.hover {
+            Some(hover) => InnerResponse::new(shown.inner, shown.response.on_hover_text(hover)),
+            None => shown,
+        }
+    }
 }
 
 pub fn menu_option(ui: &mut Ui, chosen: bool, title: &str) -> Response {

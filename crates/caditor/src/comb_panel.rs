@@ -1,14 +1,14 @@
-use egui::{Label, ScrollArea, Slider, TextWrapMode, Ui};
+use egui::{Label, Slider, TextWrapMode, Ui};
 
 use crate::{
     appearance::{SPACE_M, SPACE_S},
     comb::{self, Comb, CombTool, Continuity},
     guide::Page,
-    guide_panel, icons,
+    icons,
     layout::RightPanel,
     model::Model,
     units::Units,
-    widgets::{self, Tone},
+    widgets::{self, PanelTitle, Tone},
 };
 
 pub const TITLE: &str = "Curvature comb";
@@ -25,8 +25,12 @@ pub const SCALE: &str = "Scale";
 pub const JOINTS: &str = "Where curves meet";
 const PANEL: RightPanel = RightPanel {
     id: "curvature-comb",
-    width: 300.0,
-    least: 220.0,
+};
+const HEADER: PanelTitle<'static> = PanelTitle {
+    glyph: icons::CURVATURE_COMB,
+    title: TITLE,
+    close: CLOSE,
+    help: Some(Page::CurvatureComb),
 };
 const MAX_LISTED: usize = 12;
 const APPROXIMATELY: &str = "≈ ";
@@ -141,16 +145,14 @@ fn joints(ui: &mut Ui, units: Units, comb: &Comb) {
 }
 
 pub fn show(ui: &mut Ui, model: &Model, tool: &mut CombTool, comb: &Comb, room: f32) {
-    let mut close = false;
     let units = model.units();
-    PANEL.show(ui, room, |ui| {
-        ui.add_space(SPACE_S);
-        widgets::panel_header(ui, icons::CURVATURE_COMB, TITLE, |ui| {
-            close = widgets::icon_button(ui, icons::CLOSE, CLOSE).clicked();
-            guide_panel::help_button(ui, Page::CurvatureComb);
-        });
-        ui.add_space(SPACE_S);
-        ScrollArea::vertical().show(ui, |ui| {
+    let panel = widgets::side_panel(
+        ui,
+        room,
+        PANEL,
+        &HEADER,
+        |_| {},
+        |ui| {
             ui.label(widgets::muted(ABOUT, ui));
             ui.add_space(SPACE_S);
             settings(ui, tool);
@@ -175,9 +177,9 @@ pub fn show(ui: &mut Ui, model: &Model, tool: &mut CombTool, comb: &Comb, room: 
                 curves(ui, units, comb);
             }
             joints(ui, units, comb);
-        });
-    });
-    if close {
+        },
+    );
+    if panel.closed {
         tool.toggle();
     }
 }

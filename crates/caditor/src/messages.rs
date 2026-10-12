@@ -9,7 +9,7 @@ use crate::{
 
 pub const TITLE: &str = "Recent messages";
 pub const EMPTY: &str = "Nothing has been reported yet.";
-const LIST_HEIGHT: f32 = 320.0;
+const LIST_HEIGHT: widgets::ListHeight = widgets::ListHeight::Tall;
 
 pub fn dialog(ctx: &egui::Context, model: &Model) -> bool {
     let response = widgets::dialog(ctx, "messages", TITLE, DialogWidth::Medium, |ui| {
@@ -22,7 +22,7 @@ pub fn dialog(ctx: &egui::Context, model: &Model) -> bool {
         let tokens = appearance::tokens(ui);
         let mut any = false;
         ScrollArea::vertical()
-            .max_height(LIST_HEIGHT)
+            .max_height(widgets::list_height(ui.ctx(), LIST_HEIGHT))
             .auto_shrink([false, true])
             .show(ui, |ui| {
                 for recorded in model.recorded_notices() {

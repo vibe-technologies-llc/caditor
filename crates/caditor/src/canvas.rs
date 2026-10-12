@@ -6,9 +6,13 @@ use egui::{
 };
 
 use crate::{
-    appearance::CONTROL_HEIGHT,
+    appearance::{
+        self, BORDER_WIDTH, CONTROL_HEIGHT, FOCUS_GAP, SMALL_RADIUS, SPACE_L, SPACE_M, SPACE_S,
+        SPACE_SM, SPACE_XL, SPACE_XS, WIDGET_RADIUS,
+    },
     fonts,
     scene_palette::{Canvas, Contrast},
+    widgets,
 };
 
 const CONTRAST_KEY: &str = "canvas-contrast";
@@ -128,32 +132,30 @@ impl Chrome {
     }
 }
 
-pub const SMALL_SIZE: f32 = 11.5;
-pub const BODY_SIZE: f32 = 13.0;
-pub const TITLE_SIZE: f32 = 15.0;
-pub const ICON_SIZE: f32 = 14.0;
-pub const PADDING: Vec2 = vec2(5.0, 2.0);
-pub const RADIUS: f32 = 3.0;
-pub const MARGIN: f32 = 12.0;
+pub const SMALL_SIZE: f32 = appearance::SMALL_SIZE;
+pub const BODY_SIZE: f32 = appearance::BODY_SIZE;
+pub const TITLE_SIZE: f32 = appearance::TITLE_SIZE;
+pub const ICON_SIZE: f32 = appearance::ICON_SIZE;
+pub const PADDING: Vec2 = vec2(SPACE_S, SPACE_XS);
+pub const RADIUS: f32 = WIDGET_RADIUS as f32;
+pub const MARGIN: f32 = SPACE_L;
 pub const BUTTON_HEIGHT: f32 = CONTROL_HEIGHT;
 
-const HINT_PADDING: Vec2 = vec2(10.0, 7.0);
-const HINT_RADIUS: f32 = 6.0;
-const HINT_SIZE: f32 = 12.5;
-const KEY_PADDING: Vec2 = vec2(6.0, 2.0);
-const KEY_RADIUS: f32 = 4.0;
-const KEY_EDGE_WIDTH: f32 = 1.0;
-const ATOM_GAP: f32 = 6.0;
-const ITEM_GAP: f32 = 18.0;
-const ROW_GAP: f32 = 6.0;
+const HINT_PADDING: Vec2 = vec2(SPACE_M, SPACE_SM);
+const HINT_RADIUS: f32 = WIDGET_RADIUS as f32;
+const HINT_SIZE: f32 = appearance::LABEL_SIZE;
+const KEY_PADDING: Vec2 = vec2(SPACE_SM, SPACE_XS);
+const KEY_RADIUS: f32 = SMALL_RADIUS as f32;
+const EDGE_WIDTH: f32 = BORDER_WIDTH;
+const ATOM_GAP: f32 = SPACE_SM;
+const ITEM_GAP: f32 = SPACE_XL;
+const ROW_GAP: f32 = SPACE_SM;
 const MIN_WRAPPED_ACTION: f32 = 48.0;
 const HINT_SEPARATOR: &str = "   ";
 const KEY_SEPARATOR: &str = ": ";
 const ALTERNATIVE: &str = " or ";
 const ALTERNATIVE_WORD: &str = "or";
-const BUTTON_GAP: f32 = 5.0;
-const FOCUS_GAP: f32 = 2.0;
-const FOCUS_WIDTH: f32 = 2.0;
+const BUTTON_GAP: f32 = SPACE_SM;
 const CUBE_DARKEST_SHADE: f64 = 0.75;
 const CUBE_SHADE_RANGE: f64 = 0.35;
 
@@ -495,7 +497,7 @@ impl Hints {
                 rect,
                 HINT_RADIUS,
                 chrome.backdrop(contrast),
-                Stroke::new(KEY_EDGE_WIDTH, chrome.control_edge),
+                Stroke::new(EDGE_WIDTH, chrome.control_edge),
                 StrokeKind::Inside,
             );
         }
@@ -531,7 +533,7 @@ fn paint_atom(painter: &Painter, rect: Rect, atom: Atom) {
             rect,
             KEY_RADIUS,
             chrome.key_cap,
-            Stroke::new(KEY_EDGE_WIDTH, chrome.key_cap_edge),
+            Stroke::new(EDGE_WIDTH, chrome.key_cap_edge),
             StrokeKind::Inside,
         );
         painter.galley(rect.min + KEY_PADDING, atom.galley, chrome.text);
@@ -567,7 +569,7 @@ fn control(ui: &Ui, rect: Rect, id: Id, glyph: &str, text: Option<&str>, name: &
         rect,
         RADIUS,
         fill,
-        Stroke::new(KEY_EDGE_WIDTH, chrome.control_edge),
+        Stroke::new(EDGE_WIDTH, chrome.control_edge),
         StrokeKind::Inside,
     );
     let glyph = painter.layout_no_wrap(glyph.to_owned(), icon(), chrome.text);
@@ -584,18 +586,9 @@ fn control(ui: &Ui, rect: Rect, id: Id, glyph: &str, text: Option<&str>, name: &
         painter.galley(Pos2::new(label_left, label_top), label, chrome.text);
     }
     if response.has_focus() {
-        paint_focus_ring(painter, rect);
+        widgets::paint_focus_ring_in(painter, rect.expand(FOCUS_GAP), RADIUS, chrome.focus);
     }
     response
-}
-
-pub fn paint_focus_ring(painter: &Painter, rect: Rect) {
-    painter.rect_stroke(
-        rect.expand(FOCUS_GAP),
-        RADIUS + FOCUS_GAP,
-        Stroke::new(FOCUS_WIDTH, chrome(painter.ctx()).focus),
-        StrokeKind::Outside,
-    );
 }
 
 #[cfg(test)]
