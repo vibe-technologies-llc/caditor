@@ -1,12 +1,12 @@
 use caditor_document::{
     AxisReference, AxisSide, BodyOperation, Document, Extrude, ExtrudeEnd, ExtrudeExtent, Feature,
     FeatureId, PlaneReference, RegionChoice, Revolve, RevolveAxis, RevolveExtent, SolidFeature,
-    SolidStart, Transaction, Wall, capitalized, describe_axis, describe_origin, describe_plane,
-    displayed_axis,
+    SolidStart, Sweep, SweepPath, Transaction, Wall, capitalized, describe_axis, describe_origin,
+    describe_plane, displayed_axis,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_geometry::Point2;
-use caditor_kernel::WallSide;
+use caditor_kernel::{SweepOrientation, WallSide};
 use caditor_sketch::{Entity, EntityId, Reference};
 use egui::{Id, Ui};
 
@@ -27,7 +27,7 @@ use crate::{
     selection::{self, Pickable, Selection},
     sketch_placement::{self, FaceChoice},
     solid_tools::{self, DEFAULT_BACKWARD_ANGLE, DEFAULT_PARTIAL_ANGLE},
-    widgets,
+    sweep_tools, widgets,
 };
 
 const EDIT_SKETCH_HOVER: &str = "Show and edit the sketch this sweeps, to change its profile";
@@ -39,6 +39,16 @@ pub const KEEP_OTHER_SIDE: &str = "Keep the other side of the axis";
 pub const ALSO_CUTS: &str = "Also cuts";
 pub const ADD_CUT_BODY: &str = "Add another body";
 const START_OFFSET: &str = "Start offset";
+pub const PATH: &str = "Path";
+pub const ORIENTATION: &str = "Profile";
+pub const SQUARE_TO_PATH: &str = "Square to path";
+pub const PARALLEL: &str = "Parallel";
+const SQUARE_TO_PATH_HOVER: &str =
+    "Turn the profile with the path so it keeps its angle to the path, as a pipe bends";
+const PARALLEL_HOVER: &str =
+    "Keep the profile parallel to its sketch, only moving it along the path";
+const FOLLOW_SELECTED_PATH: &str = "Follow the selected curves or edges instead";
+const CLEAR_PATH: &str = "Clear the path";
 pub const END_OFFSET: &str = "Past the face";
 const FORWARD_END_OFFSET: &str = "Forward past face";
 const BACKWARD_END_OFFSET: &str = "Backward past face";
@@ -146,6 +156,7 @@ pub fn captioned(solid: &SolidFeature) -> Vec<(&'static str, &Expression)> {
                 vec![(FORWARD_ANGLE, forward), (BACKWARD_ANGLE, backward)]
             }
         },
+        SolidFeature::Sweep(_) => Vec::new(),
     }
 }
 
@@ -1341,6 +1352,67 @@ impl Panel<'_> {
         ui.end_row();
     }
 
+    fn path_row(&mut self, ui: &mut Ui, sweep: &Sweep) {
+        let id = self.id();
+        let shown = if sweep.path.is_empty() {
+            Shown::NoneChosen
+        } else {
+            Shown::Named(sweep_tools::path_words(self.document(), &sweep.path))
+        };
+        let picker = Picker {
+            feature: id,
+            slot: Slot::SweepPath,
+            selected: feature_fields::offered_change(
+                ui.ctx(),
+                self.model,
+                self.selection,
+                (id, Slot::SweepPath),
+                || sweep_tools::selected_change(self.model, self.selection, id, sweep),
+            ),
+            hover: FOLLOW_SELECTED_PATH,
+        };
+        let removed = feature_fields::reference_row(
+            ui,
+            self.model,
+            PATH,
+            shown,
+            picker,
+            (!sweep.path.is_empty()).then_some(CLEAR_PATH),
+            self.actions,
+        );
+        if removed {
+            self.apply(SolidFeature::Sweep(Sweep {
+                path: SweepPath::Unchosen,
+                ..sweep.clone()
+            }));
+        }
+    }
+
+    fn orientation_row(&mut self, ui: &mut Ui, sweep: &Sweep) {
+        let with = |orientation| {
+            (sweep.orientation != orientation).then(|| {
+                self.change(SolidFeature::Sweep(Sweep {
+                    orientation,
+                    ..sweep.clone()
+                }))
+            })
+        };
+        let segments = vec![
+            Segment {
+                label: SQUARE_TO_PATH,
+                hover: SQUARE_TO_PATH_HOVER,
+                change: with(SweepOrientation::Square),
+            },
+            Segment {
+                label: PARALLEL,
+                hover: PARALLEL_HOVER,
+                change: with(SweepOrientation::Parallel),
+            },
+        ];
+        let chosen = feature_fields::segmented_row(ui, ORIENTATION, &self.feature.name, segments);
+        self.actions.extend(chosen);
+    }
+
     fn apply(&mut self, solid: SolidFeature) {
         let change = self.change(solid);
         self.actions
@@ -1635,6 +1707,9 @@ pub fn start_change(
     feature: FeatureId,
     solid: &SolidFeature,
 ) -> Result<Transaction, String> {
+    if let SolidFeature::Sweep(_) = solid {
+        return Err("A sweep starts where its profile is drawn".to_owned());
+    }
     let target = selected_target(model, selection, feature)?;
     if solid.start().and_then(SolidStart::target) == Some(&target) {
         return Err("This feature already starts from the selected face or plane".to_owned());
@@ -1750,6 +1825,11 @@ fn with_sketch(solid: &SolidFeature, sketch: FeatureId) -> SolidFeature {
             },
             ..revolve.clone()
         }),
+        SolidFeature::Sweep(sweep) => SolidFeature::Sweep(Sweep {
+            sketch,
+            regions: RegionChoice::All,
+            ..sweep.clone()
+        }),
     }
 }
 
@@ -1800,6 +1880,7 @@ pub fn show(
         match solid {
             SolidFeature::Extrude(extrude) => panel.extent_row(ui, extrude),
             SolidFeature::Revolve(revolve) => panel.turn_row(ui, revolve),
+            SolidFeature::Sweep(_) => {}
         }
         panel.sketch_row(ui);
         if solid.wall().is_some() {
@@ -1807,13 +1888,20 @@ pub fn show(
         } else {
             panel.regions_row(ui, opened);
         }
-        panel.fill_rows(ui);
         match solid {
             SolidFeature::Extrude(extrude) => {
+                panel.fill_rows(ui);
                 panel.extrude_rows(ui, extrude);
                 panel.taper_row(ui, extrude);
             }
-            SolidFeature::Revolve(revolve) => panel.revolve_rows(ui, revolve),
+            SolidFeature::Revolve(revolve) => {
+                panel.fill_rows(ui);
+                panel.revolve_rows(ui, revolve);
+            }
+            SolidFeature::Sweep(sweep) => {
+                panel.path_row(ui, sweep);
+                panel.orientation_row(ui, sweep);
+            }
         }
         panel.operation_rows(ui);
     });

@@ -20,7 +20,7 @@ use crate::{
     shell_tools,
     sketch_placement::SketchTarget,
     solid_tools::{self, FaceProfile, Sweep},
-    split_face_tools, split_tools, thread_tools,
+    split_face_tools, split_tools, sweep_tools, thread_tools,
     viewport::CHOOSE_PLANE_PROMPT,
     widgets::ToolButton,
 };
@@ -144,6 +144,7 @@ fn group_buttons(
         Group::Sketch => sketch_buttons(ui, model, context, commands, actions),
         Group::Solid => {
             solid_buttons(ui, model, context, commands, actions);
+            sweep_offer(model, context, commands, actions);
             hole_button(ui, model, context, commands, actions);
             primitive_offers(model, context, commands, actions);
             thread_offer(model, context, commands, actions);
@@ -563,6 +564,20 @@ fn shell_button(
             source,
             &Starts::of(model),
         ));
+    }
+}
+
+fn sweep_offer(
+    model: &Model,
+    context: &ToolbarContext<'_>,
+    commands: &mut CommandFrame<'_>,
+    actions: &mut Vec<Action>,
+) {
+    let source = &context.offers.sweep;
+    if commands.invoke(Command::Sweep, source)
+        && let Ok(source) = source
+    {
+        actions.extend(sweep_tools::create_actions(model, source));
     }
 }
 

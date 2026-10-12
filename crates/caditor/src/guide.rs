@@ -51,6 +51,7 @@ pub enum Page {
     FeatureTree,
     Extrude,
     Revolve,
+    Sweep,
     Hole,
     Thread,
     FilletAndChamfer,
@@ -126,6 +127,7 @@ all_variants!(
     FeatureTree,
     Extrude,
     Revolve,
+    Sweep,
     Hole,
     Thread,
     FilletAndChamfer,
@@ -247,6 +249,7 @@ impl Page {
             Self::FeatureTree => "feature-tree",
             Self::Extrude => "extrude",
             Self::Revolve => "revolve",
+            Self::Sweep => "sweep",
             Self::Hole => "hole",
             Self::Thread => "thread",
             Self::FilletAndChamfer => "fillet-and-chamfer",
@@ -328,6 +331,7 @@ impl Page {
             Self::FeatureTree => include_str!("../guide/feature-tree.md"),
             Self::Extrude => include_str!("../guide/extrude.md"),
             Self::Revolve => include_str!("../guide/revolve.md"),
+            Self::Sweep => include_str!("../guide/sweep.md"),
             Self::Hole => include_str!("../guide/hole.md"),
             Self::Thread => include_str!("../guide/thread.md"),
             Self::FilletAndChamfer => include_str!("../guide/fillet-and-chamfer.md"),
@@ -403,6 +407,7 @@ impl Page {
             Self::FeatureTree
             | Self::Extrude
             | Self::Revolve
+            | Self::Sweep
             | Self::Hole
             | Self::Thread
             | Self::FilletAndChamfer
@@ -469,6 +474,7 @@ impl Page {
             FeatureKind::Sketch(_) => Self::Sketches,
             FeatureKind::Solid(SolidFeature::Extrude(_)) => Self::Extrude,
             FeatureKind::Solid(SolidFeature::Revolve(_)) => Self::Revolve,
+            FeatureKind::Solid(SolidFeature::Sweep(_)) => Self::Sweep,
             FeatureKind::Blend(_) => Self::FilletAndChamfer,
             FeatureKind::Shell(_) => Self::Shell,
             FeatureKind::OffsetFace(_) => Self::OffsetFace,

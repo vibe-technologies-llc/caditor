@@ -32,6 +32,7 @@ use crate::{
         CancelToken, Evaluation, Failure, FeatureError, FeatureResult, FixTarget, Inputs,
         SketchResult,
     },
+    sweep::{SWEEP_SHAPE, Sweep, SweepPath, swept},
     tolerance,
     trouble::{self, boolean_trouble},
     values::ParameterValues,
@@ -406,6 +407,7 @@ pub struct Revolve {
 pub enum SolidFeature {
     Extrude(Extrude),
     Revolve(Revolve),
+    Sweep(Sweep),
 }
 
 impl SolidFeature {
@@ -413,6 +415,7 @@ impl SolidFeature {
         match self {
             Self::Extrude(extrude) => extrude.sketch,
             Self::Revolve(revolve) => revolve.sketch,
+            Self::Sweep(sweep) => sweep.sketch,
         }
     }
 
@@ -420,6 +423,7 @@ impl SolidFeature {
         match self {
             Self::Extrude(extrude) => &extrude.regions,
             Self::Revolve(revolve) => &revolve.regions,
+            Self::Sweep(sweep) => &sweep.regions,
         }
     }
 
@@ -427,6 +431,7 @@ impl SolidFeature {
         match self {
             Self::Extrude(extrude) => extrude.operation,
             Self::Revolve(revolve) => revolve.operation,
+            Self::Sweep(sweep) => sweep.operation,
         }
     }
 
@@ -434,6 +439,7 @@ impl SolidFeature {
         match self {
             Self::Extrude(extrude) => &extrude.other_bodies,
             Self::Revolve(revolve) => &revolve.other_bodies,
+            Self::Sweep(sweep) => &sweep.other_bodies,
         }
     }
 
@@ -441,6 +447,7 @@ impl SolidFeature {
         match self {
             Self::Extrude(extrude) => &mut extrude.other_bodies,
             Self::Revolve(revolve) => &mut revolve.other_bodies,
+            Self::Sweep(sweep) => &mut sweep.other_bodies,
         }
     }
 
@@ -454,7 +461,7 @@ impl SolidFeature {
 
     pub fn axis(&self) -> Option<&RevolveAxis> {
         match self {
-            Self::Extrude(_) => None,
+            Self::Extrude(_) | Self::Sweep(_) => None,
             Self::Revolve(revolve) => Some(&revolve.axis),
         }
     }
@@ -462,7 +469,7 @@ impl SolidFeature {
     pub fn direction(&self) -> Option<&AxisReference> {
         match self {
             Self::Extrude(extrude) => extrude.direction.as_deref(),
-            Self::Revolve(_) => None,
+            Self::Revolve(_) | Self::Sweep(_) => None,
         }
     }
 
@@ -488,6 +495,7 @@ impl SolidFeature {
         match self {
             Self::Extrude(extrude) => extrude.start.as_ref(),
             Self::Revolve(revolve) => revolve.start.as_ref(),
+            Self::Sweep(_) => None,
         }
     }
 
@@ -495,13 +503,14 @@ impl SolidFeature {
         match self {
             Self::Extrude(extrude) => extrude.wall.as_deref(),
             Self::Revolve(revolve) => revolve.wall.as_deref(),
+            Self::Sweep(_) => None,
         }
     }
 
     pub fn taper(&self) -> Option<&Expression> {
         match self {
             Self::Extrude(extrude) => extrude.taper.as_deref(),
-            Self::Revolve(_) => None,
+            Self::Revolve(_) | Self::Sweep(_) => None,
         }
     }
 
@@ -509,6 +518,7 @@ impl SolidFeature {
         let ends = match self {
             Self::Extrude(extrude) => extrude.extent.targets(),
             Self::Revolve(revolve) => revolve.extent.target().into_iter().collect(),
+            Self::Sweep(_) => Vec::new(),
         };
         ends.into_iter()
             .chain(self.start().and_then(SolidStart::target))
@@ -518,7 +528,7 @@ impl SolidFeature {
     fn surfaces(&self) -> Vec<&FaceAttachment> {
         match self {
             Self::Extrude(extrude) => extrude.extent.surfaces(),
-            Self::Revolve(_) => Vec::new(),
+            Self::Revolve(_) | Self::Sweep(_) => Vec::new(),
         }
     }
 
@@ -544,6 +554,11 @@ impl SolidFeature {
                     .into_iter()
                     .flat_map(AxisReference::origin_features),
             )
+            .chain(
+                self.path()
+                    .map(SweepPath::origin_features)
+                    .unwrap_or_default(),
+            )
             .collect()
     }
 
@@ -566,13 +581,16 @@ impl SolidFeature {
         match self {
             Self::Extrude(_) => "extrusion",
             Self::Revolve(_) => "revolution",
+            Self::Sweep(_) => SWEEP_SHAPE,
         }
     }
 
     pub fn same_kind(&self, other: &Self) -> bool {
         matches!(
             (self, other),
-            (Self::Extrude(_), Self::Extrude(_)) | (Self::Revolve(_), Self::Revolve(_))
+            (Self::Extrude(_), Self::Extrude(_))
+                | (Self::Revolve(_), Self::Revolve(_))
+                | (Self::Sweep(_), Self::Sweep(_))
         )
     }
 
@@ -591,6 +609,7 @@ impl SolidFeature {
                 expressions.extend(self.wall().map(|wall| &wall.thickness));
                 expressions
             }
+            Self::Sweep(_) => Vec::new(),
         }
     }
 
@@ -629,6 +648,7 @@ impl SolidFeature {
                 RevolveAxis::Model(axis) => axis.heap_size(),
                 RevolveAxis::Sketch(_) => 0,
             },
+            Self::Sweep(sweep) => sweep.path.heap_size(),
         };
         let references = planes + axis;
         chosen + expressions + references + size_of_val(self.other_bodies())
@@ -651,10 +671,29 @@ impl SolidFeature {
         self.model_axis().and_then(AxisReference::sketch)
     }
 
+    pub fn path(&self) -> Option<&SweepPath> {
+        match self {
+            Self::Sweep(sweep) => Some(&sweep.path),
+            Self::Extrude(_) | Self::Revolve(_) => None,
+        }
+    }
+
+    pub fn path_body(&self) -> Option<FeatureId> {
+        self.path().and_then(SweepPath::body)
+    }
+
+    pub fn reference_sketches(&self) -> BTreeSet<FeatureId> {
+        self.axis_sketch()
+            .into_iter()
+            .chain(self.path().and_then(SweepPath::sketch))
+            .collect()
+    }
+
     pub fn features(&self) -> BTreeSet<FeatureId> {
         std::iter::once(self.sketch())
             .chain(self.target_bodies())
-            .chain(self.axis_sketch())
+            .chain(self.reference_sketches())
+            .chain(self.path_body())
             .collect()
     }
 }
@@ -995,15 +1034,15 @@ pub(crate) fn display_regions(profile: &Profile) -> Result<Vec<SketchRegion>, Pr
         .collect())
 }
 
-struct Context<'a> {
-    feature: &'a Feature,
-    sketch_name: String,
+pub(crate) struct Context<'a> {
+    pub(crate) feature: &'a Feature,
+    pub(crate) sketch_name: String,
     sketch_id: FeatureId,
     sketch: &'a Sketch,
 }
 
 impl Context<'_> {
-    fn error(&self, reason: String, remedy: String, fix: FixTarget) -> Failure {
+    pub(crate) fn error(&self, reason: String, remedy: String, fix: FixTarget) -> Failure {
         Failure::Error(Box::new(FeatureError {
             reason,
             remedy,
@@ -1013,11 +1052,11 @@ impl Context<'_> {
         }))
     }
 
-    fn own(&self) -> FixTarget {
+    pub(crate) fn own(&self) -> FixTarget {
         FixTarget::Feature(self.feature.id())
     }
 
-    fn in_sketch(&self) -> FixTarget {
+    pub(crate) fn in_sketch(&self) -> FixTarget {
         FixTarget::Feature(self.sketch_id)
     }
 
@@ -1169,6 +1208,9 @@ pub(crate) fn evaluate(
                 other => angular_extent(&context, other, inputs.parameters)?,
             };
             revolve(&started, turned, axis, extent, raw)
+        }
+        SolidFeature::Sweep(definition) => {
+            Ok(swept(&context, inputs, (&started, &regions), definition)?)
         }
     }
     .map_err(|error| sweep_failure(&context, solid.shape(), &error))?;
@@ -1645,7 +1687,7 @@ fn profile_failure(context: &Context<'_>, error: &ProfileError) -> Failure {
     }
 }
 
-fn sweep_failure(context: &Context<'_>, shape: &str, error: &SweepError) -> Failure {
+pub(crate) fn sweep_failure(context: &Context<'_>, shape: &str, error: &SweepError) -> Failure {
     let sketch = &context.sketch_name;
     match error {
         SweepError::Cancelled(_) => Failure::Cancelled,

@@ -15,11 +15,12 @@ use caditor_document::{
     ParameterValues, Pattern, PatternKind, PlaneRotation, PlaneThrough, PointBy, PointReference,
     PointsPattern, PrincipalAxis, PrincipalGeometry, ProjectionSource, RegionChoice, Remove,
     Revolve, RevolveAxis, RevolveExtent, Rgb, Scale, Shell, SketchFeature, SolidFeature,
-    SolidStart, Split, SplitAlong, SplitCarry, SplitFace, TappedThread, ThreadFamily, ThreadForm,
-    ThreadHand, TurnCentre, Wall, point_instance,
+    SolidStart, Split, SplitAlong, SplitCarry, SplitFace, Sweep, SweepPath, TappedThread,
+    ThreadFamily, ThreadForm, ThreadHand, TurnCentre, Wall, point_instance,
 };
 use caditor_kernel::{
-    EdgeName, EdgeReference, FaceName, FaceOrigin, FaceReference, Solid, VertexName, WallSide,
+    EdgeName, EdgeReference, FaceName, FaceOrigin, FaceReference, Solid, SweepOrientation,
+    VertexName, WallSide,
 };
 use serde::{
     Deserializer,
@@ -48,7 +49,7 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 21] = [
+const KEPT: [(&str, &str); 22] = [
     (
         "journal-1/by-reference.journal",
         "fe98725da8d9df46b19d7cede1474bcfb92bbda00d4de9c890e5bca5d0f2899f",
@@ -100,6 +101,10 @@ const KEPT: [(&str, &str); 21] = [
     (
         "model-1/modelled-threads.caditor",
         "f5ea168f759dd3556843b0360ba687d67c7f36d9dd6ff0a93bd5f4eecaeb8957",
+    ),
+    (
+        "model-1/path-sweeps.caditor",
+        "b28dd7ffcc7c11d879e21bd9325de195e284df80b8f3d914ea2f54ed0466ed61",
     ),
     (
         "model-1/patterns.caditor",
@@ -656,6 +661,7 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
         (model("extents"), saved(&extents_model().0, "Extents")),
         (model("starts"), saved(&starts_model().0, "Starts")),
         (model("sweeps"), saved(&sweeps(), "Sweeps")),
+        (model("path-sweeps"), saved(&path_sweeps(), "Path sweeps")),
         (model("holes"), saved(&holes(), "Holes")),
         (
             model("modelled-threads"),
@@ -926,6 +932,50 @@ fn plain_revolve(sketch: FeatureId, operation: BodyOperation) -> Revolve {
         side: None,
         wall: None,
     }
+}
+
+fn path_sweeps() -> Document {
+    let (mut document, base, _) = solid_model();
+    let sketch = named(&document, "Outline");
+    let mut transaction = document.transaction("Path sweeps");
+    let mut path = Sketch::new(Plane::YZ);
+    let first = path.add_line(Point2::ZERO, Point2::new(0.0, 5.0));
+    let second = path.add_arc(
+        Point2::new(3.0, 5.0),
+        Point2::new(3.0, 8.0),
+        Point2::new(0.0, 5.0),
+    );
+    let path = transaction.add_feature("Path", FeatureKind::from(path));
+    transaction.add_feature(
+        "Along the path",
+        FeatureKind::Solid(SolidFeature::Sweep(Sweep::new(
+            sketch,
+            SweepPath::Curves {
+                sketch: path,
+                curves: vec![first, second],
+            },
+        ))),
+    );
+    transaction.add_feature(
+        "Along an edge",
+        FeatureKind::Solid(SolidFeature::Sweep(Sweep {
+            orientation: SweepOrientation::Parallel,
+            operation: BodyOperation::Remove(base),
+            ..Sweep::new(
+                sketch,
+                SweepPath::Edges {
+                    body: base,
+                    edges: vec![edge(0x5eed)],
+                },
+            )
+        })),
+    );
+    transaction.add_feature(
+        "Unchosen",
+        FeatureKind::Solid(SolidFeature::Sweep(Sweep::new(sketch, SweepPath::Unchosen))),
+    );
+    document.apply(transaction.finish()).unwrap();
+    document
 }
 
 fn sweeps() -> Document {

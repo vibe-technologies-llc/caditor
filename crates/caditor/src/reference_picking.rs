@@ -15,7 +15,7 @@ use crate::{
     pattern_tools::{self, Reference},
     primitive_tools, scale_tools,
     selection::{Pickable, Selection},
-    sketch_pattern_tools, solid_panel, split_face_tools, split_tools, thread_tools,
+    sketch_pattern_tools, solid_panel, split_face_tools, split_tools, sweep_tools, thread_tools,
 };
 
 pub const STOP_HINT: &str = "Esc: stop choosing";
@@ -60,6 +60,7 @@ pub enum Slot {
     HoleEdge(EntityId),
     HoleConcentric(EntityId),
     HoleAdd,
+    SweepPath,
 }
 
 pub const MAX_HELD: usize = 2;
@@ -195,6 +196,11 @@ pub fn prompt(model: &Model, picking: Picking) -> String {
                 .to_owned()
         }
         Slot::ThreadFace => "Click the round face of a bore, shaft or boss to thread".to_owned(),
+        Slot::SweepPath => {
+            "Click the curves of a sketch or the edges of a body to sweep along, again to leave \
+             one out; press Escape when the path is complete"
+                .to_owned()
+        }
         Slot::MeasuredItem(part) => part.prompt().to_owned(),
         Slot::FramePlane => "Click a plane or flat face for its XY plane".to_owned(),
         Slot::PrimitivePlace => {
@@ -283,6 +289,9 @@ pub fn change(
         }
         (Slot::StartPlane, FeatureKind::Solid(solid)) => {
             solid_panel::start_change(model, selection, feature, solid)
+        }
+        (Slot::SweepPath, FeatureKind::Solid(SolidFeature::Sweep(sweep))) => {
+            sweep_tools::path_change(model, selection, feature, sweep)
         }
         (Slot::ExtrudeDirection, FeatureKind::Solid(SolidFeature::Extrude(extrude))) => {
             solid_panel::direction_change(model, selection, feature, extrude)
@@ -398,6 +407,7 @@ pub fn click(model: &Model, picking: Picking, pickable: Pickable) -> Vec<Action>
     }
     selection.toggle(pickable);
     match change(model, picking.feature, picking.slot, &selection) {
+        Ok(transaction) if picking.slot == Slot::SweepPath => vec![Action::Apply(transaction)],
         Ok(transaction) => vec![
             Action::Apply(transaction),
             Action::Editing(EditingCommand::StopPicking),

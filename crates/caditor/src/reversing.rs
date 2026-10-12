@@ -54,6 +54,10 @@ pub fn reversed(feature: &Feature) -> Result<FeatureKind, String> {
             }
             Ok(FeatureKind::Solid(SolidFeature::Revolve(revolve)))
         }
+        FeatureKind::Solid(SolidFeature::Sweep(_)) => Err(refusal(
+            feature,
+            "follows its path from the profile, so it has no direction to reverse",
+        )),
         FeatureKind::Hole(hole) => {
             let mut hole = hole.clone();
             hole.reversed = !hole.reversed;
@@ -201,7 +205,7 @@ pub fn flipped_extrude(extrude: &Extrude) -> Extrude {
     };
     match solid_tools::with_operation(&SolidFeature::Extrude(flipped), operation) {
         SolidFeature::Extrude(switched) => switched,
-        SolidFeature::Revolve(_) => extrude.clone(),
+        SolidFeature::Revolve(_) | SolidFeature::Sweep(_) => extrude.clone(),
     }
 }
 

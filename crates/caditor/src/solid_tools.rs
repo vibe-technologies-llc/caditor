@@ -746,6 +746,7 @@ pub fn with_regions(solid: &SolidFeature, regions: RegionChoice) -> SolidFeature
     match &mut changed {
         SolidFeature::Extrude(extrude) => extrude.regions = regions,
         SolidFeature::Revolve(revolve) => revolve.regions = regions,
+        SolidFeature::Sweep(sweep) => sweep.regions = regions,
     }
     changed
 }
@@ -755,6 +756,7 @@ pub fn with_start(solid: &SolidFeature, start: Option<SolidStart>) -> SolidFeatu
     match &mut changed {
         SolidFeature::Extrude(extrude) => extrude.start = start,
         SolidFeature::Revolve(revolve) => revolve.start = start,
+        SolidFeature::Sweep(_) => {}
     }
     changed
 }
@@ -770,6 +772,7 @@ pub fn with_wall(solid: &SolidFeature, wall: Option<Wall>) -> SolidFeature {
             }
             revolve.wall = wall;
         }
+        SolidFeature::Sweep(_) => {}
     }
     changed
 }
@@ -779,6 +782,7 @@ pub fn with_operation(solid: &SolidFeature, operation: BodyOperation) -> SolidFe
     match &mut changed {
         SolidFeature::Extrude(extrude) => extrude.operation = operation,
         SolidFeature::Revolve(revolve) => revolve.operation = operation,
+        SolidFeature::Sweep(sweep) => sweep.operation = operation,
     }
     let target = operation.target();
     let others = changed.other_bodies_mut();

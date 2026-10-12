@@ -566,6 +566,12 @@ impl FeatureKind {
                 }
                 rename_start(revolve.start.as_mut(), rename);
             }
+            Self::Solid(SolidFeature::Sweep(sweep)) => {
+                sweep.sketch = rename(sweep.sketch);
+                sweep.operation = renamed_operation(sweep.operation, rename);
+                each(&mut sweep.other_bodies);
+                sweep.path = sweep.path.with_features_renamed(&rename);
+            }
             Self::Blend(blend) => blend.body = rename(blend.body),
             Self::Shell(shell) => shell.body = rename(shell.body),
             Self::OffsetFace(offset) => offset.body = rename(offset.body),

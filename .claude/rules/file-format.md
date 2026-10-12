@@ -175,6 +175,11 @@ Extrusions and revolves:
 - `surface_ends`: an end up to a curved face; `forward` and `backward` (as `offset_ends`), each the
   face's attachment record only when that end runs up to one; unreadable face loads as 10 mm. The
   inner record may be an `offset_ends`.
+- `sweep`: `sketch`, `regions` and `region_references` as an extrusion's, `path` (`unchosen`,
+  `curves` with the path's `sketch` and its `curves` ids, or `edges` with `body` and edge records),
+  `orientation` (`square`, `parallel`) and `operation`; other bodies cut wrap it in `cut_several`.
+  An unreadable path loads as unchosen (the sweep fails asking for one) and an unreadable edge is
+  left out, each reported. The corpus holds it in `path-sweeps.caditor`.
 
 Holes:
 

@@ -298,6 +298,7 @@ pub fn kind_words(kind: &FeatureKind) -> &'static [&'static str] {
         FeatureKind::Sketch(_) => &["sketch"],
         FeatureKind::Solid(SolidFeature::Extrude(_)) => &["extrude", "extrusion"],
         FeatureKind::Solid(SolidFeature::Revolve(_)) => &["revolve", "revolution"],
+        FeatureKind::Solid(SolidFeature::Sweep(_)) => &["sweep", "pipe"],
         FeatureKind::Blend(blend) => match blend.kind {
             BlendKind::Fillet => &["fillet", "round"],
             BlendKind::Chamfer => &["chamfer", "bevel"],
@@ -2178,7 +2179,9 @@ fn axis_change(
         Some(SolidFeature::Revolve(revolve)) => {
             solid_panel::selected_axis_change(model, selection, feature.id(), revolve)
         }
-        Some(SolidFeature::Extrude(_)) | None => Err(format!("{} is not a revolve", feature.name)),
+        Some(SolidFeature::Extrude(_) | SolidFeature::Sweep(_)) | None => {
+            Err(format!("{} is not a revolve", feature.name))
+        }
     }
 }
 
@@ -2191,7 +2194,7 @@ fn up_to_change(
         Some(SolidFeature::Extrude(extrude)) => {
             solid_panel::up_to_selected_change(model, selection, feature.id(), extrude)
         }
-        Some(SolidFeature::Revolve(_)) | None => {
+        Some(SolidFeature::Revolve(_) | SolidFeature::Sweep(_)) | None => {
             Err(format!("{} is not an extrusion", feature.name))
         }
     }

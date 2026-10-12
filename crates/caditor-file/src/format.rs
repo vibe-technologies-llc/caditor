@@ -22,15 +22,15 @@ use caditor_document::{
     PrimitiveAnchor, PrimitiveShape, PrincipalAxis, PrincipalGeometry, PrincipalPlane,
     ProjectionSource, Reading, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rgb,
     RollbackBar, SavedView, SavedViews, Scale, Shell, SketchAttachment, SketchFeature,
-    SolidFeature, SolidStart, Split, SplitAlong, SplitCarry, SplitFace, TappedThread, Thread,
-    ThreadFamily, ThreadForm, ThreadHand, ThreadLength, ThreadSide, ThreadSize, Transaction,
-    TurnCentre, Wall, group_name, material_name, view_name,
+    SolidFeature, SolidStart, Split, SplitAlong, SplitCarry, SplitFace, Sweep, SweepPath,
+    TappedThread, Thread, ThreadFamily, ThreadForm, ThreadHand, ThreadLength, ThreadSide,
+    ThreadSize, Transaction, TurnCentre, Wall, group_name, material_name, view_name,
 };
 use caditor_expression::{BinaryOperator, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Rotation3, Vector2, Vector3};
 use caditor_kernel::{
     BoundaryPiece, EdgeName, EdgeReference, FaceCopy, FaceName, FaceOrigin, FaceReference,
-    RegionKey, RegionReference, Side, Solid, VertexName, WallSide,
+    RegionKey, RegionReference, Side, Solid, SweepOrientation, VertexName, WallSide,
 };
 use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, FitSpacing, Sketch, SplineKind};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwned};
@@ -271,6 +271,39 @@ pub(crate) enum FeatureKindRecord {
     Measurement(Box<MeasurementRecord>),
     SplitFaceWrapped(Box<SplitFaceWrappedRecord>),
     BlendGroups(Box<BlendGroupsRecord>),
+    Sweep(Box<SweepRecord>),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct SweepRecord {
+    pub sketch: u64,
+    pub regions: RegionsRecord,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub region_references: RegionReferencesRecord,
+    pub path: Lenient<SweepPathRecord>,
+    pub orientation: SweepOrientationRecord,
+    pub operation: OperationRecord,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum SweepPathRecord {
+    Unchosen,
+    Curves {
+        sketch: u64,
+        curves: Vec<u64>,
+    },
+    Edges {
+        body: u64,
+        edges: Vec<Lenient<EdgeRecord>>,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum SweepOrientationRecord {
+    Square,
+    Parallel,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -762,7 +795,7 @@ pub(crate) struct RevolveOneSideRecord {
 
 pub(crate) const FEATURE_FIELDS: [&str; 3] = ["hidden", "appearance", "group"];
 
-pub(crate) const FEATURE_KINDS: [&str; 76] = [
+pub(crate) const FEATURE_KINDS: [&str; 77] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -839,6 +872,7 @@ pub(crate) const FEATURE_KINDS: [&str; 76] = [
     "measurement",
     "split_face_wrapped",
     "blend_groups",
+    "sweep",
 ];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2326,6 +2360,7 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
                 wall: None,
                 ..revolve.clone()
             }),
+            SolidFeature::Sweep(sweep) => SolidFeature::Sweep(sweep.clone()),
         };
         return FeatureKindRecord::ShapedSweep(Box::new(ShapedSweepRecord {
             feature: feature_kind_record(&FeatureKind::Solid(plain)),
@@ -2396,6 +2431,7 @@ fn kind_record(kind: &FeatureKind) -> FeatureKindRecord {
         }
         FeatureKind::Solid(SolidFeature::Extrude(extrude)) => extrude_record(extrude),
         FeatureKind::Solid(SolidFeature::Revolve(revolve)) => revolve_record(revolve),
+        FeatureKind::Solid(SolidFeature::Sweep(sweep)) => sweep_record(sweep),
         FeatureKind::Blend(blend) => {
             let record = BlendRecord {
                 body: blend.body.raw(),
@@ -2897,6 +2933,80 @@ fn revolve_from_record(revolve: &Revolve, start: &SolidStart) -> FeatureKindReco
         operation: operation_record(revolve.operation),
         start: start_record(start),
     })
+}
+
+fn sweep_record(sweep: &Sweep) -> FeatureKindRecord {
+    let path = match &sweep.path {
+        SweepPath::Unchosen => SweepPathRecord::Unchosen,
+        SweepPath::Curves { sketch, curves } => SweepPathRecord::Curves {
+            sketch: sketch.raw(),
+            curves: curves.iter().map(|curve| curve.raw()).collect(),
+        },
+        SweepPath::Edges { body, edges } => SweepPathRecord::Edges {
+            body: body.raw(),
+            edges: edges
+                .iter()
+                .map(|edge| Lenient::Read(edge_record(edge)))
+                .collect(),
+        },
+    };
+    FeatureKindRecord::Sweep(Box::new(SweepRecord {
+        sketch: sweep.sketch.raw(),
+        regions: regions_record(&sweep.regions),
+        region_references: region_references_record(&sweep.regions),
+        path: Lenient::Read(path),
+        orientation: match sweep.orientation {
+            SweepOrientation::Square => SweepOrientationRecord::Square,
+            SweepOrientation::Parallel => SweepOrientationRecord::Parallel,
+        },
+        operation: operation_record(sweep.operation),
+    }))
+}
+
+fn restore_sweep(record: &SweepRecord, feature: &str, issues: &mut Vec<String>) -> Sweep {
+    let path = match &record.path {
+        Lenient::Read(SweepPathRecord::Unchosen) => SweepPath::Unchosen,
+        Lenient::Read(SweepPathRecord::Curves { sketch, curves }) => SweepPath::Curves {
+            sketch: FeatureId::from_raw(*sketch),
+            curves: curves.iter().copied().map(EntityId::from_raw).collect(),
+        },
+        Lenient::Read(SweepPathRecord::Edges { body, edges }) => {
+            let read: Vec<EdgeReference> = edges
+                .iter()
+                .filter_map(|edge| match edge {
+                    Lenient::Read(edge) => restore_edge(edge),
+                    Lenient::Unreadable(_) => None,
+                })
+                .collect();
+            if read.len() < edges.len() {
+                issues.push(format!(
+                    "Some edges of the path of “{feature}” could not be read and were left out."
+                ));
+            }
+            SweepPath::Edges {
+                body: FeatureId::from_raw(*body),
+                edges: read,
+            }
+        }
+        Lenient::Unreadable(_) => {
+            issues.push(format!(
+                "The path of “{feature}” could not be read, so it has no path until one is \
+                 chosen again."
+            ));
+            SweepPath::Unchosen
+        }
+    };
+    Sweep {
+        sketch: FeatureId::from_raw(record.sketch),
+        regions: restore_regions(&record.regions, &record.region_references, feature, issues),
+        path,
+        orientation: match record.orientation {
+            SweepOrientationRecord::Square => SweepOrientation::Square,
+            SweepOrientationRecord::Parallel => SweepOrientation::Parallel,
+        },
+        operation: restore_operation(record.operation),
+        other_bodies: Vec::new(),
+    }
 }
 
 fn revolve_record(revolve: &Revolve) -> FeatureKindRecord {
@@ -5282,6 +5392,9 @@ fn restore_kind(
         FeatureKindRecord::Shell(record) => FeatureKind::Shell(restore_shell(record, name, issues)),
         FeatureKindRecord::OffsetFace(record) => {
             FeatureKind::OffsetFace(restore_offset_face(record, name, issues))
+        }
+        FeatureKindRecord::Sweep(record) => {
+            FeatureKind::Solid(SolidFeature::Sweep(restore_sweep(record, name, issues)))
         }
         FeatureKindRecord::Thread(record) => {
             FeatureKind::Thread(restore_thread(record, name, issues))

@@ -302,6 +302,7 @@ impl FeatureKind {
                 used.extend(solid.other_bodies());
                 used.extend(solid.axis_body());
                 used.extend(solid.end_bodies());
+                used.extend(solid.path_body());
             }
             Self::Datum(datum) => used.extend(datum.bodies()),
             Self::Pattern(pattern) => used.extend(pattern.bodies()),
@@ -460,7 +461,7 @@ impl FeatureKind {
                 sketches.extend(datum.axis_sketches());
                 sketches
             }
-            Self::Solid(solid) => solid.axis_sketch().into_iter().collect(),
+            Self::Solid(solid) => solid.reference_sketches(),
             Self::Pattern(pattern) => pattern.sketches(),
             Self::Move(movement) => movement.axis_sketch().into_iter().collect(),
             Self::Mate(mate) => mate.sketches(),
