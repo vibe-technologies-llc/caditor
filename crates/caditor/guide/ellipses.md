@@ -22,7 +22,7 @@ point keeps however the ellipse turns, and the middle of an elliptical arc.
 elliptical arc and carry its ends round the ellipse to the next curve;
 [splitting and breaking](sketch-editing) work on elliptical arcs, a
 [sketch fillet or chamfer](sketch-fillet) rounds or cuts a corner where an elliptical arc meets
-a line, arc or another elliptical arc, and [Mirror](sketch-mirror) and the
+a line, arc or another elliptical arc, or where it would meet one carried round its ellipse, and [Mirror](sketch-mirror) and the
 [patterns](sketch-patterns) copy ellipses with their radii held.
 [Projecting](project-and-intersect) an ellipse onto a sketch facing the same way, or the opposite
 way, brings it in as an ellipse; seen at an angle it comes in as a spline.

@@ -1,3 +1,5 @@
+use std::f64::consts::{FRAC_PI_2, FRAC_PI_3, FRAC_PI_4, PI};
+
 use caditor_expression::{EvalError, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Vector2};
 
@@ -154,7 +156,7 @@ fn a_rectangle_corner_is_rounded_and_stays_rounded_when_the_rectangle_widens() {
     let geometry = sketch.arc(arc).unwrap();
     assert_near(geometry.center, Point2::new(35.0, 5.0));
     assert!((geometry.radius - 5.0).abs() < EXACT);
-    assert!((geometry.sweep - std::f64::consts::FRAC_PI_2).abs() < EXACT);
+    assert!((geometry.sweep - FRAC_PI_2).abs() < EXACT);
     assert!(has(&sketch, &Constraint::Tangent(sides[0], arc)));
     assert!(has(&sketch, &Constraint::Tangent(sides[1], arc)));
     assert!(has(
@@ -903,8 +905,8 @@ fn the_lever_outline_rounds_where_each_line_meets_a_boss_in_one_step_each() {
     assert!(sketch.open_ends().is_empty(), "{:?}", sketch.open_ends());
     let left_arc = sketch.arc(left).unwrap();
     let right_arc = sketch.arc(right).unwrap();
-    assert!(left_arc.sweep > std::f64::consts::PI);
-    assert!(right_arc.sweep > std::f64::consts::PI);
+    assert!(left_arc.sweep > PI);
+    assert!(right_arc.sweep > PI);
     assert!(
         left_arc
             .point_at(left_arc.start_angle + left_arc.sweep / 2.0)
@@ -1082,4 +1084,256 @@ fn a_moved_constraint_is_not_dropped_as_a_duplicate_of_an_inactive_one() {
                 at: Point2::ZERO,
             }
     }));
+}
+
+const MAJOR: f64 = 10.0;
+const MINOR: f64 = 4.0;
+
+fn on_ellipse(parameter: f64) -> Point2 {
+    Point2::new(MAJOR * parameter.cos(), MINOR * parameter.sin())
+}
+
+fn ellipse_between(sketch: &mut Sketch, from: f64, to: f64) -> EntityId {
+    sketch.add_elliptical_arc(
+        Point2::ZERO,
+        Point2::new(MAJOR, 0.0),
+        MINOR,
+        on_ellipse(from),
+        on_ellipse(to),
+    )
+}
+
+fn freedom(sketch: &Sketch) -> usize {
+    solve(sketch).solution.degrees_of_freedom()
+}
+
+fn assert_on_ellipse(sketch: &Sketch, ellipse: EntityId, point: EntityId) {
+    let at = sketch.point(point).unwrap();
+    let whole = sketch.ellipse(ellipse).unwrap();
+    let axis = whole.axis();
+    let offset = at - whole.center;
+    let level = (offset.dot(axis) / whole.major_radius()).powi(2)
+        + (offset.dot(axis.perp()) / whole.minor_radius).powi(2);
+    assert!((level - 1.0).abs() < EXACT, "{at} lies off the ellipse");
+}
+
+fn assert_rounds_tangent(sketch: &Sketch, curves: [EntityId; 2], rounding: EntityId) {
+    for curve in curves {
+        assert!(
+            has(sketch, &Constraint::Tangent(curve, rounding)),
+            "the rounding is not tangent to {curve:?}"
+        );
+    }
+}
+
+fn assert_holds(sketch: &Sketch, freedom_before: usize, rounding: EntityId) {
+    let center = sketch.arc(rounding).unwrap().center;
+
+    let solved = solve(sketch);
+
+    assert_clean(&solved);
+    assert_eq!(solved.solution.degrees_of_freedom(), freedom_before);
+    let moved = solved.geometry.arc(rounding).unwrap();
+    assert!(moved.center.distance(center) < 1e-6, "{center} moved");
+}
+
+#[test]
+fn a_line_crossing_an_elliptical_arc_is_trimmed_to_the_crossing_and_rounded_tangent_to_both() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let ellipse = ellipse_between(&mut sketch, -FRAC_PI_2, FRAC_PI_2);
+    let upright = sketch.add_line(Point2::new(6.0, -10.0), Point2::new(6.0, 10.0));
+    let before = freedom(&sketch);
+
+    let corner = sketch
+        .join_at_crossing([pick(upright, 6.0, 8.0), pick(ellipse, 2.0, 3.9)])
+        .unwrap();
+    let joined = freedom(&sketch);
+    let rounding = sketch.fillet(&corner, 1.0, mm(1.0)).unwrap();
+
+    let crossing = Point2::new(6.0, 3.2);
+    let (ellipse_start, ellipse_end) = elliptic_ends(&sketch, ellipse);
+    let (_, upright_end) = ends(&sketch, upright);
+    let fillet = sketch.arc(rounding).unwrap();
+    assert_near(corner.position, crossing);
+    assert_near(sketch.point(corner.point).unwrap(), crossing);
+    assert_near(sketch.point(ellipse_end).unwrap(), Point2::new(0.0, 4.0));
+    assert_near(sketch.point(upright_end).unwrap(), Point2::new(6.0, 10.0));
+    assert_on_ellipse(&sketch, ellipse, ellipse_start);
+    assert!((fillet.center.x - 5.0).abs() < EXACT, "{}", fillet.center);
+    assert!((gap_to_ellipse(&sketch, ellipse, fillet.center) - 1.0).abs() < 1e-6);
+    assert_rounds_tangent(&sketch, [upright, ellipse], rounding);
+    assert_eq!(joined, before - 2);
+    assert_holds(&sketch, joined, rounding);
+}
+
+#[test]
+fn an_elliptical_arc_stopping_short_of_a_line_is_carried_round_its_ellipse_to_meet_it() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let ellipse = ellipse_between(&mut sketch, 0.0, FRAC_PI_2);
+    let upright = sketch.add_line(Point2::new(-3.0, 10.0), Point2::new(-3.0, 5.0));
+    let before = freedom(&sketch);
+    let mut chamfered = sketch.clone();
+    let picks = [pick(upright, -3.0, 8.0), pick(ellipse, 7.0, 2.8)];
+
+    let corner = sketch.join_at_crossing(picks).unwrap();
+    let joined = freedom(&sketch);
+    let reached = sketch.ellipse(ellipse).unwrap();
+    let rounding = sketch.fillet(&corner, 1.0, mm(1.0)).unwrap();
+    let cut = chamfered.join_at_crossing(picks).unwrap();
+    let line = chamfered.chamfer(&cut, &equal(1.0)).unwrap();
+
+    let crossing = Point2::new(-3.0, MINOR * 0.91f64.sqrt());
+    let (ellipse_start, _) = elliptic_ends(&sketch, ellipse);
+    let (upright_start, _) = ends(&sketch, upright);
+    assert_near(corner.position, crossing);
+    assert!((reached.start).abs() < EXACT);
+    assert!((reached.end() - reached.parameter_of(crossing)).abs() < EXACT);
+    assert!(reached.sweep > FRAC_PI_2);
+    assert_near(
+        sketch.point(ellipse_start).unwrap(),
+        Point2::new(MAJOR, 0.0),
+    );
+    assert_near(
+        sketch.point(upright_start).unwrap(),
+        Point2::new(-3.0, 10.0),
+    );
+    assert_rounds_tangent(&sketch, [upright, ellipse], rounding);
+    assert_eq!(joined, before - 2);
+    assert_holds(&sketch, joined, rounding);
+    let (cut_start, cut_end) = chamfered.line_endpoints(line).unwrap();
+    for touch in [cut_start, cut_end] {
+        assert!((touch.distance(crossing) - 1.0).abs() < EXACT, "{touch}");
+    }
+    let (_, chamfered_end) = elliptic_ends(&chamfered, ellipse);
+    assert_on_ellipse(&chamfered, ellipse, chamfered_end);
+    let solved = solve(&chamfered);
+    assert_clean(&solved);
+    assert_eq!(solved.solution.degrees_of_freedom(), joined);
+}
+
+#[test]
+fn an_arc_and_an_elliptical_arc_stopping_short_are_rounded_where_their_carriers_cross() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let ellipse = ellipse_between(&mut sketch, 0.0, FRAC_PI_2);
+    let center = Point2::new(-6.0, 0.0);
+    let arc = sketch.add_arc(
+        center,
+        center + Vector2::from_angle(-FRAC_PI_3) * 5.0,
+        center + Vector2::from_angle(FRAC_PI_3) * 5.0,
+    );
+    let before = freedom(&sketch);
+
+    let corner = sketch
+        .join_at_crossing([pick(arc, -1.0, 0.0), pick(ellipse, 7.0, 2.8)])
+        .unwrap();
+    let joined = freedom(&sketch);
+    let reached = sketch.ellipse(ellipse).unwrap();
+    let trimmed = sketch.arc(arc).unwrap();
+    let (_, ellipse_end) = elliptic_ends(&sketch, ellipse);
+    let (_, arc_end) = ends(&sketch, arc);
+    let rounding = sketch.fillet(&corner, 0.5, mm(0.5)).unwrap();
+
+    assert_eq!(ellipse_end, corner.point);
+    assert_eq!(arc_end, corner.point);
+    assert!(corner.position.y > 3.0, "{}", corner.position);
+    assert!((corner.position.distance(center) - 5.0).abs() < EXACT);
+    assert!(reached.sweep > FRAC_PI_2);
+    assert!((reached.end() - reached.parameter_of(corner.position)).abs() < EXACT);
+    assert!(trimmed.sweep < 2.0 * FRAC_PI_3);
+    assert_near(trimmed.point_at(trimmed.end_angle()), corner.position);
+    assert_rounds_tangent(&sketch, [arc, ellipse], rounding);
+    assert_eq!(joined, before - 2);
+    assert_holds(&sketch, joined, rounding);
+}
+
+#[test]
+fn a_circle_meeting_an_elliptical_arc_opens_up_to_the_next_crossing_on_the_picked_side() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let ellipse = ellipse_between(&mut sketch, -FRAC_PI_4, FRAC_PI_4);
+    let boss = sketch.add_circle(Point2::ZERO, 7.0);
+
+    let corner = sketch
+        .join_at_crossing([pick(boss, 0.0, 7.0), pick(ellipse, 9.5, 1.0)])
+        .unwrap();
+    let rounding = sketch.fillet(&corner, 1.0, mm(1.0)).unwrap();
+
+    let across = ((1.0 - 49.0 / 16.0) / (0.01 - 1.0 / 16.0f64)).sqrt();
+    let up = (49.0 - across * across).sqrt();
+    assert_near(corner.position, Point2::new(across, up));
+    let opened = sketch.arc(boss).unwrap();
+    assert_near(
+        opened.point_at(opened.end_angle()),
+        Point2::new(-across, up),
+    );
+    assert!(opened.point_at(opened.start_angle + opened.sweep / 2.0).y > 6.0);
+    let far = match sketch.entity(boss) {
+        Some(Entity::Arc { end, .. }) => *end,
+        other => panic!("expected an arc, found {other:?}"),
+    };
+    assert!(has(&sketch, &Constraint::Coincident(far, ellipse)));
+    assert_on_ellipse(&sketch, ellipse, far);
+    assert_rounds_tangent(&sketch, [boss, ellipse], rounding);
+    assert_clean(&solve(&sketch));
+}
+
+#[test]
+fn two_elliptical_arcs_crossing_are_trimmed_to_their_crossing_and_chamfered() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let first = ellipse_between(&mut sketch, -FRAC_PI_2, FRAC_PI_2);
+    let narrow_center = Point2::new(8.0, 0.0);
+    let on_narrow = |parameter: f64| {
+        narrow_center + Vector2::new(-3.0 * parameter.sin(), 6.0 * parameter.cos())
+    };
+    let second = sketch.add_elliptical_arc(
+        narrow_center,
+        narrow_center + Vector2::new(0.0, 6.0),
+        3.0,
+        on_narrow(0.0),
+        on_narrow(PI),
+    );
+    let before = freedom(&sketch);
+
+    let corner = sketch
+        .join_at_crossing([pick(first, 2.0, 3.9), pick(second, 8.0, 5.5)])
+        .unwrap();
+    let joined = freedom(&sketch);
+    let line = sketch.chamfer(&corner, &equal(1.0)).unwrap();
+
+    let (first_start, first_end) = elliptic_ends(&sketch, first);
+    let (second_start, second_end) = elliptic_ends(&sketch, second);
+    assert!(corner.position.y > 0.0, "{}", corner.position);
+    assert_near(sketch.point(first_end).unwrap(), Point2::new(0.0, MINOR));
+    assert_near(sketch.point(second_start).unwrap(), on_narrow(0.0));
+    for (ellipse, touch) in [(first, first_start), (second, second_end)] {
+        assert_on_ellipse(&sketch, ellipse, touch);
+        let at = sketch.point(touch).unwrap();
+        assert!((at.distance(corner.position) - 1.0).abs() < EXACT, "{at}");
+    }
+    let (cut_start, cut_end) = sketch.line_endpoints(line).unwrap();
+    assert!(cut_start.distance(cut_end) > 0.5);
+    assert_eq!(joined, before - 2);
+    let solved = solve(&sketch);
+    assert_clean(&solved);
+    assert_eq!(solved.solution.degrees_of_freedom(), joined);
+}
+
+#[test]
+fn a_selected_line_and_elliptical_arc_keep_their_longer_parts() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let ellipse = ellipse_between(&mut sketch, -FRAC_PI_2, FRAC_PI_2);
+    let upright = sketch.add_line(Point2::new(6.0, -10.0), Point2::new(6.0, 2.0));
+
+    let picks = sketch.crossing_picks(upright, ellipse).unwrap();
+    let corner = sketch.join_at_crossing(picks).unwrap();
+
+    let (ellipse_start, ellipse_end) = elliptic_ends(&sketch, ellipse);
+    let (upright_start, upright_end) = ends(&sketch, upright);
+    assert_near(corner.position, Point2::new(6.0, -3.2));
+    assert_eq!(ellipse_start, corner.point);
+    assert_near(sketch.point(ellipse_end).unwrap(), Point2::new(0.0, MINOR));
+    assert_near(
+        sketch.point(upright_start).unwrap(),
+        Point2::new(6.0, -10.0),
+    );
+    assert_eq!(upright_end, corner.point);
 }

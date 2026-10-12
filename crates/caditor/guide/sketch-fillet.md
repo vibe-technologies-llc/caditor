@@ -4,11 +4,13 @@
 arc tangent to both. Click near the corner, then move the pointer to set the radius and click, or
 type the radius and press Enter.
 
-Two lines, arcs or circles need not meet first. Click one, then the other: the corner is where the
-two cross, or would meet if extended, nearest the clicks, and each is trimmed or extended to it,
-keeping the part you clicked. A circle becomes the arc on the side you clicked, so a lever's
-outline (two boss circles joined by two lines) takes one fillet where each line meets a boss, the
-second fillet on a boss carrying its arc on round to the other line. Selecting the two curves before
+Two lines, arcs, circles or elliptical arcs need not meet first. Click one, then the other: the
+corner is where the two cross, or would meet if extended, nearest the clicks, and each is trimmed
+or extended to it, keeping the part you clicked; an arc or elliptical arc stopping short is carried
+on round its circle or ellipse. A circle becomes the arc on the side you clicked, up to the next
+place the other curve crosses it, so a lever's outline (two boss circles joined by two lines) takes
+one fillet where each line meets a boss, the second fillet on a boss carrying its arc on round to
+the other line. Selecting the two curves before
 starting the tool does the same, keeping the longer part of a line or arc and the side of a circle
 that leaves the blunter corner. Escape lets go of the first curve. An end that would move but is
 joined to other geometry or fixed is refused, as is a pair that never meets.

@@ -2,7 +2,7 @@ use std::f64::consts::FRAC_PI_2;
 
 use caditor_geometry::{Plane, Point2};
 use caditor_sketch::{Constraint, Entity, Sketch};
-use egui::Key;
+use egui::{Key, Modifiers};
 
 use super::{
     DRAWN, Harness, constraints_of_kind, edit_free_sketch, entities_of_kind, entity_pickables,
@@ -261,6 +261,49 @@ fn a_corner_of_a_line_and_an_elliptical_arc_is_rounded_by_a_sketch_fillet() {
     assert!((rounded.center.y - 32.0).abs() < DRAWN);
     assert_eq!(constraints_of_kind(sketch, "Tangent").len(), 2);
     assert_eq!(harness.model.undo_label(), Some(filleting::TRANSACTION));
+}
+
+#[test]
+fn a_sketch_fillet_carries_an_elliptical_arc_round_its_ellipse_to_a_clicked_line() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let at = |angle: f64| Point2::new(30.0 + 15.0 * angle.cos(), 30.0 + 6.0 * angle.sin());
+    let arc = sketch.add_elliptical_arc(
+        Point2::new(30.0, 30.0),
+        Point2::new(45.0, 30.0),
+        6.0,
+        at(0.0),
+        at(FRAC_PI_2),
+    );
+    let wall = sketch.add_line(Point2::new(20.0, 50.0), Point2::new(20.0, 40.0));
+    let [arc_label, wall_label] = [arc, wall].map(|id| sketch.entity_label(id));
+    let feature = edit_free_sketch(&mut harness, sketch);
+    let before = harness.sketch(feature).clone();
+
+    harness.use_tool(Key::B);
+    harness.point_at(at(0.8));
+    assert!(harness.shows_containing(&format!("Click {arc_label} and then a second line")));
+    harness.click_at(at(0.8));
+    assert!(harness.shows(filleting::SECOND_CURVE_PROMPT));
+    harness.point_at(Point2::new(20.0, 46.0));
+    assert!(harness.shows(&format!("Round where {arc_label} and {wall_label} meet")));
+    harness.click_at(Point2::new(20.0, 46.0));
+    assert!(harness.shows(filleting::RADIUS_PROMPT));
+    type_point(&mut harness, "2");
+
+    let sketch = harness.sketch(feature);
+    let rounded = fillet_arc(sketch).unwrap();
+    let carried = sketch.ellipse(arc).unwrap();
+    let (_, wall_end) = sketch.line_endpoints(wall).unwrap();
+    assert!((rounded.radius - 2.0).abs() < DRAWN);
+    assert!(carried.sweep > FRAC_PI_2, "{}", carried.sweep);
+    assert!(wall_end.y < 40.0, "{wall_end}");
+    assert_eq!(constraints_of_kind(sketch, "Tangent").len(), 2);
+    assert_eq!(harness.model.undo_label(), Some(filleting::TRANSACTION));
+
+    harness.key(Key::Z, Modifiers::COMMAND);
+    harness.frame();
+    assert!(harness.sketch(feature).same_content(&before));
 }
 
 #[test]

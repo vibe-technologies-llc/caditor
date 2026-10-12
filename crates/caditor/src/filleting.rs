@@ -22,10 +22,10 @@ use crate::{
     units::LengthUnit,
 };
 
-pub const CORNER_PROMPT: &str = "Click the corner to round, where two lines, arcs or elliptical arcs meet, or drag from it; or click two lines, arcs or circles to round where they cross or would meet";
-pub const SECOND_CURVE_PROMPT: &str = "Click the second line, arc or circle: the corner is where the two cross or would meet nearest the clicks, each trimmed or extended to it";
+pub const CORNER_PROMPT: &str = "Click the corner to round, where two lines, arcs or elliptical arcs meet, or drag from it; or click two lines, arcs, circles or elliptical arcs to round where they cross or would meet";
+pub const SECOND_CURVE_PROMPT: &str = "Click the second line, arc, circle or elliptical arc: the corner is where the two cross or would meet nearest the clicks, each trimmed or extended to it";
 pub const RADIUS_PROMPT: &str = "Click where the fillet should pass, or type its radius";
-pub const CHAMFER_CORNER_PROMPT: &str = "Click the corner to cut, where two lines, arcs or elliptical arcs meet, or drag from it; or click two lines, arcs or circles to cut where they cross or would meet";
+pub const CHAMFER_CORNER_PROMPT: &str = "Click the corner to cut, where two lines, arcs or elliptical arcs meet, or drag from it; or click two lines, arcs, circles or elliptical arcs to cut where they cross or would meet";
 pub const DISTANCE_PROMPT: &str = "Click where the chamfer should pass, or type how far from the corner it cuts: 5, or 5, 3 for a different distance on each curve, or 5 < 45 for a distance and an angle";
 pub const TRANSACTION: &str = "Fillet corner";
 pub const CHAMFER_TRANSACTION: &str = "Chamfer corner";
@@ -507,11 +507,11 @@ impl Filleting {
             ([], _) => {
                 return match (self.pending, self.under) {
                     (Some(first), _) => Some(format!(
-                        "{verb} where {} meets the next line, arc or circle clicked",
+                        "{verb} where {} meets the next line, arc, circle or elliptical arc clicked",
                         sketch.entity_label(first.curve)
                     )),
                     (None, Some(under)) => Some(format!(
-                        "Click {} and then a second line, arc or circle to {} where they meet",
+                        "Click {} and then a second line, arc, circle or elliptical arc to {} where they meet",
                         sketch.entity_label(under.curve),
                         self.cut.verb()
                     )),
@@ -824,7 +824,12 @@ fn curve_under(sketch: &Sketch, screen: &impl Screen, pointer: Pointer) -> Optio
         .filter(|(curve, _)| {
             matches!(
                 sketch.entity(*curve),
-                Some(Entity::Line { .. } | Entity::Arc { .. } | Entity::Circle { .. })
+                Some(
+                    Entity::Line { .. }
+                        | Entity::Arc { .. }
+                        | Entity::Circle { .. }
+                        | Entity::EllipticalArc { .. }
+                )
             )
         })
         .map(|(curve, near)| Pick { curve, near })

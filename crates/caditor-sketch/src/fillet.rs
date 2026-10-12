@@ -68,11 +68,6 @@ pub enum FilletError {
     SameCurve { entity: EntityId, label: String },
     #[error("{first} and {second} never meet, even extended")]
     NeverMeet { first: String, second: String },
-    #[error(
-        "{label} must already meet the other curve at an end; only lines, arcs and circles are \
-         trimmed or extended to meet"
-    )]
-    NotCrossable { entity: EntityId, label: String },
     #[error(transparent)]
     Held(ExtendError),
     #[error(transparent)]
