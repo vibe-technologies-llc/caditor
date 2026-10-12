@@ -98,6 +98,7 @@ struct FaceData {
     boundary: Vec<BoundaryCoedge>,
     boundary_tree: OnceLock<BoxTree>,
     boundary_ids: BTreeSet<CoedgeId>,
+    seams: Vec<EdgeId>,
 }
 
 impl FaceData {
@@ -156,12 +157,16 @@ fn face_data(solid: &Solid, id: FaceId) -> Option<FaceData> {
     let uv_box = Aabb2::from_points(polygons.iter().flatten().copied())?;
     let mut boundary = Vec::new();
     let mut boundary_ids = BTreeSet::new();
+    let mut seams = Vec::new();
     for loop_id in face.loops() {
         let face_loop = solid.face_loop(*loop_id)?;
         for coedge_id in face_loop.coedges() {
             let coedge = solid.coedge(*coedge_id)?;
             let seam = uses.get(&coedge.edge()).is_some_and(|count| *count > 1);
             if seam {
+                if !seams.contains(&coedge.edge()) {
+                    seams.push(coedge.edge());
+                }
                 continue;
             }
             let edge = solid.edge(coedge.edge())?;
@@ -183,6 +188,7 @@ fn face_data(solid: &Solid, id: FaceId) -> Option<FaceData> {
         boundary,
         boundary_tree: OnceLock::new(),
         boundary_ids,
+        seams,
     })
 }
 
@@ -322,12 +328,26 @@ impl<'a> SolidClassifier<'a> {
         nearest: Option<(f64, &BoundaryCoedge, f64)>,
     ) -> Option<bool> {
         let surface = self.solid.face(face)?.surface();
+        let point = surface.point_at(uv);
         match nearest {
             Some((distance, coedge, parameter)) if distance <= NEAR_BOUNDARY => {
-                self.side_of(face, uv, surface.point_at(uv), coedge, parameter)
+                self.side_of(face, uv, point, coedge, parameter)
             }
-            _ => Some(self.inside_polygons(self.data(face)?, surface, uv)),
+            _ => {
+                let data = self.data(face)?;
+                Some(self.on_seam(data, point) || self.inside_polygons(data, surface, uv))
+            }
         }
+    }
+
+    fn on_seam(&self, data: &FaceData, point: Point3) -> bool {
+        data.seams.iter().any(|seam| {
+            self.solid.edge(*seam).is_some_and(|edge| {
+                let curve = edge.curve();
+                let parameter = curve.closest_parameter(point, edge.interval());
+                curve.point(parameter).distance(point) <= TOLERANCE
+            })
+        })
     }
 
     fn inside_polygons(&self, data: &FaceData, surface: &Surface, uv: Point2) -> bool {

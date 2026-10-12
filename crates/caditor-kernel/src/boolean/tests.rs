@@ -1600,3 +1600,54 @@ fn a_boolean_of_a_dense_spline_extrusion_is_cancelled_wherever_it_is_stopped() {
         );
     }
 }
+
+fn drill(centre: Point3, up: Vector3, seam: Vector3, radius: f64, depth: f64) -> Solid {
+    let plane = Plane::from_frame(centre, seam.cross(up), seam).unwrap();
+    let outline = [
+        Point2::new(0.0, 1.0),
+        Point2::new(radius, 1.0),
+        Point2::new(radius, -depth),
+        Point2::new(0.0, -depth),
+    ];
+    let curves: Vec<crate::ProfileCurve> = outline
+        .iter()
+        .zip(outline.iter().cycle().skip(1))
+        .zip(1..)
+        .map(|((start, end), entity)| crate::ProfileCurve::line(entity, *start, *end))
+        .collect();
+    let profile = Profile::new(&curves).unwrap();
+    let axis = Axis2::new(Point2::ZERO, Vector2::Y).unwrap();
+    revolve(&plane, profile.regions(), axis, AngularExtent::full(), 9).unwrap()
+}
+
+#[test]
+fn crossing_holes_cut_alike_wherever_their_seams_lie() {
+    let base = block((0.0, 0.0, 0.0), (20.0, 20.0, 20.0));
+    let drilled = |front_seam: f64, side_seam: f64| {
+        let front = drill(
+            Point3::new(5.0, 0.0, 12.0),
+            -Vector3::Y,
+            Vector3::new(front_seam.cos(), 0.0, front_seam.sin()),
+            1.0,
+            8.0,
+        );
+        let side = drill(
+            Point3::new(20.0, 6.0, 12.0),
+            Vector3::X,
+            Vector3::new(0.0, side_seam.cos(), side_seam.sin()),
+            1.5,
+            24.0,
+        );
+        let once = run(&base, &front, BooleanOperation::Difference);
+        run(&once, &side, BooleanOperation::Difference)
+    };
+
+    let reference = volume(&drilled(0.7, 2.3));
+
+    for front_seam in [0.0, 0.5 * PI, PI, 1.5 * PI] {
+        for side_seam in [0.0, 0.5 * PI, PI, 1.5 * PI] {
+            let name = format!("seams at {front_seam} and {side_seam}");
+            check(&name, &drilled(front_seam, side_seam), reference);
+        }
+    }
+}

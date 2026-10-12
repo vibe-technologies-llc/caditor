@@ -105,7 +105,9 @@ paths:
   strip per turn) carries uvs many periods away. Near the boundary it uses the exact edge (the side
   of the nearest non-seam coedge, or of both coedges at a vertex: convex corners need both); within
   `LINEAR_RESOLUTION` of an edge it answers `OnBoundary`, while `exactly_inside_face` gives the side
-  even there. The classifier keeps a tree of face boxes (`box_tree.rs`) and each face indexes its
+  even there. Seams bound nothing (the face lies on both sides), so a point within the resolution of
+  a seam edge and away from every other edge is inside: parity there sits on the seam's own polygon
+  edge and answered either way, losing the vertex where two holes' axis-aligned seams cross. The classifier keeps a tree of face boxes (`box_tree.rs`) and each face indexes its
   boundary on first use (`PolygonIndex`, `topology/polygons.rs`): building is linear, a query
   logarithmic in the face's boundary.
 - `classify_boundary_point(point, normal)` adds `Coincident { face, sense }` for a point on a face

@@ -400,7 +400,15 @@ fn point_in_face_handles_holes_seams_and_poles() {
         .faces()
         .find(|(_, face)| matches!(face.surface(), crate::surface::Surface::Cylinder(_)))
         .unwrap();
-    for u in [0.0, 1e-9, 2.0 * PI - 1e-9, -0.5, 7.0] {
+    for u in [
+        0.0,
+        1e-9,
+        2.0 * PI - 1e-9,
+        -0.5,
+        7.0,
+        -2.5e-16,
+        2.0 * PI + 2.5e-16,
+    ] {
         assert_eq!(
             tube.point_in_face(side, Point2::new(u, 2.5)),
             Some(FaceContainment::Inside),
