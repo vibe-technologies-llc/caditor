@@ -236,6 +236,18 @@ impl Pattern {
         }
     }
 
+    pub fn reversed_directions(&self) -> (bool, bool) {
+        match &self.kind {
+            PatternKind::Linear { first, second } => (
+                first.reversed,
+                second.as_ref().is_some_and(|second| second.reversed),
+            ),
+            PatternKind::Circular(_) | PatternKind::Curve(_) | PatternKind::Points(_) => {
+                (false, false)
+            }
+        }
+    }
+
     pub fn instance_words(&self, instance: Instance) -> String {
         match self.kind {
             PatternKind::Points(_) => point_copy_name(instance),

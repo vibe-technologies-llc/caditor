@@ -144,6 +144,14 @@ fn instance_hover(instance: Instance, kept: bool) -> String {
     }
 }
 
+fn grid_order(count: u32, descending: bool) -> Vec<u32> {
+    let mut order: Vec<u32> = (0..count).collect();
+    if descending {
+        order.reverse();
+    }
+    order
+}
+
 fn shape_label(shape: Shape) -> &'static str {
     match shape {
         Shape::Linear => "Linear",
@@ -228,10 +236,11 @@ impl Panel<'_> {
         widgets::caption(ui, INSTANCES);
         let mut toggled = None;
         ui.vertical(|ui| {
-            for row in 0..rows {
+            let (columns_reversed, rows_reversed) = self.pattern.reversed_directions();
+            for row in grid_order(rows, !rows_reversed) {
                 ui.horizontal_wrapped(|ui| {
                     ui.spacing_mut().item_spacing.x = ui.spacing().item_spacing.y;
-                    for column in 0..columns {
+                    for column in grid_order(columns, columns_reversed) {
                         let instance = [column, row];
                         let kept = !self.pattern.is_skipped(instance);
                         let name = capitalized(&instance_name(instance));

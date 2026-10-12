@@ -581,6 +581,33 @@ fn instances_left_out_are_not_made_and_the_others_keep_their_names() {
 }
 
 #[test]
+fn an_instance_is_the_copy_at_its_column_along_the_first_direction_and_its_row_along_the_second() {
+    let kind = |count: ParameterId| PatternKind::Linear {
+        first: along(PrincipalAxis::X, Expression::Parameter(count), "20 mm"),
+        second: Some(along(PrincipalAxis::Y, Expression::Number(3.0), "30 mm")),
+    };
+    let mut model = model(kind);
+    let evaluation = evaluate(&model.document, &mut model.engine);
+    let solid = evaluation.body(model.base).unwrap();
+    let across = top_of_copy(&model, solid, [1, 2]).unwrap();
+    let along = top_of_copy(&model, solid, [2, 1]).unwrap();
+
+    assert!((plane_origin(solid, &across) - Point3::new(20.0, 60.0, 4.0)).length() < 1e-9);
+    assert!((plane_origin(solid, &along) - Point3::new(40.0, 30.0, 4.0)).length() < 1e-9);
+
+    let skipping = Pattern::new(model.base, kind(model.count))
+        .toggled([1, 2])
+        .unwrap();
+    set_pattern(&mut model, skipping).unwrap();
+    let evaluation = evaluate(&model.document, &mut model.engine);
+    let solid = evaluation.body(model.base).unwrap();
+
+    assert_volume(&evaluation, model.base, 8.0 * 320.0);
+    assert!(top_of_copy(&model, solid, [1, 2]).is_none());
+    assert!(top_of_copy(&model, solid, [2, 1]).is_some());
+}
+
+#[test]
 fn leaving_out_an_instance_past_the_count_changes_nothing() {
     let mut model = model(linear);
     let skipping = Pattern::new(model.base, linear(model.count))
