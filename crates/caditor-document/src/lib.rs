@@ -130,7 +130,7 @@ pub use crate::{
         PointsPattern, instance_name, instance_point, point_copy_name, point_instance,
         repeatable_on,
     },
-    pattern_path::{PathError, is_curve_path},
+    pattern_path::{CopyStop, PathError, PatternPath, is_curve_path},
     pieces::{Resolution, Unresolved},
     primitive::{
         Cap, MAX_PRISM_SIDES, MIN_PRISM_SIDES, Primitive, PrimitiveAnchor, PrimitiveKind,
@@ -158,9 +158,9 @@ pub use crate::{
     shell::Shell,
     solid::{
         AxisSide, BodyOperation, ExactMass, Extrude, ExtrudeEnd, ExtrudeExtent, NameIndex,
-        RegionChoice, Revolve, RevolveAxis, RevolveExtent, SketchRegion, SolidFeature, SolidResult,
-        SolidStart, Wall, body_part, body_parts, displayed_start_offset, profile_curve,
-        sketch_regions,
+        ReachedEnd, ReachedSide, RegionChoice, Revolve, RevolveAxis, RevolveExtent, SketchRegion,
+        SolidFeature, SolidResult, SolidStart, Wall, body_part, body_parts, displayed_start_offset,
+        profile_curve, sketch_regions,
     },
     split::{HalfSpaceError, Split, SplitAlong, SweptError, is_open_chain},
     split_face::{SplitCarry, SplitFace, on_one_unrolled_surface},

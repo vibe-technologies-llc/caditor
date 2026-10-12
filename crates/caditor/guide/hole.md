@@ -6,8 +6,12 @@
   in a hidden sketch. While it is open, drag the square at its centre to move it on the face, or
   an arrow to move it along one direction; the arrow at the bottom of a blind hole drags its
   depth and the one at its rim, between the two moving arrows, its diameter (making the size
-  Custom); zoomed out far enough that they would lie on the moving arrows they are left out until
-  you zoom in, the panel's fields still setting them. The square stops on a round
+  Custom); a counterbore has arrows for its diameter at the mouth and its depth on the wall, a
+  countersink for its diameter and, down the bore wall where the cone ends, its angle (drag it
+  deeper for a narrower cone), a slot for its length at one tip and its angle at the other, a
+  tapped hole with a thread length for how deep the thread goes, and one drilled Up to next or Up to
+  face for how far it goes past the face; zoomed out far enough that they would lie on the moving
+  arrows they are left out until you zoom in, the panel's fields still setting them. The square stops on a round
   edge's centre or an edge's middle under the pointer, and on a corner; hold Ctrl to drag freely.
   With the pointer on a handle, type a value (or x, y for the square) and press Enter. Its panel's
   **Placed on** row moves it too: **Choose in the view** and click where the hole goes on any flat

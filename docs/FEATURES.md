@@ -51,13 +51,12 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   cannot chain a shift, a turn and a mirror.
 - [medium · hard] Rib and web from an open profile: a rib extrudes parallel to the sketch plane
   and a web square to it, each thickened and run on to the nearest faces of the body.
-- [low · medium] Some values still have no handle (`value_gauges.rs`): an end Up to next has no
-  face to stand its Past the face arrow on, and a chamfer's second distance or angle, a hole's
-  counterbore, countersink, slot, thread and Past the face sizes, a wedge's top length, a prism's
-  sides and a curve or point pattern's count and spacing are only typed. A fillet's arrow assumes the edge's
-  faces turn away from each other where it stands (the coedge sense), so on a concave edge its
-  foot is off the rounded face, and a chamfer of two distances or a distance and an angle places
-  its foot as an equal one would. Each would be a further `Measured` with its `Gauge`.
+- [low · medium] A few values still have no handle (`value_gauges.rs`): a stepped hole's step
+  diameters and depths, and the counterbore, countersink, slot and thread sizes of a hole sized by
+  circles, are only typed. A chamfer's feet on a curved face stand on the face's tangent line
+  rather than on the face, and a curve pattern's arrow slides along the curve's tangent while it is
+  dragged, rejoining the curve when the copies are placed again. Each would be a further `Measured`
+  with its `Gauge`, or for the last two a `Track` that follows a curve.
 - [low · medium] Turning handles (a revolve's angle arrows, a move's rings, a plane's and a circular
   pattern's turn arrows) step but never snap (`Manipulating::snaps`), and a drag snaps to flat
   faces only, by their plane, while a curved face under the pointer gives nothing. Snapping a turn

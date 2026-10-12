@@ -963,7 +963,7 @@ pub fn instance_name(instance: Instance) -> String {
     }
 }
 
-fn along_curve(
+pub(crate) fn along_curve(
     plane: &Plane,
     start: Station,
     station: Station,

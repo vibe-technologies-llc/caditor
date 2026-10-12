@@ -1,5 +1,5 @@
 use std::{
-    cell::Cell,
+    cell::{Cell, RefCell},
     collections::{BTreeMap, BTreeSet},
     f64::consts::PI,
     panic::{self, AssertUnwindSafe},
@@ -659,10 +659,31 @@ impl SolidFeature {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReachedSide {
+    Only,
+    Forward,
+    Backward,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ReachedEnd {
+    pub side: ReachedSide,
+    pub plane: Plane,
+}
+
+impl ReachedEnd {
+    pub fn level_over(&self, sketch_plane: &Plane) -> Option<f64> {
+        tolerance::parallel(self.plane.normal(), sketch_plane.normal())
+            .then(|| sketch_plane.signed_distance(self.plane.origin()))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct SolidResult {
     pub body: FeatureId,
     pub solid: Solid,
+    reached: Vec<ReachedEnd>,
     others: Vec<Arc<FeatureResult>>,
     cuts: Vec<Arc<FeatureResult>>,
     joins: Vec<Arc<FeatureResult>>,
@@ -731,6 +752,7 @@ impl SolidResult {
         Self {
             body,
             solid,
+            reached: Vec::new(),
             others: Vec::new(),
             cuts: Vec::new(),
             joins: Vec::new(),
@@ -739,6 +761,16 @@ impl SolidResult {
             names: OnceLock::new(),
             mass: OnceLock::new(),
         }
+    }
+
+    #[must_use]
+    pub fn reaching(mut self, reached: Vec<ReachedEnd>) -> Self {
+        self.reached = reached;
+        self
+    }
+
+    pub fn reached(&self) -> &[ReachedEnd] {
+        &self.reached
     }
 
     pub fn cutting(mut self, tools: impl IntoIterator<Item = Solid>) -> Self {
@@ -1054,6 +1086,7 @@ pub(crate) fn evaluate(
         None => plane,
     };
     let mut stopped = None;
+    let mut reached = Vec::new();
     let tool = match solid {
         SolidFeature::Extrude(definition) => {
             let plane = started;
@@ -1071,10 +1104,12 @@ pub(crate) fn evaluate(
                 plane,
                 regions: &regions,
                 stop: Cell::new(None),
+                reached: RefCell::new(Vec::new()),
                 along,
             };
             let (extent, stop) = ends.extent(&definition.extent)?;
             stopped = stop;
+            reached = ends.reached.take();
             let taper = match definition.taper.as_deref() {
                 Some(angle) => taper_angle(&context, angle, inputs.parameters)?,
                 None => 0.0,
@@ -1196,6 +1231,7 @@ pub(crate) fn evaluate(
     };
     Ok(FeatureResult::Solid(
         SolidResult::new(body, solid)
+            .reaching(reached)
             .with_others(others)
             .cutting(cut)
             .joining(joined),
@@ -1879,6 +1915,14 @@ enum Side {
 }
 
 impl Side {
+    fn reached(self) -> ReachedSide {
+        match self {
+            Self::Only { .. } => ReachedSide::Only,
+            Self::Forward => ReachedSide::Forward,
+            Self::Backward => ReachedSide::Backward,
+        }
+    }
+
     fn reversed(self) -> bool {
         match self {
             Self::Only { reversed } => reversed,
@@ -1939,6 +1983,7 @@ struct Ends<'a> {
     plane: Plane,
     regions: &'a [Region],
     stop: Cell<Option<StopAt>>,
+    reached: RefCell<Vec<ReachedEnd>>,
     along: Option<Vector3>,
 }
 
@@ -2227,6 +2272,10 @@ impl Ends<'_> {
                     self.inputs.document,
                     solid.face(found.face).and_then(|face| face.origin()),
                 );
+                self.reached.borrow_mut().push(ReachedEnd {
+                    side: side.reached(),
+                    plane: found.plane,
+                });
                 self.offset_end(found.plane, side, offset, &face)
             }
         }

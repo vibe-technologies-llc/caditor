@@ -1,19 +1,21 @@
 use caditor_document::{
-    Blend, BlendKind, CircularPattern, Datum, DatumPlane, Evaluation, Extrude, ExtrudeEnd,
-    ExtrudeExtent, FeatureId, FeatureKind, Hole, HoleDepth, LinearDirection, LinearSpacing,
-    MAX_PATTERN_INSTANCES, OffsetFace, Pattern, PatternKind, Primitive, PrimitiveAnchor,
-    PrimitiveShape, Shell, SizeRule, SolidFeature, SolidStart, Wall, capitalized, displayed_axis,
-    displayed_plane, face_plane, hole_centres,
+    Blend, BlendKind, ChamferForm, CircularPattern, CurvePattern, CurveSpacing, Datum, DatumPlane,
+    Evaluation, Extrude, ExtrudeEnd, ExtrudeExtent, FeatureId, FeatureKind, Hole, HoleDepth,
+    HoleShape, HoleStyle, LinearDirection, LinearSpacing, MAX_CONE_ANGLE, MAX_PATTERN_INSTANCES,
+    MAX_PRISM_SIDES, MIN_PRISM_SIDES, OffsetFace, Pattern, PatternKind, PatternPath, Primitive,
+    PrimitiveAnchor, PrimitiveShape, ReachedEnd, ReachedSide, Shell, SizeRule, SolidFeature,
+    SolidStart, Wall, capitalized, displayed_axis, displayed_plane, face_plane, hole_centres,
+    hole_thread,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
-use caditor_kernel::{FaceId, MAX_TAPER_DEGREES, Solid, WallSide};
+use caditor_kernel::{EdgeId, FaceId, MAX_TAPER_DEGREES, Solid, WallSide, measured_face};
 use caditor_sketch::Entity;
 
 use crate::{
     blend_panel, bodies,
     feature_fields::Rule,
-    handle_snap, hole_tools,
+    handle_snap, hole_panel, hole_tools,
     model::Model,
     move_manipulator::{ARROW_POINTS, Reach, step_for},
     pattern_panel, pattern_tools, reach_handles, scene, solid_panel,
@@ -23,6 +25,7 @@ use crate::{
 
 const TAPER_STEP_DEGREES: f64 = 1.0;
 const FULL_TURN_DEGREES: f64 = 360.0;
+const HALF_TURN_DEGREES: f64 = 180.0;
 const SMALLEST_OPENING: f64 = 1e-3;
 const SMALLEST_RADIUS: f64 = 1e-6;
 const OFF_THE_LINE: f64 = 1e-9;
@@ -77,18 +80,39 @@ impl Amount {
 pub enum Measured {
     HoleDepth,
     HoleDiameter,
+    CounterboreDiameter,
+    CounterboreDepth,
+    CountersinkDiameter,
+    CountersinkAngle,
+    SlotLength,
+    SlotAngle,
+    ThreadDepth,
+    HoleEndOffset,
     OffsetDistance,
     PlaneOffset,
     PlaneAngle,
     BlendSize,
+    BlendSecond,
+    BlendAngle,
     ShellThickness,
     WallThickness,
     Taper,
     EndOffset(Reach),
     PrimitiveSize(usize),
+    PrismSides,
     PatternSpacing(usize),
     CircularAngle,
     CircularCount,
+    CurveSpacing,
+    CurveCount,
+}
+
+fn reached_side(reach: Reach) -> ReachedSide {
+    match reach {
+        Reach::Only | Reach::Symmetric => ReachedSide::Only,
+        Reach::Forward => ReachedSide::Forward,
+        Reach::Backward => ReachedSide::Backward,
+    }
 }
 
 fn zero() -> Expression {
@@ -126,6 +150,13 @@ fn end_offset_mut(end: &mut ExtrudeEnd) -> Option<&mut Option<Box<Expression>>> 
     }
 }
 
+fn hole_offset_mut(depth: &mut HoleDepth) -> Option<&mut Option<Box<Expression>>> {
+    match depth {
+        HoleDepth::UpToNext { offset } | HoleDepth::UpToFace { offset, .. } => Some(offset),
+        HoleDepth::Blind(_) | HoleDepth::ThroughAll => None,
+    }
+}
+
 fn pattern_kind_mut(kind: &mut FeatureKind) -> Option<&mut PatternKind> {
     match kind {
         FeatureKind::Pattern(pattern) => Some(&mut pattern.kind),
@@ -141,6 +172,13 @@ fn direction_mut(kind: &mut FeatureKind, index: usize) -> Option<&mut LinearDire
     }
 }
 
+fn curve_mut(kind: &mut FeatureKind) -> Option<&mut CurvePattern> {
+    match pattern_kind_mut(kind)? {
+        PatternKind::Curve(curve) => Some(curve),
+        _ => None,
+    }
+}
+
 fn circular_mut(kind: &mut FeatureKind) -> Option<&mut CircularPattern> {
     match pattern_kind_mut(kind)? {
         PatternKind::Circular(circular) => Some(circular),
@@ -151,18 +189,31 @@ fn circular_mut(kind: &mut FeatureKind) -> Option<&mut CircularPattern> {
 impl Measured {
     pub fn amount(self) -> Amount {
         match self {
-            Self::PlaneAngle | Self::Taper | Self::CircularAngle => Amount::Angle,
-            Self::CircularCount => Amount::Count,
+            Self::PlaneAngle
+            | Self::Taper
+            | Self::CircularAngle
+            | Self::BlendAngle
+            | Self::CountersinkAngle
+            | Self::SlotAngle => Amount::Angle,
+            Self::CircularCount | Self::PrismSides | Self::CurveCount => Amount::Count,
             Self::HoleDepth
             | Self::HoleDiameter
+            | Self::CounterboreDiameter
+            | Self::CounterboreDepth
+            | Self::CountersinkDiameter
+            | Self::SlotLength
+            | Self::ThreadDepth
+            | Self::HoleEndOffset
             | Self::OffsetDistance
             | Self::PlaneOffset
             | Self::BlendSize
+            | Self::BlendSecond
             | Self::ShellThickness
             | Self::WallThickness
             | Self::EndOffset(_)
             | Self::PrimitiveSize(_)
-            | Self::PatternSpacing(_) => Amount::Length,
+            | Self::PatternSpacing(_)
+            | Self::CurveSpacing => Amount::Length,
         }
     }
 
@@ -170,15 +221,27 @@ impl Measured {
         match self {
             Self::HoleDepth
             | Self::HoleDiameter
+            | Self::CounterboreDiameter
+            | Self::CounterboreDepth
+            | Self::CountersinkDiameter
+            | Self::SlotLength
+            | Self::ThreadDepth
             | Self::BlendSize
+            | Self::BlendSecond
             | Self::ShellThickness
             | Self::WallThickness => Rule::AboveZero,
-            Self::OffsetDistance | Self::PlaneOffset | Self::PlaneAngle | Self::EndOffset(_) => {
-                Rule::Any
-            }
+            Self::CountersinkAngle => Rule::ConeAngle,
+            Self::BlendAngle => Rule::ChamferAngle,
+            Self::OffsetDistance
+            | Self::PlaneOffset
+            | Self::PlaneAngle
+            | Self::EndOffset(_)
+            | Self::SlotAngle
+            | Self::HoleEndOffset => Rule::Any,
             Self::Taper => Rule::Taper,
-            Self::PatternSpacing(_) => Rule::AboveZeroOrReverse,
-            Self::CircularCount => Rule::Count,
+            Self::PatternSpacing(_) | Self::CurveSpacing => Rule::AboveZeroOrReverse,
+            Self::CircularCount | Self::CurveCount => Rule::Count,
+            Self::PrismSides => Rule::Sides,
             Self::CircularAngle => Rule::Turn,
             Self::PrimitiveSize(index) => {
                 let rule = kind
@@ -197,6 +260,14 @@ impl Measured {
         let fixed = match self {
             Self::HoleDepth => HOLE_DEPTH,
             Self::HoleDiameter => HOLE_DIAMETER,
+            Self::CounterboreDiameter => hole_panel::COUNTERBORE_DIAMETER,
+            Self::CounterboreDepth => hole_panel::COUNTERBORE_DEPTH,
+            Self::CountersinkDiameter => hole_panel::COUNTERSINK_DIAMETER,
+            Self::CountersinkAngle => hole_panel::COUNTERSINK_ANGLE,
+            Self::SlotLength => hole_panel::SLOT_LENGTH,
+            Self::SlotAngle => hole_panel::SLOT_ANGLE,
+            Self::ThreadDepth => hole_panel::THREAD_DEPTH,
+            Self::HoleEndOffset => solid_panel::END_OFFSET,
             Self::OffsetDistance => OFFSET_DISTANCE,
             Self::PlaneOffset => PLANE_OFFSET,
             Self::PlaneAngle => PLANE_ANGLE,
@@ -205,12 +276,16 @@ impl Measured {
             Self::Taper => solid_panel::TAPER,
             Self::EndOffset(reach) => solid_panel::end_offset_caption(reach),
             Self::CircularAngle => pattern_panel::TOTAL_ANGLE,
-            Self::CircularCount => pattern_panel::FIRST.count,
+            Self::CircularCount | Self::CurveCount => pattern_panel::FIRST.count,
+            Self::CurveSpacing => pattern_panel::FIRST.spacing,
             Self::BlendSize => blend_panel::size_caption(kind.blend()?),
+            Self::BlendSecond => blend_panel::SECOND_DISTANCE,
+            Self::BlendAngle => blend_panel::CHAMFER_ANGLE,
             Self::PrimitiveSize(index) => {
                 let (what, _) = kind.primitive()?.shape.sizes().into_iter().nth(index)?;
                 return Some(capitalized(what));
             }
+            Self::PrismSides => return Self::PrimitiveSize(0).caption(kind),
             Self::PatternSpacing(index) => {
                 let mut probe = kind.clone();
                 let direction = direction_mut(&mut probe, index)?;
@@ -228,6 +303,14 @@ impl Measured {
         let fixed = match self {
             Self::HoleDepth => "Drag to change the hole's depth",
             Self::HoleDiameter => "Drag to change the hole's diameter",
+            Self::CounterboreDiameter => "Drag to change the counterbore's diameter",
+            Self::CounterboreDepth => "Drag to change the counterbore's depth",
+            Self::CountersinkDiameter => "Drag to change the countersink's diameter",
+            Self::CountersinkAngle => "Drag to change the countersink's angle",
+            Self::SlotLength => "Drag to change the slot's length",
+            Self::SlotAngle => "Drag to turn the slot",
+            Self::ThreadDepth => "Drag to change how deep the thread goes",
+            Self::HoleEndOffset => "Drag to change how far the hole goes past the face",
             Self::OffsetDistance => "Drag to change how far the faces move",
             Self::PlaneOffset => "Drag to change the plane's offset",
             Self::PlaneAngle => "Drag to turn the plane about its axis",
@@ -236,13 +319,16 @@ impl Measured {
             Self::Taper => "Drag to change the extrusion's taper",
             Self::EndOffset(_) => "Drag to change how far the end goes past the face",
             Self::CircularAngle => "Drag to change the pattern's total angle",
-            Self::CircularCount => "Drag to add or remove copies",
+            Self::CircularCount | Self::CurveCount => "Drag to add or remove copies",
+            Self::CurveSpacing => "Drag to change the pattern's spacing",
             Self::PatternSpacing(_) => match self.caption(kind).as_deref() {
                 Some(caption) => {
                     return format!("Drag to change the pattern's {}", caption.to_lowercase());
                 }
                 None => "Drag to change the pattern's spacing",
             },
+            Self::BlendSecond => "Drag to change the chamfer's second distance",
+            Self::BlendAngle => "Drag to change the chamfer's angle",
             Self::BlendSize => match kind.blend() {
                 Some(blend) => {
                     return format!(
@@ -253,6 +339,7 @@ impl Measured {
                 }
                 None => "Drag to change the size",
             },
+            Self::PrismSides => return Self::PrimitiveSize(0).words(kind),
             Self::PrimitiveSize(index) => match kind
                 .primitive()
                 .and_then(|primitive| primitive.shape.sizes().into_iter().nth(index))
@@ -277,6 +364,60 @@ impl Measured {
                 FeatureKind::Hole(hole) => Some(&mut hole.diameter),
                 _ => None,
             },
+            Self::CounterboreDiameter => match kind {
+                FeatureKind::Hole(Hole {
+                    style: HoleStyle::Counterbore { diameter, .. },
+                    ..
+                }) => Some(diameter),
+                _ => None,
+            },
+            Self::CounterboreDepth => match kind {
+                FeatureKind::Hole(Hole {
+                    style: HoleStyle::Counterbore { depth, .. },
+                    ..
+                }) => Some(depth),
+                _ => None,
+            },
+            Self::CountersinkDiameter => match kind {
+                FeatureKind::Hole(Hole {
+                    style: HoleStyle::Countersink { diameter, .. },
+                    ..
+                }) => Some(diameter),
+                _ => None,
+            },
+            Self::CountersinkAngle => match kind {
+                FeatureKind::Hole(Hole {
+                    style: HoleStyle::Countersink { angle, .. },
+                    ..
+                }) => Some(angle),
+                _ => None,
+            },
+            Self::SlotLength => match kind {
+                FeatureKind::Hole(Hole {
+                    shape: HoleShape::Slot { length, .. },
+                    ..
+                }) => Some(length),
+                _ => None,
+            },
+            Self::SlotAngle => match kind {
+                FeatureKind::Hole(Hole {
+                    shape: HoleShape::Slot { angle, .. },
+                    ..
+                }) => Some(angle),
+                _ => None,
+            },
+            Self::ThreadDepth => match kind {
+                FeatureKind::Hole(hole) => hole.thread.depth.as_mut(),
+                _ => None,
+            },
+            Self::HoleEndOffset => match kind {
+                FeatureKind::Hole(hole) => Some(
+                    hole_offset_mut(&mut hole.depth)?
+                        .get_or_insert_with(|| Box::new(zero()))
+                        .as_mut(),
+                ),
+                _ => None,
+            },
             Self::OffsetDistance => match kind {
                 FeatureKind::OffsetFace(OffsetFace { distance, .. }) => Some(distance),
                 _ => None,
@@ -294,6 +435,20 @@ impl Measured {
             },
             Self::BlendSize => match kind {
                 FeatureKind::Blend(blend) => Some(&mut blend.size),
+                _ => None,
+            },
+            Self::BlendSecond => match kind {
+                FeatureKind::Blend(Blend {
+                    form: ChamferForm::TwoDistances { second },
+                    ..
+                }) => Some(second),
+                _ => None,
+            },
+            Self::BlendAngle => match kind {
+                FeatureKind::Blend(Blend {
+                    form: ChamferForm::DistanceAngle { angle },
+                    ..
+                }) => Some(angle),
                 _ => None,
             },
             Self::ShellThickness => match kind {
@@ -321,9 +476,12 @@ impl Measured {
                 }
                 _ => None,
             },
+            Self::PrismSides => Self::PrimitiveSize(0).slot(kind),
             Self::PatternSpacing(index) => Some(&mut direction_mut(kind, index)?.spacing),
             Self::CircularAngle => Some(&mut circular_mut(kind)?.angle),
             Self::CircularCount => Some(&mut circular_mut(kind)?.count),
+            Self::CurveSpacing => Some(&mut curve_mut(kind)?.spacing),
+            Self::CurveCount => Some(&mut curve_mut(kind)?.count),
         }
     }
 
@@ -345,40 +503,72 @@ impl Measured {
                     *offset = None;
                 }
             }
-            Self::HoleDiameter => {
+            Self::HoleDiameter
+            | Self::CounterboreDiameter
+            | Self::CounterboreDepth
+            | Self::CountersinkDiameter
+            | Self::CountersinkAngle => {
                 if let FeatureKind::Hole(hole) = kind {
                     hole.standard = None;
                 }
             }
+            Self::HoleEndOffset => {
+                if let FeatureKind::Hole(hole) = kind
+                    && let Some(offset) = hole_offset_mut(&mut hole.depth)
+                    && offset.as_deref().is_some_and(solid_panel::is_zero)
+                {
+                    *offset = None;
+                }
+            }
             Self::HoleDepth
+            | Self::SlotLength
+            | Self::SlotAngle
+            | Self::ThreadDepth
             | Self::OffsetDistance
             | Self::PlaneOffset
             | Self::PlaneAngle
             | Self::BlendSize
+            | Self::BlendSecond
+            | Self::BlendAngle
             | Self::ShellThickness
             | Self::WallThickness
             | Self::PrimitiveSize(_)
+            | Self::PrismSides
             | Self::PatternSpacing(_)
             | Self::CircularAngle
-            | Self::CircularCount => {}
+            | Self::CircularCount
+            | Self::CurveSpacing
+            | Self::CurveCount => {}
         }
     }
 
     pub fn step(self, per_point: f64) -> f64 {
         match self {
             Self::Taper => TAPER_STEP_DEGREES,
-            Self::PlaneAngle | Self::CircularAngle => STEP_DEGREES,
-            Self::CircularCount => 1.0,
+            Self::PlaneAngle
+            | Self::CircularAngle
+            | Self::BlendAngle
+            | Self::CountersinkAngle
+            | Self::SlotAngle => STEP_DEGREES,
+            Self::CircularCount | Self::PrismSides | Self::CurveCount => 1.0,
             Self::HoleDepth
             | Self::HoleDiameter
+            | Self::CounterboreDiameter
+            | Self::CounterboreDepth
+            | Self::CountersinkDiameter
+            | Self::SlotLength
+            | Self::ThreadDepth
+            | Self::HoleEndOffset
             | Self::OffsetDistance
             | Self::PlaneOffset
             | Self::BlendSize
+            | Self::BlendSecond
             | Self::ShellThickness
             | Self::WallThickness
             | Self::EndOffset(_)
             | Self::PrimitiveSize(_)
-            | Self::PatternSpacing(_) => step_for(per_point),
+            | Self::PatternSpacing(_)
+            | Self::CurveSpacing => step_for(per_point),
         }
     }
 
@@ -387,27 +577,44 @@ impl Measured {
         match self {
             Self::HoleDepth
             | Self::HoleDiameter
+            | Self::CounterboreDiameter
+            | Self::CounterboreDepth
+            | Self::CountersinkDiameter
+            | Self::SlotLength
+            | Self::ThreadDepth
             | Self::BlendSize
+            | Self::BlendSecond
             | Self::ShellThickness
             | Self::WallThickness
-            | Self::PatternSpacing(_) => value.max(step),
+            | Self::PatternSpacing(_)
+            | Self::CurveSpacing => value.max(step),
+            Self::BlendAngle => value.clamp(step, HALF_TURN_DEGREES - step),
             Self::PrimitiveSize(index) => {
                 let may_vanish = matches!(
                     (kind.primitive().map(|primitive| &primitive.shape), index),
                     (Some(PrimitiveShape::Cone { .. }), 0 | 1)
+                        | (Some(PrimitiveShape::Wedge { .. }), 3)
                 );
                 value.max(if may_vanish { 0.0 } else { step })
             }
             Self::OffsetDistance if value == 0.0 => step,
-            Self::OffsetDistance | Self::PlaneOffset | Self::PlaneAngle | Self::EndOffset(_) => {
-                value
-            }
+            Self::OffsetDistance
+            | Self::PlaneOffset
+            | Self::PlaneAngle
+            | Self::EndOffset(_)
+            | Self::SlotAngle
+            | Self::HoleEndOffset => value,
+            Self::CountersinkAngle => value.clamp(step, MAX_CONE_ANGLE),
             Self::Taper => {
                 let steepest = MAX_TAPER_DEGREES - step;
                 value.clamp(-steepest, steepest)
             }
             Self::CircularAngle => value.clamp(step, FULL_TURN_DEGREES),
             Self::CircularCount => value.round().clamp(1.0, most_copies),
+            Self::CurveCount => value.round().clamp(2.0, most_copies),
+            Self::PrismSides => value
+                .round()
+                .clamp(f64::from(MIN_PRISM_SIDES), f64::from(MAX_PRISM_SIDES)),
         }
     }
 }
@@ -422,6 +629,8 @@ pub enum Track {
 pub enum Mapping {
     Linear { scale: f64, offset: f64 },
     Tangent { arm: f64 },
+    Reciprocal { turn: f64, less: f64 },
+    Cotangent { run: f64 },
 }
 
 impl Mapping {
@@ -429,6 +638,8 @@ impl Mapping {
         match self {
             Self::Linear { scale, offset } => offset + scale * value,
             Self::Tangent { arm } => arm * value.to_radians().tan(),
+            Self::Reciprocal { turn, less } => turn / (value - less),
+            Self::Cotangent { run } => run / (value / 2.0).to_radians().tan(),
         }
     }
 
@@ -436,7 +647,12 @@ impl Mapping {
         let value = match self {
             Self::Linear { scale, offset } if scale != 0.0 => (position - offset) / scale,
             Self::Tangent { arm } if arm > 0.0 => (position / arm).atan().to_degrees(),
-            Self::Linear { .. } | Self::Tangent { .. } => return None,
+            Self::Reciprocal { turn, less } if position > 0.0 => less + turn / position,
+            Self::Cotangent { run } if position > 0.0 => 2.0 * (run / position).atan().to_degrees(),
+            Self::Linear { .. }
+            | Self::Tangent { .. }
+            | Self::Reciprocal { .. }
+            | Self::Cotangent { .. } => return None,
         };
         value.is_finite().then_some(value)
     }
@@ -475,10 +691,7 @@ pub struct Builder<'a> {
 impl Builder<'_> {
     pub fn gauges(&self, kind: &FeatureKind) -> Vec<Gauge> {
         match kind {
-            FeatureKind::Hole(hole) => [self.hole_depth(hole), self.hole_diameter(hole)]
-                .into_iter()
-                .flatten()
-                .collect(),
+            FeatureKind::Hole(hole) => self.hole(hole),
             FeatureKind::OffsetFace(offset) => self.offset(offset).into_iter().collect(),
             FeatureKind::Datum(Datum::Plane(plane)) => {
                 [self.plane_offset(plane), self.plane_angle(plane)]
@@ -486,7 +699,7 @@ impl Builder<'_> {
                     .flatten()
                     .collect()
             }
-            FeatureKind::Blend(blend) => self.blend(blend).into_iter().collect(),
+            FeatureKind::Blend(blend) => self.blend(blend),
             FeatureKind::Shell(shell) => self.shell(shell).into_iter().collect(),
             FeatureKind::Solid(SolidFeature::Extrude(extrude)) => {
                 let wall = extrude
@@ -522,7 +735,7 @@ impl Builder<'_> {
         Amount::Count.evaluate(self.model, self.feature, expression)
     }
 
-    fn hole_top(&self, hole: &Hole) -> Option<(Plane, Point3, Vector3)> {
+    fn hole_top(&self, hole: &Hole) -> Option<HoleTop> {
         let document = self.model.document();
         let sketch = document.feature(hole.sketch)?;
         let displayed = self.model.displayed_sketch(sketch)?;
@@ -533,29 +746,200 @@ impl Builder<'_> {
         } else {
             -plane.normal()
         };
-        Some((plane, plane.to_world(centre), down))
+        Some(HoleTop {
+            plane,
+            top: plane.to_world(centre),
+            down,
+        })
     }
 
-    fn hole_depth(&self, hole: &Hole) -> Option<Gauge> {
+    fn hole(&self, hole: &Hole) -> Vec<Gauge> {
+        let Some(top) = self.hole_top(hole) else {
+            return Vec::new();
+        };
+        let mut gauges: Vec<Gauge> = [self.hole_depth(hole, &top), self.hole_diameter(hole, &top)]
+            .into_iter()
+            .flatten()
+            .collect();
+        gauges.extend(self.hole_style(hole, &top));
+        gauges.extend(self.hole_slot(hole, &top));
+        gauges.extend(self.hole_thread_depth(hole, &top));
+        gauges.extend(self.hole_end_offset(hole, &top));
+        gauges
+    }
+
+    fn hole_depth(&self, hole: &Hole, top: &HoleTop) -> Option<Gauge> {
         let HoleDepth::Blind(depth) = &hole.depth else {
             return None;
         };
         let value = self.length(depth)?;
-        let (_, top, down) = self.hole_top(hole)?;
-        Some(Gauge::line(Measured::HoleDepth, (top, down), 1.0, value))
+        Some(Gauge::line(
+            Measured::HoleDepth,
+            (top.top, top.down),
+            1.0,
+            value,
+        ))
     }
 
-    fn hole_diameter(&self, hole: &Hole) -> Option<Gauge> {
+    fn hole_width(&self, hole: &Hole) -> Option<f64> {
         if hole.sizing.by_circles() {
             return None;
         }
-        let value = self.length(&hole.diameter)?;
-        let (plane, top, _) = self.hole_top(hole)?;
-        let between_place_arrows = (plane.x_axis() + plane.y_axis()).normalize();
+        self.length(&hole.diameter)
+    }
+
+    fn bore_level(&self, hole: &Hole, width: f64) -> f64 {
+        let level = match &hole.style {
+            HoleStyle::Plain => Some(0.0),
+            HoleStyle::Counterbore { depth, .. } => self.length(depth),
+            HoleStyle::Countersink { diameter, angle } => {
+                let wide = self.length(diameter);
+                let angle = self.angle(angle);
+                wide.zip(angle).map(|(wide, angle)| {
+                    ((wide - width) / 2.0 / (angle / 2.0).to_radians().tan()).max(0.0)
+                })
+            }
+            HoleStyle::Stepped(steps) => steps
+                .iter()
+                .map(|step| self.length(&step.depth))
+                .sum::<Option<f64>>(),
+        };
+        level.filter(|level| level.is_finite()).unwrap_or(0.0)
+    }
+
+    fn hole_diameter(&self, hole: &Hole, top: &HoleTop) -> Option<Gauge> {
+        let value = self.hole_width(hole)?;
+        let level = self.bore_level(hole, value);
+        let (base, direction) = top.rim(hole, self);
         Some(Gauge::line(
             Measured::HoleDiameter,
-            (top, between_place_arrows),
+            (base + top.down * level, direction),
             0.5,
+            value,
+        ))
+    }
+
+    fn hole_style(&self, hole: &Hole, top: &HoleTop) -> Vec<Gauge> {
+        let Some(width) = self.hole_width(hole) else {
+            return Vec::new();
+        };
+        let (rim_base, rim) = top.rim(hole, self);
+        let (wall_base, wall) = top.wall(hole, self);
+        match &hole.style {
+            HoleStyle::Counterbore { diameter, depth } => {
+                let (Some(wide), Some(deep)) = (self.length(diameter), self.length(depth)) else {
+                    return Vec::new();
+                };
+                vec![
+                    Gauge::line(Measured::CounterboreDiameter, (rim_base, rim), 0.5, wide),
+                    Gauge::line(
+                        Measured::CounterboreDepth,
+                        (wall_base + wall * (wide / 2.0), top.down),
+                        1.0,
+                        deep,
+                    ),
+                ]
+            }
+            HoleStyle::Countersink { diameter, angle }
+                if matches!(hole.shape, HoleShape::Round) =>
+            {
+                let (Some(wide), Some(angle)) = (self.length(diameter), self.angle(angle)) else {
+                    return Vec::new();
+                };
+                let mouth = Gauge::line(Measured::CountersinkDiameter, (rim_base, rim), 0.5, wide);
+                let run = (wide - width) / 2.0;
+                let flare = (run > SMALLEST_RADIUS).then(|| Gauge {
+                    measured: Measured::CountersinkAngle,
+                    track: Track::Line {
+                        base: wall_base + wall * (width / 2.0),
+                        direction: top.down,
+                    },
+                    mapping: Mapping::Cotangent { run },
+                    value: angle,
+                });
+                std::iter::once(mouth).chain(flare).collect()
+            }
+            HoleStyle::Plain | HoleStyle::Countersink { .. } | HoleStyle::Stepped(_) => Vec::new(),
+        }
+    }
+
+    fn hole_slot(&self, hole: &Hole, top: &HoleTop) -> Vec<Gauge> {
+        let HoleShape::Slot { angle, .. } = &hole.shape else {
+            return Vec::new();
+        };
+        let (Some(angle), Some((along, _, length)), Some(width)) = (
+            self.angle(angle),
+            top.slot(hole, self),
+            self.hole_width(hole),
+        ) else {
+            return Vec::new();
+        };
+        let tip = Gauge {
+            measured: Measured::SlotLength,
+            track: Track::Line {
+                base: top.top,
+                direction: along,
+            },
+            mapping: Mapping::Linear {
+                scale: 0.5,
+                offset: width / 2.0,
+            },
+            value: length,
+        };
+        let turn = Gauge {
+            measured: Measured::SlotAngle,
+            track: Track::Turn(Swing {
+                foot: top.top,
+                radial: -top.plane.x_axis(),
+                normal: -top.plane.y_axis(),
+                radius: length / 2.0 + width / 2.0,
+            }),
+            mapping: Mapping::Linear {
+                scale: 1.0,
+                offset: 0.0,
+            },
+            value: angle,
+        };
+        vec![tip, turn]
+    }
+
+    fn hole_thread_depth(&self, hole: &Hole, top: &HoleTop) -> Option<Gauge> {
+        hole_thread(hole)?;
+        let depth = hole.thread.depth.as_ref()?;
+        let value = self.length(depth)?;
+        let width = self.hole_width(hole)?;
+        let level = self.bore_level(hole, width);
+        let (wall_base, wall) = top.wall(hole, self);
+        Some(Gauge::line(
+            Measured::ThreadDepth,
+            (
+                wall_base + top.down * level + wall * (width / 2.0),
+                top.down,
+            ),
+            1.0,
+            value,
+        ))
+    }
+
+    fn hole_end_offset(&self, hole: &Hole, top: &HoleTop) -> Option<Gauge> {
+        let (face, offset) = match &hole.depth {
+            HoleDepth::UpToFace { target, offset } => (
+                displayed_plane(self.model.evaluation(), self.feature, target)?,
+                offset,
+            ),
+            HoleDepth::UpToNext { offset } => (self.reached_end(ReachedSide::Only)?.plane, offset),
+            HoleDepth::Blind(_) | HoleDepth::ThroughAll => return None,
+        };
+        let value = offset
+            .as_deref()
+            .map_or(Some(0.0), |offset| self.length(offset))?;
+        let facing = face.normal().dot(top.down).abs();
+        (facing > OFF_THE_LINE).then_some(())?;
+        let reached = -face.signed_distance(top.top) / face.normal().dot(top.down);
+        Some(Gauge::line(
+            Measured::HoleEndOffset,
+            (top.top + top.down * reached, top.down),
+            1.0 / facing,
             value,
         ))
     }
@@ -579,6 +963,18 @@ impl Builder<'_> {
         self.model
             .draft_evaluation_of(self.feature)
             .unwrap_or_else(|| self.model.evaluation())
+    }
+
+    fn reached_end(&self, side: ReachedSide) -> Option<ReachedEnd> {
+        self.shown_evaluation()
+            .feature(self.feature)?
+            .result
+            .as_deref()?
+            .solid()?
+            .reached()
+            .iter()
+            .find(|end| end.side == side)
+            .copied()
     }
 
     fn shown_plane(&self) -> Option<Plane> {
@@ -632,40 +1028,70 @@ impl Builder<'_> {
         })
     }
 
-    fn blend(&self, blend: &Blend) -> Option<Gauge> {
-        let value = self.length(&blend.size)?;
+    fn blend(&self, blend: &Blend) -> Vec<Gauge> {
+        self.blend_gauges(blend).unwrap_or_default()
+    }
+
+    fn blend_gauges(&self, blend: &Blend) -> Option<Vec<Gauge>> {
+        let size = self.length(&blend.size)?;
         let source = handle_snap::before(self.model, self.feature)?;
         let solid = &source.solid;
-        let id = bodies::find_edge(source, blend.edges.first()?.name())?;
-        let edge = solid.edge(id)?;
-        let middle = edge.interval().middle();
-        let at = edge.curve().point(middle);
-        let along = edge.curve().evaluate(middle).first.try_normalize()?;
-        let mut sides = edge.coedges().iter().filter_map(|coedge| {
-            let sense = solid.coedge(*coedge)?.sense().sign();
-            let normal = outward(solid, solid.coedge_face(*coedge)?, at)?;
-            Some((normal, along * sense))
-        });
-        let (first, _) = sides.next()?;
-        let (second, second_along) = sides.next()?;
-        let opening = first.dot(second).clamp(-1.0, 1.0).acos();
-        if opening < SMALLEST_OPENING {
-            return None;
-        }
-        let convex = second.cross(second_along).dot(first) < 0.0;
-        let bisector = (first + second).try_normalize()?;
-        let direction = if convex { -bisector } else { bisector };
-        let half = opening / 2.0;
-        let per_size = match blend.kind {
-            BlendKind::Fillet => 1.0 / half.cos() - 1.0,
-            BlendKind::Chamfer => half.sin(),
+        let edge = match blend.edges.first() {
+            Some(first) => bodies::find_edge(source, first.name())?,
+            None => *blend.resolve(self.model.document(), solid).ok()?.first()?,
         };
-        Some(Gauge::line(
-            Measured::BlendSize,
-            (at, direction),
-            per_size,
-            value,
-        ))
+        let corner = Corner::of(solid, edge)?;
+        let measured = || {
+            let edges = blend
+                .resolve(self.model.document(), solid)
+                .unwrap_or_else(|_| vec![edge]);
+            corner.measured(measured_face(solid, &edges, edge, blend.flipped)?)
+        };
+        let gauges = match (blend.kind, blend.chamfer_form()) {
+            (BlendKind::Fillet, _) => {
+                let half = corner.opening / 2.0;
+                vec![corner.bisected(size, 1.0 / half.cos() - 1.0)]
+            }
+            (BlendKind::Chamfer, ChamferForm::Equal) => {
+                vec![corner.bisected(size, (corner.opening / 2.0).sin())]
+            }
+            (BlendKind::Chamfer, ChamferForm::TwoDistances { second }) => {
+                let (near, far) = measured()?;
+                let second = self.length(second)?;
+                vec![
+                    Gauge::line(Measured::BlendSize, (corner.at, near.inward), 1.0, size),
+                    Gauge::line(Measured::BlendSecond, (corner.at, far.inward), 1.0, second),
+                ]
+            }
+            (BlendKind::Chamfer, ChamferForm::DistanceAngle { angle }) => {
+                let (near, far) = measured()?;
+                let angle = self.angle(angle)?;
+                let foot = corner.at + near.inward * size;
+                let back = -near.inward;
+                let toward_far = far.inward - back * far.inward.dot(back);
+                let turned = toward_far.try_normalize()?;
+                let reach = corner.cut_length(foot, back, turned, angle, far);
+                let radius = reach.or_else(|| Some(ARROW_POINTS * (self.per_point)(foot)?))?;
+                vec![
+                    Gauge::line(Measured::BlendSize, (corner.at, near.inward), 1.0, size),
+                    Gauge {
+                        measured: Measured::BlendAngle,
+                        track: Track::Turn(Swing {
+                            foot,
+                            radial: back,
+                            normal: turned,
+                            radius,
+                        }),
+                        mapping: Mapping::Linear {
+                            scale: 1.0,
+                            offset: 0.0,
+                        },
+                        value: angle,
+                    },
+                ]
+            }
+        };
+        Some(gauges)
     }
 
     fn shell(&self, shell: &Shell) -> Option<Gauge> {
@@ -803,18 +1229,27 @@ impl Builder<'_> {
         sides
             .into_iter()
             .filter_map(|(reach, end, sign)| {
-                let ExtrudeEnd::UpToFace { target, offset } = end? else {
-                    return None;
+                let (offset, level) = match end? {
+                    ExtrudeEnd::UpToFace { target, offset } => (
+                        offset,
+                        caditor_document::displayed_start_offset(
+                            self.model.evaluation(),
+                            self.feature,
+                            &plane,
+                            target,
+                        )?,
+                    ),
+                    ExtrudeEnd::UpToNext { offset } => (
+                        offset,
+                        self.reached_end(reached_side(reach))?.level_over(&plane)?,
+                    ),
+                    ExtrudeEnd::Distance(_)
+                    | ExtrudeEnd::ThroughAll
+                    | ExtrudeEnd::UpToSurface { .. } => return None,
                 };
                 let value = offset
                     .as_deref()
                     .map_or(Some(0.0), |offset| self.length(offset))?;
-                let level = caditor_document::displayed_start_offset(
-                    self.model.evaluation(),
-                    self.feature,
-                    &plane,
-                    target,
-                )?;
                 let face = on_sketch + plane.normal() * level;
                 Some(Gauge::line(
                     Measured::EndOffset(reach),
@@ -830,10 +1265,12 @@ impl Builder<'_> {
         let Some(placed) = PlacedPrimitive::of(self, primitive) else {
             return Vec::new();
         };
-        primitive_arrows(&primitive.shape)
+        let mut gauges: Vec<Gauge> = primitive_arrows(&primitive.shape)
             .iter()
             .filter_map(|arrow| placed.gauge(*arrow))
-            .collect()
+            .collect();
+        gauges.extend(placed.sides_gauge());
+        gauges
     }
 
     fn pattern(&self, pattern: &Pattern) -> Vec<Gauge> {
@@ -853,7 +1290,8 @@ impl Builder<'_> {
                 .flat_map(|(index, direction)| self.linear(index, direction, centre))
                 .collect(),
             PatternKind::Circular(circular) => self.circular(circular, centre),
-            PatternKind::Curve(_) | PatternKind::Points(_) => Vec::new(),
+            PatternKind::Curve(curve) => self.curve(curve, centre),
+            PatternKind::Points(_) => Vec::new(),
         }
     }
 
@@ -883,6 +1321,58 @@ impl Builder<'_> {
             scale,
             spacing,
         )]
+    }
+
+    fn curve(&self, curve: &CurvePattern, centre: Point3) -> Vec<Gauge> {
+        self.curve_gauge(curve, centre).into_iter().collect()
+    }
+
+    fn curve_gauge(&self, curve: &CurvePattern, centre: Point3) -> Option<Gauge> {
+        let sketch = self
+            .model
+            .displayed_sketch(self.model.document().feature(curve.sketch)?)?;
+        let path = PatternPath::of(&sketch)?;
+        let count = self.count(&curve.count)?.round();
+        (count >= 2.0).then_some(())?;
+        let steps = count - 1.0;
+        let length = path.length();
+        let stop_at = |reach: f64| {
+            let stop = path.copy_at(reach, curve.reversed, curve.orientation)?;
+            Some((
+                stop.placement.apply_point(centre),
+                stop.tangent.try_normalize()?,
+            ))
+        };
+        match curve.measured {
+            CurveSpacing::Distance => {
+                let spacing = self.length(&curve.spacing)?;
+                (spacing > 0.0).then_some(())?;
+                let (foot, tangent) = stop_at(spacing * steps)?;
+                Some(Gauge::line(
+                    Measured::CurveSpacing,
+                    (foot - tangent * spacing * steps, tangent),
+                    steps,
+                    spacing,
+                ))
+            }
+            CurveSpacing::Spread => {
+                let (step, less) = if path.is_closed() {
+                    (length / count, 0.0)
+                } else {
+                    (length / steps, 1.0)
+                };
+                let (foot, tangent) = stop_at(step)?;
+                Some(Gauge {
+                    measured: Measured::CurveCount,
+                    track: Track::Line {
+                        base: foot - tangent * step,
+                        direction: tangent,
+                    },
+                    mapping: Mapping::Reciprocal { turn: length, less },
+                    value: count,
+                })
+            }
+        }
     }
 
     fn circular(&self, circular: &CircularPattern, centre: Point3) -> Vec<Gauge> {
@@ -945,6 +1435,125 @@ impl Builder<'_> {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Side {
+    face: FaceId,
+    normal: Vector3,
+    inward: Vector3,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Corner {
+    at: Point3,
+    sides: [Side; 2],
+    opening: f64,
+    convex: bool,
+}
+
+impl Corner {
+    fn of(solid: &Solid, edge: EdgeId) -> Option<Self> {
+        let edge = solid.edge(edge)?;
+        let middle = edge.interval().middle();
+        let at = edge.curve().point(middle);
+        let along = edge.curve().evaluate(middle).first.try_normalize()?;
+        let mut sides = edge.coedges().iter().filter_map(|coedge| {
+            let sense = solid.coedge(*coedge)?.sense().sign();
+            let face = solid.coedge_face(*coedge)?;
+            let normal = outward(solid, face, at)?;
+            Some(Side {
+                face,
+                normal,
+                inward: normal.cross(along * sense).try_normalize()?,
+            })
+        });
+        let (first, second) = (sides.next()?, sides.next()?);
+        let opening = first.normal.dot(second.normal).clamp(-1.0, 1.0).acos();
+        (opening >= SMALLEST_OPENING).then_some(())?;
+        Some(Self {
+            at,
+            sides: [first, second],
+            opening,
+            convex: second.inward.dot(first.normal) < 0.0,
+        })
+    }
+
+    fn bisected(&self, value: f64, per_size: f64) -> Gauge {
+        let [first, second] = self.sides;
+        let bisector = (first.normal + second.normal)
+            .try_normalize()
+            .unwrap_or(first.normal);
+        let direction = if self.convex { -bisector } else { bisector };
+        Gauge::line(Measured::BlendSize, (self.at, direction), per_size, value)
+    }
+
+    fn measured(&self, face: FaceId) -> Option<(Side, Side)> {
+        let [first, second] = self.sides;
+        match face {
+            face if face == first.face => Some((first, second)),
+            face if face == second.face => Some((second, first)),
+            _ => None,
+        }
+    }
+
+    fn cut_length(
+        &self,
+        foot: Point3,
+        back: Vector3,
+        turned: Vector3,
+        angle: f64,
+        far: Side,
+    ) -> Option<f64> {
+        let (sin, cos) = angle.to_radians().sin_cos();
+        let direction = back * cos + turned * sin;
+        let section = back.cross(far.inward);
+        let from_edge = foot - self.at;
+        let reach =
+            -from_edge.cross(far.inward).dot(section) / direction.cross(far.inward).dot(section);
+        let landing = from_edge + direction * reach;
+        (reach.is_finite() && reach > OFF_THE_LINE && landing.dot(far.inward) > OFF_THE_LINE)
+            .then_some(reach)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct HoleTop {
+    plane: Plane,
+    top: Point3,
+    down: Vector3,
+}
+
+impl HoleTop {
+    fn slot(&self, hole: &Hole, builder: &Builder<'_>) -> Option<(Vector3, Vector3, f64)> {
+        let HoleShape::Slot { length, angle } = &hole.shape else {
+            return None;
+        };
+        let (sin, cos) = builder.angle(angle)?.to_radians().sin_cos();
+        let along = self.plane.x_axis() * cos + self.plane.y_axis() * sin;
+        let across = self.plane.y_axis() * cos - self.plane.x_axis() * sin;
+        Some((along, across, builder.length(length)?))
+    }
+
+    fn rim(&self, hole: &Hole, builder: &Builder<'_>) -> (Point3, Vector3) {
+        match self.slot(hole, builder) {
+            Some((along, across, length)) => (self.top + along * (length / 4.0), across),
+            None => (
+                self.top,
+                (self.plane.x_axis() + self.plane.y_axis()).normalize(),
+            ),
+        }
+    }
+
+    fn wall(&self, hole: &Hole, builder: &Builder<'_>) -> (Point3, Vector3) {
+        match self.slot(hole, builder) {
+            Some((along, across, length)) => (self.top + along * (length / 4.0), -across),
+            None => (
+                self.top,
+                (self.plane.x_axis() - self.plane.y_axis()).normalize(),
+            ),
+        }
+    }
+}
+
 fn outward(solid: &Solid, face: FaceId, point: Point3) -> Option<Vector3> {
     let face = solid.face(face)?;
     let surface = face.surface();
@@ -971,6 +1580,7 @@ enum Reaches {
     Side,
     BottomRim,
     TopRim,
+    TopLength,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1016,10 +1626,16 @@ fn primitive_arrows(shape: &PrimitiveShape) -> &'static [PrimitiveArrow] {
         },
         arrow(2, Along::Up, Level::Middle),
     ];
-    const WEDGE: [PrimitiveArrow; 3] = [
+    const WEDGE: [PrimitiveArrow; 4] = [
         arrow(0, Along::X, Level::Bottom),
         arrow(1, Along::Y, Level::Bottom),
         arrow(2, Along::Up, Level::Middle),
+        PrimitiveArrow {
+            index: 3,
+            along: Along::X,
+            level: Level::Top,
+            reaches: Reaches::TopLength,
+        },
     ];
     const PRISM: [PrimitiveArrow; 2] = [
         arrow(1, Along::X, Level::Middle),
@@ -1116,9 +1732,36 @@ impl<'a> PlacedPrimitive<'a> {
         Some(match (arrow.along, arrow.reaches) {
             (Along::X, Reaches::BottomRim) => rim(*values.first()?),
             (Along::X, Reaches::TopRim) => rim(*values.get(1)?),
+            (Along::X, Reaches::TopLength) => low_x + *values.get(3)?,
             (Along::X, Reaches::Side) => low_x + length,
             (Along::Y, _) => low_y + width,
             (Along::Up, _) => low_z + height,
+        })
+    }
+
+    fn sides_gauge(&self) -> Option<Gauge> {
+        if !matches!(self.shape, PrimitiveShape::Prism { .. }) {
+            return None;
+        }
+        let sides = *self.values.first()?;
+        let size = footprint(self.shape, &self.values)?;
+        let [low_x, low_y, low_z] = self.low(size);
+        let [diameter, _, height] = size;
+        let radius = diameter / 2.0;
+        let middle = Point2::new(low_x + radius, low_y + radius);
+        Some(Gauge {
+            measured: Measured::PrismSides,
+            track: Track::Turn(Swing {
+                foot: self.plane.to_world(middle) + self.up * (low_z + height),
+                radial: -self.plane.y_axis(),
+                normal: self.plane.x_axis(),
+                radius,
+            }),
+            mapping: Mapping::Reciprocal {
+                turn: HALF_TURN_DEGREES,
+                less: 0.0,
+            },
+            value: sides,
         })
     }
 

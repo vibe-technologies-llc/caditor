@@ -1066,6 +1066,29 @@ fn a_two_distance_chamfer_measures_the_first_on_the_face_its_edges_share() {
 }
 
 #[test]
+fn the_measured_face_is_the_one_more_of_the_chosen_edges_share() {
+    let solid = block_at((0.0, 0.0, 0.0), (10.0, 10.0, 10.0), 1);
+    let rim = edges_where(&solid, |middle| (middle.z - 10.0).abs() < 1e-9);
+    let edge = edge_through(&solid, (5.0, 0.0, 10.0));
+    let at = Point3::new(5.0, 0.0, 10.0);
+    let normal_of = |face: Option<FaceId>| face_normal(&solid, face.unwrap(), at).unwrap();
+
+    let shared = normal_of(measured_face(&solid, &rim, edge, false));
+    let other = normal_of(measured_face(&solid, &rim, edge, true));
+    let alone = measured_face(&solid, &[edge], edge, false);
+    let flipped_alone = measured_face(&solid, &[edge], edge, true);
+
+    assert!((shared - Vector3::Z).length() < 1e-9);
+    assert!((other + Vector3::Y).length() < 1e-9);
+    assert!(alone.is_some());
+    assert_ne!(alone, flipped_alone);
+    assert_eq!(
+        measured_face(&solid, &rim, EdgeId::from_index(10_000).unwrap(), false),
+        None
+    );
+}
+
+#[test]
 fn a_distance_angle_chamfer_turns_its_cut_from_the_measured_face() {
     let solid = block_at((0.0, 0.0, 0.0), (10.0, 10.0, 10.0), 1);
     let rim = edges_where(&solid, |middle| (middle.z - 10.0).abs() < 1e-9);

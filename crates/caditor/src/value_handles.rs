@@ -19,7 +19,7 @@ use crate::{
 };
 
 const ARROW_SHARE: f64 = 0.7;
-const MOST_GAUGES: usize = 4;
+const MOST_GAUGES: usize = 8;
 const CLEARANCE_POINTS: f64 = 2.0 * HEAD_HALF_POINTS;
 #[cfg(test)]
 const GRIP_FRACTION: f64 = 0.6;

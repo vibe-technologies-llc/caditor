@@ -20,8 +20,11 @@ piece. When a piece no longer lies along the old edge, the fillet stops and says
 split, so you can choose the pieces again rather than lose one without notice.
 
 - Fillet takes a **Radius**, Chamfer a **Distance**. An arrow at the middle of the first edge,
-  standing on the rounded or cut face, drags it; type a value with the pointer on the arrow to set
-  it exactly.
+  standing on the rounded or cut face, drags it, on convex and concave edges alike; type a value
+  with the pointer on the arrow to set it exactly. A chamfer of **Two** distances has an arrow on
+  each face where its distance ends, and one of **Angle** an arrow for the distance on the face
+  it is measured from and a turning arrow where the cut meets the other face, which drags the
+  angle.
 - A chamfer's **Distances** row chooses **Equal** (one distance on both faces), **Two** (a second
   distance on the other face) or **Angle** (a distance and the angle from the first face).
   **Measure from the other face** swaps which face takes the first distance. The same choices are
