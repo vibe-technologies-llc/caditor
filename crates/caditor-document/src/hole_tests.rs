@@ -1315,10 +1315,19 @@ fn a_hole_drilled_up_to_the_next_face_stops_where_it_leaves_the_body() {
         evaluation.feature(hole)
     );
     let found = volume(&evaluation, pair.plate);
+    let reached = evaluation
+        .feature(hole)
+        .and_then(|status| status.result.as_deref())
+        .and_then(|result| result.solid())
+        .map(|solid| solid.reached().to_vec())
+        .unwrap();
     assert!(
         (PLATE - found - removed_by(3.0)).abs() < 0.01 * removed_by(3.0),
         "{found}"
     );
+    assert_eq!(reached.len(), 1);
+    assert_eq!(reached[0].side, ReachedSide::Only);
+    assert!((reached[0].plane.normal().z.abs() - 1.0).abs() < 1e-9);
 }
 
 #[test]

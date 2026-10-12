@@ -204,6 +204,10 @@ paths:
   edges share, ties going to the smaller `FaceName`; `flipped` swaps it for every edge. Concave and
   convex edges are separate passes. A failing tool's `Profile`, `Sweep` or `Boolean` carries its
   edge, except when the failing step is the pairwise union of tools or a corner's.
+- `measured_face(solid, edges, edge, flipped)` names the face a two-distance or angled chamfer
+  measures its first distance on for one of the chosen edges, by the same rule as above (the face
+  more of the chain-grown edges share, ties to the smaller `FaceName`, `flipped` swapping it), so
+  the interface stands the first distance's arrow on the face the kernel will use.
 - Selection helpers: `tangent_chain(solid, edges)` follows tangent-continuous edges sharing a face
   through their end vertices, smooth or sharp (shares `follow` with `blend_chain`, which admits
   only sharp edges). `hole_faces(solid, faces)` (`hole_faces.rs` at the kernel root) spreads from

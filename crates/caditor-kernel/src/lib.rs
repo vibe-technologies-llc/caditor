@@ -35,7 +35,9 @@ mod tolerance;
 mod topology;
 
 pub use crate::{
-    blend::{BlendError, BlendShape, blend, blend_chain, tangent_chain, tangent_faces},
+    blend::{
+        BlendError, BlendShape, blend, blend_chain, measured_face, tangent_chain, tangent_faces,
+    },
     boolean::{
         BooleanError, BooleanOperation, BooleanSite, FaceSplitError, Interference, boolean,
         interference, split_faces,

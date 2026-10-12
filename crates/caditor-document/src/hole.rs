@@ -15,7 +15,7 @@ use crate::{
     document::{Feature, FeatureId, list_names},
     hole_standard::HoleStandard,
     recompute::{CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
-    solid::SolidResult,
+    solid::{ReachedEnd, ReachedSide, SolidResult},
     thread::hole_thread,
     thread_standard::{ThreadClass, ThreadHand, ThreadSide},
     tolerance,
@@ -1095,7 +1095,7 @@ impl Context<'_> {
         values: &Values,
         offset: f64,
         drilled: &Drilled<'_>,
-    ) -> Result<f64, Failure> {
+    ) -> Result<(f64, Plane), Failure> {
         let at = drilled.at;
         let unusable = || {
             self.error(
@@ -1154,7 +1154,8 @@ impl Context<'_> {
                     .to_owned(),
             ));
         }
-        self.depth_to(&found.plane, &describe(found.face), offset, drilled)
+        let depth = self.depth_to(&found.plane, &describe(found.face), offset, drilled)?;
+        Ok((depth, found.plane))
     }
 
     fn head_fits(
@@ -1276,6 +1277,7 @@ pub(crate) fn evaluate(
     }
     let body_name = context.name(definition.body);
     let mut tools = Vec::new();
+    let mut reached = Vec::new();
     let original = inputs
         .body(definition.body)
         .ok_or_else(|| inputs.missing_body(definition.body))?;
@@ -1325,8 +1327,13 @@ pub(crate) fn evaluate(
                 })?
             }
             (Reach::UpToNext { offset }, _) => {
-                let depth = context.up_to_next(original, &body_name, values, *offset, &drilled)?;
+                let (depth, plane) =
+                    context.up_to_next(original, &body_name, values, *offset, &drilled)?;
                 context.head_fits(definition, values, depth, &at)?;
+                reached.push(ReachedEnd {
+                    side: ReachedSide::Only,
+                    plane,
+                });
                 depth
             }
             (
@@ -1389,6 +1396,8 @@ pub(crate) fn evaluate(
         }
     }
     Ok(FeatureResult::Solid(
-        SolidResult::new(definition.body, body).cutting(tools),
+        SolidResult::new(definition.body, body)
+            .reaching(reached)
+            .cutting(tools),
     ))
 }

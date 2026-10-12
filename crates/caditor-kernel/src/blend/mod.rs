@@ -1811,6 +1811,31 @@ fn shared_faces(geometries: &[EdgeGeometry]) -> BTreeMap<FaceId, usize> {
     shared
 }
 
+pub fn measured_face(
+    solid: &Solid,
+    edges: &[EdgeId],
+    edge: EdgeId,
+    flipped: bool,
+) -> Option<FaceId> {
+    let chosen = propagate(solid, &Topology::new(solid), edges).ok()?;
+    let mut shared = BTreeMap::new();
+    for face in chosen
+        .iter()
+        .flat_map(|chosen| edge_faces(solid, *chosen))
+        .map(|(face, _)| face)
+    {
+        *shared.entry(face).or_insert(0) += 1;
+    }
+    let faces = edge_faces(solid, edge);
+    let [(first, _), (second, _)] = faces.as_slice() else {
+        return None;
+    };
+    match measured_side(solid, [*first, *second], &shared, flipped) {
+        Side::First => Some(*first),
+        Side::Second => Some(*second),
+    }
+}
+
 fn measured_side(
     solid: &Solid,
     faces: [FaceId; 2],

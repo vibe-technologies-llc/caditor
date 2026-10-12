@@ -1,8 +1,11 @@
-use caditor_geometry::{Point2, Vector2};
+use caditor_geometry::{Plane, Point2, Point3, RigidTransform, Vector2, Vector3};
 use caditor_kernel::{Curve2, Interval, LINEAR_RESOLUTION, ProfileCurve, ProfileError};
 use caditor_sketch::Sketch;
 
-use crate::solid::profile_curves;
+use crate::{
+    pattern::{CopyOrientation, along_curve},
+    solid::profile_curves,
+};
 
 const BISECTION_STEPS: usize = 60;
 
@@ -260,4 +263,49 @@ impl CurvePath {
 
 pub fn is_curve_path(sketch: &Sketch) -> bool {
     curve_path(sketch).is_ok()
+}
+
+pub struct PatternPath {
+    path: CurvePath,
+    plane: Plane,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CopyStop {
+    pub placement: RigidTransform,
+    pub point: Point3,
+    pub tangent: Vector3,
+}
+
+impl PatternPath {
+    pub fn of(sketch: &Sketch) -> Option<Self> {
+        Some(Self {
+            path: curve_path(sketch).ok()?,
+            plane: sketch.plane(),
+        })
+    }
+
+    pub fn length(&self) -> f64 {
+        self.path.length()
+    }
+
+    pub fn is_closed(&self) -> bool {
+        self.path.is_closed()
+    }
+
+    pub fn copy_at(
+        &self,
+        distance: f64,
+        reversed: bool,
+        orientation: CopyOrientation,
+    ) -> Option<CopyStop> {
+        let start = self.path.station(0.0, reversed)?;
+        let station = self.path.station(distance, reversed)?;
+        let tangent = station.tangent;
+        Some(CopyStop {
+            placement: along_curve(&self.plane, start, station, orientation)?,
+            point: self.plane.to_world(station.point),
+            tangent: self.plane.x_axis() * tangent.x + self.plane.y_axis() * tangent.y,
+        })
+    }
 }

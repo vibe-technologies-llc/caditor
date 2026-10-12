@@ -342,7 +342,9 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
     (kernel `next_face`); an addition starting inside the body, or a cut first entering it, fails.
     When the first faces are curved or several, a one-sided extrusion with no end offset is swept
     through all and cut back where it first meets the target body (kernel `stop_at_body`,
-    `Stopping` in `solid.rs`); two sides or an offset need one flat face and fail in words.
+    `Stopping` in `solid.rs`); two sides or an offset need one flat face and fail in words. The
+    plane of each flat first face is recorded unoffset in the result (`SolidResult::reached`, a
+    `ReachedEnd` per side), where the interface stands its Past the face arrow.
   - Up to face ends on the face's plane extended, which must lie beyond the whole profile.
   - `UpToSurface` (boxed `FaceAttachment`, no offset) ends on any face: flat on its plane, curved
     by `stop_at_body` (failing naming the other faces met first). Its body counts among
@@ -455,7 +457,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   (offset along the plane's normal), so a slanted face gives each hole its own depth and a flat
   bottom. Up to next asks kernel `next_face` along the hole's outline (circle or slot) in the body
   before the feature and fails in words when the hole first enters the body, meets several faces,
-  a curved one, or passes beside it. An up-to hole's counterbore, countersink or steps must stay
+  a curved one, or passes beside it; the plane it found, per hole in drilling order, is recorded
+  in the result's `reached` as an extrusion's is. An up-to hole's counterbore, countersink or steps must stay
   shallower than each depth, and it ends flat whatever its bottom says.
 - `HoleStyle`: plain, counterbore (diameter, depth), countersink (diameter, angle) or stepped
   (`HoleStep`s from the mouth down, 1 to `MAX_HOLE_STEPS`, each a diameter and own depth; each
@@ -744,7 +747,9 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   end fail saying how long the curve is. Each copy is the original moved as the walk's start point
   would move to that station (`along_curve`), turned about the sketch normal through the start by
   the change of tangent when `CopyOrientation::Following`. Arc length is exact on lines and arcs
-  and bisected on splines and ellipses.
+  and bisected on splines and ellipses. `PatternPath` hands the walk to the interface: the length,
+  whether it is closed, and `copy_at` for the placement, point and tangent of the copy at an arc
+  length, so the pattern's arrows stand where its copies do.
 - `PatternKind::Points` (`PointsPattern`) places a copy at every lone point of an earlier sketch
   (`Sketch::free_points`, solved), moved from `base`, a `PointReference` resolved like a datum
   point's (datum, frame, body, sketch and origins counted, edge or face healed). A point on the base

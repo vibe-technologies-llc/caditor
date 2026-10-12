@@ -1,5 +1,5 @@
 use caditor_expression::Expression;
-use caditor_geometry::{Plane, Point2};
+use caditor_geometry::{Plane, Point2, Point3, Vector3};
 use caditor_kernel::SamplingTolerance;
 use caditor_sketch::{EntityId, Sketch};
 
@@ -339,4 +339,36 @@ fn copies_along_a_spline_are_spaced_by_its_length() {
     let bounds = evaluation.body(model.base).unwrap().bounding_box().unwrap();
     assert!((bounds.max().y - 11.0).abs() < 1e-6, "{bounds:?}");
     assert!((bounds.max().x - 22.0).abs() < 1e-6, "{bounds:?}");
+}
+
+fn quarter_turn() -> Sketch {
+    let mut sketch = Sketch::new(Plane::XY);
+    sketch.add_line(Point2::new(0.0, 0.0), Point2::new(10.0, 0.0));
+    sketch.add_line(Point2::new(10.0, 0.0), Point2::new(10.0, 10.0));
+    sketch
+}
+
+#[test]
+fn a_pattern_path_places_a_copy_at_a_distance_along_the_curve_and_reports_its_tangent() {
+    let path = PatternPath::of(&quarter_turn()).unwrap();
+    let near = path.copy_at(4.0, false, CopyOrientation::Kept).unwrap();
+    let far = path
+        .copy_at(14.0, false, CopyOrientation::Following)
+        .unwrap();
+    let back = path.copy_at(4.0, true, CopyOrientation::Kept).unwrap();
+
+    assert_eq!(path.length(), 20.0);
+    assert!(!path.is_closed());
+    assert!((near.point - Point3::new(4.0, 0.0, 0.0)).length() < 1e-9);
+    assert!((near.tangent - Vector3::X).length() < 1e-9);
+    assert!((far.point - Point3::new(10.0, 4.0, 0.0)).length() < 1e-9);
+    assert!((far.tangent - Vector3::Y).length() < 1e-9);
+    assert!(
+        (far.placement.apply_point(Point3::new(0.0, 0.0, 0.0)) - Point3::new(10.0, 4.0, 0.0))
+            .length()
+            < 1e-9
+    );
+    assert!((back.point - Point3::new(10.0, 6.0, 0.0)).length() < 1e-9);
+    assert!((back.tangent + Vector3::Y).length() < 1e-9);
+    assert!(PatternPath::of(&Sketch::new(Plane::XY)).is_none());
 }
