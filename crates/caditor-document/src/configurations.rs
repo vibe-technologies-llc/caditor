@@ -192,7 +192,7 @@ impl Configurations {
         })
     }
 
-    fn fresh_id(&mut self) -> ConfigurationId {
+    pub(crate) fn fresh_id(&mut self) -> ConfigurationId {
         let id = ConfigurationId(self.next_id);
         self.next_id = self.next_id.saturating_add(1);
         id
@@ -379,7 +379,7 @@ impl Document {
         Ok(Transaction::new(label, edits))
     }
 
-    fn applying(&self, row: &Configuration) -> Result<Vec<Edit>, EditError> {
+    pub(crate) fn applying(&self, row: &Configuration) -> Result<Vec<Edit>, EditError> {
         let changed: Vec<(ConfiguredValue, &Setting)> = self
             .configurations
             .values

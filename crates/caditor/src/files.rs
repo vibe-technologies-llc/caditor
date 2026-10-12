@@ -15,16 +15,18 @@ use std::{
     time::{Duration, Instant, SystemTime},
 };
 
-use caditor_document::{CancelToken, Document, FeatureId, FeatureResult, ImportedParameter};
+use caditor_document::{
+    CancelToken, Document, FeatureId, FeatureResult, ImportedConfigurations, ImportedParameter,
+};
 use caditor_file::{
-    Closing, Construction, DRAWING_IMPORT_EXTENSIONS, DiscardError, Drawing, DrawingExported,
-    DrawingSheet, ExportError, ExportFormat, FILE_EXTENSION, FaceExported, FileJournal, Handover,
-    History, ImportError, LoadError, Loaded, MESH_IMPORT_EXTENSIONS, ModelImport, NamedFace,
-    NamedSketch, PARAMETERS_EXTENSION, PNG_EXTENSION, ParameterFileError, ReadingProgress,
-    ReadingStage, RecentChange, RecentFiles, Recovered, STEP_EXTENSIONS, STEP_IMPORT_EXTENSIONS,
-    SaveError, SavedState, Settings, SheetLayout, SketchExported, SketchFormat, TextOutlines,
-    UpdateFailure, describe_set_aside, journal_for, load_cancellable, load_version, read_drawing,
-    scan,
+    Closing, ConfigurationFileError, Construction, DRAWING_IMPORT_EXTENSIONS, DiscardError,
+    Drawing, DrawingExported, DrawingSheet, ExportError, ExportFormat, FILE_EXTENSION,
+    FaceExported, FileJournal, Handover, History, ImportError, LoadError, Loaded,
+    MESH_IMPORT_EXTENSIONS, ModelImport, NamedFace, NamedSketch, PARAMETERS_EXTENSION,
+    PNG_EXTENSION, ParameterFileError, ReadingProgress, ReadingStage, RecentChange, RecentFiles,
+    Recovered, STEP_EXTENSIONS, STEP_IMPORT_EXTENSIONS, SaveError, SavedState, Settings,
+    SheetLayout, SketchExported, SketchFormat, TextOutlines, UpdateFailure, describe_set_aside,
+    journal_for, load_cancellable, load_version, read_drawing, scan,
 };
 use caditor_render::{ImageError, SurfaceSize};
 use caditor_sketch::Sketch;
@@ -32,6 +34,7 @@ use egui::{ColorImage, Sides, Ui};
 use parking_lot::Mutex;
 
 use self::{
+    configurations::{ConfigurationFileCommand, ConfigurationImportDraft},
     parameters::{ParameterImportDraft, ParametersCommand},
     templates::Templates,
 };
@@ -68,6 +71,7 @@ use crate::{
     widgets::{self, DialogWidth, MenuEntry, Tone},
 };
 
+pub mod configurations;
 pub mod parameters;
 pub mod templates;
 mod themes;
@@ -109,8 +113,9 @@ const MESH_KIND: &str = "STL, OBJ or 3MF mesh";
 const IMPORTABLE_KIND: &str = "Drawings and models";
 const IMAGE_KIND: &str = "PNG image";
 const PARAMETERS_KIND: &str = "CSV parameter table";
+const CONFIGURATIONS_KIND: &str = "CSV configuration table";
 const MISSING_FACE: &str = "A face is no longer part of the model, so nothing was exported.";
-const FILE_COMMANDS: [Command; 15] = [
+const FILE_COMMANDS: [Command; 17] = [
     Command::New,
     Command::NewFromTemplate,
     Command::Open,
@@ -124,6 +129,8 @@ const FILE_COMMANDS: [Command; 15] = [
     Command::ExportImage,
     Command::ImportParameters,
     Command::ExportParameters,
+    Command::ImportConfigurations,
+    Command::ExportConfigurations,
     Command::Preferences,
     Command::Quit,
 ];
@@ -163,6 +170,9 @@ pub enum FileCommand {
     ExportParameters,
     ImportParameters,
     Parameters(ParametersCommand),
+    ExportConfigurations,
+    ImportConfigurations,
+    ConfigurationImport(ConfigurationFileCommand),
     History(HistoryCommand),
     Import {
         into: Option<FeatureId>,
@@ -224,6 +234,13 @@ pub trait Dialogs {
     );
     fn pick_parameters_path(&self, directory: Option<PathBuf>, file_name: String, respond: Respond);
     fn pick_parameters(&self, directory: Option<PathBuf>, respond: Respond);
+    fn pick_configurations_path(
+        &self,
+        directory: Option<PathBuf>,
+        file_name: String,
+        respond: Respond,
+    );
+    fn pick_configurations(&self, directory: Option<PathBuf>, respond: Respond);
 }
 
 pub struct NativeDialogs;
@@ -378,6 +395,38 @@ impl Dialogs for NativeDialogs {
         Self::spawn(respond, request);
     }
 
+    fn pick_configurations_path(
+        &self,
+        directory: Option<PathBuf>,
+        file_name: String,
+        respond: Respond,
+    ) {
+        let filters = vec![Filter::new(CONFIGURATIONS_KIND, &[PARAMETERS_EXTENSION])];
+        let request = Self::request(
+            Mode::Save,
+            "Export configurations",
+            directory,
+            Some(file_name),
+            filters,
+        );
+        Self::spawn(respond, request);
+    }
+
+    fn pick_configurations(&self, directory: Option<PathBuf>, respond: Respond) {
+        let filters = vec![
+            Filter::new(CONFIGURATIONS_KIND, &[PARAMETERS_EXTENSION]),
+            Filter::any(),
+        ];
+        let request = Self::request(
+            Mode::Open,
+            "Import configurations",
+            directory,
+            None,
+            filters,
+        );
+        Self::spawn(respond, request);
+    }
+
     fn pick_image_path(&self, directory: Option<PathBuf>, file_name: String, respond: Respond) {
         let filters = vec![Filter::new(IMAGE_KIND, &[PNG_EXTENSION])];
         let request = Self::request(
@@ -442,6 +491,8 @@ enum Purpose {
     Import,
     ExportParameters,
     ImportParameters,
+    ExportConfigurations,
+    ImportConfigurations,
 }
 
 impl Purpose {
@@ -451,7 +502,10 @@ impl Purpose {
             Self::Import => Some(Folder::Import),
             Self::Export(_) => Some(Folder::Export),
             Self::Drawing => Some(Folder::Drawing),
-            Self::ExportParameters | Self::ImportParameters => Some(Folder::Parameters),
+            Self::ExportParameters
+            | Self::ImportParameters
+            | Self::ExportConfigurations
+            | Self::ImportConfigurations => Some(Folder::Parameters),
             Self::SaveAs | Self::Template | Self::SaveTemplate | Self::Image => None,
         }
     }
@@ -512,6 +566,9 @@ enum Output {
     Parameters {
         path: PathBuf,
     },
+    Configurations {
+        path: PathBuf,
+    },
 }
 
 impl Output {
@@ -521,7 +578,8 @@ impl Output {
             | Self::Image { path }
             | Self::Drawing { path }
             | Self::Template { path }
-            | Self::Parameters { path } => path,
+            | Self::Parameters { path }
+            | Self::Configurations { path } => path,
         }
     }
 
@@ -546,6 +604,9 @@ impl Output {
                 path: with_extension(path),
             },
             Self::Parameters { path } => Self::Parameters {
+                path: parameters::with_csv_extension(path),
+            },
+            Self::Configurations { path } => Self::Configurations {
                 path: parameters::with_csv_extension(path),
             },
         }
@@ -616,6 +677,16 @@ enum Event {
         path: PathBuf,
         session: u64,
         result: Result<Vec<ImportedParameter>, ParameterFileError>,
+    },
+    ConfigurationsExported {
+        path: PathBuf,
+        exported: usize,
+        result: Result<(), ConfigurationFileError>,
+    },
+    ConfigurationsRead {
+        path: PathBuf,
+        session: u64,
+        result: Result<ImportedConfigurations, ConfigurationFileError>,
     },
     PreferencesNotSaved {
         error: UpdateFailure,
@@ -746,6 +817,7 @@ impl Event {
             | Self::FaceExported { path, .. }
             | Self::BothExported { path, .. } => Some((WriteKind::Drawing, path)),
             Self::ParametersExported { path, .. } => Some((WriteKind::Parameters, path)),
+            Self::ConfigurationsExported { path, .. } => Some((WriteKind::Configurations, path)),
             Self::TemplateSaved { path, .. } => Some((WriteKind::Template, path)),
             _ => None,
         }
@@ -817,6 +889,7 @@ impl Importing {
 enum WriteKind {
     Drawing,
     Parameters,
+    Configurations,
     Template,
 }
 
@@ -831,6 +904,7 @@ impl PendingWrite {
         match self.kind {
             WriteKind::Drawing => format!("Writing the drawing “{name}”…"),
             WriteKind::Parameters => format!("Writing the parameters “{name}”…"),
+            WriteKind::Configurations => format!("Writing the configurations “{name}”…"),
             WriteKind::Template => format!("Saving the template “{name}”…"),
         }
     }
@@ -967,6 +1041,7 @@ pub struct Files {
     themes: UserThemes,
     default_template: Option<String>,
     parameter_import: Option<ParameterImportDraft>,
+    configuration_import: Option<ConfigurationImportDraft>,
     quit: bool,
     saved_folder: Option<PathBuf>,
     folders: BTreeMap<Folder, PathBuf>,
@@ -1022,6 +1097,7 @@ impl Files {
             themes,
             default_template: None,
             parameter_import: None,
+            configuration_import: None,
             quit: false,
             saved_folder: None,
             folders: BTreeMap::new(),
@@ -1106,6 +1182,7 @@ impl Files {
             || self.drawing.is_open()
             || self.history.is_open()
             || self.parameter_import.is_some()
+            || self.configuration_import.is_some()
             || self.picking.is_some()
     }
 
@@ -1320,6 +1397,17 @@ impl Files {
                 self.pick(Purpose::ImportParameters, model);
             }
             FileCommand::Parameters(command) => self.parameter_import_command(command, model),
+            FileCommand::ExportConfigurations => {
+                if self.picking.is_none() {
+                    self.ask_configuration_export(model);
+                }
+            }
+            FileCommand::ImportConfigurations => {
+                self.pick(Purpose::ImportConfigurations, model);
+            }
+            FileCommand::ConfigurationImport(command) => {
+                self.configuration_import_command(command, model);
+            }
             FileCommand::DrawingExport(command) => {
                 self.drawing.perform(command);
                 if command == DrawingCommand::Choose && self.drawing.source().is_some() {
@@ -1841,6 +1929,16 @@ impl Files {
                 session,
                 result,
             } => self.parameters_read(path, session, result, model),
+            Event::ConfigurationsExported {
+                path,
+                exported,
+                result,
+            } => self.configurations_exported(&path, exported, result, model),
+            Event::ConfigurationsRead {
+                path,
+                session,
+                result,
+            } => self.configurations_read(path, session, result, model),
             Event::Discarded {
                 journal,
                 result: Err(error),
@@ -2288,6 +2386,7 @@ impl Files {
             Output::Drawing { path } => self.export_drawing(path, model),
             Output::Template { path } => self.save_template(path, model),
             Output::Parameters { path } => self.export_parameters(path, model),
+            Output::Configurations { path } => self.export_configurations(path, model),
         }
     }
 
@@ -2725,6 +2824,12 @@ impl Files {
                 self.check_output(Output::Parameters { path }, since.session);
             }
             (Purpose::ImportParameters, Some(path)) => self.read_parameter_file(path, model),
+            (Purpose::ExportConfigurations, Some(path)) => {
+                self.check_output(Output::Configurations { path }, since.session);
+            }
+            (Purpose::ImportConfigurations, Some(path)) => {
+                self.read_configuration_file(path, model);
+            }
             (Purpose::Import, Some(path)) => {
                 let into = self.importing.as_ref().and_then(|importing| importing.into);
                 match self
@@ -2739,7 +2844,14 @@ impl Files {
                 }
             }
             (Purpose::Image, None) => self.image.pick_cancelled(),
-            (Purpose::Drawing | Purpose::ExportParameters | Purpose::ImportParameters, None) => {}
+            (
+                Purpose::Drawing
+                | Purpose::ExportParameters
+                | Purpose::ImportParameters
+                | Purpose::ExportConfigurations
+                | Purpose::ImportConfigurations,
+                None,
+            ) => {}
             (Purpose::Export(_), None) => {}
             (Purpose::Import, None) => self.importing = None,
             (Purpose::SaveAs, None) => self.after_save = None,
@@ -2835,6 +2947,14 @@ impl Files {
                     .pick_parameters_path(directory, parameters::file_name(model), respond);
             }
             Purpose::ImportParameters => self.dialogs.pick_parameters(directory, respond),
+            Purpose::ExportConfigurations => {
+                self.dialogs.pick_configurations_path(
+                    directory,
+                    configurations::file_name(model),
+                    respond,
+                );
+            }
+            Purpose::ImportConfigurations => self.dialogs.pick_configurations(directory, respond),
         }
         true
     }
@@ -3468,6 +3588,11 @@ pub fn menu(
     } else {
         Ok(())
     };
+    let exportable_configurations = if model.document().configurations().rows.is_empty() {
+        Err(configurations::NO_CONFIGURATIONS)
+    } else {
+        Ok(())
+    };
     let again = files.export_again_name(model);
     let revertible = model.saved_version().map(|_| ());
     let mut chosen = Vec::new();
@@ -3678,6 +3803,7 @@ pub fn menu(
         let availability = match command {
             Command::VersionHistory => history,
             Command::ExportParameters => exportable_parameters,
+            Command::ExportConfigurations => exportable_configurations,
             _ => Ok(()),
         };
         let invoked = commands.invoke(command, &availability);
@@ -3702,6 +3828,8 @@ pub fn menu(
             Command::ExportImage => Action::File(FileCommand::ExportImage(ImageCommand::Show)),
             Command::ImportParameters => Action::File(FileCommand::ImportParameters),
             Command::ExportParameters => Action::File(FileCommand::ExportParameters),
+            Command::ImportConfigurations => Action::File(FileCommand::ImportConfigurations),
+            Command::ExportConfigurations => Action::File(FileCommand::ExportConfigurations),
             Command::Preferences => Action::Preferences(PreferencesCommand::Show),
             _ => Action::File(FileCommand::Quit),
         };
@@ -3918,6 +4046,8 @@ pub fn show(
         command = history::dialog(&ctx, model, &files.history).map(FileCommand::History);
     } else if let Some(draft) = &files.parameter_import {
         command = parameters::dialog(&ctx, draft);
+    } else if let Some(draft) = &files.configuration_import {
+        command = configurations::dialog(&ctx, draft);
     }
     if let Some(command) = command {
         actions.push(Action::File(command));

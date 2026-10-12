@@ -231,13 +231,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   keeps none of its references outside the copied set. A sketch's section projection of a copied
   body is still left out, its edge being named by the sketch's own cut (`section.rs`), and a corner
   picked on a body outside the copy is not followed onto copied faces around it.
-- [low · medium] The configurations table cannot leave or enter the model as a spreadsheet:
-  parameters round-trip through CSV with a preview (`caditor-file` `parameters.rs`,
-  `Document::plan_parameter_import`), but configurations, the variant families usually kept in a
-  spreadsheet (fastener or enclosure sizes), are typed cell by cell in their dialog. A CSV of
-  rows by configured values (parameter expressions, suppression, body colour) planned and applied
-  as one checked transaction would close the pair; the column header format and unknown names
-  need settling first.
 - [low · hard] No automation: nothing can be driven by a script or macro, as Fusion's scripts and
   add-ins do, to make repetitive geometry, run a batch over files or add a tool. An interface
   would go through `Action`s and `Transaction`s like the UI, so scripts cannot break the model's

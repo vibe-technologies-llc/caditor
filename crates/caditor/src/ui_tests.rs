@@ -71,6 +71,7 @@ mod blend_feet;
 mod body_finishes;
 mod cancel_and_parameters;
 mod completion;
+mod configuration_files;
 mod configurations;
 mod coordinate_systems;
 mod curve_pattern_handles;
@@ -258,6 +259,19 @@ impl Dialogs for ScriptedDialogs {
     }
 
     fn pick_parameters(&self, directory: Option<PathBuf>, respond: Respond) {
+        self.respond(directory, respond);
+    }
+
+    fn pick_configurations_path(
+        &self,
+        directory: Option<PathBuf>,
+        _file_name: String,
+        respond: Respond,
+    ) {
+        self.respond(directory, respond);
+    }
+
+    fn pick_configurations(&self, directory: Option<PathBuf>, respond: Respond) {
         self.respond(directory, respond);
     }
 }

@@ -53,7 +53,7 @@ paths:
 - The unsaved-changes prompt precedes every action that replaces or ends the document (Save primary,
   the discard a `danger_button` far left, `widgets::footer_split`). Quit waits for the storage worker
   in a "Closing…" modal without a close button. While a model or image export or a drawing, parameter
-  or template write runs, `run(Intent::Quit)` closes nothing: `Files::waiting_for_exports` shows
+  configuration or template write runs, `run(Intent::Quit)` closes nothing: `Files::waiting_for_exports` shows
   `finishing_exports` and `poll` closes storage once none is left (`stop_waiting_for_exports`), unless
   the model gained unsaved changes, which raises the prompt for `Intent::Quit`. Writes run on the
   files worker, which `App::finish` waits for only `SETTINGS_FLUSH`, so each is counted from
@@ -97,7 +97,7 @@ paths:
   `poll` drops it with a notice (`not_saved_for_another_model`), so Replace never writes another model
   over that file.
 - Each dialog purpose remembers the folder last picked for the app session (`Folder`: open, import,
-  export, drawing, parameter files; the image export keeps its own), else the model's folder, else
+  export, drawing, parameter and configuration files; the image export keeps its own), else the model's folder, else
   the most recent file's. Save as and templates keep their own.
 - Revert to the saved version (`Command::RevertToSaved`) applies `Document::transaction_to` the last
   saved document (`Model::saved_version`) as one undoable change; unavailable with the reason when
@@ -295,6 +295,27 @@ paths:
   and applies one transaction ("Import parameters from <file>") with a notice summing up added,
   changed, kept and left out (a warning when any row was left out); disabled with the reason when
   nothing would change. An unreadable file is a notice.
+
+## Configuration files
+
+- `Command::ImportConfigurations` and `ExportConfigurations` (`files/configurations.rs`) move the
+  configurations table through a CSV file (`file-import-export.md`), from the palette and from the
+  Configurations dialog's footer (Import from CSV…, Export to CSV…, `configurations::Outcome::File`).
+  They share the parameter files' remembered folder. Export is offered only while the model
+  has configurations (the reason is the disabled tooltip and the palette's), makes its text on the
+  UI thread and writes it on the files worker (`WriteKind::Configurations`, counted by the quit
+  wait), `.csv` appended, a notice counting the rows.
+- Import reads on an `import` thread and opens a preview (`ConfigurationImportDraft`, a modal
+  counted by `is_blocking`, drawn over the Configurations dialog) planned by
+  `Document::plan_configuration_import`: a pill per column (Configured, New value, Left out with
+  the reason, so unknown names are listed), a pill per row (New, Replaces, Kept, Same, Left out)
+  with the cells that change as "Parameter: width: 70 mm (was 60 mm)", a warning callout counting
+  configurations already in the model with other values and error callouts counting columns and rows
+  left out. "Replace configurations the model already has" (on by default) replans with them kept.
+  Import replans against the model as it is then and applies one transaction ("Import
+  configurations from <file>"), with a notice summing up added, changed, configured, kept and left
+  out (a warning when any row or column was left out); disabled with the reason when nothing would
+  change. A file without a Configuration column is a notice.
 
 ## Model properties
 

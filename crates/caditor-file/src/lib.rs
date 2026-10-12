@@ -1,6 +1,8 @@
 mod binary;
 mod clipboard;
+mod configuration_table;
 mod configurations;
+mod csv;
 mod export;
 mod format;
 #[cfg(feature = "fuzzing")]
@@ -32,6 +34,11 @@ pub use crate::{
         CLIPBOARD_HEADER, CLIPBOARD_VERSION, ClipboardError, ClipboardKind, CopiedFeatures,
         MAX_CLIPBOARD_TEXT, PastedGeometry, clipboard_kind, features_clipboard_text,
         read_features_clipboard, read_sketch_clipboard, sketch_clipboard_text,
+    },
+    configuration_table::{
+        ConfigurationFileError, MAX_CONFIGURATION_COLUMNS, MAX_CONFIGURATION_ROWS,
+        MAX_CONFIGURATIONS_FILE, configurations_csv, parse_configurations, read_configurations,
+        write_configurations,
     },
     export::{
         Annotations, Construction, DrawingExported, DrawingSheet, ExportBody, ExportError,

@@ -130,3 +130,21 @@ fn configurations_that_cannot_be_read_are_repaired_and_reported() {
         "Which configuration was active could not be read"
     ));
 }
+
+#[test]
+fn the_configurations_table_exports_to_csv_and_imports_back_through_every_kind_of_column() {
+    let (document, _, _) = configured_model();
+
+    let text = configurations_csv(&document);
+    let file = parse_configurations(&text).unwrap();
+    let plan = document
+        .plan_configuration_import("Import", &file, true)
+        .unwrap();
+
+    let header = text.lines().next().unwrap();
+    assert!(header.starts_with("Configuration,Parameter: depth,Suppressed: "));
+    assert!(header.contains(",Colour: "));
+    assert!(text.contains(",#0a141e\r\n"));
+    assert_eq!(file.rows.len(), 2);
+    assert!(plan.transaction.is_none());
+}

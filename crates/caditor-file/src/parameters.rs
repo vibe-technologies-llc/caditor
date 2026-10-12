@@ -3,6 +3,7 @@ use std::path::Path;
 use caditor_document::{Document, ImportedParameter, ParameterValues};
 
 use crate::{
+    csv::{CsvError, csv_row, delimiter_in, records},
     read::read_file,
     reason::{ReadFailure, WriteFailure},
     save::write_atomically,
@@ -20,7 +21,6 @@ const EXPRESSION_COLUMN: &str = "expression";
 const VALUE_COLUMN: &str = "value";
 const NOTE_COLUMN: &str = "note";
 const NOTE_ALIASES: [&str; 2] = [NOTE_COLUMN, "description"];
-const DELIMITERS: [char; 3] = [',', ';', '\t'];
 const UNEVALUATED: &str = "error";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -95,7 +95,7 @@ pub fn read_parameters(path: &Path) -> Result<Vec<ImportedParameter>, ParameterF
 pub fn parse_parameters(text: &str) -> Result<Vec<ImportedParameter>, ParameterFileError> {
     let text = text.trim_start_matches('\u{feff}');
     let delimiter = delimiter_of(text);
-    let records = records(text, delimiter)?;
+    let records = records(text, delimiter, MAX_PARAMETER_ROWS).map_err(parameter_csv_error)?;
     let mut records = records.into_iter().peekable();
     if records
         .peek()
@@ -133,6 +133,13 @@ pub fn parse_parameters(text: &str) -> Result<Vec<ImportedParameter>, ParameterF
     Ok(rows)
 }
 
+fn parameter_csv_error(error: CsvError) -> ParameterFileError {
+    match error {
+        CsvError::UnclosedQuote { line } => ParameterFileError::UnclosedQuote { line },
+        CsvError::TooManyRows => ParameterFileError::TooManyRows,
+    }
+}
+
 fn starts_with_marker(record: &[String], marker: &str) -> bool {
     record
         .first()
@@ -161,91 +168,13 @@ fn delimiter_of(text: &str) -> char {
     } else {
         first
     };
-    DELIMITERS
-        .into_iter()
-        .max_by_key(|delimiter| header.matches(*delimiter).count())
-        .filter(|delimiter| header.contains(*delimiter))
-        .unwrap_or(',')
+    delimiter_in(header)
 }
 
 fn line_starts_with(line: &str, marker: &str) -> bool {
     line.trim_start_matches('"')
         .get(..marker.len())
         .is_some_and(|start| start.eq_ignore_ascii_case(marker))
-}
-
-fn records(text: &str, delimiter: char) -> Result<Vec<Vec<String>>, ParameterFileError> {
-    let mut records = Vec::new();
-    let mut record = Vec::new();
-    let mut cell = String::new();
-    let mut quoted = false;
-    let mut line = 1;
-    let mut quote_line = 1;
-    let mut chars = text.chars().peekable();
-    while let Some(character) = chars.next() {
-        if quoted {
-            match character {
-                '"' if chars.peek() == Some(&'"') => {
-                    chars.next();
-                    cell.push('"');
-                }
-                '"' => quoted = false,
-                '\n' => {
-                    line += 1;
-                    cell.push('\n');
-                }
-                other => cell.push(other),
-            }
-            continue;
-        }
-        match character {
-            '"' if cell.trim().is_empty() => {
-                cell.clear();
-                quoted = true;
-                quote_line = line;
-            }
-            '\r' if chars.peek() == Some(&'\n') => {}
-            '\n' | '\r' => {
-                line += 1;
-                record.push(std::mem::take(&mut cell));
-                records.push(std::mem::take(&mut record));
-                if records.len() > MAX_PARAMETER_ROWS + 1 {
-                    return Err(ParameterFileError::TooManyRows);
-                }
-            }
-            other if other == delimiter => record.push(std::mem::take(&mut cell)),
-            other => cell.push(other),
-        }
-    }
-    if quoted {
-        return Err(ParameterFileError::UnclosedQuote { line: quote_line });
-    }
-    if !cell.is_empty() || !record.is_empty() {
-        record.push(cell);
-        records.push(record);
-    }
-    Ok(records)
-}
-
-fn csv_row(cells: &[&str]) -> String {
-    let mut row = cells
-        .iter()
-        .map(|cell| csv_cell(cell))
-        .collect::<Vec<_>>()
-        .join(",");
-    row.push_str("\r\n");
-    row
-}
-
-fn csv_cell(cell: &str) -> String {
-    let needs_quotes = cell.contains([',', ';', '\t', '"', '\n', '\r'])
-        || cell.trim() != cell
-        || cell.starts_with(['=', '+', '-', '@']);
-    if needs_quotes {
-        format!("\"{}\"", cell.replace('"', "\"\""))
-    } else {
-        cell.to_owned()
-    }
 }
 
 #[cfg(test)]

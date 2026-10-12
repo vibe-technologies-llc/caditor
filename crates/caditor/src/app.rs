@@ -1092,6 +1092,9 @@ pub fn show(
                 configurations::Outcome::Apply(transaction) => {
                     actions.push(Action::Apply(transaction));
                 }
+                configurations::Outcome::File(command) => {
+                    actions.push(Action::File(command));
+                }
             }
         }
         if *messages_open && messages::dialog(ui.ctx(), model) {
