@@ -1180,6 +1180,7 @@ fn feature_panel_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) 
 
     let threaded_dir = TempDir::new().expect("a temporary directory");
     let mut threaded = Harness::styled(look, threaded_dir.path(), false);
+    threaded.perform(Action::ShowThreadsAsCosmetic(true));
     threaded.select([]);
     run_from_palette(&mut threaded, "Cylinder");
     threaded.settle();
