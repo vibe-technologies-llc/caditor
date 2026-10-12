@@ -1,20 +1,22 @@
 use caditor_document::{
     Feature, FeatureId, Hole, HoleBottom, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard,
     HoleStep, HoleStyle, MAX_HOLE_STEPS, MetricSize, TappedThread, ThreadForm, ThreadHand,
-    ThreadSide, Transaction, capitalized, circle_sizes, describe_plane, hole_thread, pitch_text,
+    ThreadSide, Transaction, capitalized, circle_sizes, hole_thread, pitch_text,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_sketch::ConstraintId;
 use egui::{Id, Label, RichText, Ui};
 
 use crate::{
+    datum_tools,
     editing::EditingCommand,
-    feature_fields::{self, Choice, Picker, Quantity, REVERSE_DIRECTION, Rule, Segment, Shown},
+    feature_fields::{self, Choice, Picker, Quantity, REVERSE_DIRECTION, Rule, Segment},
     field, hole_on_curve,
     hole_placement::{self, Anchor, EdgeDistance, PlacedHole},
     hole_tools::{self, DEFAULT_STEP_DIAMETER, Kind},
     icons,
     model::{Action, Model},
+    plane_selector,
     reference_picking::{self, Picking, Slot},
     selection::Selection,
     sketch_placement,
@@ -598,24 +600,32 @@ impl Panel<'_> {
         };
         let picking = reference_picking::current(ui.ctx())
             .is_some_and(|picking| picking.is_for(id, Slot::HoleTarget));
-        let shown = match self.hole.depth.target() {
-            Some(target) => Some(Shown::Named(capitalized(&describe_plane(
-                self.model.document(),
-                target,
-            )))),
-            None if picking => Some(Shown::NoneChosen),
-            None => None,
-        };
-        if let Some(shown) = shown {
-            feature_fields::reference_row(
+        let target = self.hole.depth.target();
+        if target.is_some() || picking {
+            let model = self.model;
+            let hole = self.hole;
+            let kept = hole.depth.offset().cloned();
+            let mut actions = Vec::new();
+            plane_selector::row(
                 ui,
-                self.model,
-                "Up to",
-                shown,
-                picker,
-                None,
-                self.actions,
+                model,
+                plane_selector::Row {
+                    caption: "Up to",
+                    id: Id::new(("hole-target", id)),
+                    planes: datum_tools::listed_planes(model.document(), id),
+                    current: target,
+                    picker,
+                    remove: None,
+                },
+                |plane| {
+                    self.change(Hole {
+                        depth: HoleDepth::up_to_face(plane.clone()).with_offset(kept.clone()),
+                        ..hole.clone()
+                    })
+                },
+                &mut actions,
             );
+            self.actions.extend(actions);
         }
         if !self.hole.depth.takes_offset() {
             return;

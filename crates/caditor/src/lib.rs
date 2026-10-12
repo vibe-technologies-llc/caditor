@@ -127,6 +127,7 @@ mod pattern_tools;
 mod patterning;
 mod pick_list;
 mod place_handles;
+mod plane_selector;
 mod portal;
 mod preferences;
 mod primitive_panel;

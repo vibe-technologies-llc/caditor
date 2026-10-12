@@ -51,7 +51,8 @@ The panel sets:
 - **Diameter**, or **Sized by** the sketch's circles.
 - **Shape**: Round, or Slot with a length and angle.
 - **Depth**: Blind with a depth, Through all, Up to next (the next flat face along each hole's
-  axis) or Up to face (a face or plane you select), the last two with an offset past the face; a
+  axis) or Up to face (a face or plane you select, or a plane picked from the list), the last two with an
+  offset past the face; a
   blind round hole can have a 118° drill point.
 
 Choosing a size fills in exact values; typing any size makes the hole Custom again, and the

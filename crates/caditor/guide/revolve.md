@@ -25,7 +25,7 @@ through a hidden sketch that follows their edges.
   (hold Ctrl to drag freely), and a thin
   wall's arrow its thickness. Type a value with the pointer on an arrow to set it exactly.
 - **Up to face** turns until the profile reaches a face or plane that contains the axis, forward or
-  reversed.
+  reversed; a plane can be picked from the list as well as selected or clicked.
 - {command:model.reverse_direction} turns a one-sided or Up to face revolve the other way.
 - **Profile**: Whole, or One side keeping only the regions on one side of the axis; Keep the other
   side of the axis swaps.

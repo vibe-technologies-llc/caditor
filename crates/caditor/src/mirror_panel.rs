@@ -1,12 +1,12 @@
-use caditor_document::{Feature, FeatureId, Mirror, Transaction, capitalized, describe_plane};
+use caditor_document::{Feature, FeatureId, Mirror, Transaction};
 use egui::{Id, Ui};
 
 use crate::{
     datum_tools,
-    feature_fields::{self, Choice, Picker},
+    feature_fields::{self, Picker},
     icons, mirror_tools,
     model::{Action, Model},
-    offset_face_panel, pattern_tools,
+    offset_face_panel, pattern_tools, plane_selector,
     reference_picking::Slot,
     selection::Selection,
     widgets,
@@ -54,22 +54,20 @@ impl Panel<'_> {
 
     fn plane_rows(&mut self, ui: &mut Ui) {
         let document = self.model.document();
-        let current = capitalized(&describe_plane(document, &self.mirror.plane));
         widgets::caption(ui, "Mirror across");
-        let chosen =
-            feature_fields::combo(ui, Id::new(("mirror-plane", self.id())), current, || {
-                datum_tools::listed_planes(document, self.id())
-                    .into_iter()
-                    .map(|reference| Choice {
-                        label: capitalized(&describe_plane(document, &reference)),
-                        selected: self.mirror.plane == reference,
-                        change: self.change(Mirror {
-                            plane: reference,
-                            ..self.mirror.clone()
-                        }),
-                    })
-                    .collect()
-            });
+        let chosen = plane_selector::combo(
+            ui,
+            Id::new(("mirror-plane", self.id())),
+            document,
+            datum_tools::listed_planes(document, self.id()),
+            Some(&self.mirror.plane),
+            |reference| {
+                self.change(Mirror {
+                    plane: reference.clone(),
+                    ..self.mirror.clone()
+                })
+            },
+        );
         ui.end_row();
         self.actions.extend(chosen);
         ui.label("");

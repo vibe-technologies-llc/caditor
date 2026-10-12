@@ -107,6 +107,7 @@ mod path_sweeps;
 mod pattern_grid;
 mod patterns;
 mod pick_list;
+mod plane_selectors;
 mod preferences;
 mod primitive_creation;
 mod primitive_feet;

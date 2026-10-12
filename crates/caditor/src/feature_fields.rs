@@ -359,18 +359,18 @@ pub fn combo_text(ui: &mut Ui, name: Option<&str>, missing: &str) -> WidgetText 
     }
 }
 
-pub struct Choice {
+pub struct Choice<T = Action> {
     pub label: String,
     pub selected: bool,
-    pub change: Result<Action, String>,
+    pub change: Result<T, String>,
 }
 
-pub fn combo(
+pub fn combo<T>(
     ui: &mut Ui,
     id: Id,
     selected: impl Into<WidgetText>,
-    choices: impl FnOnce() -> Vec<Choice>,
-) -> Option<Action> {
+    choices: impl FnOnce() -> Vec<Choice<T>>,
+) -> Option<T> {
     let mut chosen = None;
     widgets::combo(id, selected).show(ui, |ui| {
         for choice in choices() {

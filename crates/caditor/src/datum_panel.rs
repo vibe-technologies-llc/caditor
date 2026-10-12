@@ -13,6 +13,7 @@ use crate::{
     feature_fields::{self, Picker, Quantity, Rule, Shown},
     field,
     model::{Action, Model},
+    plane_selector,
     reference_picking::Slot,
     selection::Selection,
     solid_tools, widgets,
@@ -392,21 +393,33 @@ impl Panel<'_> {
             (self.id(), Slot::DatumBase),
             || chooser.checked(chooser.base(&Datum::Plane(plane.clone()))),
         );
-        let shown = Shown::Named(capitalized(&describe_plane(document, &plane.base)));
         let picker = self.picker(
             Slot::DatumBase,
             based,
             "Start from the selected plane or flat face",
         );
-        feature_fields::reference_row(
+        let row = plane_selector::Row {
+            caption: "Starts from",
+            id: Id::new(("datum-base", self.id())),
+            planes: datum_tools::listed_planes(document, self.id()),
+            current: Some(&plane.base),
+            picker,
+            remove: None,
+        };
+        let mut actions = Vec::new();
+        plane_selector::row(
             ui,
             self.model,
-            "Starts from",
-            shown,
-            picker,
-            None,
-            self.actions,
+            row,
+            |base| {
+                self.change(Datum::Plane(DatumPlane {
+                    base: base.clone(),
+                    ..plane.clone()
+                }))
+            },
+            &mut actions,
         );
+        self.actions.extend(actions);
     }
 
     fn rotation_row(&mut self, ui: &mut Ui, plane: &DatumPlane) {
@@ -768,6 +781,10 @@ impl Panel<'_> {
                 || chooser.checked(chooser.frame_part(&datum, part)),
             );
             let picker = self.picker(part.slot(), chosen, part.hover());
+            if part == FramePart::Plane {
+                self.frame_plane_row(ui, frame, picker);
+                continue;
+            }
             feature_fields::reference_row(
                 ui,
                 self.model,
@@ -792,6 +809,31 @@ impl Panel<'_> {
             })));
             self.apply(change);
         }
+    }
+
+    fn frame_plane_row(&mut self, ui: &mut Ui, frame: &DatumFrame, picker: Picker<'_>) {
+        let row = plane_selector::Row {
+            caption: FramePart::Plane.caption(),
+            id: Id::new(("frame-plane", self.id())),
+            planes: datum_tools::listed_planes(self.model.document(), self.id()),
+            current: Some(&frame.plane),
+            picker,
+            remove: None,
+        };
+        let mut actions = Vec::new();
+        plane_selector::row(
+            ui,
+            self.model,
+            row,
+            |plane| {
+                self.change(Datum::Frame(Box::new(DatumFrame {
+                    plane: plane.clone(),
+                    ..frame.clone()
+                })))
+            },
+            &mut actions,
+        );
+        self.actions.extend(actions);
     }
 
     fn point_rows(&mut self, ui: &mut Ui, point: &DatumPoint) {

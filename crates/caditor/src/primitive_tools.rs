@@ -334,6 +334,16 @@ fn placed(
     )
 }
 
+pub fn placed_on(
+    model: &Model,
+    feature: FeatureId,
+    primitive: &Primitive,
+    plane: &PlaneReference,
+) -> Result<Transaction, String> {
+    let pickable = datum_tools::plane_pickable(plane).ok_or_else(|| NO_PLANE.to_owned())?;
+    placed(model, feature, primitive, pickable, None)
+}
+
 pub fn place_change(
     model: &Model,
     selection: &Selection,

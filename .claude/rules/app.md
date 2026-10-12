@@ -467,7 +467,8 @@ paths:
   for a non-edit). A new session forgets the planes (`SectionTool::forget`).
 - A plane (`Cut`) starts from a base: a principal plane, a datum plane, a coordinate system's plane,
   a flat face (outward normal, by `FaceKey`) or a sketch's plane, taken with Use selected
-  (`SectionCommand::UseSelected`, `section::base_from`) and resolved again each frame
+  (`SectionCommand::UseSelected`, `section::base_from`) or chosen from the panel's Plane list of principal,
+  datum and coordinate system planes (`plane_selector::combo_showing`), and resolved again each frame
   (`section::base_plane`), so it follows edits; a gone base shows a warning callout and that plane
   cuts nothing. Offset moves it along the base normal into the side it keeps, Tilt and Turn turn it
   about the base's own x then y axis (length and angle expressions), Cut away the other side

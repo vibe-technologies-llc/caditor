@@ -69,13 +69,13 @@ fn a_new_sketch_s_plane_is_chosen_from_its_card_as_well_as_in_the_view() {
     harness.frame();
 
     assert!(harness.workspace.editing.is_choosing_plane());
-    assert!(harness.shows(crate::new_sketch_panel::UNCHOSEN));
+    assert!(harness.shows(crate::plane_selector::UNCHOSEN));
 
     harness.click(crate::new_sketch_panel::CANCEL);
     harness.frame();
 
     assert!(!harness.workspace.editing.is_choosing_plane());
-    assert!(!harness.shows(crate::new_sketch_panel::UNCHOSEN));
+    assert!(!harness.shows(crate::plane_selector::UNCHOSEN));
 
     harness.click("New sketch");
     harness.frame();
