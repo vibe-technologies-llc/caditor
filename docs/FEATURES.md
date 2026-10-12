@@ -145,6 +145,13 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   body items are, or a level-with-midpoint constraint is added; the slanted track's missing
   point-on-a-direction constraint (below) is the same gap. Body items stay with their own entry
   below. `next` because the user asked for it as the next sketching item.
+- [next · medium · easy] Hovering the centre of an outline (a rectangle, a regular polygon, a slot)
+  highlights one piece of it, usually the line along X: `Drawing::snap_entities` highlights
+  `Target::entity`, which for `Target::Centre` and `Target::Centroid` is `outline`, the piece the
+  outline search started from, so the snap reads as belonging to that line rather than to the whole
+  shape. The centre's snap should highlight every piece of the outline (the loop `closed_outline`
+  found, kept in the target or found again from `outline`), and the two corners its `Symmetric`
+  constraint will hold. `next` because the user asked for it beside the tracking entry above.
 - [medium · hard] Body items (`body_snap.rs`) are snapped to by drawing and grabs and picked by
   Select and Smart dimension, but they are not acquired for tracks, never pulled by the held snap
   (Alt) and never crossed by a direction or track, since they are not in the sketch until a point
