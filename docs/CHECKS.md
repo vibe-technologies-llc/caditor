@@ -10,7 +10,3 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   hole, extrusion, chamfer and section panel tests, the PNG export test) takes over 0.55 s. What is
   left is the app's own unoptimised frames and the recompute and meshing of the bodies the tests
   build; re-measure the whole UI suite and list the tests still over half a second.
-- [low · medium] `ui_tests.rs` holds the harness and 432 tests in 21,600 lines, touched by about
-  half of all commits, the merge hotspot of parallel worktrees and too large to read whole; 58
-  topic modules already exist under `ui_tests/`. Move the root tests into them by topic, keeping
-  the harness.

@@ -7,7 +7,9 @@ paths:
 # UI test harness
 
 - `ui_tests.rs` drives the real toolbars, panels and viewport through a headless egui context with
-  synthetic input.
+  synthetic input. It holds only the harness, the helpers more than one topic uses and the `mod`
+  list; every test lives in a topic module under `ui_tests/`, with the helpers only that topic
+  uses, so parallel changes meet in a small file rather than a 20,000-line one.
 - Picking needs the GPU, so the harness answers pick requests as the renderer would: nothing under
   the cursor until a test hovers a chosen `Pickable` (`hover_pickable`); `picks_held` holds answers
   back like a slow GPU. It answers sharing the built scene's `PickTable`, never cloning the scene.
