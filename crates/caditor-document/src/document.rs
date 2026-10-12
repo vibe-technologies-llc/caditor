@@ -154,15 +154,7 @@ impl FeatureKind {
             Self::Sketch(sketch) => sketch.heap_size(),
             Self::Solid(solid) => solid.heap_size(),
             Self::Blend(blend) => blend.heap_size(),
-            Self::Shell(shell) => {
-                size_of_val(shell.open.as_slice())
-                    + shell
-                        .open
-                        .iter()
-                        .map(FaceReference::heap_size)
-                        .sum::<usize>()
-                    + shell.thickness.heap_size()
-            }
+            Self::Shell(shell) => shell.heap_size(),
             Self::OffsetFace(offset) => {
                 size_of_val(offset.faces.as_slice())
                     + offset

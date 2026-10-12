@@ -602,7 +602,7 @@ fn an_edge_whose_wall_shrinks_past_nothing_is_named() {
 fn an_opening_missing_from_the_offset_body_is_named() {
     let solid = cuboid(Vector3::splat(10.0));
     let top = face_facing(&solid, Vector3::Z, Point3::new(5.0, 5.0, 10.0));
-    let offsets = Offsets::walls(&solid, 1.0, &BTreeSet::new());
+    let offsets = Offsets::walls(&solid, &Walls::inside(1.0), &BTreeSet::new());
     let unrelated = cylinder(2.0, 3.0);
     assert!(matches!(
         opening(&unrelated, &offsets, top, 1),
@@ -660,17 +660,6 @@ fn every_refusal_names_what_cannot_be_shelled() {
         Err(ShellError::MissingFace(gone))
     );
 
-    let drum = cylinder(3.0, 10.0);
-    let side = drum
-        .faces()
-        .find(|(_, face)| matches!(face.surface(), Surface::Cylinder(_)))
-        .map(|(id, _)| id)
-        .unwrap();
-    assert_eq!(
-        shell(&drum, &[side], 1.0, 1),
-        Err(ShellError::UnsupportedFace(side))
-    );
-
     let bulged = crate::fixtures::spline_topped_block(10.0, 4.0, 3.0);
     let bottom = face_facing(&bulged, Vector3::NEG_Z, Point3::ZERO);
     let spline = bulged
@@ -680,6 +669,10 @@ fn every_refusal_names_what_cannot_be_shelled() {
         .unwrap();
     assert_eq!(
         shell(&bulged, &[bottom], 1.0, 1),
+        Err(ShellError::UnsupportedFace(spline))
+    );
+    assert_eq!(
+        shell(&bulged, &[spline], 1.0, 1),
         Err(ShellError::UnsupportedFace(spline))
     );
 }
@@ -1244,8 +1237,16 @@ fn an_opening_under_leaning_walls_is_refused_rather_than_cut_straight() {
     let top = face_facing(&bevelled, Vector3::Z, Point3::new(5.0, 5.0, 10.0));
 
     let closed_over = shell(&bevelled, &[top], 3.0, 70);
-    let inward = Offsets::walls(&bevelled, 2.5, &BTreeSet::new());
-    let swept = hollow(&inward, &[top], &BTreeSet::new(), 70);
+    let inward = Offsets::walls(&bevelled, &Walls::inside(2.5), &BTreeSet::new());
+    let no_voids = BTreeSet::new();
+    let hollowing = Hollowing {
+        body: &bevelled,
+        open: &[top],
+        voids: &no_voids,
+        beyond: 0.0,
+        feature: 70,
+    };
+    let swept = hollowing.hollow(&inward);
 
     assert!(
         closed_over.is_err(),

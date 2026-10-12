@@ -464,6 +464,16 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   lost or tied face fails with `BlendUnresolved::Faces`; a face group's origins count among
   `origin_features` and healing visits it. `entry_count`, `remove_entry`, `entry_edges` treat edges
   then groups as one list, the panel's.
+- A `Shell` holds the opened faces, a `thickness`, a `ShellSide` (`Inside`, `Outside`,
+  `BothSides`, handed to the kernel's `Walls`) and `faces`, a list of `FaceThickness` (a
+  `FaceReference` and its own thickness expression, every piece of a split face taking it).
+  `Shell::expressions` covers the thickness and every face's (parameters, inlining, model scale);
+  healing visits the faces as well as the opened ones, and their origins count among
+  `origin_features`. Recompute evaluates each face's thickness in words naming the face ("The
+  thickness of Base start face must be more than zero."), fails a lost or tied face ("… given its
+  own thickness is no longer part of the body of …"), and words the kernel's
+  `OpenedFaceThickness`, `CurvedOpening` and `InvalidFaceThickness` with the face and a fix.
+  `openable_face` says which faces a shell can open (flat, cylinder, cone, sphere, torus).
 - A blend refused as `UnsupportedEnd` at a vertex whose faces an earlier blend made
   (`Context::earlier_blend_at`) names that feature and says to move this one above it.
 - Blend and shell resolve their references (`EdgeReference`s, opened `FaceReference`s) in the body's

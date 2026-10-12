@@ -3,9 +3,9 @@ use caditor_document::{
     Evaluation, Extrude, ExtrudeEnd, ExtrudeExtent, FeatureId, FeatureKind, Hole, HoleDepth,
     HoleShape, HoleStyle, LinearDirection, LinearSpacing, MAX_CONE_ANGLE, MAX_PATTERN_INSTANCES,
     MAX_PRISM_SIDES, MIN_PRISM_SIDES, OffsetFace, Pattern, PatternKind, PatternPath, Primitive,
-    PrimitiveAnchor, PrimitiveShape, ReachedEnd, ReachedSide, Shell, SizeRule, SolidFeature,
-    SolidStart, Wall, capitalized, displayed_axis, displayed_plane, face_plane, hole_centres,
-    hole_thread,
+    PrimitiveAnchor, PrimitiveShape, ReachedEnd, ReachedSide, Shell, ShellSide, SizeRule,
+    SolidFeature, SolidStart, Wall, capitalized, displayed_axis, displayed_plane, face_plane,
+    hole_centres, hole_thread,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
@@ -1098,8 +1098,10 @@ impl Builder<'_> {
         let value = self.length(&shell.thickness)?;
         let source = handle_snap::before(self.model, self.feature)?;
         let solid = &source.solid;
-        let face = shell.open.first()?.resolve(solid).ok()?;
-        face_plane(solid, face)?;
+        let face = shell.open.iter().find_map(|reference| {
+            let face = reference.resolve(solid).ok()?;
+            face_plane(solid, face).map(|_| face)
+        })?;
         let outer = solid.face(face)?.outer_loop()?;
         let first = *solid.face_loop(outer)?.coedges().first()?;
         let coedge = solid.coedge(first)?;
@@ -1108,10 +1110,15 @@ impl Builder<'_> {
         let at = edge.curve().point(middle);
         let along = edge.curve().evaluate(middle).first.try_normalize()? * coedge.sense().sign();
         let inward = outward(solid, face, at)?.cross(along).try_normalize()?;
+        let (direction, scale) = match shell.side {
+            ShellSide::Inside => (inward, 1.0),
+            ShellSide::Outside => (-inward, 1.0),
+            ShellSide::BothSides => (-inward, 0.5),
+        };
         Some(Gauge::line(
             Measured::ShellThickness,
-            (at, inward),
-            1.0,
+            (at, direction),
+            scale,
             value,
         ))
     }

@@ -141,13 +141,44 @@ pub fn expression_row_drafting(
     quantity: Quantity<'_>,
     change: impl Fn(Expression) -> Result<Transaction, String>,
 ) -> Drafting {
+    let row = expression_row_with(ui, model, (caption, caption), quantity, change, |_| false);
+    row.drafting
+}
+
+pub struct RemovableValue {
+    pub drafting: Drafting,
+    pub removed: bool,
+    pub hovered: bool,
+}
+
+pub fn expression_row_removable(
+    ui: &mut Ui,
+    model: &Model,
+    (caption, owned_as): (&str, &str),
+    quantity: Quantity<'_>,
+    change: impl Fn(Expression) -> Result<Transaction, String>,
+    remove_hover: &str,
+) -> RemovableValue {
+    expression_row_with(ui, model, (caption, owned_as), quantity, change, |ui| {
+        widgets::icon_button(ui, icons::REMOVE, remove_hover).clicked()
+    })
+}
+
+fn expression_row_with(
+    ui: &mut Ui,
+    model: &Model,
+    (caption, owned_as): (&str, &str),
+    quantity: Quantity<'_>,
+    change: impl Fn(Expression) -> Result<Transaction, String>,
+    trailing: impl FnOnce(&mut Ui) -> bool,
+) -> RemovableValue {
     widgets::caption(ui, caption);
     let document = model.document();
     let parameters = model.parameters();
     let unit = model.units();
     let owner = ParameterOwner::Feature {
         feature: quantity.feature,
-        value: caption.to_owned(),
+        value: owned_as.to_owned(),
     };
     let parse = |text: &str| {
         let parsed = field::parse_expression(
@@ -179,30 +210,31 @@ pub fn expression_row_drafting(
     if let Some(held) = document.owned_parameter(&owner, quantity.expression) {
         completion::editing_parameter(ui, quantity.id, held.id());
     }
-    let (committed, error, draft) = ui
-        .horizontal_wrapped(|ui| {
-            let field = field::value_field(
-                ui,
-                quantity.id,
-                &field::value_text(document, &owner, quantity.expression),
-                FIELD_WIDTH,
-                false,
-                validate,
-            );
-            let shown = field::shown_value(document, &owner, quantity.expression);
-            if field.error.is_none()
-                && let Some(preview) = field::value_preview(parameters, shown, unit)
-            {
-                ui.add(Label::new(widgets::muted(preview, ui)).wrap_mode(TextWrapMode::Extend));
-            }
-            let draft = match (field.committed.is_some(), field.left, field.edited) {
-                (true, _, _) | (false, false, None) => None,
-                (false, true, _) => Some(None),
-                (false, false, Some(text)) => Some(validate(&text).ok()),
-            };
-            (field.committed, field.error, draft)
-        })
-        .inner;
+    let row = ui.horizontal_wrapped(|ui| {
+        let field = field::value_field(
+            ui,
+            quantity.id,
+            &field::value_text(document, &owner, quantity.expression),
+            FIELD_WIDTH,
+            false,
+            validate,
+        );
+        let shown = field::shown_value(document, &owner, quantity.expression);
+        if field.error.is_none()
+            && let Some(preview) = field::value_preview(parameters, shown, unit)
+        {
+            ui.add(Label::new(widgets::muted(preview, ui)).wrap_mode(TextWrapMode::Extend));
+        }
+        let draft = match (field.committed.is_some(), field.left, field.edited) {
+            (true, _, _) | (false, false, None) => None,
+            (false, true, _) => Some(None),
+            (false, false, Some(text)) => Some(validate(&text).ok()),
+        };
+        let removed = trailing(ui);
+        (field.committed, field.error, draft, removed)
+    });
+    let hovered = row.response.contains_pointer();
+    let (committed, error, draft, removed) = row.inner;
     ui.end_row();
     if let Some(error) = error {
         widgets::error_row(ui, &error);
@@ -210,7 +242,11 @@ pub fn expression_row_drafting(
     if ui.memory(|memory| memory.has_focus(quantity.id)) {
         draft_failure_row(ui, model, quantity.feature);
     }
-    Drafting { committed, draft }
+    RemovableValue {
+        drafting: Drafting { committed, draft },
+        removed,
+        hovered,
+    }
 }
 
 pub fn refusal(feature: &str, reason: &str) -> Action {

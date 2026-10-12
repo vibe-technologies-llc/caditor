@@ -11,8 +11,8 @@ use caditor_document::{
     CombineOperation, ConfigurationId, CopyOrientation, CurvePattern, CurveSpacing, CurveStation,
     Datum, DatumAxis, DatumFrame, DatumPlane, DatumPoint, Document, EdgeGroup, Edit, Extrude,
     ExtrudeEnd, ExtrudeExtent, FaceAttachment, FaceAxisMate, FaceColour, FaceMate, FaceOnRound,
-    FacePair, FaceTangent, Feature, FeatureId, FeatureKind, Finish, HOME_VIEW_NAME, Hole,
-    HoleBottom, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle,
+    FacePair, FaceTangent, FaceThickness, Feature, FeatureId, FeatureKind, Finish, HOME_VIEW_NAME,
+    Hole, HoleBottom, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle,
     Import, LinearDirection, LinearSpacing, MAX_BODY_NAME_CHARS, MAX_GROUP_NAME_CHARS,
     MAX_MATERIAL_NAME_CHARS, MAX_PATTERN_INSTANCES, MAX_SAVED_VIEWS, MAX_VIEW_NAME_CHARS,
     MIN_OPACITY_PERCENT, Mate, MatePair, MeasuredItem, Measurement, MetricSize, Mirror,
@@ -21,7 +21,7 @@ use caditor_document::{
     PlaneThrough, PointBy, PointMate, PointReference, PointTarget, PointsPattern, Primitive,
     PrimitiveAnchor, PrimitiveShape, PrincipalAxis, PrincipalGeometry, PrincipalPlane,
     ProjectionSource, Reading, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rgb,
-    RollbackBar, SavedView, SavedViews, Scale, Shell, SketchAttachment, SketchFeature,
+    RollbackBar, SavedView, SavedViews, Scale, Shell, ShellSide, SketchAttachment, SketchFeature,
     SolidFeature, SolidStart, Split, SplitAlong, SplitCarry, SplitFace, TappedThread, Thread,
     ThreadFamily, ThreadForm, ThreadHand, ThreadLength, ThreadSide, ThreadSize, Transaction,
     TurnCentre, Wall, group_name, material_name, view_name,
@@ -1059,6 +1059,24 @@ pub(crate) struct ShellRecord {
     pub body: u64,
     pub thickness: String,
     pub open: Vec<Lenient<FaceRecord>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub side: Option<ShellSideRecord>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub faces: Vec<Lenient<FaceThicknessRecord>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ShellSideRecord {
+    Inside,
+    Outside,
+    BothSides,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct FaceThicknessRecord {
+    pub face: FaceRecord,
+    pub thickness: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -2563,6 +2581,21 @@ fn kind_record(kind: &FeatureKind) -> FeatureKindRecord {
                 .open
                 .iter()
                 .map(|face| Lenient::Read(face_record(face)))
+                .collect(),
+            side: match shell.side {
+                ShellSide::Inside => None,
+                ShellSide::Outside => Some(ShellSideRecord::Outside),
+                ShellSide::BothSides => Some(ShellSideRecord::BothSides),
+            },
+            faces: shell
+                .faces
+                .iter()
+                .map(|entry| {
+                    Lenient::Read(FaceThicknessRecord {
+                        face: face_record(&entry.face),
+                        thickness: entry.thickness.to_stored_text(),
+                    })
+                })
                 .collect(),
         }),
         FeatureKind::OffsetFace(offset) => {
@@ -6951,10 +6984,38 @@ fn restore_shell(record: &ShellRecord, feature: &str, issues: &mut Vec<String>) 
             "Some faces opened by “{feature}” could not be read and were left closed."
         ));
     }
+    let faces: Vec<FaceThickness> = record
+        .faces
+        .iter()
+        .filter_map(|entry| match entry {
+            Lenient::Read(entry) => Some(FaceThickness {
+                face: restore_face(
+                    &entry.face.face,
+                    entry.face.origin,
+                    entry.face.copy,
+                    &entry.face.neighbours,
+                )?,
+                thickness: restore_value(&entry.thickness, "thickness", "1 mm", feature, issues),
+            }),
+            Lenient::Unreadable(_) => None,
+        })
+        .collect();
+    if faces.len() < record.faces.len() {
+        issues.push(format!(
+            "Some faces given their own thickness by “{feature}” could not be read and take the \
+             shell's thickness."
+        ));
+    }
     Shell {
         body: FeatureId::from_raw(record.body),
         open,
         thickness,
+        side: match record.side {
+            None | Some(ShellSideRecord::Inside) => ShellSide::Inside,
+            Some(ShellSideRecord::Outside) => ShellSide::Outside,
+            Some(ShellSideRecord::BothSides) => ShellSide::BothSides,
+        },
+        faces,
     }
 }
 

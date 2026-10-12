@@ -3778,6 +3778,8 @@ fn shelled_model() -> (Document, FeatureId) {
             body: base,
             open: vec![top],
             thickness: transaction.parse("depth / 4").unwrap(),
+            side: caditor_document::ShellSide::Inside,
+            faces: Vec::new(),
         }),
     );
     document.apply(transaction.finish()).unwrap();
@@ -3818,6 +3820,54 @@ fn an_unreadable_opened_face_is_left_closed_and_reported() {
     );
     let restored = loaded.document.feature(shell).unwrap();
     assert!(restored.kind.shell().unwrap().open.is_empty());
+}
+
+#[test]
+fn a_shell_s_side_and_faces_of_their_own_thickness_are_saved_and_loaded() {
+    use caditor_document::{FaceThickness, ShellSide};
+    use caditor_kernel::{FaceName, FaceReference};
+    let (mut document, shell) = shelled_model();
+    let mut changed = document
+        .feature(shell)
+        .unwrap()
+        .kind
+        .shell()
+        .unwrap()
+        .clone();
+    changed.side = ShellSide::BothSides;
+    changed.faces = vec![FaceThickness {
+        face: FaceReference::new(FaceName::from_digest(0xcafe), None, []),
+        thickness: document.parse("depth / 2").unwrap(),
+    }];
+    document
+        .apply(Transaction::single(
+            "Edit",
+            Edit::SetFeatureKind {
+                id: shell,
+                kind: FeatureKind::Shell(changed),
+            },
+        ))
+        .unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+
+    assert!(text.contains("\"side\":\"both_sides\""));
+    assert!(text.contains("\"thickness\":\"$0 / 2\""));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+
+    let unreadable = text.replacen("0000000000000000000000000000cafe", "not a digest", 1);
+    let damaged = decode_text(&unreadable);
+    assert_eq!(
+        damaged.issues,
+        [
+            "Some faces given their own thickness by “Shell 1” could not be read and take the \
+          shell's thickness."
+        ]
+    );
+    let restored = damaged.document.feature(shell).unwrap();
+    assert!(restored.kind.shell().unwrap().faces.is_empty());
 }
 
 fn split_face_model(

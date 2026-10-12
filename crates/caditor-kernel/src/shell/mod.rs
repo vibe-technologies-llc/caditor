@@ -7,8 +7,14 @@ mod offset_tests;
 mod split;
 #[cfg(test)]
 mod tests;
+mod walls;
+#[cfg(test)]
+mod walls_tests;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    borrow::Cow,
+    collections::{BTreeMap, BTreeSet},
+};
 
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
 use thiserror::Error;
@@ -23,7 +29,7 @@ use crate::{
     surface::{Cone, Cylinder, PlaneSurface, Sphere, Surface, Torus},
     tessellation::TessellationError,
     tolerance::LINEAR_RESOLUTION,
-    topology::{EdgeId, FaceId, Solid, VertexId},
+    topology::{CrossingCheck, EdgeId, FaceId, Solid, VertexId},
 };
 
 const OFFSET_TOLERANCE: f64 = 10.0 * LINEAR_RESOLUTION;
@@ -33,15 +39,25 @@ const NAMED_WALL_FACES: usize = 4;
 const LEANING: f64 = 1e-6;
 
 pub use offset::{OffsetError, offset_faces};
+pub use walls::{ShellSide, Walls};
 
 #[derive(Debug, Clone, PartialEq, Error)]
 pub enum ShellError {
     #[error("the thickness is not a finite number above 0.000001 mm")]
     InvalidThickness,
+    #[error("the thickness of face {0:?} is not a finite number above 0.000001 mm")]
+    InvalidFaceThickness(FaceId),
+    #[error("face {0:?} is opened, so it has no wall to be given a thickness")]
+    OpenedFaceThickness(FaceId),
     #[error("face {0:?} is not part of the solid")]
     MissingFace(FaceId),
     #[error("face {0:?} is curved in a way that cannot be offset")]
     UnsupportedFace(FaceId),
+    #[error(
+        "the curved face {0:?} can open only on the body's outside and where sharp edges part it \
+         from the faces left closed"
+    )]
+    CurvedOpening(FaceId),
     #[error("the walls cannot follow edge {0:?}")]
     UnsupportedEdge(EdgeId),
     #[error("the thickness is too large for the body")]
@@ -88,7 +104,10 @@ impl ShellError {
 
     fn names_the_cause(&self) -> bool {
         match self {
-            Self::TooThick | Self::EdgeCollapses(_) | Self::InvalidThickness => false,
+            Self::TooThick
+            | Self::EdgeCollapses(_)
+            | Self::InvalidThickness
+            | Self::InvalidFaceThickness(_) => false,
             Self::Walls { faces, edge } => !faces.is_empty() || edge.is_some(),
             _ => true,
         }
@@ -111,22 +130,37 @@ struct Offsets<'a> {
 }
 
 impl<'a> Offsets<'a> {
-    fn walls(solid: &'a Solid, thickness: f64, outward: &BTreeSet<FaceId>) -> Self {
+    fn walls(solid: &'a Solid, walls: &Walls, outward: &BTreeSet<FaceId>) -> Self {
+        let inward = walls.side.inward_share();
+        let reach = walls.reach();
         Self {
             solid,
-            reach: thickness,
+            reach,
             distances: solid
                 .faces()
                 .map(|(id, _)| {
                     (
                         id,
                         if outward.contains(&id) {
-                            -thickness
+                            -reach
                         } else {
-                            thickness
+                            inward * walls.of(id)
                         },
                     )
                 })
+                .collect(),
+        }
+    }
+
+    fn grown(solid: &'a Solid, walls: &Walls, open: &[FaceId]) -> Self {
+        let outward = walls.side.outward_share();
+        Self {
+            solid,
+            reach: outward * walls.reach(),
+            distances: solid
+                .faces()
+                .filter(|(id, _)| !open.contains(id))
+                .map(|(id, _)| (id, -outward * walls.of(id)))
                 .collect(),
         }
     }
@@ -254,7 +288,12 @@ fn planar_curves(solid: &Solid, face: FaceId, plane: &Plane) -> Option<Vec<Profi
     Some(curves)
 }
 
-fn opening_behind(offsets: &Offsets<'_>, open: FaceId, feature: u64) -> Result<Solid, ShellError> {
+fn opening_behind(
+    offsets: &Offsets<'_>,
+    open: FaceId,
+    beyond: f64,
+    feature: u64,
+) -> Result<Solid, ShellError> {
     let definition = offsets
         .solid
         .face(open)
@@ -267,14 +306,21 @@ fn opening_behind(offsets: &Offsets<'_>, open: FaceId, feature: u64) -> Result<S
     } else {
         *surface.frame()
     };
-    let curves = planar_curves(offsets.solid, open, &into_material)
-        .ok_or(ShellError::UnsupportedFace(open))?;
+    let start = Plane::from_frame(
+        into_material.origin() - into_material.normal() * beyond,
+        into_material.normal(),
+        into_material.x_axis(),
+    )
+    .ok_or(ShellError::Opening(open))?;
+    let curves =
+        planar_curves(offsets.solid, open, &start).ok_or(ShellError::UnsupportedFace(open))?;
     let regions = Profile::new(&curves)
         .and_then(|profile| profile.select(&Selection::EvenDepth))
         .map_err(|_| ShellError::Opening(open))?;
-    let extent = LinearExtent::one_side(offsets.reach).map_err(|_| ShellError::Opening(open))?;
-    let prism = extrude(&into_material, &regions, extent, feature)
+    let extent = LinearExtent::one_side(offsets.distance(open) + beyond)
         .map_err(|_| ShellError::Opening(open))?;
+    let prism =
+        extrude(&start, &regions, extent, feature).map_err(|_| ShellError::Opening(open))?;
     let offset_name = FaceName::shell(feature, definition.name());
     Ok(prism.renamed(|_, _| (offset_name, Some(FaceOrigin::Shell { feature }))))
 }
@@ -417,36 +463,82 @@ impl Hollowed {
     }
 }
 
-fn hollow(
-    offsets: &Offsets<'_>,
-    open: &[FaceId],
-    voids: &BTreeSet<FaceId>,
+struct Hollowing<'a> {
+    body: &'a Solid,
+    open: &'a [FaceId],
+    voids: &'a BTreeSet<FaceId>,
+    beyond: f64,
     feature: u64,
-) -> Result<Hollowed, ShellError> {
-    let swept = open
-        .iter()
-        .filter(|face| !offsets.is_outward(**face) && !voids.contains(face));
-    for face in swept {
-        if let Some(wall) = leaning_over(offsets.solid, *face, open) {
-            return Err(ShellError::Overhang { open: *face, wall });
+}
+
+impl Hollowing<'_> {
+    fn hollow(&self, offsets: &Offsets<'_>) -> Result<Hollowed, ShellError> {
+        let open = self.open;
+        let swept = open.iter().filter(|face| {
+            offsets.distance(**face) > 0.0
+                && !offsets.is_outward(**face)
+                && !self.voids.contains(face)
+        });
+        for face in swept {
+            if let Some(wall) = leaning_over(offsets.solid, *face, open) {
+                return Err(ShellError::Overhang { open: *face, wall });
+            }
+        }
+        let inner::Inner {
+            solid: mut inner,
+            dropped,
+        } = inner::inner_solid(offsets, inner::Naming::Shell(self.feature))?;
+        for face in open.iter().filter(|face| !offsets.is_outward(**face)) {
+            let prism = if self.voids.contains(face) {
+                opening_behind(offsets, *face, self.beyond, self.feature)?
+            } else {
+                opening(&inner, offsets, *face, self.feature)?
+            };
+            inner = boolean(&inner, &prism, BooleanOperation::Union)?;
+        }
+        Ok(Hollowed {
+            solid: boolean(self.body, &inner, BooleanOperation::Difference)?,
+            dropped,
+        })
+    }
+}
+
+fn grown<'a>(
+    solid: &'a Solid,
+    open: &[FaceId],
+    walls: &Walls,
+) -> Result<Cow<'a, Solid>, ShellError> {
+    if walls.side.outward_share() == 0.0 {
+        return Ok(Cow::Borrowed(solid));
+    }
+    let offsets = Offsets::grown(solid, walls, open);
+    let grown = inner::inner_solid(&offsets, inner::Naming::Kept)?.solid;
+    if let CrossingCheck::Crossing(crossing) = grown.find_crossing()? {
+        let original = |face: FaceId| {
+            let name = grown.face(face)?.name();
+            solid
+                .faces()
+                .find(|(_, original)| original.name() == name)
+                .map(|(id, _)| id)
+        };
+        return Err(ShellError::walls_at(
+            crossing.faces.into_iter().filter_map(original),
+        ));
+    }
+    Ok(Cow::Owned(grown))
+}
+
+fn opens_curved(solid: &Solid, face: FaceId) -> Result<bool, ShellError> {
+    let definition = solid.face(face).ok_or(ShellError::MissingFace(face))?;
+    match definition.surface() {
+        Surface::Plane(_) => Ok(false),
+        Surface::Cylinder(_) | Surface::Cone(_) | Surface::Sphere(_) | Surface::Torus(_) => {
+            Ok(true)
+        }
+        Surface::Extrusion(_) | Surface::Revolution(_) | Surface::BSpline(_) => {
+            Err(ShellError::UnsupportedFace(face))
         }
     }
-    let inner::Inner {
-        solid: mut inner,
-        dropped,
-    } = inner::inner_solid(offsets, inner::Naming::Shell(feature))?;
-    for face in open.iter().filter(|face| !offsets.is_outward(**face)) {
-        let prism = if voids.contains(face) {
-            opening_behind(offsets, *face, feature)?
-        } else {
-            opening(&inner, offsets, *face, feature)?
-        };
-        inner = boolean(&inner, &prism, BooleanOperation::Union)?;
-    }
-    Ok(Hollowed {
-        solid: boolean(offsets.solid, &inner, BooleanOperation::Difference)?,
-        dropped,
-    })
 }
 
 pub fn shell(
@@ -455,7 +547,16 @@ pub fn shell(
     thickness: f64,
     feature: u64,
 ) -> Result<Solid, ShellError> {
-    hollow_out(solid, open, thickness, feature).or_else(|error| {
+    shell_walls(solid, open, &Walls::inside(thickness), feature)
+}
+
+pub fn shell_walls(
+    solid: &Solid,
+    open: &[FaceId],
+    walls: &Walls,
+    feature: u64,
+) -> Result<Solid, ShellError> {
+    hollow_out(solid, open, walls, feature).or_else(|error| {
         interrupt::check()?;
         Err(error)
     })
@@ -464,32 +565,45 @@ pub fn shell(
 fn hollow_out(
     solid: &Solid,
     open: &[FaceId],
-    thickness: f64,
+    walls: &Walls,
     feature: u64,
 ) -> Result<Solid, ShellError> {
-    if !thickness.is_finite() || thickness <= LINEAR_RESOLUTION {
-        return Err(ShellError::InvalidThickness);
-    }
+    walls.check(solid, open)?;
+    let mut curved = Vec::new();
     for face in open {
-        let definition = solid.face(*face).ok_or(ShellError::MissingFace(*face))?;
-        if !matches!(definition.surface(), Surface::Plane(_)) {
-            return Err(ShellError::UnsupportedFace(*face));
+        if opens_curved(solid, *face)? {
+            curved.push(*face);
         }
     }
     let voids = void_faces(solid, open)?;
     let outward = extendable(solid, open, &voids);
-    let inward = Offsets::walls(solid, thickness, &BTreeSet::new());
-    if outward.is_empty() {
-        return hollow(&inward, open, &voids, feature).map(|hollowed| hollowed.solid);
+    if let Some(face) = curved.iter().find(|face| !outward.contains(face)) {
+        return Err(ShellError::CurvedOpening(*face));
     }
-    let extended = Offsets::walls(solid, thickness, &outward);
-    let first = match hollow(&extended, open, &voids, feature) {
+    let body = grown(solid, open, walls)?;
+    let hollowing = Hollowing {
+        body: &body,
+        open,
+        voids: &voids,
+        beyond: walls.side.outward_share() * walls.thickness,
+        feature,
+    };
+    let inward = Offsets::walls(solid, walls, &BTreeSet::new());
+    if outward.is_empty() {
+        return hollowing.hollow(&inward).map(|hollowed| hollowed.solid);
+    }
+    let extended = Offsets::walls(solid, walls, &outward);
+    let first = match hollowing.hollow(&extended) {
         Ok(result) if result.keeps_every_wall(&extended, open, feature) => return Ok(result.solid),
         Ok(_) => ShellError::TooThick,
         Err(error @ ShellError::Cancelled(_)) => return Err(error),
         Err(error) => error,
     };
-    hollow(&inward, open, &voids, feature)
+    if !curved.is_empty() {
+        return Err(first);
+    }
+    hollowing
+        .hollow(&inward)
         .map(|hollowed| hollowed.solid)
         .map_err(|inward_error| match first {
             ShellError::TooThick if inward_error.names_the_cause() => inward_error,

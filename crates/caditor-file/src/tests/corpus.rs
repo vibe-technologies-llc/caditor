@@ -9,14 +9,14 @@ use caditor_document::{
     AxisMate, AxisReference, AxisSide, AxisTurn, BlendKind, BodyAppearance, BodyOperation,
     BodyPlacement, ChamferForm, Combine, CombineOperation, CopyOrientation, CurvePattern,
     CurveSpacing, Datum, DatumAxis, DatumFrame, DatumPlane, DatumPoint, EdgeGroup, Extrude,
-    ExtrudeEnd, ExtrudeExtent, FaceColour, FaceTangent, FinePitch, Finish, Hole, HoleBottom,
-    HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle, Import, Mate,
-    MatePair, MetricSize, Mirror, ModelProperties, Move, OffsetFace, Outline, ParameterOwner,
-    ParameterValues, Pattern, PatternKind, PlaneRotation, PlaneThrough, PointBy, PointReference,
-    PointsPattern, PrincipalAxis, PrincipalGeometry, ProjectionSource, RegionChoice, Remove,
-    Revolve, RevolveAxis, RevolveExtent, Rgb, Scale, Shell, SketchFeature, SolidFeature,
-    SolidStart, Split, SplitAlong, SplitCarry, SplitFace, TappedThread, ThreadFamily, ThreadForm,
-    ThreadHand, TurnCentre, Wall, point_instance,
+    ExtrudeEnd, ExtrudeExtent, FaceColour, FaceTangent, FaceThickness, FinePitch, Finish, Hole,
+    HoleBottom, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle,
+    Import, Mate, MatePair, MetricSize, Mirror, ModelProperties, Move, OffsetFace, Outline,
+    ParameterOwner, ParameterValues, Pattern, PatternKind, PlaneRotation, PlaneThrough, PointBy,
+    PointReference, PointsPattern, PrincipalAxis, PrincipalGeometry, ProjectionSource,
+    RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rgb, Scale, Shell, ShellSide,
+    SketchFeature, SolidFeature, SolidStart, Split, SplitAlong, SplitCarry, SplitFace,
+    TappedThread, ThreadFamily, ThreadForm, ThreadHand, TurnCentre, Wall, point_instance,
 };
 use caditor_kernel::{
     EdgeName, EdgeReference, FaceName, FaceOrigin, FaceReference, Solid, VertexName, WallSide,
@@ -48,7 +48,7 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 21] = [
+const KEPT: [(&str, &str); 22] = [
     (
         "journal-1/by-reference.journal",
         "fe98725da8d9df46b19d7cede1474bcfb92bbda00d4de9c890e5bca5d0f2899f",
@@ -112,6 +112,10 @@ const KEPT: [(&str, &str); 21] = [
     (
         "model-1/primitives.caditor",
         "a951119ab531bb07364933525a7861e66093225c496ef672a87f2cc03e4917f3",
+    ),
+    (
+        "model-1/shell-walls.caditor",
+        "79b207952979689eceef40c8454d6bc7e34a80f6f984691f4da6860ab5369673",
     ),
     (
         "model-1/sketches.caditor",
@@ -662,6 +666,7 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
             saved(&modelled_threads(), "Modelled threads"),
         ),
         (model("faces"), saved(&faces(), "Faces")),
+        (model("shell-walls"), saved(&shell_walls(), "Shell walls")),
         (model("datums"), saved(&datums(), "Datums")),
         (model("bodies"), saved(&bodies(), "Bodies")),
         (model("patterns"), saved(&patterns(), "Patterns")),
@@ -1187,6 +1192,38 @@ fn holes() -> Document {
     document
 }
 
+fn shell_walls() -> Document {
+    let (mut document, _, _) = blended_model();
+    let base = named(&document, "Base");
+    let parse = |text: &str| Expression::parse_stored(text).unwrap();
+    let mut transaction = document.transaction("Shell walls");
+    let shells = [
+        (
+            "Shell outside",
+            ShellSide::Outside,
+            vec![FaceThickness {
+                face: end_cap(0xcafe),
+                thickness: parse("$0 / 2"),
+            }],
+        ),
+        ("Shell both sides", ShellSide::BothSides, Vec::new()),
+    ];
+    for (name, side, faces) in shells {
+        transaction.add_feature(
+            name,
+            FeatureKind::Shell(Shell {
+                body: base,
+                open: vec![end_cap(0xbeef)],
+                thickness: parse("$0 / 4"),
+                side,
+                faces,
+            }),
+        );
+    }
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
 fn faces() -> Document {
     let (mut document, fillet, _) = blended_model();
     let base = named(&document, "Base");
@@ -1250,6 +1287,8 @@ fn faces() -> Document {
                 body: base,
                 open: vec![end_cap(0xbeef)],
                 thickness: parse("$0 / 4"),
+                side: ShellSide::Inside,
+                faces: Vec::new(),
             }),
         ),
         (

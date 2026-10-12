@@ -109,6 +109,7 @@ mod selecting_alike;
 mod selection_sets;
 mod selection_targets;
 mod shaped_sweeps;
+mod shell_walls;
 mod sketch_blend_curves;
 mod sketch_body_picks;
 mod sketch_body_snaps;
@@ -12306,7 +12307,7 @@ fn a_shell_opens_the_selected_face_and_takes_more_faces_clicked_in_the_view() {
     assert_eq!(harness.model.undo_label(), Some("Create Shell 1"));
     assert_eq!(shell_of(&harness, shell).open.len(), 1);
     assert!(removed_about(&harness, plate, 38.0 * 38.0 * 9.0));
-    assert!(harness.shows("Click flat faces to open them or close them again"));
+    assert!(harness.shows("Click faces to open them or close them again"));
     assert!(harness.shows("Thickness"));
 
     let built = harness.built_with_meshes(2);

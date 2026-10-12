@@ -148,7 +148,7 @@ pub(crate) fn expressions_mut(kind: &mut FeatureKind) -> Vec<&mut Expression> {
             expressions
         }
         FeatureKind::Blend(blend) => blend.expressions_mut(),
-        FeatureKind::Shell(shell) => vec![&mut shell.thickness],
+        FeatureKind::Shell(shell) => shell.expressions_mut(),
         FeatureKind::OffsetFace(offset) => vec![&mut offset.distance],
         FeatureKind::Primitive(primitive) => primitive.expressions_mut(),
         FeatureKind::Thread(thread) => thread.expressions_mut(),

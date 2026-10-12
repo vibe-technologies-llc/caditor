@@ -15,13 +15,13 @@ use std::{
 
 use caditor_document::{
     Document, EdgeGroup, Evaluation, FeatureId, FeatureKind, FeatureResult, FeatureState,
-    Resolution, SolidResult,
+    Resolution, SolidResult, openable_face,
 };
 pub use caditor_document::{describe_origin, origin_feature};
 use caditor_geometry::{Aabb, Point3, RigidTransform};
 use caditor_kernel::{
     EdgeId, EdgeName, EdgeReference, FaceId, FaceName, FaceOrigin, FaceReference, FaceTriangles,
-    MassProperties, Mesh, Solid, SolidMass, Surface, VertexId, VertexName, extent, mass_properties,
+    MassProperties, Mesh, Solid, SolidMass, VertexId, VertexName, extent, mass_properties,
 };
 use caditor_render::{MeshFace, MeshPoint, MeshSource, ShadedMesh};
 use parking_lot::{Condvar, Mutex};
@@ -130,7 +130,7 @@ pub fn is_seam(solid: &Solid, edge: EdgeId) -> bool {
 #[derive(Debug, Clone, PartialEq)]
 pub struct BodyFace {
     pub key: FaceKey,
-    pub flat: bool,
+    pub openable: bool,
     pub bounds: Option<Aabb>,
 }
 
@@ -311,9 +311,7 @@ impl BodyMesh {
             .filter_map(|face| {
                 Some(BodyFace {
                     key: *keys.get(&face.face)?,
-                    flat: solid
-                        .face(face.face)
-                        .is_some_and(|face| matches!(face.surface(), Surface::Plane(_))),
+                    openable: openable_face(solid, face.face),
                     bounds: face_bounds(mesh, face),
                 })
             })

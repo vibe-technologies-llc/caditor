@@ -33,18 +33,19 @@ fn volume(evaluation: &Evaluation, body: FeatureId) -> f64 {
         .volume
 }
 
-fn top_face(solid: &Solid) -> FaceReference {
+fn face_towards(solid: &Solid, normal: Vector3) -> FaceReference {
     let (id, _) = solid
         .faces()
         .find(|(_, face)| match face.surface() {
-            Surface::Plane(plane) => {
-                plane.frame().normal() * face.sense().sign() == Vector3::Z
-                    && plane.frame().origin().z > 0.0
-            }
+            Surface::Plane(plane) => plane.frame().normal() * face.sense().sign() == normal,
             _ => false,
         })
         .unwrap();
     FaceReference::capture(solid, id).unwrap()
+}
+
+fn top_face(solid: &Solid) -> FaceReference {
+    face_towards(solid, Vector3::Z)
 }
 
 fn failure(evaluation: &Evaluation, feature: FeatureId) -> FeatureError {
@@ -97,6 +98,8 @@ fn model() -> Model {
             body: base,
             open,
             thickness: Expression::Parameter(wall),
+            side: ShellSide::Inside,
+            faces: Vec::new(),
         }),
     );
     document.apply(transaction.finish()).unwrap();
@@ -322,6 +325,8 @@ fn a_corner_whose_walls_cannot_meet_is_named_by_its_faces() {
             body: hall,
             open: vec![FaceReference::capture(body, floor).unwrap()],
             thickness,
+            side: ShellSide::Inside,
+            faces: Vec::new(),
         }),
     );
     document.apply(transaction.finish()).unwrap();
@@ -335,5 +340,108 @@ fn a_corner_whose_walls_cannot_meet_is_named_by_its_faces() {
     assert_eq!(
         error.remedy,
         "Change the thickness, or open one of the faces at that corner."
+    );
+}
+
+#[test]
+fn walls_grow_outside_or_both_ways_and_faces_keep_their_own_thickness() {
+    let mut model = model();
+    let evaluation = evaluate(&model.document, &mut model.engine);
+    let bottom = face_towards(evaluation.body(model.base).unwrap(), Vector3::NEG_Z);
+    let floor = model.document.parse("2 * wall").unwrap();
+
+    set_shell(&mut model, |shell| shell.side = ShellSide::Outside).unwrap();
+    let outside = evaluate(&model.document, &mut model.engine);
+    assert_eq!(outside.failed_count(), 0);
+    assert_volume(&outside, model.base, 12.0 * 10.0 * 5.0 - 320.0);
+
+    set_shell(&mut model, |shell| shell.side = ShellSide::BothSides).unwrap();
+    let both = evaluate(&model.document, &mut model.engine);
+    assert_volume(&both, model.base, 11.0 * 9.0 * 4.5 - 9.0 * 7.0 * 3.5);
+
+    set_shell(&mut model, |shell| {
+        shell.side = ShellSide::Inside;
+        shell.faces.push(FaceThickness {
+            face: bottom.clone(),
+            thickness: floor,
+        });
+    })
+    .unwrap();
+    let thick_floor = evaluate(&model.document, &mut model.engine);
+    assert_eq!(thick_floor.failed_count(), 0);
+    assert_volume(&thick_floor, model.base, 320.0 - 8.0 * 6.0 * 2.0);
+    assert!(
+        model
+            .document
+            .feature(model.shell)
+            .unwrap()
+            .kind
+            .uses_parameter(model.wall)
+    );
+
+    let id = model.wall;
+    set(&mut model, id, "0.5 mm");
+    let thinner = evaluate(&model.document, &mut model.engine);
+    assert_volume(&thinner, model.base, 320.0 - 9.0 * 7.0 * 3.0);
+}
+
+#[test]
+fn a_face_s_own_thickness_fails_in_words_naming_the_face() {
+    let mut model = model();
+    let evaluation = evaluate(&model.document, &mut model.engine);
+    let solid = evaluation.body(model.base).unwrap();
+    let top = top_face(solid);
+    let bottom = face_towards(solid, Vector3::NEG_Z);
+    let zero = model.document.parse("0 mm").unwrap();
+    let two = model.document.parse("2 mm").unwrap();
+
+    set_shell(&mut model, |shell| {
+        shell.faces.push(FaceThickness {
+            face: bottom.clone(),
+            thickness: zero,
+        });
+    })
+    .unwrap();
+    let evaluation = evaluate(&model.document, &mut model.engine);
+    let error = failure(&evaluation, model.shell);
+    assert_eq!(
+        error.reason,
+        "The thickness of Base start face must be more than zero."
+    );
+    assert_eq!(
+        error.remedy,
+        "Enter a thickness of Base start face above zero."
+    );
+
+    set_shell(&mut model, |shell| {
+        shell.faces = vec![FaceThickness {
+            face: top.clone(),
+            thickness: two.clone(),
+        }];
+    })
+    .unwrap();
+    let evaluation = evaluate(&model.document, &mut model.engine);
+    let error = failure(&evaluation, model.shell);
+    assert_eq!(
+        error.reason,
+        "Base end face is open, so it has no wall to give its own thickness."
+    );
+    assert_eq!(
+        error.remedy,
+        "Remove its own thickness, or close the face again."
+    );
+
+    set_shell(&mut model, |shell| {
+        shell.faces = vec![FaceThickness {
+            face: FaceReference::new(FaceName::from_digest(7), None, []),
+            thickness: two,
+        }];
+    })
+    .unwrap();
+    let evaluation = evaluate(&model.document, &mut model.engine);
+    let error = failure(&evaluation, model.shell);
+    assert_eq!(
+        error.reason,
+        "Face given its own thickness is no longer part of the body of Base."
     );
 }

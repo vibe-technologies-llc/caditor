@@ -30,9 +30,11 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   of their own: a full-round fillet across a narrow face between two others, a fillet sized by
   chord length, a fillet that runs by a rule over every edge of a kind, setback corners where three
   fillets meet, a tangency weight, and a curvature-continuous (G2) fillet.
-- [medium · hard] Shell: no spline, extrusion or revolution faces, only flat faces open, one
-  thickness for the whole body and always inward: no thickness per face, and no wall growing
-  outward or to both sides of the faces.
+- [medium · hard] Shell: no spline, extrusion or revolution faces, as walls or openings (the kernel
+  has no fitted offset surface); a curved face (cylinder, cone, sphere, torus) opens only on the
+  body's outside where sharp edges part it from the closed faces, since a smooth or void opening
+  needs the opening prism only flat faces give; a face's own thickness has no drag arrow in the
+  view (only its panel field).
 - [medium · hard] Sweep along a path and loft between profiles: the kernel has only extrusion and
   revolution, so both need new kernel operations first. A sweep takes a profile and a path (a
   chain of edges or sketch curves), kept square to the path or parallel to the profile, with an
