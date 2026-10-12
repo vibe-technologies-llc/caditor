@@ -6,7 +6,7 @@ use caditor_geometry::{Plane, Point2, Vector2};
 use crate::{
     Constraint, ConstraintId, Entity, EntityId, Sketch, SketchError, Solved,
     solve::{
-        diagnosis::{DIAGNOSIS_WORK, diagnose_failure},
+        diagnosis::{DIAGNOSIS_WORK, Trimmed, diagnose_failure, trimmed},
         numeric::{Descent, Failure, STIFF, Solver, components},
         system::System,
         witness::Factored,
@@ -491,6 +491,91 @@ fn a_conflict_through_a_chain_of_six_hundred_lines_is_named_within_the_budget() 
                 constraints: chain.spanning()
             },
         "{named:?}"
+    );
+}
+
+#[test]
+#[ignore = "diagnoses a conflict through a thousand lines, best run in release"]
+fn a_conflict_through_a_chain_of_a_thousand_lines_is_named_within_the_budget() {
+    let chain = out_of_reach(1_000);
+
+    let named = diagnosed(&chain, DIAGNOSIS_WORK);
+
+    assert!(
+        named
+            == SketchError::Conflict {
+                constraints: chain.spanning()
+            },
+        "{named:?}"
+    );
+}
+
+fn trimmed_spanning(chain: &Chain) -> (Trimmed, Vec<ConstraintId>) {
+    let dimensions = chain.sketch.evaluate(&no_parameters).unwrap();
+    let system = System::build(&chain.sketch, &dimensions).unwrap();
+    let spanning: BTreeSet<ConstraintId> = chain.spanning().into_iter().collect();
+    let active: Vec<usize> = (0..system.equations.len())
+        .filter(|index| {
+            system.equations[*index]
+                .owner
+                .is_some_and(|owner| spanning.contains(&owner))
+        })
+        .collect();
+    let stiff = BTreeSet::new();
+    let solver = Solver {
+        system: &system,
+        cancelled: &|| false,
+        stiff: &stiff,
+        stiffness: STIFF,
+    };
+    let mut values = system.values.clone();
+    let failed = solver.solve(&active, &mut values).unwrap();
+    let [failure] = failed.as_slice() else {
+        panic!("expected one failed part, found {}", failed.len());
+    };
+    let newest_first: Vec<ConstraintId> = spanning.iter().rev().copied().collect();
+
+    let trimmed = trimmed(&solver, failure, newest_first.clone()).unwrap();
+
+    let unheld: Vec<ConstraintId> = newest_first
+        .iter()
+        .rev()
+        .zip(&trimmed.witnesses)
+        .filter(|(constraint, witness)| {
+            let mut at = system.values.clone();
+            for (variable, value) in failure.component.variables.iter().zip(*witness) {
+                at[*variable] = *value;
+            }
+            let rest: Vec<usize> = active
+                .iter()
+                .copied()
+                .filter(|index| system.equations[*index].owner != Some(**constraint))
+                .collect();
+            let parts = components(&system, &rest, &at);
+            !parts.iter().all(|part| solver.holds(part, &at))
+        })
+        .map(|(constraint, _)| *constraint)
+        .collect();
+    (trimmed, unheld)
+}
+
+#[test]
+fn trimming_a_conflict_through_three_hundred_lines_costs_work_in_proportion_to_its_length() {
+    const WORK_PER_LINE: usize = 20;
+    let chain = out_of_reach(300);
+
+    let (trimmed, unheld) = trimmed_spanning(&chain);
+
+    assert_eq!(
+        trimmed.kept,
+        chain.spanning().into_iter().rev().collect::<Vec<_>>()
+    );
+    assert_eq!(trimmed.witnesses.len(), 2 * 300);
+    assert!(unheld.is_empty(), "witnesses failing the rest: {unheld:?}");
+    assert!(
+        trimmed.work < WORK_PER_LINE * 300,
+        "{} units trimming 300 lines",
+        trimmed.work
     );
 }
 

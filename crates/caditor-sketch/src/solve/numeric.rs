@@ -408,6 +408,14 @@ impl Solver<'_> {
         self.converged(&self.part(component), values)
     }
 
+    pub fn admissible_within(&self, local: &Component, whole: &Component, values: &[f64]) -> bool {
+        let part = Part {
+            component: local,
+            context: self.system.context_of(whole),
+        };
+        self.admissible(&part, values)
+    }
+
     pub fn tolerance(&self, component: &Component) -> f64 {
         CONVERGENCE_TOLERANCE * self.part(component).context.scale
     }

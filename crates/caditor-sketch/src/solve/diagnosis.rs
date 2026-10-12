@@ -11,7 +11,7 @@ use crate::{
         equation::value,
         numeric::{Cancelled, Component, Descent, FROZEN, Failure, Solver, components},
         system::System,
-        witness::Factored,
+        witness::{Factored, Strained},
     },
 };
 
@@ -82,6 +82,28 @@ pub(super) fn diagnose_failure(
     }
 }
 
+#[cfg(test)]
+pub(super) struct Trimmed {
+    pub kept: Vec<ConstraintId>,
+    pub witnesses: Vec<Vec<f64>>,
+    pub work: usize,
+}
+
+#[cfg(test)]
+pub(super) fn trimmed(
+    solver: &Solver<'_>,
+    failure: &Failure,
+    newest_first: Vec<ConstraintId>,
+) -> Option<Trimmed> {
+    let mut diagnosis = Diagnosis::new(solver, failure, DIAGNOSIS_WORK);
+    let (kept, witnesses) = diagnosis.without_bystanders(newest_first).ok()?;
+    Some(Trimmed {
+        kept,
+        witnesses,
+        work: DIAGNOSIS_WORK - diagnosis.work_left.get(),
+    })
+}
+
 fn diagnose_part(
     sketch: &Sketch,
     solver: &Solver<'_>,
@@ -148,6 +170,10 @@ fn named_entities(sketch: &Sketch, system: &System, component: &Component) -> Ve
         .collect()
 }
 
+fn solve_cost(factored: &Factored) -> usize {
+    factored.component.equations.len().div_ceil(SOLVES_PER_STEP)
+}
+
 fn gather(values: &[f64], variables: &[usize]) -> Vec<f64> {
     variables
         .iter()
@@ -161,6 +187,12 @@ fn overlay(values: &mut [f64], variables: &[usize], taken: &[f64]) {
             *slot = *taken;
         }
     }
+}
+
+#[derive(Clone, Copy)]
+enum Start {
+    Closest,
+    Drawn,
 }
 
 enum Stop {
@@ -272,7 +304,7 @@ impl<'a> Diagnosis<'a> {
         let mut support = (!support.is_empty()).then_some(support);
         loop {
             let found = match support.take() {
-                Some(support) if !self.solves_with(&support)? => support,
+                Some(support) if !self.solves_from(&support, Start::Drawn)? => support,
                 Some(_) | None => {
                     let found = self.conflict(&[], false, suspects)?;
                     if found.is_empty() || self.solves_with(&found)? {
@@ -320,7 +352,13 @@ impl<'a> Diagnosis<'a> {
         let oldest_first: Vec<ConstraintId> = conflict.iter().rev().copied().collect();
         let mut witnesses = Vec::new();
         let mut factored = self.factored(&conflict)?;
+        let mut strained: Option<Strained> = None;
         for constraint in oldest_first {
+            if let Some(next) = self.transferred(&mut factored, strained.as_ref(), constraint)? {
+                witnesses.push(gather(&next.values, &self.variables));
+                strained = Some(next);
+                continue;
+            }
             let rest: Vec<ConstraintId> = conflict
                 .iter()
                 .copied()
@@ -330,16 +368,51 @@ impl<'a> Diagnosis<'a> {
                 Some(factored) => self.stepped_without(factored, constraint, &rest)?,
                 None => None,
             };
-            if let Some(witness) = stepped {
-                witnesses.push(witness);
-            } else if self.solves_with(&rest)? {
-                witnesses.push(self.solution_of(&rest));
-            } else {
-                conflict = rest;
-                factored = self.factored(&conflict)?;
+            let witness = match stepped {
+                Some(witness) => Some(witness),
+                None if self.solves_with(&rest)? => Some(self.solution_of(&rest)),
+                None => None,
+            };
+            match witness {
+                Some(witness) => {
+                    witnesses.push(gather(&witness, &self.variables));
+                    let base = factored
+                        .as_ref()
+                        .and_then(|factored| factored.strained(self.solver, witness, constraint));
+                    strained = base.or(strained);
+                }
+                None => {
+                    conflict = rest;
+                    factored = self.factored(&conflict)?;
+                }
             }
         }
         Ok((conflict, witnesses))
+    }
+
+    fn transferred(
+        &mut self,
+        factored: &mut Option<Factored>,
+        from: Option<&Strained>,
+        constraint: ConstraintId,
+    ) -> Result<Option<Strained>, Stop> {
+        let (Some(factored), Some(from)) = (factored.as_mut(), from) else {
+            return Ok(None);
+        };
+        let solve_cost = solve_cost(factored);
+        let transferred =
+            factored.transferred(self.solver, from, constraint, solve_cost, &mut |units| {
+                self.charge(units)
+            })?;
+        if let Some(next) = &transferred {
+            let variables = &factored.component.variables;
+            overlay(
+                &mut self.solved,
+                variables,
+                &gather(&next.values, variables),
+            );
+        }
+        Ok(transferred)
     }
 
     fn factored(&self, conflict: &[ConstraintId]) -> Result<Option<Factored>, Stop> {
@@ -365,7 +438,7 @@ impl<'a> Diagnosis<'a> {
         if !factored.reaches(constraint) {
             return Ok(None);
         }
-        let solve_cost = factored.component.equations.len().div_ceil(SOLVES_PER_STEP);
+        let solve_cost = solve_cost(factored);
         let Some(values) =
             factored.without(self.solver, constraint, &mut || self.charge(solve_cost))?
         else {
@@ -403,7 +476,7 @@ impl<'a> Diagnosis<'a> {
                 },
             );
         }
-        Ok(Some(gather(&witness, &self.variables)))
+        Ok(Some(witness))
     }
 
     fn within_range(&self, part: &Component, values: &[f64]) -> bool {
@@ -526,7 +599,7 @@ impl<'a> Diagnosis<'a> {
                 overlay(&mut values, &probe.variables, &probe.end);
             }
         }
-        gather(&values, &self.variables)
+        values
     }
 
     fn parts_with(&self, constraints: &[ConstraintId]) -> Vec<Component> {
@@ -546,6 +619,10 @@ impl<'a> Diagnosis<'a> {
     }
 
     fn solves_with(&mut self, constraints: &[ConstraintId]) -> Result<bool, Stop> {
+        self.solves_from(constraints, Start::Closest)
+    }
+
+    fn solves_from(&mut self, constraints: &[ConstraintId], start: Start) -> Result<bool, Stop> {
         let parts = self.parts_with(constraints);
         let known_to_fail = parts.iter().any(|part| {
             self.probes
@@ -559,7 +636,7 @@ impl<'a> Diagnosis<'a> {
             if self.probes.contains_key(&part.equations) {
                 continue;
             }
-            let probe = self.probe(&part)?;
+            let probe = self.probe(&part, start)?;
             let holds = probe.holds;
             self.probes.insert(part.equations, probe);
             if !holds {
@@ -569,8 +646,11 @@ impl<'a> Diagnosis<'a> {
         Ok(true)
     }
 
-    fn probe(&mut self, part: &Component) -> Result<Probe, Stop> {
-        let (mut values, from_drawn) = self.start_for(part);
+    fn probe(&mut self, part: &Component, start: Start) -> Result<Probe, Stop> {
+        let (mut values, from_drawn) = match start {
+            Start::Closest => self.start_for(part),
+            Start::Drawn => (self.solver.system.values.clone(), true),
+        };
         let variables = part.variables.clone();
         Ok(match self.budgeted(part, &mut values)? {
             Descent::Solved => {
