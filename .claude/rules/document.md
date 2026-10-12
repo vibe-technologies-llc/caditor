@@ -126,7 +126,11 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 
 - `Document::paste_features` plans one transaction inserting copies at the rollback bar in tree
   order, each under a fresh id (`add_copied_feature`), named "<name> copy", keeping hidden,
-  suppressed and appearance; its group is the one at the bar.
+  suppressed and appearance.
+- A copy keeps its original's folder name, in this model or another, so a copied folder pastes as
+  a folder and copies pasted right below the folder they came from join it. When the bar stands
+  inside a folder (`group_around`) every copy joins that folder instead, since folders are runs
+  and a copy named otherwise would split it. Features copied from no folder take none.
 - `FeatureKind::rename_features` rewrites every plain feature id a kind holds, those inside axis,
   plane and point references, measured items, mate targets and datums included. Inputs inside the
   copy are renamed through placeholders above `PLACEHOLDER_BASE`; one still named as a plain id
@@ -135,10 +139,12 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   or a body a corner (`VertexName`) is picked on, is a pick of copied geometry (`copied_picks` counts
   such features). `paste_features` leaves the feature out as `CopiedGeometry`.
   `paste_features_finding_picks` (`paste_picks.rs`; `PickSearch` carries the evaluator, a
-  `CancelToken` and progress, and the app runs it off the UI thread) finds each pick again on the
+  `CancelToken`, progress and whether threads are shown cosmetic, as the model's recompute shows
+  them; the app runs it on a copy of the recompute worker's cache) finds each pick again on the
   copies instead, feature by feature in tree order:
-  - It recomputes the document with the copies planned so far (one `Recompute` for the whole
-    paste, so each run adds only the new copies) and reads each picked body as it stands there.
+  - It recomputes the document with the copies planned so far on the `Recompute` it is given (the
+    worker's cache, so only the copies and what follows them are evaluated, and each later run adds
+    only the new copies) and reads each picked body as it stands there.
   - The original's side is the same evaluation when pasting into the same model with every copied
     feature unchanged and before the bar, else a document rebuilt from the copies alone under their
     own ids, parameters as literals (`rebuilt`; a copy using a feature outside it gives none,

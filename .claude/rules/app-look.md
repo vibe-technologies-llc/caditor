@@ -467,14 +467,17 @@ paths:
   model) and how many values became numbers; foreign or damaged text, or sketch geometry, is
   refused in words, and Paste features inside a sketch says to finish it.
 - When a copied feature picks faces, edges or corners of another copied one (`copied_picks`), the
-  paste goes to `Action::Paste` and `Model` runs it on a `paste` thread (`pasting.rs`, `Pastes`,
-  like constraint trials) through `Document::paste_features_finding_picks` on a copy of the
-  document. The status bar's activity shows a spinner, "Pasting N features: finding picked faces
-  and edges, i of n…" and Cancel (`Command::CancelPaste`, palette too; "Stopped pasting. Nothing
-  was added."). Paste features is refused while one runs. A result for an older revision is
-  planned again on the current one; a finished paste is applied as one change with its notice, and
-  the tree chooses and reveals the copies through `Model::pasted` (`PanelState::paste_shown`). A
-  panic in the thread pastes nothing and says so. A model switch cancels it.
+  paste goes to `Action::Paste` and `Model` runs `Document::paste_features_finding_picks` on a
+  copy of the document (`pasting.rs`, `Pastes`, `PasteTarget`) as a task on the recompute worker's
+  cache (`Recomputer::submit_on_cache`, `document-recompute.md`), so only the copies are computed,
+  with the threads shown as cosmetic when the model is; without a worker it runs on a `paste`
+  thread from an empty cache. The status bar's activity shows a spinner, "Pasting N features:
+  finding picked faces and edges, i of n…" and Cancel (`Command::CancelPaste`, palette too;
+  "Stopped pasting. Nothing was added."). Paste features is refused while one runs. A result for
+  an older revision, or a search a newer model submission stopped (`Outcome::Interrupted`), is
+  planned again on the current model; a finished paste is applied as one change with its notice,
+  and the tree chooses and reveals the copies through `Model::pasted` (`PanelState::paste_shown`).
+  A panic in the search pastes nothing and says so. A model switch cancels it.
 - Principal group rows: hover highlights in the view, a click or tab selects in the view (clearing
   the tree's feature selection), and a row reads as selected while its pickable is.
 - The rollback bar is a row of its own (`feature_tree::rollback_bar`, named "Rollback bar"), at the

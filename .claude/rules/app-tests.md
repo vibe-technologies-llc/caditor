@@ -43,7 +43,7 @@ paths:
   so its result is in the document by the next check. `Model::hold_sketch_results` holds back a
   trial's verdict and the drag worker's solutions (`ui_tests/stale_sketch_results.rs`);
   `Model::hold_evaluations` holds back recompute evaluations (release them before `settle`).
-- A paste finding its picks runs on its own thread: `Model::finish_pasting` waits for it and
+- A paste finding its picks runs on the recompute worker: `Model::finish_pasting` waits for it and
   applies it, `Model::hold_pastes` holds its result back so a test can see it running or cancel it
   (`ui_tests/paste_picks.rs`).
 - `Model::stop_storage_worker` stops the model's storage worker on command (`Storage::stop`,

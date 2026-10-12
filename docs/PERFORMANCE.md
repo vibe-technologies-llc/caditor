@@ -79,10 +79,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   level for bodies a few pixels across. Body batches packed into shared buffers with one style
   table (a body one draw, neighbours one draw), placements at dynamic offsets of one uniform
   buffer, and a coarser mesh without a silhouette for bodies small on screen would cut both.
-- [medium · medium] Pasting features that pick each other's faces recomputes the whole model on
-  its own thread from an empty cache (`paste_picks.rs`, a fresh `Recompute`), so on a model that
-  takes seconds to recompute the paste waits as long before it lands (not yet measured). Running it
-  on the recompute worker against a copy of its cache, as drafts do, would compute only the copies.
 - [low · hard] Snapping projects every point and curve of the sketch on every hover frame
   (`snap.rs`), a cost linear in the sketch that is most of the frame for tens of thousands of lines,
   mostly walking the entities, and a line or slot end walks every line again to find the nearest for

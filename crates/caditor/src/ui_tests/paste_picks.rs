@@ -132,3 +132,50 @@ fn a_paste_still_finding_its_picks_can_be_cancelled_and_adds_nothing() {
     assert!(!harness.model.is_pasting());
     assert_eq!(harness.document().features().len(), before);
 }
+
+#[test]
+fn features_pasted_from_a_folder_land_in_it_as_one_undoable_change() {
+    let mut harness = Harness::new();
+    let copied = filleted_plate(&mut harness);
+    harness.workspace.panels.choose_all(&copied);
+    harness.frame();
+    run_from_palette(&mut harness, "Group features");
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.settle();
+    let folder = harness.document().group_of(copied[0]).map(str::to_owned);
+    let before = harness.document().features().len();
+    let text = copy_features(&mut harness, &copied);
+
+    harness.events.push(Event::Paste(text));
+    harness.frame();
+    harness.model.finish_pasting();
+    harness.settle();
+    harness.frame();
+
+    let document = harness.document();
+    let pasted: Vec<FeatureId> = document
+        .features()
+        .skip(before)
+        .map(|feature| feature.id())
+        .collect();
+    let run = document.group_run(copied[0]);
+    let groups: Vec<Option<String>> = pasted
+        .iter()
+        .map(|id| document.group_of(*id).map(str::to_owned))
+        .collect();
+    let label = harness.model.undo_label().map(str::to_owned);
+    harness.key(Key::Z, Modifiers::COMMAND);
+    harness.settle();
+    let undone = harness.document().group_run(copied[0]);
+
+    assert_eq!(folder.as_deref(), Some("Group 1"));
+    assert_eq!(pasted.len(), 3);
+    assert_eq!(groups, vec![folder.clone(); 3]);
+    assert_eq!(
+        run.len(),
+        6,
+        "the copies join the folder they were copied from"
+    );
+    assert_eq!(label.as_deref(), Some("Paste 3 features"));
+    assert_eq!(undone, copied);
+}

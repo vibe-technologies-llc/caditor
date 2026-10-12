@@ -53,6 +53,13 @@ pub struct Update {
 #[error("the recompute worker stopped")]
 pub struct WorkerStopped;
 
+pub type CacheTask = Box<dyn FnOnce(&mut Recompute, &dyn Evaluator, &CancelToken) + Send>;
+
+struct QueuedTask {
+    task: CacheTask,
+    models: u64,
+}
+
 struct Job {
     sequence: u64,
     cancels: u64,
@@ -75,11 +82,13 @@ enum Message {
     },
     MeshQuality(MeshQuality),
     Forget,
+    Task(QueuedTask),
 }
 
 struct Shared {
     latest: AtomicU64,
     cancels: AtomicU64,
+    models: AtomicU64,
     progress: Mutex<Option<Progress>>,
     busy: AtomicBool,
     stop_asked: Mutex<Option<Instant>>,
@@ -90,6 +99,7 @@ impl Default for Shared {
         Self {
             latest: AtomicU64::new(NO_JOB),
             cancels: AtomicU64::new(0),
+            models: AtomicU64::new(0),
             progress: Mutex::new(None),
             busy: AtomicBool::new(false),
             stop_asked: Mutex::new(None),
@@ -218,6 +228,14 @@ impl Recomputer {
         self.draft.take()
     }
 
+    pub fn submit_on_cache(&self, task: CacheTask) -> Result<(), WorkerStopped> {
+        let models = self.handle.shared.models.load(Ordering::SeqCst);
+        self.handle
+            .jobs
+            .send(Message::Task(QueuedTask { task, models }))
+            .map_err(|_| WorkerStopped)
+    }
+
     fn send_job(
         &mut self,
         document: Document,
@@ -227,6 +245,9 @@ impl Recomputer {
     ) -> Result<(), WorkerStopped> {
         let sequence = self.next_sequence;
         self.next_sequence += 1;
+        if !draft {
+            self.handle.shared.models.fetch_add(1, Ordering::SeqCst);
+        }
         self.handle.shared.latest.store(sequence, Ordering::SeqCst);
         self.handle
             .jobs
@@ -314,6 +335,7 @@ impl Recomputer {
         })?;
         let stuck = std::mem::replace(&mut self.handle, fresh);
         stuck.shared.cancels.fetch_add(1, Ordering::SeqCst);
+        stuck.shared.models.fetch_add(1, Ordering::SeqCst);
         stuck.shared.latest.store(NO_JOB, Ordering::SeqCst);
         if let Some(quality) = self.quality {
             self.handle
@@ -433,6 +455,7 @@ fn work(
     let mut recompute = Recompute::default();
     let mut reported = Evaluation::default();
     let mut meshes: Vec<PendingMesh> = Vec::new();
+    let mut tasks: Vec<QueuedTask> = Vec::new();
     loop {
         shared.busy.store(false, Ordering::SeqCst);
         let Ok(first) = queue.recv() else {
@@ -457,6 +480,7 @@ fn work(
                     reported = Evaluation::default();
                     meshes.clear();
                 }
+                Message::Task(task) => tasks.push(task),
             }
         }
         if let Some(job) = latest.take_if(|job| job.draft) {
@@ -533,7 +557,25 @@ fn work(
             }
             wake();
         }
+        for queued in tasks.drain(..) {
+            run_task(&recompute, queued, evaluator, shared);
+        }
         mesh_pending(&mut meshes, &recompute.mesh_quality(), shared, wake);
+    }
+}
+
+fn run_task(
+    recompute: &Recompute,
+    queued: QueuedTask,
+    evaluator: &dyn Evaluator,
+    shared: &Arc<Shared>,
+) {
+    let QueuedTask { task, models } = queued;
+    let watched = Arc::clone(shared);
+    let cancel = CancelToken::new(move || watched.models.load(Ordering::SeqCst) != models);
+    let mut copy = recompute.draft_copy();
+    if panic::catch_unwind(AssertUnwindSafe(|| task(&mut copy, evaluator, &cancel))).is_err() {
+        log::error!("a task on a copy of the recompute cache panicked");
     }
 }
 
@@ -1111,6 +1153,75 @@ mod tests {
         assert_eq!(after_first, 2);
         assert_eq!(after_plain, after_first);
         assert_eq!(after_retry, after_plain + 2);
+    }
+
+    struct Tallied(Arc<AtomicUsize>);
+
+    impl Evaluator for Tallied {
+        fn evaluate(
+            &self,
+            feature: &Feature,
+            inputs: &Inputs<'_>,
+            cancel: &CancelToken,
+        ) -> Result<FeatureResult, Failure> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            ModelEvaluator.evaluate(feature, inputs, cancel)
+        }
+    }
+
+    #[test]
+    fn a_task_on_the_cache_reuses_the_models_results() {
+        let evaluated = Arc::new(AtomicUsize::new(0));
+        let mut worker = Recomputer::spawn(Tallied(Arc::clone(&evaluated)), || {}).unwrap();
+        let (document, _) = sample();
+        let (sender, received) = mpsc::channel();
+
+        worker.submit(document.clone(), 1).unwrap();
+        worker.wait();
+        let by_the_model = evaluated.load(Ordering::SeqCst);
+        worker
+            .submit_on_cache(Box::new(move |cache, evaluator, cancel| {
+                let evaluation = cache.run_without_display(&document, evaluator, cancel);
+                let computed = document.features().all(|feature| {
+                    evaluation
+                        .feature(feature.id())
+                        .is_some_and(|status| status.state == FeatureState::UpToDate)
+                });
+                sender.send((computed, cancel.is_cancelled())).unwrap();
+            }))
+            .unwrap();
+        let (computed, cancelled) = received.recv_timeout(Duration::from_secs(10)).unwrap();
+
+        assert!(by_the_model > 0);
+        assert_eq!(evaluated.load(Ordering::SeqCst), by_the_model);
+        assert!(computed);
+        assert!(!cancelled);
+    }
+
+    #[test]
+    fn a_newer_model_submission_stops_a_task_on_the_cache() {
+        let mut worker = Recomputer::spawn(ModelEvaluator, || {}).unwrap();
+        let (document, _) = sample();
+        let (sender, received) = mpsc::channel();
+
+        worker
+            .submit_on_cache(Box::new(move |_, _, cancel| {
+                sender.send(false).unwrap();
+                let deadline = Instant::now() + Duration::from_secs(10);
+                while !cancel.is_cancelled() && Instant::now() < deadline {
+                    thread::yield_now();
+                }
+                sender.send(cancel.is_cancelled()).unwrap();
+            }))
+            .unwrap();
+        let started = received.recv_timeout(Duration::from_secs(10));
+        worker.submit(document, 1).unwrap();
+        let stopped = received.recv_timeout(Duration::from_secs(10));
+        let model = poll_until_update(&mut worker);
+
+        assert_eq!(started, Ok(false));
+        assert_eq!(stopped, Ok(true));
+        assert_eq!(model.revision, 1);
     }
 
     fn poll_until_draft(worker: &mut Recomputer) -> Update {

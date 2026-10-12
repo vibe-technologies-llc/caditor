@@ -186,7 +186,7 @@ pub use crate::{
         HOME_VIEW_NAME, MAX_SAVED_VIEWS, MAX_VIEW_NAME_CHARS, NamedView, SavedView, SavedViews,
         view_name,
     },
-    worker::{Outcome, Progress, Recomputer, Update, WorkerStopped},
+    worker::{CacheTask, Outcome, Progress, Recomputer, Update, WorkerStopped},
 };
 
 #[cfg(test)]

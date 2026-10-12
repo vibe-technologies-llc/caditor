@@ -164,6 +164,13 @@ paths:
   Only a finished, complete draft is kept (`Recomputer::take_draft`). A draft never pre-empts the
   model: submitted while a model submission is unanswered it waits for that report, and any model
   submission drops a waiting draft and stops a running one.
+- A task on the cache (`Recomputer::submit_on_cache`, a `CacheTask`: the app's search for the
+  picks of pasted features) runs on the same worker after the queued draft and model submission,
+  on a draft copy of the cache, so it evaluates only what the model's results do not cover. Its
+  `CancelToken` turns once a later model submission is sent (`Shared::models`, which drafts do not
+  count) or the worker is replaced, so a task never delays the model's recompute; the caller plans
+  again. A panic in a task is caught and logged and leaves the cache alone. A task still queued on
+  a replaced worker runs only when that worker comes free, cancelled.
 - `Progress` carries the feature running and when it began; the status bar shows it and the log line
   of a replaced worker names it.
 - A worker that does not stop is replaced: once a `cancel` or newer submission has gone unanswered

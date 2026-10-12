@@ -29,6 +29,17 @@ pub struct PickSearch<'a> {
     pub evaluator: &'a dyn Evaluator,
     pub cancel: &'a CancelToken,
     pub progress: &'a dyn Fn(usize, usize),
+    pub threads_cosmetic: bool,
+}
+
+impl PickSearch<'_> {
+    fn as_shown(&self, document: Document) -> Document {
+        if self.threads_cosmetic && document.has_modelled_threads() {
+            document.threads_as_cosmetic()
+        } else {
+            document
+        }
+    }
 }
 
 pub fn copied_picks(features: &[Feature]) -> usize {
@@ -81,13 +92,14 @@ impl Document {
         parameters: &CarriedParameters,
         origin: PasteOrigin,
         search: &PickSearch<'_>,
+        cache: &mut Recompute,
     ) -> Result<FeaturePaste, PasteError> {
         let mut finder = Finder {
             search,
             features,
             parameters,
             origin,
-            target: Recompute::default(),
+            target: cache,
             source: None,
             found: 0,
             total: copied_picks(features),
@@ -110,7 +122,7 @@ struct Finder<'a> {
     features: &'a [Feature],
     parameters: &'a CarriedParameters,
     origin: PasteOrigin,
-    target: Recompute,
+    target: &'a mut Recompute,
     source: Option<Source>,
     found: usize,
     total: usize,
@@ -133,8 +145,8 @@ impl Finder<'_> {
             } else {
                 match rebuilt(self.features, self.parameters) {
                     Some(document) => {
-                        let evaluation = Recompute::default().run_without_display(
-                            &document,
+                        let evaluation = self.target.draft_copy().run_without_display(
+                            &self.search.as_shown(document),
                             self.search.evaluator,
                             self.search.cancel,
                         );
@@ -167,9 +179,10 @@ impl PickFinder for Finder<'_> {
                 name: copying.first_deep_name(),
             }));
         }
+        let shown = self.search.as_shown(scratch);
         let copies =
             self.target
-                .run_without_display(&scratch, self.search.evaluator, self.search.cancel);
+                .run_without_display(&shown, self.search.evaluator, self.search.cancel);
         self.cancelled()?;
         let originals = match self.source(target)? {
             Source::Target => &copies,

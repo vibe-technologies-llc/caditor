@@ -29,7 +29,10 @@ use crate::{
     editing::EditingCommand,
     files::FileCommand,
     last_values::LastValues,
-    pasting::{self, PasteFinished, PasteProgress, PasteRequest, PastedFeatures, Pastes, Planned},
+    pasting::{
+        self, PasteFinished, PasteProgress, PasteRequest, PasteTarget, PastedFeatures, Pastes,
+        Planned,
+    },
     preferences::PreferencesCommand,
     scene,
     selection::SelectionFilter,
@@ -1241,11 +1244,13 @@ impl Model {
 
     fn start_paste(&mut self, request: PasteRequest) {
         let wake = (self.services.make_waker)();
-        let revision = self.revision();
-        if let Err(refusal) = self
-            .pastes
-            .start(request, self.editor.document(), revision, wake)
-        {
+        let target = PasteTarget {
+            document: self.editor.document(),
+            revision: self.revision(),
+            threads_cosmetic: self.threads_cosmetic,
+            worker: self.recomputer.as_ref(),
+        };
+        if let Err(refusal) = self.pastes.start(request, target, wake) {
             self.set_notice(Notice::warning(refusal));
         }
     }
