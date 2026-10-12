@@ -67,11 +67,13 @@ use crate::{
     version_preview, view_cube, widgets, window_frame,
 };
 
+mod blend_feet;
 mod body_finishes;
 mod cancel_and_parameters;
 mod completion;
 mod configurations;
 mod coordinate_systems;
+mod curve_pattern_handles;
 mod custom_colours;
 mod dimension_labels;
 mod face_tools;
@@ -81,6 +83,7 @@ mod feature_panels;
 mod feature_tree_choice;
 mod files_and_history;
 mod frame_costs;
+mod hole_feet;
 mod import_costs;
 mod import_jobs;
 mod large_interface;
@@ -92,6 +95,7 @@ mod panel_fields;
 mod parameter_files;
 mod pattern_grid;
 mod pick_list;
+mod primitive_feet;
 mod primitives;
 mod remembered_starts;
 mod repeating_and_growing;
@@ -128,6 +132,7 @@ mod svg_import;
 mod templates;
 mod themes;
 mod typed_values;
+mod up_to_next_handles;
 mod upload_indicator;
 mod user_guide;
 mod view_menu;

@@ -32,7 +32,8 @@ In the open panel, click regions in the view to add or leave them out, and
 - While it is open, drag the arrow at the end in the view to change its distance. A named
   distance keeps its name; one that follows other parameters does not drag (see
   [parameters](parameters)). An arrow at the edge of the end drags the **Taper**, one standing on
-  an Up to face end drags how far it goes past the face, and a thin wall has an arrow for its
+  an Up to face or Up to next end drags how far it goes past the face (Up to next only when the
+  first face it meets is flat and square to the sketch), and a thin wall has an arrow for its
   **Thickness**.
 - A dragged arrow stops on a corner, an edge's middle or a round edge's centre under the pointer,
   and pulls to a flat face it passes, the readout saying what it stopped at; hold Ctrl to drag

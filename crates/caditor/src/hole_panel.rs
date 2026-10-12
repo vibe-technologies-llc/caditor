@@ -41,6 +41,12 @@ pub const THREAD_CLASS: &str = "Thread class";
 pub const THREAD_HAND: &str = "Thread hand";
 pub const THREAD_LENGTH: &str = "Thread length";
 pub const THREAD_DEPTH: &str = "Thread depth";
+pub const COUNTERBORE_DIAMETER: &str = "Counterbore diameter";
+pub const COUNTERBORE_DEPTH: &str = "Counterbore depth";
+pub const COUNTERSINK_DIAMETER: &str = "Countersink diameter";
+pub const COUNTERSINK_ANGLE: &str = "Countersink angle";
+pub const SLOT_LENGTH: &str = "Slot length";
+pub const SLOT_ANGLE: &str = "Slot angle";
 pub const WHOLE_BORE: &str = "Whole bore";
 pub const TO_A_DEPTH: &str = "To a depth";
 pub const BLIND: &str = "Blind";
@@ -397,7 +403,7 @@ impl Panel<'_> {
             self.length_row(
                 ui,
                 Field {
-                    caption: "Slot length",
+                    caption: SLOT_LENGTH,
                     key: "slot-length",
                     dimension: Dimension::LENGTH,
                     rule: Rule::AboveZero,
@@ -414,7 +420,7 @@ impl Panel<'_> {
             self.length_row(
                 ui,
                 Field {
-                    caption: "Slot angle",
+                    caption: SLOT_ANGLE,
                     key: "slot-angle",
                     dimension: Dimension::ANGLE,
                     rule: Rule::Any,
@@ -1090,7 +1096,7 @@ impl Panel<'_> {
                 self.length_row(
                     ui,
                     Field {
-                        caption: "Counterbore diameter",
+                        caption: COUNTERBORE_DIAMETER,
                         key: "counterbore-diameter",
                         dimension: Dimension::LENGTH,
                         rule: Rule::AboveZero,
@@ -1109,7 +1115,7 @@ impl Panel<'_> {
                 self.length_row(
                     ui,
                     Field {
-                        caption: "Counterbore depth",
+                        caption: COUNTERBORE_DEPTH,
                         key: "counterbore-depth",
                         dimension: Dimension::LENGTH,
                         rule: Rule::AboveZero,
@@ -1129,7 +1135,7 @@ impl Panel<'_> {
                 self.length_row(
                     ui,
                     Field {
-                        caption: "Countersink diameter",
+                        caption: COUNTERSINK_DIAMETER,
                         key: "countersink-diameter",
                         dimension: Dimension::LENGTH,
                         rule: Rule::AboveZero,
@@ -1148,7 +1154,7 @@ impl Panel<'_> {
                 self.length_row(
                     ui,
                     Field {
-                        caption: "Countersink angle",
+                        caption: COUNTERSINK_ANGLE,
                         key: "countersink-angle",
                         dimension: Dimension::ANGLE,
                         rule: Rule::ConeAngle,

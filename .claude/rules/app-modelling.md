@@ -510,21 +510,52 @@ pattern, Coordinate system, Scale model and Configurations. Panel rows, keys and
 - A value arrow (`value_handles.rs`, `Handle::Value`, `value_gauges::Measured`) drags one value of an
   open feature as a reach arrow does (steps, Ctrl free, readout, one "Edit <feature>" change keeping a
   named value and refusing a driven one through `manipulator::Held`, each `Measured` naming its field's
-  caption). A `Gauge` holds where it stands: a `Track` (a line from a base along a direction, or a
-  `turn_handles::Swing` about an axis) and a `Mapping` from value to distance or angle (`Linear` with
-  scale and offset, so a diameter's rim moves half as fast; `Tangent` for a taper).
+  caption, shared with its panel through a constant). A `Gauge` holds where it stands: a `Track` (a
+  line from a base along a direction, or a `turn_handles::Swing` about an axis) and a `Mapping` from
+  value to distance or angle (`Linear` with scale and offset, so a diameter's rim moves half as fast;
+  `Tangent` for a taper; `Reciprocal` for what a turn divides, a prism's sides and a spread curve
+  pattern's count; `Cotangent` for a countersink's angle read off how deep its cone ends).
   `value_gauges::Builder` makes them from the shown kind (the draft's while previewed) and the body as
-  the feature sees it (`handle_snap::before`), for: a blind hole's Depth (bottom of its first hole) and
-  Diameter (top, along the sketch diagonal between the place arrows; not when sized by circles;
-  dragging makes the size Custom); an offset face's Distance; a datum plane's Offset and Angle (an
-  arrow along the turn at an arm of `ARROW_POINTS` from the axis); a fillet's or chamfer's size (along
-  the bisector of its faces into the material, foot on the rounded or cut face: `1/cos(a/2) - 1` or
-  `sin(a/2)` of the size for faces turned by `a`); a shell's and a thin wall's Thickness; an extrusion's
-  Taper (shown with no taper too, zero clearing it) and an end Up to face's Past the face; a
-  primitive's sizes (`primitive_arrows`, the mapping worked out from the footprint and anchor); a
-  linear pattern's Spacing (or Total length) per direction, at its last copy and only with two copies
-  or more (a Count arrow on the same line read as a duplicate, so the count is typed), and a circular
-  pattern's Total angle and Count (halfway round to the original for a full turn) as turn arrows.
+  the feature sees it (`handle_snap::before`), at most `MOST_GAUGES` per feature, for:
+  - A blind hole's Depth (bottom of its first hole) and Diameter (along the sketch diagonal between
+    the place arrows, at the level the bore starts under a counterbore, countersink or steps, across
+    the side of a slot; not when sized by circles; dragging makes the size Custom). A counterbore's
+    Diameter (its mouth) and Depth (down its wall, opposite the bore's arrow); a countersink's Diameter
+    (its mouth) and Angle (an arrow down the bore wall at the foot of the cone, so dragging the foot
+    deeper narrows the cone); a slot's Length (its tip) and Angle (a turn arrow at the other tip); a
+    tapped hole's Thread depth (down the bore wall from where the bore starts, only with a thread
+    length); and an up-to hole's Past the face, standing where its axis meets the face (an up-to-next
+    hole's from the plane the recompute recorded, `ReachedEnd`). All of these but Depth and Past the
+    face are left out for a hole sized by circles and the countersink's for a slot (which cannot be
+    countersunk); dragging a counterbore or countersink value makes the size Custom as the diameter
+    does, the thread depth and slot values keep it.
+  - An offset face's Distance; a datum plane's Offset and Angle (an arrow along the turn at an arm of
+    `ARROW_POINTS` from the axis).
+  - A fillet's or chamfer's size (along the bisector of its faces into the material, foot on the
+    rounded or cut face: `1/cos(a/2) - 1` or `sin(a/2)` of the size for faces turned by `a`, from the
+    faces' normals at the edge's middle, which holds for convex and concave edges alike). A chamfer
+    of two distances (First and Second distance) or of a distance and an angle stands each foot where
+    the cut meets the face: the arrow of the first distance along the face the kernel measures it on
+    (`caditor_kernel::measured_face`, so Measure from the other face moves it), the second distance's
+    along the other face, and the angle's as a turn arrow about the first foot standing where the cut
+    meets the other face (`Corner::cut_length`, the swing's radius being that point's distance from
+    the first foot, or an arm of `ARROW_POINTS` when the cut misses). Distances run along the faces' tangent lines at the
+    edge's middle, which lie on a plane face and only touch a curved one.
+  - A shell's and a thin wall's Thickness; an extrusion's Taper (shown with no taper too, zero clearing
+    it) and an end Up to face's or Up to next's Past the face (an Up to next end stands on the first
+    face's plane the recompute recorded, `ReachedEnd::level_over`; none when that face is slanted or
+    curved).
+  - A primitive's sizes (`primitive_arrows`, the mapping worked out from the footprint and anchor),
+    including a wedge's Top length at the top of its slope and a prism's number of sides as a turn
+    arrow on its second top corner (`PrismSides`, the corner's angle from the flat edge being half
+    the angle one side subtends).
+  - A linear pattern's Spacing (or Total length) per direction, at its last copy and only with two
+    copies or more (a Count arrow on the same line read as a duplicate, so the count is typed); a
+    circular pattern's Total angle and Count (halfway round to the original for a full turn) as turn
+    arrows; a curve pattern's Spacing at its last copy when spaced by distance, and its Count at the
+    second copy when spread evenly (the arrow stands at the copy `PatternPath::copy_at` places, with
+    its base set so the foot is exact now and slides along the curve's tangent while dragged). A
+    point pattern has no count or spacing: its copies are its sketch's points.
   Counts always step by one.
 - `Manipulator` holds them beside the primary handles as `Reach`, `Revolve` and `Place`'s second part,
   or alone as `Manipulator::Value`, hit before the primary handles. Since value arrows stand at model
