@@ -198,10 +198,43 @@ fn a_refused_value_keeps_the_field_open_and_changes_nothing() {
     harness.double_click(DISTANCE_LABEL);
     harness.frame();
     harness.key(Key::A, Modifiers::COMMAND);
-    enter(&mut harness, "-4");
+    enter(&mut harness, "0");
     assert_eq!(distance_of(&harness, extrude), "10 mm");
-    assert!(harness.shows_containing("Enter a value above zero"));
+    assert!(harness.shows_containing("Enter a value other than zero"));
     assert_eq!(harness.model.undo_label().map(str::to_owned), undo);
+}
+
+#[test]
+fn a_negative_distance_typed_on_the_model_reverses_the_extrusion_in_one_step() {
+    let mut harness = Harness::new();
+    let extrude = plate_with_distance_shown(&mut harness);
+
+    harness.double_click(DISTANCE_LABEL);
+    harness.frame();
+    harness.key(Key::A, Modifiers::COMMAND);
+    enter(&mut harness, "-4");
+    let SolidFeature::Extrude(flipped) = harness.solid(extrude) else {
+        panic!("expected an extrusion");
+    };
+
+    assert_eq!(distance_of(&harness, extrude), "4");
+    assert!(matches!(
+        flipped.extent,
+        caditor_document::ExtrudeExtent::OneSide { reversed: true, .. }
+    ));
+    assert_eq!(harness.model.undo_label(), Some("Edit Extrude 1"));
+    assert!(
+        harness
+            .model
+            .notice()
+            .is_some_and(|notice| notice.text.starts_with("Extrude 1: reversed;"))
+    );
+
+    harness.key(Key::Z, Modifiers::COMMAND);
+    harness.frame();
+    harness.settle();
+
+    assert_eq!(distance_of(&harness, extrude), "10 mm");
 }
 
 fn open_feature(harness: &Harness) -> FeatureId {

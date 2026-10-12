@@ -413,6 +413,111 @@ fn hovering_an_arrow_and_typing_a_value_sets_it_and_previews_it_first() {
     assert_eq!(value_of(&harness, distance), 25.0);
 }
 
+fn open_new_extrusion(harness: &mut Harness) -> FeatureId {
+    let mut sketch = Sketch::new(Plane::XY);
+    rectangle(&mut sketch, Point2::new(0.0, 0.0), Point2::new(40.0, 40.0));
+    harness.add_sketch(sketch);
+    harness.select([]);
+    harness.click_tool("Extrude");
+    harness.settle();
+    let extrude = open_feature(harness);
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    extrude
+}
+
+fn one_sided(harness: &Harness, extrude: FeatureId) -> (bool, f64) {
+    let FeatureKind::Solid(SolidFeature::Extrude(found)) = kind_of(harness, extrude) else {
+        panic!("the extrusion stays an extrusion");
+    };
+    let ExtrudeExtent::OneSide {
+        end: ExtrudeEnd::Distance(distance),
+        reversed,
+    } = &found.extent
+    else {
+        panic!("the extrusion keeps one distance");
+    };
+    (*reversed, value_of(harness, distance))
+}
+
+#[test]
+fn a_negative_value_typed_over_an_arrow_reverses_the_extrusion_and_is_previewed_first() {
+    let mut harness = Harness::new();
+    let extrude = open_new_extrusion(&mut harness);
+    let at = grip(&mut harness, Handle::Reach(Reach::Only), 0.0);
+    harness.events.push(Event::PointerMoved(at));
+    harness.frame();
+    harness.frame();
+
+    harness.type_text("-5");
+    let Some(FeatureKind::Solid(SolidFeature::Extrude(drafted))) =
+        harness.model.draft_kind(extrude).cloned()
+    else {
+        panic!("typing previews the extrusion");
+    };
+
+    assert!(matches!(
+        drafted.extent,
+        ExtrudeExtent::OneSide { reversed: true, .. }
+    ));
+    assert_eq!(one_sided(&harness, extrude), (false, 10.0));
+
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.frame();
+    harness.settle();
+
+    assert_eq!(one_sided(&harness, extrude), (true, 5.0));
+    assert_eq!(harness.model.undo_label(), Some("Edit Extrude 1"));
+    assert!(
+        harness
+            .model
+            .notice()
+            .is_some_and(|notice| notice.text.starts_with("Extrude 1: reversed;"))
+    );
+
+    harness.perform(Action::Undo);
+    harness.settle();
+
+    assert_eq!(one_sided(&harness, extrude), (false, 10.0));
+}
+
+#[test]
+fn dragging_an_arrow_back_through_the_start_reverses_the_extrusion() {
+    let mut harness = Harness::new();
+    let extrude = open_new_extrusion(&mut harness);
+    let only = Handle::Reach(Reach::Only);
+    let from = grip(&mut harness, only, 0.0);
+    let to = grip(&mut harness, only, -30.0);
+    harness.events.push(Event::PointerMoved(from));
+    harness.frame();
+
+    hold_at(&mut harness, from, to);
+    let Some(FeatureKind::Solid(SolidFeature::Extrude(drafted))) =
+        harness.model.draft_kind(extrude).cloned()
+    else {
+        panic!("dragging previews the extrusion");
+    };
+
+    assert!(matches!(
+        drafted.extent,
+        ExtrudeExtent::OneSide { reversed: true, .. }
+    ));
+    assert!(harness.shows_containing("reversed"));
+
+    release_at(&mut harness, to);
+    let (reversed, distance) = one_sided(&harness, extrude);
+
+    assert!(reversed);
+    assert!((distance - 20.0).abs() <= 6.0, "{distance}");
+    assert_eq!(harness.model.undo_label(), Some("Edit Extrude 1"));
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+
+    harness.perform(Action::Undo);
+    harness.settle();
+
+    assert_eq!(one_sided(&harness, extrude), (false, 10.0));
+}
+
 #[test]
 fn a_value_typed_over_a_handle_is_refused_where_its_panel_field_would_refuse_it() {
     let mut harness = Harness::new();
@@ -431,7 +536,7 @@ fn a_value_typed_over_a_handle_is_refused_where_its_panel_field_would_refuse_it(
     harness.frame();
     harness.frame();
 
-    harness.type_text("-10");
+    harness.type_text("0");
     harness.key(Key::Enter, Modifiers::NONE);
     harness.frame();
     harness.settle();
@@ -446,7 +551,7 @@ fn a_value_typed_over_a_handle_is_refused_where_its_panel_field_would_refuse_it(
         panic!("the extrusion keeps one distance");
     };
 
-    assert!(harness.shows(crate::feature_fields::ABOVE_ZERO_OR_REVERSE));
+    assert!(harness.shows(crate::feature_fields::NOT_ZERO_OR_REVERSE));
     assert_eq!(value_of(&harness, distance), 10.0);
     assert_eq!(harness.model.undo_label().map(str::to_owned), before);
     assert_eq!(harness.model.evaluation().failed_count(), 0);

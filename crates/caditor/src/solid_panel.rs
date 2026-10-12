@@ -23,7 +23,7 @@ use crate::{
     model::{Action, Model},
     move_manipulator::Reach,
     reference_picking::{self, Picking, Side, Slot},
-    scene,
+    reversing, scene,
     selection::{self, Pickable, Selection},
     sketch_placement::{self, FaceChoice},
     solid_tools::{self, DEFAULT_BACKWARD_ANGLE, DEFAULT_PARTIAL_ANGLE},
@@ -242,7 +242,12 @@ impl Panel<'_> {
             feature_fields::expression_row_drafting(ui, model, caption, quantity, |parsed| {
                 change(model, id, rebuild(parsed))
             });
+        let announced = drafting
+            .committed
+            .as_ref()
+            .and_then(|committed| reversing::announcement(model.document(), committed));
         self.actions.extend(drafting.into_actions(id));
+        self.actions.extend(announced.map(Action::Inform));
     }
 
     fn sketch_row(&mut self, ui: &mut Ui) {
@@ -429,13 +434,20 @@ impl Panel<'_> {
         };
         match end {
             ExtrudeEnd::Distance(distance) => {
+                let model = self.model;
                 self.expression(
                     ui,
                     rows.distance,
                     rows.salt,
                     distance,
                     (Dimension::LENGTH, rows.rule),
-                    |distance| with_extent_of(extrude, rebuild(ExtrudeEnd::Distance(distance))),
+                    |distance| {
+                        let (distance, negative) =
+                            reversing::unsigned(model.parameters(), distance);
+                        let solid =
+                            with_extent_of(extrude, rebuild(ExtrudeEnd::Distance(distance)));
+                        reversing::flipping_solid(solid, negative)
+                    },
                 );
                 if self.reaches_far_past_the_body(extrude, distance) {
                     self.through_all_offer(ui, extrude, rebuild);
@@ -583,7 +595,7 @@ impl Panel<'_> {
                     offset: END_OFFSET,
                     salt: "distance",
                     side: Side::One,
-                    rule: Rule::AboveZeroOrReverse,
+                    rule: Rule::FlipWhenNegative,
                 };
                 self.end_rows(ui, &rows, extrude, end, &|end| ExtrudeExtent::OneSide {
                     end,

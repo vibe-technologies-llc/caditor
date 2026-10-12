@@ -287,7 +287,8 @@ pattern, Coordinate system, Scale model and Configurations. Panel rows, keys and
   It drags like a move arrow (`manipulator.rs` holds both behind `Manipulator` and `Manipulating`): in
   steps, snapping to geometry (Ctrl drags freely; Value handles below), previewed with the distance
   beside the pointer, committed on release as one edit setting a measured distance of at least one
-  step. Arrows follow a typed distance's preview (`Model::draft_kind`, `Model::shown_parameters`).
+  step, dragging back through the start flips it (below). Arrows follow a typed distance's preview
+  (`Model::draft_kind`, `Model::shown_parameters`).
 - While a revolve turning by angles is open, each end set by an angle has an arrow (`turn_handles.rs`,
   `Handle::Revolve`, `TurnEnd`) at the middle of its sketch's bounds turned about the axis to that end:
   positive angles sweep toward the sketch normal, a reversed one-sided turn the other way, a symmetric
@@ -296,6 +297,25 @@ pattern, Coordinate system, Scale model and Configurations. Panel rows, keys and
   steps of `STEP_DEGREES` (Ctrl free) between one step and what the full turn leaves beside the other
   angle. A revolve starting off its sketch plane turns profile and axis shifted along the normal by the
   start, so its arrows stand and turn there (`start_offset`).
+- A negative one-sided extrusion distance flips the extrusion instead of being refused
+  (`Rule::FlipWhenNegative`, which refuses only zero; every other extrusion distance keeps
+  `Rule::AboveZero`, so symmetric and two-sided sides still say to enter a value above zero). The
+  field's value is stored as its magnitude (`reversing::unsigned`: a leading minus is dropped, `-5` to
+  `5`, `-depth` to `depth`, any other expression wrapped as `-(width - 30 mm)`, never baked to a
+  number, so parameters and units are kept) and the extrusion reversed (`reversing::flipped_extrude`):
+  an Add becomes a Remove of the same body and a Remove an Add, a New body or an Intersect only reverses.
+  It is one "Edit <feature>" change with an info notice naming what happened
+  (`reversing::announcement`, "<feature>: reversed and switched to Remove; a negative distance cuts the
+  other way"), and the typed preview shows the same before Enter since the draft is that transaction.
+  Three places commit a typed distance and all flip: the panel's Distance field
+  (`solid_panel::end_rows`), the value label on the model (`feature_values::change`) and a value typed
+  over the reach arrow (`reach_handles::typed`), the last also writing the magnitude into a named
+  distance's parameter. The flip happens once, when the value is typed; a parameter later turning the
+  distance negative does not flip again but fails the feature with the kernel's message to enter a
+  distance above zero or flip the direction. The reach arrow dragged back through its start flips the
+  same way (`ReachDrag::limited` keeps the sign of a one-sided drag, the readout adds "reversed and
+  switched to Remove"); the other ends stay at least one step. A revolve's angle has no such flip:
+  its rules (`Rule::Turn`) refuse a negative angle and Reverse direction turns it the other way.
 - A drag never drops a name a field holds (`manipulator::Held`, read from the field's caption as its
   `ParameterOwner`, captions shared with the panels: `solid_panel::DISTANCE` and others,
   `move_panel::distance_caption`, `turn_caption`, `ANGLE`). A plain number is replaced by the measured

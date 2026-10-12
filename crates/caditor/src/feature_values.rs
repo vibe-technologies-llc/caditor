@@ -13,7 +13,7 @@ use crate::{
     field,
     model::Model,
     move_manipulator::Reach,
-    solid_panel,
+    reversing, solid_panel,
     value_shapes::{self, Drawn},
 };
 
@@ -178,11 +178,9 @@ fn extrude_values(extrude: &Extrude) -> Vec<Found> {
         | ExtrudeEnd::UpToSurface { .. } => None,
     };
     match &extrude.extent {
-        ExtrudeExtent::OneSide { end: only, .. } => {
-            end(Reach::Only, only, Rule::AboveZeroOrReverse)
-                .into_iter()
-                .collect()
-        }
+        ExtrudeExtent::OneSide { end: only, .. } => end(Reach::Only, only, Rule::FlipWhenNegative)
+            .into_iter()
+            .collect(),
         ExtrudeExtent::Symmetric { distance } => vec![found(
             ValueSlot::Extrude(Reach::Symmetric),
             solid_panel::TOTAL_DISTANCE,
@@ -679,7 +677,12 @@ pub fn change(
 ) -> Result<Transaction, String> {
     let document = model.document();
     let owner = document.feature(feature).ok_or_else(|| GONE.to_owned())?;
+    let (value, negative) = match slot {
+        ValueSlot::Extrude(Reach::Only) => reversing::unsigned(model.parameters(), value),
+        _ => (value, false),
+    };
     let kind = rebuilt(&owner.kind, slot, value).ok_or_else(|| GONE.to_owned())?;
+    let kind = reversing::flipping(kind, negative);
     field::checked(
         document,
         Transaction::single(

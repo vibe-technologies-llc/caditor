@@ -15,7 +15,7 @@ use crate::{
     feature_values::{self, FeatureValue, ValueSlot},
     field::{self, Expected, NamedField},
     model::{Action, Model},
-    scene,
+    reversing, scene,
     selection::{Pickable, Selection},
     units::Units,
     value_shapes::Drawn,
@@ -611,7 +611,9 @@ impl ModelDimensions {
             })
             .inner;
         if let Some(transaction) = field.committed {
+            let announced = reversing::announcement(model.document(), &transaction);
             actions.push(Action::Apply(transaction));
+            actions.extend(announced.map(Action::Inform));
         }
         if field.response.has_focus() {
             open.focus_pending = false;
