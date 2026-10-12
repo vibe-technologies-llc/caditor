@@ -18,7 +18,7 @@ use caditor_file::{
 };
 use caditor_geometry::{Aabb, Plane, RigidTransform};
 use caditor_kernel::MeshQuality;
-use caditor_sketch::{Constraint, Sketch, SketchSolution};
+use caditor_sketch::{Constraint, Entity, Sketch, SketchSolution};
 use parking_lot::Mutex;
 
 use crate::{
@@ -1847,9 +1847,18 @@ fn reached_with_body(
 
 fn reached(sketch: &Sketch, join: Join) -> Vec<Constraint> {
     let tolerance = JOIN_TOLERANCE * join.at.abs().max_element().max(1.0);
-    let landed = sketch
-        .point(join.point)
-        .is_some_and(|at| at.distance(join.at) <= tolerance);
+    let on_rim = join
+        .rim_of
+        .is_none_or(|circle| match sketch.entity(circle) {
+            Some(Entity::Circle { center, radius }) => sketch
+                .point(*center)
+                .is_some_and(|centre| (centre.distance(join.at) - radius).abs() <= tolerance),
+            _ => false,
+        });
+    let landed = on_rim
+        && sketch
+            .point(join.point)
+            .is_some_and(|at| at.distance(join.at) <= tolerance);
     if !landed {
         return Vec::new();
     }

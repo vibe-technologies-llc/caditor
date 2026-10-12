@@ -34,6 +34,7 @@ pub struct Join {
     pub at: Point2,
     pub constraints: Vec<Constraint>,
     pub body: Option<Box<BodyJoin>>,
+    pub rim_of: Option<EntityId>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

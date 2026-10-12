@@ -76,8 +76,11 @@ and, for off-ribbon tools, a partner's corner menu.
 - A grab snaps while snapping is on or Alt is held, and Ctrl is not (`ViewportState::grab_snapping`,
   `Grab::follow`). Its handle (the grabbed point or, for a curve or selection, the moving point
   nearest the press) goes through `tracking::land` on the displayed sketch, ignoring every moving
-  point and curve using one; Alt lands as a held snap does (`Hold`). A circle dragged alone never
-  snaps. Tracks and extensions work as while drawing, from the grab's own `Acquired`. It snaps to body
+  point and curve using one; Alt lands as a held snap does (`Hold`). A circle dragged alone changes
+  its radius and lands its rim on the sketch point near the pointer only (`Grab::follow_rim`, its centre
+  and itself ignored, never a point nearer the centre than `SMALLEST_SNAPPED_RADIUS`, no body items,
+  tracks or guides); release adds `Coincident` of that point with the circle (`Join::rim_of`, which
+  `reached` also checks against the solved radius). Tracks and extensions work as while drawing, from the grab's own `Acquired`. It snaps to body
   items too (`Grab::snapping_to_bodies`, `Grab::onto_body`): where `tracking::land` found no
   point-like target, a body corner, middle or centre, else an edge; never with Alt. Release sends the
   target's and tracks' constraints (`Landing::joins`, `Join::body` as `BodyJoin`) with

@@ -3,7 +3,7 @@ use std::{collections::BTreeSet, sync::Arc};
 use caditor_document::FeatureId;
 use caditor_geometry::{Point2, Vector2};
 use caditor_sketch::{
-    Drag, Entity, EntityId, EntityState, Faceting, MAX_LENGTH, Sketch, SketchSolution,
+    Constraint, Drag, Entity, EntityId, EntityState, Faceting, MAX_LENGTH, Sketch, SketchSolution,
 };
 
 use crate::{
@@ -15,6 +15,7 @@ use crate::{
 };
 
 const SMALLEST_DRAGGED_RADIUS: f64 = 1e-3;
+const SMALLEST_SNAPPED_RADIUS: f64 = 1e-3;
 const MOVE_WHILE_DRAWING: &str = "Switch to the Select tool to move geometry";
 const NOTHING_TO_SELECT: &str = "The sketch has no geometry to select";
 pub const NOT_SOLVED: &str =
@@ -195,6 +196,9 @@ impl Grab {
         snapping: Option<(&Sketch, &impl Screen)>,
         hold: Option<Hold>,
     ) -> Option<DragCommand> {
+        if let Handles::Radius { circle, centre, .. } = &self.handles {
+            return self.follow_rim(*circle, *centre, cursor, snapping, hold);
+        }
         let offset = cursor - self.from;
         let landing = snapping
             .zip(self.handle)
@@ -229,25 +233,74 @@ impl Grab {
         self.to(target)
     }
 
+    fn follow_rim(
+        &mut self,
+        circle: EntityId,
+        centre: Point2,
+        cursor: Point2,
+        snapping: Option<(&Sketch, &impl Screen)>,
+        hold: Option<Hold>,
+    ) -> Option<DragCommand> {
+        self.guides = Vec::new();
+        self.landing = snapping.and_then(|(sketch, screen)| {
+            let Some(Entity::Circle { center, .. }) = sketch.entity(circle) else {
+                return None;
+            };
+            let pointer = Pointer {
+                screen: screen.to_screen(cursor)?,
+                sketch: cursor,
+            };
+            let landing = tracking::land(
+                sketch,
+                screen,
+                pointer,
+                &self.acquired,
+                &[circle, *center],
+                hold,
+            )?;
+            let reached = centre.distance(landing.position) > SMALLEST_SNAPPED_RADIUS;
+            (matches!(landing.target, Some(Target::Point(_))) && reached).then_some(landing)
+        });
+        match self.landing {
+            Some(landing) => self.radius_to(centre.distance(landing.position)),
+            None => self.to(cursor),
+        }
+    }
+
     pub fn finish(&self) -> DragCommand {
-        let join = self
-            .handle
-            .zip(self.landing)
-            .map(|((point, _), landing)| Join {
-                point,
-                at: landing.position,
-                constraints: landing.joins(point),
-                body: match landing.target {
-                    Some(Target::Body(target)) => self.bodies.0.source(target).map(|source| {
-                        Box::new(BodyJoin {
-                            projection: source.projection.clone(),
-                            outline: source.outline.clone(),
-                            part: target.part,
-                        })
+        let join = match &self.handles {
+            Handles::Radius { circle, .. } => {
+                self.landing.and_then(|landing| match landing.target {
+                    Some(Target::Point(point)) => Some(Join {
+                        point,
+                        at: landing.position,
+                        constraints: vec![Constraint::Coincident(point, *circle)],
+                        body: None,
+                        rim_of: Some(*circle),
                     }),
                     _ => None,
-                },
-            });
+                })
+            }
+            Handles::Points(_) => self
+                .handle
+                .zip(self.landing)
+                .map(|((point, _), landing)| Join {
+                    point,
+                    at: landing.position,
+                    constraints: landing.joins(point),
+                    body: match landing.target {
+                        Some(Target::Body(target)) => self.bodies.0.source(target).map(|source| {
+                            Box::new(BodyJoin {
+                                projection: source.projection.clone(),
+                                outline: source.outline.clone(),
+                                part: target.part,
+                            })
+                        }),
+                        _ => None,
+                    },
+                    rim_of: None,
+                }),
+        };
         DragCommand::Finish { join }
     }
 
@@ -256,20 +309,30 @@ impl Grab {
     }
 
     pub fn to(&mut self, cursor: Point2) -> Option<DragCommand> {
-        let drags = match &self.handles {
-            Handles::Points(points) => translated(points, cursor - self.from),
-            Handles::Radius {
-                circle,
-                centre,
-                radius,
-            } => {
-                let grown = radius + centre.distance(cursor) - centre.distance(self.from);
-                vec![Drag::Radius {
-                    circle: *circle,
-                    to: grown.max(radius * SMALLEST_DRAGGED_RADIUS),
-                }]
+        match &self.handles {
+            Handles::Points(points) => {
+                let drags = translated(points, cursor - self.from);
+                self.send(drags)
             }
+            Handles::Radius { centre, radius, .. } => {
+                let grown = radius + centre.distance(cursor) - centre.distance(self.from);
+                self.radius_to(grown)
+            }
+        }
+    }
+
+    fn radius_to(&mut self, wanted: f64) -> Option<DragCommand> {
+        let Handles::Radius { circle, radius, .. } = &self.handles else {
+            return None;
         };
+        let drags = vec![Drag::Radius {
+            circle: *circle,
+            to: wanted.max(radius * SMALLEST_DRAGGED_RADIUS),
+        }];
+        self.send(drags)
+    }
+
+    fn send(&mut self, drags: Vec<Drag>) -> Option<DragCommand> {
         if self.sent.as_ref() == Some(&drags) {
             return None;
         }
@@ -976,6 +1039,45 @@ mod tests {
     }
 
     #[test]
+    fn a_grabbed_circle_lands_its_rim_on_a_point_and_is_held_there() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let circle = sketch.add_circle(Point2::ZERO, 5.0);
+        let corner = sketch.add_point(Point2::new(30.0, 40.0));
+        let mut grab = Grab::of(&sketch, feature(), circle, &[], Point2::new(5.0, 0.0)).unwrap();
+
+        let Some(DragCommand::Move { drags, .. }) = grab.follow(
+            Point2::new(30.05, 40.02),
+            Some((&sketch, &Scaled(10.0))),
+            None,
+        ) else {
+            panic!("the radius is dragged");
+        };
+
+        assert_eq!(drags, vec![Drag::Radius { circle, to: 50.0 }]);
+        assert_eq!(
+            grab.finish(),
+            DragCommand::Finish {
+                join: Some(Join {
+                    point: corner,
+                    at: Point2::new(30.0, 40.0),
+                    constraints: vec![Constraint::Coincident(corner, circle)],
+                    body: None,
+                    rim_of: Some(circle),
+                }),
+            }
+        );
+
+        let Some(DragCommand::Move { drags, .. }) =
+            grab.follow(Point2::new(60.0, 0.0), Some((&sketch, &Scaled(10.0))), None)
+        else {
+            panic!("the radius is dragged");
+        };
+
+        assert_eq!(drags, vec![Drag::Radius { circle, to: 60.0 }]);
+        assert_eq!(grab.finish(), DragCommand::Finish { join: None });
+    }
+
+    #[test]
     fn a_grabbed_circle_changes_its_radius_and_a_selected_one_moves_with_the_rest() {
         let mut sketch = Sketch::new(Plane::XY);
         let circle = sketch.add_circle(Point2::ZERO, 5.0);
@@ -1209,6 +1311,7 @@ mod tests {
                     at: Point2::new(10.0, 10.0),
                     constraints: vec![Constraint::Coincident(end, lone)],
                     body: None,
+                    rim_of: None,
                 }),
             }
         );
@@ -1251,6 +1354,7 @@ mod tests {
                     at: Point2::new(30.0, 20.0),
                     constraints: vec![Constraint::Coincident(end, lone)],
                     body: None,
+                    rim_of: None,
                 }),
             }
         );
@@ -1285,6 +1389,7 @@ mod tests {
                     at: Point2::new(20.0, 10.0),
                     constraints: vec![Constraint::HorizontalPoints(end, start)],
                     body: None,
+                    rim_of: None,
                 }),
             }
         );
@@ -1321,6 +1426,7 @@ mod tests {
                     at: Point2::new(10.0, 10.0),
                     constraints: Vec::new(),
                     body: None,
+                    rim_of: None,
                 }),
             }
         );

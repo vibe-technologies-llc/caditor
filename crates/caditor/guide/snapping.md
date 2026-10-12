@@ -20,6 +20,9 @@ snapped point keeps the relation as a constraint, so a line ending on a circle s
   [projected](project-and-intersect) into the sketch with what you draw, and the point stays on
   it; one undo takes both away.
 
+Dragging a circle's rim to a sketch point, such as a corner of a rectangle, snaps it there: the
+circle passes through the point and stays on it when you let go.
+
 ## Directions and tracking
 
 A line near horizontal or vertical, or near parallel or perpendicular to a nearby line, takes that

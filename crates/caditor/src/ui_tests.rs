@@ -127,6 +127,7 @@ mod sketch_keys;
 mod sketch_modify_status;
 mod sketch_patterns;
 mod sketch_regions;
+mod sketch_rim_snaps;
 mod sketch_symmetry;
 mod sketch_tangent_circles;
 mod sketch_tidying;
