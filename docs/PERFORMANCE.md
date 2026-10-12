@@ -63,12 +63,13 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Interface
 
-- [medium · hard] The cached scene's own batch holds every drawn sketch: any change to its
-  content (each drag solution, an edit, an evaluation, a new faceting level) facets every drawn
-  sketch again, and a hover or selection change restyles and uploads all of it, over a millisecond
-  to rebuild and about half of that to upload for a sketch of 24,000 curves in a release build.
-  Bodies are parts of their own with pick ids of their own (`app.md`); a batch per sketch, kept the
-  same way, would limit both to what changed.
+- [low · hard] Each sketch is a kept part (`app.md`), but within one sketch a hover or selection
+  change restyles and uploads the whole sketch, about 1.9 ms to rebuild on the 24,000-curve
+  `large_sketch` in a release build (`frame_costs_on_a_large_sketch_and_a_large_model`), and each
+  drag solution refacets the dragged sketch whole; every content change also counts the segments
+  of every drawn sketch to choose the faceting (`scene::drawn_faceting`). Hovered and selected
+  entities drawn as a small batch over the kept one would limit a hover to what it lights, once
+  lines of equal depth drawn twice are settled.
 - [medium · hard] A still frame of a large assembly is bound by its draws: on the VZ330 (3,894
   bodies, 15.6 million triangles, 4.8 million edge segments, fitted at 1920×1080, 4x, RX 9070 XT)
   a frame turning a little takes about 22 ms on the GPU (9 without edges, 4 with faces alone,

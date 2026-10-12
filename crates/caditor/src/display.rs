@@ -79,6 +79,13 @@ impl DisplayedSketches {
         });
     }
 
+    pub fn dragged(&self, feature: FeatureId) -> Option<&Arc<Sketch>> {
+        self.dragged
+            .as_ref()
+            .filter(|dragged| dragged.feature == feature)
+            .map(|dragged| &dragged.sketch)
+    }
+
     pub fn hold_dragged_until(&mut self, revision: u64) {
         if let Some(dragged) = &mut self.dragged {
             dragged.held_until = Some(revision);
