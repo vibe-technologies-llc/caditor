@@ -35,6 +35,8 @@ build() {
   cd "$(_checkout)"
   export CARGO_TARGET_DIR="$srcdir/target"
   cargo build --frozen --release -p caditor
+  cargo run --frozen --release --quiet -p caditor-notices -- \
+    --target "$(rustc -vV | sed -n 's/^host: //p')" "$srcdir/THIRD-PARTY-NOTICES.txt"
 }
 
 check() {
@@ -65,5 +67,7 @@ package() {
   install -Dm644 "$checkout/LICENSE" "$pkgdir/usr/share/licenses/caditor/LICENSE"
   install -Dm644 "$checkout/crates/caditor/assets/fonts/Inter-LICENSE.txt" \
     "$pkgdir/usr/share/licenses/caditor/Inter-LICENSE.txt"
+  install -Dm644 "$srcdir/THIRD-PARTY-NOTICES.txt" \
+    "$pkgdir/usr/share/licenses/caditor/THIRD-PARTY-NOTICES.txt"
   install -Dm644 "$checkout/README.md" "$pkgdir/usr/share/doc/caditor/README.md"
 }
