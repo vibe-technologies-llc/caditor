@@ -9,15 +9,15 @@ use caditor_document::{
     BodyPlacement, ChamferForm, CircularPattern, Combine, CombineOperation, CopyOrientation,
     CurvePattern, CurveSpacing, CurveStation, Datum, DatumAxis, DatumFrame, DatumPlane, DatumPoint,
     EdgeGroup, Extrude, ExtrudeEnd, ExtrudeExtent, FaceAxisMate, FaceMate, FaceOnRound, FacePair,
-    FaceTangent, FeatureId, FeatureKind, FinePitch, Hole, HoleBottom, HoleDepth, HoleFit,
-    HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle, Import, LinearDirection,
+    FaceTangent, FaceThickness, FeatureId, FeatureKind, FinePitch, Hole, HoleBottom, HoleDepth,
+    HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle, Import, LinearDirection,
     LinearSpacing, Mate, MatePair, MeasuredItem, Measurement, MetricSize, Mirror, Move, Of,
     OffsetFace, Pattern, PatternKind, PlaneRotation, PlaneThrough, PointBy, PointMate, PointTarget,
     PointsPattern, Primitive, PrimitiveAnchor, PrimitiveShape, PrincipalPlane, Reading,
-    RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Scale, Shell, SketchAttachment,
-    SketchFeature, SolidFeature, SolidStart, Split, SplitAlong, SplitCarry, SplitFace,
-    TappedThread, Thread, ThreadFamily, ThreadForm, ThreadHand, ThreadLength, ThreadSide,
-    TurnCentre, Wall, sketch_regions,
+    RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Scale, Shell, ShellSide,
+    SketchAttachment, SketchFeature, SolidFeature, SolidStart, Split, SplitAlong, SplitCarry,
+    SplitFace, TappedThread, Thread, ThreadFamily, ThreadForm, ThreadHand, ThreadLength,
+    ThreadSide, TurnCentre, Wall, sketch_regions,
 };
 use caditor_expression::Expression;
 use caditor_geometry::{Plane, Point2};
@@ -135,6 +135,15 @@ pub fn feature_kind(
                 body,
                 open: scene.faces(input, body)?,
                 thickness: scene.distance(input)?,
+                side: *input.choose(&ShellSide::ALL)?,
+                faces: (0..input.int_in_range(0u8..=2)?)
+                    .map(|_| {
+                        Ok(FaceThickness {
+                            face: scene.face(input, body)?,
+                            thickness: scene.distance(input)?,
+                        })
+                    })
+                    .collect::<Result<_>>()?,
             })
         }
         Family::OffsetFace => {
