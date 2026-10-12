@@ -31,6 +31,7 @@ const MAX_STATIONS: usize = 1024;
 const OUTLINE_FIT: f64 = 1e-6;
 const FOOT_FIT: f64 = 2e-7;
 const ARC_FIT: f64 = 1e-5;
+pub(super) const CHORD_FIT: f64 = 1e-4;
 const SWITCH_SAMPLES: usize = 16;
 const SWITCH_BISECTIONS: usize = 48;
 const SHORTEST_PIECE: f64 = 10.0 * LINEAR_RESOLUTION;
@@ -57,8 +58,7 @@ pub(super) struct Stations {
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct Rounded {
     pub runs: Vec<Stations>,
-    pub convex: bool,
-    pub reach: Reach,
+    pub chords: Vec<Segment>,
 }
 
 pub(super) struct Context<'a> {
@@ -411,6 +411,60 @@ fn fitted(stations: &Stations, middles: &[(f64, Cross)], convex: bool) -> bool {
         let interpolated = scaled.point(*at) / weights.point(*at).x;
         chord <= FOOT_FIT && foot <= FOOT_FIT && interpolated.distance(middle) <= ARC_FIT
     })
+}
+
+fn every_section(stations: &Stations, convex: bool, reach: Reach) -> Option<Segment> {
+    let outlines: Option<Vec<Outline>> = stations
+        .crosses
+        .iter()
+        .map(|cross| outline(cross, convex, reach))
+        .collect();
+    Some(Segment {
+        params: stations.params.clone(),
+        outlines: outlines?,
+        name: stations.name,
+    })
+}
+
+fn every_nth(segment: &Segment, stride: usize) -> Segment {
+    Segment {
+        params: segment.params.iter().step_by(stride).copied().collect(),
+        outlines: segment.outlines.iter().step_by(stride).copied().collect(),
+        name: segment.name,
+    }
+}
+
+fn holds_every_section(coarse: &Segment, every: &Segment) -> bool {
+    let Ok([first, second, apex]) = loft::rows(coarse) else {
+        return false;
+    };
+    every
+        .params
+        .iter()
+        .zip(&every.outlines)
+        .all(|(at, outline)| {
+            deviation(&first, *at, outline.chord[0])
+                .max(deviation(&second, *at, outline.chord[1]))
+                .max(deviation(&apex, *at, outline.apex))
+                <= CHORD_FIT
+        })
+}
+
+fn chord_segment(stations: &Stations, convex: bool, reach: Reach) -> Option<Segment> {
+    let every = every_section(stations, convex, reach)?;
+    let spans = every.params.len().saturating_sub(1);
+    let mut stride = spans / FIRST_STATIONS;
+    while stride > 1 {
+        let thinned = spans % stride == 0 && spans / stride >= FIRST_STATIONS;
+        if thinned {
+            let coarse = every_nth(&every, stride);
+            if holds_every_section(&coarse, &every) {
+                return Some(coarse);
+            }
+        }
+        stride /= 2;
+    }
+    Some(every)
 }
 
 struct Piece {
@@ -948,19 +1002,15 @@ pub(super) fn plan(context: &Context<'_>, chain: &Chain) -> Result<Planned, Blen
     };
     let reach = Reach::unfolded(runs.iter().flat_map(|run| &run.crosses), convex)
         .ok_or(BlendError::TooLarge(first_run.edge))?;
+    let rounding = matches!(context.shape, BlendShape::Fillet { .. });
     let segments: Vec<Segment> = runs
         .iter()
         .map(|run| {
-            let outlines: Option<Vec<Outline>> = run
-                .crosses
-                .iter()
-                .map(|cross| outline(cross, convex, reach))
-                .collect();
-            Some(Segment {
-                params: run.params.clone(),
-                outlines: outlines?,
-                name: run.name,
-            })
+            if rounding {
+                chord_segment(run, convex, reach)
+            } else {
+                every_section(run, convex, reach)
+            }
         })
         .collect::<Option<_>>()
         .ok_or(BlendError::TooLarge(first_run.edge))?;
@@ -991,10 +1041,9 @@ pub(super) fn plan(context: &Context<'_>, chain: &Chain) -> Result<Planned, Blen
         context.feature,
     )
     .map_err(|error| error.at(Some(first_run.edge)))?;
-    let rounded = matches!(context.shape, BlendShape::Fillet { .. }).then(|| Rounded {
+    let rounded = rounding.then_some(Rounded {
         runs,
-        convex,
-        reach,
+        chords: segments,
     });
     Ok(Planned {
         tool: Tool {

@@ -8,7 +8,7 @@ use crate::{
     build::{AngularExtent, Axis2, LinearExtent, extrude, extrude_tapered, revolve},
     naming::FaceOrigin,
     profile::{Profile, ProfileCurve, Selection},
-    test_support::{arc, line},
+    test_support::{arc, line, polls_during},
     topology::Face,
 };
 
@@ -216,12 +216,16 @@ fn the_rim_of_a_pocket_with_rounded_corners_is_rounded_and_chamfered_all_round()
     let before = volume(&body);
     let feet = feet_of(&body, &edges);
 
-    let rounded = run(&body, &edges[..1], fillet(2.0));
+    let (rounded, rounding_polls) = polls_during(|| run(&body, &edges[..1], fillet(2.0)));
     let rounded_away = before - volume(&rounded);
-    let chamfered = run(&body, &edges[..1], chamfer(2.0));
+    let (chamfered, chamfering_polls) = polls_during(|| run(&body, &edges[..1], chamfer(2.0)));
     let chamfered_away = before - volume(&chamfered);
 
     assert_eq!(edges.len(), 8);
+    assert!(
+        2 * rounding_polls <= 3 * chamfering_polls,
+        "rounding the rim polled {rounding_polls} times, chamfering it {chamfering_polls}"
+    );
     valid("rounded", &rounded);
     valid("chamfered", &chamfered);
     assert_tangent_to("rounded", &rounded, &feet);
@@ -233,6 +237,19 @@ fn the_rim_of_a_pocket_with_rounded_corners_is_rounded_and_chamfered_all_round()
         chamfered_away > 1.4 * rounded_away,
         "{chamfered_away} {rounded_away}"
     );
+}
+
+#[test]
+#[ignore = "prints how long rounding the rim of a pocket with rounded corners takes"]
+fn rounding_the_rim_of_a_pocket_with_rounded_corners_is_timed() {
+    let body = rounded_pocket();
+    let edges = rim(&body);
+
+    let started = std::time::Instant::now();
+    let rounded = run(&body, &edges[..1], fillet(2.0));
+    eprintln!("the rim rounded in {:?}", started.elapsed());
+
+    valid("rounded", &rounded);
 }
 
 #[test]

@@ -6,15 +6,16 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Kernel
 
-- [medium · medium] A lofted blend's boolean is most of its cost: in release the fillet round the
-  eight-edge rim of a pocket with rounded corners in a cylinder takes about 0.57 s, 0.43 s of it
-  the boolean against the chord faces, whose sections are as dense as the fillet's (up to 129 a
-  piece, so the rows hold `FOOT_FIT`) because the boolean's vertices are kept for the fillet's
-  edges; the unoptimised test build takes 14 s
-  (`lofted_tests::the_rim_of_a_pocket_with_rounded_corners_is_rounded_and_chamfered_all_round`).
-  Lofting the chord through a few of the sections and moving the vertices onto the fillet's rows
-  afterwards (along a row onto an end face where one meets it) would cut the spans the boolean
-  marches through several times.
+- [medium · medium] A lofted blend's boolean is still most of its cost: in release the fillet
+  round the eight-edge rim of a pocket with rounded corners in a cylinder takes about 0.13 s
+  (`lofted_tests::rounding_the_rim_of_a_pocket_with_rounded_corners_is_timed`, ignored), 80 ms of
+  it the boolean, 38 ms rounding and 16 ms planning; the unoptimised test build of
+  `the_rim_of_a_pocket_with_rounded_corners_is_rounded_and_chamfered_all_round` takes 9 s. The
+  boolean's time goes to marching the foot curves against the cylinder and walls (seeding projects
+  each subdivision box's centre onto the chord spline, a full seed search as it lies off it) and
+  to coincidence checks between spline patches; rounding's to refitting every pcurve of the fillet
+  faces and validating the rebuilt solid. Classifying a subdivision box against a ruled spline by
+  its control hull rather than a projection would cut the seeding.
 - [medium · hard] A modelled thread is slow to cut and to measure: in release an M4×20 shaft
   threaded its whole length takes 0.7 to 0.9 s (about a third classifying fragments by rays
   through a hundred one-turn flank faces, a third imprinting, a fifth validating the volume) and an

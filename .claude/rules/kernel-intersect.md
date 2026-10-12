@@ -15,7 +15,8 @@ paths:
 - Coincidence within tolerance is detected, never guessed: a curve in a surface or on another curve
   is an overlap interval; coincident surfaces return `SurfaceIntersection::Coincident(Sense)`.
   Sampled kinds (extrusion, revolution, spline) are also `Coincident` when sharing only part of
-  their extent (`surface_surface/overlap.rs`).
+  their extent (`surface_surface/overlap.rs`); the grid projected onto the cheaper surface (not a
+  sampled kind) is checked first, as one point lying apart decides.
 - Clipping (`clip.rs`) does not depend on sample spacing: a piece between two outside samples is
   refined unless a bound on its path misses the patch; ends are then bisected exactly. Guided
   clipping polls `interrupt::check` before every sample and probe; a branch's probes project from
@@ -70,6 +71,12 @@ paths:
     points). `end_on_boundary` drops contacts that slipped past the boundary within the inside
     test's slack, so a branch never ends with a backward hook whose node tangents point against
     the curve (which turns the boolean's trace the wrong way at that vertex).
+  - A step whose solve on the plane ahead fails while its predicted uv lies outside the patches
+    first tries ending exactly on the boundary it crosses (`boundary_within`: the bound solved as
+    a parameter constraint, ahead of the current point, not a pole, turning at most `MAX_TURN`
+    and hugging the chord), before the carried projections and halving. Without it a branch
+    running off a spline face that spans its whole surface (a loft's) crept up on the domain end
+    through some twenty halved steps, each projecting onto the spline from off its domain.
   - A step that collapses where the branch runs off a bounded surface ends on the boundary ahead,
     at a pole (a cone apex on the other surface) ends there; otherwise it, and a branch longer than
     the step cap, fails as `Unfollowable`.

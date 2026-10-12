@@ -275,6 +275,15 @@ paths:
   end face or another lofted fillet) is traced again between its vertices on the new surfaces
   (`IntersectionCurve::through`). The solid is rebuilt through `SolidBuilder` with every pcurve on
   a changed face or edge refitted, and validated.
+- A fillet's tool is lofted through every 2^k-th section only, the coarsest stride keeping at
+  least `FIRST_STATIONS` spans whose rows hold every section within `CHORD_FIT`
+  (`chord_segment`), since rounding replaces the chord and the boolean's marching cost follows its
+  spans (the rim of a rounded pocket: 17 of 129 sections). A foot edge is matched to the row of a
+  named face nearest its middle within `ALONG_ROW`. Rounding first moves each vertex of a foot
+  edge more than `ON_ROW` off its row onto it (`onto_rows`): to where the row crosses the vertex's
+  one untouched edge (the body edge into an end face, a seam), solved across that edge in the
+  face's tangent plane, whose interval follows; with no untouched edge, to where it crosses
+  another fillet's row on the same face. Joints are kept sections, so their vertices never move.
 - `TooLarge` covers a blend that does not fit on both faces at sampled points along the edge, whose
   foot crosses an edge of its face (other than seams and edges at the blended edge's ends), whose
   foot crosses another blend's on that face (`feet.rs`; edges sharing a vertex excepted), and a

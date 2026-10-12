@@ -383,7 +383,16 @@ pub(crate) fn refine_on_plane(
     normal: Vector3,
 ) -> Option<Contact> {
     refine_contact(surfaces, start, Constraint::Plane { point, normal })
-        .or_else(|| carried(surfaces, start, true, point, normal))
+        .or_else(|| carried_on_plane(surfaces, start, point, normal))
+}
+
+pub(crate) fn carried_on_plane(
+    surfaces: [&Surface; 2],
+    start: [Point2; 2],
+    point: Point3,
+    normal: Vector3,
+) -> Option<Contact> {
+    carried(surfaces, start, true, point, normal)
         .or_else(|| carried(surfaces, start, false, point, normal))
 }
 
