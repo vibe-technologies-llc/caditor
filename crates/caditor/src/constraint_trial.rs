@@ -68,7 +68,8 @@ impl Trials {
     ) -> Option<Verdict> {
         if let Some(running) = &self.running {
             return Some(Verdict::Refuse(format!(
-                "Still checking “{}” against the sketch; try again in a moment.",
+                "“{}” was not added, because “{}” was still being checked against the sketch.",
+                trial.transaction.label(),
                 running.label
             )));
         }

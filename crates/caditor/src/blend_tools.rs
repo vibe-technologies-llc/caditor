@@ -13,10 +13,12 @@ use crate::{
     blend_panel,
     bodies::{self, FaceKey},
     body_selection,
+    commands::Command,
     editing::{self, EditingCommand},
     field,
     last_values::{self, Remembered, Starts},
     model::{Action, Model, Notice},
+    queued,
     selection::{Pickable, Selection},
 };
 
@@ -45,7 +47,7 @@ fn starting_form(kind: BlendKind, starts: &Starts) -> ChamferForm {
     }
 }
 
-const NO_SHAPE: &str = "The body has no shape yet; recompute the model, then try again";
+const NO_SHAPE: &str = queued::BODY_SHAPE;
 
 pub const KINDS: [BlendKind; 2] = [BlendKind::Fillet, BlendKind::Chamfer];
 
@@ -235,10 +237,13 @@ pub fn create_actions(
             .chain(told)
             .collect()
         }
-        Err(reason) => vec![Action::Inform(Notice::warning(format!(
-            "{}: {reason}.",
-            kind.title()
-        )))],
+        Err(reason) => {
+            let command = match kind {
+                BlendKind::Fillet => Command::Fillet,
+                BlendKind::Chamfer => Command::Chamfer,
+            };
+            vec![queued::refused(command, kind.title(), reason)]
+        }
     }
 }
 

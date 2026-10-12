@@ -9,10 +9,12 @@ use caditor_kernel::{FaceId, FaceReference, Solid};
 use crate::{
     bodies::{self, FaceKey},
     body_selection,
+    commands::Command,
     editing::{self, EditingCommand},
     field,
     last_values::{Remembered, Starts},
     model::{Action, Model, Notice},
+    queued,
     selection::{Pickable, Selection},
 };
 
@@ -22,7 +24,7 @@ pub const DESCRIPTION: &str = "Hollow the body out, leaving the selected faces o
 const NOT_OPENABLE: &str = "Only flat faces and cylinder, cone, sphere or torus faces can be left open, so select those \
      only";
 const GONE: &str = "The feature no longer exists";
-const NO_SHAPE: &str = "The body has no shape yet; recompute the model, then try again";
+const NO_SHAPE: &str = queued::BODY_SHAPE;
 const NOT_A_FACE: &str = "Click a face of the body being shelled";
 const OPENED: &str = "That face is open, so it has no wall; close it first to give it its own \
                       thickness";
@@ -73,8 +75,7 @@ pub fn create(
     source: &FaceSource,
     starts: &Starts,
 ) -> Result<(Transaction, FeatureId), &'static str> {
-    let shown = bodies::shown(evaluation, source.body)
-        .ok_or("The body has no shape yet; recompute the model, then try again")?;
+    let shown = bodies::shown(evaluation, source.body).ok_or(queued::BODY_SHAPE)?;
     let open: Vec<FaceReference> = source
         .faces
         .iter()
@@ -119,9 +120,7 @@ pub fn create_actions(
             .chain(told)
             .collect()
         }
-        Err(reason) => vec![Action::Inform(Notice::warning(format!(
-            "{TITLE}: {reason}."
-        )))],
+        Err(reason) => vec![queued::refused(Command::Shell, TITLE, reason)],
     }
 }
 

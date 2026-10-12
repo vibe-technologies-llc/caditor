@@ -8,8 +8,10 @@ use caditor_kernel::{FaceId, FaceReference, Solid, tangent_faces};
 use crate::{
     bodies::{self, FaceKey},
     body_selection,
+    commands::Command,
     editing::{self, EditingCommand},
     model::{Action, Model, Notice},
+    queued,
     selection::{Pickable, Selection},
     shell_tools::FaceSource,
     units::LengthUnit,
@@ -49,8 +51,7 @@ pub fn create(
     source: &FaceSource,
     unit: LengthUnit,
 ) -> Result<(Transaction, FeatureId), &'static str> {
-    let shown = bodies::shown(evaluation, source.body)
-        .ok_or("The body has no shape yet; recompute the model, then try again")?;
+    let shown = bodies::shown(evaluation, source.body).ok_or(queued::BODY_SHAPE)?;
     let faces: Vec<FaceReference> = source
         .faces
         .iter()
@@ -94,9 +95,7 @@ pub fn create_actions(
             .chain(told)
             .collect()
         }
-        Err(reason) => vec![Action::Inform(Notice::warning(format!(
-            "{TITLE}: {reason}."
-        )))],
+        Err(reason) => vec![queued::refused(Command::OffsetFace, TITLE, reason)],
     }
 }
 

@@ -9,7 +9,9 @@
 
 Constraints still hold, so geometry tied to the rest may not go all the way. With one dimension
 selected, Move places its label instead. Projected geometry, the origin and the axes never move:
-dragging them says so beside the pointer.
+dragging them says so beside the pointer. A value entered while the sketch is still being
+recalculated waits, shown in the status bar, and moves the geometry once the sketch is solved;
+Escape or the status bar's Cancel drops it.
 
 ## Splitting and breaking
 

@@ -6,11 +6,12 @@ use caditor_kernel::FaceReference;
 
 use crate::{
     bodies::{self, FaceKey},
+    commands::Command,
     datum_tools,
     editing::{self, EditingCommand},
     field,
-    model::{Action, Model, Notice},
-    move_tools, pattern_tools,
+    model::{Action, Model},
+    move_tools, pattern_tools, queued,
     selection::{Pickable, Selection},
 };
 
@@ -21,7 +22,7 @@ pub const DESCRIPTION: &str =
     "Mirror a body across a plane or flat face, joined to the original or in its place";
 const NO_FACES: &str = "Select the faces of a body to mirror, such as a pocket's walls and floor";
 const ONE_BODY: &str = "Select faces of one body only";
-const NO_SHAPE: &str = "The body has no shape yet; recompute the model, then try again";
+const NO_SHAPE: &str = queued::BODY_SHAPE;
 const FACES_GONE: &str = "Some of the selected faces are no longer part of the model";
 const NO_SELECTED_FACES: &str = "Select faces of the mirrored body in the view first";
 const LATER_FACES: &str = "Some selected faces are not part of the body as the mirror finds it; \
@@ -112,9 +113,7 @@ pub fn create_faces_actions(model: &Model, source: &FaceMirrorSource) -> Vec<Act
             Action::Apply(transaction),
             Action::Editing(EditingCommand::OpenSolid(feature)),
         ],
-        Err(reason) => vec![Action::Inform(Notice::warning(format!(
-            "{FACES_TITLE}: {reason}."
-        )))],
+        Err(reason) => vec![queued::refused(Command::MirrorFaces, FACES_TITLE, reason)],
     }
 }
 

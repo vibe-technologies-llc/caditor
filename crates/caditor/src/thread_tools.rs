@@ -6,9 +6,11 @@ use caditor_kernel::{FaceReference, Surface};
 
 use crate::{
     bodies::{self, FaceKey},
+    commands::Command,
     editing::EditingCommand,
     field,
-    model::{Action, Model, Notice},
+    model::{Action, Model},
+    queued,
     selection::{Pickable, Selection},
     sketch_placement,
 };
@@ -17,7 +19,7 @@ pub const TITLE: &str = "Thread";
 const CHOOSE_FACE: &str = "Select the round face of a bore, shaft or boss to thread";
 const ONE_FACE: &str = "Select one round face only";
 const NOT_ROUND: &str = "Select a cylindrical face: a bore, a shaft or a boss";
-const NO_SHAPE: &str = "The body has no shape yet; recompute the model, then try again";
+const NO_SHAPE: &str = queued::BODY_SHAPE;
 const GONE: &str = "The selected face is no longer part of the model";
 const SAME_FACE: &str = "The thread is already on the selected face";
 const GONE_FEATURE: &str = "The feature no longer exists";
@@ -102,9 +104,7 @@ pub fn create_actions(
             Action::Apply(transaction),
             Action::Editing(EditingCommand::OpenSolid(feature)),
         ],
-        Err(reason) => vec![Action::Inform(Notice::warning(format!(
-            "{TITLE}: {reason}."
-        )))],
+        Err(reason) => vec![queued::refused(Command::Thread, TITLE, reason)],
     }
 }
 

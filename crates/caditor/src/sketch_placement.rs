@@ -11,7 +11,7 @@ use crate::{
     bodies::{self, FaceKey},
     datum_tools, editing,
     model::Model,
-    scene,
+    queued, scene,
     selection::{Pickable, Selection},
 };
 
@@ -128,8 +128,7 @@ impl StateError {
     }
 }
 
-const NOT_RECOMPUTED: &str =
-    "The model is not recomputed up to there yet; recompute it, then try again";
+const NOT_RECOMPUTED: &str = queued::MODEL_UP_TO_THERE;
 const GONE: &str = "The selected face is no longer part of the model";
 
 pub fn body_state_before(

@@ -353,7 +353,8 @@ paths:
   `COMPACT_DRAW_ROWS` rows, so the bar packs into two rows; every button keeps its accessible name.
   Finish sketch is a primary button at the right of the first row, with Look at sketch beside it as
   a framed `framed_icon_button`; both are `CONTROL_HEIGHT` tall and centred on the whole bar,
-  captions included.
+  captions included. Cancel sketch sits between them as a compact `ToolButton` (a cross, named
+  `sketch_toolbar::CANCEL_LABEL`), disabled with the reason when the session cannot be cancelled.
 - Corner menus: shape tools with several ways to draw carry a `widgets::corner_menu_button` (a caret
   at the top right, `compact_corner_menu_button` on a compact ribbon) listing them as
   `menu_choice`s; the compact Offset, Mirror and Project buttons a `compact_corner_menu_button` (a

@@ -174,6 +174,13 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   step excepted), else `ChangedElsewhere` naming the step. A refusal is a notice leaving feature and
   model as they are. Otherwise it performs that many ordinary journaled `Action::Undo`s (Redo brings
   them back) and closes; with nothing changed it only closes.
+- Opening a feature while a sketch is edited, or entering a sketch or starting a new one while a
+  feature is open, closes it with a notice and, when the opening batch changed the document, an
+  Undo that returns to it (`app-sketching.md`, Editing context). Escape on an open feature still
+  keeps its changes and closes it.
+- A tool whose body has no shape yet while a recompute runs (Move, Mirror, Combine, Fillet, Chamfer,
+  Shell, Offset faces, Split face, Thread, Sweep) is queued, not refused (`app-input.md`, Queued
+  actions), and runs when the shape arrives.
 
 ## Feature panels
 
