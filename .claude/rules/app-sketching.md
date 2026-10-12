@@ -422,22 +422,42 @@ and, for off-ribbon tools, a partner's corner menu.
   snap keeps a direction that already holds (`HELD_TOLERANCE`) and never moves the point; a curve snap
   moves to where the direction's ray crosses the curve, within `ALIGNED_CROSSING_TOLERANCE`. Typed
   points never align, and a locked heading (`app-input.md`) replaces every snap.
-- Points the hover snapped to are acquired (`tracking::Acquired`, newest first, at most
-  `MAX_ACQUIRED_POINTS`), as are the centre of a circle or arc whose rim, middle or centre was hovered
-  and the lines ending at a hovered point (`MAX_ACQUIRED_LINES`); kept across tools within one sketch,
-  dropped when gone. Where any snap is accepted, a placed point within `TRACK_TOLERANCE` of the
-  horizontal or vertical through an acquired point (not the shape's own points; at least
-  `MIN_TRACK_LENGTH` away) lands on it with a `HorizontalPoints`/`VerticalPoints` constraint
-  (`Tracks`), both at once where they cross. A track joins a curve snap where it crosses the curve
-  (never along a line it runs on) and a line's direction where they cross, within
-  `ALIGNED_CROSSING_TOLERANCE` (`tracking.rs`); point snaps never take one.
-- An acquired point also tracks along each acquired line's direction and square to it
-  (`Axis::Slanted`), never along a line through the point itself nor where the direction is level or
-  upright. The point lands exactly with no constraint (the sketch has none); a slanted track crossing
-  a horizontal or vertical one keeps that one's constraint. An acquired line extends past its ends:
-  after curves, the pointer within `CURVE_TOLERANCE` of its infinite carrier snaps to it
-  (`Target::Extension`, a `Coincident` on the line, which the solver treats as infinite); directions
-  and tracks join it as they do a curve.
+- Every point-like sketch target the hover snapped to is acquired (`tracking::Acquired`, newest
+  first, at most `MAX_ACQUIRED_POINTS`): a point or the origin, the middle of a line, arc or
+  elliptical arc, a crossing of two curves, an outline's centre (`Centre`, `Centroid`), a quadrant
+  and an ellipse's axis end, each kept as its `Target` with where it lay (`Anchor`), which tells
+  the two crossings of one pair or the two minor axis ends apart (`Target::has_several_places`).
+  So are the centre of a circle, arc or ellipse whose rim, middle, quadrant, axis end or centre was
+  hovered and the lines ending at a hovered point (`MAX_ACQUIRED_LINES`). Kept across tools within
+  one sketch; `Acquired::retain` drops an anchor once an entity defining it is gone
+  (`Target::involved`) and moves a several-placed one to where it lies now. Body items are never
+  acquired.
+- Each frame an anchor is found again where it lies now (`snap::position_of`: the crossing or minor
+  axis end nearest where it was; an odd outline's centroid by the outline search from its first
+  piece). One moving in a drag (touching the ignored entities, or an odd outline with a moving
+  piece) or placed by the shape in progress (`own`) draws no track.
+  Where any snap is accepted, a placed point within `TRACK_TOLERANCE` of the horizontal or vertical
+  through an anchor (at least `MIN_TRACK_LENGTH` away) lands on it (`Tracks`), both at once where
+  they cross. A track joins a curve snap where it crosses the curve (never along a line it runs on)
+  and a line's direction where they cross, within `ALIGNED_CROSSING_TOLERANCE` (`tracking.rs`);
+  point snaps never take one.
+- Only a track through a sketch point holds the placed point, by `HorizontalPoints` or
+  `VerticalPoints`. Through any other anchor the point lands exactly with no constraint: those take
+  sketch points only, and holding it would need a construction point at the middle, crossing or
+  centre (with its `Midpoint`, `Coincident`s or `Symmetric`) made in the shape's transaction,
+  clutter the user did not draw that stays behind, free, once its curves go; a perpendicular
+  bisector would need a construction line as well. The missing constraint is in
+  `docs/FEATURES.md`. The label names held tracks first and ends `NOT_KEPT_THERE` when any track
+  is not held, as an odd outline's centre does. Where two tracks of one kind coincide (a right
+  quadrant level with its centre), the held one wins (`prefers`, within `TIED_OFFSET`).
+- An anchor also tracks along each acquired line's direction and square to it (`Axis::Slanted`),
+  never along a line through the anchor itself nor where the direction is level or upright, and the
+  middle of a line tracks square to that line (`bisector`, labelled "on the perpendicular bisector
+  of"; for a level or upright line it is the upright or level track). Slanted tracks hold no
+  constraint (the sketch has none); a slanted track crossing a horizontal or vertical one keeps
+  that one's constraint. An acquired line extends past its ends: after curves, the pointer within
+  `CURVE_TOLERANCE` of its infinite carrier snaps to it (`Target::Extension`, a `Coincident` on the
+  line, which the solver treats as infinite); directions and tracks join it as they do a curve.
 - Snap to the grid (`Command::ToggleGridSnapping`, off by default, session-only in
   `ViewportState::grid_snapping`) places a point no target, direction or track took on the nearest
   crossing of the grid's minor lines (`grid_minor_spacing`, handed to `Drawing::snap_to_grid`) within
@@ -490,8 +510,14 @@ and, for off-ribbon tools, a partner's corner menu.
   entities count as determined for the reference rule. A body item whose source left the cache is
   refused naming its body (`Unstaged::Gone`).
 - Preview curves are faceted like the sketch's (`Drawing::preview` and `Trimming::preview` take the
-  scene's `Faceting`); the snap target and a direction's reference line (`Drawing::snap_entities`)
-  replace the GPU hover while a drawing tool is active.
+  scene's `Faceting`); the snap target, a direction's reference line and each track's anchor (its
+  point, or the curves its middle, crossing or quadrant lies on) (`Drawing::snap_entities`) replace
+  the GPU hover while a drawing tool is active. An outline's centre, hovered or a track's anchor,
+  shows every piece of its loop, and for `Centre` the two corners its `Symmetric` holds, since
+  `Target` names only the piece the outline search started from: `ShownOutlines` finds the loop
+  again from that piece (`snap::outline_through`) when the centre starts being shown and keeps it
+  while it stays shown, so `Target` stays `Copy` and no outline search runs per frame. Grabs show
+  no snap highlight.
 
 ## Constraint tools
 

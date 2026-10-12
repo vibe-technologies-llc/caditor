@@ -6,7 +6,9 @@ snapped point keeps the relation as a constraint, so a line ending on a circle s
 ## What it snaps to
 
 - Points, the sketch origin and the middle of lines, arcs and elliptical arcs.
-- The centre of a closed outline such as a rectangle, slot or regular polygon.
+- The centre of a closed outline such as a rectangle, slot or regular polygon. The whole outline
+  lights up, and on an outline of an even number of sides so do the two corners that will hold the
+  point there.
 - Where two curves cross, and the right, top, left and bottom of circles and arcs.
 - The far end of an ellipse's major axis and the ends of its minor axis; the point stays at the
   end however the ellipse is turned.
@@ -21,8 +23,15 @@ snapped point keeps the relation as a constraint, so a line ending on a circle s
 ## Directions and tracking
 
 A line near horizontal or vertical, or near parallel or perpendicular to a nearby line, takes that
-direction exactly. Points you hover are remembered for a while: moving level with one, or straight
-above it, shows a dashed guide and lines the new point up with it.
+direction exactly. What you hover is remembered for a while: points, the middle of a line or arc,
+where two curves cross, the centre of an outline, the right, top, left and bottom of a circle and
+the ends of an ellipse's axes. Moving level with one, or straight above or below it, shows a dashed
+guide and lines the new point up with it; from the middle of a line a guide also runs square to the
+line, along its perpendicular bisector. Where two guides cross, the point lands on the crossing.
+
+A point lined up with a sketch point keeps that as a constraint, so it stays level with it. Lined
+up with anything else, such as a line's middle, it lands exactly there but nothing holds it, and the
+label ends "not kept there"; add a dimension or constraint if it should stay.
 
 ## Controlling it
 

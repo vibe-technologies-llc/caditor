@@ -216,7 +216,7 @@ impl Grab {
         if let Some((sketch, landing)) = landing
             && let Some(target) = landing.target
         {
-            self.acquired.note(sketch, target);
+            self.acquired.note(sketch, target, landing.position);
         }
         self.guides = landing
             .map(|(sketch, landing)| landing.guides(sketch))

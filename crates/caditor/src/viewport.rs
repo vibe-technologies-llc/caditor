@@ -1542,6 +1542,11 @@ impl ViewportState {
     }
 
     #[cfg(test)]
+    pub fn snap_highlight(&self) -> Vec<EntityId> {
+        self.drawing.snap_entities()
+    }
+
+    #[cfg(test)]
     pub fn keyboard_highlight(&self) -> Option<Pickable> {
         self.keyboard_highlight
     }

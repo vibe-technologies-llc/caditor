@@ -10,6 +10,7 @@ pub const CURVE_TOLERANCE: f64 = 6.0;
 pub const HELD_POINT_PULL: f64 = 3.0 * POINT_TOLERANCE;
 pub const HELD_CURVE_PULL: f64 = 3.0 * CURVE_TOLERANCE;
 pub const ON_THE_GRID: &str = "On the grid";
+pub const NOT_KEPT_THERE: &str = ", not kept there";
 const ON_CIRCLE_TOLERANCE: f64 = 1e-9;
 const ON_GRID_TOLERANCE: f64 = 1e-9;
 const PARALLEL_TOLERANCE: f64 = 1e-12;
@@ -131,7 +132,7 @@ impl Target {
                 format!("Centre of the outline of {}", sketch.entity_label(outline))
             }
             Self::Centroid(outline) => format!(
-                "Centre of the outline of {}, not kept there",
+                "Centre of the outline of {}{NOT_KEPT_THERE}",
                 sketch.entity_label(outline)
             ),
             Self::Intersection(first, second) => format!(
@@ -211,29 +212,57 @@ impl Target {
         }
     }
 
-    fn touches(self, ignored: &[EntityId]) -> bool {
+    pub fn involved(self) -> impl Iterator<Item = EntityId> {
         let involved = match self {
-            Self::Pending(_) | Self::Body(_) => Vec::new(),
-            Self::Quadrant { curve, centre, .. } => vec![curve, centre],
+            Self::Pending(_) | Self::Body(_) => [None, None, None],
+            Self::Quadrant { curve, centre, .. } => [Some(curve), Some(centre), None],
             Self::AxisEnd {
                 curve,
                 centre,
                 major,
                 ..
-            } => vec![curve, centre, major],
+            } => [Some(curve), Some(centre), Some(major)],
             Self::Centre {
                 outline,
                 corners: (first, second),
-            } => vec![outline, first, second],
-            Self::Intersection(first, second) => vec![first, second],
+            } => [Some(outline), Some(first), Some(second)],
+            Self::Intersection(first, second) => [Some(first), Some(second), None],
             Self::Point(entity)
             | Self::Curve(entity)
             | Self::Extension(entity)
             | Self::Midpoint(entity)
             | Self::Tangent(entity)
-            | Self::Centroid(entity) => vec![entity],
+            | Self::Centroid(entity) => [Some(entity), None, None],
         };
-        involved.iter().any(|entity| ignored.contains(entity))
+        involved.into_iter().flatten()
+    }
+
+    pub fn touches(self, ignored: &[EntityId]) -> bool {
+        self.involved().any(|entity| ignored.contains(&entity))
+    }
+
+    pub fn has_several_places(self) -> bool {
+        match self {
+            Self::Intersection(..)
+            | Self::AxisEnd {
+                end: AxisEnd::MinorUpright | AxisEnd::MinorLevel | AxisEnd::MinorSlanted,
+                ..
+            } => true,
+            Self::Pending(_)
+            | Self::Point(_)
+            | Self::Curve(_)
+            | Self::Extension(_)
+            | Self::Midpoint(_)
+            | Self::Quadrant { .. }
+            | Self::AxisEnd {
+                end: AxisEnd::FarMajor,
+                ..
+            }
+            | Self::Tangent(_)
+            | Self::Centre { .. }
+            | Self::Centroid(_)
+            | Self::Body(_) => false,
+        }
     }
 
     pub fn is_point_like(self) -> bool {
@@ -628,56 +657,91 @@ fn intersections(
     near.sort_by(|a, b| a.0.total_cmp(&b.0));
     near.truncate(MAX_CROSSING_CURVES);
     let mut found = Vec::new();
-    for (index, (_, first, first_geometry)) in near.iter().enumerate() {
-        for (_, second, second_geometry) in near.iter().skip(index + 1) {
-            let (low, high) = if first <= second {
-                (*first, *second)
+    for (index, first) in near.iter().enumerate() {
+        for second in near.iter().skip(index + 1) {
+            let (low, high) = if first.1 <= second.1 {
+                (first.1, second.1)
             } else {
-                (*second, *first)
+                (second.1, first.1)
             };
-            let crossed = match (first_geometry, second_geometry) {
-                (Some(first_geometry), Some(second_geometry)) => {
-                    hits(*first_geometry, *second_geometry)
-                }
-                (None, Some(_)) => sketch.curve_crossings(*first, *second),
-                (Some(_), None) | (None, None) => sketch.curve_crossings(*second, *first),
-            };
-            found.extend(crossed.into_iter().map(|position| Snapped {
-                position,
-                target: Target::Intersection(low, high),
-            }));
+            found.extend(
+                crossed(sketch, (first.1, first.2), (second.1, second.2))
+                    .into_iter()
+                    .map(|position| Snapped {
+                        position,
+                        target: Target::Intersection(low, high),
+                    }),
+            );
         }
     }
     found
+}
+
+fn crossed(
+    sketch: &Sketch,
+    (first, first_geometry): (EntityId, Option<Geometry>),
+    (second, second_geometry): (EntityId, Option<Geometry>),
+) -> Vec<Point2> {
+    match (first_geometry, second_geometry) {
+        (Some(first_geometry), Some(second_geometry)) => hits(first_geometry, second_geometry),
+        (None, Some(_)) => sketch.curve_crossings(first, second),
+        (Some(_), None) | (None, None) => sketch.curve_crossings(second, first),
+    }
+}
+
+fn middle(sketch: &Sketch, id: EntityId, entity: &Entity) -> Option<Point2> {
+    match entity {
+        Entity::Line { .. } => {
+            let (start, end) = sketch.line_endpoints(id)?;
+            Some(start.midpoint(end))
+        }
+        Entity::Arc { .. } => {
+            let arc = sketch.arc(id)?;
+            Some(arc.point_at(arc.start_angle + arc.sweep / 2.0))
+        }
+        Entity::EllipticalArc { .. } => {
+            let ellipse = sketch.ellipse(id)?;
+            Some(ellipse.point_at(ellipse.start + ellipse.sweep / 2.0))
+        }
+        Entity::Point(_)
+        | Entity::Circle { .. }
+        | Entity::Spline { .. }
+        | Entity::Ellipse { .. } => None,
+    }
 }
 
 fn midpoints(sketch: &Sketch) -> Vec<Snapped> {
     sketch
         .entities()
         .filter_map(|(id, entity)| {
-            let position = match entity {
-                Entity::Line { .. } => {
-                    let (start, end) = sketch.line_endpoints(id)?;
-                    start.midpoint(end)
-                }
-                Entity::Arc { .. } => {
-                    let arc = sketch.arc(id)?;
-                    arc.point_at(arc.start_angle + arc.sweep / 2.0)
-                }
-                Entity::EllipticalArc { .. } => {
-                    let ellipse = sketch.ellipse(id)?;
-                    ellipse.point_at(ellipse.start + ellipse.sweep / 2.0)
-                }
-                Entity::Point(_)
-                | Entity::Circle { .. }
-                | Entity::Spline { .. }
-                | Entity::Ellipse { .. } => return None,
-            };
             Some(Snapped {
-                position,
+                position: middle(sketch, id, entity)?,
                 target: Target::Midpoint(id),
             })
         })
+        .collect()
+}
+
+fn quadrant_points(sketch: &Sketch, curve: EntityId) -> Vec<(Side, Point2)> {
+    let arc = match sketch.entity(curve) {
+        Some(Entity::Circle { .. }) => None,
+        Some(Entity::Arc { .. }) => sketch.arc(curve),
+        Some(
+            Entity::Point(_)
+            | Entity::Line { .. }
+            | Entity::Spline { .. }
+            | Entity::Ellipse { .. }
+            | Entity::EllipticalArc { .. },
+        )
+        | None => return Vec::new(),
+    };
+    let Some((position, radius)) = sketch.circle(curve) else {
+        return Vec::new();
+    };
+    Side::ALL
+        .into_iter()
+        .map(|side| (side, position + side.outward() * radius))
+        .filter(|(_, at)| arc.is_none_or(|arc| within_sweep(&arc, *at)))
         .collect()
 }
 
@@ -685,35 +749,45 @@ fn quadrants(sketch: &Sketch) -> Vec<Snapped> {
     sketch
         .entities()
         .flat_map(|(curve, entity)| {
-            let (centre, arc) = match *entity {
-                Entity::Circle { center, .. } => (center, None),
-                Entity::Arc { center, .. } => (center, sketch.arc(curve)),
-                Entity::Point(_)
-                | Entity::Line { .. }
-                | Entity::Spline { .. }
-                | Entity::Ellipse { .. }
-                | Entity::EllipticalArc { .. } => {
-                    return Vec::new();
-                }
-            };
-            let Some((position, radius)) = sketch.circle(curve) else {
+            let (Entity::Circle { center, .. } | Entity::Arc { center, .. }) = *entity else {
                 return Vec::new();
             };
-            Side::ALL
+            quadrant_points(sketch, curve)
                 .into_iter()
-                .map(|side| (side, position + side.outward() * radius))
-                .filter(|(_, at)| arc.is_none_or(|arc| within_sweep(&arc, *at)))
                 .map(|(side, at)| Snapped {
                     position: at,
                     target: Target::Quadrant {
                         curve,
-                        centre,
+                        centre: center,
                         side,
                     },
                 })
                 .collect()
         })
         .collect()
+}
+
+fn axis_end_points(sketch: &Sketch, curve: EntityId) -> Vec<(AxisEnd, Point2)> {
+    let Some(ellipse) = sketch.ellipse(curve) else {
+        return Vec::new();
+    };
+    let across = ellipse.axis().perp() * ellipse.minor_radius;
+    let slack = AXIS_TOLERANCE * ellipse.major_radius();
+    let minor = if ellipse.major.y.abs() <= slack {
+        AxisEnd::MinorUpright
+    } else if ellipse.major.x.abs() <= slack {
+        AxisEnd::MinorLevel
+    } else {
+        AxisEnd::MinorSlanted
+    };
+    [
+        (AxisEnd::FarMajor, ellipse.center - ellipse.major),
+        (minor, ellipse.center + across),
+        (minor, ellipse.center - across),
+    ]
+    .into_iter()
+    .filter(|(_, at)| ellipse.within_sweep(ellipse.parameter_of(*at)).is_some())
+    .collect()
 }
 
 fn axis_ends(sketch: &Sketch) -> Vec<Snapped> {
@@ -725,37 +799,76 @@ fn axis_ends(sketch: &Sketch) -> Vec<Snapped> {
             else {
                 return Vec::new();
             };
-            let Some(ellipse) = sketch.ellipse(curve) else {
-                return Vec::new();
-            };
-            let across = ellipse.axis().perp() * ellipse.minor_radius;
-            let slack = AXIS_TOLERANCE * ellipse.major_radius();
-            let minor = if ellipse.major.y.abs() <= slack {
-                AxisEnd::MinorUpright
-            } else if ellipse.major.x.abs() <= slack {
-                AxisEnd::MinorLevel
-            } else {
-                AxisEnd::MinorSlanted
-            };
-            [
-                (AxisEnd::FarMajor, ellipse.center - ellipse.major),
-                (minor, ellipse.center + across),
-                (minor, ellipse.center - across),
-            ]
-            .into_iter()
-            .filter(|(_, at)| ellipse.within_sweep(ellipse.parameter_of(*at)).is_some())
-            .map(|(end, position)| Snapped {
-                position,
-                target: Target::AxisEnd {
-                    curve,
-                    centre: center,
-                    major,
-                    end,
-                },
-            })
-            .collect()
+            axis_end_points(sketch, curve)
+                .into_iter()
+                .map(|(end, position)| Snapped {
+                    position,
+                    target: Target::AxisEnd {
+                        curve,
+                        centre: center,
+                        major,
+                        end,
+                    },
+                })
+                .collect()
         })
         .collect()
+}
+
+pub fn position_of(
+    sketch: &Sketch,
+    target: Target,
+    near: Point2,
+    ignored: &[EntityId],
+) -> Option<Point2> {
+    if target.touches(ignored) {
+        return None;
+    }
+    let nearest = |places: Vec<Point2>| {
+        places.into_iter().min_by(|a, b| {
+            a.distance_squared(near)
+                .total_cmp(&b.distance_squared(near))
+        })
+    };
+    match target {
+        Target::Point(point) => sketch.point(point),
+        Target::Midpoint(curve) => middle(sketch, curve, sketch.entity(curve)?),
+        Target::Quadrant { curve, side, .. } => quadrant_points(sketch, curve)
+            .into_iter()
+            .find(|(at, _)| *at == side)
+            .map(|(_, position)| position),
+        Target::AxisEnd { curve, end, .. } => {
+            let far = end == AxisEnd::FarMajor;
+            nearest(
+                axis_end_points(sketch, curve)
+                    .into_iter()
+                    .filter(|(at, _)| (*at == AxisEnd::FarMajor) == far)
+                    .map(|(_, position)| position)
+                    .collect(),
+            )
+        }
+        Target::Intersection(first, second) => nearest(crossed(
+            sketch,
+            (first, geometry(sketch, first)),
+            (second, geometry(sketch, second)),
+        )),
+        Target::Centre {
+            corners: (first, second),
+            ..
+        } => Some(sketch.point(first)?.midpoint(sketch.point(second)?)),
+        Target::Centroid(outline) => {
+            let (lines, steps) = loop_through(sketch, outline)?;
+            if moves(&lines, &steps, ignored) {
+                return None;
+            }
+            centroid(&lines, &steps)
+        }
+        Target::Pending(_)
+        | Target::Curve(_)
+        | Target::Extension(_)
+        | Target::Tangent(_)
+        | Target::Body(_) => None,
+    }
 }
 
 const AXIS_TOLERANCE: f64 = 1e-9;
@@ -888,13 +1001,36 @@ fn outline_pieces(sketch: &Sketch) -> Vec<OutlineLine> {
         .collect()
 }
 
-fn centres(sketch: &Sketch, ignored: &[EntityId]) -> Vec<Snapped> {
-    let lines = outline_pieces(sketch);
+fn joined_tolerance(lines: &[OutlineLine]) -> f64 {
     let extent = lines
         .iter()
         .flat_map(|line| [line.start.1, line.end.1])
         .fold(1.0_f64, |most, point| most.max(point.abs().max_element()));
-    let tolerance = JOINED_CORNER_TOLERANCE * extent;
+    JOINED_CORNER_TOLERANCE * extent
+}
+
+fn loop_through(sketch: &Sketch, piece: EntityId) -> Option<(Vec<OutlineLine>, Vec<OutlineStep>)> {
+    let lines = outline_pieces(sketch);
+    let first = lines.iter().position(|line| line.id == piece)?;
+    let partners = corner_partners(&lines, joined_tolerance(&lines));
+    let mut visited = vec![false; lines.len()];
+    let steps = closed_outline(&lines, &partners, first, &mut visited)?;
+    Some((lines, steps))
+}
+
+pub fn outline_through(sketch: &Sketch, piece: EntityId) -> Option<Vec<EntityId>> {
+    let (lines, steps) = loop_through(sketch, piece)?;
+    Some(
+        steps
+            .iter()
+            .filter_map(|step| lines.get(step.piece).map(|line| line.id))
+            .collect(),
+    )
+}
+
+fn centres(sketch: &Sketch, ignored: &[EntityId]) -> Vec<Snapped> {
+    let lines = outline_pieces(sketch);
+    let tolerance = joined_tolerance(&lines);
     let partners = corner_partners(&lines, tolerance);
     let mut visited = vec![false; lines.len()];
     let mut found = Vec::new();
@@ -1597,6 +1733,46 @@ pub mod tests {
             .zip(corners.iter().cycle().skip(1))
             .map(|(from, to)| sketch.add_line(*from, *to))
             .collect()
+    }
+
+    #[test]
+    fn a_point_like_target_is_found_again_where_it_lies_now() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let line = sketch.add_line(Point2::new(-20.0, 0.0), Point2::new(20.0, 0.0));
+        let circle = sketch.add_circle(Point2::ZERO, 10.0);
+        let triangle = outline(
+            &mut sketch,
+            &[
+                Point2::new(30.0, 0.0),
+                Point2::new(60.0, 0.0),
+                Point2::new(30.0, 30.0),
+            ],
+        );
+        let crossing = Target::Intersection(line.min(circle), line.max(circle));
+        let centroid = Target::Centroid(triangle[0]);
+        let corner = point_of(&sketch, triangle[1], 1);
+
+        let left = position_of(&sketch, crossing, Point2::new(-8.0, 1.0), &[]);
+        let right = position_of(&sketch, crossing, Point2::new(8.0, 1.0), &[]);
+        let middle = position_of(&sketch, Target::Midpoint(line), Point2::ZERO, &[]);
+        let centre = position_of(&sketch, centroid, Point2::ZERO, &[]).unwrap();
+
+        assert_eq!(left, Some(Point2::new(-10.0, 0.0)));
+        assert_eq!(right, Some(Point2::new(10.0, 0.0)));
+        assert_eq!(middle, Some(Point2::ZERO));
+        assert!(centre.distance(Point2::new(40.0, 10.0)) < 1e-9);
+        assert_eq!(
+            position_of(&sketch, centroid, Point2::ZERO, &[corner]),
+            None
+        );
+        assert_eq!(
+            position_of(&sketch, Target::Midpoint(line), Point2::ZERO, &[line]),
+            None
+        );
+        assert_eq!(
+            position_of(&sketch, Target::Curve(line), Point2::ZERO, &[]),
+            None
+        );
     }
 
     #[test]
