@@ -55,83 +55,70 @@ paths:
 
 - `app.rs` is the winit `ApplicationHandler`; `overlay.rs` the egui integration over the viewport,
   keeping a CPU copy of every egui texture so a new renderer generation (lost device) rebuilds
-  egui and re-uploads them whole. `scene.rs` converts documents and results to a `Scene`.
-- Selectables are `Pickable`s built from stable IDs. The hover remembers the cursor position and
-  view its pick was made for; a click that depends on it (anything but a drawing tool's) keeps
-  the cursor and view it was made at (`PendingClick`) and waits for the pick made there, so it
-  never acts on a stale hover nor on what the pointer reaches meanwhile. Picks run one at a time,
-  so once a pick for the pointer's newer spot has arrived, or the pointer has left the view, the
-  click's own will never come: it is resolved on the CPU (`ViewportState::seen_through`, the
-  scene's `hits_through` at the click's spot and view, keeping only what lies no deeper than the
-  nearest face there allows, then the usual `best_hit`), and performed with the cursor, sketch
-  cursor and hover put back to that spot for it. A press keeps its view too, and a drag starting
-  before the press's pick arrived takes what lies under the press the same way (`caught_up`).
+  egui and re-uploads them. `scene.rs` converts documents and results to a `Scene`.
+- Selectables are `Pickable`s built from stable IDs. A click that depends on the hover (anything
+  but a drawing tool's) keeps the cursor and view it was made at (`PendingClick`) and waits for the
+  pick made there, so it never acts on a stale hover. Picks run one at a time: once a pick for a
+  newer pointer spot has arrived, or the pointer left the view, the click's own never comes, so it
+  is resolved on the CPU (`ViewportState::seen_through`: the scene's `hits_through`, keeping what
+  lies no deeper than the nearest face allows, then `best_hit`) and performed with cursor, sketch
+  cursor and hover put back to that spot. A drag starting before the press's pick arrived takes what
+  lies under the press the same way (`caught_up`).
 - `Model` (`model.rs`) owns the `Editor`, the `Recomputer` and the length unit; the UI gets
   `&Model` and returns `Action`s the app performs after its pass. Features draw from the last good
   result, tinted if failed or outdated; suppressed and rolled-back ones are neither drawn nor
-  picked (`Document::active_features`), and what was selected of them leaves the selection: a
-  sketch's curves and regions are available only while it is active (`Document::is_active` in
-  `Pickable::is_available`) or edited, as faces and edges are only while the evaluation has them.
-- `Model` also owns the file session: path, last saved document (unsaved exactly when the
-  document differs from it, and always when unknown, e.g. after restoring a rebased journal; a
-  followed measurement reading that brings the document back to it clears the mark), the
-  journal's base and entries since it, and the `Storage` worker every change is recorded to.
-  While the journal cannot be written the status bar shows Not protected.
+  picked (`Document::active_features`) and leave the selection. A sketch's curves and regions are
+  available only while it is active (`Document::is_active` in `Pickable::is_available`) or edited,
+  as faces and edges only while the evaluation has them.
+- `Model` also owns the file session: path, last saved document (unsaved exactly when the document
+  differs from it, and always when unknown, e.g. after restoring a rebased journal), the journal's
+  base and entries since it, and the `Storage` worker every change is recorded to. While the
+  journal cannot be written the status bar shows Not protected.
 
 ## Scene
 
-- `ViewportState::build_scene` hands the renderer a cached scene (`scene_cache.rs`), never one
-  built afresh each frame. The base scene (bodies, sketches, references, hover and selection
-  colours, a `PickTable`) is rebuilt only when its content or highlight changes; an idle frame or a
-  camera move reuses it whole. Content is everything that can change what is drawn (document
+- `ViewportState::build_scene` hands the renderer a cached scene (`scene_cache.rs`). The base scene
+  (bodies, sketches, references, hover and selection colours, a `PickTable`) is rebuilt only when
+  its content or highlight changes. Content is everything that can change the drawing (document
   revision, evaluation, the open feature's draft, displayed sketches, body meshes, display style,
   `Contrast`, editing `Context`, faceting level); anything new that affects the drawing must feed
-  that key.
-  The hovered `Pickable`s and the chosen rows (with their bodies, `viewport::with_their_bodies`)
-  handed in `Highlight` are sorted and deduplicated, since every scene item looks itself up with
-  a binary search.
-- Each shown body is a `BodyPart` the cache keeps between rebuilds (`scene::BodyParts`): its mesh
-  instances, its silhouette, a batch of its own holding its edges and vertices, and a block of
-  pick ids of its own (`PickBlock`, ids from `BODY_PICKS_FROM` up). A rebuild reuses a part whose
-  `BodyLook` (mesh, colour, face looks, opacity, dashes, placement, pickability, display style,
-  palette, analysis, reflection) and `BodyLit` (its selected and hovered items, and whether its
-  tree row is chosen, worked out once a rebuild for every body by `LitBodies`) are unchanged,
+  that key. The hovered `Pickable`s and chosen rows (with their bodies,
+  `viewport::with_their_bodies`) in `Highlight` are sorted and deduplicated, since items look
+  themselves up by binary search.
+- Each shown body is a `BodyPart` the cache keeps (`scene::BodyParts`): mesh instances, silhouette,
+  its own batch for edges and vertices, and a `PickBlock` of pick ids from `BODY_PICKS_FROM` up. A
+  rebuild reuses a part whose `BodyLook` (mesh, colour, face looks, opacity, dashes, placement,
+  pickability, display style, palette, analysis, reflection) and `BodyLit` (selected and hovered
+  items, whether its tree row is chosen; worked out once per rebuild by `LitBodies`) are unchanged,
   restyles one whose highlight alone changed within the same pick ids (keeping its batch's `Arc`
-  when its edges look the same, so a face hover uploads no lines), and gives a changed look a new
-  block. So a hover or selection change restyles and uploads only the bodies it touches, and no
-  pick id moves when bodies come, go or change
-  (`each_body_draws_its_own_batch_and_a_hover_or_a_hidden_body_moves_no_other_pick_id`). The
-  scene's batches are its own (sketches, references, threads, the open feature), then the bodies'
-  in body order, then the overlay. The `PickTable` holds the scene's own block and the bodies'
-  blocks, resolves an id by binary search over the blocks' first ids and lists the pickables in
-  the order they were made (the scene's own before the bodies, the bodies, the rest). The
-  allocator starts over, rebuilding every part, once past `BODY_PICKS_RESTART`. Body health is
-  worked out for every body in one pass over the features (`Healths`). Image export builds from a
-  copy of the kept parts, so it reuses every unhighlighted one.
-- Previews, the trim preview and the measured line form a second batch, rebuilt only when it
-  differs; it has no pick ids, so it never asks for a pick.
-- A pick is asked for when the cursor, the view or the base's generation differs from the last
-  (`PickKey`). None is asked while the camera's viewpoint moves, so hover stays put and one pick
-  follows when it settles.
-- `SketchShapes` caches faceted outlines and each entity's `SketchState`, so a hover or selection
-  change only restyles them. Image export and the headless PNG build their own scene, without
-  highlights and in the standard palette, since high contrast is a viewing aid: the image export
-  and the version preview in the palette of the 3D view's canvas, since they are
-  drawn on its background (`Background::Viewport`), the headless PNG and 3MF thumbnail in the
-  dark one (`snapshot::of_bodies` takes the canvas).
+  when its edges look the same), and gives a changed look a new block. A hover or selection change
+  restyles and uploads only the bodies it touches and no pick id moves when bodies come, go or
+  change (`each_body_draws_its_own_batch_and_a_hover_or_a_hidden_body_moves_no_other_pick_id`).
+- Batch order: the scene's own (sketches, references, threads, the open feature), the bodies' in
+  body order, the overlay. The `PickTable` resolves an id by binary search over the blocks' first
+  ids. The allocator restarts, rebuilding every part, past `BODY_PICKS_RESTART`. Body health is
+  worked out for all bodies in one pass (`Healths`). Image export builds from a copy of the kept
+  parts.
+- Previews, the trim preview and the measured line form a second batch with no pick ids, rebuilt
+  only when it differs. A pick is asked for when the cursor, the view or the base's generation
+  differs from the last (`PickKey`), never while the camera's viewpoint moves.
+- `SketchShapes` caches faceted outlines and each entity's `SketchState`.
+- Image export, the version preview, the headless PNG and the 3MF thumbnail build their own scene,
+  without highlights and in the standard palette (high contrast is a viewing aid): image export and
+  version preview in the palette of the 3D view's canvas (`Background::Viewport`), the headless PNG
+  and 3MF thumbnail in the dark one (`snapshot::of_bodies` takes the canvas).
 - Every scene colour and line weight comes from the `ScenePalette` of the viewport's `Contrast`
   (`scene_palette.rs`, set from the High contrast preference each frame), never a constant in
-  `scene.rs`; the overlay batch carries the contrast too. Colours shared with canvas labels
-  (hover, selection, snap, measure, problems) stay `canvas` colours in both palettes.
+  `scene.rs`. Colours shared with canvas labels (hover, selection, snap, measure, problems) stay
+  `canvas` colours in both palettes.
 
 ## Sketch faceting
 
-- Sketch curves, previews and trim pieces are faceted to a chord tolerance (`faceting.rs`) set
-  from the view: a fraction of a pixel at the view's target distance, rounded down to a power of
-  two of millimetres (`FacetLevel`). A level is kept while the wanted chord stays within a
-  band above it (never coarser than wanted), so zooming back and forth never refacets.
-- `scene::drawn_faceting` coarsens the chord while the drawn curves would need more than
-  `SKETCH_SEGMENT_BUDGET` segments, so zooming into thousands of circles never exhausts memory.
+- Sketch curves, previews and trim pieces are faceted to a chord tolerance (`faceting.rs`): a
+  fraction of a pixel at the view's target distance, rounded down to a power of two of millimetres
+  (`FacetLevel`), kept while the wanted chord stays within a band above it (never coarser than
+  wanted), so zooming back and forth never refacets. `scene::drawn_faceting` coarsens the chord
+  while the curves would need more than `SKETCH_SEGMENT_BUDGET` segments.
 - Picks, hover highlights and box selection (`sketch_drag::within`) use the drawn polylines;
   snapping stays exact on the curves. Bounds and fitting use the sketch crate's default segment
   angle, not the view's faceting.
@@ -140,161 +127,127 @@ paths:
 
 - The app is a library with a thin binary (`main.rs` calls `caditor::run`), so the fuzz workspace
   reaches app code through the `fuzzing` feature. `run` starts with an empty model.
-- Release builds unwind (`panic = "unwind"`), since containment relies on it; `recompute.rs`
-  fails to compile otherwise.
+- Release builds unwind (`panic = "unwind"`), since containment relies on it; `recompute.rs` fails
+  to compile otherwise.
 - The viewport fits once the first recompute of a newly opened model (new `Model::session`) is up
-  to date and its bodies are meshed (`Model::bodies_pending`), keeping the projection of the
-  preferences. Fitting and the reference size count only what is drawn: sketches among
-  `active_features` (not suppressed or past the bar) and not hidden, and shown bodies.
+  to date and its bodies are meshed (`Model::bodies_pending`). Fitting and the reference size count
+  only what is drawn: sketches among `active_features` and not hidden, and shown bodies.
 - IDs restart per document, so a new session clears everything holding them: viewport selection,
   hover, highlight and drawing state (`Workspace::sync`), the tree's selection and rename, the
   export dialog's left-out bodies. Anything new that holds IDs must be cleared there.
 - `crash::protect` installs the panic hook and a SIGTERM/SIGHUP/SIGINT handler that flush the
   journal before exit; on Windows a console close handler, plus `crash::flush_when_the_session_ends`
   once the window exists (`windows.md`). `tests/crash_flush.rs` re-runs its binary as a child that
-  panics, raises SIGTERM (Unix only) or is killed, and checks a recovery scan restores every
-  change; it runs a real storage worker, not the app, so the app itself is killed by
-  `packaging/check-run.sh` (`ci.md`).
+  panics, raises SIGTERM (Unix only) or is killed, and checks a recovery scan restores every change;
+  it runs a real storage worker, not the app, which `packaging/check-run.sh` kills (`ci.md`).
 - `startup_check.rs` is the app's hook for that script. Every run logs "the first frame was drawn"
-  once the first frame is through (after `FrameFailures::drawn`), and `Files::offer` logs "recovery
-  offered for <journal> with N recoverable changes" for each journal the startup scan finds. With
-  `CADITOR_STARTUP_CHECK` set (`Mode::parse`), the check does one of three things. Any other
-  non-empty value: the first frame not blocked by a dialog or an opening applies one transaction
-  (a parameter named `startup_check`), flushes the journal (`Model::flush_journal`) and logs
-  "startup check: an edit is in the recovery journal", so a harness can kill the process knowing a
-  recoverable change is on disk. `save:<path>`: the first unblocked frame replaces the model with
-  the Plate sample, saves it to the path and, once the save is through, logs "startup check:
-  saved the model to <path>", so a harness has a saved model to open. `restore`: as soon as the
-  startup scan or an opened model's journal offers a recovery (`Files::first_recoverable`), it
-  performs `FileCommand::Restore` for it, as the card's Restore button does, and logs "startup
-  check: restored N changes of <name>" if the restored document holds the `startup_check`
-  parameter (an error line otherwise), the name being Untitled or the model's file name, so the
-  harness sees that the edit came back into the right document. The variable has no command-line
-  form and is not documented to users.
-- A panic while handling a window or user event (a frame, closing, a dropped file, an
-  accessibility event) is caught in `App::contained` after the hook flushed the journal. The window
-  gets a fresh egui context, `after_failed_frame` drops transient state (selection, tools, sketch
-  editing, palette, dialogs, except prompts guarding unsaved work) and a notice says so; the
-  model and undo history stay. A sketch drag still held is cancelled (`Model::abandon_held_drag`),
-  so the sketch is shown at its committed positions; a constraint trial in flight is kept, being
-  a user's edit rather than interface state. A second failed frame in a row suppresses every feature as one
-  undoable change, saying how to find the culprit; `GIVE_UP_AFTER_FAILED_FRAMES` in a row exits with
-  the journal kept, so the next start offers it. The recovery card's Restore suppressed is the
-  same restore followed by suppressing every feature.
+  and `Files::offer` logs "recovery offered for <journal> with N recoverable changes".
+  `CADITOR_STARTUP_CHECK` (`Mode::parse`), acting on the first frame not blocked by a dialog or an
+  opening: any other non-empty value applies one transaction (a parameter `startup_check`), flushes
+  the journal (`Model::flush_journal`) and logs "startup check: an edit is in the recovery
+  journal"; `save:<path>` replaces the model with the Plate sample, saves it and logs "startup
+  check: saved the model to <path>"; `restore` performs `FileCommand::Restore` once a recovery is
+  offered (`Files::first_recoverable`) and logs "startup check: restored N changes of <name>" if the
+  restored document holds the `startup_check` parameter (an error line otherwise). It has no
+  command-line form and is not documented to users.
+- A panic while handling a window or user event is caught in `App::contained` after the hook
+  flushed the journal. The window gets a fresh egui context, `after_failed_frame` drops transient
+  state (selection, tools, sketch editing, palette, dialogs except prompts guarding unsaved work)
+  and a notice says so; the model and undo history stay. A held sketch drag is cancelled
+  (`Model::abandon_held_drag`); a constraint trial in flight is kept, being a user's edit. A second
+  failed frame in a row suppresses every feature as one undoable change, saying how to find the
+  culprit; `GIVE_UP_AFTER_FAILED_FRAMES` in a row exits with the journal kept. The recovery card's
+  Restore suppressed is the same restore followed by suppressing every feature.
 - `logging.rs`: each run logs to stderr and its own owner-only file under the state directory
-  (`caditor_file::SessionLog`, bounded by `MAX_LOG_SIZE`, `LOGS_KEPT` newest kept), with an end
-  line on a normal exit, reported failure or termination signal. At start a log whose process is
-  gone and which has no end line is named in a notice, then marked reported.
-- A failure `run` returns (no window, no renderer, a window failing frame after frame) is logged
-  and, when stderr is not a terminal, shown through `zenity`, `kdialog` or `notify-send` (a message
-  box on Windows); `failure_text` names the cause, the log, and for a `RenderError` the
-  `WGPU_BACKEND` workaround of the platform (`gl` on Linux, `vulkan` or `gl` on Windows).
+  (`caditor_file::SessionLog`, `MAX_LOG_SIZE`, `LOGS_KEPT` newest kept), with an end line on a
+  normal exit, reported failure or termination signal. At start a log whose process is gone and
+  which has no end line is named in a notice, then marked reported.
+- A failure `run` returns is logged and, when stderr is not a terminal, shown through `zenity`,
+  `kdialog` or `notify-send` (a message box on Windows); `failure_text` names the cause, the log,
+  and for a `RenderError` the `WGPU_BACKEND` workaround (`gl` on Linux, `vulkan` or `gl` on
+  Windows).
 
 ## Redraws and frame pacing
 
 - caditor draws only when something asks (input, a worker's wake, egui's repaint request, or a
-  frame that must follow: an action, a camera animation). A pick in flight wakes the app when
-  the device has answered it (the renderer's helper thread, below), and a frame follows; as a
-  fallback it is also checked every `PICK_FALLBACK` from `about_to_wait`
-  (`Renderer::is_pick_answered`), so a pick never waits on the helper alone; an exported image's tiles advance on the wake its writer sends for each buffer it
-  returns. Neither draws frames while it waits. While the renderer is uploading meshes
-  (`Renderer::is_uploading`) a frame follows each frame, the interface shows it (`app-look.md`), and the frame that sees the uploads
-  finished asks for a pick again (`ViewportState::pick_again`), since picks made meanwhile could
-  not pick the replaced bodies. Every request goes through `Session::request_redraw`, never straight to the window.
-  Animated widgets (`widgets::spinner`) and progress readouts repaint on a timer
-  (`request_repaint_after`), never every frame, and the text caret does not blink (`app-look.md`).
-- `FramePacer` (`graphics.rs`) holds requests to the frame limit: the chosen rate's interval, or
-  for Match the display the monitor's refresh rate only while vsync is off (`Fifo` already paces
-  to it); none when unlimited or unknown. An early request is scheduled for the next slot
-  (`next_repaint`, which `about_to_wait` turns into `ControlFlow::WaitUntil`). The first frame
-  after an idle spell is never delayed and idle stays idle.
+  frame that must follow: an action, a camera animation). A pick in flight wakes the app when the
+  device answers and is also checked every `PICK_FALLBACK` from `about_to_wait`
+  (`Renderer::is_pick_answered`); an exported image's tiles advance on the wake its writer sends
+  per buffer. While the renderer uploads meshes (`Renderer::is_uploading`) a frame follows each
+  frame (`app-look.md`), and the frame that sees the uploads finish asks for a pick again
+  (`ViewportState::pick_again`). Every request goes through `Session::request_redraw`, never
+  straight to the window. Animated widgets (`widgets::spinner`) and progress readouts repaint on a
+  timer (`request_repaint_after`), never every frame; the text caret does not blink.
+- `FramePacer` (`graphics.rs`) holds requests to the frame limit: the chosen rate's interval, or for
+  Match the display's refresh rate only while vsync is off (`Fifo` already paces); none when
+  unlimited or unknown. An early request is scheduled for the next slot (`next_repaint`, which
+  `about_to_wait` turns into `ControlFlow::WaitUntil`). The first frame after an idle spell is never
+  delayed.
 
 ## Bodies
 
 - Body meshes come from the recompute worker at its `MeshQuality` (`document-recompute.md`). The
   Curve smoothness preference reaches it through `Model::set_mesh_quality` at startup and on each
-  change (`app::apply_preferences`), followed by a new submission so every body is meshed again.
+  change (`app::apply_preferences`), followed by a new submission.
 - `BodyMeshing` (`bodies.rs`) converts each body's final mesh (and the state before the open blend
   or shell and the open cut's tools, `Model::mesh_before`) into a `ShadedMesh` with edge polylines
-  on a pool of its own (`Pool`: threads started as queued work outgrows the idle ones, up to the
-  available parallelism less one, conversions taken before mass properties), once per result
-  keyed by its `Arc`'s address. The `ShadedMesh` shares the kernel mesh rather than copying it:
-  a `DisplayedMesh` holding the result's `Arc` is its `MeshSource` (`render.md`), which the
-  document keeps anyway for the next recompute's face reuse, Measure, box selection and the mass
-  fallback; only a mesh not laid out face by face would be copied
-  (`a_body_mesh_reads_the_kernel_mesh_rather_than_holding_a_copy_of_it`). Edges are not copied
-  either: a `BodyEdge` is its name and the index of the kernel mesh's polyline, whose positions
-  `BodyMesh::points` reads through the result's `Arc` (`EdgePoints`, `segments` for drawing and box
-  selection; `body_edges_read_their_points_from_the_kernel_mesh`). A panic leaves that
-  body meshless; without a worker it runs on the UI thread. Arrivals are held and shown together: the first at once, then all that arrived
-  whenever `SHOWN_TOGETHER_FOR` has passed since the last showing or nothing is left to convert,
-  so a large import is drawn in a few batches and the base scene is rebuilt a few times rather
-  than once per body. `BodyMeshes` takes each batch, keeping the previous mesh until then, so the
-  UI thread only uploads buffers; it walks the bodies again only when the evaluation
-  (`Model::evaluation_generation`) or the converted meshes (`BodyMeshing::conversions`) changed
-  (`BodyMeshes::update_when_changed`), not every frame. While bodies are pending the status bar's summary says how many
-  of them are shown (`Model::bodies_preparing`, "Showing 300 of 954 bodies…"), its spinner's
-  repaints also letting held batches out.
-- A face is `Pickable::Face` with a `FaceKey` (`FaceName` plus occurrence among same-named
-  faces), an edge `Pickable::Edge` with its `EdgeName`, a vertex `Pickable::Vertex` with a
-  `VertexKey`, found through the result's `NameIndex` and described in words from the
-  `FaceOrigin`, never by index.
-- Vertices are colourless markers: they pick (winning over edges and faces nearby) but show only
-  when hovered or selected.
-- A body's `BodyMass` (volume, area, centroid, second moments and bounding-box size) and its faces'
+  on its own `Pool` (threads up to the available parallelism less one, conversions before mass
+  properties), once per result keyed by its `Arc`'s address. Nothing is copied: a `DisplayedMesh`
+  holding the result's `Arc` is the `MeshSource` (`render.md`;
+  `a_body_mesh_reads_the_kernel_mesh_rather_than_holding_a_copy_of_it`) and a `BodyEdge` is its name
+  plus the index of the kernel mesh's polyline, read through the `Arc` by `BodyMesh::points`
+  (`body_edges_read_their_points_from_the_kernel_mesh`). A panic leaves that body meshless; without
+  a worker it runs on the UI thread.
+- Arrivals are held and shown together: the first at once, then all that arrived whenever
+  `SHOWN_TOGETHER_FOR` has passed since the last showing or nothing is left to convert, so a large
+  import is drawn in a few batches. `BodyMeshes` takes each batch, keeping the previous mesh until
+  then, and walks the bodies only when the evaluation (`Model::evaluation_generation`) or the
+  converted meshes (`BodyMeshing::conversions`) changed (`BodyMeshes::update_when_changed`). While
+  bodies are pending the status bar says how many are shown (`Model::bodies_preparing`).
+- A face is `Pickable::Face` with a `FaceKey` (`FaceName` plus occurrence among same-named faces),
+  an edge `Pickable::Edge` with its `EdgeName`, a vertex `Pickable::Vertex` with a `VertexKey`,
+  found through the result's `NameIndex` and described in words from the `FaceOrigin`, never by
+  index. Vertices are colourless markers: they pick (winning over nearby edges and faces) but show
+  only when hovered or selected.
+- A body's `BodyMass` (volume, area, centroid, second moments, bounding-box size) and its faces'
   areas are worked out exactly from the kernel (`mass_properties`, `extent`), independent of the
-  mesh, only once something asks (`BodyMesh::mass`, `BodyMesh::face_area`): the first asking
-  queues the work on the pool behind the conversions (`MassSlot`, shared by clones of the
-  `BodyMesh`; worked out inline when the pool is gone), since adaptive quadrature over every face
-  of a large import (185 s for the VZ330 assembly on one thread) must not hold its meshes back.
-  Until it arrives Measure's card says it is being worked out, the centre-of-mass aid leaves the
-  body out and a face's area falls back to its mesh triangles (≈); each arrival bumps
-  `Model::masses_measured`, which the offers, Measure and, while the centre-of-mass aid is on, the
-  scene key (`Revisions::masses`) watch. A face the kernel could not integrate takes the mesh's
-  triangles, and the body is then marked approximate with the mesh's chord
-  (`MassAccuracy::Mesh`).
-- A body is drawn in its appearance colour, else the default (`body_appearance::DEFAULT_COLOUR`);
-  a failed or outdated feature on it tints it as before. In high contrast every body and face
-  colour passes through `ScenePalette::body`, which lightens one too dark for edges and face
-  highlights to hold 3:1 on it (`app-look.md`). While a sketch is edited, bodies are
-  dimmed and not pickable.
-- Every failed feature whose error has a `place` gets a marker there in the error colour, drawn in
-  front of the model with a "<feature> failed here" label that screen readers read.
+  mesh, only once something asks (`BodyMesh::mass`, `BodyMesh::face_area`): the first asking queues
+  the work on the pool behind the conversions (`MassSlot`, shared by clones of the `BodyMesh`;
+  inline when the pool is gone), since adaptive quadrature over a large import (185 s for the VZ330
+  assembly on one thread) must not hold meshes back. Until it arrives Measure's card says so, the
+  centre-of-mass aid leaves the body out and a face's area falls back to its mesh triangles (≈);
+  each arrival bumps `Model::masses_measured`, which offers, Measure and (with the aid on) the scene
+  key (`Revisions::masses`) watch. A face the kernel could not integrate takes the mesh's triangles
+  and the body is marked approximate (`MassAccuracy::Mesh`).
+- A body is drawn in its appearance colour, else `body_appearance::DEFAULT_COLOUR`; a failed or
+  outdated feature on it tints it. In high contrast every body and face colour passes through
+  `ScenePalette::body` (`app-look.md`). While a sketch is edited, bodies are dimmed and not
+  pickable.
+- Every failed feature whose error has a `place` gets a marker there in the error colour, in front
+  of the model, with a "<feature> failed here" label that screen readers read.
 
 ## Offers
 
 - `offers.rs` works out what the selection offers the toolbar and status bar only when the
-  selection, the model revision, its evaluation, the units (length and angle, since sweeps and half
-  angles are written in the angle unit) or the edited sketch and opened
-  feature change, not every frame (the Hole tool's start is one of the offers). It
-  describes only the first `MAX_DESCRIBED` items and counts the rest (the status bar's tooltip
-  ends "and N more"), since describing an item can scan its body.
-- A lone selected face, edge, sketch curve or sketch region, or a lone body chosen in the tree
-  with nothing selected, also gets its size in `Offers::size` (`measure::size_text` and
-  `body_size_text`, marked ≈ when approximate, parts joined by a middle dot): a full circle Ø, R
-  and circumference, an arc R, length and sweep, an ellipse its radii and length, a line its
-  length; a flat face or one region whose outer loop is four straight sides at right angles its
-  width × height (longer first), a full circle its circle parts, any other its perimeter, each
-  then its area; a cylinder or sphere face Ø and R, a cone its half angle and a torus its ring
-  and tube radii, then the area; a body its Size, which the status bar shows beside the selection;
-  the offers are worked out again when the bodies' meshes finish (`Model::bodies_pending`) and
-  when mass properties arrive (`Model::masses_measured`), since
-  areas and sizes read the converted body (a face's area falls back to its mesh triangles,
-  marked ≈, until then).
+  selection, model revision, evaluation, units (length and angle) or the edited sketch and opened
+  feature change. It describes only the first `MAX_DESCRIBED` items and counts the rest, since
+  describing an item can scan its body. Offers are worked out again when meshes finish
+  (`Model::bodies_pending`) and masses arrive (`Model::masses_measured`).
+- A lone selected face, edge, sketch curve or region, or a lone body chosen in the tree, also gets
+  its size in `Offers::size` (`measure::size_text`, `body_size_text`, marked ≈ when approximate):
+  circle Ø, R and circumference; arc R, length, sweep; line length; a flat face or region whose
+  outer loop is four right-angled straight sides width × height (longer first), else perimeter, then
+  area; cylinder, sphere, cone and torus radii or angle, then area; a body its Size.
 - Two selected items (`measure::is_pair`) get their reading in the status bar in the size's place
   (`StatusContext::between`, `pair_reading::PairReading`): "Distance 12.5 mm" and, where the pair
-  has one, "Angle 90°", read from the Between them card of a `Readout` that a `Measurements` of
-  its own works out on its worker, in the world frame, whether or not Measure is open. It is
-  refreshed each frame, which restarts only when the selection, revision, evaluation or masses
-  change, forgets its readout when the selection is not a pair, and keeps the previous reading
-  until the new one arrives. A pair Measure cannot read shows nothing.
+  has one, "Angle 90°", from the Between them card of a `Readout` that its own `Measurements` works
+  out on its worker, in the world frame, whether or not Measure is open. It restarts only when the
+  selection, revision, evaluation or masses change and keeps the previous reading until the new one
+  arrives.
 - `Selection::generation` is globally unique per content change, so caches key on it rather than
-  cloning and comparing the set: the offers, the scene cache's highlight key, the check that
-  clears the tree's selected row when the view's selection changes, Measure, the panels' Use
-  selected offers
-  (`feature_fields::offered_change`, kept per feature and slot in egui's memory), and the
-  viewport's check that the selection is still available (`retain_available`, rerun only when the
-  selection, revision, evaluation or editing context changed).
+  comparing the set: the offers, the scene cache's highlight key, the tree's selected-row check,
+  Measure, the panels' Use selected offers (`feature_fields::offered_change`, kept per feature and
+  slot in egui's memory), and the viewport's availability check (`retain_available`).
 
 ## Measure
 
@@ -302,286 +255,222 @@ paths:
   draws a right-hand panel. Measuring never changes the document; only a reading's New parameter
   from this value and Keep this measurement do, each as an ordinary change.
 - `Measurements` resolves the selection on the UI thread into points, edges and faces (with their
-  result's `Arc`), sketch curves (`profile_curve` lifted onto the sketch's solved plane), and the
-  principal and datum planes and axes, a coordinate system's axes and planes and its origin as a
-  point (a plane reads through a point with its normal, an axis
-  through a point with its direction, a circle or arc its radius, diameter, centre and sweep), then measures on its own worker (newest job wins, a panic becomes a failed
-  reading) only when the selection, revision, evaluation or the coordinate system read in
-  changes. Until the current result
-  arrives the previous readout stays, dimmed (`Freshness::Stale`) under a Measuring header, so
-  nothing jumps; the measured line in the view comes only from the current readout.
+  result's `Arc`), sketch curves (`profile_curve` on the sketch's solved plane), principal and datum
+  planes and axes, and a coordinate system's axes, planes and origin, then measures on its own
+  worker (newest job wins, a panic becomes a failed reading) only when the selection, revision,
+  evaluation or the coordinate system read in changes. Until the current result arrives the
+  previous readout stays, dimmed (`Freshness::Stale`) under a Measuring header; the measured line
+  in the view comes only from the current readout.
 - Selected sketch regions (`Pickable::SketchRegion`) gather into one item per sketch
-  (`Subject::Regions`, the regions cloned from the result's display regions with the sketch's
-  solved plane), counted as one item (`item_count`), titled "<sketch> › N regions" when several.
-  They read their summed section (`caditor_kernel::section_of`, `kernel-profile.md`): area,
-  perimeter of the union's outline, centroid in the world, Ix, Iy and Ixy about the centroid along
-  the sketch's x and y, the polar moment J, the principal moments I1 and I2 and, unless the two
-  agree, the principal angle from the sketch's x to I1's axis and that axis as a world direction.
-  Second moments are `Value::SecondMoment` (`LengthUnit::measured_second_moment`, length⁴); a
+  (`Subject::Regions`, one item for `item_count`) and read their summed section
+  (`caditor_kernel::section_of`, `kernel-profile.md`): area, perimeter, centroid, Ix, Iy, Ixy, J,
+  principal moments and angle (`Value::SecondMoment`, `LengthUnit::measured_second_moment`); a
   spline side marks every value ≈. A region is never one side of a "Between them" card.
 - A `Readout` is a card per item and, for two items, a "Between them" card; more than two asks for
-  fewer, without describing or measuring any. Approximate values are marked with a note, a callout under its card. Mass properties are
-  read each frame from `BodyMass` for the selected items' bodies and those of the rows chosen in
-  the tree, else every shown body, with the
-  body's material and its mass from the density (No density set without one, a warning note when
-  the density cannot be evaluated) and, with a density, the moments of inertia about the centroid
-  along the model axes and the principal moments (`MassProperties::second_moment`). Two or more bodies also get an "All N bodies" card first: summed
-  volume and area, the centroid weighted by mass (by volume unless every body has a density), and
-  the total mass and inertia about that centroid only when every body has a density.
+  fewer without measuring any. Approximate values get a note callout under their card. Mass
+  properties are read each frame from `BodyMass` for the selected items' bodies and the rows chosen
+  in the tree, else every shown body, with material and mass from the density (No density set
+  without one) and, with a density, inertia about the centroid along the model axes and the
+  principal moments (`MassProperties::second_moment`). Two or more bodies also get an "All N
+  bodies" card first: summed volume and area, centroid weighted by mass (by volume unless every
+  body has a density), total mass and inertia only when every body has a density.
 - Every row of the reading and mass cards (not Interference's, which share `show_card`) has a menu
-  on its "⋯" button (named "More for <label>", so Tab and Enter reach it) and on a right-click of
-  its value (`measure_panel::row_menu`): Copy value puts the text as shown, unit and any ≈
-  included, on the clipboard (`egui::Context::copy_text`, as Copy all does) with a notice; New
-  parameter from this value, offered for a reading's `Value::Length`, `Angle` and `Area` and a
-  mass card's `Value::Volume`, `Area` and `Mass` only (a position, direction or second moment is
-  no one value the expression language holds), adds a parameter through
-  `parameter_table::add_with` in one transaction: named after the reading's label
-  (`parameter_stem`, "Along X" giving `along_x1`, the first free number), holding the value in the
-  model's unit as `LengthUnit::measured`, `AngleUnit::measured`, `measured_area_expression` or
-  `measured_volume_expression` (`mm²`, `mm³` and the like, rounded to the model's precision), a
-  mass as a plain number of grams to the milligram, with its name field focused for renaming and
-  a notice saying so.
-- Relative to (shown once the model holds a coordinate system, `MeasureTool::relative_to`, World
-  by default, forgotten when another model opens) reads every position and direction and the
-  Along X, Y and Z offsets in the chosen coordinate system (`measure::Relative`, its frame's inverse), a
-  body's and the all-bodies card's Centroid included (`mass_cards` takes the `Relative` and its
-  frame, so Keep this measurement along X, Y and Z keeps the coordinate in that system); distances,
-  angles, the line in the view and the inertia stay world geometry. A chosen system that is gone or has no
-  result is read as the world with a warning callout saying so (`measure_panel::relative`).
-- The closest points are drawn on the front layer (`scene::add_measurement`) with a distance
-  label in `Chrome::measure`.
+  on its "⋯" button ("More for <label>") and a right-click of its value (`measure_panel::row_menu`):
+  Copy value (as shown, unit and ≈ included); New parameter from this value, for a reading's
+  `Value::Length`, `Angle`, `Area` and a mass card's `Volume`, `Area`, `Mass` only, adds a
+  parameter through `parameter_table::add_with` in one transaction, named after the label
+  (`parameter_stem`, giving `along_x1`), holding the value in the model's unit
+  (`LengthUnit::measured`, `AngleUnit::measured`, `measured_area_expression`,
+  `measured_volume_expression`; a mass as grams), name field focused.
+- Relative to (shown once the model holds a coordinate system, `MeasureTool::relative_to`, World by
+  default, forgotten when another model opens) reads every position, direction and Along offset in
+  the chosen system (`measure::Relative`, also `mass_cards`' centroids); distances, angles, the
+  line and inertia stay world geometry. A gone system, or one with no result, reads as the world
+  with a warning callout (`measure_panel::relative`).
+- Closest points are drawn on the front layer (`scene::add_measurement`) with a label in
+  `Chrome::measure`.
 - Keep this measurement (`measurement_tools::KEEP`) is in the row menu of a Between them card's
-  Distance, angle and Along X, Y and Z rows (an offset along that principal axis, or along the
-  coordinate system's axis while Relative to names one, `Keepable::Along`), and of one item's
-  Length, Radius, Sweep, Area and Perimeter (a face card's Perimeter is its outer loop,
-  `face_perimeter`; `Keepable::of_row`), while every selected item has a stable reference (`measurement_tools::item_of`, carried with
-  the readout as `Readout::kept`; regions have none, a centre of mass is its body,
-  `MeasuredItem::Body`). A Position row offers three, Keep this measurement along X, Y and Z
-  (`Keepable::Position`, `menu_label`), each keeping that coordinate of the shown position (in
-  the coordinate system while Relative to names one) as a `Reading::Position` along that axis,
-  the parameter named after the row and axis (`position_z1`). A body's mass card offers it too
-  (`Keepable::of_mass_row`, the card's `RowOffer`s from its `BodyMass`): Volume, Surface area,
-  Mass (only while the density gives one) and Centroid along X, Y and Z, each reading
-  `MeasuredItem::Body`. One transaction adds a
-  parameter named after the row (`distance1`) holding the value as New parameter does, a
-  `Measurement` feeding it at the bar ("Measurement N") and the parameter's owner
-  (`ParameterOwner::Feature` with `measurement_tools::READING`), checked first, a refusal (a
-  reference made below the bar) a warning notice; the parameter's name takes focus for renaming.
+  Distance, angle and Along rows (`Keepable::Along`), of one item's Length, Radius, Sweep, Area and
+  Perimeter (`Keepable::of_row`; `face_perimeter`), of a Position row as three entries along X, Y,
+  Z (`Keepable::Position`, `Reading::Position`, named like `position_z1`) and of a body's mass card
+  (`Keepable::of_mass_row`: Volume, Surface area, Mass with a density, Centroid along X, Y, Z, each
+  `MeasuredItem::Body`). It needs every selected item to have a stable reference
+  (`measurement_tools::item_of`, carried as `Readout::kept`; regions have none, a centre of mass is
+  its body). One transaction adds a parameter named after the row, a `Measurement` feeding it at
+  the bar ("Measurement N") and the parameter's owner (`ParameterOwner::Feature` with
+  `measurement_tools::READING`), checked first; a refusal (a reference made below the bar) is a
+  warning notice.
 - Every shown, up-to-date measurement is drawn outside the panel too (`measurement_tools::shown`,
-  each frame like the failure markers): its line, if any, in the overlay batch as Measure's
-  (`Overlay::kept`) and a label "<parameter> = <reading>" at its anchor in `Chrome::measure`,
-  read by screen readers. A measured parameter's expression field in Parameters shows the reading
-  and refuses edits in words; other parameters may read it like any parameter.
+  each frame like the failure markers): its line in the overlay batch (`Overlay::kept`) and a label
+  "<parameter> = <reading>" in `Chrome::measure`. A measured parameter's expression field in
+  Parameters shows the reading and refuses edits in words; other parameters may read it.
 - Its card (`measurement_panel.rs`, the open feature's panel) has Reads, a combo of the quantities
-  of its arity (`measurement_tools::Quantity::offered`: Distance, Angle, Offset along an axis; or
-  Length, Radius, Sweep, Area, Perimeter, Volume, Mass, Position along an axis), each refused with
-  the reason where its items do not allow it (`read_as`, from each item's form at the
-  measurement's place: a point has no angle, a straight edge no radius or sweep, an edge no area,
-  only a body a volume or mass, only a point or a body a position); then a row per item (From,
-  To, or Of) in words with Use selected or Choose in the view (`Slot::MeasuredItem(MeasuredPart)`,
-  `measurement_tools::item_change`), which takes the one selected item found where the
-  measurement sits (`item_at`: made above it, its edge, face or corner resolving in the body's state
-  there; while the item is a body, `body_at` takes the body of the face, edge, corner or centre of
-  mass chosen), keeping the quantity while the new item allows it, else the first it allows, an
-  angle falling back to a distance and a point read Of switching to its position; an offset's or a
-  position's Along row is a combo of the X, Y and Z axes over the same picker, which takes an axis
-  as `datum_tools::axis_reference` does; then its Reading (`reading_text`: a volume in the model's
-  unit cubed, a mass in grams or kilograms) and the parameter it is Named by. Each change is one
-  "Edit <name>" `SetFeatureKind`, checked first.
+  of its arity (`measurement_tools::Quantity::offered`), each refused with the reason where its
+  items do not allow it (`read_as`); a row per item with Use selected or Choose in the view
+  (`Slot::MeasuredItem(MeasuredPart)`, `measurement_tools::item_change`), which takes the one
+  selected item found where the measurement sits (`item_at`: made above it, resolving in the body's
+  state there; `body_at` for a body item), keeping the quantity while the new item allows it, else
+  the first it allows; an Along row is a combo of X, Y, Z over the same picker
+  (`datum_tools::axis_reference`); then its Reading (`reading_text`) and the parameter it is Named
+  by. Each change is one "Edit <name>" `SetFeatureKind`, checked first.
 - Every evaluation of the current revision that arrives (`Model::poll_recompute`) runs
   `Editor::follow_readings`, so measured parameters' stored values follow the readings outside the
-  undo history (`document.md`); the model's revision and unsaved state do not change for it.
-- Show or hide centres of mass (`Command::ToggleCentresOfMass`, View menu, palette) is a view aid
-  (`ViewAids::centres_of_mass`, kept for the session in `ViewportState::aids`, not saved; it
-  reaches the scene through `Sources::aids` and `Revisions::aids`). Outside sketch editing it
-  marks each shown body's centroid (`BodyMass`) with a ring on the
-  front layer, a `Pickable::CentreOfMass(body)` on a dark outline (`ScenePalette::hole`) that keeps
-  the ring (`centre_of_mass`, and the hover and selection colours) at 3:1 on bodies and canvas.
-  Measure reads it as a point named "Centre of mass of <body>" (`Subject::CentreOfMass`), so the
-  distance and the offsets along each axis from any other item come from the ordinary two-item
-  readout. Switching the aid off drops it from the selection.
+  undo history (`document.md`); revision and unsaved state do not change for it.
+- Show or hide centres of mass (`Command::ToggleCentresOfMass`) is a view aid
+  (`ViewAids::centres_of_mass`, session only, in `ViewportState::aids`; reaches the scene through
+  `Sources::aids` and `Revisions::aids`). Outside sketch editing it marks each shown body's
+  centroid with a ring on the front layer, a `Pickable::CentreOfMass(body)` on a dark outline
+  (`ScenePalette::hole`) holding the ring at 3:1. Measure reads it as a point (`Subject::CentreOfMass`).
+  Switching the aid off drops it from the selection.
 
 ## Interference
 
-- Check interference (Inspect group, View menu, palette) toggles `InterferenceTool`; while open,
-  `interference_panel.rs` draws a right-hand panel beside any other. It never changes the document.
+- Check interference toggles `InterferenceTool`; while open, `interference_panel.rs` draws a
+  right-hand panel beside any other. It never changes the document.
 - `Bodies::of` picks the pairs: every pair of shown bodies with nothing chosen, one chosen body
-  (from selected faces, edges or vertices, or the bodies of every row chosen in the tree) against
-  every other shown body, or every pair among several chosen.
-- `Interference` checks pairs on its own worker with `caditor_kernel::interference`, one message
-  per pair so findings appear as they come. A new basis (pairs, revision, evaluation, mesh quality)
+  (from selected faces, edges, vertices or chosen tree rows) against every other, or every pair
+  among several chosen.
+- `Interference` checks pairs on its own worker with `caditor_kernel::interference`, one message per
+  pair so findings appear as they come. A new basis (pairs, revision, evaluation, mesh quality)
   bumps a shared ticket that interrupts the pair in flight. Findings are cached per pair with both
-  bodies' result `Arc`s and reused while those are unchanged, so editing one body rechecks only its
-  pairs; entries for results that are gone are dropped. Closing the panel or a new session forgets
-  everything. A panic becomes an unchecked finding.
-- `Interference::refresh` works out the pairs only when the selection's generation, the tree's
-  chosen bodies, the revision or the evaluation changes, and returns a new `Report` only when the
-  basis changed or a finding arrived, so an open panel over a thousand bodies does nothing per
-  frame. The panel lists and marks at most `MAX_LISTED` contacts, Measure at most
-  `MAX_MASS_CARDS` bodies' masses, each saying how many more were left out.
-- An overlap is meshed at the model's mesh quality for its volume, size and centroid
-  (`BodyMass::of`) and its mesh edges drawn on the front layer; every
-  finding with a place gets a marker and a label in the view (error for overlaps, the measure
-  colour for touches, warning for unchecked pairs) and a Show where button on its card.
+  bodies' result `Arc`s, so editing one body rechecks only its pairs; closing the panel or a new
+  session forgets everything. A panic becomes an unchecked finding.
+- `Interference::refresh` works out the pairs only when the selection's generation, the chosen tree
+  bodies, revision or evaluation change, and returns a new `Report` only when the basis changed or a
+  finding arrived. The panel lists and marks at most `MAX_LISTED` contacts, Measure at most
+  `MAX_MASS_CARDS` bodies' masses, each saying how many were left out.
+- An overlap is meshed at the model's mesh quality (`BodyMass::of`) and its edges drawn on the front
+  layer; every finding with a place gets a marker and label (error for overlaps, the measure colour
+  for touches, warning for unchecked pairs) and a Show where button.
 
 ## Face analysis
 
-- Analyse draft, Analyse minimum radius, Analyse tool reach, Analyse curvature, Show zebra stripes
-  and Show a chrome reflection (`AnalysisCommand::Draft`, `Radius`, `Reach`, `Curvature`, `Zebra`,
-  `Chrome`, View menu, palette) toggle `AnalysisTool` in the `Workspace` (`Kind` is which one, which
-  the panel's segmented control, a menu once it is too wide, changes too); while open, `analysis_panel.rs` draws a right-hand panel
-  beside any other. Like
-  centres of mass it is a view aid: `ViewAids::analysis` (a `FaceAnalysis`) or
-  `ViewAids::reflection` (a `caditor_render::Reflection`), worked out each frame from the tool by
-  `AnalysisTool::analysis` as an `Analysis` and handed over with `ViewportState::set_analysis`,
-  reaches the scene through `Sources::aids` and `Revisions::aids`. It never changes the document and
-  is kept for the session. A limit that cannot be read or a pull that is gone shows a warning
-  callout (`Problem`) and nothing is coloured.
-- Draft colours each face by the angle between the display mesh's normal and the pull direction,
-  per triangle (the mean of its corners' normals), so a curved face is banded across its extent.
-  A triangle at or above the limit is `Band::Drafted`, below minus the limit `Band::Undercut`, in
-  between `Band::TooLittleDraft`, which holds the parting line. The pull is an axis or a direction
-  given by an axis, straight edge, sketch line, flat face (its outward normal) or round face
-  (its axis) chosen with Use selected (`AnalysisCommand::UseSelected`, `Pull::Picked` is resolved
-  again each frame through `measure::direction_of`, so it follows edits, and is dropped back to Z
-  when another model opens) or the X, Y and Z buttons; `AnalysisCommand::Reverse` flips it. The limit is an angle expression of named parameters
-  (3° at first, 0° to 90°).
-- Reach judges undercuts for a three-axis machine: the tool comes from the direction (`Kind::Reach`
-  shares the pull, Use selected and Reverse with Draft, captioned Reach from), and per triangle a
-  face turned from it (`FACING_SLACK`, so walls square to it are reached) is `Band::FacesAway`;
-  otherwise the triangle's centroid, nudged off its face along its normal, is `Band::Blocked` when
-  any triangle of the shown bodies lies over it along the direction, else `Band::Reachable`.
-  `reach.rs` projects every triangle along the direction into a 2D uniform `Grid` (at most
-  `MOST_CELLS_ACROSS` cells a side; triangles seen edge-on cast no shadow) with slacks of
-  `SLACK_PER_SIZE` of the bodies' size, so a face sharing an edge with the sample never blocks it.
-  Since the result depends on every shown body, `Analyses::prepare` keeps one `Occluders` (the
-  direction and weak references to the shown meshes, `analysis::shown_meshes`) and stamps its
-  generation into `FaceAnalysis::Reach`, so a change of bodies, visibility or direction is a new
-  analysis; the grid is built once on first use, on the analysis thread when the mesh and the
-  occluders together pass `INLINE_TRIANGLES`. Any other analysis, or none, drops the occluders.
-- Curvature colours each triangle by a curvature of the display mesh against a Reference radius R
-  (a length expression, 10 mm at first, above zero): `ShapeOperator::of` fits the 2×2 shape
-  operator to how the corners' normals turn along the three edges (least squares in the triangle's
-  plane, positive where the face bulges out of its outward side), giving the Gaussian curvature
-  and the largest and smallest principal curvatures (`Measure`). Five steps each, from
+- Analyse draft, minimum radius, tool reach, curvature, Show zebra stripes and Show a chrome
+  reflection (`AnalysisCommand::Draft`, `Radius`, `Reach`, `Curvature`, `Zebra`, `Chrome`) toggle
+  `AnalysisTool` in the `Workspace` (`Kind` is which; the panel's segmented control changes it too);
+  while open, `analysis_panel.rs` draws a right-hand panel. A session view aid, never changing the
+  document: `ViewAids::analysis` (a `FaceAnalysis`) or `ViewAids::reflection` (a
+  `caditor_render::Reflection`), worked out each frame by `AnalysisTool::analysis`, handed over with
+  `ViewportState::set_analysis` and reaching the scene through `Sources::aids` and
+  `Revisions::aids`. A limit that cannot be read or a pull that is gone shows a warning callout
+  (`Problem`) and nothing is coloured.
+- Draft colours each triangle (mean of its corners' normals) by the angle between normal and pull:
+  at or above the limit `Band::Drafted`, below minus the limit `Band::Undercut`, between
+  `Band::TooLittleDraft` (the parting line). The pull is an axis or a direction from an axis,
+  straight edge, sketch line, flat face (outward normal) or round face (its axis) chosen with Use
+  selected (`AnalysisCommand::UseSelected`; `Pull::Picked` is resolved again each frame through
+  `measure::direction_of` and dropped back to Z when another model opens) or the X, Y, Z buttons;
+  `AnalysisCommand::Reverse` flips it. The limit is an angle expression (3° at first, 0° to 90°).
+- Reach judges undercuts for a three-axis machine (`Kind::Reach` shares the pull, Use selected and
+  Reverse with Draft). Per triangle, a face turned from the tool (`FACING_SLACK`) is
+  `Band::FacesAway`; otherwise its centroid, nudged off along the normal, is `Band::Blocked` when any
+  shown body's triangle lies over it along the direction, else `Band::Reachable`. `reach.rs`
+  projects every triangle into a 2D uniform `Grid` (at most `MOST_CELLS_ACROSS` cells a side;
+  edge-on triangles cast no shadow) with slacks of `SLACK_PER_SIZE` of the bodies' size. As the result
+  depends on every shown body, `Analyses::prepare` keeps one `Occluders` (direction plus weak
+  references to the shown meshes, `analysis::shown_meshes`) and stamps its generation into
+  `FaceAnalysis::Reach`; the grid is built once on first use, on the analysis thread past
+  `INLINE_TRIANGLES`. Any other analysis, or none, drops the occluders.
+- Curvature colours each triangle against a Reference radius R (10 mm at first): `ShapeOperator::of`
+  fits the 2×2 shape operator to how the corners' normals turn along the edges (positive where the
+  face bulges out), giving Gaussian and principal curvatures (`Measure`). Five steps each, from
   `Measure::bands`: beyond −1 (scaled by R, or R² for Gaussian), below −`FLAT_SHARE`, within
-  ±`FLAT_SHARE` (flat for the principal ones, flat or bent one way, so developable, for Gaussian),
-  above, beyond +1; their colours are `ScenePalette::bands.curvature`, a diverging scale.
+  ±`FLAT_SHARE`, above, beyond +1; colours `ScenePalette::bands.curvature`, a diverging scale.
 - Zebra and Chrome change no colours: the scene puts every coloured, unmoved body mesh into
-  `Scene::reflective_meshes` with its usual face styles (so hover, selection and picking read as
-  before) and sets `Scene::reflection` (`render.md`). Zebra's stripes run along the X, Y or Z axis
-  (Stripes along) with `MIN_STRIPES` to `MAX_STRIPES` stripes per turn (12 at first); the panel
-  explains how stripes and reflections show G0, G1 and G2 joints instead of a legend of areas.
+  `Scene::reflective_meshes` with its usual face styles and sets `Scene::reflection` (`render.md`).
+  Stripes run along X, Y or Z with `MIN_STRIPES` to `MAX_STRIPES` per turn (12 at first).
 - Minimum radius colours `Band::TooTight` the concave triangles whose surface curves tighter than
-  the Smallest radius (a length expression, 2 mm at first, above zero), where a cutter or a nozzle
-  of that radius cannot reach. The curvature is read from the display mesh along each triangle edge,
-  the change of the corners' normals over the chord (`(n₂ − n₁)·d / d²`), negative where the face
-  curves away from its outward normal, so planar, convex and gentler faces are left in their own
-  colour; a face is flagged when its radius is more than 0.1% under the limit. Sharp inside corners
-  between faces have no radius and are not flagged.
-- `Analyses` (`analysis.rs`, owned by `ViewportState`, handed to the scene as `Sources::analyses`)
-  caches one `Analysed` per body mesh and analysis: `ShadedMesh::divide` splits each face into a
-  piece per band (`render.md`), the pieces carrying their source face and area, and the scene draws
-  that mesh with a `FaceStyle` per piece (`Builder::analysed_faces`): a band's colour from
-  `ScenePalette::bands` (Reach reuses the drafted and undercut colours, with `blocked` of its own),
-  or the face's own colour for no band, and the source face's pick id
-  registered once, so hover, selection and picking read as before. Up to `INLINE_TRIANGLES` the
-  work is done in the frame; a larger mesh is worked out on a thread that wakes the app and bumps
-  `Analyses::finished`, which `Revisions::analysed` watches, the body drawn plain meanwhile. Entries
-  of meshes that are gone are dropped, and all of them when no face analysis is shown (`prepare(None, ..)`), so a closed panel keeps no split mesh. Moved or see-through bodies, X-ray and wireframe are drawn
-  as before (the panel says so for a style that does not colour faces).
-- The panel's legend names each band with its area from the same cache (`Tally`, approximate
-  since it is the mesh's), so no band is told by colour alone; a band's hover says what it means.
+  the Smallest radius (2 mm at first), read along each triangle edge as `(n₂ − n₁)·d / d²`
+  (negative where the face curves away from its outward normal); a face is flagged when its radius
+  is more than 0.1% under the limit. Sharp inside corners are not flagged.
+- `Analyses` (`analysis.rs`, owned by `ViewportState`, passed as `Sources::analyses`) caches one
+  `Analysed` per body mesh and analysis: `ShadedMesh::divide` splits each face into a piece per band
+  (`render.md`), carrying its source face and area, and the scene draws it with a `FaceStyle` per
+  piece (`Builder::analysed_faces`): the band's colour from `ScenePalette::bands` (Reach reuses
+  drafted and undercut, with `blocked` of its own) or the face's own colour for no band, the source
+  face's pick id registered once so hover, selection and picking read as before. Up to
+  `INLINE_TRIANGLES` the work is done in the frame; a larger mesh on a thread that wakes the app and
+  bumps `Analyses::finished` (watched by `Revisions::analysed`), the body drawn plain meanwhile.
+  Entries of gone meshes are dropped, all of them when no analysis is shown (`prepare(None, ..)`).
+  Moved or see-through bodies, X-ray and wireframe are drawn as before.
+- The legend names each band with its area from the same cache (`Tally`, approximate), so no band
+  is told by colour alone.
 
 ## Curvature comb
 
-- Show or hide the curvature comb (`AnalysisCommand::Comb`, View menu, palette, no default key)
-  toggles `CombTool` in the `Workspace`; while open, `comb_panel.rs` draws a right-hand panel beside
-  any other. It never changes the document and is kept for the session; a new session forgets its
-  curves (`CombTool::forget`).
-- The comb follows the selection: each time `Selection::generation` changes, the selected body
-  edges and sketch curves (lines, arcs, circles, splines; `comb::is_combable`) become the combed
-  curves, at most `MOST_COMBED`, the panel saying how many were left out. A selection holding none
-  keeps the last ones, so selecting a point to drag it keeps its spline combed. The curves are
-  `Pickable`s resolved again whenever the revision, the evaluation or the displayed sketches change
-  (`Basis`), so the comb follows recompute and a sketch drag; one that no longer resolves is counted
-  as gone in a warning callout.
-- Each curve gets `teeth` + 1 teeth (Teeth per curve, `MIN_TEETH` to `MAX_TEETH`) at equal lengths
-  along it, both ends included, from a polyline of `STEPS_PER_TOOTH` steps per tooth, each carrying
-  the kernel's curvature vector (`CurveDerivatives::curvature`). A tooth points away from the centre
-  of curvature, its length the curvature times one reach for the whole comb: the longest tooth is
-  `LONGEST_TOOTH` of the combed curves' size times the Scale (`MIN_SCALE` to `MAX_SCALE`,
-  logarithmic), so curves combed together compare directly. The envelope joins the tips along each
-  curve.
-- Ends of two combed curves within `JOINT_GAP` make a `Joint`, judged from the tangents leaving it
-  and the curvature vectors (`Continuity`: a corner, tangent with a jump in curvature, or curvature
-  continuing within `CURVATURE_SLACK`); the envelope steps from one curve's end tip to the other's,
-  so a jump shows as a step and continuing curvature as none. The panel lists each curve's smallest
-  radius and each joint with its grade (G0, G1, G2) and the radii either side in words, so nothing is
-  told by the drawing alone.
-- The drawing (`CombDrawing`, rebuilt only when the comb or the scale changes) goes into the overlay
-  batch on the front layer: every segment first as a wider line in `ScenePalette::hole`, then the
-  teeth and the envelope in `ScenePalette::comb` over it, so the comb holds 3:1 over bodies and the
-  canvas in both palettes.
+- Show or hide the curvature comb (`AnalysisCommand::Comb`, no default key) toggles `CombTool` in
+  the `Workspace`; while open, `comb_panel.rs` draws a right-hand panel. Session only; a new
+  session forgets its curves (`CombTool::forget`).
+- The comb follows the selection: each time `Selection::generation` changes, the selected body edges
+  and sketch curves (`comb::is_combable`) become the combed curves, at most `MOST_COMBED`. A
+  selection holding none keeps the last ones, so selecting a point to drag it keeps its spline
+  combed. The curves are `Pickable`s resolved again when the revision, evaluation or displayed
+  sketches change (`Basis`); one that no longer resolves is counted as gone in a warning callout.
+- Each curve gets `teeth` + 1 teeth (`MIN_TEETH` to `MAX_TEETH`) at equal lengths, both ends
+  included, from a polyline of `STEPS_PER_TOOTH` steps per tooth, each carrying the kernel's
+  curvature vector (`CurveDerivatives::curvature`). A tooth points away from the centre of
+  curvature, its length the curvature times one reach for the whole comb: the longest tooth is
+  `LONGEST_TOOTH` of the combed curves' size times the Scale (`MIN_SCALE` to `MAX_SCALE`), so
+  curves combed together compare directly.
+- Ends of two combed curves within `JOINT_GAP` make a `Joint`, judged from the tangents and
+  curvature vectors (`Continuity`: a corner, tangent with a curvature jump, or curvature continuing
+  within `CURVATURE_SLACK`); the envelope steps between their end tips. The panel lists each
+  curve's smallest radius and each joint's grade (G0, G1, G2) and radii in words.
+- The drawing (`CombDrawing`, rebuilt only when the comb or scale changes) goes into the overlay
+  batch on the front layer: every segment first as a wider line in `ScenePalette::hole`, then teeth
+  and envelope in `ScenePalette::comb`, holding 3:1 over bodies and canvas in both palettes.
 
 ## Isocurves
 
-- Show or hide isocurves with combs (`AnalysisCommand::Isocurves`, View menu, palette, no default
-  key) toggles `IsocurveTool` in the `Workspace`; while open, `isocurve_panel.rs` draws a
-  right-hand panel beside any other. It never changes the document, is kept for the session and
-  forgets its faces in a new one.
-- It follows the selection like the comb: the selected body faces (at most `MOST_FACES`) become
-  the chosen faces, and a selection holding none keeps them. For each, Lines along (Both, U, V)
-  picks the directions and Lines each way (`MIN_LINES` to `MAX_LINES`, 5 at first) how many runs
-  `Solid::isoparametric_runs` finds per direction (`kernel-intersect.md`); every run becomes a
-  polyline of `STEPS_PER_LINE` steps and a comb of Teeth per line + 1 teeth from the surface's
-  derivatives along it (`comb::spaced_teeth_along`, so teeth sit at equal lengths as on curves).
-  All lines share one comb (`Isocurves::comb`) scaled by the comb's Scale, so faces and directions
-  compare directly; joints are not judged.
-- The work runs on an `isocurves` thread whenever the faces, the settings, the revision or the
-  evaluation change (`Basis`); a newer basis cancels the older thread through the kernel
-  interrupt, the last finished lines stay drawn until the new ones arrive (the panel says it is
-  working), and the finished result wakes the app. A face that no longer resolves is counted as
-  gone in a warning callout; a panic in the thread is a warning callout too.
-- The panel lists each face with the smallest radius of its U lines and of its V lines in words
-  (or straight), so nothing is told by the drawing alone.
-- The drawing (`IsocurveDrawing`, rebuilt only when the lines or the scale change) goes into the
-  overlay batch on the front layer like the comb: each line over a wider `ScenePalette::hole`
-  halo in `CombLook::isocurve`, then the comb's teeth and envelope (`CombDrawing::add_to`); the
-  palette test holds the isocurve colour to 3:1 over the halo and the canvas.
+- Show or hide isocurves with combs (`AnalysisCommand::Isocurves`, no default key) toggles
+  `IsocurveTool` in the `Workspace`; while open, `isocurve_panel.rs` draws a right-hand panel.
+  Session only; forgets its faces in a new one.
+- It follows the selection like the comb: the selected body faces (at most `MOST_FACES`) become the
+  chosen faces, and a selection holding none keeps them. Lines along (Both, U, V) and Lines each way
+  (`MIN_LINES` to `MAX_LINES`, 5 at first) set how many runs `Solid::isoparametric_runs` finds per
+  direction (`kernel-intersect.md`); every run becomes a polyline of `STEPS_PER_LINE` steps with a
+  comb from the surface's derivatives (`comb::spaced_teeth_along`). All lines share one comb
+  (`Isocurves::comb`) scaled by the comb's Scale; joints are not judged.
+- The work runs on an `isocurves` thread whenever the faces, settings, revision or evaluation change
+  (`Basis`); a newer basis cancels the older through the kernel interrupt, the last finished lines
+  stay drawn meanwhile, and the finished result wakes the app. A face that no longer resolves, or a
+  panic in the thread, is a warning callout. The panel lists each face with its smallest U and V
+  line radius in words.
+- The drawing (`IsocurveDrawing`) goes into the overlay batch on the front layer like the comb: each
+  line over a wider `ScenePalette::hole` halo in `CombLook::isocurve`, then the comb's teeth and
+  envelope (`CombDrawing::add_to`); the palette test holds the isocurve colour to 3:1 over the halo
+  and canvas.
 
 ## Section view
 
-- Show or hide the section view (`SectionCommand::Toggle`, View menu, palette, no default key)
-  toggles `SectionTool` in the `Workspace`; while open, `section_panel.rs` draws a right-hand panel
-  beside any other and the model is cut. It never changes the document. The planes are a view
-  state kept for the session, not saved with the model or in the preferences: they only look into
-  the model, a saved one would mean a format change and an undo entry for what is not an edit, and
-  sections set up for one look are rarely wanted when the file is opened again. A new session
-  forgets the planes, which may refer to its IDs (`SectionTool::forget`).
-- A plane (`Cut`) starts from a base: a principal plane (the XY, XZ and YZ buttons), a datum plane,
-  a coordinate system's plane, a flat face (its outward normal, by `FaceKey`) or a sketch's plane,
-  taken with Use selected (`SectionCommand::UseSelected`, `section::base_from`) and resolved again
-  each frame (`section::base_plane`), so it follows edits; a base that is gone shows a warning
-  callout and that plane cuts nothing. Its Offset moves it along the base normal into the side it
-  keeps, Tilt and Turn turn it about the base's own x and then y axis (length and angle expressions
-  of named parameters), Cut away the other side (`SectionCommand::Flip`) flips the side in place,
-  and Cut faces chooses hatched or filled (`caditor_render::CutFace`). The cut side is the base
-  normal's: above the XY plane, in front of the XZ plane, right of the YZ plane, outside a face.
+- Show or hide the section view (`SectionCommand::Toggle`, no default key) toggles `SectionTool` in
+  the `Workspace`; while open, `section_panel.rs` draws a right-hand panel and the model is cut. It
+  never changes the document. The planes are session view state, not saved with the model or
+  preferences (they only look into the model; saving would need a format change and an undo entry
+  for a non-edit). A new session forgets the planes (`SectionTool::forget`).
+- A plane (`Cut`) starts from a base: a principal plane, a datum plane, a coordinate system's plane,
+  a flat face (outward normal, by `FaceKey`) or a sketch's plane, taken with Use selected
+  (`SectionCommand::UseSelected`, `section::base_from`) and resolved again each frame
+  (`section::base_plane`), so it follows edits; a gone base shows a warning callout and that plane
+  cuts nothing. Offset moves it along the base normal into the side it keeps, Tilt and Turn turn it
+  about the base's own x then y axis (length and angle expressions), Cut away the other side
+  (`SectionCommand::Flip`) flips the side, and Cut faces chooses hatched or filled
+  (`caditor_render::CutFace`). The cut side is the base normal's: above XY, in front of XZ, right of
+  YZ, outside a face.
 - Opening the view with no plane, and Add a plane (`SectionCommand::Add`), adds one through the
   centre of the model's bounds (offset rounded to 0.1 mm) on the first principal plane not in use
-  (XZ, YZ, XY), up to `MAX_SECTION_PLANES`; Remove (`SectionCommand::Remove`, or the card's bin)
-  drops one. The commands act on the current plane, the one added or edited last, marked Current;
-  removing a plane above it moves `current` down with it (`SectionTool::remove`), so it stays the
-  same plane, and removing the current one makes the next current.
+  (XZ, YZ, XY), up to `MAX_SECTION_PLANES`; `SectionCommand::Remove` drops one. Commands act on the
+  current plane (added or edited last); removing a plane above it moves `current` down with it
+  (`SectionTool::remove`), removing the current one makes the next current.
 - `SectionTool::planes` resolves the planes each frame into `ViewportState::set_section`;
   `ViewportState::shown_section` adds the sketch slice (`app-sketching.md`) and hands them to
-  `SceneCache::set_section`, which sets `Scene::section` on the cached scene without rebuilding it
-  and bumps its generation, so a moved plane costs a uniform write (`render.md`) and the hover is
-  picked again. Picking, the pick list, paint selection and box selection (the `seen` closure of
-  `select_in_model` treats a cut point as unseen) reach only what is shown, so Measure does too.
-  An exported image keeps the section shown (`ViewportState::image`); thumbnails and the
-  headless PNG have none.
+  `SceneCache::set_section`, which sets `Scene::section` without rebuilding the cached scene and
+  bumps its generation, so a moved plane costs a uniform write (`render.md`) and the hover is picked
+  again. Picking, paint selection and box selection (the `seen` closure of `select_in_model` treats a
+  cut point as unseen) reach only what is shown, so Measure does too. An exported image keeps the
+  section (`ViewportState::image`); thumbnails and the headless PNG have none.
+
+## Samples
 
 - `samples.rs` builds parametric models through the document API (so always the current format),
   fully constrained with dimensions naming parameters; a test recomputes each and checks its
@@ -591,79 +480,68 @@ paths:
 
 - The guide ships inside the binary: one page per tool or subject in `crates/caditor/guide/<id>.md`,
   embedded by `include_str!` through `guide::Page::source`, parsed once (`guide::GUIDE`, a
-  `LazyLock`), so it reads offline and never touches the disk. `Page` is the only list of pages and
-  `Chapter` groups them into the contents in `Page::ALL` order.
-- Pages are a small markup of our own, not Markdown read by a crate: `# ` the title (first line),
-  `## ` a heading, `- ` a list item (indented lines continue it), blank lines between paragraphs,
-  and inline `**strong**`, `` `code` ``, `[text](page-id)` links and `{command:id}`, which renders
-  the command's title with the user's current keys (`guide_panel::command_text`), so pages never
-  repeat default shortcuts. Unclosed marks stay text. Tests hold every link and command id to one
-  that exists, every page to a title, content and an incoming link, and the markup's reading;
-  `no_page_has_a_line_the_parser_does_not_read` fails on a line that starts like markup the parser
-  does not read (`###` headings, fences, quotes, `*` or `+` items, tables, indented items), so an
-  example is a code span, not a fenced block.
-- `guide_panel.rs` draws it as a right-hand side panel sharing the side panels' room (`Guide` in
-  the `Workspace`, reset by a failed frame): back, contents and close buttons, a search field over
-  the titles and text (`guide::search`, title matches first, with a snippet around the first word),
-  the contents by chapter, and a page with a Next link to the following one. Links are underlined
-  `accent_text` labels, focusable and named as links.
+  `LazyLock`). `Page` is the only list of pages; `Chapter` groups them in `Page::ALL` order.
+- Pages use a small markup of our own, not Markdown: `# ` the title (first line), `## ` a heading,
+  `- ` a list item (indented lines continue it), blank lines between paragraphs, and inline
+  `**strong**`, `` `code` ``, `[text](page-id)` links and `{command:id}`, which renders the
+  command's title with the user's current keys (`guide_panel::command_text`), so pages never repeat
+  default shortcuts. Tests hold every link and command id to one that exists, every page to a title,
+  content and an incoming link; `no_page_has_a_line_the_parser_does_not_read` fails on a line that
+  starts like unread markup (`###` headings, fences, quotes, `*` or `+` items, tables, indented
+  items), so an example is a code span, not a fenced block.
+- `guide_panel.rs` draws it as a right-hand side panel (`Guide` in the `Workspace`, reset by a
+  failed frame): back, contents and close buttons, a search field (`guide::search`, title matches
+  first), the contents by chapter, and a page with a Next link. Links are underlined `accent_text`
+  labels, focusable and named as links.
 - Help › User guide (`Command::Guide`, F1) opens the page of the current context
   (`guide::context`): the active sketch tool other than Select, else the open feature
-  (`Page::of_feature`), else the first open side panel (Constrain automatically, face analysis,
-  comb, isocurves, section view, interference, Measure), else the edited sketch or plane choice, else the tree's
-  selected row; with none, the contents with the search field focused. Run again on the page it
-  would open, it closes the guide. The palette's detail names the page.
-- Panels link to their page: each side panel's header has a help button
-  (`guide_panel::help_button`) and an open feature's card ends with "Help on <page>"
-  (`help_link`); both ask through egui temp data (`guide::ask`, taken by `app::guide_commands`
-  next frame), so panels need no new parameters. A new tool, feature kind or side panel gets a page
-  (the exhaustive `Page::of_tool`, `of_feature` and `of_panel` fail to compile otherwise), and a
-  change to what a tool does updates its page in the same commit.
+  (`Page::of_feature`), else the first open side panel, else the edited sketch or plane choice, else
+  the tree's selected row; with none, the contents with the search field focused. Run again on the
+  page it would open, it closes the guide.
+- Each side panel's header has a help button (`guide_panel::help_button`) and an open feature's card
+  ends with "Help on <page>" (`help_link`); both ask through egui temp data (`guide::ask`, taken by
+  `app::guide_commands` next frame). A new tool, feature kind or side panel gets a page (the
+  exhaustive `Page::of_tool`, `of_feature` and `of_panel` fail to compile otherwise), and a change
+  to what a tool does updates its page in the same commit.
 
 ## About, command line, accessibility, packaging
 
 - `cli.rs`: `caditor [FILE]`; a `.dxf` or STEP file (by extension or header) goes to import as if
-  dropped, anything else to Open. `caditor --export OUT [--resolution ...] [--size WxH] [--configuration NAME | --all-configurations] MODEL`
-  (`headless.rs`) opens no window: it loads a caditor model or imports a STEP file, recomputes
-  without display work, exports every body that built to the format `OUT`'s extension names and
-  prints a summary. A `.png` instead recomputes with display work and draws the scene the way the
-  image export does (`snapshot.rs`: the initial viewpoint fitted to the model, no grid or
-  highlights, 1920×1080 unless `--size` says otherwise) on an `OffscreenRenderer`, so it needs a
-  graphics adapter and refuses `--size` for any other format; load issues and left-out bodies are warnings, a failed feature a warning that
-  also makes the exit status 2 (`PARTIAL_EXIT_STATUS`), and a model with no body, a DXF or SVG drawing,
-  an unreadable file or an unknown extension an error that writes nothing. `--configuration NAME`
-  (`ConfigurationChoice::Named`, matched ignoring case) exports a copy of the document switched to
-  that configuration (`Document::activating`), an unknown name or a model without configurations
-  refused naming the ones it has; `--all-configurations` (`ConfigurationChoice::Every`) exports
-  each configuration to the file `configuration_export::files_beside` plans next to `OUT`, as the
-  window's Every configuration does but keeping `OUT`'s own extension, a configuration that
-  cannot be switched to or has no body a warning that makes the status 2
+  dropped, anything else to Open. `caditor --export OUT [--resolution ...] [--size WxH]
+  [--configuration NAME | --all-configurations] MODEL` (`headless.rs`) opens no window: it loads a
+  caditor model or imports a STEP file, recomputes without display work, exports every body that
+  built to the format `OUT`'s extension names and prints a summary. A `.png` instead recomputes with
+  display work and draws the scene as image export does (`snapshot.rs`: fitted viewpoint, no grid or
+  highlights, 1920×1080 unless `--size`) on an `OffscreenRenderer`, so it needs a graphics adapter;
+  `--size` is refused for any other format. Load issues and left-out bodies are warnings, a failed
+  feature a warning that also makes the exit status 2 (`PARTIAL_EXIT_STATUS`); a model with no body,
+  a DXF or SVG drawing, an unreadable file or an unknown extension is an error that writes nothing.
+- `--configuration NAME` (`ConfigurationChoice::Named`, case-insensitive) exports a copy switched to
+  that configuration (`Document::activating`); an unknown name or a model without configurations is
+  refused naming the ones it has. `--all-configurations` (`ConfigurationChoice::Every`) exports each
+  to the file `configuration_export::files_beside` plans next to `OUT`, keeping `OUT`'s extension;
+  one that cannot be switched to or has no body is a warning making the status 2
   (`Converted::configurations_left_out`), and only none exported an error. The desktop entry also
   offers STEP (`model/step`) and DXF (`image/vnd.dxf`).
 - AccessKit (`egui-winit`'s `accesskit` feature): the window is created hidden, the adapter
   attached, then shown. The status bar notice and the failed-features pill are live regions
-  (`widgets::announced`: assertive for an error, polite otherwise). The viewport is named "3D
-  view" and described in words (`scene_description.rs`, rebuilt only when the revision, the
-  evaluation, the units or the edited sketch changes): the shown bodies, sketches and datums by name and
-  count and how many bodies are hidden, the first `NAMED_AT_MOST` bodies with their size and
-  lowest corner, sketches with the plane they face and datums with where they lie (a plane as a
-  sketch's, an axis along its direction through a point, a point at its position;
-  `LengthUnit::spoken_length`, trailing zeros dropped), or while a sketch is edited its curves,
-  points, constraints, how constrained it is and the span of its points. Its children are one
-  label node per item (`SceneDescription::items`, `viewport::scene_items`, built only while
-  AccessKit is on, at most `ITEMS_AT_MOST`): each shown body with its size and face count, its
-  faces as nodes beneath it (at most `FACES_AT_MOST`, then how many more), each shown sketch and
-  datum; while a sketch is edited each curve and point with where it lies, its size, construction
-  and whether it is fully constrained, so a screen reader steps through them one by one. They are
-  zero-sized and sense only hover, so they take no room, pointer or Tab stop. Text painted over
-  it (prompt, hover description, snap and measure labels) is also a `Label` node
-  (`canvas::announce`), the prompt and keyboard-highlight description polite live regions.
+  (`widgets::announced`: assertive for an error, polite otherwise). The viewport is named "3D view"
+  and described in words (`scene_description.rs`, rebuilt only when the revision, evaluation, units
+  or edited sketch changes): bodies, sketches and datums by name and count, the first
+  `NAMED_AT_MOST` bodies with size and lowest corner, or while a sketch is edited its curves,
+  points, constraints, how constrained it is and the span of its points. Its children are one label
+  node per item (`SceneDescription::items`, `viewport::scene_items`, built only while AccessKit is
+  on, at most `ITEMS_AT_MOST`; a body's faces beneath it, at most `FACES_AT_MOST`; while a sketch is
+  edited each curve and point), zero-sized and sensing only hover, so they take no room, pointer or
+  Tab stop. Text painted over it (prompt, hover description, snap and measure labels) is also a
+  `Label` node (`canvas::announce`), the prompt and keyboard-highlight description polite live
+  regions.
 - Wayland app ID, X11 class and Windows window class are `about::APP_ID`, which must match the
   desktop entry's name.
 - The logo is `packaging/caditor.svg`; `packaging/render-icons.sh` renders it into
   `packaging/icons/`, committed, so neither build nor release needs an SVG renderer. `logo.rs`
   embeds some renders and `logo::show` draws the smallest covering the requested physical size,
   hidden from AccessKit. The window icon is a fixed render (X11 and Windows, which also gets the
-  largest as its taskbar icon; Wayland takes the icon from the desktop entry). The Windows
-  executable's icon is built from the same renders (`windows.md`). A render that fails to decode
-  logs a warning; tests decode every render.
+  largest as its taskbar icon; Wayland takes it from the desktop entry). The Windows executable's
+  icon is built from the same renders (`windows.md`). A render that fails to decode logs a warning;
+  tests decode every render.

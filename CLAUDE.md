@@ -22,11 +22,11 @@ cargo deny check
 packaging/build-release.sh --snapshot
 ```
 
-`rust-formatter` formats `.rs` and `.toml` and replaces `cargo fmt` and `rustfmt` entirely.
-`cargo xwin` (cargo-xwin) lints the Windows build from Linux; its tests run under wine, except that
-wine cannot rename over an open file, which journals rely on, so Windows CI is the real check.
-Offscreen render tests skip without a GPU adapter unless `CADITOR_REQUIRE_GPU=1`. Screenshots of
-the interface: the `ui-screenshots` skill. CI, cargo-deny and fuzzing: `.claude/rules/ci.md`.
+`rust-formatter` formats `.rs` and `.toml` and replaces `cargo fmt`. `cargo xwin` lints the Windows
+build from Linux; its wine tests cannot rename over an open file (journals rely on it), so Windows
+CI is the real check. Offscreen render tests skip without a GPU adapter unless
+`CADITOR_REQUIRE_GPU=1`. Interface screenshots: the `ui-screenshots` skill. CI, cargo-deny and
+fuzzing: `ci.md`.
 
 ## Architecture
 
@@ -48,8 +48,8 @@ inside the workspace.
 | `caditor-render` | wgpu viewport, camera, GPU picking, image export; no winit or document dependency. | geometry (windows on Windows) |
 | `caditor` | The winit/egui application: UI, commands, sketch editing, file workflow. | all but step and zstd (wayland on Unix, windows on Windows) |
 
-Platform code is a pair of `cfg(unix)` and `cfg(windows)` items behind one interface; Windows
-specifics (the Win32 boundary, paths, saving, locks, dialogs, the MSI) are in `windows.md`.
+Platform code is a `cfg(unix)`/`cfg(windows)` pair behind one interface; Windows specifics are in
+`windows.md`.
 
 Invariants across crates:
 
@@ -65,28 +65,25 @@ Invariants across crates:
 
 ## Releases
 
-A `v<version>` tag builds a `.tar.zst` with an installer on Ubuntu 22.04, a `.deb`, an `.rpm` and
-an AppImage made from that archive, and a per-user MSI on Windows (`release.yml`) and publishes a
-GitHub release. `packaging/` holds the desktop entry,
-logo, metainfo, installer and release scripts, `packaging/windows/` the WiX source and its
-scripts; `docs/RELEASING.md` explains the choices and the steps.
+A `v<version>` tag builds (`release.yml`) a `.tar.zst` with installer on Ubuntu 22.04, a `.deb`, an
+`.rpm` and an AppImage from that archive, and a per-user MSI on Windows, and publishes a GitHub
+release. `packaging/` (and `packaging/windows/` for WiX) holds the sources and scripts;
+`docs/RELEASING.md` has the choices and steps.
 
 ## Roadmap
 
-`docs/ROADMAP.md` is the index of what remains and how it is kept; the entries live beside it by
-kind: `FEATURES.md` (missing capability), `BUGS.md` (wrong results and refusals), `PERFORMANCE.md`,
-`PLATFORMS.md`, `CHECKS.md` and `DECISIONS.md` (open decisions). Check them before starting new
-work. They list only what remains: the change that implements an entry deletes it from its file,
-a new finding goes into the file of its kind, and a resolved decision is removed once recorded in
-the rules file covering it.
+`docs/ROADMAP.md` indexes what remains; entries sit beside it by kind: `FEATURES.md`, `BUGS.md`
+(wrong results and refusals), `PERFORMANCE.md`, `PLATFORMS.md`, `CHECKS.md`, `DECISIONS.md`. Check
+them before new work. They list only what remains: the change implementing an entry deletes it, a
+new finding goes into its kind's file, a resolved decision is removed once recorded in the rules
+file covering it.
 
 ## Rules
 
-Design detail lives in `.claude/rules/`, each file loading only for the paths it governs. A change
-that makes a rule false updates it in the same commit, and a change to what the user sees updates
-its page of the user guide (`crates/caditor/guide/`, `app.md`). `conventions_tests.rs` fails on a
-source file no rule's `paths:` covers, a rules file with nothing under its title and one missing
-from this table.
+Design detail lives in `.claude/rules/`, each file loading only for its `paths:`. A change making a
+rule false updates it in the same commit; a change to what the user sees updates its page of the
+user guide (`crates/caditor/guide/`, `app.md`). `conventions_tests.rs` fails on a source file no
+rule's `paths:` covers, a rules file with nothing under its title and one missing from this table.
 
 | File | Covers |
 | --- | --- |

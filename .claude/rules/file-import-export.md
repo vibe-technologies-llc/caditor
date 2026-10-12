@@ -9,486 +9,392 @@ paths:
 ## DXF import (`import/`)
 
 - `parse_dxf` reads ASCII and binary DXF into a `Drawing` of 2D `DrawingCurve`s in millimetres plus
-  plain-language notes; only header, layers, MLINESTYLEs, blocks and entities are kept.
-- Text is UTF-8 when valid, else in the header's `$DWGCODEPAGE` (`code_page.rs`; unknown reads as
-  1252).
+  plain-language notes; only header, layers, MLINESTYLEs, blocks and entities are kept. Text is
+  UTF-8 when valid, else `$DWGCODEPAGE` (`dxf/code_page.rs`; unknown reads as 1252).
 - Hostile-input limits, each an `ImportError` naming it: `MAX_DRAWING_VALUES` (`DxfFile::read`
-  charges, before keeping it, every kept record its pairs plus `RECORD_VALUES`, its `Record`,
-  `Item` and `Prepared` measured in pairs, and every layer, dashed linetype, block and MLINESTYLE
-  entry `RECORD_VALUES`, so a file of bare `0`/`POINT` records ends there too),
-  `MAX_EXPANDED_OBJECTS` (block expansion, charged per object and per decoded shape, so a long
-  polyline repeated in a huge array ends there), `MAX_DRAWING_POINTS`. Curves past
-  `MAX_READ_CURVES` are left out with a note and the first ones read; the rest of an item past the
-  limit is counted in one step, never walked shape by shape. The sketch's own limit,
-  `MAX_DRAWING_CURVES`, applies in `Drawing::arranged` to the curves of the chosen layers, in
-  drawing order with a note, so leaving layers out brings later curves in;
-  `drawing_transaction` never adds more than it either.
-- Units: `$INSUNITS` converts to millimetres with a note; an unknown or missing unit reads as
-  millimetres with a note, except missing with imperial `$MEASUREMENT`, which reads as inches.
-- Damage ends reading where it is found: earlier records are interpreted and a note says where, so
-  one bad line costs the rest of the file, not all of it; the interrupted record is dropped, since
-  it may miss fields. A file damaged before any section, or drawing nothing before the damage, is
-  refused with the damage as the error.
+  charges every kept record and every layer, linetype, block and MLINESTYLE entry `RECORD_VALUES`
+  before keeping it, so bare `POINT` records end there too), `MAX_EXPANDED_OBJECTS` (block
+  expansion, per object and per decoded shape), `MAX_DRAWING_POINTS`. Curves past `MAX_READ_CURVES`
+  are left out with a note, the rest of an item past it counted in one step. The sketch's
+  `MAX_DRAWING_CURVES` applies in `Drawing::arranged` to the chosen layers' curves in drawing order
+  with a note (so leaving layers out brings later curves in); `drawing_transaction` never adds more.
+- Units: `$INSUNITS` converts to millimetres with a note; unknown or missing reads as millimetres
+  with a note, except missing with imperial `$MEASUREMENT`, which reads as inches.
+- Damage ends reading where found: earlier records are interpreted, a note says where, the
+  interrupted record is dropped. Damage before any section or before anything was drawn is refused
+  with the damage as the error.
 - Left out silently: paper space, invisible entities, off, frozen and `DEFPOINTS` layers.
-  Annotations (text, dimensions) are counted in a note.
-- `Drawing::arranged` applies `DrawingOptions` to a parsed drawing: a unit that replaces the one
-  the file names (`Drawing::unit_scale` is what the header applied, so the choice converts from
-  the file's own numbers), a scale within `MIN_SCALE..=MAX_SCALE`, and centring the outline's
-  bounding box (arcs by their sweep) on the origin, and layers left out. Each curve keeps the index
-  of its layer (`Drawing::curve_layers` into `Drawing::layers`, in order of first use, names
-  compared without case; an entity on layer 0 inside a block takes the layer of its INSERT); only
-  layers that kept a curve are listed. It adds a note per change it makes and leaves the original
-  untouched.
-- Dashed linetypes make a curve construction geometry (`Drawing::construction`, added by
-  `drawing_transaction` with ordinary end points), with a note.
-- Blocks and INSERTs nest with cycle and depth limits; a block's content is decoded once and shared
-  by its instances.
+  Annotations (text, dimensions) are counted in a note. HATCH imports boundary paths only, never
+  the fill (counted), and a path whose source objects are all drawn entities of the same space is
+  left to them so an associative hatch does not double its outline.
+- `Drawing::arranged` applies `DrawingOptions` without touching the original, a note per change: a
+  replacement unit (`Drawing::unit_scale` is what the header applied, so the choice converts from
+  the file's own numbers), a scale within `MIN_SCALE..=MAX_SCALE`, centring the outline's bounding
+  box (arcs by sweep) on the origin, layers left out. Each curve keeps its layer index
+  (`Drawing::curve_layers` into `Drawing::layers`, first-use order, names compared without case;
+  layer 0 inside a block takes its INSERT's layer); only layers that kept a curve are listed.
+- Dashed linetypes make a curve construction geometry (`Drawing::construction`), with a note.
+  Blocks and INSERTs nest with cycle and depth limits; a block's content is decoded once and shared.
 - SPLINE uses control points up to `MAX_SPLINE_DEGREE`, else fit points: with an end tangent the
-  cubic AutoCAD draws (`FitPoints::cubic`), otherwise a `DrawingCurve::FitSpline`, which
-  `drawing_transaction` makes a centripetal fit-point spline through the same points, closed when
-  the SPLINE's closed flag (70, bit 1) is set and three points remain once a repeated first point
-  is dropped (a closed one has no ends to join); a note counts them. Past `MAX_FIT_POINTS`, or
-  where no such spline can be drawn, the points are fitted with `BSpline::through` as before.
-  Hatch boundary splines given by fit points are read the same way, always open.
-- HATCH imports boundary paths only, never the fill (a note counts hatches); a path whose source
-  objects are all drawn entities of the same space is left to them, so an associative hatch does
-  not double its outline.
+  cubic AutoCAD draws (`FitPoints::cubic`), otherwise `DrawingCurve::FitSpline`, which
+  `drawing_transaction` makes a centripetal fit-point spline (closed when flag 70 bit 1 is set and
+  three points remain after dropping a repeated first point); past `MAX_FIT_POINTS`, or where no
+  such spline can be drawn, the points are fitted with `BSpline::through`. Hatch boundary fit
+  splines read the same way, always open.
 - Everything becomes a 3D shape in its object coordinate system (arbitrary axis algorithm), is
   transformed, then flattened onto XY: conics projecting to circles become circles and arcs; other
-  conics become exact `DrawingCurve::Ellipse`s (`flatten::planar_ellipse`: the principal axes of
-  the projected conjugate diameters, the longer as the major axis, a partial one by its end points
-  ordered counter-clockwise), which `drawing_transaction` makes sketch ellipses and elliptical
-  arcs; non-uniform splines are fitted within a millionth of the drawing's size.
-- `drawing_transaction` makes one transaction on an existing or new sketch, dropping curves shorter
-  than the joint tolerance and joining ends within it with `Coincident` constraints.
+  conics exact `DrawingCurve::Ellipse`s (`flatten::planar_ellipse`: principal axes of the projected
+  conjugate diameters, a partial one by its end points counter-clockwise); non-uniform splines are
+  fitted within a millionth of the drawing's size.
+- `drawing_transaction` makes one transaction on an existing or new sketch: drops curves shorter
+  than the joint tolerance, joins ends within it with `Coincident`, makes sketch ellipses and
+  elliptical arcs, adds construction curves with ordinary end points.
 
 ## SVG import (`import/svg/`)
 
-- `read_drawing` reads SVG for a `.svg` or `.svgz` file, or a file not named `.dxf` whose content
-  starts with `<` (after a BOM and spaces), gzip or a UTF-16 BOM; anything else goes to
-  `parse_dxf`. `parse_svg` unpacks gzip like `.stpz` (`model::unpacked`), decodes UTF-8 or
-  UTF-16 by BOM, else Latin-1 with a note, and returns the same `Drawing` as DXF, flattened by the
-  DXF reader's `flatten`, so the import dialog, arrangement and `drawing_transaction` are shared.
-- `import/xml.rs` is caditor's own small XML reader, shared with 3MF import (below), since
-  roxmltree's tokenizer recurses per nesting level and overflows the stack on hostile depth:
-  iterative, namespaces resolved, attribute values
-  decoded (the five named entities, character references and the DOCTYPE's own text entities,
-  which Illustrator uses for `xmlns`; an entity holding markup, nested past `MAX_ENTITY_DEPTH` or
-  expanding past `MAX_ENTITY_WORK` is damage), text content kept only inside `style` elements
-  (text decoded like attributes, CDATA as is, joined) and inside `text`, `tspan`, `textPath` and
-  `a` as pieces placed between the children (`Node::content`), since text layout needs their
-  order. Past
-  `MAX_DRAWING_ELEMENTS` elements the file is `ImportError::TooManyElements`. Damage ends reading
-  where it is found: the elements before it are kept with their open ancestors and a note names
-  the line; damage before the root element is `DamagedAt`.
+- `read_drawing` takes SVG for a `.svg`/`.svgz` file, or a file not named `.dxf` whose content
+  starts with `<` (after a BOM and spaces), gzip or a UTF-16 BOM; anything else goes to `parse_dxf`.
+  `parse_svg` unpacks gzip like `.stpz` (`model::unpacked`), decodes UTF-8 or UTF-16 by BOM, else
+  Latin-1 with a note, and returns the same `Drawing` as DXF, flattened by DXF's `flatten`, so the
+  import dialog, arrangement and `drawing_transaction` are shared.
+- `import/xml.rs` is caditor's own XML reader, shared with 3MF, since roxmltree's tokenizer recurses
+  per nesting level and overflows the stack on hostile depth: iterative, namespaces resolved,
+  attribute values decoded (named entities, character references and the DOCTYPE's own text
+  entities, which Illustrator uses for `xmlns`; an entity holding markup, nested past
+  `MAX_ENTITY_DEPTH` or expanding past `MAX_ENTITY_WORK` is damage). Text is kept only inside
+  `style`, `text`, `tspan`, `textPath` and `a`, as pieces between the children (`Node::content`)
+  since layout needs their order. Past `MAX_DRAWING_ELEMENTS` the file is
+  `ImportError::TooManyElements`. Damage keeps the elements before it with their open ancestors and
+  a note names the line; damage before the root is `DamagedAt`.
 - The root `svg` sizes the drawing (`sizing.rs`): with a viewBox and a width or height, a user unit
   is that length in millimetres over the viewBox's side (`preserveAspectRatio` meet takes the
-  smaller of the two, slice the larger, none each); mm, cm, in, pt, pc and px are converted and
-  every unit but millimetres gets a note; a bare number is a CSS pixel, as is every user unit
-  without a viewBox or size, 96 to the inch, with a note saying a pixel is 0.2646 mm. The
-  viewBox's origin is not subtracted, so user coordinates keep their place and caditor's own SVG
-  export reads back where it was drawn; y is flipped to point up. `Drawing::unit_scale` is the
-  millimetres per user unit, so the dialog's unit choice reads user units as that unit.
-- Lengths inside take units at 96 px to the inch and percentages of the nearest viewport (x of its
-  width, y of its height, a radius of the normalised diagonal); a nested `svg` places its viewBox
-  with x, y, width, height and `preserveAspectRatio` alignment.
-- `path` reads every command, absolute and relative, with implicit repeats and the reflected
-  controls of S and T; damaged data is read up to the damage and counted. Quadratic and cubic
-  Béziers become exact sketch splines (three or four control points, clamped with no inner knots,
-  as `BSpline::clamped` makes them) and a Bézier whose controls lie on its chord a line; elliptical
-  arcs follow the SVG centre conversion (radii too small scaled up, a zero radius a line) and
-  become a conic, which `flatten` makes an arc when circular after the transforms and otherwise an
-  exact ellipse or elliptical arc. `rect` (rounded with
-  auto `rx`/`ry` clamped to half the sides), `circle`, `ellipse`, `line`, `polyline` and `polygon`
-  are read; zero-sized shapes draw nothing.
-- `transform` lists (`matrix`, `translate`, `scale`, `rotate` about a point, `skewX`, `skewY`)
-  compose down the tree; one that cannot be read is ignored and counted. `use` places its target
-  (`href` or `xlink:href`, by id) at x and y; a `symbol` is fitted like a nested `svg`, its viewBox
-  and `preserveAspectRatio` (default `xMidYMid meet`) into the use's width and height (else its
-  own, else 100%), and draws nothing when either is zero; a target that is the use's own ancestor or already being placed, uses nested past
-  `MAX_USE_DEPTH` and elements nested past `MAX_NESTING` are left out with a note. Inside a use
-  every element and shape is charged against `MAX_EXPANDED_OBJECTS` (`TooManyCopies`), and each
-  element's properties and local shapes are decoded once and shared by its instances.
-- Layers: below the root (or below a single group that wraps everything, repeatedly) each group or
-  nested `svg` is a layer named by its `inkscape:label`, else its `id`, else `Group <n>`; shapes
-  outside them are on `Ungrouped`. Layers are interned like DXF's, names compared without case.
-- Style (`style.rs`, `css.rs`): each property is cascaded as SVG does, from the `style` attribute,
-  the document's `<style>` sheets (CSS, or no `type`) and the presentation attribute: the highest
-  `!important`, then inline over sheet, then specificity (ids, classes, element), then the later
-  rule wins, and a presentation attribute only when no declaration names the property. Sheets
-  read simple selectors only (an element name or `*`, classes, one id, grouped with commas);
-  a selector with a combinator, pseudo-class or attribute test is ignored and counted in a note,
-  at-rules (`@media` included) are skipped, comments and `<!--` `-->` dropped. Rules are indexed by
-  id, first class or element; past `MAX_STYLE_RULES` they are ignored with a note, and past
-  `MAX_MATCHING_WORK` selector tests the rest of the elements keep their own attributes only, with
-  a note, so a hostile sheet cannot make matching quadratic.
+  smaller, slice the larger, none each); mm, cm, in, pt, pc, px convert and every unit but
+  millimetres gets a note; a bare number, and every user unit without viewBox or size, is a CSS
+  pixel (96 to the inch, noted as 0.2646 mm). The viewBox origin is not subtracted, so caditor's own
+  SVG export reads back where drawn; y is flipped to point up. `Drawing::unit_scale` is millimetres
+  per user unit, so the dialog's unit choice reads user units as that unit. Inner lengths use
+  96 px to the inch and percentages of the nearest viewport (radius: the normalised diagonal); a
+  nested `svg` places its viewBox with x, y, width, height and `preserveAspectRatio`.
+- `path` reads every command (implicit repeats, reflected S/T controls); damaged data is read up to
+  the damage and counted. Béziers become exact sketch splines (as `BSpline::clamped`), one whose
+  controls lie on its chord a line; elliptical arcs follow the SVG centre conversion (radii scaled
+  up if too small, zero radius a line) and become a conic that `flatten` makes an arc when circular
+  after the transforms, else an exact ellipse or elliptical arc. `rect` (rounded, auto `rx`/`ry`
+  clamped to half the sides), `circle`, `ellipse`, `line`, `polyline`, `polygon` are read;
+  zero-sized shapes draw nothing.
+- `transform` lists compose down the tree; an unreadable one is ignored and counted. `use` places
+  its target (`href` or `xlink:href`, by id) at x and y; a `symbol` is fitted like a nested `svg`
+  into the use's width and height (else its own, else 100%), drawing nothing when either is zero.
+  A target that is the use's own ancestor or already being placed, uses nested past `MAX_USE_DEPTH`
+  and elements nested past `MAX_NESTING` are left out with a note. Inside a use every element and
+  shape is charged against `MAX_EXPANDED_OBJECTS` (`TooManyCopies`); an element's properties and
+  local shapes are decoded once and shared by its instances.
+- Layers: below the root (or a single group wrapping everything, repeatedly) each group or nested
+  `svg` is a layer named by `inkscape:label`, else `id`, else `Group <n>`; shapes outside them are
+  on `Ungrouped`. Interned like DXF's.
+- Style (`style.rs`, `css.rs`) cascades as SVG does from the `style` attribute, `<style>` sheets and
+  the presentation attribute: highest `!important`, then inline over sheet, then specificity, then
+  the later rule; a presentation attribute only when no declaration names the property. Sheets read
+  simple selectors only (element name or `*`, classes, one id, comma groups); selectors with a
+  combinator, pseudo-class or attribute test are ignored and counted, at-rules skipped. Rules are
+  indexed by id, first class or element; past `MAX_STYLE_RULES` they are ignored with a note, and
+  past `MAX_MATCHING_WORK` selector tests the remaining elements keep their own attributes only, so
+  a hostile sheet cannot make matching quadratic.
 - `display: none` and `visibility: hidden` leave elements out with a note; an element whose stroke
-  and fill are both set to `none` somewhere in its cascade (not by the defaults, since a bare
-  `line` with no stroke is still wanted) is left out and counted; `stroke-dasharray` (inherited)
-  makes curves construction geometry, as a dashed DXF linetype does; a `clip-path` or `mask` is
-  ignored and counted, the shape imported whole.
-- Markers (`marker-start`, `marker-mid`, `marker-end` and the `marker` shorthand, inherited) are
-  drawn on `path`, `line`, `polyline` and `polygon` at every vertex the outline records
-  (`path::Vertex`: each move, segment end and close, with the directions in and out, arcs by their
-  tangents): the marker's viewBox fitted into `markerWidth` by `markerHeight` (default 3), `refX`
-  and `refY` put on the vertex, scaled by the stroke width unless `markerUnits` is
-  `userSpaceOnUse`, and turned by `orient` (an angle in deg, rad, grad or turn, `auto` along the
-  bisector of the directions, `auto-start-reverse`). Marker content inherits from the marker's own
-  ancestors, never the path, is charged against `MAX_EXPANDED_OBJECTS` like a use, and a marker
-  drawn inside itself is left out as reusing itself. Markers are drawn even on an element left
-  out for having neither stroke nor fill, as browsers draw them; overflow clipping is not
-  applied. A `switch` draws its
-  first child without conditions. `image` and `foreignObject` are counted as left out,
-  other unknown SVG elements named in a note, definitions, styles and metadata skipped silently,
-  and elements of other namespaces (Inkscape's, Sodipodi's) ignored. Shapes whose numbers overflow are left out and counted; the curve, point and empty limits
-  are DXF's.
-- Text becomes the outlines of its letters, given a font: `parse_svg` and `read_drawing` take
-  `TextOutlines`, `InFont { upright, italic }` or `LeftOut`. The fonts are handed in rather than
-  bundled by `caditor-file`: Inter's upright face, which the app already embeds for its interface
-  (`caditor`'s `fonts::INTER`, the variable `InterVariable.ttf`), and its italic face
-  (`fonts::INTER_ITALIC`, `InterVariable-Italic.ttf`, the same Inter 4.1 release under the same
-  licence, used by the import only, never by the interface); the app passes both for every
-  drawing import, and anything importing headless must pass the same bytes to get the same
-  letters. Without upright font data, or with bytes `ttf-parser` cannot read, each `text` is
-  counted as left out as before; an `italic` that is `None` or unreadable leaves italic text
-  drawn upright.
-- Layout (`lettering.rs`): the `text` element's content and its `tspan` and `a` children are
-  gathered into letters, each with its inherited style; whitespace is collapsed as CSS's normal
-  white space does (newlines and tabs are spaces, runs of spaces one, leading and trailing ones
-  dropped) unless `xml:space="preserve"`; a `tspan` with `display: none` adds no letters, one
-  hidden or unpainted keeps its room but draws nothing. `x`, `y`, `dx`, `dy` lists (lengths, units
-  and percentages of the viewport) and `rotate` (its last angle repeating to the element's end)
-  apply per letter from each element's first letter, a descendant overriding its ancestors, as
-  SVG 2 resolves them. A letter with an absolute `x` or `y` starts a chunk, and each chunk is
-  shifted by `text-anchor` of its first letter over the extent of its advances. The pen moves by
-  each glyph's advance plus `letter-spacing` (and `word-spacing` after a space; lengths or em),
-  with the font's pair kerning (the GPOS `kern` lookups of the Latin, else default, script, pair
-  adjustments of both formats, at the default instance) between two letters of the same weight
-  and face unless the second is placed absolutely.
-- `textLength` on a `text`, `tspan` or `textPath` (a length, percentages of the viewport width)
-  makes its letters span that length, innermost element first: `lengthAdjust` `spacing` (the
-  default) spreads the difference over the gaps between them, `spacingAndGlyphs` stretches their
-  places and glyphs (`Placed::stretch`, a horizontal scale before the rotation) by the ratio;
-  later letters of the chunk move with the end. `baseline-shift` raises (positive) or lowers a
-  span's letters without moving the pen: `sub` by 0.2 and `super` by 0.4 of the parent's font
-  size, a percentage of the parent's font size, a length or em of its own; shifts add up through
-  nested spans (`TextStyle::rise`).
-- `textPath` (`text_path.rs`) lays its letters along the shape it references (`href` or
-  `xlink:href`, one of the drawn shape elements, through its own `transform`) or its SVG 2 `path`
-  data: the shape is sampled into a `Track` (lines exact, arcs 128 steps a turn, Béziers 32 a
-  span, at most `MAX_TRACK_POINTS`; moves add no length), `side="right"` walks it backwards, and
-  `startOffset` (a length or a percentage of its length) is where the run starts. The run is laid
-  out straight from zero with the usual advances, kerning, spacing, `dx`, `dy`, `rotate` and
-  `textLength`, anchored by its first letter's `text-anchor` about the start offset, then each
-  letter's middle is put on the track at its distance, the letter turned to the tangent there and
-  `dy` and the baseline shift moving it square to it; absolute `x` and `y` are ignored inside it.
-  A letter whose middle falls off either end is left out and counted, as browsers do. Text after
-  the `textPath` in the same `text` carries on, straight, from where the last letter on the path
-  ends. A reference that does not name a drawn shape is counted as missing and its text left out.
-- Text style (`text_style.rs`) cascades like the other properties: `font-size` (lengths, em, ex,
-  rem, percentages of the parent's, the keywords, `larger` and `smaller`; 16 px when unset),
-  `font-family`, `font-weight` (keywords, `bolder` and `lighter` as CSS steps them, 1 to 1000),
-  `font-style`, `text-anchor`, `letter-spacing`, `word-spacing` and the `font` shorthand (style and
-  weight words, then a size with an optional line height, then the families; a system font name
-  is ignored). Every family is drawn in Inter: a first family other than Inter or a generic
-  sans-serif is named in one note listing them (at most `MAX_NAMED_ELEMENTS`). The weight sets the
-  font's `wght` axis, clamped to its range (100 to 900 for Inter); italic and oblique text is
-  set in the italic face, with its own glyphs, advances and kerning, and only when no italic face
-  was handed in is it drawn upright and counted in a note. A character the
-  font has no glyph for takes the advance of its missing glyph, draws nothing and is counted.
-- Glyphs (`font.rs`) are read in font units at each weight of each face (a `Cut` per face, an
-  `Instance` of weight and italic naming one, one `ttf_parser::Face` per weight, outlines cached
-  per weight and glyph), scaled by size over units per em with y flipped, turned
-  by the letter's rotation, placed at its position and taken through the element's transforms;
-  their quadratic and cubic segments become the same exact Bézier splines and lines `path` makes.
-  A variable font keeps overlapping contours (Inter's `e` is one contour whose bar crosses its
-  bowl; `t`, `f` and `k` overlap pieces), which the sketch's even-depth regions would read as
-  notches, so `overlap.rs` merges each glyph first: its segments build a kernel `Profile`, the
-  faces whose anchor has a non-zero winding over the original contours (sampled 32 steps per
-  Bézier) are selected as lumps, and each loop's pieces become lines and Bézier pieces (de
-  Casteljau over the piece's range) meeting exactly at the loop's junctions. A glyph the profile
-  cannot build keeps its contours as drawn. Letters of different glyphs that overlap one another
-  are not merged. `read_drawing` installs its `CancelToken` as the kernel interrupt around
-  `parse_svg`, so merging stops when the import is cancelled. Letters are charged like shapes, and
-  past `MAX_READ_CURVES` a glyph is counted without being merged.
+  and fill are both explicitly `none` in its cascade (not by defaults: a bare `line` is wanted) is
+  left out and counted; inherited `stroke-dasharray` makes construction geometry; `clip-path` and
+  `mask` are ignored and counted.
+- Markers (`marker-start`/`mid`/`end`, `marker`, inherited) are drawn on `path`, `line`, `polyline`
+  and `polygon` at every vertex the outline records (`path::Vertex`, directions in and out, arcs by
+  tangents): viewBox fitted into `markerWidth` by `markerHeight` (default 3), `refX`/`refY` on the
+  vertex, scaled by stroke width unless `markerUnits` is `userSpaceOnUse`, turned by `orient`.
+  Content inherits from the marker's own ancestors, is charged against `MAX_EXPANDED_OBJECTS`, a
+  marker drawn inside itself is left out; drawn even on an element with neither stroke nor fill;
+  overflow clipping not applied.
+- A `switch` draws its first child. `image` and `foreignObject` are counted as left out, other
+  unknown SVG elements named in a note, definitions, styles and metadata skipped silently, other
+  namespaces (Inkscape, Sodipodi) ignored. Shapes whose numbers overflow are left out and counted;
+  the curve, point and empty limits are DXF's.
+
+### SVG text
+
+- Text becomes the outlines of its letters. `parse_svg` and `read_drawing` take `TextOutlines`:
+  `InFont { upright, italic }` or `LeftOut`. Fonts are handed in, not bundled by `caditor-file`: the
+  app passes Inter's upright (`fonts::INTER`, `InterVariable.ttf`) and italic (`fonts::INTER_ITALIC`,
+  `InterVariable-Italic.ttf`, same Inter 4.1 release and licence, used by import only) faces, and
+  headless importers must pass the same bytes to get the same letters. Without upright data, or
+  bytes `ttf-parser` cannot read, each `text` is counted as left out; a `None` or unreadable italic
+  draws italic text upright.
+- Layout (`lettering.rs`): `text`, `tspan` and `a` content gathers into letters with inherited
+  style; whitespace collapses as CSS unless `xml:space="preserve"`; a `tspan` with `display: none`
+  adds no letters, one hidden or unpainted keeps its room but draws nothing. `x`, `y`, `dx`, `dy`
+  lists and `rotate` (last angle repeating) apply per letter from each element's first letter,
+  descendants overriding ancestors (SVG 2). A letter with absolute `x` or `y` starts a chunk,
+  shifted by its first letter's `text-anchor`. The pen moves by advance plus `letter-spacing` and
+  `word-spacing`, with GPOS `kern` pair kerning between two letters of the same weight and face
+  unless the second is absolutely placed.
+- `textLength` (innermost first): `lengthAdjust` `spacing` (default) spreads the difference over the
+  gaps, `spacingAndGlyphs` stretches places and glyphs (`Placed::stretch`). `baseline-shift` moves
+  a span's letters without moving the pen and adds up through nested spans (`TextStyle::rise`).
+- `textPath` (`text_path.rs`) lays letters along the referenced shape (`href`/`xlink:href`, through
+  its own `transform`) or its SVG 2 `path` data, sampled into a `Track` (at most
+  `MAX_TRACK_POINTS`); `side="right"` walks it backwards, `startOffset` is where the run starts. The
+  run is laid out straight first, then each letter's middle is put on the track and turned to the
+  tangent; absolute `x`/`y` are ignored inside. A letter whose middle falls off either end is left
+  out and counted. Text after the `textPath` carries on straight from the last on-path letter. A
+  reference not naming a drawn shape is counted as missing and its text left out.
+- Text style (`text_style.rs`) cascades `font-size` (16 px unset), `font-family`, `font-weight`,
+  `font-style`, `text-anchor`, `letter-spacing`, `word-spacing` and the `font` shorthand (system
+  font names ignored). Every family is drawn in Inter; a first family other than Inter or a generic
+  sans-serif is named in one note (at most `MAX_NAMED_ELEMENTS`). Weight sets the `wght` axis
+  (100 to 900); italic and oblique use the italic face, upright and noted only when none was handed
+  in. A character without a glyph takes the missing glyph's advance, draws nothing and is counted.
+- Glyphs (`font.rs`) are read per weight of each face (`Cut` per face, `Instance` of weight and
+  italic, one `ttf_parser::Face` per weight, outlines cached per weight and glyph); quadratic and
+  cubic segments become the same exact splines and lines `path` makes. A variable font keeps
+  overlapping contours (Inter's `e`, `t`, `f`, `k`), which the sketch's even-depth regions would read
+  as notches, so `overlap.rs` merges each glyph first: its segments build a kernel `Profile`, faces
+  whose anchor has non-zero winding over the original contours (Béziers sampled 32 steps) are
+  selected as lumps, and each loop's pieces become lines and Béziers (de Casteljau) meeting exactly
+  at junctions. A glyph the profile cannot build keeps its contours as drawn; different glyphs that
+  overlap are not merged. `read_drawing` installs its `CancelToken` as the kernel interrupt around
+  `parse_svg`. Letters are charged like shapes; past `MAX_READ_CURVES` a glyph is counted without
+  being merged.
 
 ## STEP import (`import/model.rs`)
 
-- `read_step_file` unpacks gzip first (`.stpz`, or the gzip magic), within `MAX_FILE_SIZE` and with
-  the trailer's CRC and size checked, else `DamagedArchive` or `UnpacksTooLarge`. Non-UTF-8 text
-  is read as Latin-1 with a note.
-- `read_step_file`, `read_mesh_file`, `read_dxf` and `read_drawing` take a `CancelToken`: it is checked between
-  the file's stages and installed as the kernel interrupt around parsing and building, so the STEP
-  reader stops between solids (`ReadError::Cancelled`) and meshing stops inside a shell. A
-  cancelled read is `ImportError::Cancelled`, never a partial import.
-- `parse_step` reads the copies of each part (`read_step_copies`, `step-read.md`) and canonicalises
-  each part once, unplaced: written by caditor's own writer and read back (`read_own_step`, which
-  skips the crossing check the first read already made), so what is stored is exactly what later
-  loads. The distinct parts are canonicalised in parallel, then the copies placed in parallel
-  (`in_parallel`: scoped threads with the caller's interrupt, results in input order), so the bodies
-  and notes are those of a sequential pass. `read_step_file_reporting` fills a `ReadingProgress`
-  the app polls (`ReadingStage`: reading, solids built of solids, parts stored of parts). One `ImportedBody` per copy, or per copy of each lump (each
-  canonicalised alone) when a multi-lump solid reads back as several; a part that cannot be stored
-  is left out with a note per copy.
-- A copy placed rigidly becomes an `Import` sharing the part's solid and STEP text (`Arc`s, through
-  `Import::shared`) with its placement as a `BodyPlacement` (`body_placement`: turns about X, Y
-  then Z taken from the rotation, rounded with the shift to a billionth of a degree or millimetre,
-  and kept only when it lands every corner of the part's box within a tenth of
-  `LINEAR_RESOLUTION` of where the file puts it), so the user can move it afterwards like any
-  placed import. A copy scaled or mirrored, or one the turns cannot reproduce, is mapped and
-  canonicalised on its own at the origin as before; one whose mapping fails is left out with
-  `Misplacement::CopyUnplaceable`'s note.
-- Each `ImportedBody` carries the copy's STEP `colour`, its `opacity`, its `finish` (the reader's
-  `caditor_step::Finish` turned into the document's one by `finish`) and its `layer` as `group`,
-  and its faces' own looks as `ImportedFace`s (index in the stored solid, colour, opacity snapped
-  like the body's with solid as 100, finish, kept only when one differs from the body's). Face indices are
-  carried onto each stored lump through `caditor_step::lump_faces` (the faces of each lump in the
-  order written, which canonicalising keeps), for every lump whose face count matches.
-  `bodies_transaction` makes each a `FaceColour` naming the imported face
-  (`FaceName::imported`, origin `Imported`), coloured with its own colour, else the body's, else
-  `DEFAULT_BODY_COLOUR`, so a face see-through but coloured by neither stays see-through, and
-  with its finish.
-  The STEP opacity (a percent) is snapped when the copy is read to the nearest of the body's
-  opacity steps, solid included (`nearest_opacity_step`, `document.md`), so a nearly solid body
-  imports solid. `bodies_transaction` sets a coloured or see-through body's appearance colour and
-  opacity and finish (one `SetBodyAppearance`) and puts a layered body in the
-  folder of its layer's name (one line, cut at `MAX_GROUP_NAME_CHARS`), moving the bodies of a
-  layer together at its first body so each layer is one folder; mesh imports have neither.
-- `bodies_transaction` adds an `Import` feature per body under unique names; the model file stores
-  it as an `import` or `placed_import` record (`file-format.md`). The app refuses, before applying
-  it, an import whose STEP text with the model's existing imports (`FeatureKind::stored_text_len`,
-  a text shared by copies counted once) would exceed `MAX_MODEL_RECORDS`, since that model could
-  be neither saved nor journaled.
+- `read_step_file` unpacks gzip first (`.stpz`, or the gzip magic) within `MAX_FILE_SIZE`, trailer
+  CRC and size checked, else `DamagedArchive` or `UnpacksTooLarge`. Non-UTF-8 text reads as Latin-1
+  with a note.
+- `read_step_file`, `read_mesh_file`, `read_dxf` and `read_drawing` take a `CancelToken`, checked
+  between stages and installed as the kernel interrupt around parsing and building (STEP stops
+  between solids with `ReadError::Cancelled`, meshing inside a shell). A cancelled read is
+  `ImportError::Cancelled`, never a partial import.
+- `parse_step` reads each part's copies (`read_step_copies`, `step-read.md`) and canonicalises each
+  distinct part once, unplaced, by writing with caditor's own writer and reading back
+  (`read_own_step`, which skips the crossing check the first read made), so what is stored is
+  exactly what later loads. Parts are canonicalised in parallel, then copies placed in parallel
+  (`in_parallel`: scoped threads with the caller's interrupt, results in input order, so bodies and
+  notes match a sequential pass). `read_step_file_reporting` fills a `ReadingProgress` the app
+  polls (`ReadingStage`). One `ImportedBody` per copy, or per lump of a copy (each canonicalised
+  alone) when a multi-lump solid reads back as several; a part that cannot be stored is left out
+  with a note per copy.
+- A rigidly placed copy becomes an `Import` sharing the part's solid and STEP text (`Import::shared`)
+  with a `BodyPlacement` (`body_placement`: turns about X, Y then Z, rounded with the shift to a
+  billionth of a degree or millimetre, kept only when every corner of the part's box lands within a
+  tenth of `LINEAR_RESOLUTION` of where the file puts it), so the user can move it like any placed
+  import. A scaled or mirrored copy, or one the turns cannot reproduce, is mapped and canonicalised
+  alone at the origin; if mapping fails it is left out with `Misplacement::CopyUnplaceable`'s note.
+- Each `ImportedBody` carries the copy's STEP `colour`, `opacity`, `finish` (`caditor_step::Finish`
+  turned into the document's) and `layer` as `group`, and its faces' looks as `ImportedFace`s (index
+  in the stored solid, colour, opacity, finish; kept only when one differs from the body's), carried
+  onto each lump through `caditor_step::lump_faces` for every lump whose face count matches. STEP
+  opacity (percent) is snapped on reading to the nearest body opacity step, solid included
+  (`nearest_opacity_step`, `document.md`), so a nearly solid body imports solid.
+- `bodies_transaction` adds an `Import` feature per body under unique names (stored as `import` or
+  `placed_import`, `file-format.md`). A coloured or see-through body gets one `SetBodyAppearance`;
+  each `ImportedFace` a `FaceColour` naming it (`FaceName::imported`, origin `Imported`), coloured
+  with its own colour, else the body's, else `DEFAULT_BODY_COLOUR`, so a face see-through but
+  coloured by neither stays see-through, with its finish. A layered body goes in the folder named
+  by its layer (one line, cut at `MAX_GROUP_NAME_CHARS`), a layer's bodies moved together at its
+  first body; mesh imports have neither. The app refuses, before applying, an import whose STEP text
+  plus the existing imports' (`FeatureKind::stored_text_len`, a text shared by copies counted once)
+  would exceed `MAX_MODEL_RECORDS`, since that model could be neither saved nor journaled.
 
 ## Mesh import (`import/mesh.rs`)
 
 - `read_mesh_file` picks the format by extension (`MeshFormat`): STL (binary when its size matches
-  the triangle count, else text), OBJ (`v` and `f`, polygons fanned, `/` parts and negative indices
-  read) and 3MF (`zip_read.rs`, a small reader of stored and deflated entries, no ZIP64, whose
-  `Archive::read` tells a missing entry from a damaged or oversized one, `EntryError`; the model
-  part from `_rels/.rels`, build items and nested components placed by their transforms). Every
-  model part and `_rels/.rels` is read with `import/xml.rs`, never roxmltree, whose recursion a
-  deeply nested part would overflow.
-- 3MF model parts (`Package`): a build item or component carrying the Production extension's
-  `path` (namespace `http://schemas.microsoft.com/3dmanufacturing/production/2015/06`, matched by
-  namespace, not prefix) takes its object from that part, as Bambu Studio and OrcaSlicer projects
-  keep each object's mesh in `3D/Objects/*.model`; without it, from the part it is written in.
-  Object ids are scoped per part, each part's objects indexed by id in an `UntrustedMap`. A path is
-  normalised by `part_path` (relative to the referring part's folder unless it starts with `/`,
-  `.` and empty segments dropped, `..` escaping the package `ModelPartOutsidePackage`) and found
-  in the archive without regard to case; each part is read at most once, keyed by its lowercased
-  path, and only when something placed refers to it, so an absent part is `MissingModelPart`
-  naming it only then. Each part's `unit` converts its own vertices and the translations of its
-  transforms to millimetres. A part is parsed once into owned objects (`Shape`, `Reference`), its
-  failures kept per object and component and raised only when placed, as before.
-- 3MF budgets are the package's, not one part's: the inflated bytes of every part read (and
-  `_rels/.rels`) come out of one `MAX_FILE_SIZE` (`UnpacksTooLarge` past it), and every part's
-  elements out of one `MAX_MODEL_ELEMENTS` (`ModelTooManyElements`). Component expansion is
-  charged across parts: every placed object against `MAX_EXPANDED_OBJECTS`, and the placed
-  vertices and triangles each against `MAX_MODEL_ELEMENTS`, counted for a mesh before any of its
-  vertices is pushed (`add_mesh`); past any of them the file is `ModelPlacesTooMuch`, and each
-  placed object polls the kernel interrupt so Cancel stops it. An object reached again while its
-  own components are being placed, in its part or through others, is `ComponentCycle` naming the
-  object and its part; nesting past `MAX_COMPONENT_DEPTH` is damage. STL and OBJ have no units,
-  so they read as millimetres with a note.
-- The triangles become solids through the kernel's `faceted_solids` (`kernel.md`), each
-  canonicalised like a STEP body and imported as an `Import` named after the file; what the
-  kernel repaired or left out becomes notes in the import report. Its failures are
-  `ImportError` variants of their own (`DamagedMesh`, `ModelTooManyElements`,
-  `ModelPlacesTooMuch`, `MissingModelPart`, `ModelPartOutsidePackage`, `ComponentCycle`,
-  `MeshNotClosed`, `MeshTooDetailed`, `MeshNotSolid`).
+  the triangle count, else text), OBJ (`v` and `f`, polygons fanned, `/` parts and negative
+  indices) and 3MF (`zip_read.rs`: stored and deflated entries, no ZIP64, `Archive::read` telling a
+  missing entry from a damaged or oversized one, `EntryError`; model part from `_rels/.rels`, build
+  items and nested components placed by their transforms). Every model part and `_rels/.rels` is
+  read with `import/xml.rs`, never roxmltree.
+- 3MF model parts (`Package`): a build item or component with the Production extension's `path`
+  (namespace `http://schemas.microsoft.com/3dmanufacturing/production/2015/06`, matched by
+  namespace not prefix) takes its object from that part, as Bambu Studio and OrcaSlicer keep meshes
+  in `3D/Objects/*.model`; otherwise from its own part. Object ids are scoped per part
+  (`UntrustedMap`). `part_path` normalises a path (relative to the referring part's folder unless
+  it starts with `/`; `..` escaping is `ModelPartOutsidePackage`), found without regard to case;
+  each part is read at most once and only when something placed refers to it, so an absent one is
+  `MissingModelPart` only then. Each part's `unit` converts its vertices and transform translations
+  to millimetres. A part is parsed once into owned objects (`Shape`, `Reference`), failures kept per
+  object and component and raised only when placed.
+- 3MF budgets belong to the package: inflated bytes of every part (and `_rels/.rels`) come out of
+  one `MAX_FILE_SIZE` (`UnpacksTooLarge`), every part's elements out of one `MAX_MODEL_ELEMENTS`
+  (`ModelTooManyElements`). Component expansion is charged across parts: every placed object against
+  `MAX_EXPANDED_OBJECTS`, placed vertices and triangles each against `MAX_MODEL_ELEMENTS`, counted
+  before any vertex is pushed (`add_mesh`); past any the file is `ModelPlacesTooMuch`, and each
+  placed object polls the kernel interrupt. An object reached again while its own components are
+  being placed is `ComponentCycle` naming object and part; nesting past `MAX_COMPONENT_DEPTH` is
+  damage. STL and OBJ have no units and read as millimetres with a note.
+- Triangles become solids through the kernel's `faceted_solids` (`kernel.md`), each canonicalised
+  like a STEP body and imported as an `Import` named after the file; what the kernel repaired or
+  left out becomes import-report notes. Failures are their own `ImportError` variants
+  (`DamagedMesh`, `ModelTooManyElements`, `ModelPlacesTooMuch`, `MissingModelPart`,
+  `ModelPartOutsidePackage`, `ComponentCycle`, `MeshNotClosed`, `MeshTooDetailed`, `MeshNotSolid`).
 
 ## Export (`export/`)
 
-- `export_bodies` writes STEP (a body with a look styled with its colour and, when see-through
-  (`Look::opacity`), its transparency, `step-write.md`; a body with an opacity but no colour or
-  material still has a look, in the app's default colour; its faces' looks (`ExportBody::faces`,
-  `ExportFace` by index among the solid's faces, which the app fills from the appearance's
-  `face_colours` and `face_opacities`) styled per face; a body in a folder
-  (`ExportBody::group`, the making feature's group) on a layer of the folder's name), or tessellates at a `MeshResolution` (a chord fraction of the
-  largest body's diagonal plus an angle between triangles) into STL (`MeshOptions::stl`, see
-  below), 3MF (one named object per body, millimetres, a thumbnail when given; a body with a
-  colour or material points
-  into one `basematerials` group, its `base` named after the material or else the body and coloured
-  with the body's colour or the app's default, via `ExportBody::look`), OBJ (one named object per body, global
-  1-based indices, millimetres, Z up, no normals; bodies with a look name a material, `<index>_<material
-  or body>` with whitespace as `_`, from a `.mtl` of the same stem written first beside it, whose
-  `Kd` is the colour; an existing `.mtl` that does not start with caditor's header is never
-  replaced, and the OBJ then goes without colours) or binary glTF (`.glb`: one node and mesh per
-  body, f32 positions in metres with Y up, `x, z, -y` of the model's, so winding is kept, and the
-  position bounds glTF requires; no normals, which the format defines as flat; a body with a look
-  gets a material named like its 3MF base, its colour as a linear `baseColorFactor`).
-- STL comes in two `StlEncoding`s, streamed into the temporary through a buffer
-  (`write_streamed`) rather than built in memory. Binary puts every body in one surface of f32
-  millimetres, the only form every slicer reads; since f32 rounds by more than a micrometre past
-  `stl::PRECISE_REACH` (32,768 mm), a model reaching beyond it is moved by its bounding-box centre
-  rounded to whole millimetres, named in the 80-byte header (`moved by x y z`) and returned as
-  `Exported::moved` for the app and the command line to say how to move it back. Text writes one
-  `solid` per body, named after it with anything but printable ASCII as `_` (readers sniffing for
-  binary bytes would otherwise misread it), and coordinates to six decimals like 3MF's, never
-  moved.
-- `export_bodies` takes the model's `ModelProperties`; the notes are never exported, the rest go
-  where the format has room (`EXPORTED_PROPERTIES`): STEP through `write_step_detailed`, 3MF as
-  `Title`, `Designer` (author) and `Description` metadata plus the part number as each build item's
-  `partnumber` when there is one body, glTF as `asset.extras` (`title`, `partNumber`, `revision`,
-  `author`, `organisation`, `description`), OBJ as `# <Label>: <value>` lines after its header.
-  STL has nowhere to put them.
-- `ExportBody::threads` (`ExportThread`: designation, side, pitch, start, direction, length; the
-  app fills it from `placed_threads` for the body) carry cosmetic threads where the format has
-  room: STEP as a thread property of the body's part (`step-write.md`), glTF as the node's
-  `extras.threads` (the designations), OBJ as a `# Thread: <designation>` line after the object's
-  `o` line, 3MF as object metadata (below). STL carries none.
-- 3MF threads are one `metadatagroup` first in the body's `object` (before its `mesh`), holding for
-  thread n (from 1) six `metadata` entries with `preserve="1"`, named
-  `caditor:thread.<n>.<field>`: `designation` (the notation text), `side` (`internal` or
-  `external`), `pitch` and `length` (millimetres), `start` and `direction` (three space-separated
-  numbers in the object's own coordinates, which are the model's, the vertices being written
-  untransformed; the direction runs along the thread's axis from its start). Values use the
-  coordinate format of the mesh. The `caditor` prefix is declared on the `model` element as
-  `xmlns:caditor="urn:caditor:3mf"` only when some body has a thread, and is not listed in
-  `requiredextensions`, so consumers that do not know it ignore the entries; a model without
-  threads is written exactly as before. The namespace URI is a URN of our own because the project
-  publishes no site or maintainer identity to base an `http` one on. It is `CADITOR_NAMESPACE` and
-  never changes once files carry it, whatever the entries grow into: new fields are new names in
-  it, a changed meaning a new name, never a new URI.
-- Saved atomically like a model. Cancellation is checked between bodies and before writing;
+- `export_bodies` writes STEP (`step-write.md`: a body with a look is styled with colour and, when
+  see-through (`Look::opacity`), transparency, in the app's default colour for opacity alone;
+  per-face looks from `ExportBody::faces`, `ExportFace` by index among the solid's faces, filled
+  from the appearance's `face_colours` and `face_opacities`; a body in a folder
+  (`ExportBody::group`) goes on a layer of the folder's name), or tessellates at a `MeshResolution`
+  (chord fraction of the largest body's diagonal plus an angle between triangles) into:
+  - STL (`MeshOptions::stl`, below).
+  - 3MF: one named object per body, millimetres, a thumbnail when given; a body with a colour or
+    material points into one `basematerials` group, its `base` named after the material else the
+    body, coloured with the body's colour or the app's default (`ExportBody::look`).
+  - OBJ: one named object per body, global 1-based indices, millimetres, Z up, no normals; bodies
+    with a look name a material `<index>_<material or body>` (whitespace as `_`) from a `.mtl` of
+    the same stem written first, `Kd` the colour; an existing `.mtl` not starting with caditor's
+    header is never replaced and the OBJ goes without colours.
+  - Binary glTF (`.glb`): one node and mesh per body, f32 positions in metres with Y up (`x, z, -y`
+    of the model's, keeping winding) with the bounds glTF requires, no normals (flat); a body with a
+    look gets a material named like its 3MF base, colour as linear `baseColorFactor`.
+- STL has two `StlEncoding`s, streamed into the temporary through a buffer (`write_streamed`).
+  Binary puts every body in one surface of f32 millimetres, the form every slicer reads; since f32
+  rounds by over a micrometre past `stl::PRECISE_REACH` (32,768 mm), a model reaching beyond it is
+  moved by its bounding-box centre rounded to whole millimetres, named in the 80-byte header
+  (`moved by x y z`) and returned as `Exported::moved` for the app and CLI to say how to move it
+  back. Text writes one `solid` per body, named with anything but printable ASCII as `_` (readers
+  sniffing for binary bytes would misread it), six-decimal coordinates, never moved.
+- `export_bodies` takes `ModelProperties`; notes are never exported, the rest go where the format
+  has room (`EXPORTED_PROPERTIES`): STEP through `write_step_detailed`, 3MF as `Title`, `Designer`
+  (author) and `Description` metadata plus the part number as each build item's `partnumber` when
+  there is one body, glTF as `asset.extras` (`title`, `partNumber`, `revision`, `author`,
+  `organisation`, `description`), OBJ as `# <Label>: <value>` lines after its header. STL has none.
+- `ExportBody::threads` (`ExportThread`: designation, side, pitch, start, direction, length; filled
+  by the app from `placed_threads`) carries cosmetic threads: STEP as a thread property of the
+  body's part (`step-write.md`), glTF as the node's `extras.threads`, OBJ as a
+  `# Thread: <designation>` line after the object's `o` line, 3MF as below. STL carries none.
+- 3MF threads: one `metadatagroup` first in the body's `object` (before `mesh`), holding for thread
+  n (from 1) six `metadata` entries with `preserve="1"` named `caditor:thread.<n>.<field>`:
+  `designation`, `side` (`internal`/`external`), `pitch` and `length` (mm), `start` and `direction`
+  (three space-separated numbers in the object's own coordinates, which are the model's; direction
+  runs along the axis from the start). The `caditor` prefix is declared on `model` as
+  `xmlns:caditor="urn:caditor:3mf"` only when some body has a thread, and is not in
+  `requiredextensions`, so unaware consumers ignore it. The URI is a URN because the project
+  publishes no site or identity to base an `http` one on; it is `CADITOR_NAMESPACE` and never
+  changes once files carry it: new fields are new names, a changed meaning a new name.
+- Exports save atomically like a model. Cancellation is checked between bodies and before writing;
   failures are sentences naming the body. A body that cannot be meshed or written (a panic
   included) is left out and returned in `Exported::left_out` (the app says so in a notice that
   outlasts edits); the export fails only when no body could be written. STEP does this through
   `write_step_keeping_what_can_be`.
-- Drawings: `export_drawing` turns each source (a `NamedSketch` or a `NamedFace`, both kinds in
-  one drawing, sketches first) into a `Figure` of 2D `Shape`s, each on a `Layer`
-  (`export/figure.rs`), arranges them by a `DrawingSheet` (`export/sheet.rs`) and writes it with
-  `export/dxf.rs` or `export/svg.rs`; `SketchFormat::of` picks DXF or SVG from the path. It
-  returns `DrawingExported` (a `SketchExported` and a `FaceExported` plus the parts wider than the
-  sheet) and fails with `NoCurves` only when no sketch draws anything and there is no face.
-  `export_sketches` and `export_faces` are its one-kind forms, `export_sketch` and `export_face`
-  the one-source, default-sheet ones. Written atomically, cancellation checked between sources,
-  while nesting and before writing.
+- `export_png` writes 8-bit RGBA, straight alpha, sRGB chunk, through the pure-Rust `png` crate,
+  atomically, streaming whatever `PixelRows` yields (bands of whole rows) into the encoder so the
+  image is never held whole; it checks the pixel count and cancellation between bands. Errors are
+  `PngExportError`: the source's own as `Pixels`, else an `ImageExportError`.
+- 3MF is a ZIP from a small writer (`zip.rs`, `ZipWriter`) streamed into the temporary like STL:
+  content types, relationships and thumbnail first, whole (deflated through `miniz_oxide` unless
+  storing is smaller), then the model written straight into `miniz_oxide`'s streaming compressor
+  with its CRC32 alongside and sizes patched into the local header once known, so the XML is never
+  held. ZIP64 only where needed: the model reserves a ZIP64 field in its local header when
+  `model_size_bound` allows over 4 GiB, and the central directory and end records switch to ZIP64
+  for any size, offset or count past 32 or 16 bits. Deflate and CRC32 live only here, for the
+  foreign format. The thumbnail is `MeshOptions::thumbnail` (RGBA) encoded to
+  `Metadata/thumbnail.png` in memory (`image::encode_png`) with a `png` content type and an OPC
+  thumbnail relationship; one that cannot be encoded is left out with a log line.
+
+### Drawings
+
+- `export_drawing` turns each source (`NamedSketch` or `NamedFace`, both kinds in one drawing,
+  sketches first) into a `Figure` of 2D `Shape`s each on a `Layer` (`export/figure.rs`), arranges
+  them by a `DrawingSheet` (`export/sheet.rs`) and writes with `export/dxf.rs` or `export/svg.rs`;
+  `SketchFormat::of` picks DXF or SVG from the path. It returns `DrawingExported` (a
+  `SketchExported`, a `FaceExported`, plus the parts wider than the sheet) and fails with `NoCurves`
+  only when no sketch draws anything and there is no face. `export_sketches`/`export_faces` are
+  its one-kind forms, `export_sketch`/`export_face` the one-source, default-sheet ones. Written
+  atomically, cancellation checked between sources, while nesting and before writing.
 - A sketch writes its solved curves in its own 2D coordinates on layer 0, and a `POINT` for a point
-  no curve uses; an ellipse or elliptical arc is an `ELLIPSE` (`figure::drawn_ellipse`, the longer
-  radius as its major axis since DXF wants a ratio at most 1). Construction curves (`DrawingSheet::construction`) are counted and left out
-  (`Construction::LeftOut`), or with `Construction::OnLayer` written on layer `Construction` in a
-  dashed linetype and counted in `SketchExported::construction`; sketches with nothing to write
-  are `ExportError::NoCurves`. The DXF reads back through `parse_dxf` as the same curves, the
-  construction ones as construction.
-- A face (`export/outline.rs`) writes a flat face's outer loop on layer `Outline` and its
-  inner loops on `Holes`, as seen from outside the body: the face's plane with its origin where the
-  model origin projects onto it, up along Z for a face more upright than 45° and along Y otherwise,
-  so a top face keeps the model's X and Y and a bottom one is mirrored. Lines, circles and arcs stay
-  exact, an ellipse becomes an elliptical arc (major axis the longer one, parameters negated when
-  its frame faces away), a spline edge is the exact piece of its curve (`BSpline::restricted`,
-  rational weights kept), and anything else (intersection curves) is sampled within 1 µm or a
-  millionth of the body's diagonal and written as one cubic `SPLINE` interpolating the samples
-  (`outline::fitted`, kept only when its middle between every two samples lies within that chord of
-  the curve's), else as a polyline of them; either is counted in `FaceExported::approximated`. A
-  curved face is `ExportError::FaceNotFlat`; outlining runs under `catch_unwind`.
-- `SheetLayout::SideBySide` (the default) leaves the first source in its own frame and shifts each
-  next one to the right of what is placed by a gap of a tenth of the largest (at least 10 mm),
-  bottoms level, so one source is written exactly where it is. `SheetLayout::Nested(Nesting)`
-  (`export/nest.rs`) packs true shapes bottom-left from the origin, largest first: each source,
-  with its label band, is traced into polylines (`Shape::traced`, circles and text boxes closed)
-  and rasterised on a grid of square cells into row runs, conservatively (every cell a curve
-  touches, plus the inside by the even-odd rule, so a ring's hollow and an L's crook stay free),
-  and its runs grown by the spacing in cells (square growth, so the gap between geometry is at
-  least the spacing). The cell is the smaller of the sheet width and the parts' size (largest side,
-  or the root of their summed box areas) over 400, but no finer than a thousandth of the largest
-  part or a 64th of the spacing. Each goes to the lowest, then leftmost, cell where its grown runs
-  miss every placed run within the sheet width, rows without a gap as wide as the part's widest
-  run skipped at once; with `Nesting::turns` it also tries quarter turns, and the 15° step that
-  boxes it smallest with its quarter turns, keeping the lowest spot (`Motion::turn`, exact for
-  quarter turns). A source wider than the sheet every way goes alone above the others, narrowest
-  way round, and is counted in `too_wide`. `Nesting::new` refuses a width that is not positive or
-  a negative spacing. It is deterministic; a label is placed below its source's turned bounds.
+  no curve uses; an ellipse or elliptical arc is an `ELLIPSE` (`figure::drawn_ellipse`, longer
+  radius as major axis since DXF wants a ratio at most 1). Construction curves are counted and left
+  out (`Construction::LeftOut`), or with `Construction::OnLayer` written on layer `Construction`
+  dashed and counted in `SketchExported::construction`. The DXF reads back through `parse_dxf` as
+  the same curves, construction ones as construction.
+- A face (`export/outline.rs`) writes a flat face's outer loop on `Outline` and inner loops on
+  `Holes`, seen from outside the body: the face's plane with its origin where the model origin
+  projects onto it, up along Z for a face more upright than 45 degrees and along Y otherwise, so a
+  top face keeps the model's X and Y and a bottom one is mirrored. Lines, circles and arcs stay
+  exact, an ellipse becomes an elliptical arc, a spline edge the exact piece of its curve
+  (`BSpline::restricted`, weights kept), anything else (intersection curves) is sampled within
+  1 micrometre or a millionth of the body's diagonal and written as one cubic `SPLINE`
+  interpolating the samples (`outline::fitted`, kept only when its midpoints between samples stay
+  within that chord of the curve), else a polyline; either is counted in
+  `FaceExported::approximated`. A curved face is `ExportError::FaceNotFlat`; outlining runs under
+  `catch_unwind`.
+- `SheetLayout::SideBySide` (default) leaves the first source in its own frame and shifts each next
+  right of what is placed by a gap of a tenth of the largest (at least 10 mm), bottoms level, so
+  one source is written exactly where it is. `SheetLayout::Nested(Nesting)` (`export/nest.rs`)
+  packs true shapes bottom-left from the origin, largest first: each source with its label band is
+  traced into polylines (`Shape::traced`) and rasterised conservatively (every cell a curve touches
+  plus the even-odd inside, so a ring's hollow stays free) into row runs on a grid of square cells,
+  grown by the spacing in cells, and goes to the lowest, then leftmost, spot where its runs miss
+  every placed run within the sheet width; with `Nesting::turns` it also tries quarter turns and
+  the 15 degree step boxing it smallest (`Motion::turn`). A source wider than the sheet every way
+  goes alone above the others and is counted in `too_wide`. `Nesting::new` refuses a non-positive
+  width or negative spacing. Deterministic; a label is placed below its source's turned bounds.
 - `Annotations::Included` adds, for a sketch, a dimension per dimensional constraint
   (`export/annotation.rs`, measured from the solved geometry, active or not; one touching a
   left-out construction curve is skipped) on layer `Dimensions`: distances as a dimension line
-  parallel to the measured gap, offset away from the sketch's middle with extension lines (two
-  lines are measured from the end of one farther along the other, so the dimension sits outside),
-  horizontal and vertical distances along X or Y, radius and diameter as a leader through the
-  centre (`R`, `⌀`), an ellipse's major and minor radii as an `R` leader from its centre along
-  that axis, angles as an arc at the lines' vertex, arc sweep and length as an arc beyond
-  the arc (`°`, `⌒`); values in millimetres to three decimals and degrees to two. Placement
-  shares the canvas's `caditor_sketch::annotation` (`sketch.md`), in drawing units scaled by the
-  text height: distances measured along one line on one side whose spans overlap take lanes
-  (`annotation::lanes`, the same tracks and side as the canvas, `LANE_SPACING` text heights
-  apart), and each label is kept clear of those placed before it, in constraint order, through
-  an `Obstacles` of `LABEL_CELL` text heights (footprints the rotated text's box grown by
-  `LABEL_CLEARANCE`). A label that overlaps tries, for `NEARBY_LANES` lanes outward, sliding
-  along its dimension line within the span (`SLIDES`) and turning a circle's or arc's leader
-  (`LEADER_TURN` steps, an arc's within its sweep), then only lanes further out, up to the lane
-  that clears every label placed (`Style::lanes_to_clear`), where it goes. No dimension is ever
-  left out: thinning is a screen aid of the canvas, not of a drawing. Every source
-  gets its name as a label below it on layer `Labels` (nesting reserves the band). Text is
+  parallel to the gap with extension lines, horizontal and vertical ones along X or Y, radius and
+  diameter as a leader through the centre, an ellipse's radii as an `R` leader along that axis,
+  angles as an arc at the vertex, arc sweep and length as an arc beyond the arc; millimetres to
+  three decimals, degrees to two. Placement shares the canvas's `caditor_sketch::annotation`
+  (`sketch.md`) in drawing units scaled by the text height: overlapping distances on one side take
+  lanes (`annotation::lanes`, `LANE_SPACING` apart), and each label is kept clear of earlier ones in
+  constraint order through `Obstacles` of `LABEL_CELL` cells (footprints grown by
+  `LABEL_CLEARANCE`), trying `NEARBY_LANES` lanes outward by sliding along the dimension line
+  (`SLIDES`) and turning a circle's or arc's leader (`LEADER_TURN`), then lanes further out up to
+  `Style::lanes_to_clear`. No dimension is ever left out: thinning is a screen aid of the canvas.
+  Every source gets its name as a label below it on `Labels` (nesting reserves the band). Text is
   `sheet::text_height` high: a fiftieth of the largest source, at least 2.5 mm.
-- DXF is ASCII, version AC1015, millimetres (`$INSUNITS` 4), header and entities (layers are
-  named by the entities), plus, only when the Construction layer is used, a TABLES section of the
-  `CONTINUOUS` and `DASHED` linetypes and that layer (grey, dashed), each construction entity also
-  naming `DASHED`, since `parse_dxf` takes a dashed linetype for construction: `LINE`, `CIRCLE`, `ARC` (a full sweep is a circle),
-  `ELLIPSE` (a full one from 0 to 2π), clamped planar `SPLINE` with knots, weights when rational
-  (flag 12) and control points, open `LWPOLYLINE`, `POINT` and `TEXT` (labels left-aligned on the
-  baseline, dimension text centred, turned to read from below or the right). A dimension is a
-  `DIMENSION` entity with subclass markers (rotated linear, 3-point angular, radial or diametric,
-  style `STANDARD`, its text as the override and placed by the user flag) whose drawn lines, arcs
-  and text are an anonymous `*D<n>` block in a BLOCKS section, so readers that redraw dimensions
-  and readers that show the block agree, and `parse_dxf`, which expands blocks only through
-  `INSERT`, reads the file back as the same curves with the dimensions and labels counted in
-  notes. Text escapes `%` as `%%%`, `⌀` as `%%c`, `°` as `%%d`, other non-ASCII as `\U+XXXX`
-  and control characters as spaces.
+- DXF is ASCII AC1015, millimetres (`$INSUNITS` 4), header and entities (layers named by the
+  entities), plus, only when the Construction layer is used, a TABLES section with `CONTINUOUS` and
+  `DASHED` linetypes and that layer (grey, dashed), each construction entity also naming `DASHED`
+  since `parse_dxf` takes a dashed linetype for construction. Entities: `LINE`, `CIRCLE`, `ARC` (a
+  full sweep is a circle), `ELLIPSE`, clamped planar `SPLINE` (weights when rational, flag 12),
+  open `LWPOLYLINE`, `POINT`, `TEXT`. A dimension is a `DIMENSION` entity with subclass markers
+  (rotated linear, 3-point angular, radial or diametric, style `STANDARD`, text as override) whose
+  lines, arcs and text are an anonymous `*D<n>` block in BLOCKS, so readers that redraw dimensions
+  and readers that show the block agree; `parse_dxf`, expanding blocks only through `INSERT`, reads
+  the file back as the same curves with dimensions and labels counted in notes. Text escapes `%` as
+  `%%%`, the diameter sign as `%%c`, the degree sign as `%%d`, other non-ASCII as `\U+XXXX`,
+  control characters as spaces.
 - SVG is in millimetres with y flipped (`-y`), a 1 mm margin in the viewBox, a 0.1 mm black
-  hairline, `line`, `circle`, elliptical-arc `path`s (sweep flag 0, since the flip keeps the drawn
-  direction; a rotation for an ellipse, a full one in two halves), splines and polylines as
-  `polyline`s, points as small filled circles and text as sans-serif `text` (XML-escaped, rotated
-  like the DXF's). Shapes off layer 0 are grouped in a `g` whose `id` is the layer's name; the
-  Construction group is grey and dashed.
-- `export_png` writes 8-bit RGBA, straight alpha, sRGB chunk, through the pure-Rust `png` crate,
-  atomically, streaming whatever `PixelRows` yields (bands of whole rows) into the encoder, so
-  the image is never held whole; it checks the pixel count and cancellation between bands. Its
-  errors are `PngExportError`: the source's own error as `Pixels`, else an `ImageExportError`.
-- 3MF is a ZIP from a small writer (`zip.rs`, `ZipWriter`) streamed into the temporary like STL:
-  the content types, the package relationships and the thumbnail go first, whole (deflated through
-  `miniz_oxide` unless storing is smaller), then the model, written straight into `miniz_oxide`'s
-  streaming compressor with its CRC32 alongside and its sizes patched into the local header once
-  known, so the XML is never held. ZIP64 is used only where needed: the model reserves a ZIP64
-  field in its local header when `model_size_bound` (from the counts of vertices and triangles,
-  the longest coordinate and the escaped names) allows more than 4 GiB, and the central directory
-  and end records switch to ZIP64 fields and records for any size, offset or count past their
-  32 or 16 bits. Deflate and CRC32 live only here, for the foreign format.
-- A 3MF thumbnail is `MeshOptions::thumbnail` (RGBA) encoded to `Metadata/thumbnail.png` in memory
-  (`image::encode_png`), with a `png` content type and a package relationship of the OPC thumbnail
-  type; one that cannot be encoded is left out with a log line, never failing the export.
+  hairline, `line`, `circle`, elliptical-arc `path`s (sweep flag 0 since the flip keeps the drawn
+  direction), splines and polylines as `polyline`s, points as small filled circles, text as
+  sans-serif `text` (XML-escaped, rotated like the DXF's). Shapes off layer 0 are grouped in a `g`
+  whose `id` is the layer name; the Construction group is grey and dashed.
 
 ## Parameter files (`parameters.rs`)
 
-- Parameters export as CSV (RFC 4180, `PARAMETERS_EXTENSION`): a version row
-  `caditor-parameters,2` (a spreadsheet keeps it as an ordinary two-cell row, however it re-saves
-  or pads the file), a header row `name,expression,value,note`, then one row per parameter in list order, CRLF line ends. The
-  expression is written with parameter names (`Expression::to_text`) and carries its own units;
-  `value` is the evaluated value for people reading the file (`error` when it does not evaluate)
-  and is ignored on reading. Cells holding a delimiter, quote, line break, surrounding spaces or a
-  leading `=`, `+`, `-` or `@` are quoted, so a spreadsheet never reads one as a formula. The file
-  is written with `write_atomically`.
-- Reading (`parse_parameters`) finds the `name` and `expression` columns by header, in any order
-  and case, an optional `note` (or `description`) column, and ignores the others; the delimiter is
-  the one of comma, semicolon or tab the header uses most, so spreadsheets saving with semicolons
-  read too. A leading version row (marker cell `caditor-parameters`, case-blind, then the number)
-  picks the reading of every expression: version 2 is typed text (`ExpressionReading::Typed`), a
-  file without the row is version 1 and reads as stored text with names
+- Parameters export as CSV (RFC 4180, `PARAMETERS_EXTENSION`), CRLF line ends: a version row
+  `caditor-parameters,2` (a spreadsheet keeps it as an ordinary two-cell row), a header row
+  `name,expression,value,note`, then one row per parameter in list order. The expression is written
+  with parameter names (`Expression::to_text`) and carries its own units; `value` is the evaluated
+  value for people (`error` when it does not evaluate) and ignored on reading. Cells holding a
+  delimiter, quote, line break, surrounding spaces or a leading `=`, `+`, `-` or `@` are quoted so
+  a spreadsheet never reads one as a formula. Written with `write_atomically`.
+- `parse_parameters` finds `name` and `expression` columns by header in any order and case, an
+  optional `note` (or `description`) column, ignoring others; the delimiter is the one of comma,
+  semicolon or tab the header row uses most. A leading version row (marker `caditor-parameters`,
+  case-blind, then the number) picks the reading of every expression: version 2 is typed text
+  (`ExpressionReading::Typed`); no row is version 1 and reads as stored text with names
   (`ExpressionReading::Stored`, `Expression::parse_by_name_stored_reading`), since older exports
-  wrote `10 mm^2` for what is (10 mm)²; a number past the current version is refused
-  (`NewerVersion`) and a missing or non-numeric one too (`UnreadableVersion`). A change to the
-  typed grammar raises the version. The delimiter is taken from the header row, not the version
-  row. A byte-order mark, quoted cells over several lines and blank rows are accepted. A file
-  over `MAX_PARAMETERS_FILE`, not UTF-8, without both columns, with an unclosed quote (named by
-  line) or with more than `MAX_PARAMETER_ROWS` rows is refused as a whole; anything wrong in a
-  row is left to `plan_parameter_import` (`document.md`).
+  wrote `10 mm^2` for what is (10 mm)^2; a newer number is `NewerVersion`, a missing or non-numeric
+  one `UnreadableVersion`. A change to the typed grammar raises the version. A byte-order mark,
+  multi-line quoted cells and blank rows are accepted. A file over `MAX_PARAMETERS_FILE`, not UTF-8,
+  without both columns, with an unclosed quote (named by line) or over `MAX_PARAMETER_ROWS` rows is
+  refused whole; anything wrong in a row is left to `plan_parameter_import` (`document.md`).
 
 ## Failures
 
-- Reading and writing a file fail as `ReadFailure` and `WriteFailure` (`reason.rs`), one variant per
-  cause an `io::Error` can name, written as a clause the UI completes ("… because it no longer
-  exists"); `LoadError::Unreadable`, `ImportError::Reading` and `ExportError::Writing` carry them.
-  A job that panicked is `LoadError::Crashed` or `ImportError::Crashed`, not a message. A save fails
-  as a `SaveError` of its own variants (`Writing(WriteFailure)`, `ModelTooLarge`, `ChangedOnDisk`,
-  …) and the recovery journal as a `JournalFailure`; `ImageExportError::Writing` carries a
-  `WriteFailure` too.
+- Reading and writing fail as `ReadFailure` and `WriteFailure` (`reason.rs`), one variant per cause
+  an `io::Error` can name, written as a clause the UI completes ("... because it no longer
+  exists"); `LoadError::Unreadable`, `ImportError::Reading`, `ExportError::Writing` and
+  `ImageExportError::Writing` carry them. A job that panicked is `LoadError::Crashed` or
+  `ImportError::Crashed`, not a message. A save fails as a `SaveError` of its own variants
+  (`Writing(WriteFailure)`, `ModelTooLarge`, `ChangedOnDisk`, ...) and the recovery journal as a
+  `JournalFailure`.

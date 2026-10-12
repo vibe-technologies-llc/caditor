@@ -41,639 +41,551 @@ paths:
 
 ## Fonts, icons and theme
 
-- Inter (variable, `assets/fonts`) is registered at weights 400, 500 and 600 through its `wght`
-  axis as the proportional, `medium` and `semibold` families. Its italic face
-  (`InterVariable-Italic.ttf`) is embedded too but only for SVG text import
-  (`file-import-export.md`); the interface has no italic. Phosphor icons have their own
-  `icons` family, since Inter's private-use glyphs would shadow them; `icons.rs` holds one icon
-  per command, tool, constraint and feature kind. Fonts install on the first frame, which draws
-  nothing.
-- Text in other scripts (feature, body, parameter and file names) falls back to fonts installed
-  on the system, never bundled ones, which would add tens of megabytes for scripts most people
-  never type. `font_fallbacks.rs` looks for them on a thread started when the window opens
-  (`FallbackFonts::search`), so startup never waits on it: one file per script from a fixed list
-  (`SCRIPTS`: Noto Sans for each script, Noto Sans CJK and its common substitutes, then DejaVu Sans,
-  on Linux under the XDG data directories and `~/.fonts`; Segoe UI, Microsoft YaHei, Malgun Gothic,
-  Nirmala UI and the like in the Windows and per-user font folders), a `-Regular` name also
-  matching its variable font (`Name[wght].ttf`). Each file is read whole, at most `MAX_FONT_BYTES`,
-  leaked as `'static` data (the search runs once per process) so egui borrows it instead of copying it
-  at every `set_fonts`, and kept only when its header is one egui parses (`is_loadable` repeats the checks that would
-  otherwise panic inside egui). The fonts found are appended after Inter and egui's own fallbacks
-  in every text family (`fonts::definitions_with`) and installed when they arrive; line heights
-  stay Inter's, since egui takes metrics from the first font. Finding none, or failing to look,
-  leaves the interface as it was. The headless UI tests never search, so they render the same on
-  every machine.
-- caditor's own icons (fillet, which the sketch fillet shares, chamfer, shell, extrude, revolve and
-  both patterns) are glyphs of a font `icon_font.rs` builds in memory at startup from a small
-  vector description: strokes, loops, arcs, dots and rings on Phosphor's 256 grid with its 16-unit
-  round stroke, outlined into overlapping same-winding TrueType contours (ring holes the other way)
-  at Phosphor's 1024 units per em and metrics. The font sits after Phosphor in the `icons` family
-  at private-use code points Phosphor leaves free (U+F8E0 onwards), so every consumer keeps taking
-  a glyph string and the icons scale, theme and read like the rest. Painted shapes were set aside
-  because tool buttons, menus, the palette, tree rows and accessible names all carry icons as text.
-  A new icon is a `Mark` list in `ICONS` and a constant; `fonts.rs` tests that each one renders.
-- Themes are data. `appearance.rs` holds the `Tokens` sets (`DARK`, `LIGHT`, `MIDNIGHT`,
-  `GRAPHITE`, `PAPER`, `SLATE`, `STUDIO` and the two high-contrast sets), each colour named by a
-  `Token` whose `key` a theme file uses, and builds each egui `Style` from a `Skin` (tokens,
-  lightness, contrast, the 3D view's `Canvas` and the grid colour chosen, if any). The contrast rules are one table run at runtime (`appearance::check`,
-  `required_pairs`): every text pairing, control outline, focus ring and button kind against its
-  background, 4.5:1 for text and 7:1 for body text in high contrast, 3:1 for outlines;
-  `field_border` and `focus` against every surface a field sits on, `danger` 3:1 against panels
-  and dialogs with `text_on_accent` 4.5:1 on every accent and danger fill. A failure is a
-  `ContrastFailure` naming the pair in words with its keys, colours and ratio. Tests run it on
-  every shipped set and on the visuals built from them. Design constants (spacing,
-  `CONTROL_HEIGHT`, radii, `BORDER_WIDTH`, `FOCUS_WIDTH`) live there too.
-- `app::apply_appearance` resolves the preference (`themes::Appearance::resolve`) into `Skins`,
-  one per egui theme (Follow the system fills dark and light, a named theme both with its own and
-  sets egui's preference to its lightness), installs the styles and publishes the skins in egui
-  temp data (`appearance::publish`), where `appearance::tokens(ui)`, `tokens_of(ctx)`, `skin` and
-  `is_high_contrast` find them by the visuals' `dark_mode`; without a published skin (tests that
-  set a style directly) they fall back to the built-in set recognised by its panel fill. Panels
-  read colours from these or the visuals, never fixed values.
-- `themes.rs` holds the choice (`Theme`: System, the shipped ones, `User(key)`), the `Accent`
-  (the theme's own, or a hue from which `with_accent` derives accent, hover, pressed, accent
-  text, subtle, surface and focus by stepping each colour until it keeps its pairs readable) and
-  the `ViewChoice` (with the theme, or one `Canvas`) and the `GridColour` (automatic, or a
-  custom `Rgb`). An accent is offered on a theme only when the
-  derived set passes `check`; high contrast replaces the theme's colours and accent with the
-  high-contrast set of its lightness and keeps the view and grid choices. User themes are JSON files in the
-  config directory's `themes` folder (`caditor_file::read_themes`, at most `MAX_THEME_FILES` of
-  `MAX_THEME_FILE` bytes): `name`, `base` (dark or light, whose tokens fill what the file leaves
-  out), `view` (a `Canvas::key`), `grid` (`#rrggbb`, optional) and `colours` by token key as
-  `#rrggbb` (`#rrggbbaa` only for the shadow). `themes::sort` builds and checks each on the files
-  worker (`Files::list_themes`, at startup, when Preferences opens and on Reload themes) into
-  `UserThemes`; a file that cannot be read, names an unknown colour, base or view, writes a colour
-  badly, repeats another's name, fails a contrast pair or has a grid its own view would hide
-  (`ThemeProblem::UnseenGrid`) is a `Refusal` shown in Preferences in words. A chosen user theme that is missing
-  or refused once listed keeps the last look applied (`Workspace::usable_look`) and posts one
-  warning naming why (`Unusable::words`); before the first listing it waits silently on the
-  default.
-- The theme picker (`preferences.rs`, Appearance › Theme) is a wrapping grid of
-  `widgets::theme_card`s, one per shipped and loaded theme: a miniature drawn from the theme as it
-  would be with the current accent, contrast and view (`ThemeSample`: title bar, side panel with
-  text lines and an accent button, the 3D view's canvas with its grid and a body; Follow the
-  system shows dark and light halves), its name and, when chosen, an accent outline, a check and
-  semibold name. Each card is a button named by the theme and marked toggled when chosen
-  (`theme_card_id`), reached by Tab and moved between with the arrow keys (egui's spatial focus),
-  Enter or Space choosing it; choosing applies at once, so the whole window is the live preview.
-  Accents are `widgets::swatch`es named "Accent: …", disabled with the reason when high contrast
-  is on or the accent would not stay readable. The 3D view is a row of swatches named
-  "3D view: …" (`preferences::view_name`; With the theme an `icon_swatch`, each canvas a swatch
-  of its colour) above a muted line describing the choice, and the Grid row swatches for
-  automatic (`AUTOMATIC_GRID`, filled with the grid as drawn on the canvas,
-  `scene_palette::shown_grid`), the custom colour when there is one (`custom_grid_name`) and
-  `CUSTOM_GRID`, which opens `colour_selector.rs` under it (`GRID_SELECTOR`). A colour the
-  selector applies goes through `scene_palette::seen_grid`: below `Contrast::grid_seen_from`
-  (`GRID_SEEN` 1.5:1, which every standard palette's own grid meets, `HIGH_CONTRAST_GRID_SEEN`
-  3:1, the high-contrast palettes' grid test) on the canvas in use it is refused in an error
-  callout (`UnseenGrid::sentence`) and the preference stays; a custom colour that the canvas in
-  use hides (the view or contrast changed since) is not drawn: `Appearance::skin_of` resolves
-  the grid (the custom colour, else the theme file's, each only while seen, else none, the
-  palette's) and a warning callout says so (`Appearance::unseen_grid`,
-  `UnseenGrid::drawn_instead`).
-- Six canvases (`Canvas::ALL`: Dark, Grey, Studio grey, Blue-grey, Light, White) give the 3D view
-  its background; `Canvas::is_dark` (Dark and Grey) picks `DARK_CHROME` for labels, the others
-  `LIGHT_CHROME`. The renderer clears to a solid colour, so a gradient backdrop would need a pass
-  in `caditor-render`; Blue-grey is solid. The 3D view's canvas follows the resolved skin
-  (`Skin::canvas`): `apply_appearance`
-  publishes it for the frame (`canvas::set_canvas`), the viewport takes it
-  (`ViewportState::set_canvas`, part of the scene cache's revisions) and the session hands its
-  `Canvas::background` to the renderer after each frame's actions (`Renderer::set_background`).
-  The chosen grid colour travels the same way (`canvas::set_grid`, `ViewportState::set_grid`)
-  and `SceneCache::set_grid` recolours the cached scene's `Scene::grid` in place, without a
-  rebuild, the palette's grid coming back when it is cleared.
-  `canvas.rs` is its chrome: a `Chrome` of every colour (backdrop, panel, text, hover, selection,
-  error, warning, prompt, snap, key caps, controls, view cube), `DARK_CHROME` and `LIGHT_CHROME`,
-  read through `canvas::chrome(ctx)`. Labels sit on the translucent backdrop (`canvas::label`,
-  `canvas::Label`); the typed-point field uses the opaque panel. Tests hold every colour of both
-  chromes to 4.5:1 (body 7:1) over the backdrop on black, white and the hover colour, 7:1 on the
-  opaque panel, key caps and canvas controls in every state, and the view cube's labels on each
-  cell state.
-- Geometry in the 3D view takes its colours and weights from `scene_palette.rs`, one palette per
-  contrast and canvas (`Contrast::palette(canvas)`: `STANDARD`, `HIGH_CONTRAST`,
-  `LIGHT_STANDARD`, `LIGHT_HIGH_CONTRAST`, and for the other canvases palettes built from those
-  of their lightness with struct update, `GREY_*` lightening the reds and bands of the dark ones,
-  `STUDIO_*` and `BLUE_GREY_*` darkening the redundant orange, comb teeth and hovered selection of
-  the light ones, `WHITE_*` only their hole), markers and handles included (snap, measurement,
-  problem, unchecked, handle colours, from the chrome). A hollow point's `hole` is the canvas; the
-  halo of the centre of mass, comb and isocurves is `outline` (the near-black canvas colour on a
-  dark one, black on the light ones, which no light colour could hold to 3:1 on a body). The scene highlights of the
-  light canvas are a little lighter than its chrome's label colours, which must reach 7:1 on the
-  white label panel, so those halos can still frame them. Tests hold, for every canvas, every
-  standard sketch state but Background, the highlights, origin, preview and axes to 3:1 and the
-  grid to `GRID_SEEN`, and every
-  high-contrast line and point colour to 3:1 against the canvas (`Canvas::colour`) and the dimmed
-  body colour, edges, threads and hovered or selected faces to 3:1 on every body as drawn (so
-  selected faces are a dark blue and hovered ones a dark amber there): the default colour, each
-  swatch, black, dark grey and the outdated and failed tints, through `ScenePalette::body`, which
-  in high contrast (`lightens_bodies`) draws a body or face colour lightened toward white by the
-  fewest of `LIGHTENING_STEPS` steps after which those marks hold `MARKS_ON_A_BODY` on it
-  (`marks_stand_out_on`), so a Charcoal or black body keeps its hue as a light tint and the
-  default colour is drawn as it is (`scene::body_color` and `face_looks` take it), every marker, band and comb colour
-  to 3:1 on the canvas, and check that the standard palettes keep one form for every sketch
-  state. The axis triad in the corner (`view_cube::show_axis_triad`) draws its lines and letters
-  in the palette's `axes` and sets each letter on the label backdrop; the palette's axis colours
-  are also held to 4.5:1 (7:1 in high contrast) over that backdrop on black, white and the hover
-  colour, which is why the standard dark red and blue are lighter and the light ones darker than
-  a plain hue. `Highlight::emphasis` widens hovered geometry by one
-  `HIGHLIGHT_EXTRA_WIDTH` and selected geometry by the palette's `selection_widening` (1 in
-  standard, 2 in high contrast); the high-contrast palette also dashes the edges of a failed or
-  outdated body (`scene::body_health`), outside sketch editing.
-- `canvas::set_contrast` publishes the contrast to egui temp data each frame (from `app.rs`), and
-  `paint_backdrop` draws labels on the chrome's opaque panel in high contrast, where every label
-  colour meets 7:1, and on its translucent backdrop otherwise (`Chrome::backdrop`).
-- Key hints (`canvas::Hints`) are `Key: action` text, items three spaces apart, laid out as key
-  caps (alternatives joined by " or ") beside a muted action, plain where the part before ": " is
-  not keys. Each key, "or" and action is its own text, so tests use `shows_hint`.
-- Overlay text keeps clear of the view cube: a failure or interference label that would cover the
-  cube or the buttons under it moves left of them, staying in the view (`viewport::clear_of`); the prompt and its hints centre in the band left of
-  `view_cube::area` (capped width, wrapping), the prompt's key hints left out when they would
-  reach the bottom strip of the triad and readouts (`view_cube::TRIAD_WIDTH` above the bottom),
-  the hover description starts at the band's top left
-  and moves under the prompt when they would meet, the grid spacing label (a screen-reader `Label`)
-  and cursor readout sit bottom left and are left out when they would meet the prompt, the
-  navigation hints bottom right and are left out when they would meet the cube or the prompt.
-- The view cube is one focusable button named after the hovered target, else the nearest view,
-  with that name as tooltip, followed by the bound keys of a standard view's direction
-  (`CubeTexts::view_keys`; the Isometric corner only while the model keeps no redefined
-  Isometric view); arrow keys step to the neighbouring target on that side. A primary drag on it
-  orbits the view about its target like a right-drag (`CubeAction::Orbit`, a drag gesture for
-  Previous view). Fit all (Fit selection when something is selected) under it is a canvas control
-  (`canvas::button`), and left of it the house `canvas::icon_button` named "Isometric view" goes
-  to the Isometric view as Alt+0 does; `view_cube::area` covers both.
+- Inter (variable, `assets/fonts`) is registered at weights 400, 500 and 600 through its `wght` axis
+  as the proportional, `medium` and `semibold` families. Its italic face is embedded only for SVG
+  text import (`file-import-export.md`); the interface has no italic. Phosphor icons have their own
+  `icons` family, since Inter's private-use glyphs would shadow them; `icons.rs` holds one icon per
+  command, tool, constraint and feature kind. Fonts install on the first frame, which draws nothing.
+- Text in other scripts falls back to fonts installed on the system, never bundled ones.
+  `font_fallbacks.rs` searches on a thread started when the window opens (`FallbackFonts::search`,
+  one file per script from `SCRIPTS`; Noto, DejaVu on Linux, Segoe UI and friends on Windows). Each
+  file is read whole (at most `MAX_FONT_BYTES`), leaked as `'static` so egui borrows instead of
+  copying at every `set_fonts`, and kept only when `is_loadable` passes (it repeats the checks that
+  would panic inside egui). Found fonts are appended after Inter and egui's fallbacks in every text
+  family (`fonts::definitions_with`); line heights stay Inter's. Headless UI tests never search.
+- caditor's own icons (fillet, which the sketch fillet shares, chamfer, shell, extrude, revolve, both
+  patterns) are glyphs of a font `icon_font.rs` builds in memory at startup from a vector
+  description on Phosphor's 256 grid and 16-unit stroke, 1024 units per em. It sits after Phosphor
+  in the `icons` family at private-use code points from U+F8E0, so every consumer keeps taking a
+  glyph string (buttons, menus, the palette, tree rows and accessible names all carry icons as
+  text). A new icon is a `Mark` list in `ICONS` and a constant; `fonts.rs` tests that each renders.
+- Themes are data. `appearance.rs` holds the `Tokens` sets (`DARK`, `LIGHT`, `MIDNIGHT`, `GRAPHITE`,
+  `PAPER`, `SLATE`, `STUDIO` and two high-contrast sets), each colour a `Token` whose `key` a theme
+  file uses, and builds each egui `Style` from a `Skin` (tokens, lightness, contrast, the 3D view's
+  `Canvas`, the chosen grid colour). Contrast rules are one table run at runtime (`appearance::check`,
+  `required_pairs`): 4.5:1 for text, 7:1 for body text in high contrast, 3:1 for outlines,
+  `field_border`, `focus` and `danger`, `text_on_accent` 4.5:1 on every accent and danger fill. A
+  failure is a `ContrastFailure` naming the pair in words. Tests run it on every shipped set.
+  Design constants (spacing, `CONTROL_HEIGHT`, radii, `BORDER_WIDTH`, `FOCUS_WIDTH`) live there.
+- `app::apply_appearance` resolves the preference (`themes::Appearance::resolve`) into `Skins`, one
+  per egui theme (Follow the system fills dark and light; a named theme both, and sets egui's
+  preference to its lightness), installs the styles and publishes the skins in egui temp data
+  (`appearance::publish`), where `appearance::tokens(ui)`, `tokens_of(ctx)`, `skin` and
+  `is_high_contrast` find them by the visuals' `dark_mode`; without one (tests setting a style
+  directly) they fall back to the built-in set recognised by its panel fill. Panels read colours
+  from these or the visuals, never fixed values.
+- `themes.rs` holds `Theme` (System, the shipped ones, `User(key)`), `Accent` (the theme's own, or a
+  hue from which `with_accent` derives the accent family by stepping each colour until its pairs
+  stay readable; offered on a theme only when the derived set passes `check`), `ViewChoice` (with
+  the theme, or one `Canvas`) and `GridColour` (automatic, or a custom `Rgb`). High contrast
+  replaces the theme's colours and accent with the high-contrast set of its lightness and keeps the
+  view and grid choices.
+- User themes are JSON files in the config directory's `themes` folder (`caditor_file::read_themes`,
+  at most `MAX_THEME_FILES` of `MAX_THEME_FILE` bytes): `name`, `base` (dark or light, filling what
+  the file leaves out), `view` (a `Canvas::key`), `grid` (`#rrggbb`, optional) and `colours` by token
+  key as `#rrggbb` (`#rrggbbaa` only for the shadow). `themes::sort` builds and checks each on the
+  files worker (`Files::list_themes`: startup, Preferences opening, Reload themes) into
+  `UserThemes`; an unreadable file, unknown colour, base or view, bad colour, repeated name, failed
+  contrast pair or grid its view hides (`ThemeProblem::UnseenGrid`) is a `Refusal` shown in
+  Preferences in words. A chosen user theme that is missing or refused once listed keeps the last
+  look applied (`Workspace::usable_look`) and posts one warning (`Unusable::words`); before the
+  first listing it waits silently on the default.
+- The theme picker (`preferences.rs`, Appearance › Theme) is a wrapping grid of `widgets::theme_card`s
+  (a `ThemeSample` miniature drawn with the current accent, contrast and view; each card a button
+  named by the theme and toggled when chosen, `theme_card_id`); choosing applies at once, so the
+  window is the live preview. Accents are `widgets::swatch`es named "Accent: …", disabled with the
+  reason when high contrast is on or the accent would not stay readable. The 3D view is a row of
+  swatches named "3D view: …" (`preferences::view_name`); the Grid row has automatic
+  (`AUTOMATIC_GRID`, filled with `scene_palette::shown_grid`), the custom colour
+  (`custom_grid_name`) and `CUSTOM_GRID`, which opens `colour_selector.rs` (`GRID_SELECTOR`). A
+  colour the selector applies goes through `scene_palette::seen_grid`: below `Contrast::grid_seen_from`
+  (`GRID_SEEN` 1.5:1; `HIGH_CONTRAST_GRID_SEEN` 3:1) on the canvas in use it is refused in an error
+  callout (`UnseenGrid::sentence`) and the preference stays. A custom colour the canvas now hides
+  (view or contrast changed) is not drawn: `Appearance::skin_of` resolves the grid (custom colour,
+  else the theme file's, each only while seen, else the palette's) and a warning callout says so
+  (`Appearance::unseen_grid`, `UnseenGrid::drawn_instead`).
+- Six canvases (`Canvas::ALL`: Dark, Grey, Studio grey, Blue-grey, Light, White) give the 3D view its
+  background; `Canvas::is_dark` (Dark and Grey) picks `DARK_CHROME` for labels, the others
+  `LIGHT_CHROME`. The renderer clears to a solid colour, so a gradient would need a pass in
+  `caditor-render`. The canvas follows the resolved skin (`Skin::canvas`): `apply_appearance`
+  publishes it per frame (`canvas::set_canvas`), the viewport takes it (`ViewportState::set_canvas`,
+  part of the scene cache's revisions) and the session hands `Canvas::background` to the renderer
+  after each frame's actions (`Renderer::set_background`). The grid colour travels the same way
+  (`canvas::set_grid`, `ViewportState::set_grid`); `SceneCache::set_grid` recolours the cached
+  `Scene::grid` in place without a rebuild.
+- `canvas.rs` is the canvas chrome: a `Chrome` of every colour (backdrop, panel, text, hover,
+  selection, error, warning, prompt, snap, key caps, controls, view cube), `DARK_CHROME` and
+  `LIGHT_CHROME`, read through `canvas::chrome(ctx)`. Labels sit on the translucent backdrop
+  (`canvas::label`, `canvas::Label`); the typed-point field uses the opaque panel; in high contrast
+  `paint_backdrop` uses the opaque panel too (`canvas::set_contrast` publishes the contrast each
+  frame from `app.rs`; `Chrome::backdrop`). Tests hold every chrome colour to 4.5:1 (body 7:1) over
+  the backdrop on black, white and hover, 7:1 on the opaque panel, and key caps, canvas controls and
+  the view cube's labels in every state.
+- Geometry in the 3D view takes colours and weights from `scene_palette.rs`, one palette per contrast
+  and canvas (`Contrast::palette(canvas)`: `STANDARD`, `HIGH_CONTRAST`, `LIGHT_STANDARD`,
+  `LIGHT_HIGH_CONTRAST`; the other canvases' palettes are struct updates of the one of their
+  lightness: `GREY_*` lightens reds and bands, `STUDIO_*` and `BLUE_GREY_*` darken the redundant
+  orange, comb teeth and hovered selection, `WHITE_*` change only the hole). A hollow point's `hole`
+  is the canvas; the halo of the centre of mass, comb and isocurves is `outline` (near-black on dark
+  canvases, black on light ones, which no light colour could hold to 3:1 on a body). The light
+  canvas's scene highlights are a little lighter than its chrome label colours (7:1 on the white
+  label panel) so those halos can still frame them.
+- Palette tests: on every canvas the standard sketch states but Background, highlights, origin,
+  preview and axes hold 3:1 and the grid `GRID_SEEN`; every high-contrast line, point, marker, band
+  and comb colour holds 3:1 on the canvas (`Canvas::colour`) and the dimmed body colour, edges,
+  threads and hovered or selected faces 3:1 on every body as drawn. That goes through
+  `ScenePalette::body`, which in high contrast (`lightens_bodies`) draws a body or face colour
+  lightened toward white by the fewest of `LIGHTENING_STEPS` after which those marks hold
+  `MARKS_ON_A_BODY` (`marks_stand_out_on`), so a black body keeps its hue as a light tint; the
+  default colour is drawn as it is (`scene::body_color` and `face_looks` take it). The standard
+  palettes keep one form for every sketch state.
+- The axis triad (`view_cube::show_axis_triad`) draws in the palette's `axes` with each letter on the
+  label backdrop; axis colours hold 4.5:1 (7:1 in high contrast) over it on black, white and hover,
+  which is why the standard dark red and blue are lighter and the light ones darker than a plain
+  hue. `Highlight::emphasis` widens hovered geometry by `HIGHLIGHT_EXTRA_WIDTH` and selected by the
+  palette's `selection_widening` (1 standard, 2 high contrast); the high-contrast palette dashes the
+  edges of a failed or outdated body (`scene::body_health`), outside sketch editing.
+- Key hints (`canvas::Hints`) are `Key: action` text, items three spaces apart, as key caps
+  (alternatives joined by " or ") beside a muted action, plain where the part before ": " is not
+  keys. Each key, "or" and action is its own text, so tests use `shows_hint`.
+- Overlay text keeps clear of the view cube: a failure or interference label covering the cube or
+  its buttons moves left of them (`viewport::clear_of`); the prompt and its hints centre in the band
+  left of `view_cube::area`, its key hints left out when they would reach the bottom strip of triad
+  and readouts (`view_cube::TRIAD_WIDTH`); the hover description starts at the band's top left and
+  moves under the prompt when they meet; the grid spacing label (a screen-reader `Label`), cursor
+  readout (bottom left) and navigation hints (bottom right) are left out when meeting the prompt or
+  cube.
+- The view cube is one focusable button named after the hovered target, else the nearest view, with
+  that name as tooltip followed by the bound keys of a standard view's direction
+  (`CubeTexts::view_keys`; Isometric only while the model keeps no redefined Isometric view); arrow
+  keys step to the neighbouring target. A primary drag orbits like a right-drag
+  (`CubeAction::Orbit`). Fit all (Fit selection when something is selected) under it is a canvas
+  control (`canvas::button`) and left of it `canvas::icon_button` "Isometric view" goes to
+  Isometric as Alt+0 does; `view_cube::area` covers both.
 
 ## Widgets
 
 - `widgets.rs` is the kit every panel and dialog is built from; read it before adding UI
-  (`ToolButton` and its compact form, `section`, `properties`, `card`, `callout` and `pill` with a
-  `Tone`, the button family, `text_field`, `segmented`, `tabs`, `dialog`/`footer`, menu items).
-  Panels and dialogs never add raw egui buttons: `conventions_tests.rs`
-  (`buttons_outside_the_widget_kit_come_from_it`) fails on them outside `widgets.rs`.
+  (`ToolButton`, `section`, `properties`, `card`, `callout` and `pill` with a `Tone`, the button
+  family, `text_field`, `segmented`, `tabs`, `dialog`/`footer`, menu items). Panels and dialogs
+  never add raw egui buttons: `conventions_tests.rs` (`buttons_outside_the_widget_kit_come_from_it`)
+  fails on them outside `widgets.rs`.
 - Decisions the code does not show:
-  - A `ToolButton` is icon above label; `compact` is icon alone, named by its label, in a square
-    so two rows match one tool button.
-  - `icon_button` is a true `CONTROL_HEIGHT` square so rows reserving that room never overflow and
-    widen a panel. `danger_button` is for actions that throw work away and never registers as the
-    primary. `strong` is semibold text, since egui's `.strong()` only recolours here.
-  - `segmented` falls back to a dropdown when its row is wider than the room, so it never widens
-    a panel; that dropdown and `feature_fields::combo` truncate their chosen text rather than wrap
-    it.
-  - `small_button` marks its label, not its icon, as the part that shrinks when the button is
-    wider than a whole row of its container (the room left in a non-wrapping layout), so in a
-    column narrower than the button the label wraps instead of the button running past the edge,
-    while in a wrapping row it moves to the next row whole rather than shrinking to what is left.
-    `label_before_icon_buttons` wraps a value leaving room for the icon buttons after it, and
-    `slider` narrows the track to the room left beside its value (`MIN_SLIDER_WIDTH`).
-  - A `properties` grid wraps its values (the grid sets the wrap mode) and its captions once they
-    would leave the value column narrower than `FIELD_WIDTH`, never below `CAPTION_WIDTH`; in a
-    grid narrower than a caption and a field the caption column drops its minimum and is as wide
-    as its widest caption. A row of a field and its value preview wraps the preview to the next
-    line rather than squeezing it.
-  - `panel_header` puts its actions on a row of their own under the title once title and actions
-    no longer fit one row (`remembered_width` of both), so they never overlap.
-  - `pill` and `status_pill` measure their text and reserve that room before drawing, so a
-    wrapped row moves one that does not fit to the next line instead of letting it run past the
-    edge and widen the side panel, which would shift the 3D view whenever a sketch's status
-    changes (`a_pill_that_does_not_fit_beside_another_wraps_instead_of_widening_the_panel`).
-  - `glyph_pill` and `count_pill` (an icon and a number, as tall as a line of small text) take a
-    `PillRole`: `Shown` reads its text, `Named` hides its text from screen readers behind a name
-    (a count's words), and `Button` makes it a button named by what it does, outlined at half its
-    colour, fully on hover, thicker while pressed and with the focus ring when focused, so a pill
-    that acts never looks like one that only reads.
-  - `footer_split` puts a destructive action at the far left, away from the primary; the primary
-    action is always rightmost.
-  - A dialog gives focus to its `primary_button` whenever no widget holds it (opening, Escape
-    out of a widget, a click on bare dialog), so Enter runs it while a focused field or button
-    keeps Enter for itself. A dialog whose only action would be Close has no footer.
-  - `tabs` moves by click, Left/Right (wrapping), Home and End, and with `switch_keys` Ctrl+Tab
-    and Ctrl+Page Up/Down; focus follows. `tab_id(row, index)` lets tests focus one.
-  - Dialog widths and list heights clamp to the screen (`fitting_width`, `list_height`), so
-    nothing clips at 200%. `widgets::dialog` centres a dialog in the window below the row of
-    window buttons (`window_frame::controls_bottom`), which are drawn over dialogs, and puts
-    everything under the title in a scroll area as tall as the window leaves
-    (`DialogBody::limit`), so a dialog taller than the window scrolls rather than running off it.
-    Dialogs with a long body keep their footer in view with `BodyRoom`, which stays within that
-    limit.
+  - A `ToolButton` is icon above label; `compact` is icon alone, named by its label, in a square so
+    two rows match one tool button. `icon_button` is a true `CONTROL_HEIGHT` square so rows
+    reserving that room never overflow and widen a panel. `danger_button` is for actions that throw
+    work away and never registers as the primary. `strong` is semibold, since egui's `.strong()`
+    only recolours here.
+  - `segmented` falls back to a dropdown when wider than the room, so it never widens a panel; that
+    dropdown and `feature_fields::combo` truncate their chosen text rather than wrap it.
+  - `small_button` marks its label, not its icon, as the part that shrinks when the button is wider
+    than a whole row of its container: in a narrower non-wrapping column the label wraps; in a
+    wrapping row the button moves to the next row whole. `label_before_icon_buttons` wraps a value
+    leaving room for the icon buttons after it; `slider` narrows the track to the room left beside
+    its value (`MIN_SLIDER_WIDTH`).
+  - A `properties` grid wraps values and captions once they would leave the value column narrower
+    than `FIELD_WIDTH`, never below `CAPTION_WIDTH`; in a grid narrower than a caption and a field
+    the caption column is as wide as its widest caption. A field's value preview wraps to the next
+    line rather than being squeezed. `panel_header` puts its actions on their own row once title and
+    actions no longer fit one row (`remembered_width`).
+  - `pill` and `status_pill` measure their text and reserve that room before drawing, so a wrapped
+    row moves one that does not fit to the next line instead of widening the side panel, which would
+    shift the 3D view whenever a sketch's status changes
+    (`a_pill_that_does_not_fit_beside_another_wraps_instead_of_widening_the_panel`).
+  - `glyph_pill` and `count_pill` take a `PillRole`: `Shown` reads its text, `Named` hides its text
+    from screen readers behind a name, `Button` is a button named by what it does (outlined at half
+    colour, fully on hover, thicker while pressed, focus ring), so a pill that acts never looks like
+    one that reads.
+  - `footer_split` puts a destructive action at the far left; the primary action is always rightmost.
+    A dialog gives focus to its `primary_button` whenever no widget holds it (opening, Escape out of
+    a widget, a click on bare dialog), so Enter runs it while a focused field or button keeps Enter.
+    A dialog whose only action would be Close has no footer.
+  - `tabs` moves by click, Left/Right (wrapping), Home and End, and with `switch_keys` Ctrl+Tab and
+    Ctrl+Page Up/Down; focus follows. `tab_id(row, index)` lets tests focus one.
+  - Dialog widths and list heights clamp to the screen (`fitting_width`, `list_height`), so nothing
+    clips at 200%. `widgets::dialog` centres below the window buttons
+    (`window_frame::controls_bottom`), which are drawn over dialogs, and puts everything under the
+    title in a scroll area as tall as the window leaves (`DialogBody::limit`); `BodyRoom` keeps a
+    long-bodied dialog's footer in view within that limit.
   - The side panel's scroll area always reserves its scrollbar's room, so the panel keeps its width
-    when its content grows past the window's height.
-  - Icons and labels are separate text atoms, so tests find buttons by bare label, and compact ones
-    by accessible name.
-  - Animated widgets repaint on a timer, never every frame: `widgets::spinner` draws egui's spinner
-    from the input time and asks for the next frame after `SPINNER_FRAME` (about 15 a second),
-    since egui's own `Spinner` requests a repaint every frame and would drive the whole app and
-    the 3D pass at the display's rate while a job runs (`conventions_tests.rs` refuses the raw
-    one). The text caret is solid (`text_cursor.blink` off in `appearance::visuals`), so a focused
-    field never blinks indefinitely or wakes an idle app.
+    when content grows past the window's height.
+  - Icons and labels are separate text atoms, so tests find buttons by bare label, compact ones by
+    accessible name.
+  - Animated widgets repaint on a timer: `widgets::spinner` asks for the next frame after
+    `SPINNER_FRAME` (about 15 a second), since egui's own `Spinner` repaints every frame
+    (`conventions_tests.rs` refuses the raw one). The text caret is solid (`text_cursor.blink` off
+    in `appearance::visuals`), so a focused field never wakes an idle app.
 - `dialog_parts.rs` holds what dialogs share beyond the kit: `confirmation` and `confirm_footer`
-  (warning callout, destructive action left, primary Cancel right), `undo_note`, `titled_modal`
-  (no close button, for waits that cannot be cancelled) and `BodyRoom` (keeps the whole dialog
-  within a share of the window).
+  (warning callout, destructive action left, primary Cancel right), `undo_note`, `titled_modal` (no
+  close button, for waits that cannot be cancelled) and `BodyRoom`.
 - Sentence case everywhere: buttons, titles, commands ("Save as…", "Close without saving").
 
 ## Screen readers
 
 - Every button drawn with a glyph takes a name without it (`Named`, `named`): icon buttons their
-  hover text; small buttons, menu items and section headers their label; tree row buttons the
-  action and the feature's name ("Edit <name>"); the row itself a selectable label marked
-  selected; a sketch dimension's field its constraint's description; shortcut editor and palette
-  rows and the welcome's cards what they do; a tab an AccessKit `Role::Tab` marked selected.
-- Decorative glyphs are hidden from the AccessKit tree (`icon_label`, `decorative`), meaningful
-  ones described (`described_icon`); a property `caption` labels the field, combo box or slider
-  after it in its grid (`tie_to_caption`, via `field::commit_field`).
+  hover text; small buttons, menu items and section headers their label; tree row buttons the action
+  and the feature's name ("Edit <name>"); the row itself a selectable label marked selected; a
+  sketch dimension's field its constraint's description; shortcut editor and palette rows and the
+  welcome's cards what they do; a tab an AccessKit `Role::Tab` marked selected.
+- Decorative glyphs are hidden from the AccessKit tree (`icon_label`, `decorative`), meaningful ones
+  described (`described_icon`); a property `caption` labels the field, combo box or slider after it
+  in its grid (`tie_to_caption`, via `field::commit_field`).
 
 ## Menu bar, ribbon and status bar
 
-- The menu bar (File, Edit, View, Model, Sketch, Help) is built from the commands with their
-  icons and shortcuts; items enable from the previous frame's offers (`Workspace::last_offers`)
-  with the reason on hover. Then come the model title, the Search commands field and, with
-  caditor's title bar, the logo (leading) and the window buttons. Model keeps its creation tools
-  at the top level and groups the rest in submenus (Patterns, Datums, Bodies, Features, Rollback,
-  Parameters, Recompute).
-- Every menu, submenu, context menu and corner menu runs its contents through
-  `widgets::fitted_menu`: as tall as the room below its top (at least half the window, which egui
-  then moves up), scrolling past that, so no menu runs off the screen at any interface size
+- The menu bar (File, Edit, View, Model, Sketch, Help) is built from the commands with their icons
+  and shortcuts; items enable from the previous frame's offers (`Workspace::last_offers`) with the
+  reason on hover. Then come the model title, the Search commands field (opens the palette on click;
+  keys as `widgets::key_cap`s) and, with caditor's title bar, the logo (leading) and window buttons.
+  Model keeps its creation tools at the top level and groups the rest in submenus (Patterns, Datums,
+  Bodies, Features, Rollback, Parameters, Recompute).
+- The model title (file icon, name, Unsaved pill, "› sketch" while one is edited) sits centred on the
+  window when it fits between menus and search, else as near as it can; clicking opens the model
+  details (path, saved state, Save, Save as…, Version history…, Model properties…, Copy file
+  location).
+- Every menu, submenu, context menu and corner menu runs through `widgets::fitted_menu`: as tall as
+  the room below its top (at least half the window), scrolling past that
   (`every_menu_stays_on_screen_at_the_largest_interface_size`). The 3D view's context menu, which
-  egui would flip above its spot and then let grow past the top, measures itself instead
-  (`widgets::measured_menu`) and opens downward from a spot moved to fit (`menu_opening_down`).
-- A menu of commands draws its entries through `menu_bar::MenuEntries` (availability from the
-  offers, the reason on hover of a disabled entry, the bound keys beside it, checkmarks from
-  `ToggleStates`), shared by the menu bar and the 3D view's context menu (`app-input.md`), which
-  is an egui `Popup` of `PopupKind::Menu` at the pointer so its submenus (`menu_bar::submenu`)
-  work as the menu bar's do.
-- The model title (file icon, name, Unsaved pill, "› sketch" while one is edited) sits centred on
-  the window when it fits between menus and search, else as near as it can; clicking it opens the
-  model details (path, saved state, Save, Save as…, Version history…, Model properties…, Copy
-  file location).
-- Search commands looks like a field and opens the palette on click; its keys show as
-  `widgets::key_cap`s.
-- Both ribbons are built by `ribbon.rs`: whole groups packed into rows by last frame's natural
-  widths (`remembered_width`), so widths never depend on the selection or the active tool and
-  selecting never moves the 3D view. Captions show only while the ribbon fits one row; a group
-  wider than its row wraps inside. The main ribbon turns compact (icon-only `ToolButton`s named by
-  their labels, `toolbar::tool_button`) while its labelled rows would take more than
-  `MOST_LABELLED_SHARE` of the window's height, judged from the labelled widths remembered apart
-  from the compact ones, so at 200% in a small window the 3D view, and a sketch being edited in
-  it, keeps a usable height. Buttons explain themselves on hover with `ribbon::explained`
-  (name, what it does with its shortcut, or why it is unavailable).
-- The main ribbon (`toolbar.rs`) is `ToolButton`s in the groups of its `Group` enum. While a plane
-  is being chosen for a new sketch, New sketch shows selected and clicking it stops choosing (as
-  Escape does), so the ribbon keeps its height and every group its place.
-- While a sketch is edited the sketch ribbon (`sketch_toolbar.rs`) sits under it on
-  `accent_surface` with an accent line along its top: a header without a caption (sketch badge,
-  "Editing <name>" truncating with the full name on hover, with the sketch's counts as
-  `count_pill`s at the right of that line and its status pill under it, two lines whatever the
-  status, its width clamped to the title and at least the widest status so constraining never
-  moves the groups or the view; `app-sketching.md`, Status pills), Select, Draw, Modify,
-  Constrain and Dimension. Finish sketch is a primary button at the right of the first row. Shape
-  tools with several ways to draw carry a `corner_menu_button` listing them as `menu_choice`s, and
-  the compact Sketch fillet, Offset, Mirror and Project buttons a `compact_corner_menu_button` (a
-  notch in the lower right corner) listing the tools without a button of their own beside them,
-  then the host's ways when it has some (Offset's).
-- The three arc tools share one Draw button (`sketch_toolbar::ARC_TOOLS`) showing the arc tool last
-  used or chosen; each keeps its own key and command, which the button handles whichever is shown.
-  Spline, Ellipse, Elliptical arc and Conic share the Curve button (`CURVE_TOOLS`) the same way (a
-  `ToolGroup`), and Polygon and Spur gear the Polygon button (`POLYGON_TOOLS`, labelled Polygon
-  whichever is shown), so the sketch bar still fits one row at 1400 points. A group's corner menu lists
-  its tools, then the ways of the one shown (the spline's), and the group handles the ways'
-  commands of all its tools.
+  egui would flip above its spot, measures itself (`widgets::measured_menu`) and opens downward from
+  a spot moved to fit (`menu_opening_down`). Menus of commands draw entries through
+  `menu_bar::MenuEntries` (availability from the offers, the reason on hover of a disabled entry,
+  bound keys, checkmarks from `ToggleStates`), shared by the menu bar and that context menu
+  (`app-input.md`), an egui `Popup` of `PopupKind::Menu` at the pointer so its submenus
+  (`menu_bar::submenu`) work as the menu bar's do.
+- Both ribbons are built by `ribbon.rs`: whole groups packed into rows by last frame's natural widths
+  (`remembered_width`), so widths never depend on the selection or active tool and selecting never
+  moves the 3D view. Captions show only while the ribbon fits one row. The main ribbon turns compact
+  (icon-only `ToolButton`s, `toolbar::tool_button`) while its labelled rows would take more than
+  `MOST_LABELLED_SHARE` of the window's height, judged from labelled widths remembered apart from
+  compact ones. Buttons explain themselves on hover with `ribbon::explained` (name, what it does
+  with its shortcut, or why it is unavailable).
+- The main ribbon (`toolbar.rs`) is `ToolButton`s in the groups of its `Group` enum. While a plane is
+  being chosen for a new sketch, New sketch shows selected and clicking it stops choosing (as Escape
+  does), so the ribbon keeps its height.
+- While a sketch is edited the sketch ribbon (`sketch_toolbar.rs`) sits under it on `accent_surface`
+  with an accent line along its top: a header without a caption (sketch badge, "Editing <name>"
+  truncating with the full name on hover, the sketch's counts as `count_pill`s at the right and its
+  status pill under it, two lines whatever the status, width clamped to the title and at least the
+  widest status so constraining never moves the groups or the view; `app-sketching.md`, Status
+  pills), then Select, Draw, Modify, Constrain and Dimension. Finish sketch is a primary button at
+  the right of the first row. Shape tools with several ways to draw carry a `corner_menu_button`
+  listing them as `menu_choice`s; the compact Sketch fillet, Offset, Mirror and Project buttons a
+  `compact_corner_menu_button` listing the tools without a button of their own, then the host's ways
+  when it has some (Offset's).
+- Several tools share one Draw button showing the one last used or chosen, each keeping its own key
+  and command, which the button handles whichever is shown: the three arcs (`ARC_TOOLS`), Spline,
+  Ellipse, Elliptical arc and Conic (`CURVE_TOOLS`, a `ToolGroup`), Polygon and Spur gear
+  (`POLYGON_TOOLS`, labelled Polygon whichever is shown), so the sketch bar fits one row at 1400
+  points. A group's corner menu lists its tools, then the ways of the one shown.
 - While the renderer is still uploading (`Renderer::is_uploading`, set each frame on
-  `ViewportState::set_uploading` before the interface runs), the view shows `upload_badge`: an
-  `icons::UPLOADING` and "Loading to the graphics card" in `Chrome::muted` on the canvas backdrop,
-  right-aligned under the view cube's buttons, and the status bar's file activity ends with a
-  `widgets::spinner` and the same text (`StatusContext::uploading`). The badge is announced to
-  screen readers as a label of the same text and draws no timer of its own, and the spinner is
-  shown only in frames the uploads already ask for, so the last upload frame is followed by one
-  with neither and no repaint request (`ui_tests/upload_indicator.rs`).
+  `ViewportState::set_uploading` before the interface runs), the view shows `upload_badge`
+  (`icons::UPLOADING` and "Loading to the graphics card" in `Chrome::muted`, under the view cube's
+  buttons) and the status bar's file activity ends with a `widgets::spinner` and the same text
+  (`StatusContext::uploading`). The badge draws no timer and the spinner shows only in frames the
+  uploads already ask for, so the last upload frame is followed by one with neither and no repaint
+  request (`ui_tests/upload_indicator.rs`).
 - The status bar (`status_bar.rs`) runs recompute | file activity | notice, then right-aligned
-  selection | unit | size. Recompute is progress (the feature running, and for how long once past
-  two seconds, from `Progress`) with Cancel, Up to date, or a failed
-  `status_pill` that is a button focusing the next failed feature after the tree's primary row
-  (`status_bar::failed_after`, wrapping, as Go to the next failed feature, F8, does; Shift+F8 goes
-  to the previous one); a cancelled or stopped recompute
-  is a warning or error pill with a Recompute or Restart button, its text a live region
-  (`widgets::announced_status_pill`: polite for a warning, assertive for an error). The hovers of
-  Cancel, Recompute, Restart and the failed pill name their command's keys (`status_bar::Hovers`,
-  `CommandFrame::with_keys`). The unit opens Preferences; the interface size, when not 100%, goes
-  back to it.
-- Notices have a `NoticeKind` drawn through its `Tone` (icon and colour, `NoticeKind::tone`):
-  `Notice::info` for what simply happened or found nothing, `Notice::success` for a completed
-  operation the user asked for (saved, exported, imported, copied, restored), `Notice::warning`
-  for a refusal, something not done or done only in part (a refused tool, "could not", "nothing
-  was pasted", an import already running), and `Notice::error` or `Notice::failure` for errors.
-  Only an error's text takes its colour; the others keep body text beside their icon. The notice
-  is a live region, assertive only for an error. An edit clears every notice not made to outlast
-  edits, never a `Notice::failure` from saving, opening, importing, exporting or the journal. The
-  bar shows only the newest, with a Recent messages button (`status_bar::SHOW_MESSAGES`) beside
-  Dismiss, but `Model::set_notice` records recent ones and Help › Recent messages (`messages.rs`)
-  lists them, each icon described by its kind (`NoticeKind::label`), so a failed save outlives
-  the notice that replaced it.
+  selection | unit | size. Recompute is progress (the feature running, and how long once past two
+  seconds, from `Progress`) with Cancel, Up to date, or a failed `status_pill` that is a button
+  focusing the next failed feature after the tree's primary row (`status_bar::failed_after`,
+  wrapping, as Go to the next failed feature, F8, does; Shift+F8 the previous); a cancelled or
+  stopped recompute is a warning or error pill with a Recompute or Restart button, its text a live
+  region (`widgets::announced_status_pill`: polite for a warning, assertive for an error). Those
+  hovers name their command's keys (`status_bar::Hovers`, `CommandFrame::with_keys`). The unit opens
+  Preferences; the interface size, when not 100%, goes back to it.
+- Notices have a `NoticeKind` drawn through its `Tone` (`NoticeKind::tone`): `Notice::info` for what
+  simply happened or found nothing, `Notice::success` for a completed operation the user asked for,
+  `Notice::warning` for a refusal, something not done or done in part, `Notice::error` or
+  `Notice::failure` for errors. Only an error's text takes its colour; the notice is a live region,
+  assertive only for an error. An edit clears every notice not made to outlast edits, never a
+  `Notice::failure` from saving, opening, importing, exporting or the journal. The bar shows only
+  the newest, with a Recent messages button (`status_bar::SHOW_MESSAGES`) beside Dismiss;
+  `Model::set_notice` records recent ones and Help › Recent messages (`messages.rs`) lists them,
+  each icon described by `NoticeKind::label`.
 - Edit › Undo and Redo name the step they would take ("Undo Extrude 1 distance", from
   `Model::undo_label` and `redo_label`, as the ribbon's hover does) while available.
 - Edit › Undo history (`undo_history.rs`) lists what Undo and Redo hold (`Editor::undo_steps`,
-  `redo_steps`); a click sends that many `Action::Undo` or `Action::Redo`, each an ordinary
-  undoable journal step. The step the model is at is a label beside Now, not a button, and a
-  last row, Before these changes (`undo_history::BEFORE`), undoes every step listed. Hovering a step sums up what it touched (`Transaction::touched`): the
-  features by name, how many sketch curves, points, constraints and dimensions, the parameters,
-  and the rollback bar, principal geometry, model properties, saved views or selection sets.
+  `redo_steps`); a click sends that many `Action::Undo` or `Action::Redo`, each an ordinary undoable
+  journal step. The current step is a label beside Now, not a button; a last row, Before these
+  changes (`undo_history::BEFORE`), undoes every step listed. Hovering a step sums up what it touched
+  (`Transaction::touched`).
 - Neither bar clips at large sizes or in narrow windows: the search field, model name, selection,
   unit and size take their own row when last frame's needed width does not fit
-  (`widgets::remembered_width`); the selection has a fixed truncating share (all of it on hover);
-  a notice too long for the row takes its own and wraps.
+  (`widgets::remembered_width`); the selection has a fixed truncating share (all of it on hover); a
+  notice too long for the row takes its own and wraps.
 
 ## Side panel
 
-- The model panel, Measure, Interference, Analyse faces, the curvature comb, Constrain
-  automatically, Spur gear and the user guide (`app.md`) together take at most `MAX_PANELS_SHARE` (60%) of the
-  window, split evenly between those open (`layout::panel_room`, `panel_widths`); each one's
-  minimum width yields to that share, so at 200% on a small screen the 3D view keeps a usable
-  width. A model panel narrowed by the share keeps the width the user chose for when there is room.
-- The right-hand panels are each a `layout::RightPanel` (id, own default width, least width),
-  shown through `RightPanel::show`, which lays the contents out in a child bounded to the panel
+- The model panel, Measure, Interference, Analyse faces, the curvature comb, Constrain automatically,
+  Spur gear and the user guide (`app.md`) together take at most `MAX_PANELS_SHARE` (60%) of the
+  window, split evenly between those open (`layout::panel_room`, `panel_widths`); each one's minimum
+  width yields to that share. A model panel narrowed by the share keeps the width the user chose for
+  when there is room.
+- The right-hand panels are each a `layout::RightPanel` (id, own default width, least width), shown
+  through `RightPanel::show`, which lays the contents out in a child bounded to the panel
   (`layout::within_width`): egui clamps an overflowing right-hand panel's rect by keeping its far
-  edge, so content wider than the panel would shift the rect off the window and reserve less than
-  the panel paints, leaving the 3D view under it. They
-  share one width the user last gave one of them (`PanelLayout::right_width`, `None` until then,
-  so each opens at its own default): `app.rs` hands it to them through egui temp data
-  (`layout::share_right_width`) and reads it back after them. A panel's width differing from the
-  one egui stored for it the frame before (`PanelState`) counts as a resize, unless the share caps
-  it, and becomes the shared width, the default size of every right-hand panel from then on.
-- Features and Parameters are collapsible `widgets::panel_section`s that open by themselves when
-  a rename or focus request needs something inside: a header band (card fill and border, the count
-  as a pill) and, when open, a muted sentence saying what the section holds
-  (`FEATURES_EXPLANATION`, `PARAMETERS_EXPLANATION`), also the header's hover. Nested sections
-  (sketch cards, Measure, Preferences) stay plain `widgets::section`s. Empty, each is an
-  `empty_state` offering the first step (New sketch, Open a sample, Add parameter).
-- The rollback bar always carries a caption: End of model, or how many features it rolls back.
+  edge, so wider content would shift the rect off the window and reserve less than the panel paints.
+  They share one width the user last gave one of them (`PanelLayout::right_width`, `None` until
+  then): `app.rs` hands it over through egui temp data (`layout::share_right_width`) and reads it
+  back. A width differing from the one egui stored the frame before (`PanelState`) counts as a
+  resize, unless the share caps it, and becomes the shared width.
+- Features and Parameters are collapsible `widgets::panel_section`s that open by themselves when a
+  rename or focus request needs something inside: a header band (the count as a pill) and, when
+  open, a muted sentence saying what the section holds (`FEATURES_EXPLANATION`,
+  `PARAMETERS_EXPLANATION`), also the header's hover. Nested sections (sketch cards, Measure,
+  Preferences) stay plain `widgets::section`s. Empty, each is an `empty_state` offering the first
+  step (New sketch, Open a sample, Add parameter). The rollback bar always carries a caption: End of
+  model, or how many features it rolls back.
+
+### Parameters
+
 - The parameter table's name and expression fields share the panel's width beside a fixed value
-  column (`VALUE_WIDTH`), since content wider than the panel widens it the next frame. Hovering a
-  value shows it in full and what uses it (`used_by`, only for the hovered row, since
+  column (`VALUE_WIDTH`), since wider content widens the panel the next frame. Hovering a value shows
+  it in full and what uses it (`used_by`, only for the hovered row, since
   `Document::parameter_users` scans every feature). Whether a row is in use comes from
-  `Document::used_parameters`, one scan cached per model revision (`ParameterUses`), which also
-  puts a muted `icons::UNUSED` before the value of a parameter nothing refers to. Deleting an
-  unused parameter removes it; deleting a used one (the row's button, its menu, Delete parameter)
-  is `Document::inline_parameter`, built only on hover or click, followed by a notice saying how
-  many uses took its expression. A parameter with a note shows `icons::NOTE` before its value,
-  described with the note. Right-clicking a row's name or expression opens its menu (Move up,
-  Move down, Add or Edit the note…, Delete); the same act on the focused row from the palette and
-  the Model menu (`MoveParameterUp`, `MoveParameterDown`, `ParameterNote`, `DeleteParameter`).
-  A used parameter's menu also lists under Used by the parameters, features and configurations
-  using it (`Document::parameter_user_ids`, at most `MAX_LISTED_USERS`, then how many more);
-  choosing one focuses that parameter's value, chooses and reveals that feature in the tree, or
-  opens Configurations (`PreferencesCommand::ShowConfigurations`) for "<row> configuration" and
-  "the configurations". The
-  note is edited in a modal dialog (`parameter_table::note_dialog`, `PanelState::noting`). A value that cannot be evaluated is an error
-  icon with the reason on hover, a refused edit an `error_row`. A row's delete button shows only
-  while the row is hovered or the button has keyboard focus, and stays in the Tab order.
+  `Document::used_parameters`, one scan cached per model revision (`ParameterUses`; it counts a
+  feature's appearance too, a body's density), which also puts a muted `icons::UNUSED` before the
+  value of an unreferenced parameter. A parameter with a note shows `icons::NOTE`, described with
+  the note; the note is edited in a modal (`parameter_table::note_dialog`, `PanelState::noting`). A
+  value that cannot be evaluated is an error icon with the reason on hover, a refused edit an
+  `error_row`. A row's delete button shows only while the row is hovered or has keyboard focus, and
+  stays in the Tab order.
+- Deleting an unused parameter removes it; deleting a used one is `Document::inline_parameter`, built
+  only on hover or click, followed by a notice saying how many uses took its expression. The row
+  menu (right-click on name or expression) has Move up, Move down, Add or Edit the note…, Delete,
+  also from the palette and Model menu on the focused row (`MoveParameterUp`, `MoveParameterDown`,
+  `ParameterNote`, `DeleteParameter`), and for a used parameter a Used by list of the parameters,
+  features and configurations using it (`Document::parameter_user_ids`, at most `MAX_LISTED_USERS`,
+  then how many more); choosing one focuses that parameter's value, chooses and reveals that
+  feature, or opens Configurations (`PreferencesCommand::ShowConfigurations`).
 - Model parameters (those with an owner) are a table of their own below the others, under
   `MODEL_PARAMETERS` (its hover says how a value is named), each row followed by a line naming its
-  owner (`Document::owner_text`), a `widgets::truncated_link` (cut short, never widening the
-  panel) that chooses and reveals the owning feature
-  and focuses it, or the owning dimension's field (`Focus::Feature`, `Focus::Dimension`;
+  owner (`Document::owner_text`), a `widgets::truncated_link` that chooses and reveals the owning
+  feature and focuses it, or the owning dimension's field (`Focus::Feature`, `Focus::Dimension`;
   `parameter_table::go_to_owner`), else a muted line saying it was deleted. Their rows edit, note,
-  move and delete like any other; Move up and down stay within the row's table. Deleting a used
-  one inlines it, which writes the value back into its field.
+  move (within the row's table) and delete like any other; deleting a used one inlines it, writing
+  the value back into its field.
 - A filter field (`PanelState::parameter_filter`) heads both tables once there are
-  `FILTER_FROM_PARAMETERS` parameters, or while it holds text or focus, keeping the rows whose
-  name, expression text or owner text contains it in any case, plus a row wanted for focus or
-  holding it; with no match an empty state offers Clear the filter.
-- Delete N unused parameters (`Command::DeleteUnusedParameters`, the button under the tables
-  shown while there are any, Model › Parameters, palette; `parameter_table::UnusedDeletion`)
-  removes in one transaction every parameter `ParameterUses` finds nothing referring to, owned
-  ones included, as the row's own delete would remove each, with a notice naming them; it is
-  unavailable with the reason when there are none. A parameter used only by one of them stays,
-  as it is still in use when the change is built. `Document::used_parameters` counts a feature's
-  appearance too (a body's density). The transaction is checked first (`perform` takes the
-  document), and a refusal is the warning notice instead of the deletion's success one.
+  `FILTER_FROM_PARAMETERS` parameters, or while it holds text or focus, keeping rows whose name,
+  expression text or owner text contains it in any case, plus a row wanted for focus or holding it;
+  with no match an empty state offers Clear the filter.
+- Delete N unused parameters (`Command::DeleteUnusedParameters`, the button under the tables while
+  there are any, Model › Parameters, palette; `parameter_table::UnusedDeletion`) removes in one
+  transaction every parameter `ParameterUses` finds unreferenced, owned ones included, with a notice
+  naming them; unavailable with the reason when there are none. A parameter used only by one of them
+  stays, as it is still in use when the change is built. The transaction is checked first (`perform`
+  takes the document), and a refusal is the warning notice instead of the success one.
+
+### Feature tree
+
 - Tree rows (`tree_row.rs`, shared with `principal_tree.rs`) have fixed trailing slots that stay
   empty when a row has nothing for them, so icons line up in columns (the open feature's row alone
   adds one, its Cancel cross left of the checkmark, `app-modelling.md`); callouts and cards under a
   row (`tree_row::indented`) keep the normal spacing.
-- A plain feature row (collapsed, no callout, not edited, renamed, revealed, focused or wanted for
-  focus; `feature_tree::is_plain`) more than a row beyond the visible part of the panel only
-  reserves the height last measured for one (`PanelState::plain_row_height`), so a tree of
-  hundreds of features lays out only what is near view. The row next to each edge is laid out, so
-  Tab and the keyboard still reach the next one. The Bodies group does the same with its rows
-  (`bodies_tree::off_screen_height`: no colour card open under it and not focused,
-  `PanelState::plain_body_row_height`), so an open group of thousands of imported bodies costs a
-  frame what its visible rows cost. A sketch card's constraint and dimension rows
-  do the same (`feature_tree::card_row`: a `CardRow::Plain` row is not redundant, not wanted for
-  focus, and for a dimension its field neither focused nor holding a draft, looked up once per card
-  with `field::busy`; the last heights measured are `PanelState::plain_constraint_height` and
-  `plain_dimension_height`). A redundant row (`CardRow::Varied`), whose callout makes its height
-  its own, reserves the height it last measured for that constraint (`PanelState::varied_row_heights`,
-  forgotten when the revision, evaluation or card width changes), so only the first frame after
-  such a change lays every one out; a row wanted for focus or with a busy field (`CardRow::Live`)
-  is always laid out. A run of skipped rows reserves its space in one allocation
-  (`feature_tree::Reserved`), so only rows near view format a description or a value.
-- Revealing a row or its edited card (`scroll_into_view`) scrolls it into view by the least
-  distance, except a card taller than the visible panel, which aligns its top, so the status and
-  count pills (N redundant constraints, open ends) above its sections are never the part scrolled
-  away.
+- Rows far out of view only reserve the height last measured for one, so a tree of hundreds of
+  features, or thousands of imported bodies, lays out only what is near view; the row next to each
+  edge is laid out so Tab still reaches the next one. A plain feature row (collapsed, no callout,
+  not edited, renamed, revealed, focused or wanted for focus; `feature_tree::is_plain`) uses
+  `PanelState::plain_row_height`; the Bodies group (`bodies_tree::off_screen_height`: no colour card
+  open, not focused) `plain_body_row_height`; a sketch card's constraint and dimension rows
+  (`feature_tree::card_row`) `plain_constraint_height` and `plain_dimension_height`. `CardRow::Plain`
+  is a row not redundant, not wanted for focus, and for a dimension with its field neither focused
+  nor holding a draft (looked up once per card with `field::busy`); a redundant row
+  (`CardRow::Varied`, its callout makes its height its own) reserves the height last measured for
+  that constraint (`PanelState::varied_row_heights`, forgotten when the revision, evaluation or card
+  width changes); a row wanted for focus or with a busy field (`CardRow::Live`) is always laid out.
+  A run of skipped rows reserves its space in one allocation (`feature_tree::Reserved`), so only
+  rows near view format a description or a value.
+- Revealing a row or its edited card (`scroll_into_view`) scrolls it in by the least distance, except
+  a card taller than the visible panel, which aligns its top so the status and count pills above its
+  sections are never scrolled away.
 - Kind icons are tinted by category (sketches accent, bodies and modifiers text, datums muted;
-  inactive or hidden rows muted). A failure shows once, as the status icon and its callout, never
-  by recolouring the icon or name; an outdated row the same with a Recompute button. A row a
-  running recompute has not reached yet (`Evaluation::is_pending`) shows the waiting icon over its
-  last status. A suppressed
-  row is struck through and muted, a rolled-back row muted; neither offers the edit button, and
-  the card under either is drawn disabled below a muted line giving `editable`'s reason, with
-  Unsuppress or Roll forward to here (`feature_tree::inactive_note`), since its pickers could not
-  open it. A failure caused by a suppressed feature offers Unsuppress (`FixTarget::Unsuppress`); one
-  whose fix is the failing feature itself (`FixTarget::Feature` of its own row: a blend, shell,
-  combine, region choice…) offers Edit <name> (`edit_itself`), hidden while it is open, since
-  going to the row it sits under would do nothing. A failure
-  with a `place` offers Show where, which frames the view around it (`PanelState::shown_place`,
-  `ViewportState::show_place`). A row asked to take focus (`Focus::Feature`: F8, the failed pill,
-  the palette) scrolls so its callouts show with it, so the remedy is in view, not only the name. Callout actions are `small_button`s with icons.
-- A feature computed with a healed reference (`FeatureStatus::healing`) shows the warning icon and
-  a callout with the reason, the remedy and an Update references button, offered only while the
+  inactive or hidden rows muted). A failure shows once, as the status icon and its callout, never by
+  recolouring the icon or name; an outdated row the same with a Recompute button. A row a running
+  recompute has not reached (`Evaluation::is_pending`) shows the waiting icon over its last status.
+  A suppressed row is struck through and muted, a rolled-back row muted; neither offers the edit
+  button, and the card under either is drawn disabled below a muted line giving `editable`'s reason,
+  with Unsuppress or Roll forward to here (`feature_tree::inactive_note`). A failure caused by a
+  suppressed feature offers Unsuppress (`FixTarget::Unsuppress`); one whose fix is the failing
+  feature itself (`FixTarget::Feature` of its own row) offers Edit <name> (`edit_itself`), hidden
+  while it is open. A failure with a `place` offers Show where, which frames the view around it
+  (`PanelState::shown_place`, `ViewportState::show_place`). A row asked to take focus
+  (`Focus::Feature`: F8, the failed pill, the palette) scrolls so its callouts show with it. Callout
+  actions are `small_button`s with icons.
+- A feature computed with a healed reference (`FeatureStatus::healing`) shows the warning icon and a
+  callout with the reason, the remedy and an Update references button, offered only while the
   evaluation was checked against the feature as it now stands (`Healing::update`) and is of the
-  current revision with the feature not pending (`Model::current_healing`, from the revision each
-  arriving evaluation is of), so an undo or edit meanwhile never writes a reference captured on
-  another model; the row menu and the palette take the same healing, refusing with
-  `HEALING_AWAITS_RECOMPUTE` until the recompute reports.
-- A row opened for editing (a sketch entered, a feature opened) collapses again when editing it
-  ends, by the checkmark, Enter, Escape or Finish (`PanelState::opened_for_editing`,
-  `finished_editing`), so the tree goes back to one line per feature.
-- Whatever is selected in the view marks the rows of the features it belongs to as selected, a
-  face, edge or vertex its body's feature row and Bodies row, a sketch curve, region or
-  constraint its sketch, a datum its own (`Pickable::owner`, `PanelState::follow_view_selection`
-  on each change of the selection's generation, `in_view`), and the first newly marked row is
-  scrolled into view. The mark is only a look (`reads_selected`): it never chooses the row, so
-  the tree's commands and Delete still act on chosen rows only.
-- The other way round, the rows chosen in the tree (`PanelState::chosen`, handed to the viewport
-  each frame by `Viewport::show_chosen_rows`) highlight what they made in the view as hovered
-  geometry is: the faces and edges of a body, the curves of a sketch, a datum
-  (`Highlight::chosen_rows`, part of the scene cache's highlight key), never vertices or regions.
-  A row of a feature that changes a body it did not make (a fillet, shell, hole, combine, cut
-  extrusion, move) stands for that body too: `viewport::with_their_bodies` adds each row's
-  `Feature::body` to the rows handed to the scene, as `visibility::hideable_rows` does.
-  It is only a look: the view's selection stays as it was, so commands keep taking the tree's
-  choice, and nothing is highlighted while a sketch or feature is open for editing. A feature or
-  body row under the pointer (`PanelState::hovered_row`, `ViewportState::hover_row`) is lit the
-  same way while hovered, without counting as chosen. Escape with the view's selection already
-  empty and nothing open, or a click on empty space in the view with nothing selected
-  (`ViewportState::take_tree_dismissal`), lets go of the chosen rows
-  (`PanelState::choose_nothing`), so Move, Pattern or Measure never act on a row left chosen
-  unseen; a non-empty view selection clears it as before. Whenever the document's revision
-  changes, `PanelState::forget_missing` drops chosen rows the document no longer holds (an undone
-  paste), so a later Ctrl+click or drag never carries a feature that is gone. Fit view
-  (F) with nothing selected in the view frames the chosen rows' bodies (a modifying feature's the
-  body it changes), sketches and datums (`BuiltScene::bounds_of_features`) and everything when
-  none is chosen.
+  current revision with the feature not pending (`Model::current_healing`), so an undo or edit
+  meanwhile never writes a reference captured on another model; the row menu and palette take the
+  same healing, refusing with `HEALING_AWAITS_RECOMPUTE` until the recompute reports.
+- A row opened for editing (a sketch entered, a feature opened) collapses again when editing ends, by
+  the checkmark, Enter, Escape or Finish (`PanelState::opened_for_editing`, `finished_editing`).
+- Whatever is selected in the view marks the rows of the features it belongs to as selected: a face,
+  edge or vertex its body's feature row and Bodies row, a sketch curve, region or constraint its
+  sketch, a datum its own (`Pickable::owner`, `PanelState::follow_view_selection` on each change of
+  the selection's generation, `in_view`); the first newly marked row is scrolled into view. The mark
+  is only a look (`reads_selected`): it never chooses the row, so the tree's commands and Delete act
+  on chosen rows only.
+- The other way round, the rows chosen in the tree (`PanelState::chosen`, handed to the viewport each
+  frame by `Viewport::show_chosen_rows`) highlight what they made as hovered geometry is: faces and
+  edges of a body, curves of a sketch, a datum (`Highlight::chosen_rows`, part of the scene cache's
+  highlight key), never vertices or regions. A row of a feature that changes a body it did not make
+  (fillet, shell, hole, combine, cut extrusion, move) stands for that body too:
+  `viewport::with_their_bodies` adds each row's `Feature::body`, as `visibility::hideable_rows` does.
+  The view's selection stays as it was, and nothing is highlighted while a sketch or feature is open
+  for editing. A feature or body row under the pointer (`PanelState::hovered_row`,
+  `ViewportState::hover_row`) is lit the same way while hovered, without counting as chosen.
+- Escape with the view's selection already empty and nothing open, or a click on empty space in the
+  view with nothing selected (`ViewportState::take_tree_dismissal`), lets go of the chosen rows
+  (`PanelState::choose_nothing`), so Move, Pattern or Measure never act on a row left chosen unseen.
+  Whenever the document's revision changes, `PanelState::forget_missing` drops chosen rows the
+  document no longer holds. Fit view (F) with nothing selected in the view frames the chosen rows'
+  bodies (a modifying feature's the body it changes), sketches and datums
+  (`BuiltScene::bounds_of_features`), and everything when none is chosen.
 - A click on a row's name only selects it (`PanelState::selected`, cleared when the view selection
-  changes); Ctrl+click toggles and Shift+click extends (`PanelState::chosen`, primary first) over
-  the rows drawn this frame, so a filtered tree or a folded folder never adds rows it hides
-  (`feature_tree::choose_among`, resolved after the rows are laid out); the
-  chevron alone shows the details. A double-click, Enter, the edit button or the menu's Edit opens
-  the feature (a sketch for editing, another feature as its panel, an imported body by showing
-  its details); a suppressed or rolled-back one leaves a notice with the reason instead.
+  changes); Ctrl+click toggles and Shift+click extends (`PanelState::chosen`, primary first) over the
+  rows drawn this frame, so a filtered tree or folded folder never adds rows it hides
+  (`feature_tree::choose_among`, resolved after layout); the chevron alone shows the details. A
+  double-click, Enter, the edit button or the menu's Edit opens the feature (a sketch for editing,
+  another feature as its panel, an imported body by showing its details); a suppressed or
+  rolled-back one leaves a notice with the reason instead.
 - Rename (F2) and Move up or down act on the primary row, else the open feature
   (`feature_tree::current_feature`); Suppress, Hide or show feature and Delete act on every chosen
   row; Delete selection deletes them outside sketch editing. The row menu's Hide or Show
-  (`visibility::toggle_rows`) acts on every chosen row as Suppress does, when the row itself can
-  be hidden. The menu also has Copy features (asked of the command next frame through
-  `PanelState::requested`, choosing the row first when it was not among the chosen), Update
-  references, and Uses and Used by submenus listing the features the row's kind depends on
-  (`FeatureKind::dependencies`) and those depending on it directly, in tree order, at most
-  `MAX_LISTED_RELATIONS` and then how many more, disabled with the reason when empty; choosing one
-  chooses and reveals its row (`Focus::Feature`).
-- Copy features and Paste features (`feature_clipboard.rs`, Ctrl+C and Ctrl+V outside a sketch,
-  the Model menu and the palette) copy every chosen row in tree order to the system clipboard as
-  text (`file-format.md`) and paste the clipboard's features as one change at the rollback bar
-  (`Document::paste_features`, `document.md`), choosing and revealing the copies. A notice names
-  each feature left out with the reason (it picks faces or edges of a copied feature, or uses a
-  feature not in this model) and how many values became numbers; foreign or damaged text, or
-  sketch geometry, is refused in words, and Paste features inside a sketch says to finish it.
+  (`visibility::toggle_rows`) acts on every chosen row when the row itself can be hidden. The menu
+  also has Copy features (asked of the command next frame through `PanelState::requested`, choosing
+  the row first when it was not chosen), Update references, and Uses and Used by submenus listing the
+  features the row's kind depends on (`FeatureKind::dependencies`) and those depending on it
+  directly, in tree order, at most `MAX_LISTED_RELATIONS` then how many more, disabled with the
+  reason when empty; choosing one chooses and reveals its row (`Focus::Feature`).
+- Copy features and Paste features (`feature_clipboard.rs`, Ctrl+C and Ctrl+V outside a sketch, the
+  Model menu and palette) copy every chosen row in tree order to the system clipboard as text
+  (`file-format.md`) and paste the clipboard's features as one change at the rollback bar
+  (`Document::paste_features`, `document.md`), choosing and revealing the copies. A notice names each
+  feature left out with the reason (it picks faces or edges of a copied feature, or uses a feature
+  not in this model) and how many values became numbers; foreign or damaged text, or sketch
+  geometry, is refused in words, and Paste features inside a sketch says to finish it.
 - Principal group rows: hover highlights in the view, a click or tab selects in the view (clearing
   the tree's feature selection), and a row reads as selected while its pickable is.
-- The Bodies group (`bodies_tree.rs`, above the features, closed at first, absent without a body)
-  lists the bodies standing at the end of the model, by their own name or else the name of the
-  feature that made each. A click or tab chooses that feature in the tree (Ctrl+click toggles and
-  Shift+click extends over the listed bodies, through `feature_tree::choose_among`) and the eye
-  hides or
-  shows it like the feature's own. A body a Combine or Remove consumed is not listed. Right-clicking
-  a row offers Rename body… (the card below with its Body name field focused), Select the whole
-  body (its faces in the view, through `PanelState::selected_in_tree`) and Remove body, which adds
-  a `Remove` feature at the bar with a notice saying how to bring the body back; the same act from
-  the palette and the Model menu on the tree's body, else the selection's (`RenameBody`,
-  `RemoveBody`; `app-modelling.md`, "What a command acts on").
-- A body row's paint bucket (or the Body colour and material command, for the body chosen in the
-  tree, else of the selection, else of the open feature) opens its colour and material card under the row
-  (`PanelState::painting`, one at a time, focus on the first swatch until it lands):
-  `widgets::swatch`es (default, `body_appearance::SWATCHES`, the recent custom colours
-  (`Model::recent_colours`, named "Recent colour, <name>, <hex>") and the Custom colour swatch, a
-  `widgets::icon_swatch` with a plus, always last) above a property grid of Colour
-  (a hex field), Material (`MATERIALS` presets, which set the density, their `Finish` and, for a
-  body without a colour, their colour; None clears density and material and keeps the finish),
-  Name and Density (g/cm³, an expression), under a Body name field (empty: named after its
-  feature) and above them Opacity (`OPACITIES`: Solid, 75%, 50%, 25%, a combo box; a see-through
-  body is drawn in the translucent pass like X-ray, its faces and edges picked as usual) and Finish
-  (`FINISHES`: Plain, then every `caditor_document::Finish`, a combo box captioned "Finish" with a
-  muted line under it saying what the chosen one looks like; `body_appearance::surface` gives each
-  its metalness and roughness for the renderer, `render.md`). With faces of the body selected in the view, a second row
-  of swatches (named "<colour> for the selected faces", the first the body's own colour, which
-  removes theirs) colours those faces (`with_face_colours`), and Clear face colours
-  (`without_face_colours`) drops them all, keeping a repainted face's own opacity and finish. A
-  face that came with an opacity or finish (STEP import) is not dropped by either, since a
-  `FaceColour` always holds a colour: it keeps its entry with the body's colour at that moment
-  (the importer's own fallback), and Clear face colours is offered only while it would change
-  something; the scene draws a face's colour, and a
-  face's own opacity (from STEP import) by splitting the body between the opaque and translucent
-  passes outside the analysis and reflection views, unless the body is failed or outdated. The
-  scene gives a face its own finish, else the body's (`FaceLooks::finish`), only when the body is
-  sound, the palette `shows_finishes` (the standard ones; high contrast draws every body plainly,
-  so its tested colours hold) and the face is neither hovered nor selected
-  (`Builder::finish_of`, so a highlight reads in its palette colour), never in X-ray, the drawing
-  style, an analysis or a reflection view. Each change is one undoable `SetBodyAppearance`; a
-  refused value is an `error_row`.
-- The Custom colour swatch, on the body row and on the selected-faces row alike, opens
-  `colour_selector.rs` in the card (state in egui temp data keyed by `body_appearance::selector_id`,
-  so a body and its faces each have their own): a saturation and brightness square, a hue strip,
-  Current and New previews and a Hex colour field. The working colour is an `Hsv` kept apart from
-  the model, which keeps a grey's hue; nothing is applied while the pointer is down. The colour
-  applies as one `SetBodyAppearance` (`with_colour` or `with_face_colours`) when the pointer is
-  released or a click lands, when a keyboard edit ends (Enter, or focus leaving the square or
-  strip) and when a hex value is committed; the body's Colour field follows the working colour
-  meanwhile (`colour_selector::working`). The square and strip are focusable, lock the arrow keys
-  while focused (egui hands the lock over one frame after focus lands) and step 1% or 1 degree,
-  10% or 15 degrees with Shift. Screen readers get the square (`SQUARE_NAME`, its saturation and
-  brightness as its value), the strip (a slider in degrees) and both previews as images named with
-  a colour word and the hex (`colour_selector::describe`); chrome colours are `Tokens`, with the
-  handles ringed in text over panel colour so they hold over any colour. Every applied custom
-  colour that is not a fixed swatch joins the recent row (`PreferenceChange::RecentColour`,
-  `app-files.md`). Tests are in `ui_tests/custom_colours.rs`.
-- The rollback bar is a row of its own (`feature_tree::rollback_bar`, named "Rollback bar" for
-  screen readers), at the end of the tree when nothing is rolled back. It and every row name drag
-  (`PanelState::dragging`): the gap under the pointer shows an accent line, or an error one with a
-  reason when `Document::move_row` refuses it; release applies, Escape or a release outside the
-  tree cancels. Dragging one of several chosen rows moves them all (`Document::move_features`,
-  "Move N features").
+- The rollback bar is a row of its own (`feature_tree::rollback_bar`, named "Rollback bar"), at the
+  end of the tree when nothing is rolled back. It and every row name drag (`PanelState::dragging`):
+  the gap under the pointer shows an accent line, or an error one with a reason when
+  `Document::move_row` refuses it; release applies, Escape or a release outside the tree cancels.
+  Dragging one of several chosen rows moves them all (`Document::move_features`, "Move N features").
 - A filter field (`PanelState::tree_filter`) heads the feature rows once there are
   `FILTER_FROM_FEATURES` of them, or while it holds text or focus; Filter the feature tree (Ctrl+F,
-  Model menu, palette) shows and focuses it at any size. It keeps the features whose name, or one
-  of whose kind words (`feature_tree::kind_words`: "extrusion", "fillet", "cut", "datum plane"…)
-  or state words (`state_words`: "failed", "outdated", "suppressed", "hidden"),
-  contains the text in any case, plus the edited, renamed, revealed or focused one, so going to a feature
-  never lands on a hidden row. While it filters, the rollback bar is hidden and rows do not drag,
-  since gaps between the shown rows are not the model's; with no match an empty state offers
-  Clear the filter.
-- Consecutive features of one group (`document.md`) sit under a folder row
-  (`feature_groups.rs`): chevron, folder icon, name, member count and a "⋯" menu (Rename group,
-  Ungroup), members indented by `GROUP_INDENT`. A click or tab chooses every member; a
-  double-click renames in place (blank refused); the chevron folds it, a folded folder's members
-  taking zero-height places at its foot so drops still map to tree gaps; a folder opens by itself
-  when a member is revealed or wanted for focus. Group features (Ctrl+G, a row's menu, Model ›
-  Features, palette) groups the chosen rows as "Group N" and starts renaming it; Ungroup and
-  Rename group act on the current feature's folder. While the tree filters, folders are not
-  drawn, and a group's name matches the filter like a feature's.
-- Deleting features others depend on opens the delete dialog (`feature_tree::delete_dialog`,
-  counted as a modal): the dependents in tree order with what each uses, Delete with dependents
+  Model menu, palette) shows and focuses it at any size. It keeps the features whose name, kind
+  words (`feature_tree::kind_words`) or state words (`state_words`: "failed", "outdated",
+  "suppressed", "hidden") contain the text in any case, plus the edited, renamed, revealed or focused
+  one, so going to a feature never lands on a hidden row. While it filters, the rollback bar is
+  hidden, rows do not drag (gaps between shown rows are not the model's) and folders are not drawn;
+  with no match an empty state offers Clear the filter.
+- Consecutive features of one group (`document.md`) sit under a folder row (`feature_groups.rs`):
+  chevron, folder icon, name, member count and a "⋯" menu (Rename group, Ungroup), members indented by
+  `GROUP_INDENT`. A click or tab chooses every member; a double-click renames in place (blank
+  refused); the chevron folds it, a folded folder's members taking zero-height places at its foot so
+  drops still map to tree gaps; a folder opens by itself when a member is revealed or wanted for
+  focus. Group features (Ctrl+G, a row's menu, Model › Features, palette) groups the chosen rows as
+  "Group N" and starts renaming it; Ungroup and Rename group act on the current feature's folder. A
+  group's name matches the filter like a feature's.
+- Deleting features others depend on opens the delete dialog (`feature_tree::delete_dialog`, counted
+  as a modal): the dependents in tree order with what each uses, Delete with dependents
   (`danger_button`, leftmost), Keep dependents and Cancel (rightmost). Cancel takes focus whenever
-  focus is outside the dialog, so Enter never deletes. Either deletion is one transaction;
-  without dependents Delete acts at once and the menu item reads "Delete…" only when it will ask.
+  focus is outside the dialog, so Enter never deletes. Either deletion is one transaction; without
+  dependents Delete acts at once and the menu item reads "Delete…" only when it will ask.
 - A sketch's card shows its entity count and collapsible Dimensions and Constraints sections;
   constraint rows highlight their entities on hover and, clicked, edit the sketch and select the
   constraint (`PanelState::hovered_in_tree`, `chosen_in_tree`, handed to the viewport after the
   panels are drawn).
 
+### Bodies
+
+- The Bodies group (`bodies_tree.rs`, above the features, closed at first, absent without a body)
+  lists the bodies standing at the end of the model, by their own name or else the name of the
+  feature that made each; a body a Combine or Remove consumed is not listed. A click or tab chooses
+  that feature (Ctrl+click toggles and Shift+click extends over the listed bodies, through
+  `feature_tree::choose_among`) and the eye hides or shows it like the feature's own.
+  Right-clicking a row offers Rename body… (the card below with its Body name field focused), Select
+  the whole body (its faces in the view, through `PanelState::selected_in_tree`) and Remove body,
+  which adds a `Remove` feature at the bar with a notice saying how to bring the body back; the same
+  act from the palette and Model menu on the tree's body, else the selection's (`RenameBody`,
+  `RemoveBody`; `app-modelling.md`, "What a command acts on").
+- A body row's paint bucket (or the Body colour and material command, for the body chosen in the
+  tree, else of the selection, else of the open feature) opens its colour and material card under
+  the row (`PanelState::painting`, one at a time, focus on the first swatch until it lands):
+  `widgets::swatch`es (default, `body_appearance::SWATCHES`, the recent custom colours
+  (`Model::recent_colours`, named "Recent colour, <name>, <hex>") and the Custom colour
+  `widgets::icon_swatch`, always last) above a property grid of Colour (a hex field), Material
+  (`MATERIALS` presets, which set the density, their `Finish` and, for a body without a colour,
+  their colour; None clears density and material and keeps the finish), Name (empty: named after its
+  feature), Density (g/cm³, an expression), Opacity (`OPACITIES`; a see-through body is drawn in the
+  translucent pass like X-ray, its faces and edges picked as usual) and Finish (`FINISHES`: Plain,
+  then every `caditor_document::Finish`; `body_appearance::surface` gives each its metalness and
+  roughness for the renderer, `render.md`). Each change is one undoable `SetBodyAppearance`; a
+  refused value is an `error_row`.
+- With faces of the body selected in the view, a second row of swatches (named "<colour> for the
+  selected faces", the first the body's own colour, which removes theirs) colours those faces
+  (`with_face_colours`), and Clear face colours (`without_face_colours`) drops them all, keeping a
+  repainted face's own opacity and finish. A face that came with an opacity or finish (STEP import)
+  is not dropped by either, since a `FaceColour` always holds a colour: it keeps its entry with the
+  body's colour at that moment, and Clear face colours is offered only while it would change
+  something. The scene draws a face's colour and its own opacity by splitting the body between the
+  opaque and translucent passes outside the analysis and reflection views, unless the body is failed
+  or outdated. A face's finish is its own, else the body's (`FaceLooks::finish`), applied only when
+  the body is sound, the palette `shows_finishes` (the standard ones; high contrast draws every body
+  plainly so its tested colours hold) and the face is neither hovered nor selected
+  (`Builder::finish_of`), never in X-ray, the drawing style, an analysis or a reflection view.
+- The Custom colour swatch, on the body row and the selected-faces row alike, opens
+  `colour_selector.rs` in the card (state in egui temp data keyed by `body_appearance::selector_id`,
+  so a body and its faces each have their own): a saturation and brightness square, a hue strip,
+  Current and New previews and a Hex colour field. The working colour is an `Hsv` kept apart from the
+  model, which keeps a grey's hue; nothing is applied while the pointer is down. It applies as one
+  `SetBodyAppearance` (`with_colour` or `with_face_colours`) when the pointer is released or a click
+  lands, when a keyboard edit ends and when a hex value is committed; the body's Colour field
+  follows the working colour meanwhile (`colour_selector::working`). The square and strip are
+  focusable, lock the arrow keys while focused (egui hands the lock over one frame after focus
+  lands) and step 1% or 1 degree, 10% or 15 degrees with Shift. Screen readers get the square
+  (`SQUARE_NAME`), the strip (a slider in degrees) and both previews as images named with a colour
+  word and the hex (`colour_selector::describe`); chrome colours are `Tokens`, with the handles
+  ringed in text over panel colour so they hold over any colour. Every applied custom colour that is
+  not a fixed swatch joins the recent row (`PreferenceChange::RecentColour`, `app-files.md`). Tests:
+  `ui_tests/custom_colours.rs`.
+
 ## Window and panel persistence
 
 - `layout.rs`: `Preferences` holds a `WindowPlacement` (logical size, maximised, and the outer
-  position where the platform reports one, which Wayland never does) and a `PanelLayout` (side
-  width, the right-hand panels' width `panels.right_width` once one was resized, open sections)
-  under `window.*` and `panels.*`, read clamped to sane bounds. Startup fits
-  the size to the largest monitor and uses a position only when it lies on one; size and position
-  are recorded only while not maximised, so unmaximising returns to them.
+  position where the platform reports one, which Wayland never does) and a `PanelLayout` (side width,
+  the right-hand panels' width `panels.right_width` once one was resized, open sections) under
+  `window.*` and `panels.*`, read clamped to sane bounds. Startup fits the size to the largest
+  monitor and uses a position only when it lies on one; size and position are recorded only while
+  not maximised, so unmaximising returns to them. The window's minimum size is
+  `layout::MIN_WINDOW_WIDTH` by `MIN_WINDOW_HEIGHT`.
 - Changes save through `Files::store_settings` shortly after they stop and on exit (`App::finish`
-  waits for the jobs). An unreadable preferences file leaves the defaults in use and opens a
-  notice at startup; a failed save becomes a notice and the next change writes everything it
-  held.
+  waits for the jobs). An unreadable preferences file leaves the defaults in use and opens a notice
+  at startup; a failed save becomes a notice and the next change writes everything it held.
 
 ## Title bar and window frame
 
 - `Preferences::title_bar` (`built_in` by default, or `system`) chooses caditor's title bar (an
-  undecorated window whose menu bar acts as the title bar) or the window manager's, applied at
-  once through `window_frame::apply_title_bar` and offered in Preferences and the window menu.
+  undecorated window whose menu bar acts as the title bar) or the window manager's, applied at once
+  through `window_frame::apply_title_bar` and offered in Preferences and the window menu.
 - `window_frame.rs` works through egui `ViewportCommand`s, which `Overlay::run` hands to
   `egui_winit`; `Overlay` feeds maximized, full-screen and focus state back as the root
   `ViewportInfo`.
 - With caditor's title bar, the menu bar's empty space and the model title drag the window, a
-  double-click maximizes or restores, a right-click opens the window menu. The window buttons
-  close through Quit so unsaved work is asked about; in full screen Leave full screen replaces the
-  first two. While a dialog is open, `window_frame::over_dialogs` redraws the drag area and
-  buttons above the modal so the window can still be moved, maximized or closed.
-- Close takes clicks from its button up to the top and right edges of the window
-  (`reaching_the_corner`), so a maximized window closes from the corner of the screen; a framed
-  window's resize strips still win along its edge. A gap of `SPACE_S` on each side of the separator
-  keeps the window buttons apart from the search field.
+  double-click maximizes or restores, a right-click opens the window menu. The window buttons close
+  through Quit so unsaved work is asked about; in full screen Leave full screen replaces the first
+  two. While a dialog is open, `window_frame::over_dialogs` redraws the drag area and buttons above
+  the modal. Close takes clicks from its button up to the top and right edges of the window
+  (`reaching_the_corner`); a framed window's resize strips still win along its edge. A gap of
+  `SPACE_S` on each side of the separator keeps the window buttons apart from the search field.
 - On Windows the maximize button's rectangle goes to `caditor-windows` each frame it changes, so
-  hovering it offers Snap Layouts (`windows.md`); the non-client hover and press that replace
-  egui's pointer there come back as `window_frame::NonClientPointer`.
-- When neither maximized nor full screen, a square outline marks the edge (the window is opaque,
-  so rounding would leave corners showing) and thin foreground strips along it, with larger
-  corners resizing diagonally, set the resize cursor and start `BeginResize`.
-- The compositor takes the pointer during a move or resize and the release never reaches the
-  window, so `Overlay` queues a synthetic primary release after `StartDrag` or `BeginResize`. On
-  Windows both run the system's modal move and size loops, so dragging to an edge snaps; the
-  undecorated window keeps a drop shadow (`with_undecorated_shadow`).
-- The window's minimum size is `layout::MIN_WINDOW_WIDTH` by `MIN_WINDOW_HEIGHT`.
+  hovering it offers Snap Layouts (`windows.md`); the non-client hover and press that replace egui's
+  pointer there come back as `window_frame::NonClientPointer`.
+- When neither maximized nor full screen, a square outline marks the edge (the window is opaque, so
+  rounding would leave corners showing) and thin foreground strips along it, with larger corners
+  resizing diagonally, set the resize cursor and start `BeginResize`.
+- The compositor takes the pointer during a move or resize and the release never reaches the window,
+  so `Overlay` queues a synthetic primary release after `StartDrag` or `BeginResize`. On Windows both
+  run the system's modal move and size loops, so dragging to an edge snaps; the undecorated window
+  keeps a drop shadow (`with_undecorated_shadow`).

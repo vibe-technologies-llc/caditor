@@ -8,95 +8,76 @@ paths:
 
 - `ui_tests.rs` drives the real toolbars, panels and viewport through a headless egui context with
   synthetic input.
-- Picking needs the GPU, so the harness answers pick requests as the renderer would: nothing
-  under the cursor until a test hovers a chosen `Pickable` (`hover_pickable`); `picks_held` holds
-  answers back like a slow GPU.
-- With AccessKit enabled it keeps each frame's nodes, so tests check names, captions and that no
-  visible node shows a private-use glyph. Icon-only buttons are clicked and hovered by accessible
-  name (`click_button`, `hover_button`), labelled ones by their painted label. A test that reads
-  accessibility only at a few screens leaves AccessKit off and calls `Harness::read_screen`
-  before each check: one frame with it on, then off again, so the other frames skip the tree.
+- Picking needs the GPU, so the harness answers pick requests as the renderer would: nothing under
+  the cursor until a test hovers a chosen `Pickable` (`hover_pickable`); `picks_held` holds answers
+  back like a slow GPU. It answers sharing the built scene's `PickTable`, never cloning the scene.
+- AccessKit keeps each frame's nodes, so tests check names, captions and that no visible node shows
+  a private-use glyph. Icon-only buttons are clicked and hovered by accessible name
+  (`click_button`, `hover_button`), labelled ones by their painted label. A test reading
+  accessibility at only a few screens leaves AccessKit off and calls `Harness::read_screen` before
+  each check (one frame with it on).
 - Modifier keys reach egui only through `Event::ModifiersChanged` (`click_with`); tree drags hold
-  the button across frames (`hold_drag`, `release_drag`) so a test can read mid-drag state.
-- Overlap checks compare only the visible part of each text (`Harness::text_clips`), since
-  content scrolled under a bar is clipped there.
-- `ui_tests/large_interface.rs` holds the 200% checks (panels beside the view, dialogs on screen,
-  the compact ribbon, canvas readouts). A scene reaches what a user would scroll to with
-  `wheel_until_shown` (`fully_shown`: the whole text inside its clip), clicks a ribbon tool with
-  `click_tool` (its label, else its accessible name when the ribbon is compact) and reads a
-  panel's rect with `panel_rect`. The focus scroll that brings a tree row into view is animated,
-  so a test lets animations finish before clicking what it revealed.
-- `settle` waits for the recompute, body meshing and the mass properties asked for
-  (`Model::masses_pending`, counted from queueing to the arrival `Model::poll` takes in), runs two
-  frames, and starts over while those frames started more (opening a feature meshes the body before it from a frame), so the scene
-  after it is the finished one. `point_at`, and so `click_at`, settles first when a recompute or
-  meshing is still running: its result changes the panels (a sketch's status pills), and a
-  layout change landing between working out a screen position and the frame that reads the
-  pointer would put the pointer somewhere else in the sketch. `open_combo` likewise settles first
-  when a recompute or meshing is still running (one landing between finding the list's row and
-  the press, as after typing a value, shifts the panel and the press picks nothing), moves the
-  pointer onto the list and holds still until the list stays put before pressing, since a tree
-  taller than its panel can scroll when the pointer arrives over it.
-- `settle` does not wait for workers outside the model, so a test reading their result waits for
-  it itself: Measure's readout (`Measurements::is_measuring`, its Position rows arrive apart from a
-  body's mass card), the journal on disk (`Model::flush_journal` before reading the recovery
-  folder, where a journal being written leaves its temporary beside it), the file worker
-  (`Files::wait_for_jobs` before reading recent files, as the app does on exit), and a harness's
-  storage worker (`Model::close` and `Closing::wait` before another harness opens the same model,
-  since Windows locks the journal until the worker lets go and the open is refused as in use).
-  A value typed into a sketch's field right after an edit waits for `settle` first, since
-  anything reading the settled sketch (`Model::settled_sketch`) sees none while it recomputes.
-- A constraint trial (`app-sketching.md`) is waited for at the end of each harness frame
-  (`Model::finish_checking_constraints`), so a constraint button's result is in the document by
-  the next check as if applied at once. `Model::hold_sketch_results` holds back both a trial's
-  verdict and the drag worker's solutions (`ui_tests/stale_sketch_results.rs`), so a test can
-  release a drag still solving or leave a trial pending across another change.
-  `Model::hold_evaluations` holds back the recompute's evaluations (`settle` would wait on them,
-  so a test releases them first), so a test can act while the shown evaluation is of an older
-  revision.
-- The version preview's picture is answered like the 3MF thumbnail: `Harness::render_preview`
-  hands `Files::preview_rendered` solid rows of `PICTURE_SIZE`, so a test waits for
-  `Preview::is_drawn` without a GPU.
-- Slow file work is staged with test-only seams on `Files`: `read_models_with` swaps the reader an
-  import thread calls and `load_models_with` the loader an open thread calls
-  (`ui_tests/import_jobs.rs` blocks either until released or cancelled); `scan_with` swaps the
-  startup scan, set before `Files::start` through `Harness::starting_with` (`HeldScan` holds the
-  scan's report back, or a journal's lock, until the test lets go). A test asserting that a
-  cancelled or abandoned result was dropped waits for `Files::own_threads_delivered` (every import,
-  open and preview thread has sent its event) and a frame, never a fixed sleep.
-- Opening a model resolves its path (`dunce::canonicalize`), and a Windows runner's temporary
-  folder is an 8.3 short name (`C:\Users\RUNNER~1\...`) that resolving spells out in full, so a test
-  comparing `Model::path` with a file it wrote builds that file under `canonical(&dir)`, never
-  `dir.path()`; the comparison then holds on Linux and fails only on Windows CI.
-- `Harness::pass` runs one frame without the text bookkeeping `frame` adds, so the ignored
-  `app_frame_costs_while_editing_a_large_sketch_and_with_a_row_chosen` (`ui_tests/frame_costs.rs`)
-  times the whole app pass (`app::show`, actions, scene build, pick answer) over `large_sketch`
-  idle, with the pointer moving and with the line tool, and over the plate with a tree row
-  chosen; `frame_costs_on_a_large_sketch_and_a_large_model` (`viewport.rs`) times the scene alone,
-  a whole-body hover with the Bodies filter included. `frame_costs_on_a_large_assembly`
-  (`viewport.rs`) settles 1,600 copies of the samples, or the STEP file `CADITOR_IMPORT_FILE`
-  names, times the scene idle and with the hover changing, prints the shown edge segments by the
-  size of their body on screen, and with a graphics adapter draws 1920×1080 frames at 4x through
-  a `ViewportRenderer` of its own once every upload is done: still frames turning a little (whole,
-  without edges and vertices, without silhouettes, faces only) and frames with the hover changing
-  and a pick, each split into the scene, the UI thread's drawing and the wait for the GPU;
-  `CADITOR_BENCH_CASE` runs only the cases whose name contains it.
-- The renderer's upload state reaches the interface through `ViewportState::set_uploading`, which
-  a test calls itself; `Harness::repaint_after` is the repaint delay egui reported for the last
-  frame (`Duration::MAX` when nothing asked), so a test can hold that a widget's timer runs only
-  while it is shown.
-- The ignored `a_large_step_import_is_timed_stage_by_stage` (`ui_tests/import_costs.rs`) times a
-  STEP import stage by stage (reading and healing, adding, recompute, tessellation, display
-  conversion, mass properties, scene, offscreen upload), then through the harness from the Import
-  command to every body shown, listing each frame over 50 ms. It synthesises a file of copies of the
-  samples and asserts the import stays within `SYNTHESISED_WITHIN`, or times the file
-  `CADITOR_IMPORT_FILE` names (`CADITOR_IMPORT_IN_THE_APP_ONLY` skips the stages and times only
-  the harness); the nightly stress job runs it. Once loaded it lets the camera's fit finish
-  (`CAMERA_SETTLE`, since no pick is asked while the viewpoint moves) and times frames idle, with
-  the pointer moving over the view and between two faces of different bodies taken from the drawn
-  `PickTable` (`forced_hover`, asserting the scene was restyled and the click selected the face),
-  orbiting, panning and zooming,
-  and each change until settled (`timed_change`: a face clicked and the selection cleared, a
-  feature row clicked, a body hidden and the hiding undone through `app::perform`, the Bodies group
-  opened), then the feature tree and the open Bodies group scrolled under the wheel. The harness
-  answers a pick sharing the built scene's `PickTable` rather than cloning the scene.
+  the button across frames (`hold_drag`, `release_drag`) to read mid-drag state.
+- Overlap checks compare only the visible part of each text (`Harness::text_clips`).
+- `ui_tests/large_interface.rs` holds the 200% checks. `wheel_until_shown` scrolls to what a user
+  would (`fully_shown`: the whole text inside its clip), `click_tool` clicks a ribbon tool (its
+  label, else its accessible name when the ribbon is compact), `panel_rect` reads a panel's rect.
+  The focus scroll to a tree row is animated: let animations finish before clicking what it
+  revealed.
+
+## Waiting
+
+- `settle` waits for the recompute, body meshing and requested mass properties
+  (`Model::masses_pending`), runs two frames, and repeats while those started more work, so the
+  scene after it is the finished one. `point_at` (so `click_at`) and `open_combo` settle first when
+  work is running, because a result landing between working out a position and the press shifts
+  the panel; `open_combo` also holds the pointer still until the list stops moving.
+- `settle` does not wait for workers outside the model; a test waits for them itself: Measure's
+  readout (`Measurements::is_measuring`), the journal (`Model::flush_journal` before reading the
+  recovery folder), the file worker (`Files::wait_for_jobs`), and a harness's storage worker
+  (`Model::close` and `Closing::wait` before another harness opens the same model, since Windows
+  locks the journal until the worker lets go).
+- A value typed into a sketch field right after an edit waits for `settle` first:
+  `Model::settled_sketch` sees none while it recomputes.
+- A constraint trial is waited for at the end of each frame (`Model::finish_checking_constraints`),
+  so its result is in the document by the next check. `Model::hold_sketch_results` holds back a
+  trial's verdict and the drag worker's solutions (`ui_tests/stale_sketch_results.rs`);
+  `Model::hold_evaluations` holds back recompute evaluations (release them before `settle`).
+- `Harness::render_preview` hands `Files::preview_rendered` solid rows of `PICTURE_SIZE`, so a test
+  waits for `Preview::is_drawn` without a GPU.
+- File work is staged with test-only seams on `Files`: `read_models_with` (import thread's reader),
+  `load_models_with` (open thread's loader; `ui_tests/import_jobs.rs` blocks either until released
+  or cancelled) and `scan_with` (startup scan, set before `Files::start` through
+  `Harness::starting_with`; `HeldScan` holds its report or a journal's lock). Asserting that a
+  cancelled or abandoned result was dropped waits for `Files::own_threads_delivered` and a frame,
+  never a fixed sleep.
+- Opening a model resolves its path (`dunce::canonicalize`) and a Windows runner's 8.3 temporary
+  folder (`C:\Users\RUNNER~1\...`) is spelled out, so a test comparing `Model::path` with a file it
+  wrote builds that file under `canonical(&dir)`, never `dir.path()`; otherwise it fails only on
+  Windows CI.
+- `Harness::repaint_after` is the repaint delay egui reported for the last frame (`Duration::MAX`
+  when nothing asked); `ViewportState::set_uploading` is called by the test itself.
+
+## Timing tests
+
+`Harness::pass` runs one frame without `frame`'s text bookkeeping. All of these are ignored or
+bench-only:
+
+- `app_frame_costs_while_editing_a_large_sketch_and_with_a_row_chosen` (`ui_tests/frame_costs.rs`)
+  times the whole app pass over `large_sketch` idle, with the pointer moving and with the line tool,
+  and over the plate with a tree row chosen.
+- `frame_costs_on_a_large_sketch_and_a_large_model` (`viewport.rs`) times the scene alone.
+  `frame_costs_on_a_large_assembly` (`viewport.rs`) settles 1,600 copies of the samples, or the STEP
+  file `CADITOR_IMPORT_FILE` names, times the scene idle and with the hover changing, and with a
+  graphics adapter draws 1920×1080 frames at 4x through its own `ViewportRenderer`, each split into
+  scene, UI thread drawing and GPU wait. `CADITOR_BENCH_CASE` runs only cases whose name contains
+  it.
+- `a_large_step_import_is_timed_stage_by_stage` (`ui_tests/import_costs.rs`; the nightly stress job
+  runs it) times a STEP import stage by stage, then through the harness from the Import command to
+  every body shown, listing each frame over 50 ms. It synthesises a file asserted to stay within
+  `SYNTHESISED_WITHIN`, or times `CADITOR_IMPORT_FILE`; `CADITOR_IMPORT_IN_THE_APP_ONLY` skips the
+  stages. After the camera's fit finishes (`CAMERA_SETTLE`; no pick is asked while the viewpoint
+  moves) it times idle frames, pointer moves, hovering between two faces taken from the drawn
+  `PickTable` (`forced_hover`), orbit, pan and zoom, each change until settled (`timed_change`:
+  face click, clearing the selection, feature row click, hiding a body and undoing it through
+  `app::perform`, opening the Bodies group), then scrolling the feature tree and the Bodies group.

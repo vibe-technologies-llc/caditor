@@ -65,941 +65,776 @@ paths:
 
 # Modelling tools in the app
 
+Tools without a ribbon button (it stays one row) live in the Model menu and the palette: Offset face,
+Split face, the primitives, Thread, Copy body, Split body, Mate body, Mirror faces, Curve and Point
+pattern, Coordinate system, Scale model and Configurations. Panel rows, keys and wordings are in the
+`*_panel.rs` files; this file holds the behaviour behind them.
+
 ## Preview while open
 
-- While a feature that makes or changes a body is open (its result is a solid), that body is drawn
-  see-through at `PREVIEW_ALPHA` in its colour (`scene::previewed_bodies`), faces still picked, and
-  turns solid when the feature closes, so a pattern, hole or extrusion reads as a preview
-  until confirmed. It is drawn solid while choosing in the view.
-- A feature choosing nothing on the state before it (a move, a combine) draws its result solid
-  and the body before it see-through at `GHOST_ALPHA`, never picked (`scene::OpenView::Ghost`), so
-  the body is seen where it goes and where it came from.
-- An open fillet or chamfer that computed (`FeatureState::UpToDate`, not pending) draws its result
-  with unpicked faces and edges, and over it the edges of the body before it, still
-  `Pickable::BlendEdge` (`OpenView::Result`, `Builder::open_result`): the chosen ones stand just
-  outside the rounded surface, and hidden ones stay hidden since unpicked faces still write depth
-  in the pick pass. An open shell that computed draws its hollow result the same way, its faces
-  carried from the body before (the rim of an opened face included) `Pickable::ShellFace`, the
-  opened ones in the selected colour, and over the opening the opened faces of the body before
-  see-through in the selected colour and still picked (`Builder::opened_faces`), so a click on the
-  opening closes it again. A failed or pending blend or shell shows the body before it instead
+- A feature that makes or changes a body, while open, draws that body see-through at `PREVIEW_ALPHA`
+  (`scene::previewed_bodies`), faces still picked; solid when closed or while choosing in the view. A
+  feature choosing nothing on the state before it (move, combine) draws its result solid and the body
+  before it at `GHOST_ALPHA`, never picked (`scene::OpenView::Ghost`).
+- An open fillet or chamfer that computed (`FeatureState::UpToDate`) draws its result with unpicked
+  faces and edges, and over it the edges of the body before it, still `Pickable::BlendEdge`
+  (`OpenView::Result`, `Builder::open_result`); hidden ones stay hidden since unpicked faces write
+  depth in the pick pass. An open shell that computed draws its hollow result likewise, faces carried
+  from the body before as `Pickable::ShellFace`, opened ones in the selected colour, and over the
+  opening the opened faces of the body before, see-through and still picked (`Builder::opened_faces`),
+  so a click on the opening closes it. A failed or pending blend or shell shows the body before it
   (`OpenView::Before`).
-- Typing in any open feature's value field previews the value before it is entered: every
-  feature value row is `feature_fields::expression_row_drafting` (there is no row that does not
-  preview), `commit_field` reports the text as edited (`FieldResponse::edited`) and the row turns
-  valid text into `Action::Preview` with the transaction it would commit, never applied. `Model` applies it to a copy of the document
-  (`DraftPreview`, dropped when the feature closes, the text turns invalid, Escape or leaving the
-  field without a change; a new one whenever the feature's kind or the transaction differs, since
-  editing a named value changes only its parameter). The draft keeps the parameter values of its
-  copy (`Model::shown_parameters`), so a value named or renamed while typed (`h = 30`) moves the
-  reach arrows and a move's preview too. Any other feature's copy is computed as a
-  draft (`document-recompute.md`) and the draft's state of the body the feature makes or changes
-  (`Feature::body`, `Model::draft_body_result`) is drawn in that body's place once meshed
-  (`BodyMeshes::draft`, `OpenDraft`), a body made by the feature itself included. A draft
-  replacing one of the same feature and revision keeps the evaluation it replaces until its own
-  arrives (`Model::preview`), so a handle drag or typing never falls back to
-  the committed body between steps; a removal's
-  tools are the draft's (`Model::draft_cuts`). A feature that makes no body is drawn from the
-  draft's evaluation once it computed (`Model::draft_evaluation_of`, handed to the scene as
-  `Sources::draft` with `Revisions::draft`, `Model::draft_generation`, in its key): the open datum
-  (`scene::drafted`) and the open thread (`placed_threads` over the draft). A move is not
-  recomputed: `Model::draft_placement` (the draft's `Move::placement` after undoing the one shown)
-  places the drawn body (`MeshInstance::placement`, its edges and vertices moved on the CPU).
-  Entering the value commits as before, and the draft stays shown (held) until the model has
-  recomputed and meshed, so the body never jumps back. A draft whose feature fails shows the body
-  before it (a datum or thread its committed result), and the row being typed (the one with focus)
-  puts the failure under its field as an error callout (`feature_fields::draft_failure_row`,
-  `Model::draft_failure`).
-- A feature that removes material (an extrusion or revolve removing from a body, a hole) shows
-  instead the body solid as cut and only its tools (`Evaluation::cuts`, the swept profile or each
-  drill) in `ScenePalette::cut_preview` over everything (`Scene::overlay_meshes`, edges on the front layer),
-  never picked, so the cut reads through the material around it.
+- Material-removing features (extrusion or revolve removing, hole) show the body solid as cut and only
+  their tools (`Evaluation::cuts`) in `ScenePalette::cut_preview` over everything
+  (`Scene::overlay_meshes`, edges on the front layer), never picked.
+- Typing in any open feature's value field previews before Enter: every value row is
+  `feature_fields::expression_row_drafting`; valid text becomes `Action::Preview` with the transaction
+  it would commit, never applied. `Model` applies it to a copy of the document (`DraftPreview`, dropped
+  when the feature closes, the text turns invalid, Escape or the field is left unchanged; replaced
+  whenever the feature's kind or the transaction differs). The copy keeps its parameter values
+  (`Model::shown_parameters`), so a value named while typed (`h = 30`) moves arrows and a move's
+  preview too.
+  - The copy is computed as a draft (`document-recompute.md`); the draft's state of the body the
+    feature makes or changes (`Feature::body`, `Model::draft_body_result`) is drawn in that body's
+    place once meshed (`BodyMeshes::draft`, `OpenDraft`). A draft replacing one of the same feature and
+    revision keeps the evaluation it replaces until its own arrives (`Model::preview`), so a drag never
+    falls back to the committed body between steps. A removal's tools are the draft's
+    (`Model::draft_cuts`).
+  - A feature making no body (open datum `scene::drafted`, open thread `placed_threads`) is drawn from
+    `Model::draft_evaluation_of`, handed to the scene as `Sources::draft` with `Revisions::draft` and
+    `Model::draft_generation` in its key.
+  - A move is not recomputed: `Model::draft_placement` places the drawn body
+    (`MeshInstance::placement`, edges and vertices moved on the CPU).
+  - Entering the value commits, and the draft stays shown (held) until the model has recomputed and
+    meshed. A draft whose feature fails shows the body before it (a datum or thread its committed
+    result), and the focused row shows the failure as an error callout
+    (`feature_fields::draft_failure_row`, `Model::draft_failure`).
 
 ## What a command acts on
 
-- A command takes the selection's target or refuses in words; it never swaps in a body, plane,
-  sketch or axis the selection does not name. `Selection` keeps the order things were picked in
-  beside its sorted set (`Selection::in_pick_order`; a bulk pick such as a box enters in sorted
-  order).
-- A body is named by selected faces, edges or vertices (`body_selection::bodies_in`) or by rows
-  chosen in the tree (`body_selection::tree_bodies`: a body row, or a feature row's body). The
-  tree's choice wins, since choosing in the view clears it, so it is always the later of the two
-  (`move_tools::chosen_body`). Move, Copy, Mirror, Split, Scale, Pattern and Combine (two tree
-  bodies), Remove body, Rename body and Body colour all take it this way, and Measure and
-  Interference take every chosen row's body. Offers carry the tree's bodies in their basis.
-- Several candidates for one slot (two planes, two axes, curves of two sketches, faces of two
-  bodies) are refused naming the conflict (`datum_tools::only_plane`, `only_axis`,
-  `chosen_plane`, `SEVERAL_*`), except where the pick order decides: a revolve turns about the
-  line or axis picked last (`solid_tools::with_model_axis`), and a pattern's direction ignores
-  edges and faces of the patterned body when an axis outside it is selected.
-- What a command drops from a mixed selection is said in a notice: a fillet or chamfer keeps
-  edges and faces, a shell faces (`body_selection::left_out_words`), and the body card says when selected
-  faces of other bodies are not coloured (`body_appearance::other_faces_note`).
-- The tree's commands that take the selection (Place sketch, Use selected axis, Up to selected,
-  Start at selected, Mirror across selected, Split along selected, the datum and pattern Use
-  selected) act on the open feature, else the tree's row (`feature_tree::feature_commands`);
-  the rest act on `feature_tree::current_feature`.
+- A command takes the selection's target or refuses in words; it never swaps in a body, plane, sketch
+  or axis the selection does not name. `Selection` keeps pick order beside its sorted set
+  (`Selection::in_pick_order`; a bulk pick enters sorted).
+- A body is named by selected faces, edges or vertices (`body_selection::bodies_in`) or by rows chosen
+  in the tree (`body_selection::tree_bodies`: a body row, or a feature row's body). The later of the
+  two wins, since choosing in the view clears the tree's (`move_tools::chosen_body`). Move, Copy,
+  Mirror, Split, Scale, Pattern, Combine (two tree bodies), Remove body, Rename body and Body colour
+  take it so; Measure and Interference take every chosen row's body. Offers carry the tree's bodies in
+  their basis.
+- Several candidates for one slot (two planes, two axes, curves of two sketches, faces of two bodies)
+  are refused naming the conflict (`datum_tools::only_plane`, `only_axis`, `chosen_plane`, `SEVERAL_*`),
+  except where pick order decides: a revolve turns about the line or axis picked last
+  (`solid_tools::with_model_axis`), and a pattern's direction ignores edges and faces of the patterned
+  body when an axis outside it is selected.
+- What a command drops from a mixed selection is said in a notice (`body_selection::left_out_words`;
+  the body card: `body_appearance::other_faces_note`).
+- The tree's selection-taking commands (Place sketch, Use selected axis, Up to selected, Start at
+  selected, Mirror across selected, Split along selected, datum and pattern Use selected) act on the
+  open feature, else the tree's row (`feature_tree::feature_commands`); the rest act on
+  `feature_tree::current_feature`.
 
 ## Where new features go
 
-- Every tool creates its feature through `TransactionBuilder::add_feature`, so with the rollback
-  bar above the end new features land right above it (`document.md`). Defaults are taken from the
-  model as of the bar: the last sketch and body are the last active ones
-  (`Document::active_features`), and faces, edges and datums are captured where the bar stands
-  (`Document::bar_index`).
+- Every tool creates its feature through `TransactionBuilder::add_feature`, so with the rollback bar
+  above the end new features land right above it (`document.md`). Defaults come from the model as of
+  the bar: last sketch and body are the last active ones (`Document::active_features`); faces, edges
+  and datums are captured where the bar stands (`Document::bar_index`).
 - A suppressed or rolled-back feature cannot be opened or edited: `SketchEditing` refuses it,
-  `SketchEditing::sync` closes an edited sketch or open feature that becomes one, and the tree's
-  Edit says why.
-- Starting values are the `DEFAULT_*` constants of each `*_tools.rs`, except those a user has set
-  before: `last_values::Remembered` names the slots (fillet and chamfer size, the chamfer's form
-  and second distance or angle, shell thickness, hole diameter and blind depth, an extrusion's
-  distance, the linear and circular pattern counts). `app::perform` hands every applied
-  transaction to `last_values::changes`, which keeps the slots a `SetFeatureKind` changed (a
-  feature inserted by a tool changes nothing, so opening and cancelling a feature never
-  overwrites a remembered value), and `PreferencesCommand::RememberLast` stores their text with
-  the parameter names the document has then (a value held by a feature's own named parameter
-  stores that parameter's expression, since the parameter belongs to its feature). The creators
+  `SketchEditing::sync` closes an edited sketch or open feature that becomes one, and the tree's Edit
+  says why.
+- Starting values are the `DEFAULT_*` constants of each `*_tools.rs`, except those the user has set
+  before: `last_values::Remembered` names the slots (fillet and chamfer size, chamfer form and second
+  distance or angle, shell thickness, hole diameter and blind depth, extrusion distance, linear and
+  circular pattern counts). `app::perform` hands every applied transaction to `last_values::changes`,
+  which keeps slots a `SetFeatureKind` changed (a tool's insert changes nothing, so open-and-cancel
+  never overwrites), and `PreferencesCommand::RememberLast` stores their text with the document's
+  parameter names then (a feature's own named parameter stores its expression). The creators
   (`blend_tools::create`, `shell_tools::create`, `solid_tools::create`, `hole_tools::new_hole`,
-  `pattern_tools::kind_for`) take a `last_values::Starts`, resolved from `Model::last_values`
-  against the current document (`Starts::of`): a text that no longer parses, evaluates, has the
-  slot's dimension or is above zero (it names a parameter the model lacks, say) gives way to the
-  default for that slot alone.
+  `pattern_tools::kind_for`) take a `last_values::Starts` from `Model::last_values` against the current
+  document (`Starts::of`): a text that no longer parses, evaluates, has the slot's dimension or is
+  above zero gives way to the default for that slot alone.
 
 ## Cancelling an open feature
 
 - Escape, Enter and the checkmark keep an open feature's changes and close it. Cancel
-  (`Command::CancelFeature`, no default key; the palette, Model › Features, the open row's cross
-  left of its checkmark, primary rightmost as in dialogs, and its row menu) closes it and takes
-  back what was done since it opened, through `EditingCommand::CancelSolid`.
-- Opening records `editing::Opened`: the feature, the `UndoMark` of the undo history when the
-  batch of actions that opened it began (`app::perform` hands it to `SketchEditing::perform_after`,
-  so a tool's `Apply` before its `OpenSolid`, and a Choose in the view adding the selected edges,
-  count as part of the opening), and whether a step of that batch inserted the feature (`added`:
-  the tool made it, so Cancel removes it, worded "Cancel the new <name>" rather than "Cancel the
-  changes to <name>"). Opening the feature already open keeps the record.
-- `SketchEditing::cancelling` checks before anything is undone: `Model::undo_steps_since` the
-  mark must still lead back to it (`Editor::undo_steps_since`, `document.md`), else
-  `CancelRefusal::HistoryChanged` (Undo went back past the opening, or the steps were dropped);
-  every step since must touch only the feature and parameters it owns (`Transaction::touched`,
-  owners read from the document or the step's own edits), the step that added it excepted, else
-  `ChangedElsewhere` naming the step. A refusal is a notice and leaves the feature open and the
-  model as it is. Otherwise it performs that many `Action::Undo`, ordinary journaled undo steps,
-  so Redo brings them all back, and closes the feature; with nothing changed it only closes.
+  (`Command::CancelFeature`, no default key; palette, Model › Features, the open row's cross, its row
+  menu) closes it and takes back what was done since it opened, through `EditingCommand::CancelSolid`.
+- Opening records `editing::Opened`: the feature, the `UndoMark` from when the batch of actions that
+  opened it began (`app::perform` hands it to `SketchEditing::perform_after`, so a tool's `Apply`
+  before `OpenSolid`, and a Choose in the view adding selected edges, count as the opening), and
+  whether a step of that batch inserted the feature (`added`: Cancel removes it, worded "Cancel the new
+  <name>"). Opening the already open feature keeps the record.
+- `SketchEditing::cancelling` checks before undoing: `Model::undo_steps_since` the mark must still lead
+  back to it (`Editor::undo_steps_since`, `document.md`), else `CancelRefusal::HistoryChanged`; every
+  step since must touch only the feature and parameters it owns (`Transaction::touched`; the adding
+  step excepted), else `ChangedElsewhere` naming the step. A refusal is a notice leaving feature and
+  model as they are. Otherwise it performs that many ordinary journaled `Action::Undo`s (Redo brings
+  them back) and closes; with nothing changed it only closes.
 
 ## Feature panels
 
-- Every panel runs in one order: its shape switch (Extent, Shape) or, for a shell or datum, a
-  muted description; then references, values and options; then Body. Small exclusive choices are
-  `segmented`; longer lists stay combo boxes.
+- Every panel runs in one order: its shape switch (Extent, Shape) or, for a shell or datum, a muted
+  description; then references, values and options; then Body. Small exclusive choices are `segmented`;
+  longer lists stay combo boxes.
 - Every value row (`feature_fields::Quantity` carries the feature) and sketch dimension is a
-  `field::NamedField`: typing `name = expression` names the value (`document.md`, Model
-  parameters). A new name is one transaction inserting a parameter owned by the field
-  (`ParameterOwner::Feature` with the row's caption, or `Dimension`) holding what was typed, a
-  plain number taking the field's unit, with the field set to it: the panel's own change is built
-  with a marker (the value negated twice, which evaluates and checks like it) and
-  `Transaction::substituting` puts the reference where the marker went, so no panel knows about
-  naming; a change that drops the marker refuses as `NOT_NAMEABLE`. A field holding its own named
-  value shows `name = expression` and previews that expression's value; `name = …` typed there
-  renames or edits the parameter (one "Edit <name>" change, skipping the panel's change), a plain
-  expression unnames it (`Document::releasing`). Refusals are the parameter edits' (a name taken,
-  not a name, a cycle).
-- A mode switch keeps the named values with their fields: `solid_tools::edit`, `blend_tools::edit`,
-  `hole_tools::edit` and `primitive_tools::edit` pass every change through
-  `Document::carrying_owners` with the new kind's captioned fields (`solid_panel::captioned`, the
-  extent's distances, past-the-face offsets and turn angles; `blend_panel::captioned`, the size by
-  `size_caption` and the chamfer's second distance or angle; none for holes and primitives, whose
-  switches only drop values), so Distance becomes Total distance, Forward or First distance, and a
-  hole Size, a primitive Shape or a chamfer form dropping a named value releases it. A switch that
-  copies a value into a second field (Two sides, Two distances) copies it unnamed
-  (`field::copied_value`, the parameter's own expression), so only one field holds the name.
-- `feature_fields.rs` holds the shared rows and the `Rule` wordings; panels use them rather than
-  their own spacing or text. A reference that is not set reads None chosen; a body or sketch that
-  no longer exists reads Missing in the warning colour with the warning icon; a refused change
-  leaves the notice "<feature name> was not changed: <reason>".
-- A reference row offers Use selected when the selection gives a change, else Choose in the view,
-  which opens the feature and starts choosing that slot (`reference_picking::Picking`, held by
-  `SketchEditing` and published to the panels through egui temp data each frame, since the tree's
-  call signatures carry no editing state). While choosing, a click (or the activated keyboard
-  highlight) is tried as the selection for that slot: it applies and stops, or leaves a warning
-  notice with the reason. A datum axis keeps a first plane pending until a second one crosses it.
-  Escape stops choosing before anything else; opening another feature or closing this one stops it
-  too. The lists of regions, blend edges and shell faces use `choose_in_view`, which opens the
-  feature so clicks toggle entries.
+  `field::NamedField`: typing `name = expression` names the value (`document.md`, Model parameters). A
+  new name is one transaction inserting a parameter owned by the field (`ParameterOwner::Feature` with
+  the row's caption, or `Dimension`) holding what was typed (a plain number taking the field's unit),
+  with the field set to it: the panel's change is built with a marker (the value negated twice) and
+  `Transaction::substituting` puts the reference where the marker went, so no panel knows about naming;
+  a change that drops the marker refuses as `NOT_NAMEABLE`. A field holding its own named value shows
+  `name = expression` and previews that expression; `name = …` typed there renames or edits the
+  parameter (one "Edit <name>" change), a plain expression unnames it (`Document::releasing`).
+- A mode switch keeps named values with their fields: `solid_tools::edit`, `blend_tools::edit`,
+  `hole_tools::edit` and `primitive_tools::edit` pass every change through `Document::carrying_owners`
+  with the new kind's captioned fields (`solid_panel::captioned`, `blend_panel::captioned` with
+  `size_caption`; none for holes and primitives, whose switches only drop values). A switch copying a
+  value into a second field (Two sides, Two distances) copies it unnamed (`field::copied_value`), so
+  only one field holds the name.
+- `feature_fields.rs` holds the shared rows and `Rule` wordings; panels use them rather than their own
+  spacing or text. An unset reference reads None chosen; a missing body or sketch reads Missing with
+  the warning colour and icon; a refused change leaves the notice "<feature name> was not changed:
+  <reason>".
+- A reference row offers Use selected when the selection gives a change, else Choose in the view, which
+  opens the feature and starts choosing that slot (`reference_picking::Picking`, held by
+  `SketchEditing` and published to panels through egui temp data each frame, since the tree's call
+  signatures carry no editing state). While choosing, a click (or the activated keyboard highlight) is
+  tried as the selection for that slot: it applies and stops, or leaves a warning notice with the
+  reason. A datum axis keeps a first plane pending until a second crosses it. Escape stops choosing
+  before anything else; opening another feature or closing this one stops it too. Lists of regions,
+  blend edges and shell faces use `choose_in_view`, which opens the feature so clicks toggle entries.
 
 ## Extrude and Revolve
 
-- Extrude with flat faces of one body selected that lie in one plane (no sketch edited, no sketch
-  geometry selected; an open feature does not matter) extrudes them: one transaction creates a
-  hidden sketch on the first face picked holding the boundary edges of them all projected, each
-  shared edge once (`projecting::face_projections`, so the outline follows the faces), and an
+- Extrude with flat faces of one body in one plane selected (no sketch edited, no sketch geometry
+  selected) extrudes them: one transaction creates a hidden sketch on the first face picked holding all
+  their boundary edges projected, each shared edge once (`projecting::face_projections`), and an
   extrusion of it added to that body outward, with a notice naming the sketch
-  (`solid_tools::create_on_faces`). Revolve does the same with the faces and the axis, straight
-  edge or round face picked last with them (`FaceProfile::axis`), a full turn about it as
-  `RevolveAxis::Model`, and refuses faces without one (`NO_AXIS_FOR_FACE`). A curved face, faces
-  of two bodies or faces of two planes are refused in words (`solid_tools::faces_to_sweep`, worked
-  out with the offers as `Offers::extrude_faces` and `revolve_faces`). A selected face never falls
-  through to the last sketch.
-- Otherwise they take the edited sketch, else the selection's sketch (curves of two sketches are
-  refused, `SEVERAL_SKETCHES`); only with nothing selected (for Revolve, nothing but the axis it
-  offers) do they guess the open extrusion's sketch, else the last shown sketch, and only while it
-  has an even-depth region no feature sweeps (`solid_tools::has_unswept_regions`; a Hole guesses
-  a sketch no hole drills, `Guess::Drill`), so pressing Extrude again never sweeps the same
-  profile twice: a guessed sketch some of whose regions a feature already sweeps chooses only the
-  even-depth regions left (`solid_tools::regions_left`), the button's hover saying it takes the
-  remaining regions, so the parts of one sketch extrude and taper as separate features. A selection holding no sketch is refused in words (`NOTHING_TO_EXTRUDE`,
-  `NOTHING_TO_REVOLVE`), never swapped for a sketch it does not name. The revolve axis is the
-  line of the sketch, sketch axis, principal axis, datum axis, straight edge or round face picked
-  last; the panel's axis picker refuses several.
-- A new feature adds to the body whose faces are selected with its sketch (`SweepSource::body`)
-  and opens; an extrusion of a sketch lying on a face of a body still standing
-  (`solid_tools::face_body`) instead cuts that body, reversed so it runs into it, unless faces of
-  another body are selected. Otherwise it adds to the body it reaches, else makes a new body
-  (`solid_tools::default_operation`, `body_reach::reached_body`), so a second sketch drawn away
-  from the first body extrudes as a body of its own. Reaching is decided once, at creation, on the
-  UI thread from the evaluation shown: only shown bodies standing at the bar
-  (`Document::bodies_standing`, so never one a Combine consumed) whose `SolidResult::bounding_box`
-  meets a bound of the sweep (the sketch's outline polylines widened by a wall's thickness and a
-  slack, swept by the distance or turned about the axis) are looked at, so with nothing near no
-  kernel work is done; for those the tool is swept as the feature will be (the solved sketch's
-  regions, `extrude` or `revolve`) and checked with `caditor_kernel::interference` under a
-  `REACH_BUDGET` deadline through the kernel interrupt. An overlap ranks above a touch, several
-  overlaps go to the largest overlap volume, and ties (within `SAME_VOLUME`) and touches to the
-  body later in the tree; a check that fails or runs out of time counts as a touch, since the
-  boxes meet. Deciding before the feature exists, rather than creating a new body and switching
-  it once the first evaluation shows it reaching one, keeps creation one undoable step and the
-  open preview in its final colour from its first frame. The panel's Body list is
-  `Document::bodies_before`. `SketchEditing` holds at most one open solid feature, never together
-  with an edited sketch; `editing::Context` carries both to the scene and to availability checks.
-- With regions of the sketch selected (`Pickable::SketchRegion`, `app-sketching.md`), a new
-  extrusion or revolve chooses them (`solid_tools::selected_regions`), and the button's hover says
-  it takes the selected regions; with curves of the sketch selected that close up (every open end
-  meets another), it chooses the regions whose anchor lies inside them, even-odd, adding them to any
-  selected regions (`solid_tools::with_selected_outline`, a revolve leaving its axis line out), so
-  selecting a rectangle overlapping a circle sweeps the rectangle and their overlap; curves that do
-  not close and no selected region sweep every region as before. Any area cut out by crossing
-  curves therefore sweeps alone without trimming the sketch.
+  (`solid_tools::create_on_faces`). Revolve does the same with the axis, straight edge or round face
+  picked last (`FaceProfile::axis`), a full turn as `RevolveAxis::Model`, refusing faces without one
+  (`NO_AXIS_FOR_FACE`). A curved face, faces of two bodies or two planes are refused
+  (`solid_tools::faces_to_sweep`, via `Offers::extrude_faces` and `revolve_faces`). A selected face
+  never falls through to the last sketch.
+- Otherwise they take the edited sketch, else the selection's sketch (curves of two sketches refused,
+  `SEVERAL_SKETCHES`); only with nothing selected (for Revolve, nothing but the axis) do they guess the
+  open extrusion's sketch, else the last shown sketch, and only while it has an even-depth region no
+  feature sweeps (`solid_tools::has_unswept_regions`; a Hole guesses a sketch no hole drills,
+  `Guess::Drill`). A guessed sketch some of whose regions are swept chooses only the regions left
+  (`solid_tools::regions_left`), so parts of one sketch extrude as separate features. A selection
+  holding no sketch is refused (`NOTHING_TO_EXTRUDE`, `NOTHING_TO_REVOLVE`). The revolve axis is the
+  line, sketch axis, principal axis, datum axis, straight edge or round face picked last; the panel's
+  axis picker refuses several.
+- A new feature adds to the body whose faces are selected with its sketch (`SweepSource::body`); an
+  extrusion of a sketch on a face of a body still standing (`solid_tools::face_body`) instead cuts that
+  body, reversed into it, unless faces of another body are selected. Otherwise it adds to the body it
+  reaches, else makes a new body (`solid_tools::default_operation`, `body_reach::reached_body`).
+  - Reaching is decided once, at creation, on the UI thread from the evaluation shown: only shown
+    bodies standing at the bar (`Document::bodies_standing`, so never one a Combine consumed) whose
+    `SolidResult::bounding_box` meets a bound of the sweep (outline widened by a wall's thickness and a
+    slack, swept by the distance or turned about the axis) are looked at, so with nothing near no
+    kernel work is done. For those the tool is swept as the feature will be and checked with
+    `caditor_kernel::interference` under a `REACH_BUDGET` deadline through the kernel interrupt. An
+    overlap ranks above a touch, several overlaps go to the largest volume, ties (within `SAME_VOLUME`)
+    and touches to the later body in the tree; a check that fails or times out counts as a touch.
+    Deciding before the feature exists keeps creation one undoable step and the preview in its final
+    colour from the first frame.
+  - The panel's Body list is `Document::bodies_before`. `SketchEditing` holds at most one open solid
+    feature, never with an edited sketch; `editing::Context` carries both to the scene and
+    availability checks.
+- With regions selected (`Pickable::SketchRegion`, `app-sketching.md`), a new extrusion or revolve
+  chooses them (`solid_tools::selected_regions`). With curves of the sketch selected that close up, it
+  chooses the regions whose anchor lies inside them, even-odd, adding them to any selected regions
+  (`solid_tools::with_selected_outline`, a revolve leaving its axis line out), so a rectangle
+  overlapping a circle sweeps the rectangle and their overlap. Curves that do not close and no selected
+  region sweep every region.
 - An open feature's tree row is its property panel; every change is one `SetFeatureKind`, checked
-  before it is offered. Regions are fills on the front layer, so the see-through preview of the
-  body they sweep (whose faces still pick) never covers them; `Pickable::Region` clicks add or
-  leave out, turning `RegionChoice::All` into explicit keys. Clear the chosen regions
-  (`Command::ClearChosenRegions`, Alt+Shift+R, the panel's Clear beside the count, the palette;
-  `solid_tools::clear_regions`, on the open feature else the tree's row) chooses none in one
-  undoable change, so a single region is picked from nothing; the feature then fails saying no
-  region is chosen until one is clicked. Double-clicking a face opens the feature that made it.
-- Each extrusion side has an end kind; one that cannot apply is offered disabled with the reason
-  on hover. Up to face takes the selected face or plane captured where the extrusion sits in the
-  tree (`solid_panel::selected_target`, through `datum_tools::plane_reference`), or else one
-  selected curved face as an `UpToSurface` end (`sketch_placement::surface_at`), each refusal
-  saying why (made later, an axis); with none usable it starts choosing one in the view.
-  A removing or intersecting extrusion whose end distance reaches past `FAR_PAST_THE_BODY_TIMES`
-  the size (box diagonal) of the bodies it cuts, as seen at the extrusion, gets an info callout
-  under the distance (`solid_panel::FAR_PAST_THE_BODY`) whose Cut through all instead
-  (`CUT_THROUGH_ALL`) switches that end to Through all in one change
-  (`a_cut_typed_far_past_the_body_offers_through_all`).
-  An end Up to next or Up to face has an offset field below it (`solid_panel::END_OFFSET`, Past
-  the face, and Forward or Backward past face; key `<side>-offset`; any sign, negative stopping
-  short, zero clearing it), kept when the end switches between the two or takes another face.
-- An extrusion's panel has a Direction row (`solid_panel::SQUARE`, `ALONG`): Along an edge or
-  axis takes the one selected edge, axis, round face or sketch line (`datum_tools::only_axis`),
-  else chooses one in the view (`Slot::ExtrudeDirection`), shown as Along with a button going
-  back to square; an extrusion along a direction has no reach arrows.
-- An extrusion's and a revolve's panel ends with a Start row (`solid_panel::start_rows`): the sketch
-  plane with a Start offset field (key `start`, zero clears it), or Face or plane, taken like an
-  end (`solid_panel::start_change`, slot `Slot::StartPlane`) and shown as Starts at with a button
-  that goes back to the sketch plane. An extrusion's then has a Taper field (key `taper`, an angle
-  below `MAX_TAPER_DEGREES` either way, `Rule::Taper`; zero clears it).
-- Below Regions, a Fill switch (Solid, Thin wall) turns the sweep into a wall of the sketch's
-  curves (`solid_tools::with_wall`, starting at `DEFAULT_WALL_THICKNESS` centred; a revolve's
-  Profile switch is hidden and its side cleared), with a Thickness field (key `wall-thickness`) and
-  a Wall switch (Inside, Outside, Centred); Regions then only says the wall follows every curve.
-  A new extrusion or revolve of every region of a sketch whose curves enclose nothing starts as a
-  thin wall, and such a sketch, unused, is one Extrude guesses (`solid_tools::is_open_profile`).
-- While an extrusion is open (and nothing is being chosen in the view), each end set by a distance
-  has an arrow (`reach_handles.rs`, `Handle::Reach`) standing at that end over the middle of its
-  sketch's bounds, measured from where the extrusion starts (`reach_handles::start_offset`: the
-  start offset, or for a start face or plane `displayed_start_offset`, its distance along the
-  sketch normal with the face resolved on the body as the feature sees it), and pointing the way
-  that side runs, in `ScenePalette::handle` at the move arrows' size,
-  left out when it points at the eye; a symmetric extrusion has one, on its forward side, whose
-  drag grows the whole distance twice as fast. It drags as a move arrow does (`manipulator.rs`
-  holds both kinds behind `Manipulator` and `Manipulating`): in steps, snapping to geometry under
-  the pointer (Ctrl drags freely; Value handles below),
-  previewed with the distance beside the pointer, committed on release as one edit setting that
-  distance to a measured value of at least one step. The arrows follow a typed distance's preview
-  (`Model::draft_kind`, `Model::shown_parameters`); an extrusion running along a direction has
-  none.
-- While a revolve turning by angles is open (and nothing is being chosen in the view), each end
-  set by an angle has an arrow (`turn_handles.rs`, `Handle::Revolve`, `TurnEnd`) at the middle of
-  its sketch's bounds turned about the axis to that end, along the turn: positive angles sweep
-  the profile toward the sketch normal, a reversed one-sided turn the other way, a symmetric turn
-  showing its forward half and dragging the total twice as fast, two angles an arrow each. A drag
-  follows the pointer's angle about the axis in the plane square to it, unwrapped so it passes
-  half a turn, in steps of `STEP_DEGREES` (Ctrl drags freely) between one step and what the full
-  turn leaves beside the other angle, and commits like a reach arrow. A revolve starting off its
-  sketch plane turns its profile and axis shifted along the sketch normal by the start, so its
-  arrows stand and turn about there (`start_offset`, as an extrusion's).
-- A drag never drops a name a field holds (`manipulator::Held`, read from the field's caption as
-  its `ParameterOwner`, the captions shared with the panels: `solid_panel::DISTANCE` and the
-  others, `move_panel::distance_caption`, `turn_caption`, `ANGLE`). A plain number is replaced by
-  the measured value; the field's own named value (`h = 20`) keeps the reference and the drag
-  edits the parameter's expression instead (`Edit::SetParameterExpression`, in the same "Edit
-  <feature>" change, `manipulator::keeping_names`); a value using any other parameter, directly or
-  through its named value (`depth`, `h = depth * 2`), is driven: its arrow, square or ring does not
-  drag and its hover says what drives it ("Distance follows depth; change depth in Parameters",
-  `Manipulator::driven`, `words`). A ring that rewrites all three turns is driven when any of them
-  is.
-- Reverse the direction (`Command::ReverseDirection`, palette, no default key;
-  `reversing::reverse_change`, in `feature_tree::feature_commands`' changes) acts on the open
-  feature, else the tree's current one, doing what its panel's reverse control does: an
-  extrusion's one-sided end, a revolve's one-sided or up-to turn, a hole, a primitive (not one
-  centred on its place), a pattern's first direction, a mate's facing or side and a split's kept side, as
-  one "Reverse <feature>" change. An extrusion or revolve running both ways and a full turn are
-  refused saying which Extent to choose, an angle or point mate saying it has no side
-  (`MATE_HAS_NO_SIDE`); any other kind is refused with `NOTHING_TO_REVERSE`.
-- A revolve can also take two angles, refusing a pair that turns more than a full turn, or turn
-  Up to face (`solid_panel::TURN_UP_TO`): the selected flat face or plane, taken like an
-  extrusion's end, else choosing one in the view (`Slot::RevolveTarget`), shown as Up to with
-  Reverse direction. Its
-  Profile switch (Whole, One side) keeps one side of the axis, starting from the side holding
-  more of the chosen regions' area (`solid_panel::larger_side`), with Keep the other side of the
-  axis to swap.
-- A removal's panel lists under Body the other bodies it Also cuts, each with a button to stop
-  cutting it, and an Add another body list of `bodies_before` not yet cut; switching away from
-  Remove from body drops them (`solid_tools::with_operation`).
+  before it is offered. Regions are fills on the front layer, so the see-through preview never covers
+  them; `Pickable::Region` clicks add or leave out, turning `RegionChoice::All` into explicit keys.
+  `Command::ClearChosenRegions` (Alt+Shift+R, the panel's Clear, palette; `solid_tools::clear_regions`,
+  on the open feature else the tree's row) chooses none in one undoable change; the feature then fails
+  saying no region is chosen. Double-clicking a face opens the feature that made it.
+- Each extrusion side has an end kind; one that cannot apply is offered disabled with the reason on
+  hover. Up to face takes the selected face or plane captured where the extrusion sits in the tree
+  (`solid_panel::selected_target`, through `datum_tools::plane_reference`), or one selected curved face
+  as an `UpToSurface` end (`sketch_placement::surface_at`), each refusal saying why; with none usable
+  it starts choosing in the view.
+  - A removing or intersecting extrusion whose end distance reaches past `FAR_PAST_THE_BODY_TIMES` the
+    box diagonal of the bodies it cuts, as seen at the extrusion, gets an info callout
+    (`solid_panel::FAR_PAST_THE_BODY`) whose Cut through all (`CUT_THROUGH_ALL`) switches that end to
+    Through all in one change.
+  - An end Up to next or Up to face has an offset field (`solid_panel::END_OFFSET`, key
+    `<side>-offset`; any sign, negative stopping short, zero clearing), kept when the end switches
+    between the two or takes another face.
+- Direction row (`solid_panel::SQUARE`, `ALONG`): Along takes the one selected edge, axis, round face or
+  sketch line (`datum_tools::only_axis`), else chooses one in the view (`Slot::ExtrudeDirection`), with
+  a button back to square; an extrusion along a direction has no reach arrows.
+- An extrusion's and revolve's Start row (`solid_panel::start_rows`): the sketch plane with a Start
+  offset field (key `start`, zero clears), or Face or plane, taken like an end
+  (`solid_panel::start_change`, `Slot::StartPlane`). An extrusion then has a Taper field (key `taper`,
+  below `MAX_TAPER_DEGREES` either way, `Rule::Taper`; zero clears).
+- A Fill switch (Solid, Thin wall) under Regions turns the sweep into a wall of the sketch's curves
+  (`solid_tools::with_wall`, `DEFAULT_WALL_THICKNESS` centred; a revolve's Profile switch is hidden and
+  its side cleared), with Thickness (key `wall-thickness`) and Wall (Inside, Outside, Centred); Regions
+  then only says the wall follows every curve. A new extrusion or revolve of every region of a sketch
+  whose curves enclose nothing starts as a thin wall, and such an unused sketch is one Extrude guesses
+  (`solid_tools::is_open_profile`).
+- While an extrusion is open (nothing being chosen in the view), each end set by a distance has a reach
+  arrow (`reach_handles.rs`, `Handle::Reach`) at that end over the middle of its sketch's bounds,
+  measured from where the extrusion starts (`reach_handles::start_offset`; for a start face or plane
+  `displayed_start_offset`, resolved on the body as the feature sees it), pointing the way that side
+  runs, in `ScenePalette::handle` at the move arrows' size, left out when pointing at the eye. A
+  symmetric extrusion has one, on its forward side, whose drag grows the whole distance twice as fast.
+  It drags like a move arrow (`manipulator.rs` holds both behind `Manipulator` and `Manipulating`): in
+  steps, snapping to geometry (Ctrl drags freely; Value handles below), previewed with the distance
+  beside the pointer, committed on release as one edit setting a measured distance of at least one
+  step. Arrows follow a typed distance's preview (`Model::draft_kind`, `Model::shown_parameters`).
+- While a revolve turning by angles is open, each end set by an angle has an arrow (`turn_handles.rs`,
+  `Handle::Revolve`, `TurnEnd`) at the middle of its sketch's bounds turned about the axis to that end:
+  positive angles sweep toward the sketch normal, a reversed one-sided turn the other way, a symmetric
+  turn shows its forward half and drags the total twice as fast, two angles an arrow each. A drag
+  follows the pointer's angle about the axis in the plane square to it, unwrapped past half a turn, in
+  steps of `STEP_DEGREES` (Ctrl free) between one step and what the full turn leaves beside the other
+  angle. A revolve starting off its sketch plane turns profile and axis shifted along the normal by the
+  start, so its arrows stand and turn there (`start_offset`).
+- A drag never drops a name a field holds (`manipulator::Held`, read from the field's caption as its
+  `ParameterOwner`, captions shared with the panels: `solid_panel::DISTANCE` and others,
+  `move_panel::distance_caption`, `turn_caption`, `ANGLE`). A plain number is replaced by the measured
+  value; the field's own named value (`h = 20`) keeps the reference and the drag edits the parameter's
+  expression (`Edit::SetParameterExpression`, same "Edit <feature>" change,
+  `manipulator::keeping_names`); a value using any other parameter, directly or through its named value
+  (`h = depth * 2`), is driven: its handle does not drag and its hover says what drives it
+  (`Manipulator::driven`, `words`). A ring that rewrites all three turns is driven when any is.
+- Reverse the direction (`Command::ReverseDirection`, palette, no default key; `reversing::reverse_change`,
+  in `feature_tree::feature_commands`' changes) acts on the open feature, else the tree's current one,
+  doing what its panel's reverse control does (an extrusion's one-sided end, a revolve's one-sided or
+  up-to turn, a hole, a primitive not centred on its place, a pattern's first direction, a mate's
+  facing or side, a split's kept side) as one "Reverse <feature>" change. An extrusion or revolve
+  running both ways and a full turn are refused saying which Extent to choose, an angle or point mate
+  saying it has no side (`MATE_HAS_NO_SIDE`); other kinds `NOTHING_TO_REVERSE`.
+- A revolve can also take two angles (refusing a pair turning more than a full turn), or turn Up to
+  face (`solid_panel::TURN_UP_TO`): the selected flat face or plane, taken like an extrusion's end, else
+  choosing in the view (`Slot::RevolveTarget`). Its Profile switch (Whole, One side) keeps one side of
+  the axis, starting from the side holding more of the chosen regions' area
+  (`solid_panel::larger_side`), with Keep the other side of the axis to swap.
+- A removal's panel lists under Body the other bodies it Also cuts, each with a stop button, and an Add
+  another body list of `bodies_before` not yet cut; switching away from Remove from body drops them
+  (`solid_tools::with_operation`).
 
 ## Fillets, chamfers and shells
 
-- Fillet, Chamfer and Shell take the selected edges (or flat faces) of one body and create a
-  feature that opens. Fillet and Chamfer also take selected faces of the body, each standing for
-  its boundary edges, and a lone body chosen in the tree for every edge of it
-  (`blend_tools::selected_edges`, `Offers::blend`, an `EdgeSource` of the edges picked one by one
-  and `GroupSource`s; seams left out, each edge once, an edge lying on a selected face left to the
-  face). The face (a `FaceReference`) or the body is stored as an `EdgeGroup` and expanded again on
-  every recompute (`document.md`), so an edge a later change adds to it is rounded too; the panel
-  lists it as "All edges of <face>" or "All edges of <body>" (`blend_panel::group_row`), its hover
-  lighting the edges it stands for. A click on an edge an `EdgeGroup` stands for
-  (`blend_tools::toggle_edge`) replaces that group with its current edges less the clicked one's
-  chain. The edges and flat faces of the body before the feature
-  (`BodyMeshes::body_before`) are `Pickable::BlendEdge` and `Pickable::ShellFace`, drawn as in
-  Preview while open, and a click toggles one. The
-  panel lists the edges or faces in words (a split edge as its pieces).
-- Choose in the view on a fillet or chamfer first adds the edges selected in the view of its
-  body and its selected faces as `EdgeGroup`s (`blend_tools::with_selected_edges`, one undoable
-  change, edges already in a chosen chain and faces whose edges are all chosen skipped), then
-  opens it, so those and the edges it held show chosen and a click leaves one out.
-  A shell's and an offset face's Choose in the view do the same with the selected faces of its
-  body (`shell_tools::with_selected_faces`, flat faces only, and
-  `offset_face_tools::with_selected_faces`; faces already chosen skipped), the panels taking the
-  selection through their `FacesRow`.
-- A chamfer's panel adds Distances (Equal, Two, Angle; `blend_tools::FormChoice`) after Shape:
-  Two names the size First distance and adds Second distance (starting as the first), Angle adds
-  an angle field (45 deg to start, refused at or past 180°, `Rule::ChamferAngle`), each previewed
-  while typed like the size, and either adds Measure from the other face (`flipped`). The palette
-  has the same on the open feature or the tree's current one (Chamfer by one distance on both
-  faces, by two distances, by a distance and an angle, Flip the chamfer's faces;
-  `blend_tools::form_change`, `flip_change`), refused in words on anything but a chamfer and the
-  flip on an equal one.
-- Hovering a row of the edges, opened, moved or split faces listed in an open fillet's,
-  chamfer's, shell's, offset face's or split face's panel lights that edge or face (its pieces when split) in the view as
-  hovered (`widgets::removable_row_hovered`, `RowCache::preview`, handed to
-  `ViewportState::preview_entities` by the app each frame), so a row in words is matched to the
-  geometry.
-- Chains and opened faces stay in `BodyBefore::choice` until the references change; each panel's
-  list stays in `PanelState::reference_rows` (`reference_rows.rs`) until the state before it or
-  the revision changes.
+- Fillet, Chamfer and Shell take the selected edges (or flat faces) of one body and create a feature
+  that opens. Fillet and Chamfer also take selected faces, each standing for its boundary edges, and a
+  lone body chosen in the tree for every edge of it (`blend_tools::selected_edges`, `Offers::blend`, an
+  `EdgeSource` of edges picked one by one and `GroupSource`s; seams left out, each edge once, an edge on
+  a selected face left to the face). The face (`FaceReference`) or body is stored as an `EdgeGroup` and
+  expanded on every recompute (`document.md`), so an edge a later change adds is rounded too; the panel
+  lists it as "All edges of <face>" or "All edges of <body>" (`blend_panel::group_row`). A click on an
+  edge an `EdgeGroup` stands for (`blend_tools::toggle_edge`) replaces the group with its current edges
+  less the clicked one's chain. Edges and flat faces of the body before the feature
+  (`BodyMeshes::body_before`) are `Pickable::BlendEdge` and `Pickable::ShellFace`, drawn as in Preview
+  while open; a click toggles one.
+- Choose in the view on a fillet or chamfer first adds the edges selected in the view of its body and
+  its selected faces as `EdgeGroup`s (`blend_tools::with_selected_edges`, one undoable change, edges
+  already in a chosen chain and faces whose edges are all chosen skipped), then opens it. A shell's and
+  an offset face's do the same with the selected faces of their body
+  (`shell_tools::with_selected_faces`, flat faces only; `offset_face_tools::with_selected_faces`;
+  already chosen skipped), the panels taking the selection through their `FacesRow`.
+- A chamfer's Distances (Equal, Two, Angle; `blend_tools::FormChoice`) follow Shape: Two names the size
+  First distance and adds Second distance (starting as the first), Angle adds an angle field (45 deg to
+  start, refused at or past 180°, `Rule::ChamferAngle`), each previewed while typed, and either adds
+  Measure from the other face (`flipped`). The palette has the same on the open feature or the tree's
+  current one (`blend_tools::form_change`, `flip_change`), refused in words on anything but a chamfer
+  and the flip on an equal one.
+- Hovering a row of the edges, opened, moved or split faces in an open fillet's, chamfer's, shell's,
+  offset face's or split face's panel lights that edge or face (its pieces when split) as hovered
+  (`widgets::removable_row_hovered`, `RowCache::preview`, handed to `ViewportState::preview_entities`
+  each frame).
+- Chains and opened faces stay in `BodyBefore::choice` until the references change; each panel's list
+  stays in `PanelState::reference_rows` (`reference_rows.rs`) until the state before it or the revision
+  changes.
 
-## Offset face
+## Offset face and Split face
 
-- Offset face (Alt+Q, Model menu, palette; not on the ribbon, which it would widen past one row) takes the selected faces of one body, of
-  any shape (`offset_face_tools::selected_faces`), and creates an `OffsetFace` of 1 mm that opens.
-  The panel has the faces in words (Leave this face out per row), a signed Distance (any
-  expression, a negative one shrinks; typing previews it as a fillet's size does), the switch
-  Move the faces tangent to these too (`tangent`) and Body.
-- While it is open and computed, the result is drawn and its faces are `Pickable::ShellFace`s,
-  the moved ones in the selected colour (`FaceChoice::Moving`, `Builder::choosable_faces`, the
-  tangent chain included), and a click moves a face or leaves it out; faces keep their keys across
-  the feature, so the keys of the state before it find them. A failed or pending one shows the
-  body before it with every face pickable, so the choice can be mended. Hover texts and the prompt
-  say move rather than open.
-
-## Split face
-
-- Split face (Alt+Shift+K, Model menu, palette; not on the ribbon) takes the selected faces of one
-  body (`split_face_tools::source`) and, from the rest of the selection, a principal or datum
-  plane or the curves of one earlier sketch (`split_tools::chosen_along`, faces left aside), else
-  the YZ plane, and creates a `SplitFace` that opens; what it drops is said in a notice.
-- The panel has the faces in words (Leave this face out per row, Choose in the view adding the
-  selected faces of the body), Split along (a combo of the listed planes, the other bodies before
-  it and every earlier sketch, with Use selected and Choose in the view on `Slot::SplitPlane`, as
-  the palette's Split along selected does), for a sketch Carried (`split_face_panel::SQUARE`,
-  `ALONG`: Along an edge or axis takes the one selected edge, axis, round face or sketch line,
-  `datum_tools::only_axis` through `split_face_tools::direction_change`, else chooses one in the
-  view on `Slot::SplitDirection`, then shown as Along with a button going back to square, as an
-  extrusion's Direction row; `WRAPPED`, Wrapped round the faces, through
-  `split_face_tools::wrapped_change`, offered disabled with the reason unless the chosen faces lie
-  on one cylinder or cone as the body before it stands (`on_one_unrolled_surface`), and also the
-  palette's Wrap the split face's curves round its faces, `Command::WrapSplitCurves`, on the open
-  feature else the tree's row) and Body.
-- Its pieces carry new names, so the faces of its result are not the keys of the state before it:
-  while open it always shows the body before it (`OpenView::Before`, `FaceChoice::Splitting`) with
-  every face a `Pickable::ShellFace` and the chosen ones in the selected colour, a click splitting a
-  face or leaving it out, and over it the result's edges the body before lacks in the selected
-  colour (`Builder::split_edges`), so the split lines show as a preview.
+- Offset face (Alt+Q) takes the selected faces of one body, any shape (`offset_face_tools::selected_faces`),
+  and creates an `OffsetFace` of 1 mm that opens (faces in words with Leave this face out, a signed
+  Distance, Move the faces tangent to these too as `tangent`). While open and computed, the result is
+  drawn and its faces are `Pickable::ShellFace`s, moved ones in the selected colour
+  (`FaceChoice::Moving`, `Builder::choosable_faces`, tangent chain included); a click moves a face or
+  leaves it out; faces keep their keys across the feature. A failed or pending one shows the body before
+  it with every face pickable.
+- Split face (Alt+Shift+K) takes the selected faces of one body (`split_face_tools::source`) and, from
+  the rest of the selection, a principal or datum plane or the curves of one earlier sketch
+  (`split_tools::chosen_along`, faces left aside), else the YZ plane, and creates a `SplitFace` that
+  opens; what it drops is said in a notice. Split along has Use selected and Choose in the view on
+  `Slot::SplitPlane`, as the palette's Split along selected does. For a sketch, Carried is
+  `split_face_panel::SQUARE` or `ALONG` (as an extrusion's Direction row, through
+  `split_face_tools::direction_change`, `Slot::SplitDirection`) or `WRAPPED` round the faces (through
+  `split_face_tools::wrapped_change`, disabled with the reason unless the chosen faces lie on one
+  cylinder or cone as the body before it stands, `on_one_unrolled_surface`; also
+  `Command::WrapSplitCurves` on the open feature else the tree's row).
+- A split face's pieces carry new names, so the result's faces are not the keys of the state before it:
+  while open it always shows the body before it (`OpenView::Before`, `FaceChoice::Splitting`) with every
+  face a `Pickable::ShellFace` and chosen ones in the selected colour, a click splitting a face or
+  leaving it out, and over it the result's edges the body before lacks in the selected colour
+  (`Builder::split_edges`), so the split lines preview.
 
 ## Primitives
 
-- Box (Alt+B), Cylinder (Alt+Y), Sphere (Alt+U), Torus (Alt+Shift+U), Cone, Wedge and Prism (no
-  default key) are in the Model menu's Primitives group and the palette, not on the ribbon, which
-  they would widen past one row. Each creates a `Primitive` of the `DEFAULT_*` sizes of
-  `primitive_tools.rs` (a cone to a point, a wedge sloping to an edge, a six-sided prism), a sphere
-  and a torus starting at their centre and the rest at their base's centre, and opens it, previewed
-  like an extrusion (see-through while open, the cut tool over the body for a removal).
-- With one plane, datum plane or flat face selected (`datum_tools::chosen_plane`; several are
-  refused), it stands there: on a face at its middle (`hole_tools::face_middle`) and added to that
-  face's body, on a plane at its origin as a new body. With none it stands on the XY plane at the
-  origin as a new body and starts choosing its place in the view (`Slot::PrimitivePlace`, prompt
-  saying Escape leaves it there): a click on a plane, datum plane or flat face places it on that
-  one where the pointer's ray meets it (`primitive_tools::place_click`, the ray handed to
-  `pick_action`); the keyboard highlight places it at the face's middle or the plane's origin.
-- The panel has the Shape switch (switching takes the new shape's default sizes), Placed on with
-  Use selected or Choose in the view (the same slot), Position X and Y (key `primitive-field`,
-  `("at", index)`), Starts at (Corner, Base centre, Centre), the sizes (`("size", index)`, each
-  checked by its `SizeRule`: `Rule::AboveZero`, `ZeroOrMore`, or `Sides` for a plain count;
-  typing a size or position previews it, as Preview while open says),
-  Reverse direction (left out for Centre, where it changes nothing), and Result with Body as an
-  extrusion's. Switching Result between joining (New body, Add) and cutting (Remove, Intersect)
-  on a face reverses the direction to match (`primitive_tools::with_operation`), so a cut goes
-  into the body. Placing it again never changes the operation.
-- While a primitive is open (and its place is not being chosen), the same placement handles as a
-  hole's stand at its position on its plane (`place_handles.rs`, `displayed_plane`): the square
-  drags it anywhere on the plane and the arrows along the plane's X and Y, previewed with Position
-  X and Y beside the pointer and committed on release as one "Edit <shape>" change setting only
-  the positions that moved to measured values, a named one through its parameter and a driven one
-  not dragging, as the reach arrows do (`manipulator::Held`).
+- Box (Alt+B), Cylinder (Alt+Y), Sphere (Alt+U), Torus (Alt+Shift+U), Cone, Wedge and Prism (Model
+  menu's Primitives group) each create a `Primitive` of the `DEFAULT_*` sizes of `primitive_tools.rs`
+  (a cone to a point, a wedge sloping to an edge, a six-sided prism), a sphere and torus starting at
+  their centre and the rest at their base's centre, and open it, previewed like an extrusion.
+- With one plane, datum plane or flat face selected (`datum_tools::chosen_plane`; several refused), it
+  stands there: on a face at its middle (`hole_tools::face_middle`) added to that face's body, on a
+  plane at its origin as a new body. With none it stands on XY at the origin as a new body and starts
+  choosing its place (`Slot::PrimitivePlace`, prompt saying Escape leaves it there): a click on a plane,
+  datum plane or flat face places it where the pointer's ray meets it (`primitive_tools::place_click`,
+  the ray handed to `pick_action`); the keyboard highlight places it at the face's middle or the
+  plane's origin.
+- Panel specifics: Shape switching takes the new shape's default sizes; Position X and Y (key
+  `primitive-field`, `("at", index)`); sizes (`("size", index)`) each checked by its `SizeRule`
+  (`Rule::AboveZero`, `ZeroOrMore`, or `Sides` for a count); Reverse direction is left out for Centre.
+  Switching Result between joining (New body, Add) and cutting (Remove, Intersect) on a face reverses
+  the direction to match (`primitive_tools::with_operation`); placing it again never changes the
+  operation.
+- While a primitive is open (and its place not being chosen), a hole's placement handles stand at its
+  position on its plane (`place_handles.rs`, `displayed_plane`): the square drags it anywhere on the
+  plane, the arrows along its X and Y, committed on release as one "Edit <shape>" change setting only
+  moved positions to measured values, a named one through its parameter and a driven one not dragging
+  (`manipulator::Held`).
 
 ## Hole
 
-- Hole (Alt+O, in the Solid group) with one flat face selected (and no sketch edited and no sketch
-  geometry selected, which wins over the face) creates in one transaction a hidden sketch on that face holding one point and the hole: the
-  point inside the face farthest from its edges and holes (`deepest_point`, a refined grid search
-  over the sampled loops, ties going to the middle of its bounds), so an L- or U-shaped or holed face
-  is drilled on material, with a notice saying how to move it from the panel
-  (`hole_tools::create_on_face`). With one curved face selected instead (`HoleStart::CurvedFace`,
-  `hole_on_curve.rs`) the one transaction also makes a hidden datum point at a spot on the face
-  (its boundary's mean projected onto it) and a hidden datum plane touching the face nearest that
-  point (`PlaneThrough::TangentAt`), and the hidden sketch lies on that plane with its point at the
-  plane's origin, so the hole drills square into the face; it opens choosing its place in the view
-  (`Slot::HolePlace`). Such a hole (`hole_on_curve::mount`) moves by rewriting the datum point to
-  the spot the pointer's ray first meets the body (`SolidClassifier::first_crossing`), projected
-  onto the clicked face, and the tangent plane to that face; its panel's Placed on names the face
-  and has no Position rows. Its placement handles (`place_handles.rs`, `Subject::Curved`) stand on
-  the tangent plane at its foot (from the draft's evaluation while one is shown, so they follow
-  the preview); a drag's point on that plane is projected onto the face's surface
-  (`hole_on_curve::moved_to`) and only the datum point moves, so the plane, and the hole with it,
-  stays square to the face wherever it is dragged.
-  Otherwise it takes the sketch the way Extrude does (edited,
-  selected, or with nothing selected the opened or last one; else `NOTHING_TO_DRILL`) and needs at least one free point or circle in it (`hole_centres`);
-  its body is the one the sketch is attached to, else the one whose faces are selected, else the
-  last body standing. It creates a plain
-  blind hole of 6 mm by 10 mm, hides the sketch and opens the panel: Size (Custom or a metric
-  screw), Fit when sized (Close, Normal, Loose, Tapped, Fine, and Insert from M2 to M8, the size's
-  `fits`; with the thread named for the tapped ones, a Pitch row of the size's fine pitches when it
-  has several, and for an insert a note giving the insert's length and least wall), for a tapped
-  round hole Thread class (a combo of the internal classes), Thread hand (Right, Left) and Thread
-  length (Whole bore, To a depth with its Thread depth field, key `thread-depth`), Style
-  (Plain, Counterbore, Countersink, Stepped; switching takes the size's head dimensions, else the
-  defaults; Stepped starts from the counterbore and a step midway to the hole, and lists Step n
-  diameter and depth with Add a step, a step midway between the last and the hole as deep as the
-  last, and Remove the last step), Sized by (Diameter, Circles, which sets `CirclesAndHeads`; shown while the sketch has
-  circles or the hole is sized by them, with Scale the counterbore or countersink with each circle
-  for a counterbored or countersunk one), Diameter, the style's sizes, Shape (Round, or Slot with its length and angle), Depth
-  (a combo: Blind with its field, Through all, Up to next, or Up to face, taken from the selection
-  like an extrusion's end through `solid_panel::selected_target`, else choosing one in the view
-  with `Slot::HoleTarget` and shown as Up to with Use selected; either up-to kind has the
-  extrusion's Past the face field, key `end-offset`, kept when switching between them), for a
-  blind round hole Drill point (a switch giving the
-  bottom a 118° cone, with its Drill point angle field, key `drill-point-angle`), Reverse direction, and the Sketch and Body rows (the body
-  a list of `bodies_before`; the Sketch row's Edit the sketch enters it, hidden or not). A size sets exact millimetre values; typing any hole, counterbore or
-  countersink size makes it Custom again.
-- The panel places the holes while the sketch reads as a placement (`hole_placement::read`): only
-  free points, each held by nothing (free, optionally by a `HorizontalDistance` and a
-  `VerticalDistance` from the sketch origin, `PlacedHole::along`), by `Distance` constraints to
-  at most `MAX_EDGES` projected straight edges, or by a `Coincident` with the centre of one
-  projected round edge,
-  every projection an edge of a body (`ProjectionSource::Edge`, an `EdgeReference`) used by
-  exactly one of those constraints. The placement lives wholly in the hidden sketch, so no
-  record is added, the file format is the sketch's and the hole follows those edges whenever the
-  body changes, as any projection does. A sketch drawn otherwise (a curve, another constraint)
-  is placed by editing it, the Placed on row then only naming its face.
-- Placed on names the face the sketch lies on; while the sketch holds one point and no
-  constraint (`hole_tools::lone_point`, as a hole made on a face starts) it also has Use selected
-  or Choose in the view (`Slot::HolePlace`): a click on a flat face while choosing
-  (`hole_tools::place_click`, routed by `pick_action` with the pointer's ray) puts the point where
-  the ray meets the face's plane, the keyboard highlight or Use selected at the face's middle; a
-  face other than the sketch's re-attaches the sketch there (`SetSketchPlacement`) and moves the
-  hole to that face's body, all in one change. Below it Add another hole
-  (`hole_panel::ADD_HOLE`) chooses in the view (`Slot::HoleAdd`, routed by `pick_action` like the
-  place, staying on after each click until Escape or Stop adding holes): a click on a face lying
-  in the sketch plane (`solid_tools::same_plane`) adds a free point where the ray meets the
-  plane, the keyboard highlight the spot of that face farthest from its edges and the other
-  holes (`hole_tools::clear_spot`), each one "Add a hole to <hole>" change sharing the hole's
-  size and depth (`hole_placement::added_at`).
-- Each hole is listed (with several, a "Hole n" row saying how it is placed, with Remove hole n,
-  `hole_placement::removed`, which takes its point and anchors in one change and refuses the
-  last point). A free one has Position X and Y (key `("hole-position", feature, point, axis)`,
-  the point in the sketch plane, previewed while typed, one "Move <hole>" change,
-  `hole_placement::positioned`): the point is set where the value puts it (`SetSketchEntity`),
-  and a value using parameters is also held, so the hole follows them, by a `HorizontalDistance`
-  or `VerticalDistance` from the sketch origin holding the expression as a magnitude (negated when
-  the point lies on the negative side, `hole_placement::signed`, which also gives the field the
-  expression back); a plain value typed over it drops that dimension. The square's typed "x, y"
-  goes the same way. From an edge and Concentric drop the dimensions, and a hole held by them has
-  no placement handles and no Use selected under Placed on, which take a sketch of one point and
-  no constraint (`hole_tools::lone_point`). One measured from edges has a Measured from row per edge (the edge in
-  words as the sketch sees it, `edge_words`, and Stop measuring hole n from this edge,
-  `released`) with its Distance (key `hole-edge-distance`, the constraint's expression,
-  previewed, one "Move <hole>" `SetDimension`). One centred on an edge has Concentric with and its
-  Stop centring row. Then Place by offers From an edge (`Slot::HoleEdge(point)`, while fewer than
-  two edges hold it and it is not centred) and Concentric (`Slot::HoleConcentric(point)`), each
-  reading "… the selected edge" and applying at once when the one selected edge gives a change,
-  else choosing in the view. From an edge (`hole_placement::edge_change`) projects a straight
-  edge of a body seen by the sketch into it as construction (`add_projected`) and adds a
-  `Distance` from the point at its measured value in the model's unit, refusing in words an edge
-  made after the sketch, a curved one, one standing square to the face, the same edge, one
-  parallel to the first, the centre lying on the edge, a third edge and a centred hole.
-  Concentric (`concentric_change`) projects a circle or arc as construction (so it drills
-  nothing and sizes nothing), moves the point to its centre and adds the `Coincident`, replacing
-  whatever held the point, in one "Make <hole> concentric with an edge" change.
-- While a hole of one free point is open (and nothing is being chosen in the view), its centre carries handles
-  on the face (`place_handles.rs`, `Manipulator::Place`): a square to drag it anywhere on the face
-  and an arrow along the sketch plane's x and y (`PlaceGrip`), drawn and hit-tested like the move
-  arrows, in `ScenePalette::handle` at `ARROW_SHARE` of their length. A drag follows where the
-  pointer's ray meets the sketch plane, in steps (Ctrl drags freely), previewed with Position X
-  and Y beside the pointer and committed on release as one "Move <hole>" change; the handles
-  follow the preview (`Model::draft_transaction`).
+- Hole (Alt+O) with one flat face selected (no sketch edited, no sketch geometry selected, which wins)
+  creates in one transaction a hidden sketch on that face holding one point and the hole: the point
+  inside the face farthest from its edges and holes (`deepest_point`, a refined grid search over the
+  sampled loops, ties to the middle of its bounds), with a notice saying how to move it
+  (`hole_tools::create_on_face`).
+- With one curved face selected (`HoleStart::CurvedFace`, `hole_on_curve.rs`) the transaction also makes
+  a hidden datum point at a spot on the face (its boundary's mean projected onto it) and a hidden datum
+  plane touching the face nearest that point (`PlaneThrough::TangentAt`); the hidden sketch lies on that
+  plane with its point at the plane's origin, so the hole drills square into the face; it opens choosing
+  its place (`Slot::HolePlace`). Such a hole (`hole_on_curve::mount`) moves by rewriting the datum point
+  to where the pointer's ray first meets the body (`SolidClassifier::first_crossing`), projected onto
+  the clicked face, and the tangent plane to that face; its Placed on names the face and has no
+  Position rows. Its placement handles (`place_handles.rs`, `Subject::Curved`) stand on the tangent
+  plane at its foot (from the draft's evaluation while one is shown); a drag's point is projected onto
+  the face (`hole_on_curve::moved_to`) and only the datum point moves.
+- Otherwise it takes the sketch as Extrude does (edited, selected, or with nothing selected the opened
+  or last one; else `NOTHING_TO_DRILL`) and needs at least one free point or circle in it
+  (`hole_centres`); its body is the one the sketch is attached to, else the one whose faces are
+  selected, else the last body standing. It creates a plain blind hole of 6 mm by 10 mm, hides the
+  sketch and opens the panel.
+- Panel specifics: a size sets exact millimetre values, and typing any hole, counterbore or
+  countersink size makes it Custom. Fit is the size's `fits` (Close, Normal, Loose, Tapped, Fine,
+  Insert from M2 to M8); tapped ones add Pitch (when the size has several fine pitches), Thread class,
+  hand and length (Whole bore, To a depth, key `thread-depth`), an insert a note with its length and
+  least wall. Style (Plain, Counterbore, Countersink, Stepped) takes the size's head dimensions when it
+  has them, else defaults; Stepped starts from the counterbore and a step midway to the hole. Sized by
+  Circles sets `CirclesAndHeads` and shows while the sketch has circles or the hole is sized by them.
+  Depth (Blind, Through all, Up to next, Up to face) takes the face like an extrusion's end through
+  `solid_panel::selected_target`, else chooses with `Slot::HoleTarget`; either up-to kind has the
+  extrusion's Past the face field, key `end-offset`. A blind round hole has Drill point (a 118° cone,
+  key `drill-point-angle`). The Sketch row's Edit the sketch enters it, hidden or not.
+- The panel places the holes while the sketch reads as a placement (`hole_placement::read`): only free
+  points, each held by nothing (free, optionally by a `HorizontalDistance` and `VerticalDistance` from
+  the sketch origin, `PlacedHole::along`), by `Distance` constraints to at most `MAX_EDGES` projected
+  straight edges, or by a `Coincident` with the centre of one projected round edge, every projection an
+  edge of a body (`ProjectionSource::Edge`, an `EdgeReference`) used by exactly one of those
+  constraints. The placement lives wholly in the hidden sketch (no record added, the file format is the
+  sketch's) and the hole follows those edges as any projection does. A sketch drawn otherwise is placed
+  by editing it, Placed on then only naming its face.
+- Placed on names the face the sketch lies on; while the sketch holds one point and no constraint
+  (`hole_tools::lone_point`) it also has Use selected or Choose in the view (`Slot::HolePlace`): a click
+  on a flat face while choosing (`hole_tools::place_click`, routed by `pick_action` with the pointer's
+  ray) puts the point where the ray meets the face's plane, the keyboard highlight or Use selected at
+  the face's middle; a face other than the sketch's re-attaches the sketch there (`SetSketchPlacement`)
+  and moves the hole to that face's body, all in one change. Add another hole (`hole_panel::ADD_HOLE`)
+  chooses in the view (`Slot::HoleAdd`, staying on until Escape or Stop adding holes): a click on a face
+  in the sketch plane (`solid_tools::same_plane`) adds a free point where the ray meets the plane, the
+  keyboard highlight the spot of that face farthest from its edges and the other holes
+  (`hole_tools::clear_spot`), each one "Add a hole to <hole>" change sharing size and depth
+  (`hole_placement::added_at`).
+- Several holes are each listed ("Hole n", with Remove hole n, `hole_placement::removed`, taking its
+  point and anchors in one change and refusing the last). A free one has Position X and Y (key
+  `("hole-position", feature, point, axis)`, previewed, one "Move <hole>" change,
+  `hole_placement::positioned`): the point is set where the value puts it (`SetSketchEntity`), and a
+  value using parameters is also held by a `HorizontalDistance` or `VerticalDistance` from the sketch
+  origin holding the expression as a magnitude (negated on the negative side,
+  `hole_placement::signed`, which also gives the field the expression back); a plain value typed over
+  it drops that dimension. The square's typed "x, y" goes the same way.
+- A hole held by edges or Concentric has no placement handles and no Use selected under Placed on
+  (those take only `hole_tools::lone_point` sketches). One measured from edges has a Measured from row
+  per edge (`edge_words`, Stop measuring from this edge, `released`) and its Distance (key
+  `hole-edge-distance`, previewed, one "Move <hole>" `SetDimension`). One centred on an edge has
+  Concentric with and a Stop centring row. Place by offers From an edge (`Slot::HoleEdge(point)`, while
+  fewer than two edges hold it and it is not centred) and Concentric (`Slot::HoleConcentric(point)`),
+  each applying at once when the one selected edge gives a change, else choosing in the view.
+  - From an edge (`hole_placement::edge_change`) projects a straight edge of a body seen by the sketch
+    as construction (`add_projected`) and adds a `Distance` from the point at its measured value in the
+    model's unit, refusing in words an edge made after the sketch, a curved one, one square to the face,
+    the same edge, one parallel to the first, a centre lying on the edge, a third edge and a centred
+    hole.
+  - Concentric (`concentric_change`) projects a circle or arc as construction (drilling and sizing
+    nothing), moves the point to its centre and adds the `Coincident`, replacing whatever held the
+    point, in one "Make <hole> concentric with an edge" change.
+- While a hole of one free point is open (nothing being chosen), its centre carries handles on the face
+  (`place_handles.rs`, `Manipulator::Place`): a square to drag it anywhere on the face and an arrow
+  along the sketch plane's x and y (`PlaceGrip`), in `ScenePalette::handle` at `ARROW_SHARE` of the move
+  arrows' length. A drag follows where the pointer's ray meets the sketch plane, in steps (Ctrl free),
+  previewed with Position X and Y beside the pointer and committed on release as one "Move <hole>"
+  change; the handles follow the preview (`Model::draft_transaction`).
 
 ## Value handles
 
-- A value arrow (`value_handles.rs`, `Handle::Value`, `value_gauges::Measured`) drags one value of
-  an open feature, as an extrusion's reach arrow does (steps, Ctrl free, the readout, one "Edit
-  <feature>" change keeping a named value and refusing a driven one through `manipulator::Held`,
-  each `Measured` naming its field's caption, the panels' own constants). A `Gauge` holds where
-  it stands: a `Track` (a line from a base along a direction, or a `turn_handles::Swing` about an
-  axis) and a `Mapping` from the value to the distance or angle along it (`Linear` with a scale
-  and offset, so a diameter's rim moves half as fast; `Tangent` for a taper, the top edge moving
-  by the height times its tangent). `value_gauges::Builder` makes them from the shown kind (the
-  draft's while one is previewed) and the body as the feature sees it (`handle_snap::before`):
-  a blind hole's Depth at the bottom of its first hole down the bore and its Diameter at the top
-  along the diagonal of the sketch's x and y, between the place arrows (not when sized by
-  circles; dragging it makes the size Custom); an offset
-  face's Distance at the middle of its first face when flat in the body before it (zero
-  skipped); a datum plane's Offset at its origin along its normal and, turned about an axis, its
-  Angle as an arrow along the turn at an arm of `ARROW_POINTS` from the axis; a fillet's or
-  chamfer's size at the middle of its first edge along the bisector of its faces into the
-  material, its foot on the rounded or cut face (`1/cos(a/2) - 1` or `sin(a/2)` of the size for
-  faces turned by `a`); a shell's Thickness at the middle of the first edge of its first opened
-  face, pointing into the face; a thin wall's Thickness at the middle of the sketch's first line
-  (or the rim of its first circle) toward the side it grows; an extrusion's Taper at the +x edge
-  of its sketch's bounds at the end of its first distance side, pointing in (shown with no taper
-  too, zero clearing it); an end Up to face's Past the face on that face along the side; a
-  primitive's sizes at the middle of the faces they move (`primitive_arrows`: a box's three, a
-  cylinder's and torus's diameter and height, a sphere's diameter, a cone's two rims and height, a
-  wedge's three, a prism's diameter and height), the mapping worked out from the footprint and
-  the anchor; a linear pattern's Spacing (or Total length) at its last copy and Count where the
-  next copy would go, per direction, and a circular pattern's Total angle and Count (halfway
-  round to the original for a full turn) as turn arrows, from the patterned body's or repeated
-  tools' centre. `Manipulator` holds them beside the primary handles as `Reach`, `Revolve` and
-  `Place`'s second part, or alone as `Manipulator::Value`, hit before the primary handles. Counts
-  always step by one. Since value arrows stand at model positions while the primary handles keep
-  their size on screen, zooming out brings them together: a value arrow coming within
-  `CLEARANCE_POINTS` on screen of a primary handle's arrows or square, or of an earlier value
-  arrow, is left out (`ValueHandles::clear_of`, `move_manipulator::segments_apart`) until zooming
-  in parts them again; its field stays in the panel and typing reaches it.
-- While a handle is dragged (or its value typed, below) the open feature's panel is drawn from the
-  draft's kind (`manipulator::publish_dragged`, `dragged`, read in `feature_tree::body`), so its
-  fields follow the drag.
-- A drag on a line or plane snaps to the shown geometry under the pointer, ahead of the steps
-  (Ctrl still drags freely; `handle_snap.rs`): `Probe::snap` takes the CPU hits under the pointer
-  (`Scene::hits_through`, `PickTable::within_reach`), keeps those no deeper than the nearest face,
-  and resolves them on the body as the feature sees it (its own body's state before it, a move's
-  own body never), a corner first, then a round edge's centre or an edge's middle within
-  `MIDDLE_REACH_POINTS`, then a flat face by its plane. A line handle lands level with the point
-  along its line, or where it meets the face's plane, a face only when that lies within
-  `MAGNET_STEPS` steps of where the drag would be (`Snap::holds`), so faces under the pointer
-  pull without taking over; a plane handle (a hole's or primitive's square, a move's square)
-  lands on the point's projection, an arrow along one axis on that coordinate. The value set is a
-  measured one, never a reference, and the readout ends with what it snapped to ("to a corner").
-  Turning drags never snap (`Manipulating::snaps`).
+- A value arrow (`value_handles.rs`, `Handle::Value`, `value_gauges::Measured`) drags one value of an
+  open feature as a reach arrow does (steps, Ctrl free, readout, one "Edit <feature>" change keeping a
+  named value and refusing a driven one through `manipulator::Held`, each `Measured` naming its field's
+  caption). A `Gauge` holds where it stands: a `Track` (a line from a base along a direction, or a
+  `turn_handles::Swing` about an axis) and a `Mapping` from value to distance or angle (`Linear` with
+  scale and offset, so a diameter's rim moves half as fast; `Tangent` for a taper).
+  `value_gauges::Builder` makes them from the shown kind (the draft's while previewed) and the body as
+  the feature sees it (`handle_snap::before`), for: a blind hole's Depth (bottom of its first hole) and
+  Diameter (top, along the sketch diagonal between the place arrows; not when sized by circles;
+  dragging makes the size Custom); an offset face's Distance; a datum plane's Offset and Angle (an
+  arrow along the turn at an arm of `ARROW_POINTS` from the axis); a fillet's or chamfer's size (along
+  the bisector of its faces into the material, foot on the rounded or cut face: `1/cos(a/2) - 1` or
+  `sin(a/2)` of the size for faces turned by `a`); a shell's and a thin wall's Thickness; an extrusion's
+  Taper (shown with no taper too, zero clearing it) and an end Up to face's Past the face; a
+  primitive's sizes (`primitive_arrows`, the mapping worked out from the footprint and anchor); a
+  linear pattern's Spacing (or Total length) and Count per direction, and a circular pattern's Total
+  angle and Count (halfway round to the original for a full turn) as turn arrows. Counts always step by
+  one.
+- `Manipulator` holds them beside the primary handles as `Reach`, `Revolve` and `Place`'s second part,
+  or alone as `Manipulator::Value`, hit before the primary handles. Since value arrows stand at model
+  positions while primary handles keep their size on screen, one coming within `CLEARANCE_POINTS` on
+  screen of a primary handle's arrows or square, or of an earlier value arrow, is left out
+  (`ValueHandles::clear_of`, `move_manipulator::segments_apart`) until zooming in parts them; its panel
+  field stays and typing reaches it.
+- While a handle is dragged (or its value typed) the open feature's panel is drawn from the draft's
+  kind (`manipulator::publish_dragged`, `dragged`, read in `feature_tree::body`).
+- A drag on a line or plane snaps to the shown geometry under the pointer, ahead of the steps (Ctrl
+  drags freely; `handle_snap.rs`): `Probe::snap` takes the CPU hits under the pointer
+  (`Scene::hits_through`, `PickTable::within_reach`), keeps those no deeper than the nearest face, and
+  resolves them on the body as the feature sees it (its own body's state before it, a move's own body
+  never): a corner first, then a round edge's centre or an edge's middle within `MIDDLE_REACH_POINTS`,
+  then a flat face by its plane. A line handle lands level with the point along its line, or where it
+  meets the face's plane, a face only within `MAGNET_STEPS` steps of where the drag would be
+  (`Snap::holds`); a plane handle lands on the point's projection, an arrow along one axis on that
+  coordinate. The value set is measured, never a reference, and the readout ends with what it snapped
+  to ("to a corner"). Turning drags never snap (`Manipulating::snaps`).
 - Typing a digit while a handle is hovered or held (outside a sketch) opens the typed-point field
-  (`app-input.md`) labelled with that handle's field (`Manipulator::typing`, `manipulator::Typing`;
-  a square and a move's square take "x, y"), dropping a drag in progress; the text previews as
-  typed (only when it changes) and Enter commits the expression as typed, parameters included,
-  into the same slot a drag writes (`Typing::transaction`, through `field::checked`). Each value
-  typed is held to the `feature_fields::Rule` its panel field holds (`Typing::parse`, the rules
-  from `Measured::rule`, `Reach::field_rule` and `turn_handles::field_rule`, none for positions
-  and moves), since the trial apply checks no ranges: `0` over a fillet's size or `-10` over a
-  one-sided distance is refused in the panel's words. A refusal stays in the field, Escape drops
-  the preview. A driven value opens no field.
+  (`app-input.md`) labelled with that handle's field (`Manipulator::typing`, `manipulator::Typing`; a
+  square takes "x, y"), dropping a drag in progress; the text previews as typed and Enter commits the
+  expression as typed, parameters included, into the slot a drag writes (`Typing::transaction`, through
+  `field::checked`). Each value is held to the `feature_fields::Rule` its panel field holds
+  (`Typing::parse`, rules from `Measured::rule`, `Reach::field_rule` and `turn_handles::field_rule`,
+  none for positions and moves), since the trial apply checks no ranges: a refusal stays in the field in
+  the panel's words, Escape drops the preview. A driven value opens no field.
 
 ## Thread
 
-- Thread (Alt+Shift+O, Model menu, palette; not on the ribbon, which it would widen past one row)
-  takes the one selected cylindrical face of a shown body (`thread_tools::selected_face`; a flat
-  face, several faces or anything else selected with it is refused in words) and creates a
-  `Thread` named "Thread on <the face in words>" (numbered when taken), of the ISO metric coarse
-  size nearest the face (its minor diameter for a bore, its major for a shaft), the side's first
-  class, right-handed and the whole face long, then opens it.
-- The panel describes it, then Face in words with its Side (internal or external, read from the
-  face), the Designation as exported, Standard (a combo; switching takes the standard's size
-  nearest the face and its first class for the side), Size, Class (the classes for the face's
-  side; hidden when the standard has only the one), Hand (Right, Left), Length (Full face, Depth
-  with its Depth field and Start from the other end) and Body. The face and side are read from
-  the body as the thread sees it (`thread_tools::threaded_bore`). The Face row takes another face
-  with Use selected or Choose in the view (`Slot::ThreadFace`, `thread_tools::face_change`): the
-  one round face `selected_face` accepts, which must exist where the thread sits, keeping the size
-  while it fits the new face (else the standard's nearest) and the class while the side offers it.
-- Threads are drawn on shown bodies (`scene::Builder::threads`, from `placed_threads`), outside
-  sketch editing: the thread's circle (the major diameter for a bore, the minor for a shaft) solid
-  at its start, the same circle dashed at its end and four dashed lines along it, each stroked
-  `Stroke::DashedWhereHidden` so the parts inside the material show dashed through it, in
-  `ScenePalette::thread` (held to 3:1 on a body in high contrast), the open thread in the selected
-  colour and wider. A hidden thread is drawn only while open. A tapped hole's threads are drawn
-  the same way, and the Hole panel says so.
+- Thread (Alt+Shift+O) takes the one selected cylindrical face of a shown body
+  (`thread_tools::selected_face`; a flat face, several faces or anything else selected with it is
+  refused in words) and creates a `Thread` named "Thread on <the face in words>" (numbered when taken),
+  of the ISO metric coarse size nearest the face (minor diameter for a bore, major for a shaft), the
+  side's first class, right-handed and the whole face long, then opens it.
+- The panel reads face and side from the body as the thread sees it (`thread_tools::threaded_bore`).
+  Switching Standard takes the standard's size nearest the face and its first class for the side; Class
+  is hidden when the side has only one. The Face row takes another face with Use selected or Choose in
+  the view (`Slot::ThreadFace`, `thread_tools::face_change`): the one round face `selected_face`
+  accepts, existing where the thread sits, keeping the size while it fits the new face (else the
+  standard's nearest) and the class while the side offers it.
+- Threads are drawn on shown bodies (`scene::Builder::threads`, from `placed_threads`), outside sketch
+  editing: the thread's circle (major diameter for a bore, minor for a shaft) solid at its start, the
+  same circle dashed at its end and four dashed lines along it, each `Stroke::DashedWhereHidden`, in
+  `ScenePalette::thread` (3:1 on a body in high contrast), the open thread in the selected colour and
+  wider. A hidden thread is drawn only while open. A tapped hole's threads are drawn the same way, and
+  the Hole panel says so.
 
 ## Combine
 
-- Combine (Alt+J) is offered when the selection touches faces, edges or vertices of exactly two
-  bodies shown now, or two bodies are chosen in the tree. Picked in the view, the body picked
-  first is the target and the other the tool (`Selection::in_pick_order` through
-  `body_selection::bodies_in`); chosen in the tree, the earlier body in the tree is the target. It
-  creates a Join and opens the panel, whose Operation switch (Join, Cut, Intersect) and Target and
-  Tool lists (`Document::bodies_before`, each leaving out the bodies the other rows hold) change
-  it, and Swap target and tool (`combine_panel::SWAP`, `swapped`) exchanges the two in one edit.
-  Under the Tool list, Also with lists the further tool bodies, each with a button to drop it, and
-  an Add another tool body list offers the standing bodies not yet used; Keep tool leaves the tool
-  bodies standing instead of using them up. Nothing is chosen in the view while it is open.
+- Combine (Alt+J) is offered when the selection touches faces, edges or vertices of exactly two shown
+  bodies, or two bodies are chosen in the tree. Picked in the view, the first picked is the target and
+  the other the tool (`Selection::in_pick_order` through `body_selection::bodies_in`); in the tree, the
+  earlier body is the target. It creates a Join and opens the panel: Operation (Join, Cut, Intersect),
+  Target and Tool lists (`Document::bodies_before`, each leaving out bodies the other rows hold), Swap
+  target and tool (`combine_panel::SWAP`, `swapped`) in one edit, Also with further tool bodies, and
+  Keep tool. Nothing is chosen in the view while it is open.
 
 ## Move
 
 - Move body (Alt+M) takes the one body whose faces, edges or vertices are selected and creates a `Move`
-  of zero turns and distances, then opens it. Copy body (Alt+Shift+C, Model menu, palette, a body's
-  right-click menu; not on the ribbon, which it would widen past one row) does the same with
-  `copy` set, named Copy N, so the copy is placed from its panel; Make a copy in the panel switches
-  between the two. New moves turn about the body's centre; the panel's Turn about switch (Centre,
-  Origin, Axis) changes it, its description saying which. The panel has a field for the turn
-  about each axis and the distance along each, all expressions (key `move-field`, `offset` or
-  `turn`, axis index). Switching to Axis (`move_tools::about_axis`) takes the one axis the
-  selection names, else the Z axis, and keeps any angle already set; its Axis row is a combo of
-  the principal and earlier datum axes with Use selected and Choose in the view (slot `MoveAxis`,
-  the palette's Turn moved body about selected axis, `move_tools::axis_change`) for an edge, round
-  face or sketch line, followed by its Angle field (key `angle`); the turns about X, Y and Z are
-  then shown only while not zero. Nothing else is chosen in the view while it is open.
-- While a move is open (and nothing is being chosen in the view) a manipulator stands at the centre
-  of the moved body's box, following its preview (`move_manipulator.rs`): an arrow along each
-  world axis in the axis colours (`ScenePalette::axis`) and a square for each plane, drawn on the
-  front layer in the overlay batch at a constant size in points (`ARROW_POINTS`), an arrow pointing
-  at the eye or a square seen edge-on left out. Hit-testing is on the UI thread in screen space
-  (`MoveHandles::hit`, arrows within `HIT_POINTS` winning over squares), so it needs no pick; the
-  hovered or dragged handle turns `ScenePalette::handle_highlighted`, the hover says what a drag does, and a click
-  on a handle selects nothing.
-- A primary drag on a handle (`PrimaryDrag::Manipulate`, `Manipulating`) follows the point of its
-  axis nearest the pointer's ray (`Ray::closest_along_line`) or where the ray meets its plane,
-  from where it was grabbed, in steps of 1, 2 or 5 of a power of ten about `STEP_POINTS` on screen
-  (Ctrl drags freely). Each change is a preview of the move (`Action::Preview`, drawn as typing
-  draws it) with a readout of the distances beside the pointer; release commits one edit setting
-  the dragged distances to measured values (a named one through its parameter, as for the reach
-  arrows), Escape or leaving the feature drops it.
-- A move turning about its body's centre stands its manipulator at that centre (as moved) and adds
-  a ring about each axis (`Handle::Turn`, `RING_REACH` beyond the arrows, left out when seen
-  edge-on). Dragging one turns the body by the angle swept round the centre in the ring's plane,
-  in steps of `TURN_STEP_DEGREES` (Ctrl drags freely), previewed and committed like an arrow: a
-  turn about an axis applied after the others (Z, or Y with no Z turn, or X alone) adds to its own
-  field, any other is composed with the turns there and written back as three turns
-  (`turns_about_axes`), changing only the fields whose value changed. A move turning about the
-  origin has no rings, since a ring at the body would mislead. A move turning about an axis stands
-  its manipulator on that axis, at the foot of the body's centre shifted by the distances, with
-  one ring about it (`Handle::TurnAbout`, `ScenePalette::handle`) whose drag adds the swept angle to the
-  Angle field the same way.
+  of zero turns and distances, then opens it. Copy body (Alt+Shift+C, also a body's right-click menu)
+  does the same with `copy` set, named Copy N. New moves turn about the body's centre; Turn about
+  (Centre, Origin, Axis) changes it. Fields are expressions (key `move-field`, `offset` or `turn`, axis
+  index). Switching to Axis (`move_tools::about_axis`) takes the one axis the selection names, else Z,
+  keeping any angle set; its Axis row is a combo of principal and earlier datum axes with Use selected
+  and Choose in the view (slot `MoveAxis`, the palette's Turn moved body about selected axis,
+  `move_tools::axis_change`), followed by Angle (key `angle`); the turns about X, Y and Z are then shown
+  only while not zero. Nothing else is chosen in the view while it is open.
+- While a move is open (nothing being chosen) a manipulator stands at the centre of the moved body's
+  box, following its preview (`move_manipulator.rs`): an arrow along each world axis in the axis colours
+  (`ScenePalette::axis`) and a square per plane, on the front layer in the overlay batch at a constant
+  size in points (`ARROW_POINTS`); an arrow pointing at the eye or a square seen edge-on is left out.
+  Hit-testing is on the UI thread in screen space (`MoveHandles::hit`, arrows within `HIT_POINTS`
+  winning over squares), needing no pick; the hovered or dragged handle turns
+  `ScenePalette::handle_highlighted`, the hover says what a drag does, and a click on a handle selects
+  nothing.
+- A primary drag on a handle (`PrimaryDrag::Manipulate`, `Manipulating`) follows the point of its axis
+  nearest the pointer's ray (`Ray::closest_along_line`) or where the ray meets its plane, from where it
+  was grabbed, in steps of 1, 2 or 5 of a power of ten about `STEP_POINTS` on screen (Ctrl free). Each
+  change is an `Action::Preview` with a readout of the distances beside the pointer; release commits
+  one edit setting the dragged distances to measured values (a named one through its parameter), Escape
+  or leaving the feature drops it.
+- A move turning about its body's centre stands its manipulator at that centre (as moved) and adds a
+  ring about each axis (`Handle::Turn`, `RING_REACH` beyond the arrows, left out when edge-on). A drag
+  turns the body by the angle swept round the centre in the ring's plane, in steps of
+  `TURN_STEP_DEGREES` (Ctrl free), previewed and committed like an arrow: a turn about an axis applied
+  after the others (Z, or Y with no Z turn, or X alone) adds to its own field, any other is composed
+  with the turns there and written back as three turns (`turns_about_axes`), changing only fields whose
+  value changed. A move turning about the origin has no rings. A move turning about an axis stands its
+  manipulator on that axis, at the foot of the body's centre shifted by the distances, with one ring
+  (`Handle::TurnAbout`, `ScenePalette::handle`) whose drag adds the swept angle to the Angle field the
+  same way.
 
-## Mirror and scale
+## Mirror, split, mate and scale
 
-- Mirror body (Alt+Shift+M) takes the body of the selection like Move and creates a `Mirror` that
-  keeps the original, across the one principal or datum plane selected with it, else the one
-  selected flat face (of that body or another), else the YZ plane (`datum_tools::chosen_plane`); a
-  selected datum axis or point, a datum after the bar or several planes are refused. The
-  panel chooses a principal plane from a combo, or any plane or flat face made before it with Use
-  selected, Choose in the view (slot `MirrorPlane`) or the palette's Mirror across selected, and
-  has a Keep the original checkbox.
-- With rows chosen in the tree that a pattern would repeat (`pattern_tools::repeatable`), Mirror
-  body mirrors those features instead (`MirrorSource::mirrored`), named "Mirror features N", the
-  hover naming them ("Mirror Hole 1 across the YZ plane"). Its panel's Mirrors rows list them,
-  each with Stop mirroring, or read The whole body, and Mirror the chosen features takes the rows
-  chosen now, as a pattern's Repeats rows do; Keep the original is hidden while features are
-  mirrored. The open mirror shows its body and its reflected cuts like a pattern of holes.
-- Mirror faces (`Command::MirrorFaces`, Model menu's Bodies group, palette; no ribbon button or
-  default key) takes the selected faces of one body (`mirror_tools::faces_source`) and, from the
-  rest of the selection, a principal, datum or coordinate system plane, else the YZ plane, and
-  creates "Mirror faces N" mirroring the region they bound, then opens it. Its panel lists the
-  faces in words under Mirrors (`offset_face_panel::face_row`, read on the body as the mirror finds
-  it, `body_result_seen_by`), each with Stop mirroring this face (the last one leaves the whole
-  body mirrored); Mirror the selected faces, also the palette's `Command::MirrorSelectedFaces` on
-  the open feature or the tree's row, takes the faces of the body selected in the view now
-  (`mirror_tools::faces_change`), as Mirror the chosen features takes tree rows, each clearing the
-  other. Keep the original is shown only while the whole body is mirrored.
-- Split body (Alt+K, Model menu, palette, a body's right-click menu; not on the ribbon, which it
-  would widen past one row) takes the body the same way and creates a `Split` along what is
-  selected (`split_tools::source`, `source_for` from the Bodies group): a plane or flat face chosen
-  as Mirror's is, else curves or regions of one sketch made before it, else exactly one selected
-  curved face (`chosen_surface`, through `sketch_placement::surface_at`) as a `SplitAlong::Surface`
-  with the body beside it split, else, with faces or edges of exactly two bodies and no tree rows,
-  the first picked is split along the second; nothing chosen splits along the YZ plane. It opens the split; its panel mirrors Mirror's: the Split along
-  combo lists the principal planes, every other body standing before the split and every earlier
-  sketch that is one open chain (`is_open_chain`), worded by `split_tools::describe` ("The curve
-  of Sketch 2", "The surface of Rod wall"); Use selected, Choose in the view (slot `SplitPlane`)
-  and the palette's Split along selected take a plane or flat face, a sketch curve, one curved
-  face (its surface), or an edge of another earlier body (`along_change`); Split face takes the
-  same through `chosen_along`. Keep the other side and rows naming the body and the split-off body
-  follow. While open both bodies show as previews.
-- Mate body (Model menu, palette; no ribbon button or default key) takes picks in pick order
-  (`mate_tools::source`), resolved at the bar, the first on the body to move: two picks make a
-  faces mate (a flat face of the body, then a flat face of another body or a plane,
-  `datum_tools::plane_reference`), an axes mate (an axis of the body, a straight edge or round
-  face, then any axis, `axis_reference`), a tangent mate (a cylindrical or spherical face of the
-  body, `moving_round`, then a plane), a flat face resting on a round one (a flat face of the
-  body, then a cylindrical or spherical face of another body, `round_target`; panel rows Flat
-  face and Rests on) or a point mate (a corner, round edge or sphere of the body, then a point,
-  `point_reference`, or else a plane), tried in that order; four picks, two on the
-  body (a flat face and an axis) and two off it (a plane and an axis), in any order within each
-  pair, make a flush and concentric mate. Mate body at an angle (Model menu, palette) takes the
-  same two flat faces or axes and makes an angle mate at 90 deg (`angle_source`). The moving body
-  must be shown. Either creates "Mate N" (faces flush at distance 0 in the length unit) and opens
-  it. The panel (`mate_panel.rs`) names each reference with Use selected and Choose in the view
-  (slots `MateMoving(MatePart)`, taking only the moving body's references, and
-  `MateTarget(MatePart)`, taking only references off it; `MatePart::Axis` is the axis pair of a
-  flush and concentric mate), a Distance expression (key `("mate-field", "distance", id)`) for
-  faces, an Angle (key `("mate-field", "angle", id)`, 0 to 180 deg) for an angle mate, a Face the
-  same way, Point the other way or Rest on the other side checkbox where the kind has a side, and
-  the body. Reverse the direction refuses angle and point mates in words. A mate keeps the kind it
-  was made with; another kind is another mate.
-- Scale body (Alt+Shift+S) takes the body the same way and creates a `Scale` by 1 (the body unchanged until
-  a factor is typed) about the origin. The panel has the factor (a plain number above zero), a
-  Centre in combo (World, or a coordinate system above it, through the shared
-  `feature_fields::frame_row`, shown once the model has one; a description says the centre is
-  measured from its origin along its axes) and the centre's three coordinates, all expressions
-  (key `scale-field`, `("factor", 0)` or `("center", axis index)`), then Centre at: Use selected or
-  Choose in the view (`Slot::ScaleCentre`, `scale_tools::centre_change`) writes the coordinates of
-  the one selected point (`datum_tools::point_reference`: a corner, round edge or sphere centre
-  placed on its body as it stands before the scale, `PointReference::on_body`, else a sketch or
-  datum point or the origin as shown, `measure::point_of`), and Body centre
-  (`scale_panel::BODY_CENTRE`, `body_centre_change`) the middle of the body's box before the scale;
-  both as measured values in the Centre in system.
+- Mirror body (Alt+Shift+M) takes the body of the selection like Move and creates a `Mirror` that keeps
+  the original, across the one principal or datum plane selected with it, else the one selected flat
+  face (of that body or another), else the YZ plane (`datum_tools::chosen_plane`); a selected datum axis
+  or point, a datum after the bar or several planes are refused. The panel chooses a principal plane
+  from a combo, or any earlier plane or flat face with Use selected, Choose in the view (slot
+  `MirrorPlane`) or the palette's Mirror across selected.
+- With rows chosen in the tree that a pattern would repeat (`pattern_tools::repeatable`), Mirror body
+  mirrors those features instead (`MirrorSource::mirrored`), named "Mirror features N"; its Mirrors rows
+  list them and Mirror the chosen features takes the rows chosen now; Keep the original is hidden. The
+  open mirror shows its body and reflected cuts like a pattern of holes.
+- Mirror faces (`Command::MirrorFaces`, Bodies group) takes the selected faces of one body
+  (`mirror_tools::faces_source`) and, from the rest of the selection, a principal, datum or coordinate
+  system plane, else the YZ plane, and creates "Mirror faces N" mirroring the region they bound, then
+  opens it. Its panel lists the faces in words (`offset_face_panel::face_row`, read on the body as the
+  mirror finds it, `body_result_seen_by`), each with Stop mirroring this face (the last leaves the whole
+  body mirrored); Mirror the selected faces (also `Command::MirrorSelectedFaces` on the open feature or
+  the tree's row) takes the faces selected in the view now (`mirror_tools::faces_change`), as Mirror the
+  chosen features takes tree rows, each clearing the other. Keep the original shows only while the whole
+  body is mirrored.
+- Split body (Alt+K, also a body's right-click menu) takes the body the same way and creates a `Split`
+  along what is selected (`split_tools::source`, `source_for` from the Bodies group): a plane or flat
+  face chosen as Mirror's is, else curves or regions of one earlier sketch, else exactly one selected
+  curved face (`chosen_surface`, through `sketch_placement::surface_at`) as a `SplitAlong::Surface` with
+  the body beside it split, else, with faces or edges of exactly two bodies and no tree rows, the first
+  picked is split along the second; nothing chosen splits along YZ. Split along lists principal planes,
+  every other body standing before the split and every earlier sketch that is one open chain
+  (`is_open_chain`), worded by `split_tools::describe`; Use selected, Choose in the view (slot
+  `SplitPlane`) and the palette's Split along selected take a plane or flat face, a sketch curve, one
+  curved face, or an edge of another earlier body (`along_change`); Split face takes the same through
+  `chosen_along`. While open both bodies show as previews.
+- Mate body takes picks in pick order (`mate_tools::source`), resolved at the bar, the first on the
+  body to move (which must be shown). Two picks make, tried in this order: a faces mate (a flat face of
+  the body, then a flat face of another body or a plane, `datum_tools::plane_reference`); an axes mate
+  (an axis of the body, a straight edge or round face, then any axis, `axis_reference`); a tangent mate
+  (a cylindrical or spherical face of the body, `moving_round`, then a plane); a flat face resting on a
+  round one (flat face of the body, then a cylindrical or spherical face of another body,
+  `round_target`); a point mate (a corner, round edge or sphere of the body, then a point,
+  `point_reference`, or else a plane). Four picks, two on the body (a flat face and an axis) and two off
+  it (a plane and an axis), in any order within each pair, make a flush and concentric mate. Mate body
+  at an angle takes the same two flat faces or axes and makes an angle mate at 90 deg (`angle_source`).
+  Either creates "Mate N" (faces flush at distance 0) and opens it. A mate keeps the kind it was made
+  with.
+- The mate panel (`mate_panel.rs`) names each reference with Use selected and Choose in the view (slots
+  `MateMoving(MatePart)`, taking only the moving body's references, and `MateTarget(MatePart)`, only
+  references off it; `MatePart::Axis` is the axis pair of a flush and concentric mate); an angle mate's
+  Angle runs 0 to 180 deg.
+- Scale body (Alt+Shift+S) takes the body the same way and creates a `Scale` by 1 about the origin. The
+  factor is a plain number above zero; Centre in (World, or a coordinate system above it, through
+  `feature_fields::frame_row`, shown once the model has one) measures the centre from that origin along
+  its axes; fields are expressions (key `scale-field`, `("factor", 0)` or `("center", axis index)`).
+  Centre at: Use selected or Choose in the view (`Slot::ScaleCentre`, `scale_tools::centre_change`)
+  writes the coordinates of the one selected point (`datum_tools::point_reference`: a corner, round edge
+  or sphere centre placed on its body as it stands before the scale, `PointReference::on_body`, else a
+  sketch or datum point or the origin as shown, `measure::point_of`), and Body centre
+  (`scale_panel::BODY_CENTRE`, `body_centre_change`) the middle of the body's box before the scale; both
+  as measured values in the Centre in system.
 
 ## Scale model
 
-- Scale model… (`Command::ScaleModel`, the Model menu's Bodies group and the palette, no default
-  key, refused while a sketch is edited) opens a modal (`Workspace::scale_model`, dropped with the
-  session) with the Factor (an expression that must give a plain number; focus starts there and
-  Enter scales), the Centre (the origin, a datum point or a coordinate system's origin, read from
-  the evaluation) and what to Scale (Typed values, or Values and parameters, `ScaledValues`).
-  Scale model builds `Document::scaled` (`scale_model::scaling`) and applies it as one undoable
-  change with a notice summing up what changed, what was left to follow parameters, which holes
-  lost their standard size and which threads to check; a refusal (no factor, a length, zero or
-  less, 1) stays in the dialog as an error callout and nothing is applied. While the centre is
-  off principal geometry some features use, an info callout (`moving_words`, from
-  `displaced_by_scale` cached per revision and centre) names each feature and the geometry it
-  uses before anything is applied, and the notice says which datums they now use. The scale
-  transaction also rewrites the length cells of the inactive configuration rows with the same
+- Scale model… (`Command::ScaleModel`, Bodies group, no default key, refused while a sketch is edited)
+  opens a modal (`Workspace::scale_model`, dropped with the session) with the Factor (an expression
+  giving a plain number; Enter scales), the Centre (the origin, a datum point or a coordinate system's
+  origin, read from the evaluation) and what to Scale (Typed values, or Values and parameters,
+  `ScaledValues`). It builds `Document::scaled` (`scale_model::scaling`) and applies it as one undoable
+  change with a notice summing up what changed, what was left to follow parameters, which holes lost
+  their standard size and which threads to check; a refusal (no factor, a length, zero or less, 1)
+  stays in the dialog as an error callout. While the centre is off principal geometry some features
+  use, an info callout (`moving_words`, from `displaced_by_scale` cached per revision and centre) names
+  each feature and geometry before anything is applied, and the notice says which datums they now use.
+  The transaction also rewrites the length cells of the inactive configuration rows with the same
   rescaler as the parameters they set, in one `SetConfigurations` (the active row follows the live
-  values), so switching afterwards keeps the new size.
+  values).
 
 ## Configurations
 
-- Configurations… (`Command::Configurations`, the Model menu's Bodies group and the palette, no
-  default key) opens a modal (`Workspace::configurations`, dropped with the session) holding the
-  model's configurations (`document.md`) as a table: a row per configuration (a radio that
-  switches to it, its name, the active one strong, then Rename, Duplicate and Delete), a column per
-  configured value still in the model (named by `value_name`: the parameter, "<feature>
-  suppressed", "<body> colour", each with Stop configuring). A parameter's cell is a
-  `commit_field` taking an expression like the Parameters panel; a suppression a checkbox; a
-  colour a combo of the body colour swatches. Editing a cell of the active row edits the model
-  itself. Add configuration copies the live values (the first becomes active) and Configure a
-  value lists the parameters, features and bodies not yet configured. Every change is one
-  undoable transaction checked first; a refusal stays in the dialog as an error callout.
+- Configurations… (`Command::Configurations`, Bodies group, no default key) opens a modal
+  (`Workspace::configurations`, dropped with the session) holding the model's configurations
+  (`document.md`) as a table: a row per configuration (switch, Rename, Duplicate, Delete), a column per
+  configured value still in the model (named by `value_name`: the parameter, "<feature> suppressed",
+  "<body> colour"). A parameter's cell is a `commit_field` taking an expression; a suppression a
+  checkbox; a colour a combo of the body colour swatches. Editing a cell of the active row edits the
+  model itself. Add configuration copies the live values (the first becomes active). Every change is
+  one undoable transaction checked first; a refusal stays in the dialog as an error callout.
 - A configured column and any expression in a row's cell count as uses of a parameter
-  (`Document::used_parameters`, `parameter_users`, which name "<row> configuration" or "the
-  configurations"), so Delete on it is `inline_parameter`: the cells of the other rows get its
-  value (the row's own cell when it is the column) and its column and cells go, in one
-  `SetConfigurations` before the removal; `Edit::RemoveParameter` refuses one the configurations
-  still name, and `transaction_to` empties the table first.
-- Typing in the palette lists each configuration as "Switch to <name>"
-  (`Choice::Configuration`, `Palette::take_configuration`), the active one unavailable; Enter
-  applies `configurations::switching`, so switching is reachable from the keyboard.
+  (`Document::used_parameters`, `parameter_users`, naming "<row> configuration" or "the
+  configurations"), so Delete on it is `inline_parameter`: the other rows' cells get its value (the
+  row's own cell when it is the column) and its column and cells go, in one `SetConfigurations` before
+  the removal; `Edit::RemoveParameter` refuses one the configurations still name, and `transaction_to`
+  empties the table first.
+- The palette lists each configuration as "Switch to <name>" (`Choice::Configuration`,
+  `Palette::take_configuration`), the active one unavailable; Enter applies
+  `configurations::switching`.
 
 ## Patterns
 
-- With rows chosen in the tree that are all extrusions, revolves, holes or primitives adding to
-  or removing from one body (`pattern_tools::repeatable`, from the tree's raw rows, which the offers carry
-  beside its bodies), Linear and Circular pattern repeat those features instead of the body, the
-  hover naming them ("Repeat Hole 1 along …"), with a default spacing of twice their tools'
-  extent along the direction. The panel's Repeats rows list them, each with Stop repeating (the
-  last one leaves the whole body repeated), or read The whole body, and Repeat the chosen features
-  takes the rows chosen in the tree now (Ctrl+click while the pattern is open), disabled with how
-  to choose them otherwise.
+- With rows chosen in the tree that are all extrusions, revolves, holes or primitives adding to or
+  removing from one body (`pattern_tools::repeatable`, from the tree's raw rows, which the offers carry
+  beside its bodies), Linear and Circular pattern repeat those features instead of the body, with a
+  default spacing of twice their tools' extent along the direction. The Repeats rows list them (the
+  last Stop repeating leaves the whole body repeated), and Repeat the chosen features takes the rows
+  chosen now (Ctrl+click while the pattern is open).
 - Otherwise Linear and Circular pattern take the body of the selected faces, edges or vertices or of the
   tree (`move_tools::chosen_body`), the last body standing only with nothing selected, and the one
-  selected axis, straight edge, round face or sketch line as direction or axis (edges and faces of
-  the body itself count only when nothing else is selected), else a principal axis
-  (`pattern_tools::source`). While open the patterned body is shown with its directions or axis
-  drawn like a revolve's axis.
-- Direction, Second direction and Axis are lists of the principal axes and the datum axes made
-  before the pattern (`pattern_tools::listed_axes`, set through `with_axis`; Second direction
-  also None), above Use selected or Choose in the view for an edge, round face or sketch line.
-- Each linear direction has a Measured switch (Each, Overall) above its length, captioned Spacing
-  or Total length. Switching keeps the copies in place when the count is a plain number
-  (`pattern_panel::respaced`: a literal multiplied or divided, else the expression times or over
-  the steps), otherwise it keeps the expression.
+  selected axis, straight edge, round face or sketch line as direction or axis (edges and faces of the
+  body itself count only when nothing else is selected), else a principal axis
+  (`pattern_tools::source`). While open the patterned body is shown with its directions or axis drawn
+  like a revolve's axis. Direction, Second direction (also None) and Axis list the principal axes and
+  datum axes made before the pattern (`pattern_tools::listed_axes`, set through `with_axis`).
+- Each linear direction has a Measured switch (Each, Overall), captioned Spacing or Total length.
+  Switching keeps the copies in place when the count is a plain number (`pattern_panel::respaced`: a
+  literal multiplied or divided, else the expression times or over the steps), otherwise it keeps the
+  expression.
 - Instances is a grid of `widgets::instance_toggle`s, one per instance at its step along each
-  direction (rows for the second), checked when made; clicking one leaves it out or brings it back
-  as one undoable change, the original disabled. A muted line under it counts what is left out.
-  Switching between linear and circular clears the instances left out.
-- Curve pattern and Point pattern (`Command::CurvePattern`, `PointPattern`; Model › Patterns
-  and the palette, no default key and not on the ribbon, which they would widen past one row) take
-  the body as Linear and Circular do, except that a selection of sketch geometry alone, like an
-  empty one, leaves the body to the last one standing (anything else naming no body, such as an
-  axis, a plane or a centre of mass, is refused), and a sketch (`sketch_pattern_tools::source`):
-  the one whose curves, points or regions are selected (several sketches, one made after the bar, or one that
-  does not fit are refused in words), else the last sketch above the bar that no later feature
-  uses and that fits (`guess`): its curves one chain (`is_curve_path`) for a curve pattern, at
-  least one lone point for a point pattern. A curve pattern starts with 4 copies spread evenly,
-  kept as they are; a point pattern moves its copies from the origin.
-- The Shape switch has all four kinds (Linear, Circular, Curve, Points). Switching to Curve or
-  Points keeps the pattern's sketch when it fits, else guesses one, else is refused saying what to
-  draw (`pattern_tools::reshaped`); a count carries over between Linear, Circular and Curve.
-- A curve pattern's panel has Curve (a combo of the sketches above it that fit,
-  `sketch_pattern_tools::listed`, above Use selected or Choose in the view, `Slot::PatternPath`),
-  Count, Spaced (Evenly, By distance with its Spacing field), Copies (Kept as they are, Turned
-  with the curve) and Reverse direction, then the Instances grid. A point pattern's has Points (the
-  same row for sketches with lone points), Base point (in words, Use selected or Choose in the view,
-  `Slot::PatternBase`, taking a point as a datum point does, and Use the origin while it is
-  another) and, as its copies are named by point rather than laid out in a grid, a line counting
-  the copies left out with Bring the copies back. Reverse the direction refuses a point pattern
-  in words.
-- While a pattern is open, a click on a face of one of its copies (`FaceOrigin::Copy` of this
-  pattern, found through the shown body's result, `pattern_tools::clicked_copy`) leaves that copy
-  out as the grid would, and hovering one says so; other clicks select as usual. A copy left out
-  is no longer drawn, so the grid or Undo brings it back.
+  direction, checked when made; clicking one leaves it out or brings it back as one undoable change, the
+  original disabled. Switching between linear and circular clears the left-out instances.
+- Curve pattern and Point pattern (`Command::CurvePattern`, `PointPattern`; Model › Patterns) take the
+  body as Linear and Circular do, except that a selection of sketch geometry alone, like an empty one,
+  leaves the body to the last one standing (anything else naming no body, such as an axis, plane or
+  centre of mass, is refused), plus a sketch (`sketch_pattern_tools::source`): the one whose curves,
+  points or regions are selected (several sketches, one made after the bar, or one that does not fit
+  are refused in words), else the last sketch above the bar that no later feature uses and that fits
+  (`guess`): its curves one chain (`is_curve_path`) for a curve pattern, at least one lone point for a
+  point pattern. A curve pattern starts with 4 copies spread evenly, kept as they are; a point pattern
+  moves its copies from the origin.
+- The Shape switch has all four kinds (Linear, Circular, Curve, Points). Switching to Curve or Points
+  keeps the pattern's sketch when it fits, else guesses one, else is refused saying what to draw
+  (`pattern_tools::reshaped`); a count carries over between Linear, Circular and Curve. A curve
+  pattern's Curve row lists fitting sketches above it (`sketch_pattern_tools::listed`, `Slot::PatternPath`);
+  a point pattern's Base point takes a point as a datum point does (`Slot::PatternBase`) and, as its
+  copies are named by point, it has no instance grid but a line counting the copies left out with Bring
+  the copies back. Reverse the direction refuses a point pattern in words.
+- While a pattern is open, a click on a face of one of its copies (`FaceOrigin::Copy` of this pattern,
+  found through the shown body's result, `pattern_tools::clicked_copy`) leaves that copy out as the
+  grid would, and hovering says so; other clicks select as usual. A copy left out is no longer drawn, so
+  the grid or Undo brings it back.
 
 ## Visibility
 
-- Sketches, datums and body-making features can be hidden (a body through its feature); hidden
-  ones are not drawn, picked, kept selected or counted in fitting, except the edited sketch and
-  open datum. Extrude and Revolve hide their sketch in the same transaction. Every hide control
-  is also a command. Hide selection and Hide everything but the selection take the rows chosen in
-  the tree as well as the view's selection (`visibility::hideable_rows`: a row that can be hidden
-  stands for itself, any other for the body it changes), and Hide or show feature toggles every
-  chosen row, else the open feature (`toggle_rows`: hides them all while any is shown). Hide
-  everything but the selection (`visibility::hide_others`) hides in one
-  transaction every other shown hideable feature and principal item, except the edited sketch.
-- Hide or show every sketch, datum or body (`Command::ToggleSketches`, `ToggleDatums`,
-  `ToggleBodies`, View menu, palette, no default key; `visibility::toggle_kind`) is one
-  transaction per kind: while any of that kind is shown it hides every one shown, otherwise it
-  shows them all; the edited sketch is never touched, and a model with none of the kind refuses
-  in words. Body-making features count as bodies, as `can_hide` judges them.
-- Principal planes, axes and origin hide the same way through a group row (`principal_tree.rs`)
-  with an eye for the group and one per item. Hidden ones are drawn and offered anyway while a
-  sketch's plane is chosen (`Context::choosing_plane`).
+- Sketches, datums and body-making features can be hidden (a body through its feature); hidden ones are
+  not drawn, picked, kept selected or counted in fitting, except the edited sketch and open datum.
+  Extrude and Revolve hide their sketch in the same transaction. Every hide control is also a command.
+  Hide selection and Hide everything but the selection take the rows chosen in the tree as well as the
+  view's selection (`visibility::hideable_rows`: a row that can be hidden stands for itself, any other
+  for the body it changes), and Hide or show feature toggles every chosen row, else the open feature
+  (`toggle_rows`: hides all while any is shown). Hide everything but the selection
+  (`visibility::hide_others`) hides in one transaction every other shown hideable feature and principal
+  item, except the edited sketch.
+- Hide or show every sketch, datum or body (`Command::ToggleSketches`, `ToggleDatums`, `ToggleBodies`,
+  View menu; `visibility::toggle_kind`) is one transaction per kind: while any of that kind is shown it
+  hides every one shown, otherwise shows them all; the edited sketch is never touched, and a model with
+  none of the kind refuses in words. Body-making features count as bodies, as `can_hide` judges them.
+- Principal planes, axes and origin hide through a group row (`principal_tree.rs`) with an eye for the
+  group and one per item. Hidden ones are drawn and offered anyway while a sketch's plane is chosen
+  (`Context::choosing_plane`).
 
 ## Datums
 
-- Points are taken from the selection by `datum_tools::point_reference`: the origin, a datum point,
-  a corner, the centre of a round edge, the centre of a spherical or toroidal face or a sketch
-  point made before the datum; a sketch line is an axis (`axis_reference`).
-- Plane starts from the selected plane or flat face (XY otherwise), turned about the selected
-  axis, straight edge or round face if any, else offset; three selected points make a plane
-  through them, two planes one midway between them, an axis and a point one through both. Axis
-  runs along the selected axis, straight edge, round face or sketch line, where two selected planes
-  or flat faces meet, through two points, or square to a plane through a point. Point (Alt+Shift+P)
-  sits at the one selected point, else the origin, with zero offsets; the XY plane and the origin
-  are the start only for an empty selection, a non-empty one holding no plane, axis or point they
-  can use (a sketch region or constraint, a centre of mass, a body item) is refused with
-  `PLANE_CHOICES` or `POINT_CHOICES`, as Axis is. A selected face, edge or
-  corner giving nothing (curved, made later, not recomputed) refuses them with that reason.
-- Selections that give the constructed forms (`document.md`): Plane with two axes or straight
-  edges selected passes through both, and with one edge that is not straight (round or curved) and
-  nothing else stands square to it at 0 mm along (`PlaneThrough::SquareToCurve`); Point with two
-  axes or straight edges selected sits where they cross, with an axis and a plane where they meet,
-  with three planes where they meet, with one edge that is not round at 0 mm along it
-  (`PointBy::Along`) and with one sphere or torus face at its centre, with any other one face at
-  its centre (`PointBy::FaceCentre`). A curved face and a point that give no other form
-  (`datum_tools::face_tangent`: a curved face giving no axis, such as a sphere, spline or
-  extruded face, for Plane; any curved face but a sphere for Axis) make Plane touch the face nearest the point (`PlaneThrough::TangentAt`) and Axis stand
-  square to it there (`DatumAxis::SquareToFace`). Combinations keeping an older meaning (an axis
-  and a plane turn a plane; one round edge is a centre; a round face and a point are a plane
-  through its axis; a sphere and a point an axis through both) keep it.
-- A plane through references, a point and the new axis forms show a Defined by (or At) row
-  re-chosen from the selection, refused while nothing is selected; a plane through an axis and a
-  point switches between Contains it and Square to it, and for a round face's axis also Tangent to
-  it (`PlaneThrough::Tangent` for a cylinder or cone, the point picking the side, else
-  `TangentAt`), going back keeping the face and point; a plane square to an edge and a point
-  along an edge have a Distance along field; a point at an edge switches between Its centre (a
-  round edge's), Along it and Its middle (`PointBy::EdgeMiddle`); a point has Offset X, Y and Z
-  fields. Choosing again
-  from the selection keeps the form a panel was switched to and its distance (`keeping_plane_mode`,
-  `keeping_point_mode`).
-  Choosing them in the view holds up to two clicks (`Picking::pending`) until the selection makes
-  one, the prompt saying what is still wanted.
-- The new feature opens; its panel has reference pickers for base and rotation axis and fields for
-  angle and offset. A datum cannot switch between plane and axis, nor an extrusion and a revolve,
-  since `SetFeatureKind` refuses a kind change (`document.md`).
-- Outside sketch editing datums are picked as `Pickable::Datum` and tinted when failed;
-  double-clicking one opens it.
+- Points are taken from the selection by `datum_tools::point_reference`: the origin, a datum point, a
+  corner, the centre of a round edge, the centre of a spherical or toroidal face or a sketch point made
+  before the datum; a sketch line is an axis (`axis_reference`).
+- Plane starts from the selected plane or flat face (XY otherwise), turned about the selected axis,
+  straight edge or round face if any, else offset; three points make a plane through them, two planes
+  one midway, an axis and a point one through both. Axis runs along the selected axis, straight edge,
+  round face or sketch line, where two selected planes or flat faces meet, through two points, or
+  square to a plane through a point. Point (Alt+Shift+P) sits at the one selected point, else the
+  origin, with zero offsets. The XY plane and origin are the start only for an empty selection; a
+  non-empty one holding nothing usable (a sketch region or constraint, a centre of mass, a body item) is
+  refused with `PLANE_CHOICES` or `POINT_CHOICES`, as Axis is. A selected face, edge or corner giving
+  nothing (curved, made later, not recomputed) refuses with that reason.
+- Selections giving the constructed forms (`document.md`): Plane with two axes or straight edges passes
+  through both, and with one non-straight edge and nothing else stands square to it at 0 mm along
+  (`PlaneThrough::SquareToCurve`); Point with two axes or straight edges sits where they cross, with an
+  axis and a plane where they meet, with three planes where they meet, with one edge that is not round
+  at 0 mm along it (`PointBy::Along`), with one sphere or torus face at its centre, with any other one
+  face at its centre (`PointBy::FaceCentre`). A curved face and a point giving no other form
+  (`datum_tools::face_tangent`: for Plane a curved face giving no axis, such as a sphere, spline or
+  extruded face; for Axis any curved face but a sphere) make Plane touch the face nearest the point
+  (`PlaneThrough::TangentAt`) and Axis stand square to it there (`DatumAxis::SquareToFace`).
+  Combinations keeping an older meaning (an axis and a plane turn a plane; one round edge is a centre; a
+  round face and a point are a plane through its axis; a sphere and a point an axis through both) keep
+  it.
+- A plane through references, a point and the new axis forms show a Defined by (or At) row re-chosen
+  from the selection, refused while nothing is selected. A plane through an axis and a point switches
+  between Contains it and Square to it, and for a round face's axis also Tangent to it
+  (`PlaneThrough::Tangent` for a cylinder or cone, the point picking the side, else `TangentAt`), going
+  back keeping the face and point; a point at an edge switches between Its centre (round edge), Along it
+  and Its middle (`PointBy::EdgeMiddle`). Choosing again from the selection keeps the form a panel was
+  switched to and its distance (`keeping_plane_mode`, `keeping_point_mode`). Choosing in the view holds
+  up to two clicks (`Picking::pending`) until the selection makes one, the prompt saying what is still
+  wanted.
+- A datum cannot switch between plane and axis, nor an extrusion and a revolve, since `SetFeatureKind`
+  refuses a kind change (`document.md`). Outside sketch editing datums are picked as `Pickable::Datum`
+  and tinted when failed; double-clicking one opens it.
 
 ## Coordinate systems
 
-- Coordinate system (`Command::CoordinateSystem`, Model menu's Datums group and the palette, no
-  default key and not on the ribbon, which it would widen past one row) takes from the selection
-  (`datum_tools::frame_from_selection`) at most one point for its origin (else the origin), one
-  axis, straight edge, round face, sketch line or another system's axis for its X axis and one
+- Coordinate system (`Command::CoordinateSystem`, Datums group, no default key) takes from the
+  selection (`datum_tools::frame_from_selection`) at most one point for its origin (else the origin),
+  one axis, straight edge, round face, sketch line or another system's axis for its X axis and one
   plane, flat face or another system's plane for its XY plane, two of a kind refused with
-  `FRAME_CHOICES`. A missing axis is the principal axis lying flattest in the chosen plane, a
-  missing plane the principal plane holding the chosen axis best (directions read through
-  `measure::direction_of`), so the defaults never stand square to each other.
-- Its panel has Origin, X axis and XY plane reference rows, each with Use selected and Choose in
-  the view (slots `FrameOrigin`, `FrameAxis`, `FramePlane`, `datum_panel::frame_change`), and the
-  Reverse X and Reverse Z switches.
-- It is drawn (`scene::Builder::frame`) as a triad at its origin `FRAME_AXIS_SCALE` of the
-  reference size long: an origin marker that is `Pickable::Datum` (selecting and opening the
-  feature), an axis line per axis in the palette's axis colours (`Pickable::FrameAxis`) and a small
-  square in the datum colours per plane (`Pickable::FramePlane`), tinted when failed. Those
-  pickables are axes and planes wherever one is taken from the selection (`datum_tools`
-  `plane_reference`, `axis_reference`, `chosen_plane`, `sketch_placement::DatumTarget`), so
-  patterns, mirrors, splits, primitives, revolves, moves, datums and sketches use them, and they
-  are listed in the pattern and move axis lists (`pattern_tools::listed_axes`) and the mirror and
-  split plane lists (`datum_tools::listed_planes`) for every system above the feature.
-- A move's Directions combo (World, or a coordinate system above it; shown once the model has
-  one) sets `Move::frame`, with a description saying it turns and shifts along that system's axes;
-  the manipulator's arrows, squares and rings follow the system's axes (`Model::move_frame`, the
-  world being `Plane::XY`). The scale's Centre in and the import's Placed in combos are the same
-  row (`feature_fields::frame_row`).
-- Its origin marker is a point wherever one is taken from the selection
-  (`datum_tools::point_reference` gives `PointReference::Frame`), so a datum point, plane or axis
-  through a system's origin needs no point of its own.
+  `FRAME_CHOICES`. A missing axis is the principal axis lying flattest in the chosen plane, a missing
+  plane the principal plane holding the chosen axis best (directions read through
+  `measure::direction_of`), so defaults never stand square to each other. Origin, X axis and XY plane
+  rows each have Use selected and Choose in the view (slots `FrameOrigin`, `FrameAxis`, `FramePlane`,
+  `datum_panel::frame_change`).
+- It is drawn (`scene::Builder::frame`) as a triad at its origin `FRAME_AXIS_SCALE` of the reference
+  size long: an origin marker that is `Pickable::Datum` (selecting and opening the feature), an axis
+  line per axis in the palette's axis colours (`Pickable::FrameAxis`) and a small square in the datum
+  colours per plane (`Pickable::FramePlane`), tinted when failed. Those pickables are axes and planes
+  wherever one is taken from the selection (`datum_tools` `plane_reference`, `axis_reference`,
+  `chosen_plane`, `sketch_placement::DatumTarget`), so patterns, mirrors, splits, primitives, revolves,
+  moves, datums and sketches use them, and they are listed in the pattern and move axis lists
+  (`pattern_tools::listed_axes`) and the mirror and split plane lists (`datum_tools::listed_planes`) for
+  every system above the feature. Its origin marker is a point wherever one is taken from the selection
+  (`PointReference::Frame`), so a datum point, plane or axis through a system's origin needs no point of
+  its own.
+- A move's Directions combo (World, or a coordinate system above it; shown once the model has one) sets
+  `Move::frame`; the manipulator's arrows, squares and rings follow the system's axes
+  (`Model::move_frame`, the world being `Plane::XY`). The scale's Centre in and the import's Placed in
+  combos are the same row (`feature_fields::frame_row`).
 
 ## Sketches on faces and planes
 
-- New sketch starts on the one selected principal plane, datum plane, coordinate system plane or
-  flat face
-  (`sketch_placement::sketch_target`, several refused with `SEVERAL_TO_SKETCH_ON`, as Place on the
-  selection does); while choosing a plane a click on any of them does the same. Choosing also
-  shows a New sketch card above the tree (`new_sketch_panel.rs`): a Plane combo of the principal
-  planes and every datum plane and coordinate system plane before the bar
-  (`Document::active_features`), each disabled with the reason `new_sketch_on_datum` gives when it
-  cannot take a sketch, and choosing one sends the same `EditingCommand` a click does; Cancel
-  sends `CancelNewSketch`, as Escape does. So a plane is chosen without the pointer.
+- New sketch starts on the one selected principal plane, datum plane, coordinate system plane or flat
+  face (`sketch_placement::sketch_target`, several refused with `SEVERAL_TO_SKETCH_ON`, as Place on the
+  selection does); while choosing a plane a click on any of them does the same. Choosing also shows a
+  New sketch card above the tree (`new_sketch_panel.rs`): a Plane combo of the principal planes and
+  every datum and coordinate system plane before the bar (`Document::active_features`), each disabled
+  with the reason `new_sketch_on_datum` gives when it cannot take a sketch, choosing one sending the
+  same `EditingCommand` a click does; Cancel sends `CancelNewSketch`, as Escape does, so a plane is
+  chosen without the pointer.
 - The attachment is captured from the body's state where the sketch sits in the tree: a face made
   further down is refused with the reason, and one whose body is not recomputed that far says so
-  (`body_state_before` tells the two apart). A sketch's row says what it lies on and offers Detach
-  and Place on the selection.
+  (`body_state_before` tells the two apart). A sketch's row says what it lies on and offers Detach and
+  Place on the selection.
 - Every refused New sketch (including a click on a curved face while choosing) and every Fillet,
   Chamfer, Shell or datum that cannot be created leaves a notice with the reason.
 - What draws or maps onto a sketch takes its plane from the solved result (`scene::sketch_plane`,

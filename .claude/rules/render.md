@@ -7,7 +7,8 @@ paths:
 
 - Owns the wgpu device and surface, the camera and the viewport. Depends on neither winit nor the
   document: takes any `Arc<dyn WindowTarget>` and draws a `Scene` the app builds (shaded meshes, a
-  grid, `Arc<Batch>`es of lines, markers and triangle fills).
+  grid, `Arc<Batch>`es of lines, markers and triangle fills). It draws whatever scene it is given;
+  leaving out highlights and the grid is the app's choice (`app-files.md`).
 - The UI shares the frame's encoder, so nothing in the viewport may invalidate it: allocations run
   inside out-of-memory and validation error scopes (`gpu::scoped`) and a refusal degrades alone.
 
@@ -16,33 +17,26 @@ paths:
 - `begin_frame` reconfigures the surface when the size differs or it is outdated, draws the
   viewport and returns `FrameStart::Ready` with a `Frame` whose encoder the app draws the UI into;
   `submit` presents it.
-- The 3D pass resolves into a texture of the scene targets (`kept.rs`, `KeptView`)
-  that one full-screen triangle (`ViewCopy`, `kept.wgsl`, an exact `textureLoad` of each pixel)
-  copies onto the surface every frame, so an egui-only repaint (a tooltip, hover over a panel, a
-  spinner tick) copies the last view instead of drawing it again. The renderer decides alone,
-  trusting no caller's generation: a frame draws the view when the view uniform's bytes (view,
-  anchor, scale, shading, reflection, section) or the grid's changed, a mesh or silhouette cache
-  wrote a placement or styles or draws a different list (`DrawnOrder`, the mesh addresses in
-  draw order), a batch uploaded or the batches drawn changed (by identity or order), the fills
-  were sorted again, or
-  the rect or the grid's presence differs from what the kept view holds (`kept::Shown`); anything
-  new the 3D pass reads must join that check (`Prepared::changed`, worked out in `upload`). New
-  scene targets (resize, multisampling, linear resolve, a new device) start empty. The kept view
-  counts only once its frame is submitted (`ViewportRenderer::after_submit`; `begin_frame`'s
-  `abandon_unsubmitted` forgets an unsubmitted one, as for picks), so a dropped encoder never
-  leaves a stale view claimed. The pick pass is drawn whenever asked, copied frame or not
-  (offscreen test). The surface is configured for `RENDER_ATTACHMENT` alone, so the copy is a
-  draw rather than `copy_texture_to_texture`, which would need `COPY_DST` on the surface.
-- Scene targets (multisampled colour, depth and the kept view, which must match each other for the
-  resolve) are made with each side rounded up to `TARGET_SIDE_STEP` (256 px, within the largest
-  texture side) and kept while the surface fits in them and they exceed its rounded size by at most
-  one step (`TargetSize::holds`), so an interactive resize makes new ones every 256 px rather than
-  every pixel. The pass draws within the surface's rect, the resolve fills the kept view of the
-  same size and the copy reads the surface's pixels from its top left, so the larger targets need
-  no resolve pass of their own.
-- `Hidden` (occluded) makes the app stop drawing until the window is shown again or a probe timer
-  fires, so a hidden Wayland window does not block the UI thread on the acquire timeout every
-  frame. `Skipped` (timeout, outdated or lost surface) is a retry, never a reason to stop.
+- The 3D pass resolves into the scene targets' kept view (`kept.rs`, `KeptView`) that one
+  full-screen triangle (`ViewCopy`, `kept.wgsl`, an exact `textureLoad` per pixel) copies onto the
+  surface every frame, so an egui-only repaint copies the last view instead of redrawing it. The
+  renderer decides alone, trusting no caller's generation: a frame draws the view when the view
+  uniform's bytes or the grid's changed, a mesh or silhouette cache wrote a placement or styles or
+  draws a different list (`DrawnOrder`), a batch uploaded or the batches drawn changed, the fills
+  were sorted again, or the rect or grid presence differs from what the kept view holds
+  (`kept::Shown`). Anything new the 3D pass reads must join that check (`Prepared::changed`, worked
+  out in `upload`). New scene targets start empty. The kept view counts only once its frame is
+  submitted (`ViewportRenderer::after_submit`; `abandon_unsubmitted` forgets an unsubmitted one, as
+  for picks). The pick pass is drawn whenever asked. The surface is `RENDER_ATTACHMENT` only, so the
+  copy is a draw, not `copy_texture_to_texture`.
+- Scene targets (multisampled colour, depth, kept view) are sized with each side rounded up to
+  `TARGET_SIDE_STEP` (256 px, within the largest texture side) and kept while the surface fits and
+  they exceed its rounded size by at most one step (`TargetSize::holds`), so an interactive resize
+  makes new ones every 256 px. The pass draws within the surface's rect and the copy reads from the
+  top left.
+- `Hidden` (occluded) makes the app stop drawing until shown or a probe timer fires, so a hidden
+  Wayland window does not block the UI thread on the acquire timeout. `Skipped` (timeout, outdated
+  or lost surface) is a retry, never a reason to stop.
 - A `SurfaceValidation` acquire climbs a ladder, one rung per consecutive failure: reconfigure,
   recreate the surface, configure conservatively, open a replacement device.
 - Refused scene targets step multisampling down a level (to Off, the preference untouched) and
@@ -53,356 +47,299 @@ paths:
 ## Devices and settings
 
 - `open_device` tries the adapter `AdapterPreference` asks for, then every other adapter that can
-  present, ranked by
-  `adapter_rank`: device type, then `BACKEND_ORDER` (Vulkan, OpenGL; Direct3D 12 first on
-  Windows). `WGPU_BACKEND` limits the backends tried, also by `OffscreenRenderer` and the offscreen tests
-  (`new_without_display_handle_from_env`), so CI runs them on GL (`ci.md`); a test that needs a
-  Vulkan-only capability, the linear resolve, reads `linear_resolve()` and skips without it. Each adapter gets its own limits, then defaults, then WebGL2-level ones.
-- `AdapterPreference` is Auto (the default), Power saving (the low-power adapter, so a window does
-  not wake a discrete GPU) or Performance (the high-performance one); `WGPU_POWER_PREF`, when set,
-  overrides all three (`gpu::power_preference`). Auto resolves by `AdapterPreference::resolved`
-  from `Machine::detect()` (`machine.rs`): a desktop is Performance, a portable computer or one
-  that cannot be told is Power saving. The detection runs once per process and is a pure
-  `classify` over what the platform item read, tested with fake inputs. On Unix
-  (`machine/unix.rs`) a computer is portable when `/sys/class/power_supply/*/type` says `Battery`
-  with a `scope` other than `Device` (a wireless mouse's battery is a device) or
-  `/sys/class/dmi/id/chassis_type` is 8, 9, 10, 11, 14, 30, 31 or 32; a desktop when the chassis
-  type (other than 0 to 2, which say nothing) is another one or the power supplies were readable
-  without a battery; unknown when neither could be read (macOS, a container without `/sys`). On
-  Windows (`machine/windows.rs`) it is `caditor_windows::battery_flag`, the `BatteryFlag` of
-  `GetSystemPowerStatus`: 128 (no system battery) is a desktop, 255 or a failed call unknown,
-  anything else portable (a desktop on a UPS reports a battery and so counts as portable). The
-  app words the outcome (`Machine::reason`) under the preference.
-- Nothing uses storage buffers, so downlevel and GL devices draw everything. The surface is
-  clamped to the largest texture side and is a plain 8-bit format, never a float or snorm one an
-  HDR setup lists first. Offered MSAA levels (`gpu::offered_msaa`) need surface and
-  `Depth32Float` support with resolve.
+  present, ranked by `adapter_rank`: device type, then `BACKEND_ORDER` (Vulkan, OpenGL; Direct3D 12
+  first on Windows). `WGPU_BACKEND` limits the backends tried, also for `OffscreenRenderer` and the
+  offscreen tests (`new_without_display_handle_from_env`), so CI runs them on GL (`ci.md`); a test
+  needing a Vulkan-only capability (the linear resolve) reads `linear_resolve()` and skips without
+  it. Each adapter gets its own limits, then defaults, then WebGL2-level ones.
+- `AdapterPreference` is Auto (default), Power saving or Performance; `WGPU_POWER_PREF`, when set,
+  overrides all (`gpu::power_preference`). Auto resolves by `AdapterPreference::resolved` from
+  `Machine::detect()` (`machine.rs`): a desktop is Performance, a portable or undetectable computer
+  is Power saving. Detection runs once per process; `classify` is pure over what the platform item
+  read. Unix (`machine/unix.rs`): portable when `/sys/class/power_supply/*/type` says `Battery` with
+  a `scope` other than `Device`, or `/sys/class/dmi/id/chassis_type` is 8, 9, 10, 11, 14, 30, 31 or
+  32; desktop when the chassis type (other than 0 to 2, which say nothing) is another one or the
+  power supplies were readable without a battery; unknown when neither could be read. Windows
+  (`machine/windows.rs`): `caditor_windows::battery_flag`: 128 desktop, 255 or a failed call
+  unknown, anything else portable (a desktop on a UPS counts as portable). The app words the
+  outcome (`Machine::reason`).
+- Nothing uses storage buffers, so downlevel and GL devices draw everything. The surface is clamped
+  to the largest texture side and is a plain 8-bit format, never a float or snorm one. Offered MSAA
+  levels (`gpu::offered_msaa`) need surface and `Depth32Float` support with resolve.
 - `GraphicsSettings` (vsync, `Msaa`, `Shading`, `AdapterPreference`) is applied live by
   `Renderer::set_graphics`, which changes only what differs; a changed adapter preference opens a
-  new device the way device loss does, but only when the power preference it resolves to (Auto
-  included, `WGPU_POWER_PREF` included) differs from the one in use (frames are skipped until it answers, and a failure keeps
-  the old device); `graphics_info` reports what is actually in use. MSAA uses the
-  offered level closest to the one asked for (`Msaa::closest`); a change rebuilds the scene
-  targets and only the colour pipelines (the pick pass is always single-sampled, so its pipelines
-  stay), keeps mesh buffers and picking, and sets the old level's pipelines aside, so going back to
-  a level used before builds nothing (offscreen test).
-  Shading is a uniform flag, so switching is free.
+  new device like device loss does, but only when the power preference it resolves to differs from
+  the one in use (frames are skipped until it answers; a failure keeps the old device);
+  `graphics_info` reports what is in use. MSAA uses the offered level closest to the one asked for
+  (`Msaa::closest`); a change rebuilds the scene targets and the colour pipelines only (the pick
+  pass is always single-sampled), keeps mesh buffers and picking, and sets the old level's
+  pipelines aside so going back builds nothing. Shading is a uniform flag.
 - Device loss: `DeviceLoss::watch` wakes the app. The next `begin_frame` opens a new device on a
   worker thread (same surface, else a new one); until it answers frames are `Skipped`. The answer
   is installed on the UI thread, rebuilding the `ViewportRenderer` with the current settings and
-  bumping `Renderer::generation`. A `Frame` from an older generation, or drawn while the device
-  is lost, is dropped by `submit`; a pick in flight polls `Failed`.
-- A pick readback is answered without the app polling for it: after `submit`, `Picking` maps the
-  readback buffer and hands the device, the submission index and a settled flag to its helper
-  thread (`pick-readback`, started on the first pick), which blocks in `Device::poll` with
-  `PollType::Wait` in `WAIT_SLICE` steps until the map callback ran, then calls the renderer's
-  `Wake` (the renderer knows nothing of winit). The wait gives up after `WAIT_LIMIT`, on a poll
-  error, or when the `Picking` is dropped (a replaced device, shutdown; its drop joins the thread, at most one slice later), and wakes either way; a
-  lost device is also woken by `DeviceLoss`. `Picking::is_answered` and `poll` still poll the device
-  themselves, which is the app's slow fallback timer (`app.md`).
+  bumping `Renderer::generation`. A `Frame` from an older generation, or drawn while the device is
+  lost, is dropped by `submit`; a pick in flight polls `Failed`.
+- A pick readback is answered without the app polling: after `submit`, `Picking` maps the readback
+  buffer and hands the device, submission index and a settled flag to its helper thread
+  (`pick-readback`, started on the first pick), which blocks in `Device::poll` (`PollType::Wait`,
+  `WAIT_SLICE` steps) until the map callback ran, then calls the renderer's `Wake` (the renderer
+  knows nothing of winit). It gives up after `WAIT_LIMIT`, on a poll error, or when `Picking` is
+  dropped (its drop joins the thread), and wakes either way; `DeviceLoss` also wakes a lost device.
+  `Picking::is_answered` and `poll` still poll the device themselves, the app's slow fallback timer
+  (`app.md`).
 
 ## Precision
 
 - Model positions are converted relative to a nearby point in f64 before the f32 cast and the view
   matrix is rotation only, so geometry far from the origin stays exact.
-- Batches store positions relative to an anchor (the eye when uploaded), whose offset from the
-  eye the view uniform carries; it stays while the eye is within `reanchor_reach`, the larger of
+- Batches store positions relative to an anchor (the eye when uploaded), whose offset from the eye
+  the view uniform carries; it stays while the eye is within `reanchor_reach`, the larger of
   `REANCHOR_DISTANCES` view distances and the distance at which f32 rounding of an offset stays
-  under `ANCHOR_ERROR_PIXELS` of a pixel at the current zoom; beyond that the next frame
-  re-anchors and uploads every batch again.
+  under `ANCHOR_ERROR_PIXELS` of a pixel at the current zoom; beyond that the next frame re-anchors
+  and uploads every batch again.
 - A `ShadedMesh` stores positions relative to its own centre; its placement uniform (and a
   silhouette's) holds the placed centre relative to the same anchor, worked out in f64, and the
-  shader adds the view uniform's anchor offset to it before the mesh-local position, so a camera
-  move writes no mesh or silhouette uniform until the anchor moves (offscreen test with a mesh
-  4,000 km out).
+  shader adds the view uniform's anchor offset, so a camera move writes no mesh or silhouette
+  uniform until the anchor moves.
 
 ## Meshes
 
-- A `MeshInstance` is an `Arc<ShadedMesh>` plus a shared slice (`Arc<[FaceStyle]>`) of a
-  `FaceStyle` (colour, pick id, finish) per face, so an app keeping instances between scenes hands
-  them over without copying the styles, and a cache holding the same slice compares nothing. Buffers
-  upload once per `Arc` into the `MeshPool` the five mesh caches share (keyed by the `Arc`'s
-  address, the entry holding the `Arc`) and drop when no list of the scene holds the mesh; each
-  cache keeps only its styles, placement and bind group per mesh, so moving a mesh between lists
-  (zebra, X-ray, hidden lines) or drawing it in two (a partly see-through body) draws it at once
-  without uploading it again (offscreen test). The pool keeps a refused mesh refused while any
-  list holds it. A mesh past `max_buffer_size` is split into parts that each fit.
+- A `MeshInstance` is an `Arc<ShadedMesh>` plus a shared `Arc<[FaceStyle]>` (colour, pick id,
+  finish per face), so instances kept between scenes are handed over without copying styles.
+  Buffers upload once per `Arc` into the `MeshPool` the five mesh caches share (keyed by the
+  `Arc`'s address) and drop when no list of the scene holds the mesh; each cache keeps only its
+  styles, placement and bind group per mesh, so moving a mesh between lists (zebra, X-ray, hidden
+  lines) or drawing it in two uploads nothing. The pool keeps a refused mesh refused while any list
+  holds it. A mesh past `max_buffer_size` is split into parts that each fit. An `Arc` appears at
+  most once in each list of a scene.
 - New meshes upload across frames under one byte budget a frame (`MESH_UPLOAD_BYTES_PER_FRAME`,
-  shared by the five mesh caches and the silhouette cache): each frame packs the next whole
-  vertices and indices into buffers made at the start, so the frame that first shows a large body
-  never stalls (under 2 ms at worst instead of 11 ms for 31 MB of meshes and 47 MB of silhouettes
-  in a release build). A mesh is drawn only once it
-  is complete, never half; while any mesh of a cache is still uploading, the meshes the cache drew
-  before that are no longer in the scene stay drawn (the old result of a recomputed body), at their
-  last styles with their pick ids withdrawn, since the app's pick table no longer knows them, so
-  they hide what is behind them in the pick pass but pick nothing. `Renderer::is_uploading` says
-  whether frames must follow (`app.md`); image export uploads whatever is left at once.
+  shared by the five mesh caches and the silhouette cache), packing whole vertices and indices into
+  buffers made at the start of the frame, so showing a large body never stalls. A mesh is drawn only
+  once complete; while any mesh of a cache is still uploading, meshes the cache drew before that are
+  no longer in the scene stay drawn (the old result of a recomputed body), at their last styles with
+  pick ids withdrawn, so they hide what is behind them in the pick pass but pick nothing.
+  `Renderer::is_uploading` says whether frames must follow (`app.md`); image export uploads whatever
+  is left at once.
 - The ignored `frame_costs_of_drawing_a_large_scene` test times the UI thread's share of a frame
-  for a scene of lines, markers, fills and four 245,000-triangle meshes with their silhouettes: idle, with the camera
-  moving, hovering with a pick and a face restyled every frame, with the batch replaced every
-  frame, with new meshes shown every 20 frames, uploaded whole and under the budget, and with the
-  meshes switched to zebra or also drawn see-through every 20 frames; and 2,000 small placed
-  meshes with silhouettes, idle and with the camera moving. Each reports the time spent waiting
-  for the GPU apart from the UI thread's; `CADITOR_BENCH_CASE` runs only the cases whose name
-  contains it.
-- A `MeshInstance` may carry a `placement` (a `RigidTransform`) drawing the mesh moved and turned
-  without a new upload: the placement uniform, rewritten only when the placement or the anchor
-  moved, holds the turned axes and the placed centre relative to the anchor (worked out in f64), and
-  `vs_mesh` turns positions and normals by them. An `Arc` appears at most once in each list of a
-  scene, since styles and placement are kept per mesh in each cache.
+  (separately from GPU wait) for large and many-small-mesh scenes under idle, camera, restyle,
+  batch-replace, new-mesh and zebra/see-through cases; `CADITOR_BENCH_CASE` runs only cases whose
+  name contains it.
+- A `MeshInstance` may carry a `placement` (`RigidTransform`) drawing the mesh moved and turned
+  without a new upload: the placement uniform, rewritten only when placement or anchor moved, holds
+  the turned axes and the placed centre relative to the anchor (f64), and `vs_mesh` applies them to
+  positions and normals.
 - A mesh whose placed bounds lie wholly beyond one side of the clip volume is not drawn
-  (`culling::ClipWindow`, the eight placed corners against the clip planes in f64), tested against
-  the window in the main pass, the pick window in the pick pass and each tile in image export.
-  A batch is culled the same way, its lines, hidden lines, markers and fills alike, by the bounds
-  of all its points worked out on upload (`BatchBounds`), but only against the four side planes
-  widened by its reach (half its widest line or marker plus `STROKE_FRINGE_POINTS`, turned into
-  the window's clip units by `ClipWindow::sees_reaching`), since strokes and marks reach that far
-  past their points on screen and front-layer depths are moved; so a mark whose centre lies
-  outside the pick window but whose disc covers the cursor still picks (offscreen test).
-- A `ShadedMesh` either owns its vertices (`ShadedMesh::new` from `MeshFace`s: 28 bytes a vertex
-  on the CPU and 12 a triangle) or reads them from a `MeshSource` it shares (`ShadedMesh::shared`): the
-  source's triangles are its indices, and each vertex is converted (position relative to the
-  centre, normal, face) when uploaded or read, its face found among the per-face vertex ends, so a
-  body's display mesh is held once on the CPU, by the kernel (`app.md`). `shared` takes each face's
-  end in the triangles and refuses (`None`) a source whose faces do not each use their own
-  contiguous run of vertices in face order, covering every vertex; the caller then copies.
-- `ShadedMesh::divide` makes another mesh in which every face is split into one face per class a
-  caller's classifier gives each triangle (from its corners' positions and normals), with the
-  source face and the area of every piece; analysis colouring uses it, since styles are per face.
-  `ShadedMesh::origin` and `face_triangles` (world corners with their face) let the app's reach
-  analysis and `through.rs` work on the triangles without a copy of the mesh.
-- Per-face styles live in an `Rgba32Uint` texture (`StyleLayout`: colour, pick id, packed
-  finish, a spare word) read by face index in the vertex shader, so hover and selection cost nothing in geometry. A restyle writes only the texture rows
-  whose styles changed, each as one span from its first to its last changed face
-  (`changed_spans`), and keeps the slice it wrote, so a frame handing the same slice again costs a
-  pointer comparison and only a new slice is compared face by face; past `MAX_STYLE_SPANS` such
-  rows, or when the face count changes, the whole texture is written.
+  (`culling::ClipWindow`, the eight placed corners against the clip planes in f64), against the
+  window in the main pass, the pick window in the pick pass and each tile in image export. A batch
+  is culled the same way (lines, hidden lines, markers, fills) by the bounds of its points worked
+  out on upload (`BatchBounds`), but only against the four side planes widened by its reach (half
+  its widest line or marker plus `STROKE_FRINGE_POINTS`, via `ClipWindow::sees_reaching`), since
+  strokes reach past their points and front-layer depths are moved; a mark whose centre lies
+  outside the pick window but whose disc covers the cursor still picks.
+- A `ShadedMesh` either owns its vertices (`ShadedMesh::new` from `MeshFace`s) or reads them from a
+  `MeshSource` it shares (`ShadedMesh::shared`): the source's triangles are its indices and each
+  vertex is converted (position relative to the centre, normal, face) when uploaded or read, so a
+  body's display mesh is held once on the CPU, by the kernel (`app.md`). `shared` refuses (`None`) a
+  source whose faces do not each use their own contiguous run of vertices in face order covering
+  every vertex; the caller then copies.
+- `ShadedMesh::divide` makes another mesh splitting every face into one face per class a caller's
+  classifier gives each triangle, with the source face and area of every piece (analysis
+  colouring, since styles are per face). `ShadedMesh::origin` and `face_triangles` let the app's
+  reach analysis and `through.rs` work on triangles without a copy.
+- Per-face styles live in an `Rgba32Uint` texture (`StyleLayout`: colour, pick id, packed finish, a
+  spare word) read by face index in the vertex shader, so hover and selection cost nothing in
+  geometry. A restyle writes only the texture rows whose styles changed, each as one span from its
+  first to its last changed face (`changed_spans`), and keeps the slice it wrote, so handing the
+  same slice again costs a pointer comparison; past `MAX_STYLE_SPANS` rows, or when the face count
+  changes, the whole texture is written.
 - Faces are lit two-sided and write depth, hiding edges and sketches behind them in view and
   picking alike (everything but `Layer::Front`). A face without a pick id writes id 0 with its
   depth in the pick pass, not discarded. Enhanced shading scales highlight and rim with the face
-  colour's lightness so dimmed and tinted bodies stay dark and keep their hue (offscreen test).
+  colour's lightness so dimmed and tinted bodies stay dark and keep their hue.
 
 ## Colour and light
 
-- Colours are sRGB-encoded everywhere (palettes, styles, `BACKGROUND`) and every pass draws on
-  the plain 8-bit view, so blending stays in the space the palettes' contrast tests model
+- Colours are sRGB-encoded everywhere (palettes, styles, `BACKGROUND`) and every pass draws on the
+  plain 8-bit view, so blending stays in the space the palettes' contrast tests model
   (`scene_palette.rs`). Only `fs_mesh` works in linear light: it decodes the face colour
-  (`to_linear`), lights it and encodes the result (`to_srgb`), the light constants tuned so a
-  face lit by ambient alone or fully lit reads about as it did when lighting was in gamma space, the
-  tones between a little lighter. Zebra and chrome keep their sRGB-space look.
+  (`to_linear`), lights it and encodes the result (`to_srgb`). Zebra and chrome keep their
+  sRGB-space look.
 - A face whose style carries a `SurfaceFinish` (metalness and roughness, 0 to 1, packed into the
   style texel's third word as two bytes and a present bit, `SurfaceFinish::packed`) is shaded by
   `finished` instead of `lit`: `vs_mesh` puts the word in the flat `sectioned` varying above its
   flag bits (`FINISH_SHIFT`), so it costs no varying, pass or pipeline, and a face without one
-  takes exactly the old branch (the offscreen test pins its pixels from before finishes, in both
-  shadings). `finished` keeps the shading mode's diffuse lights (`standard_diffuse`,
-  `enhanced_diffuse`, shared with the plain shading) on the colour (a metal keeps
-  `METAL_DIFFUSE` of it, so hover tints and dark sides still read), adds a GGX highlight with a
-  Smith visibility and Schlick Fresnel per light (the key light, and the fill light in Enhanced),
-  capped by `HIGHLIGHT_LIMIT` so a polished flat face square to a light is not blown out, and
-  reflects `studio`, the chrome reflection's world-Z-up sky, ground and panel in linear light with
-  its horizon and panel blurred by roughness, weighted by a roughness-aware Fresnel. The
-  reflectance is 4% for a dielectric and the colour times `METAL_REFLECTANCE_GAIN` for a metal, so
-  metal highlights and reflections are tinted. Section caps, flat, reflective and pick shaders
-  ignore the finish; translucent meshes, which draw with `fs_mesh`, take it.
+  takes exactly the old branch (an offscreen test pins its pixels). `finished` keeps the shading
+  mode's diffuse lights (`standard_diffuse`, `enhanced_diffuse`) on the colour (a metal keeps
+  `METAL_DIFFUSE` of it), adds a GGX highlight (Smith visibility, Schlick Fresnel) per light (key,
+  and fill in Enhanced) capped by `HIGHLIGHT_LIMIT`, and reflects `studio` (the chrome reflection's
+  world-Z-up sky, ground and panel in linear light, horizon and panel blurred by roughness,
+  weighted by a roughness-aware Fresnel). Reflectance is 4% for a dielectric and the colour times
+  `METAL_REFLECTANCE_GAIN` for a metal. Section caps, flat, reflective and pick shaders ignore the
+  finish; translucent meshes, drawn with `fs_mesh`, take it.
 - The multisample resolve averages in linear light where views allow it: a renderer told so
   (`set_linear_resolve`, from `gpu::resolves_linearly`, the adapter's `VIEW_FORMATS`) gives its
-  multisampled colour target and the kept view an sRGB view each, stores the scene pass instead
-  of resolving it and resolves in an empty pass through the two sRGB views (`ColorAttachment`),
-  so a half-covered edge pixel is the linear mean of its samples (offscreen test). The resolve
-  lands in the kept view, never the surface, so the surface needs no sRGB view format and a
-  conservatively configured one resolves linearly too. Image tiles on the viewport background do
-  the same; a transparent image resolves in gamma, since its bands straighten premultiplied
-  colour there. GL and other devices without view formats resolve in gamma, through the same empty
-  pass over the plain views and never as the scene pass's own resolve target: wgpu's GL backend
-  runs that resolve as a blit under the pass's scissor, which would resolve only the viewport's
-  rect and leave the kept view transparent black outside it (offscreen tests, run on GL in CI).
-  The extra pass costs a few microseconds a frame in the frame-cost benchmark (release, 1600 by
-  1000 at 4x).
+  multisampled colour target and the kept view an sRGB view each, stores the scene pass instead of
+  resolving it and resolves in an empty pass through the two sRGB views (`ColorAttachment`). The
+  resolve lands in the kept view, never the surface. Image tiles on the viewport background do the
+  same; a transparent image resolves in gamma, since its bands straighten premultiplied colour
+  there. GL and other devices without view formats resolve in gamma, through the same empty pass
+  over the plain views and never as the scene pass's own resolve target: wgpu's GL backend runs
+  that resolve as a blit under the pass's scissor, which would resolve only the viewport's rect and
+  leave the kept view transparent black outside it (offscreen tests run on GL in CI).
 
 ## Depth, buffers and layers
 
 - Reverse-Z, infinite far plane, `Depth32Float`, multisampled at the level in use (never stored;
-  colour is resolved into the kept view, through the linear resolve pass where views allow it,
-  and copied onto the surface). The UI is drawn on the surface after the copy.
+  colour resolves into the kept view and is copied onto the surface). The UI is drawn on the
+  surface after the copy.
 - Each batch has a `GpuBatch` of `GrowableBuffer`s, made only for what the batch holds (lines,
-  markers, fills, and their style tables), found again each frame by its `Arc`'s address rather
-  than its position (`upload_batches`), so a batch kept while others come, go or change places
-  uploads nothing (offscreen test) and an app may hand over thousands (one per body, `app.md`). A
-  batch uploads only when it is new or the anchor moved, so an idle frame or a camera move writes
-  no vertices; a new one reuses the buffers of one that left. New batches upload under a byte
-  budget a frame of their own (`MESH_UPLOAD_BYTES_PER_FRAME` again, beside the meshes' one), at
-  least one a frame however large; one left waiting is not drawn yet and keeps
-  `Renderer::is_uploading` true (offscreen test). After the anchor moves every batch uploads at
-  once, since a batch drawn at the old anchor would be misplaced. A batch past
-  `max_buffer_size` draws only its first whole primitives (logged once). A buffer an upload
-  outgrows is replaced by one a quarter larger than the upload (aligned), and one an upload fills
-  to under a quarter by one fitting that upload the same way, so the band between keeps it. Each
-  pass sets a batch pipeline once for all the batches it draws (`Once`), not once a batch.
+  markers, fills, style tables), found again each frame by its `Arc`'s address rather than position
+  (`upload_batches`), so a batch kept while others come, go or change places uploads nothing and an
+  app may hand over thousands (one per body, `app.md`). A batch uploads only when new or when the
+  anchor moved, so an idle frame or a camera move writes no vertices; a new one reuses the buffers
+  of one that left. New batches upload under a byte budget a frame of their own
+  (`MESH_UPLOAD_BYTES_PER_FRAME` again), at least one a frame however large; one left waiting is
+  not drawn yet and keeps `Renderer::is_uploading` true. After the anchor moves every batch uploads
+  at once. A batch past `max_buffer_size` draws only its first whole primitives (logged once). A
+  buffer an upload outgrows is replaced by one a quarter larger than the upload (aligned), and one
+  an upload fills to under a quarter by one fitting that upload the same way. Each pass sets a batch
+  pipeline once for all batches it draws (`Once`).
 - Vertex, index and silhouette records are packed one fixed-size `gpu::record` at a time straight
   into wgpu's staging memory (`gpu::write_records` over `Queue::write_buffer_with`), so no CPU copy
-  of a batch or mesh outlives its upload (a batch's lines keep only a list of references and the
-  strips' ranges while they upload); the `Bytes` staging left for uniforms and face styles
-  drops any capacity past 64 KiB when cleared. Replacing the frame-cost benchmark's batch every
-  frame costs about 2.8 ms instead of 7.9.
+  of a batch or mesh outlives its upload; the `Bytes` staging left for uniforms and face styles
+  drops any capacity past 64 KiB when cleared.
 - Records are as narrow as the shaders allow: a mesh vertex is 20 bytes (`MESH_VERTEX_STRIDE`:
-  position, normal, face), a silhouette 48, a line point 24, a marker 28 and a fill vertex 16 (a position and the index of its fill's style).
-  Every layer's depth biases are WGSL constants chosen from the layer bits of the flags
-  (`line_depth_bias`, `marker_depth_bias`, `fill_depth_bias`), so no record repeats them. Normals are
-  octahedral `Snorm16x2` (`Pack::octahedral`, `unfolded` in the shader), back within 0.01°; a zero
-  or non-finite normal, which tessellation gives at a degenerate point and `facing_normal` replaces
-  by the eye direction, is kept as the corner code (-1, -1) the shader reads as zero, and normals
-  within about 0.02° of -Z that would land beside that code take the opposite corner instead.
-  Colours are `Unorm8x4` (`Pack::unorm8x4`, rounded): palettes are 8-bit sRGB and every pass draws
-  them unconverted on an 8-bit view, so an 8-bit colour reaches the target exactly as before.
+  position, normal, face), a silhouette 48, a line point 24, a marker 28, a fill vertex 16 (a
+  position and the index of its fill's style). Every layer's depth biases are WGSL constants chosen
+  from the layer bits of the flags (`line_depth_bias`, `marker_depth_bias`, `fill_depth_bias`).
+  Normals are octahedral `Snorm16x2` (`Pack::octahedral`, `unfolded` in the shader); a zero or
+  non-finite normal (which `facing_normal` replaces by the eye direction) is kept as the corner code
+  (-1, -1) the shader reads as zero, and normals within about 0.02° of -Z take the opposite corner
+  instead. Colours are `Unorm8x4` (`Pack::unorm8x4`, rounded), reaching the 8-bit target exactly.
 - A batch's lines upload as points, not segments (`lines.rs`, `LineStrips`): consecutive lines of
-  one style (colour, width, layer and stroke flags, and stroke kind) where one ends at the next
-  one's start form a strip sharing its inner points, and a strip of three or more whose last end
-  meets its first start is closed. A point record holds the position, the distance along, the pick
-  id and a word of the style index with two bits: `DRAWN` (a segment starts here) and `LINKED`
-  (a segment of the strip, drawn or not, starts here). Each instance reads four consecutive points
-  through the one buffer bound at four offsets (`LINE_POINT_SLOTS`: previous, start, end, next),
-  so it knows its neighbours, and an instance whose start is not `DRAWN` collapses. Between a
-  padding point at each end of the buffer, an open strip of n segments costs n + 1 points, a closed
-  one n + 3 (its last segment's start before it and its second point after it, both undrawn, so
-  the closing joint has neighbours on both sides), and a lone segment two, 48 bytes as before.
-  Styles (colour, width, flags) sit in a small `Rgba32Uint` texture per batch (`StyleTable`,
-  `styles.rs`, laid out by `StyleLayout` like face styles, bound as group 1 for the line
-  pipelines); a batch with more styles than the texture can hold draws only the lines before the
-  first that does not fit.
-- A batch uploads its fills once, ordered pickable reference fills, then the other pickable fills,
-  then the rest, each group in batch order (`FillGroups`): the pick pass draws the first two
-  groups as one range each of the colour pass's buffer, and the colour pass's spans keep batch
-  order, so fills of equal depth still draw in the order given. Each fill has one texel (colour,
-  pick id, flags; `fill_texel`) in a second `StyleTable` of the batch, in that upload order, and
-  its vertices carry only the position and the fill's index, which `vs_fill` reads through
-  `style_texel`; the colour and pick fill pipelines bind the table as group 1 like the line
-  pipelines, so fills need no storage buffer either.
-- A batch of at least `FEWEST_SEGMENTS_MADE_COARSER` shown segments also uploads up to four
-  coarser levels of its shown lines after them in the same buffer (`coarser_lines`), each made for
-  a tolerance of one of `COARSER_LINE_SHARES` of the batch's size (`LineStrips::simplified`): a
-  strip lying wholly within the tolerance of its first point is left out, a speck smaller than a
-  fraction of a pixel at that level, and every other one is thinned by Douglas–Peucker over its
-  corners, keeping both ends and every corner where the pick id changes, so a coarser segment never
-  spans two picks. A level is kept only while it keeps at most `COARSER_LINES_MOST_KEPT` of the
-  segments of the one before. Each frame the colour pass draws, for its shown lines and their
-  hidden dashes, the coarsest level whose tolerance stays within `COARSER_LINES_ERROR_PIXELS` at
-  the batch's nearest corner (`BatchBounds::pixels_across`, every segment when a corner is behind
-  the near plane), worked out from the whole view, so image tiles draw the level of the whole
-  image (offscreen and `lines.rs` tests); the pick pass always draws every segment. Most of a
-  large assembly's segments belong to bodies a few dozen pixels across (3.8 of the VZ330's 4.8
-  million edge segments are in bodies under 32 px when it is fitted at 1920×1080), which then cost
-  a few segments each.
+  one style (colour, width, layer, stroke flags and kind) where one ends at the next one's start
+  form a strip sharing its inner points, and a strip of three or more whose last end meets its first
+  start is closed. A point record holds position, distance along, pick id and a style-index word
+  with two bits: `DRAWN` (a segment starts here) and `LINKED` (a segment of the strip, drawn or not,
+  starts here). Each instance reads four consecutive points through the one buffer bound at four
+  offsets (`LINE_POINT_SLOTS`: previous, start, end, next); an instance whose start is not `DRAWN`
+  collapses. Between a padding point at each end of the buffer, an open strip of n segments costs
+  n + 1 points, a closed one n + 3 (its last segment's start before it and its second point after
+  it, both undrawn), a lone segment two. Styles (colour, width, flags) sit in a small `Rgba32Uint`
+  texture per batch (`StyleTable`, `styles.rs`, laid out by `StyleLayout`, bound as group 1 for the
+  line pipelines); a batch with more styles than fit draws only the lines before the first that
+  does not.
+- A batch uploads its fills once, ordered pickable reference fills, then other pickable fills, then
+  the rest, each group in batch order (`FillGroups`): the pick pass draws the first two groups as
+  one range each of the colour pass's buffer, and the colour pass's spans keep batch order. Each
+  fill has one texel (colour, pick id, flags; `fill_texel`) in a second `StyleTable` of the batch,
+  in that order; its vertices carry only position and the fill's index, which `vs_fill` reads
+  through `style_texel`; the colour and pick fill pipelines bind the table as group 1.
+- A batch of at least `FEWEST_SEGMENTS_MADE_COARSER` shown segments also uploads up to four coarser
+  levels of its shown lines after them in the same buffer (`coarser_lines`), each for a tolerance of
+  one of `COARSER_LINE_SHARES` of the batch's size (`LineStrips::simplified`): a strip wholly within
+  the tolerance of its first point is left out, every other one is thinned by Douglas–Peucker over
+  its corners, keeping both ends and every corner where the pick id changes, so a coarser segment
+  never spans two picks. A level is kept only while it keeps at most `COARSER_LINES_MOST_KEPT` of
+  the previous level's segments. Each frame the colour pass draws, for shown lines and their hidden
+  dashes, the coarsest level whose tolerance stays within `COARSER_LINES_ERROR_PIXELS` at the
+  batch's nearest corner (`BatchBounds::pixels_across`, every segment when a corner is behind the
+  near plane), worked out from the whole view so image tiles draw the level of the whole image; the
+  pick pass always draws every segment. Most of a large assembly's segments belong to bodies a few
+  dozen pixels across.
 - Draw order: every batch's lines, then markers, then fills. Translucent fills sort back to front
   by centroid depth across all batches, front-layer fills last (`FillOrder`).
 - Model geometry draws over reference geometry (datum planes, axes) through a per-`Layer` depth
   bias, model fills (sketch regions) over the faces they lie on.
-- Faces carry a slope-scaled pipeline bias (`FACE_DEPTH_BIAS`, two slopes back in reverse-Z), so
-  an edge beyond a face seen at a grazing angle is not eaten where the face's depth races across
-  the line's width; reference fills (their own `reference_fills` pipeline, in the drawing and the
-  pick pipelines alike, chosen per draw by `FillDraw::behind_faces`) sit behind faces on their
-  plane by a larger slope bias (`BEHIND_FACES_DEPTH_BIAS`) and the grid by `GRID_DEPTH_BIAS`, so a face lying on the XY plane never speckles with the grid or a principal
-  plane (offscreen tests).
+- Faces carry a slope-scaled pipeline bias (`FACE_DEPTH_BIAS`, two slopes back in reverse-Z) so an
+  edge beyond a face at a grazing angle is not eaten; reference fills (own `reference_fills`
+  pipeline in the drawing and pick pipelines alike, chosen per draw by `FillDraw::behind_faces`) sit
+  behind faces on their plane by a larger bias (`BEHIND_FACES_DEPTH_BIAS`) and the grid by
+  `GRID_DEPTH_BIAS`, so a face on the XY plane never speckles with the grid or a principal plane.
 - A line stroked `Stroke::DashedWhereHidden` (the hidden-edges style, threads) is drawn as usual,
-  solid or dashed by `seen_dashed` (a solid one carries `SOLID_WHERE_SEEN` in its flags, since its
-  record holds the distance along for the hidden dashes), and its own record is drawn again after
-  every batch's lines with a depth test of `Less` and no depth write (`hidden_lines` pipeline,
-  `vs_hidden_line`, always dashed), so the dashes show only where a nearer face covers it. The
-  batch keeps the instance runs of its shown strips so stroked (`LineStrips::hidden_runs`, a run
-  reaching over the undrawn points between such strips), one draw each, so the scene
-  holds no second copy of a line, and the pick pass never draws the hidden part (offscreen test,
-  and pixel for pixel the look of the copies it replaced).
-- `Layer::Front` draws over everything whatever its depth, in view and picking alike (the app
-  puts the edited sketch there). `layered_depth` halves every depth into the far half of the range
-  (an exact scaling) and moves front geometry into the near half, where biases stay wide enough
-  for the coarser floats (fills under lines under markers).
-
+  solid or dashed by `seen_dashed` (a solid one carries `SOLID_WHERE_SEEN` in its flags), and its own
+  record is drawn again after every batch's lines with depth test `Less` and no depth write
+  (`hidden_lines` pipeline, `vs_hidden_line`, always dashed), so the dashes show only where a nearer
+  face covers it. The batch keeps the instance runs of its shown strips so stroked
+  (`LineStrips::hidden_runs`), one draw each, so the scene holds no second copy of a line; the pick
+  pass never draws the hidden part.
+- `Layer::Front` draws over everything whatever its depth, in view and picking alike (the app puts
+  the edited sketch there). `layered_depth` halves every depth into the far half of the range (an
+  exact scaling) and moves front geometry into the near half, where biases stay wide enough for the
+  coarser floats (fills under lines under markers).
 - `Scene::flat_meshes` draw right after the opaque meshes with the same depth writes and pick pass
-  but `fs_color`, so each face shows its style's colour exactly, unlit (the hidden-line style).
+  but `fs_color`: each face shows its style's colour exactly, unlit (the hidden-line style).
 - `Scene::reflective_meshes` draw right after the flat ones with the opaque depth writes and pick
   pass but `fs_reflective`, which reflects the eye ray about the normal in world space and shades
   by `Scene::reflection`: `Zebra` (a ring of `stripes` light and dark bands per turn around an axis,
-  antialiased with the narrower `fwidth` of two angles whose seams differ, the light band the face
-  colour brightened and the dark one nearly black) or `Chrome` (a procedural world-Z-up sky,
-  horizon, ground and one light panel, tinted halfway to the face colour's hue, so hover and
-  selection still show). The reflection rides in the view uniform's last two vectors (the stripe
-  axes' orthonormal pair, the stripe count and a zebra flag).
-- `Scene::silhouettes` (`silhouette.rs`) draw the outline of curved faces as seen from the
-  current view, after every mesh and before the batches' lines, with the line pipeline's depth
-  test and `fs_line`. A `Silhouette` names a mesh, a colour, a width, a dash flag, a
-  `dashed_where_hidden` flag and a placement, with no faces drawn needed, so wireframe shows it
-  too. One `dashed_where_hidden` is drawn again after the hidden lines like them
-  (`hidden_silhouettes` pipeline: `vs_hidden_silhouette`, always dashed, depth `Less`, no depth
-  write), so its hidden part shows dashed where a nearer face covers it (offscreen test).
-- Silhouettes never draw in the pick pass, visible or hidden: an outline is not topology, has no
-  stable name and slides over its face as the view turns, so the selection model (named faces,
-  edges and vertices) has nothing to give it but its face, which the pixels inside the outline
-  already pick; in wireframe, where no face picks, it picking its face would make curved faces
-  selectable there and flat ones not. On upload (under the same per-frame byte budget as meshes, in chunks that fit a
-  buffer) every triangle whose corner normals differ (`ShadedMesh::curved_triangles`, so flat
-  faces cost nothing) becomes a `SILHOUETTE_STRIDE` (48-byte) instance of three positions and
-  three octahedral normals; `vs_silhouette` finds where the facing of the interpolated normals toward
-  the eye changes sign across the triangle and strokes that segment like a line, so the outline
-  follows every orbit without re-meshing and with no CPU work per frame. A dashed silhouette
-  dashes along its dominant screen axis, since contour segments carry no distance along a curve.
-  `ShadedMesh` counts its curved triangles when built, so starting an upload costs nothing. The
-  frame-cost benchmark gives its four meshes waving normals and silhouettes, so every triangle is
-  a candidate (about 11.8 MB each against 7.8 MB of mesh): steady frames stay within noise (about
-  55 µs idle or orbiting, release build), an upload frame under the budget stays under 2 ms
-  at worst but new meshes take about 2.5 times as many frames.
+  antialiased with the narrower `fwidth` of two angles whose seams differ, light band the face
+  colour brightened, dark one nearly black) or `Chrome` (a procedural world-Z-up sky, horizon,
+  ground and one light panel, tinted halfway to the face colour's hue so hover and selection show).
+  The reflection rides in the view uniform's last two vectors (the stripe axes' orthonormal pair,
+  the stripe count and a zebra flag).
+- `Scene::silhouettes` (`silhouette.rs`) draw the outline of curved faces as seen from the current
+  view, after every mesh and before the batches' lines, with the line pipeline's depth test and
+  `fs_line`. A `Silhouette` names a mesh, a colour, a width, a dash flag, a `dashed_where_hidden`
+  flag and a placement, with no faces drawn needed, so wireframe shows it too. One
+  `dashed_where_hidden` is drawn again after the hidden lines (`hidden_silhouettes` pipeline:
+  `vs_hidden_silhouette`, always dashed, depth `Less`, no depth write).
+- Silhouettes never draw in the pick pass: an outline is not topology, has no stable name and
+  slides over its face as the view turns, and the pixels inside it already pick its face (in
+  wireframe, where no face picks, picking it would make curved faces selectable and flat ones not).
+  On upload (under the mesh byte budget, in chunks that fit a buffer) every triangle whose corner
+  normals differ (`ShadedMesh::curved_triangles`, counted when built, so flat faces cost nothing)
+  becomes a `SILHOUETTE_STRIDE` (48-byte) instance of three positions and three octahedral normals;
+  `vs_silhouette` finds where the facing of the interpolated normals toward the eye changes sign
+  across the triangle and strokes that segment like a line, so the outline follows every orbit with
+  no CPU work per frame. A dashed silhouette dashes along its dominant screen axis, since contour
+  segments carry no distance along a curve.
 - `Scene::overlay_meshes` draw right after the translucent ones, blended, with no depth test or
   write and never in the pick pass, so they show through whatever covers them (the cut preview).
 - `Scene::translucent_meshes` draw after the opaque meshes and before lines with alpha blending and
-  no depth write (`translucent_meshes` pipeline), so edges and what lies behind show through. The
-  pick pass draws them with `fs_pick`, which discards faces without a pick id, so an unpickable
-  see-through face (X-ray) never occludes or takes a pick while one carrying an id picks as usual.
-- `fs_mesh` discards a face of no alpha, so a body with only some faces see-through is drawn as
-  two instances of one mesh: in `meshes` with those faces at alpha 0 and in `translucent_meshes`
-  with only those faces visible, both carrying every face's pick id.
+  no depth write (`translucent_meshes` pipeline). The pick pass draws them with `fs_pick`, which
+  discards faces without a pick id, so an unpickable see-through face (X-ray) never occludes or
+  takes a pick while one carrying an id picks as usual.
+- `fs_mesh` discards a face of no alpha, so a body with only some faces see-through is drawn as two
+  instances of one mesh: in `meshes` with those faces at alpha 0 and in `translucent_meshes` with
+  only those faces visible, both carrying every face's pick id.
 
 ## Sections
 
 - `Scene::section` holds up to `MAX_SECTION_PLANES` `SectionPlane`s (a `Plane` and a `CutFace`,
   hatched or filled); each cuts away the side its normal points to, so together they keep what
-  every plane keeps. It only changes what is drawn and picked, never a mesh or a batch, so moving
-  a plane costs a uniform write: the view uniform carries the count, a slack
-  (`section_slack`, a fraction of the view distance, so a face lying on a plane is kept), each
-  plane as its normal and offset relative to the eye (worked out in f64) and each plane's hatch
-  direction over its spacing with a phase anchored to the plane, the spacing `HATCH_SPACING_POINTS`
-  at the target rounded up to a power of two so the hatch stays put while zooming a little.
+  every plane keeps. It only changes what is drawn and picked, never a mesh or batch, so moving a
+  plane costs a uniform write: the view uniform carries the count, a slack (`section_slack`, a
+  fraction of the view distance, so a face lying on a plane is kept), each plane's normal and offset
+  relative to the eye (f64) and each plane's hatch direction over its spacing with a phase anchored
+  to the plane, the spacing `HATCH_SPACING_POINTS` at the target rounded up to a power of two so the
+  hatch stays put while zooming a little.
 - Every mesh and silhouette, and lines, markers and fills of `Layer::Model`
-  (`Layer::is_sectioned`, a bit in the instance flags beside the front-layer bit), are discarded
-  beyond a plane in view and picking alike; reference and front geometry never are, so datums,
-  the edited sketch and the front-layer marks stay whole.
+  (`Layer::is_sectioned`, a bit in the instance flags), are discarded beyond a plane in view and
+  picking alike; reference and front geometry never are.
 - While a section is shown the opaque, flat and reflective meshes draw with `fs_*_sectioned`
-  pipelines (and `fs_mesh_pick_sectioned`), which cap the cut: a back face (the flat normal from
+  pipelines (and `fs_mesh_pick_sectioned`), which cap the cut: a back face (flat normal from
   derivatives, oriented by the interpolated normal, turned from the eye) seen where the eye's ray
-  crossed a plane is the inside of a cut solid, since a closed solid's back face is the nearest
-  kept surface only from inside it. It is drawn as the plane there: shaded with the plane's normal
-  in the face's colour darkened by `CAP_SHADE`, hatched (`HATCH_SHADE`) or filled from the point
-  where the ray entered the kept region. Its depth stays the back face's, pulled forward by
-  `CAP_DEPTH_BIAS` so the back faces' edges (lines at their smaller bias) stay hidden behind it;
-  moving it onto the plane instead would let it win over front faces between the plane and the
-  back face. The pick pass writes id 0 there with the plane's depth value, so a cap hides what
-  lies behind it, picks nothing and gives the orbit pivot on the cut. A face of no alpha is
-  discarded before any cap in both passes (the colour shader and the pick one test the same
-  condition first), so a see-through face leaves no hole in a cap that picks nothing; its own pick
-  comes from the translucent instance. These shaders write
-  `frag_depth`, so they take no pipeline depth bias and add the face slope bias themselves; plain
-  pipelines draw when there is no section, keeping early depth testing then. Only a closed mesh
-  is capped (`ShadedMesh::is_closed`, `with_closed` clears it, set by the app from the solid's
-  edges all having two uses; the placement uniform carries it and `vs_mesh` raises `CAPPABLE` in
-  the instance flags), so the far side of a sheet that is no closed solid is drawn and picked as
-  an ordinary face; translucent and overlay meshes are only cut, never capped.
-- `Scene::hits_through` skips hits on sectioned geometry beyond a plane (`is_cut_away`), so the
-  pick list, paint selection and Measure only reach what is shown (offscreen and `through.rs`
-  tests). It also reproduces the cap: for the opaque, flat and reflective meshes that are closed
-  (and faces with alpha), a back-facing triangle (`ShadedMesh::oriented_triangles`, its flat
-  normal oriented by the vertex normals) beyond the ray's entry into the kept region (the
-  nearest crossing of a plane from the cut side, measured from the eye plane in an orthographic
-  view, `Probe::entry`) is the cap, the nearest one setting `Probe::cap_depth`: no hit is
-  recorded at or behind it, reference fills not at all, and front-layer hits stay, as in the pick
-  pass where the cap writes id 0 (`through.rs` tests); an open mesh keeps its far side.
+  crossed a plane is the inside of a cut solid. It is drawn as the plane there: shaded with the
+  plane's normal in the face's colour darkened by `CAP_SHADE`, hatched (`HATCH_SHADE`) or filled from
+  the point where the ray entered the kept region. Its depth stays the back face's, pulled forward by
+  `CAP_DEPTH_BIAS` so the back faces' edges stay hidden behind it; moving it onto the plane would let
+  it win over front faces between the plane and the back face. The pick pass writes id 0 there with
+  the plane's depth, so a cap hides what lies behind it, picks nothing and gives the orbit pivot on
+  the cut. A face of no alpha is discarded before any cap in both passes, so a see-through face
+  leaves no hole in a cap that picks nothing; its own pick comes from the translucent instance.
+  These shaders write `frag_depth`, so they take no pipeline depth bias and add the face slope bias
+  themselves; plain pipelines draw when there is no section, keeping early depth testing. Only a
+  closed mesh is capped (`ShadedMesh::is_closed`, `with_closed` clears it, set by the app from the
+  solid's edges all having two uses; `vs_mesh` raises `CAPPABLE` in the instance flags), so the far
+  side of an open sheet is drawn and picked as an ordinary face; translucent and overlay meshes are
+  only cut, never capped.
+- `Scene::hits_through` skips hits on sectioned geometry beyond a plane (`is_cut_away`), so the pick
+  list, paint selection and Measure only reach what is shown. It also reproduces the cap: for the
+  closed opaque, flat and reflective meshes (and faces with alpha), a back-facing triangle
+  (`ShadedMesh::oriented_triangles`) beyond the ray's entry into the kept region (`Probe::entry`,
+  measured from the eye plane in an orthographic view) is the cap, the nearest one setting
+  `Probe::cap_depth`: no hit is recorded at or behind it, reference fills not at all, front-layer
+  hits stay, as in the pick pass; an open mesh keeps its far side.
 - `kept_span` gives the part of a segment the planes keep as a parameter interval, for callers that
   clip curves to what is shown (box selection of sketch curves, `sectioned_screen.rs`).
 
@@ -411,123 +348,107 @@ paths:
 - Sizes are logical points: `ViewportFrame::pixels_per_point` goes into the view uniform and
   shaders scale line widths, marker diameters and the grid by it.
 - Lines, markers, silhouettes and the grid are quads, one instance each, drawn indexed through one
-  static index buffer of two triangles over four corners (`gpu::QuadIndices`, bound once after the
-  meshes in each pass), so the vertex shader runs four times a quad rather than six.
+  static index buffer (`gpu::QuadIndices`, bound once after the meshes in each pass).
 - Lines and silhouettes are finished in the colour pass (`Strokes::Finished` in the view uniform's
   `fill_light.w`): each quad reaches `STROKE_FRINGE_PIXELS` beyond its edges and `fs_line` turns the
-  distance from the segment, carried in screen space (the `stroke` varying times `w`, divided
-  back per fragment), into coverage, so lines are smooth at every multisampling level, Off
-  included, at the same width. An opaque line also reaches half its width past an end and rounds
-  it; a translucent one keeps square ends where its strip ends. Where a segment joins its strip's
-  neighbour (the joint and both far ends ahead of the near plane, neither segment of no length on
-  screen; colour pass only, `line_joins`), its quad reaches its full half-width past the joint and
-  carries the neighbour's far end in its own frame (the `joints` varying), and `fs_line` gives each
-  pixel both strokes cover to one of them alone, by its side of the joint's bisector
-  (`neighbour_owns`, the outgoing segment taking ties). The two meet in a round join, the shape
-  opaque lines' overlapping caps made, with no notch and no pixel blended twice, translucent or not
-  (offscreen tests, with a fold back and a closed triangle, at 1x and 4x). Round rather than mitred
-  joins keep translucent and opaque polylines alike, so a hover that changes alpha never reshapes a
-  corner, and need no miter limit, since a fold back is split along its bisector too. The pick pass
-  (`Strokes::Bare`) draws the bare quads as before, so pick reach is unchanged.
+  distance from the segment (carried in screen space) into coverage, so lines are smooth at every
+  multisampling level, Off included. An opaque line also reaches half its width past an end and
+  rounds it; a translucent one keeps square ends where its strip ends. Where a segment joins its
+  strip's neighbour (joint and both far ends ahead of the near plane, neither segment of no length
+  on screen; colour pass only, `line_joins`), its quad reaches its full half-width past the joint
+  and carries the neighbour's far end (the `joints` varying), and `fs_line` gives each pixel both
+  strokes cover to one of them alone, by its side of the joint's bisector (`neighbour_owns`, the
+  outgoing segment taking ties). The two meet in a round join with no notch and no pixel blended
+  twice, translucent or not. Round rather than mitred joins keep translucent and opaque polylines
+  alike, so a hover that changes alpha never reshapes a corner, and need no miter limit. The pick
+  pass (`Strokes::Bare`) draws bare quads, so pick reach is unchanged.
 - `Stroke::Dashed` carries the distance along the curve at its start, so dashes
-  (`DASH_PERIOD_POINTS`) run on across a polyline's segments and its joints at any zoom and
-  interface size: a translucent dashed line cut into collinear pieces draws as the whole line
-  (offscreen test). Each corner's distance in points is led by `DASH_LEAD_POINTS`, a whole number
-  of periods, so the clamp keeping it from going negative (a negative one reads as solid) never
-  bends the pattern at a segment that starts at distance 0. The
-  pick pass draws dashed lines whole, so a gap still picks its curve.
+  (`DASH_PERIOD_POINTS`) run on across a polyline's segments and joints at any zoom and interface
+  size. Each corner's distance in points is led by `DASH_LEAD_POINTS`, a whole number of periods, so
+  the clamp keeping it from going negative (a negative one reads as solid) never bends the pattern
+  at a segment starting at distance 0. The pick pass draws dashed lines whole, so a gap still picks
+  its curve.
 - A marker or line whose colour has no alpha draws nothing but is still picked, so pickable points
-  and edges can stay invisible until hovered or selected. Such ones are uploaded after the drawn
-  ones of their batch (`shown_first`, and for lines `LineStrips`, whose strips never join the two,
-  order kept within each) and the colour pass draws only the
-  drawn ones, so body vertices and the edges of a style without them cost the colour pass nothing.
+  and edges can stay invisible until hovered or selected. Such ones upload after the drawn ones of
+  their batch (`shown_first`, and for lines `LineStrips`, whose strips never join the two) and the
+  colour pass draws only the drawn ones.
 - Markers at one place in one layer have equal depths, which `GreaterEqual` passes, so they draw in
-  batch order: a smaller unpicked marker after a larger one makes a ring that still picks whole
-  (the app's hollow sketch points). `BACKGROUND`, the default canvas clear colour, is public so
-  the app tests its scene colours against it; the app sets the clear colour of its light or dark
-  view with `ViewportRenderer::set_background` (`Renderer::set_background`, kept across device
-  recovery, copied to image siblings and used for `Background::Viewport` images), and the kept
-  frame (`kept.rs`, `Shown`) holds the background it was drawn on, so a change redraws it.
+  batch order: a smaller unpicked marker after a larger one makes a ring that still picks whole (the
+  app's hollow sketch points). `BACKGROUND`, the default canvas clear colour, is public so the app
+  tests its scene colours against it; the app sets the clear colour of its light or dark view with
+  `ViewportRenderer::set_background` (`Renderer::set_background`, kept across device recovery,
+  copied to image siblings and used for `Background::Viewport` images), and the kept frame
+  (`kept::Shown`) holds the background it was drawn on, so a change redraws it.
 
 ## Projection
 
 - `camera::ProjectionMode` is what the user chooses and the `Camera` keeps: perspective,
   orthographic or automatic, which is perspective and turns orthographic while the viewpoint looks
-  square at a coordinate axis (within `SQUARE_TOLERANCE_DEGREES`, the six front, back, top, bottom,
-  left and right views, not the isometric one). `Camera::view` resolves it against the current
-  viewpoint, so a `View` only ever holds the effective `camera::Projection`, perspective or
-  orthographic. Orthographic shows at every depth the scale
-  perspective shows at its target, so switching keeps the on-screen size. The eye stays
-  `distance` in front of the target (relative-to-eye precision unchanged) and the depth range is
-  finite, centred on the target; `View::reaching` widens it to the scene's bounds so geometry
-  behind the eye draws and the grid fades before the range ends.
+  square at a coordinate axis (within `SQUARE_TOLERANCE_DEGREES`: the six axis views, not the
+  isometric one). `Camera::view` resolves it against the current viewpoint, so a `View` only holds
+  the effective `camera::Projection`. Orthographic shows at every depth the scale perspective shows
+  at its target, so switching keeps the on-screen size. The eye stays `distance` in front of the
+  target and the depth range is finite, centred on the target; `View::reaching` widens it to the
+  scene's bounds so geometry behind the eye draws and the grid fades before the range ends.
 - Orthographic depth is linear, so shaders turn a layer's depth bias into a fixed offset
   (`ORTHOGRAPHIC_DEPTH_BIAS`); a factor would push edges far through faces.
 - Fitting puts the eight corners of the bounds inside the field of view with a margin, exactly in
-  both projections (no bounding sphere), so a wide flat part fills the view; bounds of no size
-  keep the distance and recentre. Grid spacing follows the view distance, not the eye's height
-  (`grid_minor_spacing` gives the app what the shader draws).
+  both projections (no bounding sphere); bounds of no size keep the distance and recentre. Grid
+  spacing follows the view distance, not the eye's height (`grid_minor_spacing` gives the app what
+  the shader draws).
 - `View::unproject` gives nothing for a non-finite depth or result, so a NaN read back from a pick
   never becomes a hit; `Camera::orbit`, `pan` and `zoom` ignore non-finite pivots, anchors and
   drags.
-- `View::plane_projection` folds the view's rotation, eye, field of view and size, and a scale,
-  into an affine map of one plane's coordinates to the camera's frame (`PlaneProjection`), so
-  projecting many points of a plane costs a few multiplications each rather than `View::project`'s
-  rotation and tangent per point; a test holds it to `View::project` in both projections.
+- `View::plane_projection` folds the view's rotation, eye, field of view, size and a scale into an
+  affine map of one plane's coordinates to the camera's frame (`PlaneProjection`), so projecting
+  many points of a plane is cheap; a test holds it to `View::project` in both projections.
 
 ## Picking
 
-- Renders a window of `PICK_RADIUS_POINTS` around the cursor (`PickWindow`, physical pixels from
-  the scale). ID and depth targets are `R32Uint` (depth as f32 bits, since GL does not always
-  render to float targets), read back asynchronously so hover never blocks the UI thread.
+- Renders a window of `PICK_RADIUS_POINTS` around the cursor (`PickWindow`, physical pixels from the
+  scale). ID and depth targets are `R32Uint` (depth as f32 bits, since GL does not always render to
+  float targets), read back asynchronously so hover never blocks the UI thread.
 - Hits report their distance from the cursor in points (`offset_points`, for the app's pick
   tolerances) and their world position (orbit pivot, pan grab point, zoom anchor).
 - `poll_pick` says `Pending`, `Ready` or `Failed` (failed readback, or a pick whose frame was
   dropped before `submit`); the app asks again after a failure. `is_pick_answered` polls the device
   without drawing and says whether `poll_pick` would answer, so a pick in flight needs no frames.
 - Reference-layer pick fills (principal and datum planes) are drawn first in a pass of their own
-  and everything else over them: a translucent plane owns a pixel only where no face, line,
-  marker or model or front fill covers it, and a face seen through a plane is picked.
-  Front-layer geometry is picked through any face, as it is drawn.
+  and everything else over them: a translucent plane owns a pixel only where no face, line, marker
+  or model or front fill covers it, and a face seen through a plane is picked. Front-layer geometry
+  is picked through any face, as it is drawn.
 - `Scene::hits_through` (`through.rs`) answers on the CPU what lies under a pixel at every depth,
-  for the app's pick list: faces of the opaque, flat and translucent meshes (placed, a ray test
-  per triangle after one against the placed bounds) and pickable fills the ray meets, and
-  pickable lines and markers within `PICK_RADIUS_POINTS` of it, each id once with its nearest
-  offset. It lists front-layer geometry first, then the rest nearest first, then reference fills,
-  so the order follows what the pick pass would let win; overlay meshes are never listed, as they
-  are never picked.
+  for the app's pick list: faces of the opaque, flat and translucent meshes (a ray test per
+  triangle after one against the placed bounds), pickable fills the ray meets, and pickable lines
+  and markers within `PICK_RADIUS_POINTS`, each id once with its nearest offset. It lists
+  front-layer geometry first, then the rest nearest first, then reference fills, following what the
+  pick pass would let win; overlay meshes are never listed.
 
 ## Image export (`image.rs`)
 
 - `Renderer::render_image` draws an `ImageRequest` offscreen, independent of the window, at most
-  `MAX_IMAGE_SIDE` a side in tiles of `TILE_SIDE` (or the largest texture side), so no size the
-  app offers can pass the texture limit. Each tile writes the view uniform with
-  `image::tile_transform`, the same clip-space transform the pick window uses, so line widths and
-  grid fades stay those of the whole image; one submit per tile, since uniform writes land at the
-  next submit.
-- Memory is a small multiple of one band (a row of tiles), never the image: `ImageTiles` (kept
-  by the `Renderer`) draws tiles in rows from the top into at most `READBACK_BUFFERS` readback
-  buffers, and `ImageBands` (`Send`, for the writer's thread) waits for each tile by polling the
-  device every millisecond (never wgpu's blocking wait, which on GL holds the context the UI
-  thread draws with), copies it into the band, returns the buffer and wakes the app, whose next
-  frame's `advance_image` draws the next tiles into the returned buffers. A finished band is
-  straightened and handed out whole rows at a time; 8192² takes about 75 MB rather than 260 MB
-  (debug build, peak RSS above an idle process). Errors after the start reach the bands in order;
-  dropping the bands stops the tiles at the next frame.
+  `MAX_IMAGE_SIDE` a side in tiles of `TILE_SIDE` (or the largest texture side). Each tile writes
+  the view uniform with `image::tile_transform`, the same clip-space transform the pick window uses,
+  so line widths and grid fades stay those of the whole image; one submit per tile, since uniform
+  writes land at the next submit.
+- Memory is a small multiple of one band (a row of tiles), never the image: `ImageTiles` (kept by
+  the `Renderer`) draws tiles in rows from the top into at most `READBACK_BUFFERS` readback buffers,
+  and `ImageBands` (`Send`, for the writer's thread) waits for each tile by polling the device every
+  millisecond (never wgpu's blocking wait, which on GL holds the context the UI thread draws with),
+  copies it into the band, returns the buffer and wakes the app, whose next frame's `advance_image`
+  draws the next tiles. A finished band is straightened and handed out whole rows at a time. Errors
+  after the start reach the bands in order; dropping the bands stops the tiles at the next frame.
 - The tiles draw with their own `ViewportRenderer` (`image_sibling`): the window's pipelines,
   layouts and uploaded mesh buffers shared, its own uniforms, batches and face styles, so the
   window's frames between tiles neither disturb the image nor upload anything again. When the
-  surface is neither `Rgba8Unorm` nor `Bgra8Unorm` a throwaway one in `Rgba8Unorm` is built
-  instead. Output is written unconverted, as on screen, so pixels are sRGB.
+  surface is neither `Rgba8Unorm` nor `Bgra8Unorm` a throwaway `Rgba8Unorm` one is built. Output is
+  written unconverted, as on screen, so pixels are sRGB.
 - Errors are `ImageError` (`Busy` while another image's tiles are still drawing, `OutOfMemory`,
-  `Refused`, `DeviceLost`, `Readback`, `Abandoned` when the tiles stopped without saying
-  why). Nothing on the UI thread waits on the GPU, and the bands turn the premultiplied colour of
-  a transparent clear into straight alpha.
+  `Refused`, `DeviceLost`, `Readback`, `Abandoned`). Nothing on the UI thread waits on the GPU, and
+  the bands turn the premultiplied colour of a transparent clear into straight alpha.
 - `OffscreenRenderer` opens a device without a surface and draws the same `ImageRequest` into an
   `Rgba8Unorm` target, its `ImageBands` drawing the tiles inline as it reads them (`drawn_inline`):
   the headless `--export` of a PNG (`app.md`) streams them to the file.
-- The renderer draws whatever scene it is given; leaving out highlights and the grid is the app's
-  choice (`app-files.md`).
 
 ## Navigation
 
@@ -536,23 +457,23 @@ paths:
   View cube and fit changes animate.
 - The moves are `Viewpoint::orbited`, `panned` and `zoomed` (nothing for non-finite input), so the
   app can move the viewpoint the camera is heading to rather than the one shown. `Camera::orbit`,
-  `pan` and `zoom` apply them to the shown viewpoint and end any transition (the pointer moves what
-  is under it); `animate_to` eases in and out over `TRANSITION_DURATION`, and `glide_to` eases out
-  only over the shorter `GLIDE_DURATION`, so it moves at once and a key held down, each repeat
-  gliding on from the last destination, follows smoothly instead of restarting from rest.
+  `pan` and `zoom` apply them to the shown viewpoint and end any transition; `animate_to` eases in
+  and out over `TRANSITION_DURATION`, and `glide_to` eases out only over the shorter
+  `GLIDE_DURATION`, so a key held down, each repeat gliding on from the last destination, follows
+  smoothly instead of restarting from rest.
 - `Camera::destination_view` and `view_from` build a `View` for the destination or any viewpoint
-  with the projection resolved against that viewpoint, so a fit or a look at a face started during
-  a turn into a standard view is fitted in the projection it will end in.
-- The input mode (`preferences::InputMode`, chosen in Preferences › Navigation) is caditor, the
-  mouse scheme above, or Laptop, for a touchpad: two-finger scroll orbits, Alt and scroll pans (egui
-  turns Shift and scroll into horizontal-only scrolling, so Alt keeps both axes), pinch and
-  Ctrl+scroll zoom, and Alt-drag orbits and Shift+Alt-drag pans, the Alt press never starting a
-  selection. Alt pressed once a primary drag has begun in the sketch (a grab, a box, a shape drawn
-  by press and drag) leaves the drag to it, where Alt holds the snap (`app-sketching.md`). Fusion 360 (middle-drag pans, Shift+middle-drag orbits), FreeCAD (its CAD style:
-  middle-drag pans, the middle button held with the left or right one orbits) and Blender
-  (middle-drag orbits, Shift+middle-drag pans, Ctrl+middle-drag zooms) follow those programs;
-  every mode keeps right-drag orbiting and Shift+right-drag panning, the wheel zooms, and a primary
-  drag with the middle button held never starts a selection (`viewport::drag_motion`). Invert
-  zoom turns the wheel and Blender's Ctrl+middle-drag round alike (`viewport::zoom_factor`). A
-  middle-button double-click fits the view in every mode, since none gives it another use. The
-  canvas hint at the bottom right is the mode's `InputMode::navigation_hint`.
+  with the projection resolved against that viewpoint, so a fit started during a turn into a
+  standard view is fitted in the projection it will end in.
+- The input mode (`preferences::InputMode`, Preferences › Navigation) is caditor (the mouse scheme
+  above) or Laptop (touchpad): two-finger scroll orbits, Alt and scroll pans (egui turns Shift and
+  scroll into horizontal-only scrolling, so Alt keeps both axes), pinch and Ctrl+scroll zoom,
+  Alt-drag orbits and Shift+Alt-drag pans, the Alt press never starting a selection. Alt pressed
+  once a primary drag has begun in the sketch leaves the drag to it, where Alt holds the snap
+  (`app-sketching.md`). Fusion 360 (middle-drag pans, Shift+middle-drag orbits), FreeCAD (CAD style:
+  middle-drag pans, middle held with left or right orbits) and Blender (middle-drag orbits,
+  Shift+middle-drag pans, Ctrl+middle-drag zooms) follow those programs; every mode keeps
+  right-drag orbiting and Shift+right-drag panning, the wheel zooms, and a primary drag with the
+  middle button held never starts a selection (`viewport::drag_motion`). Invert zoom turns the wheel
+  and Blender's Ctrl+middle-drag round alike (`viewport::zoom_factor`). A middle-button double-click
+  fits the view in every mode. The canvas hint at the bottom right is
+  `InputMode::navigation_hint`.

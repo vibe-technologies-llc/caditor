@@ -8,10 +8,9 @@ paths:
 
 - Own B-rep kernel, no truck or OpenCascade; depends only on `caditor-geometry`.
 - `caditor-geometry` is the f64 vocabulary under it and every crate above: `glam` aliases
-  (`Point3`, `Vector3`, `Rotation3`), `Plane` (an origin, a normal and an x axis, orthonormal),
-  `Ray`, `Aabb` and `Aabb2`, `RigidTransform` and `RigidTransform2`, and `Similarity` (a rigid
-  motion with a scale and an optional mirror). Its only tolerances keep frames orthonormal; model
-  tolerances are the kernel's.
+  (`Point3`, `Vector3`, `Rotation3`), `Plane` (origin, normal, x axis, orthonormal), `Ray`, `Aabb`,
+  `Aabb2`, `RigidTransform`, `RigidTransform2` and `Similarity` (rigid motion with a scale and an
+  optional mirror). Its only tolerances keep frames orthonormal; model tolerances are the kernel's.
 - Operations return a valid solid or an error naming what failed; iterations are bounded and
   constructors reject non-finite and degenerate input with a `GeometryError` each.
 - `LINEAR_RESOLUTION` is the one absolute length tolerance; `ANGULAR_RESOLUTION` moves a point at
@@ -23,15 +22,15 @@ paths:
 - `interruptible(interrupt, work)` installs a per-thread check; every loop that can run long polls
   `interrupt::check`. A new long loop must poll.
 - Each operation's error has a `Cancelled` variant, and a nested cancellation becomes the outer
-  one's (a cancelled pcurve fit is `BuildError::Cancelled`, not a missing pcurve or a split
-  failure). A boolean, shell or blend failing for any reason while its interrupt is set reports
-  `Cancelled` (`BuildError::interrupted` covers validation).
+  one's (a cancelled pcurve fit is `BuildError::Cancelled`, not a missing pcurve). A boolean, shell
+  or blend failing for any reason while its interrupt is set reports `Cancelled`
+  (`BuildError::interrupted` covers validation).
 - A classification or `first_crossing` whose ray intersection is cancelled answers `Undecided` at
-  once rather than trying the other directions; its caller's next poll reports the cancel.
+  once; its caller's next poll reports the cancel.
 - The document installs its `CancelToken` around evaluation and meshing; export around meshing and
   STEP writing; import around reading STEP and meshes. `check_interrupt` lets a crate above the
-  kernel poll the same check (the STEP reader polls it per solid), and `current_interrupt` lets
-  work it fans out to other threads install the same check there.
+  kernel poll the same check, and `current_interrupt` lets work fanned out to other threads
+  install it there.
 
 ## Curves and surfaces
 
@@ -39,59 +38,48 @@ paths:
   Lines run by arc length, circles and ellipses by angle in a `Plane` frame, splines over their
   knots; reversal maps t to `reversal_pivot() - t`.
 - `CurveDerivatives::curvature` (and `Curve::curvature`) is the curvature vector: towards the
-  centre of curvature, of length one over the radius, zero on a line, `None` where the curve stops
-  (zero speed). An intersection curve's is its Hermite segments', so only approximate.
+  centre, length one over the radius, zero on a line, `None` at zero speed. An intersection
+  curve's is its Hermite segments', so approximate.
 - Closest points and `project` take a hint: the search refines near it first and samples the whole
-  range only when that foot is not within the resolution, so chained projections stay cheap, and
-  the hint's foot is kept unless another is closer by more than the resolution, so self-crossing
-  profiles project consistently. The whole-range search on a spline of at least `MIN_PRUNED_SPANS`
-  spans samples only the runs of spans whose control hull comes no farther than the nearest any
-  hull reaches (`BSpline::nearby_runs`), and an extrusion or revolution whose profile has at least
-  `MIN_INDEXED_SPANS` spans keeps a box tree of its span hulls (flattened across an extrusion's
-  direction, `surface/profile_spans.rs`), so projecting onto a profile of thousands of control
-  points visits a handful of spans. An intersection curve of at least `MIN_INDEXED_SEGMENTS` node
-  segments in the range searches the same way over a box tree of the segments' hulls, and keeps
-  the length travelled to each node, so its length is a difference and two partial integrals;
-  both are built on first use and shared by clones, so projecting each vertex along a marched
-  branch of thousands of nodes visits a handful of segments.
-  Surface `project` returns the periodic representative nearest the hint, else the principal one in
-  [0, period). A spline surface seeds from a grid of three samples per knot span, capped at 48 a
-  direction; a net with more spans than that also keeps a box tree of each span's control hull, and
-  a point no seed reaches within the resolution is sought from the nearest of a few samples in each
-  span whose hull holds it (at most `MAX_SPAN_SEARCHES`), so a point on a dense, rough net always
-  finds its foot. Each refining step is Newton on the squared distance, falling back to
-  Gauss–Newton when the Hessian is not positive definite; a one-direction step is taken only when
-  the other direction's term is zero, never when it is negative, which left a projection stuck on a
-  spline's corner where the side curved back from the point (the VZ330 latch's 0.054 mm "gap").
-- Splines reach `MAX_SPLINE_DEGREE` (25, as OpenCascade allows). Evaluation keeps its basis tables
-  on the stack at the width the degree needs (`CUBIC_WIDTH` up to cubic, `NARROW_WIDTH` up to
-  degree 9, `WIDE_WIDTH` above), so the common cubic never zeroes a table sized for degree 25.
-- `BSpline::interpolating` passes a clamped spline through points at chord-length parameters with
-  averaged knots (a banded solve, no pivoting, as the collocation matrix is totally positive);
-  `BSpline::interpolating_at` does the same at given increasing parameters, so rows of a grid
-  share their knots (the STEP reader's fitted offsets).
-- `BSpline::restricted` is the exact piece of a spline over a range, by knot insertion in
-  homogeneous coordinates; drawing export writes a trimmed spline edge with it.
-  `BSplineSurface::restricted` is the same over a uv box, `side` gives a side as a curve, and
-  `extended_evaluate` continues the boundary spans' polynomials past the domain, for closest points
-  that must not clamp. `BSplineSurface::extended` makes that continuation a surface of its own: each
-  open side not a pole, nor within a given distance of its opposite side, grows by a fraction of its
-  boundary span (an end span made Bézier by knot insertion, then de Casteljau past its end in
-  homogeneous coordinates), shrinking the reach while a weight would turn non-positive.
-- `BSplineSurface::bent_side` refits one side of a spline surface (`SideBend`): the side curve, with
-  the requested knots (snapped to an existing one within `KNOT_SNAP` of a span) and a C0 knot at
-  each interior pin, is fitted by banded least squares to sampled `BendTarget`s, pins and held
-  corners fixed and the displacement slightly smoothed; spans missing a strict target are halved for
-  up to `MAX_REFINEMENTS` rounds and `MAX_SIDE_CONTROL_POINTS`. The knots join the whole surface, so
-  only the side row moves and the surface changes only across its first span from the side. A
-  linear side is raised to cubic first; a seam, pole or closed side is `BendError::Unbendable`.
-- Lengths are compared through `is_longer_than` (the chord, then a polyline through the seeds, and
-  only then the integral) and capped with `length_up_to`, which stops once past the cap; building,
-  validation, imprinting and profile arrangement never measure a whole spline to compare it with a
-  tolerance. Tracing needs only a scale for its chord probes, so it bounds the candidates at a
-  vertex by the polyline through their seeds (`polyline_length_up_to`, within a fraction of a
-  percent of a spline's length and polling every `SEEDS_PER_POLL` seeds), shortest chord first,
-  each capped by the shortest so far.
+  range only when that foot is not within the resolution; the hint's foot is kept unless another is
+  closer by more than the resolution, so self-crossing profiles project consistently.
+- Whole-range searches are pruned by box trees, built on first use and shared by clones: a spline
+  of at least `MIN_PRUNED_SPANS` spans samples only runs of spans whose control hull comes no
+  farther than the nearest any hull reaches (`BSpline::nearby_runs`); an extrusion or revolution
+  whose profile has at least `MIN_INDEXED_SPANS` spans indexes its span hulls
+  (`surface/profile_spans.rs`); an intersection curve of at least `MIN_INDEXED_SEGMENTS` node
+  segments indexes its segments' hulls and keeps the length travelled to each node, so its length
+  is a difference and two partial integrals.
+- Surface `project` returns the periodic representative nearest the hint, else the principal one in
+  [0, period). A spline surface seeds from three samples per knot span (capped at 48 a direction);
+  a net with more spans also keeps a box tree of span hulls, and a point no seed reaches within the
+  resolution is sought from a few samples in each span whose hull holds it (at most
+  `MAX_SPAN_SEARCHES`). Refining is Newton on the squared distance, Gauss–Newton when the Hessian
+  is not positive definite; a one-direction step is taken only when the other direction's term is
+  zero, never negative (that stuck projections on a spline's corner).
+- Splines reach `MAX_SPLINE_DEGREE` (25). Evaluation keeps its basis tables on the stack at the
+  width the degree needs (`CUBIC_WIDTH`, `NARROW_WIDTH` up to degree 9, `WIDE_WIDTH`).
+- `BSpline::interpolating` passes a clamped spline through points at chord-length parameters
+  (banded solve, no pivoting); `interpolating_at` does it at given increasing parameters so grid
+  rows share knots (the STEP reader's fitted offsets).
+- `BSpline::restricted` is the exact piece over a range, by knot insertion in homogeneous
+  coordinates (drawing export uses it). `BSplineSurface::restricted` is the same over a uv box,
+  `side` gives a side as a curve, `extended_evaluate` continues the boundary spans' polynomials past
+  the domain for closest points that must not clamp, and `extended` makes that continuation a
+  surface: each open side not a pole, nor within a given distance of its opposite, grows by a
+  fraction of its boundary span, shrinking the reach while a weight would turn non-positive.
+- `BSplineSurface::bent_side` refits one side (`SideBend`): the side curve, with the requested
+  knots (snapped to an existing one within `KNOT_SNAP`) and a C0 knot at each interior pin, is
+  fitted by banded least squares to sampled `BendTarget`s, pins and held corners fixed and the
+  displacement smoothed; spans missing a strict target are halved up to `MAX_REFINEMENTS` rounds and
+  `MAX_SIDE_CONTROL_POINTS`. Only the side row moves, so the surface changes only across its first
+  span from the side. A linear side is raised to cubic first; a seam, pole or closed side is
+  `BendError::Unbendable`.
+- Lengths are compared through `is_longer_than` (chord, then seed polyline, then the integral) and
+  capped with `length_up_to`; building, validation, imprinting and profile arrangement never
+  measure a whole spline to compare it with a tolerance. Tracing bounds candidates at a vertex by
+  the seed polyline (`polyline_length_up_to`, polling every `SEEDS_PER_POLL` seeds), shortest chord
+  first, each capped by the shortest so far.
 - `Curve::Intersection(IntersectionCurve)` lies on two surfaces it carries, within
   `INTERSECTION_TOLERANCE`. `IntersectionCurve::through` rebuilds one from rough points (an
   imported edge off its faces) and is the only path that follows surfaces that merely touch (a
@@ -103,79 +91,70 @@ paths:
 - u is the angle around the frame normal on rotational surfaces; v: cone slant distance from its
   reference circle, sphere latitude, torus tube angle, revolution profile parameter; an extrusion
   is (profile parameter, distance). du × dv points outward on every elementary surface.
-- A `Torus` takes any positive radii: a tube wider than its ring radius is a spindle torus, whose
-  points past the axis (ring radius plus tube term negative) are the self-crossing lemon. Faces on
-  one stay on the outer side, clear of the axis, where the parametrization, normal and projection
-  are those of a ring torus; `revolve` makes one only for an arc that stays clear of its axis, and
-  the coaxial intersection skips the meridian points past the axis.
+- A `Torus` takes any positive radii: a tube wider than its ring radius is a spindle torus whose
+  points past the axis are the self-crossing lemon. Faces on one stay on the outer side, where
+  parametrization, normal and projection are a ring torus's; `revolve` makes one only for an arc
+  clear of its axis, and the coaxial intersection skips meridian points past the axis.
 - A `Revolution`'s profile must lie in a plane through its axis, else
   `GeometryError::ProfileOutsideMeridian` (`project_seed` relies on it; STEP import refuses a skew
   `SURFACE_OF_REVOLUTION` with it).
 - `same_surface` gives the `Sense` between coincident surfaces' normals: analytic for elementary
-  pairs, sampled for an extrusion, revolution or spline: a 7×7 grid, plus for a spline surface one
-  sample per control point at its Greville abscissae (at most 64 a direction), so a bump of one
-  control point cannot hide between samples.
+  pairs, sampled for an extrusion, revolution or spline (7×7 grid, plus for a spline surface one
+  sample per control point at its Greville abscissae, at most 64 a direction, so one control
+  point's bump cannot hide).
 
 ## Topology
 
 - A `Solid` is an arena of typed ids built by `SolidBuilder::build`, which validates. An importer
   whose geometry does not validate may still mesh what it built (`SolidBuilder::unvalidated_mesh`,
-  a `FaceMesh` naming the face of each triangle) to pass to `faceted_solids`; the unvalidated
-  arena itself never leaves the builder.
+  a `FaceMesh` naming the face of each triangle) for `faceted_solids`; the unvalidated arena never
+  leaves the builder.
 - A coedge's pcurve is a uv polyline carrying each sample's edge parameter, exact ends, chords
   within its tolerance in space, continuous across seams. A fitted pcurve's tolerance is
-  `PCURVE_TOLERANCE`, or half of how far the edge bows from the chord between its ends when that is
-  less (never below `LINEAR_RESOLUTION`), so a short arc that is nearly straight keeps an interior
-  sample and never collapses onto a straight edge between the same vertices.
-- Geometry data is shared, never copied: a pcurve's samples and a spline curve's knots, control
-  points and weights are `Arc` slices (as a spline surface's net and an intersection curve's
-  nodes are), so cloning a coedge, edge or face is a pointer copy and successive solids share what
-  an operation did not change. Anything producing a changed copy builds new data; one that would
-  change nothing hands back the same data (`Pcurve::with_ends` and `shifted` at the same ends or
-  no shift, `refined_within` that inserts no sample, `BSpline::map_points` and `with_points`
-  keeping the knots and weights, `Solid::mapped` keeping every pcurve whose edge and uv maps are
-  identities, as a turn's or a shift's are). `Solid::approximate_size` counts shared data in full
-  in each solid holding it; `owned_size` is the solid's own arrays and `shared_buffers` reports
-  each `Arc` it reaches (pcurve samples, spline knots, points and weights, a spline surface's
-  net, grid and span index, an intersection curve's surfaces, nodes and index, a swept surface's
-  span index) as a `SharedBuffer` of address and bytes, so a caller holding many solids can count
-  each buffer once.
+  `PCURVE_TOLERANCE`, or half of how far the edge bows from the chord between its ends when less
+  (never below `LINEAR_RESOLUTION`), so a nearly straight short arc keeps an interior sample.
+- Geometry data is shared, never copied: pcurve samples, spline knots, control points and weights,
+  a spline surface's net and an intersection curve's nodes are `Arc` slices, so cloning is a
+  pointer copy and successive solids share what an operation did not change. Anything producing a
+  changed copy builds new data; one that would change nothing hands back the same data
+  (`Pcurve::with_ends` and `shifted`, `refined_within` inserting no sample, `BSpline::map_points`
+  and `with_points` keeping knots and weights, `Solid::mapped` keeping every pcurve whose edge and
+  uv maps are identities). `Solid::approximate_size` counts shared data in full in each solid
+  holding it; `owned_size` is the solid's own arrays and `shared_buffers` reports each reached
+  `Arc` as a `SharedBuffer` of address and bytes, so a caller holding many solids counts each
+  buffer once.
 - A face's first loop is its outer one; loops run counter-clockwise about the face normal. A face
   wrapping a periodic surface has a seam edge used twice in its loop, opposite senses, one period
   apart in uv.
 - Poles have no degenerate edges: the pole is a vertex, the uv loop closes along the pole line
   between the two coedges meeting there, and a pcurve end at a pole takes its v exactly. A seam
-  that runs out to a pole and straight back in the middle of a loop (a screw's cone tip, the rest
-  of the loop winding once round) has its return set one period over and the coedges after it in
-  the loop carried along (`SolidBuilder::align_seams`), so the loop closes where it started.
-
-- `Solid::bounding_box` is a bound, not an estimate: the box of the edges and vertices, widened by
-  each doubly curved face's interior extremes. A sphere's and a torus's extremes along each axis
-  are closed-form (`torus_extremes`: centre ± major radius along the axis's part across the torus
-  ± minor radius along the axis) and count when inside the face; every other extreme of those
-  faces lies on an edge. A torus whose axis is the box axis has a ring of extremes, sampled
-  (`RING_SAMPLES`). Revolution and spline faces add `patch_bounds` of their uv box, which may be
-  loose but never short. `interference` answers `Apart` from this box, so it must never fall short.
+  that runs out to a pole and straight back mid-loop (a screw's cone tip) has its return set one
+  period over and the later coedges carried along (`SolidBuilder::align_seams`).
+- `Solid::bounding_box` is a bound, not an estimate: the box of edges and vertices, widened by each
+  doubly curved face's interior extremes. Sphere and torus extremes are closed-form
+  (`torus_extremes`) and count when inside the face; every other extreme of those faces lies on an
+  edge. A torus whose axis is the box axis has a ring of extremes, sampled (`RING_SAMPLES`).
+  Revolution and spline faces add `patch_bounds` of their uv box (loose, never short).
+  `interference` answers `Apart` from this box, so it must never fall short.
 
 ## Transforms (`mapping.rs`, `topology/mapping.rs`)
 
-- `RigidTransform` moves geometry and leaves every parameter alone (`transformed`); a
-  `Similarity` (rotation, optional mirror, uniform scale, translation) goes through
-  `Solid::mapped`, which keeps every face, edge and vertex name and returns a validated solid or a
-  `TransformError`.
+- `RigidTransform` moves geometry and leaves every parameter alone (`transformed`); a `Similarity`
+  goes through `Solid::mapped`, which keeps every face, edge and vertex name and returns a
+  validated solid or a `TransformError`.
 - Each curve and surface maps with an affine change of its parameters: lines and intersection
   curves run by length, so their parameters scale; a mirrored circle or ellipse flips its frame
   normal to keep its parameter; a mirrored plane negates v and a mirrored rotational surface turns u
-  back (`2π − u`), so du × dv stays outward on elementary surfaces. A face whose uv map keeps its
-  orientation under a mirror (extrusions and spline surfaces) reverses its sense instead.
+  back (`2π − u`), so du × dv stays outward. A face whose uv map keeps its orientation under a
+  mirror (extrusions, spline surfaces) reverses its sense instead. A mirror reverses every loop:
+  coedge order, senses and pcurve samples.
 - `Curve::similar` and `Surface::similar` map one curve or surface by a `Similarity`; the surface
   comes with the `Sense` of its normal against the mapped parameterisation's (`Reversed` when the
   uv map turns orientation, so a STEP `SURFACE_REPLICA` face flips its sense).
-- A mirror reverses every loop: coedge order, coedge senses and pcurve samples.
-- Enlarging re-traces every intersection edge and any other edge that drifts beyond
-  `INTERSECTION_TOLERANCE` from its faces (`IntersectionCurve::through`, ends pinned to the
-  vertices) and refits its pcurves; other pcurves are refined back to `PCURVE_TOLERANCE`. A vertex
-  beyond `MAX_SIZE` or a shrunk edge shorter than the resolution is refused.
+- Enlarging re-traces every intersection edge and any edge drifting beyond `INTERSECTION_TOLERANCE`
+  from its faces (`IntersectionCurve::through`, ends pinned to the vertices) and refits its
+  pcurves; other pcurves are refined back to `PCURVE_TOLERANCE`. A vertex beyond `MAX_SIZE` or a
+  shrunk edge shorter than the resolution is refused.
 
 ## Validation
 
@@ -183,26 +162,24 @@ paths:
   and returns the first `ValidationError` with ids. Non-obvious checks:
   - Euler–Poincaré per shell, each fan of faces at a vertex counting as one vertex, so a pinched
     shell has the characteristic of the surface it pinches;
-  - an edge used twice by one face only as a seam, its two pcurves apart in the domain (a dangling
-    slit otherwise);
+  - an edge used twice by one face only as a seam, its two pcurves apart in the domain;
   - positive volume per lump, each void inside exactly one lump, lumps neither overlapping,
     nesting nor coinciding.
 - Volume checks mesh coarsely, sized by the box of edges and vertices (never the classifier-based
   `bounding_box`), retrying finer (`VALIDATION_COARSENESS`) before reporting a void outside its
   lump, an empty shell (a thin lens is empty on a coarse mesh) or lumps that overlap or coincide.
-- Lumps (`topology/lumps.rs`) are checked by probes exactly on each shell: the material depth of
-  the other shells (outward +1, voids −1, by mesh parity) must be 0 on a lump and 1 on a void. A
-  probe within `DEVIATION_ALLOWANCE` times the mesh deviation of another shell is touching and
-  decides nothing, so lumps touching at a point, line or face validate; an overlap shallower than
-  that band or narrower than the probe spacing is not seen. A shell's nearest triangle and its ray
-  parity come from a box tree of its triangles (`TriangleIndex`, boxes widened to every triangle a
-  ray may cross or graze), so the up to `MAX_PROBES` probes against a fine retry's tens of thousands
-  of triangles stay cheap; each probe polls the interrupt.
+- Lumps (`topology/lumps.rs`) are checked by probes exactly on each shell: the material depth of the
+  other shells (outward +1, voids −1, by mesh parity) must be 0 on a lump and 1 on a void. A probe
+  within `DEVIATION_ALLOWANCE` times another shell's mesh deviation is touching and decides
+  nothing, so lumps touching at a point, line or face validate; an overlap shallower than that band
+  or narrower than the probe spacing is not seen. Nearest triangle and ray parity come from a box
+  tree (`TriangleIndex`, boxes widened to every triangle a ray may cross or graze) so up to
+  `MAX_PROBES` probes stay cheap on fine retries; each probe polls the interrupt.
 - Validation never intersects faces with each other, since every build runs it; `find_crossing`
   does, for importers.
-- A coedge a builder marks settled (`SolidBuilder::settle`, from `PlanPcurve::Settled`) was
-  carried with its edge curve, interval, face surface and pcurve unchanged from a valid solid, so
-  its geometry check against the edge is skipped; nothing else is.
+- A coedge a builder marks settled (`SolidBuilder::settle`, from `PlanPcurve::Settled`) was carried
+  unchanged (edge curve, interval, face surface, pcurve) from a valid solid, so its geometry check
+  against the edge is skipped; nothing else is.
 
 ## `Solid::find_crossing` (for importers)
 
@@ -212,28 +189,26 @@ paths:
 - Edges of one face are intersected with each other; face pairs with overlapping boxes
   (`box_tree.rs`) are intersected, a branch point strictly inside both faces being a `Crossing`
   (neighbours share the known branch, so their other edges are tested against the other face).
-- Past `PAIRS_PER_THREAD` pairs a thread the face pairs are probed in parallel (`probed`, scoped
-  threads with the caller's interrupt), each worker taking the next pair in order and none taking a
-  pair beyond the first crossing found so far, so the answer is the sequential one: the first
-  crossing in pair order, else the first inconclusive pair. A STEP part of a few hundred faces
-  whose boxes all overlap (a lead screw's thread) is the case it serves.
+- Past `PAIRS_PER_THREAD` pairs a thread, pairs are probed in parallel (`probed`, scoped threads
+  with the caller's interrupt), each worker taking the next pair in order and none taking one beyond
+  the first crossing found so far, so the answer is the sequential one: first crossing in pair
+  order, else the first inconclusive pair. A lead screw's thread is the case it serves.
 
 ## Faceted solids (`faceted/`)
 
 - `faceted_solids` turns a triangle mesh into one solid per closed shell. It welds vertices on a
   grid of a billionth of the diagonal, drops degenerate and repeated triangles, closes holes of up
-  to `MAX_FILLED_HOLE_EDGES` edges by a fan, turns triangles to agree with their neighbours and
-  shells inside out the right way, and leaves out open, self-folding and empty shells and a shell
-  inside out within a larger one (a sealed hollow), counting each in `MeshRepairs`.
-- Edge-joined triangles whose normals agree and whose corners lie within the noise of the
-  coordinates' magnitude of the first one's plane become one planar face; each corner shared by
-  such faces is moved to the least-squares point on their fitted planes, so every edge lies within
-  `LINEAR_RESOLUTION` of its faces. A face whose corners cannot be placed, whose boundary pinches
-  or has no single outer loop is split back into triangles; after `MERGE_ATTEMPTS`, or when the
-  build fails, the shell keeps all its triangles. A corner on a straight edge between two such
-  faces is left out, so a box imports with 12 edges. More than `MAX_FACETED_FACES` faces in all is
-  refused. `FacetedSolids::sources` lists, per solid and face, the input triangles the face was
-  made of (fans closing holes have none).
+  to `MAX_FILLED_HOLE_EDGES` edges by a fan, orients triangles and shells consistently, and leaves
+  out open, self-folding and empty shells and a shell inside out within a larger one (a sealed
+  hollow), counting each in `MeshRepairs`.
+- Edge-joined triangles with agreeing normals and corners within coordinate-magnitude noise of the
+  first one's plane become one planar face; each shared corner moves to the least-squares point on
+  the fitted planes, so every edge lies within `LINEAR_RESOLUTION` of its faces. A face whose
+  corners cannot be placed, whose boundary pinches or has no single outer loop is split back into
+  triangles; after `MERGE_ATTEMPTS`, or when the build fails, the shell keeps all its triangles. A
+  corner on a straight edge between two such faces is left out, so a box imports with 12 edges.
+  More than `MAX_FACETED_FACES` faces in all is refused. `FacetedSolids::sources` lists, per solid
+  and face, the input triangles it was made of (hole-closing fans have none).
 
 ## Measuring (`measure/`)
 
@@ -245,28 +220,25 @@ paths:
   (sketch geometry, measured like an edge; `curve_measure` gives its length and circle form), an
   unbounded `Axis` or an unbounded `Plane`. Axis–axis, axis–plane and plane–plane are closed form.
   Against anything bounded, an axis is the segment over the projection of the other element's
-  bounds (where the closest point on the line must lie, so still exact for straight geometry), and
-  a plane is a face that contains every point and has no edges, kept second in a face pair so the
-  bounded face seeds the search.
+  bounds, and a plane is a face that contains every point and has no edges, kept second in a face
+  pair so the bounded face seeds the search.
 - `mass_properties` (`measure/mass.rs`) integrates area, volume and first and second moments
-  exactly over each trimmed face, whatever its surface: the divergence theorem turns each into a
-  surface integral, and Green's theorem in the face's uv domain into a line integral along its
-  coedges of a strip integral across u from the middle of the face's u range (`∮ H dv`, so edges
-  of constant v and the pole lines closing a loop contribute nothing). Each boundary point is the
-  edge's exact point projected onto the surface with the pcurve as hint, its dv/dt from the
-  surface's Jacobian. Both integrals are adaptive Gauss–Kronrod (`quadrature.rs`, 15 points,
-  bisecting a piece until its 7-point error is within a relative tolerance of its own magnitude
-  or an absolute floor scaled to the body), broken at quarter turns, curve and surface knots and
-  where a boundary crosses a knot line (found by bisection), so each piece is smooth and a
-  polynomial spline's strip is exact at once. Values are about the centre of the box of edges,
-  which keeps second moments from cancelling. A face that does not converge within
-  `FACE_EVALUATIONS`, or meets a non-finite value, takes its mesh triangles instead and is listed
-  in `SolidMass::meshed_faces`; nothing depends on the mesh otherwise.
-  `mass_properties_tessellating` takes a sampling tolerance instead of a mesh and tessellates the
-  solid only when some face does not converge (a failed tessellation is `MeasureError::Meshing`).
-  `face_area` is the same integral for one face (`None` when it gives up).
-- `extent` is the tight box, not a bound like `Solid::bounding_box`: vertices, conic edges' closed
-  form extremes, spline and intersection edges' critical points along each axis (bisection and
-  Newton between samples), sphere and torus extremes inside their faces, and for revolution and
-  spline faces whose hull reaches past that box, a monotone Newton ascent from the grid's local
-  peaks along each axis, kept when inside the face.
+  exactly over each trimmed face: the divergence theorem gives a surface integral, and Green's
+  theorem in the face's uv domain a line integral along its coedges of a strip integral across u
+  from the middle of the u range (`∮ H dv`, so edges of constant v and pole lines contribute
+  nothing). Each boundary point is the edge's exact point projected onto the surface with the
+  pcurve as hint, its dv/dt from the surface's Jacobian. Both integrals are adaptive Gauss–Kronrod
+  (`quadrature.rs`, 15 points, bisecting until the 7-point error is within a relative tolerance of
+  its own magnitude or an absolute floor scaled to the body), broken at quarter turns, curve and
+  surface knots and where a boundary crosses a knot line, so each piece is smooth. Values are about
+  the centre of the box of edges, which keeps second moments from cancelling. A face that does not
+  converge within `FACE_EVALUATIONS`, or meets a non-finite value, takes its mesh triangles instead
+  and is listed in `SolidMass::meshed_faces`.
+  `mass_properties_tessellating` takes a sampling tolerance and tessellates only when some face does
+  not converge (failure is `MeasureError::Meshing`). `face_area` is the same integral for one face
+  (`None` when it gives up).
+- `extent` is the tight box, not a bound like `Solid::bounding_box`: vertices, conic edges'
+  closed-form extremes, spline and intersection edges' critical points along each axis, sphere and
+  torus extremes inside their faces, and for revolution and spline faces whose hull reaches past
+  that box, a monotone Newton ascent from the grid's local peaks along each axis, kept when inside
+  the face.
