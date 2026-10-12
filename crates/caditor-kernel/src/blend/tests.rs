@@ -1404,9 +1404,48 @@ fn rounded_tray_volume([length, width, height]: [f64; 3], corner: f64, rim: f64)
     (length * width - (4.0 - PI) * corner * corner) * height - spandrel(rim) * rim_path
 }
 
+fn removed_by_corner_chamfer(height: f64, rim: f64, corner: f64) -> f64 {
+    let within_rim = rim.min(corner / 2.0);
+    (height - rim) * corner * corner / 2.0
+        + (corner.powi(3) - (corner - 2.0 * within_rim).powi(3)) / 12.0
+}
+
+fn assert_volume(name: &str, solid: &Solid, expected: f64) {
+    assert_eq!(solid.validate(), Ok(()), "{name}");
+    assert_watertight(name, &solid.tessellate(&solid.default_tolerance()).unwrap());
+    let found = volume(solid);
+    assert!(
+        (found - expected).abs() <= 1e-6 * expected,
+        "{name}: volume {found} instead of {expected}"
+    );
+}
+
 #[test]
-#[ignore = "roadmap: an edge ending at a corner two earlier blends share cannot be blended"]
-fn vertical_edges_are_rounded_after_the_top_rim_is_chamfered() {
+fn an_edge_ending_where_two_earlier_chamfers_meet_is_chamfered_up_to_them() {
+    let body = cuboid(Vector3::new(10.0, 8.0, 6.0));
+    let top_edges = [
+        edge_through(&body, (5.0, 0.0, 6.0)),
+        edge_through(&body, (10.0, 4.0, 6.0)),
+    ];
+    let chamfered = run(&body, &top_edges, BlendShape::Chamfer { distance: 1.0 });
+    let corner = edge_through(&chamfered, (10.0, 0.0, 3.0));
+    let before = volume(&chamfered);
+
+    for distance in [0.5, 1.5, 3.0] {
+        let result = run(&chamfered, &[corner], BlendShape::Chamfer { distance });
+        let name = format!("corner chamfer {distance}");
+
+        assert_volume(
+            &name,
+            &result,
+            before - removed_by_corner_chamfer(6.0, 1.0, distance),
+        );
+        assert_eq!(blend_faces(&result).len(), 3, "{name}");
+    }
+}
+
+#[test]
+fn vertical_edges_are_blended_after_the_top_rim_is_chamfered() {
     let body = cuboid(Vector3::new(40.0, 30.0, 20.0));
     let rim = edges_where(&body, |middle| (middle.z - 20.0).abs() < 1e-9);
     let chamfered = run(&body, &rim, BlendShape::Chamfer { distance: 1.0 });
@@ -1414,8 +1453,49 @@ fn vertical_edges_are_rounded_after_the_top_rim_is_chamfered() {
         .into_iter()
         .map(|(x, y)| edge_through(&chamfered, (x, y, 10.0)))
         .collect();
+    let before = volume(&chamfered);
+    let below_rim = before - 4.0 * 19.0 * spandrel(3.0);
 
-    let rounded = blend(&chamfered, &corners, fillet(3.0), 51);
+    let bevelled = run(&chamfered, &corners, BlendShape::Chamfer { distance: 1.5 });
+    let rounded = run(&chamfered, &corners, fillet(3.0));
+    let rounded_volume = volume(&rounded);
 
-    assert!(rounded.is_ok(), "{rounded:?}");
+    assert_volume(
+        "bevelled",
+        &bevelled,
+        before - 4.0 * removed_by_corner_chamfer(20.0, 1.0, 1.5),
+    );
+    assert_eq!(rounded.validate(), Ok(()));
+    assert!(
+        rounded_volume < below_rim && rounded_volume > below_rim - 4.0 * spandrel(3.0),
+        "rounded: volume {rounded_volume} beside {below_rim}"
+    );
+}
+
+#[test]
+fn an_inside_corner_whose_floor_edges_were_chamfered_is_chamfered_down_to_them() {
+    let pocketed = boolean(
+        &block_at((0.0, 0.0, 0.0), (10.0, 10.0, 10.0), 1),
+        &block_at((3.0, 3.0, 6.0), (4.0, 4.0, 4.0), 2),
+        BooleanOperation::Difference,
+    )
+    .unwrap();
+    let floor = edges_where(&pocketed, |middle| {
+        (middle.z - 6.0).abs() < 1e-9 && (3.0..=7.0).contains(&middle.x)
+    });
+    let filled = run(&pocketed, &floor, BlendShape::Chamfer { distance: 0.5 });
+    let walls: Vec<EdgeId> = [(3.0, 3.0), (7.0, 3.0), (7.0, 7.0), (3.0, 7.0)]
+        .into_iter()
+        .map(|(x, y)| edge_through(&filled, (x, y, 8.0)))
+        .collect();
+    let before = volume(&filled);
+
+    let result = run(&filled, &walls, BlendShape::Chamfer { distance: 0.75 });
+
+    assert_eq!(floor.len(), 4);
+    assert_volume(
+        "inside corners",
+        &result,
+        before + 4.0 * removed_by_corner_chamfer(4.0, 0.5, 0.75),
+    );
 }

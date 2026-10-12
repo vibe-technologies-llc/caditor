@@ -788,16 +788,20 @@ fn end_at(
         return Ok((End::Flush, None));
     }
     let own: BTreeSet<FaceId> = geometry.faces.into_iter().collect();
-    let others: BTreeSet<FaceId> = topology
+    let others: Vec<FaceId> = topology
         .edges_at(vertex)
         .iter()
         .flat_map(|other| face_set(solid, *other))
         .filter(|face| !own.contains(face))
+        .collect::<BTreeSet<FaceId>>()
+        .into_iter()
         .collect();
-    let [end_face] = others.into_iter().collect::<Vec<_>>()[..] else {
-        return Err(refused);
-    };
     let point = solid.vertex(vertex).ok_or(refused.clone())?.point();
+    let [end_face] = others[..] else {
+        return out_through_corner(around, geometry, vertex, point, out, &others, reach)
+            .map(|end| (end, None))
+            .ok_or(refused);
+    };
     let normal = face_normal(solid, end_face, point).ok_or(refused.clone())?;
     let cosine = normal.dot(out);
     let planar = is_planar(solid, end_face);
@@ -811,7 +815,7 @@ fn end_at(
     if cosine.abs() < SHALLOWEST_END {
         return Err(refused);
     }
-    let extension = reach * ((1.0 - cosine * cosine).max(0.0).sqrt() / cosine.abs() + END_MARGIN);
+    let extension = extension_past(cosine, reach);
     if free {
         return Ok((End::Extended(extension), Some(end_face)));
     }
@@ -829,6 +833,38 @@ fn end_at(
     }
     let plane = Plane::new(point, normal * cosine.signum()).ok_or(refused)?;
     Ok((End::Clipped { extension, plane }, Some(end_face)))
+}
+
+fn extension_past(cosine: f64, reach: f64) -> f64 {
+    reach * ((1.0 - cosine * cosine).max(0.0).sqrt() / cosine.abs() + END_MARGIN)
+}
+
+fn out_through_corner(
+    around: &Surroundings<'_>,
+    geometry: &Blended,
+    vertex: VertexId,
+    point: Point3,
+    out: Vector3,
+    end_faces: &[FaceId],
+    reach: f64,
+) -> Option<End> {
+    let solid = around.solid;
+    let same_kind_all_round = around.topology.edges_at(vertex).iter().all(|edge| {
+        analyze(solid, *edge).is_ok_and(|other| other.section.convex == geometry.convex)
+    });
+    if end_faces.len() < 2 || !same_kind_all_round {
+        return None;
+    }
+    let mut extension: f64 = 0.0;
+    for face in end_faces {
+        let cosine = face_normal(solid, *face, point)?.dot(out);
+        let free = geometry.convex == (cosine > 0.0);
+        if !is_planar(solid, *face) || !free || cosine.abs() < SHALLOWEST_END {
+            return None;
+        }
+        extension = extension.max(extension_past(cosine, reach));
+    }
+    Some(End::Extended(extension))
 }
 
 fn is_planar(solid: &Solid, face: FaceId) -> bool {

@@ -84,18 +84,18 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   narrowed to nothing should vanish. Fillets fail more corners than chamfers: a concave edge with
   the convex edge rising from its end (`AfterFill(TooLarge)`) and a notch's floor edge with its
   wall edges (`Boolean(Invalid(PcurveEnds))`).
-- [medium · hard] An edge ending at a corner that two earlier blends share cannot be blended at all:
-  a 40×30×20 box whose four top edges were chamfered 1 mm (mitred corners) or filleted 2 mm
-  (spherical corners) refuses every fillet or chamfer of its vertical edges, of any size, as
-  `UnsupportedEnd` at the top vertex; the refusal now names the earlier blend and says to move the
-  feature above it (`Context::earlier_blend_at`,
-  `an_edge_ending_at_a_corner_an_earlier_blend_cut_names_it_and_says_to_move_above_it`). With one
-  top edge blended the verticals at its ends take a chamfer or a smaller fillet, but a fillet
-  larger than the top one (3 mm under a 2 mm fillet) is `TooLarge`, its foot on the side face
-  crossing the end of the top fillet. Top edges first, then the verticals, is an order other
-  modellers take routinely. The end needs closing against the earlier blend's corner faces
-  (`blend/mod.rs`, ends at a vertex whose faces are neither one flat face nor a round face to clip
-  by) (`blend::tests::vertical_edges_are_rounded_after_the_top_rim_is_chamfered`, ignored).
+- [medium · hard] An edge ending at a corner that two earlier fillets share cannot be blended at
+  all: a 40×30×20 box whose four top edges were filleted 2 mm refuses every fillet or chamfer of
+  its vertical edges, of any size, as `UnsupportedEnd` at the top vertex, where the vertical edge
+  meets the fillets along their tangent line; the refusal names the earlier blend and says to move
+  the feature above it (`Context::earlier_blend_at`,
+  `an_edge_ending_at_a_corner_an_earlier_blend_cut_names_it_and_says_to_move_above_it`). Corners
+  two earlier chamfers made work (`out_through_corner`). With one top edge filleted the verticals
+  at its ends take a chamfer or a smaller fillet, but a fillet larger than the top one (3 mm under
+  a 2 mm fillet) is `TooLarge`, its foot on the side face crossing the end of the top fillet. Top
+  edges first, then the verticals, is an order other modellers take routinely. The end needs
+  closing against the earlier fillets' corner faces (`blend/mod.rs`, ends at a vertex whose faces
+  are curved and neither one round face to clip by nor planes the tool can run out through).
 - [medium · hard] The top rim of a box tapered to widen upwards, whose slanted corner edges were
   filleted less than about twice the rim fillet, is refused: a 40×40×30 box tapered -4° with
   3 mm corners refuses a 2 mm rim fillet as `Rounding(Untraced)` and with 2.2 mm corners as

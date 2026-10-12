@@ -1676,11 +1676,11 @@ fn an_edge_ending_at_a_corner_an_earlier_blend_cut_names_it_and_says_to_move_abo
     let rim = [(5.0, 0.0), (10.0, 4.0), (5.0, 8.0), (0.0, 4.0)]
         .map(|(x, y)| edge_at(solid, Point3::new(x, y, 4.0)))
         .to_vec();
-    let mut transaction = document.transaction("Chamfer");
+    let mut transaction = document.transaction("Fillet");
     transaction.add_feature(
-        "Chamfer 1",
+        "Rim fillet",
         FeatureKind::Blend(Blend {
-            kind: BlendKind::Chamfer,
+            kind: BlendKind::Fillet,
             body: base,
             groups: Vec::new(),
             edges: rim,
@@ -1691,9 +1691,9 @@ fn an_edge_ending_at_a_corner_an_earlier_blend_cut_names_it_and_says_to_move_abo
     );
     document.apply(transaction.finish()).unwrap();
     let evaluation = evaluate(&document, &mut engine);
-    let chamfered = evaluation.body(base).unwrap();
+    let rounded = evaluation.body(base).unwrap();
     let verticals = [(0.0, 0.0), (10.0, 0.0), (10.0, 8.0), (0.0, 8.0)]
-        .map(|(x, y)| edge_at(chamfered, Point3::new(x, y, 1.0)))
+        .map(|(x, y)| edge_at(rounded, Point3::new(x, y, 1.0)))
         .to_vec();
 
     let mut transaction = document.transaction("Fillet");
@@ -1716,13 +1716,13 @@ fn an_edge_ending_at_a_corner_an_earlier_blend_cut_names_it_and_says_to_move_abo
     assert!(
         error
             .reason
-            .ends_with("Chamfer 1 already blended the corner there."),
+            .ends_with("Rim fillet already blended the corner there."),
         "{}",
         error.reason
     );
     assert_eq!(
         error.remedy,
-        "Move Fillet 2 above Chamfer 1 in the tree, so the corner is blended after this edge, or \
+        "Move Fillet 2 above Rim fillet in the tree, so the corner is blended after this edge, or \
          leave this edge out."
     );
 }

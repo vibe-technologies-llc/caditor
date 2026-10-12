@@ -333,10 +333,13 @@ paths:
   without an id).
 - Ends continuing into another chosen edge stop flush, ends on a perpendicular face stop there, ends
   on a slanted face extend past it when the extension changes nothing, else are clipped by its
-  plane. Where the extension would change something and the end face belongs to another chosen
-  straight edge of the same kind sharing one flat face (concave edges round a boss's outside corner,
-  convex edges into an inside corner), both ends are mitred (`mitre`): each tool extends past the
-  vertex and is clipped by the plane through it bisecting the two edges.
+  plane. An end at a corner of two or more flat faces (where earlier chamfers met) extends past all
+  of them when the tool leaves through each and every edge at the corner is of the edge's kind
+  (`out_through_corner`), so the tool cuts the corner as the chamfers' half-spaces would. Where the
+  extension would change something and the end face belongs to another chosen straight edge of the
+  same kind sharing one flat face (concave edges round a boss's outside corner, convex edges into
+  an inside corner), both ends are mitred (`mitre`): each tool extends past the vertex and is
+  clipped by the plane through it bisecting the two edges.
 - An end clipped by a curved face (a notch's floor edge running out through a round wall) is
   `End::Trimmed` when that face is a cylinder, cone, sphere or torus (`round_end.rs`, `Round`): near
   the end (`Cut`: from the vertex, `behind` back along the edge, `span` across) the tool loses what
