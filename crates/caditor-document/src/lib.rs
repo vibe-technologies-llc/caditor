@@ -2,6 +2,7 @@ mod attachment;
 mod blend;
 mod body_appearance;
 mod combine;
+mod configuration_import;
 mod configurations;
 mod datum;
 mod datum_construction;
@@ -70,6 +71,11 @@ pub use crate::{
         OPACITY_STEPS, OPAQUE_PERCENT, Rgb, density_of, material_name, nearest_opacity_step,
     },
     combine::{Combine, CombineOperation},
+    configuration_import::{
+        CellChange, CellProblem, ColumnKind, ColumnOutcome, ColumnRefusal, ConfigurationImport,
+        ImportColumn, ImportRowPlan, ImportedColumn, ImportedConfiguration, ImportedConfigurations,
+        RowOutcome, RowRefusal,
+    },
     configurations::{
         Configuration, ConfigurationId, Configurations, ConfiguredValue,
         MAX_CONFIGURATION_NAME_CHARS, MAX_CONFIGURATIONS, MAX_CONFIGURED_VALUES, Setting,
@@ -191,6 +197,8 @@ mod blend_tests;
 mod body_appearance_tests;
 #[cfg(test)]
 mod combine_tests;
+#[cfg(test)]
+mod configuration_import_tests;
 #[cfg(test)]
 mod configurations_tests;
 #[cfg(test)]

@@ -277,15 +277,16 @@ fn detail(row: &ImportRow) -> String {
         ImportOutcome::Changed { before } => format!("{} (was {before})", row.expression),
         ImportOutcome::Kept { theirs } => format!("keeps the model's own; the file says {theirs}"),
         ImportOutcome::Unchanged => row.expression.clone(),
-        ImportOutcome::Refused(reason) => {
-            let mut reason = reason.to_string();
-            if let Some(first) = reason.get(..1) {
-                let upper = first.to_uppercase();
-                reason.replace_range(..1, &upper);
-            }
-            reason
-        }
+        ImportOutcome::Refused(reason) => capitalised(reason.to_string()),
     }
+}
+
+pub(super) fn capitalised(mut text: String) -> String {
+    if let Some(first) = text.get(..1) {
+        let upper = first.to_uppercase();
+        text.replace_range(..1, &upper);
+    }
+    text
 }
 
 pub fn dialog(ctx: &egui::Context, draft: &ParameterImportDraft) -> Option<FileCommand> {

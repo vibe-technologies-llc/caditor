@@ -79,6 +79,8 @@ pub enum Command {
     ExportAgain,
     ImportParameters,
     ExportParameters,
+    ImportConfigurations,
+    ExportConfigurations,
     ExportSketch,
     ExportFace,
     KeepDrawingConstruction,
@@ -630,6 +632,8 @@ plain_commands! {
     ExportAgain,
     ImportParameters,
     ExportParameters,
+    ImportConfigurations,
+    ExportConfigurations,
     ExportSketch,
     ExportFace,
     KeepDrawingConstruction,
@@ -869,6 +873,8 @@ impl Command {
             Self::ExportImage => "file.export_image",
             Self::ImportParameters => "file.import_parameters",
             Self::ExportParameters => "file.export_parameters",
+            Self::ImportConfigurations => "file.import_configurations",
+            Self::ExportConfigurations => "file.export_configurations",
             Self::ExportSketch => "file.export_sketch",
             Self::ExportFace => "file.export_face",
             Self::KeepDrawingConstruction => "file.keep_drawing_construction",
@@ -1163,6 +1169,8 @@ impl Command {
             Self::ExportImage => "Export image…",
             Self::ImportParameters => "Import parameters…",
             Self::ExportParameters => "Export parameters…",
+            Self::ImportConfigurations => "Import configurations…",
+            Self::ExportConfigurations => "Export configurations…",
             Self::ExportSketch => "Export sketch…",
             Self::ExportFace => "Export face…",
             Self::KeepDrawingConstruction => "Keep construction geometry in drawings",
@@ -1453,6 +1461,13 @@ impl Command {
             Self::Export => &["stl", "3mf", "step", "save as stl"],
             Self::Import => &["dxf", "svg", "step", "stl", "obj", "3mf"],
             Self::Configurations => &["variants", "family table", "design table"],
+            Self::ImportConfigurations | Self::ExportConfigurations => &[
+                "csv",
+                "spreadsheet",
+                "variants",
+                "family table",
+                "design table",
+            ],
             Self::Recompute => &["rebuild", "regenerate", "update"],
             Self::Quit => &["exit", "close"],
             Self::ContextMenu => &["right click", "shortcut menu", "popup"],
@@ -1478,6 +1493,8 @@ impl Command {
             | Self::ExportImage
             | Self::ImportParameters
             | Self::ExportParameters
+            | Self::ImportConfigurations
+            | Self::ExportConfigurations
             | Self::ExportSketch
             | Self::ExportFace
             | Self::KeepDrawingConstruction
@@ -1892,6 +1909,8 @@ impl Command {
             | Self::SaveAsTemplate
             | Self::ImportParameters
             | Self::ExportParameters
+            | Self::ImportConfigurations
+            | Self::ExportConfigurations
             | Self::OpenSample(_)
             | Self::OpenRecent(_)
             | Self::ForgetRecent(_)

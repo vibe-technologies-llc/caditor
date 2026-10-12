@@ -53,4 +53,5 @@ before anything is applied. The import is one change, so Undo takes it back. The
 `caditor-parameter-file` row naming its format; keep it when you edit the file in a spreadsheet. A
 file you write yourself can leave it out and start with the `name` and `expression` columns.
 
-To keep several sets of values in one model, see [Configurations](configurations).
+To keep several sets of values in one model, see [Configurations](configurations), which can also
+be written to and read from a spreadsheet.

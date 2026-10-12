@@ -10,7 +10,9 @@ use crate::{
     commands::Command,
     completion,
     dialog_parts::BodyRoom,
-    field, icons,
+    field,
+    files::{FileCommand, configurations as table_files},
+    icons,
     model::Model,
     widgets::{self, DialogWidth, Tone},
 };
@@ -54,6 +56,7 @@ pub struct ConfigurationsDraft {
 pub enum Outcome {
     Close,
     Apply(Transaction),
+    File(FileCommand),
 }
 
 pub fn rename_field_id() -> Id {
@@ -162,18 +165,39 @@ pub fn dialog(
             .show(ui, |ui| body(ui, model, draft))
             .inner;
         room.body_ended(ui);
-        let closed = widgets::footer(ui, |ui| {
-            ui.add(widgets::primary_button(ui, CLOSE_LABEL)).clicked()
-        });
+        let footer = widgets::footer_split(
+            ui,
+            |ui| file_buttons(ui, model.document()),
+            |ui| {
+                ui.add(widgets::primary_button(ui, CLOSE_LABEL))
+                    .clicked()
+                    .then_some(Outcome::Close)
+            },
+        );
         room.dialog_ended(ui);
-        match (outcome, closed) {
-            (Some(outcome), _) => Some(outcome),
-            (None, true) => Some(Outcome::Close),
-            (None, false) => None,
-        }
+        outcome.or(footer)
     });
     let closed = response.should_close().then_some(Outcome::Close);
     response.inner.or(closed)
+}
+
+fn file_buttons(ui: &mut Ui, document: &Document) -> Option<Outcome> {
+    let mut chosen = None;
+    let import = ui
+        .add(widgets::button(table_files::IMPORT_LABEL))
+        .on_hover_text(table_files::IMPORT_HINT);
+    if import.clicked() {
+        chosen = Some(Outcome::File(FileCommand::ImportConfigurations));
+    }
+    let exportable = !document.configurations().rows.is_empty();
+    let export = ui
+        .add_enabled(exportable, widgets::button(table_files::EXPORT_LABEL))
+        .on_hover_text(table_files::EXPORT_HINT)
+        .on_disabled_hover_text(table_files::NO_CONFIGURATIONS);
+    if export.clicked() {
+        chosen = Some(Outcome::File(FileCommand::ExportConfigurations));
+    }
+    chosen
 }
 
 fn body(ui: &mut Ui, model: &Model, draft: &mut ConfigurationsDraft) -> Option<Outcome> {

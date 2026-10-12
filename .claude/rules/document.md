@@ -178,6 +178,33 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 - New parameters take ids in row order (gaps for refused rows) and are inserted at the end with a
   stand-in value before expressions are set, so rows may refer to each other in any order.
 
+## Importing configurations (`configuration_import.rs`)
+
+- `Document::plan_configuration_import` turns an `ImportedConfigurations` (columns with their
+  headings split into `ColumnKind` and name, rows of a name and one cell per column) into a
+  `ConfigurationImport`: a `ColumnOutcome` per column (Known, Added, Refused with a
+  `ColumnRefusal`), a `RowOutcome` per row (Added, Changed and Kept with the `CellChange`s,
+  Unchanged, Refused with a `RowRefusal`) and one transaction, or none when nothing would change.
+  `replace_existing` off makes a row naming a configuration the model has, with other values, Kept.
+- A column resolves to a `ConfiguredValue` by exact name (parameter, feature, or a body's
+  `body_name`); refused when its heading has no known kind, the parameter, feature or body is not in
+  the model (`NotABody` for a feature that makes none), more than one body has the name, an earlier
+  column names the same value, or the model would configure more than `MAX_CONFIGURED_VALUES`.
+  A resolved value the table does not configure yet becomes a column (`Added`), every existing row
+  taking the live value for it, as `configuring` does.
+- Rows merge by name ignoring case. A row is refused alone: no name, a name over
+  `MAX_CONFIGURATION_NAME_CHARS` or seen on an earlier row, past `MAX_CONFIGURATIONS`, a non-blank
+  cell that does not parse (`CellProblem`, naming the column), parameters of the row depending on
+  each other in a circle (every parameter cell of the row set in the dependency graph, as
+  `check_row_cycle` does one), or a parameter cell that does not evaluate once the row is switched
+  to (tried on a clone, the row activated). Refusing repeats until nothing more is refused. A blank
+  cell leaves the value as it is (the live value for a new row). A new row is appended and is not
+  made active, so the import never changes the model through a row it adds.
+- The transaction is one `SetConfigurations` of the merged table, plus, when the active row is
+  among the rows written, the ordinary edits turning the model to its new values (`applying`, run
+  on a clone that already holds the table), so the active row stays the live values and undo is
+  one step.
+
 ## Flags and content records
 
 - `hidden` (`Edit::SetFeatureHidden`) and `suppressed` (`SetFeatureSuppressed`) are undoable,

@@ -399,6 +399,33 @@ paths:
   over `MAX_PARAMETER_ROWS` rows is refused whole; anything wrong in a row is left to
   `plan_parameter_import` (`document.md`).
 
+## Configuration files (`configuration_table.rs`, `csv.rs`)
+
+- The configurations table exports as CSV the way parameters do (`csv.rs` holds what both share:
+  RFC 4180 reading with quoted multi-line cells, delimiter detection among comma, semicolon and tab
+  by the header row, CRLF writing, cells quoted when they hold a delimiter, quote, line break,
+  surrounding spaces or a leading `=`, `+`, `-` or `@`), UTF-8 with an optional byte-order mark,
+  written with `write_atomically`. It has no version row: the header format below is the contract
+  and a spreadsheet resave keeps it, and it is a foreign format with no corpus file.
+- The header row is `Configuration` then one column per configured value, headed `<kind>: <name>`
+  (`ImportedColumn::header_of`): `Parameter: width` (the parameter's name; the cell is its
+  expression written with parameter names, units included), `Suppressed: Fillet 2` (the feature's
+  name; `yes` or `no`) and `Colour: Body 1` (the body's name, `Document::body_name`; `#rrggbb`, or
+  `default` for the body's own colour). One row per configuration in table order. A column whose
+  parameter or feature is gone is not written; a cell the row has no setting for is empty. The
+  grammar of the cells lives with the document (`Document::configuration_cell_text`,
+  `parse_cell`): the kind is read case-blind (`Color` too), `yes`/`no` also as `y`/`n`, `true`/`false`,
+  `1`/`0`, `on`/`off`, a colour as 3 or 6 hex digits with or without `#`, or `default`/`none`.
+- `parse_configurations` finds the name column (`Configuration` or `Name`, any position and case)
+  and takes every other column with a non-blank heading as a value column, so a trailing empty
+  column a spreadsheet adds is ignored; blank rows are skipped. A file over `MAX_CONFIGURATIONS_FILE`,
+  not UTF-8, without a name column, with an unclosed quote (named by line), over
+  `MAX_CONFIGURATION_ROWS` rows or `MAX_CONFIGURATION_COLUMNS` columns is refused whole
+  (`ConfigurationFileError`); anything wrong in a column or row is left to
+  `plan_configuration_import` (`document.md`).
+- Unknown names are reported and skipped, as parameters import skips rows it cannot read: the
+  preview lists the column with its reason and the rest imports.
+
 ## Failures
 
 - Reading and writing fail as `ReadFailure` and `WriteFailure` (`reason.rs`), one variant per cause
