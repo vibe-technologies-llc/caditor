@@ -54,6 +54,8 @@ so call sites stay platform-free.
     `ButtonState` (idle, hovered, pressed) to a callback, and a release on the button after a press
     on it maximises or restores with `ShowWindow`. Everywhere else the message chains on, so winit
     keeps the resize and move behaviour and the corner close, which are client-area egui widgets.
+  - `battery_flag`: the `BatteryFlag` of `GetSystemPowerStatus`, which `caditor-render` reads to
+    tell a desktop (128, no system battery) from a laptop for the Auto graphics adapter.
   - `attach_parent_console`: a release build is a GUI-subsystem program, so `--version`, `--help`
     and `--export` print only after attaching to the console that started it.
   - `DialogParent`: an HWND as `HasWindowHandle` and `HasDisplayHandle`, for rfd.

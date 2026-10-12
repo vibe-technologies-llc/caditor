@@ -1,5 +1,7 @@
 use std::cmp::Reverse;
 
+use crate::machine::Machine;
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Msaa {
     Off,
@@ -71,17 +73,26 @@ impl Shading {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum AdapterPreference {
     #[default]
+    Auto,
     PowerSaving,
     Performance,
 }
 
 impl AdapterPreference {
-    pub const ALL: [Self; 2] = [Self::PowerSaving, Self::Performance];
+    pub const ALL: [Self; 3] = [Self::Auto, Self::PowerSaving, Self::Performance];
+
+    pub fn resolved(self, machine: Machine) -> Self {
+        match (self, machine) {
+            (Self::Auto, Machine::Desktop) => Self::Performance,
+            (Self::Auto, Machine::Portable | Machine::Unknown) => Self::PowerSaving,
+            (chosen, _) => chosen,
+        }
+    }
 
     pub(crate) fn power(self) -> wgpu::PowerPreference {
-        match self {
-            Self::PowerSaving => wgpu::PowerPreference::LowPower,
+        match self.resolved(Machine::detect()) {
             Self::Performance => wgpu::PowerPreference::HighPerformance,
+            Self::PowerSaving | Self::Auto => wgpu::PowerPreference::LowPower,
         }
     }
 }
@@ -215,5 +226,35 @@ mod tests {
         );
         assert!(vsync_optional(&everything));
         assert!(!vsync_optional(&[PresentMode::Fifo]));
+    }
+
+    #[test]
+    fn auto_chooses_by_the_machine_and_an_explicit_choice_stays() {
+        let auto = AdapterPreference::Auto;
+
+        assert_eq!(
+            auto.resolved(Machine::Desktop),
+            AdapterPreference::Performance
+        );
+        assert_eq!(
+            auto.resolved(Machine::Portable),
+            AdapterPreference::PowerSaving
+        );
+        assert_eq!(
+            auto.resolved(Machine::Unknown),
+            AdapterPreference::PowerSaving
+        );
+        assert_eq!(AdapterPreference::default(), AdapterPreference::Auto);
+
+        for machine in [Machine::Desktop, Machine::Portable, Machine::Unknown] {
+            assert_eq!(
+                AdapterPreference::PowerSaving.resolved(machine),
+                AdapterPreference::PowerSaving
+            );
+            assert_eq!(
+                AdapterPreference::Performance.resolved(machine),
+                AdapterPreference::Performance
+            );
+        }
     }
 }

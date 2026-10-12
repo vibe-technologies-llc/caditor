@@ -708,11 +708,13 @@ version = "0.1.0"
 dependencies = [
  "ahash",
  "caditor-geometry",
+ "caditor-windows",
  "glam 0.34.1",
  "log",
  "naga",
  "parking_lot",
  "pollster",
+ "tempfile",
  "thiserror 2.0.21",
  "wgpu",
 ]

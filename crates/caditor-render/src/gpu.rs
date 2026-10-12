@@ -159,7 +159,7 @@ async fn request_device(adapter: wgpu::Adapter) -> Result<OpenedDevice, RenderEr
     Err(failure)
 }
 
-fn power_preference(preference: AdapterPreference) -> wgpu::PowerPreference {
+pub(crate) fn power_preference(preference: AdapterPreference) -> wgpu::PowerPreference {
     wgpu::PowerPreference::from_env().unwrap_or_else(|| preference.power())
 }
 

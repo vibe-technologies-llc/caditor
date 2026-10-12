@@ -19,5 +19,9 @@ pollster.workspace = true
 thiserror.workspace = true
 wgpu.workspace = true
 
+[target.'cfg(windows)'.dependencies]
+caditor-windows.workspace = true
+
 [dev-dependencies]
 naga = { workspace = true, features = ["wgsl-in"] }
+tempfile.workspace = true

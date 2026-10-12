@@ -45,7 +45,7 @@ inside the workspace.
 | `caditor-wayland` | Safe Wayland protocol work on winit's own connection (files dragged onto the window, the window's `xdg-foreign` export for portal dialogs); the third crate with `unsafe`, empty off Unix. | none |
 | `caditor-document` | The parametric model: parameters, feature tree, transactions, undo, recompute worker. | expression, geometry, kernel, sketch |
 | `caditor-file` | Persistence: binary container, version history, recovery journal, preferences, DXF/SVG/STEP and STL/OBJ/3MF mesh import, STL/3MF/OBJ/glTF/STEP/PNG and DXF/SVG drawing export. | document and everything it uses, step, zstd, windows |
-| `caditor-render` | wgpu viewport, camera, GPU picking, image export; no winit or document dependency. | geometry |
+| `caditor-render` | wgpu viewport, camera, GPU picking, image export; no winit or document dependency. | geometry (windows on Windows) |
 | `caditor` | The winit/egui application: UI, commands, sketch editing, file workflow. | all but step and zstd (wayland on Unix, windows on Windows) |
 
 Platform code is a pair of `cfg(unix)` and `cfg(windows)` items behind one interface; Windows

@@ -57,3 +57,12 @@ The mouse input mode, orbit and zoom speeds, the zoom direction and the projecti
 Vsync, a frame-rate limit, anti-aliasing, shading and how smooth curved faces are drawn, and which
 graphics adapter to prefer. An option the adapter cannot do is shown disabled with the reason. The
 tab ends with the adapter's details and a button to copy them for a bug report.
+
+The adapter preference is Auto, Power saving or Performance. Auto, the default, picks the most
+powerful graphics card on a computer without a battery and the integrated graphics on a laptop,
+and a line under it says what it chose and why, for example "Auto: high performance, this computer
+has no battery." When caditor cannot tell, Auto takes the integrated graphics. Power saving and
+Performance always do what they say, and a choice saved by an earlier version keeps applying.
+Changing the preference switches the drawing to the new adapter at once, only if it is a different
+one. Setting the `WGPU_POWER_PREF` environment variable to `low` or `high` overrides the
+preference.

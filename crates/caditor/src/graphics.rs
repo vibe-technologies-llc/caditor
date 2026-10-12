@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use caditor_file::Settings;
 use caditor_kernel::MeshQuality;
-use caditor_render::{AdapterPreference, GraphicsInfo, GraphicsSettings, Msaa, Shading};
+use caditor_render::{AdapterPreference, GraphicsInfo, GraphicsSettings, Machine, Msaa, Shading};
 use egui::{Label, Ui};
 
 use crate::{
@@ -170,13 +170,34 @@ impl CurveQuality {
 
 pub fn adapter_label(adapter: AdapterPreference) -> &'static str {
     match adapter {
+        AdapterPreference::Auto => "Auto",
         AdapterPreference::PowerSaving => "Power saving",
         AdapterPreference::Performance => "Performance",
     }
 }
 
+fn adapter_phrase(adapter: AdapterPreference) -> &'static str {
+    match adapter {
+        AdapterPreference::Auto => "automatic",
+        AdapterPreference::PowerSaving => "power saving",
+        AdapterPreference::Performance => "high performance",
+    }
+}
+
+pub fn auto_summary(machine: Machine) -> String {
+    format!(
+        "Auto: {}, {}.",
+        adapter_phrase(AdapterPreference::Auto.resolved(machine)),
+        machine.reason()
+    )
+}
+
 fn adapter_hover(adapter: AdapterPreference) -> &'static str {
     match adapter {
+        AdapterPreference::Auto => {
+            "Choose by the computer: the most powerful graphics card on a desktop, the \
+             integrated graphics on a laptop or when caditor cannot tell"
+        }
         AdapterPreference::PowerSaving => {
             "Prefer the integrated graphics when the computer has a choice: cooler, quieter and \
              kinder to a battery"
@@ -190,6 +211,7 @@ fn adapter_hover(adapter: AdapterPreference) -> &'static str {
 
 fn adapter_key(adapter: AdapterPreference) -> &'static str {
     match adapter {
+        AdapterPreference::Auto => "auto",
         AdapterPreference::PowerSaving => "power_saving",
         AdapterPreference::Performance => "performance",
     }
@@ -562,6 +584,11 @@ fn adapter(
                     preferences::change(command, PreferenceChange::Adapter(adapter));
                 }
             });
+            if graphics.adapter == AdapterPreference::Auto {
+                ui.label("");
+                ui.add(Label::new(widgets::muted(auto_summary(Machine::detect()), ui)).wrap());
+                ui.end_row();
+            }
             match &hardware.adapter {
                 Some(adapter) => {
                     widgets::property(ui, "Adapter", |ui| {
@@ -640,7 +667,7 @@ mod tests {
         assert_eq!(odd.msaa, Msaa::X2);
         assert_eq!(odd.shading, Shading::Standard);
         assert_eq!(odd.curves, CurveQuality::Smooth);
-        assert_eq!(odd.adapter, AdapterPreference::PowerSaving);
+        assert_eq!(odd.adapter, AdapterPreference::Auto);
 
         let mut numeric = Settings::default();
         numeric.set_number(FRAME_LIMIT_KEY, 1000.0);
@@ -651,6 +678,46 @@ mod tests {
         assert_eq!(
             Graphics::from_settings(&Settings::default()),
             Graphics::default()
+        );
+    }
+
+    #[test]
+    fn the_adapter_preference_defaults_to_auto_and_keeps_an_explicit_saved_choice() {
+        let mut saved = Settings::default();
+        saved.set_text(ADAPTER_KEY, "power_saving");
+        let mut written = Settings::default();
+        let auto = Graphics::default();
+        auto.write(&mut written);
+
+        assert_eq!(auto.adapter, AdapterPreference::Auto);
+        assert_eq!(
+            Graphics::from_settings(&saved).adapter,
+            AdapterPreference::PowerSaving
+        );
+        assert_eq!(written.text(ADAPTER_KEY), Some("auto"));
+        assert_eq!(
+            Graphics::from_settings(&written).adapter,
+            AdapterPreference::Auto
+        );
+        assert_eq!(
+            Graphics::from_settings(&Settings::default()).adapter,
+            AdapterPreference::Auto
+        );
+    }
+
+    #[test]
+    fn the_auto_line_says_what_auto_resolved_to_and_why() {
+        assert_eq!(
+            auto_summary(Machine::Desktop),
+            "Auto: high performance, this computer has no battery."
+        );
+        assert_eq!(
+            auto_summary(Machine::Portable),
+            "Auto: power saving, this computer is a laptop or has a battery."
+        );
+        assert_eq!(
+            auto_summary(Machine::Unknown),
+            "Auto: power saving, caditor cannot tell whether this computer has a battery."
         );
     }
 

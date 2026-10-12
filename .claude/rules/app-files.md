@@ -449,8 +449,9 @@ paths:
 - Graphics settings (`graphics::Graphics`, keys `graphics.*`) are read clamped to what is offered.
   An option the adapter cannot do is disabled with the reason on hover, never hidden, and a stored
   level the adapter lacks gets an info callout naming the one used. The tab ends with the adapter
-  details (`graphics::Hardware`), the adapter preference (power saving or performance, applied at
-  once by opening a new device) and Copy details for bug reports. Defaults are in code; the
+  details (`graphics::Hardware`), the adapter preference (Auto, the default, power saving or performance, applied at
+  once by opening a new device when what it resolves to differs; Auto shows a line saying what it
+  chose and why, "Auto: high performance, this computer has no battery.", `graphics::auto_summary`) and Copy details for bug reports. Defaults are in code; the
   renderer side is in `render.md`.
 - Restore defaults resets only the open tab (`PreferenceChange::Defaults`; General leaves
   shortcuts and tips alone). It asks first with a callout repeating what it restores, then offers

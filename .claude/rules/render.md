@@ -51,20 +51,35 @@ paths:
 
 ## Devices and settings
 
-- `open_device` tries the adapter `AdapterPreference` asks for, power saving (the low-power one) by
-  default and unless `WGPU_POWER_PREF` says otherwise, so a
-  CAD window does not wake a discrete GPU, then every other adapter that can present, ranked by
+- `open_device` tries the adapter `AdapterPreference` asks for, then every other adapter that can
+  present, ranked by
   `adapter_rank`: device type, then `BACKEND_ORDER` (Vulkan, OpenGL; Direct3D 12 first on
   Windows). `WGPU_BACKEND` limits the backends tried, also by `OffscreenRenderer` and the offscreen tests
   (`new_without_display_handle_from_env`), so CI runs them on GL (`ci.md`); a test that needs a
   Vulkan-only capability, the linear resolve, reads `linear_resolve()` and skips without it. Each adapter gets its own limits, then defaults, then WebGL2-level ones.
+- `AdapterPreference` is Auto (the default), Power saving (the low-power adapter, so a window does
+  not wake a discrete GPU) or Performance (the high-performance one); `WGPU_POWER_PREF`, when set,
+  overrides all three (`gpu::power_preference`). Auto resolves by `AdapterPreference::resolved`
+  from `Machine::detect()` (`machine.rs`): a desktop is Performance, a portable computer or one
+  that cannot be told is Power saving. The detection runs once per process and is a pure
+  `classify` over what the platform item read, tested with fake inputs. On Unix
+  (`machine/unix.rs`) a computer is portable when `/sys/class/power_supply/*/type` says `Battery`
+  with a `scope` other than `Device` (a wireless mouse's battery is a device) or
+  `/sys/class/dmi/id/chassis_type` is 8, 9, 10, 11, 14, 30, 31 or 32; a desktop when the chassis
+  type (other than 0 to 2, which say nothing) is another one or the power supplies were readable
+  without a battery; unknown when neither could be read (macOS, a container without `/sys`). On
+  Windows (`machine/windows.rs`) it is `caditor_windows::battery_flag`, the `BatteryFlag` of
+  `GetSystemPowerStatus`: 128 (no system battery) is a desktop, 255 or a failed call unknown,
+  anything else portable (a desktop on a UPS reports a battery and so counts as portable). The
+  app words the outcome (`Machine::reason`) under the preference.
 - Nothing uses storage buffers, so downlevel and GL devices draw everything. The surface is
   clamped to the largest texture side and is a plain 8-bit format, never a float or snorm one an
   HDR setup lists first. Offered MSAA levels (`gpu::offered_msaa`) need surface and
   `Depth32Float` support with resolve.
 - `GraphicsSettings` (vsync, `Msaa`, `Shading`, `AdapterPreference`) is applied live by
   `Renderer::set_graphics`, which changes only what differs; a changed adapter preference opens a
-  new device the way device loss does (frames are skipped until it answers, and a failure keeps
+  new device the way device loss does, but only when the power preference it resolves to (Auto
+  included, `WGPU_POWER_PREF` included) differs from the one in use (frames are skipped until it answers, and a failure keeps
   the old device); `graphics_info` reports what is actually in use. MSAA uses the
   offered level closest to the one asked for (`Msaa::closest`); a change rebuilds the scene
   targets and only the colour pipelines (the pick pass is always single-sampled, so its pipelines

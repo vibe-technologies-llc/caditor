@@ -7,6 +7,7 @@ mod gpu;
 mod image;
 mod kept;
 mod lines;
+mod machine;
 mod mesh;
 mod offscreen;
 #[cfg(test)]
@@ -31,6 +32,7 @@ pub use crate::{
     camera::{Camera, PlaneProjection, Projection, ProjectionMode, View, Viewpoint},
     gpu::Wake,
     image::{Background, ImageBands, ImageError, ImageRequest, MAX_IMAGE_SIDE},
+    machine::Machine,
     mesh::{
         Corner, Division, FaceStyle, MeshFace, MeshInstance, MeshPoint, MeshSource, Piece,
         ShadedMesh, SurfaceFinish,
@@ -406,7 +408,8 @@ impl Renderer {
         if graphics == self.graphics {
             return;
         }
-        let adapter_changed = graphics.adapter != self.graphics.adapter;
+        let adapter_changed =
+            gpu::power_preference(graphics.adapter) != gpu::power_preference(self.graphics.adapter);
         if graphics.vsync != self.graphics.vsync {
             self.gpu.present_with(graphics.vsync);
             self.needs_reconfigure = true;

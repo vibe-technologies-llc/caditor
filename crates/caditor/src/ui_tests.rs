@@ -15,7 +15,7 @@ use caditor_file::{
 };
 use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
 use caditor_kernel::MeshQuality;
-use caditor_render::{Background, GraphicsInfo, ImageError, Msaa, Shading};
+use caditor_render::{AdapterPreference, Background, GraphicsInfo, ImageError, Msaa, Shading};
 use caditor_sketch::{Constraint, Entity, EntityId, FitSpacing, Sketch, SplineKind};
 use egui::{
     Color32, Event, Id, Key, Modifiers, PointerButton, Pos2, RawInput, Rect, Shape,
@@ -18348,6 +18348,7 @@ fn graphics_options_apply_at_once_are_saved_and_what_the_adapter_lacks_says_why(
         refresh_rate: Some(60.0),
     };
     harness.workspace.preferences.graphics.msaa = Msaa::X8;
+    harness.workspace.preferences.graphics.adapter = AdapterPreference::Performance;
     open_preferences(&mut harness);
     harness.click("Graphics");
 
@@ -18407,6 +18408,39 @@ fn graphics_options_apply_at_once_are_saved_and_what_the_adapter_lacks_says_why(
     harness.wait_until("the undone settings are saved", |_| {
         caditor_file::Settings::load(&config).text("graphics.frame_limit") == Some("120")
     });
+}
+
+#[test]
+fn the_adapter_preference_starts_on_auto_says_what_it_chose_and_an_explicit_choice_hides_the_line()
+{
+    let mut harness = Harness::new();
+    harness.workspace.hardware = Hardware {
+        adapter: Some(test_adapter()),
+        refresh_rate: Some(60.0),
+    };
+    let line = crate::graphics::auto_summary(caditor_render::Machine::detect());
+    open_preferences(&mut harness);
+    harness.click("Graphics");
+
+    assert_eq!(
+        harness.workspace.preferences.graphics.adapter,
+        AdapterPreference::Auto
+    );
+    assert!(harness.shows(&line));
+
+    harness.click("Performance");
+    assert_eq!(
+        harness.workspace.preferences.graphics.adapter,
+        AdapterPreference::Performance
+    );
+    assert!(!harness.shows(&line));
+
+    harness.click("Auto");
+    assert_eq!(
+        harness.workspace.preferences.graphics.adapter,
+        AdapterPreference::Auto
+    );
+    assert!(harness.shows(&line));
 }
 
 #[test]
