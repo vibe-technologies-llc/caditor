@@ -259,15 +259,15 @@ impl Course {
         }
     }
 
-    fn keeps_course_of(&self, untrimmed: &Self, tolerance: f64) -> bool {
+    fn run_along(&self, untrimmed: &Self) -> f64 {
         match (*self, *untrimmed) {
             (Self::Line { start, end }, Self::Line { .. }) => {
-                (end - start).dot(untrimmed.start_tangent()) > tolerance
+                (end - start).dot(untrimmed.start_tangent())
             }
             (Self::Arc { radius, sweep, .. }, Self::Arc { sweep: whole, .. }) => {
-                sweep * whole.signum() * radius > tolerance
+                sweep * whole.signum() * radius
             }
-            _ => true,
+            _ => f64::INFINITY,
         }
     }
 
@@ -655,155 +655,159 @@ impl Chain {
             return Err(OffsetError::NotPositive);
         }
         let by = side.sign() * distance;
-        if let Some(outline) = self.without_vanishing_arcs(side, distance, by)? {
-            return Ok(outline);
-        }
         let tolerance = TOLERANCE * self.scale().max(distance);
-        let untrimmed: Vec<Course> = self
+        let offsets: Vec<Option<Course>> = self
             .elements
             .iter()
+            .map(|element| element.course.offset(by))
+            .collect();
+        let whole: Vec<Course> = self
+            .elements
+            .iter()
+            .zip(&offsets)
+            .map(|(element, offset)| offset.unwrap_or(element.course))
+            .collect();
+
+        let mut losses: Vec<Loss> = offsets
+            .iter()
             .enumerate()
-            .map(|(index, element)| {
-                element
-                    .course
-                    .offset(by)
-                    .ok_or_else(|| OffsetError::Collapses {
-                        entity: element.curve,
-                        label: self.label(index),
-                    })
+            .filter(|(_, offset)| offset.is_none())
+            .map(|(element, _)| Loss {
+                element,
+                kind: LossKind::Vanished,
             })
-            .collect::<Result<_, _>>()?;
-        let mut courses = untrimmed.clone();
-        let count = courses.len();
-        let joint_count = if self.closed && count > 1 {
-            count
-        } else {
-            count.saturating_sub(1)
-        };
-        let mut junctions: Vec<Junction> = Vec::with_capacity(joint_count);
-        for index in 0..joint_count {
-            let next = (index + 1) % count;
-            let junction = self.join(&mut courses, index, next, by, tolerance)?;
-            junctions.push(junction);
-        }
-        for (index, (course, whole)) in courses.iter().zip(&untrimmed).enumerate() {
-            if !course.keeps_course_of(whole, tolerance) {
-                return Err(OffsetError::UsedUp {
-                    entity: self
-                        .elements
-                        .get(index)
-                        .map_or(EntityId::ORIGIN, |e| e.curve),
-                    label: self.label(index),
-                });
+            .collect();
+        for _ in 0..=self.elements.len() {
+            match self.settle(&whole, &losses, by, tolerance)? {
+                Settled::Outline(outline) => {
+                    if outline.crosses_itself(tolerance) {
+                        return Err(OffsetError::CrossesItself);
+                    }
+                    return Ok(outline);
+                }
+                Settled::Closes(elements) => {
+                    losses.extend(elements.into_iter().map(|element| Loss {
+                        element,
+                        kind: LossKind::UsedUp,
+                    }))
+                }
             }
         }
-        let mut parts = Vec::with_capacity(count + joint_count);
-        let mut joints = Vec::with_capacity(count + joint_count);
-        for (index, course) in courses.iter().enumerate() {
+        Err(self.first_refusal(&losses))
+    }
+
+    fn refusal(&self, loss: Loss) -> OffsetError {
+        let entity = self
+            .elements
+            .get(loss.element)
+            .map_or(EntityId::ORIGIN, |element| element.curve);
+        let label = self.label(loss.element);
+        match loss.kind {
+            LossKind::Vanished => OffsetError::Collapses { entity, label },
+            LossKind::UsedUp => OffsetError::UsedUp { entity, label },
+        }
+    }
+
+    fn first_refusal(&self, losses: &[Loss]) -> OffsetError {
+        losses
+            .first()
+            .map_or(OffsetError::NothingSelected, |loss| self.refusal(*loss))
+    }
+
+    fn settle(
+        &self,
+        whole: &[Course],
+        losses: &[Loss],
+        by: f64,
+        tolerance: f64,
+    ) -> Result<Settled, OffsetError> {
+        let count = self.elements.len();
+        let loss_of = |element: usize| losses.iter().find(|loss| loss.element == element);
+        let open_ends = if self.closed {
+            Vec::new()
+        } else {
+            vec![0, count.saturating_sub(1)]
+        };
+        if let Some(loss) = open_ends.into_iter().find_map(loss_of) {
+            return Err(self.refusal(*loss));
+        }
+
+        let kept: Vec<usize> = (0..count)
+            .filter(|element| loss_of(*element).is_none())
+            .collect();
+        if kept.is_empty() || (count > 1 && kept.len() < 2) {
+            return Err(self.first_refusal(losses));
+        }
+
+        let mut courses = whole.to_vec();
+        let joint_count = if self.closed && kept.len() > 1 {
+            kept.len()
+        } else {
+            kept.len() - 1
+        };
+        let mut junctions: Vec<Junction> = Vec::with_capacity(joint_count);
+        for position in 0..joint_count {
+            let (Some(&index), Some(&next)) =
+                (kept.get(position), kept.get((position + 1) % kept.len()))
+            else {
+                return Err(self.first_refusal(losses));
+            };
+            let junction = if (index + 1) % count == next {
+                self.join(&mut courses, index, next, by, tolerance)?
+            } else {
+                match bridge(whole, &mut courses, index, next, by, tolerance) {
+                    Bridge::Meets(junction) => junction,
+                    Bridge::Closes => return Ok(Settled::Closes(vec![index, next])),
+                    Bridge::Apart => return Err(self.first_refusal(losses)),
+                }
+            };
+            junctions.push(junction);
+        }
+
+        let stretches =
+            stretches(&kept, &courses, &junctions).ok_or_else(|| self.first_refusal(losses))?;
+        let used_up = stretches
+            .iter()
+            .filter_map(|stretch| {
+                let first = stretch.elements.first()?;
+                let run = stretch.course.run_along(whole.get(*first)?);
+                (run <= tolerance).then_some((run, stretch))
+            })
+            .min_by(|a, b| a.0.total_cmp(&b.0));
+        if let Some((_, stretch)) = used_up {
+            return Ok(Settled::Closes(stretch.elements.clone()));
+        }
+
+        let mut parts = Vec::with_capacity(stretches.len() + joint_count);
+        let mut joints = Vec::with_capacity(stretches.len() + joint_count);
+        for stretch in &stretches {
+            let (Some(&first), Some(&last)) = (stretch.elements.first(), stretch.elements.last())
+            else {
+                continue;
+            };
             parts.push(Part {
-                made: Made::Offset(index),
-                course: *course,
+                made: Made::Offset(first),
+                course: stretch.course,
             });
-            match junctions.get(index) {
+            match stretch.after {
                 Some(Junction::Round(corner)) => {
                     joints.push(Joint::Tangent);
                     parts.push(Part {
-                        made: Made::Corner(index),
-                        course: *corner,
+                        made: Made::Corner(last),
+                        course: corner,
                     });
                     joints.push(Joint::Tangent);
                 }
-                Some(Junction::Meet(joint)) => joints.push(*joint),
-                None => {}
+                Some(Junction::Meet(joint)) => joints.push(joint),
+                Some(Junction::Merge) | None => {}
             }
         }
-        let outline = Outline {
+        Ok(Settled::Outline(Outline {
             parts,
             joints,
-            closed: self.closed && count > 1,
+            closed: self.closed && kept.len() > 1,
             fitted: None,
-        };
-        if outline.crosses_itself(tolerance) {
-            return Err(OffsetError::CrossesItself);
-        }
-        Ok(outline)
-    }
-
-    fn without_vanishing_arcs(
-        &self,
-        side: Side,
-        distance: f64,
-        by: f64,
-    ) -> Result<Option<Outline>, OffsetError> {
-        let vanishing = |element: &Element| {
-            matches!(element.course, Course::Arc { .. }) && element.course.offset(by).is_none()
-        };
-        let Some(first_vanishing) = self.elements.iter().position(vanishing) else {
-            return Ok(None);
-        };
-        let collapses = || OffsetError::Collapses {
-            entity: self
-                .elements
-                .get(first_vanishing)
-                .map_or(EntityId::ORIGIN, |element| element.curve),
-            label: self.label(first_vanishing),
-        };
-        let count = self.elements.len();
-        let kept: Vec<usize> = (0..count)
-            .filter(|index| {
-                self.elements
-                    .get(*index)
-                    .is_some_and(|element| !vanishing(element))
-            })
-            .collect();
-        let at_an_open_end = !self.closed
-            && (self.elements.first().is_some_and(vanishing)
-                || self.elements.last().is_some_and(vanishing));
-        if kept.len() < 2 || at_an_open_end || !self.neighbours_cross_where_arcs_vanish(&kept) {
-            return Err(collapses());
-        }
-        let reduced = Chain {
-            elements: kept
-                .iter()
-                .filter_map(|index| self.elements.get(*index).copied())
-                .collect(),
-            labels: kept.iter().map(|index| self.label(*index)).collect(),
-            closed: self.closed,
-            around: None,
-        };
-        let mut outline = reduced.outline(side, distance).map_err(|_| collapses())?;
-        let original = |index: usize| kept.get(index).copied().unwrap_or(index);
-        for part in &mut outline.parts {
-            part.made = match part.made {
-                Made::Offset(index) => Made::Offset(original(index)),
-                Made::Corner(index) => Made::Corner(original(index)),
-                Made::Cap(end) => Made::Cap(end),
-            };
-        }
-        Ok(Some(outline))
-    }
-
-    fn neighbours_cross_where_arcs_vanish(&self, kept: &[usize]) -> bool {
-        let count = kept.len();
-        let total = self.elements.len();
-        let pairs = if self.closed { count } else { count - 1 };
-        (0..pairs).all(|position| {
-            let (Some(&first), Some(&second)) =
-                (kept.get(position), kept.get((position + 1) % count))
-            else {
-                return false;
-            };
-            if (first + 1) % total == second {
-                return true;
-            }
-            let (Some(before), Some(after)) = (self.elements.get(first), self.elements.get(second))
-            else {
-                return false;
-            };
-            let leaving = before.course.end_tangent();
-            let entering = after.course.start_tangent();
-            leaving.perp_dot(entering).abs() > SMOOTH_ANGLE
-        })
+        }))
     }
 
     pub fn both_sides(&self, distance: f64, caps: Caps) -> Result<Vec<Outline>, OffsetError> {
@@ -936,16 +940,8 @@ impl Chain {
         let turn = leaving.perp_dot(entering);
         let along = leaving.dot(entering);
         let corner = element.course.end();
-        let meet = |courses: &mut [Course], point: Point2| {
-            if let Some(course) = courses.get_mut(index) {
-                *course = course.with_end(point);
-            }
-            if let Some(course) = courses.get_mut(next) {
-                *course = course.with_start(point);
-            }
-        };
         if turn.abs() <= SMOOTH_ANGLE && along > 0.0 {
-            meet(courses, before.end().midpoint(after.start()));
+            meet_at(courses, index, next, before.end().midpoint(after.start()));
             let concentric = match (element.course.center(), following.course.center()) {
                 (Some(a), Some(b)) => a.distance(b) <= tolerance,
                 _ => false,
@@ -960,7 +956,7 @@ impl Chain {
         if before.is_line() && after.is_line() && turn.abs() > SMOOTH_ANGLE {
             let crossing = before.start()
                 + leaving * ((after.start() - before.start()).perp_dot(entering) / turn);
-            meet(courses, crossing);
+            meet_at(courses, index, next, crossing);
             return Ok(Junction::Meet(Joint::Sharp));
         }
         if convex {
@@ -983,7 +979,7 @@ impl Chain {
                 first: self.label(index),
                 second: self.label(next),
             })?;
-        meet(courses, crossing);
+        meet_at(courses, index, next, crossing);
         Ok(Junction::Meet(Joint::Sharp))
     }
 }
@@ -992,6 +988,133 @@ impl Chain {
 enum Junction {
     Meet(Joint),
     Round(Course),
+    Merge,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LossKind {
+    Vanished,
+    UsedUp,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Loss {
+    element: usize,
+    kind: LossKind,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum Settled {
+    Outline(Outline),
+    Closes(Vec<usize>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Bridge {
+    Meets(Junction),
+    Closes,
+    Apart,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct Stretch {
+    elements: Vec<usize>,
+    course: Course,
+    after: Option<Junction>,
+}
+
+fn meet_at(courses: &mut [Course], index: usize, next: usize, point: Point2) {
+    if let Some(course) = courses.get_mut(index) {
+        *course = course.with_end(point);
+    }
+    if let Some(course) = courses.get_mut(next) {
+        *course = course.with_start(point);
+    }
+}
+
+fn bridge(
+    whole: &[Course],
+    courses: &mut [Course],
+    index: usize,
+    next: usize,
+    by: f64,
+    tolerance: f64,
+) -> Bridge {
+    let (Some(before), Some(after)) = (whole.get(index).copied(), whole.get(next).copied()) else {
+        return Bridge::Apart;
+    };
+    if !(before.is_line() && after.is_line()) {
+        return match meeting_point(&before, &after, tolerance) {
+            Some(crossing) => {
+                meet_at(courses, index, next, crossing);
+                Bridge::Meets(Junction::Meet(Joint::Sharp))
+            }
+            None => Bridge::Apart,
+        };
+    }
+    let leaving = before.end_tangent();
+    let entering = after.start_tangent();
+    let turn = leaving.perp_dot(entering);
+    let across = after.start() - before.start();
+    if turn.abs() > SMOOTH_ANGLE {
+        let crossing = before.start() + leaving * (across.perp_dot(entering) / turn);
+        meet_at(courses, index, next, crossing);
+        return Bridge::Meets(Junction::Meet(Joint::Sharp));
+    }
+    if leaving.dot(entering) > 0.0 {
+        return if leaving.perp_dot(across).abs() <= tolerance {
+            Bridge::Meets(Junction::Merge)
+        } else {
+            Bridge::Apart
+        };
+    }
+    let moved_toward = leaving.perp() * by.signum();
+    if across.dot(moved_toward) <= tolerance {
+        Bridge::Closes
+    } else {
+        Bridge::Apart
+    }
+}
+
+fn stretches(kept: &[usize], courses: &[Course], junctions: &[Junction]) -> Option<Vec<Stretch>> {
+    let count = kept.len();
+    let closed = junctions.len() == count;
+    let first = if closed {
+        (0..count).find(|position| {
+            junctions.get((position + count - 1) % count) != Some(&Junction::Merge)
+        })?
+    } else {
+        0
+    };
+    let mut stretches: Vec<Stretch> = Vec::new();
+    let mut continuing = false;
+    for step in 0..count {
+        let position = (first + step) % count;
+        let element = *kept.get(position)?;
+        let course = *courses.get(element)?;
+        let junction = junctions.get(position).copied();
+        match stretches.last_mut() {
+            Some(stretch) if continuing => {
+                stretch.elements.push(element);
+                stretch.course = Course::Line {
+                    start: stretch.course.start(),
+                    end: course.end(),
+                };
+            }
+            _ => stretches.push(Stretch {
+                elements: vec![element],
+                course,
+                after: None,
+            }),
+        }
+        continuing = junction == Some(Junction::Merge);
+        if let Some(stretch) = stretches.last_mut()
+            && !continuing
+        {
+            stretch.after = junction;
+        }
+    }
+    Some(stretches)
 }
 
 fn meeting_point(before: &Course, after: &Course, tolerance: f64) -> Option<Point2> {

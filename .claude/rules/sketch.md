@@ -193,11 +193,19 @@ relative to the extent.
   chain (splines, branches and separate chains refused), walked from a free end so `Side` means the
   same on the working copy. `Chain::outline` joins offset curves: smooth joints meet, line corners
   meet sharp, a convex corner with an arc gets a round arc about the original corner, a concave one
-  is trimmed where the carriers cross. An arc in a chain with other curves whose offset shrinks to
-  nothing is left out (`Chain::without_vanishing_arcs`): the outline is made without it, neighbours
-  re-met sharp, parts mapped back to the original elements; an arc at an open chain's end, a chain
-  left with fewer than two curves, or neighbours that would not cross (a slot's parallel sides)
-  still refuse as `Collapses`.
+  is trimmed where the carriers cross.
+  - A closing notch or tab is dropped (`Chain::settle`, repeated until nothing more drops): an arc
+    whose offset shrinks to nothing (`Vanished`) and, each round, the stretch the joints trim back
+    the furthest past nothing (`UsedUp`, its `run_along` the untrimmed offset at or below the
+    tolerance). Neighbours across a dropped run re-meet without the original corner (`bridge`):
+    sharp where their carriers cross; two lines running on in one direction along one line merge
+    into one line (`Junction::Merge`, a `Stretch` made as the first's offset, so no joint is left
+    free to slide); two lines running back against each other whose offsets have passed or reached
+    each other (a notch's walls) close too. A dropped curve gets no offset and no constraint, the
+    outline adding no freedom. Refused, naming the first curve dropped (`Collapses` for an arc,
+    `UsedUp` otherwise): a dropped curve at an open chain's end, fewer than two curves left, or
+    neighbours that cannot re-meet (lines side by side, arcs whose carriers miss). A notch dropped
+    stays closed when later edits widen it, as a vanished arc does.
   - `offset` holds the distance with the typed expression on the first curve and after every sharp
     corner; after a smooth joint or round corner it follows from the `Tangent` there, so a line only
     gets `Parallel` and an arc nothing. A closed chain's closing `Coincident` is added last, so the
