@@ -9,6 +9,7 @@ use caditor_sketch::Reference;
 
 use crate::{
     feature_fields::Rule,
+    handle_snap::Snap,
     manipulator::{self, Held},
     model::Model,
     move_manipulator::{
@@ -95,12 +96,18 @@ impl Swing {
     pub fn degrees_of(&self, ray: Ray) -> Option<f64> {
         let axis = self.radial.cross(self.normal);
         let plane = caditor_geometry::Plane::new(self.foot, axis)?;
-        let hit = ray.at(ray.intersect_plane(&plane)?) - self.foot;
-        Some(
-            hit.dot(self.normal)
-                .atan2(hit.dot(self.radial))
-                .to_degrees(),
-        )
+        self.degrees_at(ray.at(ray.intersect_plane(&plane)?))
+    }
+
+    pub fn degrees_at(&self, point: Point3) -> Option<f64> {
+        let offset = point - self.foot;
+        let (across, up) = (offset.dot(self.radial), offset.dot(self.normal));
+        (across.hypot(up) > SMALLEST_RADIUS).then(|| up.atan2(across).to_degrees())
+    }
+
+    pub fn snapped_near(&self, snap: Snap, near: f64) -> Option<f64> {
+        let degrees = self.degrees_at(snap.pinned_point()?)?;
+        Some(degrees + ((near - degrees) / FULL_TURN_DEGREES).round() * FULL_TURN_DEGREES)
     }
 }
 
@@ -390,6 +397,7 @@ pub struct TurnDrag {
     swept: f64,
     from: f64,
     value: f64,
+    snapped: Option<Snap>,
 }
 
 impl TurnDrag {
@@ -419,10 +427,11 @@ impl TurnDrag {
             swept: 0.0,
             from,
             value: from,
+            snapped: None,
         })
     }
 
-    pub fn follow(&mut self, ray: Ray, free: bool) -> bool {
+    pub fn follow(&mut self, ray: Ray, free: bool, snap: Option<Snap>) -> bool {
         let Some(now) = self.swing.degrees_of(ray) else {
             return false;
         };
@@ -430,14 +439,26 @@ impl TurnDrag {
         self.last = now;
         self.swept += turned;
         let wanted = self.from + self.sign * self.share * self.swept;
-        let rounded = if free {
-            wanted
-        } else {
-            (wanted / STEP_DEGREES).round() * STEP_DEGREES
+        let least = STEP_DEGREES.min(self.limit);
+        let snapped = snap
+            .filter(|_| !free)
+            .and_then(|snap| {
+                let shown = self.sign * wanted / self.share;
+                let degrees = self.swing.snapped_near(snap, shown)?;
+                Some((self.sign * self.share * degrees, snap))
+            })
+            .filter(|(value, _)| (least..=self.limit).contains(value));
+        let (value, snapped) = match snapped {
+            Some((value, snap)) => (value, Some(snap)),
+            None if free => (wanted.clamp(least, self.limit), None),
+            None => (
+                ((wanted / STEP_DEGREES).round() * STEP_DEGREES).clamp(least, self.limit),
+                None,
+            ),
         };
-        let value = rounded.clamp(STEP_DEGREES.min(self.limit), self.limit);
-        let changed = value != self.value;
+        let changed = value != self.value || snapped != self.snapped;
         self.value = value;
+        self.snapped = snapped;
         changed
     }
 
@@ -470,11 +491,15 @@ impl TurnDrag {
     }
 
     pub fn readout(&self, units: Units) -> String {
-        format!(
+        let shown = format!(
             "{} {}",
             self.end.caption(),
             units.angle.readout_text(self.value)
-        )
+        );
+        match self.snapped {
+            Some(snap) => format!("{shown} {}", snap.kind.words()),
+            None => shown,
+        }
     }
 }
 

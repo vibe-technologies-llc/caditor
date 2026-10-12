@@ -36,7 +36,8 @@ In the open panel, click regions in the view to add or leave them out, and
   first face it meets is flat and square to the sketch), and a thin wall has an arrow for its
   **Thickness**.
 - A dragged arrow stops on a corner, an edge's middle or a round edge's centre under the pointer,
-  and pulls to a flat face it passes, the readout saying what it stopped at; hold Ctrl to drag
+  and pulls to a face it passes, flat or curved, stopping where its line meets the face (on a
+  cylinder, the side nearer the pointer); the readout says what it stopped at. Hold Ctrl to drag
   freely. With the pointer on an arrow, type a value and press Enter to set that field exactly;
   it is previewed as you type, and Escape leaves it as it was. A value the field itself would
   refuse, such as zero, is refused there too, saying why.

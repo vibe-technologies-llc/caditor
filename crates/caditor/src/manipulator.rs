@@ -7,7 +7,7 @@ use crate::{
     feature_fields::Rule,
     feature_tree,
     field::{self, Expected},
-    handle_snap::Snap,
+    handle_snap::{Guide, Snap},
     hole_handles::{self, HoleDrag, HoleHandles},
     model::Model,
     move_manipulator::{self, Handle, HandleSegment, MoveDrag, MoveHandles},
@@ -467,11 +467,12 @@ impl Manipulating {
         })
     }
 
-    pub fn snaps(&self) -> bool {
+    pub fn guide(&self) -> Guide {
         match &self.drag {
-            Drag::Move(drag) => drag.snaps(),
-            Drag::Reach(_) | Drag::Place(_) | Drag::Hole(_) | Drag::Value(_) => true,
-            Drag::Revolve(_) => false,
+            Drag::Move(drag) => drag.guide(),
+            Drag::Reach(drag) => drag.guide(),
+            Drag::Value(drag) => drag.guide(),
+            Drag::Place(_) | Drag::Hole(_) | Drag::Revolve(_) => Guide::Points,
         }
     }
 
@@ -482,7 +483,7 @@ impl Manipulating {
             Drag::Place(drag) => drag.follow(ray, free, snap),
             Drag::Hole(drag) => drag.follow(ray, free, snap),
             Drag::Value(drag) => drag.follow(ray, free, snap),
-            Drag::Revolve(drag) => drag.follow(ray, free),
+            Drag::Revolve(drag) => drag.follow(ray, free, snap),
         }
     }
 
