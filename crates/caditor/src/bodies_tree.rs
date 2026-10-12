@@ -139,7 +139,7 @@ fn item(
     let muted = appearance::tokens(ui).text_muted;
     let toggle = visibility::toggle(feature);
     let look = Look {
-        selected: state.reads_selected(body),
+        selected: state.reads_body_selected(body),
         open: false,
     };
     let row = tree_row::show(

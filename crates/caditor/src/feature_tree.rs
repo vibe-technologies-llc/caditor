@@ -188,7 +188,7 @@ fn rows(
             selection,
             edited: editing.feature() == Some(id) || editing.solid() == Some(id),
             opened: editing.opened().filter(|opened| opened.feature == id),
-            selected: chosen.contains(&id) || state.in_view.contains(&id),
+            selected: chosen.contains(&id) || state.reads_selected(id),
             rolled_back: index >= bar,
             grouped: group.is_some(),
         };
