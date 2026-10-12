@@ -13,6 +13,7 @@ use crate::{
 
 const CONTRAST_KEY: &str = "canvas-contrast";
 const CANVAS_KEY: &str = "canvas-lightness";
+const GRID_KEY: &str = "canvas-grid";
 pub const CUBE_DIMMEST_LABELLED_FACING: f64 = 0.3;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -193,6 +194,14 @@ pub fn set_canvas(ctx: &egui::Context, canvas: Canvas) {
 pub fn canvas(ctx: &egui::Context) -> Canvas {
     ctx.data(|data| data.get_temp(Id::new(CANVAS_KEY)))
         .unwrap_or_default()
+}
+
+pub fn set_grid(ctx: &egui::Context, grid: Option<Color32>) {
+    ctx.data_mut(|data| data.insert_temp(Id::new(GRID_KEY), grid));
+}
+
+pub fn grid(ctx: &egui::Context) -> Option<Color32> {
+    ctx.data(|data| data.get_temp(Id::new(GRID_KEY))).flatten()
 }
 
 pub fn chrome(ctx: &egui::Context) -> &'static Chrome {

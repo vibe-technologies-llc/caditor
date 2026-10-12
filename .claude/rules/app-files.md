@@ -462,11 +462,13 @@ paths:
   `PreferencesCommand::Preview` until then). The palette's Recent commands are kept the same way
   (`palette.recent`, `app-input.md`) but are no preference: Restore defaults leaves them alone.
 - Appearance keys: `appearance.theme` (`system`, `dark`, `light`, `midnight`, `graphite`,
-  `paper` or `user:<file stem>`), `appearance.accent` (`theme` or a hue) and `appearance.view`
-  (`theme`, `dark`, `light`), read leniently: an unknown value is the default, so files from
-  older caditors, which hold only `system`, `dark` or `light`, read as before, and an older caditor
-  reading a newer theme key falls back to its own default. Restore defaults on Appearance resets
-  all three. The themes folder is listed like the templates (`app-look.md`).
+  `paper`, `slate`, `studio` or `user:<file stem>`), `appearance.accent` (`theme` or a hue),
+  `appearance.view` (`theme` or a `Canvas::key`: `dark`, `grey`, `studio`, `blue_grey`, `light`,
+  `white`) and `appearance.grid` (`automatic` or `#rrggbb`), read leniently: an unknown value is
+  the default, so files from older caditors, which hold only `system`, `dark` or `light` and no
+  grid, read as before, and an older caditor reading a newer theme or view key falls back to its
+  own default and ignores the grid. Restore defaults on Appearance resets them all. The themes
+  folder is listed like the templates (`app-look.md`).
 - Recent custom colours (`Preferences::recent_colours`, key `body.recent_colours`, a list of hex
   strings, newest first, at most `RECENT_COLOURS_LIMIT`) are set by
   `PreferenceChange::RecentColour`, which leaves out the fixed swatches and moves a repeated colour

@@ -62,7 +62,7 @@ use crate::{
     scene::{self, BuiltScene, EditedSketch, Highlight, PickTable, SketchShapes, Sources},
     scene_cache::{Overlay, Revisions, SceneCache, SceneInputs},
     scene_description::{Item, SceneDescription},
-    scene_palette::{Canvas, Contrast},
+    scene_palette::{self, Canvas, Contrast},
     section::{self, SectionCommand},
     sectioned_screen::SectionedScreen,
     selection::{Pickable, Selection, SelectionFilter},
@@ -401,6 +401,7 @@ pub struct ViewportState {
     style: DisplayStyle,
     contrast: Contrast,
     canvas: Canvas,
+    grid: Option<egui::Color32>,
     snapping: bool,
     grid_snapping: bool,
     lasso: bool,
@@ -625,6 +626,7 @@ impl ViewportState {
             style: DisplayStyle::default(),
             contrast: Contrast::default(),
             canvas: Canvas::default(),
+            grid: None,
             snapping: true,
             grid_snapping: false,
             lasso: false,
@@ -811,6 +813,10 @@ impl ViewportState {
 
     pub fn canvas(&self) -> Canvas {
         self.canvas
+    }
+
+    pub fn set_grid(&mut self, grid: Option<egui::Color32>) {
+        self.grid = grid;
     }
 
     pub fn filter(&self) -> SelectionFilter {
@@ -1284,6 +1290,8 @@ impl ViewportState {
         let faceting = self.scenes.faceting();
         let plane = self.scenes.edited_plane();
         self.scenes.set_section(self.shown_section(plane));
+        self.scenes
+            .set_grid(self.grid.map(scene_palette::grid_colour));
         self.problems = problems(model);
         self.kept = measurement_tools::shown(model);
         self.scenes.show(Overlay {

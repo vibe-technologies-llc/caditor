@@ -73,9 +73,9 @@ paths:
   because tool buttons, menus, the palette, tree rows and accessible names all carry icons as text.
   A new icon is a `Mark` list in `ICONS` and a constant; `fonts.rs` tests that each one renders.
 - Themes are data. `appearance.rs` holds the `Tokens` sets (`DARK`, `LIGHT`, `MIDNIGHT`,
-  `GRAPHITE`, `PAPER` and the two high-contrast sets), each colour named by a `Token` whose `key`
-  a theme file uses, and builds each egui `Style` from a `Skin` (tokens, lightness, contrast and
-  the 3D view's `Canvas`). The contrast rules are one table run at runtime (`appearance::check`,
+  `GRAPHITE`, `PAPER`, `SLATE`, `STUDIO` and the two high-contrast sets), each colour named by a
+  `Token` whose `key` a theme file uses, and builds each egui `Style` from a `Skin` (tokens,
+  lightness, contrast, the 3D view's `Canvas` and the grid colour chosen, if any). The contrast rules are one table run at runtime (`appearance::check`,
   `required_pairs`): every text pairing, control outline, focus ring and button kind against its
   background, 4.5:1 for text and 7:1 for body text in high contrast, 3:1 for outlines;
   `field_border` and `focus` against every surface a field sits on, `danger` 3:1 against panels
@@ -93,16 +93,18 @@ paths:
 - `themes.rs` holds the choice (`Theme`: System, the shipped ones, `User(key)`), the `Accent`
   (the theme's own, or a hue from which `with_accent` derives accent, hover, pressed, accent
   text, subtle, surface and focus by stepping each colour until it keeps its pairs readable) and
-  the `ViewChoice` (with the theme, dark or light). An accent is offered on a theme only when the
+  the `ViewChoice` (with the theme, or one `Canvas`) and the `GridColour` (automatic, or a
+  custom `Rgb`). An accent is offered on a theme only when the
   derived set passes `check`; high contrast replaces the theme's colours and accent with the
-  high-contrast set of its lightness and keeps the view choice. User themes are JSON files in the
+  high-contrast set of its lightness and keeps the view and grid choices. User themes are JSON files in the
   config directory's `themes` folder (`caditor_file::read_themes`, at most `MAX_THEME_FILES` of
   `MAX_THEME_FILE` bytes): `name`, `base` (dark or light, whose tokens fill what the file leaves
-  out), `view` (dark or light) and `colours` by token key as `#rrggbb` (`#rrggbbaa` only for the
-  shadow). `themes::sort` builds and checks each on the files worker (`Files::list_themes`, at
-  startup, when Preferences opens and on Reload themes) into `UserThemes`; a file that cannot be
-  read, names an unknown colour or base, writes a colour badly, repeats another's name or fails a
-  contrast pair is a `Refusal` shown in Preferences in words. A chosen user theme that is missing
+  out), `view` (a `Canvas::key`), `grid` (`#rrggbb`, optional) and `colours` by token key as
+  `#rrggbb` (`#rrggbbaa` only for the shadow). `themes::sort` builds and checks each on the files
+  worker (`Files::list_themes`, at startup, when Preferences opens and on Reload themes) into
+  `UserThemes`; a file that cannot be read, names an unknown colour, base or view, writes a colour
+  badly, repeats another's name, fails a contrast pair or has a grid its own view would hide
+  (`ThemeProblem::UnseenGrid`) is a `Refusal` shown in Preferences in words. A chosen user theme that is missing
   or refused once listed keeps the last look applied (`Workspace::usable_look`) and posts one
   warning naming why (`Unusable::words`); before the first listing it waits silently on the
   default.
@@ -115,11 +117,31 @@ paths:
   (`theme_card_id`), reached by Tab and moved between with the arrow keys (egui's spatial focus),
   Enter or Space choosing it; choosing applies at once, so the whole window is the live preview.
   Accents are `widgets::swatch`es named "Accent: …", disabled with the reason when high contrast
-  is on or the accent would not stay readable.
-- The 3D view's lightness follows the resolved skin (`Skin::canvas`): `apply_appearance`
+  is on or the accent would not stay readable. The 3D view is a row of swatches named
+  "3D view: …" (`preferences::view_name`; With the theme an `icon_swatch`, each canvas a swatch
+  of its colour) above a muted line describing the choice, and the Grid row swatches for
+  automatic (`AUTOMATIC_GRID`, filled with the grid as drawn on the canvas,
+  `scene_palette::shown_grid`), the custom colour when there is one (`custom_grid_name`) and
+  `CUSTOM_GRID`, which opens `colour_selector.rs` under it (`GRID_SELECTOR`). A colour the
+  selector applies goes through `scene_palette::seen_grid`: below `Contrast::grid_seen_from`
+  (`GRID_SEEN` 1.5:1, which every standard palette's own grid meets, `HIGH_CONTRAST_GRID_SEEN`
+  3:1, the high-contrast palettes' grid test) on the canvas in use it is refused in an error
+  callout (`UnseenGrid::sentence`) and the preference stays; a custom colour that the canvas in
+  use hides (the view or contrast changed since) is not drawn: `Appearance::skin_of` resolves
+  the grid (the custom colour, else the theme file's, each only while seen, else none, the
+  palette's) and a warning callout says so (`Appearance::unseen_grid`,
+  `UnseenGrid::drawn_instead`).
+- Six canvases (`Canvas::ALL`: Dark, Grey, Studio grey, Blue-grey, Light, White) give the 3D view
+  its background; `Canvas::is_dark` (Dark and Grey) picks `DARK_CHROME` for labels, the others
+  `LIGHT_CHROME`. The renderer clears to a solid colour, so a gradient backdrop would need a pass
+  in `caditor-render`; Blue-grey is solid. The 3D view's canvas follows the resolved skin
+  (`Skin::canvas`): `apply_appearance`
   publishes it for the frame (`canvas::set_canvas`), the viewport takes it
   (`ViewportState::set_canvas`, part of the scene cache's revisions) and the session hands its
   `Canvas::background` to the renderer after each frame's actions (`Renderer::set_background`).
+  The chosen grid colour travels the same way (`canvas::set_grid`, `ViewportState::set_grid`)
+  and `SceneCache::set_grid` recolours the cached scene's `Scene::grid` in place, without a
+  rebuild, the palette's grid coming back when it is cleared.
   `canvas.rs` is its chrome: a `Chrome` of every colour (backdrop, panel, text, hover, selection,
   error, warning, prompt, snap, key caps, controls, view cube), `DARK_CHROME` and `LIGHT_CHROME`,
   read through `canvas::chrome(ctx)`. Labels sit on the translucent backdrop (`canvas::label`,
@@ -129,12 +151,17 @@ paths:
   cell state.
 - Geometry in the 3D view takes its colours and weights from `scene_palette.rs`, one palette per
   contrast and canvas (`Contrast::palette(canvas)`: `STANDARD`, `HIGH_CONTRAST`,
-  `LIGHT_STANDARD`, `LIGHT_HIGH_CONTRAST`), markers and handles included (snap, measurement,
+  `LIGHT_STANDARD`, `LIGHT_HIGH_CONTRAST`, and for the other canvases palettes built from those
+  of their lightness with struct update, `GREY_*` lightening the reds and bands of the dark ones,
+  `STUDIO_*` and `BLUE_GREY_*` darkening the redundant orange, comb teeth and hovered selection of
+  the light ones, `WHITE_*` only their hole), markers and handles included (snap, measurement,
   problem, unchecked, handle colours, from the chrome). A hollow point's `hole` is the canvas; the
-  halo of the centre of mass, comb and isocurves is `outline` (the canvas on a dark one, black on
-  the light one, which no light colour could hold to 3:1 on a body). The scene highlights of the
+  halo of the centre of mass, comb and isocurves is `outline` (the near-black canvas colour on a
+  dark one, black on the light ones, which no light colour could hold to 3:1 on a body). The scene highlights of the
   light canvas are a little lighter than its chrome's label colours, which must reach 7:1 on the
-  white label panel, so those halos can still frame them. Tests hold, for both canvases, every
+  white label panel, so those halos can still frame them. Tests hold, for every canvas, every
+  standard sketch state but Background, the highlights, origin, preview and axes to 3:1 and the
+  grid to `GRID_SEEN`, and every
   high-contrast line and point colour to 3:1 against the canvas (`Canvas::colour`) and the dimmed
   body colour, edges, threads and hovered or selected faces to 3:1 on every body as drawn (so
   selected faces are a dark blue and hovered ones a dark amber there): the default colour, each

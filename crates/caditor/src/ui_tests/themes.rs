@@ -1,5 +1,6 @@
 use std::{fs, path::Path};
 
+use caditor_document::Rgb;
 use egui::{
     Key, Modifiers,
     accesskit::{Role, Toggled},
@@ -9,10 +10,13 @@ use tempfile::TempDir;
 use super::Harness;
 use crate::{
     appearance::{self, PAPER},
-    canvas,
+    canvas, colour_selector,
     model::Action,
-    preferences::{self, Accent, PreferenceChange, PreferencesCommand, PreferencesTab, Theme},
-    scene_palette::Canvas,
+    preferences::{
+        self, Accent, GridColour, PreferenceChange, PreferencesCommand, PreferencesTab, Theme,
+        ViewChoice,
+    },
+    scene_palette::{Canvas, Contrast},
 };
 
 const OCEAN: &str = r##"{"name": "Ocean", "base": "dark", "view": "light",
@@ -135,7 +139,7 @@ fn an_accent_and_the_3d_view_change_any_theme_and_high_contrast_keeps_its_own() 
     );
     assert_ne!(appearance::tokens_of(&harness.context).accent, own);
 
-    harness.click_lowest("Light");
+    harness.click_button(&preferences::view_name(ViewChoice::Canvas(Canvas::Light)));
     harness.frame();
     harness.frame();
     assert_eq!(canvas::canvas(&harness.context), Canvas::Light);
@@ -189,4 +193,95 @@ fn a_chosen_theme_failing_on_reload_is_refused_in_words_and_the_previous_theme_k
         harness.workspace.preferences.appearance.theme,
         Theme::User("ocean".to_owned())
     );
+}
+
+#[test]
+fn a_lighter_3d_view_and_a_grid_colour_are_chosen_in_preferences_and_an_unseen_grid_refused() {
+    let mut harness = Harness::new();
+    open_appearance(&mut harness);
+    let studio = ViewChoice::Canvas(Canvas::Studio);
+    let hex = colour_selector::hex_id(egui::Id::new(preferences::GRID_SELECTOR));
+
+    for view in ViewChoice::ALL {
+        assert!(
+            card_selected(&harness, &preferences::view_name(view)).is_some(),
+            "{view:?}"
+        );
+    }
+    harness.click_button(&preferences::view_name(studio));
+    harness.frame();
+    harness.frame();
+
+    assert_eq!(harness.workspace.preferences.appearance.view, studio);
+    assert_eq!(canvas::canvas(&harness.context), Canvas::Studio);
+    assert_eq!(harness.workspace.viewport.canvas(), Canvas::Studio);
+    assert_eq!(
+        card_selected(&harness, &preferences::view_name(studio)),
+        Some(true)
+    );
+    assert!(harness.shows_containing("Studio grey: A light grey 3D view"));
+    assert_eq!(
+        harness.built().scene.grid.unwrap().color,
+        Contrast::Standard.palette(Canvas::Studio).grid
+    );
+
+    harness.click_button(preferences::CUSTOM_GRID);
+    harness.frame();
+    harness.type_into_field(hex, "#c4c7cc");
+    harness.frame();
+
+    assert_eq!(
+        harness.workspace.preferences.appearance.grid,
+        GridColour::Automatic
+    );
+    assert!(harness.shows_containing("The grid colour #c4c7cc shows at only 1.0"));
+    assert!(harness.shows_containing("Choose a colour lighter or darker than the 3D view."));
+
+    harness.type_into_field(hex, "#3c4250");
+    harness.frame();
+    harness.frame();
+
+    let chosen = Rgb::new(0x3c, 0x42, 0x50);
+    assert_eq!(
+        harness.workspace.preferences.appearance.grid,
+        GridColour::Custom(chosen)
+    );
+    assert!(!harness.shows_containing("The grid colour #c4c7cc"));
+    assert_eq!(
+        harness.built().scene.grid.unwrap().color,
+        caditor_render::Color::from_rgb8(0x3c, 0x42, 0x50)
+    );
+    assert_eq!(
+        card_selected(&harness, &preferences::custom_grid_name(chosen)),
+        Some(true)
+    );
+    assert!(
+        harness
+            .workspace
+            .preferences
+            .settings()
+            .text("appearance.grid")
+            .is_some_and(|grid| grid == "#3c4250")
+    );
+
+    harness.click_button(&preferences::view_name(ViewChoice::Canvas(Canvas::Grey)));
+    harness.frame();
+    harness.frame();
+
+    assert_eq!(
+        harness.built().scene.grid.unwrap().color,
+        Contrast::Standard.palette(Canvas::Grey).grid
+    );
+    assert!(harness.shows_containing("so the 3D view's own grid colour is drawn"));
+
+    harness.click_button(preferences::AUTOMATIC_GRID);
+    harness.frame();
+    harness.frame();
+
+    assert_eq!(
+        harness.workspace.preferences.appearance.grid,
+        GridColour::Automatic
+    );
+    assert!(!harness.shows_containing("so the 3D view's own grid colour is drawn"));
+    assert!(harness.unreadable_nodes().is_empty());
 }

@@ -171,9 +171,10 @@ mod tests {
             let snapshot = of_bodies(&document, &evaluation, &meshes, size, canvas);
             let origin = Contrast::Standard.palette(canvas).origin;
             let other = Contrast::Standard
-                .palette(match canvas {
-                    Canvas::Dark => Canvas::Light,
-                    Canvas::Light => Canvas::Dark,
+                .palette(if canvas.is_dark() {
+                    Canvas::Light
+                } else {
+                    Canvas::Dark
                 })
                 .origin;
 

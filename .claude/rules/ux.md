@@ -43,8 +43,11 @@ finished. Each rule below avoids a failure mode FreeCAD is known for.
   a loaded theme in words naming the failing pair. Colours come from `appearance::tokens` or the current
   visuals, never fixed values; text on the dark 3D view uses the tested colours and backdrop of
   `canvas.rs`.
-- The 3D view is dark or light with the theme or on its own, each with its own chrome and scene
-  palette under the same checks. High contrast reaches the 3D view: its scene palette holds every line and point to 3:1 against
+- The 3D view takes one of six canvases, from dark through grey to white, with the theme or on
+  its own, each with its own chrome and scene palette under the same checks. A grid colour the
+  user picks is held to the grid's own target on the canvas in use (1.5:1, 3:1 in high
+  contrast): refused in words naming the colour, the canvas and the ratio, and never drawn
+  where the canvas would hide it. High contrast reaches the 3D view: its scene palette holds every line and point to 3:1 against
   the canvas and dimmed bodies, edges and highlighted faces to 3:1 on a body of any colour
   (`scene_palette.rs`; a body too dark for them is drawn lightened, `ScenePalette::body`),
   and no state is told by colour alone (`app-sketching.md`): selected geometry widens twice as

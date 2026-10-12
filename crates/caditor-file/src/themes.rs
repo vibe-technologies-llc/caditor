@@ -25,6 +25,8 @@ pub struct ThemeFile {
     #[serde(default)]
     pub view: Option<String>,
     #[serde(default)]
+    pub grid: Option<String>,
+    #[serde(default)]
     pub colours: BTreeMap<String, String>,
 }
 
@@ -121,16 +123,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_theme_file_names_its_base_view_and_colours() {
+    fn a_theme_file_names_its_base_view_grid_and_colours() {
         let theme = parse_theme(
-            br##"{"name": "Ocean", "base": "dark", "view": "light",
+            br##"{"name": "Ocean", "base": "dark", "view": "studio", "grid": "#5a6070",
                  "colours": {"panel": "#102030", "accent": "#3366cc"}}"##,
         )
         .unwrap();
 
         assert_eq!(theme.name.as_deref(), Some("Ocean"));
         assert_eq!(theme.base.as_deref(), Some("dark"));
-        assert_eq!(theme.view.as_deref(), Some("light"));
+        assert_eq!(theme.view.as_deref(), Some("studio"));
+        assert_eq!(theme.grid.as_deref(), Some("#5a6070"));
         assert_eq!(
             theme.colours.get("panel").map(String::as_str),
             Some("#102030")

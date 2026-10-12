@@ -867,6 +867,7 @@ pub fn show(
     viewport.set_contrast(contrast);
     canvas::set_contrast(ui.ctx(), contrast);
     viewport.set_canvas(canvas::canvas(ui.ctx()));
+    viewport.set_grid(canvas::grid(ui.ctx()));
     let selection_before = viewport.selection().generation();
     viewport.show(ui, model, editing, keys_free, &mut commands, actions);
     completion::forget_taken_click(ui.ctx());
@@ -1226,12 +1227,14 @@ const BUILT_IN: Resolved = Resolved {
             dark: true,
             high_contrast: false,
             canvas: Canvas::Dark,
+            grid: None,
         },
         light: Skin {
             tokens: appearance::LIGHT,
             dark: false,
             high_contrast: false,
             canvas: Canvas::Dark,
+            grid: None,
         },
     },
     preference: egui::ThemePreference::System,
@@ -1299,7 +1302,9 @@ fn apply_appearance(
         ctx.set_zoom_factor(wanted.0.scale);
         workspace.applied_appearance = Some(wanted);
     }
-    canvas::set_canvas(ctx, appearance::skin(ctx).canvas);
+    let skin = appearance::skin(ctx);
+    canvas::set_canvas(ctx, skin.canvas);
+    canvas::set_grid(ctx, skin.grid);
     if changed {
         Applied::Changed
     } else {

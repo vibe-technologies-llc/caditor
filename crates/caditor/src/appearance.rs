@@ -429,6 +429,72 @@ pub const PAPER: Tokens = Tokens {
     shadow: Color32::from_black_alpha(40),
 };
 
+pub const SLATE: Tokens = Tokens {
+    panel: Color32::from_rgb(32, 36, 44),
+    raised: Color32::from_rgb(38, 43, 52),
+    sunken: Color32::from_rgb(25, 28, 35),
+    stripe: Color32::from_rgb(35, 39, 48),
+    button: Color32::from_rgb(50, 56, 67),
+    hover: Color32::from_rgb(60, 67, 80),
+    pressed: Color32::from_rgb(70, 78, 93),
+    border: Color32::from_rgb(52, 58, 69),
+    border_strong: Color32::from_rgb(82, 91, 107),
+    field_border: Color32::from_rgb(128, 138, 156),
+    text: Color32::from_rgb(234, 237, 242),
+    text_muted: Color32::from_rgb(176, 184, 198),
+    text_on_accent: Color32::WHITE,
+    accent: Color32::from_rgb(44, 104, 200),
+    accent_hover: Color32::from_rgb(38, 92, 180),
+    accent_pressed: Color32::from_rgb(32, 80, 158),
+    accent_text: Color32::from_rgb(140, 182, 255),
+    accent_subtle: Color32::from_rgb(46, 64, 96),
+    accent_surface: Color32::from_rgb(42, 52, 70),
+    focus: Color32::from_rgb(140, 182, 255),
+    error: Color32::from_rgb(255, 140, 130),
+    error_subtle: Color32::from_rgb(70, 40, 44),
+    danger: Color32::from_rgb(218, 56, 62),
+    danger_hover: Color32::from_rgb(190, 44, 50),
+    danger_pressed: Color32::from_rgb(156, 30, 36),
+    warn: Color32::from_rgb(244, 192, 96),
+    warn_subtle: Color32::from_rgb(68, 56, 32),
+    success: Color32::from_rgb(112, 216, 150),
+    success_subtle: Color32::from_rgb(32, 60, 48),
+    shadow: Color32::from_black_alpha(110),
+};
+
+pub const STUDIO: Tokens = Tokens {
+    panel: Color32::from_rgb(234, 236, 239),
+    raised: Color32::from_rgb(246, 247, 249),
+    sunken: Color32::from_rgb(250, 251, 252),
+    stripe: Color32::from_rgb(227, 230, 234),
+    button: Color32::from_rgb(222, 225, 230),
+    hover: Color32::from_rgb(212, 216, 222),
+    pressed: Color32::from_rgb(200, 205, 213),
+    border: Color32::from_rgb(210, 214, 220),
+    border_strong: Color32::from_rgb(158, 165, 177),
+    field_border: Color32::from_rgb(116, 123, 136),
+    text: Color32::from_rgb(24, 27, 33),
+    text_muted: Color32::from_rgb(76, 83, 97),
+    text_on_accent: Color32::WHITE,
+    accent: Color32::from_rgb(0, 104, 138),
+    accent_hover: Color32::from_rgb(0, 91, 122),
+    accent_pressed: Color32::from_rgb(0, 78, 105),
+    accent_text: Color32::from_rgb(0, 88, 118),
+    accent_subtle: Color32::from_rgb(208, 228, 236),
+    accent_surface: Color32::from_rgb(220, 234, 240),
+    focus: Color32::from_rgb(0, 104, 138),
+    error: Color32::from_rgb(180, 30, 38),
+    error_subtle: Color32::from_rgb(248, 226, 226),
+    danger: Color32::from_rgb(190, 34, 42),
+    danger_hover: Color32::from_rgb(166, 26, 34),
+    danger_pressed: Color32::from_rgb(142, 20, 28),
+    warn: Color32::from_rgb(134, 78, 0),
+    warn_subtle: Color32::from_rgb(248, 236, 212),
+    success: Color32::from_rgb(16, 108, 54),
+    success_subtle: Color32::from_rgb(220, 240, 226),
+    shadow: Color32::from_black_alpha(40),
+};
+
 pub const DARK_HIGH_CONTRAST: Tokens = Tokens {
     panel: Color32::BLACK,
     raised: Color32::BLACK,
@@ -512,6 +578,7 @@ pub struct Skin {
     pub dark: bool,
     pub high_contrast: bool,
     pub canvas: Canvas,
+    pub grid: Option<Color32>,
 }
 
 impl Skin {
@@ -521,6 +588,7 @@ impl Skin {
             dark,
             high_contrast,
             canvas: Canvas::Dark,
+            grid: None,
         }
     }
 }
@@ -880,12 +948,19 @@ pub mod tests {
         for (dark, high_contrast) in [(true, false), (false, false), (true, true), (false, true)] {
             skins.push(Skin::built_in(dark, high_contrast));
         }
-        for (tokens, dark) in [(MIDNIGHT, true), (GRAPHITE, true), (PAPER, false)] {
+        for (tokens, dark) in [
+            (MIDNIGHT, true),
+            (GRAPHITE, true),
+            (PAPER, false),
+            (SLATE, true),
+            (STUDIO, false),
+        ] {
             skins.push(Skin {
                 tokens,
                 dark,
                 high_contrast: false,
                 canvas: Canvas::Dark,
+                grid: None,
             });
         }
         skins

@@ -37,7 +37,9 @@ use crate::{
     move_tools,
     panels::{Painting, Renaming},
     pattern_tools::{self, Shape},
-    preferences::{PreferenceChange, Preferences, PreferencesCommand, PreferencesTab, Theme},
+    preferences::{
+        PreferenceChange, Preferences, PreferencesCommand, PreferencesTab, Theme, ViewChoice,
+    },
     reference_picking::{Picking, Slot},
     samples::Sample,
     scale_tools,
@@ -73,51 +75,94 @@ impl Gpu {
 struct Look {
     name: &'static str,
     theme: &'static str,
+    view: &'static str,
     high_contrast: bool,
     scale: f32,
 }
 
-const LOOKS: [Look; 7] = [
+const LOOKS: [Look; 12] = [
     Look {
         name: "dark",
         theme: "dark",
+        view: "theme",
         high_contrast: false,
         scale: 1.0,
     },
     Look {
         name: "light",
         theme: "light",
+        view: "theme",
         high_contrast: false,
         scale: 1.0,
     },
     Look {
         name: "dark-contrast",
         theme: "dark",
+        view: "theme",
         high_contrast: true,
         scale: 1.0,
     },
     Look {
         name: "light-contrast",
         theme: "light",
+        view: "theme",
         high_contrast: true,
         scale: 1.0,
     },
     Look {
         name: "dark-200",
         theme: "dark",
+        view: "theme",
         high_contrast: false,
         scale: 2.0,
     },
     Look {
         name: "light-150",
         theme: "light",
+        view: "theme",
         high_contrast: false,
         scale: 1.5,
     },
     Look {
         name: "paper",
         theme: "paper",
+        view: "theme",
         high_contrast: false,
+        scale: 1.0,
+    },
+    Look {
+        name: "studio",
+        theme: "studio",
+        view: "theme",
+        high_contrast: false,
+        scale: 1.0,
+    },
+    Look {
+        name: "slate",
+        theme: "slate",
+        view: "theme",
+        high_contrast: false,
+        scale: 1.0,
+    },
+    Look {
+        name: "white-view",
+        theme: "light",
+        view: "white",
+        high_contrast: false,
+        scale: 1.0,
+    },
+    Look {
+        name: "blue-grey-view",
+        theme: "dark",
+        view: "blue_grey",
+        high_contrast: false,
+        scale: 1.0,
+    },
+    Look {
+        name: "studio-contrast",
+        theme: "studio",
+        view: "theme",
+        high_contrast: true,
         scale: 1.0,
     },
 ];
@@ -125,6 +170,7 @@ const LOOKS: [Look; 7] = [
 impl Look {
     fn preferences(self, mut preferences: Preferences) -> Preferences {
         preferences.appearance.theme = Theme::from_key(self.theme).unwrap_or_default();
+        preferences.appearance.view = ViewChoice::from_key(self.view).unwrap_or_default();
         preferences.appearance.high_contrast = self.high_contrast;
         preferences.appearance.scale = self.scale;
         preferences

@@ -3,10 +3,11 @@ use caditor_file::{Settings, SettingsError};
 use caditor_render::{AdapterPreference, Msaa, ProjectionMode, Shading};
 use egui::{Id, KeyboardShortcut, Label, Ui};
 
-pub use crate::themes::{Accent, Appearance, Theme, ViewChoice};
+pub use crate::themes::{Accent, Appearance, GridColour, Theme, ViewChoice};
 use crate::{
     appearance::{self, MAX_SCALE, MIN_SCALE, SCALE_STEP, SPACE_M, SPACE_S},
-    body_appearance::SWATCHES,
+    body_appearance::{SWATCHES, color32},
+    colour_selector,
     commands::{Command, Keymap},
     defender,
     dialog_parts::{self, BodyRoom},
@@ -18,7 +19,7 @@ use crate::{
     model::Notice,
     onboarding::{Hint, Onboarding},
     palette,
-    scene_palette::{Canvas, Contrast},
+    scene_palette::{self, Canvas, Contrast},
     themes::{Look, UserThemes},
     units::{AngleUnit, LengthUnit},
     widgets::{self, DialogWidth, Tab, ThemeSample, Tone},
@@ -31,6 +32,7 @@ const ANGLE_UNIT_KEY: &str = "units.angle";
 const THEME_KEY: &str = "appearance.theme";
 const ACCENT_KEY: &str = "appearance.accent";
 const VIEW_KEY: &str = "appearance.view";
+const GRID_KEY: &str = "appearance.grid";
 const SCALE_KEY: &str = "appearance.scale";
 const HIGH_CONTRAST_KEY: &str = "appearance.high_contrast";
 const ORBIT_KEY: &str = "navigation.orbit_speed";
@@ -358,6 +360,7 @@ pub enum PreferenceChange {
     Theme(Theme),
     Accent(Accent),
     View(ViewChoice),
+    Grid(GridColour),
     Scale(f32),
     HighContrast(bool),
     OrbitSpeed(f64),
@@ -494,6 +497,10 @@ impl Preferences {
                     .text(VIEW_KEY)
                     .and_then(ViewChoice::from_key)
                     .unwrap_or_default(),
+                grid: raw
+                    .text(GRID_KEY)
+                    .and_then(GridColour::from_key)
+                    .unwrap_or_default(),
                 scale: raw
                     .number(SCALE_KEY)
                     .map_or(1.0, |scale| appearance::clamp_scale(scale as f32)),
@@ -537,6 +544,7 @@ impl Preferences {
         settings.set_text(THEME_KEY, &self.appearance.theme.key());
         settings.set_text(ACCENT_KEY, self.appearance.accent.key());
         settings.set_text(VIEW_KEY, self.appearance.view.key());
+        settings.set_text(GRID_KEY, &self.appearance.grid.key());
         settings.set_number(SCALE_KEY, f64::from(self.appearance.scale));
         settings.set_flag(HIGH_CONTRAST_KEY, self.appearance.high_contrast);
         settings.set_number(ORBIT_KEY, self.navigation.orbit_speed);
@@ -578,6 +586,7 @@ impl Preferences {
             PreferenceChange::Theme(theme) => self.appearance.theme = theme,
             PreferenceChange::Accent(accent) => self.appearance.accent = accent,
             PreferenceChange::View(view) => self.appearance.view = view,
+            PreferenceChange::Grid(grid) => self.appearance.grid = grid,
             PreferenceChange::Scale(scale) => {
                 self.appearance.scale = appearance::clamp_scale(scale);
             }
@@ -1052,6 +1061,9 @@ fn tips(ui: &mut Ui, preferences: &Preferences, command: &mut Option<Preferences
 
 pub const RELOAD_THEMES: &str = "Reload themes";
 pub const THEMES_SECTION: &str = "Theme";
+pub const AUTOMATIC_GRID: &str = "Grid: automatic";
+pub const CUSTOM_GRID: &str = "Custom grid colour";
+pub const GRID_SELECTOR: &str = "preferences-grid-colour";
 
 pub fn theme_card_id(theme: &Theme) -> Id {
     Id::new(("theme-card", theme.key()))
@@ -1066,19 +1078,6 @@ fn sample(look: &Look, appearance: &Appearance) -> ThemeSample {
     let tokens = skin.tokens;
     let contrast = Contrast::of(skin.high_contrast);
     let palette = contrast.palette(skin.canvas);
-    let canvas = skin.canvas.colour();
-    let to_colour = |colour: caditor_render::Color| {
-        let channel = |value: f32, under: u8| {
-            (value * 255.0 * colour.alpha + f32::from(under) * (1.0 - colour.alpha))
-                .round()
-                .clamp(0.0, 255.0) as u8
-        };
-        egui::Color32::from_rgb(
-            channel(colour.red, canvas.r()),
-            channel(colour.green, canvas.g()),
-            channel(colour.blue, canvas.b()),
-        )
-    };
     ThemeSample {
         panel: tokens.panel,
         raised: tokens.raised,
@@ -1086,14 +1085,14 @@ fn sample(look: &Look, appearance: &Appearance) -> ThemeSample {
         text: tokens.text,
         muted: tokens.text_muted,
         accent: tokens.accent,
-        canvas,
-        grid: to_colour(palette.grid),
+        canvas: skin.canvas.colour(),
+        grid: scene_palette::shown_grid(skin.grid, contrast, skin.canvas),
         body: egui::Color32::from_rgb(
             crate::body_appearance::DEFAULT_COLOUR.red,
             crate::body_appearance::DEFAULT_COLOUR.green,
             crate::body_appearance::DEFAULT_COLOUR.blue,
         ),
-        edge: to_colour(palette.body_edge),
+        edge: scene_palette::on_canvas(palette.body_edge, skin.canvas),
     }
 }
 
@@ -1149,7 +1148,7 @@ fn themes_folder(ui: &mut Ui, themes: &UserThemes, command: &mut Option<Preferen
     let note = match themes.folder() {
         Some(folder) => format!(
             "Choosing a theme changes the whole window at once. Your own themes are JSON files \
-             in {}, each a base (dark or light), a view (dark or light) and colours by name, \
+             in {}, each a base (dark or light), a 3D view, a grid colour and colours by name, \
              checked for readable contrast before they are offered.",
             folder.display()
         ),
@@ -1184,11 +1183,7 @@ fn accent_swatches(
     themes: &UserThemes,
     command: &mut Option<PreferencesCommand>,
 ) {
-    let look = current.theme.preview(themes).unwrap_or(Look {
-        tokens: appearance::DARK,
-        dark: true,
-        canvas: Canvas::Dark,
-    });
+    let look = chosen_look(current, themes);
     ui.horizontal_wrapped(|ui| {
         for accent in Accent::ALL {
             let offered = accent.applied(&look);
@@ -1212,6 +1207,115 @@ fn accent_swatches(
     });
 }
 
+fn chosen_look(current: &Appearance, themes: &UserThemes) -> Look {
+    current.theme.preview(themes).unwrap_or(Look {
+        tokens: appearance::DARK,
+        dark: true,
+        canvas: Canvas::Dark,
+        grid: None,
+    })
+}
+
+pub fn view_name(view: ViewChoice) -> String {
+    format!("3D view: {}", view.label())
+}
+
+pub fn custom_grid_name(colour: Rgb) -> String {
+    format!("Grid: {}", colour_selector::describe(colour))
+}
+
+fn view_swatches(
+    ui: &mut Ui,
+    current: &Appearance,
+    themes: &UserThemes,
+    command: &mut Option<PreferencesCommand>,
+) {
+    ui.horizontal_wrapped(|ui| {
+        for view in ViewChoice::ALL {
+            let chosen = current.view == view;
+            let name = view_name(view);
+            let response = match view {
+                ViewChoice::Theme => widgets::icon_swatch(ui, icons::APPEARANCE, &name, chosen),
+                ViewChoice::Canvas(canvas) => widgets::swatch(ui, canvas.colour(), &name, chosen),
+            };
+            if response.clicked() && !chosen {
+                change(command, PreferenceChange::View(view));
+            }
+        }
+    });
+    let canvas = current.view.canvas(chosen_look(current, themes).canvas);
+    let words = match current.view {
+        ViewChoice::Theme => format!(
+            "With the theme, now {}: {}.",
+            canvas.label(),
+            canvas.description()
+        ),
+        ViewChoice::Canvas(_) => format!("{}: {}.", canvas.label(), canvas.description()),
+    };
+    ui.add(Label::new(widgets::muted(words, ui)).wrap());
+}
+
+fn grid_swatches(
+    ui: &mut Ui,
+    current: &Appearance,
+    themes: &UserThemes,
+    command: &mut Option<PreferencesCommand>,
+) {
+    let look = chosen_look(current, themes);
+    let canvas = current.view.canvas(look.canvas);
+    let contrast = Contrast::of(current.high_contrast);
+    let automatic = Appearance {
+        grid: GridColour::Automatic,
+        ..current.clone()
+    }
+    .skin_of(&look)
+    .grid;
+    let automatic = scene_palette::shown_grid(automatic, contrast, canvas);
+    let custom = current.grid.custom();
+    let selector = Id::new(GRID_SELECTOR);
+    let refusal = selector.with("refused");
+    let selecting = colour_selector::is_open(ui, selector);
+    let toggled = ui
+        .horizontal_wrapped(|ui| {
+            let automatic = widgets::swatch(ui, automatic, AUTOMATIC_GRID, custom.is_none());
+            if automatic.clicked() && custom.is_some() {
+                change(command, PreferenceChange::Grid(GridColour::Automatic));
+            }
+            if let Some(colour) = custom {
+                widgets::swatch(ui, color32(colour), &custom_grid_name(colour), true);
+            }
+            widgets::icon_swatch(ui, icons::ADD, CUSTOM_GRID, selecting).clicked()
+        })
+        .inner;
+    let shown = custom.unwrap_or_else(|| Rgb::new(automatic.r(), automatic.g(), automatic.b()));
+    if toggled {
+        colour_selector::toggle(ui, selector, shown);
+    }
+    if let Some(colour) = colour_selector::show(ui, selector, shown) {
+        match scene_palette::seen_grid(color32(colour), canvas, contrast) {
+            Ok(_) => {
+                ui.data_mut(|data| data.remove::<String>(refusal));
+                change(command, PreferenceChange::Grid(GridColour::Custom(colour)));
+            }
+            Err(unseen) => {
+                ui.data_mut(|data| data.insert_temp(refusal, unseen.sentence()));
+            }
+        }
+    }
+    if !colour_selector::is_open(ui, selector) {
+        ui.data_mut(|data| data.remove::<String>(refusal));
+    }
+    if let Some(words) = ui.data(|data| data.get_temp::<String>(refusal)) {
+        widgets::callout(ui, Tone::Error, |ui| {
+            ui.add(Label::new(words).wrap());
+        });
+    } else if let Some(unseen) = current.unseen_grid(canvas) {
+        widgets::callout(ui, Tone::Warning, |ui| {
+            ui.add(Label::new(unseen.drawn_instead()).wrap());
+        });
+    }
+}
+
 fn appearance(
     ui: &mut Ui,
     preferences: &Preferences,
@@ -1233,10 +1337,10 @@ fn appearance(
             accent_swatches(ui, current, themes, command);
         });
         widgets::property(ui, "3D view", |ui| {
-            let options = ViewChoice::ALL.map(|view| (view, view.label(), view.description()));
-            if let Some(view) = choice(ui, &options, current.view) {
-                change(command, PreferenceChange::View(view));
-            }
+            ui.vertical(|ui| view_swatches(ui, current, themes, command));
+        });
+        widgets::property(ui, "Grid", |ui| {
+            ui.vertical(|ui| grid_swatches(ui, current, themes, command));
         });
         widgets::property(ui, "Contrast", |ui| {
             let mut high_contrast = current.high_contrast;
@@ -1454,20 +1558,33 @@ mod tests {
         let mut preferences = Preferences::default();
         preferences.apply(PreferenceChange::Theme(Theme::User("ocean".to_owned())));
         preferences.apply(PreferenceChange::Accent(Accent::Rose));
-        preferences.apply(PreferenceChange::View(ViewChoice::Light));
+        preferences.apply(PreferenceChange::View(ViewChoice::Canvas(Canvas::Studio)));
+        preferences.apply(PreferenceChange::Grid(GridColour::Custom(Rgb::new(
+            0x8a, 0x90, 0x9c,
+        ))));
         let settings = preferences.settings();
         let again = Preferences::from_settings(settings.clone());
 
         assert_eq!(settings.text(THEME_KEY), Some("user:ocean"));
         assert_eq!(settings.text(ACCENT_KEY), Some("rose"));
-        assert_eq!(settings.text(VIEW_KEY), Some("light"));
+        assert_eq!(settings.text(VIEW_KEY), Some("studio"));
+        assert_eq!(settings.text(GRID_KEY), Some("#8a909c"));
         assert_eq!(again.appearance, preferences.appearance);
 
         let mut unknown = Settings::default();
         unknown.set_text(THEME_KEY, "from a newer caditor");
         unknown.set_text(ACCENT_KEY, "chartreuse");
+        unknown.set_text(VIEW_KEY, "sepia");
+        unknown.set_text(GRID_KEY, "8a909c");
         let read = Preferences::from_settings(unknown);
         assert_eq!(read.appearance, Appearance::default());
+
+        let mut older_views = Settings::default();
+        older_views.set_text(VIEW_KEY, "light");
+        older_views.set_text(GRID_KEY, "automatic");
+        let read = Preferences::from_settings(older_views);
+        assert_eq!(read.appearance.view, ViewChoice::Canvas(Canvas::Light));
+        assert_eq!(read.appearance.grid, GridColour::Automatic);
 
         preferences.apply(PreferenceChange::Defaults(PreferencesTab::Appearance));
         assert_eq!(preferences.appearance, Appearance::default());

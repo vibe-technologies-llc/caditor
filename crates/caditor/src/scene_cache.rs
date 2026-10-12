@@ -2,7 +2,7 @@ use std::{collections::BTreeSet, sync::Arc};
 
 use caditor_document::FeatureId;
 use caditor_geometry::{Plane, Point3};
-use caditor_render::{Batch, SectionPlane, View};
+use caditor_render::{Batch, Color, SectionPlane, View};
 use caditor_sketch::Faceting;
 
 use crate::{
@@ -125,6 +125,8 @@ pub struct SceneCache {
     overlay_batch: Option<Arc<Batch>>,
     highlightable: Option<Vec<Pickable>>,
     section: Vec<SectionPlane>,
+    grid: Option<Color>,
+    palette_grid: Option<Color>,
     generation: u64,
 }
 
@@ -141,6 +143,8 @@ impl Default for SceneCache {
             overlay_batch: None,
             highlightable: None,
             section: Vec::new(),
+            grid: None,
+            palette_grid: None,
             generation: 0,
         }
     }
@@ -186,8 +190,10 @@ impl SceneCache {
         self.base_batches = built.scene.batches.len();
         built.scene.batches.extend(self.overlay_batch.clone());
         built.scene.section.clone_from(&self.section);
-        self.highlightable = None;
+        self.palette_grid = built.scene.grid.as_ref().map(|grid| grid.color);
         self.built = Some(built);
+        self.colour_grid();
+        self.highlightable = None;
         self.highlighted = Some(Highlighted {
             selection: inputs.highlight.selection.generation(),
             hovered: inputs.highlight.hovered.to_vec(),
@@ -216,6 +222,25 @@ impl SceneCache {
         if let Some(built) = &mut self.built {
             built.scene.section.clone_from(&self.section);
             built.generation = self.generation;
+        }
+    }
+
+    pub fn set_grid(&mut self, grid: Option<Color>) {
+        if grid != self.grid {
+            self.grid = grid;
+            self.colour_grid();
+        }
+    }
+
+    fn colour_grid(&mut self) {
+        let colour = self.grid.or(self.palette_grid);
+        if let Some(grid) = self
+            .built
+            .as_mut()
+            .and_then(|built| built.scene.grid.as_mut())
+            && let Some(colour) = colour
+        {
+            grid.color = colour;
         }
     }
 

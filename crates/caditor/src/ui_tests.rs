@@ -2314,7 +2314,9 @@ fn an_exported_image_is_drawn_in_the_palette_of_the_light_view_it_shows() {
     harness.add_sketch(free);
     harness.settle();
     harness.perform(Action::Preferences(PreferencesCommand::Change(
-        PreferenceChange::View(crate::themes::ViewChoice::Light),
+        PreferenceChange::View(crate::themes::ViewChoice::Canvas(
+            crate::scene_palette::Canvas::Light,
+        )),
     )));
     harness.frame();
     harness.frame();

@@ -15,5 +15,7 @@
   described in words, its bodies, sketches and datums each an item to step through.
 - **Colour**: nothing is told by colour alone; legends and pills name each state in words.
 - **Themes**: every theme, caditor's own and any you add, is checked to keep text readable
-  against its background before it is offered; a light 3D view can be chosen with any theme. See
+  against its background before it is offered. Any of six 3D views, from dark through grey to
+  white, can be chosen with any theme, each keeping sketches, edges and highlights easy to see, and
+  a grid colour too close to the background to be seen is refused. See
   [Preferences](preferences).

@@ -1,17 +1,20 @@
 use std::path::{Path, PathBuf};
 
+use caditor_document::Rgb;
 use caditor_file::{ReadTheme, ThemeFile, ThemeFileError};
 use egui::{Color32, ThemePreference};
 
 use crate::{
     appearance::{
-        self, ContrastFailure, DARK, GRAPHITE, LIGHT, MIDNIGHT, PAPER, READABLE, Skin, Skins,
-        Token, Tokens, VISIBLE_OUTLINE,
+        self, ContrastFailure, DARK, GRAPHITE, LIGHT, MIDNIGHT, PAPER, READABLE, SLATE, STUDIO,
+        Skin, Skins, Token, Tokens, VISIBLE_OUTLINE,
     },
-    scene_palette::Canvas,
+    body_appearance::color32,
+    scene_palette::{self, Canvas, Contrast, UnseenGrid},
 };
 
 const USER_PREFIX: &str = "user:";
+const GRID_KEY: &str = "grid";
 const ACCENT_STEP: f32 = 0.04;
 const ACCENT_STEPS: u8 = 25;
 const HOVER_SHADE: f32 = 0.12;
@@ -30,17 +33,21 @@ pub enum Theme {
     Midnight,
     Graphite,
     Paper,
+    Slate,
+    Studio,
     User(String),
 }
 
 impl Theme {
-    pub const SHIPPED: [Self; 6] = [
+    pub const SHIPPED: [Self; 8] = [
         Self::System,
         Self::Dark,
         Self::Light,
         Self::Midnight,
         Self::Graphite,
         Self::Paper,
+        Self::Slate,
+        Self::Studio,
     ];
 
     pub fn label(&self) -> String {
@@ -51,6 +58,8 @@ impl Theme {
             Self::Midnight => "Midnight".to_owned(),
             Self::Graphite => "Graphite".to_owned(),
             Self::Paper => "Paper".to_owned(),
+            Self::Slate => "Slate".to_owned(),
+            Self::Studio => "Studio".to_owned(),
             Self::User(key) => key.clone(),
         }
     }
@@ -63,6 +72,8 @@ impl Theme {
             Self::Midnight => "Light text on deep blue panels",
             Self::Graphite => "Light text on neutral grey panels with a teal accent",
             Self::Paper => "Dark text on warm paper panels with a light 3D view",
+            Self::Slate => "Light text on slate panels with a mid-grey 3D view",
+            Self::Studio => "Dark text on cool grey panels with a light grey 3D view",
             Self::User(_) => "A theme from your themes folder",
         }
     }
@@ -75,6 +86,8 @@ impl Theme {
             Self::Midnight => "midnight".to_owned(),
             Self::Graphite => "graphite".to_owned(),
             Self::Paper => "paper".to_owned(),
+            Self::Slate => "slate".to_owned(),
+            Self::Studio => "studio".to_owned(),
             Self::User(key) => format!("{USER_PREFIX}{key}"),
         }
     }
@@ -91,6 +104,7 @@ impl Theme {
             tokens,
             dark,
             canvas,
+            grid: None,
         };
         match self {
             Self::System | Self::Dark => Some(look(DARK, true, Canvas::Dark)),
@@ -98,6 +112,8 @@ impl Theme {
             Self::Midnight => Some(look(MIDNIGHT, true, Canvas::Dark)),
             Self::Graphite => Some(look(GRAPHITE, true, Canvas::Dark)),
             Self::Paper => Some(look(PAPER, false, Canvas::Light)),
+            Self::Slate => Some(look(SLATE, true, Canvas::Grey)),
+            Self::Studio => Some(look(STUDIO, false, Canvas::Studio)),
             Self::User(_) => None,
         }
     }
@@ -115,6 +131,7 @@ pub struct Look {
     pub tokens: Tokens,
     pub dark: bool,
     pub canvas: Canvas,
+    pub grid: Option<Color32>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -193,34 +210,31 @@ impl Accent {
 pub enum ViewChoice {
     #[default]
     Theme,
-    Dark,
-    Light,
+    Canvas(Canvas),
 }
 
 impl ViewChoice {
-    pub const ALL: [Self; 3] = [Self::Theme, Self::Dark, Self::Light];
+    pub const ALL: [Self; 7] = [
+        Self::Theme,
+        Self::Canvas(Canvas::Dark),
+        Self::Canvas(Canvas::Grey),
+        Self::Canvas(Canvas::Studio),
+        Self::Canvas(Canvas::BlueGrey),
+        Self::Canvas(Canvas::Light),
+        Self::Canvas(Canvas::White),
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
             Self::Theme => "With the theme",
-            Self::Dark => "Dark",
-            Self::Light => "Light",
-        }
-    }
-
-    pub fn description(self) -> &'static str {
-        match self {
-            Self::Theme => "The 3D view is dark or light as the chosen theme has it",
-            Self::Dark => "A dark 3D view whatever the theme",
-            Self::Light => "A light 3D view whatever the theme",
+            Self::Canvas(canvas) => canvas.label(),
         }
     }
 
     pub fn key(self) -> &'static str {
         match self {
             Self::Theme => "theme",
-            Self::Dark => "dark",
-            Self::Light => "light",
+            Self::Canvas(canvas) => canvas.key(),
         }
     }
 
@@ -228,11 +242,45 @@ impl ViewChoice {
         Self::ALL.into_iter().find(|view| view.key() == key)
     }
 
-    fn canvas(self, theme: Canvas) -> Canvas {
+    pub fn canvas(self, theme: Canvas) -> Canvas {
         match self {
             Self::Theme => theme,
-            Self::Dark => Canvas::Dark,
-            Self::Light => Canvas::Light,
+            Self::Canvas(canvas) => canvas,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum GridColour {
+    #[default]
+    Automatic,
+    Custom(Rgb),
+}
+
+impl GridColour {
+    const AUTOMATIC_KEY: &str = "automatic";
+
+    pub fn key(self) -> String {
+        match self {
+            Self::Automatic => Self::AUTOMATIC_KEY.to_owned(),
+            Self::Custom(colour) => colour.hex(),
+        }
+    }
+
+    pub fn from_key(key: &str) -> Option<Self> {
+        if key == Self::AUTOMATIC_KEY {
+            return Some(Self::Automatic);
+        }
+        key.starts_with('#')
+            .then(|| Rgb::from_hex(key))
+            .flatten()
+            .map(Self::Custom)
+    }
+
+    pub fn custom(self) -> Option<Rgb> {
+        match self {
+            Self::Automatic => None,
+            Self::Custom(colour) => Some(colour),
         }
     }
 }
@@ -301,6 +349,7 @@ pub struct Appearance {
     pub theme: Theme,
     pub accent: Accent,
     pub view: ViewChoice,
+    pub grid: GridColour,
     pub scale: f32,
     pub high_contrast: bool,
 }
@@ -311,6 +360,7 @@ impl Default for Appearance {
             theme: Theme::default(),
             accent: Accent::default(),
             view: ViewChoice::default(),
+            grid: GridColour::default(),
             scale: 1.0,
             high_contrast: false,
         }
@@ -320,9 +370,11 @@ impl Default for Appearance {
 impl Appearance {
     pub fn skin_of(&self, look: &Look) -> Skin {
         let canvas = self.view.canvas(look.canvas);
+        let grid = self.grid_on(look, canvas);
         if self.high_contrast {
             return Skin {
                 canvas,
+                grid,
                 ..Skin::built_in(look.dark, true)
             };
         }
@@ -331,7 +383,27 @@ impl Appearance {
             dark: look.dark,
             high_contrast: false,
             canvas,
+            grid,
         }
+    }
+
+    pub fn unseen_grid(&self, canvas: Canvas) -> Option<UnseenGrid> {
+        let colour = self.grid.custom()?;
+        scene_palette::seen_grid(color32(colour), canvas, self.contrast()).err()
+    }
+
+    fn contrast(&self) -> Contrast {
+        Contrast::of(self.high_contrast)
+    }
+
+    fn grid_on(&self, look: &Look, canvas: Canvas) -> Option<Color32> {
+        let contrast = self.contrast();
+        let seen = |colour| scene_palette::seen_grid(colour, canvas, contrast).ok();
+        self.grid
+            .custom()
+            .map(color32)
+            .and_then(seen)
+            .or_else(|| look.grid.and_then(seen))
     }
 
     pub fn look(&self, themes: &UserThemes) -> Result<Look, Unusable> {
@@ -358,6 +430,7 @@ impl Appearance {
                     tokens: LIGHT,
                     dark: false,
                     canvas: Canvas::Dark,
+                    grid: None,
                 }),
             }
         } else {
@@ -418,6 +491,7 @@ pub struct UserTheme {
     pub name: String,
     pub dark: bool,
     pub canvas: Canvas,
+    pub grid: Option<Color32>,
     pub tokens: Tokens,
 }
 
@@ -427,6 +501,7 @@ impl UserTheme {
             tokens: self.tokens,
             dark: self.dark,
             canvas: self.canvas,
+            grid: self.grid,
         }
     }
 }
@@ -441,6 +516,7 @@ pub enum ThemeProblem {
     Translucent { key: String, value: String },
     Repeated,
     Contrast(ContrastFailure),
+    UnseenGrid(UnseenGrid),
 }
 
 impl ThemeProblem {
@@ -450,9 +526,12 @@ impl ThemeProblem {
             Self::UnknownBase(base) => {
                 format!("its base “{base}” is neither “dark” nor “light”")
             }
-            Self::UnknownView(view) => {
-                format!("its view “{view}” is neither “dark” nor “light”")
-            }
+            Self::UnknownView(view) => format!(
+                "its view “{view}” is none of {}",
+                Canvas::ALL
+                    .map(|canvas| format!("“{}”", canvas.key()))
+                    .join(", ")
+            ),
             Self::UnknownColour(key) => format!(
                 "it names a colour “{key}” caditor does not have; the colours are {}",
                 Token::ALL.map(Token::key).join(", ")
@@ -465,6 +544,7 @@ impl ThemeProblem {
             }
             Self::Repeated => "another theme file has the same name".to_owned(),
             Self::Contrast(failure) => failure.words(),
+            Self::UnseenGrid(unseen) => unseen.reason(),
         }
     }
 }
@@ -482,8 +562,12 @@ impl Refusal {
 }
 
 fn parse_colour(token: Token, value: &str) -> Result<Color32, ThemeProblem> {
+    parse_hex(token.key(), value, token.may_be_translucent())
+}
+
+fn parse_hex(key: &str, value: &str, may_be_translucent: bool) -> Result<Color32, ThemeProblem> {
     let bad = || ThemeProblem::BadColour {
-        key: token.key().to_owned(),
+        key: key.to_owned(),
         value: value.to_owned(),
     };
     let digits = value.strip_prefix('#').ok_or_else(bad)?;
@@ -506,9 +590,9 @@ fn parse_colour(token: Token, value: &str) -> Result<Color32, ThemeProblem> {
         ),
         _ => return Err(bad()),
     };
-    if colour.a() < u8::MAX && !token.may_be_translucent() {
+    if colour.a() < u8::MAX && !may_be_translucent {
         return Err(ThemeProblem::Translucent {
-            key: token.key().to_owned(),
+            key: key.to_owned(),
             value: value.to_owned(),
         });
     }
@@ -529,10 +613,20 @@ fn lightness(
 
 pub fn build(key: &str, file: &ThemeFile) -> Result<UserTheme, ThemeProblem> {
     let dark = lightness(file.base.as_deref(), ThemeProblem::UnknownBase)?.unwrap_or(true);
-    let canvas = match lightness(file.view.as_deref(), ThemeProblem::UnknownView)? {
-        Some(false) => Canvas::Light,
-        Some(true) | None => Canvas::Dark,
+    let canvas = match file.view.as_deref() {
+        None => Canvas::Dark,
+        Some(view) => {
+            Canvas::from_key(view).ok_or_else(|| ThemeProblem::UnknownView(view.to_owned()))?
+        }
     };
+    let grid = file
+        .grid
+        .as_deref()
+        .map(|value| parse_hex(GRID_KEY, value, false))
+        .transpose()?
+        .map(|grid| scene_palette::seen_grid(grid, canvas, Contrast::Standard))
+        .transpose()
+        .map_err(ThemeProblem::UnseenGrid)?;
     let mut tokens = if dark { DARK } else { LIGHT };
     for (name, value) in &file.colours {
         let token =
@@ -552,6 +646,7 @@ pub fn build(key: &str, file: &ThemeFile) -> Result<UserTheme, ThemeProblem> {
         name,
         dark,
         canvas,
+        grid,
         tokens,
     })
 }
@@ -660,6 +755,7 @@ mod tests {
             name: Some("Ocean".to_owned()),
             base: Some(base.to_owned()),
             view: None,
+            grid: None,
             colours: colours
                 .iter()
                 .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
@@ -730,6 +826,96 @@ mod tests {
         assert_eq!(built.tokens.panel, Color32::from_rgb(0xf0, 0xf6, 0xfa));
         assert_eq!(built.tokens.text, LIGHT.text);
         assert_eq!(built.tokens.shadow.a(), 0x30);
+    }
+
+    #[test]
+    fn a_theme_file_chooses_any_3d_view_and_a_grid_seen_on_it() {
+        let mut studio = file("light", &[]);
+        studio.view = Some("studio".to_owned());
+        studio.grid = Some("#5a6070".to_owned());
+        let built = build("studio", &studio).unwrap();
+
+        assert_eq!(built.canvas, Canvas::Studio);
+        assert_eq!(built.grid, Some(Color32::from_rgb(0x5a, 0x60, 0x70)));
+        let skin = Appearance::default().skin_of(&built.look());
+        assert_eq!(skin.grid, built.grid);
+
+        studio.grid = Some("#c4c7cc".to_owned());
+        let problem = build("studio", &studio).unwrap_err();
+        assert!(matches!(problem, ThemeProblem::UnseenGrid(_)));
+        assert!(
+            problem
+                .words()
+                .starts_with("the grid colour #c4c7cc shows at only 1."),
+            "{}",
+            problem.words()
+        );
+        assert!(
+            problem
+                .words()
+                .ends_with("on the Studio grey 3D view, below the 1.5:1 a grid needs to be seen")
+        );
+
+        studio.grid = Some("#5a607080".to_owned());
+        assert!(
+            build("studio", &studio)
+                .unwrap_err()
+                .words()
+                .contains("see-through")
+        );
+
+        studio.grid = None;
+        studio.view = Some("sepia".to_owned());
+        let words = build("studio", &studio).unwrap_err().words();
+        assert!(words.contains("“sepia”"), "{words}");
+        assert!(words.contains("“blue_grey”"), "{words}");
+    }
+
+    #[test]
+    fn a_chosen_grid_colour_shows_only_while_it_is_seen_on_the_3d_view() {
+        let dark = Theme::Dark.shipped().unwrap();
+        let mut appearance = Appearance {
+            grid: GridColour::Custom(Rgb::new(0x50, 0x54, 0x5c)),
+            ..Appearance::default()
+        };
+
+        assert_eq!(
+            appearance.skin_of(&dark).grid,
+            Some(Color32::from_rgb(0x50, 0x54, 0x5c))
+        );
+        assert_eq!(appearance.unseen_grid(Canvas::Dark), None);
+
+        appearance.view = ViewChoice::Canvas(Canvas::Grey);
+        assert_eq!(appearance.skin_of(&dark).grid, None);
+        let unseen = appearance.unseen_grid(Canvas::Grey).unwrap();
+        assert!(unseen.drawn_instead().ends_with(
+            "so the 3D view's own grid colour is drawn. Choose another colour, or Automatic."
+        ));
+
+        appearance.view = ViewChoice::Theme;
+        appearance.high_contrast = true;
+        assert_eq!(appearance.skin_of(&dark).grid, None);
+        assert!(appearance.unseen_grid(Canvas::Dark).is_some());
+    }
+
+    #[test]
+    fn the_new_themes_bring_lighter_3d_views() {
+        assert_eq!(Theme::Studio.shipped().unwrap().canvas, Canvas::Studio);
+        assert_eq!(Theme::Slate.shipped().unwrap().canvas, Canvas::Grey);
+        assert!(!Theme::Studio.shipped().unwrap().dark);
+        for view in ViewChoice::ALL {
+            assert_eq!(ViewChoice::from_key(view.key()), Some(view));
+        }
+        assert_eq!(
+            GridColour::from_key("#8a909c"),
+            Some(GridColour::Custom(Rgb::new(0x8a, 0x90, 0x9c)))
+        );
+        assert_eq!(
+            GridColour::from_key("automatic"),
+            Some(GridColour::Automatic)
+        );
+        assert_eq!(GridColour::from_key("8a909c"), None);
+        assert_eq!(GridColour::from_key("#8a909"), None);
     }
 
     #[test]
@@ -849,7 +1035,7 @@ mod tests {
         assert!(!skin.dark);
         assert_ne!(skin.tokens.accent, PAPER.accent);
 
-        appearance.view = ViewChoice::Dark;
+        appearance.view = ViewChoice::Canvas(Canvas::Dark);
         appearance.high_contrast = true;
         let skin = appearance.skin_of(&paper);
         assert_eq!(skin.canvas, Canvas::Dark);

@@ -45,27 +45,100 @@ impl Contrast {
         match (self, canvas) {
             (Self::Standard, Canvas::Dark) => &STANDARD,
             (Self::High, Canvas::Dark) => &HIGH_CONTRAST,
+            (Self::Standard, Canvas::Grey) => &GREY_STANDARD,
+            (Self::High, Canvas::Grey) => &GREY_HIGH_CONTRAST,
+            (Self::Standard, Canvas::Studio) => &STUDIO_STANDARD,
+            (Self::High, Canvas::Studio) => &STUDIO_HIGH_CONTRAST,
+            (Self::Standard, Canvas::BlueGrey) => &BLUE_GREY_STANDARD,
+            (Self::High, Canvas::BlueGrey) => &BLUE_GREY_HIGH_CONTRAST,
             (Self::Standard, Canvas::Light) => &LIGHT_STANDARD,
             (Self::High, Canvas::Light) => &LIGHT_HIGH_CONTRAST,
+            (Self::Standard, Canvas::White) => &WHITE_STANDARD,
+            (Self::High, Canvas::White) => &WHITE_HIGH_CONTRAST,
+        }
+    }
+
+    pub fn grid_seen_from(self) -> f32 {
+        match self {
+            Self::Standard => GRID_SEEN,
+            Self::High => HIGH_CONTRAST_GRID_SEEN,
         }
     }
 }
+
+pub const GRID_SEEN: f32 = 1.5;
+pub const HIGH_CONTRAST_GRID_SEEN: f32 = 3.0;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Canvas {
     #[default]
     Dark,
+    Grey,
+    Studio,
+    BlueGrey,
     Light,
+    White,
 }
 
 impl Canvas {
-    #[cfg(test)]
-    pub const ALL: [Self; 2] = [Self::Dark, Self::Light];
+    pub const ALL: [Self; 6] = [
+        Self::Dark,
+        Self::Grey,
+        Self::Studio,
+        Self::BlueGrey,
+        Self::Light,
+        Self::White,
+    ];
+
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Dark => "dark",
+            Self::Grey => "grey",
+            Self::Studio => "studio",
+            Self::BlueGrey => "blue_grey",
+            Self::Light => "light",
+            Self::White => "white",
+        }
+    }
+
+    pub fn from_key(key: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|canvas| canvas.key() == key)
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Dark => "Dark",
+            Self::Grey => "Grey",
+            Self::Studio => "Studio grey",
+            Self::BlueGrey => "Blue-grey",
+            Self::Light => "Light",
+            Self::White => "White",
+        }
+    }
+
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::Dark => "A near-black 3D view drawn in light lines",
+            Self::Grey => "A mid-grey 3D view drawn in light lines, lighter than Dark",
+            Self::Studio => "A light grey 3D view drawn in dark lines, like a studio backdrop",
+            Self::BlueGrey => "A soft blue-grey 3D view drawn in dark lines",
+            Self::Light => "A pale 3D view drawn in dark lines",
+            Self::White => "A white 3D view drawn in dark lines, like a drawing on paper",
+        }
+    }
+
+    pub fn is_dark(self) -> bool {
+        matches!(self, Self::Dark | Self::Grey)
+    }
 
     pub fn background(self) -> wgpu::Color {
         match self {
             Self::Dark => caditor_render::BACKGROUND,
-            Self::Light => LIGHT_BACKGROUND,
+            Self::Grey => background(GREY_CANVAS),
+            Self::Studio => background(STUDIO_CANVAS),
+            Self::BlueGrey => background(BLUE_GREY_CANVAS),
+            Self::Light => background(LIGHT_CANVAS),
+            Self::White => background(WHITE_CANVAS),
         }
     }
 
@@ -80,19 +153,129 @@ impl Canvas {
     }
 
     pub fn chrome(self) -> &'static canvas::Chrome {
-        match self {
-            Self::Dark => &canvas::DARK_CHROME,
-            Self::Light => &canvas::LIGHT_CHROME,
+        if self.is_dark() {
+            &canvas::DARK_CHROME
+        } else {
+            &canvas::LIGHT_CHROME
         }
     }
 }
 
-const LIGHT_BACKGROUND: wgpu::Color = wgpu::Color {
-    r: 226.0 / 255.0,
-    g: 229.0 / 255.0,
-    b: 234.0 / 255.0,
-    a: 1.0,
-};
+const GREY_CANVAS: egui::Color32 = egui::Color32::from_rgb(72, 76, 84);
+const STUDIO_CANVAS: egui::Color32 = egui::Color32::from_rgb(200, 203, 208);
+const BLUE_GREY_CANVAS: egui::Color32 = egui::Color32::from_rgb(190, 202, 216);
+const LIGHT_CANVAS: egui::Color32 = egui::Color32::from_rgb(226, 229, 234);
+const WHITE_CANVAS: egui::Color32 = egui::Color32::from_rgb(252, 252, 252);
+
+fn background(colour: egui::Color32) -> wgpu::Color {
+    let channel = |value: u8| f64::from(value) / 255.0;
+    wgpu::Color {
+        r: channel(colour.r()),
+        g: channel(colour.g()),
+        b: channel(colour.b()),
+        a: 1.0,
+    }
+}
+
+const fn hole(canvas: egui::Color32) -> Color {
+    Color::from_rgb8(canvas.r(), canvas.g(), canvas.b())
+}
+
+fn hex(colour: egui::Color32) -> String {
+    format!("#{:02x}{:02x}{:02x}", colour.r(), colour.g(), colour.b())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct UnseenGrid {
+    pub colour: egui::Color32,
+    pub canvas: Canvas,
+    pub ratio: f32,
+    pub needed: f32,
+}
+
+impl UnseenGrid {
+    pub fn reason(&self) -> String {
+        format!(
+            "the grid colour {} shows at only {:.2}:1 on the {} 3D view, below the {}:1 a grid \
+             needs to be seen",
+            hex(self.colour),
+            self.ratio,
+            self.canvas.label(),
+            self.needed
+        )
+    }
+
+    pub fn sentence(&self) -> String {
+        format!(
+            "{}. Choose a colour lighter or darker than the 3D view.",
+            self.capitalised()
+        )
+    }
+
+    pub fn drawn_instead(&self) -> String {
+        format!(
+            "{}, so the 3D view's own grid colour is drawn. Choose another colour, or \
+             Automatic.",
+            self.capitalised()
+        )
+    }
+
+    fn capitalised(&self) -> String {
+        let reason = self.reason();
+        let mut letters = reason.chars();
+        let capital: String = letters
+            .next()
+            .into_iter()
+            .flat_map(char::to_uppercase)
+            .collect();
+        format!("{capital}{}", letters.as_str())
+    }
+}
+
+pub fn seen_grid(
+    colour: egui::Color32,
+    canvas: Canvas,
+    contrast: Contrast,
+) -> Result<egui::Color32, UnseenGrid> {
+    let ratio = appearance::contrast_ratio(colour, canvas.colour());
+    let needed = contrast.grid_seen_from();
+    if ratio >= needed {
+        Ok(colour)
+    } else {
+        Err(UnseenGrid {
+            colour,
+            canvas,
+            ratio,
+            needed,
+        })
+    }
+}
+
+pub fn grid_colour(colour: egui::Color32) -> Color {
+    Color::from_rgb8(colour.r(), colour.g(), colour.b())
+}
+
+pub fn on_canvas(colour: Color, canvas: Canvas) -> egui::Color32 {
+    let under = canvas.colour();
+    let channel = |value: f32, under: u8| {
+        (value * 255.0 * colour.alpha + f32::from(under) * (1.0 - colour.alpha))
+            .round()
+            .clamp(0.0, 255.0) as u8
+    };
+    egui::Color32::from_rgb(
+        channel(colour.red, under.r()),
+        channel(colour.green, under.g()),
+        channel(colour.blue, under.b()),
+    )
+}
+
+pub fn shown_grid(
+    chosen: Option<egui::Color32>,
+    contrast: Contrast,
+    canvas: Canvas,
+) -> egui::Color32 {
+    chosen.unwrap_or_else(|| on_canvas(contrast.palette(canvas).grid, canvas))
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SketchState {
@@ -327,7 +510,7 @@ const FACE_HIGHLIGHTS_ON_A_BODY: Highlights = Highlights {
 const CURVE_WIDTH: f32 = 2.0;
 const POINT_DIAMETER: f32 = 7.0;
 const CANVAS_HOLE: Color = Color::from_rgb8(27, 28, 31);
-const LIGHT_CANVAS_HOLE: Color = Color::from_rgb8(226, 229, 234);
+const LIGHT_CANVAS_HOLE: Color = hole(LIGHT_CANVAS);
 
 pub const STANDARD: ScenePalette = ScenePalette {
     grid: Color::from_rgba8(210, 215, 225, 90),
@@ -733,6 +916,93 @@ pub const LIGHT_HIGH_CONTRAST: ScenePalette = ScenePalette {
     lightens_bodies: true,
 };
 
+const GREY_BANDS: Bands = Bands {
+    drafted: Color::from_rgb8(96, 214, 128),
+    too_little_draft: Color::from_rgb8(236, 190, 52),
+    undercut: Color::from_rgb8(255, 128, 118),
+    too_tight: Color::from_rgb8(255, 120, 200),
+    blocked: Color::from_rgb8(180, 160, 255),
+    curvature: [
+        Color::from_rgb8(120, 160, 255),
+        Color::from_rgb8(140, 210, 240),
+        Color::from_rgb8(150, 225, 160),
+        Color::from_rgb8(255, 200, 100),
+        Color::from_rgb8(255, 128, 118),
+    ],
+};
+
+pub const GREY_STANDARD: ScenePalette = ScenePalette {
+    conflicting: Look::plain(
+        Color::from_rgb8(255, 120, 110),
+        Color::from_rgb8(255, 140, 130),
+    ),
+    failed: Look::plain(
+        Color::from_rgb8(240, 150, 140),
+        Color::from_rgb8(250, 170, 160),
+    ),
+    hole: hole(GREY_CANVAS),
+    bands: GREY_BANDS,
+    ..STANDARD
+};
+
+pub const GREY_HIGH_CONTRAST: ScenePalette = ScenePalette {
+    hole: hole(GREY_CANVAS),
+    bands: Bands {
+        undercut: Color::from_rgb8(255, 128, 118),
+        ..HIGH_CONTRAST.bands
+    },
+    ..HIGH_CONTRAST
+};
+
+const DARKER_LIGHT_CANVAS_LINES: Highlights = Highlights {
+    hovered_selected: Color::from_rgb8(30, 90, 180),
+    ..LIGHT_LINE_HIGHLIGHTS
+};
+
+const DARKER_LIGHT_STANDARD: ScenePalette = ScenePalette {
+    redundant: Look::plain(Color::from_rgb8(160, 80, 0), Color::from_rgb8(140, 68, 0)),
+    comb: CombLook {
+        teeth: Color::from_rgb8(20, 110, 170),
+        ..LIGHT_STANDARD.comb
+    },
+    ..LIGHT_STANDARD
+};
+
+const DARKER_LIGHT_HIGH_CONTRAST: ScenePalette = ScenePalette {
+    lines: DARKER_LIGHT_CANVAS_LINES,
+    ..LIGHT_HIGH_CONTRAST
+};
+
+pub const STUDIO_STANDARD: ScenePalette = ScenePalette {
+    hole: hole(STUDIO_CANVAS),
+    ..DARKER_LIGHT_STANDARD
+};
+
+pub const STUDIO_HIGH_CONTRAST: ScenePalette = ScenePalette {
+    hole: hole(STUDIO_CANVAS),
+    ..DARKER_LIGHT_HIGH_CONTRAST
+};
+
+pub const BLUE_GREY_STANDARD: ScenePalette = ScenePalette {
+    hole: hole(BLUE_GREY_CANVAS),
+    ..DARKER_LIGHT_STANDARD
+};
+
+pub const BLUE_GREY_HIGH_CONTRAST: ScenePalette = ScenePalette {
+    hole: hole(BLUE_GREY_CANVAS),
+    ..DARKER_LIGHT_HIGH_CONTRAST
+};
+
+pub const WHITE_STANDARD: ScenePalette = ScenePalette {
+    hole: hole(WHITE_CANVAS),
+    ..LIGHT_STANDARD
+};
+
+pub const WHITE_HIGH_CONTRAST: ScenePalette = ScenePalette {
+    hole: hole(WHITE_CANVAS),
+    ..LIGHT_HIGH_CONTRAST
+};
+
 #[cfg(test)]
 mod tests {
     use caditor_document::Rgb;
@@ -746,20 +1016,24 @@ mod tests {
 
     const VISIBLE: f32 = 3.0;
 
-    fn every_palette() -> [(&'static ScenePalette, Canvas); 4] {
-        [
-            (&STANDARD, Canvas::Dark),
-            (&HIGH_CONTRAST, Canvas::Dark),
-            (&LIGHT_STANDARD, Canvas::Light),
-            (&LIGHT_HIGH_CONTRAST, Canvas::Light),
-        ]
+    fn palettes_of(contrast: Contrast) -> impl Iterator<Item = (&'static ScenePalette, Canvas)> {
+        Canvas::ALL
+            .into_iter()
+            .map(move |canvas| (contrast.palette(canvas), canvas))
     }
 
-    fn high_contrast_palettes() -> [(&'static ScenePalette, Canvas); 2] {
-        [
-            (&HIGH_CONTRAST, Canvas::Dark),
-            (&LIGHT_HIGH_CONTRAST, Canvas::Light),
-        ]
+    fn every_palette() -> Vec<(&'static ScenePalette, Canvas)> {
+        palettes_of(Contrast::Standard)
+            .chain(palettes_of(Contrast::High))
+            .collect()
+    }
+
+    fn high_contrast_palettes() -> Vec<(&'static ScenePalette, Canvas)> {
+        palettes_of(Contrast::High).collect()
+    }
+
+    fn standard_palettes() -> Vec<(&'static ScenePalette, Canvas)> {
+        palettes_of(Contrast::Standard).collect()
     }
 
     fn body() -> Color32 {
@@ -796,21 +1070,87 @@ mod tests {
 
     #[test]
     fn each_contrast_and_canvas_has_its_own_palette() {
-        for contrast in [Contrast::Standard, Contrast::High] {
-            for canvas in Canvas::ALL {
-                let expected = every_palette()
-                    .into_iter()
-                    .find(|(palette, on)| {
-                        *on == canvas
-                            && (palette.troubled_edges_dashed == (contrast == Contrast::High))
-                    })
-                    .map(|(palette, _)| palette)
-                    .unwrap();
-                assert_eq!(contrast.palette(canvas), expected);
+        let every = every_palette();
+        for (index, (palette, canvas)) in every.iter().enumerate() {
+            let high = index >= Canvas::ALL.len();
+            assert_eq!(palette.troubled_edges_dashed, high, "{canvas:?}");
+            for (other, other_canvas) in every.iter().skip(index + 1) {
+                assert!(
+                    !std::ptr::eq(*palette, *other),
+                    "{canvas:?} and {other_canvas:?}"
+                );
+            }
+        }
+        for (index, canvas) in Canvas::ALL.iter().enumerate() {
+            assert_eq!(Canvas::from_key(canvas.key()), Some(*canvas));
+            for other in Canvas::ALL.iter().skip(index + 1) {
+                assert_ne!(canvas.colour(), other.colour(), "{canvas:?} and {other:?}");
             }
         }
         assert_eq!(Canvas::Dark.colour(), Color32::from_rgb(27, 28, 31));
         assert_eq!(Canvas::Light.colour(), Color32::from_rgb(226, 229, 234));
+        assert_eq!(Canvas::from_key("sepia"), None);
+    }
+
+    #[test]
+    fn the_new_canvases_are_lighter_than_the_dark_one() {
+        let darkest = appearance::contrast_ratio(Canvas::Dark.colour(), Color32::BLACK);
+        for canvas in Canvas::ALL
+            .into_iter()
+            .filter(|canvas| *canvas != Canvas::Dark)
+        {
+            let lightness = appearance::contrast_ratio(canvas.colour(), Color32::BLACK);
+            assert!(lightness > darkest * 1.5, "{canvas:?}");
+            assert_eq!(
+                canvas.chrome() == &canvas::DARK_CHROME,
+                canvas.is_dark(),
+                "{canvas:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_grid_colour_too_close_to_the_canvas_is_refused_in_words() {
+        let unseen = seen_grid(
+            Color32::from_rgb(34, 36, 40),
+            Canvas::Dark,
+            Contrast::Standard,
+        )
+        .unwrap_err();
+
+        assert!(unseen.ratio < GRID_SEEN);
+        assert_eq!(
+            unseen.sentence(),
+            format!(
+                "The grid colour #222428 shows at only {:.2}:1 on the Dark 3D view, below the \
+                 1.5:1 a grid needs to be seen. Choose a colour lighter or darker than the 3D \
+                 view.",
+                unseen.ratio
+            )
+        );
+
+        let grey = Color32::from_rgb(80, 80, 80);
+        assert_eq!(seen_grid(grey, Canvas::Dark, Contrast::Standard), Ok(grey));
+        assert!(seen_grid(grey, Canvas::Dark, Contrast::High).is_err());
+        assert!(seen_grid(Color32::WHITE, Canvas::White, Contrast::Standard).is_err());
+        assert!(seen_grid(Color32::BLACK, Canvas::White, Contrast::High).is_ok());
+    }
+
+    #[test]
+    fn every_palette_grid_is_seen_on_its_canvas_as_a_chosen_grid_must_be() {
+        for (palette, canvas) in every_palette() {
+            let contrast = if palette.troubled_edges_dashed {
+                Contrast::High
+            } else {
+                Contrast::Standard
+            };
+            let shown = over(palette.grid, canvas.colour());
+            assert_eq!(
+                seen_grid(shown, canvas, contrast),
+                Ok(shown),
+                "{canvas:?} {contrast:?}"
+            );
+        }
     }
 
     #[test]
@@ -880,27 +1220,28 @@ mod tests {
     }
 
     #[test]
-    fn the_light_canvas_keeps_its_sketch_states_and_grid_visible() {
-        let palette = &LIGHT_STANDARD;
-        let canvas = Canvas::Light.colour();
-        for state in SketchState::ALL
-            .into_iter()
-            .filter(|state| *state != SketchState::Background)
-        {
-            assert_visible("sketch curve", palette.look(state).curve, canvas);
+    fn every_standard_canvas_keeps_its_sketch_states_and_grid_visible() {
+        for (palette, canvas) in standard_palettes() {
+            let canvas = canvas.colour();
+            for state in SketchState::ALL
+                .into_iter()
+                .filter(|state| *state != SketchState::Background)
+            {
+                assert_visible("sketch curve", palette.look(state).curve, canvas);
+            }
+            for (what, color) in [
+                ("hovered", palette.lines.hovered),
+                ("selected", palette.lines.selected),
+                ("origin", palette.origin),
+                ("preview curve", palette.preview_curve),
+                ("x axis", palette.axis(Axis::X)),
+                ("y axis", palette.axis(Axis::Y)),
+                ("z axis", palette.axis(Axis::Z)),
+            ] {
+                assert_visible(what, color, canvas);
+            }
+            assert!(contrast_ratio(over(palette.grid, canvas), canvas) >= GRID_SEEN);
         }
-        for (what, color) in [
-            ("hovered", palette.lines.hovered),
-            ("selected", palette.lines.selected),
-            ("origin", palette.origin),
-            ("preview curve", palette.preview_curve),
-            ("x axis", palette.axis(Axis::X)),
-            ("y axis", palette.axis(Axis::Y)),
-            ("z axis", palette.axis(Axis::Z)),
-        ] {
-            assert_visible(what, color, canvas);
-        }
-        assert!(contrast_ratio(over(palette.grid, canvas), canvas) > 1.4);
     }
 
     #[test]
@@ -982,7 +1323,7 @@ mod tests {
 
     #[test]
     fn the_standard_palettes_draw_every_body_in_its_own_colour() {
-        for palette in [&STANDARD, &LIGHT_STANDARD] {
+        for (palette, _) in standard_palettes() {
             for swatch in &SWATCHES {
                 let colour =
                     Color::from_rgb8(swatch.colour.red, swatch.colour.green, swatch.colour.blue);
@@ -1093,7 +1434,7 @@ mod tests {
 
     #[test]
     fn the_standard_palettes_draw_every_state_in_one_form() {
-        for palette in [&STANDARD, &LIGHT_STANDARD] {
+        for (palette, _) in standard_palettes() {
             for state in SketchState::ALL {
                 let look = palette.look(state);
                 assert_eq!(
