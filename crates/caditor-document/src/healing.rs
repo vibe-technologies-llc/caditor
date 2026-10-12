@@ -126,7 +126,9 @@ pub(crate) trait ReferenceVisitor {
         body: FeatureId,
         edges: &mut [EdgeReference],
         what: &dyn Fn(usize) -> String,
-    );
+    ) {
+        self.edges(body, edges, what);
+    }
 
     fn regions(&mut self, sketch: FeatureId, choice: &mut RegionChoice);
 
