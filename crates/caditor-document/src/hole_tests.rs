@@ -1372,3 +1372,98 @@ fn a_hole_up_to_a_plane_behind_it_or_shallower_than_its_counterbore_fails_in_wor
         "At Point 0, the counterbore reaches as deep as the whole hole."
     );
 }
+
+fn circle_over_a_square(height: f64) -> (Document, FeatureId) {
+    let mut document = Document::default();
+    let mut outline = Sketch::new(Plane::XY);
+    let corners = [
+        Point2::new(0.0, -10.0),
+        Point2::new(10.0, -10.0),
+        Point2::new(10.0, 10.0),
+        Point2::new(0.0, 10.0),
+    ];
+    outline.add_circle(Point2::ZERO, 10.0);
+    for index in 0..4 {
+        outline.add_line(corners[index], corners[(index + 1) % 4]);
+    }
+    let mut transaction = document.transaction("Build");
+    let sketch = transaction.add_feature("Outline", FeatureKind::from(outline));
+    let body = transaction.add_feature(
+        "Extrude 1",
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch,
+            regions: RegionChoice::All,
+            extent: ExtrudeExtent::one_side(
+                Expression::parse_stored(&format!("{height} mm")).unwrap(),
+                false,
+            ),
+            operation: BodyOperation::NewBody,
+            start: None,
+            other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
+            direction: None,
+        })),
+    );
+    document.apply(transaction.finish()).unwrap();
+    (document, body)
+}
+
+fn drilled_down_the_round_axis(height: f64, depth: &str) -> (Evaluation, FeatureId) {
+    let (mut document, body) = circle_over_a_square(height);
+    let built = evaluate(&document, &mut Recompute::default());
+    let solid = built.body(body).unwrap().clone();
+    let (face, plane) = solid
+        .faces()
+        .find_map(|(id, _)| {
+            face_plane(&solid, id)
+                .filter(|plane| plane.normal().z > 0.5)
+                .map(|plane| (id, plane))
+        })
+        .unwrap();
+    let mut sketch = Sketch::new(plane);
+    sketch.add_point(plane.to_local(Point3::new(0.0, 0.0, height)));
+    let attachment = FaceAttachment {
+        body,
+        face: caditor_kernel::FaceReference::capture(&solid, face).unwrap(),
+    };
+    let hole = Hole {
+        sketch: FeatureId::from_raw(0),
+        body,
+        diameter: expression(&document, "0.5 mm"),
+        depth: HoleDepth::Blind(expression(&document, depth)),
+        style: HoleStyle::Plain,
+        reversed: false,
+        shape: HoleShape::Round,
+        standard: None,
+        sizing: HoleSizing::Typed,
+        bottom: HoleBottom::Flat,
+        thread: TappedThread::default(),
+    };
+
+    let mut transaction = document.transaction("Drill");
+    let sketch = transaction.add_feature(
+        "Sketch 2",
+        FeatureKind::Sketch(SketchFeature::on_face(sketch, attachment)),
+    );
+    transaction.add_feature("Hole 1", FeatureKind::Hole(Hole { sketch, ..hole }));
+    document.apply(transaction.finish()).unwrap();
+    (evaluate(&document, &mut Recompute::default()), body)
+}
+
+#[test]
+fn a_hole_reaching_the_body_counts_even_when_the_cut_merges_faces_of_the_body() {
+    for (height, depth) in [
+        (5.0, "5 mm"),
+        (5.0, "10 mm"),
+        (10.0, "5 mm"),
+        (20.0, "10 mm"),
+    ] {
+        let (evaluation, body) = drilled_down_the_round_axis(height, depth);
+
+        assert_eq!(evaluation.failed_count(), 0, "{height} {depth}");
+        let whole = PI * 10.0 * 10.0 / 2.0 + 10.0 * 20.0;
+        let removed = whole * height - volume(&evaluation, body);
+        assert!(removed > 0.0, "{height} {depth}: {removed}");
+    }
+}

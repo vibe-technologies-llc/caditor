@@ -1330,6 +1330,14 @@ fn reach(body: &Solid, centre: Point3, down: Vector3) -> Option<f64> {
         .map(|depth| depth.min(MAX_SIZE))
 }
 
+fn leaves_a_face_of(cut: &Solid, drill: &Solid) -> bool {
+    cut.faces().any(|(_, face)| {
+        drill
+            .faces()
+            .any(|(_, drilled)| drilled.name() == face.name())
+    })
+}
+
 pub(crate) fn evaluate(
     feature: &Feature,
     definition: &Hole,
@@ -1476,7 +1484,7 @@ pub(crate) fn evaluate(
                     }
                 }
             })?;
-            if cut.faces().count() <= body.faces().count() {
+            if !leaves_a_face_of(&cut, &drill) {
                 return Err(context.error(
                     format!(
                         "The hole at {} does not reach {body_name}.",
