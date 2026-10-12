@@ -43,7 +43,10 @@ tree.
 ## The report
 
 Anything worth knowing (the unit used, objects left out, curves fitted, edges repaired, styling
-that could not be understood) is listed in a report when the import finishes. A file in inches or feet is converted to millimetres, and the
+that could not be understood) is listed in a report when the import finishes. Faces of a STEP body
+that meet only as closely as the file's stated precision are moved or bent by at most that much
+so the body comes in exact, and the report says by how much; a body that cannot be made to meet
+comes in as flat facets, and the report says so. A file in inches or feet is converted to millimetres, and the
 report says so. An assembly placing its parts more than 10,000 times in all brings the first
 10,000 copies, and the report says so. A file whose bodies would take the model past 10,000
 features and parameters is not imported, since a model that large could not be opened whole

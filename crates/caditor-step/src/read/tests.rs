@@ -2194,7 +2194,7 @@ fn box_with_top(top: impl Fn(&mut Entities) -> usize) -> String {
     entities.text()
 }
 
-fn box_with_a_split_top(step: f64, tilt: f64) -> String {
+fn box_with_a_split_top(step: f64, tilt: f64) -> (String, u64) {
     use caditor_geometry::{Point3, Vector3};
 
     const CORNERS: [[f64; 3]; 10] = [
@@ -2289,35 +2289,121 @@ fn box_with_a_split_top(step: f64, tilt: f64) -> String {
         ));
     }
     let shell = entities.add(format!("CLOSED_SHELL('',({}))", faces.join(",")));
-    let brep = entities.add(format!("MANIFOLD_SOLID_BREP('box',#{shell})"));
-    with_precision(
+    let brep = entities.add(format!("MANIFOLD_SOLID_BREP('box',#{shell})")) as u64;
+    let text = with_precision(
         &entities.text(),
         "ADVANCED_BREP_SHAPE_REPRESENTATION",
-        brep as u64,
+        brep,
         "1.E-2",
-    )
+    );
+    (text, brep)
 }
 
 #[test]
 fn a_corner_of_nearly_parallel_faces_stays_put_when_the_body_imports_as_facets() {
-    let text = box_with_a_split_top(5e-4, 1e-4);
+    let (text, brep) = box_with_a_split_top(5e-4, 1e-4);
+
+    let faceted = built_with(&text, brep, super::topology::Healing::Faceted).unwrap();
+
+    assert!(faceted.faceted);
+    assert!(
+        (fixtures::volume(&faceted.solid) - 1000.0).abs() < 0.05,
+        "{}",
+        fixtures::volume(&faceted.solid)
+    );
+}
+
+#[test]
+fn halves_of_a_split_face_apart_within_the_precision_are_moved_onto_one_plane_and_import_exact() {
+    let step = 1e-4;
+    let tilt = 2e-6;
+    let (text, _) = box_with_a_split_top(step, tilt);
 
     let model = sample(&text);
+    let solid = &model.solids[0].solid;
 
     assert_eq!(model.solids.len(), 1);
-    assert!(
-        model
-            .notes
-            .iter()
-            .any(|note| note.contains("“box” was imported as flat facets")),
-        "{:?}",
-        model.notes
+    assert_eq!(
+        model.notes,
+        [
+            "In “box”, 1 flat face was moved by up to 0.00011 mm to meet its neighbours exactly, \
+          within the file's precision of 0.01 mm."
+        ]
     );
-    assert!(
-        (fixtures::volume(&model.solids[0].solid) - 1000.0).abs() < 0.05,
-        "{}",
-        fixtures::volume(&model.solids[0].solid)
+    assert_eq!(solid.faces().count(), 7);
+    assert_volume(solid, 1000.0);
+}
+
+fn rounded_block() -> caditor_kernel::Solid {
+    use caditor_geometry::{Plane, Point2};
+    use caditor_kernel::ProfileCurve;
+
+    let curves = [
+        ProfileCurve::line(1, Point2::new(0.0, 0.0), Point2::new(10.0, 0.0)),
+        ProfileCurve::line(2, Point2::new(10.0, 0.0), Point2::new(10.0, 8.0)),
+        ProfileCurve::arc(
+            3,
+            Point2::new(8.0, 8.0),
+            Point2::new(10.0, 8.0),
+            Point2::new(8.0, 10.0),
+        ),
+        ProfileCurve::line(4, Point2::new(8.0, 10.0), Point2::new(0.0, 10.0)),
+        ProfileCurve::line(5, Point2::new(0.0, 10.0), Point2::new(0.0, 0.0)),
+    ];
+    fixtures::swept(Plane::XY, &curves, 10.0)
+}
+
+#[test]
+fn a_flat_face_just_off_the_cylinder_it_is_tangent_to_is_moved_onto_it_and_imports_exact() {
+    let gap = 3.4e-6;
+    let solid = rounded_block();
+    let text = written("Pulley", &solid);
+    let (placement, origin, rest) = text
+        .lines()
+        .filter_map(|line| {
+            let (id, placement) = line.split_once("=AXIS2_PLACEMENT_3D('',")?;
+            let at = arguments(&text, id);
+            let on_side =
+                coordinates(&text, at[1])[0] == 10.0 && coordinates(&text, at[2])[0].abs() == 1.0;
+            on_side.then(|| {
+                let (origin, rest) = placement.split_once(',').unwrap();
+                (id.to_owned(), origin.to_owned(), rest.to_owned())
+            })
+        })
+        .next()
+        .unwrap();
+    let side = format!("{placement}=AXIS2_PLACEMENT_3D('',{origin},{rest}");
+    let moved = format!("{placement}=AXIS2_PLACEMENT_3D('',#90000,{rest}");
+    let mut point = coordinates(&text, &origin);
+    point[0] += gap;
+    let off = text.replacen(&side, &moved, 1).replacen(
+        "ENDSEC;\nEND-ISO",
+        &format!(
+            "#90000=CARTESIAN_POINT('',({:?},{:?},{:?}));\nENDSEC;\nEND-ISO",
+            point[0], point[1], point[2]
+        ),
+        1,
     );
+    let declared = off.replacen("LENGTH_MEASURE(1.E-6)", "LENGTH_MEASURE(1.E-2)", 1);
+
+    let plain = read_step(&off).unwrap_err().to_string();
+    let model = sample(&declared);
+    let read = &model.solids[0].solid;
+
+    assert!(text.contains(&side), "{side}");
+    assert!(declared.contains(&moved));
+    assert!(declared.contains("LENGTH_MEASURE(1.E-2)"));
+    assert!(plain.contains("0.0000034 mm"), "{plain}");
+    assert_eq!(model.solids.len(), 1);
+    assert_eq!(
+        model.notes,
+        [
+            "In “Pulley”, 1 flat face was moved by up to 0.0000034 mm to meet its neighbours \
+          exactly, within the file's precision of 0.01 mm."
+        ]
+    );
+    assert_eq!(read.faces().count(), solid.faces().count());
+    assert_volume(read, fixtures::volume(&solid));
 }
 
 #[test]
