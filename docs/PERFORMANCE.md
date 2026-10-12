@@ -116,13 +116,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Hostile files
 
-- [low · easy] Crafted files take quadratic time in readers documented as near linear, on a
-  worker that Cancel only abandons: the XML reader shared by SVG and 3MF interns namespaces by a
-  linear scan (`xml.rs`, `intern`) and resolves each prefix by walking every open scope
-  (`resolved`), with no cap on attributes per tag or on nesting, and never polls the interrupt; SVG
-  `use` checks for a loop through every XML ancestor (`svg/mod.rs`), deeper than `MAX_NESTING`
-  bounds its own walk; STEP reading rebuilds an equivalence class by search for every relationship
-  and owned representation (`read/structure.rs`, `class` in `relationship`) and drops fins with
-  `kept.remove(0)` (`read/topology.rs`), charging the work budget once per face. Intern and resolve
-  through maps, cap tags and depth, test subtrees by document-order ranges, label the classes once
-  and pop from a deque.
+- [low · easy] The XML reader shared by SVG and 3MF (`xml.rs`) never polls the interrupt, so Cancel
+  only abandons the worker of a crafted file up to `MAX_DRAWING_ELEMENTS` elements; poll it every
+  few thousand elements and answer a cancellation.

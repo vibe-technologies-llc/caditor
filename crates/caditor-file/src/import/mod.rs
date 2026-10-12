@@ -15,6 +15,8 @@ mod svg_text_tests;
 #[cfg(test)]
 mod tests;
 mod xml;
+#[cfg(test)]
+mod xml_tests;
 mod zip_read;
 
 use std::{collections::BTreeSet, path::Path};
@@ -211,6 +213,18 @@ pub enum ImportError {
         mesh::MAX_PLACED_TRIANGLES
     )]
     ModelPlacesTooMuch,
+    #[error(
+        "its elements nest more than {} levels deep, more than caditor reads from one file, so \
+         the file may be damaged",
+        xml::MAX_DEPTH
+    )]
+    NestedTooDeep,
+    #[error(
+        "one of its elements has more than {} attributes, more than caditor reads from one \
+         file, so the file may be damaged",
+        xml::MAX_ATTRIBUTES
+    )]
+    TooManyAttributes,
     #[error("the 3MF package holds no 3D model")]
     NoModelInPackage,
     #[error(

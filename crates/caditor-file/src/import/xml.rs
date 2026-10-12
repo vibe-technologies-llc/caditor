@@ -1,6 +1,8 @@
 use std::{borrow::Cow, collections::BTreeMap};
 
 pub(super) const XML_NAMESPACE: &str = "http://www.w3.org/XML/1998/namespace";
+pub(super) const MAX_DEPTH: usize = 1024;
+pub(super) const MAX_ATTRIBUTES: usize = 1024;
 const MAX_ENTITY_DEPTH: usize = 8;
 const MAX_ENTITY_WORK: usize = 4 << 20;
 const TEXT_KEPT_IN: &str = "style";
@@ -9,6 +11,8 @@ const CONTENT_KEPT_IN: [&str; 4] = ["text", "tspan", "textPath", "a"];
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum XmlError {
     TooManyElements,
+    TooDeep,
+    TooManyAttributes,
     Damaged { line: usize },
 }
 
@@ -25,6 +29,7 @@ struct Element<'t> {
     name: &'t str,
     attributes: Vec<Attribute<'t>>,
     parent: Option<usize>,
+    last: usize,
     children: Vec<usize>,
     text: Cow<'t, str>,
     pieces: Vec<Piece<'t>>,
@@ -142,6 +147,11 @@ impl<'a, 't> Node<'a, 't> {
         })
     }
 
+    pub fn encloses(self, other: Node<'a, 't>) -> bool {
+        self.element()
+            .is_some_and(|element| self.index <= other.index && other.index <= element.last)
+    }
+
     pub fn ancestors(self) -> impl Iterator<Item = Node<'a, 't>> {
         let tree = self.tree;
         std::iter::successors(Some(self), move |node| {
@@ -178,6 +188,8 @@ pub(super) fn parse(text: &str, max_elements: usize) -> Result<Tree<'_>, XmlErro
         entities: BTreeMap::new(),
         entity_work: 0,
         scopes: Vec::new(),
+        bindings: BTreeMap::new(),
+        interned: BTreeMap::new(),
         open: Vec::new(),
         tree: Tree {
             elements: Vec::new(),
@@ -187,6 +199,7 @@ pub(super) fn parse(text: &str, max_elements: usize) -> Result<Tree<'_>, XmlErro
         max_elements,
     };
     let ended = parser.run()?;
+    parser.close_open();
     let damage = match ended {
         Ended::Whole => None,
         Ended::DamagedAt(at) => Some(at),
@@ -228,6 +241,8 @@ struct Parser<'t> {
     entities: BTreeMap<&'t str, &'t str>,
     entity_work: usize,
     scopes: Vec<Scope<'t>>,
+    bindings: BTreeMap<&'t str, Vec<usize>>,
+    interned: BTreeMap<Cow<'t, str>, usize>,
     open: Vec<(usize, &'t str)>,
     tree: Tree<'t>,
     max_elements: usize,
@@ -307,20 +322,23 @@ impl<'t> Parser<'t> {
             return None;
         }
         let (element, _) = self.open.pop()?;
-        if self
-            .scopes
-            .last()
-            .is_some_and(|scope| scope.element == element)
-        {
-            self.scopes.pop();
+        let last = self.tree.elements.len().saturating_sub(1);
+        if let Some(closed) = self.tree.elements.get_mut(element) {
+            closed.last = last;
         }
+        self.leave_scope(element);
         Some(Step::Closed(close + 3))
     }
 
     fn start_tag(&mut self, rest: &'t str) -> Result<Option<Step>, XmlError> {
-        let Some(tag) = Tag::read(rest) else {
-            return Ok(None);
+        let tag = match Tag::read(rest) {
+            Ok(tag) => tag,
+            Err(TagFault::Damaged) => return Ok(None),
+            Err(TagFault::TooManyAttributes) => return Err(XmlError::TooManyAttributes),
         };
+        if self.open.len() >= MAX_DEPTH {
+            return Err(XmlError::TooDeep);
+        }
         if self.open.is_empty() && !self.tree.elements.is_empty() {
             return Ok(None);
         }
@@ -343,6 +361,9 @@ impl<'t> Parser<'t> {
             }
         }
         if !prefixes.is_empty() {
+            for (prefix, uri) in &prefixes {
+                self.bindings.entry(prefix).or_default().push(*uri);
+            }
             self.scopes.push(Scope {
                 element: index,
                 prefixes,
@@ -371,18 +392,13 @@ impl<'t> Parser<'t> {
             name,
             attributes,
             parent,
+            last: index,
             children: Vec::new(),
             text: Cow::Borrowed(""),
             pieces: Vec::new(),
         });
         if tag.empty {
-            if self
-                .scopes
-                .last()
-                .is_some_and(|scope| scope.element == index)
-            {
-                self.scopes.pop();
-            }
+            self.leave_scope(index);
             if self.open.is_empty() {
                 return Ok(Some(Step::Closed(tag.length)));
             }
@@ -425,16 +441,38 @@ impl<'t> Parser<'t> {
     }
 
     fn intern(&mut self, value: Cow<'t, str>) -> usize {
-        match self
-            .tree
-            .namespaces
-            .iter()
-            .position(|known| *known == value)
+        if let Some(index) = self.interned.get(value.as_ref()) {
+            return *index;
+        }
+        let index = self.tree.namespaces.len();
+        self.interned.insert(value.clone(), index);
+        self.tree.namespaces.push(value);
+        index
+    }
+
+    fn leave_scope(&mut self, element: usize) {
+        if self
+            .scopes
+            .last()
+            .is_none_or(|scope| scope.element != element)
         {
-            Some(index) => index,
-            None => {
-                self.tree.namespaces.push(value);
-                self.tree.namespaces.len() - 1
+            return;
+        }
+        let Some(scope) = self.scopes.pop() else {
+            return;
+        };
+        for (prefix, _) in scope.prefixes {
+            if let Some(stack) = self.bindings.get_mut(prefix) {
+                stack.pop();
+            }
+        }
+    }
+
+    fn close_open(&mut self) {
+        let last = self.tree.elements.len().saturating_sub(1);
+        for (element, _) in &self.open {
+            if let Some(open) = self.tree.elements.get_mut(*element) {
+                open.last = last;
             }
         }
     }
@@ -449,12 +487,10 @@ impl<'t> Parser<'t> {
             return Some((Some(self.intern(Cow::Borrowed(XML_NAMESPACE))), name));
         }
         let bound = self
-            .scopes
-            .iter()
-            .rev()
-            .flat_map(|scope| scope.prefixes.iter().rev())
-            .find(|(known, _)| *known == prefix)
-            .map(|(_, uri)| *uri);
+            .bindings
+            .get(prefix)
+            .and_then(|stack| stack.last())
+            .copied();
         let declared = bound.filter(|uri| {
             self.tree
                 .namespace(Some(*uri))
@@ -551,6 +587,11 @@ enum Step {
     Closed(usize),
 }
 
+enum TagFault {
+    Damaged,
+    TooManyAttributes,
+}
+
 struct Tag<'t> {
     name: &'t str,
     attributes: Vec<(&'t str, &'t str)>,
@@ -559,18 +600,18 @@ struct Tag<'t> {
 }
 
 impl<'t> Tag<'t> {
-    fn read(rest: &'t str) -> Option<Self> {
+    fn read(rest: &'t str) -> Result<Self, TagFault> {
         let mut at = 1;
-        let name = name_at(rest, at)?;
+        let name = name_at(rest, at).ok_or(TagFault::Damaged)?;
         at += name.len();
         let mut attributes = Vec::new();
         loop {
-            let after = rest.get(at..)?;
+            let after = rest.get(at..).ok_or(TagFault::Damaged)?;
             let trimmed = after.trim_start();
             let spaced = trimmed.len() < after.len();
             at += after.len() - trimmed.len();
             if trimmed.starts_with("/>") {
-                return Some(Self {
+                return Ok(Self {
                     name,
                     attributes,
                     empty: true,
@@ -578,7 +619,7 @@ impl<'t> Tag<'t> {
                 });
             }
             if trimmed.starts_with('>') {
-                return Some(Self {
+                return Ok(Self {
                     name,
                     attributes,
                     empty: false,
@@ -586,15 +627,23 @@ impl<'t> Tag<'t> {
                 });
             }
             if !spaced {
-                return None;
+                return Err(TagFault::Damaged);
             }
-            let attribute = name_at(rest, at)?;
+            if attributes.len() >= MAX_ATTRIBUTES {
+                return Err(TagFault::TooManyAttributes);
+            }
+            let attribute = name_at(rest, at).ok_or(TagFault::Damaged)?;
             at += attribute.len();
-            let after = rest.get(at..)?;
-            let trimmed = after.trim_start().strip_prefix('=')?.trim_start();
+            let after = rest.get(at..).ok_or(TagFault::Damaged)?;
+            let trimmed = after
+                .trim_start()
+                .strip_prefix('=')
+                .ok_or(TagFault::Damaged)?
+                .trim_start();
             at += after.len() - trimmed.len();
-            let length = quoted_length(trimmed)?;
-            attributes.push((attribute, trimmed.get(1..length - 1)?));
+            let length = quoted_length(trimmed).ok_or(TagFault::Damaged)?;
+            let value = trimmed.get(1..length - 1).ok_or(TagFault::Damaged)?;
+            attributes.push((attribute, value));
             at += length;
         }
     }

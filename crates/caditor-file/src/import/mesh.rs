@@ -484,6 +484,8 @@ impl Package<'_> {
         let text = std::str::from_utf8(&bytes).map_err(|_| damaged())?;
         let tree = xml::parse(text, self.elements_left).map_err(|error| match error {
             XmlError::TooManyElements => ImportError::ModelTooManyElements,
+            XmlError::TooDeep => ImportError::NestedTooDeep,
+            XmlError::TooManyAttributes => ImportError::TooManyAttributes,
             XmlError::Damaged { .. } => damaged(),
         })?;
         self.elements_left = self.elements_left.saturating_sub(tree.element_count());

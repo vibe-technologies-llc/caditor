@@ -113,6 +113,8 @@ pub fn parse_svg(bytes: &[u8], text_outlines: TextOutlines<'_>) -> Result<Drawin
     }
     let tree = parse(&text, MAX_DRAWING_ELEMENTS).map_err(|error| match error {
         XmlError::TooManyElements => ImportError::TooManyElements,
+        XmlError::TooDeep => ImportError::NestedTooDeep,
+        XmlError::TooManyAttributes => ImportError::TooManyAttributes,
         XmlError::Damaged { line } => ImportError::DamagedAt(line),
     })?;
     read_tree(&tree, notes, text_outlines)
@@ -510,10 +512,7 @@ impl<'a, 't> Walker<'a, 't> {
             self.tally.missing += 1;
             return Ok(());
         };
-        let looping = self.referencing.contains(&target.id())
-            || node
-                .ancestors()
-                .any(|ancestor| ancestor.id() == target.id());
+        let looping = self.referencing.contains(&target.id()) || target.encloses(node);
         if looping || self.referencing.len() >= MAX_USE_DEPTH {
             self.tally.too_deep += 1;
             return Ok(());

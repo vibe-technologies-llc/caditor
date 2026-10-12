@@ -238,7 +238,7 @@ fn a_3mf_nested_a_hundred_thousand_deep_is_refused_instead_of_overflowing_the_st
             "deep.3mf",
             "deep"
         ),
-        Err(ImportError::DamagedMesh("3MF"))
+        Err(ImportError::NestedTooDeep)
     );
 }
 
@@ -563,5 +563,32 @@ fn the_parts_of_a_project_share_one_element_limit() {
     assert_eq!(
         read_package(&package).map(|_| ()),
         Err(ImportError::ModelTooManyElements)
+    );
+}
+
+#[test]
+fn a_model_nested_past_the_xml_limit_is_refused() {
+    let nested = format!("{}{}", "<a>".repeat(2_000), "</a>".repeat(2_000));
+    let root = production_model(
+        &format!("{nested}{}", cube_object(1, 10.0)),
+        "<item objectid=\"1\"/>",
+    );
+    let package = parts_package(&[("3D/3dmodel.model", &root)]);
+
+    assert_eq!(
+        read_package(&package).map(|_| ()),
+        Err(ImportError::NestedTooDeep)
+    );
+}
+
+#[test]
+fn a_model_element_with_thousands_of_attributes_is_refused() {
+    let attributes: String = (0..3_000).map(|n| format!(" a{n}=\"1\"")).collect();
+    let root = production_model(&format!("<a{attributes}/>"), "");
+    let package = parts_package(&[("3D/3dmodel.model", &root)]);
+
+    assert_eq!(
+        read_package(&package).map(|_| ()),
+        Err(ImportError::TooManyAttributes)
     );
 }
