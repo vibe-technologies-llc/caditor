@@ -711,7 +711,9 @@ impl TransactionBuilder<'_> {
         let id = FeatureId::from_raw(self.next_feature_id);
         self.next_feature_id = self.next_feature_id.saturating_add(1);
         feature.set_id(id);
-        feature.group.clone_from(&self.inserted_group);
+        if self.inserted_group.is_some() {
+            feature.group.clone_from(&self.inserted_group);
+        }
         self.edits.push(Edit::InsertFeature {
             index: self.next_feature_index,
             feature: Arc::new(feature),

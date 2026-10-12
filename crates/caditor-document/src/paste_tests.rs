@@ -292,3 +292,100 @@ fn pasting_features_past_the_records_a_file_opens_is_refused_without_changing_an
         MAX_RECORDS
     );
 }
+
+fn group(document: &mut Document, features: &[FeatureId], name: &str) {
+    let grouping = document.grouping(features, name, "Group").unwrap();
+    document.apply(grouping).unwrap();
+}
+
+fn roll_back_before(document: &mut Document, feature: FeatureId) {
+    document
+        .apply(Transaction::single(
+            "Roll back",
+            Edit::SetRollbackBar {
+                bar: RollbackBar::Before(feature),
+            },
+        ))
+        .unwrap();
+}
+
+#[test]
+fn pasted_features_keep_their_folder_unless_the_bar_stands_inside_another() {
+    let Built {
+        mut document,
+        outline,
+        base,
+        ..
+    } = built();
+    let mut other = document.transaction("Other");
+    let first = other.add_feature("Other 1", FeatureKind::from(Sketch::new(Plane::XY)));
+    let second = other.add_feature("Other 2", FeatureKind::from(Sketch::new(Plane::XY)));
+    document.apply(other.finish()).unwrap();
+    group(&mut document, &[outline, base], "Bracket");
+    group(&mut document, &[first, second], "Spares");
+    let features = copied(&document, &[outline, base]);
+    let parameters = carried(&document, &features);
+
+    let mut below_its_folder = document.clone();
+    roll_back_before(&mut below_its_folder, first);
+    let paste = below_its_folder
+        .paste_features(&features, &parameters, PasteOrigin::ThisDocument)
+        .unwrap();
+    below_its_folder.apply(paste.transaction).unwrap();
+    let joined = below_its_folder.group_run(outline);
+
+    let mut at_the_end = document.clone();
+    let paste = at_the_end
+        .paste_features(&features, &parameters, PasteOrigin::ThisDocument)
+        .unwrap();
+    at_the_end.apply(paste.transaction).unwrap();
+    let apart = at_the_end.group_run(paste.pasted[0]);
+    let originals = at_the_end.group_run(outline);
+
+    let mut inside_another = document.clone();
+    roll_back_before(&mut inside_another, second);
+    let paste = inside_another
+        .paste_features(&features, &parameters, PasteOrigin::ThisDocument)
+        .unwrap();
+    let undo = inside_another.apply(paste.transaction.clone()).unwrap();
+    let spares = inside_another.group_run(first);
+    inside_another.apply(undo).unwrap();
+
+    assert_eq!(joined.len(), 4, "the copies join the folder right above");
+    assert_eq!(apart, paste_ids(&at_the_end, "copy"));
+    assert_eq!(at_the_end.group_of(apart[0]), Some("Bracket"));
+    assert_eq!(originals, [outline, base]);
+    assert_eq!(spares.len(), 4);
+    assert!(paste.pasted.iter().all(|id| spares.contains(id)));
+    assert_eq!(inside_another.features().len(), 4);
+}
+
+fn paste_ids(document: &Document, suffix: &str) -> Vec<FeatureId> {
+    document
+        .features()
+        .filter(|feature| feature.name.ends_with(suffix))
+        .map(Feature::id)
+        .collect()
+}
+
+#[test]
+fn features_pasted_into_another_model_arrive_in_a_folder_of_the_same_name() {
+    let Built {
+        document: mut source,
+        outline,
+        base,
+        ..
+    } = built();
+    group(&mut source, &[base], "Plate");
+    let features = copied(&source, &[outline, base]);
+    let parameters = carried(&source, &features);
+
+    let mut target = Document::default();
+    let paste = target
+        .paste_features(&features, &parameters, PasteOrigin::Elsewhere)
+        .unwrap();
+    target.apply(paste.transaction).unwrap();
+
+    assert_eq!(target.group_of(paste.pasted[0]), None);
+    assert_eq!(target.group_of(paste.pasted[1]), Some("Plate"));
+}

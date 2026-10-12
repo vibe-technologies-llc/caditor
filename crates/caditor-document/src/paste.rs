@@ -367,6 +367,7 @@ impl Document {
             copy.hidden = feature.hidden;
             copy.suppressed = feature.suppressed;
             copy.appearance = appearance;
+            copy.group.clone_from(&feature.group);
             let id = builder.add_copied_feature(copy);
             renamed.insert(feature.id(), id);
             pasted.push(id);

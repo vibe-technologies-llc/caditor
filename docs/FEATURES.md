@@ -233,10 +233,10 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Application
 
-- [low · medium] Pasted features take no group (the one at the bar), and a copy from another model
-  keeps none of its references outside the copied set. A sketch's section projection of a copied
-  body is still left out, its edge being named by the sketch's own cut (`section.rs`), and a corner
-  picked on a body outside the copy is not followed onto copied faces around it.
+- [low · medium] A copy from another model keeps none of its references outside the copied set. A
+  sketch's section projection of a copied body is still left out, its edge being named by the
+  sketch's own cut (`section.rs`), and a corner picked on a body outside the copy is not followed
+  onto copied faces around it.
 - [low · medium] The configurations table cannot leave or enter the model as a spreadsheet:
   parameters round-trip through CSV with a preview (`caditor-file` `parameters.rs`,
   `Document::plan_parameter_import`), but configurations, the variant families usually kept in a

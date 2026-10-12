@@ -59,14 +59,15 @@ it again after a stop.
 
 - {command:model.group_features} puts the chosen rows in a folder; double-click it to rename. A
   feature moved into a folder, or made or pasted while the rollback bar stands inside one, joins
-  it.
+  it. Pasted anywhere else, features copied from a folder land in a folder of the same name, so
+  pasting right below the folder they came from adds them to it.
 - {command:model.filter_features} filters the rows by name, by kind, such as "fillet", or by
   state: "failed", "outdated", "suppressed" or "hidden".
 - {command:model.copy_features} and {command:model.paste_features} copy features through the
   clipboard, within a model or into another. A fillet, shell, sketch on a face or anything else
   copied with the features whose faces, edges or corners it picks is pasted onto the copies:
-  caditor finds each pick again on them in the background, with progress in the status bar and
-  {command:model.cancel_paste} to stop. A pick it cannot find, or cannot tell from another, leaves
+  caditor finds each pick again on them in the background, computing only the copies, with
+  progress in the status bar and {command:model.cancel_paste} to stop. A pick it cannot find, or cannot tell from another, leaves
   that feature out and the notice says why.
 
 ## Kinds of features

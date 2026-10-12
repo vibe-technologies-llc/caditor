@@ -126,7 +126,11 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 
 - `Document::paste_features` plans one transaction inserting copies at the rollback bar in tree
   order, each under a fresh id (`add_copied_feature`), named "<name> copy", keeping hidden,
-  suppressed and appearance; its group is the one at the bar.
+  suppressed and appearance.
+- A copy keeps its original's folder name, in this model or another, so a copied folder pastes as
+  a folder and copies pasted right below the folder they came from join it. When the bar stands
+  inside a folder (`group_around`) every copy joins that folder instead, since folders are runs
+  and a copy named otherwise would split it. Features copied from no folder take none.
 - `FeatureKind::rename_features` rewrites every plain feature id a kind holds, those inside axis,
   plane and point references, measured items, mate targets and datums included. Inputs inside the
   copy are renamed through placeholders above `PLACEHOLDER_BASE`; one still named as a plain id
