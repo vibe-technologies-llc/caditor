@@ -38,7 +38,7 @@ use crate::{
     faceting::FacetLevel,
     feature_tree,
     gearing::GearSettings,
-    handle_snap::{self, Snap},
+    handle_snap::{self, Guide, Snap},
     hole_placement, hole_tools,
     interference_panel::{Mark, MarkKind},
     isocurves::IsocurveDrawing,
@@ -366,7 +366,7 @@ pub struct ViewportState {
     typed_owner: Option<(FeatureId, Tool)>,
     typed_handle: Option<manipulator::Typing>,
     typed_handle_preview: Option<String>,
-    handle_snap: Option<(Vector2, Option<Snap>)>,
+    handle_snap: Option<(Vector2, Guide, Option<Snap>)>,
     moving: Option<Moving>,
     transforming: Option<Transforming>,
     moving_label: Option<LabelMoving>,
@@ -1581,6 +1581,11 @@ impl ViewportState {
     }
 
     #[cfg(test)]
+    pub fn handle_grip(&self, handle: Handle, along: f64) -> Option<Point3> {
+        self.manipulator.as_ref()?.grip(handle, along)
+    }
+
+    #[cfg(test)]
     pub fn screen_of(&self, point: Point3) -> Option<egui::Pos2> {
         let pixel = self.view()?.project(point)? / f64::from(self.pixels_per_point);
         Some(self.rect?.min + egui::Vec2::new(pixel.x as f32, pixel.y as f32))
@@ -1918,8 +1923,8 @@ impl ViewportState {
         let free = self.placing_freely;
         let hold = self.hold();
         let snap = match &self.primary {
-            Some(PrimaryDrag::Manipulate(manipulating)) if !free && manipulating.snaps() => {
-                self.snap_handle(model, manipulating.feature)
+            Some(PrimaryDrag::Manipulate(manipulating)) if !free => {
+                self.snap_handle(model, manipulating.feature, manipulating.guide())
             }
             _ => None,
         };
@@ -2087,10 +2092,11 @@ impl ViewportState {
         };
     }
 
-    fn snap_handle(&mut self, model: &Model, feature: FeatureId) -> Option<Snap> {
+    fn snap_handle(&mut self, model: &Model, feature: FeatureId, guide: Guide) -> Option<Snap> {
         let cursor = self.cursor?;
-        if let Some((at, snap)) = self.handle_snap
+        if let Some((at, guided, snap)) = self.handle_snap
             && at == cursor
+            && guided == guide
         {
             return snap;
         }
@@ -2106,10 +2112,11 @@ impl ViewportState {
                     view: &view,
                     cursor,
                     pixels_per_point: self.pixels_per_point,
+                    guide,
                 }
                 .snap()
             });
-        self.handle_snap = Some((cursor, snap));
+        self.handle_snap = Some((cursor, guide, snap));
         snap
     }
 

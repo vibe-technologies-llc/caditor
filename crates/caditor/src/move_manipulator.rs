@@ -9,7 +9,7 @@ use caditor_render::{Batch, Color, Fill, Layer, Line, Stroke, View};
 
 use crate::{
     feature_fields::Rule,
-    handle_snap::Snap,
+    handle_snap::{Guide, Snap},
     hole_handles::HoleGrip,
     manipulator::{self, Held},
     model::Model,
@@ -38,6 +38,7 @@ const RING_REACH: f64 = 1.25;
 const RING_SEGMENTS: usize = 72;
 const TURN_STEP_DEGREES: f64 = 5.0;
 const UNCHANGED_DEGREES: f64 = 1e-9;
+const SMALLEST_TURN_RADIUS: f64 = 1e-6;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Handle {
@@ -642,8 +643,35 @@ impl MoveDrag {
         })
     }
 
-    pub fn snaps(&self) -> bool {
-        matches!(self.handle, Handle::Along(_) | Handle::Across(_))
+    pub fn guide(&self) -> Guide {
+        match self.handle {
+            Handle::Along(axis) => Guide::Line {
+                base: self.origin,
+                direction: direction(&self.frame, axis),
+            },
+            Handle::Across(_)
+            | Handle::Turn(_)
+            | Handle::TurnAbout
+            | Handle::Reach(_)
+            | Handle::Place(_)
+            | Handle::Hole(_)
+            | Handle::Value(_)
+            | Handle::Revolve(_) => Guide::Points,
+        }
+    }
+
+    fn turn_axis(&self) -> Option<Vector3> {
+        match self.handle {
+            Handle::TurnAbout => Some(self.about),
+            Handle::Turn(axis) => Some(direction(&self.frame, axis)),
+            Handle::Along(_)
+            | Handle::Across(_)
+            | Handle::Reach(_)
+            | Handle::Place(_)
+            | Handle::Hole(_)
+            | Handle::Value(_)
+            | Handle::Revolve(_) => None,
+        }
     }
 
     fn snapped_offset(&self, snap: Snap, ray: Ray) -> Option<[f64; 3]> {
@@ -672,24 +700,67 @@ impl MoveDrag {
         Some(offset)
     }
 
-    fn swept(&self, direction: Vector3, at: Point3, free: bool) -> f64 {
-        let (grabbed, now) = (self.grabbed - self.origin, at - self.origin);
-        let angle = grabbed
-            .cross(now)
-            .dot(direction)
-            .atan2(grabbed.dot(now))
-            .to_degrees();
-        if free {
-            angle
-        } else {
-            (angle / TURN_STEP_DEGREES).round() * TURN_STEP_DEGREES
+    fn turned_to(&self, axis: Vector3, at: Point3) -> Option<f64> {
+        let square = |offset: Vector3| offset - axis * offset.dot(axis);
+        let (grabbed, now) = (square(self.grabbed - self.origin), square(at - self.origin));
+        (now.length() > SMALLEST_TURN_RADIUS && grabbed.length() > SMALLEST_TURN_RADIUS).then(
+            || {
+                grabbed
+                    .cross(now)
+                    .dot(axis)
+                    .atan2(grabbed.dot(now))
+                    .to_degrees()
+            },
+        )
+    }
+
+    fn swept(
+        &self,
+        axis: Vector3,
+        ray: Ray,
+        free: bool,
+        snap: Option<Snap>,
+    ) -> Option<(f64, Option<Snap>)> {
+        let snapped =
+            snap.and_then(|snap| Some((self.turned_to(axis, snap.pinned_point()?)?, snap)));
+        if let Some((angle, snap)) = snapped {
+            return Some((angle, Some(snap)));
         }
+        let at = point_on(self.handle, &self.frame, self.origin, self.about, ray)?;
+        let angle = self.turned_to(axis, at)?;
+        Some(if free {
+            (angle, None)
+        } else {
+            (
+                (angle / TURN_STEP_DEGREES).round() * TURN_STEP_DEGREES,
+                None,
+            )
+        })
+    }
+
+    fn follow_turn(&mut self, axis: Vector3, ray: Ray, free: bool, snap: Option<Snap>) -> bool {
+        let Some((angle, snapped)) = self.swept(axis, ray, free, snap) else {
+            return false;
+        };
+        let (turns, about) = if let Handle::Turn(turned_axis) = self.handle {
+            (turned(self.from_turns, turned_axis, angle), self.angle)
+        } else {
+            (self.turns, self.from_angle + angle)
+        };
+        let changed = turns != self.turns || about != self.angle || snapped != self.snapped;
+        self.turns = turns;
+        self.angle = about;
+        self.snapped = snapped;
+        changed
     }
 
     pub fn follow(&mut self, ray: Ray, free: bool, snap: Option<Snap>) -> bool {
-        if let Some((offset, snap)) = snap
-            .filter(|_| !free)
-            .and_then(|snap| Some((self.snapped_offset(snap, ray)?, snap)))
+        let snap = snap.filter(|_| !free);
+        if let Some(axis) = self.turn_axis() {
+            return self.follow_turn(axis, ray, free, snap);
+        }
+        if let Some((offset, snap)) =
+            snap.and_then(|snap| Some((self.snapped_offset(snap, ray)?, snap)))
         {
             let changed = offset != self.offset || self.snapped != Some(snap);
             self.offset = offset;
@@ -700,19 +771,6 @@ impl MoveDrag {
         let Some(at) = point_on(self.handle, &self.frame, self.origin, self.about, ray) else {
             return unsnapped;
         };
-        if self.handle == Handle::TurnAbout {
-            let angle = self.from_angle + self.swept(self.about, at, free);
-            let changed = angle != self.angle;
-            self.angle = angle;
-            return changed;
-        }
-        if let Handle::Turn(axis) = self.handle {
-            let angle = self.swept(direction(&self.frame, axis), at, free);
-            let turns = turned(self.from_turns, axis, angle);
-            let changed = turns != self.turns;
-            self.turns = turns;
-            return changed;
-        }
         let moved = at - self.grabbed;
         let mut offset = self.from;
         for axis in self.handle.moves() {
@@ -785,6 +843,14 @@ impl MoveDrag {
     }
 
     pub fn readout(&self, units: Units) -> String {
+        let shown = self.moved_words(units);
+        match self.snapped {
+            Some(snap) => format!("{shown} {}", snap.kind.words()),
+            None => shown,
+        }
+    }
+
+    fn moved_words(&self, units: Units) -> String {
         if self.handle == Handle::TurnAbout {
             let turned = self.angle - self.from_angle;
             let shown = if turned >= 0.0 { "+" } else { "" };
@@ -810,8 +876,7 @@ impl MoveDrag {
                 units.angle.readout_text(turned)
             );
         }
-        let moved = self
-            .handle
+        self.handle
             .moves()
             .into_iter()
             .filter_map(|axis| {
@@ -825,11 +890,7 @@ impl MoveDrag {
                 ))
             })
             .collect::<Vec<_>>()
-            .join("   ");
-        match self.snapped {
-            Some(snap) => format!("{moved} {}", snap.kind.words()),
-            None => moved,
-        }
+            .join("   ")
     }
 }
 

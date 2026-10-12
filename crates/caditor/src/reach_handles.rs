@@ -7,7 +7,7 @@ use caditor_geometry::{Plane, Point3, Ray, Vector2, Vector3};
 use caditor_render::{Batch, View};
 
 use crate::{
-    handle_snap::Snap,
+    handle_snap::{Guide, Snap},
     manipulator::{self, Held},
     model::Model,
     move_manipulator::{
@@ -344,6 +344,13 @@ impl ReachDrag {
 
     fn flips(&self) -> bool {
         self.distance < 0.0
+    }
+
+    pub fn guide(&self) -> Guide {
+        Guide::Line {
+            base: self.end,
+            direction: self.direction,
+        }
     }
 
     pub fn follow(&mut self, ray: Ray, free: bool, snap: Option<Snap>) -> bool {

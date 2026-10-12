@@ -5,7 +5,7 @@ use caditor_render::{Batch, View};
 
 use crate::{
     feature_fields::Rule,
-    handle_snap::Snap,
+    handle_snap::{Guide, Snap},
     manipulator::{self, Held},
     model::Model,
     move_manipulator::{
@@ -340,9 +340,21 @@ impl ValueDrag {
         })
     }
 
+    pub fn guide(&self) -> Guide {
+        match &self.follow {
+            Follow::Line {
+                base, direction, ..
+            } => Guide::Line {
+                base: *base,
+                direction: *direction,
+            },
+            Follow::Turn { .. } => Guide::Points,
+        }
+    }
+
     pub fn follow(&mut self, ray: Ray, free: bool, snap: Option<Snap>) -> bool {
         let from_position = self.mapping.position(self.from);
-        let pulled = match &mut self.follow {
+        let pulled_position = match &mut self.follow {
             Follow::Line {
                 base,
                 direction,
@@ -357,7 +369,7 @@ impl ValueDrag {
                 from_position + *swept
             }),
         };
-        let pulled = pulled.and_then(|position| self.mapping.value(position));
+        let pulled = pulled_position.and_then(|position| self.mapping.value(position));
         let snapped = match (&self.follow, snap.filter(|_| !free)) {
             (
                 Follow::Line {
@@ -368,6 +380,11 @@ impl ValueDrag {
                 .along(*base, *direction)
                 .and_then(|position| self.mapping.value(position))
                 .filter(|value| snap.holds(*value, pulled, self.step))
+                .map(|value| (value, snap)),
+            (Follow::Turn { swing, .. }, Some(snap)) => pulled_position
+                .and_then(|near| swing.snapped_near(snap, near))
+                .and_then(|position| self.mapping.value(position))
+                .filter(|value| self.measured.accepts(*value, self.step, &self.start) == *value)
                 .map(|value| (value, snap)),
             _ => None,
         };

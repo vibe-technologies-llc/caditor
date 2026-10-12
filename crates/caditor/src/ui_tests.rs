@@ -134,6 +134,7 @@ mod svg_import;
 mod templates;
 mod themes;
 mod threads;
+mod turn_snaps;
 mod typed_values;
 mod up_to_next_handles;
 mod upload_indicator;

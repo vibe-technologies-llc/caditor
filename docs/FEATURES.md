@@ -57,11 +57,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   rather than on the face, and a curve pattern's arrow slides along the curve's tangent while it is
   dragged, rejoining the curve when the copies are placed again. Each would be a further `Measured`
   with its `Gauge`, or for the last two a `Track` that follows a curve.
-- [low · medium] Turning handles (a revolve's angle arrows, a move's rings, a plane's and a circular
-  pattern's turn arrows) step but never snap (`Manipulating::snaps`), and a drag snaps to flat
-  faces only, by their plane, while a curved face under the pointer gives nothing. Snapping a turn
-  to the angle that brings a corner or edge middle into its plane, and a line handle to where it
-  meets a curved face, would finish Fusion's drag-to-geometry.
 - [low · medium] A hole's placement handles (`hole_handles.rs`) have no drag for sliding a point
   measured from one edge along that edge, and none for a point whose position follows parameters
   (its hover names what drives it). Place by takes only edges of bodies, not another sketch's

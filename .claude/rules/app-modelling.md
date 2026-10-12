@@ -295,8 +295,8 @@ pattern, Coordinate system, Scale model and Configurations. Panel rows, keys and
   positive angles sweep toward the sketch normal, a reversed one-sided turn the other way, a symmetric
   turn shows its forward half and drags the total twice as fast, two angles an arrow each. A drag
   follows the pointer's angle about the axis in the plane square to it, unwrapped past half a turn, in
-  steps of `STEP_DEGREES` (Ctrl free) between one step and what the full turn leaves beside the other
-  angle. A revolve starting off its sketch plane turns profile and axis shifted along the normal by the
+  steps of `STEP_DEGREES` (Ctrl free) or snapping onto a point (Value handles below) between one step
+  and what the full turn leaves beside the other angle. A revolve starting off its sketch plane turns profile and axis shifted along the normal by the
   start, so its arrows stand and turn there (`start_offset`).
 - A negative one-sided extrusion distance flips the extrusion instead of being refused
   (`Rule::FlipWhenNegative`, which refuses only zero; every other extrusion distance keeps
@@ -585,16 +585,28 @@ pattern, Coordinate system, Scale model and Configurations. Panel rows, keys and
   field stays and typing reaches it.
 - While a handle is dragged (or its value typed) the open feature's panel is drawn from the draft's
   kind (`manipulator::publish_dragged`, `dragged`, read in `feature_tree::body`).
-- A drag on a line or plane snaps to the shown geometry under the pointer, ahead of the steps (Ctrl
-  drags freely; `handle_snap.rs`): `Probe::snap` takes the CPU hits under the pointer
-  (`Scene::hits_through`, `PickTable::within_reach`), keeps those no deeper than the nearest face, and
-  resolves them on the body as the feature sees it (its own body's state before it, a move's own body
-  never): a corner first, then a round edge's centre or an edge's middle within `MIDDLE_REACH_POINTS`,
-  then a flat face by its plane. A line handle lands level with the point along its line, or where it
-  meets the face's plane, a face only within `MAGNET_STEPS` steps of where the drag would be
-  (`Snap::holds`); a plane handle lands on the point's projection, an arrow along one axis on that
-  coordinate. The value set is measured, never a reference, and the readout ends with what it snapped
-  to ("to a corner"). Turning drags never snap (`Manipulating::snaps`).
+- Every handle drag snaps to the shown geometry under the pointer, ahead of the steps (Ctrl drags
+  freely; `handle_snap.rs`): `Probe::snap` takes the CPU hits under the pointer
+  (`Scene::hits_through`, `PickTable::within_reach`), keeps those no deeper than the nearest face that
+  resolves (so the open feature's see-through preview, whose new faces the body before it lacks, hides
+  nothing), and resolves them on the body as the feature sees it (its own body's state before it, a
+  move's own body never): a corner first, then a round edge's centre or an edge's middle within
+  `MIDDLE_REACH_POINTS`, then a face. What a face gives depends on the drag's `Guide`
+  (`Manipulating::guide`): only a `Guide::Line` (a reach arrow, a move's arrow, a value arrow on a
+  line) takes faces, a flat one by its plane and a curved one where the handle's line meets its surface
+  (`meeting_curved`: `intersect_curve_surface` over the line across the body's box, hits outside the
+  face dropped, the one nearest where the pointer's ray met the face kept; none is no snap). A line
+  handle lands level with the point along its line, or on the face, a face only within `MAGNET_STEPS`
+  steps of where the drag would be (`Snap::holds`); a plane handle (`Guide::Points`) lands on the
+  point's projection, an arrow along one axis on that coordinate. A turning handle (`Guide::Points`)
+  turns to the angle bringing the point into its turned plane, the half-plane through its axis and the
+  dragged foot (`Swing::snapped_near`, taking the turn of that angle nearest where the drag would be):
+  a revolve's arrow and a value arrow on a `Swing` (a datum plane's angle, a circular pattern's angle
+  and count, a slot's or chamfer's angle, a prism's sides) put their foot's half-plane there, refused
+  when the value it gives falls outside the drag's range or `Measured::accepts` would change it (so a
+  count snaps only where a whole count lands); a move's ring turns by the angle from the spot grabbed
+  to the point about the ring's axis (`MoveDrag::turned_to`). The value set is measured, never a
+  reference, and the readout ends with what it snapped to ("to a corner").
 - Typing a digit while a handle is hovered or held (outside a sketch) opens the typed-point field
   (`app-input.md`) labelled with that handle's field (`Manipulator::typing`, `manipulator::Typing`; a
   square takes "x, y"), dropping a drag in progress; the text previews as typed and Enter commits the
@@ -673,7 +685,8 @@ pattern, Coordinate system, Scale model and Configurations. Panel rows, keys and
 - A move turning about its body's centre stands its manipulator at that centre (as moved) and adds a
   ring about each axis (`Handle::Turn`, `RING_REACH` beyond the arrows, left out when edge-on). A drag
   turns the body by the angle swept round the centre in the ring's plane, in steps of
-  `TURN_STEP_DEGREES` (Ctrl free), previewed and committed like an arrow: a turn about an axis applied
+  `TURN_STEP_DEGREES` (Ctrl free) or onto a point under the pointer (Value handles below), previewed
+  and committed like an arrow: a turn about an axis applied
   after the others (Z, or Y with no Z turn, or X alone) adds to its own field, any other is composed
   with the turns there and written back as three turns (`turns_about_axes`), changing only fields whose
   value changed. A move turning about the origin has no rings. A move turning about an axis stands its
