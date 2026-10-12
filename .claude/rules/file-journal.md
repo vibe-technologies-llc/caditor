@@ -21,6 +21,7 @@ paths:
 - `JOURNAL_VERSION` is 1. Decoding fails as `UnreadableJournal`: `Damaged`, `FromNewerVersion`, or
   `FromEarlierBuild` for a journal of a development build before version 1 (magic
   `\x89CJL\r\n\x1a\n`). Each is handled alike: never offered, set aside by `journal_for`.
+  Every shipped version keeps journals in the format corpus (`file-format.md`).
 - Undo and redo are journaled by reference when possible (`UndoLast`, `RedoNext`), so undoing an
   import never repeats its STEP text; the storage worker follows the journal in a `Mirror`.
   Anything the mirror cannot follow is written whole and the mirror stops until the next save.

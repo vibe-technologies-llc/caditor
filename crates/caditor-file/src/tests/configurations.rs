@@ -2,7 +2,7 @@ use caditor_document::{ConfiguredValue, Editor, Rgb, Setting};
 
 use super::*;
 
-fn configured_model() -> (Document, Transaction, Transaction) {
+pub(super) fn configured_model() -> (Document, Transaction, Transaction) {
     let (document, base, _) = solid_model();
     let depth = document.parameter_named("depth").unwrap().id();
     let mut editor = Editor::new(document);

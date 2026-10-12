@@ -21,7 +21,7 @@ use crate::{
     selection_sets::{SelectionSetsRecord, selection_sets_record},
 };
 
-const JOURNAL_VERSION: u32 = 1;
+pub(crate) const JOURNAL_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum JournalEntry {

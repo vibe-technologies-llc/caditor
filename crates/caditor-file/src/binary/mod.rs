@@ -63,7 +63,7 @@ pub(crate) enum ChunkKind {
 }
 
 impl ChunkKind {
-    const ALL: [Self; 13] = [
+    pub(crate) const ALL: [Self; 13] = [
         Self::Head,
         Self::Record,
         Self::VersionInfo,
@@ -93,10 +93,10 @@ pub(crate) enum Codec {
 }
 
 impl Codec {
+    pub(crate) const ALL: [Self; 3] = [Self::Stored, Self::Zstd, Self::ZstdAfterNewer];
+
     fn from_byte(byte: u8) -> Option<Self> {
-        [Self::Stored, Self::Zstd, Self::ZstdAfterNewer]
-            .into_iter()
-            .find(|codec| *codec as u8 == byte)
+        Self::ALL.into_iter().find(|codec| *codec as u8 == byte)
     }
 }
 
@@ -159,6 +159,11 @@ impl<'a> Chunk<'a> {
             whole: whole?,
             ..*self
         })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn parts(&self) -> usize {
+        self.parts
     }
 
     pub fn unpack(&self, newer: Option<&[u8]>) -> Result<Vec<u8>, UnpackError> {

@@ -60,7 +60,7 @@ fn seed_journal() -> Vec<u8> {
     encode_journal(&seed_journal_head(0), &base, &entries).unwrap()
 }
 
-fn seed_journal_by_reference(folded: usize) -> Vec<u8> {
+pub(super) fn seed_journal_by_reference(folded: usize) -> Vec<u8> {
     let (base, entries) = seed_journal_entries();
     let mut mirror = Mirror::new(base.clone());
     let entries: Vec<_> = entries.into_iter().map(|entry| mirror.log(entry)).collect();
@@ -180,9 +180,15 @@ fn write_mesh_fuzz_seeds() {
     write_seeds(seeds);
 }
 
+pub(super) fn seed_path(name: &str) -> Option<PathBuf> {
+    let path = seeds_dir().join(name);
+    (!corpus::inside_corpus(&path)).then_some(path)
+}
+
 fn write_seeds<const N: usize>(seeds: [(&str, Vec<u8>); N]) {
     for (name, bytes) in seeds {
-        let path = seeds_dir().join(name);
+        let path = seed_path(name)
+            .unwrap_or_else(|| panic!("the seed {name} would land in the format corpus"));
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(path, bytes).unwrap();
     }
