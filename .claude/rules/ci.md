@@ -105,6 +105,22 @@ paths:
   with `arbitrary::Unstructured` through the generators in `fuzz/src`, biased to near-coincident and
   aligned geometry. They hold the invariants of their subject: an `Ok` solid validates, each
   transaction is undone exactly by its inverse, every saved version loads back.
+- The document generators (`fuzz/src/document/`) make every `Edit` variant and every feature kind:
+  `addition` (parameters, owned ones, a feature of each `Family`), `parameter_edit`, `tree_edit`
+  (`SetFeatureKind` with a new kind of the feature's own family, groups, appearance), `sketch_edit`
+  (projections, labels, active flags, placements with attachments, the builder's `add_projection`
+  and `remove_sketch_items`) and `model_edit` (properties, saved views, selection sets,
+  configurations raw and through the document's configuration builders). `Generator::of` matches
+  `Edit` and `Family::of` matches `FeatureKind` exhaustively, so a new variant fails to compile
+  until a generator covers it. Face, edge and vertex references are synthetic names with every
+  `FaceOrigin`; `document` runs twice, the second time with references captured from the first
+  recompute's bodies (`References::capture`), so they resolve. Imports are one block, written to
+  STEP once.
+- `save_load` saves after every change, checking each loads back as it was, and logs each change as
+  the storage worker does (`caditor_file::fuzzing::Journal`, through the same `Mirror`); at the end
+  the journal is written, read and replayed (`replay_journal`), and must replay every entry with no
+  issue to the same document. A document state that saves or journals differently from what the
+  document holds is a finding: the document settles what loading would (`document.md`).
 - Kernel and solver work runs under `WORK_BUDGET`, so slow inputs cancel instead of tripping
   libFuzzer's timeout: the structured targets and both STEP targets (`step`, `step_import`). Every
   panic counts, including ones recompute would contain.

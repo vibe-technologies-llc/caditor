@@ -1726,3 +1726,32 @@ fn an_edge_ending_at_a_corner_an_earlier_blend_cut_names_it_and_says_to_move_abo
          leave this edge out."
     );
 }
+
+#[test]
+fn an_equal_blend_has_no_side_to_flip() {
+    let mut model = model();
+    let mut flipped = model
+        .document
+        .feature(model.fillet)
+        .unwrap()
+        .kind
+        .blend()
+        .unwrap()
+        .clone();
+    flipped.kind = BlendKind::Chamfer;
+    flipped.flipped = true;
+
+    model
+        .document
+        .apply(Transaction::single(
+            "Edit",
+            Edit::SetFeatureKind {
+                id: model.fillet,
+                kind: FeatureKind::Blend(flipped),
+            },
+        ))
+        .unwrap();
+    let kept = model.document.feature(model.fillet).unwrap().kind.clone();
+
+    assert!(!kept.blend().unwrap().flipped);
+}

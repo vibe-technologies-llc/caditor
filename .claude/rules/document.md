@@ -31,7 +31,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   unchanged, else `Stale`.
 - Edits carry their IDs, so redo restores them; counters never move backwards. Parameter and
   feature IDs stay below `FIRST_UNSTORABLE_ID` (`ReservedId`).
-- Edits refuse to break invariants: references to a feature below the one using it, unknown
+- Edits refuse to break invariants: references to a feature below the one using it or to itself
+  (an insert naming its own id too), unknown
   parameters, parameter cycles, deleting a parameter in use, moving a feature past one it depends
   on, two features sharing a name (loading renames the second, with a report). A parameter the
   configurations name (`Configurations::parameters_named`: a configured column or a cell of any
@@ -312,7 +313,9 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   `uses_parameter` include it. It is evaluated where shown (`density_value`, `mass_grams`): above
   zero and at most `MAX_DENSITY`, else a `DensityError`.
 - `faces` lists `FaceColour`s (a `FaceReference`, colour, optional opacity below which
-  `MIN_OPACITY_PERCENT` is refused, optional `Finish`), later entries winning. `face_appearances`
+  `MIN_OPACITY_PERCENT` is refused and above 100 held at 100, optional `Finish`), later entries
+  winning. `InsertFeature` settles an appearance as `SetBodyAppearance` does (`BodyAppearance::settled`),
+  so every appearance the document holds is one a model file reads back. `face_appearances`
   maps a solid's faces to entries in one pass (`face_colours`, `face_opacities`, `face_finishes`
   read it; the scene takes it once per body): every face of the reference's name (so fragments of a
   split face keep their colour) or of a name a split face gives its pieces, else the face the
@@ -361,6 +364,10 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 
 ## Feature kinds
 
+- An insert or kind change settles a kind as loading would read it back (`settled_kind`): a
+  mirror's and a pattern's features each kept once, a pattern's skipped copies settled (Pattern
+  below), an angle or point mate or an equal blend never flipped, a split face's carry square
+  unless it splits along a sketch. A combine keeps its tools as chosen; one chosen twice fails.
 - `SetFeatureKind` replaces settings but never the kind (`EditError::KindChange`); a blend may
   switch fillet/chamfer, a pattern between its kinds, a datum within its `Datum::kind`. Sketches
   change through sketch edits. An edit whose new kind still `makes_body` keeps the body for its
@@ -827,7 +834,9 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   copy costing a boolean. The reach may not pass `MAX_SIZE`; parallel directions are refused. A
   linear direction's length is `measured` between neighbouring copies or, as
   `LinearSpacing::Total`, from the body to the last copy, shared evenly.
-- `skipped` holds the `Instance`s left out. The original (`ORIGINAL_INSTANCE`) can never be; one
+- `skipped` holds the `Instance`s left out. The original (`ORIGINAL_INSTANCE`) can never be: an
+  insert or kind change drops it and, but for a points pattern, any step past
+  `MAX_PATTERN_INSTANCES` (`Pattern::settle_skipped`), as loading does. One
   past the current counts is kept but changes nothing, so lowering and raising a count brings the
   same copies back. Copies made keep their indices and names.
 - `PatternKind::Curve` (`CurvePattern`) follows an earlier sketch whose non-construction curves form
@@ -900,7 +909,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   sketch. `refreshed` cuts each body once per recompute; a reference no longer found means the plane
   no longer cuts that face, a failing cut fails the sketch alone, cancelling stops it.
   `DatumPlane { datum, reach }` is the line where an earlier datum plane crosses the sketch plane,
-  centred nearest the sketch origin and `reach` long either way (`datum_outline` gives none for a
+  centred nearest the sketch origin and `reach` long either way (a reach not finite and above zero
+  is refused, `ProjectionReach`) (`datum_outline` gives none for a
   parallel plane); datum sources count in `planes_used`, so an edit refuses a non-datum-plane
   (`NotAPlane`). `PrincipalPlane { plane, reach }` is the same line for XY, XZ or YZ; it has no
   source feature (`ProjectionSource::feature` is `None`), so only the sketch's own plane moves it.

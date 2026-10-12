@@ -190,6 +190,14 @@ impl LinearDirection {
 }
 
 impl Pattern {
+    pub(crate) fn settle_skipped(&mut self) {
+        let points = matches!(self.kind, PatternKind::Points(_));
+        self.skipped.retain(|instance| {
+            *instance != ORIGINAL_INSTANCE
+                && (points || instance.iter().all(|step| *step < MAX_PATTERN_INSTANCES))
+        });
+    }
+
     pub fn new(body: FeatureId, kind: PatternKind) -> Self {
         Self {
             body,

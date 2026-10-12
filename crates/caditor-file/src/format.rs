@@ -2035,7 +2035,7 @@ fn feature_record_sharing(feature: &Feature, shares: Option<String>) -> FeatureR
         name: feature.name.clone(),
         hidden: feature.hidden,
         appearance: (!feature.appearance.is_default())
-            .then(|| Lenient::Read(appearance_record(&feature.appearance))),
+            .then(|| Lenient::Read(appearance_record(&feature.appearance.clone().settled()))),
         group: feature.group.clone(),
         kind: match &feature.kind {
             FeatureKind::Import(import) => import_record(import, shares),
@@ -2410,7 +2410,7 @@ fn kind_record(kind: &FeatureKind) -> FeatureKindRecord {
                 BlendKind::Fillet => FeatureKindRecord::Fillet(record),
                 BlendKind::Chamfer => FeatureKindRecord::Chamfer(record),
             };
-            let form = match blend.chamfer_form() {
+            let form = match &blend.form {
                 ChamferForm::Equal => None,
                 ChamferForm::TwoDistances { second } => Some(ChamferFormRecord::TwoDistances {
                     second: second.to_stored_text(),
@@ -3157,30 +3157,32 @@ fn grid_pattern_record(shape: PatternShapeRecord, skipped: Vec<[u32; 2]>) -> Fea
 }
 
 fn mirror_record(mirror: &Mirror) -> FeatureKindRecord {
-    let record = FeatureKindRecord::Mirror(MirrorRecord {
+    let whole = FeatureKindRecord::Mirror(MirrorRecord {
         body: mirror.body.raw(),
         plane: Lenient::Read(plane_reference_record(&mirror.plane)),
         keep_original: mirror.keep_original,
     });
-    if mirror.mirrors_faces() {
-        return FeatureKindRecord::FaceMirror(Box::new(FaceMirrorRecord {
-            feature: record,
-            faces: mirror
-                .faces
+    let features = if mirror.mirrored.is_empty() {
+        whole
+    } else {
+        FeatureKindRecord::FeatureMirror(Box::new(FeatureMirrorRecord {
+            feature: whole,
+            mirrored: mirror
+                .mirrored
                 .iter()
-                .map(|face| Lenient::Read(face_record(face)))
+                .map(|feature| feature.raw())
                 .collect(),
-        }));
+        }))
+    };
+    if mirror.faces.is_empty() {
+        return features;
     }
-    if !mirror.mirrors_features() {
-        return record;
-    }
-    FeatureKindRecord::FeatureMirror(Box::new(FeatureMirrorRecord {
-        feature: record,
-        mirrored: mirror
-            .mirrored
+    FeatureKindRecord::FaceMirror(Box::new(FaceMirrorRecord {
+        feature: features,
+        faces: mirror
+            .faces
             .iter()
-            .map(|feature| feature.raw())
+            .map(|face| Lenient::Read(face_record(face)))
             .collect(),
     }))
 }
@@ -4158,7 +4160,7 @@ fn edit_record(edit: &Edit) -> EditRecord {
         },
         Edit::SetBodyAppearance { id, appearance } => EditRecord::SetBodyAppearance {
             id: id.raw(),
-            appearance: appearance_record(appearance),
+            appearance: appearance_record(&appearance.clone().settled()),
         },
         Edit::SetRollbackBar { bar } => EditRecord::SetRollbackBar {
             before: match bar {
@@ -4632,7 +4634,7 @@ fn restore_kind(
         FeatureKindRecord::ShapedChamfer(shaped) => {
             let mut kind = restore_kind(&shaped.feature, name, texts, issues);
             match &mut kind {
-                FeatureKind::Blend(blend) if blend.kind == BlendKind::Chamfer => {
+                FeatureKind::Blend(blend) => {
                     blend.form = match &shaped.form {
                         ChamferFormRecord::TwoDistances { second } => ChamferForm::TwoDistances {
                             second: restore_value(second, "second distance", "1 mm", name, issues),
@@ -4645,7 +4647,7 @@ fn restore_kind(
                 }
                 _ => issues.push(format!(
                     "“{name}” listed a second distance or an angle of a chamfer, but it is not a \
-                     chamfer, so they were left out."
+                     fillet or chamfer, so they were left out."
                 )),
             }
             kind
@@ -5305,15 +5307,12 @@ fn restore_kind(
             let mut kind = restore_kind(&tools.feature, name, texts, issues);
             match &mut kind {
                 FeatureKind::Combine(combine) => {
-                    let mut more_tools = Vec::new();
-                    let mut seen = BTreeSet::new();
-                    for raw in &tools.more_tools {
-                        let tool = FeatureId::from_raw(*raw);
-                        if tool != combine.tool && seen.insert(tool) {
-                            more_tools.push(tool);
-                        }
-                    }
-                    combine.more_tools = more_tools;
+                    combine.more_tools = tools
+                        .more_tools
+                        .iter()
+                        .copied()
+                        .map(FeatureId::from_raw)
+                        .collect();
                     combine.keep_tool = tools.keep_tool;
                 }
                 _ => issues.push(format!(

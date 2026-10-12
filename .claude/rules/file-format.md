@@ -134,7 +134,8 @@ The journal snapshot carries the same record under the same name, held by the se
   `powder_coat`, `anodized`, `brushed_metal`, `polished_metal`) and `faces` (face record with
   `colour`, optional `opacity` and `finish`), each optional. Unreadable part, unknown finish, or a
   face opacity outside `MIN_OPACITY_PERCENT` to 100 is dropped, reported. Journal:
-  `set_body_appearance`. `describe_unreadable_record` skips `FEATURE_FIELDS` when naming an unknown
+  `set_body_appearance`. Written as `BodyAppearance::settled` gives it, so a journaled request the
+  document settles (blank material, opacity 100 or above) reads back. `describe_unreadable_record` skips `FEATURE_FIELDS` when naming an unknown
   kind.
 - Sketch `projections`, only when projected: each `entity` and `source` (`edge` or `section` with
   `body` and an edge record, `vertex` with `body` and the vertex name's digest, `sketch_entity`
@@ -197,9 +198,9 @@ Holes:
 
 Edge treatments:
 
-- `shaped_chamfer`: inner `chamfer` of the first distance, `form` (`two_distances` with `second`,
-  or `distance_angle` with `angle`; unreadable 1 mm and 45 deg), `flipped` when set. An equal
-  chamfer stays `chamfer`.
+- `shaped_chamfer`: inner `chamfer` of the first distance, or `fillet` keeping the chamfer form it
+  would switch back to, `form` (`two_distances` with `second`, or `distance_angle` with `angle`;
+  unreadable 1 mm and 45 deg), `flipped` when set. An equal chamfer stays `chamfer`.
 - `blend_groups`: inner `fillet`, `chamfer` or `shaped_chamfer` of its edges alone, `groups`, each
   `face` (face record) or `body`; unreadable group left out.
 
@@ -238,7 +239,8 @@ Moves, mates, mirrors, scale:
   `point` or `plane`; unreadable point the origin).
 - `mirror`: `body`, `plane` (unreadable YZ), `keep_original`. `feature_mirror`: `mirrored`, ids of
   the features reflected in tree order (repeated id kept once). `face_mirror`: `faces` (unreadable
-  left out; none left mirrors the whole body, reported).
+  left out; none left mirrors the whole body, reported), around a `feature_mirror` when a mirror
+  holds both (the features win when computed, the faces are kept).
 - `scale`: `body`, `factor` (unreadable 1), three `center` lengths (unreadable 0 mm).
   `scaled_import`: inner import record, `scale` (unreadable 1), inside any `import_in_frame`.
 
@@ -280,7 +282,7 @@ Bodies and solids:
   10 mm). A tapped hole's
   thread is not a `thread` record (see hole).
 - `combine`: `body`, `tool`, `operation` (`join`, `cut`, `intersect`). `combine_tools`: `more_tools`
-  (ids, only when any), `keep_tool` when set; repeated tool kept once. `remove`: `body`.
+  (ids, only when any, as written: a repeated tool fails the combine in words), `keep_tool` when set. `remove`: `body`.
 - Imports: `import` (source name, STEP text, absolute `path` when known and valid UTF-8, written
   only then); unreadable loads empty, reported. Placed anywhere
   but the origin it is `placed_import` (same fields plus `offset` and `turn`, three texts each,

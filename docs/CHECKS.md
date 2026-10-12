@@ -4,12 +4,6 @@ Tests, CI and tooling that are missing or need attention.
 
 Entries are tagged and ordered as `ROADMAP.md` describes.
 
-- [medium · medium] The document fuzzers cover a part of what they claim (`ci.md`): `tree_edit`
-  and `sketch_edit` produce 18 of the 34 `Edit` variants (never `SetFeatureKind`, the
-  configurations edits, projections, labels, appearance, groups, owners, notes, saved views or
-  selection sets) and 3 of the 20 feature kinds, and no target journals generated edits and
-  replays them. Generate the rest, replay the journal in `save_load`, and add an exhaustive
-  `match` on `Edit` so a new variant fails to compile until a generator covers it.
 - [low · medium] Slow tests to keep an eye on: with egui, its glyph stack and the PNG encoder built
   optimised in the dev profile (`dependencies.md`) a UI test takes a few tenths of a second, and
   none of the ten that took over a second (the screen-reader test, the shortcut reset tests, the
