@@ -131,6 +131,20 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Sketching
 
+- [next · high · medium] Tracking starts only from points that exist in the sketch: hovering a
+  line's middle shows the Midpoint snap but acquires nothing (`tracking::Acquired::note` keeps
+  sketch points and curve centres only), so moving the pointer away level with it, upright from it
+  or square to the line draws no dotted track and lands on nothing. The same holds for a crossing of
+  two curves (`Target::Intersection`), an outline's centre (`Target::Centre`, `Target::Centroid`)
+  and an ellipse's axis ends. Every point-like target hovered should be acquired and track as a
+  point does: dotted horizontal and vertical tracks through it, and from a line's middle also the
+  track square to the line through it (its perpendicular bisector), with crossings of tracks
+  offered as targets. A placed point landing on such a track needs a constraint keeping it there:
+  `HorizontalPoints`/`VerticalPoints` take sketch points, so the middle (or crossing) is tied by a
+  construction point `Midpoint` on the line made in the shape's own transaction, as projected
+  body items are, or a level-with-midpoint constraint is added; the slanted track's missing
+  point-on-a-direction constraint (below) is the same gap. Body items stay with their own entry
+  below. `next` because the user asked for it as the next sketching item.
 - [medium · hard] Body items (`body_snap.rs`) are snapped to by drawing and grabs and picked by
   Select and Smart dimension, but they are not acquired for tracks, never pulled by the held snap
   (Alt) and never crossed by a direction or track, since they are not in the sketch until a point
