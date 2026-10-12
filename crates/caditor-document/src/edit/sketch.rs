@@ -585,19 +585,20 @@ impl Document {
                 error: SketchError::NoSuchEntity(id),
             })?
             .points();
+        let previous = match source {
+            Some(source) => definition.projections.insert(id, source),
+            None => definition.projections.remove(&id),
+        };
+        let still_projected = projected_by_sources(definition);
         for marked in points.into_iter().chain([id]) {
             definition
                 .sketch
-                .set_projected(marked, source.is_some())
+                .set_projected(marked, still_projected.contains(&marked))
                 .map_err(|error| EditError::Sketch {
                     name: name.clone(),
                     error,
                 })?;
         }
-        let previous = match source {
-            Some(source) => definition.projections.insert(id, source),
-            None => definition.projections.remove(&id),
-        };
         Ok(Edit::SetSketchProjection {
             feature,
             id,
@@ -808,4 +809,20 @@ fn users_of(sketch: &Sketch, entity: EntityId) -> Vec<String> {
         .into_iter()
         .map(|user| sketch.describe_constraint(user));
     entities.chain(constraints).collect()
+}
+
+fn projected_by_sources(definition: &SketchFeature) -> BTreeSet<EntityId> {
+    definition
+        .projections
+        .keys()
+        .flat_map(|projected| {
+            definition
+                .sketch
+                .entity(*projected)
+                .map(Entity::points)
+                .unwrap_or_default()
+                .into_iter()
+                .chain([*projected])
+        })
+        .collect()
 }

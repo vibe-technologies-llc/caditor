@@ -491,3 +491,88 @@ fn a_crossing_line_reaching_no_length_is_refused() {
     );
     assert_eq!(document.check(&project(10.0)), Ok(()));
 }
+
+fn principal_projection(feature: FeatureId, id: EntityId) -> Transaction {
+    Transaction::single(
+        "Project",
+        Edit::SetSketchProjection {
+            feature,
+            id,
+            source: Some(ProjectionSource::PrincipalPlane {
+                plane: PrincipalPlane::Xz,
+                reach: 10.0,
+            }),
+        },
+    )
+}
+
+fn projected_flags(document: &Document, feature: FeatureId) -> Vec<EntityId> {
+    document
+        .feature(feature)
+        .and_then(|feature| feature.kind.sketch())
+        .map(|sketch| sketch.projected().collect())
+        .unwrap()
+}
+
+#[test]
+fn undoing_a_line_projection_keeps_its_end_point_projected_on_its_own() {
+    let mut document = Document::default();
+
+    let mut source = Sketch::new(Plane::XY);
+    let line = source.add_line(Point2::new(0.0, 0.0), Point2::new(4.0, 0.0));
+    let end = EntityId::from_raw(1);
+    let mut transaction = document.transaction("Sketch");
+    let sketch = transaction.add_feature("Sketch", FeatureKind::from(source));
+    document.apply(transaction.finish()).unwrap();
+    document.apply(principal_projection(sketch, end)).unwrap();
+    let before = document.clone();
+
+    let inverse = document.apply(principal_projection(sketch, line)).unwrap();
+    document.apply(inverse).unwrap();
+
+    assert_eq!(projected_flags(&document, sketch), vec![end]);
+    assert!(document.same_content(&before));
+}
+
+#[test]
+fn unprojecting_one_of_two_lines_keeps_their_shared_point_projected() {
+    let mut document = Document::default();
+
+    let mut source = Sketch::new(Plane::XY);
+    let first = source.add_line(Point2::new(0.0, 0.0), Point2::new(4.0, 0.0));
+    let shared = EntityId::from_raw(1);
+    let far = source.add_point(Point2::new(4.0, 3.0));
+    let second = EntityId::from_raw(4);
+    source
+        .insert_entity(
+            second,
+            Entity::Line {
+                start: shared,
+                end: far,
+            },
+        )
+        .unwrap();
+    let mut transaction = document.transaction("Sketch");
+    let sketch = transaction.add_feature("Sketch", FeatureKind::from(source));
+    document.apply(transaction.finish()).unwrap();
+    document.apply(principal_projection(sketch, first)).unwrap();
+    document
+        .apply(principal_projection(sketch, second))
+        .unwrap();
+
+    document
+        .apply(Transaction::single(
+            "Unproject",
+            Edit::SetSketchProjection {
+                feature: sketch,
+                id: first,
+                source: None,
+            },
+        ))
+        .unwrap();
+
+    assert_eq!(
+        projected_flags(&document, sketch),
+        vec![shared, far, second]
+    );
+}
