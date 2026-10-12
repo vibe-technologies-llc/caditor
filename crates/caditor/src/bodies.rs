@@ -539,7 +539,12 @@ pub enum OpenChoice {
 }
 
 impl OpenChoice {
-    fn of(kind: Option<&FeatureKind>, solid: &Solid, previous: Option<Self>) -> Self {
+    fn of(
+        document: &Document,
+        kind: Option<&FeatureKind>,
+        solid: &Solid,
+        previous: Option<Self>,
+    ) -> Self {
         match kind {
             Some(FeatureKind::Blend(blend)) => match previous {
                 Some(Self::Edges {
@@ -554,7 +559,7 @@ impl OpenChoice {
                 _ => Self::Edges {
                     references: blend.edges.clone(),
                     groups: blend.groups.clone(),
-                    chosen: blend_tools::chosen_edges(solid, blend),
+                    chosen: blend_tools::chosen_edges(document, solid, blend),
                 },
             },
             Some(FeatureKind::Shell(shell)) => match previous {
@@ -705,15 +710,17 @@ impl BodyMeshes {
             let kind = document.feature(feature).map(|owner| &owner.kind);
             let (before, choice) = match (previous, meshing.lookup(input)) {
                 (Some(open), _) if Arc::ptr_eq(&open.before.source, input) => {
-                    let choice = OpenChoice::of(kind, &solid.solid, Some(open.choice));
+                    let choice = OpenChoice::of(document, kind, &solid.solid, Some(open.choice));
                     (open.before, choice)
                 }
-                (_, Converted::Ready(mesh)) => {
-                    (Arc::clone(mesh), OpenChoice::of(kind, &solid.solid, None))
-                }
-                (Some(open), Converted::Pending) => {
-                    (open.before, OpenChoice::of(kind, &solid.solid, None))
-                }
+                (_, Converted::Ready(mesh)) => (
+                    Arc::clone(mesh),
+                    OpenChoice::of(document, kind, &solid.solid, None),
+                ),
+                (Some(open), Converted::Pending) => (
+                    open.before,
+                    OpenChoice::of(document, kind, &solid.solid, None),
+                ),
                 (_, Converted::Pending | Converted::Missing) => return None,
             };
             Some(BodyBefore {

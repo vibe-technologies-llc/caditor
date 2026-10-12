@@ -61,7 +61,10 @@ fn blend_of(harness: &Harness, feature: FeatureId) -> Blend {
 fn rounded_edges(harness: &Harness, feature: FeatureId) -> usize {
     let blend = blend_of(harness, feature);
     let input = bodies::input(harness.model.evaluation(), feature).unwrap();
-    blend.resolve(&input.solid).unwrap().len()
+    blend
+        .resolve(harness.document(), &input.solid)
+        .unwrap()
+        .len()
 }
 
 fn close_feature(harness: &mut Harness) {
@@ -117,7 +120,7 @@ fn leaving_out_an_edge_of_a_filleted_face_keeps_its_other_edges() {
     harness.settle();
     let fillet = open_feature(&harness);
     let input = bodies::input(harness.model.evaluation(), fillet).unwrap();
-    let around = blend_of(&harness, fillet).entry_edges(&input.solid);
+    let around = blend_of(&harness, fillet).entry_edges(harness.document(), &input.solid);
     let edge = input.solid.edge(around[0][0]).unwrap().name();
 
     assert_eq!(blend_of(&harness, fillet).body, plate);

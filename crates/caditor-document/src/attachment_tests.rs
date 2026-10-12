@@ -202,7 +202,7 @@ fn a_lost_face_fails_the_sketch_and_its_users_only() {
             Edit::SetSketchPlacement {
                 feature: stack.top,
                 plane,
-                attachment: Some(SketchAttachment::Face(lost)),
+                attachment: Some(SketchAttachment::Face(Box::new(lost))),
             },
         ))
         .unwrap();
@@ -269,10 +269,10 @@ fn placement_edits_are_checked_and_undone() {
             feature: stack.top,
             plane: lifted,
             attachment: attachment.clone().map(|attachment| {
-                SketchAttachment::Face(FaceAttachment {
+                SketchAttachment::Face(Box::new(FaceAttachment {
                     body: outline,
                     ..attachment
-                })
+                }))
             }),
         },
     );

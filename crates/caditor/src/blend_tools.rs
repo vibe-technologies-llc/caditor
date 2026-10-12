@@ -387,11 +387,11 @@ pub struct ChosenEdges {
     pub followed: BTreeSet<EdgeName>,
 }
 
-pub fn chosen_edges(solid: &Solid, blend: &Blend) -> ChosenEdges {
+pub fn chosen_edges(document: &Document, solid: &Solid, blend: &Blend) -> ChosenEdges {
     let name = |edge: &EdgeId| solid.edge(*edge).map(|edge| edge.name());
     let mut seen = BTreeSet::new();
     let explicit: Vec<EdgeId> = blend
-        .entry_edges(solid)
+        .entry_edges(document, solid)
         .into_iter()
         .flatten()
         .filter(|edge| seen.insert(*edge))
@@ -415,7 +415,7 @@ pub fn toggle_edge(model: &Model, feature: FeatureId, edge: EdgeName) -> Option<
     let solid = &input.solid;
     let naming = EdgeNaming::new(solid);
     let reaches = |found: &[EdgeId]| blend_chain(solid, found).contains(&clicked);
-    let entries = blend.entry_edges(solid);
+    let entries = blend.entry_edges(document, solid);
     let (edge_entries, group_entries) = entries.split_at(blend.edges.len().min(entries.len()));
     let mut changed = blend.clone();
     changed.edges = blend
@@ -441,8 +441,11 @@ pub fn toggle_edge(model: &Model, feature: FeatureId, edge: EdgeName) -> Option<
         .collect();
     let left_out = changed.entry_count() < blend.entry_count();
     let label = if left_out {
-        let mut taken: BTreeSet<EdgeId> =
-            changed.entry_edges(solid).into_iter().flatten().collect();
+        let mut taken: BTreeSet<EdgeId> = changed
+            .entry_edges(document, solid)
+            .into_iter()
+            .flatten()
+            .collect();
         for found in opened {
             if !reaches(&[found]) && taken.insert(found) {
                 changed
@@ -477,7 +480,7 @@ pub fn with_selected_edges(
     let solid = &input.solid;
     let naming = EdgeNaming::new(solid);
     let mut taken: BTreeSet<EdgeId> = blend
-        .entry_edges(solid)
+        .entry_edges(model.document(), solid)
         .iter()
         .flat_map(|found| blend_chain(solid, found))
         .collect();

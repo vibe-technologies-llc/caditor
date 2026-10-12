@@ -259,3 +259,65 @@ fn a_dimension_moved_to_the_far_piece_of_a_split_keeps_its_placed_label() {
         .collect();
     assert_eq!(moved, vec![Some(PLACED_LABEL)]);
 }
+
+#[test]
+fn pieces_remember_the_curve_they_were_split_from_until_removed() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::ZERO, Point2::new(40.0, 0.0));
+    let other = sketch.add_line(Point2::new(0.0, 5.0), Point2::new(40.0, 5.0));
+    let first = sketch.add_point(Point2::new(10.0, 0.0));
+    let second = sketch.add_point(Point2::new(30.0, 0.0));
+    for point in [first, second] {
+        sketch
+            .add_constraint(Constraint::Coincident(point, line))
+            .unwrap();
+    }
+
+    let piece = sketch.split_at(line, second).unwrap();
+    let inner = sketch.split_at(line, first).unwrap();
+    let family = sketch.pieces_of(inner);
+    for id in sketch.constraints_using(inner) {
+        sketch.remove_constraint(id).unwrap();
+    }
+    sketch.remove_unused_entity(inner).unwrap();
+
+    assert_eq!(family, [line, inner, piece].into());
+    assert_eq!(sketch.split_from(line), None);
+    assert_eq!(sketch.split_from(piece), Some(line));
+    assert_eq!(sketch.split_from(inner), None);
+    assert_eq!(sketch.pieces_of(other), [other].into());
+    assert_eq!(sketch.pieces_of(piece), [line, piece].into());
+    assert_eq!(
+        sketch.set_split_from(line, Some(line)),
+        Err(crate::SketchError::SplitFromItself {
+            entity: line,
+            label: sketch.entity_label(line),
+        })
+    );
+}
+
+#[test]
+fn a_trimmed_piece_and_a_broken_one_remember_their_curve_and_the_kept_part_stays_itself() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::ZERO, Point2::new(40.0, 0.0));
+    sketch.add_line(Point2::new(10.0, -5.0), Point2::new(10.0, 5.0));
+    sketch.add_line(Point2::new(20.0, -5.0), Point2::new(20.0, 5.0));
+    sketch.add_line(Point2::new(30.0, -5.0), Point2::new(30.0, 5.0));
+
+    let trimmed = sketch.trim(line, Point2::new(15.0, 0.0)).unwrap();
+    let crate::Trimmed::Split { piece } = trimmed else {
+        panic!("the line is split, found {trimmed:?}");
+    };
+    let broken = sketch.break_curve(piece).unwrap();
+
+    assert_eq!(sketch.split_from(line), None);
+    assert_eq!(sketch.split_from(piece), Some(line));
+    assert!(!broken.is_empty());
+    for made in broken.iter().filter(|made| **made != piece) {
+        assert_eq!(sketch.split_from(*made), Some(line));
+    }
+    assert_eq!(
+        sketch.pieces_of(line).len(),
+        2 + broken.iter().filter(|made| **made != piece).count()
+    );
+}

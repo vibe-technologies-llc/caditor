@@ -530,7 +530,7 @@ fn placed(
         transaction.edit(Edit::SetSketchPlacement {
             feature: hole.sketch,
             plane,
-            attachment: Some(SketchAttachment::Face(attachment)),
+            attachment: Some(SketchAttachment::Face(Box::new(attachment))),
         });
     }
     transaction.edit(Edit::SetSketchEntity {

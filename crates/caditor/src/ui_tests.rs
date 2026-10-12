@@ -11181,7 +11181,7 @@ fn a_fillet_lists_an_edge_split_by_an_earlier_cut_as_its_pieces() {
     harness.perform(Action::Apply(transaction.finish()));
     harness.settle();
     let input = crate::bodies::input(harness.model.evaluation(), fillet).unwrap();
-    let pieces = blend_of(&harness, fillet).resolutions(&input.solid);
+    let pieces = blend_of(&harness, fillet).resolutions(harness.document(), &input.solid);
     let [caditor_document::Resolution::Pieces(pieces)] = pieces.as_slice() else {
         panic!("the slot splits the chosen edge in two: {pieces:?}");
     };

@@ -142,6 +142,8 @@ pub enum SketchError {
     NoLength { entity: EntityId, label: String },
     #[error("{label} is a point, and only curves can be construction geometry")]
     PointAsConstruction { entity: EntityId, label: String },
+    #[error("{label} cannot be a piece split from itself")]
+    SplitFromItself { entity: EntityId, label: String },
     #[error("{label} is {level}, so a {kind} cannot be measured from it")]
     RunsAlong {
         entity: EntityId,
@@ -191,6 +193,7 @@ pub struct Sketch {
     labels: BTreeMap<ConstraintId, Vector2>,
     construction: BTreeSet<EntityId>,
     projected: BTreeSet<EntityId>,
+    split_from: BTreeMap<EntityId, EntityId>,
     uses: BTreeMap<EntityId, usize>,
     next_id: u64,
 }
@@ -205,6 +208,7 @@ impl Sketch {
             labels: BTreeMap::new(),
             construction: BTreeSet::new(),
             projected: BTreeSet::new(),
+            split_from: BTreeMap::new(),
             uses: BTreeMap::new(),
             next_id: 0,
         }
@@ -219,6 +223,7 @@ impl Sketch {
             labels,
             construction,
             projected,
+            split_from,
             uses,
             next_id: _,
         } = self;
@@ -234,6 +239,7 @@ impl Sketch {
             + labels.len() * (size_of::<ConstraintId>() + size_of::<Vector2>())
             + construction.len() * size_of::<EntityId>()
             + projected.len() * size_of::<EntityId>()
+            + split_from.len() * 2 * size_of::<EntityId>()
             + uses.len() * (size_of::<EntityId>() + size_of::<usize>())
     }
 
@@ -702,6 +708,7 @@ impl Sketch {
             && self.entities == other.entities
             && self.construction == other.construction
             && self.projected == other.projected
+            && self.split_from == other.split_from
     }
 
     pub fn same_content(&self, other: &Self) -> bool {
@@ -814,6 +821,39 @@ impl Sketch {
             self.projected.remove(&id)
         };
         Ok(was)
+    }
+
+    pub fn split_from(&self, id: EntityId) -> Option<EntityId> {
+        self.split_from.get(&id).copied()
+    }
+
+    pub fn set_split_from(
+        &mut self,
+        id: EntityId,
+        original: Option<EntityId>,
+    ) -> Result<Option<EntityId>, SketchError> {
+        self.check_editable(id)?;
+        if original == Some(id) {
+            return Err(SketchError::SplitFromItself {
+                entity: id,
+                label: self.entity_label(id),
+            });
+        }
+        Ok(match original {
+            Some(original) => self.split_from.insert(id, original),
+            None => self.split_from.remove(&id),
+        })
+    }
+
+    pub fn pieces_of(&self, id: EntityId) -> BTreeSet<EntityId> {
+        let original = self.split_from(id).unwrap_or(id);
+        self.split_from
+            .iter()
+            .filter(|(_, from)| **from == original)
+            .map(|(piece, _)| *piece)
+            .chain([original])
+            .filter(|piece| self.entities.contains_key(piece))
+            .collect()
     }
 
     pub fn next_id(&self) -> u64 {
@@ -1246,6 +1286,7 @@ impl Sketch {
             .ok_or(SketchError::NoSuchEntity(id))?;
         self.construction.remove(&id);
         self.projected.remove(&id);
+        self.split_from.remove(&id);
         self.count_uses(&removed.points(), false);
         Ok(removed)
     }

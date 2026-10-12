@@ -59,3 +59,20 @@ paths:
   origin; `resolve_by_names_in` skips the fallback.
 - `EdgeNaming` indexes a solid's edges in one pass; code handling many references builds it once
   per solid and uses `capture_in` and `resolve_in`.
+- An edge along an extrusion's or revolve's side whose sketch curve was later split by trim, split
+  or break is followed onto its pieces (`SplitEdges::follow`, `caditor-document/src/split_edges.rs`,
+  used by blends). The split-off piece's side face has a new name, so the reference resolves to
+  the edge on the kept curve alone; the pieces are known from provenance, not geometry: the sketch
+  records the curve each piece was split from (`Sketch::split_from`, `pieces_of`, `sketch.md`).
+  Ends are compared with the face names around each vertex rewritten to the reference's (every
+  side face of a piece to the reference's side, the shared cap to its other face), so a renamed cap
+  does not hide them. The found edge is widened only at an end that no longer matches: walking
+  along its line or circle (`Travel`, by position along the curve) through the pieces' edges on the
+  same cap until one carries the missing end. A reference chosen after the split matches at both
+  ends and stays on its piece; a second split of it widens only to the pieces of that part. A
+  piece no longer on the curve that carries the missing end, or pieces of a curve that cannot be
+  ordered, is `Followed::PartlyLost`: the blend fails saying the edge was split and only some
+  pieces can be traced, with the fix to choose them again (`BlendUnresolved::PartlyFollowed`). An
+  end matched nowhere (changed by something else) keeps the one edge, as before. Healing leaves a
+  widened reference as it is (`ReferenceVisitor::blend_edges`), so Update references never narrows
+  it to one piece.

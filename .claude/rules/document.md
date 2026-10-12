@@ -286,18 +286,19 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 
 - Sketch content changes only through sketch edits. Removing an entity something still uses is
   refused, not cascaded; `remove_sketch_items` expands a deletion into constraints, curves, then
-  points. `AddSketchEntity` carries the construction flag, `AddSketchConstraint` the inactive flag
-  and label offset, so undoing a removal restores them; `SetSketchConstraintActive` and
-  `SetSketchLabel` change one; `reshape_sketch` emits them for kept constraints that differ.
-  Setting an entity changes only its value, never its kind or points.
+  points. `AddSketchEntity` carries the construction flag and the curve a piece was split from
+  (`split_from`), `AddSketchConstraint` the inactive flag and label offset, so undoing a removal
+  restores them; `SetSketchConstraintActive` and `SetSketchLabel` change one; `reshape_sketch`
+  emits them for kept constraints that differ. Setting an entity changes only its value, never its
+  kind or points.
 - `Edit::SetSketchProjection` gives an entity a `ProjectionSource` (or none) and sets the projected
   flag on it and its points in one step. A projected entity is never removed while flagged
   (`StillProjected`), so `remove_sketch_items` first takes the projection off every doomed
   projected entity and takes a projected curve's points with it (undo restores in opposite order).
 - `reshape_sketch(feature, before, after)` turns a sketch edited as a whole (trim, extend) into
   edits; an entity whose kind or points changed is removed and added again under its ID with
-  everything using it. `settle_sketch` moves the definition to a solved shape so the next solve
-  starts from what the user sees.
+  everything using it, its `split_from` included. `settle_sketch` moves the definition to a solved
+  shape so the next solve starts from what the user sees.
 
 ## Feature kinds
 
@@ -397,12 +398,18 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   then groups as one list, the panel's.
 - A blend refused as `UnsupportedEnd` at a vertex whose faces an earlier blend made
   (`Context::earlier_blend_at`) names that feature and says to move this one above it.
-- Blend and shell resolve their references (`EdgeReference`s, opened `FaceReference`s) in the
-  body's state before the feature, each to a `Resolution` (`pieces.rs`; the panel uses the same
-  terms): one match; the pieces of a split edge on one line or circle (a shell face tied between
-  fragments of one surface opens all of them); tied between separate ones; missing. A lost or tied
-  reference fails the feature. That state is kept (`Evaluation::body_before`) and meshed for showing
-  while choosing.
+- Blend and shell resolve their references (`EdgeReference`s, opened `FaceReference`s) in the body's
+  state before the feature, each to a `Resolution` (`pieces.rs`; the panel uses the same terms): one
+  match; the pieces of a split edge on one line or circle (a shell face tied between fragments of
+  one surface opens all of them); tied between separate ones; missing. A lost or tied reference
+  fails the feature. A blend's edges go through `SplitEdges::follow` (`split_edges.rs`,
+  `kernel-naming.md`): an edge whose sketch curve a later trim, split or break cut into pieces
+  resolves to the pieces along it (`Resolution::Pieces`), and one only partly traced fails as
+  `BlendUnresolved::PartlyFollowed` (the panel shows it as tied). So `Blend::resolve`, `resolutions`
+  and `entry_edges` take the `Document`, and the evaluation reads the extruding feature's sketch
+  through `Inputs::document`: a piece's `split_from` is set only when the piece is added, so it
+  changes only with the entities whose side faces the body's key already covers. That state is kept
+  (`Evaluation::body_before`) and meshed for showing while choosing.
 
 ### Offset face (`offset_face.rs`)
 
@@ -764,8 +771,10 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   (`FeatureKind::body_input`) and gives the solved geometry the face's plane, normal and frame.
   Fragments of a split face are accepted when in one plane; a lost, split or curved face fails the
   sketch alone with a fix. `SetSketchPlacement` sets plane and attachment together. A body with
-  attached sketches cannot stop making a body. `SketchAttachment::heap_size` counts a face
-  attachment's neighbour names and `SketchFeature::heap_size` the projections.
+  attached sketches cannot stop making a body. A face attachment is boxed
+  (`SketchAttachment::Face`), keeping `FeatureKind` and so `Edit` small;
+  `SketchAttachment::heap_size` counts the box and its neighbour names, `SketchFeature::heap_size`
+  the projections.
 - `projections` (`projection.rs`) map a projected entity to its `ProjectionSource`: an edge of a body
   (`EdgeReference`), a corner (`VertexName`), an entity of an earlier sketch, a section edge or a
   datum plane's line. Before solving, recompute places each in the sketch plane from the source as

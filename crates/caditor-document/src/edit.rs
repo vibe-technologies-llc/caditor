@@ -139,6 +139,7 @@ pub enum Edit {
         id: EntityId,
         entity: Entity,
         construction: bool,
+        split_from: Option<EntityId>,
     },
     RemoveSketchEntity {
         feature: FeatureId,
@@ -838,7 +839,8 @@ impl Document {
                 id,
                 entity,
                 construction,
-            } => self.add_sketch_entity(feature, id, entity, construction),
+                split_from,
+            } => self.add_sketch_entity(feature, id, entity, construction, split_from),
             Edit::RemoveSketchEntity { feature, id } => self.remove_sketch_entity(feature, id),
             Edit::SetSketchEntity {
                 feature,

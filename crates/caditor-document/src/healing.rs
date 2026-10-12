@@ -22,6 +22,7 @@ use crate::{
         SolidStart,
     },
     split::SplitAlong,
+    split_edges::SplitEdges,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -117,6 +118,13 @@ pub(crate) trait ReferenceVisitor {
         what: &dyn Fn(usize) -> String,
     );
 
+    fn blend_edges(
+        &mut self,
+        body: FeatureId,
+        edges: &mut [EdgeReference],
+        what: &dyn Fn(usize) -> String,
+    );
+
     fn regions(&mut self, sketch: FeatureId, choice: &mut RegionChoice);
 }
 
@@ -130,7 +138,7 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
         FeatureKind::Solid(solid) => visit_solid(solid, visitor),
         FeatureKind::Blend(blend) => {
             let count = blend.edges.len();
-            visitor.edges(blend.body, &mut blend.edges, &|index| {
+            visitor.blend_edges(blend.body, &mut blend.edges, &|index| {
                 if count == 1 {
                     "its edge".to_owned()
                 } else {
@@ -543,10 +551,52 @@ struct Healer<'a> {
     dropped_count: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SplitPieces {
+    Ignored,
+    Followed,
+}
+
 impl Healer<'_> {
     fn matched(&mut self, what: String, count: usize) {
         self.matched.push(what);
         self.matched_count += count;
+    }
+
+    fn match_edges(
+        &mut self,
+        body: FeatureId,
+        edges: &mut [EdgeReference],
+        what: &dyn Fn(usize) -> String,
+        pieces: SplitPieces,
+    ) {
+        let Some(solid) = self.inputs.body(body) else {
+            return;
+        };
+        let naming = EdgeNaming::new(solid);
+        let split =
+            (pieces == SplitPieces::Followed).then(|| SplitEdges::new(self.inputs.document, solid));
+        for (index, edge) in edges.iter_mut().enumerate() {
+            let Ok(found) = edge.resolve_in(&naming) else {
+                continue;
+            };
+            if solid
+                .edge(found)
+                .is_none_or(|definition| definition.name() == edge.name())
+            {
+                continue;
+            }
+            if split
+                .as_ref()
+                .is_some_and(|split| split.follow(edge).is_widened())
+            {
+                continue;
+            }
+            if let Some(captured) = EdgeReference::capture_in(&naming, found) {
+                *edge = captured;
+                self.matched(what(index), 1);
+            }
+        }
     }
 }
 
@@ -576,25 +626,16 @@ impl ReferenceVisitor for Healer<'_> {
         edges: &mut [EdgeReference],
         what: &dyn Fn(usize) -> String,
     ) {
-        let Some(solid) = self.inputs.body(body) else {
-            return;
-        };
-        let naming = EdgeNaming::new(solid);
-        for (index, edge) in edges.iter_mut().enumerate() {
-            let Ok(found) = edge.resolve_in(&naming) else {
-                continue;
-            };
-            if solid
-                .edge(found)
-                .is_none_or(|definition| definition.name() == edge.name())
-            {
-                continue;
-            }
-            if let Some(captured) = EdgeReference::capture_in(&naming, found) {
-                *edge = captured;
-                self.matched(what(index), 1);
-            }
-        }
+        self.match_edges(body, edges, what, SplitPieces::Ignored);
+    }
+
+    fn blend_edges(
+        &mut self,
+        body: FeatureId,
+        edges: &mut [EdgeReference],
+        what: &dyn Fn(usize) -> String,
+    ) {
+        self.match_edges(body, edges, what, SplitPieces::Followed);
     }
 
     fn regions(&mut self, sketch: FeatureId, choice: &mut RegionChoice) {

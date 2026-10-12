@@ -2717,6 +2717,79 @@ fn construction_geometry_stays_construction_through_saving() {
 }
 
 #[test]
+fn a_trimmed_piece_keeps_the_curve_it_came_from_through_saving_and_the_journal() {
+    let mut drawn = Sketch::new(Plane::XY);
+    let line = drawn.add_line(Point2::ZERO, Point2::new(40.0, 0.0));
+    drawn.add_line(Point2::new(10.0, -5.0), Point2::new(10.0, 5.0));
+    drawn.add_line(Point2::new(30.0, -5.0), Point2::new(30.0, 5.0));
+    let mut document = Document::default();
+    let mut transaction = document.transaction("New sketch");
+    let feature = transaction.add_feature("Profile", FeatureKind::from(drawn.clone()));
+    document.apply(transaction.finish()).unwrap();
+    let mut trimmed = drawn.clone();
+    let caditor_sketch::Trimmed::Split { piece } =
+        trimmed.trim(line, Point2::new(20.0, 0.0)).unwrap()
+    else {
+        panic!("the line is split");
+    };
+    let mut transaction = document.transaction("Trim");
+    transaction.reshape_sketch(feature, &drawn, &trimmed);
+    let trim = transaction.finish();
+    document.apply(trim.clone()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let restored = loaded
+        .document
+        .feature(feature)
+        .unwrap()
+        .kind
+        .sketch()
+        .unwrap();
+    let journaled: format::TransactionRecord =
+        through_binary(&serde_json::to_string(&format::transaction_record(&trim)).unwrap());
+
+    assert!(text.contains(&format!("\"split_from\":{}", line.raw())));
+    assert_eq!(text.matches("split_from").count(), 1);
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(restored.split_from(piece), Some(line));
+    assert_eq!(loaded.document, document);
+    assert_eq!(format::restore_transaction(journaled), Some(trim));
+}
+
+#[test]
+fn a_piece_stored_as_split_from_itself_loads_as_a_curve_of_its_own() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("New sketch");
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::ZERO, Point2::X);
+    let feature = transaction.add_feature("Lines", FeatureKind::from(sketch));
+    document.apply(transaction.finish()).unwrap();
+    let stored = format!("{{\"id\":{},\"line\"", line.raw());
+    let text = encode(&document).unwrap().replace(
+        &stored,
+        &format!(
+            "{{\"id\":{},\"split_from\":{},\"line\"",
+            line.raw(),
+            line.raw()
+        ),
+    );
+
+    let loaded = decode_text(&text);
+    let restored = loaded
+        .document
+        .feature(feature)
+        .unwrap()
+        .kind
+        .sketch()
+        .unwrap();
+
+    assert!(issues_mention(&loaded, "no longer counts as a piece"));
+    assert!(restored.entity(line).is_some());
+    assert_eq!(restored.split_from(line), None);
+}
+
+#[test]
 fn a_point_stored_as_construction_geometry_loads_as_an_ordinary_point() {
     let mut document = Document::default();
     let mut transaction = document.transaction("New sketch");

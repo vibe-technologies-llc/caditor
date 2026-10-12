@@ -1513,6 +1513,8 @@ pub(crate) struct EntityRecord {
     pub id: u64,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub construction: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub split_from: Option<u64>,
     #[serde(flatten)]
     pub kind: EntityKindRecord,
 }
@@ -1938,7 +1940,14 @@ impl Unreadable<'_> {
     }
 }
 
-const RECORD_FLAGS: [&str; 5] = ["id", "name", "construction", "inactive", "label"];
+const RECORD_FLAGS: [&str; 6] = [
+    "id",
+    "name",
+    "construction",
+    "split_from",
+    "inactive",
+    "label",
+];
 
 pub(crate) fn unknown_kind<'a>(value: &'a Value, known: &[&str]) -> Option<&'a str> {
     let Value::Object(fields) = value else {
@@ -3716,7 +3725,12 @@ fn sketch_record(feature: &SketchFeature) -> SketchRecord {
         entities: sketch
             .entities()
             .map(|(id, entity)| {
-                Lenient::Read(entity_record(id, entity, sketch.is_construction(id)))
+                Lenient::Read(entity_record(
+                    id,
+                    entity,
+                    sketch.is_construction(id),
+                    sketch.split_from(id),
+                ))
             })
             .collect(),
         constraints: sketch
@@ -3847,10 +3861,16 @@ fn restore_projections(
     projections
 }
 
-pub(crate) fn entity_record(id: EntityId, entity: &Entity, construction: bool) -> EntityRecord {
+pub(crate) fn entity_record(
+    id: EntityId,
+    entity: &Entity,
+    construction: bool,
+    split_from: Option<EntityId>,
+) -> EntityRecord {
     EntityRecord {
         id: id.raw(),
         construction,
+        split_from: split_from.map(EntityId::raw),
         kind: entity_kind_record(entity),
     }
 }
@@ -4203,9 +4223,10 @@ fn edit_record(edit: &Edit) -> EditRecord {
             id,
             entity,
             construction,
+            split_from,
         } => EditRecord::AddSketchEntity {
             feature: feature.raw(),
-            entity: entity_record(*id, entity, *construction),
+            entity: entity_record(*id, entity, *construction, *split_from),
         },
         Edit::RemoveSketchEntity { feature, id } => EditRecord::RemoveSketchEntity {
             feature: feature.raw(),
@@ -4217,7 +4238,7 @@ fn edit_record(edit: &Edit) -> EditRecord {
             entity,
         } => EditRecord::SetSketchEntity {
             feature: feature.raw(),
-            entity: entity_record(*id, entity, false),
+            entity: entity_record(*id, entity, false, None),
         },
         Edit::SetSketchConstruction {
             feature,
@@ -4424,7 +4445,9 @@ fn restore_edit(record: EditRecord) -> Option<Edit> {
             feature: FeatureId::from_raw(feature),
             plane: restore_plane(plane)?,
             attachment: match (attachment, datum, frame) {
-                (Some(record), _, _) => Some(SketchAttachment::Face(restore_attachment(&record)?)),
+                (Some(record), _, _) => Some(SketchAttachment::Face(Box::new(restore_attachment(
+                    &record,
+                )?))),
                 (None, Some(datum), _) => Some(SketchAttachment::Datum(FeatureId::from_raw(datum))),
                 (None, None, Some(frame)) => Some(SketchAttachment::Frame {
                     frame: FeatureId::from_raw(frame.frame),
@@ -4447,6 +4470,7 @@ fn restore_edit(record: EditRecord) -> Option<Edit> {
             id: EntityId::from_raw(entity.id),
             entity: restore_entity(&entity.kind),
             construction: entity.construction,
+            split_from: entity.split_from.map(EntityId::from_raw),
         },
         EditRecord::RemoveSketchEntity { feature, id } => Edit::RemoveSketchEntity {
             feature: FeatureId::from_raw(feature),
@@ -5022,11 +5046,13 @@ fn restore_kind(
                      it was."
                 ));
             }
-            let attachment = attachment.map(SketchAttachment::Face).or_else(|| {
-                sketch
-                    .datum
-                    .map(|datum| SketchAttachment::Datum(FeatureId::from_raw(datum)))
-            });
+            let attachment = attachment
+                .map(|face| SketchAttachment::Face(Box::new(face)))
+                .or_else(|| {
+                    sketch
+                        .datum
+                        .map(|datum| SketchAttachment::Datum(FeatureId::from_raw(datum)))
+                });
             let mut restored = restore_sketch(sketch, name, issues);
             let projections = restore_projections(sketch, &mut restored, name, issues);
             FeatureKind::Sketch(SketchFeature {
@@ -7485,11 +7511,21 @@ pub(crate) fn restore_sketch(
             issues.push(format!(
                 "In “{feature}”, {label} was left out because {error}."
             ));
-        } else if record.construction
+            continue;
+        }
+        if record.construction
             && let Err(error) = sketch.set_construction(id, true)
         {
             issues.push(format!(
                 "In “{feature}”, {label} was kept as ordinary geometry because {error}."
+            ));
+        }
+        if let Some(original) = record.split_from
+            && let Err(error) = sketch.set_split_from(id, Some(EntityId::from_raw(original)))
+        {
+            issues.push(format!(
+                "In “{feature}”, {label} no longer counts as a piece of the curve it was split \
+                 from because {error}."
             ));
         }
     }

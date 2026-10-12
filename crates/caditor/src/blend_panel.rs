@@ -263,7 +263,7 @@ fn edge_rows(document: &Document, input: Option<&SolidResult>, blend: &Blend) ->
         };
     };
     let solid = &input.solid;
-    let chosen = blend_tools::chosen_edges(solid, blend);
+    let chosen = blend_tools::chosen_edges(document, solid, blend);
     let mut summary = count(chosen.explicit.len(), "edge", "edges");
     let extra = chosen.followed.len().saturating_sub(chosen.explicit.len());
     if extra > 0 {
@@ -274,7 +274,7 @@ fn edge_rows(document: &Document, input: Option<&SolidResult>, blend: &Blend) ->
         ));
     }
     let rows = blend
-        .resolutions(solid)
+        .resolutions(document, solid)
         .iter()
         .map(|resolution| edge_row(document, input, resolution))
         .chain(
@@ -357,7 +357,7 @@ fn edge_pickables(model: &Model, feature: FeatureId, blend: &Blend, index: usize
     };
     let solid = &input.solid;
     blend
-        .entry_edges(solid)
+        .entry_edges(model.document(), solid)
         .get(index)
         .map(|found| {
             found

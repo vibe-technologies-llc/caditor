@@ -56,18 +56,13 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Modelling
 
-- [high · hard] An edge reference keeps only the piece that kept its curve's id when an upstream
-  sketch edit splits the edge, silently: the 10×8×4 block of `blend_tests` with its front and left
-  top edges filleted 1 mm, whose front sketch line is then notched (lines from (4, 0) to (4, 2),
-  (6, 2) and (6, 0), the front line trimmed between them), recomputes with no failure and only one
-  piece of the front edge rounded (301.52 against 300.66 with both). Trim gives the split-off piece
-  fresh ids, so its side face and the edge along it have new names, and `EdgeReference` resolves
-  to the edge on the original curve's face alone (`pieces.rs` gathers the pieces of an edge split
-  within its faces, not an edge whose face became two faces of sibling curves). The UX rule that
-  an early sketch edit never silently rewires later features needs the reference widened to every
-  edge along the same curve between the same cap and the faces of its `Collinear` pieces, or the
-  feature marked as having lost part of its choice with a fix
-  (`blend_tests::a_notch_trimmed_into_a_filleted_edge_keeps_both_pieces_rounded`, ignored).
+- [medium · medium] An edge reference outside a blend still keeps only the piece that kept its
+  curve's id when an upstream sketch edit splits the edge, silently: a measured edge
+  (`MeasuredItem::Edge`, whose length a parameter may read), a point at an edge's middle
+  (`PointBy::EdgeMiddle`), a station along an edge (`CurveStation`) and a selection set's edge
+  resolve with `EdgeReference::resolve_in` alone. Blends follow the split through the sketch's
+  recorded pieces (`split_edges.rs`, `kernel-naming.md`); these need the same, or a failure in
+  words where one edge is expected and the edge became several.
 - [medium · medium] Reported by the user: a Remove extrusion typed far past the body (100000 mm, to
   cut through without measuring) does not cut, so the exact depth must be found. Not reproduced:
   in `caditor-document`, a box, a cylinder, a thin block and a filleted block cut by rectangles
