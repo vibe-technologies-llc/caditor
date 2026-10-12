@@ -87,3 +87,12 @@ paths:
   keep their sense) and walks it by arc length. Pieces with a gap between them (`Unrun::Gapped`)
   or partly traced (`Unrun::PartlyTraced`) fail in words asking to choose the piece or edge again,
   never moving to one piece silently.
+- A projected edge (`projection.rs`, `document.md`) takes the same `EdgeRun` and projects it as the
+  one curve it already is: the run, oriented like the piece the reference resolves to, becomes one
+  line, one arc or one elliptical arc from the run's start to its end, or one sampled spline by arc
+  length along the run, so the entity, its points and every constraint and dimension on them keep
+  their ids and nothing is lost. Gapped or partly traced pieces fail the sketch (`Unjoined`,
+  `PartlyTraced`) rather than projecting one piece or bridging the gap. A section edge goes
+  through the same joining without `SplitEdges` (its fragments are ambiguous matches only).
+  `trace_edge` gives the app the same answer (`TracedEdge`) for a measurement's pick: found as
+  one edge or as pieces, partly traced, or gone.

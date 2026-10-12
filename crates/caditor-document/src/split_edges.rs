@@ -49,6 +49,42 @@ pub(crate) enum Unrun {
     PartlyTraced,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TracedEdge {
+    Found(Vec<EdgeId>),
+    PartlyTraced,
+    Gone,
+}
+
+pub fn trace_edge(document: &Document, solid: &Solid, reference: &EdgeReference) -> TracedEdge {
+    match SplitEdges::new(document, solid).follow(reference) {
+        Followed::Resolved(Resolution::One(found)) => TracedEdge::Found(vec![found]),
+        Followed::Resolved(Resolution::Pieces(pieces)) => TracedEdge::Found(pieces),
+        Followed::PartlyLost(_) => TracedEdge::PartlyTraced,
+        Followed::Resolved(Resolution::Tied(_) | Resolution::Missing) => TracedEdge::Gone,
+    }
+}
+
+pub(crate) fn joined(
+    solid: &Solid,
+    followed: Followed,
+    leading: Option<EdgeId>,
+) -> Result<EdgeRun<'_>, Unrun> {
+    let pieces = match followed {
+        Followed::Resolved(Resolution::One(found)) => {
+            return solid
+                .edge(found)
+                .map(|edge| EdgeRun::single(found, edge))
+                .ok_or(Unrun::Missing);
+        }
+        Followed::Resolved(Resolution::Pieces(pieces)) => pieces,
+        Followed::Resolved(Resolution::Tied(_)) => return Err(Unrun::Tied),
+        Followed::Resolved(Resolution::Missing) => return Err(Unrun::Missing),
+        Followed::PartlyLost(_) => return Err(Unrun::PartlyTraced),
+    };
+    EdgeRun::chained(solid, &pieces, leading).ok_or(Unrun::Gapped)
+}
+
 pub(crate) struct SplitEdges<'a> {
     document: &'a Document,
     solid: &'a Solid,
@@ -93,21 +129,11 @@ impl<'a> SplitEdges<'a> {
     }
 
     pub(crate) fn run(&self, reference: &EdgeReference) -> Result<EdgeRun<'a>, Unrun> {
-        let pieces = match self.follow(reference) {
-            Followed::Resolved(Resolution::One(found)) => {
-                return self
-                    .solid
-                    .edge(found)
-                    .map(|edge| EdgeRun::single(found, edge))
-                    .ok_or(Unrun::Missing);
-            }
-            Followed::Resolved(Resolution::Pieces(pieces)) => pieces,
-            Followed::Resolved(Resolution::Tied(_)) => return Err(Unrun::Tied),
-            Followed::Resolved(Resolution::Missing) => return Err(Unrun::Missing),
-            Followed::PartlyLost(_) => return Err(Unrun::PartlyTraced),
-        };
-        let leading = reference.resolve_in(&self.naming).ok();
-        EdgeRun::chained(self.solid, &pieces, leading).ok_or(Unrun::Gapped)
+        joined(
+            self.solid,
+            self.follow(reference),
+            reference.resolve_in(&self.naming).ok(),
+        )
     }
 
     fn widen(

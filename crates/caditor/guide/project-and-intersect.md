@@ -9,6 +9,13 @@ be dragged and follows its source whenever the model changes.
 or point of another sketch, onto this sketch. Hover shows what a click would add. Projected curves
 make regions and take constraints like drawn ones.
 
+A projected edge follows its body when an earlier sketch is changed. If [Trim](trim-and-extend) or
+split cuts the edge's curve in two and the parts still run on end to end, the projection becomes the
+whole of them, with its points and the [constraints](constraints) and
+[dimensions](dimensions) on them kept. If a gap opens between the parts, the sketch stops and
+says the edge was cut into parts: delete the projection and project the parts you want, rather
+than one of them being taken without notice.
+
 You rarely need it before drawing: a drawing tool that [snaps](snapping) to a body's corner or
 edge projects it for you.
 

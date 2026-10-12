@@ -309,7 +309,8 @@ paths:
   items do not allow it (`read_as`); a row per item with Use selected or Choose in the view
   (`Slot::MeasuredItem(MeasuredPart)`, `measurement_tools::item_change`), which takes the one
   selected item found where the measurement sits (`item_at`: made above it, resolving in the body's
-  state there; `body_at` for a body item), keeping the quantity while the new item allows it, else
+  state there, an edge through `trace_edge` so one cut into pieces by a sketch edit is found as its
+  pieces and one only partly traced is refused in words; `body_at` for a body item), keeping the quantity while the new item allows it, else
   the first it allows; an Along row is a combo of X, Y, Z over the same picker
   (`datum_tools::axis_reference`); then its Reading (`reading_text`) and the parameter it is Named
   by. Each change is one "Edit <name>" `SetFeatureKind`, checked first.

@@ -6,8 +6,7 @@ use std::{
 
 use caditor_geometry::{Plane, Point2, Point3};
 use caditor_kernel::{
-    BooleanError, Curve, EdgeId, EdgeReference, ReferenceError, Solid, VertexId, VertexName,
-    vertex_names,
+    BooleanError, Curve, Edge, EdgeId, EdgeReference, Solid, VertexId, VertexName, vertex_names,
 };
 use caditor_sketch::{
     ArcGeometry, BSpline, EllipseGeometry, Entity, EntityId, FitSpacing, Sketch, SplineKind,
@@ -17,11 +16,13 @@ use crate::{
     attachment::SketchFeature,
     datum::PrincipalPlane,
     document::{Feature, FeatureId},
+    edge_run::EdgeRun,
     edit::{Edit, TransactionBuilder},
     origins,
-    pieces::pieces_of_one_edge,
+    pieces::{Resolution, pieces_of_one_edge},
     recompute::{Failure, FeatureError, FeatureResult, FixTarget, Inputs},
     section::{SectionError, datum_outline, section_solid},
+    split_edges::{Followed, SplitEdges, Unrun, joined},
     tolerance::{self, POSITION_TOLERANCE},
 };
 
@@ -308,6 +309,8 @@ pub enum ProjectionError {
     Missing,
     Ambiguous,
     ChangedShape,
+    Unjoined,
+    PartlyTraced,
     NotCut,
     Uncuttable,
     Parallel,
@@ -315,9 +318,11 @@ pub enum ProjectionError {
 }
 
 type Sections = BTreeMap<FeatureId, Result<Solid, ProjectionError>>;
+type Splits<'a> = BTreeMap<FeatureId, SplitEdges<'a>>;
 
 pub fn edge_outline(solid: &Solid, edge: EdgeId, plane: &Plane) -> Option<Outline> {
-    curve_outline(solid, &[edge], plane, None)
+    let found = solid.edge(edge)?;
+    curve_outline(&EdgeRun::single(edge, found), plane, None)
 }
 
 pub fn vertex_outline(solid: &Solid, vertex: VertexId, plane: &Plane) -> Option<Outline> {
@@ -329,31 +334,31 @@ pub fn sketch_outline(source: &Sketch, entity: EntityId, plane: &Plane) -> Optio
     sketch_entity_outline(source, entity, plane, None)
 }
 
-fn curve_outline(
-    solid: &Solid,
-    pieces: &[EdgeId],
-    plane: &Plane,
-    wanted: Option<Shape>,
-) -> Option<Outline> {
-    let edges: Vec<_> = pieces
-        .iter()
-        .map(|id| solid.edge(*id))
-        .collect::<Option<_>>()?;
-    let first = *edges.first()?;
+fn curve_outline(run: &EdgeRun<'_>, plane: &Plane, wanted: Option<Shape>) -> Option<Outline> {
+    let edges = run.edges();
+    let (first, first_forward) = *edges.first()?;
     let local = |point: Point3| plane.to_local(point);
     let ends: Vec<Point2> = edges
         .iter()
-        .flat_map(|edge| {
+        .flat_map(|(edge, forward)| {
             let interval = edge.interval();
-            [
+            let ends = [
                 local(edge.curve().point(interval.start())),
                 local(edge.curve().point(interval.end())),
-            ]
+            ];
+            if *forward { ends } else { [ends[1], ends[0]] }
         })
         .collect();
+    let (run_start, run_end) = (*ends.first()?, *ends.last()?);
     let sampled = |count: usize| -> Vec<Point2> {
-        let interval = first.interval();
         let last = count.saturating_sub(1).max(1) as f64;
+        if edges.len() > 1 {
+            let length = run.length();
+            return (0..count)
+                .map(|index| local(run.at(length * index as f64 / last).0))
+                .collect();
+        }
+        let interval = first.interval();
         (0..count)
             .map(|index| {
                 let t = index as f64 / last;
@@ -365,24 +370,28 @@ fn curve_outline(
             })
             .collect()
     };
+    let whole = |edge: &Edge| {
+        edges.len() == 1
+            && edge.is_closed()
+            && edge.interval().length() >= TAU - tolerance::DIRECTION_TOLERANCE
+    };
     let natural = match first.curve() {
         Curve::Line(_) => Outline::through(&ends)?,
-        Curve::Circle(circle) if edges.len() == 1 => {
-            let alignment = circle.frame().normal().dot(plane.normal());
+        Curve::Circle(circle) => {
             if tolerance::parallel(circle.frame().normal(), plane.normal()) {
                 let center = local(circle.center());
-                let interval = first.interval();
-                if first.is_closed() && interval.length() >= TAU - tolerance::DIRECTION_TOLERANCE {
+                if whole(first) {
                     Outline::Circle {
                         center,
                         radius: circle.radius(),
                     }
                 } else {
-                    let (start, end) = (*ends.first()?, *ends.get(1)?);
-                    let (start, end) = if alignment > 0.0 {
-                        (start, end)
+                    let counter_clockwise =
+                        first_forward == (circle.frame().normal().dot(plane.normal()) > 0.0);
+                    let (start, end) = if counter_clockwise {
+                        (run_start, run_end)
                     } else {
-                        (end, start)
+                        (run_end, run_start)
                     };
                     Outline::Arc { center, start, end }
                 }
@@ -391,28 +400,23 @@ fn curve_outline(
             }
         }
         Curve::Ellipse(ellipse)
-            if edges.len() == 1
-                && tolerance::parallel(ellipse.frame().normal(), plane.normal()) =>
+            if tolerance::parallel(ellipse.frame().normal(), plane.normal()) =>
         {
             let frame = ellipse.frame();
-            let interval = first.interval();
-            let whole =
-                first.is_closed() && interval.length() >= TAU - tolerance::DIRECTION_TOLERANCE;
             let center = local(ellipse.center());
             let major_end = local(ellipse.center() + frame.x_axis() * ellipse.major_radius());
-            if whole {
+            if whole(first) {
                 Outline::Ellipse {
                     center,
                     major: major_end,
                     minor_radius: ellipse.minor_radius(),
                 }
             } else {
-                let (start, end) = (*ends.first()?, *ends.get(1)?);
-                let counter_clockwise = frame.normal().dot(plane.normal()) > 0.0;
+                let counter_clockwise = first_forward == (frame.normal().dot(plane.normal()) > 0.0);
                 let (start, end) = if counter_clockwise {
-                    (start, end)
+                    (run_start, run_end)
                 } else {
-                    (end, start)
+                    (run_end, run_start)
                 };
                 Outline::EllipticalArc {
                     center,
@@ -423,8 +427,7 @@ fn curve_outline(
                 }
             }
         }
-        _ if edges.len() == 1 => Outline::through(&sampled(PROJECTED_SPLINE_POINTS))?,
-        _ => return None,
+        _ => Outline::through(&sampled(PROJECTED_SPLINE_POINTS))?,
     };
     natural.fitted(wanted, sampled)
 }
@@ -659,16 +662,25 @@ pub(crate) fn refreshed<'a>(
     }
     let mut sketch = definition.sketch.clone();
     let mut sections = Sections::new();
+    let mut splits = Splits::new();
     for (entity, source) in &definition.projections {
         let Some(existing) = sketch.entity(*entity) else {
             continue;
         };
         let wanted = Shape::of(existing);
-        let outline = outline_of(source, plane, wanted, feature.id(), inputs, &mut sections)
-            .map_err(|error| match error {
-                ProjectionError::Cancelled => Failure::Cancelled,
-                error => projection_failure(feature, &sketch, *entity, source, error, inputs),
-            })?;
+        let outline = outline_of(
+            source,
+            plane,
+            wanted,
+            feature.id(),
+            inputs,
+            &mut sections,
+            &mut splits,
+        )
+        .map_err(|error| match error {
+            ProjectionError::Cancelled => Failure::Cancelled,
+            error => projection_failure(feature, &sketch, *entity, source, error, inputs),
+        })?;
         place(&mut sketch, *entity, &outline).map_err(|()| {
             projection_failure(
                 feature,
@@ -683,19 +695,31 @@ pub(crate) fn refreshed<'a>(
     Ok(Cow::Owned(sketch))
 }
 
+fn traced_error(unrun: Unrun) -> ProjectionError {
+    match unrun {
+        Unrun::Missing => ProjectionError::Missing,
+        Unrun::Tied => ProjectionError::Ambiguous,
+        Unrun::Gapped => ProjectionError::Unjoined,
+        Unrun::PartlyTraced => ProjectionError::PartlyTraced,
+    }
+}
+
 fn edge_in(
-    solid: &Solid,
-    edge: &EdgeReference,
+    run: Result<EdgeRun<'_>, Unrun>,
     plane: &Plane,
     wanted: Shape,
 ) -> Result<Outline, ProjectionError> {
-    let pieces = match edge.resolve(solid) {
-        Ok(edge) => vec![edge],
-        Err(ReferenceError::Ambiguous(pieces)) if pieces_of_one_edge(solid, &pieces) => pieces,
-        Err(ReferenceError::Ambiguous(_)) => return Err(ProjectionError::Ambiguous),
-        Err(ReferenceError::Missing) => return Err(ProjectionError::Missing),
-    };
-    curve_outline(solid, &pieces, plane, Some(wanted)).ok_or(ProjectionError::ChangedShape)
+    let run = run.map_err(traced_error)?;
+    curve_outline(&run, plane, Some(wanted)).ok_or(ProjectionError::ChangedShape)
+}
+
+fn section_run<'a>(solid: &'a Solid, edge: &EdgeReference) -> Result<EdgeRun<'a>, Unrun> {
+    let resolved = edge.resolve(solid);
+    let leading = resolved.as_ref().ok().copied();
+    let followed = Followed::Resolved(Resolution::of(resolved, |pieces| {
+        pieces_of_one_edge(solid, pieces)
+    }));
+    joined(solid, followed, leading)
 }
 
 fn section_of<'a>(
@@ -718,24 +742,28 @@ fn section_of<'a>(
     section.as_ref().map_err(|error| *error)
 }
 
-fn outline_of(
+fn outline_of<'a>(
     source: &ProjectionSource,
     plane: &Plane,
     wanted: Shape,
     sketch: FeatureId,
-    inputs: &Inputs<'_>,
+    inputs: &Inputs<'a>,
     sections: &mut Sections,
+    splits: &mut Splits<'a>,
 ) -> Result<Outline, ProjectionError> {
     match source {
         ProjectionSource::Edge { body, edge } => {
             let solid = inputs
                 .body(*body)
                 .ok_or(ProjectionError::SourceUnavailable)?;
-            edge_in(solid, edge, plane, wanted)
+            let split = splits
+                .entry(*body)
+                .or_insert_with(|| SplitEdges::new(inputs.document, solid));
+            edge_in(split.run(edge), plane, wanted)
         }
         ProjectionSource::Section { body, edge } => {
             let section = section_of(*body, plane, sketch, inputs, sections)?;
-            match edge_in(section, edge, plane, wanted) {
+            match edge_in(section_run(section, edge), plane, wanted) {
                 Err(ProjectionError::Missing) => Err(ProjectionError::NotCut),
                 outcome => outcome,
             }
@@ -976,6 +1004,14 @@ fn projection_failure(
             "{label} is {verb} {what} whose shape in this sketch changed kind, for example a \
              line now seen end-on."
         ),
+        ProjectionError::Unjoined => format!(
+            "{label} is {verb} {what} that a trim, split or break upstream cut into parts which \
+             no longer join end to end into one curve, so no single projected curve follows it."
+        ),
+        ProjectionError::PartlyTraced => format!(
+            "{label} is {verb} {what} that a trim, split or break upstream cut into parts, and \
+             only some of the parts can still be traced."
+        ),
         ProjectionError::NotCut => format!(
             "{label} is {verb} {what}, but the sketch plane no longer cuts the face it came from."
         ),
@@ -996,6 +1032,8 @@ fn projection_failure(
         ProjectionError::Missing
         | ProjectionError::Ambiguous
         | ProjectionError::ChangedShape
+        | ProjectionError::Unjoined
+        | ProjectionError::PartlyTraced
         | ProjectionError::NotCut
         | ProjectionError::Uncuttable
         | ProjectionError::Cancelled => Some(FixTarget::Feature(feature.id())),

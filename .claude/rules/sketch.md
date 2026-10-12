@@ -40,9 +40,11 @@ paths:
   is a curve and its points, or a lone point, whose position the document supplies. The solver
   holds it fixed like the origin (`PointHandle::Fixed`, a circle's `RadiusHandle::Fixed`): no
   freedom, reads as fully constrained, and a `SolveMemo` is recalled only under the fixed values it
-  was made with. A constraint on projected or reference geometry alone is `OnlyReference`. Trim,
-  extend and the sketch fillet refuse it (`Projected`); it still cuts, offsets, mirrors and takes
-  constraints. It is profile geometry unless made construction.
+  was made with. A projected edge cut into pieces upstream stays this one curve while the pieces
+  join end to end (`document.md`); it never becomes several curves, so a constraint on it is kept
+  or the sketch fails in words, never losing one silently. A constraint on projected or reference
+  geometry alone is `OnlyReference`. Trim, extend and the sketch fillet refuse it (`Projected`); it
+  still cuts, offsets, mirrors and takes constraints. It is profile geometry unless made construction.
 - `Sketch::open_ends`: end points of profile curves joined to nothing (their class of points,
   shared or `Coincident`, holds no other curve end and lies on no other profile curve by
   `Coincident` or `Midpoint`). Recompute keeps them in `SketchResult::open_ends`, computed on the

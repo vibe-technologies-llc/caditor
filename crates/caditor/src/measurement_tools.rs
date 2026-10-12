@@ -1,7 +1,7 @@
 use caditor_document::{
     AxisReference, Between, DatumResult, Document, Edit, FeatureId, FeatureKind, FeatureState,
     MASS, MeasuredItem, Measurement, MeasurementResult, Of, ParameterOwner, PlaneReference,
-    PointReference, PrincipalAxis, Reading, Transaction,
+    PointReference, PrincipalAxis, Reading, TracedEdge, Transaction, trace_edge,
 };
 use caditor_expression::{Dimension, Expression, ParameterId};
 use caditor_geometry::Point3;
@@ -36,6 +36,8 @@ const NOT_MEASURABLE: &str = "A kept measurement cannot hold that; choose a poin
 const NOT_OF_A_BODY: &str = "Choose a face, edge or corner of the body it should measure";
 const MADE_LATER: &str = "That is made further down the tree than the measurement, or is not \
                           worked out yet; choose something made before it";
+const SPLIT_UNEVENLY: &str = "A sketch edit split that edge and only some of its pieces can be \
+                              traced; choose the piece you mean";
 const NOT_AN_AXIS: &str = "Choose an axis, a straight edge, a round face or a sketch line to \
                            measure along";
 const SAME_ITEM: &str = "It already measures that";
@@ -275,7 +277,11 @@ pub fn item_at(model: &Model, pickable: Pickable, index: usize) -> Result<Measur
     let state = |body| sketch_placement::body_state_before(model, body, index).ok();
     let found_there = match &item {
         MeasuredItem::Edge { body, edge } => {
-            state(*body).is_some_and(|solid| edge.resolve(solid).is_ok())
+            match state(*body).map(|solid| trace_edge(document, solid, edge)) {
+                Some(TracedEdge::Found(_)) => true,
+                Some(TracedEdge::PartlyTraced) => return Err(SPLIT_UNEVENLY.to_owned()),
+                Some(TracedEdge::Gone) | None => false,
+            }
         }
         MeasuredItem::Face { body, face } => {
             state(*body).is_some_and(|solid| face.resolve(solid).is_ok())
@@ -381,7 +387,10 @@ fn form_of(model: &Model, item: &MeasuredItem, index: usize) -> Form {
         MeasuredItem::Body(_) => Form::Body,
         MeasuredItem::Edge { body, edge } => {
             let form = state(*body).and_then(|solid| {
-                let found = edge.resolve(solid).ok()?;
+                let TracedEdge::Found(pieces) = trace_edge(model.document(), solid, edge) else {
+                    return None;
+                };
+                let found = *pieces.first()?;
                 edge_measure(solid, found)
                     .ok()
                     .map(|measured| measured.form)
