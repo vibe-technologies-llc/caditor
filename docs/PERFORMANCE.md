@@ -63,8 +63,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Interface
 
-- [low · easy] With a face analysis open `Analyses::of` retains and scans every entry once per
-  body, so the legend is O(B²) a frame and computes `shown_meshes` again.
 - [medium · hard] The cached scene's own batch holds every drawn sketch: any change to its
   content (each drag solution, an edit, an evaluation, a new faceting level) facets every drawn
   sketch again, and a hover or selection change restyles and uploads all of it, over a millisecond
@@ -80,11 +78,10 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   level for bodies a few pixels across. Body batches packed into shared buffers with one style
   table (a body one draw, neighbours one draw), placements at dynamic offsets of one uniform
   buffer, and a coarser mesh without a silhouette for bodies small on screen would cut both.
-- [low · easy] The sketch fillet clones the whole sketch every frame it aims at a crossing:
-  `Filleting::hovered` calls `aim.found_in(&mut sketch.clone())` while a first curve is chosen and
-  the pointer is over a second, and `prepared` clones it again every frame once a crossing corner
-  is chosen and its radius dragged, O(sketch) a pointer move on a large sketch. Cache the prepared
-  sketch by the displayed sketch's generation and the aims.
+- [low · easy] The sketch fillet's crossing is joined on a copy of the whole sketch once a frame
+  while the pointer moves along the second curve, since each frame's pick (`Pick::near`) is a new
+  aim for the cache in `Filleting::joined`; only a resting pointer, or a chosen crossing whose
+  radius is dragged, reuses it. O(sketch) a pointer move on a large sketch.
 - [low · hard] Snapping projects every point and curve of the sketch on every hover frame
   (`snap.rs`), a cost linear in the sketch that is most of the frame for tens of thousands of lines,
   mostly walking the entities, and a line or slot end walks every line again to find the nearest for
@@ -104,15 +101,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   Jacobian per free direction); a larger part keeps the `STIFF` solve's pose, or the last frame's
   when that fails, so a long chain dragged past its reach stops instead of following. A sparse
   null-space basis, or Hessian-vector products inside CGLS, would lift the limit.
-
-## Recompute
-
-- [low · easy] A recompute builds a glimpse before every feature it evaluates: `offer_glimpse`
-  returns early only when nothing was recomputed since the last glimpse, which is never true once
-  a feature was evaluated, so `glimpse` clones the statuses, bodies and inputs and walks the rest
-  of the tree before each feature, and `into_evaluation` builds `Measured::of` again though the run
-  holds it, O(F²) for a cold open of a long tree while the presenter keeps only the latest glimpse
-  and reports none before `FEATURES_DONE_AFTER`. Build one only once a report is due.
 
 ## Hostile files
 

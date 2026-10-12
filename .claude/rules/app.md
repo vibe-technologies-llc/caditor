@@ -391,7 +391,9 @@ paths:
   face's pick id registered once so hover, selection and picking read as before. Up to
   `INLINE_TRIANGLES` the work is done in the frame; a larger mesh on a thread that wakes the app and
   bumps `Analyses::finished` (watched by `Revisions::analysed`), the body drawn plain meanwhile.
-  Entries of gone meshes are dropped, all of them when no analysis is shown (`prepare(None, ..)`).
+  The cache is keyed by mesh address, one entry per mesh, so a lookup is O(log B); entries of gone
+  meshes are dropped at each `prepare`, all of them when no analysis is shown (`prepare(None, ..)`).
+  The panel and the app share one `shown_meshes` a frame (`AnalysisContext::shown`).
   Moved or see-through bodies, X-ray and wireframe are drawn as before.
 - The legend names each band with its area from the same cache (`Tally`, approximate), so no band
   is told by colour alone.

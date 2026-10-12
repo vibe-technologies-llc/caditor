@@ -1,7 +1,7 @@
 use std::{
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         mpsc::{self, Receiver},
     },
     thread,
@@ -11,6 +11,8 @@ use std::{
 use caditor_geometry::{Plane, Point3, Vector3};
 
 use crate::{
+    presenting::{Glimpse, Presentation, SettledBody},
+    recompute::GlimpseBudget,
     solid_tests::{extrude, rectangle},
     *,
 };
@@ -295,4 +297,57 @@ fn a_changed_body_meshes_again_only_the_faces_that_changed() {
     assert_eq!(reused(&before), (0, 11));
     assert_eq!(reused(&after), (6, 11));
     assert_eq!(mesh(&after), mesh(&fresh));
+}
+
+#[test]
+fn glimpses_stop_being_built_once_they_cost_more_than_their_share_of_the_run() {
+    let mut budget = GlimpseBudget::new(Instant::now());
+
+    assert!(budget.allows_after(Duration::ZERO));
+
+    budget.spend(Duration::from_millis(40));
+    assert!(budget.allows_after(Duration::from_millis(1)));
+
+    budget.spend(Duration::from_millis(40));
+    assert!(!budget.allows_after(Duration::from_millis(100)));
+    assert!(!budget.allows_after(Duration::from_millis(600)));
+    assert!(budget.allows_after(Duration::from_millis(640)));
+}
+
+#[test]
+fn a_glimpse_without_an_evaluation_still_meshes_its_bodies_and_reports_nothing() {
+    let model = two_bodies();
+    let evaluation = Recompute::default().run(
+        &model.document,
+        &ModelEvaluator,
+        &CancelToken::never(),
+        &|_, _| {},
+    );
+    let settled = vec![SettledBody {
+        name: "First".to_owned(),
+        result: Arc::clone(evaluation.body_result(model.first).unwrap()),
+    }];
+    let reported = AtomicUsize::new(0);
+    let meshed = AtomicUsize::new(0);
+    let cancel = CancelToken::never();
+
+    Presentation {
+        cancel: &cancel,
+        report: &|_| {
+            reported.fetch_add(1, Ordering::SeqCst);
+        },
+        mesh: &|_, _| {
+            meshed.fetch_add(1, Ordering::SeqCst);
+        },
+        from: Instant::now(),
+    }
+    .during(|show| {
+        show(Glimpse {
+            evaluation: None,
+            settled,
+        })
+    });
+
+    assert_eq!(meshed.load(Ordering::SeqCst), 1);
+    assert_eq!(reported.load(Ordering::SeqCst), 0);
 }

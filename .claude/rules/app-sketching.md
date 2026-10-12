@@ -352,9 +352,11 @@ and, for off-ribbon tools, a partner's corner menu.
   one's reason; two selected curves meeting at no corner make one where they cross or would meet
   (`filleting::Aim::Crossing`, `Sketch::crossing_picks`); else the curve end under the pointer. A
   click on a line, arc or circle away from a corner picks it as the first curve and a click on a
-  second chooses the corner where they cross or would meet (`Sketch::join_at_crossing` on a copy). A
-  click, or Space on a highlighted corner, adds corners. Then the pointer sets the radius through the
-  first corner (`radius_through`), previewed on all, and a click, typed value or Enter rounds all in
+  second chooses the corner where they cross or would meet (`Sketch::join_at_crossing` on a copy,
+  kept in `Filleting::joined` by the aims and the `SketchVersion` of the displayed sketch: feature,
+  document revision, evaluation and displayed-sketch generations). A click, or Space on a
+  highlighted corner, adds corners. Then the pointer sets the radius through the first corner
+  (`radius_through`), previewed on all, and a click, typed value or Enter rounds all in
   one transaction ("Fillet corners" when several), each corner found again by its point on the working
   copy as earlier ones change it; chosen corners clear after each fillet. The last value committed is
   kept per cut while caditor runs (`Modifying`, `LastSizes`): it is the field's placeholder and Enter

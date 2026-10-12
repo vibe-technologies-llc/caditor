@@ -726,6 +726,8 @@ pub(crate) fn compute(context: &Context<'_>, job: &Job) -> Computed {
 }
 
 const FEATURES_DONE_AFTER: Duration = Duration::from_millis(250);
+const GLIMPSE_SHARE_OF_RUN: u32 = 8;
+const GLIMPSE_ALLOWANCE: Duration = Duration::from_millis(50);
 const MAX_UNSWEPT_REGION_ENTITIES: usize = 2_000;
 
 #[derive(Debug, Clone)]
@@ -917,8 +919,7 @@ impl Recompute {
                 Display::Skipped => self.walk(&run, pool, None),
             };
             pool.forget_features();
-            let mut evaluation =
-                walk.into_evaluation(document, parameters.clone(), BTreeSet::new());
+            let mut evaluation = walk.into_evaluation(&run, parameters.clone(), BTreeSet::new());
             if display == Display::Prepared {
                 self.prepare_display(document, &mut evaluation, pool, &|evaluation| {
                     if !cancel.is_cancelled() && Instant::now() >= shown_from {
@@ -962,7 +963,7 @@ impl Recompute {
         let mut lookahead: Option<Lookahead> = None;
         let mut walk = Walk::default();
         let mut cancelled = false;
-        let mut glimpsed = Glimpsed::default();
+        let mut glimpsed = Glimpsed::new(Instant::now());
 
         for (index, feature) in features.iter().enumerate() {
             if let Some(lookahead) = &mut lookahead {
@@ -1145,9 +1146,21 @@ impl Recompute {
         if walk.recomputed.len() == glimpsed.recomputed && settled.is_empty() {
             return;
         }
+        let now = Instant::now();
+        if !glimpsed.budget.allows(now) {
+            if !settled.is_empty() {
+                show(Glimpse {
+                    evaluation: None,
+                    settled,
+                });
+            }
+            return;
+        }
         glimpsed.recomputed = walk.recomputed.len();
+        let evaluation = self.glimpse(run, walk, reached);
+        glimpsed.budget.spend(now.elapsed());
         show(Glimpse {
-            evaluation: self.glimpse(run, walk, reached),
+            evaluation: Some(evaluation),
             settled,
         });
     }
@@ -1173,7 +1186,7 @@ impl Recompute {
             }
             seen.statuses.insert(id, entry.status());
         }
-        seen.into_evaluation(document, run.parameters.clone(), pending)
+        seen.into_evaluation(run, run.parameters.clone(), pending)
     }
 
     fn prepare_display(
@@ -1377,11 +1390,12 @@ impl Walk {
 
     fn into_evaluation(
         self,
-        document: &Document,
+        run: &Run<'_>,
         mut parameters: ParameterValues,
         pending: BTreeSet<FeatureId>,
     ) -> Evaluation {
-        let measured = Measured::of(document);
+        let document = run.document;
+        let measured = run.measured;
         for (parameter, measurement) in measured.pairs() {
             let reading = self
                 .statuses
@@ -1417,10 +1431,46 @@ impl Walk {
     }
 }
 
-#[derive(Default)]
+pub(crate) struct GlimpseBudget {
+    started: Instant,
+    spent: Duration,
+}
+
+impl GlimpseBudget {
+    pub(crate) fn new(started: Instant) -> Self {
+        Self {
+            started,
+            spent: Duration::ZERO,
+        }
+    }
+
+    fn allows(&self, now: Instant) -> bool {
+        self.allows_after(now.saturating_duration_since(self.started))
+    }
+
+    pub(crate) fn allows_after(&self, elapsed: Duration) -> bool {
+        self.spent <= GLIMPSE_ALLOWANCE.max(elapsed / GLIMPSE_SHARE_OF_RUN)
+    }
+
+    pub(crate) fn spend(&mut self, took: Duration) {
+        self.spent += took;
+    }
+}
+
 struct Glimpsed {
     recomputed: usize,
     settled_before: usize,
+    budget: GlimpseBudget,
+}
+
+impl Glimpsed {
+    fn new(started: Instant) -> Self {
+        Self {
+            recomputed: 0,
+            settled_before: 0,
+            budget: GlimpseBudget::new(started),
+        }
+    }
 }
 
 type Settling = BTreeMap<usize, Vec<FeatureId>>;

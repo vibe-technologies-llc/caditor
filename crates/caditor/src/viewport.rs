@@ -49,7 +49,7 @@ use crate::{
     menu_bar::MenuEntries,
     model::{Action, Model, Notice, RecomputeStatus},
     model_dimensions::{self, ModelDimensions, Outside},
-    modifying::{Hint, Modifying, Outcome},
+    modifying::{Hint, Modifying, Outcome, SketchVersion},
     move_manipulator::Handle,
     offset_face_tools,
     paint_selection::{self, Painting},
@@ -2477,8 +2477,11 @@ impl ViewportState {
                 self.drawing.hover(&sketch, &screen, pointer);
                 self.body_hovered = self.body_hover(editing, &sketch, &screen, pointer);
                 self.trimming.hover(&sketch, &screen, pointer);
+                let version = editing
+                    .feature()
+                    .map(|feature| SketchVersion::of(model, feature));
                 self.modifying
-                    .hover(&sketch, &screen, pointer, self.scenes.faceting());
+                    .hover(&sketch, &screen, pointer, (self.scenes.faceting(), version));
             }
             _ => {
                 self.drawing.leave();
