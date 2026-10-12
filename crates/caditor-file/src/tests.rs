@@ -15,9 +15,13 @@ use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, FitSpacing, Ske
 use tempfile::TempDir;
 
 use super::{
-    binary::testing::{
-        corrupt_chunk, current_model_from_json, model_from_json, records_as_json, rewrite_journal,
-        sharing_from, with_damaged_deltas, with_unknown_codec,
+    binary::{
+        EARLIER_BUILD_JOURNAL_MAGIC, JOURNAL_MAGIC,
+        testing::{
+            as_written_by_an_earlier_build, corrupt_chunk, current_model_from_json,
+            model_from_json, records_as_json, rewrite_journal, sharing_from, with_damaged_deltas,
+            with_unknown_codec,
+        },
     },
     save, *,
 };
@@ -492,7 +496,7 @@ fn content_from_a_newer_version_is_reported_and_the_rest_is_kept() {
 }
 
 #[test]
-fn a_power_after_a_unit_keeps_its_value_through_loading_and_saving() {
+fn a_power_after_a_unit_in_stored_text_raises_the_unit_as_typed_text_does() {
     let values = |document: &Document| -> Vec<Quantity> {
         document
             .parameters()
@@ -506,48 +510,34 @@ fn a_power_after_a_unit_keeps_its_value_through_loading_and_saving() {
             .collect()
     };
     let area = |square_millimetres| Quantity::new(square_millimetres, Dimension::AREA);
-    let saved_by_older_versions = [
+    let stored = [
         parameter_line(0, "10 mm^2"),
         r#"{"parameter":{"expression":"10 mm²","id":1,"name":"q"}}"#.to_owned(),
         r#"{"parameter":{"expression":"2 cm^3","id":2,"name":"r"}}"#.to_owned(),
+        r#"{"parameter":{"expression":"(10 mm)^2","id":3,"name":"s"}}"#.to_owned(),
     ];
 
-    let loaded = decode_lines(&saved_by_older_versions);
-    let mut typed = Document::default();
-    let mut transaction = typed.transaction("Typed");
-    transaction.add_parameter("square", transaction.parse("10 mm^2").unwrap());
-    transaction.add_parameter("squared", transaction.parse("(10 mm)^2").unwrap());
-    typed.apply(transaction.finish()).unwrap();
+    let loaded = decode_lines(&stored);
+    let saved = crate::encode(&loaded.document).unwrap();
+    let records = records_as_json(&saved);
+    let reloaded = decode(&saved).unwrap();
 
     assert!(loaded.issues.is_empty(), "{:?}", loaded.issues);
     assert_eq!(
         values(&loaded.document),
         [
-            area(100.0),
             area(10.0),
-            Quantity::new(8000.0, Dimension::VOLUME)
+            area(10.0),
+            Quantity::new(2000.0, Dimension::VOLUME),
+            area(100.0)
         ]
     );
-
-    let saved = crate::encode(&loaded.document).unwrap();
-    let records = records_as_json(&saved);
-    let reloaded = decode(&saved).unwrap();
-    let typed_reloaded = decode(&crate::encode(&typed).unwrap()).unwrap();
-
     assert!(
         records
             .iter()
             .any(|record| record.contains(r#""(10 mm)^2""#))
     );
-    assert!(
-        records
-            .iter()
-            .any(|record| record.contains(r#""(2 cm)^3""#))
-    );
     assert_eq!(reloaded.document, loaded.document);
-    assert_eq!(values(&reloaded.document), values(&loaded.document));
-    assert_eq!(typed_reloaded.document, typed);
-    assert_eq!(values(&typed), [area(10.0), area(100.0)]);
 }
 
 #[test]
@@ -640,7 +630,7 @@ fn a_damaged_magic_is_not_salvaged_without_an_intact_head_after_it() {
     assert_eq!(decode(&journal), Err(LoadError::NotAModel));
     assert_eq!(decode(&garbled), Err(LoadError::NotAModel));
     assert_eq!(
-        decode(b"CDCK is how caditor marks its chunks"),
+        decode(b"CDCH is how caditor marks its chunks"),
         Err(LoadError::NotAModel)
     );
 }
@@ -707,7 +697,7 @@ fn a_torn_or_corrupted_tail_loses_only_the_changes_after_it() {
     let original = fs::read(&journal).unwrap();
 
     let mut torn = original.clone();
-    torn.extend_from_slice(b"CDCK\x07\x01\0\0\x40");
+    torn.extend_from_slice(b"CDCH\x07\x01\0\0\x40");
     fs::write(&journal, torn).unwrap();
     let Inspection::Recoverable(recovered) = inspect(&journal).unwrap() else {
         panic!("the journal should still be recoverable");
@@ -1272,6 +1262,45 @@ fn an_unreadable_journal_is_set_aside_before_a_new_one_replaces_it() {
     ));
     assert!(scan(Some(&recovery), &[path]).is_empty());
     assert!(kept[0].exists());
+}
+
+#[test]
+fn a_journal_from_an_early_development_build_is_set_aside_and_never_offered() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("model.caditor");
+    let base = sample();
+    save(&base, &path, false).unwrap();
+    let start = Start {
+        file: Some(path.clone()),
+        on_disk: None,
+        ..untitled(&base)
+    };
+    let storage = Storage::spawn(config(&dir), start, || {}).unwrap();
+    let mut editor = Editor::new(base.clone());
+    record_session(&storage, &mut editor);
+    crash(storage);
+    let journal = dir.path().join(".model.caditor.journal");
+    let earlier = as_written_by_an_earlier_build(
+        &fs::read(&journal).unwrap(),
+        &JOURNAL_MAGIC,
+        &EARLIER_BUILD_JOURNAL_MAGIC,
+        1,
+    );
+    fs::write(&journal, &earlier).unwrap();
+    let recovery = dir.path().join("recovery");
+
+    let decoded = journal::decode_journal(&earlier).err();
+    let inspected = inspect(&journal).unwrap();
+    let opened = journal_for(&path, Some(&recovery));
+
+    assert_eq!(decoded, Some(journal::UnreadableJournal::FromEarlierBuild));
+    assert!(matches!(inspected, Inspection::Damaged), "{inspected:?}");
+    let FileJournal::SetAside(kept) = opened else {
+        panic!("the journal from an earlier build should be set aside");
+    };
+    assert_eq!(fs::read(&kept[0]).unwrap(), earlier);
+    assert!(!journal.exists());
+    assert!(scan(Some(&recovery), &[path]).is_empty());
 }
 
 #[test]
@@ -2473,35 +2502,6 @@ fn an_edit_kind_this_version_does_not_know_stops_replay_at_its_line() {
     };
     assert_eq!(recovered.changes(), 1);
     assert_eq!(recovered.issues.len(), 1);
-}
-
-#[test]
-fn a_journal_packed_at_the_saved_level_as_earlier_versions_wrote_it_recovers_the_same_session() {
-    let dir = TempDir::new().unwrap();
-    let storage = Storage::spawn(config(&dir), untitled(&sample()), || {}).unwrap();
-    let mut editor = Editor::new(sample());
-    record_session(&storage, &mut editor);
-    crash(storage);
-    let journal = fs::read_dir(dir.path().join("recovery"))
-        .unwrap()
-        .next()
-        .unwrap()
-        .unwrap()
-        .path();
-    let Inspection::Recoverable(written) = inspect(&journal).unwrap() else {
-        panic!("the journal should be recoverable");
-    };
-
-    let repacked = rewrite_journal(&fs::read(&journal).unwrap(), |_, json| json);
-    fs::write(&journal, repacked).unwrap();
-    let Inspection::Recoverable(earlier) = inspect(&journal).unwrap() else {
-        panic!("the repacked journal should be recoverable");
-    };
-
-    assert_eq!(earlier.changes(), written.changes());
-    assert_eq!(earlier.base, written.base);
-    assert_eq!(earlier.editor.document(), editor.document());
-    assert_eq!(history(&earlier.editor), history(&editor));
 }
 
 fn solid_model() -> (Document, FeatureId, FeatureId) {
@@ -4606,22 +4606,6 @@ fn a_pattern_whose_axis_cannot_be_read_falls_back_and_is_reported() {
     assert_eq!(turned.axis, AxisReference::Principal(PrincipalAxis::Z));
 }
 
-#[test]
-fn a_model_saved_in_format_1_before_patterns_loads_unchanged() {
-    let (document, _, _) = datum_model();
-    let lines = lines_of(&document);
-    let loaded = decode(&model_from_json(1, &lines)).unwrap();
-    assert_eq!(loaded.issues, Vec::<String>::new());
-    assert_eq!(loaded.document, document);
-
-    let seed = fs::read(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fuzz/seeds/model/datums.caditor"),
-    )
-    .unwrap();
-    assert_eq!(seed.get(8..12), Some(1u32.to_le_bytes().as_slice()));
-    assert_eq!(decode(&seed).unwrap().issues, Vec::<String>::new());
-}
-
 fn datum_model() -> (Document, FeatureId, FeatureId) {
     use caditor_document::{
         AxisReference, BodyOperation, Datum, DatumAxis, DatumPlane, PlaneReference, PlaneRotation,
@@ -5929,28 +5913,6 @@ fn suppressing_and_rolling_back_are_recovered_from_the_journal_after_a_crash() {
 }
 
 #[test]
-fn models_saved_before_format_three_load_with_nothing_suppressed_or_rolled_back() {
-    let (document, _, _) = solid_model();
-    let lines = lines_of(&document);
-
-    for version in [1, 2] {
-        let loaded = decode(&model_from_json(version, &lines)).unwrap();
-
-        assert_eq!(loaded.issues, Vec::<String>::new());
-        assert_eq!(loaded.document, document);
-        assert_eq!(loaded.document.rollback_bar(), RollbackBar::AtEnd);
-        assert!(
-            loaded
-                .document
-                .features()
-                .all(|feature| !feature.suppressed)
-        );
-    }
-    let bytes = crate::encode(&document).unwrap();
-    assert_eq!(bytes.get(8..12), Some(&3_u32.to_le_bytes()[..]));
-}
-
-#[test]
 fn a_rollback_bar_above_a_feature_that_is_gone_is_reported_and_left_at_the_end() {
     let (document, _, _) = solid_model();
     let mut lines = lines_of(&document);
@@ -6666,16 +6628,6 @@ fn unreadable_ends_and_angles_fall_back_and_are_reported() {
     assert!(loaded.document.feature(turned).is_some());
 }
 
-#[test]
-fn a_model_saved_in_format_2_loads_unchanged() {
-    let (document, _, _) = patterned_model();
-    let lines = lines_of(&document);
-    let loaded = decode(&model_from_json(2, &lines)).unwrap();
-    assert_eq!(loaded.issues, Vec::<String>::new());
-    assert_eq!(loaded.document, document);
-    assert!(lines.iter().all(|line| !line.contains("extrude_to")));
-}
-
 fn fake_log(state: &Path, seconds: u64, process: u32, last: &str) -> PathBuf {
     let dir = state.join("logs");
     fs::create_dir_all(&dir).unwrap();
@@ -6749,7 +6701,7 @@ fn a_session_log_stops_at_its_size_limit_and_old_logs_are_pruned() {
     assert!(old.last().unwrap().exists());
 }
 
-fn fillet_saved_before_origins() -> (Document, FeatureId) {
+fn filleted_model() -> (Document, FeatureId) {
     use caditor_document::{
         Blend, BlendKind, BodyOperation, CancelToken, ChamferForm, Extrude, ExtrudeExtent,
         ModelEvaluator, Recompute, RegionChoice, SolidFeature,
@@ -6796,7 +6748,6 @@ fn fillet_saved_before_origins() -> (Document, FeatureId) {
             }))
         })
         .unwrap();
-    let saved = EdgeReference::new(cap_edge.name(), cap_edge.faces(), cap_edge.ends());
 
     let mut transaction = document.transaction("Fillet");
     let fillet = transaction.add_feature(
@@ -6805,7 +6756,7 @@ fn fillet_saved_before_origins() -> (Document, FeatureId) {
             kind: BlendKind::Fillet,
             body: base,
             groups: Vec::new(),
-            edges: vec![saved],
+            edges: vec![cap_edge],
             size: transaction.parse("1 mm").unwrap(),
             form: ChamferForm::Equal,
             flipped: false,
@@ -6813,46 +6764,6 @@ fn fillet_saved_before_origins() -> (Document, FeatureId) {
     );
     document.apply(transaction.finish()).unwrap();
     (document, fillet)
-}
-
-fn fillet_origins(document: &Document, fillet: FeatureId) -> Vec<bool> {
-    document
-        .feature(fillet)
-        .unwrap()
-        .kind
-        .blend()
-        .unwrap()
-        .edges
-        .iter()
-        .map(|edge| edge.origins().iter().all(Option::is_some))
-        .collect()
-}
-
-#[test]
-fn opening_a_model_saved_before_edges_kept_origins_completes_them() {
-    let (document, fillet) = fillet_saved_before_origins();
-    let dir = TempDir::new().unwrap();
-    let path = dir.path().join("old.caditor");
-    save(&document, &path, false).unwrap();
-    let mut changed = document.clone();
-    let mut transaction = changed.transaction("Parameter");
-    transaction.add_parameter("width", transaction.parse("2 mm").unwrap());
-    changed.apply(transaction.finish()).unwrap();
-    save(&changed, &path, false).unwrap();
-
-    let decoded = decode(&fs::read(&path).unwrap()).unwrap();
-    let loaded = load(&path).unwrap();
-    let version = load_version(&path, 0).unwrap();
-
-    assert_eq!(fillet_origins(&decoded.document, fillet), [false]);
-    assert_eq!(fillet_origins(&loaded.document, fillet), [true]);
-    assert_eq!(fillet_origins(&version.document, fillet), [true]);
-    assert!(loaded.issues.is_empty());
-
-    save(&loaded.document, &path, false).unwrap();
-    let saved_again = decode(&fs::read(&path).unwrap()).unwrap();
-
-    assert_eq!(fillet_origins(&saved_again.document, fillet), [true]);
 }
 
 #[test]
@@ -9084,7 +8995,7 @@ fn a_coordinate_system_origin_a_scale_centre_and_an_import_in_one_are_kinds_olde
 #[test]
 fn a_chamfer_by_two_distances_or_an_angle_is_a_kind_older_readers_report() {
     use caditor_document::{BlendKind, ChamferForm};
-    let (mut document, blend) = fillet_saved_before_origins();
+    let (mut document, blend) = filleted_model();
     let parse = |text: &str| Expression::parse_stored(text).unwrap();
     let reshaped = |form: ChamferForm, flipped: bool| {
         let mut kind = document.feature(blend).unwrap().kind.clone();
@@ -9153,7 +9064,7 @@ fn a_chamfer_by_two_distances_or_an_angle_is_a_kind_older_readers_report() {
 fn a_blend_of_every_edge_of_faces_or_a_body_is_a_kind_older_readers_report() {
     use caditor_document::{BlendKind, ChamferForm, EdgeGroup};
     use caditor_kernel::{FaceName, FaceOrigin, FaceReference};
-    let (mut document, blend) = fillet_saved_before_origins();
+    let (mut document, blend) = filleted_model();
     let top = FaceReference::new(
         FaceName::from_digest(0xbeef),
         Some(FaceOrigin::EndCap { feature: 1 }),

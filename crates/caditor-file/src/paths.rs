@@ -64,25 +64,8 @@ pub(crate) fn fallback_journal(file: &Path, recovery_dir: &Path) -> PathBuf {
     fallback_named(hash, recovery_dir)
 }
 
-pub(crate) fn fallback_named(hash: u64, recovery_dir: &Path) -> PathBuf {
+fn fallback_named(hash: u64, recovery_dir: &Path) -> PathBuf {
     recovery_dir.join(format!("file-{hash:016x}.{JOURNAL_EXTENSION}"))
-}
-
-fn fallback_journals(file: &Path, recovery_dir: &Path) -> Vec<PathBuf> {
-    distinct_hashes(&os::journal_identity(file), file)
-        .into_iter()
-        .map(|hash| fallback_named(hash, recovery_dir))
-        .collect()
-}
-
-fn distinct_hashes(identity: &Path, spelled: &Path) -> Vec<u64> {
-    let current = path_hash(identity);
-    let as_spelled = path_hash(spelled);
-    if current == as_spelled {
-        vec![current]
-    } else {
-        vec![current, as_spelled]
-    }
 }
 
 pub(crate) fn journal_marker(journal: &Path, recovery_dir: &Path) -> PathBuf {
@@ -92,13 +75,6 @@ pub(crate) fn journal_marker(journal: &Path, recovery_dir: &Path) -> PathBuf {
 
 fn marker_named(hash: u64, recovery_dir: &Path) -> PathBuf {
     recovery_dir.join(format!("adjacent-{hash:016x}.{MARKER_EXTENSION}"))
-}
-
-pub(crate) fn journal_markers(journal: &Path, recovery_dir: &Path) -> Vec<PathBuf> {
-    distinct_hashes(&os::journal_identity(journal), journal)
-        .into_iter()
-        .map(|hash| marker_named(hash, recovery_dir))
-        .collect()
 }
 
 #[cfg(any(windows, test))]
@@ -125,17 +101,6 @@ pub(crate) fn untitled_journal(recovery_dir: &Path) -> PathBuf {
 }
 
 pub(crate) fn journals_for(file: &Path, recovery_dir: Option<&Path>) -> Vec<PathBuf> {
-    adjacent_journal(file)
-        .into_iter()
-        .chain(
-            recovery_dir
-                .into_iter()
-                .flat_map(|dir| fallback_journals(file, dir)),
-        )
-        .collect()
-}
-
-pub(crate) fn journal_destinations(file: &Path, recovery_dir: Option<&Path>) -> Vec<PathBuf> {
     adjacent_journal(file)
         .into_iter()
         .chain(recovery_dir.map(|dir| fallback_journal(file, dir)))
@@ -180,24 +145,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn spellings_with_one_identity_share_a_fallback_journal_and_the_as_spelled_one_stays_findable()
-    {
-        let identity = Path::new(r"c:\models\m.caditor");
-        let spelled = Path::new(r"C:\Models\M.caditor");
+    fn fallback_journals_and_markers_are_named_by_the_hash_of_the_path() {
+        let path = Path::new(r"c:\models\m.caditor");
         let recovery = Path::new("recovery");
 
-        let hashes = distinct_hashes(identity, spelled);
-        let same = distinct_hashes(spelled, spelled);
-
-        assert_eq!(hashes, vec![path_hash(identity), path_hash(spelled)]);
-        assert_eq!(same, vec![path_hash(spelled)]);
         assert_eq!(
-            fallback_named(path_hash(spelled), recovery),
-            recovery.join(format!("file-{:016x}.journal", path_hash(spelled)))
+            fallback_named(path_hash(path), recovery),
+            recovery.join(format!("file-{:016x}.journal", path_hash(path)))
         );
         assert_eq!(
-            marker_named(path_hash(spelled), recovery),
-            recovery.join(format!("adjacent-{:016x}.location", path_hash(spelled)))
+            marker_named(path_hash(path), recovery),
+            recovery.join(format!("adjacent-{:016x}.location", path_hash(path)))
         );
     }
 
@@ -209,23 +167,17 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
     #[test]
-    fn on_unix_the_lookup_names_are_the_primary_names_alone() {
+    fn a_model_has_its_adjacent_journal_and_one_fallback_journal() {
         let file = Path::new("/models/m.caditor");
         let recovery = Path::new("/recovery");
 
         assert_eq!(
-            fallback_journals(file, recovery),
-            vec![fallback_journal(file, recovery)]
-        );
-        assert_eq!(
-            journal_markers(file, recovery),
-            vec![journal_marker(file, recovery)]
-        );
-        assert_eq!(
             journals_for(file, Some(recovery)),
-            journal_destinations(file, Some(recovery))
+            [
+                adjacent_journal(file).unwrap(),
+                fallback_journal(file, recovery)
+            ]
         );
     }
 }

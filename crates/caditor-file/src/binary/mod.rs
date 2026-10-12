@@ -23,9 +23,13 @@ pub use self::model::{
 
 pub(crate) type Magic = [u8; 8];
 
-pub(crate) const MODEL_MAGIC: Magic = [0x89, b'C', b'A', b'D', b'\r', b'\n', 0x1a, b'\n'];
-pub(crate) const JOURNAL_MAGIC: Magic = [0x89, b'C', b'J', b'L', b'\r', b'\n', 0x1a, b'\n'];
-const SYNC: [u8; 4] = *b"CDCK";
+pub(crate) const MODEL_MAGIC: Magic = [0x89, b'C', b'D', b'M', b'\r', b'\n', 0x1a, b'\n'];
+pub(crate) const JOURNAL_MAGIC: Magic = [0x89, b'C', b'D', b'J', b'\r', b'\n', 0x1a, b'\n'];
+pub(crate) const EARLIER_BUILD_MODEL_MAGIC: Magic =
+    [0x89, b'C', b'A', b'D', b'\r', b'\n', 0x1a, b'\n'];
+pub(crate) const EARLIER_BUILD_JOURNAL_MAGIC: Magic =
+    [0x89, b'C', b'J', b'L', b'\r', b'\n', 0x1a, b'\n'];
+const SYNC: [u8; 4] = *b"CDCH";
 const VERSION_LENGTH: usize = 4;
 pub(crate) const CHUNK_HEADER_LENGTH: usize = 24;
 const CHECKED_HEADER: std::ops::Range<usize> = 4..16;

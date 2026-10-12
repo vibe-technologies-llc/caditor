@@ -24,13 +24,12 @@ paths:
 - Typed text: a power right after a unit raises the unit (`10 mm^2` is `10 mm²`), while
   `(10 mm)^2` raises the measure. Only a length unit takes a power, and only a literal 2 or 3;
   anything else (`10 deg^2`, `10 mm^4`, `10 mm²^2`) is `UnitPower`, which spells the bracketed form.
-- Stored text (`parse_stored`) keeps the reading every shipped version wrote: a power after a unit
-  raises the measure, so an old file's `10 mm^2` is still (10 mm)². Printing brackets a power of a
-  measure (`(10 mm)^2`, `ends_in_unit`), which reads alike in both grammars, so no format change
-  was needed. Never print a power right after a unit.
-- `Expression::parse_by_name_stored_reading` resolves parameter names like typed text but keeps
-  the stored grammar; parameter CSV files without a version row use it (`file-import-export.md`).
-- Typed text accepts SI units only; `in` and `ft` stay readable in stored text only.
+- Stored text (`parse_stored`) has the typed grammar, with parameters as `$<id>` instead of names
+  and a longer limit (`MAX_STORED_LENGTH`). Printing brackets a power of a measure (`(10 mm)^2`,
+  `ends_in_unit`); never print a power right after a unit. Changing the grammar so stored text
+  would read differently changes the file formats (`file-format.md`).
+- Text accepts SI units only, typed or stored: `in` and `ft` are `ImperialUnit`, refused with the
+  SI units to write instead.
 - `Naming::split` reads `name = expression` in a value field: a single `=` (not part of `==`,
   `<=`, `>=`, `!=`) after nothing but a name's characters. Anything else is an ordinary
   expression, so `if(a = b, …)` still gets the parser's message.

@@ -730,7 +730,7 @@ fn quitting_while_the_parameters_are_being_written_waits_for_the_file() {
     assert!(
         fs::read_to_string(&written)
             .unwrap()
-            .starts_with("caditor-parameters,")
+            .starts_with("caditor-parameter-file,")
     );
 }
 

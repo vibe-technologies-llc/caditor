@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     binary::{
-        ChunkKind, EncodeError, FileDigest, JOURNAL_MAGIC, Piece, parse, push_packed_for_recovery,
-        start_file, value,
+        ChunkKind, EARLIER_BUILD_JOURNAL_MAGIC, EncodeError, FileDigest, JOURNAL_MAGIC, Piece,
+        parse, push_packed_for_recovery, start_file, value,
     },
     configurations::{ConfigurationsRecord, configurations_record},
     format::{
@@ -32,15 +32,11 @@ pub enum JournalEntry {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct JournalHeader {
-    file: Option<String>,
-    #[serde(default)]
-    file_bytes: Option<Vec<u8>>,
+    file: Option<Vec<u8>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     on_disk: Option<FileDigest>,
-    #[serde(default)]
     loaded_with_problems: bool,
-    #[serde(default)]
-    folded: Option<u64>,
+    folded: u64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -91,11 +87,10 @@ pub(crate) fn encode_journal(
     entries: &[Logged],
 ) -> Result<Vec<u8>, EncodeError> {
     let header = JournalHeader {
-        file: head.file.and_then(Path::to_str).map(str::to_owned),
-        file_bytes: head.file.map(|file| os::path_bytes(file.as_os_str())),
+        file: head.file.map(|file| os::path_bytes(file.as_os_str())),
         on_disk: head.on_disk.cloned(),
         loaded_with_problems: head.loaded_with_problems,
-        folded: Some(u64::try_from(head.folded).unwrap_or(u64::MAX)),
+        folded: u64::try_from(head.folded).unwrap_or(u64::MAX),
     };
     let mut bytes = start_file(&JOURNAL_MAGIC, JOURNAL_VERSION);
     push_packed_for_recovery(
@@ -226,27 +221,36 @@ pub(crate) struct JournalContents {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error("the recovery journal is damaged")]
-pub(crate) struct DamagedJournal;
+pub(crate) enum UnreadableJournal {
+    #[error("the recovery journal is damaged")]
+    Damaged,
+    #[error("the recovery journal was written by a newer version of caditor")]
+    FromNewerVersion,
+    #[error("the recovery journal was written by an early development build of caditor")]
+    FromEarlierBuild,
+}
 
 #[cfg(any(test, feature = "fuzzing"))]
-pub(crate) fn decode_journal(bytes: &[u8]) -> Result<JournalContents, DamagedJournal> {
+pub(crate) fn decode_journal(bytes: &[u8]) -> Result<JournalContents, UnreadableJournal> {
     decode_journal_with(bytes, |_, _| None)
 }
 
 pub(crate) fn decode_journal_with(
     bytes: &[u8],
     saved_state: impl FnOnce(&Path, &FileDigest) -> Option<Loaded>,
-) -> Result<JournalContents, DamagedJournal> {
-    let container = parse(bytes, &JOURNAL_MAGIC)
-        .filter(|container| container.version <= JOURNAL_VERSION)
-        .ok_or(DamagedJournal)?;
+) -> Result<JournalContents, UnreadableJournal> {
+    if bytes.starts_with(&EARLIER_BUILD_JOURNAL_MAGIC) {
+        return Err(UnreadableJournal::FromEarlierBuild);
+    }
+    let container = parse(bytes, &JOURNAL_MAGIC).ok_or(UnreadableJournal::Damaged)?;
+    if container.version > JOURNAL_VERSION {
+        return Err(UnreadableJournal::FromNewerVersion);
+    }
     let mut pieces = container.pieces.iter();
     let header: JournalHeader = content_of(pieces.next(), ChunkKind::JournalHeader)?;
-    let file = match header.file_bytes {
-        Some(bytes) => Some(PathBuf::from(os::path_from_bytes(bytes))),
-        None => header.file.map(PathBuf::from),
-    };
+    let file = header
+        .file
+        .map(|bytes| PathBuf::from(os::path_from_bytes(bytes)));
     let mut issues = Vec::new();
     let mut folded = 0;
     let base = match pieces.next() {
@@ -256,12 +260,12 @@ pub(crate) fn decode_journal_with(
             folded = usize::try_from(rebased.folded).unwrap_or(usize::MAX);
             assemble(snapshot_parts(rebased.snapshot, &mut issues), &mut issues)
         }
-        Some(Piece::Damaged) if header.folded == Some(0) => {
+        Some(Piece::Damaged) if header.folded == 0 => {
             let saved = file
                 .as_deref()
                 .zip(header.on_disk.as_ref())
                 .and_then(|(file, on_disk)| saved_state(file, on_disk))
-                .ok_or(DamagedJournal)?;
+                .ok_or(UnreadableJournal::Damaged)?;
             issues.extend(saved.issues);
             issues.push(
                 "The recovered copy of the model was damaged, so the changes were replayed onto \
@@ -301,15 +305,15 @@ pub(crate) fn decode_journal_with(
 fn content_of<T: for<'de> Deserialize<'de>>(
     piece: Option<&Piece<'_>>,
     kind: ChunkKind,
-) -> Result<T, DamagedJournal> {
+) -> Result<T, UnreadableJournal> {
     let Some(Piece::Chunk(chunk)) = piece else {
-        return Err(DamagedJournal);
+        return Err(UnreadableJournal::Damaged);
     };
     if chunk.kind != Some(kind) {
-        return Err(DamagedJournal);
+        return Err(UnreadableJournal::Damaged);
     }
-    let content = chunk.unpack(None).map_err(|_| DamagedJournal)?;
-    value::from_bytes(&content).map_err(|_| DamagedJournal)
+    let content = chunk.unpack(None).map_err(|_| UnreadableJournal::Damaged)?;
+    value::from_bytes(&content).map_err(|_| UnreadableJournal::Damaged)
 }
 
 fn decode_entry(piece: &Piece<'_>) -> Option<Logged> {

@@ -165,7 +165,6 @@ struct Token {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum References {
     ByName,
-    ByNameStoredReading,
     Stored,
 }
 
@@ -174,13 +173,6 @@ pub fn parse(
     resolve: &dyn Fn(&str) -> Option<ParameterId>,
 ) -> Result<Expression, ParseError> {
     parse_with(text, MAX_LENGTH, References::ByName, resolve)
-}
-
-pub fn parse_by_name_stored_reading(
-    text: &str,
-    resolve: &dyn Fn(&str) -> Option<ParameterId>,
-) -> Result<Expression, ParseError> {
-    parse_with(text, MAX_LENGTH, References::ByNameStoredReading, resolve)
 }
 
 pub fn parse_stored(text: &str) -> Result<Expression, ParseError> {
@@ -212,7 +204,6 @@ fn parse_with(
         position: 0,
         depth: 0,
         resolve,
-        references,
     };
     let expression = parser.expression()?;
     match parser.peek() {
@@ -393,7 +384,6 @@ struct Parser<'a> {
     position: usize,
     depth: usize,
     resolve: &'a dyn Fn(&str) -> Option<ParameterId>,
-    references: References,
 }
 
 impl Parser<'_> {
@@ -555,7 +545,7 @@ impl Parser<'_> {
         let atom = self.atom()?;
         let base = match self.unit_after()? {
             None => atom,
-            Some(bound) if self.references == References::ByName && self.caret().is_some() => {
+            Some(bound) if self.caret().is_some() => {
                 return self.unit_power(atom, bound, start);
             }
             Some(bound) => bound.applied_to(atom),
@@ -678,7 +668,7 @@ impl Parser<'_> {
                 _ => Ok(None),
             };
         };
-        if self.references == References::ByName && matches!(unit, Unit::Inch | Unit::Foot) {
+        if matches!(unit, Unit::Inch | Unit::Foot) {
             return Err(ParseError {
                 kind: ParseErrorKind::ImperialUnit {
                     found: name,

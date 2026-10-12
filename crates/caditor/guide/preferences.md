@@ -73,7 +73,7 @@ The adapter preference is Auto, Power saving or Performance. Auto, the default, 
 powerful graphics card on a computer without a battery and the integrated graphics on a laptop,
 and a line under it says what it chose and why, for example "Auto: high performance, this computer
 has no battery." When caditor cannot tell, Auto takes the integrated graphics. Power saving and
-Performance always do what they say, and a choice saved by an earlier version keeps applying.
+Performance always do what they say.
 Changing the preference switches the drawing to the new adapter at once, only if it is a different
 one. Setting the `WGPU_POWER_PREF` environment variable to `low` or `high` overrides the
 preference.

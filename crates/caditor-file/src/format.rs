@@ -41,7 +41,7 @@ use crate::{
     selection_sets::{SelectionSetsRecord, restore_selection_sets, selection_sets_record_of},
 };
 
-pub const FORMAT_VERSION: u32 = 3;
+pub const FORMAT_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

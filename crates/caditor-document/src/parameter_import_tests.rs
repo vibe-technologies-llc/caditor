@@ -7,7 +7,6 @@ fn row(name: &str, expression: &str) -> ImportedParameter {
         name: name.to_owned(),
         expression: expression.to_owned(),
         note: String::new(),
-        reading: ExpressionReading::Typed,
     }
 }
 

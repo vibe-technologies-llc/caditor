@@ -2,13 +2,12 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     path::Path,
     sync::Arc,
-    time::{Duration, Instant},
 };
 
 use caditor_document::{
     CancelToken, DependencyGraph, Document, Edit, EditError, Feature, FeatureId, FeatureKind,
     MAX_PARAMETER_NOTE_CHARS, MAX_RECORDS, MAX_VALUE_LABEL_CHARS, Parameter, ParameterOwner,
-    Revolve, RevolveAxis, RollbackBar, SolidFeature, Transaction, complete_origins, value_label,
+    Revolve, RevolveAxis, RollbackBar, SolidFeature, Transaction, value_label,
 };
 use caditor_expression::{Expression, ParameterId, check_name};
 use caditor_sketch::EntityId;
@@ -43,6 +42,11 @@ pub enum LoadError {
     Crashed,
     #[error("it is not a caditor model")]
     NotAModel,
+    #[error(
+        "it was made by an early development build of caditor, whose files this version does not \
+         open"
+    )]
+    FromEarlierBuild,
     #[error("the file is empty")]
     Empty,
     #[error("this version is damaged and cannot be restored")]
@@ -50,8 +54,6 @@ pub enum LoadError {
     #[error("opening it was cancelled")]
     Cancelled,
 }
-
-const ORIGIN_COMPLETION_TIME: Duration = Duration::from_secs(20);
 
 pub fn load(path: &Path) -> Result<Loaded, LoadError> {
     load_cancellable(path, &CancelToken::never())
@@ -62,8 +64,7 @@ pub fn load_cancellable(path: &Path, cancel: &CancelToken) -> Result<Loaded, Loa
     if cancel.is_cancelled() {
         return Err(LoadError::Cancelled);
     }
-    let loaded = binary::decode_cancellable(&bytes, cancel)?;
-    with_origins_completed(loaded, cancel)
+    binary::decode_cancellable(&bytes, cancel)
 }
 
 pub fn decode(bytes: &[u8]) -> Result<Loaded, LoadError> {
@@ -91,23 +92,6 @@ pub fn load_version_cancellable(
     let loaded = binary::load_version(&bytes, index)?;
     if cancel.is_cancelled() {
         return Err(LoadError::Cancelled);
-    }
-    with_origins_completed(loaded, cancel)
-}
-
-fn with_origins_completed(mut loaded: Loaded, cancel: &CancelToken) -> Result<Loaded, LoadError> {
-    let started = Instant::now();
-    let interrupt = cancel.interrupt();
-    let stop = CancelToken::new(move || started.elapsed() > ORIGIN_COMPLETION_TIME || interrupt());
-    let completion = complete_origins(&loaded.document, &stop);
-    if cancel.is_cancelled() {
-        return Err(LoadError::Cancelled);
-    }
-    if completion.is_empty() {
-        return Ok(loaded);
-    }
-    if let Err(error) = loaded.document.apply(completion) {
-        log::warn!("the references of the loaded model could not be completed: {error}");
     }
     Ok(loaded)
 }

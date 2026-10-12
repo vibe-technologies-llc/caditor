@@ -80,8 +80,7 @@ passes through. Each change is one change Undo takes back.
 What it measures is followed like any reference: faces, edges and corners keep their names across
 upstream edits. When one is gone the measurement fails with the reason, and features using its
 value fail with it, pointing back to it; everything else carries on. The parameter's stored value
-follows each reading, so a model opened in an older caditor holds the latest reading, and
-deleting the measurement leaves its parameter, if something uses it, as an ordinary parameter
-holding the last reading, so the features using it keep their shape.
+follows each reading, so deleting the measurement leaves its parameter, if something uses it, as
+an ordinary parameter holding the last reading, and the features using it keep their shape.
 
 To find bodies that overlap, see [Check interference](interference).

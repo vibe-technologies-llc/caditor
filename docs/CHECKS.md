@@ -4,14 +4,12 @@ Tests, CI and tooling that are missing or need attention.
 
 Entries are tagged and ordered as `ROADMAP.md` describes.
 
-- [high · medium] No old-format files are kept to prove every shipped format still reads
-  (`reliability.md`): the "saved before format N" tests build their files with today's encoder
-  under an old version number (`model_from_json(1, …)`), so record shapes older builds wrote are
-  never read; the only real old bytes are the three version-1 model seeds in `fuzz/seeds/model`, no
-  version-2 file exists, and running `write_fuzz_seeds` as `ci.md` says rewrites them in version 3
-  (breaking the test that asserts their header). Keep a write-once corpus per format version
-  covering each record kind of its day, loaded against recorded digests on every run, and have the
-  seed writer refuse to touch it.
+- [high · medium] Nothing proves a shipped format still reads (`reliability.md`): format 1 is
+  the first shipped one (models, journals, parameter files), but the only files kept are the fuzz
+  seeds, which `write_fuzz_seeds` rewrites in whatever the current format is, and tests build their
+  files with today's encoder. Start a write-once corpus at format 1, covering each record kind,
+  journal entry kind and parameter file of its day, loaded against recorded digests on every run;
+  add to it whenever a format version changes, and have the seed writer refuse to touch it.
 - [medium · medium] The document fuzzers cover a part of what they claim (`ci.md`): `tree_edit`
   and `sketch_edit` produce 18 of the 34 `Edit` variants (never `SetFeatureKind`, the
   configurations edits, projections, labels, appearance, groups, owners, notes, saved views or

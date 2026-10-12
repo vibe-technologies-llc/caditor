@@ -70,8 +70,8 @@ paths:
   least one (entity, side): most pieces shared, then holding the anchor, then most pairs shared; a
   tie is `AmbiguousRegion`, nothing shared is `Gone` (a hole drawn inside a chosen region keeps the
   region around it, a splitting line keeps the part holding the anchor, a disc whose circle was
-  deleted is gone rather than taken for the region it was a hole of). A key-only reference (older
-  files) is `Same` or `Gone`. `resolve_regions` resolves a feature's whole choice and fails only on
+  deleted is gone rather than taken for the region it was a hole of). A key-only reference (one
+  without boundary pieces) is `Same` or `Gone`. `resolve_regions` resolves a feature's whole choice and fails only on
   a tie or when every chosen region is gone (`MissingRegion`).
 
 ## Offsets and walls (`strand.rs`, `wall.rs`)

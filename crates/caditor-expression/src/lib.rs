@@ -38,13 +38,6 @@ impl Expression {
         parse::parse(text, resolve)
     }
 
-    pub fn parse_by_name_stored_reading(
-        text: &str,
-        resolve: &dyn Fn(&str) -> Option<ParameterId>,
-    ) -> Result<Self, ParseError> {
-        parse::parse_by_name_stored_reading(text, resolve)
-    }
-
     pub fn parse_stored(text: &str) -> Result<Self, ParseError> {
         parse::parse_stored(text)
     }
@@ -250,14 +243,12 @@ mod tests {
     fn numbers_take_units_and_convert_to_base_units() {
         assert_eq!(evaluate("10"), Ok(Quantity::plain(10.0)));
         assert_eq!(evaluate("10 mm"), Ok(Quantity::length(10.0)));
-        assert_eq!(
-            Expression::parse_stored("2 in")
-                .unwrap()
-                .evaluate(&value_of),
-            Ok(Quantity::length(50.8))
-        );
         assert!(matches!(
             error_kind("2in"),
+            ParseErrorKind::ImperialUnit { .. }
+        ));
+        assert!(matches!(
+            Expression::parse_stored("2 in").unwrap_err().kind,
             ParseErrorKind::ImperialUnit { .. }
         ));
         assert_eq!(evaluate("1.5e1 cm"), Ok(Quantity::length(150.0)));
@@ -820,7 +811,7 @@ mod tests {
     }
 
     #[test]
-    fn stored_text_keeps_reading_a_power_after_a_unit_as_a_power_of_the_measure() {
+    fn stored_text_reads_a_power_after_a_unit_as_typed_text_does() {
         let stored = |text: &str| {
             Expression::parse_stored(text)
                 .unwrap()
@@ -828,41 +819,32 @@ mod tests {
                 .unwrap()
         };
 
-        assert_eq!(stored("10 mm^2"), Quantity::new(100.0, Dimension::AREA));
-        assert_eq!(stored("2 deg^2"), Quantity::new(4.0, Dimension::new(0, 2)));
-        assert_eq!(stored("2 mm^3"), Quantity::new(8.0, Dimension::VOLUME));
+        assert_eq!(stored("10 mm^2"), Quantity::new(10.0, Dimension::AREA));
+        assert_eq!(stored("2 mm^3"), Quantity::new(2.0, Dimension::VOLUME));
         assert_eq!(stored("10 mm²"), Quantity::new(10.0, Dimension::AREA));
+        assert_eq!(stored("(10 mm)^2"), Quantity::new(100.0, Dimension::AREA));
+        assert!(matches!(
+            Expression::parse_stored("2 deg^2").unwrap_err().kind,
+            ParseErrorKind::UnitPower { .. }
+        ));
     }
 
     #[test]
-    fn names_resolve_under_the_stored_reading_of_a_power_after_a_unit() {
-        let resolve = |name: &str| (name == "w").then(|| ParameterId::from_raw(0));
-        let expression = Expression::parse_by_name_stored_reading("w * 10 mm^2", &resolve).unwrap();
-
-        assert_eq!(expression.to_stored_text(), "$0 * (10 mm)^2");
-        assert_eq!(
-            Expression::parse_by_name_stored_reading("10 mm^2", &resolve).unwrap(),
-            Expression::parse_stored("10 mm^2").unwrap()
-        );
-    }
-
-    #[test]
-    fn a_power_of_a_measure_is_written_in_brackets_reading_alike_typed_and_stored() {
-        let old = [
-            ("10 mm^2", "(10 mm)^2"),
-            ("-2 cm^3", "-(2 cm)^3"),
-            ("(2 + 1) mm^2", "((2 + 1) mm)^2"),
-            ("$0 mm^2", "($0 mm)^2"),
-            ("2 deg ^ 2", "(2 deg)^2"),
-            ("3 mm² ^ 2", "(3 mm²)^2"),
+    fn a_power_of_a_measure_is_written_in_brackets_and_reads_back_alike() {
+        let bracketed = [
+            "(10 mm)^2",
+            "-(2 cm)^3",
+            "((2 + 1) mm)^2",
+            "($0 mm)^2",
+            "(2 deg)^2",
+            "(3 mm²)^2",
         ];
 
-        for (stored, rewritten) in old {
+        for stored in bracketed {
             let expression = Expression::parse_stored(stored).unwrap();
             let typed = expression.to_text(&name_of);
 
-            assert_eq!(expression.to_stored_text(), rewritten);
-            assert_eq!(Expression::parse_stored(rewritten).unwrap(), expression);
+            assert_eq!(expression.to_stored_text(), stored);
             assert_eq!(
                 parse(&typed).unwrap().evaluate(&value_of),
                 expression.evaluate(&value_of),

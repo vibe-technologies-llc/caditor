@@ -77,9 +77,6 @@ so call sites stay platform-free.
 - Fallback journals (`file-<hash>.journal`) and journal markers hash the path's identity
   (`os::journal_identity`): final path of the file, else of its folder plus the name, else the
   absolute spelling, lowercased, so `C:\A\m.caditor` and `c:\a\M.caditor` share one journal.
-  Journals under the hash of the path as spelled (`paths::path_hash`) are still found
-  (`paths::journals_for`, `journal_markers`); the next journal written uses the identity and
-  recovery removes the old one (`Start::replaces`).
 - Paths stored as bytes (journal header, recovery markers, recent files) are WTF-8 from
   `as_encoded_bytes`, decoded with a safe decoder, so unpaired surrogates survive.
 
