@@ -1,0 +1,7 @@
+caditor-parameter-file,1
+name,expression,value,note
+width,40 mm,40 mm,
+height,width / 2,20 mm,"half the width, ""roughly""
+second line"
+tilt,"-15 deg","-15°","a, b; c"
+undefined,width / 0,error,

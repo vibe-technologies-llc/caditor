@@ -377,7 +377,8 @@ paths:
 ## Parameter files (`parameters.rs`)
 
 - Parameters export as CSV (RFC 4180, `PARAMETERS_EXTENSION`), CRLF line ends: a version row
-  `caditor-parameter-file,1` (a spreadsheet keeps it as an ordinary two-cell row), a header row
+  `caditor-parameter-file,1` (`PARAMETERS_VERSION`, whose every shipped version keeps an exported
+  file in the format corpus, `file-format.md`; a spreadsheet keeps it as an ordinary two-cell row), a header row
   `name,expression,value,note`, then one row per parameter in list order. The expression is written
   with parameter names (`Expression::to_text`) and carries its own units; `value` is the evaluated
   value for people (`error` when it does not evaluate) and ignored on reading. Cells holding a

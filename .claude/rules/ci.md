@@ -114,7 +114,9 @@ paths:
   `CADITOR_WRITE_FUZZ_SEEDS=1 cargo test -p caditor-file write_fuzz_seeds -- --ignored`; tests keep
   every seed loading and the model and journal seeds in format 1
   (`model_and_journal_seeds_are_written_in_format_one`), so they are rewritten with any format
-  change. `fuzz/corpus` is not committed; CI caches it.
+  change. The seed writer refuses any path inside the write-once format corpus
+  (`crates/caditor-file/corpus`, `file-format.md`), which proves shipped formats still read.
+  `fuzz/corpus` is not committed; CI caches it.
 - `fuzz/Cargo.lock` is committed and CI fails when it is stale: after any change to the root
   dependencies, run `cargo update -w` in `fuzz/`. A Stop hook in `.claude/settings.json`
   (`.claude/hooks/fuzz-lock-fresh.sh`) runs `cargo metadata --locked` on the fuzz workspace and
