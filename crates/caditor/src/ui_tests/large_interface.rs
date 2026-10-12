@@ -18,7 +18,7 @@ use crate::{
     preferences::{PreferenceChange, PreferencesCommand},
     samples::Sample,
     selection::Pickable,
-    shortcut_editor, window_frame,
+    shortcut_editor, sketch_toolbar, window_frame,
 };
 
 const LARGEST: f32 = 2.0;
@@ -314,6 +314,28 @@ fn the_ribbon_drops_its_labels_in_a_short_window_and_keeps_them_otherwise() {
         view.height() > 0.3 * window.height(),
         "{view:?} in {window:?}"
     );
+}
+
+#[test]
+fn the_sketch_bar_folds_into_two_rows_of_named_icons_at_the_largest_size() {
+    let dir = TempDir::new().unwrap();
+    let mut large = with_sample(LARGEST, &dir, Sample::Bracket);
+
+    large.draw_on_new_sketch();
+    large.let_animations_finish();
+    let bar = super::sketch_bar(&large);
+    let window = large.context.content_rect();
+    let line = large.button_rect("Line");
+    let parallel = large.button_rect("Parallel");
+
+    assert!(
+        bar.height() < 0.25 * window.height(),
+        "{bar:?} in {window:?}"
+    );
+    assert!(!large.shows("Line"));
+    assert!(large.shows(sketch_toolbar::FINISH_LABEL));
+    assert!(bar.contains_rect(line) && bar.contains_rect(parallel));
+    assert!(parallel.top() > line.bottom());
 }
 
 #[test]

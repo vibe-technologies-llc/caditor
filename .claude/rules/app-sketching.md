@@ -370,13 +370,13 @@ and, for off-ribbon tools, a partner's corner menu.
 - Sketch chamfer (`Tool::Chamfer`) is the same tool cutting the corner (`filleting::CornerCut`): the
   pointer sets one distance for both sides (`distance_through`) and the field "Chamfer" reads `5`
   (both curves), `5, 3` (a distance on each, in the corner's curve order) or `5 < 45` (a distance on
-  the first curve and the cut's angle from it) as a `ChamferSize` (`sketch.md`). It has no button,
-  since the Modify group would widen past one row (`sketch_toolbar::OFF_RIBBON`).
-- Tools without a button sit in the corner menu of a partner's compact button
-  (`sketch_toolbar::Partners`, `widgets::compact_corner_menu_button`): Sketch fillet with Sketch
-  chamfer (`CORNER_TOOLS`), Offset with Tangent circle and Blend curve (`CURVE_FROM_GEOMETRY_TOOLS`),
-  Mirror with both patterns (`COPYING_TOOLS`), Project with Intersect (`MODEL_GEOMETRY_TOOLS`). The
-  notch takes the accent colour while any is active.
+  the first curve and the cut's angle from it) as a `ChamferSize` (`sketch.md`). Its compact button
+  sits beside Sketch fillet's in the Modify group.
+- Tools without a button (`sketch_toolbar::OFF_RIBBON`) sit in the corner menu of a partner's
+  compact button (`sketch_toolbar::Partners`, `widgets::compact_corner_menu_button`): Offset with
+  Tangent circle and Blend curve (`CURVE_FROM_GEOMETRY_TOOLS`), Mirror with both patterns
+  (`COPYING_TOOLS`), Project with Intersect (`MODEL_GEOMETRY_TOOLS`). The notch takes the accent
+  colour while any is active, and its hover lists the tools inside (`app-look.md`).
 - Offset, Sketch fillet and Sketch chamfer take a typed value in the point field: the preview follows
   while it parses, Enter commits the expression as typed (parameters included) and an error keeps the
   field open. A negative offset goes to the other side, so the keyboard alone does it.

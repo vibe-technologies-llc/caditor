@@ -59,7 +59,7 @@ const KEY_CAP_MARGIN: Margin = Margin::symmetric(5, 1);
 const EMPTY_STATE_MARGIN: Margin = appearance::margin(SPACE_S, SPACE_SM);
 const MIN_CORNER_BUTTON_SIDE: f32 = 14.0;
 const COMPACT_CORNER_SIDE: f32 = 11.0;
-const NOTCH_INSET: f32 = 2.5;
+const NOTCH_INSET: f32 = 1.0;
 const DIALOG_FOOTER_GAP: f32 = SPACE_L;
 const UNDERLINE_WIDTH: f32 = 1.0;
 const TAB_PADDING: egui::Vec2 = vec2(SPACE_M, SPACE_SM);
@@ -1601,13 +1601,14 @@ pub fn menu_choice(
     ui.add(Named::new(button, title).selected(chosen))
 }
 
-pub fn corner_menu_button(
-    ui: &mut Ui,
-    id: Id,
-    host: Rect,
-    name: &str,
-    on_selected: bool,
-) -> Response {
+pub struct CornerMenu<'a> {
+    pub id: Id,
+    pub name: &'a str,
+    pub contents: &'a str,
+    pub on_selected: bool,
+}
+
+pub fn corner_menu_button(ui: &mut Ui, host: Rect, menu: &CornerMenu<'_>) -> Response {
     let glyph = unwrapped(
         ui,
         RichText::new(icons::EXPANDED).font(icon_font(SMALL_SIZE)),
@@ -1615,21 +1616,15 @@ pub fn corner_menu_button(
     );
     let side = glyph.size().max_elem().max(MIN_CORNER_BUTTON_SIDE);
     let rect = Rect::from_min_size(pos2(host.right() - side, host.top()), Vec2::splat(side));
-    corner_menu(ui, id, rect, name, on_selected, CornerMark::Caret(glyph))
+    corner_menu(ui, rect, menu, CornerMark::Caret(glyph))
 }
 
-pub fn compact_corner_menu_button(
-    ui: &mut Ui,
-    id: Id,
-    host: Rect,
-    name: &str,
-    on_selected: bool,
-) -> Response {
+pub fn compact_corner_menu_button(ui: &mut Ui, host: Rect, menu: &CornerMenu<'_>) -> Response {
     let rect = Rect::from_min_max(
         host.right_bottom() - Vec2::splat(COMPACT_CORNER_SIDE),
         host.right_bottom(),
     );
-    corner_menu(ui, id, rect, name, on_selected, CornerMark::Notch)
+    corner_menu(ui, rect, menu, CornerMark::Notch)
 }
 
 enum CornerMark {
@@ -1637,17 +1632,10 @@ enum CornerMark {
     Notch,
 }
 
-fn corner_menu(
-    ui: &mut Ui,
-    id: Id,
-    rect: Rect,
-    name: &str,
-    on_selected: bool,
-    mark: CornerMark,
-) -> Response {
+fn corner_menu(ui: &mut Ui, rect: Rect, menu: &CornerMenu<'_>, mark: CornerMark) -> Response {
     let tokens = appearance::tokens(ui);
-    let response = ui.interact(rect, id, Sense::click());
-    response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, ui.is_enabled(), name));
+    let response = ui.interact(rect, menu.id, Sense::click());
+    response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, ui.is_enabled(), menu.name));
     let open = Popup::is_id_open(ui.ctx(), Popup::default_response_id(&response));
     if ui.is_rect_visible(rect) {
         let fill = if response.is_pointer_button_down_on() {
@@ -1662,10 +1650,10 @@ fn corner_menu(
         } else {
             Stroke::NONE
         };
-        let color = if on_selected {
+        let color = if menu.on_selected {
             tokens.accent_text
         } else {
-            tokens.text_muted
+            tokens.text
         };
         ui.painter().rect(
             rect,
@@ -1689,7 +1677,10 @@ fn corner_menu(
             }
         }
     }
-    response.on_hover_text(name)
+    response.on_hover_ui(|ui| {
+        ui.label(strong(menu.name));
+        ui.label(menu.contents);
+    })
 }
 
 pub struct ToolButton<'a> {

@@ -1801,7 +1801,7 @@ impl Command {
             Self::View(view) => vec![KeyboardShortcut::new(Modifiers::ALT, view.key())],
             Self::Camera(camera) => vec![camera.shortcut()],
             Self::HighlightNext => vec![plain(Key::N)],
-            Self::HighlightPrevious => vec![KeyboardShortcut::new(Modifiers::SHIFT, Key::N)],
+            Self::HighlightPrevious => vec![alt_shift(Key::N)],
             Self::ActivateHighlighted => vec![plain(Key::Space)],
             Self::ListUnderPointer => vec![alt(Key::W)],
             Self::ContextMenu => vec![KeyboardShortcut::new(Modifiers::SHIFT, Key::F10)],
@@ -2047,7 +2047,7 @@ fn tool_shortcut(tool: Tool) -> Option<KeyboardShortcut> {
         Tool::Offset => plain(Key::W),
         Tool::Mirror => plain(Key::Y),
         Tool::Fillet => plain(Key::B),
-        Tool::Chamfer => Some(KeyboardShortcut::new(Modifiers::SHIFT, Key::B)),
+        Tool::Chamfer => plain(Key::V),
         Tool::RectangularPattern
         | Tool::CircularPattern
         | Tool::TangentCircle
@@ -2684,6 +2684,27 @@ mod tests {
 
         keymap.reset(line);
         assert_eq!(keymap.hint(line).map(str::to_owned), original);
+    }
+
+    #[test]
+    fn shift_and_a_letter_is_kept_for_the_constraints() {
+        let letter =
+            |key: Key| key.name().len() == 1 && key.name().chars().all(char::is_alphabetic);
+        let shifted_letters: Vec<Command> = Command::all()
+            .filter(|command| {
+                command.default_shortcuts().iter().any(|shortcut| {
+                    shortcut.modifiers == Modifiers::SHIFT && letter(shortcut.logical_key)
+                })
+            })
+            .collect();
+
+        assert!(!shifted_letters.is_empty());
+        assert!(
+            shifted_letters
+                .iter()
+                .all(|command| matches!(command, Command::Constraint(_))),
+            "{shifted_letters:?}"
+        );
     }
 
     #[test]

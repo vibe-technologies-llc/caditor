@@ -1,9 +1,8 @@
 # Sweep
 
 {command:model.sweep} carries the closed regions of a sketch along a path into a body, or cuts
-them into one: a pipe, a handrail, a gasket round a lid, a groove along an edge. It has no ribbon
-button or Model menu row: use {command:palette}, its key, or the right-click menu of selected
-sketch curves.
+them into one: a pipe, a handrail, a gasket round a lid, a groove along an edge. It is in the
+Solid group of the ribbon, the Model menu and the right-click menu of selected sketch curves.
 
 The profile is a sketch with closed regions; the path is a chain of curves of another sketch
 (lines, arcs, splines, ellipses, construction lines too) or of edges of a body, joined end to end

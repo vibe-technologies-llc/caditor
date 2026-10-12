@@ -1,5 +1,5 @@
 use caditor_document::{BlendKind, Datum, Document, PrimitiveKind, RegionChoice, describe_axis};
-use egui::{Frame, Id, Response, Ui, Vec2};
+use egui::{Id, Response, Ui, Vec2};
 
 use crate::{
     blend_panel, blend_tools, combine_tools,
@@ -39,7 +39,8 @@ const INTERFERENCE_HOVER: &str = "Find where bodies overlap or touch, with the v
 const RIBBON: &str = "main-ribbon";
 const COMPACT_RIBBON: &str = "main-ribbon-compact";
 const COMPACT_KEY: &str = "main-ribbon-is-compact";
-const MOST_LABELLED_SHARE: f32 = 0.2;
+pub const SWEEP_HOVER: &str =
+    "Carry the closed regions of a sketch along a path of sketch curves or body edges";
 
 pub struct ToolbarContext<'a> {
     pub selection: &'a Selection,
@@ -91,7 +92,7 @@ pub fn show(
     commands: &mut CommandFrame<'_>,
     actions: &mut Vec<Action>,
 ) {
-    let frame = Frame::side_top_panel(ui.style()).inner_margin(ribbon::BAR_MARGIN);
+    let frame = ribbon::bar_frame(ui.style());
     egui::Panel::top("toolbar").frame(frame).show(ui, |ui| {
         ui.spacing_mut().item_spacing = Vec2::splat(ribbon::TOOL_GAP);
         let full = ui.available_width();
@@ -100,8 +101,7 @@ pub fn show(
             full,
             full,
         );
-        let compact = ribbon::rows_height(ui, labelled.len())
-            > MOST_LABELLED_SHARE * ui.ctx().content_rect().height();
+        let compact = ribbon::labelled_too_tall(ui, labelled.len());
         let (ribbon_name, rows) = if compact {
             let widths = ribbon::remembered_widths(ui, COMPACT_RIBBON, &Group::ALL);
             (COMPACT_RIBBON, ribbon::rows(&widths, full, full))
@@ -144,7 +144,7 @@ fn group_buttons(
         Group::Sketch => sketch_buttons(ui, model, context, commands, actions),
         Group::Solid => {
             solid_buttons(ui, model, context, commands, actions);
-            sweep_offer(model, context, commands, actions);
+            sweep_button(ui, model, context, commands, actions);
             hole_button(ui, model, context, commands, actions);
             primitive_offers(model, context, commands, actions);
             thread_offer(model, context, commands, actions);
@@ -567,14 +567,21 @@ fn shell_button(
     }
 }
 
-fn sweep_offer(
+fn sweep_button(
+    ui: &mut Ui,
     model: &Model,
     context: &ToolbarContext<'_>,
     commands: &mut CommandFrame<'_>,
     actions: &mut Vec<Action>,
 ) {
     let source = &context.offers.sweep;
-    if commands.invoke(Command::Sweep, source)
+    let invoked = commands.invoke(Command::Sweep, source);
+    let help = match source {
+        Ok(_) => Ok(commands.with_keys(Command::Sweep, SWEEP_HOVER)),
+        Err(reason) => Err(format!("{SWEEP_HOVER}. {reason}, then click here.")),
+    };
+    let response = tool(ui, Command::Sweep, sweep_tools::TITLE, &help);
+    if (response.clicked() || invoked)
         && let Ok(source) = source
     {
         actions.extend(sweep_tools::create_actions(model, source));

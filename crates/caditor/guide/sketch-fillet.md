@@ -24,8 +24,8 @@ them.
 The tool remembers the last radius while caditor runs: it shows in the field, and with a corner
 chosen Enter rounds it with that radius again, so a row of corners takes a click and Enter each.
 
-{command:sketch.chamfer} cuts the corner with a straight line instead. It is also in the small menu
-in the corner of the Sketch fillet button. Type:
+{command:sketch.chamfer} cuts the corner with a straight line instead. Its button sits beside
+Sketch fillet's in the Modify group of the sketch ribbon. Type:
 
 - `5` for the same distance along both curves,
 - `5, 3` for a distance along each, in order,

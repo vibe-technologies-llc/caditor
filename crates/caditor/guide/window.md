@@ -8,10 +8,11 @@ together in submenus. Click the model's name for its details: where it is saved,
 Save, Version history and Model properties.
 
 The ribbon under it holds the most used tools in groups. Hover a button to see what it does, its
-shortcut, or why it is not available now. When the window is short for the interface size, the
-ribbon shows its tools as icons alone, named on hover, so the view keeps its room. While a sketch
-is edited a second ribbon holds the sketch tools. Tools without a button are in the menus and in
-{command:palette}.
+shortcut, or why it is not available now. While a sketch is edited a second ribbon holds the sketch
+tools, with its own Undo and Redo. A small arrow or triangle in a button's corner opens a menu of
+more tools or ways to draw; hover it to see what the menu holds. When the window is short for the
+interface size, the ribbons show their tools as icons alone, named on hover, so the view keeps its
+room. Tools without a button are in the menus and in {command:palette}.
 
 ## The model panel
 
@@ -40,8 +41,10 @@ open at that width from then on, also the next time caditor starts.
 
 From the left: the recompute (with Cancel while it runs, or the failed features), file work such
 as saving or exporting or loading bodies to the graphics card, and the latest message. On the
-right: what is selected with its size, the length unit (click it for [Preferences](preferences))
-and the interface size when it is not 100%. Hovering a button there names its keys.
+right: what is selected, its size or the distance between two selected items, the
+[selection filter](selection) while one is on (click it to select anything again), the length unit
+(click it for [Preferences](preferences)) and the interface size when it is not 100% (click it to
+go back to 100%). Hovering a button there names its keys.
 
 The size depends on what is selected: a circle or round edge gives its diameter, radius and
 circumference, an arc its radius, length and sweep, a line its length, a rectangular face or

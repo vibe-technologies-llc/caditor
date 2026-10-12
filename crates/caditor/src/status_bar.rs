@@ -2,12 +2,12 @@ use std::time::Duration;
 
 use caditor_document::{FeatureId, Progress};
 use egui::{
-    Align, CornerRadius, CursorIcon, Frame, Id, Label, Layout, Margin, Rect, Response, RichText,
-    Sense, Stroke, StrokeKind, TextStyle, TextWrapMode, Ui, UiBuilder, WidgetText, vec2,
+    Align, CornerRadius, CursorIcon, Id, Label, Layout, Rect, Response, RichText, Sense, Stroke,
+    StrokeKind, TextStyle, TextWrapMode, Ui, UiBuilder, WidgetText, vec2,
 };
 
 use crate::{
-    appearance::{self, BORDER_WIDTH, FOCUS_WIDTH, ICON_SIZE, SPACE_M, SPACE_S},
+    appearance::{self, BORDER_WIDTH, FOCUS_WIDTH, ICON_SIZE, SPACE_S},
     commands::{Command, CommandFrame},
     feature_clipboard,
     feature_tree::count,
@@ -17,6 +17,7 @@ use crate::{
     offers::Offers,
     panels::{Focus, PanelState},
     preferences::{Appearance, PreferenceChange, PreferencesCommand},
+    ribbon,
     selection::SelectionFilter,
     upload_badge,
     widgets::{self, Named, Tone},
@@ -30,7 +31,6 @@ const PROGRESS_REFRESH: Duration = Duration::from_millis(100);
 const SHOW_FEATURE_TIME_AFTER: Duration = Duration::from_secs(2);
 const MIN_SELECTION_WIDTH: f32 = 120.0;
 const DIVIDER_WIDTH: f32 = SPACE_S;
-const BAR_MARGIN: Margin = Margin::symmetric(SPACE_M as i8, SPACE_S as i8);
 const NO_NOTICE: &str = "There is no notice to dismiss";
 const NOT_RECOMPUTING: &str = "Nothing is being recomputed";
 const NOTHING_FAILED: &str = "No feature has failed";
@@ -104,7 +104,7 @@ pub fn show(
     }
     let trailing_id = Id::new("status-trailing");
     let hovers = Hovers::of(commands);
-    let frame = Frame::side_top_panel(ui.style()).inner_margin(BAR_MARGIN);
+    let frame = ribbon::bar_frame(ui.style());
     egui::Panel::bottom("status").frame(frame).show(ui, |ui| {
         let notice_width = notice_width(ui, model);
         let mut trailing_wrapped = false;
@@ -497,8 +497,9 @@ fn interface_size(ui: &mut Ui, appearance: &Appearance, actions: &mut Vec<Action
         return false;
     }
     let text = format!("{:.0}%", appearance.scale * 100.0);
+    let button = widgets::small_button(ui, icons::command(Command::NormalInterface), &text);
     let response = ui
-        .add(widgets::button(text))
+        .add(Named::new(button, format!("Interface size: {text}")))
         .on_hover_text("Interface size. Click to go back to normal size.");
     if response.clicked() {
         actions.push(Action::Preferences(PreferencesCommand::Change(

@@ -96,7 +96,9 @@ paths:
   key reaches the command; palette and menus offer it as usual. `Command::all()` is built from
   `plain_commands!`, which matches `Command` exhaustively so a missing variant fails to compile, and
   from the `ALL` of each payload type declared by `all_variants!` (`variants.rs`). Defaults are in
-  `Command::default_shortcuts`; docs do not repeat them.
+  `Command::default_shortcuts`; docs do not repeat them. In a sketch a plain letter is a tool or
+  sketch command and Shift with a letter belongs to the constraints alone
+  (`shift_and_a_letter_is_kept_for_the_constraints`); the guide's keyboard page states the pattern.
 - `Keymap` in `Preferences` stores only overrides, as `keys.<id>` lists of text, so unreadable or
   newer entries survive and a command with no readable binding keeps its defaults. Esc, Enter and
   Tab are reserved. A binding used in an overlapping scope asks before moving.

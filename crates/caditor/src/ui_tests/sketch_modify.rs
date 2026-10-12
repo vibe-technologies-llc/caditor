@@ -255,7 +255,7 @@ fn a_sketch_chamfer_cuts_the_clicked_corner_with_a_typed_distance_kept_as_dimens
     let feature = edit_free_sketch(&mut harness, sketch);
     let before = harness.sketch(feature).clone();
 
-    harness.use_tool_with(Key::B, Modifiers::SHIFT);
+    harness.use_tool(Key::V);
     assert_eq!(harness.tool(), Some(Tool::Chamfer));
     assert!(harness.shows(filleting::CHAMFER_CORNER_PROMPT));
     harness.point_at(Point2::new(40.0, 0.0));
