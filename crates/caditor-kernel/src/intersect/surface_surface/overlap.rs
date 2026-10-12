@@ -15,35 +15,47 @@ pub(super) fn sampled_kind(surface: &Surface) -> bool {
     )
 }
 
-pub(super) fn coincident_part(first: &SurfacePatch, second: &SurfacePatch) -> Option<Sense> {
+struct Apart;
+
+fn shared_signs(from: &SurfacePatch, onto: &SurfacePatch) -> Result<Vec<Option<f64>>, Apart> {
     let mut shared = Vec::new();
-    for (from, onto) in [(first, second), (second, first)] {
-        for uv in grid(from) {
-            let point = from.surface().point_at(uv);
-            let Some(foot) = onto.locate(point) else {
+    for uv in grid(from) {
+        let point = from.surface().point_at(uv);
+        let Some(foot) = onto.locate(point) else {
+            continue;
+        };
+        let Some(normal) = onto.surface().normal(foot.x, foot.y) else {
+            continue;
+        };
+        let offset = point - onto.surface().point_at(foot);
+        let distance = offset.length();
+        if distance > LINEAR_RESOLUTION {
+            let beside = (offset - normal * offset.dot(normal)).length();
+            if beside > BESIDE * distance {
                 continue;
-            };
-            let Some(normal) = onto.surface().normal(foot.x, foot.y) else {
-                continue;
-            };
-            let offset = point - onto.surface().point_at(foot);
-            let distance = offset.length();
-            if distance > LINEAR_RESOLUTION {
-                let beside = (offset - normal * offset.dot(normal)).length();
-                if beside > BESIDE * distance {
-                    continue;
-                }
-                return None;
             }
-            let sign = from.surface().normal(uv.x, uv.y).map(|own| own.dot(normal));
-            shared.push(sign);
+            return Err(Apart);
         }
+        shared.push(from.surface().normal(uv.x, uv.y).map(|own| own.dot(normal)));
     }
-    if shared.len() < LEAST_SHARED {
+    Ok(shared)
+}
+
+pub(super) fn coincident_part(first: &SurfacePatch, second: &SurfacePatch) -> Option<Sense> {
+    let onto_first_is_cheaper = sampled_kind(second.surface()) && !sampled_kind(first.surface());
+    let (onto_second, onto_first) = if onto_first_is_cheaper {
+        let onto_first = shared_signs(second, first).ok()?;
+        (shared_signs(first, second).ok()?, onto_first)
+    } else {
+        let onto_second = shared_signs(first, second).ok()?;
+        (onto_second, shared_signs(second, first).ok()?)
+    };
+    if onto_second.len() + onto_first.len() < LEAST_SHARED {
         return None;
     }
-    shared
+    onto_second
         .into_iter()
+        .chain(onto_first)
         .flatten()
         .find(|sign| sign.abs() > 0.5)
         .map(Sense::from_sign)

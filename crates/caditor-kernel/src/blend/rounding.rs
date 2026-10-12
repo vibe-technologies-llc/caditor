@@ -1,11 +1,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use caditor_geometry::Point3;
+use caditor_geometry::{Point2, Point3};
 use thiserror::Error;
 
 use super::{
-    general::{Reach, Rounded, Stations, outline},
-    loft::{self, Outline},
+    general::{CHORD_FIT, Rounded, Stations},
+    loft::{self, Segment},
     station::{Cross, on_both},
 };
 use crate::{
@@ -19,15 +19,19 @@ use crate::{
     surface::{BSplineSurface, Surface},
     tolerance::{LINEAR_RESOLUTION, MAX_SIZE},
     topology::{
-        BuildError, CoedgeId, EdgeId, FaceId, Solid, SolidBuilder, ValidationError, fit_pcurve,
+        BuildError, CoedgeId, EdgeId, FaceId, Solid, SolidBuilder, ValidationError, VertexId,
+        fit_pcurve,
     },
 };
 
 const CUBIC: usize = 3;
 const ARC_KNOTS: [f64; 6] = [0.0, 0.0, 0.0, 1.0, 1.0, 1.0];
 const ON_SURFACE: f64 = 10.0 * LINEAR_RESOLUTION;
-const ALONG_ROW: f64 = 1e-5;
+const ALONG_ROW: f64 = 10.0 * CHORD_FIT;
 const TRACE_SAMPLES: usize = 24;
+const MOVE_ITERATIONS: usize = 32;
+const SETTLED_STEP: f64 = 1e-3 * LINEAR_RESOLUTION;
+const ON_ROW: f64 = 1e-2 * LINEAR_RESOLUTION;
 
 #[derive(Debug, Clone, PartialEq, Error)]
 pub enum RoundingError {
@@ -133,22 +137,8 @@ fn arc_curve(cross: &Cross) -> Result<BSplineCurve, GeometryError> {
     )
 }
 
-fn chord_surface(
-    stations: &Stations,
-    convex: bool,
-    reach: Reach,
-) -> Result<Surface, GeometryError> {
-    let outlines: Vec<Outline> = stations
-        .crosses
-        .iter()
-        .map(|cross| outline(cross, convex, reach).ok_or(GeometryError::ZeroDirection))
-        .collect::<Result<_, _>>()?;
-    let segment = loft::Segment {
-        params: stations.params.clone(),
-        outlines,
-        name: stations.name,
-    };
-    let [first, second, _] = loft::rows(&segment).map_err(|_| GeometryError::ZeroDirection)?;
+fn chord_surface(chord: &Segment) -> Result<Surface, GeometryError> {
+    let [first, second, _] = loft::rows(chord).map_err(|_| GeometryError::ZeroDirection)?;
     loft::ruled(&first, &second).map_err(|_| GeometryError::ZeroDirection)
 }
 
@@ -179,11 +169,11 @@ fn targets(
     let mut targets = Vec::new();
     let mut joints = Vec::new();
     for chain in rounded {
-        for stations in &chain.runs {
+        for (stations, chord) in chain.runs.iter().zip(&chain.chords) {
             let [first, second] = foot_rows(stations)?;
             targets.push(Target {
                 name: stations.name.name,
-                chord: chord_surface(stations, chain.convex, chain.reach)?,
+                chord: chord_surface(chord)?,
                 fillet: fillet_surface(stations)?,
                 feet: [first.into(), second.into()],
                 foot_names: [
@@ -191,12 +181,14 @@ fn targets(
                     side_names(original, &stations.sides.candidates[1]),
                 ],
             });
-            for cross in [stations.crosses.first(), stations.crosses.last()]
-                .into_iter()
-                .flatten()
-            {
-                let shape = outline(cross, chain.convex, chain.reach)
-                    .ok_or(GeometryError::ZeroDirection)?;
+            let ends = [
+                (stations.crosses.first(), chord.outlines.first()),
+                (stations.crosses.last(), chord.outlines.last()),
+            ];
+            for (cross, shape) in ends {
+                let (Some(cross), Some(shape)) = (cross, shape) else {
+                    return Err(GeometryError::ZeroDirection);
+                };
                 joints.push(Joint {
                     chord: shape.chord,
                     arc: arc_curve(cross)?.into(),
@@ -288,20 +280,28 @@ fn restricted(curve: &Curve, from: Point3, to: Point3) -> Option<(Curve, Interva
     .map(|interval| (reversed, interval))
 }
 
+type Moved = BTreeMap<VertexId, Point3>;
+
+fn ends_of(solid: &Solid, moved: &Moved, edge: EdgeId) -> Result<[Point3; 2], RoundingError> {
+    let definition = solid.edge(edge).ok_or(RoundingError::Untraced)?;
+    let at = |vertex: VertexId| {
+        moved
+            .get(&vertex)
+            .copied()
+            .or_else(|| solid.vertex(vertex).map(|vertex| vertex.point()))
+            .ok_or(RoundingError::Untraced)
+    };
+    Ok([at(definition.start())?, at(definition.end())?])
+}
+
 fn traced(
     solid: &Solid,
     edge: EdgeId,
     surfaces: [&Surface; 2],
+    ends: [Point3; 2],
 ) -> Result<(Curve, Interval), RoundingError> {
     let definition = solid.edge(edge).ok_or(RoundingError::Untraced)?;
-    let start = solid
-        .vertex(definition.start())
-        .ok_or(RoundingError::Untraced)?
-        .point();
-    let end = solid
-        .vertex(definition.end())
-        .ok_or(RoundingError::Untraced)?
-        .point();
+    let [start, end] = ends;
     let interval = definition.interval();
     let count = TRACE_SAMPLES;
     let mut points = Vec::with_capacity(count + 1);
@@ -331,22 +331,70 @@ fn traced(
     Ok((Curve::Intersection(curve), domain))
 }
 
-fn new_curve(
+fn distance_to(curve: &Curve, point: Point3) -> f64 {
+    let domain = curve.domain().clipped(MAX_SIZE);
+    curve
+        .point(curve.closest_parameter(point, domain))
+        .distance(point)
+}
+
+struct Foot<'a> {
+    row: &'a Curve,
+    face: FaceId,
+}
+
+fn foot_of<'a>(
     solid: &Solid,
     edge: EdgeId,
     swapped: &BTreeMap<FaceId, usize>,
-    targets: &[Target],
-    joints: &[Joint],
+    targets: &'a [Target],
+) -> Option<Foot<'a>> {
+    let faces = faces_of(solid, edge);
+    let [first, second] = faces.as_slice() else {
+        return None;
+    };
+    let (index, face) = match (swapped.get(first), swapped.get(second)) {
+        (Some(index), None) => (index, *second),
+        (None, Some(index)) => (index, *first),
+        _ => return None,
+    };
+    let target = targets.get(*index)?;
+    let name = solid.face(face)?.name();
+    let definition = solid.edge(edge)?;
+    let middle = definition.curve().point(definition.interval().middle());
+    target
+        .feet
+        .iter()
+        .zip(&target.foot_names)
+        .filter(|(_, names)| names.contains(&name))
+        .map(|(row, _)| (row, distance_to(row, middle)))
+        .filter(|(_, distance)| *distance <= ALONG_ROW)
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(row, _)| Foot { row, face })
+}
+
+struct Rounding<'a> {
+    swapped: BTreeMap<FaceId, usize>,
+    targets: &'a [Target],
+    joints: &'a [Joint],
+    feet: BTreeMap<EdgeId, Foot<'a>>,
+}
+
+fn new_curve(
+    solid: &Solid,
+    edge: EdgeId,
+    rounding: &Rounding<'_>,
+    moved: &Moved,
 ) -> Result<(Curve, Interval), RoundingError> {
+    let Rounding {
+        swapped,
+        targets,
+        joints,
+        feet,
+    } = rounding;
     let definition = solid.edge(edge).ok_or(RoundingError::Untraced)?;
-    let start = solid
-        .vertex(definition.start())
-        .ok_or(RoundingError::Untraced)?
-        .point();
-    let end = solid
-        .vertex(definition.end())
-        .ok_or(RoundingError::Untraced)?
-        .point();
+    let ends = ends_of(solid, moved, edge)?;
+    let [start, end] = ends;
     let middle = definition.curve().point(definition.interval().middle());
     let faces = faces_of(solid, edge);
     let [first, second] = faces.as_slice() else {
@@ -371,7 +419,7 @@ fn new_curve(
             let (Some(a), Some(b)) = (surface_of(*first), surface_of(*second)) else {
                 return Err(RoundingError::Untraced);
             };
-            traced(solid, edge, [a, b])
+            traced(solid, edge, [a, b], ends)
         }
         (Some(index), None) | (None, Some(index)) => {
             let other = if swapped.contains_key(first) {
@@ -380,20 +428,10 @@ fn new_curve(
                 *first
             };
             let target = targets.get(*index).ok_or(RoundingError::Unmatched)?;
-            let other_name = solid.face(other).map(|face| face.name());
-            for (foot, names) in target.feet.iter().zip(&target.foot_names) {
-                let named = other_name.is_some_and(|name| names.contains(&name));
-                let domain = foot.domain().clipped(MAX_SIZE);
-                let near = foot
-                    .point(foot.closest_parameter(middle, domain))
-                    .distance(middle)
-                    <= ALONG_ROW;
-                if named
-                    && near
-                    && let Some(found) = restricted(foot, start, end)
-                {
-                    return Ok(found);
-                }
+            if let Some(foot) = feet.get(&edge)
+                && let Some(found) = restricted(foot.row, start, end)
+            {
+                return Ok(found);
             }
             if let Some(joint) = joints
                 .iter()
@@ -409,10 +447,192 @@ fn new_curve(
                 .face(other)
                 .map(|face| face.surface())
                 .ok_or(RoundingError::Untraced)?;
-            traced(solid, edge, [&target.fillet, other_surface])
+            traced(solid, edge, [&target.fillet, other_surface], ends)
         }
         (None, None) => Err(RoundingError::Untraced),
     }
+}
+
+fn edges_at_vertices(solid: &Solid) -> BTreeMap<VertexId, Vec<EdgeId>> {
+    let mut found: BTreeMap<VertexId, Vec<EdgeId>> = BTreeMap::new();
+    for (id, edge) in solid.edges() {
+        found.entry(edge.start()).or_default().push(id);
+        if edge.end() != edge.start() {
+            found.entry(edge.end()).or_default().push(id);
+        }
+    }
+    found
+}
+
+fn foot_parameter(curve: &Curve, point: Point3, from: f64) -> f64 {
+    let mut parameter = from;
+    for _ in 0..MOVE_ITERATIONS {
+        let derivatives = curve.evaluate(parameter);
+        let speed = derivatives.first.length_squared();
+        if !speed.is_finite() || speed <= f64::MIN_POSITIVE {
+            break;
+        }
+        let step = (point - derivatives.point).dot(derivatives.first) / speed;
+        parameter += step;
+        if step.abs() * speed.sqrt() <= SETTLED_STEP {
+            break;
+        }
+    }
+    parameter
+}
+
+fn crossing(row: &Curve, guide: &Curve, starts: [f64; 2], face: &Surface) -> Option<[f64; 2]> {
+    let [mut along, mut on_guide_at] = starts;
+    let mut hint: Option<Point2> = None;
+    for _ in 0..MOVE_ITERATIONS {
+        let on_row = row.evaluate(along);
+        on_guide_at = foot_parameter(guide, on_row.point, on_guide_at);
+        let on_guide = guide.evaluate(on_guide_at);
+        let uv = face.project(on_guide.point, hint);
+        hint = Some(uv);
+        let across = face
+            .normal(uv.x, uv.y)?
+            .cross(on_guide.first)
+            .try_normalize()?;
+        let rate = on_row.first.dot(across);
+        if !rate.is_finite() || rate.abs() <= f64::MIN_POSITIVE {
+            return None;
+        }
+        let step = (on_row.point - on_guide.point).dot(across) / rate;
+        along -= step;
+        if step.abs() * on_row.first.length() <= SETTLED_STEP {
+            break;
+        }
+    }
+    let on_row = row.point(along);
+    on_guide_at = foot_parameter(guide, on_row, on_guide_at);
+    let within = row.domain().clipped(MAX_SIZE).contains(along);
+    let met = on_row.distance(guide.point(on_guide_at)) <= LINEAR_RESOLUTION;
+    (within && met).then_some([along, on_guide_at])
+}
+
+struct Guide<'a> {
+    curve: &'a Curve,
+    parameter: f64,
+    edge: Option<(EdgeId, bool)>,
+}
+
+fn guide_at<'a>(
+    solid: &'a Solid,
+    vertex: VertexId,
+    point: Point3,
+    foot: &Foot<'a>,
+    around: &[EdgeId],
+    touched: &BTreeSet<EdgeId>,
+    rows: &BTreeMap<EdgeId, Foot<'a>>,
+) -> Option<Guide<'a>> {
+    let untouched: Vec<EdgeId> = around
+        .iter()
+        .filter(|edge| !touched.contains(edge))
+        .copied()
+        .collect();
+    match untouched.as_slice() {
+        [edge] => {
+            let definition = solid.edge(*edge)?;
+            if definition.start() == definition.end()
+                || !faces_of(solid, *edge).contains(&foot.face)
+            {
+                return None;
+            }
+            let at_start = definition.start() == vertex;
+            let interval = definition.interval();
+            Some(Guide {
+                curve: definition.curve(),
+                parameter: if at_start {
+                    interval.start()
+                } else {
+                    interval.end()
+                },
+                edge: Some((*edge, at_start)),
+            })
+        }
+        [] => around
+            .iter()
+            .filter_map(|edge| rows.get(edge))
+            .find(|other| other.face == foot.face && !std::ptr::eq(other.row, foot.row))
+            .map(|other| Guide {
+                curve: other.row,
+                parameter: other
+                    .row
+                    .closest_parameter(point, other.row.domain().clipped(MAX_SIZE)),
+                edge: None,
+            }),
+        _ => None,
+    }
+}
+
+#[derive(Default)]
+struct Moves {
+    vertices: Moved,
+    edges: BTreeMap<EdgeId, (Curve, Interval)>,
+}
+
+fn onto_rows(
+    solid: &Solid,
+    feet: &BTreeMap<EdgeId, Foot<'_>>,
+    touched: &BTreeSet<EdgeId>,
+) -> Moves {
+    let around = edges_at_vertices(solid);
+    let mut moves = Moves::default();
+    for (edge, foot) in feet {
+        let Some(definition) = solid.edge(*edge) else {
+            continue;
+        };
+        for vertex in [definition.start(), definition.end()] {
+            if moves.vertices.contains_key(&vertex) {
+                continue;
+            }
+            let Some(point) = solid.vertex(vertex).map(|vertex| vertex.point()) else {
+                continue;
+            };
+            let domain = foot.row.domain().clipped(MAX_SIZE);
+            let along = foot.row.closest_parameter(point, domain);
+            if foot.row.point(along).distance(point) <= ON_ROW {
+                continue;
+            }
+            let (Some(edges), Some(face)) = (around.get(&vertex), solid.face(foot.face)) else {
+                continue;
+            };
+            let Some(guide) = guide_at(solid, vertex, point, foot, edges, touched, feet) else {
+                continue;
+            };
+            let Some([along, on_guide]) = crossing(
+                foot.row,
+                guide.curve,
+                [along, guide.parameter],
+                face.surface(),
+            ) else {
+                continue;
+            };
+            if let Some((guided, at_start)) = guide.edge {
+                let Some(guided_definition) = solid.edge(guided) else {
+                    continue;
+                };
+                let (curve, interval) = moves.edges.get(&guided).cloned().unwrap_or_else(|| {
+                    (
+                        guided_definition.curve().clone(),
+                        guided_definition.interval(),
+                    )
+                });
+                let reached = if at_start {
+                    Interval::new(on_guide, interval.end())
+                } else {
+                    Interval::new(interval.start(), on_guide)
+                };
+                let Some(reached) = reached else {
+                    continue;
+                };
+                moves.edges.insert(guided, (curve, reached));
+            }
+            moves.vertices.insert(vertex, foot.row.point(along));
+        }
+    }
+    moves
 }
 
 fn new_sense(solid: &Solid, face: FaceId, fillet: &Surface) -> Option<Sense> {
@@ -440,12 +660,18 @@ fn new_sense(solid: &Solid, face: FaceId, fillet: &Surface) -> Option<Sense> {
 struct Changes {
     faces: BTreeMap<FaceId, (Surface, Sense)>,
     edges: BTreeMap<EdgeId, (Curve, Interval)>,
+    vertices: Moved,
 }
 
 fn rebuilt(solid: &Solid, changes: &Changes) -> Result<Solid, RoundingError> {
     let mut builder = SolidBuilder::new();
-    for (_, vertex) in solid.vertices() {
-        builder.vertex(vertex.point())?;
+    for (id, vertex) in solid.vertices() {
+        let point = changes
+            .vertices
+            .get(&id)
+            .copied()
+            .unwrap_or_else(|| vertex.point());
+        builder.vertex(point)?;
     }
     for (id, edge) in solid.edges() {
         let (curve, interval) = changes
@@ -543,10 +769,30 @@ pub(super) fn round(
         .keys()
         .flat_map(|face| face_edges(solid, *face))
         .collect();
-    let mut edges = BTreeMap::new();
+    let feet: BTreeMap<EdgeId, Foot<'_>> = touched
+        .iter()
+        .filter_map(|edge| Some((*edge, foot_of(solid, *edge, &swapped, &targets)?)))
+        .collect();
+    let Moves {
+        vertices,
+        edges: mut changed,
+    } = onto_rows(solid, &feet, &touched);
+    let rounding = Rounding {
+        swapped,
+        targets: &targets,
+        joints: &joints,
+        feet,
+    };
     for edge in touched {
         crate::interrupt::check()?;
-        edges.insert(edge, new_curve(solid, edge, &swapped, &targets, &joints)?);
+        changed.insert(edge, new_curve(solid, edge, &rounding, &vertices)?);
     }
-    rebuilt(solid, &Changes { faces, edges })
+    rebuilt(
+        solid,
+        &Changes {
+            faces,
+            edges: changed,
+            vertices,
+        },
+    )
 }

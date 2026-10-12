@@ -7,8 +7,8 @@ use crate::{
     intersect::{
         IntersectionError, SurfacePatch, boxes_overlap,
         solve::{
-            Constraint, Contact, Coordinate, closest_approach, contact_direction, refine_contact,
-            refine_on_plane, uv_direction,
+            Constraint, Contact, Coordinate, carried_on_plane, closest_approach, contact_direction,
+            refine_contact, refine_on_plane, uv_direction,
         },
         surface_surface::{Raw, RawCurve, RawPoint, recognize::recognize},
         wrap_into,
@@ -175,6 +175,7 @@ struct Step {
     contact: Contact,
     tangent: Vector3,
     turn: f64,
+    on_boundary: bool,
 }
 
 impl<'a> Tracer<'a> {
@@ -391,6 +392,7 @@ impl<'a> Tracer<'a> {
             first.evaluate(uv_first.x, uv_first.y),
             second.evaluate(uv_second.x, uv_second.y),
         );
+        let mut boundary_tried = false;
         while *step >= MIN_STEP {
             let h = *step;
             let predicted = current.point + direction * h;
@@ -416,18 +418,32 @@ impl<'a> Tracer<'a> {
                     contact,
                     tangent: next,
                     turn,
+                    on_boundary: false,
                 })
             };
-            let accepted = refine_contact(
+            let on_plane = refine_contact(
                 surfaces,
                 guess,
                 Constraint::Plane {
                     point: predicted,
                     normal: direction,
                 },
-            )
-            .and_then(check)
-            .or_else(|| refine_on_plane(surfaces, guess, predicted, direction).and_then(check));
+            );
+            let ahead = Contact {
+                uv: guess,
+                point: predicted,
+            };
+            let accepted = match on_plane {
+                Some(contact) => check(contact),
+                None if !boundary_tried && !self.inside(&ahead) => {
+                    boundary_tried = true;
+                    self.boundary_within(current, &ahead, direction)
+                        .or_else(|| {
+                            carried_on_plane(surfaces, guess, predicted, direction).and_then(check)
+                        })
+                }
+                None => carried_on_plane(surfaces, guess, predicted, direction).and_then(check),
+            };
             if let Some(found) = accepted {
                 let growth = (TARGET_TURN / found.turn.max(1e-6)).clamp(0.5, 2.0);
                 *step = (h * growth).min(self.max_step);
@@ -436,6 +452,36 @@ impl<'a> Tracer<'a> {
             *step *= 0.5;
         }
         Err(Stalled::Collapsed)
+    }
+
+    fn boundary_within(
+        &self,
+        current: &Contact,
+        ahead: &Contact,
+        direction: Vector3,
+    ) -> Option<Step> {
+        let contact = self
+            .crossing_bound(current, ahead)
+            .filter(|contact| !self.at_pole(contact))?;
+        let moved = contact.point - current.point;
+        let reach = moved.length();
+        if moved.dot(direction) <= TOLERANCE {
+            return None;
+        }
+        let (next, _) = contact_direction(self.surfaces(), &contact)?;
+        let next = if next.dot(direction) < 0.0 {
+            -next
+        } else {
+            next
+        };
+        let turn = angle_between(direction, next);
+        let follows = turn <= MAX_TURN && self.hugs_chord(current, &contact, direction, reach);
+        follows.then_some(Step {
+            contact,
+            tangent: next,
+            turn,
+            on_boundary: true,
+        })
     }
 
     fn hugs_chord(&self, from: &Contact, to: &Contact, direction: Vector3, step: f64) -> bool {
@@ -460,6 +506,11 @@ impl<'a> Tracer<'a> {
     }
 
     fn exit(&self, inside: &Contact, outside: &Contact) -> Option<Contact> {
+        self.crossing_bound(inside, outside)
+            .or_else(|| self.bisect_exit(inside, outside))
+    }
+
+    fn crossing_bound(&self, inside: &Contact, outside: &Contact) -> Option<Contact> {
         let mut best: Option<(f64, Coordinate, f64)> = None;
         let [inside_first, inside_second] = inside.uv;
         let [outside_first, outside_second] = outside.uv;
@@ -527,7 +578,7 @@ impl<'a> Tracer<'a> {
             inside_second.lerp(outside_second, fraction),
         ];
         let reach = 2.0 * inside.point.distance(outside.point) + TOLERANCE;
-        let solved = refine_contact(
+        refine_contact(
             self.surfaces(),
             guess,
             Constraint::Parameter {
@@ -535,8 +586,7 @@ impl<'a> Tracer<'a> {
                 value: bound,
             },
         )
-        .filter(|contact| contact.point.distance(inside.point) <= reach);
-        solved.or_else(|| self.bisect_exit(inside, outside))
+        .filter(|contact| contact.point.distance(inside.point) <= reach)
     }
 
     fn boundary_ahead(&self, current: &Contact, tangent: Vector3) -> Option<Contact> {
@@ -685,6 +735,14 @@ impl<'a> Tracer<'a> {
                     });
                 }
             };
+            if next.on_boundary {
+                end_on_boundary(&mut contacts, next.contact, tangent);
+                return Ok(Marched {
+                    contacts,
+                    closed: false,
+                    tangent_end: false,
+                });
+            }
             if !self.inside(&next.contact) {
                 let boundary = self
                     .exit(&current, &next.contact)
