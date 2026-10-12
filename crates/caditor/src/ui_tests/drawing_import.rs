@@ -68,7 +68,7 @@ fn importing_a_drawing_fills_a_new_sketch_or_the_one_being_edited() {
     assert!(harness.shows(
         "The drawing does not say which unit it uses, so its numbers were read as millimetres."
     ));
-    harness.click("Close");
+    harness.click_button(crate::widgets::CLOSE_DIALOG);
     assert!(!harness.files.is_blocking());
     harness.perform(Action::Undo);
     assert_eq!(harness.sketch(sketch).entities().len(), before);
@@ -88,7 +88,7 @@ fn importing_a_drawing_fills_a_new_sketch_or_the_one_being_edited() {
          splines to import."
     );
     assert_eq!(harness.sketch(sketch).entities().len(), before);
-    harness.click("Close");
+    harness.click_button(crate::widgets::CLOSE_DIALOG);
 
     let picture = dir.path().join("photo.dxf");
     std::fs::write(&picture, b"\x89PNG\r\n\x1a\n").unwrap();
@@ -162,7 +162,7 @@ fn the_import_options_scale_centre_and_place_a_drawing_before_it_is_added() {
     assert!(harness.shows("Imported “bracket.dxf” into bracket"));
     assert!(harness.shows_containing("You chose to read the drawing's numbers as centimetres"));
     assert!(harness.shows("You scaled the drawing by 2."));
-    harness.click("Close");
+    harness.click_button(crate::widgets::CLOSE_DIALOG);
     assert!(!harness.files.is_blocking());
 }
 

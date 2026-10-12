@@ -1,12 +1,11 @@
-use egui::{Align, Event, Grid, KeyboardShortcut, Label, Layout, ScrollArea, TextEdit, Ui};
+use egui::{Align, Event, Grid, KeyboardShortcut, Label, Layout, TextEdit, Ui};
 
 use crate::{
     appearance::{self, SPACE_L, SPACE_M, SPACE_S, SPACE_XS},
     commands::{self, Category, Command, Keymap, Scope},
-    dialog_parts::{self, BodyRoom},
-    icons, palette,
+    dialog_parts, icons, palette,
     preferences::{PreferenceChange, PreferencesCommand},
-    widgets::{self, DialogWidth, Tone},
+    widgets::{self, DialogBody, DialogWidth, Tone},
 };
 
 pub const TITLE: &str = "Keyboard shortcuts";
@@ -19,7 +18,6 @@ const ACTIONS_WIDTH: f32 = 180.0;
 const SCROLL_BAR_ROOM: f32 = 12.0;
 const LIST_HEIGHT: widgets::ListHeight = widgets::ListHeight::Tall;
 const DIALOG_ID: &str = "keyboard-shortcuts";
-const HEIGHT_SHARE: f32 = 0.9;
 const CATEGORY_GAP: f32 = SPACE_M;
 const ROW_SPACING: [f32; 2] = [SPACE_L, SPACE_S];
 const RECORDING_TEXT: &str = "Press the keys… (Esc cancels)";
@@ -196,16 +194,11 @@ pub fn dialog(
             .on_hover_text("List only the commands whose shortcuts differ from caditor's own");
         let columns = Columns::of(ui);
         header(ui, columns);
-        let mut room = BodyRoom::measure(ui, DIALOG_ID, HEIGHT_SHARE);
-        let height = widgets::list_height(ui.ctx(), LIST_HEIGHT).min(room.height);
-        ScrollArea::vertical()
-            .max_height(height)
-            .min_scrolled_height(height)
-            .show(ui, |ui| {
-                ui.set_min_height(height);
-                list(ui, editor, keymap, columns, &mut command);
-            });
-        room.body_ended(ui);
+        let height = widgets::list_height(ui.ctx(), LIST_HEIGHT);
+        DialogBody::default()
+            .min_height(height)
+            .list(ui.ctx(), LIST_HEIGHT)
+            .show(ui, |ui| list(ui, editor, keymap, columns, &mut command));
         if reset_undoable
             && dialog_parts::undo_note(
                 ui,
@@ -254,7 +247,6 @@ pub fn dialog(
                 None => {}
             }
         }
-        room.dialog_ended(ui);
         command
     });
     let closed = (!editor.is_recording() && response.should_close())

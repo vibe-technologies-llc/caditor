@@ -14,6 +14,7 @@ paths:
   - "crates/caditor/src/history.rs"
   - "crates/caditor/src/version_preview.rs"
   - "crates/caditor/src/preferences.rs"
+  - "crates/caditor/src/preferences/**"
   - "crates/caditor/src/graphics.rs"
   - "crates/caditor/src/units.rs"
   - "crates/caditor/src/model.rs"
@@ -27,7 +28,9 @@ paths:
 
 ## File workflow
 
-- `files.rs` owns the File menu and shortcuts, the recovery offer and the load report. Native dialogs
+- `files.rs` owns the File menu and shortcuts; `files/dialogs.rs` draws its dialogs (opening, the
+  unsaved-changes prompt, both "Closing…" waits, replacing, changed on disk, the load report and the
+  recovery offer). Native dialogs
   run on their own thread; recovery scans and other file checks run on the files worker, each job
   under `catch_unwind` so a panic becomes its failure. Opening and imports never use the files
   worker: each runs on a thread of its own (`Files::spawn_own`, named `open` or `import`, on the UI
@@ -52,9 +55,10 @@ paths:
   replacing itself (zenity gets `--confirm-overwrite`).
 - The unsaved-changes prompt precedes every action that replaces or ends the document (Save primary,
   the discard a `danger_button` far left, `widgets::footer_split`). Quit waits for the storage worker
-  in a "Closing…" modal without a close button. While a model or image export or a drawing, parameter
+  in a "Closing…" `widgets::waiting_dialog` (no close button, Escape ignored); after
+  `QUIT_ANYWAY_AFTER` it says the disk is slow and offers Quit anyway at the far left. While a model or image export or a drawing, parameter
   configuration or template write runs, `run(Intent::Quit)` closes nothing: `Files::waiting_for_exports` shows
-  `finishing_exports` and `poll` closes storage once none is left (`stop_waiting_for_exports`), unless
+  `finishing_exports` (a dialog: Don't quit is the primary, as are its close button and Escape) and `poll` closes storage once none is left (`stop_waiting_for_exports`), unless
   the model gained unsaved changes, which raises the prompt for `Intent::Quit`. Writes run on the
   files worker, which `App::finish` waits for only `SETTINGS_FLUSH`, so each is counted from
   `Files::spawn_write` to its event (`Files::writing`, `Event::written`). Cancel export and quit
@@ -367,10 +371,12 @@ paths:
 
 ## Preferences and units
 
-- Preferences is a dialog of `PreferencesTab`s (`widgets::tabs`); the tab shown is
+- Preferences is a dialog of `PreferencesTab`s (`widgets::tabs`), drawn by
+  `preferences/dialog.rs` (`preferences.rs` holds the settings and their keys); the tab shown is
   `Workspace::preferences_tab`, kept for the session, not saved. Ctrl+Tab and Ctrl+Page Down switch
   tabs unless the shortcut editor is open. The body is as tall as the tallest tab shown so far,
-  capped by `dialog_parts::BodyRoom`. Choices of two to four options are `widgets::segmented` with
+  capped by the room the dialog leaves it (`widgets::DialogBody::min_height`), with the tabs above
+  and the undo note, confirmation and footer below staying in view. Choices of two to four options are `widgets::segmented` with
   hover text on every option (`preferences::choice`).
 - The input mode is a `Navigation` preference (`navigation.input_mode`); the Navigate tip and
   Preferences hover texts describe it (`InputMode::navigation_tip`), the canvas key hint names its

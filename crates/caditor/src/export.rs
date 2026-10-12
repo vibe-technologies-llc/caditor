@@ -28,7 +28,6 @@ use crate::{
     appearance::SPACE_M,
     commands::{Command, CommandFrame},
     configuration_export::{self, ConfigurationExported, ConfigurationFile, ConfigurationJob},
-    dialog_parts::BodyRoom,
     feature_tree::count,
     files::FileCommand,
     icons,
@@ -41,7 +40,6 @@ use crate::{
 
 const BODY_LIST_HEIGHT: widgets::ListHeight = widgets::ListHeight::Short;
 const DIALOG_ID: &str = "export";
-const HEIGHT_SHARE: f32 = 0.8;
 const OUTDATED: &str = "Recomputing was stopped, so some features still show their earlier results. \
                         Recompute the model first to include the latest changes.";
 const FAILED_OUTCOME: &str = "each body is exported as it was before them";
@@ -788,22 +786,18 @@ pub fn dialog(ctx: &egui::Context, model: &Model, exporter: &Exporter) -> Option
             return None;
         }
         let mut command = None;
-        let mut room = BodyRoom::measure(ui, DIALOG_ID, HEIGHT_SHARE);
-        ScrollArea::vertical()
-            .max_height(room.height)
-            .show(ui, |ui| {
-                format_choice(ui, exporter, &mut command);
-                if exporter.format == ExportFormat::Stl {
-                    stl_choice(ui, exporter, &mut command);
-                }
-                if exporter.format.is_mesh() {
-                    resolution_choice(ui, exporter, &bodies, model.length_unit(), &mut command);
-                }
-                threads_choice(ui, model, exporter, &mut command);
-                configuration_choice(ui, model, exporter, &mut command);
-                body_choice(ui, exporter, &bodies, &mut command);
-            });
-        room.body_ended(ui);
+        widgets::dialog_body(ui, |ui| {
+            format_choice(ui, exporter, &mut command);
+            if exporter.format == ExportFormat::Stl {
+                stl_choice(ui, exporter, &mut command);
+            }
+            if exporter.format.is_mesh() {
+                resolution_choice(ui, exporter, &bodies, model.length_unit(), &mut command);
+            }
+            threads_choice(ui, model, exporter, &mut command);
+            configuration_choice(ui, model, exporter, &mut command);
+            body_choice(ui, exporter, &bodies, &mut command);
+        });
         let blocker = if exporter.is_running() {
             Some("An export is already running.")
         } else if matches!(model.status(), RecomputeStatus::Running { .. }) {
@@ -831,7 +825,6 @@ pub fn dialog(ctx: &egui::Context, model: &Model, exporter: &Exporter) -> Option
                 command = Some(ExportCommand::Hide);
             }
         });
-        room.dialog_ended(ui);
         command
     });
     let closed = response.should_close().then_some(ExportCommand::Hide);

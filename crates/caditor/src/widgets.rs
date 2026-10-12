@@ -69,7 +69,11 @@ const TAB_UNDERLINE: f32 = 2.0;
 const CAPTION_KEY: &str = "property-caption";
 const PANEL_HEADER_WIDTH: &str = "panel-header-width";
 const PANEL_FOOTER: &str = "panel-footer";
-const DIALOG_BODY_KEY: &str = "dialog-body";
+pub const CLOSE_DIALOG: &str = "Close (Esc)";
+const OPEN_DIALOG_KEY: &str = "open-dialog";
+const BELOW_BODY_KEY: &str = "below-dialog-body";
+const BELOW_BODY_CHANGE: f32 = 0.5;
+const TOP_DIALOG_OFFSET: f32 = 72.0;
 const CAPTION_ROOM_KEY: &str = "property-caption-room";
 const MIN_SLIDER_WIDTH: f32 = 40.0;
 const WIDTH_CHANGE: f32 = 0.5;
@@ -2045,40 +2049,120 @@ pub fn dialog<T>(
     add: impl FnOnce(&mut Ui) -> T,
 ) -> DialogResponse<T> {
     let mut closed = false;
-    ctx.data_mut(|data| data.remove::<Id>(primary_action_key()));
-    let below_controls = vec2(0.0, window_frame::controls_bottom(ctx) / 2.0);
-    let response = Modal::new(Id::new(id))
-        .area(Modal::default_area(Id::new(id)).anchor(Align2::CENTER_CENTER, below_controls))
-        .frame(dialog_frame(ctx))
-        .show(ctx, |ui| {
-            ui.set_width(fitting_width(ctx, width.points()));
+    let response = titled_dialog(
+        ctx,
+        id,
+        width,
+        |ui| {
             Sides::new().show(
                 ui,
                 |ui| ui.heading(title),
-                |ui| closed = icon_button(ui, icons::CLOSE, "Close (Esc)").clicked(),
+                |ui| closed = icon_button(ui, icons::CLOSE, CLOSE_DIALOG).clicked(),
             );
-            ui.add_space(ui.spacing().item_spacing.y);
-            let heading = ui.cursor().min.y - ui.min_rect().min.y;
-            let room = DialogBody {
-                heading,
-                limit: (tallest_dialog(ctx) - heading).max(MIN_LIST_HEIGHT),
-            };
-            ctx.data_mut(|data| data.insert_temp(Id::new(DIALOG_BODY_KEY), room));
-            let inner = ScrollArea::vertical()
-                .id_salt(DIALOG_BODY_KEY)
-                .max_height(room.limit)
-                .min_scrolled_height(room.limit)
-                .auto_shrink([false, true])
-                .show(ui, add)
-                .inner;
-            focus_primary_action(ui.ctx());
-            inner
-        });
+        },
+        add,
+    );
     let close = closed || response.should_close();
     DialogResponse {
         inner: response.inner,
         close,
     }
+}
+
+pub fn waiting_dialog<T>(
+    ctx: &egui::Context,
+    id: &str,
+    title: &str,
+    add: impl FnOnce(&mut Ui) -> T,
+) -> T {
+    titled_dialog(
+        ctx,
+        id,
+        DialogWidth::Medium,
+        |ui| {
+            ui.heading(title);
+        },
+        add,
+    )
+    .inner
+}
+
+pub fn search_dialog<T>(
+    ctx: &egui::Context,
+    id: &str,
+    width: DialogWidth,
+    add: impl FnOnce(&mut Ui) -> T,
+) -> DialogResponse<T> {
+    let id = Id::new(id);
+    let top = TOP_DIALOG_OFFSET.max(window_frame::controls_bottom(ctx) + DIALOG_EDGE);
+    let response = Modal::new(id)
+        .area(Modal::default_area(id).anchor(Align2::CENTER_TOP, vec2(0.0, top)))
+        .frame(dialog_frame(ctx))
+        .show(ctx, |ui| {
+            ui.set_width(fitting_width(ctx, width.points()));
+            add(ui)
+        });
+    let close = response.should_close();
+    DialogResponse {
+        inner: response.inner,
+        close,
+    }
+}
+
+fn titled_dialog<T>(
+    ctx: &egui::Context,
+    id: &str,
+    width: DialogWidth,
+    heading: impl FnOnce(&mut Ui),
+    add: impl FnOnce(&mut Ui) -> T,
+) -> egui::ModalResponse<T> {
+    let id = Id::new(id);
+    ctx.data_mut(|data| data.remove::<Id>(primary_action_key()));
+    let below_controls = vec2(0.0, window_frame::controls_bottom(ctx) / 2.0);
+    Modal::new(id)
+        .area(Modal::default_area(id).anchor(Align2::CENTER_CENTER, below_controls))
+        .frame(dialog_frame(ctx))
+        .show(ctx, |ui| {
+            ui.set_width(fitting_width(ctx, width.points()));
+            heading(ui);
+            ui.add_space(ui.spacing().item_spacing.y);
+            let inner = arrange_dialog(ui, id, add);
+            focus_primary_action(ui.ctx());
+            inner
+        })
+}
+
+fn arrange_dialog<T>(ui: &mut Ui, id: Id, add: impl FnOnce(&mut Ui) -> T) -> T {
+    let top = ui.cursor().min.y;
+    let heading = top - ui.min_rect().min.y;
+    let open = OpenDialog {
+        id,
+        top,
+        room: (tallest_dialog(ui.ctx()) - heading).max(MIN_LIST_HEIGHT),
+        body_end: None,
+    };
+    let key = Id::new(OPEN_DIALOG_KEY);
+    ui.data_mut(|data| data.insert_temp(key, open));
+    let inner = add(ui);
+    let body_end = ui
+        .data(|data| data.get_temp::<OpenDialog>(key))
+        .and_then(|open| open.body_end);
+    ui.data_mut(|data| data.remove::<OpenDialog>(key));
+    if let Some(body_end) = body_end {
+        let below = ui.cursor().min.y - body_end;
+        let known = below_body(ui, id);
+        if (known - below).abs() > BELOW_BODY_CHANGE {
+            ui.data_mut(|data| data.insert_temp(id.with(BELOW_BODY_KEY), below));
+            ui.ctx()
+                .request_discard("what follows a dialog's body changed height");
+        }
+    }
+    inner
+}
+
+fn below_body(ui: &Ui, id: Id) -> f32 {
+    ui.data(|data| data.get_temp::<f32>(id.with(BELOW_BODY_KEY)))
+        .unwrap_or(DIALOG_FOOTER_GAP + CONTROL_HEIGHT + ui.spacing().item_spacing.y)
 }
 
 pub fn remembered_width(ui: &Ui, id: Id) -> f32 {
@@ -2095,13 +2179,74 @@ pub fn remember_width(ui: &Ui, id: Id, width: f32) {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct DialogBody {
-    pub heading: f32,
-    pub limit: f32,
+struct OpenDialog {
+    id: Id,
+    top: f32,
+    room: f32,
+    body_end: Option<f32>,
 }
 
-pub fn dialog_body(ctx: &egui::Context) -> Option<DialogBody> {
-    ctx.data(|data| data.get_temp::<DialogBody>(Id::new(DIALOG_BODY_KEY)))
+#[derive(Debug, Clone, Copy, Default)]
+pub struct DialogBody {
+    id_salt: Option<Id>,
+    min_height: f32,
+    max_height: Option<f32>,
+}
+
+pub fn dialog_body<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
+    DialogBody::default().show(ui, add)
+}
+
+impl DialogBody {
+    pub fn id_salt(self, id_salt: impl AsIdSalt) -> Self {
+        Self {
+            id_salt: Some(Id::new(id_salt)),
+            ..self
+        }
+    }
+
+    pub fn min_height(self, min_height: f32) -> Self {
+        Self { min_height, ..self }
+    }
+
+    pub fn list(self, ctx: &egui::Context, wanted: ListHeight) -> Self {
+        Self {
+            max_height: Some(list_height(ctx, wanted)),
+            ..self
+        }
+    }
+
+    pub fn show<R>(self, ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
+        let key = Id::new(OPEN_DIALOG_KEY);
+        let open = ui.data(|data| data.get_temp::<OpenDialog>(key));
+        let room = open.map_or_else(
+            || ui.ctx().content_rect().height() * LIST_SCREEN_SHARE,
+            |open| open.room - (ui.cursor().min.y - open.top) - below_body(ui, open.id),
+        );
+        let room = self
+            .max_height
+            .map_or(room, |most| room.min(most))
+            .max(MIN_LIST_HEIGHT);
+        let least = self.min_height.min(room);
+        let id_salt = self
+            .id_salt
+            .unwrap_or_else(|| open.map_or(ui.id(), |open| open.id).with(OPEN_DIALOG_KEY));
+        let inner = ScrollArea::vertical()
+            .id_salt(id_salt)
+            .max_height(room)
+            .min_scrolled_height(room)
+            .auto_shrink([false, true])
+            .show(ui, |ui| {
+                ui.set_min_height(least);
+                add(ui)
+            })
+            .inner;
+        if let Some(open) = open {
+            let body_end = Some(ui.cursor().min.y);
+            ui.data_mut(|data| data.insert_temp(key, OpenDialog { body_end, ..open }));
+        }
+        inner
+    }
 }
 
 fn tallest_dialog(ctx: &egui::Context) -> f32 {

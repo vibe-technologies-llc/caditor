@@ -1,5 +1,5 @@
 use caditor_document::{Document, Transaction};
-use egui::{Align, Label, Layout, ScrollArea};
+use egui::Label;
 
 use crate::{
     appearance::SPACE_M,
@@ -36,9 +36,8 @@ pub fn dialog(ctx: &egui::Context, model: &Model) -> Option<Jump> {
         let undone: Vec<&Transaction> = model.redo_steps().collect();
         let done: Vec<&Transaction> = model.undo_steps().collect();
         let mut jump = None;
-        ScrollArea::vertical()
-            .max_height(widgets::list_height(ui.ctx(), LIST_HEIGHT))
-            .auto_shrink([false, true])
+        widgets::DialogBody::default()
+            .list(ui.ctx(), LIST_HEIGHT)
             .show(ui, |ui| {
                 if !undone.is_empty() {
                     ui.label(widgets::muted(UNDONE, ui));
@@ -65,22 +64,7 @@ pub fn dialog(ctx: &egui::Context, model: &Model) -> Option<Jump> {
                     }
                 }
             });
-        ui.add_space(SPACE_M);
-        let closed = ui
-            .with_layout(Layout::top_down(Align::Min), |ui| {
-                widgets::footer_split(
-                    ui,
-                    |_| None,
-                    |ui| {
-                        ui.add(widgets::primary_button(ui, "Close"))
-                            .clicked()
-                            .then_some(())
-                    },
-                )
-            })
-            .inner
-            .is_some();
-        jump.or(closed.then_some(Jump::Close))
+        jump
     });
     response
         .inner

@@ -458,11 +458,6 @@ pub fn dialog(
 ) -> Option<ImageCommand> {
     let response = widgets::dialog(ctx, "export-image", TITLE, DialogWidth::Medium, |ui| {
         let mut command = None;
-        size_choice(ui, exporter, view, &mut command);
-        scale_choice(ui, exporter, &mut command);
-        background_choice(ui, exporter, &mut command);
-        ui.add_space(SPACE_M);
-        ui.label(widgets::muted(LEFT_OUT, ui));
         let size = exporter
             .base_size(view)
             .ok_or_else(|| "Show the 3D view to export it at its size.".to_owned())
@@ -472,13 +467,20 @@ pub fn dialog(
         } else {
             size
         };
-        if let Ok(size) = &blocker {
+        widgets::dialog_body(ui, |ui| {
+            size_choice(ui, exporter, view, &mut command);
+            scale_choice(ui, exporter, &mut command);
+            background_choice(ui, exporter, &mut command);
             ui.add_space(SPACE_M);
-            ui.label(format!(
-                "The image will be {} × {} pixels.",
-                size.width, size.height
-            ));
-        }
+            ui.label(widgets::muted(LEFT_OUT, ui));
+            if let Ok(size) = &blocker {
+                ui.add_space(SPACE_M);
+                ui.label(format!(
+                    "The image will be {} × {} pixels.",
+                    size.width, size.height
+                ));
+            }
+        });
         export::warnings(
             ui,
             model,

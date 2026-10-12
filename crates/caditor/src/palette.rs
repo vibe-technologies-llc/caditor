@@ -2,21 +2,20 @@ use std::borrow::Cow;
 
 use caditor_document::{ConfigurationId, Document};
 use egui::{
-    Align, Align2, CornerRadius, Id, Key, Label, Layout, Margin, Modal, Modifiers, Rect, Response,
-    RichText, ScrollArea, Sense, TextEdit, TextStyle, TextWrapMode, Ui, UiBuilder, vec2,
+    Align, CornerRadius, Key, Label, Layout, Modifiers, Rect, Response, RichText, ScrollArea,
+    Sense, TextEdit, TextStyle, TextWrapMode, Ui, UiBuilder, vec2,
 };
 
 use crate::{
-    appearance::{self, CONTROL_HEIGHT, DIALOG_MARGIN, SPACE_M, SPACE_S, WIDGET_RADIUS},
+    appearance::{self, CONTROL_HEIGHT, SPACE_M, SPACE_S, WIDGET_RADIUS},
     commands::{Command, Keymap, Offer, Scope},
     feature_tree, icons,
     panels::Focus,
     toggles::{Shown, ToggleStates},
-    widgets::{self, Tone},
+    widgets::{self, DialogWidth, ListHeight, Tone},
 };
 
-const TOP_MARGIN: f32 = 72.0;
-const LIST_HEIGHT: widgets::ListHeight = widgets::ListHeight::Tall;
+const LIST_HEIGHT: ListHeight = ListHeight::Tall;
 pub const RECENT_LIMIT: usize = 6;
 const ROW_HEIGHT: f32 = CONTROL_HEIGHT + SPACE_S;
 const DETAIL_LINES: f32 = 2.0;
@@ -432,14 +431,7 @@ impl Palette {
                 input.consume_key(Modifiers::NONE, Key::Enter),
             )
         });
-        let id = Id::new("command-palette");
-        let area = Modal::default_area(id).anchor(Align2::CENTER_TOP, vec2(0.0, TOP_MARGIN));
-        let frame = widgets::dialog_frame(ctx).inner_margin(Margin::same(DIALOG_MARGIN));
-        let response = Modal::new(id).area(area).frame(frame).show(ctx, |ui| {
-            ui.set_width(widgets::fitting_width(
-                ui.ctx(),
-                widgets::DialogWidth::Wide.points(),
-            ));
+        let response = widgets::search_dialog(ctx, "command-palette", DialogWidth::Wide, |ui| {
             let field = ui
                 .horizontal(|ui| {
                     let muted = appearance::tokens(ui).text_muted;

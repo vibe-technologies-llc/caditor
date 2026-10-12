@@ -187,7 +187,7 @@ fn the_welcome_dialog_and_tips_are_readable_by_screen_readers() {
     harness.frame();
     assert!(harness.shows("Welcome to caditor"));
     assert_readable(&harness, "The welcome dialog");
-    assert!(harness.accessible_named(Role::Button, "Close (Esc)"));
+    assert!(harness.accessible_named(Role::Button, crate::widgets::CLOSE_DIALOG));
     assert!(harness.accessible_named(Role::Button, "Open the Flanged spool sample"));
 
     harness.click("Flanged spool");

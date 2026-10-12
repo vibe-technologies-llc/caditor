@@ -25,7 +25,7 @@ fn recent_messages_keep_a_failed_save_after_a_later_notice_replaced_it() {
     assert!(harness.shows("Saving “plate” failed: the disk is full."));
     assert_eq!(harness.count_shown("Exported 1 body."), 2);
     assert!(!harness.shows(crate::messages::EMPTY));
-    harness.click("Close");
+    harness.click_button(crate::widgets::CLOSE_DIALOG);
     assert!(!harness.workspace.messages_open);
 
     assert_eq!(

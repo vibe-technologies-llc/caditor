@@ -236,7 +236,7 @@ pub fn dialog(
             ui,
         ));
         let mut command = None;
-        match listing {
+        widgets::dialog_body(ui, |ui| match listing {
             Listing::Loading => {
                 ui.horizontal(|ui| {
                     widgets::spinner(ui);
@@ -251,7 +251,7 @@ pub fn dialog(
             Listing::Loaded(listed) => {
                 command = versions(ui, model, history, listed);
             }
-        }
+        });
         command
     });
     let closed = response.should_close().then_some(HistoryCommand::Hide);

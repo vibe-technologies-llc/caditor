@@ -267,15 +267,18 @@ pub fn dialog(ctx: &egui::Context, model: &Model, draft: &mut ScaleDraft) -> Opt
     let response = widgets::dialog(ctx, DIALOG_ID, TITLE, DialogWidth::Medium, |ui| {
         ui.label(widgets::muted(EXPLANATION, ui));
         ui.add_space(SPACE_S);
-        let entered = fields(ui, model, draft);
-        if let Some(moving) = moving_words(displaced(model, draft)) {
-            ui.add_space(SPACE_S);
-            widgets::callout(ui, Tone::Info, |ui| ui.label(moving));
-        }
-        if let Some(problem) = &draft.problem {
-            ui.add_space(SPACE_S);
-            widgets::callout(ui, Tone::Error, |ui| ui.label(problem));
-        }
+        let entered = widgets::dialog_body(ui, |ui| {
+            let entered = fields(ui, model, draft);
+            if let Some(moving) = moving_words(displaced(model, draft)) {
+                ui.add_space(SPACE_S);
+                widgets::callout(ui, Tone::Info, |ui| ui.label(moving));
+            }
+            if let Some(problem) = &draft.problem {
+                ui.add_space(SPACE_S);
+                widgets::callout(ui, Tone::Error, |ui| ui.label(problem));
+            }
+            entered
+        });
         let chosen = widgets::footer(ui, |ui| {
             if ui.add(widgets::primary_button(ui, SCALE_LABEL)).clicked() {
                 return Some(true);

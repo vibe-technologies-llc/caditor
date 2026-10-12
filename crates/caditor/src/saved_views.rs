@@ -8,13 +8,11 @@ use egui::{Id, Key, ScrollArea, Sides, TextEdit, Ui};
 use crate::{
     appearance::{SPACE_M, SPACE_S},
     commands::{Command, StandardView},
-    dialog_parts::BodyRoom,
     icons,
     widgets::{self, DialogWidth, Tone},
 };
 
 pub const TITLE: &str = "Saved views";
-pub const CLOSE_LABEL: &str = "Close";
 pub const SAVE_LABEL: &str = "Save view";
 pub const NAME_CAPTION: &str = "Name";
 const EXPLANATION: &str = "Come back to an angle and zoom worth keeping. Saved views belong to \
@@ -25,7 +23,6 @@ const ISOMETRIC_EXPLANATION: &str = "The Isometric view (0) shows the model from
                                      corner. Make it the current view to change where it looks \
                                      from, how near and at what angle; models open from it.";
 const DIALOG_ID: &str = "saved-views";
-const HEIGHT_SHARE: f32 = 0.8;
 const LIST_HEIGHT: widgets::ListHeight = widgets::ListHeight::Medium;
 const SHOW_HOVER: &str = "Show this view";
 const UPDATE_HOVER: &str = "Replace it with the current view";
@@ -184,21 +181,7 @@ pub fn dialog(ctx: &egui::Context, document: &Document, draft: &mut ViewsDraft) 
     let response = widgets::dialog(ctx, DIALOG_ID, TITLE, DialogWidth::Medium, |ui| {
         ui.label(widgets::muted(EXPLANATION, ui));
         ui.add_space(SPACE_S);
-        let mut room = BodyRoom::measure(ui, DIALOG_ID, HEIGHT_SHARE);
-        let outcome = ScrollArea::vertical()
-            .max_height(room.height)
-            .show(ui, |ui| body(ui, document, draft))
-            .inner;
-        room.body_ended(ui);
-        let closed = widgets::footer(ui, |ui| {
-            ui.add(widgets::primary_button(ui, CLOSE_LABEL)).clicked()
-        });
-        room.dialog_ended(ui);
-        match (outcome, closed) {
-            (Some(outcome), _) => Some(outcome),
-            (None, true) => Some(Outcome::Close),
-            (None, false) => None,
-        }
+        widgets::dialog_body(ui, |ui| body(ui, document, draft))
     });
     let closed = response.should_close().then_some(Outcome::Close);
     response.inner.or(closed)

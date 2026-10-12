@@ -8,9 +8,7 @@ use crate::{
     appearance::{SPACE_M, SPACE_S},
     body_appearance::{DEFAULT_COLOUR_NAME, SWATCHES},
     commands::Command,
-    completion,
-    dialog_parts::BodyRoom,
-    field,
+    completion, field,
     files::{FileCommand, configurations as table_files},
     icons,
     model::Model,
@@ -31,7 +29,6 @@ const EMPTY: &str = "This model has no configurations yet. Add one to keep its c
 const NO_VALUES: &str = "No value is configured yet, so every configuration is the same model. \
                          Choose a parameter, a feature to suppress or a body's colour below.";
 const DIALOG_ID: &str = "configurations";
-const HEIGHT_SHARE: f32 = 0.8;
 const CELL_WIDTH: f32 = 96.0;
 const RENAME_HOVER: &str = "Rename it";
 const DUPLICATE_HOVER: &str = "Add a copy of it";
@@ -159,12 +156,7 @@ pub fn dialog(
     let response = widgets::dialog(ctx, DIALOG_ID, TITLE, DialogWidth::Wide, |ui| {
         ui.label(widgets::muted(EXPLANATION, ui));
         ui.add_space(SPACE_S);
-        let mut room = BodyRoom::measure(ui, DIALOG_ID, HEIGHT_SHARE);
-        let outcome = ScrollArea::vertical()
-            .max_height(room.height)
-            .show(ui, |ui| body(ui, model, draft))
-            .inner;
-        room.body_ended(ui);
+        let outcome = widgets::dialog_body(ui, |ui| body(ui, model, draft));
         let footer = widgets::footer_split(
             ui,
             |ui| file_buttons(ui, model.document()),
@@ -174,7 +166,6 @@ pub fn dialog(
                     .then_some(Outcome::Close)
             },
         );
-        room.dialog_ended(ui);
         outcome.or(footer)
     });
     let closed = response.should_close().then_some(Outcome::Close);

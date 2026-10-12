@@ -182,11 +182,11 @@ paths:
 - `widgets.rs` is the kit every panel and dialog is built from; read it before adding UI
   (`ToolButton`, `section`, `properties`, `card`, `callout` and `pill` with a `Tone`, the button
   family, `checkbox`, `unlabelled_checkbox` and `unlabelled_radio` (no visible text, named for
-  screen readers with their role), `combo`, `text_field`, `segmented`, `tabs`, `dialog`/`footer`,
-  `side_panel`, menu items, `error_row` and `error_text`). Panels and dialogs never add raw egui
-  buttons, checkboxes, radio buttons or combo boxes: `conventions_tests.rs`
-  (`buttons_outside_the_widget_kit_come_from_it`) fails on them outside `widgets.rs`, a call split
-  over lines (`ui` then `.button(…)` on the next) included.
+  screen readers with their role), `combo`, `text_field`, `segmented`, `tabs`, `dialog`,
+  `dialog_body` and `footer`, `side_panel`, menu items, `error_row` and `error_text`). Panels and
+  dialogs never add raw egui buttons, checkboxes, radio buttons or combo boxes:
+  `conventions_tests.rs` (`buttons_outside_the_widget_kit_come_from_it`) fails on them outside
+  `widgets.rs`, a call split over lines (`ui` then `.button(…)` on the next) included.
 - Decisions the code does not show:
   - A `ToolButton` is icon above label; `compact` is icon alone, named by its label, in a square so
     two rows match one tool button. `icon_button` is a true `CONTROL_HEIGHT` square so rows
@@ -224,7 +224,9 @@ paths:
   - `footer_split` puts a destructive action at the far left; the primary action is always rightmost.
     A dialog gives focus to its `primary_button` whenever no widget holds it (opening, Escape out of
     a widget, a click on bare dialog), so Enter runs it while a focused field or button keeps Enter.
-    A dialog whose only action would be Close has no footer.
+    A dialog whose only action would be Close has no footer: its title bar's close button (named
+    `CLOSE_DIALOG`) and Escape are enough (the load report, recent messages, undo history, saved
+    views, selection sets, version history).
   - `tabs` moves by click, Left/Right (wrapping), Home and End, and with `switch_keys` Ctrl+Tab and
     Ctrl+Page Up/Down; focus follows. `tab_id(row, index)` lets tests focus one.
   - Dialog widths and list heights clamp to the screen (`fitting_width`, `list_height`), so nothing
@@ -232,9 +234,19 @@ paths:
     bodies, replaced files), `Medium` 240 (saved views, selection sets, delete dependents, the open
     report), `Tall` 360 (palette, messages, undo history, version history, shortcuts, parameter and
     configuration files). `widgets::dialog` centres below the window buttons
-    (`window_frame::controls_bottom`), which are drawn over dialogs, and puts everything under the
-    title in a scroll area as tall as the window leaves (`DialogBody::limit`); `BodyRoom` keeps a
-    long-bodied dialog's footer in view within that limit.
+    (`window_frame::controls_bottom`), which are drawn over dialogs, and lays out what its closure
+    adds under the title without scrolling it: the dialog's scrolling part is its
+    `widgets::dialog_body` (or `DialogBody` with an id, a least height or a `ListHeight` cap), as
+    tall as the window leaves once the title, what sits above the body and what came after it the
+    frame before are counted (`arrange_dialog`, kept per dialog; a change redoes the pass). So the
+    footer, a confirmation or an undo note after the body always stay on screen and the body scrolls
+    under them. A dialog whose content is a list makes the list its body (the load report, replaced
+    files, parameter and configuration imports, messages, undo history, delete dependents,
+    shortcuts); every other dialog wraps everything above the footer.
+  - `widgets::waiting_dialog` is the same frame without a close button, Escape doing nothing, for
+    a wait nothing can cancel ("Closing…" while the storage worker finishes). `search_dialog` is the
+    frame with no title, anchored at the top (`TOP_DIALOG_OFFSET`, below the window buttons), for
+    the command palette.
   - Side panels scroll through `panel_scroll`, which always reserves its scrollbar's room, so a panel
     keeps its width when content grows past the window's height.
   - Icons and labels are separate text atoms, so tests find buttons by bare label, compact ones by
@@ -244,8 +256,7 @@ paths:
     (`conventions_tests.rs` refuses the raw one). The text caret is solid (`text_cursor.blink` off
     in `appearance::visuals`), so a focused field never wakes an idle app.
 - `dialog_parts.rs` holds what dialogs share beyond the kit: `confirmation` and `confirm_footer`
-  (warning callout, destructive action left, primary Cancel right), `undo_note`, `titled_modal` (no
-  close button, for waits that cannot be cancelled) and `BodyRoom`.
+  (warning callout, destructive action left, primary Cancel right) and `undo_note`.
 - Sentence case everywhere: buttons, titles, commands ("Save as…", "Close without saving").
 
 ## Screen readers

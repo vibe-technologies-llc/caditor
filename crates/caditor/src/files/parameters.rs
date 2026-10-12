@@ -4,7 +4,7 @@ use caditor_document::{ImportOutcome, ImportRow, ImportedParameter, ParameterImp
 use caditor_file::{
     PARAMETERS_EXTENSION, ParameterFileError, parameters_csv, read_parameters, write_parameters,
 };
-use egui::{Grid, ScrollArea, Ui};
+use egui::{Grid, Ui};
 
 use super::{Event, FileCommand, Files, Purpose, WriteKind};
 use crate::{
@@ -328,21 +328,22 @@ pub fn dialog(ctx: &egui::Context, draft: &ParameterImportDraft) -> Option<FileC
                 command = Some(ParametersCommand::Replace(replace));
             }
             ui.add_space(SPACE_S);
-            let height = widgets::list_height(ui.ctx(), LIST_HEIGHT);
             widgets::card(ui, |ui| {
-                ScrollArea::vertical().max_height(height).show(ui, |ui| {
-                    Grid::new("parameter-import-rows")
-                        .num_columns(3)
-                        .spacing([SPACE_S * 2.0, SPACE_S])
-                        .show(ui, |ui| {
-                            for row in &plan.rows {
-                                ui.label(widgets::strong(row.name.as_str()));
-                                outcome_pill(ui, &row.outcome);
-                                ui.add(egui::Label::new(detail(row)).wrap());
-                                ui.end_row();
-                            }
-                        });
-                });
+                widgets::DialogBody::default()
+                    .list(ui.ctx(), LIST_HEIGHT)
+                    .show(ui, |ui| {
+                        Grid::new("parameter-import-rows")
+                            .num_columns(3)
+                            .spacing([SPACE_S * 2.0, SPACE_S])
+                            .show(ui, |ui| {
+                                for row in &plan.rows {
+                                    ui.label(widgets::strong(row.name.as_str()));
+                                    outcome_pill(ui, &row.outcome);
+                                    ui.add(egui::Label::new(detail(row)).wrap());
+                                    ui.end_row();
+                                }
+                            });
+                    });
             });
             let blocker = plan
                 .transaction

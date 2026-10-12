@@ -21,40 +21,42 @@ pub fn version_line() -> String {
 
 pub fn dialog(ctx: &egui::Context) -> bool {
     let response = widgets::dialog(ctx, "about", "About caditor", DialogWidth::Medium, |ui| {
-        ui.horizontal(|ui| {
-            logo::show(ui, LOGO_SIDE);
-            ui.with_layout(Layout::top_down(Align::Min), |ui| {
-                ui.add_space(PARAGRAPH_GAP);
-                ui.label(RichText::new(NAME).text_style(TextStyle::Heading));
-                ui.label(widgets::muted(TAGLINE, ui));
+        widgets::dialog_body(ui, |ui| {
+            ui.horizontal(|ui| {
+                logo::show(ui, LOGO_SIDE);
+                ui.with_layout(Layout::top_down(Align::Min), |ui| {
+                    ui.add_space(PARAGRAPH_GAP);
+                    ui.label(RichText::new(NAME).text_style(TextStyle::Heading));
+                    ui.label(widgets::muted(TAGLINE, ui));
+                });
             });
-        });
-        ui.add_space(PARAGRAPH_GAP);
-        widgets::properties(ui, "about", |ui| {
-            widgets::property(ui, "Version", |ui| ui.label(VERSION));
-            widgets::property(ui, "Licence", |ui| {
-                ui.label("GNU Affero General Public License, version 3 only")
+            ui.add_space(PARAGRAPH_GAP);
+            widgets::properties(ui, "about", |ui| {
+                widgets::property(ui, "Version", |ui| ui.label(VERSION));
+                widgets::property(ui, "Licence", |ui| {
+                    ui.label("GNU Affero General Public License, version 3 only")
+                });
             });
-        });
-        ui.add_space(PARAGRAPH_GAP);
-        ui.label(widgets::muted(
+            ui.add_space(PARAGRAPH_GAP);
+            ui.label(widgets::muted(
             "caditor comes with no warranty; you may share and change it under the terms of its \
              licence.",
             ui,
         ));
-        ui.add_space(PARAGRAPH_GAP);
-        ui.label(widgets::muted(
+            ui.add_space(PARAGRAPH_GAP);
+            ui.label(widgets::muted(
             "The interface is set in Inter (SIL Open Font License 1.1) with Phosphor icons (MIT).",
             ui,
         ));
-        ui.add_space(PARAGRAPH_GAP);
-        ui.label(widgets::muted(
-            format!(
-                "The licences of every other font and library caditor is built from are in \
+            ui.add_space(PARAGRAPH_GAP);
+            ui.label(widgets::muted(
+                format!(
+                    "The licences of every other font and library caditor is built from are in \
                  {NOTICES_FILE}, installed beside the licence."
-            ),
-            ui,
-        ));
+                ),
+                ui,
+            ));
+        });
         widgets::footer_split(
             ui,
             |ui| {
