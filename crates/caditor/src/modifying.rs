@@ -25,6 +25,25 @@ const LENGTH: Expected = Expected {
     non_negative: false,
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SketchVersion {
+    pub(crate) feature: FeatureId,
+    pub(crate) revision: u64,
+    pub(crate) evaluation: u64,
+    pub(crate) sketches: u64,
+}
+
+impl SketchVersion {
+    pub fn of(model: &Model, feature: FeatureId) -> Self {
+        Self {
+            feature,
+            revision: model.revision(),
+            evaluation: model.evaluation_generation(),
+            sketches: model.display().sketches.generation(),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum Outcome {
     Nothing,
@@ -278,13 +297,13 @@ impl Modifying {
         sketch: &Sketch,
         screen: &impl Screen,
         pointer: Option<Pointer>,
-        faceting: Faceting,
+        (faceting, version): (Faceting, Option<SketchVersion>),
     ) {
         match &mut self.state {
             State::Offset(offsetting) => offsetting.hover(sketch, screen, pointer),
             State::Mirror(mirroring) => mirroring.hover(sketch, screen, pointer, faceting),
             State::Pattern(patterning) => patterning.hover(sketch, screen, pointer, faceting),
-            State::Fillet(filleting) => filleting.hover(sketch, screen, pointer),
+            State::Fillet(filleting) => filleting.hover(sketch, version, screen, pointer),
             State::Tangent(tangent) => tangent.hover(sketch, screen, pointer),
             State::Blend(blend) => blend.hover(sketch, screen, pointer),
             State::Gear(gearing) => gearing.hover(sketch, screen, pointer, self.gear.gear()),

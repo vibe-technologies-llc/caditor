@@ -78,11 +78,10 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   level for bodies a few pixels across. Body batches packed into shared buffers with one style
   table (a body one draw, neighbours one draw), placements at dynamic offsets of one uniform
   buffer, and a coarser mesh without a silhouette for bodies small on screen would cut both.
-- [low · easy] The sketch fillet clones the whole sketch every frame it aims at a crossing:
-  `Filleting::hovered` calls `aim.found_in(&mut sketch.clone())` while a first curve is chosen and
-  the pointer is over a second, and `prepared` clones it again every frame once a crossing corner
-  is chosen and its radius dragged, O(sketch) a pointer move on a large sketch. Cache the prepared
-  sketch by the displayed sketch's generation and the aims.
+- [low · easy] The sketch fillet's crossing is joined on a copy of the whole sketch once a frame
+  while the pointer moves along the second curve, since each frame's pick (`Pick::near`) is a new
+  aim for the cache in `Filleting::joined`; only a resting pointer, or a chosen crossing whose
+  radius is dragged, reuses it. O(sketch) a pointer move on a large sketch.
 - [low · hard] Snapping projects every point and curve of the sketch on every hover frame
   (`snap.rs`), a cost linear in the sketch that is most of the frame for tens of thousands of lines,
   mostly walking the entities, and a line or slot end walks every line again to find the nearest for

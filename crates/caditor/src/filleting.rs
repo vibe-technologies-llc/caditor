@@ -1,4 +1,4 @@
-use std::borrow::Cow;
+use std::{ops::Deref, sync::Arc};
 
 use caditor_document::{FeatureId, Transaction};
 use caditor_expression::{Dimension, Expression, Unit};
@@ -14,7 +14,7 @@ use crate::{
     feature_tree::count,
     field::Expected,
     model::Model,
-    modifying::{Hint, Outcome, Prompt, Value, ValueField, length_text},
+    modifying::{Hint, Outcome, Prompt, SketchVersion, Value, ValueField, length_text},
     patterning,
     snap::{self, Pointer, Screen},
     trimming::{self, capitalized},
@@ -186,6 +186,31 @@ impl LeftOut {
     }
 }
 
+enum Working<'a> {
+    Displayed(&'a Sketch),
+    Joined(Arc<Sketch>),
+}
+
+impl Deref for Working<'_> {
+    type Target = Sketch;
+
+    fn deref(&self) -> &Sketch {
+        match self {
+            Self::Displayed(sketch) => sketch,
+            Self::Joined(sketch) => sketch,
+        }
+    }
+}
+
+type Join = Result<(Arc<Sketch>, Vec<Corner>), FilletError>;
+
+#[derive(Debug, Clone)]
+struct Joined {
+    version: SketchVersion,
+    aims: Vec<Aim>,
+    outcome: Join,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct Filleting {
     cut: CornerCut,
@@ -201,6 +226,9 @@ pub struct Filleting {
     typed: Option<f64>,
     typed_chamfer: Option<Result<ChamferSize, String>>,
     rounding: Option<Result<Vec<Cut>, FilletError>>,
+    joined: Option<Joined>,
+    #[cfg(test)]
+    joins: usize,
     last: Option<String>,
 }
 
@@ -269,9 +297,42 @@ impl Filleting {
         self.target().into_iter().chain(more).collect()
     }
 
+    fn joined<'a>(
+        &mut self,
+        sketch: &'a Sketch,
+        version: Option<SketchVersion>,
+        aims: &[Aim],
+    ) -> Result<(Working<'a>, Vec<Corner>), FilletError> {
+        let corners: Option<Vec<Corner>> = aims.iter().map(|aim| aim.corner()).collect();
+        if let Some(corners) = corners {
+            return Ok((Working::Displayed(sketch), corners));
+        }
+        let kept = self
+            .joined
+            .as_ref()
+            .filter(|joined| Some(joined.version) == version && joined.aims == aims);
+        let outcome = match kept {
+            Some(joined) => joined.outcome.clone(),
+            None => {
+                #[cfg(test)]
+                {
+                    self.joins += 1;
+                }
+                let outcome = join(sketch, aims);
+                self.joined = version.map(|version| Joined {
+                    version,
+                    aims: aims.to_vec(),
+                    outcome: outcome.clone(),
+                });
+                outcome
+            }
+        };
+        outcome.map(|(working, corners)| (Working::Joined(working), corners))
+    }
+
     fn hovered(
-        &self,
-        sketch: &Sketch,
+        &mut self,
+        (sketch, version): (&Sketch, Option<SketchVersion>),
         screen: &impl Screen,
         pointer: Option<Pointer>,
     ) -> (Option<Result<Aim, FilletError>>, Option<Pick>) {
@@ -287,7 +348,8 @@ impl Filleting {
         match (curve_under(sketch, screen, pointer), self.pending) {
             (Some(pick), Some(first)) if pick.curve != first.curve => {
                 let aim = Aim::Crossing([first, pick]);
-                (Some(aim.found_in(&mut sketch.clone()).map(|_| aim)), None)
+                let found = self.joined(sketch, version, &[aim]).map(|_| aim);
+                (Some(found), None)
             }
             (Some(pick), _) => (None, Some(pick)),
             (None, Some(_)) => (None, None),
@@ -295,11 +357,18 @@ impl Filleting {
         }
     }
 
-    pub fn hover(&mut self, sketch: &Sketch, screen: &impl Screen, pointer: Option<Pointer>) {
+    pub fn hover(
+        &mut self,
+        sketch: &Sketch,
+        version: Option<SketchVersion>,
+        screen: &impl Screen,
+        pointer: Option<Pointer>,
+    ) {
         self.pointer = pointer.map(|pointer| pointer.sketch);
-        (self.hover, self.under) = self.hovered(sketch, screen, pointer);
+        (self.hover, self.under) = self.hovered((sketch, version), screen, pointer);
         self.at = None;
-        let (working, corners) = match prepared(sketch, &self.aims()) {
+        let aims = self.aims();
+        let (working, corners) = match self.joined(sketch, version, &aims) {
             Ok(prepared) => prepared,
             Err(error) => {
                 self.rounding = self.chosen.map(|_| Err(error));
@@ -715,20 +784,13 @@ fn same_aim(first: &Aim, second: &Aim) -> bool {
     }
 }
 
-fn prepared<'a>(
-    sketch: &'a Sketch,
-    aims: &[Aim],
-) -> Result<(Cow<'a, Sketch>, Vec<Corner>), FilletError> {
-    let corners: Option<Vec<Corner>> = aims.iter().map(|aim| aim.corner()).collect();
-    if let Some(corners) = corners {
-        return Ok((Cow::Borrowed(sketch), corners));
-    }
+fn join(sketch: &Sketch, aims: &[Aim]) -> Join {
     let mut working = sketch.clone();
     let corners = aims
         .iter()
         .map(|aim| aim.found_in(&mut working))
         .collect::<Result<Vec<Corner>, FilletError>>()?;
-    Ok((Cow::Owned(working), corners))
+    Ok((Arc::new(working), corners))
 }
 
 fn curve_under(sketch: &Sketch, screen: &impl Screen, pointer: Pointer) -> Option<Pick> {
@@ -865,5 +927,89 @@ fn parse_chamfer(model: &Model, text: &str) -> Result<ChamferSize, String> {
             })
         }
         _ => Err(CHAMFER_FORMS.to_owned()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use caditor_document::FeatureId;
+    use caditor_geometry::{Plane, Vector2};
+
+    use super::*;
+
+    struct Flat;
+
+    impl Screen for Flat {
+        fn to_screen(&self, point: Point2) -> Option<Vector2> {
+            Some(Vector2::new(point.x, point.y))
+        }
+    }
+
+    fn pointer(x: f64, y: f64) -> Option<Pointer> {
+        Some(Pointer {
+            screen: Vector2::new(x, y),
+            sketch: Point2::new(x, y),
+        })
+    }
+
+    fn version(revision: u64) -> Option<SketchVersion> {
+        Some(SketchVersion {
+            feature: FeatureId::from_raw(1),
+            revision,
+            evaluation: 0,
+            sketches: 0,
+        })
+    }
+
+    fn crossed() -> (Sketch, Filleting) {
+        let mut sketch = Sketch::new(Plane::XY);
+        let across = sketch.add_line(Point2::new(-50.0, 0.0), Point2::new(50.0, 0.0));
+        sketch.add_line(Point2::new(0.0, -50.0), Point2::new(0.0, 50.0));
+        let mut filleting = Filleting::new(CornerCut::Round, None);
+        filleting.pending = Some(Pick {
+            curve: across,
+            near: Point2::new(-30.0, 0.0),
+        });
+        (sketch, filleting)
+    }
+
+    #[test]
+    fn a_crossing_is_joined_once_for_a_frame_and_again_only_when_the_sketch_or_the_aim_changes() {
+        let (sketch, mut filleting) = crossed();
+
+        filleting.hover(&sketch, version(1), &Flat, pointer(0.0, 30.0));
+        assert!(matches!(filleting.hover, Some(Ok(Aim::Crossing(_)))));
+        assert_eq!(filleting.joins, 1);
+
+        filleting.hover(&sketch, version(1), &Flat, pointer(0.0, 30.0));
+        assert_eq!(filleting.joins, 1);
+
+        filleting.hover(&sketch, version(2), &Flat, pointer(0.0, 30.0));
+        assert_eq!(filleting.joins, 2);
+
+        filleting.hover(&sketch, version(2), &Flat, pointer(0.0, -30.0));
+        assert_eq!(filleting.joins, 3);
+
+        filleting.hover(&sketch, None, &Flat, pointer(0.0, -30.0));
+        filleting.hover(&sketch, None, &Flat, pointer(0.0, -30.0));
+        assert_eq!(filleting.joins, 7);
+    }
+
+    #[test]
+    fn dragging_the_radius_of_a_chosen_crossing_joins_the_sketch_once() {
+        let (sketch, mut filleting) = crossed();
+        filleting.hover(&sketch, version(1), &Flat, pointer(0.0, 30.0));
+        let Some(Ok(aim)) = filleting.hover else {
+            panic!("the two lines cross");
+        };
+        filleting.choose(aim);
+
+        for step in 0..5 {
+            let along = 2.0 + f64::from(step);
+            filleting.hover(&sketch, version(1), &Flat, pointer(-along, along));
+            assert!(matches!(filleting.rounding, Some(Ok(_))));
+        }
+
+        assert_eq!(filleting.joins, 1);
     }
 }
