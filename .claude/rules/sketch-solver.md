@@ -16,7 +16,8 @@ paths:
   (`sparse.rs`). Every equation has an analytic gradient.
 - Convergence is checked after every step and cancellation before it, so the diagnosis budget
   counts steps taken; the analysis polls cancellation before each part, constraint and null-space
-  solve. Tests bound cost with `solve/tally.rs` work units, never wall-clock time.
+  solve. Tests bound cost with `solve/tally.rs` work units (`fit.rs` adds its passes over the
+  samples), never wall-clock time.
 - An attempt ends converged, at a least-squares minimum, pressed against a collapse (such a minimum
   with a moving line or arc span, or a radius, near the collapse length) or unfinished. Retries
   perturb each part by a fraction of its own extent.

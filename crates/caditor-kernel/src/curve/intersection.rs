@@ -15,6 +15,7 @@ use crate::{
     numeric::integrate,
     shared::SharedBuffer,
     surface::{Surface, periodic_near},
+    tally,
     tolerance::{INTERSECTION_TOLERANCE, LINEAR_RESOLUTION},
 };
 
@@ -403,6 +404,7 @@ impl IntersectionCurve {
         let (range, windows) = self.windows(range);
         let segments: usize = windows.iter().map(|window| window.segments.len()).sum();
         if segments < MIN_INDEXED_SEGMENTS {
+            tally::add(segments);
             return vec![range];
         }
         let within = |index: usize| {
@@ -413,6 +415,7 @@ impl IntersectionCurve {
         let nearest = self
             .hulls()
             .possibly_nearest_among(point, LINEAR_RESOLUTION, within);
+        tally::add(nearest.len());
         let period = self.domain().length();
         let mut runs: Vec<Interval> = Vec::new();
         for window in &windows {
@@ -437,6 +440,7 @@ impl IntersectionCurve {
             }
         }
         if runs.is_empty() {
+            tally::add(segments);
             return vec![range];
         }
         runs

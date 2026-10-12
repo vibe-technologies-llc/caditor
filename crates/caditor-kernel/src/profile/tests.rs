@@ -1,16 +1,18 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     f64::consts::PI,
-    time::{Duration, Instant},
 };
 
 use caditor_geometry::Point2;
 
 use super::*;
-use crate::test_support::{arc, assert_cancelled_anywhere, circle, line, rectangle, spline};
+use crate::{
+    tally,
+    test_support::{arc, assert_cancelled_anywhere, circle, line, rectangle, spline},
+};
 
 const WASHER_ROWS: u64 = 40;
-const WASHER_SELECTION_TIME_LIMIT: Duration = Duration::from_secs(2);
+const WASHER_SELECTION_STEPS_PER_WASHER: usize = 8;
 
 fn profile(curves: &[ProfileCurve]) -> Profile {
     Profile::new(curves).unwrap()
@@ -1241,7 +1243,7 @@ fn a_profile_cancelled_anywhere_stops_with_cancelled() {
 }
 
 #[test]
-fn a_grid_of_washers_is_selected_in_bounded_time() {
+fn a_grid_of_washers_is_selected_in_bounded_work() {
     let mut curves = Vec::new();
     for row in 0..WASHER_ROWS {
         for column in 0..WASHER_ROWS {
@@ -1253,9 +1255,7 @@ fn a_grid_of_washers_is_selected_in_bounded_time() {
     }
     let profile = profile(&curves);
 
-    let clock = Instant::now();
-    let washers = profile.select(&Selection::EvenDepth).unwrap();
-    let elapsed = clock.elapsed();
+    let (washers, steps) = tally::measure(|| profile.select(&Selection::EvenDepth).unwrap());
 
     assert_eq!(washers.len(), (WASHER_ROWS * WASHER_ROWS) as usize);
     for washer in &washers {
@@ -1270,7 +1270,11 @@ fn a_grid_of_washers_is_selected_in_bounded_time() {
         assert!(close(washer.area(), 0.75 * PI), "{}", washer.area());
         assert!(center(hole.pieces().first().unwrap()).distance(center(outer)) < 1e-9);
     }
-    assert!(elapsed < WASHER_SELECTION_TIME_LIMIT, "{elapsed:?}");
+    assert!(
+        steps <= WASHER_SELECTION_STEPS_PER_WASHER * washers.len(),
+        "{steps} steps for {} washers",
+        washers.len()
+    );
 }
 
 fn plate_with_a_line_beside_its_bottom(gap: f64) -> Vec<ProfileCurve> {

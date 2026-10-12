@@ -22,6 +22,7 @@ mod selection_sets;
 mod settings;
 mod step_cache;
 mod storage;
+mod tally;
 mod themes;
 mod untrusted;
 

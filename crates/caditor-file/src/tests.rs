@@ -23,10 +23,11 @@ use super::{
             with_unknown_codec,
         },
     },
-    save, *,
+    save, tally, *,
 };
 
 const WAIT: Duration = Duration::from_secs(10);
+const LOAD_STEPS_PER_RECORD: usize = 8;
 
 fn dimensioned_line(plane: Plane, length: f64, value: Expression) -> Sketch {
     let mut sketch = Sketch::new(plane);
@@ -5530,13 +5531,11 @@ fn many_repeated_names_cycles_and_duplicate_ids_load_quickly() {
         .collect();
     lines.extend((0..half).map(|index| empty_sketch_line(index % 2, "F")));
 
-    let started = Instant::now();
-    let loaded = decode_lines(&lines);
+    let (loaded, steps) = tally::measure(|| decode_lines(&lines));
 
     assert!(
-        started.elapsed() < Duration::from_secs(20),
-        "{:?}",
-        started.elapsed()
+        steps <= LOAD_STEPS_PER_RECORD * MAX_RECORDS,
+        "{steps} steps for {MAX_RECORDS} records"
     );
     let document = &loaded.document;
     assert_eq!(document.parameters().len(), half);

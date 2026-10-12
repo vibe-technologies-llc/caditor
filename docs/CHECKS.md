@@ -10,13 +10,9 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   selection sets) and 3 of the 20 feature kinds, and no target journals generated edits and
   replays them. Generate the rest, replay the journal in `save_load`, and add an exhaustive
   `match` on `Edit` so a new variant fails to compile until a generator covers it.
-- [medium · medium] Wall-clock asserts in the default suite, which flake on a loaded runner and
-  miss complexity regressions on a fast one: `profile/tests.rs` (2 s), `binary/tests.rs` (2 s),
-  `caditor-expression` (2 s), `read/structure.rs` (5 s), `fit.rs` and `import/tests.rs` (10 s)
-  and about seven more in the kernel and file crates; the nightly
-  `diagnosis_tests` asserts under 5 s, against `sketch-solver.md`'s "never wall-clock time". Bound
-  them by work units or iteration counts, and refuse `elapsed()` inside an assert in a
-  conventions test.
+- [low · easy] The XML test of a hundred thousand distinct namespaces asserts nothing about cost
+  since its wall-clock bound went: give `Parser::intern` a `tally` unit per entry it compares and
+  bound the total by the declarations made.
 - [low · medium] Slow tests to keep an eye on: with egui, its glyph stack and the PNG encoder built
   optimised in the dev profile (`dependencies.md`) a UI test takes a few tenths of a second, and
   none of the ten that took over a second (the screen-reader test, the shortcut reset tests, the

@@ -1,7 +1,6 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     f64::consts::{FRAC_PI_2, PI, TAU},
-    time::{Duration, Instant},
 };
 
 use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
@@ -17,7 +16,8 @@ use crate::{
     surface::PlaneSurface,
     tessellation::Mesh,
     test_support::{
-        Random, arc, assert_cancelled_anywhere, assert_watertight, circle, line, rectangle, spline,
+        Random, arc, assert_cancelled_anywhere, assert_watertight, circle, line, polls_during,
+        rectangle, spline,
     },
     tolerance::{MAX_SIZE, SamplingTolerance},
     topology::{BuildError, Solid},
@@ -25,8 +25,8 @@ use crate::{
 
 const FEATURE: u64 = 7;
 const CHORD: f64 = 1e-3;
-const DENSE_SPLINE_TIME_LIMIT: Duration = Duration::from_secs(20);
-const NEARLY_TOUCHING_LUMPS_TIME_LIMIT: Duration = Duration::from_secs(30);
+const DENSE_SPLINE_POLLS: usize = 25_000;
+const NEARLY_TOUCHING_LUMPS_POLLS: usize = 20_000;
 
 fn regions(curves: &[ProfileCurve]) -> Vec<Region> {
     Profile::new(curves)
@@ -1319,7 +1319,7 @@ fn profiles_touching_a_slanted_axis_revolve_into_valid_solids() {
 }
 
 #[test]
-fn a_dense_spline_profile_extrudes_validates_and_meshes_in_bounded_time() {
+fn a_dense_spline_profile_extrudes_validates_and_meshes_in_bounded_work() {
     let count = 320;
     let points: Vec<(f64, f64)> = (0..=count)
         .map(|index| {
@@ -1330,18 +1330,16 @@ fn a_dense_spline_profile_extrudes_validates_and_meshes_in_bounded_time() {
         .collect();
     let profile = regions(&[spline(1, &points)]);
     let area = profile[0].area();
-    let clock = Instant::now();
 
-    let solid = extrude(&Plane::XY, &profile, one_side(5.0), FEATURE).unwrap();
-    let mesh = solid.tessellate(&solid.default_tolerance()).unwrap();
+    let ((validated, mesh), polls) = polls_during(|| {
+        let solid = extrude(&Plane::XY, &profile, one_side(5.0), FEATURE).unwrap();
+        let mesh = solid.tessellate(&solid.default_tolerance()).unwrap();
+        (solid.validate(), mesh)
+    });
 
-    assert_eq!(solid.validate(), Ok(()));
+    assert_eq!(validated, Ok(()));
     assert_watertight("dense spline", &mesh);
-    assert!(
-        clock.elapsed() < DENSE_SPLINE_TIME_LIMIT,
-        "{:?}",
-        clock.elapsed()
-    );
+    assert!(polls < DENSE_SPLINE_POLLS, "{polls} polls");
     let volume = mesh.mass_properties().volume;
     assert!(
         (volume - 5.0 * area).abs() < 2e-3 * volume,
@@ -1534,7 +1532,7 @@ fn an_extrusion_along_a_slanted_direction_keeps_its_volume_and_shifts_its_end() 
 }
 
 #[test]
-fn two_nearly_touching_lumps_of_a_slanted_revolution_validate_in_bounded_time() {
+fn two_nearly_touching_lumps_of_a_slanted_revolution_validate_in_bounded_work() {
     let curves = vec![
         circle(1, (6.0, 3.499_999), 3.0),
         circle(2, (-2.5, 11.5), 6.000_1),
@@ -1575,16 +1573,15 @@ fn two_nearly_touching_lumps_of_a_slanted_revolution_validate_in_bounded_time() 
         Vector2::new(0.948_683_234_804_903_7, 0.316_227_955_753_604_9),
     )
     .unwrap();
-    let clock = Instant::now();
 
-    let solid = revolve(&plane, &profile, axis, full(), FEATURE).unwrap();
+    let ((solid, validated), polls) = polls_during(|| {
+        let solid = revolve(&plane, &profile, axis, full(), FEATURE).unwrap();
+        let validated = solid.validate();
+        (solid, validated)
+    });
 
     assert_eq!(profile.len(), 2);
-    assert_eq!(solid.validate(), Ok(()));
+    assert_eq!(validated, Ok(()));
     assert_eq!(solid.shells().count(), 2);
-    assert!(
-        clock.elapsed() < NEARLY_TOUCHING_LUMPS_TIME_LIMIT,
-        "{:?}",
-        clock.elapsed()
-    );
+    assert!(polls < NEARLY_TOUCHING_LUMPS_POLLS, "{polls} polls");
 }

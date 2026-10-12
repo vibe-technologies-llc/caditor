@@ -45,6 +45,10 @@ const TRIANGLE_BYTES: usize = 12;
 const LOADED_FRAMES: u32 = 40;
 const SETTLING_FRAMES: u32 = 3;
 
+fn within_timeout(started: Instant) -> bool {
+    Instant::now() < started + IMPORT_TIMEOUT
+}
+
 fn report(stage: &str, started: Instant, detail: impl std::fmt::Display) {
     eprintln!(
         "{stage:<44} {:>10.3} s  {detail}",
@@ -150,7 +154,7 @@ fn stages(path: &Path) {
         meshing.request(result, || Box::new(|| {}));
     }
     while meshing.is_pending() {
-        assert!(started.elapsed() < IMPORT_TIMEOUT);
+        assert!(within_timeout(started), "the import did not finish");
         meshing.poll();
         thread::sleep(Duration::from_millis(2));
     }
@@ -172,7 +176,7 @@ fn stages(path: &Path) {
         .filter(|(_, mesh)| mesh.mass().is_none())
         .count();
     while meshing.masses_measured() < asked as u64 {
-        assert!(started.elapsed() < IMPORT_TIMEOUT);
+        assert!(within_timeout(started), "the import did not finish");
         meshing.poll();
         thread::sleep(Duration::from_millis(2));
     }
@@ -227,10 +231,7 @@ fn in_app(path: &Path) {
     let mut previous_shown = 0;
     let mut steps = 0;
     loop {
-        assert!(
-            started.elapsed() < IMPORT_TIMEOUT,
-            "the import did not finish"
-        );
+        assert!(within_timeout(started), "the import did not finish");
         let frame = Instant::now();
         harness.pass();
         let took = frame.elapsed();
@@ -490,7 +491,7 @@ fn timed_change(harness: &mut Harness, name: &str, change: impl FnOnce(&mut Harn
     let changed = started.elapsed();
     let mut frames = 0;
     while harness.computing() || frames < SETTLING_FRAMES {
-        assert!(started.elapsed() < IMPORT_TIMEOUT, "{name} never settled");
+        assert!(within_timeout(started), "{name} never settled");
         if harness.computing() {
             harness.model.poll();
             thread::sleep(Duration::from_millis(1));

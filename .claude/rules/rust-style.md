@@ -27,5 +27,11 @@ paths:
 - Platform code is whole `cfg(unix)` and `cfg(windows)` items behind one interface
   (`caditor-file`'s `os` module; `portal`, `crash` in `caditor`), with a `cfg` at a call site only
   for a step one platform alone takes; Windows details are in `windows.md`.
+- Tests bound cost by work done, never by time: a count a test can read (interrupt polls through the
+  kernel's `test_support::polls_during`, or a `tally` of work units in `caditor-kernel`,
+  `caditor-file` and the solver's `solve/tally.rs`, free outside tests) with a bound that holds
+  for a stated growth of the input. A wait for another thread is bounded by a deadline fixed before
+  the loop. `conventions_tests.rs` (`no_assertion_reads_the_clock`) refuses `elapsed` inside an
+  assert.
 - Edition 2024, no MSRV: never set `rust-version`; any feature stable on the current toolchain is
   fair game.

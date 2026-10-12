@@ -14,8 +14,9 @@ paths:
 - Hostile-input limits, each an `ImportError` naming it: `MAX_DRAWING_VALUES` (`DxfFile::read`
   charges every kept record and every layer, linetype, block and MLINESTYLE entry `RECORD_VALUES`
   before keeping it, so bare `POINT` records end there too), `MAX_EXPANDED_OBJECTS` (block
-  expansion, per object and per decoded shape), `MAX_DRAWING_POINTS`. Curves past `MAX_READ_CURVES`
-  are left out with a note, the rest of an item past it counted in one step. The sketch's
+  expansion, per object and per decoded shape, both added to the `tally` the refusal tests read),
+  `MAX_DRAWING_POINTS`. Curves past `MAX_READ_CURVES` are left out with a note, the rest of an item
+  past it counted in one step. The sketch's
   `MAX_DRAWING_CURVES` applies in `Drawing::arranged` to the chosen layers' curves in drawing order
   with a note (so leaving layers out brings later curves in); `drawing_transaction` never adds more.
 - Units: `$INSUNITS` converts to millimetres with a note; unknown or missing reads as millimetres

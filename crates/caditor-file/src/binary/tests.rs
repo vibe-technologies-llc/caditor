@@ -334,12 +334,13 @@ fn forged_chunk_headers_cannot_make_the_resync_scan_quadratic() {
         bytes.extend_from_slice(&u32::try_from(remaining).unwrap().to_le_bytes());
         bytes.extend_from_slice(&[0; 8]);
     }
-    let started = std::time::Instant::now();
-    let container = parse(&bytes, &MODEL_MAGIC).unwrap();
+
+    let (container, scanned) = parse_scanned(&bytes, &MODEL_MAGIC).unwrap();
+
     assert!(
-        started.elapsed() < Duration::from_secs(2),
-        "{:?}",
-        started.elapsed()
+        scanned <= bytes.len() * (HASHING_ALLOWANCE + 1),
+        "{scanned} bytes scanned of {}",
+        bytes.len()
     );
     assert_eq!(container.chunks().count(), 0);
     assert_eq!(damaged(&container.pieces), 1);

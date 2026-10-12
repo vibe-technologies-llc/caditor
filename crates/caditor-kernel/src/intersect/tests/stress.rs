@@ -1,7 +1,4 @@
-use std::{
-    f64::consts::{FRAC_PI_2, TAU},
-    time::{Duration, Instant},
-};
+use std::f64::consts::{FRAC_PI_2, TAU};
 
 use caditor_geometry::{Plane, Point3, Vector3};
 
@@ -9,11 +6,11 @@ use super::*;
 use crate::{
     intersect::{SurfaceIntersection, intersect_surfaces},
     surface::{Cone, Cylinder, Sphere, Torus},
-    test_support::Random,
+    test_support::{Random, polls_during},
 };
 
 const ROUNDS: usize = 60;
-const TIME_LIMIT: Duration = Duration::from_secs(120);
+const POLLS_PER_ROUND: usize = 40_000;
 
 fn random_frame(random: &mut Random) -> Plane {
     let mut normal = random.point(1.0);
@@ -82,27 +79,26 @@ fn random_surface(random: &mut Random) -> (Surface, (f64, f64), (f64, f64)) {
 }
 
 #[test]
-fn random_elementary_pairs_intersect_on_both_surfaces_in_bounded_time() {
+fn random_elementary_pairs_intersect_on_both_surfaces_in_bounded_work() {
     let mut random = Random::new(41);
-    let clock = Instant::now();
     let mut meeting = 0;
     for round in 0..ROUNDS {
         let (first, first_u, first_v) = random_surface(&mut random);
         let (second, second_u, second_v) = random_surface(&mut random);
         let a = patch(&first, first_u, first_v);
         let b = patch(&second, second_u, second_v);
-        let result = intersect_surfaces(&a, &b)
-            .unwrap_or_else(|error| panic!("round {round}: {error} for {first:?} and {second:?}"));
+        let (result, polls) = polls_during(|| {
+            intersect_surfaces(&a, &b).unwrap_or_else(|error| {
+                panic!("round {round}: {error} for {first:?} and {second:?}")
+            })
+        });
         if let SurfaceIntersection::Branches { .. } = &result {
             check_all(&result, &first, &second);
             if !result.is_empty() {
                 meeting += 1;
             }
         }
-        assert!(
-            clock.elapsed() < TIME_LIMIT,
-            "round {round} ran out of time"
-        );
+        assert!(polls < POLLS_PER_ROUND, "round {round} used {polls} polls");
     }
     assert!(meeting > ROUNDS / 3, "{meeting}");
 }

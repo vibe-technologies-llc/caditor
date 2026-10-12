@@ -1,4 +1,4 @@
-use std::{collections::BTreeSet, time::Instant};
+use std::collections::BTreeSet;
 
 use caditor_expression::{EvalError, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Vector2};
@@ -432,17 +432,16 @@ fn a_conflict_through_a_chain_of_three_hundred_lines_is_named_within_the_budget(
 }
 
 #[test]
-#[ignore = "measures a conflict across hundreds of entities, best run in release"]
-fn a_conflict_across_hundreds_of_entities_is_named_within_seconds() {
+#[ignore = "names a conflict across hundreds of entities, best run in release"]
+fn a_conflict_across_hundreds_of_entities_is_named_within_its_work_bound() {
+    const WORK_PER_SQUARED_LINE: usize = 24_000;
     for count in [100, 150] {
         let chain = out_of_reach(count);
 
-        let started = Instant::now();
-        let result = solve(&chain.sketch);
-        let elapsed = started.elapsed();
+        let (result, work) = super::tally::measure(|| solve(&chain.sketch));
 
         println!(
-            "{} entities, {} constraints: {elapsed:?}",
+            "{} entities, {} constraints: {work} units",
             chain.sketch.entities().len(),
             chain.sketch.constraints().len()
         );
@@ -452,7 +451,10 @@ fn a_conflict_across_hundreds_of_entities_is_named_within_seconds() {
                 constraints: chain.spanning()
             })
         );
-        assert!(elapsed.as_secs() < 5, "{elapsed:?}");
+        assert!(
+            work < WORK_PER_SQUARED_LINE * count * count,
+            "{work} units for {count} lines"
+        );
     }
 }
 
