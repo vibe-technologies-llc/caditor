@@ -1155,6 +1155,23 @@ impl Model {
     }
 
     #[cfg(test)]
+    pub fn stop_storage_worker(&self) {
+        if let Some(storage) = &self.storage {
+            storage.stop();
+        }
+    }
+
+    #[cfg(test)]
+    pub fn has_storage_worker(&self) -> bool {
+        self.storage.is_some()
+    }
+
+    #[cfg(test)]
+    pub fn unsaved_journal_entries(&self) -> usize {
+        self.entries.len()
+    }
+
+    #[cfg(test)]
     pub fn hold_evaluations(&mut self, held: bool) {
         self.evaluations_held = held;
     }
@@ -1252,7 +1269,7 @@ impl Model {
                 entries: self.entries.len(),
             });
         } else {
-            self.storage = None;
+            self.restart_storage();
             self.set_notice(Notice::failure(
                 "Could not save, because the background writer stopped. Try saving again.",
             ));
@@ -1439,7 +1456,10 @@ impl Model {
 
     fn restart_storage(&mut self) {
         log::error!("the storage worker stopped; starting a new one");
-        self.storage = None;
+        let replaces = self
+            .storage
+            .take()
+            .and_then(|storage| storage.untitled_journal().map(Path::to_path_buf));
         if self.pending_save.take().is_some() {
             self.set_notice(Notice::failure(
                 "The save did not finish, because the background writer stopped. Try saving \
@@ -1448,7 +1468,7 @@ impl Model {
             self.file_events.push(FileEvent::SaveFailed);
         }
         self.unprotected = None;
-        self.start_storage(None, None);
+        self.start_storage(replaces, None);
     }
 
     fn poll_storage(&mut self) -> bool {
