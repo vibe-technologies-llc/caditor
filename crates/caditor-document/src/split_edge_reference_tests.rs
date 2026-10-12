@@ -483,3 +483,228 @@ fn a_selection_set_edge_partly_traced_keeps_what_it_traced_and_reports_the_rest(
     assert_eq!(resolved.lost, vec![SetLoss::Edge(base)]);
     assert!(!resolved.found.is_empty());
 }
+
+fn project_onto(
+    document: &mut Document,
+    base: FeatureId,
+    reference: EdgeReference,
+    plane: Plane,
+) -> (FeatureId, EntityId) {
+    let evaluation = evaluate(document);
+    let solid = evaluation.body(base).unwrap();
+    let edge = reference.resolve(solid).unwrap();
+    let outline = edge_outline(solid, edge, &plane).unwrap();
+    let mut transaction = document.transaction("Project");
+    let side = transaction.add_feature("Side", FeatureKind::from(Sketch::new(plane)));
+    let projected = transaction.add_projection(
+        side,
+        ProjectionSource::Edge {
+            body: base,
+            edge: reference,
+        },
+        &outline,
+    );
+    document.apply(transaction.finish()).unwrap();
+    (side, projected)
+}
+
+fn project_front_top(document: &mut Document, base: FeatureId) -> (FeatureId, EntityId) {
+    let reference = front_top(document, base);
+    project_onto(document, base, reference, Plane::XZ)
+}
+
+fn top_pieces(document: &Document, base: FeatureId, keep: impl Fn(Point3) -> bool) -> usize {
+    evaluate(document)
+        .body(base)
+        .unwrap()
+        .edges()
+        .filter(|(_, edge)| {
+            let middle = edge.curve().point(edge.interval().middle());
+            (middle.z - 4.0).abs() < CLOSE && keep(middle)
+        })
+        .count()
+}
+
+fn solved(evaluation: &Evaluation, sketch: FeatureId) -> Sketch {
+    let found = status(evaluation, sketch);
+    assert_eq!(found.state, FeatureState::UpToDate, "{found:?}");
+    found
+        .result
+        .as_deref()
+        .and_then(FeatureResult::sketch)
+        .map(|result| result.geometry.clone())
+        .unwrap()
+}
+
+fn ends_of(sketch: &Sketch, line: EntityId) -> [Point2; 2] {
+    let (start, end) = sketch.line_endpoints(line).unwrap();
+    [start, end]
+}
+
+fn on_side(x: f64, z: f64) -> Point2 {
+    Plane::XZ.to_local(Point3::new(x, 0.0, z))
+}
+
+#[test]
+fn a_projected_edge_spans_every_piece_of_an_edge_split_without_a_gap() {
+    let (mut document, outline, base) = block();
+    let (side, line) = project_front_top(&mut document, base);
+    let whole = solved(&evaluate(&document), side);
+
+    split_front(&mut document, outline, 3.0);
+    let split = solved(&evaluate(&document), side);
+    let [start, end] = ends_of(&split, line);
+
+    assert_eq!(
+        top_pieces(&document, base, |middle| middle.y.abs() < CLOSE),
+        2
+    );
+    assert!(split.is_projected(line));
+    assert_eq!(whole.entity(line), split.entity(line));
+    assert!(start.distance(on_side(0.0, 4.0)) < CLOSE, "{start}");
+    assert!(end.distance(on_side(10.0, 4.0)) < CLOSE, "{end}");
+}
+
+#[test]
+fn a_projected_edge_of_a_notched_edge_fails_in_words_rather_than_take_one_piece() {
+    let (mut document, outline, base) = block();
+    let (side, line) = project_front_top(&mut document, base);
+
+    notch(&mut document, outline, 4.0, 6.0);
+    let evaluation = evaluate(&document);
+    let error = failure(&evaluation, side);
+
+    assert!(
+        error.reason.contains("cut into parts which no longer join"),
+        "{}",
+        error.reason
+    );
+    assert!(error.remedy.contains("delete"), "{}", error.remedy);
+    assert_eq!(error.fix, Some(FixTarget::Feature(side)));
+    let FeatureKind::Sketch(definition) = &document.feature(side).unwrap().kind else {
+        panic!("a sketch");
+    };
+    assert!(definition.projections.contains_key(&line));
+    leaves_its_references(&evaluation, side, &document);
+}
+
+#[test]
+fn a_projected_edge_comes_back_when_its_notch_is_undone() {
+    let (mut document, outline, base) = block();
+    let (side, line) = project_front_top(&mut document, base);
+    let original = sketch_of(&document, outline);
+
+    reshape_outline(&mut document, outline, &notched(&original, 4.0, 6.0));
+    let failed = matches!(
+        status(&evaluate(&document), side).state,
+        FeatureState::Failed(_)
+    );
+    reshape_outline(&mut document, outline, &original);
+    let restored = solved(&evaluate(&document), side);
+    let [start, end] = ends_of(&restored, line);
+
+    assert!(failed);
+    assert!(start.distance(on_side(0.0, 4.0)) < CLOSE, "{start}");
+    assert!(end.distance(on_side(10.0, 4.0)) < CLOSE, "{end}");
+}
+
+#[test]
+fn a_projected_edge_whose_piece_left_its_line_fails_in_words() {
+    let (mut document, outline, base) = block();
+    let (side, _) = project_front_top(&mut document, base);
+
+    move_piece_off_the_line(&mut document, outline);
+    let error = failure(&evaluate(&document), side);
+
+    assert!(
+        error
+            .reason
+            .contains("only some of the parts can still be traced"),
+        "{}",
+        error.reason
+    );
+}
+
+fn half_disc() -> (Document, FeatureId, FeatureId) {
+    let mut document = Document::default();
+    let mut sketch = Sketch::new(Plane::XY);
+    sketch.add_line(Point2::new(-5.0, 0.0), Point2::new(5.0, 0.0));
+    sketch.add_arc(
+        Point2::new(0.0, 0.0),
+        Point2::new(5.0, 0.0),
+        Point2::new(-5.0, 0.0),
+    );
+    let mut transaction = document.transaction("Build");
+    let outline = transaction.add_feature("Outline", FeatureKind::from(sketch));
+    let base = transaction.add_feature(
+        "Base",
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch: outline,
+            regions: RegionChoice::All,
+            extent: ExtrudeExtent::one_side(millimetres(4.0), false),
+            operation: BodyOperation::NewBody,
+            start: None,
+            other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
+            direction: None,
+        })),
+    );
+    document.apply(transaction.finish()).unwrap();
+    (document, outline, base)
+}
+
+#[test]
+fn a_projected_arc_spans_every_piece_of_an_arc_split_in_two() {
+    let (mut document, outline, base) = half_disc();
+    let evaluation = evaluate(&document);
+    let reference = edge_at(evaluation.body(base).unwrap(), Point3::new(0.0, 5.0, 4.0));
+    let (side, arc) = project_onto(&mut document, base, reference, Plane::XY);
+    let whole = solved(&evaluate(&document), side);
+    let wanted = whole.arc(arc).unwrap();
+
+    let mut after = sketch_of(&document, outline);
+    let curve = after
+        .entities()
+        .map(|(id, _)| id)
+        .find(|id| after.arc(*id).is_some())
+        .unwrap();
+    let middle = after.add_point(Point2::new(0.0, 5.0));
+    after.split_at(curve, middle).unwrap();
+    reshape_outline(&mut document, outline, &after);
+    let split = solved(&evaluate(&document), side);
+    let found = split.arc(arc).unwrap();
+
+    assert_eq!(top_pieces(&document, base, |middle| middle.y > CLOSE), 2);
+    assert!(split.is_projected(arc));
+    assert!(found.center.distance(wanted.center) < CLOSE);
+    assert!(
+        found
+            .point_at(found.start_angle)
+            .distance(wanted.point_at(wanted.start_angle))
+            < CLOSE
+    );
+    assert!((found.sweep - wanted.sweep).abs() < CLOSE);
+}
+
+fn traced(document: &Document, base: FeatureId, reference: &EdgeReference) -> TracedEdge {
+    let evaluation = evaluate(document);
+    trace_edge(document, evaluation.body(base).unwrap(), reference)
+}
+
+#[test]
+fn a_traced_edge_is_every_piece_a_notch_leaves_and_is_partly_traced_when_one_left_its_line() {
+    let (mut document, outline, base) = block();
+    let reference = front_top(&document, base);
+
+    let whole = traced(&document, base, &reference);
+    notch(&mut document, outline, 4.0, 6.0);
+    let notched = traced(&document, base, &reference);
+    let (mut other, other_outline, other_base) = block();
+    move_piece_off_the_line(&mut other, other_outline);
+    let moved = traced(&other, other_base, &reference);
+
+    assert!(matches!(whole, TracedEdge::Found(pieces) if pieces.len() == 1));
+    assert!(matches!(notched, TracedEdge::Found(pieces) if pieces.len() == 2));
+    assert_eq!(moved, TracedEdge::PartlyTraced);
+}

@@ -166,6 +166,7 @@ pub use crate::{
         profile_curve, sketch_regions,
     },
     split::{HalfSpaceError, Split, SplitAlong, SweptError, is_open_chain},
+    split_edges::{TracedEdge, trace_edge},
     split_face::{SplitCarry, SplitFace, on_one_unrolled_surface},
     thread::{
         Bore, BoreError, PlacedThread, Thread, ThreadForm, ThreadLength, ThreadPlacement,

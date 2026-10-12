@@ -267,8 +267,8 @@ pub struct Inputs<'a> {
     pub previous: Option<&'a FeatureResult>,
 }
 
-impl Inputs<'_> {
-    pub fn body(&self, body: FeatureId) -> Option<&Solid> {
+impl<'a> Inputs<'a> {
+    pub fn body(&self, body: FeatureId) -> Option<&'a Solid> {
         let (_, result) = self.bodies.get(&body)?;
         result.solid().map(|result| &result.solid)
     }

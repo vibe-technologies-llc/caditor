@@ -843,8 +843,16 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   plane); an ellipse or elliptical arc (another sketch's, or a body's elliptical edge) in a parallel
   plane projects as an ellipse or elliptical arc (ends swapped when the planes face opposite ways),
   else as a sampled spline. The entity keeps the kind and point count it was made with, so a source
-  that now projects to another kind, is missing, split ambiguously (pieces of one line merge) or
-  unavailable fails the sketch alone naming entity and source. Source bodies count in `bodies_used`,
+  that now projects to another kind, is missing, split ambiguously or unavailable fails the sketch
+  alone naming entity and source. An edge an upstream trim, split or break cut into pieces is
+  followed as the pieces it became (`SplitEdges::run`, `kernel-naming.md`): while they run on end
+  to end the one projected curve spans all of them (a line, an arc or an elliptical arc from the
+  run's start to its end, else a spline sampled along the run), keeping its entity, points and so
+  every constraint and dimension on them. When a gap opens between the pieces, or one left the
+  line, no single curve follows the edge: the sketch fails (`ProjectionError::Unjoined`,
+  `PartlyTraced`) saying the edge was cut into parts, with the fix to delete the projection and
+  project the parts wanted (which deletes the constraints on it, never silently), and never
+  projects one piece or bridges the gap. A section edge's fragments are joined the same way. Source bodies count in `bodies_used`,
   source sketches in `features()`, edge origins in `origin_features`.
 - `TransactionBuilder::add_projection` adds an `Outline` (`edge_outline`, `vertex_outline`,
   `sketch_outline`) as points, a curve and its source in one transaction; `add_projected` does the
@@ -925,7 +933,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   in it). An item is a `PointReference`, `AxisReference`, `PlaneReference`, an edge or face of a
   body, a sketch entity (on the sketch's solved plane) or a whole body (`MeasuredItem::Body`, as it
   stands at the measurement), resolved at the measurement's place (`Resolver`; an edge through
-  `SplitEdges::follow`, its split pieces read together, `kernel-naming.md`), so its bodies,
+  `SplitEdges::follow`, its split pieces read together, `kernel-naming.md`; the app asks the same
+  through `trace_edge`), so its bodies,
   datums, frames and sketches count as used (`MeasuredItem::features`) and healing visits its edges
   and faces. It changes no body (`Feature::body` is none) and can be hidden.
 - Result `FeatureResult::Measurement` (`MeasurementResult`: the value as a `Quantity` in mm,

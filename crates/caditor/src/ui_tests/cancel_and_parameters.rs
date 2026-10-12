@@ -753,3 +753,83 @@ fn a_position_and_a_body_volume_are_kept_from_measure_rows() {
         })
     );
 }
+
+#[test]
+fn each_piece_of_an_edge_a_sketch_split_is_still_chosen_for_a_measurement() {
+    use caditor_geometry::Point2;
+    use caditor_kernel::EdgeName;
+
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    let outline = harness
+        .document()
+        .features()
+        .find(|feature| feature.name == "Plate")
+        .map(caditor_document::Feature::id)
+        .expect("the plate has its sketch");
+    let before = harness
+        .document()
+        .feature(outline)
+        .and_then(|feature| feature.kind.sketch())
+        .cloned()
+        .expect("a sketch");
+    let mut after = before.clone();
+    let front = after
+        .entities()
+        .map(|(id, _)| id)
+        .find(|id| {
+            after
+                .line_endpoints(*id)
+                .is_some_and(|(start, end)| start.y.abs() < 1e-9 && end.y.abs() < 1e-9)
+        })
+        .expect("the plate has a front line");
+    let middle = after.add_point(Point2::new(15.0, 0.0));
+    after
+        .split_at(front, middle)
+        .expect("the front line splits");
+    let mut transaction = harness.document().transaction("Split the front");
+    transaction.reshape_sketch(outline, &before, &after);
+    harness.perform(Action::Apply(transaction.finish()));
+    harness.settle();
+    harness.frame();
+
+    let index = harness.document().features().len();
+    let piece_at = |x: f64| -> EdgeName {
+        harness
+            .model
+            .evaluation()
+            .body(plate)
+            .unwrap()
+            .edges()
+            .find(|(_, edge)| {
+                let middle = edge.curve().point(edge.interval().middle());
+                (middle - Point3::new(x, 0.0, 10.0)).length() < 1e-6
+            })
+            .map(|(_, edge)| edge.name())
+            .expect("the front top edge has a piece there")
+    };
+    let chosen = |x: f64| {
+        measurement_tools::item_at(
+            &harness.model,
+            Pickable::Edge {
+                body: plate,
+                edge: piece_at(x),
+            },
+            index,
+        )
+    };
+
+    assert!(
+        matches!(chosen(7.5), Ok(caditor_document::MeasuredItem::Edge { .. })),
+        "{:?}",
+        chosen(7.5)
+    );
+    assert!(
+        matches!(
+            chosen(27.5),
+            Ok(caditor_document::MeasuredItem::Edge { .. })
+        ),
+        "{:?}",
+        chosen(27.5)
+    );
+}

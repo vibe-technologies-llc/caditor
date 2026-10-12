@@ -151,6 +151,12 @@ impl<'a> EdgeRun<'a> {
         std::iter::once(&self.first).chain(&self.rest)
     }
 
+    pub(crate) fn edges(&self) -> Vec<(&'a Edge, bool)> {
+        self.pieces()
+            .map(|piece| (piece.edge, piece.forward))
+            .collect()
+    }
+
     pub(crate) fn length(&self) -> f64 {
         self.pieces().map(|piece| piece.length).sum()
     }
