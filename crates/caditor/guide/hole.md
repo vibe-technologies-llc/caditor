@@ -22,11 +22,17 @@
   (select the edge first, or choose it in the view) with a **Distance** you can type, and a
   second edge across the first fixes it, so a hole 8 mm from two sides stays there when the body
   changes. **Concentric** centres it on a round edge, a circle or an arc, and it follows that
-  edge. Each edge can be let go again from its row.
+  edge. Each edge can be let go again from its row. While the hole is open, a hole measured from
+  an edge has an arrow at its centre pointing away from the edge, whose drag changes that
+  **Distance** (it stops a step short of the edge, and a distance named or driven by a
+  [parameter](parameters) keeps its name or says what drives it), one arrow for each edge.
 - **Add another hole** under **Placed on** drills more holes of the same size and depth: click
   each spot on the face, or highlight the face with the keyboard to put one where there is most
   room, and press Escape when done. Each hole is listed with its own position or edges and can
-  be removed. **Edit the sketch** under **Sketch** opens the hidden sketch holding the points.
+  be removed. A hole of several points has a square on each free point: drag it to move just that
+  hole, or type its x, y with the pointer on it; a point whose position follows a parameter does
+  not drag and says which parameter drives it. **Edit the sketch** under **Sketch** opens the
+  hidden sketch holding the points.
 - With one curved face selected (the round wall of a cylinder, a cone or a sphere), it drills
   square into the face and asks you to click where the hole goes. Drag the square or an arrow at
   its centre to slide it over the face, staying square to it, or use **Choose in the view** on

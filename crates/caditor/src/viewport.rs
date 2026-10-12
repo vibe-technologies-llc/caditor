@@ -1317,6 +1317,7 @@ impl ViewportState {
             isocurves: self.isocurves.clone(),
             manipulator: self
                 .manipulator
+                .as_ref()
                 .map(|manipulator| manipulator.drawn(self.manipulator_hover)),
         });
         if let Some(highlight) = self.keyboard_highlight
@@ -1571,7 +1572,7 @@ impl ViewportState {
 
     #[cfg(test)]
     pub fn handle_position(&self, handle: Handle, along: f64) -> Option<egui::Pos2> {
-        let world = self.manipulator?.grip(handle, along)?;
+        let world = self.manipulator.as_ref()?.grip(handle, along)?;
         let pixel = self.view()?.project(world)? / f64::from(self.pixels_per_point);
         Some(self.rect?.min + egui::Vec2::new(pixel.x as f32, pixel.y as f32))
     }
@@ -1584,12 +1585,12 @@ impl ViewportState {
 
     #[cfg(test)]
     pub fn handle_foot(&self, handle: Handle) -> Option<Point3> {
-        self.manipulator?.foot(handle)
+        self.manipulator.as_ref()?.foot(handle)
     }
 
     #[cfg(test)]
     pub fn manipulator_step(&self) -> Option<f64> {
-        self.manipulator.map(|manipulator| manipulator.step())
+        self.manipulator.as_ref().map(Manipulator::step)
     }
 
     #[cfg(test)]
@@ -2072,9 +2073,14 @@ impl ViewportState {
         self.manipulator_hover = match &self.primary {
             Some(PrimaryDrag::Manipulate(manipulating)) => Some(manipulating.handle),
             Some(_) => None,
-            None => self.manipulator.zip(self.view()).zip(self.cursor).and_then(
-                |((manipulator, view), cursor)| manipulator.hit(&view, cursor, pixels_per_point),
-            ),
+            None => self
+                .manipulator
+                .as_ref()
+                .zip(self.view())
+                .zip(self.cursor)
+                .and_then(|((manipulator, view), cursor)| {
+                    manipulator.hit(&view, cursor, pixels_per_point)
+                }),
         };
     }
 
@@ -2105,11 +2111,11 @@ impl ViewportState {
     }
 
     fn manipulate_from(&self, press: Press, model: &Model) -> Option<Manipulating> {
-        let manipulator = self.manipulator?;
+        let manipulator = self.manipulator.as_ref()?;
         let view = self.view()?;
         let handle = manipulator.hit(&view, press.cursor, f64::from(self.pixels_per_point))?;
         let ray = view.ray_through(press.cursor)?;
-        Manipulating::begin(model, &manipulator, handle, ray)
+        Manipulating::begin(model, manipulator, handle, ray)
     }
 
     fn grab_preview(&self) -> Preview {
@@ -4100,7 +4106,7 @@ impl ViewportState {
                 None => self.manipulator_hover,
             };
             let typing = held
-                .zip(self.manipulator)
+                .zip(self.manipulator.as_ref())
                 .and_then(|(handle, manipulator)| manipulator.typing(model, handle));
             let Some(typing) = typing else {
                 self.typed_point.close();
@@ -5239,6 +5245,7 @@ impl ViewportState {
             if let Some(handle) = self.manipulator_hover.filter(|_| self.primary.is_none()) {
                 Some(
                     self.manipulator
+                        .as_ref()
                         .map_or_else(|| handle.words(), |shown| shown.words(model, handle)),
                 )
             } else if let Some(active) = projecting {

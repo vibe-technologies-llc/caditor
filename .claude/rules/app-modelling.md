@@ -47,6 +47,7 @@ paths:
   - "crates/caditor/src/reversing.rs"
   - "crates/caditor/src/body_selection.rs"
   - "crates/caditor/src/handle_snap.rs"
+  - "crates/caditor/src/hole_handles.rs"
   - "crates/caditor/src/hole_on_curve.rs"
   - "crates/caditor/src/hole_placement/**"
   - "crates/caditor/src/last_values.rs"
@@ -484,8 +485,9 @@ pattern, Coordinate system, Scale model and Configurations. Panel rows, keys and
   origin holding the expression as a magnitude (negated on the negative side,
   `hole_placement::signed`, which also gives the field the expression back); a plain value typed over
   it drops that dimension. The square's typed "x, y" goes the same way.
-- A hole held by edges or Concentric has no placement handles and no Use selected under Placed on
-  (those take only `hole_tools::lone_point` sketches). One measured from edges has a Measured from row
+- A hole held by edges or Concentric has no Use selected under Placed on (that takes only
+  `hole_tools::lone_point` sketches) and no place arrows along x and y (see the last bullet of this
+  section for its handles). One measured from edges has a Measured from row
   per edge (`edge_words`, Stop measuring from this edge, `released`) and its Distance (key
   `hole-edge-distance`, previewed, one "Move <hole>" `SetDimension`). One centred on an edge has
   Concentric with and a Stop centring row. Place by offers From an edge (`Slot::HoleEdge(point)`, while
@@ -505,6 +507,23 @@ pattern, Coordinate system, Scale model and Configurations. Panel rows, keys and
   arrows' length. A drag follows where the pointer's ray meets the sketch plane, in steps (Ctrl free),
   previewed with Position X and Y beside the pointer and committed on release as one "Move <hole>"
   change; the handles follow the preview (`Model::draft_transaction`).
+- Every other placement (`hole_placement::read`) has its handles in `hole_handles.rs`
+  (`Manipulator::Holes`, `Handle::Hole(HoleGrip)`, standing where the place handles do and drawn,
+  hit and cleared of value arrows the same way): a square on each free point
+  (`HoleGrip::Square(point)`) and, on a point measured from edges, an arrow per `Distance`
+  (`HoleGrip::Distance(constraint)`) standing at the point and pointing along the edge's normal
+  away from the edge (`leaving`, read off the solved sketch of the draft's evaluation while one is
+  shown); a point centred on an edge has none. A drag is a `place_handles::Slide` (shared with
+  `PlaceDrag`: a plane or a line, steps, Ctrl free, snapping to corners, edge middles and round
+  centres, the arrow also kept at least one step from the edge) committed on release as one "Move
+  <hole>" change: the square through `hole_placement::positioned` with the moved axes as measured
+  values, the arrow as a `SetDimension` of that constraint's value or, for a named one, an
+  `Edit::SetParameterExpression` (`manipulator::Held`, read from the panel's `EDGE_DISTANCE`
+  caption). A point whose position is held by a dimension from the origin, and a distance using
+  other parameters, are driven: the handle does not drag, its hover names what drives it and typing
+  opens no field. Typing over a square takes "x, y" and over an arrow a length at least zero, as the
+  panel's fields do (`hole_handles::typed`). The hover names the hole ("hole 2") once there are
+  several.
 
 ## Value handles
 
@@ -558,8 +577,8 @@ pattern, Coordinate system, Scale model and Configurations. Panel rows, keys and
     its base set so the foot is exact now and slides along the curve's tangent while dragged). A
     point pattern has no count or spacing: its copies are its sketch's points.
   Counts always step by one.
-- `Manipulator` holds them beside the primary handles as `Reach`, `Revolve` and `Place`'s second part,
-  or alone as `Manipulator::Value`, hit before the primary handles. Since value arrows stand at model
+- `Manipulator` holds them beside the primary handles as `Reach`, `Revolve`, `Place`'s and `Holes`'
+  second part, or alone as `Manipulator::Value`, hit before the primary handles. Since value arrows stand at model
   positions while primary handles keep their size on screen, one coming within `CLEARANCE_POINTS` on
   screen of a primary handle's arrows or square, or of an earlier value arrow, is left out
   (`ValueHandles::clear_of`, `move_manipulator::segments_apart`) until zooming in parts them; its panel

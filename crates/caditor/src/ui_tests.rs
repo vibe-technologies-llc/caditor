@@ -84,6 +84,7 @@ mod feature_tree_choice;
 mod files_and_history;
 mod frame_costs;
 mod hole_feet;
+mod hole_place_handles;
 mod import_costs;
 mod import_jobs;
 mod large_interface;
