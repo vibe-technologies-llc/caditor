@@ -1396,14 +1396,13 @@ pub fn error_text(ui: &mut Ui, text: &str) -> Response {
     .response
 }
 
-pub fn choose_in_view(ui: &mut Ui, choosing: bool, waiting: &str, hover: &str) -> bool {
-    if choosing {
-        ui.label(muted(waiting, ui));
-        false
-    } else {
-        let button = small_button(ui, icons::CHOOSE_IN_VIEW, "Choose in the view");
-        ui.add(button).on_hover_text(hover).clicked()
-    }
+pub fn choose_in_view(ui: &mut Ui, hover: &str) -> bool {
+    let button = small_button(
+        ui,
+        icons::CHOOSE_IN_VIEW,
+        crate::feature_fields::CHOOSE_IN_VIEW,
+    );
+    ui.add(button).on_hover_text(hover).clicked()
 }
 
 pub struct SectionAction<'a> {

@@ -218,8 +218,10 @@ fn offset_face_errors_name_the_problem_and_the_fix() {
 
     set_offset(&mut model, |offset| offset.faces.clear());
     let evaluation = evaluate(&model.document, &mut model.engine);
-    let error = failure(&evaluation, model.offset);
-    assert_eq!(error.reason, "No face is chosen to move.");
+    assert!(matches!(
+        evaluation.feature(model.offset).unwrap().state,
+        FeatureState::Waiting(MissingInput::FacesToMove { .. })
+    ));
 }
 
 #[test]

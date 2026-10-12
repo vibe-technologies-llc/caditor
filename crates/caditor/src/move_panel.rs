@@ -1,14 +1,14 @@
 use caditor_document::{
-    AxisReference, AxisTurn, Feature, FeatureId, Move, MoveAxis, Transaction, TurnCentre,
-    capitalized, describe_axis,
+    AxisTurn, Feature, FeatureId, Move, MoveAxis, Transaction, TurnCentre, capitalized,
+    describe_axis,
 };
 use caditor_expression::{Dimension, Expression};
 use egui::{Id, Ui};
 
 use crate::{
-    feature_fields::{self, Choice, Picker, Quantity, Rule, Segment},
+    feature_fields::{self, AxisRow, Picker, Quantity, Rule, Segment},
     model::{Action, Model},
-    move_tools, pattern_tools,
+    move_tools,
     reference_picking::Slot,
     selection::Selection,
     widgets,
@@ -169,43 +169,31 @@ impl Panel<'_> {
     }
 
     fn axis_rows(&mut self, ui: &mut Ui, turn: &AxisTurn) {
-        let document = self.model.document();
-        let current = capitalized(&describe_axis(document, &turn.axis));
-        widgets::caption(ui, AXIS);
-        let chosen = feature_fields::combo(ui, Id::new(("move-axis", self.id())), current, || {
-            let listed = pattern_tools::listed_axes(self.model, self.id());
-            let shown_too = (!listed.contains(&turn.axis)).then(|| turn.axis.clone());
-            listed
-                .into_iter()
-                .chain(shown_too)
-                .map(|axis: AxisReference| Choice {
-                    label: capitalized(&describe_axis(document, &axis)),
-                    selected: axis == turn.axis,
-                    change: self
-                        .change(move_tools::about_axis(self.movement, axis))
-                        .map(Action::Apply),
-                })
-                .collect()
-        });
-        ui.end_row();
-        self.actions.extend(chosen);
-        ui.label("");
-        let picker = Picker {
-            feature: self.id(),
-            slot: Slot::MoveAxis,
-            selected: feature_fields::offered_change(
-                ui.ctx(),
-                self.model,
-                self.selection,
-                (self.id(), Slot::MoveAxis),
-                || move_tools::axis_change(self.model, self.selection, self.id(), self.movement),
-            ),
-            hover: PICK_HOVER,
+        let (model, id) = (self.model, self.id());
+        let row = AxisRow {
+            caption: AXIS,
+            shown: Some(capitalized(&describe_axis(model.document(), &turn.axis))),
+            picker: Picker {
+                feature: id,
+                slot: Slot::MoveAxis,
+                selected: feature_fields::offered_change(
+                    ui.ctx(),
+                    model,
+                    self.selection,
+                    (id, Slot::MoveAxis),
+                    || move_tools::axis_change(model, self.selection, id, self.movement),
+                ),
+                hover: PICK_HOVER,
+            },
         };
-        ui.vertical(|ui| {
-            feature_fields::reference_picker(ui, self.model, picker, self.actions);
-        });
-        ui.end_row();
+        let listed = || {
+            feature_fields::model_axis_choices(model, id, Some(&turn.axis), &|axis| {
+                self.change(move_tools::about_axis(self.movement, axis))
+            })
+        };
+        let mut actions = Vec::new();
+        feature_fields::axis_row(ui, model, row, Some(&listed), &mut actions);
+        self.actions.extend(actions);
         self.angle_row(ui, turn);
     }
 
@@ -323,7 +311,7 @@ pub fn show(
         for axis in MoveAxis::ALL {
             panel.distance_row(ui, axis);
         }
-        feature_fields::feature_row(ui, model.document(), "Body", movement.body);
         panel.copy_row(ui);
+        feature_fields::feature_row(ui, model.document(), "Body", movement.body);
     });
 }

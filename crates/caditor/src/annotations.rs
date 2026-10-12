@@ -861,6 +861,7 @@ impl<'a> Standings<'a> {
             Some(FeatureState::Failed(error)) => error.constraints.clone(),
             Some(
                 FeatureState::UpToDate
+                | FeatureState::Waiting(_)
                 | FeatureState::Outdated
                 | FeatureState::Suppressed
                 | FeatureState::RolledBack,

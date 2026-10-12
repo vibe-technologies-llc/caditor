@@ -84,8 +84,61 @@ pub struct FeatureError {
     pub place: Option<Point3>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MissingInput {
+    Axis,
+    Path,
+    Regions { sketch: FeatureId },
+    Edges { body: FeatureId },
+    FacesToMove { body: FeatureId },
+    FacesToSplit { body: FeatureId },
+}
+
+impl MissingInput {
+    pub fn waiting_words(self) -> &'static str {
+        match self {
+            Self::Axis => "Waiting for an axis",
+            Self::Path => "Waiting for a path",
+            Self::Regions { .. } => "Waiting for regions",
+            Self::Edges { .. } => "Waiting for edges",
+            Self::FacesToMove { .. } | Self::FacesToSplit { .. } => "Waiting for faces",
+        }
+    }
+
+    pub fn prompt(self, document: &Document) -> String {
+        let name = |feature: FeatureId| {
+            document.feature(feature).map_or_else(
+                || "the missing feature".to_owned(),
+                |feature| feature.name.clone(),
+            )
+        };
+        match self {
+            Self::Axis => {
+                "Choose an axis, straight edge or round face for the copies to turn about."
+                    .to_owned()
+            }
+            Self::Path => {
+                "Choose the curves of a sketch or the edges of a body to sweep along.".to_owned()
+            }
+            Self::Regions { sketch } => {
+                format!("Choose at least one region of {} to sweep.", name(sketch))
+            }
+            Self::Edges { body } => {
+                format!("Choose at least one edge of the body of {}.", name(body))
+            }
+            Self::FacesToMove { body } => {
+                format!("Choose the faces of the body of {} to move.", name(body))
+            }
+            Self::FacesToSplit { body } => {
+                format!("Choose the faces of the body of {} to split.", name(body))
+            }
+        }
+    }
+}
+
 pub enum Failure {
     Error(Box<FeatureError>),
+    Waiting(MissingInput),
     Cancelled,
 }
 
@@ -93,6 +146,7 @@ impl Failure {
     pub(crate) fn placed(self, place: Option<Point3>) -> Self {
         match self {
             Self::Error(error) => Self::Error(Box::new(FeatureError { place, ..*error })),
+            Self::Waiting(missing) => Self::Waiting(missing),
             Self::Cancelled => Self::Cancelled,
         }
     }
@@ -344,6 +398,7 @@ pub trait Evaluator: Send + Sync + 'static {
 pub enum FeatureState {
     UpToDate,
     Failed(FeatureError),
+    Waiting(MissingInput),
     Outdated,
     Suppressed,
     RolledBack,
@@ -577,6 +632,7 @@ impl CacheEntry {
             }
             FeatureState::UpToDate if self.healing.is_some() => self.names == key.names,
             FeatureState::UpToDate
+            | FeatureState::Waiting(_)
             | FeatureState::Outdated
             | FeatureState::Suppressed
             | FeatureState::RolledBack => true,
@@ -1014,6 +1070,9 @@ impl Recompute {
                 let (state, result, healing) = match outcome {
                     Ok((result, healing)) => (FeatureState::UpToDate, Some(result), healing),
                     Err(Failure::Error(error)) => (FeatureState::Failed(*error), last_good, None),
+                    Err(Failure::Waiting(missing)) => {
+                        (FeatureState::Waiting(missing), last_good, None)
+                    }
                     Err(Failure::Cancelled) => {
                         cancelled = true;
                         walk.statuses.insert(id, FeatureStatus::outdated(last_good));

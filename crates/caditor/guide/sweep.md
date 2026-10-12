@@ -9,7 +9,8 @@ The profile is a sketch with closed regions; the path is a chain of curves of an
 (lines, arcs, splines, ellipses, construction lines too) or of edges of a body, joined end to end
 without forks. Select the profile's regions or curves and the path's curves or edges together,
 then choose Sweep. With only a profile selected, or nothing (the last sketch with regions not yet
-swept), Sweep opens with no path and starts choosing it in the view.
+swept), Sweep opens with no path and starts choosing it in the view. Until it has one, its row in
+the tree says "Waiting for a path" rather than failing.
 
 The path is followed from its end nearest the profile's plane, the profile moving as that end
 moves, so draw the path starting on the profile. A closed path (a loop) needs no ends: the sweep
@@ -20,7 +21,8 @@ starts where the path crosses the profile's plane and closes on itself.
 - **Sketch** and **Regions** choose the profile, as for [Extrude](extrude).
 - **Path** names the curves or edges followed. Use selected follows the selected ones instead;
   Choose in the view starts choosing: each click on a curve or edge adds it to the path, a second
-  click leaves it out, and Escape stops. The cross clears the path.
+  click leaves it out, and Escape or Stop choosing stops; a "Keeps choosing until Esc" pill says
+  so. The cross clears the path.
 - **Orientation**: **Square to path** turns the profile with the path, keeping its angle to it as a
   bent pipe does; **Parallel** only moves it along the path, keeping it parallel to its sketch.
 - **New body**, **Add**, **Remove from body** or **Intersect with body**, as for an extrusion.
@@ -38,4 +40,4 @@ starts where the path crosses the profile's plane and closes on itself.
   a path in one plane.
 
 A curve of the path cannot be deleted while a sweep follows it; deleting the whole path sketch
-leaves the sweep failing until a path is chosen again.
+leaves the sweep failing until a path is chosen again; clearing the path leaves it waiting for one.

@@ -441,6 +441,8 @@ paths:
   inactive or hidden rows muted). A failure shows once, as the status icon and its callout, never by
   recolouring the icon or name; an outdated row the same with a Recompute button. A row a running
   recompute has not reached (`Evaluation::is_pending`) shows the waiting icon over its last status.
+  A feature waiting for an input (`FeatureState::Waiting`) shows `icons::AWAITING_INPUT` in the info
+  tone and an info callout, never the failure icon (`app-modelling.md`).
   A suppressed row is struck through and muted, a rolled-back row muted; neither offers the edit
   button, and the card under either is drawn disabled below a muted line giving `editable`'s reason,
   with Unsuppress or Roll forward to here (`feature_tree::inactive_note`). A failure caused by a

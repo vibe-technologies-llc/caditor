@@ -223,7 +223,7 @@ impl<'a> Work<'a> {
         };
         let landed = match &computed {
             Some(Ok((result, _))) => Landed::Stands(Arc::clone(result)),
-            Some(Err(Failure::Error(_))) => Landed::Falls,
+            Some(Err(Failure::Error(_) | Failure::Waiting(_))) => Landed::Falls,
             Some(Err(Failure::Cancelled)) => Landed::Stopped,
             None => Landed::Lost,
         };

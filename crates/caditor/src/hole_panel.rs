@@ -422,6 +422,9 @@ impl Panel<'_> {
             .collect();
         let chosen = feature_fields::segmented_row(ui, "Shape", &self.feature.name, segments);
         self.actions.extend(chosen);
+    }
+
+    fn slot_rows(&mut self, ui: &mut Ui) {
         if let HoleShape::Slot { length, angle } = self.hole.shape.clone() {
             let turned = angle.clone();
             self.length_row(
@@ -868,16 +871,8 @@ impl Panel<'_> {
         hover: &str,
     ) {
         let id = self.id();
-        let picking =
-            reference_picking::current(ui.ctx()).filter(|picking| picking.is_for(id, slot));
-        if let Some(picking) = picking {
-            let prompt = format!("{}.", reference_picking::prompt(self.model, picking));
-            ui.label(widgets::muted(prompt, ui));
-            let stop = widgets::small_button(ui, icons::CLOSE, feature_fields::STOP_CHOOSING);
-            if ui.add(stop).clicked() {
-                self.actions
-                    .push(Action::Editing(EditingCommand::StopPicking));
-            }
+        let stop = feature_fields::STOP_CHOOSING;
+        if feature_fields::choosing_prompt(ui, self.model, (id, slot), stop, self.actions) {
             return;
         }
         let offered = feature_fields::offered_change(
@@ -967,27 +962,15 @@ impl Panel<'_> {
 
     fn add_hole_button(&mut self, ui: &mut Ui) {
         let id = self.id();
-        let picking = reference_picking::current(ui.ctx())
-            .filter(|picking| picking.is_for(id, Slot::HoleAdd));
-        match picking {
-            Some(picking) => {
-                let prompt = format!("{}.", reference_picking::prompt(self.model, picking));
-                ui.label(widgets::muted(prompt, ui));
-                let stop = widgets::small_button(ui, icons::CLOSE, STOP_ADDING);
-                if ui.add(stop).clicked() {
-                    self.actions
-                        .push(Action::Editing(EditingCommand::StopPicking));
-                }
-            }
-            None => {
-                let add = widgets::small_button(ui, icons::ADD, ADD_HOLE);
-                if ui.add(add).on_hover_text(ADD_HOLE_HOVER).clicked() {
-                    self.actions
-                        .push(Action::Editing(EditingCommand::Pick(Picking::new(
-                            id,
-                            Slot::HoleAdd,
-                        ))));
-                }
+        let adding = (id, Slot::HoleAdd);
+        if !feature_fields::choosing_prompt(ui, self.model, adding, STOP_ADDING, self.actions) {
+            let add = widgets::small_button(ui, icons::ADD, ADD_HOLE);
+            if ui.add(add).on_hover_text(ADD_HOLE_HOVER).clicked() {
+                self.actions
+                    .push(Action::Editing(EditingCommand::Pick(Picking::new(
+                        id,
+                        Slot::HoleAdd,
+                    ))));
             }
         }
     }
@@ -1005,7 +988,7 @@ impl Panel<'_> {
                         .push(Action::Editing(EditingCommand::Enter(sketch)));
                 }
             }
-            None => feature_fields::missing(ui, feature_fields::MISSING_BODY),
+            None => feature_fields::missing(ui, feature_fields::MISSING_SKETCH),
         });
         ui.end_row();
     }
@@ -1238,6 +1221,8 @@ pub fn show(
     };
     widgets::properties(ui, ("hole-properties", feature.id()), |ui| {
         feature_fields::description_row(ui, DESCRIPTION);
+        panel.shape_row(ui);
+        panel.sketch_row(ui);
         panel.placement_rows(ui);
         panel.size_row(ui);
         if let Some(standard) = hole.standard {
@@ -1261,7 +1246,7 @@ pub fn show(
             },
         );
         panel.style_rows(ui);
-        panel.shape_row(ui);
+        panel.slot_rows(ui);
         panel.depth_row(ui);
         if let HoleDepth::Blind(depth) = &hole.depth {
             panel.length_row(
@@ -1291,7 +1276,6 @@ pub fn show(
                 panel.change(flipped),
             ));
         }
-        panel.sketch_row(ui);
         panel.body_row(ui);
     });
 }

@@ -16,7 +16,9 @@ A new linear or circular pattern starts from the count last used on one, kept be
 Select an axis, straight edge, round face or sketch line with it to set the direction or axis. A
 linear pattern otherwise runs along the X axis. A circular pattern never picks an axis for you: with
 none selected it opens waiting for you to click the axis, straight edge or round face to turn about,
-and makes no copies until you do.
+and makes no copies until you do. Until then its row in the tree shows a pointing hand and "Waiting
+for an axis" rather than a failure, with Choose in the view to pick it later; the Axis reads None
+chosen.
 
 ## Along a curve or at points
 
@@ -30,8 +32,9 @@ and makes no copies until you do.
 
 ## The panel
 
-- **Direction**, an optional **Second direction**, or the **Axis**, each from a list or the
-  selection.
+- **Direction**, an optional **Second direction**, or the **Axis**, each from a list of the
+  principal axes, datum axes and coordinate system axes above the pattern, the selection or Choose
+  in the view.
 - The count and, for a linear pattern, **Spacing** between copies or the **Total length**, each
   previewed as you type. {command:model.reverse_direction} reverses the first direction, the turn
   of a circular pattern, or the way along the curve.

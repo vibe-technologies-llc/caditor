@@ -11,7 +11,7 @@ use crate::{
     describe::describe_edge,
     document::{FeatureId, list_names},
     origins,
-    recompute::{Failure, FeatureResult, FixTarget, Inputs},
+    recompute::{Failure, FeatureResult, FixTarget, Inputs, MissingInput},
     solid::{BodyOperation, Context, RegionChoice, profile_curve, sweep_failure},
 };
 
@@ -148,12 +148,8 @@ fn feature_name(inputs: &Inputs<'_>, feature: FeatureId) -> String {
         .unwrap_or_default()
 }
 
-fn no_path(context: &Context<'_>) -> Failure {
-    context.error(
-        format!("No path is chosen for {}.", context.feature.name),
-        "Choose the curves of a sketch or the edges of a body to sweep along.".to_owned(),
-        context.own(),
-    )
+fn no_path() -> Failure {
+    Failure::Waiting(MissingInput::Path)
 }
 
 fn curve_path(
@@ -258,15 +254,15 @@ pub(crate) fn swept(
     definition: &Sweep,
 ) -> Result<Solid, Failure> {
     if definition.path.is_empty() {
-        return Err(no_path(context));
+        return Err(no_path());
     }
     let path = match &definition.path {
-        SweepPath::Unchosen => return Err(no_path(context)),
+        SweepPath::Unchosen => return Err(no_path()),
         SweepPath::Curves { sketch, curves } => curve_path(context, inputs, *sketch, curves)?,
         SweepPath::Edges { body, edges } => edge_path(context, inputs, *body, edges)?,
     };
     if path.segments.is_empty() {
-        return Err(no_path(context));
+        return Err(no_path());
     }
     sweep(
         plane,
@@ -285,7 +281,7 @@ fn failure(context: &Context<'_>, path: &Path, error: &PathSweepError) -> Failur
     match error {
         PathSweepError::Cancelled(_) => Failure::Cancelled,
         PathSweepError::Sweep(error) => sweep_failure(context, SWEEP_SHAPE, error),
-        PathSweepError::NoPath => no_path(context),
+        PathSweepError::NoPath => no_path(),
         PathSweepError::SegmentTooShort { segment } => in_path(
             format!(
                 "{}{owner} is too short to sweep along.",

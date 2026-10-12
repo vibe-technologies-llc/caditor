@@ -8,7 +8,7 @@ use caditor_expression::{BinaryOperator, Dimension, Expression};
 use egui::{Id, Ui};
 
 use crate::{
-    feature_fields::{self, Choice, Picker, Quantity, REVERSE_DIRECTION, Rule, Segment},
+    feature_fields::{self, AxisRow, Choice, Picker, Quantity, REVERSE_DIRECTION, Rule, Segment},
     icons,
     model::{Action, Model},
     pattern_tools::{self, Reference, Shape},
@@ -384,7 +384,6 @@ impl Panel<'_> {
     }
 
     fn axis_choices(&self, reference: Reference, current: Option<&AxisReference>) -> Vec<Choice> {
-        let document = self.model.document();
         let none = match (&self.pattern.kind, reference) {
             (PatternKind::Linear { first, .. }, Reference::Second) => Some(Choice {
                 label: NO_SECOND_DIRECTION.to_owned(),
@@ -398,20 +397,15 @@ impl Panel<'_> {
             }),
             _ => None,
         };
-        let axes = pattern_tools::listed_axes(self.model, self.id())
-            .into_iter()
-            .map(|axis| Choice {
-                label: capitalized(&describe_axis(document, &axis)),
-                selected: current == Some(&axis),
-                change: pattern_tools::with_axis(self.model, self.pattern, reference, axis)
-                    .map_err(str::to_owned)
-                    .and_then(|pattern| pattern_tools::change(self.model, self.id(), pattern))
-                    .map(Action::Apply),
-            });
+        let axes = feature_fields::model_axis_choices(self.model, self.id(), current, &|axis| {
+            pattern_tools::with_axis(self.model, self.pattern, reference, axis)
+                .map_err(str::to_owned)
+                .and_then(|pattern| pattern_tools::change(self.model, self.id(), pattern))
+        });
         none.into_iter().chain(axes).collect()
     }
 
-    fn reference_row(
+    fn axis_row(
         &mut self,
         ui: &mut Ui,
         caption: &str,
@@ -419,20 +413,15 @@ impl Panel<'_> {
         (reference, slot): (Reference, Slot),
         hover: &'static str,
     ) {
-        widgets::caption(ui, caption);
-        let shown = axis.map_or_else(
-            || NO_SECOND_DIRECTION.to_owned(),
-            |axis| capitalized(&describe_axis(self.model.document(), axis)),
-        );
-        let id = Id::new(("pattern-axis", caption, self.id()));
-        ui.vertical(|ui| {
-            let chosen =
-                feature_fields::combo(ui, id, shown, || self.axis_choices(reference, axis));
-            self.actions.extend(chosen);
-            let picker = self.picker(ui.ctx(), slot, reference, hover);
-            feature_fields::reference_picker(ui, self.model, picker, self.actions);
-        });
-        ui.end_row();
+        let row = AxisRow {
+            caption,
+            shown: axis.map(|axis| capitalized(&describe_axis(self.model.document(), axis))),
+            picker: self.picker(ui.ctx(), slot, reference, hover),
+        };
+        let mut actions = Vec::new();
+        let listed = || self.axis_choices(reference, axis);
+        feature_fields::axis_row(ui, self.model, row, Some(&listed), &mut actions);
+        self.actions.extend(actions);
     }
 
     fn expression(
@@ -525,7 +514,7 @@ impl Panel<'_> {
         first: &LinearDirection,
         second: Option<&LinearDirection>,
     ) {
-        self.reference_row(
+        self.axis_row(
             ui,
             "Direction",
             Some(&first.axis),
@@ -537,7 +526,7 @@ impl Panel<'_> {
             first,
             second: kept.clone(),
         });
-        self.reference_row(
+        self.axis_row(
             ui,
             "Second direction",
             second.map(|second| &second.axis),
@@ -757,7 +746,7 @@ impl Panel<'_> {
     }
 
     fn circular_rows(&mut self, ui: &mut Ui, circular: &CircularPattern) {
-        self.reference_row(
+        self.axis_row(
             ui,
             "Axis",
             circular.axis.as_ref(),

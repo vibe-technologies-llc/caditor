@@ -11,7 +11,9 @@ use crate::{
     document::{Document, Feature, FeatureId},
     origins,
     pieces::{Resolution, Unresolved, pieces_of_one_face, tally},
-    recompute::{CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
+    recompute::{
+        CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs, MissingInput,
+    },
     solid::SolidResult,
     split_edges::{Followed, SplitEdges},
 };
@@ -437,13 +439,9 @@ impl Context<'_> {
                  leave this edge out."
                     .to_owned(),
             ),
-            BlendError::NoEdges => self.error(
-                "No edge is chosen.".to_owned(),
-                format!(
-                    "Choose at least one edge of the body of {}.",
-                    self.body_name
-                ),
-            ),
+            BlendError::NoEdges => Failure::Waiting(MissingInput::Edges {
+                body: self.definition.body,
+            }),
             BlendError::MissingEdge(_) => self.error(
                 format!(
                     "A chosen edge is no longer part of the body of {}.",

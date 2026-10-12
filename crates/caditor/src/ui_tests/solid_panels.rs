@@ -684,3 +684,35 @@ fn a_revolve_crossing_its_axis_keeps_the_larger_side_and_then_the_other() {
     assert!((other_volume - PI * 25.0 * 10.0).abs() < 0.01 * other_volume);
     assert_eq!(side(&harness), None);
 }
+
+#[test]
+fn a_revolve_lists_the_model_axes_beside_its_sketch_lines_and_turns_about_one_chosen() {
+    let mut harness = Harness::new();
+    let mut section = Sketch::new(Plane::XZ);
+    rectangle(&mut section, Point2::new(2.0, 0.0), Point2::new(4.0, 3.0));
+    harness.add_sketch(section);
+    harness.select([]);
+    harness.click("Revolve");
+    harness.settle();
+    let revolve = open_solid(&harness);
+
+    open_combo(&mut harness, crate::solid_panel::AXIS);
+    let listed = harness.shows("The X axis") && harness.shows("Vertical axis");
+    harness.click_lowest("The X axis");
+    harness.settle();
+
+    assert!(listed);
+    assert_eq!(
+        axis_of(harness.solid(revolve)),
+        Some(caditor_document::RevolveAxis::Model(
+            caditor_document::AxisReference::Principal(caditor_document::PrincipalAxis::X)
+        ))
+    );
+}
+
+fn axis_of(solid: &SolidFeature) -> Option<caditor_document::RevolveAxis> {
+    match solid {
+        SolidFeature::Revolve(revolve) => Some(revolve.axis.clone()),
+        SolidFeature::Extrude(_) | SolidFeature::Sweep(_) => None,
+    }
+}

@@ -65,6 +65,15 @@ pub enum Slot {
     SweepPath,
 }
 
+impl Slot {
+    pub fn keeps_choosing(self) -> bool {
+        matches!(
+            self,
+            Self::SweepPath | Self::ShellOwnThickness | Self::HoleAdd
+        )
+    }
+}
+
 pub const MAX_HELD: usize = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -417,7 +426,7 @@ pub fn click(model: &Model, picking: Picking, pickable: Pickable) -> Vec<Action>
     }
     selection.toggle(pickable);
     match change(model, picking.feature, picking.slot, &selection) {
-        Ok(transaction) if picking.slot == Slot::SweepPath => vec![Action::Apply(transaction)],
+        Ok(transaction) if picking.slot.keeps_choosing() => vec![Action::Apply(transaction)],
         Ok(transaction) => vec![
             Action::Apply(transaction),
             Action::Editing(EditingCommand::StopPicking),

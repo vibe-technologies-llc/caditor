@@ -1,4 +1,5 @@
-use caditor_document::FeatureId;
+use caditor_document::{Edit, ExtrudeExtent, FeatureId, FeatureKind, SolidFeature, Transaction};
+use caditor_expression::Expression;
 use caditor_geometry::{Plane, Point2};
 use caditor_sketch::Sketch;
 use egui::{Event, Key, Modifiers, Pos2, accesskit::Role};
@@ -7,7 +8,7 @@ use super::{
     CAMERA_SETTLE, Harness, Wheel, add_block, block_into, click_with, extruded_plate,
     feature_named, offer, rectangle, run_from_palette, top_edge_along_x,
 };
-use crate::{commands::Command, icons, model::Action, selection::Pickable, solid_tools};
+use crate::{commands::Command, icons, model::Action, selection::Pickable};
 
 fn chosen(harness: &Harness) -> Vec<FeatureId> {
     harness.workspace.panels.chosen()
@@ -20,10 +21,26 @@ fn is_hidden(harness: &Harness, feature: FeatureId) -> bool {
         .is_some_and(|feature| feature.hidden)
 }
 
-fn clear_regions(harness: &mut Harness, feature: FeatureId) {
-    let feature = harness.document().feature(feature).unwrap().clone();
-    let cleared = solid_tools::clear_regions(&harness.model, &feature).unwrap();
-    harness.perform(Action::Apply(cleared));
+fn fail_with_no_length(harness: &mut Harness, feature: FeatureId) {
+    let Some(FeatureKind::Solid(SolidFeature::Extrude(extrude))) = harness
+        .document()
+        .feature(feature)
+        .map(|feature| feature.kind.clone())
+    else {
+        panic!("an extrusion to fail");
+    };
+    let zero = Expression::parse_stored("0 mm").unwrap();
+    let failing = caditor_document::Extrude {
+        extent: ExtrudeExtent::one_side(zero, false),
+        ..extrude
+    };
+    harness.perform(Action::Apply(Transaction::single(
+        "Fail",
+        Edit::SetFeatureKind {
+            id: feature,
+            kind: FeatureKind::Solid(SolidFeature::Extrude(failing)),
+        },
+    )));
     harness.settle();
 }
 
@@ -78,10 +95,19 @@ fn a_shift_click_in_a_filtered_tree_chooses_only_the_rows_shown() {
 fn a_failure_the_feature_fixes_itself_offers_to_edit_it_until_it_is_open() {
     let mut harness = Harness::new();
     let (extrude, _) = extruded_plate(&mut harness);
-    clear_regions(&mut harness, extrude);
+    fail_with_no_length(&mut harness, extrude);
     harness.frame();
 
-    assert!(harness.shows("No region of the sketch is chosen."));
+    let reason = match harness
+        .model
+        .evaluation()
+        .feature(extrude)
+        .map(|status| status.state.clone())
+    {
+        Some(caditor_document::FeatureState::Failed(error)) => error.reason,
+        other => panic!("the extrusion fails, found {other:?}"),
+    };
+    assert!(harness.shows(&reason), "{reason}");
     assert!(harness.shows("Edit Extrude 1"));
     assert!(!harness.shows("Go to Extrude 1"));
 
@@ -325,8 +351,8 @@ fn f8_and_shift_f8_step_through_the_failed_features_and_the_filter_finds_them() 
         [Point2::new(60.0, 0.0), Point2::new(80.0, 20.0)],
         "10 mm",
     );
-    clear_regions(&mut harness, plate);
-    clear_regions(&mut harness, block);
+    fail_with_no_length(&mut harness, plate);
+    fail_with_no_length(&mut harness, block);
     harness.select([]);
     let step = |harness: &mut Harness, modifiers: Modifiers| {
         harness.key(Key::F8, modifiers);

@@ -1042,6 +1042,7 @@ fn feature_panel_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) 
         perform_all(model, actions);
         if let Some(fillet) = model.workspace.editing.solid() {
             model.settle();
+            shoot(model, gpu, out, "panel-choosing-list", look);
             model.type_into_field(egui::Id::new(("blend-size", fillet)), "4 mm");
         }
         shoot_open(model, gpu, out, "panel-fillet", look);
@@ -1100,6 +1101,9 @@ fn feature_panel_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) 
             let actions = pattern_tools::create_actions(&model.model, shape, &source);
             perform_all(model, actions);
             shoot_open(model, gpu, out, scene, look);
+            if shape == Shape::Circular {
+                shoot(model, gpu, out, "waiting-circular-pattern", look);
+            }
         }
     }
 

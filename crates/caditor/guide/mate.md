@@ -23,7 +23,8 @@ and turns the body until the two stand at an **Angle**, 90 deg to begin with. At
 face each other, as when flush; the body turns about the line where their planes meet, so a hinged
 part keeps its hinge.
 
-The panel shows each choice with Use selected and Choose in the view, a **Distance** to leave
+The panel shows each choice with Use selected and Choose in the view (an axis to mate onto can also
+be picked from a list of the principal, datum and coordinate system axes), a **Distance** to leave
 between faces, the **Angle** of an angle mate (both previewed as you type), and, where the mate
 has a side, whether the face points the same way, the axis the other way or the face rests on the
 other side, which {command:model.reverse_direction} also flips. An angle or point mate has

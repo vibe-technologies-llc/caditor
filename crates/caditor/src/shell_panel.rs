@@ -8,11 +8,11 @@ use egui::{Id, Ui};
 use crate::{
     bodies,
     editing::EditingCommand,
-    feature_fields::{self, Quantity, Rule},
+    feature_fields::{self, ListChoosing, Quantity, Rule},
     feature_tree::count,
     field, icons,
     model::{Action, Model},
-    reference_picking::{self, Picking, Slot},
+    reference_picking::{Picking, Slot},
     reference_rows::{ReferenceRows, RowCache},
     selection::Selection,
     shell_tools, widgets,
@@ -24,7 +24,6 @@ pub const OWN_THICKNESS: &str = "Own thickness";
 pub const ADD_OWN_THICKNESS: &str = "Choose faces";
 const ADD_OWN_THICKNESS_HOVER: &str =
     "Click faces in the view to give each its own thickness, or the shell's again";
-const STOP_CHOOSING: &str = "Stop choosing";
 const NO_OWN_THICKNESS: &str = "None: every wall takes the thickness";
 const SHELLS_THICKNESS: &str = "Give this face the shell's thickness";
 
@@ -152,16 +151,21 @@ fn faces_row(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mu
                 ));
             }
         }
-        if widgets::choose_in_view(
+        let chosen = feature_fields::list_in_view(
             ui,
-            feature_fields::choosing_list(ui, opened),
+            opened,
             "Click faces in the view to open them or close them again.",
             "Show the hollowed body so you can click faces to open them or close them again",
-        ) {
-            if let Some(transaction) = shell_tools::with_selected_faces(model, id, selection) {
-                actions.push(Action::Apply(transaction));
+        );
+        match chosen {
+            Some(ListChoosing::Start) => {
+                if let Some(transaction) = shell_tools::with_selected_faces(model, id, selection) {
+                    actions.push(Action::Apply(transaction));
+                }
+                actions.push(Action::Editing(EditingCommand::OpenSolid(id)));
             }
-            actions.push(Action::Editing(EditingCommand::OpenSolid(id)));
+            Some(ListChoosing::Stop) => actions.push(Action::Editing(EditingCommand::CloseSolid)),
+            None => {}
         }
     });
     if !previewed.is_empty() {
@@ -212,25 +216,15 @@ fn own_thickness_list(ui: &mut Ui, row: &FacesRow<'_>, actions: &mut Vec<Action>
         if shell.faces.is_empty() {
             ui.label(widgets::muted(NO_OWN_THICKNESS, ui));
         }
-        let picking = reference_picking::current(ui.ctx())
-            .filter(|picking| picking.is_for(id, Slot::ShellOwnThickness));
-        match picking {
-            Some(picking) => {
-                let prompt = format!("{}.", reference_picking::prompt(model, picking));
-                ui.label(widgets::muted(prompt, ui));
-                let stop = widgets::small_button(ui, icons::CLOSE, STOP_CHOOSING);
-                if ui.add(stop).clicked() {
-                    actions.push(Action::Editing(EditingCommand::StopPicking));
-                }
-            }
-            None => {
-                let add = widgets::small_button(ui, icons::ADD, ADD_OWN_THICKNESS);
-                if ui.add(add).on_hover_text(ADD_OWN_THICKNESS_HOVER).clicked() {
-                    actions.push(Action::Editing(EditingCommand::Pick(Picking::new(
-                        id,
-                        Slot::ShellOwnThickness,
-                    ))));
-                }
+        let slot = (id, Slot::ShellOwnThickness);
+        let stop = feature_fields::STOP_CHOOSING;
+        if !feature_fields::choosing_prompt(ui, model, slot, stop, actions) {
+            let add = widgets::small_button(ui, icons::ADD, ADD_OWN_THICKNESS);
+            if ui.add(add).on_hover_text(ADD_OWN_THICKNESS_HOVER).clicked() {
+                actions.push(Action::Editing(EditingCommand::Pick(Picking::new(
+                    id,
+                    Slot::ShellOwnThickness,
+                ))));
             }
         }
     });

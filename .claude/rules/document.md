@@ -389,7 +389,10 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   remedy to make faces line up exactly or stay clearly apart; an invalid result asks only for a
   slight change. Patterns and mirrors pass on the point alone.
 - Whether geometry lies on a line or plane, runs along a plane or is parallel is decided in one
-  place (`tolerance.rs`) for revolve axes, datums, attachments, patterns and blend pieces.
+  place (`tolerance.rs`) for revolve axes, datums, attachments, patterns and blend pieces;
+  `along_plane` is public so the app's revolve axis list judges the same way.
+- No region chosen, no blend edge, no face to move or split are waiting states, not errors
+  (`MissingInput`, `document-recompute.md`).
 
 ### Solid (`solid.rs`)
 
@@ -465,8 +468,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   edges' origins among `origin_features`, and healing visits its edges. A curve of the path cannot
   be removed (`EntityInUse`, as a revolve's axis line); a path sketch deleted fails the sweep.
 - Failures are sentences per `PathSweepError` (`sweep::failure`), naming path curves by label and
-  sketch ("Line 3 of Path") or edges by their faces: no path; a branching or separate path; a sharp
-  corner (remedy: a fillet in the path's sketch, Parallel, or straight lines so it is mitred); a
+  sketch ("Line 3 of Path") or edges by their faces (no path waits instead,
+  `MissingInput::Path`): a branching or separate path; a sharp corner (remedy: a fillet in the path's sketch, Parallel, or straight lines so it is mitred); a
   mitre too sharp; a profile too large for a bend (fix on the profile's sketch); a path leaving
   along the profile's plane or, kept parallel, turning along it; a closed path missing the
   profile's plane or bringing it back turned; a sweep running into itself. The kernel's profile
@@ -865,7 +868,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   `cuts`; their faces are `FaceOrigin::Copy` of the pattern.
 - Axes are `AxisReference`s resolved like a datum's at the pattern's place; body and datum counted.
   A circular pattern's axis is optional (`CircularPattern::axis`): none is a pattern not yet given
-  one, which fails alone asking to choose it (as a sweep with `SweepPath::Unchosen`).
+  one, which waits for it (`MissingInput::Axis`, `document-recompute.md`), as a sweep with
+  `SweepPath::Unchosen` waits for its path.
 - Counts are whole and from 1, at most `MAX_PATTERN_INSTANCES` in all (directions multiplied), each
   copy costing a boolean. The reach may not pass `MAX_SIZE`; parallel directions are refused. A
   linear direction's length is `measured` between neighbouring copies or, as

@@ -157,7 +157,7 @@ pub use crate::{
     },
     recompute::{
         CancelToken, Evaluation, Evaluator, Failure, FeatureError, FeatureResult, FeatureState,
-        FeatureStatus, FixTarget, Inputs, ModelEvaluator, Recompute, SketchResult,
+        FeatureStatus, FixTarget, Inputs, MissingInput, ModelEvaluator, Recompute, SketchResult,
     },
     removal::Remove,
     scaling::{MAX_SCALE_FACTOR, MIN_SCALE_FACTOR, Scale},
@@ -185,6 +185,7 @@ pub use crate::{
     thread_standard::{
         ThreadClass, ThreadDesignation, ThreadFamily, ThreadHand, ThreadSide, ThreadSize,
     },
+    tolerance::along_plane,
     values::{ParameterError, ParameterValues},
     views::{
         HOME_VIEW_NAME, MAX_SAVED_VIEWS, MAX_VIEW_NAME_CHARS, NamedView, SavedView, SavedViews,
@@ -293,6 +294,8 @@ mod thread_tests;
 mod tree_tests;
 #[cfg(test)]
 mod views_tests;
+#[cfg(test)]
+mod waiting_tests;
 #[cfg(test)]
 mod tests {
     use std::sync::{

@@ -1,6 +1,7 @@
 use caditor_document::{
-    Document, FeatureId, MAX_CONE_ANGLE, MAX_MATE_ANGLE_DEGREES, MAX_PATTERN_INSTANCES,
-    MAX_PRISM_SIDES, MIN_PRISM_SIDES, ParameterOwner, Transaction,
+    AxisReference, Document, FeatureId, MAX_CONE_ANGLE, MAX_MATE_ANGLE_DEGREES,
+    MAX_PATTERN_INSTANCES, MAX_PRISM_SIDES, MIN_PRISM_SIDES, ParameterOwner, Transaction,
+    capitalized, describe_axis,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_kernel::MAX_TAPER_DEGREES;
@@ -12,6 +13,7 @@ use crate::{
     field::{self, Expected},
     icons,
     model::{Action, Model, Notice},
+    pattern_tools,
     reference_picking::{self, Picking, Slot},
     selection::Selection,
     widgets::{self, FIELD_WIDTH, Named, Tone},
@@ -34,6 +36,11 @@ pub const MISSING_SKETCH: &str = "Missing sketch";
 pub const USE_SELECTED: &str = "Use selected";
 pub const CHOOSE_IN_VIEW: &str = "Choose in the view";
 pub const STOP_CHOOSING: &str = "Stop choosing";
+pub const KEEPS_CHOOSING: &str = "Keeps choosing until Esc";
+const KEEPS_CHOOSING_HOVER: &str =
+    "Every click adds or leaves out; choosing goes on until you press Esc or Stop choosing";
+const STOP_LIST_HOVER: &str =
+    "Stop choosing and close the feature, keeping its changes, as Esc does";
 const FULL_TURN_DEGREES: f64 = 360.0;
 const HALF_TURN_DEGREES: f64 = 180.0;
 const WHOLE_TOLERANCE: f64 = 1e-9;
@@ -473,16 +480,50 @@ pub fn offered_change(
     change
 }
 
-pub fn reference_picker(ui: &mut Ui, model: &Model, picker: Picker<'_>, actions: &mut Vec<Action>) {
-    let picking = reference_picking::current(ui.ctx())
-        .filter(|picking| picking.is_for(picker.feature, picker.slot));
-    if let Some(picking) = picking {
-        let prompt = format!("{}.", reference_picking::prompt(model, picking));
-        ui.label(widgets::muted(prompt, ui));
-        let stop = widgets::small_button(ui, icons::CLOSE, STOP_CHOOSING);
-        if ui.add(stop).clicked() {
-            actions.push(Action::Editing(EditingCommand::StopPicking));
+pub fn choosing_prompt(
+    ui: &mut Ui,
+    model: &Model,
+    (feature, slot): (FeatureId, Slot),
+    stop: &str,
+    actions: &mut Vec<Action>,
+) -> bool {
+    let Some(picking) =
+        reference_picking::current(ui.ctx()).filter(|picking| picking.is_for(feature, slot))
+    else {
+        return false;
+    };
+    let prompt = format!("{}.", reference_picking::prompt(model, picking));
+    if choosing_row(ui, &prompt, slot.keeps_choosing(), (stop, None)) {
+        actions.push(Action::Editing(EditingCommand::StopPicking));
+    }
+    true
+}
+
+fn choosing_row(
+    ui: &mut Ui,
+    prompt: &str,
+    keeps_choosing: bool,
+    (stop, stop_hover): (&str, Option<&str>),
+) -> bool {
+    ui.add(Label::new(widgets::muted(prompt, ui)).wrap());
+    ui.horizontal_wrapped(|ui| {
+        if keeps_choosing {
+            widgets::pill(ui, Tone::Info, KEEPS_CHOOSING).on_hover_text(KEEPS_CHOOSING_HOVER);
         }
+        let button = widgets::small_button(ui, icons::CLOSE, stop);
+        let button = ui.add(button);
+        match stop_hover {
+            Some(hover) => button.on_hover_text(hover),
+            None => button,
+        }
+        .clicked()
+    })
+    .inner
+}
+
+pub fn reference_picker(ui: &mut Ui, model: &Model, picker: Picker<'_>, actions: &mut Vec<Action>) {
+    let reference = (picker.feature, picker.slot);
+    if choosing_prompt(ui, model, reference, STOP_CHOOSING, actions) {
         return;
     }
     match picker.selected {
@@ -494,13 +535,89 @@ pub fn reference_picker(ui: &mut Ui, model: &Model, picker: Picker<'_>, actions:
         }
         Err(_) => {
             let picking = Picking::new(picker.feature, picker.slot);
-            let button = widgets::small_button(ui, icons::CHOOSE_IN_VIEW, CHOOSE_IN_VIEW);
             let hover = reference_picking::prompt(model, picking);
-            if ui.add(button).on_hover_text(hover).clicked() {
+            if widgets::choose_in_view(ui, &hover) {
                 actions.push(Action::Editing(EditingCommand::Pick(picking)));
             }
         }
     }
+}
+
+pub enum ListChoosing {
+    Start,
+    Stop,
+}
+
+pub fn list_in_view(ui: &mut Ui, opened: bool, prompt: &str, hover: &str) -> Option<ListChoosing> {
+    if choosing_list(ui, opened) {
+        choosing_row(ui, prompt, true, (STOP_CHOOSING, Some(STOP_LIST_HOVER)))
+            .then_some(ListChoosing::Stop)
+    } else {
+        widgets::choose_in_view(ui, hover).then_some(ListChoosing::Start)
+    }
+}
+
+pub const ALREADY_CHOSEN: &str = "It is already the one chosen";
+
+pub struct AxisRow<'a> {
+    pub caption: &'a str,
+    pub shown: Option<String>,
+    pub picker: Picker<'a>,
+}
+
+pub fn axis_row(
+    ui: &mut Ui,
+    model: &Model,
+    row: AxisRow<'_>,
+    listed: Option<&dyn Fn() -> Vec<Choice>>,
+    actions: &mut Vec<Action>,
+) {
+    widgets::caption(ui, row.caption);
+    let id = Id::new(("axis-row", row.caption, row.picker.feature));
+    ui.vertical(|ui| {
+        match (listed, row.shown) {
+            (Some(listed), shown) => {
+                let shown: WidgetText = match shown {
+                    Some(text) => text.into(),
+                    None => widgets::muted(NONE_CHOSEN, ui).into(),
+                };
+                actions.extend(combo(ui, id, shown, listed));
+            }
+            (None, Some(text)) => {
+                ui.add(Label::new(text).wrap());
+            }
+            (None, None) => none_chosen(ui),
+        }
+        reference_picker(ui, model, row.picker, actions);
+    });
+    ui.end_row();
+}
+
+pub fn model_axis_choices(
+    model: &Model,
+    feature: FeatureId,
+    current: Option<&AxisReference>,
+    change: &dyn Fn(AxisReference) -> Result<Transaction, String>,
+) -> Vec<Choice> {
+    let document = model.document();
+    let listed = pattern_tools::listed_axes(model, feature);
+    let shown_too = current.filter(|current| !listed.contains(current)).cloned();
+    listed
+        .into_iter()
+        .chain(shown_too)
+        .map(|axis| {
+            let selected = current == Some(&axis);
+            Choice {
+                label: capitalized(&describe_axis(document, &axis)),
+                selected,
+                change: if selected {
+                    Err(ALREADY_CHOSEN.to_owned())
+                } else {
+                    change(axis).map(Action::Apply)
+                },
+            }
+        })
+        .collect()
 }
 
 pub fn reference_row(

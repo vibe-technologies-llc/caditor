@@ -2,8 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use caditor_document::{
     BlendKind, CombineOperation, Datum, Document, Edit, Feature, FeatureError, FeatureId,
-    FeatureKind, FeatureState, FeatureStatus, FixTarget, Healing, PatternKind, PrimitiveKind,
-    RollbackBar, SketchFeature, SolidFeature, SolidResult, Transaction, TreeRow,
+    FeatureKind, FeatureState, FeatureStatus, FixTarget, Healing, MissingInput, PatternKind,
+    PrimitiveKind, RollbackBar, SketchFeature, SolidFeature, SolidResult, Transaction, TreeRow,
 };
 use caditor_expression::Expression;
 use caditor_sketch::{Constraint, ConstraintId, Redundancy, Sketch, SketchSolution};
@@ -22,7 +22,7 @@ use crate::{
     completion, datum_panel,
     drawing_export::{self, DrawingSource},
     editing::{self, EditingCommand, Opened, SketchEditing},
-    feature_clipboard, feature_groups,
+    feature_clipboard, feature_fields, feature_groups,
     field::{self, DimensionTarget},
     files::FileCommand,
     fonts, hole_panel, icons, import_panel, manipulator, mate_panel, measurement_panel,
@@ -33,7 +33,9 @@ use crate::{
     pattern_panel,
     pattern_tools::{self, Reference},
     preferences::PreferencesCommand,
-    primitive_panel, principal_tree, removal, reversing, scale_panel,
+    primitive_panel, principal_tree,
+    reference_picking::{Picking, Slot},
+    removal, reversing, scale_panel,
     selection::{Pickable, Selection},
     shell_panel,
     sketch_placement::{self, PlacementTarget},
@@ -103,6 +105,7 @@ const GROUP_INDENT: f32 = SPACE_L;
 pub const FILTER_HINT: &str = "Filter features by name, kind or state";
 const FAILED_WORD: &str = "failed";
 const OUTDATED_WORD: &str = "outdated";
+const WAITING_WORD: &str = "waiting";
 const SUPPRESSED_WORD: &str = "suppressed";
 const HIDDEN_WORD: &str = "hidden";
 const MAX_LISTED_RELATIONS: usize = 12;
@@ -285,9 +288,10 @@ fn state_words(model: &Model, feature: &Feature) -> Vec<&'static str> {
         .map(|status| &status.state);
     let failed = matches!(computed, Some(FeatureState::Failed(_))).then_some(FAILED_WORD);
     let outdated = matches!(computed, Some(FeatureState::Outdated)).then_some(OUTDATED_WORD);
+    let waiting = matches!(computed, Some(FeatureState::Waiting(_))).then_some(WAITING_WORD);
     let suppressed = feature.suppressed.then_some(SUPPRESSED_WORD);
     let hidden = feature.hidden.then_some(HIDDEN_WORD);
-    [failed, outdated, suppressed, hidden]
+    [failed, outdated, waiting, suppressed, hidden]
         .into_iter()
         .flatten()
         .collect()
@@ -607,7 +611,7 @@ fn is_plain(ui: &Ui, model: &Model, state: &PanelState, row: &Row<'_>) -> bool {
     let has_callout = status.is_some_and(|status| {
         matches!(
             status.state,
-            FeatureState::Failed(_) | FeatureState::Outdated
+            FeatureState::Failed(_) | FeatureState::Waiting(_) | FeatureState::Outdated
         ) || (status.state == FeatureState::UpToDate && status.healing.is_some())
     });
     let collapsed = CollapsingState::load(ui.ctx(), ui.make_persistent_id(("feature-header", id)))
@@ -740,7 +744,7 @@ fn feature_row(
     let has_callout = healing.is_some()
         || matches!(
             state_shown,
-            Some(FeatureState::Failed(_) | FeatureState::Outdated)
+            Some(FeatureState::Failed(_) | FeatureState::Waiting(_) | FeatureState::Outdated)
         );
     if has_callout || collapsing.openness(ui.ctx()) > 0.0 {
         let below = tree_row::indented(ui, |ui| {
@@ -748,6 +752,9 @@ fn feature_row(
                 match state_shown {
                     Some(FeatureState::Failed(error)) => {
                         failure(ui, document, state, actions, row, error);
+                    }
+                    Some(FeatureState::Waiting(missing)) => {
+                        waiting(ui, document, actions, row, *missing);
                     }
                     Some(FeatureState::Outdated) => outdated(ui, actions),
                     Some(
@@ -1227,6 +1234,11 @@ fn status_icon(ui: &mut Ui, row: &Row<'_>, status: Option<&FeatureStatus>) {
     } else {
         match status.map(|status| &status.state) {
             Some(FeatureState::Failed(_)) => (icons::FAILED, tokens.error, "This feature failed"),
+            Some(FeatureState::Waiting(missing)) => (
+                icons::AWAITING_INPUT,
+                Tone::Info.color(&tokens),
+                missing.waiting_words(),
+            ),
             Some(FeatureState::Outdated) => (
                 icons::OUTDATED,
                 tokens.warn,
@@ -2817,6 +2829,48 @@ fn failure(
     });
 }
 
+fn waiting(
+    ui: &mut Ui,
+    document: &Document,
+    actions: &mut Vec<Action>,
+    row: &Row<'_>,
+    missing: MissingInput,
+) {
+    widgets::callout(ui, Tone::Info, |ui| {
+        ui.label(widgets::strong(missing.waiting_words()));
+        ui.label(missing.prompt(document));
+        if row.edited || !row.active() {
+            return;
+        }
+        let id = row.feature.id();
+        let start = match missing {
+            MissingInput::Axis => EditingCommand::Pick(Picking::new(id, Slot::PatternDirection)),
+            MissingInput::Path => EditingCommand::Pick(Picking::new(id, Slot::SweepPath)),
+            MissingInput::Regions { .. }
+            | MissingInput::Edges { .. }
+            | MissingInput::FacesToMove { .. }
+            | MissingInput::FacesToSplit { .. } => EditingCommand::OpenSolid(id),
+        };
+        let button =
+            widgets::small_button(ui, icons::CHOOSE_IN_VIEW, feature_fields::CHOOSE_IN_VIEW);
+        let clicked = widgets::named(
+            ui.add(button),
+            &format!(
+                "{} for {}",
+                feature_fields::CHOOSE_IN_VIEW,
+                row.feature.name
+            ),
+        )
+        .clicked();
+        if clicked {
+            actions.push(match editable(document, row.feature) {
+                Ok(()) => Action::Editing(start),
+                Err(reason) => Action::Inform(Notice::warning(reason)),
+            });
+        }
+    });
+}
+
 fn edit_itself(ui: &mut Ui, document: &Document, actions: &mut Vec<Action>, row: &Row<'_>) {
     if row.edited {
         return;
@@ -3303,6 +3357,7 @@ fn involved_constraints(model: &Model, feature: &Feature) -> BTreeSet<Constraint
         Some(FeatureState::Failed(error)) => error.constraints.iter().copied().collect(),
         Some(
             FeatureState::UpToDate
+            | FeatureState::Waiting(_)
             | FeatureState::Outdated
             | FeatureState::Suppressed
             | FeatureState::RolledBack,

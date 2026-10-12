@@ -12,7 +12,9 @@ use crate::{
     datum::{AxisReference, PointReference, Resolver, feature_name},
     document::{Feature, FeatureId, FeatureKind},
     pattern_path::{CurvePath, PathError, Station, curve_path},
-    recompute::{CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
+    recompute::{
+        CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs, MissingInput,
+    },
     solid::{BodyOperation, SolidResult},
     tolerance, trouble,
     values::ParameterValues,
@@ -548,13 +550,7 @@ impl Context<'_> {
             ));
         }
         let Some(axis) = &circular.axis else {
-            return Err(self.error(
-                format!(
-                    "No axis is chosen for {} to turn about.",
-                    self.resolver.feature.name
-                ),
-                "Choose an axis, straight edge or round face to turn the copies about.",
-            ));
+            return Err(Failure::Waiting(MissingInput::Axis));
         };
         let axis = self.resolver.axis(axis)?;
         let full_turn = (angle - FULL_TURN).abs() <= ANGLE_TOLERANCE;
