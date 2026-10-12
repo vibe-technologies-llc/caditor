@@ -101,9 +101,3 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   Jacobian per free direction); a larger part keeps the `STIFF` solve's pose, or the last frame's
   when that fails, so a long chain dragged past its reach stops instead of following. A sparse
   null-space basis, or Hessian-vector products inside CGLS, would lift the limit.
-
-## Hostile files
-
-- [low · easy] The XML reader shared by SVG and 3MF (`xml.rs`) never polls the interrupt, so Cancel
-  only abandons the worker of a crafted file up to `MAX_DRAWING_ELEMENTS` elements; poll it every
-  few thousand elements and answer a cancellation.

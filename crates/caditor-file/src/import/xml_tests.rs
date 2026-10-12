@@ -1,4 +1,9 @@
-use std::time::{Duration, Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
+
+use caditor_kernel::interruptible;
 
 use crate::import::xml::{MAX_ATTRIBUTES, MAX_DEPTH, XmlError, parse};
 
@@ -100,4 +105,13 @@ fn elements_left_open_by_damage_enclose_everything_read_after_them() {
     assert!(named("r").encloses(named("c")));
     assert!(named("a").encloses(named("c")));
     assert!(!named("b").encloses(named("c")));
+}
+
+#[test]
+fn a_cancelled_parse_stops_with_cancelled() {
+    let text = format!("<root>{}</root>", "<a/>".repeat(10_000));
+
+    let parsed = interruptible(Arc::new(|| true), || parse(&text, NO_LIMIT));
+
+    assert_eq!(parsed.err(), Some(XmlError::Cancelled));
 }

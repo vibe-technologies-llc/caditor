@@ -116,6 +116,7 @@ pub fn parse_svg(bytes: &[u8], text_outlines: TextOutlines<'_>) -> Result<Drawin
         XmlError::TooDeep => ImportError::NestedTooDeep,
         XmlError::TooManyAttributes => ImportError::TooManyAttributes,
         XmlError::Damaged { line } => ImportError::DamagedAt(line),
+        XmlError::Cancelled => ImportError::Cancelled,
     })?;
     read_tree(&tree, notes, text_outlines)
 }

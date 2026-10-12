@@ -1,10 +1,13 @@
 use std::{borrow::Cow, collections::BTreeMap};
 
+use caditor_kernel::check_interrupt;
+
 pub(super) const XML_NAMESPACE: &str = "http://www.w3.org/XML/1998/namespace";
 pub(super) const MAX_DEPTH: usize = 1024;
 pub(super) const MAX_ATTRIBUTES: usize = 1024;
 const MAX_ENTITY_DEPTH: usize = 8;
 const MAX_ENTITY_WORK: usize = 4 << 20;
+const ELEMENTS_BETWEEN_INTERRUPT_POLLS: usize = 4096;
 const TEXT_KEPT_IN: &str = "style";
 const CONTENT_KEPT_IN: [&str; 4] = ["text", "tspan", "textPath", "a"];
 
@@ -14,6 +17,7 @@ pub(super) enum XmlError {
     TooDeep,
     TooManyAttributes,
     Damaged { line: usize },
+    Cancelled,
 }
 
 #[derive(Debug)]
@@ -346,6 +350,9 @@ impl<'t> Parser<'t> {
             return Err(XmlError::TooManyElements);
         }
         let index = self.tree.elements.len();
+        if index % ELEMENTS_BETWEEN_INTERRUPT_POLLS == 0 && check_interrupt().is_err() {
+            return Err(XmlError::Cancelled);
+        }
         let mut prefixes = Vec::new();
         let mut plain = Vec::new();
         for (name, raw) in tag.attributes {

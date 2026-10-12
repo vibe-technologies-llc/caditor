@@ -487,6 +487,7 @@ impl Package<'_> {
             XmlError::TooDeep => ImportError::NestedTooDeep,
             XmlError::TooManyAttributes => ImportError::TooManyAttributes,
             XmlError::Damaged { .. } => damaged(),
+            XmlError::Cancelled => ImportError::Cancelled,
         })?;
         self.elements_left = self.elements_left.saturating_sub(tree.element_count());
         if tree.damaged_at.is_some() {
