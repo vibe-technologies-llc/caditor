@@ -245,8 +245,7 @@ fn window_menu(
     }
     ui.separator();
     let mut system = chrome.title_bar.decorated();
-    if ui
-        .checkbox(&mut system, SYSTEM_TITLE_BAR)
+    if widgets::checkbox(ui, &mut system, SYSTEM_TITLE_BAR)
         .on_hover_text("Let the window manager draw the title bar; also in Preferences")
         .changed()
     {

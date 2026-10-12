@@ -456,10 +456,10 @@ fn display(
             widgets::property(ui, "Vsync", |ui| {
                 let mut vsync = graphics.vsync || !vsync_optional;
                 let response = ui
-                    .add_enabled(
-                        vsync_optional,
-                        egui::Checkbox::new(&mut vsync, "Wait for the display"),
-                    )
+                    .add_enabled_ui(vsync_optional, |ui| {
+                        widgets::checkbox(ui, &mut vsync, "Wait for the display")
+                    })
+                    .inner
                     .on_hover_text(
                         "On: each frame waits for the display's refresh, so nothing tears. Off: \
                          a frame is shown as soon as it is drawn, for less delay after a mouse \
@@ -475,9 +475,9 @@ fn display(
                 }
             });
             widgets::property(ui, "Frame rate", |ui| {
-                let combo = egui::ComboBox::from_id_salt("frame-rate")
-                    .selected_text(graphics.frame_limit.label())
-                    .show_ui(ui, |ui| {
+                widgets::combo("frame-rate", graphics.frame_limit.label())
+                    .hover(graphics.frame_limit.hover(hardware.refresh_rate))
+                    .show(ui, |ui| {
                         for limit in FrameLimit::ALL {
                             let chosen = widgets::menu_option(
                                 ui,
@@ -491,10 +491,6 @@ fn display(
                             }
                         }
                     });
-                widgets::tie_to_caption(ui, &combo.response);
-                combo
-                    .response
-                    .on_hover_text(graphics.frame_limit.hover(hardware.refresh_rate));
             });
         },
     );

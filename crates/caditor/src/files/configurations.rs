@@ -25,7 +25,7 @@ pub const IMPORT_HINT: &str = "Read configurations from a CSV file with a Config
                                adding new rows and updating those the model has, after a preview";
 pub const EXPORT_LABEL: &str = "Export to CSV…";
 pub const IMPORT_LABEL: &str = "Import from CSV…";
-const LIST_HEIGHT: f32 = 320.0;
+const LIST_HEIGHT: widgets::ListHeight = widgets::ListHeight::Tall;
 const REPLACE_LABEL: &str = "Replace configurations the model already has";
 const REPLACE_HINT: &str = "Off, a configuration the model already has keeps its own values and \
                             the file's are left out";
@@ -381,9 +381,8 @@ pub fn dialog(ctx: &egui::Context, draft: &ConfigurationImportDraft) -> Option<F
                 });
             }
             let mut replace = draft.replace;
-            let toggle = ui
-                .checkbox(&mut replace, REPLACE_LABEL)
-                .on_hover_text(REPLACE_HINT);
+            let toggle =
+                widgets::checkbox(ui, &mut replace, REPLACE_LABEL).on_hover_text(REPLACE_HINT);
             if toggle.changed() {
                 command = Some(ConfigurationFileCommand::Replace(replace));
             }

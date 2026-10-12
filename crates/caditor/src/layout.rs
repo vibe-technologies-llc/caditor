@@ -22,7 +22,8 @@ pub const DEFAULT_SIDE_WIDTH: f32 = 330.0;
 pub const MIN_SIDE_WIDTH: f32 = 270.0;
 const MAX_SIDE_WIDTH: f32 = 1_600.0;
 const MAX_PANELS_SHARE: f32 = 0.6;
-const MIN_RIGHT_WIDTH: f32 = 220.0;
+const RIGHT_WIDTH: f32 = 320.0;
+const MIN_RIGHT_WIDTH: f32 = 240.0;
 const CAPPED_SLACK: f32 = 1.0;
 const RESIZED_BY: f32 = 0.5;
 
@@ -210,19 +211,17 @@ pub fn panel_widths(room: f32, least: f32) -> Rangef {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RightPanel {
     pub id: &'static str,
-    pub width: f32,
-    pub least: f32,
 }
 
 impl RightPanel {
     pub fn show<R>(&self, ui: &mut Ui, room: f32, add: impl FnOnce(&mut Ui) -> R) -> R {
         let ctx = ui.ctx().clone();
         let id = Id::new(self.id);
-        let widths = panel_widths(room, self.least);
+        let widths = panel_widths(room, MIN_RIGHT_WIDTH);
         follow_resizing(&ctx, id, widths);
         egui::Panel::right(id)
             .resizable(true)
-            .default_size(shared_right_width(&ctx).unwrap_or(self.width))
+            .default_size(shared_right_width(&ctx).unwrap_or(RIGHT_WIDTH))
             .size_range(widths)
             .show(ui, |ui| within_width(ui, add))
             .inner
@@ -418,8 +417,6 @@ mod tests {
     fn a_right_hand_panel_reserves_what_it_paints_when_its_contents_are_wider() {
         const PANEL: RightPanel = RightPanel {
             id: "wide-contents",
-            width: 200.0,
-            least: 200.0,
         };
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(700.0, 500.0));
         let ctx = egui::Context::default();

@@ -1,13 +1,13 @@
-use egui::{Align, Id, Label, Layout, Response, RichText, ScrollArea, TextEdit, TextStyle, Ui};
+use egui::{Align, Id, Label, Layout, Response, RichText, TextEdit, TextStyle, Ui};
 
 use crate::{
-    appearance::{self, SPACE_L, SPACE_M, SPACE_S},
+    appearance::{self, PAGE_TITLE_SIZE, SPACE_L, SPACE_M, SPACE_S},
     commands::{self, Keymap},
     fonts,
     guide::{self, Block, Chapter, Hit, Named, Page, Span, Target},
     icons,
     layout::RightPanel,
-    widgets::{self, Tone},
+    widgets::{self, PanelTitle, Tone},
 };
 
 pub const TITLE: &str = "User guide";
@@ -15,13 +15,14 @@ pub const CLOSE: &str = "Close the guide";
 pub const BACK: &str = "Back";
 pub const CONTENTS: &str = "Contents";
 pub const SEARCH_HINT: &str = "Search the guide";
-const PANEL: RightPanel = RightPanel {
-    id: "guide",
-    width: 340.0,
-    least: 240.0,
+const PANEL: RightPanel = RightPanel { id: "guide" };
+const HEADER: PanelTitle<'static> = PanelTitle {
+    glyph: icons::GUIDE,
+    title: TITLE,
+    close: CLOSE,
+    help: None,
 };
 const NEXT: &str = "Next:";
-const PAGE_TITLE_SIZE: f32 = 20.0;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 enum Shown {
@@ -88,31 +89,24 @@ enum Choice {
 }
 
 pub fn show(ui: &mut Ui, state: &mut Guide, keymap: &Keymap, room: f32) {
-    let mut choice = None;
-    PANEL.show(ui, room, |ui| {
-        ui.add_space(SPACE_S);
-        widgets::panel_header(ui, icons::GUIDE, TITLE, |ui| {
-            if widgets::icon_button(ui, icons::CLOSE, CLOSE).clicked() {
-                choice = Some(Choice::Close);
-            }
-            let contents = ui
-                .add_enabled_ui(state.shown != Shown::Contents, |ui| {
-                    widgets::icon_button(ui, icons::CONTENTS, CONTENTS)
-                })
-                .inner;
-            if contents.clicked() {
-                choice = Some(Choice::Show(Shown::Contents));
-            }
-            let back = ui
-                .add_enabled_ui(!state.back.is_empty(), |ui| {
-                    widgets::icon_button(ui, icons::BACK, BACK)
-                })
-                .inner;
-            if back.clicked() {
-                choice = Some(Choice::Back);
-            }
-        });
-        ui.add_space(SPACE_S);
+    let on_contents = state.shown == Shown::Contents;
+    let at_start = state.back.is_empty();
+    let actions = |ui: &mut Ui| {
+        let contents = ui
+            .add_enabled_ui(!on_contents, |ui| {
+                widgets::icon_button(ui, icons::CONTENTS, CONTENTS)
+            })
+            .inner;
+        let back = ui
+            .add_enabled_ui(!at_start, |ui| widgets::icon_button(ui, icons::BACK, BACK))
+            .inner;
+        if back.clicked() {
+            Some(Choice::Back)
+        } else {
+            contents.clicked().then_some(Choice::Show(Shown::Contents))
+        }
+    };
+    let panel = widgets::side_panel_parts(ui, room, PANEL, &HEADER, actions, |ui| {
         search_field(ui, state);
         ui.add_space(SPACE_M);
         let salt = match state.shown {
@@ -120,23 +114,22 @@ pub fn show(ui: &mut Ui, state: &mut Guide, keymap: &Keymap, room: f32) {
             Shown::Page(page) => page.id(),
         };
         let query = state.query.trim().to_owned();
-        ScrollArea::vertical()
-            .id_salt(("guide", salt, query.is_empty()))
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-                let chosen = if !query.is_empty() {
-                    hits(ui, &query, &guide::search(&query))
-                } else {
-                    match state.shown {
-                        Shown::Contents => contents(ui),
-                        Shown::Page(page) => page_body(ui, page, keymap),
-                    }
-                };
-                if let Some(page) = chosen {
-                    choice = Some(Choice::Show(Shown::Page(page)));
+        widgets::panel_scroll(ui, ("guide", salt, query.is_empty()), |ui| {
+            if !query.is_empty() {
+                hits(ui, &query, &guide::search(&query))
+            } else {
+                match state.shown {
+                    Shown::Contents => contents(ui),
+                    Shown::Page(page) => page_body(ui, page, keymap),
                 }
-            });
+            }
+        })
     });
+    let choice = panel
+        .inner
+        .map(|page| Choice::Show(Shown::Page(page)))
+        .or(panel.actions)
+        .or(panel.closed.then_some(Choice::Close));
     match choice {
         Some(Choice::Close) => state.open = false,
         Some(Choice::Back) => state.go_back(),

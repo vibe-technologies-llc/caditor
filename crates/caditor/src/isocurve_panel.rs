@@ -1,15 +1,15 @@
 use caditor_kernel::Along;
-use egui::{Label, ScrollArea, Slider, TextWrapMode, Ui};
+use egui::{Label, Slider, TextWrapMode, Ui};
 
 use crate::{
     appearance::{SPACE_M, SPACE_S},
     comb,
     guide::Page,
-    guide_panel, icons,
+    icons,
     isocurves::{self, Directions, FaceLines, IsocurveTool, Isocurves},
     layout::RightPanel,
     units::Units,
-    widgets::{self, Tone},
+    widgets::{self, PanelTitle, Tone},
 };
 
 pub const TITLE: &str = "Isocurves";
@@ -29,10 +29,12 @@ pub const LINES: &str = "Lines each way";
 pub const DIRECTIONS: &str = "Lines along";
 pub const TEETH: &str = "Teeth per line";
 pub const SCALE: &str = "Scale";
-const PANEL: RightPanel = RightPanel {
-    id: "isocurves",
-    width: 300.0,
-    least: 220.0,
+const PANEL: RightPanel = RightPanel { id: "isocurves" };
+const HEADER: PanelTitle<'static> = PanelTitle {
+    glyph: icons::ISOCURVES,
+    title: TITLE,
+    close: CLOSE,
+    help: Some(Page::Isocurves),
 };
 const MAX_LISTED: usize = 12;
 const APPROXIMATELY: &str = "≈ ";
@@ -165,15 +167,13 @@ pub fn show(
     shown: Option<&Isocurves>,
     room: f32,
 ) {
-    let mut close = false;
-    PANEL.show(ui, room, |ui| {
-        ui.add_space(SPACE_S);
-        widgets::panel_header(ui, icons::ISOCURVES, TITLE, |ui| {
-            close = widgets::icon_button(ui, icons::CLOSE, CLOSE).clicked();
-            guide_panel::help_button(ui, Page::Isocurves);
-        });
-        ui.add_space(SPACE_S);
-        ScrollArea::vertical().show(ui, |ui| {
+    let panel = widgets::side_panel(
+        ui,
+        room,
+        PANEL,
+        &HEADER,
+        |_| {},
+        |ui| {
             ui.label(widgets::muted(ABOUT, ui));
             ui.add_space(SPACE_S);
             settings(ui, tool);
@@ -183,9 +183,9 @@ pub fn show(
                 return;
             }
             findings(ui, units, tool, shown);
-        });
-    });
-    if close {
+        },
+    );
+    if panel.closed {
         tool.toggle();
     }
 }

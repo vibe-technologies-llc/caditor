@@ -1,18 +1,18 @@
 use caditor_expression::{Dimension, Expression};
 use caditor_geometry::Point3;
 use caditor_render::{CutFace, MAX_SECTION_PLANES};
-use egui::{Id, Label, ScrollArea, Sides, TextWrapMode, Ui};
+use egui::{Id, Label, Sides, TextWrapMode, Ui};
 
 use crate::{
     appearance::{SPACE_M, SPACE_S},
     feature_fields, field,
     guide::Page,
-    guide_panel, icons,
+    icons,
     layout::RightPanel,
     model::Model,
     section::{self, Cut, SectionTool},
     selection::{Pickable, PrincipalPlane, Selection},
-    widgets::{self, FIELD_WIDTH, Tone},
+    widgets::{self, FIELD_WIDTH, PanelTitle, Tone},
 };
 
 pub const TITLE: &str = "Section view";
@@ -36,10 +36,12 @@ pub const TURN: &str = "Turn";
 pub const TURN_HOVER: &str = "Turns the plane about its own y axis";
 pub const FLIP: &str = "Cut away the other side";
 pub const CUT_FACES: &str = "Cut faces";
-const PANEL: RightPanel = RightPanel {
-    id: "section",
-    width: 300.0,
-    least: 220.0,
+const PANEL: RightPanel = RightPanel { id: "section" };
+const HEADER: PanelTitle<'static> = PanelTitle {
+    glyph: icons::SECTION,
+    title: TITLE,
+    close: CLOSE,
+    help: Some(Page::SectionView),
 };
 const PRINCIPAL: [(PrincipalPlane, &str); 3] = [
     (PrincipalPlane::Xy, "XY"),
@@ -269,17 +271,15 @@ fn body(ui: &mut Ui, context: &SectionContext<'_>, tool: &mut SectionTool) {
 }
 
 pub fn show(ui: &mut Ui, context: &SectionContext<'_>, tool: &mut SectionTool, room: f32) {
-    let mut close = false;
-    PANEL.show(ui, room, |ui| {
-        ui.add_space(SPACE_S);
-        widgets::panel_header(ui, icons::SECTION, TITLE, |ui| {
-            close = widgets::icon_button(ui, icons::CLOSE, CLOSE).clicked();
-            guide_panel::help_button(ui, Page::SectionView);
-        });
-        ui.add_space(SPACE_S);
-        ScrollArea::vertical().show(ui, |ui| body(ui, context, tool));
-    });
-    if close {
+    let shown = widgets::side_panel(
+        ui,
+        room,
+        PANEL,
+        &HEADER,
+        |_| {},
+        |ui| body(ui, context, tool),
+    );
+    if shown.closed {
         tool.open = false;
     }
 }

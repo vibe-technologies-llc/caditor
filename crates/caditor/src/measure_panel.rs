@@ -4,14 +4,14 @@ use caditor_document::{DensityError, FeatureId, MeasuredItem, Reading, displayed
 use caditor_expression::format_number;
 use caditor_geometry::{Point3, Vector3};
 use caditor_kernel::{Accuracy, MassProperties, SecondMoment};
-use egui::{ComboBox, Label, Popup, ScrollArea, TextWrapMode, Ui};
+use egui::{Label, Popup, TextWrapMode, Ui};
 
 use crate::{
     appearance::{SPACE_M, SPACE_S},
     bodies::{BodyMass, BodyMesh, BodyMeshes, MassAccuracy},
     datum_tools, field,
     guide::Page,
-    guide_panel, icons,
+    icons,
     layout::RightPanel,
     measure::{APPROXIMATELY, Freshness, MeasureTool, MeasuredLine, Readout, Relative, Value},
     measurement_tools::{self, Keepable},
@@ -21,7 +21,7 @@ use crate::{
     selection::{Pickable, Selection},
     units::{LengthUnit, Units},
     visibility,
-    widgets::{self, Tone},
+    widgets::{self, PanelTitle, Tone},
 };
 
 pub const TITLE: &str = "Measure";
@@ -32,10 +32,12 @@ pub const MASS_TITLE: &str = "Mass properties";
 pub const EMPTY_HINT: &str = "Select a vertex, edge, face or sketch point to measure it, or two of \
                               them to measure between them, or sketch regions for their area and \
                               section properties. Shift or Ctrl adds to the selection.";
-const PANEL: RightPanel = RightPanel {
-    id: "measure",
-    width: 300.0,
-    least: 220.0,
+const PANEL: RightPanel = RightPanel { id: "measure" };
+const HEADER: PanelTitle<'static> = PanelTitle {
+    glyph: icons::MEASURE,
+    title: TITLE,
+    close: CLOSE,
+    help: Some(Page::Measure),
 };
 const MAX_MASS_CARDS: usize = 50;
 const MASS_SECTION: &str = "measure-mass";
@@ -97,9 +99,9 @@ fn relative_row(ui: &mut Ui, model: &Model, relative_to: &mut Option<FeatureId>)
     let shown = relative_to.map_or_else(|| WORLD.to_owned(), name);
     widgets::properties(ui, "measure-relative", |ui| {
         widgets::property(ui, RELATIVE_TO, |ui| {
-            let combo = ComboBox::from_id_salt("measure-relative-to")
-                .selected_text(shown)
-                .show_ui(ui, |ui| {
+            widgets::combo("measure-relative-to", shown)
+                .hover(RELATIVE_HOVER)
+                .show(ui, |ui| {
                     let world = widgets::menu_option(ui, relative_to.is_none(), WORLD)
                         .on_hover_text(WORLD_HOVER);
                     if world.clicked() {
@@ -112,8 +114,6 @@ fn relative_row(ui: &mut Ui, model: &Model, relative_to: &mut Option<FeatureId>)
                         }
                     }
                 });
-            widgets::tie_to_caption(ui, &combo.response);
-            combo.response.on_hover_text(RELATIVE_HOVER);
         });
     });
     ui.add_space(SPACE_S);
@@ -681,40 +681,35 @@ pub fn show(
         shown.map(|(readout, freshness)| (readout, readout_cards(readout, unit), freshness));
     let frame = tool.relative_to.filter(|_| relative.is_ok());
     let masses = mass_cards(context, relative.clone().unwrap_or(Relative::WORLD), frame);
-    let mut close = false;
     let mut chosen = None;
     let mut relative_to = tool.relative_to;
-    PANEL.show(ui, room, |ui| {
-        ui.add_space(SPACE_S);
-        widgets::panel_header(ui, icons::MEASURE, TITLE, |ui| {
-            close = widgets::icon_button(ui, icons::CLOSE, CLOSE).clicked();
-            guide_panel::help_button(ui, Page::Measure);
-            let everything_text = cards
-                .iter()
-                .flat_map(|(_, cards, _)| cards)
-                .chain(&masses.cards)
-                .map(Card::text)
-                .collect::<Vec<_>>()
-                .join("\n");
-            let copy = widgets::small_button(ui, icons::COPY, COPY_ALL);
-            if ui
-                .add(copy)
-                .on_hover_text("Copy every reading in the panel as text")
-                .clicked()
-            {
-                ui.ctx().copy_text(everything_text);
-            }
-            if measuring && !context.selection.is_empty() {
-                ui.label(widgets::muted(MEASURING, ui));
-            }
-        });
-        ui.add_space(SPACE_S);
+    let header_actions = |ui: &mut Ui| {
+        let everything_text = cards
+            .iter()
+            .flat_map(|(_, cards, _)| cards)
+            .chain(&masses.cards)
+            .map(Card::text)
+            .collect::<Vec<_>>()
+            .join("\n");
+        let copy = widgets::small_button(ui, icons::COPY, COPY_ALL);
+        if ui
+            .add(copy)
+            .on_hover_text("Copy every reading in the panel as text")
+            .clicked()
+        {
+            ui.ctx().copy_text(everything_text);
+        }
+        if measuring && !context.selection.is_empty() {
+            ui.label(widgets::muted(MEASURING, ui));
+        }
+    };
+    let panel = widgets::side_panel_parts(ui, room, PANEL, &HEADER, header_actions, |ui| {
         relative_row(ui, context.model, &mut relative_to);
         if let Err(problem) = &relative {
             widgets::callout(ui, Tone::Warning, |ui| ui.label(problem));
             ui.add_space(SPACE_M);
         }
-        ScrollArea::vertical().show(ui, |ui| {
+        widgets::panel_scroll(ui, PANEL.id, |ui| {
             if context.selection.is_empty() {
                 widgets::callout(ui, Tone::Info, |ui| ui.label(EMPTY_HINT));
                 ui.add_space(SPACE_M);
@@ -730,7 +725,7 @@ pub fn show(
         });
     });
     tool.relative_to = relative_to;
-    if close {
+    if panel.closed {
         tool.toggle();
     }
     if let Some(choice) = chosen {

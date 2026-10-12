@@ -33,7 +33,7 @@ const EMPTY: &str = "No selection set is saved yet. Select faces, edges or bodie
                      here or with the Save the selection as a set command.";
 const DIALOG_ID: &str = "selection-sets";
 const HEIGHT_SHARE: f32 = 0.8;
-const LIST_HEIGHT: f32 = 240.0;
+const LIST_HEIGHT: widgets::ListHeight = widgets::ListHeight::Medium;
 const SELECT_HOVER: &str = "Select what this set holds";
 const UPDATE_HOVER: &str = "Replace it with the current selection";
 const RENAME_HOVER: &str = "Rename it";

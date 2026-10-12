@@ -2,7 +2,7 @@ use caditor_document::{
     Configuration, ConfigurationId, ConfiguredValue, Document, MAX_CONFIGURATION_NAME_CHARS, Rgb,
     Setting, Transaction,
 };
-use egui::{ComboBox, Grid, Id, Key, ScrollArea, TextEdit, Ui};
+use egui::{Grid, Id, Key, ScrollArea, TextEdit, Ui};
 
 use crate::{
     appearance::{SPACE_M, SPACE_S},
@@ -285,7 +285,7 @@ fn table_row(
     let active = document.configurations().is_active(row.id);
     let mut outcome = None;
     let switch_hover = format!("Switch to {}", row.name);
-    let switch = widgets::named(ui.radio(active, ""), &switch_hover).on_hover_text(if active {
+    let switch = widgets::unlabelled_radio(ui, active, &switch_hover).on_hover_text(if active {
         "This is the model as it stands"
     } else {
         switch_hover.as_str()
@@ -397,7 +397,7 @@ fn cell(
         }
         (ConfiguredValue::Suppressed(_), setting) => {
             let mut suppressed = matches!(setting, Some(Setting::Suppressed(true)));
-            let changed = widgets::named(ui.checkbox(&mut suppressed, ""), &label)
+            let changed = widgets::unlabelled_checkbox(ui, &mut suppressed, &label)
                 .on_hover_text("Suppressed in this configuration")
                 .changed();
             if changed {
@@ -414,10 +414,9 @@ fn cell(
                 _ => None,
             };
             let mut chosen = None;
-            ComboBox::from_id_salt(cell_id(row.id, value))
+            widgets::combo(cell_id(row.id, value), colour_name(current))
                 .width(CELL_WIDTH)
-                .selected_text(colour_name(current))
-                .show_ui(ui, |ui| {
+                .show(ui, |ui| {
                     if widgets::menu_option(ui, current.is_none(), DEFAULT_COLOUR_NAME).clicked() {
                         chosen = Some(None);
                     }
@@ -493,16 +492,13 @@ fn adding(ui: &mut Ui, document: &Document, draft: &mut ConfigurationsDraft) -> 
         let offered = offered_values(document);
         let mut chosen = None;
         ui.add_enabled_ui(!offered.is_empty(), |ui| {
-            ComboBox::from_id_salt((DIALOG_ID, "configure"))
-                .selected_text(CONFIGURE_LABEL)
-                .show_ui(ui, |ui| {
-                    for value in &offered {
-                        if widgets::menu_option(ui, false, &value_name(document, *value)).clicked()
-                        {
-                            chosen = Some(*value);
-                        }
+            widgets::combo((DIALOG_ID, "configure"), CONFIGURE_LABEL).show(ui, |ui| {
+                for value in &offered {
+                    if widgets::menu_option(ui, false, &value_name(document, *value)).clicked() {
+                        chosen = Some(*value);
                     }
-                });
+                }
+            });
         });
         if let Some(value) = chosen {
             let built = document

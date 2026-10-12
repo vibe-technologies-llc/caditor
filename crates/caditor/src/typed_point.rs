@@ -9,7 +9,8 @@ use egui::{
 };
 
 use crate::{
-    appearance, canvas,
+    appearance::{self, SPACE_M, SPACE_SM},
+    canvas,
     field::{self, Expected},
     icons,
     model::Model,
@@ -22,8 +23,8 @@ pub const MOVE_LABEL: &str = "Move to";
 pub const POINT_PLACEHOLDER: &str = "x, y  or  length < angle";
 pub const WAITING_HINT: &str = "Still waiting: click the field or type to carry on   Esc: clear it";
 const FIELD_WIDTH: f32 = 180.0;
-const FRAME_MARGIN: Margin = Margin::symmetric(8, 6);
-const HINT_GAP: f32 = 6.0;
+const FRAME_MARGIN: Margin = appearance::margin(SPACE_M, SPACE_SM);
+const HINT_GAP: f32 = SPACE_SM;
 const RELATIVE_MARK: char = '@';
 const VALUE_MARK: char = '=';
 const SEPARATORS: [char; 2] = [',', ';'];

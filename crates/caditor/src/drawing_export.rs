@@ -565,19 +565,19 @@ pub fn dialog(
         export::heading(ui, "Contents");
         if offered_faces > 0 {
             let mut included = exporter.faces;
-            if ui
-                .checkbox(
-                    &mut included,
-                    format!(
-                        "The {} selected in the view",
-                        count(offered_faces, "flat face", "flat faces")
-                    ),
-                )
-                .on_hover_text(
-                    "Write the outlines and holes of the faces selected in the view into the same \
+            if widgets::checkbox(
+                ui,
+                &mut included,
+                format!(
+                    "The {} selected in the view",
+                    count(offered_faces, "flat face", "flat faces")
+                ),
+            )
+            .on_hover_text(
+                "Write the outlines and holes of the faces selected in the view into the same \
                      drawing as the sketches",
-                )
-                .changed()
+            )
+            .changed()
             {
                 command = Some(FileCommand::DrawingExport(DrawingCommand::Faces(included)));
             }
@@ -594,8 +594,7 @@ pub fn dialog(
         } else {
             "Names"
         };
-        if ui
-            .checkbox(&mut annotations, caption)
+        if widgets::checkbox(ui, &mut annotations, caption)
             .on_hover_text(hint)
             .changed()
         {
@@ -605,8 +604,7 @@ pub fn dialog(
         }
         if sketches_shown {
             let mut keep = keeps_construction;
-            if ui
-                .checkbox(&mut keep, "Construction geometry")
+            if widgets::checkbox(ui, &mut keep, "Construction geometry")
                 .on_hover_text(
                     "Write construction curves on a dashed Construction layer instead of leaving \
                      them out",
@@ -703,8 +701,7 @@ fn sheet_fields(
         }
     });
     let mut turns = exporter.turns;
-    if ui
-        .checkbox(&mut turns, "Turn parts where that packs them closer")
+    if widgets::checkbox(ui, &mut turns, "Turn parts where that packs them closer")
         .on_hover_text(
             "Try each part in quarter turns, and at the angle in 15° steps that boxes it smallest, \
              and keep whichever fits lowest on the sheet",

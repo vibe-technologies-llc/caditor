@@ -15,7 +15,7 @@ pub const UNDONE: &str = "Undone, Redo brings them back";
 pub const BEFORE: &str = "Before these changes";
 const BEFORE_HOVER: &str = "Go back to the model as it was before every change listed here";
 const CURRENT_HOVER: &str = "The model is as it was just after this change";
-const LIST_HEIGHT: f32 = 360.0;
+const LIST_HEIGHT: widgets::ListHeight = widgets::ListHeight::Tall;
 const NAMED: usize = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,7 +37,7 @@ pub fn dialog(ctx: &egui::Context, model: &Model) -> Option<Jump> {
         let done: Vec<&Transaction> = model.undo_steps().collect();
         let mut jump = None;
         ScrollArea::vertical()
-            .max_height(LIST_HEIGHT)
+            .max_height(widgets::list_height(ui.ctx(), LIST_HEIGHT))
             .auto_shrink([false, true])
             .show(ui, |ui| {
                 if !undone.is_empty() {

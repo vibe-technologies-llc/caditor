@@ -182,7 +182,7 @@ fn no_source_file_or_manifest_holds_a_comment() {
     assert!(commented.is_empty(), "comments in {commented:#?}");
 }
 
-const RAW_WIDGETS: [&str; 7] = [
+const RAW_WIDGETS: [&str; 14] = [
     "ui.button(",
     "ui.spinner(",
     "Spinner::new(",
@@ -190,6 +190,13 @@ const RAW_WIDGETS: [&str; 7] = [
     "Button::new(",
     "Button::selectable(",
     ".selectable_label(",
+    "ui.checkbox(",
+    "Checkbox::new(",
+    "Checkbox::without_text(",
+    "ComboBox::",
+    "ui.radio(",
+    ".radio_value(",
+    "RadioButton::new(",
 ];
 const KIT_FILES: [&str; 1] = ["widgets.rs"];
 
@@ -200,6 +207,18 @@ fn raw_widget_at(line: &str) -> Option<&'static str> {
             !before.is_some_and(|previous| previous.is_alphanumeric() || previous == '_')
         })
     })
+}
+
+fn statements(text: &str) -> Vec<(usize, String)> {
+    let mut joined: Vec<(usize, String)> = Vec::new();
+    for (index, line) in text.lines().enumerate() {
+        let trimmed = line.trim_start();
+        match joined.last_mut() {
+            Some((_, previous)) if trimmed.starts_with('.') => previous.push_str(trimmed),
+            _ => joined.push((index + 1, line.to_owned())),
+        }
+    }
+    joined
 }
 
 #[test]
@@ -215,16 +234,29 @@ fn buttons_outside_the_widget_kit_come_from_it() {
         })
         .flat_map(|path| {
             let text = fs::read_to_string(&path).unwrap();
-            text.lines()
-                .enumerate()
-                .filter_map(|(index, line)| {
-                    raw_widget_at(line).map(|raw| format!("{}:{} {raw}", path.display(), index + 1))
+            statements(&text)
+                .into_iter()
+                .filter_map(|(line, statement)| {
+                    raw_widget_at(&statement).map(|raw| format!("{}:{line} {raw}", path.display()))
                 })
                 .collect::<Vec<_>>()
         })
         .collect();
 
     assert!(raw.is_empty(), "use the widgets.rs kit instead of {raw:#?}");
+    let split = statements("let response = ui\n    .button(title)\n    .on_hover_text(hover);");
+    assert_eq!(split.len(), 1);
+    assert_eq!(
+        split
+            .first()
+            .and_then(|(_, statement)| raw_widget_at(statement)),
+        Some("ui.button(")
+    );
+    assert_eq!(raw_widget_at("widgets::checkbox(ui, &mut on, label)"), None);
+    assert_eq!(
+        raw_widget_at("ui.checkbox(&mut on, label)"),
+        Some("ui.checkbox(")
+    );
     assert_eq!(raw_widget_at("ToolButton::new(glyph)"), None);
     assert_eq!(raw_widget_at("widgets::spinner(ui);"), None);
     assert_eq!(raw_widget_at("ui.spinner();"), Some("ui.spinner("));

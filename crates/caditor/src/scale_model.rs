@@ -4,7 +4,7 @@ use caditor_document::{
 };
 use caditor_expression::format_number;
 use caditor_geometry::Point3;
-use egui::{ComboBox, Id, Key, TextEdit, Ui};
+use egui::{Id, Key, TextEdit, Ui};
 
 use crate::{
     appearance::SPACE_S,
@@ -322,9 +322,9 @@ fn fields(ui: &mut Ui, model: &Model, draft: &mut ScaleDraft) -> bool {
             field.lost_focus() && ui.input(|input| input.key_pressed(Key::Enter))
         });
         widgets::property(ui, CENTRE, |ui| {
-            let combo = ComboBox::from_id_salt((DIALOG_ID, "centre"))
-                .selected_text(centre_name(document, draft.centre))
-                .show_ui(ui, |ui| {
+            widgets::combo((DIALOG_ID, "centre"), centre_name(document, draft.centre)).show(
+                ui,
+                |ui| {
                     let choices = std::iter::once(Centre::Origin)
                         .chain(centres(document).into_iter().map(Centre::Datum));
                     for centre in choices {
@@ -335,8 +335,8 @@ fn fields(ui: &mut Ui, model: &Model, draft: &mut ScaleDraft) -> bool {
                             draft.problem = None;
                         }
                     }
-                });
-            widgets::tie_to_caption(ui, &combo.response);
+                },
+            );
         });
         widgets::property(ui, VALUES, |ui| {
             let choices = [

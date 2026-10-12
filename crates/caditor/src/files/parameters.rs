@@ -20,7 +20,7 @@ pub const EXPORT_HINT: &str = "Write the model's parameters to a CSV file: names
 pub const IMPORT_HINT: &str = "Read parameters from a CSV file with name and expression columns, \
                                adding new names and updating those the model has, after a \
                                preview";
-const LIST_HEIGHT: f32 = 320.0;
+const LIST_HEIGHT: widgets::ListHeight = widgets::ListHeight::Tall;
 const REPLACE_LABEL: &str = "Replace values the model already has";
 const REPLACE_HINT: &str = "Off, a parameter the model already has keeps its own expression and \
                             the file's is left out";
@@ -322,9 +322,8 @@ pub fn dialog(ctx: &egui::Context, draft: &ParameterImportDraft) -> Option<FileC
                 });
             }
             let mut replace = draft.replace;
-            let toggle = ui
-                .checkbox(&mut replace, REPLACE_LABEL)
-                .on_hover_text(REPLACE_HINT);
+            let toggle =
+                widgets::checkbox(ui, &mut replace, REPLACE_LABEL).on_hover_text(REPLACE_HINT);
             if toggle.changed() {
                 command = Some(ParametersCommand::Replace(replace));
             }

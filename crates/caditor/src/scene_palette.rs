@@ -20,7 +20,7 @@ fn lightened(colour: Color, share: f32) -> Color {
     }
 }
 
-fn shown32(colour: Color) -> egui::Color32 {
+pub fn color32(colour: Color) -> egui::Color32 {
     let byte = |channel: f32| (channel.clamp(0.0, 1.0) * 255.0).round() as u8;
     egui::Color32::from_rgb(byte(colour.red), byte(colour.green), byte(colour.blue))
 }
@@ -144,12 +144,12 @@ impl Canvas {
 
     pub fn colour(self) -> egui::Color32 {
         let background = self.background();
-        let channel = |value: f64| (value * 255.0).round().clamp(0.0, 255.0) as u8;
-        egui::Color32::from_rgb(
-            channel(background.r),
-            channel(background.g),
-            channel(background.b),
-        )
+        color32(Color {
+            red: background.r as f32,
+            green: background.g as f32,
+            blue: background.b as f32,
+            alpha: 1.0,
+        })
     }
 
     pub fn chrome(self) -> &'static canvas::Chrome {
@@ -441,7 +441,7 @@ impl ScenePalette {
     }
 
     pub fn marks_stand_out_on(&self, body: Color) -> bool {
-        let below = shown32(body);
+        let below = color32(body);
         [
             self.body_edge,
             self.thread,
@@ -450,7 +450,7 @@ impl ScenePalette {
             self.faces.hovered_selected,
         ]
         .into_iter()
-        .all(|mark| appearance::contrast_ratio(shown32(mark), below) >= MARKS_ON_A_BODY)
+        .all(|mark| appearance::contrast_ratio(color32(mark), below) >= MARKS_ON_A_BODY)
     }
 
     pub fn look(&self, state: SketchState) -> Look {
@@ -482,13 +482,7 @@ impl ScenePalette {
     }
 
     pub fn axis_colour(&self, axis: Axis) -> egui::Color32 {
-        let colour = self.axis(axis);
-        let channel = |value: f32| (value * 255.0).round().clamp(0.0, 255.0) as u8;
-        egui::Color32::from_rgb(
-            channel(colour.red),
-            channel(colour.green),
-            channel(colour.blue),
-        )
+        color32(self.axis(axis))
     }
 }
 

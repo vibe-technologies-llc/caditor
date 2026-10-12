@@ -95,7 +95,7 @@ const BAR_THICKNESS: f32 = 3.0;
 const DROP_LINE_WIDTH: f32 = 2.0;
 const DROP_REASON_OFFSET: egui::Vec2 = vec2(18.0, 12.0);
 const DROP_REASON_WIDTH: f32 = 280.0;
-const DEPENDENTS_HEIGHT: f32 = 220.0;
+const DEPENDENTS_HEIGHT: widgets::ListHeight = widgets::ListHeight::Medium;
 const AUTOSCROLL_EDGE: f32 = 24.0;
 const AUTOSCROLL_RATE: f32 = 0.5;
 const FILTER_FROM_FEATURES: usize = 6;
@@ -1382,7 +1382,7 @@ fn finish_renaming(
     field: field::FieldResponse<Transaction>,
 ) {
     if let Some(error) = &field.error {
-        tree_row::indented(ui, |ui| field_error(ui, error));
+        tree_row::indented(ui, |ui| widgets::error_text(ui, error));
     }
     if let Some(transaction) = field.committed {
         actions.push(Action::Apply(transaction));
@@ -3273,7 +3273,7 @@ fn dimension_field(
     if let Some(error) = error {
         ui.horizontal(|ui| {
             ui.add_space(SPACE_L);
-            field_error(ui, &error);
+            widgets::error_text(ui, &error);
         });
     }
 }
@@ -3316,14 +3316,6 @@ fn reveal_if_focused(state: &mut PanelState, row: Response, focus: Focus) {
         row.scroll_to_me(Some(Align::Center));
         row.highlight();
     }
-}
-
-fn field_error(ui: &mut Ui, error: &str) {
-    ui.horizontal_wrapped(|ui| {
-        let color = ui.visuals().error_fg_color;
-        widgets::icon_label(ui, icons::FAILED, color);
-        ui.colored_label(color, error);
-    });
 }
 
 pub fn count(amount: usize, singular: &str, plural: &str) -> String {

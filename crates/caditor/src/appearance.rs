@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use egui::{
     Color32, CornerRadius, FontFamily, FontId, Id, Margin, Shadow, Stroke, Style, TextStyle, Ui,
-    Visuals, style::ScrollStyle, vec2,
+    Vec2, Visuals, style::ScrollStyle, vec2,
 };
 
 use crate::{fonts, scene_palette::Canvas};
@@ -11,28 +11,51 @@ pub const MIN_SCALE: f32 = 0.75;
 pub const MAX_SCALE: f32 = 2.0;
 pub const SCALE_STEP: f32 = 0.125;
 
+pub const SMALL_RADIUS: u8 = 4;
 pub const WIDGET_RADIUS: u8 = 6;
 pub const CARD_RADIUS: u8 = 8;
 pub const WINDOW_RADIUS: u8 = 10;
-pub const BODY_SIZE: f32 = 13.5;
+
 pub const SMALL_SIZE: f32 = 11.5;
+pub const LABEL_SIZE: f32 = 12.5;
+pub const BODY_SIZE: f32 = 13.5;
+pub const TITLE_SIZE: f32 = 15.0;
 pub const HEADING_SIZE: f32 = 17.0;
-const SECTION_SIZE: f32 = 12.5;
+pub const PAGE_TITLE_SIZE: f32 = 20.0;
+const SECTION_SIZE: f32 = LABEL_SIZE;
+const MONOSPACE_SIZE: f32 = LABEL_SIZE;
 pub const ICON_SIZE: f32 = 16.0;
 pub const TOOL_ICON_SIZE: f32 = 20.0;
 pub const SECTION: &str = "section";
 
 pub const BORDER_WIDTH: f32 = 1.0;
 pub const FOCUS_WIDTH: f32 = 2.0;
+pub const FOCUS_GAP: f32 = 2.0;
 pub const CONTROL_HEIGHT: f32 = 24.0;
+pub const CONTROL_MIN_WIDTH: f32 = 36.0;
+const CHECKBOX_SIZE: f32 = 15.0;
+const CHECKBOX_MARK_SIZE: f32 = 9.0;
+
 pub const SPACE_XS: f32 = 2.0;
 pub const SPACE_S: f32 = 4.0;
+pub const SPACE_SM: f32 = 6.0;
 pub const SPACE_M: f32 = 8.0;
 pub const SPACE_L: f32 = 12.0;
+pub const SPACE_XL: f32 = 16.0;
 pub const DIALOG_MARGIN: i8 = 20;
+pub const ITEM_SPACING: Vec2 = vec2(SPACE_M, SPACE_SM);
+pub const BUTTON_PADDING: Vec2 = vec2(SPACE_M, SPACE_S);
+const MENU_MARGIN: Margin = margin(SPACE_SM, SPACE_SM);
+const INDENT: f32 = SPACE_XL;
+const ICON_SPACING: f32 = SPACE_SM;
+
+pub const TOOLTIP_WIDTH: f32 = 340.0;
+pub const MENU_WIDTH: f32 = 260.0;
+pub const COMBO_WIDTH: f32 = 140.0;
+const TOOLTIP_DELAY: f32 = 0.35;
+
 const HIGH_CONTRAST_DISABLED_ALPHA: f32 = 0.7;
 const DISABLED_ALPHA: f32 = 0.5;
-const MONOSPACE_SIZE: f32 = 12.5;
 const SKINS_KEY: &str = "appearance-skins";
 
 pub const READABLE: f32 = 4.5;
@@ -730,20 +753,20 @@ pub fn style(skin: &Skin) -> Style {
     };
     style.text_styles = text_styles();
     let spacing = &mut style.spacing;
-    spacing.item_spacing = vec2(8.0, 6.0);
-    spacing.button_padding = vec2(10.0, 4.0);
-    spacing.interact_size = vec2(36.0, 24.0);
-    spacing.menu_margin = Margin::same(6);
+    spacing.item_spacing = ITEM_SPACING;
+    spacing.button_padding = BUTTON_PADDING;
+    spacing.interact_size = vec2(CONTROL_MIN_WIDTH, CONTROL_HEIGHT);
+    spacing.menu_margin = MENU_MARGIN;
     spacing.window_margin = Margin::same(DIALOG_MARGIN);
-    spacing.indent = 16.0;
-    spacing.icon_width = 15.0;
-    spacing.icon_width_inner = 9.0;
-    spacing.icon_spacing = 6.0;
-    spacing.tooltip_width = 340.0;
-    spacing.menu_width = 260.0;
-    spacing.combo_width = 140.0;
+    spacing.indent = INDENT;
+    spacing.icon_width = CHECKBOX_SIZE;
+    spacing.icon_width_inner = CHECKBOX_MARK_SIZE;
+    spacing.icon_spacing = ICON_SPACING;
+    spacing.tooltip_width = TOOLTIP_WIDTH;
+    spacing.menu_width = MENU_WIDTH;
+    spacing.combo_width = COMBO_WIDTH;
     spacing.scroll = ScrollStyle::thin();
-    style.interaction.tooltip_delay = 0.35;
+    style.interaction.tooltip_delay = TOOLTIP_DELAY;
     style
 }
 
@@ -772,6 +795,10 @@ fn text_styles() -> BTreeMap<TextStyle, FontId> {
         ),
     ]
     .into()
+}
+
+pub const fn margin(x: f32, y: f32) -> Margin {
+    Margin::symmetric(x as i8, y as i8)
 }
 
 pub fn clamp_scale(scale: f32) -> f32 {

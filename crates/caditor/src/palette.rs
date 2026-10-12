@@ -16,7 +16,7 @@ use crate::{
 };
 
 const TOP_MARGIN: f32 = 72.0;
-const LIST_HEIGHT: f32 = 360.0;
+const LIST_HEIGHT: widgets::ListHeight = widgets::ListHeight::Tall;
 pub const RECENT_LIMIT: usize = 6;
 const ROW_HEIGHT: f32 = CONTROL_HEIGHT + SPACE_S;
 const DETAIL_LINES: f32 = 2.0;

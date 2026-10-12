@@ -22,6 +22,7 @@ use crate::{
     snap::Screen,
     units::Units,
     viewport::SketchScreen,
+    widgets,
 };
 
 const LABEL_GAP: f32 = 3.0;
@@ -1696,7 +1697,7 @@ impl Annotations {
                             },
                         );
                         if let Some(error) = &field.error {
-                            ui.colored_label(ui.visuals().error_fg_color, error);
+                            widgets::error_text(ui, error);
                         }
                         field
                     })

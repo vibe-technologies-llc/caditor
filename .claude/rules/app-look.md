@@ -67,7 +67,15 @@ paths:
   `required_pairs`): 4.5:1 for text, 7:1 for body text in high contrast, 3:1 for outlines,
   `field_border`, `focus` and `danger`, `text_on_accent` 4.5:1 on every accent and danger fill. A
   failure is a `ContrastFailure` naming the pair in words. Tests run it on every shipped set.
-  Design constants (spacing, `CONTROL_HEIGHT`, radii, `BORDER_WIDTH`, `FOCUS_WIDTH`) live there.
+- The design scale lives in `appearance.rs`, and a size anywhere else is a step of it, never a bare
+  number: spacing `SPACE_XS` 2, `SPACE_S` 4, `SPACE_SM` 6 (the rows' vertical rhythm), `SPACE_M` 8,
+  `SPACE_L` 12, `SPACE_XL` 16 (`appearance::margin` makes an egui `Margin` of two steps); type
+  `SMALL_SIZE` 11.5, `LABEL_SIZE` 12.5 (section titles, monospace, the 3D view's key hints),
+  `BODY_SIZE` 13.5, `TITLE_SIZE` 15 (titles in the 3D view), `HEADING_SIZE` 17, `PAGE_TITLE_SIZE`
+  20 (a guide page's title); radii `SMALL_RADIUS` (key caps), `WIDGET_RADIUS`, `CARD_RADIUS`,
+  `WINDOW_RADIUS`; `CONTROL_HEIGHT`, `CONTROL_MIN_WIDTH`, `BORDER_WIDTH`, `FOCUS_WIDTH` and
+  `FOCUS_GAP`. The egui `Style` is built from named values only (`ITEM_SPACING`, `BUTTON_PADDING`,
+  `TOOLTIP_WIDTH`, `MENU_WIDTH`, `COMBO_WIDTH`, …).
 - `app::apply_appearance` resolves the preference (`themes::Appearance::resolve`) into `Skins`, one
   per egui theme (Follow the system fills dark and light; a named theme both, and sets egui's
   preference to its lightness), installs the styles and publishes the skins in egui temp data
@@ -116,7 +124,10 @@ paths:
   `Scene::grid` in place without a rebuild.
 - `canvas.rs` is the canvas chrome: a `Chrome` of every colour (backdrop, panel, text, hover,
   selection, error, warning, prompt, snap, key caps, controls, view cube), `DARK_CHROME` and
-  `LIGHT_CHROME`, read through `canvas::chrome(ctx)`. Labels sit on the translucent backdrop
+  `LIGHT_CHROME`, read through `canvas::chrome(ctx)`. Its sizes are `appearance`'s scale (text and
+  icon sizes, `WIDGET_RADIUS` for labels, controls and hints, `SMALL_RADIUS` for key caps, gaps and
+  padding on the spacing steps), so a label in the view matches the panels' text; `HINT_SIZE` is the
+  `LABEL_SIZE` step. Labels sit on the translucent backdrop
   (`canvas::label`, `canvas::Label`); the typed-point field uses the opaque panel; in high contrast
   `paint_backdrop` uses the opaque panel too (`canvas::set_contrast` publishes the contrast each
   frame from `app.rs`; `Chrome::backdrop`). Tests hold every chrome colour to 4.5:1 (body 7:1) over
@@ -139,7 +150,9 @@ paths:
   lightened toward white by the fewest of `LIGHTENING_STEPS` after which those marks hold
   `MARKS_ON_A_BODY` (`marks_stand_out_on`), so a black body keeps its hue as a light tint; the
   default colour is drawn as it is (`scene::body_color` and `face_looks` take it). The standard
-  palettes keep one form for every sketch state.
+  palettes keep one form for every sketch state. A render `Color` becomes an egui colour only through
+  `scene_palette::color32` (canvases, axis colours, analysis swatches, the palette tests), a
+  document `Rgb` only through `body_appearance::color32`.
 - The axis triad (`view_cube::show_axis_triad`) draws in the palette's `axes` with each letter on the
   label backdrop; axis colours hold 4.5:1 (7:1 in high contrast) over it on black, white and hover,
   which is why the standard dark red and blue are lighter and the light ones darker than a plain
@@ -168,17 +181,28 @@ paths:
 
 - `widgets.rs` is the kit every panel and dialog is built from; read it before adding UI
   (`ToolButton`, `section`, `properties`, `card`, `callout` and `pill` with a `Tone`, the button
-  family, `text_field`, `segmented`, `tabs`, `dialog`/`footer`, menu items). Panels and dialogs
-  never add raw egui buttons: `conventions_tests.rs` (`buttons_outside_the_widget_kit_come_from_it`)
-  fails on them outside `widgets.rs`.
+  family, `checkbox`, `unlabelled_checkbox` and `unlabelled_radio` (no visible text, named for
+  screen readers with their role), `combo`, `text_field`, `segmented`, `tabs`, `dialog`/`footer`,
+  `side_panel`, menu items, `error_row` and `error_text`). Panels and dialogs never add raw egui
+  buttons, checkboxes, radio buttons or combo boxes: `conventions_tests.rs`
+  (`buttons_outside_the_widget_kit_come_from_it`) fails on them outside `widgets.rs`, a call split
+  over lines (`ui` then `.button(…)` on the next) included.
 - Decisions the code does not show:
   - A `ToolButton` is icon above label; `compact` is icon alone, named by its label, in a square so
     two rows match one tool button. `icon_button` is a true `CONTROL_HEIGHT` square so rows
     reserving that room never overflow and widen a panel. `danger_button` is for actions that throw
     work away and never registers as the primary. `strong` is semibold, since egui's `.strong()`
     only recolours here.
-  - `segmented` falls back to a dropdown when wider than the room, so it never widens a panel; that
-    dropdown and `feature_fields::combo` truncate their chosen text rather than wrap it.
+  - `segmented` falls back to a dropdown when wider than the room, so it never widens a panel.
+    Every `widgets::combo` (that dropdown and `feature_fields::combo` included) truncates its chosen
+    text rather than wrap it, is `COMBO_WIDTH` wide unless given a width, ties itself to the property
+    caption before it (`tie_to_caption`) and can take its hover through `Combo::hover`.
+  - One focus ring: `paint_focus_ring` in the panels' focus colour, `paint_focus_ring_in` with a
+    colour and radius of the caller's; the 3D view's controls and the view cube pass the chrome's
+    `focus`, which the canvas tests hold over the backdrop.
+  - An inline error is the failure icon and the error colour, never colour alone: `error_row` as a
+    property grid row, `error_text` anywhere else (feature tree fields, the 3D view's dimension
+    fields).
   - `small_button` marks its label, not its icon, as the part that shrinks when the button is wider
     than a whole row of its container: in a narrower non-wrapping column the label wraps; in a
     wrapping row the button moves to the next row whole. `label_before_icon_buttons` wraps a value
@@ -204,12 +228,15 @@ paths:
   - `tabs` moves by click, Left/Right (wrapping), Home and End, and with `switch_keys` Ctrl+Tab and
     Ctrl+Page Up/Down; focus follows. `tab_id(row, index)` lets tests focus one.
   - Dialog widths and list heights clamp to the screen (`fitting_width`, `list_height`), so nothing
-    clips at 200%. `widgets::dialog` centres below the window buttons
+    clips at 200%. A list's height is a `ListHeight` step: `Short` 160 (import layers, export
+    bodies, replaced files), `Medium` 240 (saved views, selection sets, delete dependents, the open
+    report), `Tall` 360 (palette, messages, undo history, version history, shortcuts, parameter and
+    configuration files). `widgets::dialog` centres below the window buttons
     (`window_frame::controls_bottom`), which are drawn over dialogs, and puts everything under the
     title in a scroll area as tall as the window leaves (`DialogBody::limit`); `BodyRoom` keeps a
     long-bodied dialog's footer in view within that limit.
-  - The side panel's scroll area always reserves its scrollbar's room, so the panel keeps its width
-    when content grows past the window's height.
+  - Side panels scroll through `panel_scroll`, which always reserves its scrollbar's room, so a panel
+    keeps its width when content grows past the window's height.
   - Icons and labels are separate text atoms, so tests find buttons by bare label, compact ones by
     accessible name.
   - Animated widgets repaint on a timer: `widgets::spinner` asks for the next frame after
@@ -326,8 +353,14 @@ paths:
   window, split evenly between those open (`layout::panel_room`, `panel_widths`); each one's minimum
   width yields to that share. A model panel narrowed by the share keeps the width the user chose for
   when there is room.
-- The right-hand panels are each a `layout::RightPanel` (id, own default width, least width), shown
-  through `RightPanel::show`, which lays the contents out in a child bounded to the panel
+- The right-hand panels are each a `layout::RightPanel` (an id; all open `RIGHT_WIDTH` 320 wide and
+  narrow to `MIN_RIGHT_WIDTH` 240 at least), drawn through `widgets::side_panel`: a `PanelTitle`
+  (icon, title, Close's name, the guide page its help button opens; the guide has none) as the
+  header with Close, help and the panel's own actions, then the contents in `panel_scroll`.
+  `side_panel_parts` leaves the area under the header to the panel, for Measure's Relative to, the
+  guide's search and Constrain automatically's task above the scroll, and for the primary action
+  that Constrain automatically and Spur gear keep in a `panel_footer`. `RightPanel::show` lays the
+  contents out in a child bounded to the panel
   (`layout::within_width`): egui clamps an overflowing right-hand panel's rect by keeping its far
   edge, so wider content would shift the rect off the window and reserve less than the panel paints.
   They share one width the user last gave one of them (`PanelLayout::right_width`, `None` until
