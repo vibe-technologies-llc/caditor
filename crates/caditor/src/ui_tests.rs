@@ -5992,12 +5992,12 @@ fn the_sketch_bar_counts_curve_ends_joined_to_nothing() {
 fn snapping_to_the_grid_places_free_points_on_its_crossings() {
     let mut harness = Harness::new();
     let feature = harness.draw_on_new_sketch();
-    assert!(harness.shows("Grid 1 mm"));
+    assert!(harness.shows("Grid 10 mm"));
     run_from_palette(&mut harness, "snap to the grid");
     harness.use_tool(Key::L);
 
     harness.click_at(Point2::new(10.3, 10.2));
-    harness.click_at(Point2::new(30.4, 25.3));
+    harness.click_at(Point2::new(30.4, 20.3));
     harness.key(Key::Escape, Modifiers::NONE);
     harness.settle();
 
@@ -6007,7 +6007,56 @@ fn snapping_to_the_grid_places_free_points_on_its_crossings() {
     };
     let (start, end) = sketch.line_endpoints(line).unwrap();
     assert!(near(start, Point2::new(10.0, 10.0)), "{start}");
-    assert!(near(end, Point2::new(30.0, 25.0)), "{end}");
+    assert!(near(end, Point2::new(30.0, 20.0)), "{end}");
+}
+
+#[test]
+fn grid_snapping_ignores_the_sub_grid_until_it_becomes_the_current_level() {
+    let mut harness = Harness::new();
+    let feature = harness.draw_on_new_sketch();
+    assert!(harness.shows("Grid 10 mm"));
+    run_from_palette(&mut harness, "snap to the grid");
+    harness.use_tool(Key::L);
+
+    let between = Point2::new(14.7, 15.4);
+    harness.point_at(between);
+    assert!(!harness.shows("On the grid"));
+    harness.click_at(between);
+    harness.point_at(Point2::new(30.4, 20.3));
+    assert!(harness.shows("On the grid"));
+    harness.click_at(Point2::new(30.4, 20.3));
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.settle();
+
+    let sketch = harness.sketch(feature);
+    let [line] = entities_of_kind(sketch, "Line")[..] else {
+        panic!("one line should be drawn");
+    };
+    let (start, end) = sketch.line_endpoints(line).unwrap();
+    assert!(near(start, between), "{start}");
+    assert!(near(end, Point2::new(30.0, 20.0)), "{end}");
+
+    harness.use_tool(Key::L);
+    harness
+        .events
+        .push(Event::PointerMoved(viewport_centre(&harness)));
+    harness.frame();
+    while !harness.shows("Grid 1 mm") {
+        scroll_in_view(&mut harness, egui::vec2(0.0, 60.0));
+    }
+    harness.click_at(Point2::new(2.3, 1.2));
+    harness.click_at(Point2::new(5.2, 3.3));
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.settle();
+
+    let sketch = harness.sketch(feature);
+    let lines = entities_of_kind(sketch, "Line");
+    let [_, finer] = lines[..] else {
+        panic!("two lines should be drawn");
+    };
+    let (start, end) = sketch.line_endpoints(finer).unwrap();
+    assert!(near(start, Point2::new(2.0, 1.0)), "{start}");
+    assert!(near(end, Point2::new(5.0, 3.0)), "{end}");
 }
 
 #[test]
@@ -6054,7 +6103,7 @@ fn holding_alt_snaps_to_grid_crossings_or_to_geometry_nearer_than_them() {
     let target = transaction.add_sketch_entity(feature, Entity::Point(Point2::new(40.5, 20.5)));
     harness.perform(Action::Apply(transaction.finish()));
     harness.settle();
-    assert!(harness.shows("Grid 1 mm"));
+    assert!(harness.shows("Grid 10 mm"));
     harness.use_tool(Key::L);
     assert!(harness.shows_hint("Alt: snap to the grid or nearby geometry"));
 
@@ -6147,11 +6196,11 @@ fn a_point_grabbed_with_alt_held_lands_on_the_grid_without_orbiting_in_laptop_mo
     });
     harness.settle();
 
-    assert!(harness.shows("Grid 0.1 mm"));
+    assert!(harness.shows("Grid 1 mm"));
     let dragged = harness.sketch(feature).point(end).unwrap();
-    let crossing = (dragged / 0.1).round() * 0.1;
+    let crossing = dragged.round();
     assert!(
-        dragged.distance(Point2::new(26.33, 14.27)) < 0.1,
+        dragged.distance(Point2::new(26.33, 14.27)) < 0.5,
         "{dragged}"
     );
     assert!(dragged.distance(crossing) < 1e-9, "{dragged}");

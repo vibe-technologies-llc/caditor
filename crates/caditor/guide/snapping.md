@@ -43,7 +43,10 @@ label ends "not kept there"; add a dimension or constraint if it should stay.
   snap to is nearer.
 - {command:view.toggle_snapping} turns snapping off for good; Alt still snaps, and the hint
   below the prompt says snapping is off.
-- {command:view.toggle_grid_snapping} puts free points on the grid's crossings.
+- {command:view.toggle_grid_snapping} puts free points on the grid's crossings. It snaps to the
+  grid you see at the current zoom, the spacing named at the bottom of the view such as "Grid 10 mm",
+  and to nothing finer: the faint lines between are left out until you zoom in far enough to
+  draw them in full. Alt steps along the same grid.
 
 Dragging geometry with Select snaps the same way, bodies included: a point dragged onto a body's
 corner or edge projects it and stays on it, in the same undoable change.

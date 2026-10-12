@@ -46,7 +46,7 @@ pub use crate::{
     },
     settings::{AdapterPreference, GraphicsInfo, GraphicsSettings, Msaa, Shading},
     silhouette::Silhouette,
-    viewport::{BACKGROUND, SurfaceTarget, ViewportFrame, ViewportRenderer, grid_minor_spacing},
+    viewport::{BACKGROUND, SurfaceTarget, ViewportFrame, ViewportRenderer, grid_snap_spacing},
 };
 use crate::{
     gpu::DeviceLoss,

@@ -58,6 +58,9 @@ const GRID_UNIFORM_SIZE: u64 = 64;
 const GRID_CELLS_ACROSS_SCALE: f64 = 100.0;
 const GRID_EXTENT_PER_SCALE: f64 = 40.0;
 const GRID_MIN_SCALE_PER_DISTANCE: f64 = 0.25;
+const GRID_LEVEL_RATIO: f64 = 10.0;
+const GRID_COARSEST_LEVEL: i32 = 2;
+const GRID_FULL_CELL_POINTS: f64 = 16.0;
 const WHOLE_VIEW: [f32; 4] = [1.0, 1.0, 0.0, 0.0];
 const MESH_UPLOAD_BYTES_PER_FRAME: u64 = 8 << 20;
 const SECTIONED_LABEL: &str = "sectioned";
@@ -2726,8 +2729,38 @@ fn grid_scale(plane: &Plane, view: &View) -> f64 {
         .max(f64::MIN_POSITIVE)
 }
 
-pub fn grid_minor_spacing(grid: &Grid, view: &View) -> f64 {
+fn grid_minor_spacing(grid: &Grid, view: &View) -> f64 {
     grid_spacing(grid_scale(&grid.plane, view))
+}
+
+fn grid_cell_points(
+    plane: &Plane,
+    view: &View,
+    spacing: f64,
+    pixels_per_point: f64,
+) -> Option<f64> {
+    let foot = plane.to_local(view.viewpoint().target);
+    let origin = view.project(plane.to_world(foot))?;
+    let across = |step: Point2| {
+        view.project(plane.to_world(foot + step))
+            .map(|pixel| pixel.distance(origin))
+    };
+    let along_x = across(Point2::new(spacing, 0.0))?;
+    let along_y = across(Point2::new(0.0, spacing))?;
+    Some(along_x.min(along_y) / pixels_per_point)
+}
+
+pub fn grid_snap_spacing(grid: &Grid, view: &View, pixels_per_point: f64) -> f64 {
+    let minor = grid_minor_spacing(grid, view);
+    let cell_points = grid_cell_points(&grid.plane, view, minor, pixels_per_point);
+    let level = (0..GRID_COARSEST_LEVEL)
+        .find(|level| {
+            cell_points.is_some_and(|points| {
+                points * GRID_LEVEL_RATIO.powi(*level) >= GRID_FULL_CELL_POINTS
+            })
+        })
+        .unwrap_or(GRID_COARSEST_LEVEL);
+    minor * GRID_LEVEL_RATIO.powi(level)
 }
 
 fn grid_uniform(bytes: &mut Bytes, grid: &Grid, view: &View) {
@@ -2943,6 +2976,49 @@ mod tests {
         assert_eq!(grid_spacing(999.0), 1.0);
         assert_eq!(grid_spacing(1000.0), 10.0);
         assert_eq!(grid_spacing(5.0), 0.01);
+    }
+
+    fn facing_grid(distance: f64) -> (Grid, View) {
+        let viewpoint = Viewpoint::looking_from(Vector3::Z, Point3::ZERO, distance).unwrap();
+        let view = View::new(viewpoint, 1000.0, 800.0).with_projection(Projection::Orthographic);
+        let grid = Grid {
+            plane: Plane::XY,
+            color: crate::scene::Color::from_rgb8(0, 0, 0),
+        };
+        (grid, view)
+    }
+
+    #[test]
+    fn grid_snapping_takes_the_finest_level_drawn_in_full_and_never_a_finer_one() {
+        for distance in [3.0, 30.0, 300.0, 3000.0, 30000.0] {
+            let (grid, view) = facing_grid(distance);
+            let minor = grid_minor_spacing(&grid, &view);
+            let cell = grid_cell_points(&grid.plane, &view, minor, 1.0).unwrap();
+
+            let snap = grid_snap_spacing(&grid, &view, 1.0);
+            let level = (snap / minor).round();
+            let points = cell * level;
+
+            assert!([1.0, 10.0, 100.0].contains(&level), "{distance}: {level}");
+            assert!(
+                level == 100.0 || points >= GRID_FULL_CELL_POINTS,
+                "{distance}"
+            );
+            assert!(
+                level == 1.0 || points / 10.0 < GRID_FULL_CELL_POINTS,
+                "{distance}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_denser_screen_shows_the_same_levels_in_fewer_points() {
+        let (grid, view) = facing_grid(100.0);
+
+        let at_one = grid_snap_spacing(&grid, &view, 1.0);
+        let at_two = grid_snap_spacing(&grid, &view, 2.0);
+
+        assert!(at_two >= at_one);
     }
 
     fn looking_down() -> Facing {
