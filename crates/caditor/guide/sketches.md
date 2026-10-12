@@ -29,7 +29,12 @@ Escape ends editing.
   way, such as a rectangle's first corner or a circle's or polygon's centre; otherwise finish or
   cancel the shape first.
 - With Select, drag a point or curve to move it; drag across empty space to box-select.
-  Double-click a curve to select the chain it belongs to.
+  Double-click a curve to select the chain it belongs to. A dragged point snaps as a drawn one
+  does, and the geometry it would land on is highlighted.
+- The prompt at the top of the view says what to click next, with the three or four keys that
+  matter most; **More keys** beside them (a button Tab reaches) shows the rest, and **Fewer keys**
+  folds them again.
+- A click that cannot be done leaves a short note beside the pointer as well as in the status bar.
 - Delete removes the selection, curves and constraints alike.
 
 ## Placing points exactly
