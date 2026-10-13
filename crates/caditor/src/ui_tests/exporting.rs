@@ -625,7 +625,7 @@ fn exporting_an_image_writes_a_png_of_the_view_without_highlights_at_the_chosen_
     harness.answer_dialog(Some(dir.path().join("plate")));
     harness.click("Export…");
     harness.wait_until("the image is written", |harness| {
-        !harness.files.is_exporting_image()
+        !harness.files.is_exporting_image() && harness.model.notice().is_some()
     });
     assert_eq!(
         harness.model.notice().unwrap().text,
@@ -662,7 +662,7 @@ fn exporting_an_image_writes_a_png_of_the_view_without_highlights_at_the_chosen_
     harness.answer_dialog(Some(dir.path().join("wide.PNG")));
     harness.click("Export…");
     harness.wait_until("the wide image is written", |harness| {
-        !harness.files.is_exporting_image()
+        !harness.files.is_exporting_image() && dir.path().join("wide.PNG").exists()
     });
     assert_eq!(png_size(&dir.path().join("wide.PNG")), (5000, 900, 8));
 
