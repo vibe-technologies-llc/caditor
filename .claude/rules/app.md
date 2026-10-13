@@ -604,6 +604,11 @@ paths:
   `--size` is refused for any other format. Load issues and left-out bodies are warnings, a failed
   feature a warning that also makes the exit status 2 (`PARTIAL_EXIT_STATUS`); a model with no body,
   a DXF or SVG drawing, an unreadable file or an unknown extension is an error that writes nothing.
+  The writing half is `headless::deliver`, which the MCP server's export shares.
+- `caditor mcp MODEL [--folder DIR]...` (`cli::Serving`, a first argument `mcp`; a file of that
+  name is opened as `./mcp` or after `--`) serves the model to an AI assistant without a window
+  (`mcp.md`). Its pictures come from `snapshot::looking_from`, the headless PNG's path with a
+  chosen starting viewpoint (`snapshot::home_viewpoint` otherwise).
 - `--configuration NAME` (`ConfigurationChoice::Named`, case-insensitive) exports a copy switched to
   that configuration (`Document::activating`); an unknown name or a model without configurations is
   refused naming the ones it has. `--all-configurations` (`ConfigurationChoice::Every`) exports each

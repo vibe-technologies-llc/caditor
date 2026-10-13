@@ -37,7 +37,10 @@ use self::{
     sheet::Part,
 };
 pub use self::{
-    image::{ImageExportError, PNG_EXTENSION, PixelRows, PngExportError, RgbaImage, export_png},
+    image::{
+        ImageExportError, PNG_EXTENSION, PixelRows, PngExportError, RgbaImage, export_png,
+        png_bytes,
+    },
     sheet::{Annotations, DrawingSheet, Nesting, SheetLayout},
     stl::StlEncoding,
 };

@@ -8,17 +8,82 @@ use crate::{
     headless::{ConfigurationChoice, Conversion},
 };
 
+pub const SERVE_COMMAND: &str = "mcp";
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum Invocation {
     Run { open: Option<PathBuf> },
     Convert(Conversion),
+    Serve(Serving),
     Version,
     Help,
     Refused(String),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Serving {
+    pub model: PathBuf,
+    pub folders: Vec<PathBuf>,
+}
+
 impl Invocation {
     pub fn parse(arguments: impl IntoIterator<Item = OsString>) -> Self {
+        let mut arguments = arguments.into_iter().peekable();
+        if arguments
+            .peek()
+            .is_some_and(|first| first.as_os_str() == SERVE_COMMAND)
+        {
+            arguments.next();
+            return Self::serving(arguments);
+        }
+        Self::opening(arguments)
+    }
+
+    fn serving(mut arguments: impl Iterator<Item = OsString>) -> Self {
+        let mut models = Vec::new();
+        let mut folders = Vec::new();
+        let mut options_ended = false;
+        while let Some(argument) = arguments.next() {
+            if options_ended {
+                models.push(argument);
+                continue;
+            }
+            match argument.to_str() {
+                Some("--version" | "-V") => return Self::Version,
+                Some("--help" | "-h") => return Self::Help,
+                Some("--") => options_ended = true,
+                Some("--folder") => match arguments.next() {
+                    Some(folder) => folders.push(PathBuf::from(folder)),
+                    None => return Self::Refused(needs_a_value("--folder", "a folder")),
+                },
+                Some(option) if option.starts_with('-') && option.len() > 1 => {
+                    return Self::Refused(format!(
+                        "{} {SERVE_COMMAND} does not take {option}; run {} --help to see what it \
+                         accepts",
+                        about::NAME,
+                        about::NAME
+                    ));
+                }
+                _ => models.push(argument),
+            }
+        }
+        match <[OsString; 1]>::try_from(models) {
+            Ok([model]) => Self::Serve(Serving {
+                model: PathBuf::from(model),
+                folders,
+            }),
+            Err(models) if models.is_empty() => Self::Refused(format!(
+                "{} {SERVE_COMMAND} needs the .caditor model to work on",
+                about::NAME
+            )),
+            Err(_) => Self::Refused(format!(
+                "{} {SERVE_COMMAND} works on one model at a time; give it a single file",
+                about::NAME
+            )),
+        }
+    }
+
+    fn opening(mut arguments: impl Iterator<Item = OsString>) -> Self {
         let mut paths = Vec::new();
         let mut options_ended = false;
         let mut output = None;
@@ -26,7 +91,6 @@ impl Invocation {
         let mut size = None;
         let mut configuration = None;
         let mut every_configuration = false;
-        let mut arguments = arguments.into_iter();
         while let Some(argument) = arguments.next() {
             if options_ended {
                 paths.push(argument);
@@ -165,8 +229,13 @@ pub fn usage() -> String {
          Pixels of a .png export, 1920x1080 by default\n  --configuration <NAME>  \
          Export MODEL in that configuration instead of the active one\n  --all-configurations    \
          Export each configuration to its own file beside FILE, named after it\n  -h, --help              Show this help\n  -V, \
-         --version           Show the version\n",
+         --version           Show the version\n\nUsage: {} {SERVE_COMMAND} [--folder <DIR>]... \
+         MODEL\n\nServes MODEL to an AI assistant over the Model Context Protocol on standard \
+         input and output, without a window; a MODEL that does not exist yet starts empty.\n  \
+         --folder <DIR>          Also let the assistant export into DIR, besides MODEL's own \
+         folder\n",
         about::version_line(),
+        about::NAME,
         about::NAME
     )
 }
@@ -373,6 +442,63 @@ mod tests {
         assert_eq!(
             refused(&["--all-configurations", "part.caditor"]),
             "--all-configurations only applies to --export"
+        );
+    }
+
+    #[test]
+    fn mcp_serves_one_model_and_takes_folders() {
+        assert_eq!(
+            parse(&[
+                "mcp",
+                "--folder",
+                "/tmp/out",
+                "part.caditor",
+                "--folder",
+                "exports"
+            ]),
+            Invocation::Serve(Serving {
+                model: PathBuf::from("part.caditor"),
+                folders: vec![PathBuf::from("/tmp/out"), PathBuf::from("exports")],
+            })
+        );
+        assert_eq!(
+            parse(&["mcp", "--", "--odd.caditor"]),
+            Invocation::Serve(Serving {
+                model: PathBuf::from("--odd.caditor"),
+                folders: Vec::new(),
+            })
+        );
+        assert_eq!(
+            parse(&["./mcp"]),
+            Invocation::Run {
+                open: Some(PathBuf::from("./mcp"))
+            }
+        );
+        assert_eq!(parse(&["mcp", "--help"]), Invocation::Help);
+    }
+
+    #[test]
+    fn mcp_without_one_model_is_refused_in_words() {
+        let refused = |arguments: &[&str]| match parse(arguments) {
+            Invocation::Refused(reason) => reason,
+            other => panic!("{other:?}"),
+        };
+
+        assert_eq!(
+            refused(&["mcp"]),
+            "caditor mcp needs the .caditor model to work on"
+        );
+        assert_eq!(
+            refused(&["mcp", "a.caditor", "b.caditor"]),
+            "caditor mcp works on one model at a time; give it a single file"
+        );
+        assert_eq!(
+            refused(&["mcp", "a.caditor", "--folder"]),
+            "--folder needs a folder after it"
+        );
+        assert_eq!(
+            refused(&["mcp", "--export", "o.stl", "a.caditor"]),
+            "caditor mcp does not take --export; run caditor --help to see what it accepts"
         );
     }
 

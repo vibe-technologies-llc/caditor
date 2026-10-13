@@ -67,13 +67,13 @@ struct Opened {
 }
 
 #[derive(Clone, Copy)]
-enum Target {
+pub enum Target {
     Mesh(ExportFormat),
     Image,
 }
 
 impl Target {
-    fn of(output: &Path) -> Option<Self> {
+    pub fn of(output: &Path) -> Option<Self> {
         let is_image = output
             .extension()
             .is_some_and(|extension| extension.eq_ignore_ascii_case(PNG_EXTENSION));
@@ -87,10 +87,10 @@ impl Target {
     }
 }
 
-struct Settings {
-    target: Target,
-    resolution: MeshResolution,
-    size: Option<SurfaceSize>,
+pub struct Settings {
+    pub target: Target,
+    pub resolution: MeshResolution,
+    pub size: Option<SurfaceSize>,
 }
 
 struct Written {
@@ -309,12 +309,41 @@ fn write(document: &Document, settings: &Settings, model: &Path, output: &Path) 
             display_name(Some(model))
         );
     }
-    let exported = match settings.target {
+    let delivered = deliver(
+        document,
+        &evaluation,
+        &bodies,
+        settings,
+        output,
+        &CancelToken::never(),
+    )?;
+    warnings.extend(delivered.warnings);
+    Ok(Written {
+        bodies: delivered.bodies,
+        warnings,
+        failed_features,
+    })
+}
+
+pub struct Delivered {
+    pub bodies: usize,
+    pub warnings: Vec<String>,
+}
+
+pub fn deliver(
+    document: &Document,
+    evaluation: &Evaluation,
+    bodies: &[ExportSource],
+    settings: &Settings,
+    output: &Path,
+    cancel: &CancelToken,
+) -> Result<Delivered> {
+    match settings.target {
         Target::Mesh(format) => {
             let export_bodies: Vec<ExportBody<'_>> =
                 bodies.iter().filter_map(ExportSource::exported).collect();
             let thumbnail = match format {
-                ExportFormat::ThreeMf => draw_thumbnail(document, &evaluation),
+                ExportFormat::ThreeMf => draw_thumbnail(document, evaluation),
                 _ => None,
             };
             let exported = caditor_file::export_bodies(
@@ -331,28 +360,33 @@ fn write(document: &Document, settings: &Settings, model: &Path, output: &Path) 
                 },
                 &export_bodies,
                 document.properties(),
-                &CancelToken::never(),
+                cancel,
             )
             .with_context(|| format!("could not export “{}”", display_name(Some(output))))?;
-            warnings.extend(exported.left_out.iter().map(ToString::to_string));
-            warnings.extend(exported.moved.map(export::moved_note));
-            exported.bodies
+            let warnings = exported
+                .left_out
+                .iter()
+                .map(ToString::to_string)
+                .chain(exported.moved.map(export::moved_note))
+                .collect();
+            Ok(Delivered {
+                bodies: exported.bodies,
+                warnings,
+            })
         }
         Target::Image => {
             draw_image(
                 document,
-                &evaluation,
+                evaluation,
                 output,
                 settings.size.unwrap_or(DEFAULT_IMAGE_SIZE),
             )?;
-            bodies.len()
+            Ok(Delivered {
+                bodies: bodies.len(),
+                warnings: Vec::new(),
+            })
         }
-    };
-    Ok(Written {
-        bodies: exported,
-        warnings,
-        failed_features,
-    })
+    }
 }
 
 fn draw_thumbnail(document: &Document, evaluation: &Evaluation) -> Option<(SurfaceSize, Vec<u8>)> {
@@ -444,7 +478,7 @@ fn configurations_count(configurations: usize) -> String {
     }
 }
 
-fn bodies(document: &Document, evaluation: &Evaluation) -> Vec<ExportSource> {
+pub fn bodies(document: &Document, evaluation: &Evaluation) -> Vec<ExportSource> {
     evaluation
         .bodies()
         .filter_map(|(body, _)| ExportSource::of(document, evaluation, body))

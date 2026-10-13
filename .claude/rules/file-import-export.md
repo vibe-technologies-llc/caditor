@@ -299,7 +299,8 @@ paths:
 - `export_png` writes 8-bit RGBA, straight alpha, sRGB chunk, through the pure-Rust `png` crate,
   atomically, streaming whatever `PixelRows` yields (bands of whole rows) into the encoder so the
   image is never held whole; it checks the pixel count and cancellation between bands. Errors are
-  `PngExportError`: the source's own as `Pixels`, else an `ImageExportError`.
+  `PngExportError`: the source's own as `Pixels`, else an `ImageExportError`. `png_bytes` encodes
+  the same way into memory, for the MCP server's pictures.
 - 3MF is a ZIP from a small writer (`zip.rs`, `ZipWriter`) streamed into the temporary like STL:
   content types, relationships and thumbnail first, whole (deflated through `miniz_oxide` unless
   storing is smaller), then the model written straight into `miniz_oxide`'s streaming compressor

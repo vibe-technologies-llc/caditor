@@ -238,39 +238,21 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   ground; a user cannot load an HDR image as the backdrop and light, choose a backdrop or ground,
   nor give a material texture, bump or clear-coat maps, and the ground bounces no light or occlusion
   onto the bodies.
-- [medium · hard] No MCP server: an AI assistant (Claude Code, Claude Desktop or any Model Context
-  Protocol client) cannot read or build a model, so "a bracket 80 mm wide with two M6 holes" or
-  "why does Fillet 3 fail" has to be done by hand. Start headless: `caditor mcp <file>` speaks MCP
-  over stdio on one document in its own process, the app's `cli.rs` and `headless.rs` opening it as
-  the headless PNG does, with no window. The plan:
-  - One layer under every front: each tool builds `Action`s and `Transaction`s and applies them
-    through `Document::apply`, as the UI does, so a client cannot break the model's rules, and each
-    tool call is one undo step named after it. The automation entry below reuses the same layer.
-  - References by stable name only: features, parameters, sketch entities and constraints by their
-    IDs and names, faces and edges by `FaceName`/`EdgeName` with a readable description, never by
-    index or position, so a later call still means the same face after a recompute.
-  - Read tools: the feature tree with each feature's state and plain failure reason, parameters
-    and expressions, bodies with their mass properties and bounding box, a sketch's entities,
-    constraints, dimensions and remaining degrees of freedom with conflicts named, a face's or
-    edge's kind and size, measurements between two references, and a rendered PNG of the model
-    from a named view (the headless image path) so the client can look at what it made.
-  - Write tools: set a parameter or expression, add a sketch on a plane or flat face, add sketch
-    geometry, constraints and dimensions, and add, edit, suppress, reorder or delete a feature
-    through one tool per feature kind whose arguments mirror its panel (units and expressions
-    accepted as typed text), then undo and redo. Each write returns what changed and any feature
-    it made fail, in the words the tree uses (`ux.md`), never kernel or solver internals.
-  - Files: save (atomically, keeping the replaced version, `reliability.md`), export (STEP, STL,
-    3MF, PNG) and import, only into or from the folder of the opened model unless the user passed
-    other folders on the command line; the server reaches no network.
-  - Long work (recompute, import, export, mass properties) reports MCP progress and honours MCP
-    cancellation through the kernel's `interruptible` tokens, and a call waits for the recompute it
-    caused so its answer describes the model as it now is.
-  - Resources: the model summary, the parameter table and the user guide pages (`guide/`), so a
-    client can learn the tools' vocabulary from the same text a user reads.
-  - Errors are typed enums per tool mapped to MCP tool errors with a plain message; a malformed
-    request never panics (the JSON-RPC reader gets a fuzz target).
-  - Checks: protocol tests driving the server over an in-memory pipe, and an end-to-end test that
-    builds a plate with a pocket and two holes by tool calls only and compares its volume.
+- [medium · hard] The MCP server (`caditor mcp`, `mcp.md`) builds only a first slice of the model:
+  an assistant can read the tree, parameters, bodies, faces and sketches, draw a picture, set
+  parameters, sketch points, lines, polylines, rectangles and circles with constraints and
+  dimensions on a principal plane or flat face, extrude, drill plain holes, undo, redo, save and
+  export. What remains, through the same `Session` layer:
+  - A write tool per remaining feature kind (revolve, sweep, pipe, fillet and chamfer, shell,
+    offset and split face, primitives, combine, move, mirror, split, mate, scale, patterns, datums,
+    threads), each with arguments mirroring its panel, and edit, rename, suppress, reorder and
+    delete of existing features. Extrusions lack taper, start offsets, two sides, up-to ends,
+    regions and thin walls; holes lack styles, standard sizes, threads and up-to ends.
+  - Sketching: arcs, slots, polygons, splines, ellipses, projections and sketches on datum planes
+    and coordinate systems; removing or editing constraints and changing a dimension's value.
+  - Edges named by `EdgeName` with a description (needed for fillets), an edge's kind and size,
+    and measurements between two references.
+  - Import, and saving under another name, within the allowed folders.
 - [medium · hard · blocked by: the in-app assistant connection decision (`DECISIONS.md`)] An
   assistant cannot work on the model open in the window: the headless server owns its own
   document. Connecting to the running app needs a transport the app listens on (off by default),
@@ -291,7 +273,7 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [low · hard] No automation: nothing can be driven by a script or macro, as Fusion's scripts and
   add-ins do, to make repetitive geometry, run a batch over files or add a tool. An interface
   would go through `Action`s and `Transaction`s like the UI, so scripts cannot break the model's
-  rules, sharing the layer the MCP server (above) builds, and would need a decision on the
+  rules, sharing the MCP server's `Session` layer (`mcp.md`), and would need a decision on the
   language and on safety (a script cannot reach files or the network unasked).
 - [low · hard] One document per process.
 - [low · hard] No localisation.

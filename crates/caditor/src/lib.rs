@@ -101,6 +101,7 @@ mod look_at;
 mod manipulator;
 mod mate_panel;
 mod mate_tools;
+mod mcp;
 mod measure;
 mod measure_panel;
 mod measurement_panel;
@@ -248,6 +249,7 @@ pub fn run() -> Result<ExitCode> {
     let open = match Invocation::parse(std::env::args_os().skip(1)) {
         Invocation::Run { open } => open,
         Invocation::Convert(conversion) => return headless::run(&conversion),
+        Invocation::Serve(serving) => return mcp::run(&serving),
         Invocation::Version => {
             println!("{}", about::version_line());
             return Ok(ExitCode::SUCCESS);
