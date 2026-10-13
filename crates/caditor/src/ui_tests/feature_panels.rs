@@ -7,11 +7,12 @@ use caditor_sketch::Sketch;
 use egui::{Id, Key, Modifiers};
 
 use super::{
-    CAMERA_SETTLE, Harness, blend_of, choose, datum_of, datum_plane_of, extruded_plate, pattern_of,
-    rectangle, run_from_palette, top_edge_along_x, volume_about,
+    CAMERA_SETTLE, Harness, blend_of, choose, datum_of, datum_plane_of, extruded_plate, offer,
+    pattern_of, rectangle, run_from_palette, top_edge_along_x, volume_about,
 };
 use crate::{
     bodies,
+    commands::Command,
     datum_tools::{PLANE_CHOICES, POINT_CHOICES},
     feature_fields::{
         self, ABOVE_ZERO, ABOVE_ZERO_OR_REVERSE, CHOOSE_IN_VIEW, MISSING_BODY, REVERSE_DIRECTION,
@@ -1084,6 +1085,59 @@ fn a_feature_waiting_for_input_shows_a_waiting_pill_that_selects_it_instead_of_u
     );
     assert_eq!(failed, 0);
     assert_eq!(harness.workspace.panels.selected, Some(pattern));
+}
+
+fn leave_a_circular_pattern_waiting(harness: &mut Harness) -> FeatureId {
+    harness.select([]);
+    harness.click("Circular pattern");
+    harness.settle();
+    let pattern = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the pattern is open");
+    harness.hold_still();
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.settle();
+    harness.select([]);
+    harness.frame();
+    pattern
+}
+
+#[test]
+fn f9_and_shift_f9_step_through_the_waiting_features_and_wrap() {
+    let mut harness = Harness::new();
+    extruded_plate(&mut harness);
+
+    let no_waiting = offer(&harness, Command::ShowNextWaiting).availability;
+    let first = leave_a_circular_pattern_waiting(&mut harness);
+    let second = leave_a_circular_pattern_waiting(&mut harness);
+    harness.workspace.panels.selected = None;
+    let step = |harness: &mut Harness, modifiers: Modifiers| {
+        harness.key(Key::F9, modifiers);
+        harness.frame();
+        harness.frame();
+        harness.workspace.panels.selected
+    };
+
+    let reached = step(&mut harness, Modifiers::NONE);
+    let next = step(&mut harness, Modifiers::NONE);
+    let wrapped = step(&mut harness, Modifiers::NONE);
+    let back = step(&mut harness, Modifiers::SHIFT);
+
+    assert!(no_waiting.is_err());
+    assert_eq!(harness.model.evaluation().waiting_count(), 2);
+    assert_eq!(reached, Some(first));
+    assert_eq!(next, Some(second));
+    assert_eq!(wrapped, Some(first));
+    assert_eq!(back, Some(second));
+    assert!(
+        offer(&harness, Command::ShowPreviousWaiting)
+            .availability
+            .is_ok()
+    );
 }
 
 #[test]

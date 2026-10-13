@@ -123,6 +123,8 @@ const MODEL_RECOMPUTE: [&[Command]; 1] = [&[
     Command::CancelRecompute,
     Command::ShowNextFailed,
     Command::ShowPreviousFailed,
+    Command::ShowNextWaiting,
+    Command::ShowPreviousWaiting,
     Command::UpdateReferences,
 ]];
 

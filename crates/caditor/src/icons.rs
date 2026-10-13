@@ -351,6 +351,7 @@ pub fn command(command: Command) -> &'static str {
         Command::MoveParameterDown => MOVE_DOWN,
         Command::ParameterNote => EDIT_NOTE,
         Command::ShowNextFailed | Command::ShowPreviousFailed => FAILED,
+        Command::ShowNextWaiting | Command::ShowPreviousWaiting => AWAITING_INPUT,
         Command::UpdateReferences => UPDATE_REFERENCES,
         Command::ReplaceImport => phosphor::FILE_ARROW_UP,
         Command::ReloadImport => phosphor::ARROW_CLOCKWISE,

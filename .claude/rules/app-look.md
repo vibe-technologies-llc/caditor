@@ -410,7 +410,8 @@ paths:
   focusing the next failed feature after the tree's primary row (`status_bar::failed_after`,
   wrapping, as Go to the next failed feature, F8, does; Shift+F8 the previous). A feature waiting
   for something to be chosen (`FeatureState::Waiting`) is counted by an info pill beside it, "N
-  waiting", the same button focusing the next waiting feature (`status_bar::waiting_after`), and
+  waiting", the same button focusing the next waiting feature (`status_bar::waiting_after`; Go to
+  the next feature waiting for input, F9, does the same, wrapping, and Shift+F9 the previous), and
   Up to date shows only when nothing has failed or waits; a cancelled or
   stopped recompute is a warning or error pill with a Recompute or Restart button, its text a live
   region (`widgets::announced_status_pill`: polite for a warning, assertive for an error). Those

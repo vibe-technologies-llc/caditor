@@ -55,7 +55,10 @@ around.
 A feature still being set up, such as a circular pattern with no axis, a sweep with no path or an
 extrusion with no region chosen, is not a failure: its row shows a pointing hand and says what it is
 waiting for ("Waiting for an axis"), with what to choose and a Choose in the view button. It makes
-nothing until then, and features that use what it would make wait on it as on a failed one. A feature whose reference had to be found again shows a warning with Update references,
+nothing until then, and features that use what it would make wait on it as on a failed one.
+{command:model.next_waiting} goes to the next feature waiting after the chosen row and
+{command:model.previous_waiting} to the one before, both wrapping around, as the blue "waiting"
+count in the status bar does. A feature whose reference had to be found again shows a warning with Update references,
 offered once the recompute has checked the model as it now stands.
 
 The model recomputes in the background, so the window never waits. {command:model.recompute} runs
