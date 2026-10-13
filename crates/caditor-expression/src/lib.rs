@@ -8,7 +8,9 @@ use std::fmt;
 pub use crate::{
     expression::{Arity, BinaryOperator, Constant, EvalError, Expression, Function, Operation},
     parse::{MAX_LENGTH, ParseError, ParseErrorKind},
-    quantity::{Dimension, Quantity, Unit, format_decimals, format_number, trim_decimals},
+    quantity::{
+        Dimension, Quantity, Unit, format_decimals, format_number, format_places, trim_decimals,
+    },
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

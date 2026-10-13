@@ -15,7 +15,7 @@ use crate::{
     measure_panel::{self, Card, Row},
     model::Model,
     selection::Selection,
-    units::LengthUnit,
+    units::Units,
     widgets::{self, PanelTitle, Tone},
 };
 
@@ -179,7 +179,7 @@ fn ranked(report: &Report) -> Vec<&(Pair, Finding)> {
     contacts
 }
 
-fn card_of(document: &Document, pair: Pair, finding: &Finding, unit: LengthUnit) -> Card {
+fn card_of(document: &Document, pair: Pair, finding: &Finding, unit: Units) -> Card {
     let title = pair_name(document, pair);
     let position = |point: Point3| unit.measured_position([point.x, point.y, point.z]);
     match finding {
@@ -244,11 +244,7 @@ fn card_of(document: &Document, pair: Pair, finding: &Finding, unit: LengthUnit)
     }
 }
 
-pub fn cards(
-    document: &Document,
-    report: &Report,
-    unit: LengthUnit,
-) -> Vec<(Card, Option<Point3>)> {
+pub fn cards(document: &Document, report: &Report, unit: Units) -> Vec<(Card, Option<Point3>)> {
     ranked(report)
         .into_iter()
         .take(MAX_LISTED)
@@ -314,7 +310,7 @@ pub fn show(
 ) -> Option<Point3> {
     let report = tool.report.as_ref()?;
     let document = model.document();
-    let unit = model.length_unit();
+    let unit = model.units();
     let cards = cards(document, report, unit);
     let unlisted = unlisted(report);
     let summary = summary(report);

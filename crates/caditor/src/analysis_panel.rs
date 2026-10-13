@@ -219,7 +219,7 @@ fn legend(
     widgets::card(ui, |ui| {
         for band in analysis.bands() {
             let area = tally.areas.get(band).copied().unwrap_or(0.0);
-            let area = format!("{APPROXIMATELY}{}", units.length.measured_area(area));
+            let area = format!("{APPROXIMATELY}{}", units.measured_area(area));
             ui.horizontal(|ui| {
                 let (rect, _) =
                     ui.allocate_exact_size(vec2(SWATCH_SIDE, SWATCH_SIDE), Sense::hover());

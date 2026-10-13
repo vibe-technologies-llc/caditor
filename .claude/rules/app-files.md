@@ -469,3 +469,14 @@ paths:
   precision (a micrometre, a thousandth of a degree) in the chosen unit, so creating it never moves
   the geometry. Defaults that are round numbers of degrees (a revolve's turn, a pattern's angle) and
   mesh angles stay in degrees.
+- Every readout of a length, area, volume or angle is written by `Units` (`units.rs`), which carries
+  the Numbers preference (`NumberFormat`: `units.length_decimals`, `units.angle_decimals`, each
+  `automatic` or `0` to `6`, and `units.trailing_zeros`, `shown` or `hidden`; `Decimals` and
+  `TrailingZeros` are `Choice`s): `show`, `readout_text`, the `measured_*` and `spoken_*` texts,
+  `angle_text` and `angle_readout`. `LengthUnit` and `AngleUnit` keep only symbols, conversions,
+  the grid and tolerance labels (a step, not a value) and the expressions a value is stored as, so
+  a readout cannot bypass the preference; anything formatting a value takes `Model::units()`, never
+  `Model::length_unit()`. Automatic is each readout's own precision and, with zeros shown, the
+  exact text caditor always wrote (`the_default_format_is_each_readout_s_own`); a fixed count
+  rounds every readout to it, angles in either unit included, and hidden zeros trim through
+  `format_decimals`. Plain numbers, typed text and stored expressions are never rounded.

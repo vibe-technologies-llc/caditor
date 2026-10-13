@@ -388,7 +388,7 @@ impl ReachDrag {
     }
 
     pub fn transaction(&self, model: &Model, feature: FeatureId) -> Option<Transaction> {
-        let distance = model.units().length.measured(self.distance.abs());
+        let distance = model.units().measured(self.distance.abs());
         let held = held(model, feature, &self.start, self.reach)?;
         let mut extrude = self.start.clone();
         let mut named = Vec::new();

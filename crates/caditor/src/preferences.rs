@@ -29,7 +29,7 @@ use crate::{
     model::Notice,
     onboarding::{Hint, Onboarding},
     palette,
-    units::{AngleUnit, LengthUnit},
+    units::{AngleUnit, Decimals, LengthUnit, NumberFormat, TrailingZeros},
     view_aids::{EdgeLook, EdgeWeight},
 };
 
@@ -37,6 +37,9 @@ pub const MIN_SPEED: f64 = 0.25;
 pub const MAX_SPEED: f64 = 4.0;
 const UNIT_KEY: &str = "units.length";
 const ANGLE_UNIT_KEY: &str = "units.angle";
+const LENGTH_DECIMALS_KEY: &str = "units.length_decimals";
+const ANGLE_DECIMALS_KEY: &str = "units.angle_decimals";
+const TRAILING_ZEROS_KEY: &str = "units.trailing_zeros";
 const THEME_KEY: &str = "appearance.theme";
 const ACCENT_KEY: &str = "appearance.accent";
 const VIEW_KEY: &str = "appearance.view";
@@ -177,7 +180,8 @@ impl PreferencesTab {
     fn defaults(self) -> &'static str {
         match self {
             Self::General => {
-                "Go back to millimetres, to starting with an empty model, ten recent files, new \
+                "Go back to millimetres and degrees with automatic decimal places and trailing \
+                 zeros shown, to starting with an empty model, ten recent files, new \
                  models starting empty and double-click editing a feature. Only this tab \
                  changes; shortcuts are reset in the shortcut editor"
             }
@@ -454,6 +458,7 @@ impl Default for StartingToggles {
 pub struct Preferences {
     pub unit: LengthUnit,
     pub angle: AngleUnit,
+    pub numbers: NumberFormat,
     pub appearance: Appearance,
     pub navigation: Navigation,
     pub title_bar: TitleBar,
@@ -480,6 +485,9 @@ pub struct Preferences {
 pub enum PreferenceChange {
     Unit(LengthUnit),
     Angle(AngleUnit),
+    LengthDecimals(Decimals),
+    AngleDecimals(Decimals),
+    TrailingZeros(TrailingZeros),
     Theme(Theme),
     Accent(Accent),
     View(ViewChoice),
@@ -651,6 +659,11 @@ impl Preferences {
                 .text(ANGLE_UNIT_KEY)
                 .and_then(AngleUnit::from_symbol)
                 .unwrap_or_default(),
+            numbers: NumberFormat {
+                lengths: Decimals::read(&raw, LENGTH_DECIMALS_KEY),
+                angles: Decimals::read(&raw, ANGLE_DECIMALS_KEY),
+                trailing_zeros: TrailingZeros::read(&raw, TRAILING_ZEROS_KEY),
+            },
             appearance: Appearance {
                 theme: raw
                     .text(THEME_KEY)
@@ -720,6 +733,9 @@ impl Preferences {
         let mut settings = self.raw.clone();
         settings.set_text(UNIT_KEY, self.unit.symbol());
         settings.set_text(ANGLE_UNIT_KEY, self.angle.symbol());
+        settings.set_text(LENGTH_DECIMALS_KEY, self.numbers.lengths.key());
+        settings.set_text(ANGLE_DECIMALS_KEY, self.numbers.angles.key());
+        settings.set_text(TRAILING_ZEROS_KEY, self.numbers.trailing_zeros.key());
         settings.set_text(THEME_KEY, &self.appearance.theme.key());
         settings.set_text(ACCENT_KEY, self.appearance.accent.key());
         settings.set_text(VIEW_KEY, self.appearance.view.key());
@@ -774,6 +790,9 @@ impl Preferences {
         match change {
             PreferenceChange::Unit(unit) => self.unit = unit,
             PreferenceChange::Angle(angle) => self.angle = angle,
+            PreferenceChange::LengthDecimals(decimals) => self.numbers.lengths = decimals,
+            PreferenceChange::AngleDecimals(decimals) => self.numbers.angles = decimals,
+            PreferenceChange::TrailingZeros(zeros) => self.numbers.trailing_zeros = zeros,
             PreferenceChange::Theme(theme) => self.appearance.theme = theme,
             PreferenceChange::Accent(accent) => self.appearance.accent = accent,
             PreferenceChange::View(view) => self.appearance.view = view,

@@ -5315,8 +5315,8 @@ impl ViewportState {
         let readout_area = self.sketch_cursor.and_then(|position| {
             let text = format!(
                 "x {}   y {}",
-                model.length_unit().readout_text(position.x),
-                model.length_unit().readout_text(position.y)
+                model.units().readout_text(position.x),
+                model.units().readout_text(position.y)
             );
             let label = canvas::Label::new(
                 painter,
@@ -5538,13 +5538,13 @@ impl ViewportState {
             edited_sketch(model, editing).and_then(|sketch| self.trimming.label(&sketch))
         } else if self.modifying.is_active() && !self.modifying.gathers() {
             edited_sketch(model, editing)
-                .and_then(|sketch| self.modifying.label(&sketch, model.length_unit()))
+                .and_then(|sketch| self.modifying.label(&sketch, model.units()))
         } else if let Some(label) = self
             .modifying
             .gathers()
             .then(|| edited_sketch(model, editing))
             .flatten()
-            .and_then(|sketch| self.modifying.label(&sketch, model.length_unit()))
+            .and_then(|sketch| self.modifying.label(&sketch, model.units()))
         {
             Some(label)
         } else if let Some(feature) = self.dimensioning {

@@ -13,6 +13,13 @@ match, for example `zoom`, `grid` or `view cube`. Choosing a tab clears the sear
 - **Units**: lengths in micrometres, millimetres, centimetres or metres, and angles in degrees or
   radians. They decide how values are shown and what a plain number you type means; values already
   in a model keep the units they were typed in. See [expressions](expressions).
+- **Numbers**: how many decimal places lengths and angles are shown with, and whether trailing
+  zeros are shown. **Automatic**, the default, lets each readout show what it needs: measurements
+  to a micrometre, the position by the pointer to a hundredth of a millimetre, computed values to
+  up to six places. A fixed number of places applies to every readout: Measure, the status bar,
+  dimensions and labels in the view, values shown beside fields, the parameter table and hover
+  help. Hiding trailing zeros shows 12.500 mm as 12.5 mm. Rounding is only for reading: the model
+  keeps every value as you entered it, and a field shows what you typed.
 - **Starting and recent files**: whether caditor starts with a new model or opens the last model
   you had, and how many models Open recent lists (3, 5 or 10). Unsaved work offered for
   recovery, or a file named on the [command line](command-line), comes first.

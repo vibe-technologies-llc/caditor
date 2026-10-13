@@ -296,7 +296,7 @@ paths:
 - Selected sketch regions (`Pickable::SketchRegion`) gather into one item per sketch
   (`Subject::Regions`, one item for `item_count`) and read their summed section
   (`caditor_kernel::section_of`, `kernel-profile.md`): area, perimeter, centroid, Ix, Iy, Ixy, J,
-  principal moments and angle (`Value::SecondMoment`, `LengthUnit::measured_second_moment`); a
+  principal moments and angle (`Value::SecondMoment`, `Units::measured_second_moment`); a
   spline side marks every value ≈. A region is never one side of a "Between them" card.
 - A `Readout` is a card per item and, for two items, a "Between them" card; more than two asks for
   fewer without measuring any. Approximate values get a note callout under their card. Mass

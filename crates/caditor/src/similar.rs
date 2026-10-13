@@ -155,9 +155,9 @@ impl Shape {
     }
 
     pub fn words(&self, model: &Model) -> String {
-        let unit = model.length_unit();
+        let unit = model.units();
         let length = |value| unit.measured_length(value);
-        let angle = |radians: f64| model.units().angle.readout_text(radians.to_degrees());
+        let angle = |radians: f64| model.units().angle_readout(radians.to_degrees());
         match *self {
             Self::Plane { area, .. } => format!("area {}", unit.measured_area(area)),
             Self::Cylinder { radius, hole: true } => format!("hole radius {}", length(radius)),

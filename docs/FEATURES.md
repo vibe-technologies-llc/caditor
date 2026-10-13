@@ -230,10 +230,9 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Application
 
-- [low · medium] Preferences still lack settings other CAD programs offer: decimal places and
-  trailing zeros for shown lengths and angles (each readout in `units.rs` keeps its own
-  precision), a default colour for bodies without one (`body_appearance::DEFAULT_COLOUR` is one
-  constant the scene, exports and contrast tests share), the view cube's size and corner (the
+- [low · medium] Preferences still lack settings other CAD programs offer: a default colour for
+  bodies without one (`body_appearance::DEFAULT_COLOUR` is one constant the scene, exports and
+  contrast tests share), the view cube's size and corner (the
   overlays and tests lay out around `view_cube::area`), following the system's reduce-motion
   setting (winit reports none; View changes › No motion does it by hand), turning off the
   constraints drawing infers kind by kind (snapping is all or nothing), and export choices

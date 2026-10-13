@@ -470,6 +470,7 @@ impl Workspace {
 pub fn apply_preferences(model: &mut Model, preferences: &Preferences) {
     model.set_length_unit(preferences.unit);
     model.set_angle_unit(preferences.angle);
+    model.set_number_format(preferences.numbers);
     model.set_recent_colours(&preferences.recent_colours);
     model.set_last_values(&preferences.last_values);
     model.set_mesh_quality(preferences.graphics.curves.mesh_quality());

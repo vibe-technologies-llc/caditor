@@ -11,7 +11,7 @@ use crate::{
     shape_modes::OffsetMode,
     snap::{Pointer, Screen},
     trimming::{self, capitalized},
-    units::LengthUnit,
+    units::Units,
 };
 
 pub const PROMPT: &str = "Click on the side and at the distance the offset should run, or type it";
@@ -112,7 +112,7 @@ impl Offsetting {
         self.under.into_iter().collect()
     }
 
-    pub fn label(&self, sketch: &Sketch, unit: LengthUnit) -> Option<String> {
+    pub fn label(&self, sketch: &Sketch, unit: Units) -> Option<String> {
         if let Some(curve) = self.under {
             return Some(format!(
                 "Take the chain of {} to offset",

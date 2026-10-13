@@ -10,7 +10,7 @@ use super::{
 };
 use crate::{
     selection::{Pickable, PrincipalPlane},
-    units::LengthUnit,
+    units::Units,
 };
 
 #[test]
@@ -50,7 +50,7 @@ fn two_picked_vertices_are_measured_in_the_panel_and_the_view() {
     });
 
     harness.select([corner, far]);
-    let expected = LengthUnit::Millimetre.measured_length(corner_point.distance(far_point));
+    let expected = Units::default().measured_length(corner_point.distance(far_point));
     harness.wait_until("the distance is measured", |harness| {
         harness.shows(&expected)
     });

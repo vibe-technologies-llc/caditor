@@ -17,12 +17,14 @@ use crate::{
     icons,
     scene_palette::{self, Canvas, Contrast},
     themes::{Look, UserThemes},
-    units::{AngleUnit, LengthUnit},
+    units::{AngleUnit, Decimals, LengthUnit, TrailingZeros, Units},
     view_aids::EdgeWeight,
     widgets::{self, DialogBody, DialogWidth, SectionAction, Tab, ThemeSample, Tone},
 };
 
 const EMPTY_MODEL: &str = "An empty model";
+const SAMPLE_LENGTH: f64 = 12.5;
+const SAMPLE_ANGLE: f64 = 30.0;
 const HEIGHT_CHANGE: f32 = 0.5;
 const CONFIRM_KEY: &str = "preferences-confirm-defaults";
 const TALLEST_KEY: &str = "preferences-tallest-body";
@@ -306,6 +308,23 @@ pub fn pick<T: Choice>(ui: &mut Ui, current: T) -> Option<T> {
     choice(ui, &options, current)
 }
 
+pub fn pick_listed<T: Choice>(ui: &mut Ui, id: &str, current: T) -> Option<T> {
+    let mut picked = None;
+    widgets::combo(id, current.label())
+        .hover(current.description())
+        .show(ui, |ui| {
+            for option in T::ALL {
+                let chosen = *option == current;
+                let response = widgets::menu_option(ui, chosen, option.label())
+                    .on_hover_text(option.description());
+                if response.clicked() && !chosen {
+                    picked = Some(*option);
+                }
+            }
+        });
+    picked
+}
+
 pub fn toggle(
     ui: &mut Ui,
     on: bool,
@@ -371,6 +390,7 @@ fn general(
     command: &mut Option<PreferencesCommand>,
 ) {
     units(ui, shown, command);
+    numbers(ui, shown, command);
     starting(ui, shown, command);
     new_models(ui, shown, templates, command);
     feature_tree(ui, shown, command);
@@ -475,6 +495,42 @@ fn units(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesCommand
                 .collect();
             if let Some(unit) = choice(ui, &options, preferences.angle) {
                 change(command, PreferenceChange::Angle(unit));
+            }
+        });
+    });
+}
+
+const LENGTH_DECIMALS: &str = "preferences-length-decimals";
+const ANGLE_DECIMALS: &str = "preferences-angle-decimals";
+
+fn numbers(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesCommand>) {
+    let preferences = shown.preferences;
+    let numbers = preferences.numbers;
+    let units = Units {
+        length: preferences.unit,
+        angle: preferences.angle,
+        numbers,
+    };
+    let note = format!(
+        "A measured length reads {} and an angle {}. Rounding is only for reading: the model \
+         keeps every value as entered, and fields show what was typed.",
+        units.measured_length(SAMPLE_LENGTH),
+        units.angle_text(SAMPLE_ANGLE)
+    );
+    section(ui, shown, Section::Numbers, Some(note), |ui| {
+        widgets::property(ui, "Length places", |ui| {
+            if let Some(decimals) = pick_listed::<Decimals>(ui, LENGTH_DECIMALS, numbers.lengths) {
+                change(command, PreferenceChange::LengthDecimals(decimals));
+            }
+        });
+        widgets::property(ui, "Angle places", |ui| {
+            if let Some(decimals) = pick_listed::<Decimals>(ui, ANGLE_DECIMALS, numbers.angles) {
+                change(command, PreferenceChange::AngleDecimals(decimals));
+            }
+        });
+        widgets::property(ui, "Trailing zeros", |ui| {
+            if let Some(zeros) = pick::<TrailingZeros>(ui, numbers.trailing_zeros) {
+                change(command, PreferenceChange::TrailingZeros(zeros));
             }
         });
     });

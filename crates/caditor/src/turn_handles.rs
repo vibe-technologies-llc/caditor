@@ -491,11 +491,7 @@ impl TurnDrag {
     }
 
     pub fn readout(&self, units: Units) -> String {
-        let shown = format!(
-            "{} {}",
-            self.end.caption(),
-            units.angle.readout_text(self.value)
-        );
+        let shown = format!("{} {}", self.end.caption(), units.angle_readout(self.value));
         match self.snapped {
             Some(snap) => format!("{shown} {}", snap.kind.words()),
             None => shown,

@@ -10,7 +10,7 @@ use crate::{
     model::Model,
     scene,
     sketch_status::{self, SketchSummary},
-    units::{LengthUnit, Units},
+    units::Units,
     visibility,
 };
 
@@ -124,7 +124,7 @@ pub fn describe(model: &Model, edited: Option<FeatureId>) -> String {
         return sketch;
     }
     let evaluation = model.evaluation();
-    let unit = model.length_unit();
+    let unit = model.units();
     let bodies: Vec<String> = evaluation
         .bodies()
         .map(|(body, _)| body)
@@ -197,7 +197,7 @@ pub fn describe(model: &Model, edited: Option<FeatureId>) -> String {
     format!("{}.", parts.join("; "))
 }
 
-fn datum_words(result: DatumResult, unit: LengthUnit) -> String {
+fn datum_words(result: DatumResult, unit: Units) -> String {
     match result {
         DatumResult::Plane(plane) => plane_words(plane, unit),
         DatumResult::Axis(ray) => {
@@ -243,7 +243,7 @@ fn items(model: &Model, edited: Option<FeatureId>) -> Vec<Item> {
     }
     let document = model.document();
     let evaluation = model.evaluation();
-    let unit = model.length_unit();
+    let unit = model.units();
     let mut items = Vec::new();
     for (body, _) in evaluation.bodies() {
         if items.len() >= ITEMS_AT_MOST || !visibility::is_shown(document, body) {
@@ -326,7 +326,7 @@ fn sketch_items(model: &Model, feature: FeatureId) -> Vec<Item> {
     let Some(sketch) = model.displayed_sketch(owner) else {
         return Vec::new();
     };
-    let unit = model.length_unit();
+    let unit = model.units();
     let solution = sketch_status::up_to_date_solution(model.evaluation(), feature);
     let point = |id: EntityId| {
         sketch
@@ -425,7 +425,7 @@ fn sketch_items(model: &Model, feature: FeatureId) -> Vec<Item> {
         .collect()
 }
 
-fn plane_words(plane: Plane, unit: LengthUnit) -> String {
+fn plane_words(plane: Plane, unit: Units) -> String {
     let normal = plane.normal();
     let origin = plane.origin();
     let axes = [
@@ -470,7 +470,7 @@ fn edited_sketch(model: &Model, feature: FeatureId) -> Option<String> {
         }
     }
     let constraints = sketch.constraints().count();
-    let unit = model.length_unit();
+    let unit = model.units();
     let spans = sketch
         .entities()
         .filter(|(id, _)| id.reference().is_none())

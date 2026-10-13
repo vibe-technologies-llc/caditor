@@ -149,6 +149,16 @@ pub fn format_decimals(value: f64, decimals: usize) -> String {
     }
 }
 
+pub fn format_places(value: f64, decimals: usize) -> String {
+    let fixed = format!("{value:.decimals$}");
+    match fixed.strip_prefix('-') {
+        Some(magnitude) if magnitude.chars().all(|digit| matches!(digit, '0' | '.')) => {
+            magnitude.to_owned()
+        }
+        Some(_) | None => fixed,
+    }
+}
+
 fn format_scientific(value: f64) -> String {
     let text = format!("{value:.DISPLAY_DECIMALS$e}");
     match text.split_once('e') {
@@ -298,6 +308,16 @@ mod tests {
         assert_eq!(format_decimals(100.0, 0), "100");
         assert_eq!(format_decimals(0.0004, 3), "0");
         assert_eq!(format_decimals(f64::NAN, 3), "NaN");
+    }
+
+    #[test]
+    fn fixed_places_keep_their_zeros_and_never_show_negative_zero() {
+        assert_eq!(format_places(1.5, 3), "1.500");
+        assert_eq!(format_places(-0.0002, 3), "0.000");
+        assert_eq!(format_places(-0.0, 0), "0");
+        assert_eq!(format_places(-1.25, 1), "-1.2");
+        assert_eq!(format_places(12.0, 0), "12");
+        assert_eq!(format_places(f64::NAN, 2), "NaN");
     }
 
     #[test]

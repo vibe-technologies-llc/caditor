@@ -326,7 +326,7 @@ pub fn direction_of(model: &Model, pickable: Pickable) -> Option<Vector3> {
 
 pub fn size_text(model: &Model, pickable: Pickable) -> Option<String> {
     let subject = subject_of(model, pickable)?;
-    let unit = model.length_unit();
+    let unit = model.units();
     let parts = match &subject {
         Subject::Face { result, face } => {
             let solid = &result.solid()?.solid;
@@ -389,7 +389,7 @@ fn approximately(accuracy: Accuracy) -> &'static str {
 }
 
 fn circle_parts(model: &Model, radius: f64) -> Vec<String> {
-    let unit = model.length_unit();
+    let unit = model.units();
     vec![
         format!("Ø {}", unit.measured_length(2.0 * radius)),
         format!("R {}", unit.measured_length(radius)),
@@ -398,7 +398,7 @@ fn circle_parts(model: &Model, radius: f64) -> Vec<String> {
 }
 
 fn curve_parts(model: &Model, measured: EdgeMeasure) -> Vec<String> {
-    let unit = model.length_unit();
+    let unit = model.units();
     let length = format!(
         "Length {}{}",
         approximately(measured.length_accuracy),
@@ -411,10 +411,7 @@ fn curve_parts(model: &Model, measured: EdgeMeasure) -> Vec<String> {
         EdgeForm::Circle { radius, sweep, .. } => vec![
             format!("R {}", unit.measured_length(radius)),
             length,
-            format!(
-                "Sweep {}",
-                model.units().angle.readout_text(sweep.to_degrees())
-            ),
+            format!("Sweep {}", model.units().angle_readout(sweep.to_degrees())),
         ],
         EdgeForm::Ellipse {
             major_radius,
@@ -433,7 +430,7 @@ fn curve_parts(model: &Model, measured: EdgeMeasure) -> Vec<String> {
 }
 
 fn outline_parts(model: &Model, sides: &[OutlineSide]) -> Option<Vec<String>> {
-    let unit = model.length_unit();
+    let unit = model.units();
     match sides {
         [OutlineSide::Arc { radius, sweep }] if *sweep >= TAU - FULL_TURN_SLACK => {
             Some(circle_parts(model, *radius))
@@ -519,7 +516,7 @@ fn face_sides(solid: &Solid, face: FaceId) -> Vec<OutlineSide> {
 }
 
 fn face_parts(model: &Model, solid: &Solid, face: FaceId, area: &Reading) -> Vec<String> {
-    let unit = model.length_unit();
+    let unit = model.units();
     let area_text = match area.value {
         Value::Area(value) => Some(format!(
             "Area {}{}",
@@ -539,7 +536,7 @@ fn face_parts(model: &Model, solid: &Solid, face: FaceId, area: &Reading) -> Vec
         ],
         Ok(FaceForm::Cone { half_angle, .. }) => vec![format!(
             "Half angle {}",
-            model.units().angle.readout_text(half_angle.to_degrees())
+            model.units().angle_readout(half_angle.to_degrees())
         )],
         Ok(FaceForm::Torus {
             major_radius,

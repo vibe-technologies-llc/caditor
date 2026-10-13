@@ -1325,7 +1325,7 @@ impl Drawing {
             format!(
                 "{}   {}",
                 length(delta.length()),
-                unit.angle.readout_text(delta.y.atan2(delta.x).to_degrees())
+                unit.angle_readout(delta.y.atan2(delta.x).to_degrees())
             )
         };
         let sides = self.sides.0;
@@ -1342,7 +1342,7 @@ impl Drawing {
                     Some(format!(
                         "R {}   {}   × {}",
                         length(arc.radius),
-                        unit.angle.readout_text(arc.sweep.to_degrees()),
+                        unit.angle_readout(arc.sweep.to_degrees()),
                         length(2.0 * (center.position.distance(hover) - arc.radius).abs())
                     ))
                 }
@@ -1351,7 +1351,7 @@ impl Drawing {
                     Some(format!(
                         "R {}   {}",
                         length(center.position.distance(start.position)),
-                        unit.angle.readout_text(sweep.degrees())
+                        unit.angle_readout(sweep.degrees())
                     ))
                 }
                 (Shape::Ellipse | Shape::EllipticalArc, [center, axis]) => {
@@ -1370,7 +1370,7 @@ impl Drawing {
                         "R {}   r {}   {}",
                         length(ellipse.major_radius()),
                         length(ellipse.minor_radius),
-                        unit.angle.readout_text(sweep.degrees())
+                        unit.angle_readout(sweep.degrees())
                     ))
                 }
                 (Shape::ThreePointArc | Shape::Circle(CircleMode::ThreePoints), [a, b]) => {
@@ -1417,7 +1417,7 @@ impl Drawing {
                 Some(format!(
                     "R {}   {}",
                     length(arc.radius),
-                    unit.angle.readout_text(arc.sweep.to_degrees())
+                    unit.angle_readout(arc.sweep.to_degrees())
                 ))
             }
             Shape::Circle(CircleMode::ThreePoints) | Shape::ThreePointArc => {
@@ -1451,7 +1451,7 @@ impl Drawing {
             Shape::Ellipse | Shape::EllipticalArc => Some(format!(
                 "R {}   {}",
                 length(delta.length()),
-                unit.angle.readout_text(delta.y.atan2(delta.x).to_degrees())
+                unit.angle_readout(delta.y.atan2(delta.x).to_degrees())
             )),
             _ => None,
         }

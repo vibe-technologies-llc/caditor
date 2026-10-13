@@ -14,7 +14,7 @@ use crate::{
     patterning,
     snap::{self, Pointer, Screen},
     trimming::{self, capitalized},
-    units::LengthUnit,
+    units::Units,
 };
 
 pub const TRANSACTION: &str = "Draw spur gear";
@@ -354,7 +354,7 @@ impl Gearing {
     pub fn label(
         &self,
         sketch: &Sketch,
-        unit: LengthUnit,
+        unit: Units,
         gear: Option<&Result<SpurGear, String>>,
     ) -> Option<String> {
         if let Some(Err(problem)) = gear {

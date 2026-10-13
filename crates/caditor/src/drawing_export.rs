@@ -685,7 +685,7 @@ fn sheet_fields(
                 let field = field::commit_field(
                     ui,
                     Id::new(("drawing-sheet", caption)),
-                    &modifying::length_text(model.length_unit(), stored),
+                    &modifying::length_text(model.units(), stored),
                     widgets::FIELD_WIDTH,
                     false,
                     |text| parse(model, text),

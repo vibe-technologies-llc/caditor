@@ -19,7 +19,7 @@ use crate::{
     snap::{self, Pointer, Screen},
     trimming::{self, capitalized},
     typed_point,
-    units::LengthUnit,
+    units::Units,
 };
 
 pub const CORNER_PROMPT: &str = "Click the corner to round, where two lines, arcs or elliptical arcs meet, or drag from it; or click two lines, arcs, circles or elliptical arcs to round where they cross or would meet";
@@ -498,7 +498,7 @@ impl Filleting {
             .collect()
     }
 
-    pub fn label(&self, sketch: &Sketch, unit: LengthUnit) -> Option<String> {
+    pub fn label(&self, sketch: &Sketch, unit: Units) -> Option<String> {
         let aims = self.aims();
         let left_out = self.left_out.as_ref().map(LeftOut::words);
         let verb = capitalized(self.cut.verb());
@@ -662,7 +662,7 @@ impl Filleting {
         let Some(value) = size.and_then(|size| Value::pointed(model, size)) else {
             return Outcome::Nothing;
         };
-        let text = length_text(model.length_unit(), value.millimetres);
+        let text = length_text(model.units(), value.millimetres);
         self.round(model, feature, Size::Radius(value), text).into()
     }
 
@@ -926,7 +926,7 @@ fn pointed(millimetres: f64) -> ChamferSize {
     })
 }
 
-fn bevel_words(unit: LengthUnit, bevel: &Bevel) -> String {
+fn bevel_words(unit: Units, bevel: &Bevel) -> String {
     let [first, second] = bevel.distances.map(|distance| length_text(unit, distance));
     if first == second {
         format!("{first} from it on each side")

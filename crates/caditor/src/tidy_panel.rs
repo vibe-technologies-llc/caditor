@@ -301,9 +301,9 @@ fn settings(
             ui,
             widgets::muted(
                 format!(
-                    "Within {} and {:.2}°",
-                    model.units().length.measured_length(tolerance.distance),
-                    tolerance.angle.to_degrees()
+                    "Within {} and {}",
+                    model.units().measured_length(tolerance.distance),
+                    model.units().angle_text_of_radians(tolerance.angle)
                 ),
                 ui,
             ),
@@ -428,7 +428,7 @@ fn constraints_list(
                 if constraint.dimension().is_some()
                     && let Some(value) = sketch.measured(constraint)
                 {
-                    text = format!("{text}: {}", units.length.measured_length(value));
+                    text = format!("{text}: {}", units.measured_length(value));
                 }
                 let row = ui.add(
                     Label::new(text)
@@ -526,7 +526,7 @@ pub fn words(sketch: &Sketch, flaw: &Flaw, units: Units) -> (String, String) {
                 "Ends of {} and {} are {} apart but not joined",
                 owner(sketch, first),
                 owner(sketch, second),
-                units.length.measured_length(gap)
+                units.measured_length(gap)
             ),
             "Join them".to_owned(),
         ),

@@ -814,7 +814,7 @@ pub fn reading_text(units: Units, result: &MeasurementResult) -> String {
     let value = result.value;
     let shown = match value.dimension {
         Dimension::LENGTH => units.measured_length(value.value),
-        Dimension::ANGLE => units.angle.text(value.value),
+        Dimension::ANGLE => units.angle_text(value.value),
         AREA => units.measured_area(value.value),
         Dimension::VOLUME => units.measured_volume(value.value),
         MASS => mass_text(value.value),

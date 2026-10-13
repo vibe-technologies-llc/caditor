@@ -112,6 +112,7 @@ mod patterns;
 mod pick_list;
 mod pipes;
 mod plane_selectors;
+mod preference_details;
 mod preference_groups;
 mod preferences;
 mod primitive_creation;

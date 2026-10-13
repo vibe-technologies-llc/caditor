@@ -854,10 +854,7 @@ impl MoveDrag {
         if self.handle == Handle::TurnAbout {
             let turned = self.angle - self.from_angle;
             let shown = if turned >= 0.0 { "+" } else { "" };
-            return format!(
-                "Turn about its axis {shown}{}",
-                units.angle.readout_text(turned)
-            );
+            return format!("Turn about its axis {shown}{}", units.angle_readout(turned));
         }
         if let Handle::Turn(axis) = self.handle {
             let start = rotation_from_turns(self.from_turns.map(f64::to_radians));
@@ -873,7 +870,7 @@ impl MoveDrag {
             return format!(
                 "Turn about {} {shown}{}",
                 axis.name(),
-                units.angle.readout_text(turned)
+                units.angle_readout(turned)
             );
         }
         self.handle

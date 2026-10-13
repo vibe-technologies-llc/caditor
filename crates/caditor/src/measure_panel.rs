@@ -20,7 +20,7 @@ use crate::{
     panels::{Focus, PanelState},
     parameter_table,
     selection::{Pickable, Selection},
-    units::{LengthUnit, Units},
+    units::Units,
     visibility,
     widgets::{self, PanelTitle, Tone},
 };
@@ -165,7 +165,7 @@ pub fn value_text(value: Value, accuracy: Accuracy, unit: Units) -> String {
     let text = match value {
         Value::Length(length) => unit.measured_length(length),
         Value::Area(area) => unit.measured_area(area),
-        Value::Angle(radians) => unit.angle.text_of_radians(radians),
+        Value::Angle(radians) => unit.angle_text_of_radians(radians),
         Value::Position(point) => unit.measured_position([point.x, point.y, point.z]),
         Value::Direction(direction) => direction_text(direction),
         Value::SecondMoment(moment) => unit.measured_second_moment(moment),
@@ -305,7 +305,7 @@ fn significant(value: f64) -> String {
     format_number((value * step).round() / step)
 }
 
-fn inertia_text(grams_square_millimetres: [f64; 3], unit: LengthUnit) -> String {
+fn inertia_text(grams_square_millimetres: [f64; 3], unit: Units) -> String {
     let scaled = grams_square_millimetres.map(|value| value / unit.millimetres().powi(2));
     let largest = scaled
         .iter()
@@ -322,7 +322,7 @@ fn inertia_text(grams_square_millimetres: [f64; 3], unit: LengthUnit) -> String 
 fn inertia_rows(
     second_moment: &SecondMoment,
     density: f64,
-    unit: LengthUnit,
+    unit: Units,
     approximate: bool,
 ) -> [Row; 2] {
     let grams_per_volume = density * GRAMS_PER_CUBIC_MILLIMETRE;
@@ -347,7 +347,7 @@ fn inertia_rows(
 fn mass_card(
     (name, stopped): (String, bool),
     mass: Option<&BodyMass>,
-    unit: LengthUnit,
+    unit: Units,
     substance: &Substance<'_>,
     relative: Relative,
 ) -> Card {
@@ -431,7 +431,7 @@ fn mass_card(
 
 fn total_card(
     parts: &[(&BodyMass, Substance<'_>)],
-    unit: LengthUnit,
+    unit: Units,
     relative: Relative,
 ) -> Option<Card> {
     if parts.len() < 2 {
@@ -599,7 +599,7 @@ pub fn mass_cards(
     relative: Relative,
     frame: Option<FeatureId>,
 ) -> Masses {
-    let unit = context.model.length_unit();
+    let unit = context.model.units();
     let (bodies, everything) = measured_bodies(context);
     let count = bodies.len();
     let parameters = context.model.parameters();
@@ -1140,7 +1140,10 @@ mod tests {
     use caditor_kernel::MassProperties;
 
     use super::*;
-    use crate::measure::{Group, Reading};
+    use crate::{
+        measure::{Group, Reading},
+        units::LengthUnit,
+    };
 
     #[test]
     fn readings_are_shown_in_the_chosen_unit_and_approximate_ones_are_marked() {
@@ -1166,7 +1169,7 @@ mod tests {
             kept: Vec::new(),
         };
 
-        let cards = readout_cards(&readout, LengthUnit::Centimetre);
+        let cards = readout_cards(&readout, Units::from(LengthUnit::Centimetre));
 
         assert_eq!(cards[0].rows[0].text, "≈ 2.5400 cm");
         assert_eq!(cards[0].rows[1].text, "90.00°");
@@ -1196,14 +1199,14 @@ mod tests {
         let card = mass_card(
             ("Extrude 1".to_owned(), false),
             Some(&mass),
-            LengthUnit::Millimetre,
+            Units::from(LengthUnit::Millimetre),
             &Substance::UNKNOWN,
             Relative::WORLD,
         );
         let waiting = mass_card(
             ("Extrude 2".to_owned(), false),
             None,
-            LengthUnit::Millimetre,
+            Units::from(LengthUnit::Millimetre),
             &Substance::UNKNOWN,
             Relative::WORLD,
         );
@@ -1242,13 +1245,13 @@ mod tests {
 
         let total = total_card(
             &[(&left, water()), (&right, water())],
-            LengthUnit::Millimetre,
+            Units::from(LengthUnit::Millimetre),
             Relative::WORLD,
         )
         .unwrap();
         let unknown = total_card(
             &[(&left, water()), (&right, Substance::UNKNOWN)],
-            LengthUnit::Millimetre,
+            Units::from(LengthUnit::Millimetre),
             Relative::WORLD,
         )
         .unwrap();
@@ -1260,7 +1263,14 @@ mod tests {
         assert_eq!(total.rows[4].text, "1.067, 7.467, 7.467 kg·mm²");
         assert_eq!(unknown.rows[1].text, NOT_EVERY_DENSITY);
         assert_eq!(unknown.rows.len(), 4);
-        assert!(total_card(&[(&left, water())], LengthUnit::Millimetre, Relative::WORLD).is_none());
+        assert!(
+            total_card(
+                &[(&left, water())],
+                Units::from(LengthUnit::Millimetre),
+                Relative::WORLD
+            )
+            .is_none()
+        );
     }
 
     #[test]
@@ -1287,14 +1297,14 @@ mod tests {
         let card = mass_card(
             ("Block".to_owned(), false),
             Some(&mass),
-            LengthUnit::Millimetre,
+            Units::from(LengthUnit::Millimetre),
             &steel,
             Relative::WORLD,
         );
         let refused = mass_card(
             ("Block".to_owned(), false),
             Some(&mass),
-            LengthUnit::Millimetre,
+            Units::from(LengthUnit::Millimetre),
             &wrong,
             Relative::WORLD,
         );

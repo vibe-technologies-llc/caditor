@@ -11,7 +11,7 @@ use crate::{
     layout::RightPanel,
     model::{Action, Model, Notice},
     modifying::length_text,
-    units::LengthUnit,
+    units::Units,
     widgets::{self, PanelTitle, Tone},
 };
 
@@ -79,7 +79,7 @@ pub fn show(
                 fields(ui, settings, &evaluation.problems);
                 ui.add_space(SPACE_M);
                 match &evaluation.gear {
-                    Ok(gear) => circles(ui, gear, context.model.length_unit()),
+                    Ok(gear) => circles(ui, gear, context.model.units()),
                     Err(problem) => {
                         widgets::callout(ui, Tone::Error, |ui| wrapped(ui, problem.as_str()));
                     }
@@ -134,7 +134,7 @@ fn fields(ui: &mut Ui, settings: &mut GearSettings, problems: &[(GearField, Stri
     });
 }
 
-fn circles(ui: &mut Ui, gear: &SpurGear, unit: LengthUnit) {
+fn circles(ui: &mut Ui, gear: &SpurGear, unit: Units) {
     wrapped(ui, widgets::muted(CIRCLES, ui));
     ui.add_space(SPACE_S);
     let circles = gear.circles();

@@ -37,7 +37,7 @@ use crate::{
     queued::{Awaited, Queue, Queued, Rerun},
     scene,
     selection::SelectionFilter,
-    units::{AngleUnit, LengthUnit, Units},
+    units::{AngleUnit, LengthUnit, NumberFormat, Units},
     widgets::Tone,
 };
 
@@ -244,6 +244,7 @@ pub struct Model {
     file_events: Vec<FileEvent>,
     length_unit: LengthUnit,
     angle_unit: AngleUnit,
+    number_format: NumberFormat,
     recent_colours: Vec<Rgb>,
     last_values: LastValues,
     mesh_quality: MeshQuality,
@@ -297,6 +298,7 @@ impl Model {
             file_events: Vec::new(),
             length_unit: LengthUnit::default(),
             angle_unit: AngleUnit::default(),
+            number_format: NumberFormat::default(),
             recent_colours: Vec::new(),
             last_values: LastValues::default(),
             mesh_quality: MeshQuality::default(),
@@ -349,7 +351,12 @@ impl Model {
         Units {
             length: self.length_unit,
             angle: self.angle_unit,
+            numbers: self.number_format,
         }
+    }
+
+    pub fn set_number_format(&mut self, format: NumberFormat) {
+        self.number_format = format;
     }
 
     pub fn set_angle_unit(&mut self, unit: AngleUnit) {

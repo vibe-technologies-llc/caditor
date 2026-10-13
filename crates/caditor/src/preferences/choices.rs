@@ -1,7 +1,11 @@
 use caditor_file::Settings;
 use caditor_render::DEFAULT_FIELD_OF_VIEW_DEGREES;
 
-use crate::{appearance::TOOLTIP_DELAY, view_aids::EdgeWeight};
+use crate::{
+    appearance::TOOLTIP_DELAY,
+    units::{Decimals, TrailingZeros},
+    view_aids::EdgeWeight,
+};
 
 pub trait Choice: Copy + PartialEq + Default + 'static {
     const ALL: &'static [Self];
@@ -382,6 +386,86 @@ impl Choice for DoubleClick {
     }
 }
 
+impl Choice for Decimals {
+    const ALL: &'static [Self] = &[
+        Self::Automatic,
+        Self::Fixed(0),
+        Self::Fixed(1),
+        Self::Fixed(2),
+        Self::Fixed(3),
+        Self::Fixed(4),
+        Self::Fixed(5),
+        Self::Fixed(6),
+    ];
+
+    fn key(self) -> &'static str {
+        match self {
+            Self::Automatic => "automatic",
+            Self::Fixed(0) => "0",
+            Self::Fixed(1) => "1",
+            Self::Fixed(2) => "2",
+            Self::Fixed(3) => "3",
+            Self::Fixed(4) => "4",
+            Self::Fixed(5) => "5",
+            Self::Fixed(_) => "6",
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Automatic => "Automatic",
+            Self::Fixed(0) => "None",
+            Self::Fixed(1) => "1 place",
+            Self::Fixed(2) => "2 places",
+            Self::Fixed(3) => "3 places",
+            Self::Fixed(4) => "4 places",
+            Self::Fixed(5) => "5 places",
+            Self::Fixed(_) => "6 places",
+        }
+    }
+
+    fn description(self) -> &'static str {
+        match self {
+            Self::Automatic => {
+                "Each readout shows the places it needs: a micrometre in measurements, a \
+                 hundredth of a millimetre by the pointer, up to six places for computed values"
+            }
+            Self::Fixed(0) => "Every readout rounds to a whole number",
+            Self::Fixed(1) => "Every readout shows one decimal place",
+            Self::Fixed(2) => "Every readout shows two decimal places",
+            Self::Fixed(3) => "Every readout shows three decimal places",
+            Self::Fixed(4) => "Every readout shows four decimal places",
+            Self::Fixed(5) => "Every readout shows five decimal places",
+            Self::Fixed(_) => "Every readout shows six decimal places",
+        }
+    }
+}
+
+impl Choice for TrailingZeros {
+    const ALL: &'static [Self] = &[Self::Shown, Self::Hidden];
+
+    fn key(self) -> &'static str {
+        match self {
+            Self::Shown => "shown",
+            Self::Hidden => "hidden",
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Shown => "Shown",
+            Self::Hidden => "Hidden",
+        }
+    }
+
+    fn description(self) -> &'static str {
+        match self {
+            Self::Shown => "Readouts keep their zeros, so 12.500 mm lines up with 12.345 mm",
+            Self::Hidden => "Readouts drop zeros after the point, so 12.500 mm reads 12.5 mm",
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -413,6 +497,8 @@ mod tests {
         keys_are_distinct_and_read_back::<Startup>();
         keys_are_distinct_and_read_back::<RecentListed>();
         keys_are_distinct_and_read_back::<DoubleClick>();
+        keys_are_distinct_and_read_back::<Decimals>();
+        keys_are_distinct_and_read_back::<TrailingZeros>();
     }
 
     #[test]

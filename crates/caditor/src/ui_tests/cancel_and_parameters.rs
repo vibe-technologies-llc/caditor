@@ -15,7 +15,7 @@ use crate::{
     panels::Focus,
     parameter_table::{self, UnusedDeletion},
     selection::Pickable,
-    units::LengthUnit,
+    units::{LengthUnit, Units},
 };
 
 fn distance_text(harness: &Harness, extrude: FeatureId) -> String {
@@ -436,7 +436,7 @@ fn a_measured_distance_is_copied_or_made_a_parameter_from_its_row_menu() {
     harness.frame();
     harness.select([corner, far]);
     let distance = Point3::ZERO.distance(far_point);
-    let expected = LengthUnit::Millimetre.measured_length(distance);
+    let expected = Units::default().measured_length(distance);
     harness.wait_until("the distance is measured", |harness| {
         harness.shows(&expected)
     });
@@ -502,7 +502,7 @@ fn a_measured_distance_is_kept_in_the_model_and_follows_upstream_edits() {
     harness.frame();
     harness.select([corner, far]);
     let distance = Point3::ZERO.distance(far_point);
-    let expected = LengthUnit::Millimetre.measured_length(distance);
+    let expected = Units::default().measured_length(distance);
     harness.wait_until("the distance is measured", |harness| {
         harness.shows(&expected)
     });
@@ -563,7 +563,7 @@ fn undoing_back_to_the_saved_state_of_a_model_with_a_kept_measurement_leaves_it_
     harness.key(Key::I, Modifiers::NONE);
     harness.frame();
     harness.select([corner, far]);
-    let expected = LengthUnit::Millimetre.measured_length(Point3::ZERO.distance(far_point));
+    let expected = Units::default().measured_length(Point3::ZERO.distance(far_point));
     harness.wait_until("the distance is measured", |harness| {
         harness.shows(&expected)
     });
@@ -614,7 +614,7 @@ fn a_kept_measurement_is_chosen_again_in_its_panel_and_leaves_its_last_reading_w
     harness.frame();
     harness.select([corner, far]);
     let distance = Point3::ZERO.distance(far_point);
-    let expected = LengthUnit::Millimetre.measured_length(distance);
+    let expected = Units::default().measured_length(distance);
     harness.wait_until("the distance is measured", |harness| {
         harness.shows(&expected)
     });
@@ -761,7 +761,7 @@ fn a_position_and_a_body_volume_are_kept_from_measure_rows() {
     harness.key(Key::I, Modifiers::NONE);
     harness.frame();
     harness.select([far]);
-    let volume = LengthUnit::Millimetre.measured_volume(16000.0);
+    let volume = Units::default().measured_volume(16000.0);
     harness.wait_until("the position and the volume are read", |harness| {
         harness.shows(&volume) && !harness.workspace.measure.measurements.is_measuring()
     });

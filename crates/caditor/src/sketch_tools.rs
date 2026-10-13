@@ -2044,8 +2044,8 @@ mod tests {
         let f = fixture();
         let found = candidates(&f, ConstraintTool::Angle, &[f.horizontal, f.slanted]).unwrap();
         let radians = Units {
-            length: LengthUnit::Millimetre,
             angle: crate::units::AngleUnit::Radian,
+            ..Units::default()
         };
 
         let turned = in_unit(found.clone(), radians);

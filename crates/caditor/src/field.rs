@@ -911,8 +911,8 @@ mod tests {
         let document = document();
         let parameters = ParameterValues::evaluate(&document);
         let radians = Units {
-            length: LengthUnit::Millimetre,
             angle: AngleUnit::Radian,
+            ..Units::default()
         };
         let angle = Expected {
             dimension: Some(Dimension::ANGLE),

@@ -3,6 +3,7 @@ use super::{Preferences, PreferencesTab};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Section {
     Units,
+    Numbers,
     Files,
     NewModels,
     FeatureTree,
@@ -24,8 +25,9 @@ pub enum Section {
 }
 
 impl Section {
-    pub const ALL: [Self; 19] = [
+    pub const ALL: [Self; 20] = [
         Self::Units,
+        Self::Numbers,
         Self::Files,
         Self::NewModels,
         Self::FeatureTree,
@@ -49,6 +51,7 @@ impl Section {
     pub fn tab(self) -> PreferencesTab {
         match self {
             Self::Units
+            | Self::Numbers
             | Self::Files
             | Self::NewModels
             | Self::FeatureTree
@@ -69,6 +72,7 @@ impl Section {
     pub fn id(self) -> &'static str {
         match self {
             Self::Units => "units",
+            Self::Numbers => "numbers",
             Self::Files => "files",
             Self::NewModels => "new-models",
             Self::FeatureTree => "feature-tree",
@@ -93,6 +97,7 @@ impl Section {
     pub fn title(self) -> &'static str {
         match self {
             Self::Units => "Units",
+            Self::Numbers => "Numbers",
             Self::Files => "Starting and recent files",
             Self::NewModels => "New models",
             Self::FeatureTree => "Feature tree",
@@ -125,6 +130,13 @@ impl Section {
                 "micrometres",
                 "degrees",
                 "radians",
+            ],
+            Self::Numbers => &[
+                "decimal places",
+                "precision",
+                "rounding",
+                "trailing zeros",
+                "readouts",
             ],
             Self::Files => &["at startup", "open the last model", "recent files", "start"],
             Self::NewModels => &["start from", "template", "new model"],
@@ -234,6 +246,7 @@ impl Section {
                 to.unit = from.unit;
                 to.angle = from.angle;
             }
+            Self::Numbers => to.numbers = from.numbers,
             Self::Files => {
                 to.startup = from.startup;
                 to.recent_listed = from.recent_listed;

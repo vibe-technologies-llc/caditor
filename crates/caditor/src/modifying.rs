@@ -17,7 +17,7 @@ use crate::{
     sketch_tools,
     snap::{Pointer, Screen},
     tangent_circling::TangentCircling,
-    units::LengthUnit,
+    units::Units,
 };
 
 const LENGTH: Expected = Expected {
@@ -126,7 +126,7 @@ impl Value {
     }
 }
 
-pub fn length_text(unit: LengthUnit, millimetres: f64) -> String {
+pub fn length_text(unit: Units, millimetres: f64) -> String {
     unit.show(Quantity::length(sketch_tools::rounded_for_display(
         millimetres,
     )))
@@ -350,7 +350,7 @@ impl Modifying {
         }
     }
 
-    pub fn label(&self, sketch: &Sketch, unit: LengthUnit) -> Option<String> {
+    pub fn label(&self, sketch: &Sketch, unit: Units) -> Option<String> {
         match &self.state {
             State::Offset(offsetting) => offsetting.label(sketch, unit),
             State::Mirror(mirroring) => mirroring.label(sketch),

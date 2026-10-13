@@ -11,7 +11,7 @@ use crate::{
     modifying::{Hint, Outcome, Prompt, Value, ValueField, length_text},
     snap::{self, Pointer, Screen},
     trimming::{self, capitalized},
-    units::LengthUnit,
+    units::Units,
 };
 
 pub const TRANSACTION: &str = "Draw tangent circle";
@@ -129,7 +129,7 @@ impl TangentCircling {
             .collect()
     }
 
-    pub fn label(&self, sketch: &Sketch, unit: LengthUnit) -> Option<String> {
+    pub fn label(&self, sketch: &Sketch, unit: Units) -> Option<String> {
         let (curves, found) = self.circle.as_ref()?;
         Some(match found {
             Ok(circle) => format!(

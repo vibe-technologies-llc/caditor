@@ -40,7 +40,7 @@ fn bend_text(units: Units, curvature: f64) -> String {
     if curvature > FLAT {
         format!(
             "radius {APPROXIMATELY}{}",
-            units.length.measured_length(1.0 / curvature)
+            units.measured_length(1.0 / curvature)
         )
     } else {
         "straight".to_owned()
@@ -90,7 +90,7 @@ fn curves(ui: &mut Ui, units: Units, comb: &Comb) {
             let bend = match curve.smallest_radius() {
                 Some(radius) => format!(
                     "smallest radius {APPROXIMATELY}{}",
-                    units.length.measured_length(radius)
+                    units.measured_length(radius)
                 ),
                 None => "straight".to_owned(),
             };

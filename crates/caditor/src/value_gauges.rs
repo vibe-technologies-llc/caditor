@@ -63,7 +63,7 @@ impl Amount {
     pub fn text(self, units: Units, value: f64) -> String {
         match self {
             Self::Length => units.readout_text(value),
-            Self::Angle => units.angle.readout_text(value),
+            Self::Angle => units.angle_readout(value),
             Self::Count => format!("{}", value.round()),
         }
     }

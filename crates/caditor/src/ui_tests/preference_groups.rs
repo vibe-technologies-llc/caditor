@@ -20,27 +20,31 @@ use crate::{
     view_aids::EdgeWeight,
 };
 
-fn open_tab(harness: &mut Harness, tab: PreferencesTab) {
+pub(super) fn open_tab(harness: &mut Harness, tab: PreferencesTab) {
     harness.key(Key::Comma, Modifiers::COMMAND);
     harness.frame();
     harness.show_new_windows();
     harness.click(tab.label());
 }
 
-fn close_preferences(harness: &mut Harness) {
+pub(super) fn close_preferences(harness: &mut Harness) {
     harness.click("Close");
     harness.frame();
 }
 
-fn stored(dir: &Path) -> Preferences {
+pub(super) fn stored(dir: &Path) -> Preferences {
     Preferences::from_settings(Settings::load(&dir.join("config")))
 }
 
-fn wait_until_stored(harness: &mut Harness, dir: &Path, done: impl Fn(&Preferences) -> bool) {
+pub(super) fn wait_until_stored(
+    harness: &mut Harness,
+    dir: &Path,
+    done: impl Fn(&Preferences) -> bool,
+) {
     harness.wait_until("the preferences are saved", |_| done(&stored(dir)));
 }
 
-fn reopened(dir: &Path) -> Harness {
+pub(super) fn reopened(dir: &Path) -> Harness {
     let mut preferences = stored(dir);
     preferences.onboarding = Onboarding::finished();
     Harness::starting(
@@ -50,7 +54,7 @@ fn reopened(dir: &Path) -> Harness {
     )
 }
 
-fn settle_camera(harness: &mut Harness) {
+pub(super) fn settle_camera(harness: &mut Harness) {
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.let_animations_finish();
 }

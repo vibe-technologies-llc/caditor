@@ -108,7 +108,7 @@ pub fn bend_text(units: Units, face: &FaceLines, along: Along) -> Option<String>
     Some(match face.smallest_radius(along)? {
         Some(radius) => format!(
             "{lines} bend to a smallest radius of {APPROXIMATELY}{}",
-            units.length.measured_length(radius)
+            units.measured_length(radius)
         ),
         None => format!("{lines} straight"),
     })
