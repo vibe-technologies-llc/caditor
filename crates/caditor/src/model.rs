@@ -9,8 +9,8 @@ use std::{
 use caditor_document::{
     Base, Document, Editor, Evaluation, Feature, FeatureError, FeatureId, FeatureKind,
     FeatureResult, FeatureState, Healing, ModelEvaluator, Move, Outcome, ParameterValues, Pivot,
-    Prepared, PrincipalGeometry, Progress, Recomputer, Rgb, SketchResult, Stale, Transaction, TransactionBuilder,
-    TurnCentre, UndoMark, displayed_axis, displayed_frame,
+    Prepared, PrincipalGeometry, Progress, Recomputer, Rgb, SketchResult, Stale, Transaction,
+    TransactionBuilder, TurnCentre, UndoMark, displayed_axis, displayed_frame,
 };
 use caditor_file::{
     Closing, FileDigest, Flusher, Handover, JournalEntry, JournalFailure, KeepRequest, Recovered,
@@ -38,7 +38,7 @@ use crate::{
     scene,
     selection::SelectionFilter,
     units::{AngleUnit, LengthUnit, Units},
-    visibility::{KeptShown, PrincipalView},
+    visibility::{PrincipalSet, PrincipalView},
     widgets::Tone,
 };
 
@@ -337,8 +337,9 @@ impl Model {
         self.principal
     }
 
-    pub fn tuck_principal_away(&mut self, tucked_away: bool) {
+    pub fn tuck_principal_away(&mut self, tucked_away: bool, selected: PrincipalSet) {
         self.principal.tucked_away = tucked_away;
+        self.principal.selected = selected;
     }
 
     pub fn document_as_shown(&self) -> Document {
@@ -1621,7 +1622,7 @@ impl Model {
         self.on_disk = session.on_disk;
         self.entries = entries;
         self.keep_original = session.keep_original;
-        self.principal.kept = KeptShown::default();
+        self.principal.kept = PrincipalSet::default();
         self.unprotected = None;
         self.pending_save = None;
         self.notice = None;

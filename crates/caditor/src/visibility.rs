@@ -91,9 +91,9 @@ pub fn is_principal_shown(document: &Document, geometry: PrincipalGeometry) -> b
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct KeptShown(u8);
+pub struct PrincipalSet(u8);
 
-impl KeptShown {
+impl PrincipalSet {
     fn bit(geometry: PrincipalGeometry) -> u8 {
         PrincipalGeometry::ALL
             .iter()
@@ -119,7 +119,8 @@ impl KeptShown {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct PrincipalView {
     pub tucked_away: bool,
-    pub kept: KeptShown,
+    pub kept: PrincipalSet,
+    pub selected: PrincipalSet,
 }
 
 impl PrincipalView {
@@ -128,7 +129,7 @@ impl PrincipalView {
     }
 
     pub fn tucks(self, geometry: PrincipalGeometry) -> bool {
-        self.tucked_away && !self.kept.holds(geometry)
+        self.tucked_away && !self.kept.holds(geometry) && !self.selected.holds(geometry)
     }
 }
 
@@ -136,6 +137,10 @@ pub struct Needs<'a> {
     pub editing: &'a SketchEditing,
     pub measuring: bool,
     pub listing: bool,
+}
+
+pub fn selected_principal(selection: &Selection) -> PrincipalSet {
+    PrincipalSet::default().with(selection.iter().filter_map(principal))
 }
 
 pub fn has_body(document: &Document) -> bool {
@@ -322,9 +327,7 @@ fn showing(
         label,
         actions: applied
             .into_iter()
-            .chain([Action::KeepPrincipalShown(
-                geometries.into_iter().collect(),
-            )])
+            .chain([Action::KeepPrincipalShown(geometries.into_iter().collect())])
             .collect(),
     }
 }
@@ -593,8 +596,15 @@ mod tests {
             entity: caditor_sketch::EntityId::ORIGIN,
         });
 
-        let nothing = hide_others(&document, PrincipalView::default(), &Selection::default(), &[], None);
-        let isolate = hide_others(&document, PrincipalView::default(), &selection, &[], None).unwrap();
+        let nothing = hide_others(
+            &document,
+            PrincipalView::default(),
+            &Selection::default(),
+            &[],
+            None,
+        );
+        let isolate =
+            hide_others(&document, PrincipalView::default(), &selection, &[], None).unwrap();
         document.apply(isolate.clone()).unwrap();
         let again = hide_others(&document, PrincipalView::default(), &selection, &[], None);
 
@@ -640,7 +650,10 @@ mod tests {
         assert!(toggle_kind(&document, Kind::Bodies, None).is_err());
     }
 
-    fn applied(document: &mut Document, toggle: &PrincipalToggle) -> (usize, Vec<PrincipalGeometry>) {
+    fn applied(
+        document: &mut Document,
+        toggle: &PrincipalToggle,
+    ) -> (usize, Vec<PrincipalGeometry>) {
         let mut edits = 0;
         let mut kept = Vec::new();
         for action in &toggle.actions {
@@ -695,7 +708,7 @@ mod tests {
         let xy = PrincipalGeometry::Plane(crate::selection::PrincipalPlane::Xy);
         let tucked = PrincipalView {
             tucked_away: true,
-            kept: KeptShown::default(),
+            ..PrincipalView::default()
         };
 
         let hidden_while_tucked = !any_principal_shown(&document, tucked);

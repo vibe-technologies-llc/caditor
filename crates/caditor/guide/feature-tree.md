@@ -34,7 +34,9 @@ empty space in the view, lets go of the chosen rows. Choosing or hovering a row 
 made in the view: a body's row the whole body, a row that changes a body, such as a hole or a
 fillet, only the faces it made, so each hole lights on its own.
 
-The eye on a row hides or shows what it made. The "⋯" button holds the same actions as the
+The eye on a row hides or shows what it made. The principal planes, axes and origin have a group
+row of their own, read as hidden while they step aside after the first body (see
+[principal planes only when needed](display)); its eyes show them and keep them shown. The "⋯" button holds the same actions as the
 right-click menu; Hide or Show there, like Suppress, acts on every chosen row. Uses and Used by
 list the features it builds on and those built on it; choose one to go to its row.
 

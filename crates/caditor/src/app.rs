@@ -1060,7 +1060,7 @@ pub fn show(
         }
         let toggles = ToggleStates::of(viewport, section.open)
             .with_cosmetic_threads(model.threads_shown_cosmetic())
-        .with_principal_when_needed(preferences.view_details.principal_when_needed);
+            .with_principal_when_needed(preferences.view_details.principal_when_needed);
         palette.show(
             ui.ctx(),
             &offers,
@@ -1507,7 +1507,8 @@ fn tuck_principal_away(model: &mut Model, workspace: &Workspace) {
         workspace.preferences.view_details.principal_when_needed,
         &needs,
     );
-    model.tuck_principal_away(tucked);
+    let selected = visibility::selected_principal(workspace.viewport.selection());
+    model.tuck_principal_away(tucked, selected);
 }
 
 fn run_due(model: &mut Model, workspace: &mut Workspace) -> bool {

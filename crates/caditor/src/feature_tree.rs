@@ -3,7 +3,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use caditor_document::{
     BlendKind, CombineOperation, Datum, Document, Edit, Feature, FeatureError, FeatureId,
     FeatureKind, FeatureState, FeatureStatus, FixTarget, Healing, MissingInput, PatternKind,
-    PrimitiveKind, PrincipalGeometry, RollbackBar, SketchFeature, SolidFeature, SolidResult, Transaction, TreeRow,
+    PrimitiveKind, PrincipalGeometry, RollbackBar, SketchFeature, SolidFeature, SolidResult,
+    Transaction, TreeRow,
 };
 use caditor_expression::Expression;
 use caditor_sketch::{Constraint, ConstraintId, Redundancy, Sketch, SketchSolution};
@@ -2523,7 +2524,8 @@ fn feature_commands(
         actions.push(Action::KeepPrincipalShown(shown_principal));
     }
     if commands.invoke(Command::TogglePrincipal, &Ok::<_, String>(())) {
-        actions.extend(visibility::toggle_principal_group(document, model.principal_view()).actions);
+        actions
+            .extend(visibility::toggle_principal_group(document, model.principal_view()).actions);
     }
     for (command, kind) in [
         Command::ToggleSketches,

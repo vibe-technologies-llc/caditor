@@ -986,6 +986,28 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
 - Principal planes, axes and origin hide through a group row (`principal_tree.rs`) with an eye for the
   group and one per item. Hidden ones are drawn and offered anyway while a sketch's plane is chosen
   (`Context::choosing_plane`).
+- Show principal planes only when needed (`ViewDetails::principal_when_needed`, on by default; also
+  `Command::ShowPrincipalWhenNeeded`, a View menu and palette toggle) tucks away the principal
+  geometry the model has not hidden once a body stands at the bar (`visibility::has_body`), except
+  while it is needed (`visibility::principal_needed`): New sketch choosing its plane, the sketch
+  Intersect or Project tool, Measure open, an open datum or coordinate system, a slot being chosen in
+  the view that takes a plane, axis or point (`Slot::takes_principal_geometry`, an exhaustive match
+  each new slot must answer), or an open plane or axis list (`feature_fields::principal_combo`,
+  published through egui temp data and read next frame, `visibility::take_listing`). Selected
+  principal geometry shows while selected, and a tree row selects it even when tucked away.
+- Tucking away is view state, never content: `app::perform` ends by working it out
+  (`visibility::tucked_away`, `selected_principal`) into `Model::tuck_principal_away`, and
+  `Model::principal_view` (`PrincipalView`: tucked, kept, selected) reaches the scene and
+  availability through `Context::principal` and the tree directly. Nothing is journaled, undone or
+  marked unsaved.
+- The explicit controls work on what shows (`PrincipalView::shows`). Showing (an eye, the group eye,
+  Hide or show principal planes, Show everything) is the content change it always was for geometry
+  the model hid, and also keeps it shown (`Action::KeepPrincipalShown`, `PrincipalSet` on `Model`,
+  cleared when another model opens), so it no longer tucks away; showing geometry that is only
+  tucked away is that keeping alone, no change to the model. Hiding hides what shows, as content
+  that undo reverses; hidden geometry stays hidden from every selector but New sketch. Hide
+  everything but the selection leaves tucked-away geometry alone. With the preference off nothing
+  tucks away, so the controls behave as before it existed.
 
 ## Datums
 

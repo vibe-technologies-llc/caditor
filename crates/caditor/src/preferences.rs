@@ -1161,6 +1161,24 @@ mod tests {
     }
 
     #[test]
+    fn principal_planes_show_only_when_needed_by_default_and_the_choice_is_stored() {
+        let mut preferences = Preferences::from_settings(Settings::default());
+        let on_at_first = preferences.view_details.principal_when_needed;
+
+        preferences.apply(PreferenceChange::PrincipalWhenNeeded(false));
+        let settings = preferences.settings();
+        let read = Preferences::from_settings(settings.clone());
+        let section_changed = !Section::InTheView.is_default(&read);
+        preferences.apply(PreferenceChange::SectionDefaults(Section::InTheView));
+
+        assert!(on_at_first);
+        assert_eq!(settings.flag(PRINCIPAL_WHEN_NEEDED_KEY), Some(false));
+        assert!(!read.view_details.principal_when_needed);
+        assert!(section_changed);
+        assert!(preferences.view_details.principal_when_needed);
+    }
+
+    #[test]
     fn graphics_preferences_are_stored_beside_the_others_and_restored_by_their_tab() {
         let mut preferences = Preferences::from_settings(Settings::default());
         preferences.apply(PreferenceChange::Vsync(false));

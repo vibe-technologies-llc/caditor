@@ -85,6 +85,7 @@ fn item(
     let document = model.document();
     let view = model.principal_view();
     let shown = view.shows(document, geometry);
+    let choosable = visibility::is_principal_shown(document, geometry);
     let muted = appearance::tokens(ui).text_muted;
     let pickable = visibility::pickable(geometry);
     let toggle = visibility::toggle_principal(document, view, geometry);
@@ -123,7 +124,7 @@ fn item(
     if ui.rect_contains_pointer(row.rect) && shown {
         state.hovered_in_tree = Some(pickable);
     }
-    if (name.clicked() || name.gained_focus()) && shown {
+    if (name.clicked() || name.gained_focus()) && choosable {
         state.selected = None;
         state.chosen_in_tree = Some(pickable);
     }

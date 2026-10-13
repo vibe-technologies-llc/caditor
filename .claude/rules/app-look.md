@@ -663,7 +663,9 @@ paths:
   and the tree chooses and reveals the copies through `Model::pasted` (`PanelState::paste_shown`).
   A panic in the search pastes nothing and says so. A model switch cancels it.
 - Principal group rows: hover highlights in the view, a click or tab selects in the view (clearing
-  the tree's feature selection), and a row reads as selected while its pickable is.
+  the tree's feature selection), and a row reads as selected while its pickable is. Rows and eyes
+  read what the view shows (`PrincipalView::shows`), so geometry tucked away while not needed reads
+  hidden, yet its row still selects it, which shows it (`app-modelling.md`, Visibility).
 - The rollback bar is a row of its own (`feature_tree::rollback_bar`, named "Rollback bar"), at the
   end of the tree when nothing is rolled back. It and every row name drag (`PanelState::dragging`):
   the gap under the pointer shows an accent line, or an error one with a reason when

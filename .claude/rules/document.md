@@ -233,7 +233,9 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   journaled content carried by `InsertFeature`, so undoing a deletion restores them. Recompute
   ignores `hidden` and skips a suppressed feature as if absent.
 - Hidden principal planes, axes and origin (`PrincipalGeometry`, `Edit::SetPrincipalHidden`) are
-  content too, so hiding a mixed selection and undoing it are one change.
+  content too, so hiding a mixed selection and undoing it are one change. The app tucking them away
+  while no plane, axis or point is being chosen is view state outside the document
+  (`app-modelling.md`, Visibility).
 - Content in the `same_content`/`transaction_to`/`heap_size` family, ignored by recompute: a
   feature's `group`, `appearance`, `ModelProperties`, `SavedViews`, `SelectionSets` and
   `Configurations`. Each has one whole-set edit whose inverse holds the previous set.
