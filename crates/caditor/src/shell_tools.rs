@@ -14,12 +14,13 @@ use crate::{
     field,
     last_values::{Remembered, Starts},
     model::{Action, Model, Notice},
-    queued,
+    queued::{self, Rerun},
     selection::{Pickable, Selection},
 };
 
 pub const DEFAULT_THICKNESS: f64 = 1.0;
 pub const TITLE: &str = "Shell";
+const OWN_THICKNESS_TITLE: &str = "Own thickness";
 pub const DESCRIPTION: &str = "Hollow the body out, leaving the selected faces open";
 const NOT_OPENABLE: &str = "Only flat faces and cylinder, cone, sphere or torus faces can be left open, so select those \
      only";
@@ -314,6 +315,10 @@ fn clicked_face(model: &Model, feature: FeatureId, pickable: Pickable) -> Option
 }
 
 pub fn own_thickness_click(model: &Model, feature: FeatureId, pickable: Pickable) -> Vec<Action> {
+    if bodies::input(model.evaluation(), feature).is_none() {
+        let rerun = Rerun::OwnThickness { feature, pickable };
+        return vec![queued::refused_rerun(rerun, OWN_THICKNESS_TITLE, NO_SHAPE)];
+    }
     let toggled = clicked_face(model, feature, pickable)
         .ok_or_else(|| NOT_A_FACE.to_owned())
         .and_then(|face| own_thickness_toggled(model, feature, face));

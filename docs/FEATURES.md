@@ -245,9 +245,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   would go through `Action`s and `Transaction`s like the UI, so scripts cannot break the model's
   rules, and would need a decision on the language and on safety (a script cannot reach files
   or the network unasked).
-- [low · medium] A queued action (`queued.rs`) is queued only from keys, menus and the palette: a
-  ribbon button stays disabled while the model recomputes, and a shell's own-thickness click in the
-  view is refused with a notice, since that click cannot be rerun as a command.
 - [low · hard] One document per process.
 - [low · hard] No localisation.
 

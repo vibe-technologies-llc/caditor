@@ -45,9 +45,10 @@ adds a [constraint](constraints), such as {command:constraint.horizontal}.
 - With a drawing tool active, type a number, or `=` before a parameter's name, to place a point
   exactly, or use {command:sketch.type_value}; see [sketches](sketches).
 - A command that needs a shape the model is still recomputing, or a constraint run while the last
-  one is being checked, waits instead of being refused: the status bar shows what waits with
-  Cancel, and it runs once the model is ready. Escape drops it, as does running another command
-  that waits or any change to the model.
+  one is being checked, waits instead of being refused, whether it came from a key, the palette, a
+  menu or its ribbon button, as does a click giving a face of a shell its own thickness: the status
+  bar shows what waits with Cancel, and it runs once the model is ready. Escape drops it, as does
+  running another command that waits or any change to the model.
 
 ## In panels and dialogs
 

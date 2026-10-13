@@ -71,7 +71,7 @@ use crate::{
         PreferencesView, Restored, TitleBar,
     },
     queued::{self, Rerun},
-    reference_picking,
+    reference_picking::{self, Slot},
     repeating::{Repeat, Repetition},
     saved_views::{self, ViewsDraft},
     scale_model::{self, ScaleDraft},
@@ -80,6 +80,7 @@ use crate::{
     section_panel::{self, SectionContext},
     selection::{Selection, SelectionFilter},
     selection_sets::{self, SetsDraft},
+    shell_tools,
     shortcut_editor::{self, ShortcutEditor},
     sketch_toolbar, sketch_tools,
     startup_check::StartupCheck,
@@ -1440,6 +1441,16 @@ fn run_due(model: &mut Model, workspace: &mut Workspace) -> bool {
         Rerun::Command(command) => workspace.deferred_commands.push(command),
         Rerun::Editing(command) => workspace.editing.perform(command, model),
         Rerun::Typed(entered) => workspace.viewport.resubmit_typed(entered),
+        Rerun::OwnThickness { feature, pickable } => {
+            let picking = workspace.editing.picking();
+            if picking.is_some_and(|picking| {
+                picking.feature == feature && picking.slot == Slot::ShellOwnThickness
+            }) {
+                for action in shell_tools::own_thickness_click(model, feature, pickable) {
+                    model.perform(action);
+                }
+            }
+        }
     }
     true
 }

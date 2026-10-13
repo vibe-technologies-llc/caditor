@@ -20,7 +20,7 @@ use crate::{
     offers::Offers,
     offset_face_tools,
     pattern_tools::{self, Shape},
-    primitive_tools, ribbon, scale_tools,
+    primitive_tools, queued, ribbon, scale_tools,
     section::SectionCommand,
     selection::Selection,
     shell_tools,
@@ -43,6 +43,7 @@ const NO_SKETCH_TO_SWEEP: &str =
 const MEASURE_HOVER: &str =
     "Measure the selection: distances, angles, lengths, areas and the mass properties of bodies";
 const INTERFERENCE_HOVER: &str = "Find where bodies overlap or touch, with the volume they share";
+const CLICK_AFTER_FIXING: &str = ", then click here.";
 const RIBBON: &str = "main-ribbon";
 const COMPACT_RIBBON: &str = "main-ribbon-compact";
 const COMPACT_KEY: &str = "main-ribbon-is-compact";
@@ -416,9 +417,31 @@ fn interference_button(ui: &mut Ui, checking: bool, commands: &mut CommandFrame<
     }
 }
 
-fn tool(ui: &mut Ui, command: Command, label: &str, help: &Result<String, String>) -> Response {
+fn tool(
+    ui: &mut Ui,
+    commands: &mut CommandFrame<'_>,
+    command: Command,
+    label: &str,
+    help: &Result<String, String>,
+) -> Response {
     let button = tool_button(ui, icons::command(command), label);
-    ribbon::explained(ui.add_enabled(help.is_ok(), button), label, help)
+    match help {
+        Err(blocked) if commands.awaits(command) => {
+            let response = ribbon::explained(ui.add(button), label, &Ok(queued_help(blocked)));
+            if response.clicked() {
+                commands.queue(command);
+            }
+            response
+        }
+        _ => ribbon::explained(ui.add_enabled(help.is_ok(), button), label, help),
+    }
+}
+
+fn queued_help(blocked: &str) -> String {
+    let stem = blocked
+        .strip_suffix(CLICK_AFTER_FIXING)
+        .unwrap_or_else(|| blocked.trim_end_matches('.'));
+    format!("{stem}. {}", queued::QUEUE_ON_CLICK)
 }
 
 fn sketch_buttons(
@@ -468,7 +491,7 @@ fn sketch_buttons(
         Err(reason) => Err(reason.to_owned()),
     };
     let invoked = commands.invoke(Command::NewSketch, &target);
-    let response = tool(ui, Command::NewSketch, NEW_SKETCH_LABEL, &help);
+    let response = tool(ui, commands, Command::NewSketch, NEW_SKETCH_LABEL, &help);
     if (response.clicked() || invoked) && target.is_ok() {
         actions.push(Action::Editing(command));
     }
@@ -564,7 +587,7 @@ fn solid_buttons(
             }
             (None, Ok(None)) => Err(missing.to_owned()),
         };
-        let response = tool(ui, command, sweep.label(), &help);
+        let response = tool(ui, commands, command, sweep.label(), &help);
         if !(response.clicked() || invoked) {
             continue;
         }
@@ -599,7 +622,7 @@ fn hole_button(
             hole_tools::DESCRIPTION
         )),
     };
-    let response = tool(ui, Command::Hole, hole_tools::TITLE, &help);
+    let response = tool(ui, commands, Command::Hole, hole_tools::TITLE, &help);
     if (response.clicked() || invoked)
         && let Ok(source) = source
     {
@@ -653,7 +676,7 @@ fn blend_buttons(
                 blend_panel::describe_kind(kind)
             )),
         };
-        let response = tool(ui, command, kind.title(), &help);
+        let response = tool(ui, commands, command, kind.title(), &help);
         if (response.clicked() || invoked)
             && let Ok(source) = source
         {
@@ -688,7 +711,7 @@ fn datum_buttons(
         )),
         Err(reason) => Err(format!("{reason}.")),
     };
-    let response = tool(ui, Command::DatumPlane, PLANE_LABEL, &help);
+    let response = tool(ui, commands, Command::DatumPlane, PLANE_LABEL, &help);
     if (response.clicked() || invoked)
         && let Ok(plane) = plane
     {
@@ -705,7 +728,7 @@ fn datum_buttons(
         )),
         Err(reason) => Err(format!("Add an axis. {reason}, then click here.")),
     };
-    let response = tool(ui, Command::DatumAxis, AXIS_LABEL, &help);
+    let response = tool(ui, commands, Command::DatumAxis, AXIS_LABEL, &help);
     if (response.clicked() || invoked)
         && let Ok(axis) = axis
     {
@@ -724,7 +747,7 @@ fn datum_buttons(
         )),
         Err(reason) => Err(format!("Add a point. {reason}, then click here.")),
     };
-    let response = tool(ui, Command::DatumPoint, POINT_LABEL, &help);
+    let response = tool(ui, commands, Command::DatumPoint, POINT_LABEL, &help);
     if (response.clicked() || invoked)
         && let Ok(point) = point
     {
@@ -769,7 +792,7 @@ fn shell_button(
             shell_tools::DESCRIPTION
         )),
     };
-    let response = tool(ui, Command::Shell, shell_tools::TITLE, &help);
+    let response = tool(ui, commands, Command::Shell, shell_tools::TITLE, &help);
     if (response.clicked() || invoked)
         && let Ok(source) = source
     {
@@ -795,7 +818,7 @@ fn sweep_button(
         Ok(_) => Ok(commands.with_keys(Command::Sweep, SWEEP_HOVER)),
         Err(reason) => Err(format!("{SWEEP_HOVER}. {reason}, then click here.")),
     };
-    let response = tool(ui, Command::Sweep, sweep_tools::TITLE, &help);
+    let response = tool(ui, commands, Command::Sweep, sweep_tools::TITLE, &help);
     if (response.clicked() || invoked)
         && let Ok(source) = source
     {
@@ -872,7 +895,7 @@ fn move_button(
             move_tools::DESCRIPTION
         )),
     };
-    let response = tool(ui, Command::Move, move_tools::TITLE, &help);
+    let response = tool(ui, commands, Command::Move, move_tools::TITLE, &help);
     if (response.clicked() || invoked)
         && let Ok(body) = body
     {
@@ -906,7 +929,7 @@ fn mirror_button(
             mirror_tools::DESCRIPTION
         )),
     };
-    let response = tool(ui, Command::Mirror, mirror_tools::TITLE, &help);
+    let response = tool(ui, commands, Command::Mirror, mirror_tools::TITLE, &help);
     if (response.clicked() || invoked)
         && let Ok(source) = source
     {
@@ -958,7 +981,7 @@ fn scale_button(
             scale_tools::DESCRIPTION
         )),
     };
-    let response = tool(ui, Command::Scale, scale_tools::TITLE, &help);
+    let response = tool(ui, commands, Command::Scale, scale_tools::TITLE, &help);
     if (response.clicked() || invoked)
         && let Ok(body) = body
     {
@@ -982,7 +1005,7 @@ fn combine_button(
             combine_tools::DESCRIPTION
         )),
     };
-    let response = tool(ui, Command::Combine, combine_tools::TITLE, &help);
+    let response = tool(ui, commands, Command::Combine, combine_tools::TITLE, &help);
     if (response.clicked() || invoked)
         && let Ok(pair) = pair
     {
@@ -1035,7 +1058,7 @@ fn pattern_buttons(
                 shape.description()
             )),
         };
-        let response = tool(ui, command, shape.title(), &help);
+        let response = tool(ui, commands, command, shape.title(), &help);
         if (response.clicked() || invoked)
             && let Ok(source) = source
         {
@@ -1081,7 +1104,7 @@ fn history_buttons(
             Some(label) => Ok(commands.with_keys(command, &format!("{verb} {label}"))),
             None => Err(idle.to_owned()),
         };
-        let response = tool(ui, command, &verb, &help);
+        let response = tool(ui, commands, command, &verb, &help);
         if response.clicked() || invoked {
             actions.push(action);
         }

@@ -9,8 +9,8 @@ use caditor_geometry::Vector3;
 use egui::{Event, Key, KeyboardShortcut, Modifiers};
 
 use crate::{
-    analysis::AnalysisCommand, display_style::DisplayStyle, editing::Tool, samples::Sample,
-    section::SectionCommand, selection::SelectionFilter, shape_modes::ShapeMode,
+    analysis::AnalysisCommand, display_style::DisplayStyle, editing::Tool, queued::Awaited,
+    samples::Sample, section::SectionCommand, selection::SelectionFilter, shape_modes::ShapeMode,
     sketch_tools::ConstraintTool, variants::all_variants,
 };
 
@@ -2646,6 +2646,25 @@ impl<'a> CommandFrame<'a> {
             detail,
         });
         triggered && ready
+    }
+
+    pub fn awaits(&self, command: Command) -> bool {
+        self.awaited_reason(command).is_some()
+    }
+
+    pub fn queue(&mut self, command: Command) {
+        if let Some(reason) = self.awaited_reason(command).map(str::to_owned) {
+            self.refused.push((command, reason));
+        }
+    }
+
+    fn awaited_reason(&self, command: Command) -> Option<&str> {
+        self.offers
+            .iter()
+            .find(|offer| offer.command == command)
+            .and_then(|offer| offer.availability.as_ref().err())
+            .map(AsRef::as_ref)
+            .filter(|reason| Awaited::of(reason).is_some())
     }
 
     pub fn available(&mut self, command: Command) -> bool {

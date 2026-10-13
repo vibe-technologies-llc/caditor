@@ -20,7 +20,8 @@ the walls end flush with them.
 
 **Own thickness** gives chosen faces a wall of their own thickness, such as a thicker floor. Press
 **Choose faces** and click faces in the view: each click gives a face its own thickness, starting
-at the shell's, or gives it the shell's thickness again; press Escape when done. Each face then
+at the shell's, or gives it the shell's thickness again (a click made while the model is still
+recomputing waits and applies once it is ready); press Escape when done. Each face then
 has its own field, which takes units, expressions and parameters like the thickness, and a button
 to remove it. An opened face has no wall, so it cannot take a thickness of its own.
 

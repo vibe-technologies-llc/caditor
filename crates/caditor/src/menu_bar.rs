@@ -17,6 +17,7 @@ use crate::{
     icons, logo,
     model::{Action, Model},
     preferences::PreferencesCommand,
+    queued::{Awaited, QUEUE_ON_CLICK},
     ribbon,
     section::SectionCommand,
     selection::SelectionFilter,
@@ -504,7 +505,7 @@ impl<'a> MenuEntries<'a> {
         hint: Option<&str>,
     ) {
         let keys = self.keys(command);
-        let response = ui.add_enabled_ui(availability.is_ok(), |ui| {
+        let response = ui.add_enabled_ui(clickable(&availability), |ui| {
             widgets::menu_item(ui, icons::command(command), title, keys)
         });
         self.respond(command, response.inner, &availability, hint);
@@ -513,7 +514,7 @@ impl<'a> MenuEntries<'a> {
     pub fn choice_with(&mut self, ui: &mut Ui, command: Command, chosen: bool, hint: &str) {
         let availability = self.availability(command);
         let keys = self.keys(command);
-        let response = ui.add_enabled_ui(availability.is_ok(), |ui| {
+        let response = ui.add_enabled_ui(clickable(&availability), |ui| {
             widgets::menu_choice(ui, icons::command(command), &command.title(), keys, chosen)
         });
         self.respond(command, response.inner, &availability, Some(hint));
@@ -533,7 +534,7 @@ impl<'a> MenuEntries<'a> {
     pub fn marked(&mut self, ui: &mut Ui, command: Command, chosen: bool) {
         let availability = self.availability(command);
         let keys = self.keys(command);
-        let response = ui.add_enabled_ui(availability.is_ok(), |ui| {
+        let response = ui.add_enabled_ui(clickable(&availability), |ui| {
             widgets::menu_choice(ui, icons::command(command), &command.title(), keys, chosen)
         });
         self.respond(command, response.inner, &availability, None);
@@ -563,6 +564,9 @@ impl<'a> MenuEntries<'a> {
             self.focus_first = false;
         }
         let response = match (availability, hint) {
+            (Err(reason), _) if Awaited::of(reason).is_some() => {
+                response.on_hover_text(format!("{reason}. {QUEUE_ON_CLICK}"))
+            }
             (Err(reason), _) => response.on_disabled_hover_text(reason.as_ref()),
             (Ok(()), Some(hint)) => response.on_hover_text(hint),
             (Ok(()), None) => response,
@@ -581,6 +585,13 @@ struct Menus<'a> {
     sets: &'a SelectionSets,
     picked_sets: Vec<usize>,
     entries: MenuEntries<'a>,
+}
+
+fn clickable(availability: &Result<(), Cow<'static, str>>) -> bool {
+    match availability {
+        Ok(()) => true,
+        Err(reason) => Awaited::of(reason).is_some(),
+    }
 }
 
 impl Menus<'_> {
