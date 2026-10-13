@@ -1,2 +1,3 @@
 fuzz/seeds/** -text
 crates/caditor-file/corpus/** -text
+crates/caditor-file/pictures/** -text

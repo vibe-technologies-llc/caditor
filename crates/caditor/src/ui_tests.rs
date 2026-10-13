@@ -122,6 +122,7 @@ mod queued_actions;
 mod queued_clicks;
 mod reach_through;
 mod recovery;
+mod reference_images;
 mod region_references;
 mod remembered_starts;
 mod repeating_and_growing;
@@ -320,6 +321,10 @@ impl Dialogs for ScriptedDialogs {
     }
 
     fn pick_configurations(&self, directory: Option<PathBuf>, respond: Respond) {
+        self.respond(directory, respond);
+    }
+
+    fn pick_picture(&self, directory: Option<PathBuf>, respond: Respond) {
         self.respond(directory, respond);
     }
 }
@@ -687,6 +692,7 @@ impl Harness {
         matches!(self.model.status(), RecomputeStatus::Running { .. })
             || self.model.bodies_pending()
             || self.model.masses_pending()
+            || self.model.pictures().pending()
     }
 
     fn wait_until(&mut self, what: &str, done: impl Fn(&Self) -> bool) {

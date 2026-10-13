@@ -16,6 +16,7 @@ use crate::{
     gpu::{self, DeviceLoss, GrowableBuffer, Records},
     image::{self, Background, Image, ImageGpu, ImageRequest},
     mesh::{FaceStyle, MeshFace, MeshInstance, MeshPoint, ShadedMesh},
+    pictures::{PictureTexture, ScenePicture},
     runs::{PolylineRun, PolylineSource, RunPolyline},
     scene::{
         Batch, Color, CutFace, Fill, Grid, Layer, Line, Marker, PickId, PickResult, Reflection,
@@ -120,6 +121,7 @@ fn scene() -> Scene {
         reflection: Reflection::default(),
         section: Vec::new(),
         grid: None,
+        pictures: Vec::new(),
         batches: vec![Arc::new(Batch {
             lines: vec![Line {
                 start: Point3::new(-20.0, 0.0, 0.0),
@@ -1115,6 +1117,7 @@ fn the_front_layer_draws_and_picks_over_faces_in_front_of_it() {
         reflection: Reflection::default(),
         section: Vec::new(),
         grid: None,
+        pictures: Vec::new(),
         batches: vec![Arc::new(Batch {
             lines: vec![Line {
                 start: Point3::new(-50.0, 0.0, 0.0),
@@ -5021,6 +5024,90 @@ fn a_metal_finish_shades_its_faces_as_metal_while_faces_without_one_shade_as_bef
         assert_eq!(plain_pick.hits[0].id, metal_pick.hits[0].id);
         assert_eq!(metal_pick.hits[0].id, PickId::from_index(14).unwrap());
     }
+}
+
+fn blue_picture(z: f64, in_front: bool, pick: Option<PickId>) -> ScenePicture {
+    let texture = PictureTexture::new(2, 2, [[20, 40, 230, 255]; 4].concat()).unwrap();
+    ScenePicture {
+        texture: Arc::new(texture),
+        corners: [
+            Point3::new(-30.0, -30.0, z),
+            Point3::new(30.0, -30.0, z),
+            Point3::new(30.0, 30.0, z),
+            Point3::new(-30.0, 30.0, z),
+        ],
+        alpha: 1.0,
+        in_front,
+        pick,
+    }
+}
+
+fn is_blue([red, green, blue, _]: [u8; 4]) -> bool {
+    blue > 150 && red < 100 && green < 100
+}
+
+#[test]
+fn a_picture_draws_behind_bodies_or_over_them_and_picks_only_where_nothing_covers_it() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let box_scene = |picture: ScenePicture| Scene {
+        meshes: vec![MeshInstance {
+            mesh: Arc::new(box_mesh(10.0)),
+            faces: vec![
+                FaceStyle {
+                    color: Color::from_rgb8(40, 200, 40),
+                    pick: PickId::from_index(7),
+                    finish: None,
+                };
+                6
+            ]
+            .into(),
+            placement: None,
+        }],
+        batches: vec![Arc::new(Batch {
+            lines: vec![Line {
+                start: Point3::new(-25.0, 20.0, 0.0),
+                end: Point3::new(25.0, 20.0, 0.0),
+                color: LINE_COLOR,
+                width: 3.0,
+                layer: Layer::Model,
+                pick: PickId::from_index(1),
+                stroke: Stroke::Solid,
+            }],
+            ..Batch::default()
+        })],
+        pictures: vec![picture],
+        ..Scene::default()
+    };
+    let viewpoint = Viewpoint::looking_from(Vector3::Z, Point3::ZERO, 150.0).unwrap();
+    let view = View::new(viewpoint, f64::from(SIZE), f64::from(SIZE));
+    let on_the_box = view.project(Point3::new(0.0, 0.0, 10.0)).unwrap();
+    let beside_the_box = view.project(Point3::new(20.0, -20.0, 0.0)).unwrap();
+    let on_the_line = view.project(Point3::new(-20.0, 20.0, 0.0)).unwrap();
+    let picture_id = PickId::from_index(3);
+
+    let behind = box_scene(blue_picture(0.0, false, picture_id));
+    let rendered = render(&device, &queue, &view, &behind, beside_the_box);
+    assert!(is_blue(pixel(&rendered, beside_the_box)));
+    assert!(!is_blue(pixel(&rendered, on_the_box)));
+    assert!(is_line_red(pixel(&rendered, on_the_line)));
+    assert_eq!(rendered.pick.hits[0].id, picture_id.unwrap());
+    let rendered = render(&device, &queue, &view, &behind, on_the_box);
+    assert_eq!(rendered.pick.hits[0].id, PickId::from_index(7).unwrap());
+
+    let over = box_scene(blue_picture(0.0, true, None));
+    let rendered = render(&device, &queue, &view, &over, on_the_box);
+    assert!(is_blue(pixel(&rendered, on_the_box)));
+    assert!(is_line_red(pixel(&rendered, on_the_line)));
+    let rendered = render(&device, &queue, &view, &over, beside_the_box);
+    assert!(
+        rendered
+            .pick
+            .hits
+            .iter()
+            .all(|hit| hit.id != PickId::from_index(3).unwrap())
+    );
 }
 
 struct Outline(Vec<Point3>);

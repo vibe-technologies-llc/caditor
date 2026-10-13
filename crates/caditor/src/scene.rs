@@ -5,17 +5,17 @@ use std::{
 };
 
 use caditor_document::{
-    BodyAppearance, Datum, DatumResult, Document, Evaluation, Feature, FeatureId, FeatureResult,
-    FeatureState, PrincipalAxis, PrincipalGeometry, RegionChoice, RevolveAxis, SketchRegion,
-    SketchResult, SolidFeature, SolidResult, body_parts, datum_outline, displayed_axis,
-    displayed_frame, placed_threads,
+    BodyAppearance, Datum, DatumResult, Document, Evaluation, Feature, FeatureId, FeatureKind,
+    FeatureResult, FeatureState, PrincipalAxis, PrincipalGeometry, ReferenceImage, RegionChoice,
+    RevolveAxis, SketchRegion, SketchResult, SolidFeature, SolidResult, body_parts, datum_outline,
+    displayed_axis, displayed_frame, placed_threads,
 };
 use caditor_geometry::{Aabb, Plane, Point2, Point3, Ray, RigidTransform};
 use caditor_kernel::{EdgeName, RegionKey, RegionMesh, RegionReference, resolve_regions};
 use caditor_render::{
     Batch, Color, FaceStyle, Fill, Grid, Layer, Line, Marker, MeshInstance, PickHit, PickId,
-    PickResult, PolylineRun, Reflection, RunPolyline, Scene, ShadedMesh, Silhouette, Stroke,
-    StrokeKind, SurfaceFinish,
+    PickResult, PictureTexture, PolylineRun, Reflection, RunPolyline, Scene, ScenePicture,
+    ShadedMesh, Silhouette, Stroke, StrokeKind, SurfaceFinish,
 };
 use caditor_sketch::{
     Constraint, ConstraintId, Entity, EntityId, EntityState, Faceting, Reference, Sketch,
@@ -32,6 +32,8 @@ use crate::{
     display_style::DisplayStyle,
     drawing::Preview,
     editing::Context,
+    image_textures::ImageTextures,
+    image_tools,
     interference_panel::{Mark, MarkKind},
     scene_palette::{Canvas, Contrast, Highlights, PointFill, ScenePalette, SketchState},
     selection::{self, Axis, Pickable, PrincipalPlane, Selection, SelectionFilter},
@@ -364,6 +366,7 @@ pub struct Sources<'a> {
     pub contrast: Contrast,
     pub canvas: Canvas,
     pub draft: Option<&'a Evaluation>,
+    pub pictures: Option<&'a ImageTextures>,
 }
 
 impl BuiltScene {
@@ -952,6 +955,7 @@ pub fn build_keeping(
         contrast,
         canvas,
         draft,
+        pictures,
     } = *sources;
     let palette = contrast.palette(canvas);
     let editing = context.sketch;
@@ -981,6 +985,7 @@ pub fn build_keeping(
         analysis: aids.analysis.map(|analysis| (analyses, analysis)),
         reflection: aids.reflection,
         control_polygons: !aids.control_polygons_hidden,
+        pictures: Vec::new(),
         edges: aids.edges,
     };
 
@@ -1037,6 +1042,22 @@ pub fn build_keeping(
                 }
             }
         }
+    }
+    for feature in document.active_features() {
+        let FeatureKind::ReferenceImage(image) = &feature.kind else {
+            continue;
+        };
+        let opened = context.solid == Some(feature.id());
+        if !opened && feature.hidden {
+            continue;
+        }
+        let shown = match drafted(draft, feature.id()) {
+            Some(drafted) if opened => drafted,
+            Some(_) | None => evaluation,
+        };
+        let pickable = !image.locked && editing.is_none();
+        let texture = pictures.and_then(|pictures| pictures.texture(image.picture.digest()));
+        builder.reference_image(shown, (feature.id(), image), (opened, pickable), texture);
     }
     let lit_parts = LitParts::of(highlight);
     parts.restart_when_exhausted();
@@ -1265,6 +1286,7 @@ pub fn build_keeping(
                 plane: grid_plane,
                 color: palette.grid,
             }),
+            pictures: builder.pictures,
         },
         picks: Arc::new(PickTable::of(
             builder.picks,
@@ -1471,6 +1493,7 @@ struct Builder<'a> {
     analysis: Option<(&'a Analyses, FaceAnalysis)>,
     reflection: Option<Reflection>,
     control_polygons: bool,
+    pictures: Vec<ScenePicture>,
     edges: EdgeLook,
 }
 
@@ -1500,6 +1523,7 @@ impl<'a> Builder<'a> {
             analysis: self.analysis,
             reflection: self.reflection,
             control_polygons: self.control_polygons,
+            pictures: Vec::new(),
             edges: self.edges,
         }
     }
@@ -1628,6 +1652,56 @@ impl<'a> Builder<'a> {
             Layer::Reference,
             pick,
         ));
+    }
+
+    fn reference_image(
+        &mut self,
+        evaluation: &Evaluation,
+        (feature, image): (FeatureId, &ReferenceImage),
+        (opened, pickable): (bool, bool),
+        texture: Option<&Arc<PictureTexture>>,
+    ) {
+        let Some(placed) = image_tools::placed(evaluation, feature) else {
+            return;
+        };
+        let item = Pickable::Datum(feature);
+        let pick = pickable
+            .then(|| self.picks.register(item, PickPriority::Surface))
+            .flatten();
+        let corners = placed.corners();
+        let lit = self.emphasis(item) > 0.0;
+        if opened || lit || texture.is_none() {
+            let color = self
+                .highlight
+                .color(&self.palette.lines, item, self.palette.datum_edge);
+            let extra = if opened {
+                OPENED_DATUM_EXTRA_WIDTH
+            } else {
+                0.0
+            };
+            let width = PLANE_EDGE_WIDTH + extra + self.emphasis(item) * HIGHLIGHT_EXTRA_WIDTH;
+            let next = corners.iter().cycle().skip(1);
+            for (start, end) in corners.iter().zip(next) {
+                self.scene.lines.push(Line {
+                    start: *start,
+                    end: *end,
+                    color,
+                    width,
+                    layer: Layer::Reference,
+                    pick,
+                    stroke: Stroke::Solid,
+                });
+            }
+        }
+        if let Some(texture) = texture {
+            self.pictures.push(ScenePicture {
+                texture: Arc::clone(texture),
+                corners,
+                alpha: image.alpha(),
+                in_front: image.in_front,
+                pick,
+            });
+        }
     }
 
     fn datum(&mut self, evaluation: &Evaluation, feature: FeatureId, opened: bool, size: f64) {
@@ -3414,11 +3488,16 @@ fn model_bounds(sources: &Sources<'_>) -> Option<Aabb> {
         .filter(|(body, _)| shown.contains(body))
         .filter_map(|(_, mesh)| mesh.bounds())
         .reduce(Aabb::union);
-    match (sketches, shown_bodies) {
-        (Some(sketches), Some(bodies)) => Some(sketches.union(bodies)),
-        (Some(bounds), None) | (None, Some(bounds)) => Some(bounds),
-        (None, None) => None,
-    }
+    let images = document
+        .active_features()
+        .filter(|feature| !feature.hidden && matches!(feature.kind, FeatureKind::ReferenceImage(_)))
+        .filter_map(|feature| image_tools::placed(evaluation, feature.id()))
+        .filter_map(|placed| Aabb::from_points(placed.corners()))
+        .reduce(Aabb::union);
+    [sketches, shown_bodies, images]
+        .into_iter()
+        .flatten()
+        .reduce(Aabb::union)
 }
 
 fn reference_size(model: Option<Aabb>) -> f64 {
@@ -3457,7 +3536,9 @@ fn datum_points(evaluation: &Evaluation, feature: FeatureId, size: f64) -> Vec<P
                 )
                 .collect()
         }
-        None => Vec::new(),
+        None => image_tools::placed(evaluation, feature)
+            .map(|placed| placed.corners().to_vec())
+            .unwrap_or_default(),
     }
 }
 
@@ -3534,6 +3615,7 @@ mod tests {
                 contrast,
                 canvas: Canvas::default(),
                 draft: None,
+                pictures: None,
             },
             highlight,
             Context {
@@ -3563,6 +3645,7 @@ mod tests {
                     contrast: Contrast::default(),
                     canvas: Canvas::default(),
                     draft: None,
+                    pictures: None,
                 },
                 pickables,
             )
@@ -4247,6 +4330,7 @@ mod tests {
                 contrast: Contrast::default(),
                 canvas: Canvas::default(),
                 draft: None,
+                pictures: None,
             };
             let context = Context {
                 sketch: Some(feature),
@@ -4287,6 +4371,7 @@ mod tests {
             contrast: Contrast::default(),
             canvas: Canvas::default(),
             draft: None,
+            pictures: None,
         };
         let built_at = |chord: f64| {
             build(
@@ -4335,6 +4420,7 @@ mod tests {
             contrast: Contrast::default(),
             canvas: Canvas::default(),
             draft: None,
+            pictures: None,
         };
         let wanted = Faceting::within(1e-9);
 

@@ -19,6 +19,7 @@ use crate::{
     paste_picks,
     pattern::PatternKind,
     projection::ProjectionSource,
+    reference_image::ImagePlane,
     solid::{BodyOperation, ExtrudeEnd, RevolveAxis, RevolveExtent, SolidFeature, SolidStart},
     split::SplitAlong,
     values::ParameterValues,
@@ -584,6 +585,10 @@ impl FeatureKind {
                 primitive.operation = renamed_operation(primitive.operation, rename);
                 rename_plane(&mut primitive.plane, rename);
             }
+            Self::ReferenceImage(image) => match &mut image.plane {
+                ImagePlane::Reference(plane) => rename_plane(plane, rename),
+                ImagePlane::Sketch(sketch) => *sketch = rename(*sketch),
+            },
             Self::Pipe(pipe) => {
                 pipe.operation = renamed_operation(pipe.operation, rename);
                 pipe.path = pipe.path.with_features_renamed(&rename);

@@ -69,6 +69,7 @@ pub enum Page {
     Patterns,
     Datums,
     CoordinateSystems,
+    ReferenceImages,
     Bodies,
     ImportedBodies,
     Measure,
@@ -146,6 +147,7 @@ all_variants!(
     Patterns,
     Datums,
     CoordinateSystems,
+    ReferenceImages,
     Bodies,
     ImportedBodies,
     Measure,
@@ -269,6 +271,7 @@ impl Page {
             Self::Patterns => "patterns",
             Self::Datums => "datums",
             Self::CoordinateSystems => "coordinate-systems",
+            Self::ReferenceImages => "reference-images",
             Self::Bodies => "bodies",
             Self::ImportedBodies => "imported-bodies",
             Self::Measure => "measure",
@@ -352,6 +355,7 @@ impl Page {
             Self::Patterns => include_str!("../guide/patterns.md"),
             Self::Datums => include_str!("../guide/datums.md"),
             Self::CoordinateSystems => include_str!("../guide/coordinate-systems.md"),
+            Self::ReferenceImages => include_str!("../guide/reference-images.md"),
             Self::Bodies => include_str!("../guide/bodies.md"),
             Self::ImportedBodies => include_str!("../guide/imported-bodies.md"),
             Self::Measure => include_str!("../guide/measure.md"),
@@ -429,6 +433,7 @@ impl Page {
             | Self::Patterns
             | Self::Datums
             | Self::CoordinateSystems
+            | Self::ReferenceImages
             | Self::Bodies
             | Self::ImportedBodies => Chapter::Modelling,
             Self::Measure
@@ -506,6 +511,7 @@ impl Page {
             FeatureKind::Remove(_) => Self::Bodies,
             FeatureKind::Thread(_) => Self::Thread,
             FeatureKind::Measurement(_) => Self::Measure,
+            FeatureKind::ReferenceImage(_) => Self::ReferenceImages,
         }
     }
 

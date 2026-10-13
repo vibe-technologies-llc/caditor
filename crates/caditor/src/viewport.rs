@@ -42,7 +42,7 @@ use crate::{
     feature_tree,
     gearing::GearSettings,
     handle_snap::{self, Guide, Snap},
-    hole_placement, hole_tools,
+    hole_placement, hole_tools, image_tools,
     interference_panel::{Mark, MarkKind},
     isocurves::IsocurveDrawing,
     look_at::{self, LookTarget},
@@ -1441,6 +1441,7 @@ impl ViewportState {
                 contrast: self.contrast,
                 canvas: self.canvas,
                 draft: model.draft_generation(),
+                pictures: model.pictures().generation(),
             },
             context,
             highlight: Highlight {
@@ -1616,6 +1617,7 @@ impl ViewportState {
             contrast: Contrast::Standard,
             canvas: self.canvas,
             draft: None,
+            pictures: Some(model.pictures()),
         };
         let context = editing.context();
         let view = self
@@ -5946,6 +5948,9 @@ fn feature_prompt(kind: Option<&FeatureKind>) -> (&'static str, Clicks) {
         Some(FeatureKind::Thread(_)) => {
             in_panel("Choose the face to thread, its size and its length in the panel")
         }
+        Some(FeatureKind::ReferenceImage(_)) => {
+            in_panel("Choose where the picture lies, its size and how it shows in the panel")
+        }
         Some(
             FeatureKind::Sketch(_)
             | FeatureKind::Import(_)
@@ -6119,6 +6124,7 @@ fn scene_sources<'a>(
         contrast: parts.contrast,
         canvas: parts.canvas,
         draft: solid.and_then(|feature| model.draft_evaluation_of(feature)),
+        pictures: Some(model.pictures()),
     }
 }
 
@@ -6191,6 +6197,25 @@ fn pick_action(
     editing: &SketchEditing,
     whole: bool,
 ) -> Option<Vec<Action>> {
+    if let Some(picking) = editing.picking()
+        && picking.slot == Slot::ImageCalibration
+    {
+        return Some(image_tools::calibration_click(
+            model,
+            editing,
+            picking.feature,
+            ray,
+        ));
+    }
+    if let Some(picking) = editing.picking()
+        && picking.slot == Slot::ImagePlace
+    {
+        return Some(
+            pickable
+                .map(|pickable| image_tools::place_click(model, picking.feature, pickable, ray))
+                .unwrap_or_default(),
+        );
+    }
     if let Some(picking) = editing.picking()
         && picking.slot == Slot::PrimitivePlace
     {

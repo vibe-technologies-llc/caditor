@@ -19,8 +19,9 @@ paths:
   crates.
 - A crate's texts are the files at the top of its package whose names start with LICENSE, LICENCE,
   COPYING, UNLICENSE, NOTICE or COPYRIGHT. A crate with none gets the standard text of each of MIT,
-  Apache-2.0 and BSL-1.0 its manifest's licence expression names (`licenses/`), MIT with its
-  authors, addresses removed, as the copyright holders; one naming none of the three fails the
+  Apache-2.0, BSL-1.0 and BSD-3-Clause its manifest's licence expression names (`licenses/`), MIT
+  and BSD-3-Clause with its authors, addresses removed, as the copyright holders (`alloc-stdlib`,
+  under `jxl-oxide`'s Brotli decoder, ships no file); one naming none of the three fails the
   build with `NoLicenseText` and gets its text added to `licenses/`, never a silent omission. The
   Rust standard library, which is linked in as well, is listed the same way.
 - The fonts are a table in `components.rs` of the licence files they ship with: Inter and Phosphor

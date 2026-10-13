@@ -14,6 +14,7 @@ use crate::{
     lines::{LINE_POINT_SLOTS, LINE_POINT_STRIDE, LineStrips, line_instances},
     mesh::{MESH_VERTEX_STRIDE, MeshCache, MeshPool, StyleLayout, UploadBudget, pack_color},
     picking::{self, PickPrepared, PickTargets, PickWindow, Picking},
+    pictures::PictureCache,
     scene::{
         Batch, Color, CutFace, Fill, Grid, Layer, Line, MAX_SECTION_PLANES, Marker, PickId,
         Reflection, Scene, SectionPlane, ViewportRect, section_slack,
@@ -241,6 +242,8 @@ struct Pipelines {
     fills: wgpu::RenderPipeline,
     reference_fills: wgpu::RenderPipeline,
     grid: wgpu::RenderPipeline,
+    pictures_behind: wgpu::RenderPipeline,
+    pictures_in_front: wgpu::RenderPipeline,
     pick: PickPipelines,
 }
 
@@ -253,6 +256,7 @@ struct PickPipelines {
     meshes: wgpu::RenderPipeline,
     sectioned_meshes: wgpu::RenderPipeline,
     translucent_meshes: wgpu::RenderPipeline,
+    pictures: wgpu::RenderPipeline,
 }
 
 pub struct ImagePlan {
@@ -1123,6 +1127,7 @@ pub struct ViewportRenderer {
     mesh_upload_bytes: u64,
     reflective: MeshCache,
     silhouettes: SilhouetteCache,
+    pictures: PictureCache,
     staging: Bytes,
     targets: Option<SceneTargets>,
     targets_refused: Option<TargetSize>,
@@ -1159,12 +1164,14 @@ impl ViewportRenderer {
         });
         let meshes = MeshCache::new(device);
         let silhouettes = SilhouetteCache::new(device);
+        let pictures = PictureCache::new(device);
         let layouts = Layouts {
             view: &view_layout,
             grid: &grid_layout,
             styles: &styles_layout,
             mesh: meshes.layout(),
             silhouette: silhouettes.layout(),
+            picture: pictures.layout(),
         };
 
         Self {
@@ -1195,6 +1202,7 @@ impl ViewportRenderer {
             mesh_upload_bytes: MESH_UPLOAD_BYTES_PER_FRAME,
             reflective: MeshCache::new(device),
             silhouettes,
+            pictures,
             staging: Bytes::default(),
             targets: None,
             targets_refused: None,
@@ -1236,6 +1244,7 @@ impl ViewportRenderer {
                 styles: &self.styles_layout,
                 mesh: self.meshes.layout(),
                 silhouette: self.silhouettes.layout(),
+                picture: self.pictures.layout(),
             };
             Pipelines::new(
                 device,
@@ -1468,6 +1477,7 @@ impl ViewportRenderer {
             mesh_upload_bytes: self.mesh_upload_bytes,
             reflective: self.reflective.sibling(device),
             silhouettes: self.silhouettes.sibling(device),
+            pictures: self.pictures.sibling(device),
             staging: Bytes::default(),
             targets: None,
             targets_refused: None,
@@ -1607,10 +1617,14 @@ impl ViewportRenderer {
         self.meshes.draw(pass, meshes, window);
         self.flat.draw(pass, flat, window);
         self.reflective.draw(pass, reflective, window);
+        self.pictures
+            .draw(pass, &self.pipelines.pictures_behind, false);
         self.translucent
             .draw(pass, &self.pipelines.translucent_meshes, window);
         self.overlay
             .draw(pass, &self.pipelines.overlay_meshes, window);
+        self.pictures
+            .draw(pass, &self.pipelines.pictures_in_front, true);
         self.quad_indices.bind(pass);
         self.silhouettes
             .draw(pass, &self.pipelines.silhouettes, window);
@@ -1689,6 +1703,8 @@ impl ViewportRenderer {
                 batch.reference_pick_fills(),
             );
         }
+        self.pictures
+            .draw_pick(&mut behind, &self.pipelines.pick.pictures);
         drop(behind);
         let mut pass = begin_pick_pass(encoder, targets, "pick", false);
         pass.set_bind_group(0, &self.pick_view_uniform.bind_group, &[]);
@@ -1826,6 +1842,11 @@ impl ViewportRenderer {
             &mut budget,
         ));
         self.mesh_pool.sweep();
+        let pictures = self
+            .pictures
+            .prepare(device, queue, &scene.pictures, anchor);
+        faults.meshes = faults.meshes.saturating_add(pictures.refused);
+        changed |= pictures.changed;
         changed |= [
             &self.meshes,
             &self.translucent,
@@ -2129,6 +2150,7 @@ struct Layouts<'a> {
     styles: &'a wgpu::BindGroupLayout,
     mesh: &'a wgpu::BindGroupLayout,
     silhouette: &'a wgpu::BindGroupLayout,
+    picture: &'a wgpu::BindGroupLayout,
 }
 
 impl Pipelines {
@@ -2160,6 +2182,8 @@ impl Pipelines {
             "silhouette",
             &[Some(layouts.view), Some(layouts.silhouette)],
         );
+        let picture_pipeline_layout =
+            pipeline_layout("picture", &[Some(layouts.view), Some(layouts.picture)]);
 
         let marker_attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Unorm8x4, 2 => Float32, 3 => Uint32, 4 => Uint32];
         let fill_attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Uint32];
@@ -2199,6 +2223,24 @@ impl Pipelines {
             Some(wgpu::ColorTargetState::from(picking::ID_FORMAT)),
             Some(wgpu::ColorTargetState::from(picking::DEPTH_VALUE_FORMAT)),
         ];
+        let picture = |label, depth_compare| {
+            build_pipeline(
+                device,
+                &PipelineSpec {
+                    label,
+                    layout: &picture_pipeline_layout,
+                    module: &module,
+                    vertex: "vs_picture",
+                    buffers: &[],
+                    fragment: "fs_picture",
+                    targets: &color_target,
+                    depth_write: false,
+                    depth_compare,
+                    bias: wgpu::DepthBiasState::default(),
+                    sample_count,
+                },
+            )
+        };
         let bias_of = |label: &str, vertex: &str| match (label, vertex) {
             (_, "vs_mesh") if label.starts_with(SECTIONED_LABEL) => wgpu::DepthBiasState::default(),
             (_, "vs_mesh") => FACE_DEPTH_BIAS,
@@ -2395,6 +2437,8 @@ impl Pipelines {
                 "fs_grid",
                 false,
             ),
+            pictures_behind: picture("pictures behind", wgpu::CompareFunction::GreaterEqual),
+            pictures_in_front: picture("pictures in front", wgpu::CompareFunction::Always),
             pick: reused_picking.cloned().unwrap_or_else(|| PickPipelines {
                 lines: pick_pipeline(
                     "pick lines",
@@ -2450,6 +2494,14 @@ impl Pipelines {
                     "vs_mesh",
                     &meshes,
                     "fs_pick",
+                    true,
+                ),
+                pictures: pick_pipeline(
+                    "pick pictures",
+                    &picture_pipeline_layout,
+                    "vs_picture",
+                    &[],
+                    "fs_picture_pick",
                     true,
                 ),
             }),

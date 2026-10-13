@@ -20,6 +20,18 @@ struct Grid {
     color: vec4<f32>,
 }
 
+struct Picture {
+    corners: array<vec4<f32>, 4>,
+    look: vec4<f32>,
+    pick: vec4<u32>,
+}
+
+struct PictureVaryings {
+    @builtin(position) position: vec4<f32>,
+    @location(0) texel: vec2<f32>,
+    @location(1) depth: f32,
+}
+
 struct MeshPlacement {
     offset: vec4<f32>,
     faces_columns: vec4<u32>,
@@ -33,6 +45,9 @@ struct MeshPlacement {
 @group(1) @binding(1) var face_styles: texture_2d<u32>;
 @group(1) @binding(2) var<uniform> mesh: MeshPlacement;
 @group(1) @binding(4) var styles: texture_2d<u32>;
+@group(1) @binding(5) var picture_texture: texture_2d<f32>;
+@group(1) @binding(6) var picture_sampler: sampler;
+@group(1) @binding(7) var<uniform> picture: Picture;
 
 const CULLED: vec4<f32> = vec4<f32>(0.0, 0.0, 2.0, 1.0);
 const ORTHOGRAPHIC_DEPTH_BIAS: f32 = 0.03;
@@ -1172,4 +1187,36 @@ fn fs_marker_pick(in: Varyings) -> PickOutput {
         discard;
     }
     return PickOutput(in.pick, bitcast<u32>(in.depth));
+}
+
+@vertex
+fn vs_picture(@builtin(vertex_index) vertex: u32) -> PictureVaryings {
+    var triangles = array<u32, 6>(0u, 1u, 2u, 0u, 2u, 3u);
+    var texels = array<vec2<f32>, 4>(
+        vec2<f32>(0.0, 1.0),
+        vec2<f32>(1.0, 1.0),
+        vec2<f32>(1.0, 0.0),
+        vec2<f32>(0.0, 0.0),
+    );
+    let corner = triangles[vertex % 6u];
+    let position = from_anchor(picture.corners[corner].xyz);
+    var out: PictureVaryings;
+    out.position = finish(to_clip(position), MODEL_FILL_DEPTH_BIAS, BEHIND);
+    out.texel = texels[corner];
+    out.depth = view_depth(position);
+    return out;
+}
+
+@fragment
+fn fs_picture(in: PictureVaryings) -> @location(0) vec4<f32> {
+    let sampled = textureSample(picture_texture, picture_sampler, in.texel);
+    return vec4<f32>(sampled.rgb, sampled.a * picture.look.x);
+}
+
+@fragment
+fn fs_picture_pick(in: PictureVaryings) -> PickOutput {
+    if picture.pick.x == 0u {
+        discard;
+    }
+    return PickOutput(picture.pick.x, bitcast<u32>(in.depth));
 }

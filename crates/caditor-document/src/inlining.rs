@@ -171,6 +171,7 @@ pub(crate) fn expressions_mut(kind: &mut FeatureKind) -> Vec<&mut Expression> {
         },
         FeatureKind::Datum(datum) => datum.expressions_mut(),
         FeatureKind::Import(import) => import.placement.expressions_mut().collect(),
+        FeatureKind::ReferenceImage(image) => image.expressions_mut(),
         FeatureKind::Sketch(_)
         | FeatureKind::Combine(_)
         | FeatureKind::Mirror(_)

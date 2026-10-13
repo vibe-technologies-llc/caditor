@@ -66,6 +66,9 @@ paths:
   - "crates/caditor/src/value_handles.rs"
   - "crates/caditor/src/projecting.rs"
   - "crates/caditor/src/similar.rs"
+  - "crates/caditor/src/image_tools.rs"
+  - "crates/caditor/src/image_panel.rs"
+  - "crates/caditor/src/image_textures.rs"
 ---
 
 # Modelling tools in the app
@@ -1025,6 +1028,46 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
 - A datum cannot switch between plane and axis, nor an extrusion and a revolve, since `SetFeatureKind`
   refuses a kind change (`document.md`). Outside sketch editing datums are picked as `Pickable::Datum`
   and tinted when failed; double-clicking one opens it.
+
+## Reference images
+
+- Insert reference image… (`Command::InsertImage`, `model.insert_reference_image`, no default key) is
+  in the palette, the Model menu's Datums group and the Reference ribbon group's menu; it has no
+  ribbon button, since the ribbon stays one row. Its offer (`Offers::reference_image`,
+  `image_tools::target`) is the edited sketch's plane (`ImageTarget::Sketch`), else the one selected
+  plane, datum or coordinate system plane or flat face (`datum_tools::chosen_plane`; a face at its
+  middle, `primitive_tools::chosen_spot`), else XY at the origin; several planes refuse. It sends
+  `FileCommand::InsertImage` (`app-files.md`), whose answer `image_tools::create` turns into one
+  "Insert <file stem>" change adding a `ReferenceImage` at the bar, 100 mm wide
+  (`DEFAULT_WIDTH`), `DEFAULT_IMAGE_OPACITY_PERCENT`, behind bodies, unlocked, named after the file
+  (else "Image N"). It opens the image's panel unless a sketch is edited, which stays open.
+- The panel (`image_panel.rs`, shared rows of `feature_fields`): a description of the picture's
+  format and pixels with a "Preparing" line while it decodes or an error callout when it cannot be
+  shown, for a sketch-plane image the sketch it lies on, Placed on (`plane_selector::row`, slot
+  `Slot::ImagePlace`; a click in the view places the middle where the ray meets the plane,
+  `image_tools::place_click`), Position X and Y, Angle, Flip left to right, Width or, once
+  calibrated, Distance between the points (keys `("image-field", feature, "along" | "across" |
+  "turn" | "width" | "distance")`), Calibrate by two points or Calibrate again and Size by width,
+  Opacity (`image_panel::OPACITY_STEPS`, a stored value shown at the nearest step), Shows (Behind or
+  In front of bodies) and Locked. Each is one "Edit <name>" `SetFeatureKind`.
+- Calibrating (`Slot::ImageCalibration`) takes two clicks on the picture, each the ray meeting its
+  plane read back as an `ImageSpot` (`image_tools::spot_under`; a click off the picture or
+  meeting no plane warns and keeps choosing). The first is held in `SketchEditing`
+  (`EditingCommand::CalibrateFrom`, also holding the image in `Picking::pending` so the prompt asks
+  for the second); the second sets `ImageSize::Calibrated` with the distance the two points lie apart
+  now, so nothing moves until the user types the real distance.
+- `image_textures.rs` (`ImageTextures`, owned by `Model`) decodes each picture of the document on a
+  thread of its own (`picture`, under `catch_unwind`) into a `PictureTexture` when the revision
+  changes (`want`), wakes the app with the result (`poll`, from `Model::poll`) and forgets pictures
+  the document no longer holds; the insert hands over the texture its read already made (`keep`), so
+  a new picture is not decoded twice. Its `generation` joins the scene key (`Revisions::pictures`).
+- The scene (`scene::Builder::reference_image`) draws each active, shown image (the open one even
+  when hidden, from the draft while edited) from its `PlacedImage` and texture, with an outline in
+  the datum colours while it is open, hovered, selected or has no texture yet. An unlocked image is
+  `Pickable::Datum` of its feature outside sketch editing (selecting, opening and hiding it as a
+  datum, every datum command refusing it as not a datum); a locked one, and every image while a
+  sketch is edited, is never picked, so clicks reach the sketch and what lies behind it. Images count
+  in fitting (`model_bounds`, `datum_points`) and hide with the datums (`visibility::Kind::Datums`).
 
 ## Coordinate systems
 

@@ -13,6 +13,7 @@ mod offscreen;
 #[cfg(test)]
 mod offscreen_tests;
 mod picking;
+mod pictures;
 mod runs;
 mod scene;
 mod settings;
@@ -43,6 +44,7 @@ pub use crate::{
     },
     offscreen::OffscreenRenderer,
     picking::PickPoll,
+    pictures::{MAX_PICTURE_TEXTURE_SIDE, PictureTexture, ScenePicture},
     runs::{PolylineRun, PolylineSource, RunPolyline},
     scene::{
         Batch, Color, CutFace, Fill, Grid, Layer, Line, MAX_SECTION_PLANES, Marker, PickHit,

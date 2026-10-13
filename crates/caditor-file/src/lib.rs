@@ -1,3 +1,4 @@
+mod base64;
 mod binary;
 mod clipboard;
 mod configuration_table;
@@ -15,10 +16,12 @@ mod logs;
 mod os;
 mod parameters;
 mod paths;
+mod picture;
 mod read;
 mod reason;
 mod recent;
 mod recovery;
+mod reference_images;
 mod save;
 mod selection_sets;
 mod settings;
@@ -68,6 +71,9 @@ pub use crate::{
         parameters_csv, parse_parameters, read_parameters, write_parameters,
     },
     paths::{recovery_dir, state_dir},
+    picture::{
+        PictureReadError, ReadPicture, RgbaPixels, decode_picture, read_picture, read_picture_file,
+    },
     reason::{ReadFailure, UpdateFailure, WriteFailure},
     recent::{RECENT_LIMIT, RecentChange, RecentFiles},
     recovery::{

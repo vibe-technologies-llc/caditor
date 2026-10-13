@@ -15,7 +15,10 @@ use parking_lot::{Condvar, Mutex};
 
 use crate::{
     binary::FileDigest,
-    journal::{JournalEntry, JournalHead, Logged, Mirror, encode_entry, encode_journal},
+    journal::{
+        JournalEntry, JournalHead, Logged, Mirror, WrittenPictures, encode_entry_sharing,
+        encode_journal_noting,
+    },
     lock::{holds, install, locked_elsewhere, remove_held, remove_unheld},
     os, paths,
     reason::WriteFailure,
@@ -213,6 +216,7 @@ impl Storage {
                     folded,
                     entries,
                     mirror,
+                    pictures: WrittenPictures::default(),
                     written: 0,
                     appended: 0,
                     replaces,
@@ -350,6 +354,7 @@ struct Worker {
     folded: usize,
     entries: Vec<Logged>,
     mirror: Mirror,
+    pictures: WrittenPictures,
     written: u64,
     appended: u64,
     replaces: Option<PathBuf>,
@@ -429,7 +434,7 @@ impl Worker {
     fn append(&mut self, entry: JournalEntry) {
         let logged = self.mirror.log(entry);
         let written = match &mut self.journal {
-            Some(journal) if self.protected => encode_entry(&logged)
+            Some(journal) if self.protected => encode_entry_sharing(&logged, &mut self.pictures)
                 .map_err(io::Error::other)
                 .and_then(|chunk| {
                     journal.file.write_all(&chunk)?;
@@ -609,7 +614,8 @@ impl Worker {
             loaded_with_problems: self.loaded_with_problems,
             folded: self.folded,
         };
-        let contents = match encode_journal(&head, &self.base, &self.entries) {
+        let encoded = encode_journal_noting(&head, &self.base, &self.entries, &mut self.pictures);
+        let contents = match encoded {
             Ok(contents) => contents,
             Err(error) => {
                 log::error!("could not encode the recovery journal: {error}");

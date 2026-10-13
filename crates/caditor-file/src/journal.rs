@@ -1,6 +1,10 @@
-use std::path::{Path, PathBuf};
+use std::{
+    collections::BTreeSet,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
-use caditor_document::{Document, Editor, Transaction};
+use caditor_document::{Document, Editor, FeatureKind, Picture, Transaction};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -10,14 +14,15 @@ use crate::{
     },
     configurations::{ConfigurationsRecord, configurations_record},
     format::{
-        FeatureRecord, Lenient, NamedValuesRecord, NextIdsRecord, ParameterRecord, PrincipalRecord,
-        PropertiesRecord, Record, RollbackRecord, SuppressedRecord, TransactionRecord, ViewsRecord,
-        feature_records, named_values_record, next_ids_record, parameter_record, principal_record,
-        properties_record, restore_transaction, rollback_record, suppressed_record,
-        transaction_record, views_record,
+        FeatureRecord, ImportTexts, Lenient, NamedValuesRecord, NextIdsRecord, ParameterRecord,
+        PrincipalRecord, PropertiesRecord, Record, RollbackRecord, SuppressedRecord,
+        TransactionRecord, ViewsRecord, feature_records, named_values_record, next_ids_record,
+        parameter_record, principal_record, properties_record, restore_transaction_with,
+        rollback_record, suppressed_record, transaction_record_sharing, views_record,
     },
     load::{Loaded, Parts, assemble},
     os,
+    reference_images::Pictures,
     selection_sets::{SelectionSetsRecord, selection_sets_record},
 };
 
@@ -81,11 +86,22 @@ pub(crate) struct JournalHead<'a> {
     pub folded: usize,
 }
 
+#[cfg(any(test, feature = "fuzzing"))]
 pub(crate) fn encode_journal(
     head: &JournalHead<'_>,
     base: &Document,
     entries: &[Logged],
 ) -> Result<Vec<u8>, EncodeError> {
+    encode_journal_noting(head, base, entries, &mut WrittenPictures::default())
+}
+
+pub(crate) fn encode_journal_noting(
+    head: &JournalHead<'_>,
+    base: &Document,
+    entries: &[Logged],
+    pictures: &mut WrittenPictures,
+) -> Result<Vec<u8>, EncodeError> {
+    *pictures = WrittenPictures::of(base);
     let header = JournalHeader {
         file: head.file.map(|file| os::path_bytes(file.as_os_str())),
         on_disk: head.on_disk.cloned(),
@@ -117,12 +133,42 @@ pub(crate) fn encode_journal(
         )?;
     }
     for entry in entries {
-        bytes.extend_from_slice(&encode_entry(entry)?);
+        bytes.extend_from_slice(&encode_entry_sharing(entry, pictures)?);
     }
     Ok(bytes)
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct WrittenPictures(BTreeSet<String>);
+
+impl WrittenPictures {
+    fn of(document: &Document) -> Self {
+        Self(
+            pictures_of(document)
+                .map(|picture| picture.digest().hex())
+                .collect(),
+        )
+    }
+}
+
+fn pictures_of(document: &Document) -> impl Iterator<Item = Arc<Picture>> + '_ {
+    document
+        .features()
+        .filter_map(|feature| match &feature.kind {
+            FeatureKind::ReferenceImage(image) => Some(Arc::clone(&image.picture)),
+            _ => None,
+        })
+}
+
+#[cfg(test)]
 pub(crate) fn encode_entry(entry: &Logged) -> Result<Vec<u8>, EncodeError> {
+    encode_entry_sharing(entry, &mut WrittenPictures::default())
+}
+
+pub(crate) fn encode_entry_sharing(
+    entry: &Logged,
+    pictures: &mut WrittenPictures,
+) -> Result<Vec<u8>, EncodeError> {
     let mut bytes = Vec::new();
     let (kind, transaction) = match entry {
         Logged::Entry(JournalEntry::Apply(transaction)) => (ChunkKind::Apply, transaction),
@@ -140,7 +186,7 @@ pub(crate) fn encode_entry(entry: &Logged) -> Result<Vec<u8>, EncodeError> {
     push_packed_for_recovery(
         &mut bytes,
         kind,
-        &value::to_bytes(&transaction_record(transaction))?,
+        &value::to_bytes(&transaction_record_sharing(transaction, &mut pictures.0))?,
     )?;
     Ok(bytes)
 }
@@ -281,9 +327,10 @@ pub(crate) fn decode_journal_with(
     };
     let mut entries = Vec::new();
     let mut unreadable_entries = 0;
+    let mut texts = ImportTexts::with_pictures(Pictures::of(pictures_of(&base)));
     for piece in pieces {
         let entry = (unreadable_entries == 0)
-            .then(|| decode_entry(piece))
+            .then(|| decode_entry(piece, &mut texts))
             .flatten();
         match entry {
             Some(entry) => entries.push(entry),
@@ -316,7 +363,7 @@ fn content_of<T: for<'de> Deserialize<'de>>(
     value::from_bytes(&content).map_err(|_| UnreadableJournal::Damaged)
 }
 
-fn decode_entry(piece: &Piece<'_>) -> Option<Logged> {
+fn decode_entry(piece: &Piece<'_>, texts: &mut ImportTexts) -> Option<Logged> {
     let Piece::Chunk(chunk) = piece else {
         return None;
     };
@@ -337,7 +384,9 @@ fn decode_entry(piece: &Piece<'_>) -> Option<Logged> {
     };
     let content = chunk.unpack(None).ok()?;
     let record: TransactionRecord = value::from_bytes(&content).ok()?;
-    Some(Logged::Entry(entry(restore_transaction(record)?)))
+    Some(Logged::Entry(entry(restore_transaction_with(
+        record, texts,
+    )?)))
 }
 
 fn snapshot_parts(snapshot: SnapshotRecord, issues: &mut Vec<String>) -> Parts {

@@ -28,4 +28,4 @@ pieces still run on end to end, the middle and the distance are taken along all 
 opens between the pieces there is no one edge left to follow, so the datum stops and says so, and
 you choose the piece it should follow, rather than it moving to one piece without notice.
 
-See also [coordinate systems](coordinate-systems).
+See also [coordinate systems](coordinate-systems) and [reference images](reference-images).
