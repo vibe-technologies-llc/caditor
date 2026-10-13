@@ -30,6 +30,13 @@ paths:
   GPOS kerning for SVG text in `caditor-file`; it is the copy epaint builds, so no second font parser
   is compiled. `ttf-parser` is left only through winit's `sctk-adwaita`, which is why `deny.toml`
   ignores its unmaintained advisory; nothing of ours uses it.
+- Reference pictures are decoded by `image` (no default features; `bmp`, `gif`, `jpeg` through the
+  pure-Rust `zune-jpeg`, `png`, `qoi`, `tga`, `tiff`, `webp` through `image-webp`) and `jxl-oxide`
+  (no default features, so no rayon; its `lcms2` and `moxcms` stay off), both pure Rust and the
+  copies `arboard` already builds. AVIF and HEIC have no mature pure-Rust decoder and no C one is
+  taken in for them: `image`'s `avif` features stay off and such files are refused in words.
+  `tiff` is a dev-dependency of `caditor-file` only, for writing a two-page test file; its `zstd`
+  feature, which links C, stays off.
 - Crates the UI tests spend their time in are built at `opt-level = 3` in the dev profile
   (`[profile.dev.package.*]`): `egui`, `emath`, `epaint` and its glyph stack (`skrifa`,
   `read-fonts`, `font-types`, `harfrust`, `vello_cpu`, `vello_common`, `fearless_simd`, the Unicode

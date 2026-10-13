@@ -89,6 +89,7 @@ it again after a stop.
   [Offset face](offset-face) and [Thread](thread).
 - Several bodies: [Combine](combine), [Split](split), [Move and copy](move-and-copy),
   [Mate](mate), [Mirror](mirror), [Scale](scale) and [Patterns](patterns).
-- Reference geometry: [Datums](datums) and [Coordinate systems](coordinate-systems).
+- Reference geometry: [Datums](datums), [Coordinate systems](coordinate-systems) and
+  [Reference images](reference-images).
 
 See also [bodies](bodies), [imported bodies](imported-bodies) and [parameters](parameters).

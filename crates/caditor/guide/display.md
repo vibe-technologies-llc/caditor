@@ -34,8 +34,8 @@ While {command:view.principal_when_needed} is on, as it is at first (Preferences
 the 3D view), the principal planes, axes and origin show in a model without a body, and once the
 first body exists they step aside. They come back for as long as you are choosing a plane, axis
 or point: picking the plane of a new sketch, clicking Choose in the view for a mirror plane, a
-pattern's axis, a revolve's axis, a datum's or coordinate system's references, a shape's place
-or a hole's Place by, measuring, projecting or intersecting in a sketch, an open datum, or an open
+pattern's axis, a revolve's axis, a datum's or coordinate system's references, a shape's or
+picture's place or a hole's Place by, measuring, projecting or intersecting in a sketch, an open datum, or an open
 list of planes or axes in a panel. One you select, in the view or by its row in the
 [feature tree](feature-tree), shows while it is selected.
 

@@ -159,6 +159,7 @@ pub enum Command {
     DatumAxis,
     DatumPoint,
     CoordinateSystem,
+    InsertImage,
     ScaleModel,
     Configurations,
     FitView,
@@ -760,6 +761,7 @@ plain_commands! {
     DatumAxis,
     DatumPoint,
     CoordinateSystem,
+    InsertImage,
     ScaleModel,
     Configurations,
     FinishSketch,
@@ -1038,6 +1040,7 @@ impl Command {
             Self::DatumAxis => "model.axis",
             Self::DatumPoint => "model.point",
             Self::CoordinateSystem => "model.coordinate_system",
+            Self::InsertImage => "model.insert_reference_image",
             Self::ScaleModel => "model.scale_model",
             Self::Configurations => "model.configurations",
             Self::FitView => "view.fit",
@@ -1312,6 +1315,7 @@ impl Command {
             Self::DatumAxis => "Datum axis",
             Self::DatumPoint => "Datum point",
             Self::CoordinateSystem => "Coordinate system",
+            Self::InsertImage => "Insert reference image…",
             Self::ScaleModel => "Scale model…",
             Self::Configurations => "Configurations…",
             Self::FitView => "Fit view",
@@ -1713,6 +1717,7 @@ impl Command {
             | Self::DatumAxis
             | Self::DatumPoint
             | Self::CoordinateSystem
+            | Self::InsertImage
             | Self::ScaleModel
             | Self::Configurations
             | Self::Recompute
@@ -1964,6 +1969,7 @@ impl Command {
             Self::TogglePrincipal => vec![plain(Key::P)],
             Self::VersionHistory
             | Self::CoordinateSystem
+            | Self::InsertImage
             | Self::ScaleModel
             | Self::Configurations
             | Self::ModelProperties

@@ -81,6 +81,7 @@ pub fn of_bodies(
         contrast: Contrast::default(),
         canvas,
         draft: None,
+        pictures: None,
     };
     let (width, height) = (f64::from(size.width), f64::from(size.height));
 

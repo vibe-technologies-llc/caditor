@@ -26,8 +26,8 @@ use crate::{
     feature_clipboard, feature_fields, feature_groups,
     field::{self, DimensionTarget},
     files::FileCommand,
-    fonts, hole_panel, icons, import_panel, manipulator, mate_panel, measurement_panel,
-    mirror_panel, mirror_tools,
+    fonts, hole_panel, icons, image_panel, import_panel, manipulator, mate_panel,
+    measurement_panel, mirror_panel, mirror_tools,
     model::{Action, Model, Notice},
     move_panel, move_tools, offset_face_panel,
     panels::{Focus, PanelState, Renaming},
@@ -349,6 +349,14 @@ pub fn kind_words(kind: &FeatureKind) -> &'static [&'static str] {
         FeatureKind::Import(_) => &["import", "imported", "step"],
         FeatureKind::Remove(_) => &["remove", "body"],
         FeatureKind::Measurement(_) => &["measurement", "measure", "reading", "clearance"],
+        FeatureKind::ReferenceImage(_) => &[
+            "reference image",
+            "image",
+            "picture",
+            "photo",
+            "canvas",
+            "trace",
+        ],
     }
 }
 
@@ -1164,6 +1172,9 @@ fn body(
         FeatureKind::Measurement(measurement) => {
             measurement_panel::show(ui, model, row.selection, actions, feature, measurement);
         }
+        FeatureKind::ReferenceImage(image) => {
+            image_panel::show(ui, model, row.selection, actions, feature, image);
+        }
     }
 }
 
@@ -1176,9 +1187,10 @@ fn kind_color(tokens: &appearance::Tokens, row: &Row<'_>) -> Color32 {
     }
     match row.feature.kind {
         FeatureKind::Sketch(_) => tokens.accent_text,
-        FeatureKind::Datum(_) | FeatureKind::Thread(_) | FeatureKind::Measurement(_) => {
-            tokens.text_muted
-        }
+        FeatureKind::Datum(_)
+        | FeatureKind::Thread(_)
+        | FeatureKind::Measurement(_)
+        | FeatureKind::ReferenceImage(_) => tokens.text_muted,
         FeatureKind::Solid(_)
         | FeatureKind::Blend(_)
         | FeatureKind::Shell(_)
@@ -1325,7 +1337,8 @@ fn edit_command(feature: &Feature, edited: bool) -> Option<EditingCommand> {
             | FeatureKind::Datum(_)
             | FeatureKind::Remove(_)
             | FeatureKind::Thread(_)
-            | FeatureKind::Measurement(_),
+            | FeatureKind::Measurement(_)
+            | FeatureKind::ReferenceImage(_),
             true,
         ) => EditingCommand::CloseSolid,
         (
@@ -1347,7 +1360,8 @@ fn edit_command(feature: &Feature, edited: bool) -> Option<EditingCommand> {
             | FeatureKind::Datum(_)
             | FeatureKind::Remove(_)
             | FeatureKind::Thread(_)
-            | FeatureKind::Measurement(_),
+            | FeatureKind::Measurement(_)
+            | FeatureKind::ReferenceImage(_),
             false,
         ) => EditingCommand::OpenSolid(id),
         (FeatureKind::Import(_), _) => return None,

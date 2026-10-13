@@ -284,6 +284,16 @@ paths:
   into what was edited at the drop, each after the previous report closed. Mixed or multi-model
   drops, or drops during an import or dialog, are refused with a notice.
 
+## Reference image files
+
+- `FileCommand::InsertImage` (`files/pictures.rs`) picks a picture (`Purpose::Picture`, the import
+  folder; `Dialogs::pick_picture` filters on `PictureFormat::extensions_of_all`, then All files) and
+  reads it on an `import` thread (`read_picture_file`): the bytes, the format by content, the pixels
+  and the `PictureTexture` for showing, so the UI thread never decodes. The answer
+  (`Event::PictureRead`, dropped after another model opened) inserts the image (`app-modelling.md`)
+  or says in a notice why the picture cannot be used ("Could not insert the picture “…”: it is an
+  HEIC picture, which caditor cannot read yet; save it as PNG or JPEG.").
+
 ## Parameter files
 
 - `Command::ImportParameters` and `ExportParameters` (`files/parameters.rs`) move the model's

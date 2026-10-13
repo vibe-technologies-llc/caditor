@@ -32,7 +32,9 @@ use crate::{
     mirror, movement, offset_face, pattern, pipe,
     pool::{Claim, Job, Landed, LastMeshes, Pool, Threads, Work, available_workers},
     presenting::{Glimpse, MESHES_REPORTED_EVERY, Presentation, SettledBody},
-    primitive, projection, removal, scaling, shell,
+    primitive, projection,
+    reference_image::{self, PlacedImage},
+    removal, scaling, shell,
     solid::{self, SketchRegion, SolidFeature, SolidResult, body_part, body_parts},
     split, split_face,
     thread::{self, ThreadResult},
@@ -257,6 +259,7 @@ pub enum FeatureResult {
     Datum(DatumResult),
     Thread(ThreadResult),
     Measurement(MeasurementResult),
+    Image(PlacedImage),
 }
 
 impl FeatureResult {
@@ -269,6 +272,7 @@ impl FeatureResult {
             (Self::Solid(own), Self::Solid(theirs)) => own.same_shapes(theirs),
             (Self::Thread(own), Self::Thread(theirs)) => own == theirs,
             (Self::Measurement(own), Self::Measurement(theirs)) => own.value == theirs.value,
+            (Self::Image(own), Self::Image(theirs)) => own == theirs,
             _ => false,
         }
     }
@@ -276,35 +280,62 @@ impl FeatureResult {
     pub fn sketch(&self) -> Option<&SketchResult> {
         match self {
             Self::Sketch(sketch) => Some(sketch),
-            Self::Solid(_) | Self::Datum(_) | Self::Thread(_) | Self::Measurement(_) => None,
+            Self::Solid(_)
+            | Self::Datum(_)
+            | Self::Thread(_)
+            | Self::Measurement(_)
+            | Self::Image(_) => None,
         }
     }
 
     pub fn solid(&self) -> Option<&SolidResult> {
         match self {
             Self::Solid(solid) => Some(solid),
-            Self::Sketch(_) | Self::Datum(_) | Self::Thread(_) | Self::Measurement(_) => None,
+            Self::Sketch(_)
+            | Self::Datum(_)
+            | Self::Thread(_)
+            | Self::Measurement(_)
+            | Self::Image(_) => None,
         }
     }
 
     pub fn datum(&self) -> Option<&DatumResult> {
         match self {
             Self::Datum(datum) => Some(datum),
-            Self::Sketch(_) | Self::Solid(_) | Self::Thread(_) | Self::Measurement(_) => None,
+            Self::Sketch(_)
+            | Self::Solid(_)
+            | Self::Thread(_)
+            | Self::Measurement(_)
+            | Self::Image(_) => None,
         }
     }
 
     pub fn thread(&self) -> Option<&ThreadResult> {
         match self {
             Self::Thread(thread) => Some(thread),
-            Self::Sketch(_) | Self::Solid(_) | Self::Datum(_) | Self::Measurement(_) => None,
+            Self::Sketch(_)
+            | Self::Solid(_)
+            | Self::Datum(_)
+            | Self::Measurement(_)
+            | Self::Image(_) => None,
         }
     }
 
     pub fn measurement(&self) -> Option<&MeasurementResult> {
         match self {
             Self::Measurement(measurement) => Some(measurement),
-            Self::Sketch(_) | Self::Solid(_) | Self::Datum(_) | Self::Thread(_) => None,
+            Self::Sketch(_)
+            | Self::Solid(_)
+            | Self::Datum(_)
+            | Self::Thread(_)
+            | Self::Image(_) => None,
+        }
+    }
+
+    pub fn image(&self) -> Option<&PlacedImage> {
+        match self {
+            Self::Image(image) => Some(image),
+            _ => None,
         }
     }
 }
@@ -1806,6 +1837,9 @@ impl Evaluator for ModelEvaluator {
             FeatureKind::Datum(definition) => datum::evaluate(feature, definition, inputs),
             FeatureKind::Import(definition) => import::evaluate(feature, definition, inputs),
             FeatureKind::Remove(definition) => removal::evaluate(feature, definition, inputs),
+            FeatureKind::ReferenceImage(definition) => {
+                reference_image::evaluate(feature, definition, inputs)
+            }
             FeatureKind::Measurement(definition) => {
                 measurement::evaluate(feature, definition, inputs, cancel)
             }

@@ -16,6 +16,7 @@ caditor-sketch.workspace = true
 caditor-zstd.workspace = true
 
 ahash.workspace = true
+blake3.workspace = true
 log.workspace = true
 parking_lot.workspace = true
 rayon-core.workspace = true

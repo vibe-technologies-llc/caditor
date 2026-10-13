@@ -28,8 +28,10 @@ paths:
   version of each format it owns: `model-1/` (every record kind, feature record kind, sketch entity
   and constraint kind and entity flag, `pieces.caditor` holding trimmed and broken pieces with their
   `split_from`, a version history with a kept version and block-alignment padding, sliced
-  content, a thread and a tapped hole carrying `modelled`), `journal-1/` (every journaled edit,
-  apply, undo and redo whole and by reference, a rebased snapshot, sliced content) and
+  content, a thread and a tapped hole carrying `modelled`, `reference-images.caditor` with a
+  picture shared by two images), `journal-1/` (every journaled edit, apply, undo and redo whole and
+  by reference, a rebased snapshot, sliced content, `reference-images.journal` writing each
+  picture once) and
   `parameters-1/` (an exported parameter file). Committed as binary (`.gitattributes` `-text`), a few KiB each.
 - Write-once: a corpus file is never rewritten, regenerated or deleted. `KEPT` lists every file with
   the blake3 digest of a description of what it reads as (issues, records re-encoded by today's
@@ -311,6 +313,33 @@ Bodies and solids:
 - `step_cache.rs`: process-wide LRU of shared solids (`Arc<Solid>`, handed to `Import::shared`) by
   the blake3 digest of the text, so a load, journal replay and recovery scan parse each import
   once; its budget counts each solid once.
+- `reference_image`: `picture` (the picture's blake3 digest in hex), `data` (its bytes as they were
+  read, base64, since a record is read through `serde_json::Value`, which holds no byte strings;
+  `reference_images.rs`, `PictureField`, which encodes a kept `Picture` only while serialising),
+  `pixels` (width and height), `plane` (`{"plane": ref}` or `{"sketch": id}`), `at` (two texts),
+  `turn`, `size` (`{"width": text}` or `{"calibrated": {"from", "to", "distance"}}` with two
+  fractions per spot), `opacity`, and `flipped`, `in_front`, `locked` when set. Unreadable plane
+  loads as XY, size as 100 mm wide, values as 0 mm or 0 deg, spots held within the picture, an
+  opacity below the least raised, each reported. A model or journal snapshot (`feature_records`)
+  writes each picture's `data` once, in the first record of that digest in tree order
+  (`share_picture`); later ones hold only the digest. Loading (`ImportTexts::pictures`, `Pictures`)
+  gives every record of one digest the same `Arc<Picture>`; a picture whose data does not decode as
+  base64, is not a picture caditor reads or has an impossible size, or a digest no earlier record
+  carried, loads as `Picture::placeholder` (a grey square), reported, keeping the feature and its
+  placement. The clipboard always writes `data`. An older reader not knowing the kind reports the
+  feature as from a newer version. The corpus holds it in `reference-images.caditor`.
+- Pictures are decoded only to be shown (`picture.rs`, `decode_picture`, never while loading):
+  the format by `sniff_picture` (content, never the file name), the size read from the header
+  first (`ImageReader::into_dimensions` without limits, JPEG XL's header) and refused past
+  `MAX_PICTURE_SIDE` or `MAX_PICTURE_PIXELS` before any pixel is decoded, then decoded under limits
+  (`image`'s `Limits`, `jxl-oxide`'s `AllocTracker`, `MAX_DECODER_BYTES`) to RGBA8 with the EXIF
+  orientation applied: the `image` crate for PNG, JPEG (`zune-jpeg`), WebP, GIF (first frame), BMP,
+  TIFF (first page, 8 and 16 bits), QOI and TGA, `jxl-oxide` for JPEG XL. Every failure is a
+  `PictureReadError` in words (`Refused` with the `PictureError`, `Undecodable` naming the format,
+  `UndecodableJpegXl`, `UnusualChannels`, `OutOfMemory`), never a panic. `read_picture_file` refuses
+  a file past `MAX_PICTURE_BYTES` before reading it. Fixtures are made by the tests with `image`'s
+  encoders and the `tiff` crate (a dev-dependency, for a two-page TIFF); JPEG XL and lossy WebP,
+  which nothing in the workspace encodes, are the few-byte files in `pictures/`.
 - `measurement`: `quantity` (`distance`, `angle`, `along`, `length`, `radius`, `area`, `sweep`,
   `perimeter`, `position`, `volume`, `mass`), `items` (one, two for `position`, three for `along`
   with the axis last; each `point`, `axis` or `plane` with a reference, `edge` with `body` and an

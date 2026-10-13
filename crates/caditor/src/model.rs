@@ -28,6 +28,7 @@ use crate::{
     drag_solver::{self, DragCommand, Finished, Join, Polled},
     editing::{EditingCommand, SwitchBack},
     files::FileCommand,
+    image_textures::ImageTextures,
     last_values::LastValues,
     pasting::{
         self, PasteFinished, PasteProgress, PasteRequest, PasteTarget, PastedFeatures, Pastes,
@@ -265,6 +266,7 @@ pub struct Model {
     pastes_finished: u64,
     threads_cosmetic: bool,
     principal: PrincipalView,
+    pictures: ImageTextures,
 }
 
 pub const THREADS_COSMETIC_ON: &str = "Modelled threads are shown as cosmetic while you edit, so \
@@ -319,6 +321,7 @@ impl Model {
             pastes_finished: 0,
             threads_cosmetic: false,
             principal: PrincipalView::default(),
+            pictures: ImageTextures::default(),
         };
         model.start_storage(None, None);
         model.recompute(Retry::Nothing);
@@ -1260,7 +1263,22 @@ impl Model {
 
     pub fn poll(&mut self) -> bool {
         let recomputed = self.poll_recompute();
-        recomputed | self.settle_held_draft()
+        let revision = self.revision();
+        self.pictures.want(
+            self.editor.document(),
+            revision,
+            self.services.make_waker.as_ref(),
+        );
+        let decoded = self.pictures.poll();
+        recomputed | self.settle_held_draft() | decoded
+    }
+
+    pub fn pictures(&self) -> &ImageTextures {
+        &self.pictures
+    }
+
+    pub fn pictures_mut(&mut self) -> &mut ImageTextures {
+        &mut self.pictures
     }
 
     fn try_constraints(&mut self, trial: ConstraintTrial) {

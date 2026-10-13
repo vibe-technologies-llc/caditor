@@ -197,6 +197,27 @@ fn spot(model: &Model, place: &Place, ray: Option<Ray>) -> Result<Point2, &'stat
         .unwrap_or(Point2::ZERO))
 }
 
+pub fn chosen_spot(
+    model: &Model,
+    chosen: &ChosenPlane,
+    index: usize,
+) -> Result<(PlaneReference, Point2), &'static str> {
+    let place = chosen_place(model, chosen, index)?;
+    let spot = spot(model, &place, None)?;
+    Ok((place.plane, spot))
+}
+
+pub fn clicked_spot(
+    model: &Model,
+    pickable: Pickable,
+    index: usize,
+    ray: Option<Ray>,
+) -> Result<(PlaneReference, Point2), &'static str> {
+    let place = place_of(model, pickable, index)?;
+    let spot = spot(model, &place, ray)?;
+    Ok((place.plane, spot))
+}
+
 fn at(unit: LengthUnit, point: Point2) -> [caditor_expression::Expression; 2] {
     [unit.measured(point.x), unit.measured(point.y)]
 }

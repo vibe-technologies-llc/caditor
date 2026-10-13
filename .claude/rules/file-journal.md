@@ -24,6 +24,12 @@ paths:
   Every shipped version keeps journals in the format corpus (`file-format.md`).
 - Undo and redo are journaled by reference when possible (`UndoLast`, `RedoNext`), so undoing an
   import never repeats its STEP text; the storage worker follows the journal in a `Mirror`.
+- A reference image's picture is written into a journal once: the worker keeps the digests the file
+  holds (`WrittenPictures`: the base's pictures, set by each rewrite in `encode_journal_noting`,
+  added to by each append in `encode_entry_sharing`), and a journaled `insert_feature` or
+  `set_feature_kind` of a picture already there holds only its digest. Decoding gives entries the
+  pictures of the base and of the entries before them (`restore_transaction_with`), so changing an
+  image's opacity journals a few bytes, not the picture.
   Anything the mirror cannot follow is written whole and the mirror stops until the next save.
   Replay resolves references, so `Recovered::entries` hold whole transactions.
 - Rebase: once bytes appended since the last rewrite exceed both `StorageConfig::rebase_journal_after`

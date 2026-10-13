@@ -3,7 +3,9 @@ use std::{num::NonZeroU32, sync::Arc};
 use caditor_geometry::{Plane, Point3, Vector3};
 use glam::DVec2;
 
-use crate::{mesh::MeshInstance, runs::PolylineRun, silhouette::Silhouette};
+use crate::{
+    mesh::MeshInstance, pictures::ScenePicture, runs::PolylineRun, silhouette::Silhouette,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PickId(NonZeroU32);
@@ -323,6 +325,7 @@ pub struct Scene {
     pub section: Vec<SectionPlane>,
     pub batches: Vec<Arc<Batch>>,
     pub grid: Option<Grid>,
+    pub pictures: Vec<ScenePicture>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]

@@ -50,7 +50,7 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 27] = [
+const KEPT: [(&str, &str); 29] = [
     (
         "journal-1/by-reference.journal",
         "fe98725da8d9df46b19d7cede1474bcfb92bbda00d4de9c890e5bca5d0f2899f",
@@ -62,6 +62,10 @@ const KEPT: [(&str, &str); 27] = [
     (
         "journal-1/rebased.journal",
         "29586076a032208d8c3f3630c649dbca0afb09ef7023c4b25c24d93860c6c741",
+    ),
+    (
+        "journal-1/reference-images.journal",
+        "817180e04d6aa6752c2000efc746d716fc67646baeb6f5b6f772d6537c2fdeb5",
     ),
     (
         "journal-1/sliced.journal",
@@ -130,6 +134,10 @@ const KEPT: [(&str, &str); 27] = [
     (
         "model-1/projected-datums.caditor",
         "ba72f19aff762f3bea392f66c955ceda4d55df4a927d8d7740bb883dfc560f0f",
+    ),
+    (
+        "model-1/reference-images.caditor",
+        "d7e693bdc1a275426b2507a33a627d7108a9e0753c9976ae82f24ca4e816d0b4",
     ),
     (
         "model-1/shell-walls.caditor",
@@ -712,6 +720,10 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
         ),
         (model("measured"), saved(&measured_model().0, "Measure")),
         (model("imports"), saved(&imports(), "Imports")),
+        (
+            model("reference-images"),
+            saved(&reference_images(), "Reference images"),
+        ),
         (model("document"), document_with_history()),
         (
             model("sliced"),
@@ -721,6 +733,7 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
         (journal("by-reference"), seed_journal_by_reference(0)),
         (journal("rebased"), seed_journal_by_reference(12)),
         (journal("sliced"), with_slices_of(SLICE, every_edit_journal)),
+        (journal("reference-images"), reference_image_journal()),
         (parameters("exported"), exported_parameters().into_bytes()),
     ];
     files.sort();
@@ -2351,6 +2364,127 @@ fn every_edit_journal() -> Vec<u8> {
         folded: 0,
     };
     encode_journal(&head, &base, &entries).unwrap()
+}
+
+fn corpus_picture(width: u32, height: u32) -> std::sync::Arc<caditor_document::Picture> {
+    let pixels = image::RgbaImage::from_fn(width, height, |x, y| {
+        let shade = u8::try_from((x * 31 + y * 17) % 256).unwrap();
+        image::Rgba([shade, 255 - shade, 128, 255])
+    });
+    let mut bytes = io::Cursor::new(Vec::new());
+    image::DynamicImage::ImageRgba8(pixels)
+        .write_to(&mut bytes, image::ImageFormat::Png)
+        .unwrap();
+    crate::read_picture(bytes.into_inner()).unwrap().picture
+}
+
+fn reference_image(
+    picture: &std::sync::Arc<caditor_document::Picture>,
+    plane: caditor_document::ImagePlane,
+) -> caditor_document::ReferenceImage {
+    let parse = |text: &str| Expression::parse_stored(text).unwrap();
+    caditor_document::ReferenceImage {
+        picture: std::sync::Arc::clone(picture),
+        plane,
+        at: [parse("12 mm"), parse("-4 mm")],
+        turn: parse("15 deg"),
+        flipped: false,
+        size: caditor_document::ImageSize::Width(parse("120 mm")),
+        opacity: caditor_document::DEFAULT_IMAGE_OPACITY_PERCENT,
+        in_front: false,
+        locked: false,
+    }
+}
+
+fn reference_images() -> Document {
+    let photo = corpus_picture(6, 4);
+    let scan = corpus_picture(3, 5);
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Reference images");
+    let width = transaction.add_parameter("width", transaction.parse("80 mm").unwrap());
+    let sketch = transaction.add_feature("Tracing", FeatureKind::from(Sketch::new(Plane::YZ)));
+    transaction.add_feature(
+        "Photo",
+        FeatureKind::ReferenceImage(Box::new(reference_image(
+            &photo,
+            caditor_document::ImagePlane::Reference(PlaneReference::Principal(PrincipalPlane::Xz)),
+        ))),
+    );
+    transaction.add_feature(
+        "Photo again",
+        FeatureKind::ReferenceImage(Box::new(caditor_document::ReferenceImage {
+            flipped: true,
+            in_front: true,
+            locked: true,
+            opacity: 20,
+            ..reference_image(
+                &photo,
+                caditor_document::ImagePlane::Reference(PlaneReference::Principal(
+                    PrincipalPlane::Xy,
+                )),
+            )
+        })),
+    );
+    transaction.add_feature(
+        "Scan",
+        FeatureKind::ReferenceImage(Box::new(caditor_document::ReferenceImage {
+            size: caditor_document::ImageSize::Calibrated(caditor_document::Calibration {
+                from: caditor_document::ImageSpot::new(0.25, 0.125),
+                to: caditor_document::ImageSpot::new(0.75, 0.875),
+                distance: Expression::Parameter(width),
+            }),
+            ..reference_image(&scan, caditor_document::ImagePlane::Sketch(sketch))
+        })),
+    );
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
+fn reference_image_journal() -> Vec<u8> {
+    let base = reference_images();
+    let photo = named(&base, "Photo");
+    let mut session = Session {
+        editor: Editor::new(base.clone()),
+        entries: Vec::new(),
+    };
+    let mut inserting = session.editor.document().transaction("Insert");
+    let drawing = inserting.add_feature(
+        "Drawing",
+        FeatureKind::ReferenceImage(Box::new(reference_image(
+            &corpus_picture(4, 4),
+            caditor_document::ImagePlane::Reference(PlaneReference::Principal(PrincipalPlane::Xy)),
+        ))),
+    );
+    session.apply(inserting.finish());
+    for (feature, opacity) in [(drawing, 40), (photo, 80), (drawing, 100)] {
+        let FeatureKind::ReferenceImage(image) = session
+            .editor
+            .document()
+            .feature(feature)
+            .unwrap()
+            .kind
+            .clone()
+        else {
+            panic!("a reference image");
+        };
+        session.apply(Transaction::single(
+            "Edit",
+            Edit::SetFeatureKind {
+                id: feature,
+                kind: FeatureKind::ReferenceImage(Box::new(caditor_document::ReferenceImage {
+                    opacity,
+                    ..*image
+                })),
+            },
+        ));
+    }
+    let head = JournalHead {
+        file: None,
+        on_disk: None,
+        loaded_with_problems: false,
+        folded: 0,
+    };
+    encode_journal(&head, &base, &session.entries).unwrap()
 }
 
 fn exported_parameters() -> String {

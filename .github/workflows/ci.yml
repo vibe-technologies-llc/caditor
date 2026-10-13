@@ -387,6 +387,7 @@ jobs:
           - { target: dxf, seeds: dxf, dictionary: dxf }
           - { target: svg, seeds: svg, dictionary: svg }
           - { target: mesh, seeds: mesh, dictionary: mesh }
+          - { target: picture, seeds: picture, dictionary: none }
           - { target: model, seeds: model, dictionary: model }
           - { target: model_sealed, seeds: model, dictionary: model }
           - { target: journal, seeds: journal, dictionary: model }
