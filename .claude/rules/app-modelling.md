@@ -625,13 +625,20 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
     the side of a slot; not when sized by circles; dragging makes the size Custom). A counterbore's
     Diameter (its mouth) and Depth (down its wall, opposite the bore's arrow); a countersink's Diameter
     (its mouth) and Angle (an arrow down the bore wall at the foot of the cone, so dragging the foot
-    deeper narrows the cone); a slot's Length (its tip) and Angle (a turn arrow at the other tip); a
+    deeper narrows the cone); a stepped hole's Step n diameter (at the step's mouth, on the rim
+    diagonal at the level its wall starts, the sum of the depths above) and Step n depth (down the
+    step's wall, opposite, `Measured::StepDiameter`, `StepDepth`, captions `hole_panel::step_diameter_caption`
+    and `step_depth_caption`); a slot's Length (its tip) and Angle (a turn arrow at the other tip); a
     tapped hole's Thread depth (down the bore wall from where the bore starts, only with a thread
     length); and an up-to hole's Past the face, standing where its axis meets the face (an up-to-next
-    hole's from the plane the recompute recorded, `ReachedEnd`). All of these but Depth and Past the
-    face are left out for a hole sized by circles and the countersink's for a slot (which cannot be
-    countersunk); dragging a counterbore or countersink value makes the size Custom as the diameter
-    does, the thread depth and slot values keep it.
+    hole's from the plane the recompute recorded, `ReachedEnd`). The countersink's are left out for a
+    slot (which cannot be countersunk); dragging a counterbore, countersink or step value makes the
+    size Custom as the diameter does, the thread depth and slot values keep it.
+  - A hole sized by circles has all of these but the Diameter, standing on its first hole
+    (`HoleTop`): the bore is that hole's circle (or the typed diameter when its centre has no
+    circle), and with `CirclesAndHeads` every counterbore, countersink and step diameter and depth is
+    drawn scaled by circle over typed diameter (`HoleTop::heads`, the `Mapping`'s scale), the way the
+    recompute sizes it, while a drag sets the typed value the panel shows (position over scale).
   - An offset face's Distance; a datum plane's Offset and Angle (an arrow along the turn at an arm of
     `ARROW_POINTS` from the axis).
   - A fillet's or chamfer's size (along the bisector of its faces into the material, foot on the

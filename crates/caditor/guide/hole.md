@@ -8,9 +8,13 @@
   depth and the one at its rim, between the two moving arrows, its diameter (making the size
   Custom); a counterbore has arrows for its diameter at the mouth and its depth on the wall, a
   countersink for its diameter and, down the bore wall where the cone ends, its angle (drag it
-  deeper for a narrower cone), a slot for its length at one tip and its angle at the other, a
+  deeper for a narrower cone), a stepped hole a diameter arrow at the mouth of each step and a
+  depth arrow down its wall, a slot for its length at one tip and its angle at the other, a
   tapped hole with a thread length for how deep the thread goes, and one drilled Up to next or Up to
-  face for how far it goes past the face; zoomed out far enough that they would lie on the moving
+  face for how far it goes past the face. A hole sized by circles has these too, standing on the
+  first hole and drawn at the size that circle gives (a counterbore, countersink or step sized with
+  the circle is drawn scaled with it, and a drag sets the value the panel shows); only the bore's
+  diameter is left to the circle. Zoomed out far enough that they would lie on the moving
   arrows they are left out until you zoom in, the panel's fields still setting them. The square stops on a round
   edge's centre or an edge's middle under the pointer, and on a corner; hold Ctrl to drag freely.
   With the pointer on a handle, type a value (or x, y for the square) and press Enter. Its panel's

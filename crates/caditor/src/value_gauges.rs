@@ -1,11 +1,11 @@
 use caditor_document::{
     Blend, BlendKind, ChamferForm, CircularPattern, CurvePattern, CurveSpacing, Datum, DatumPlane,
     Evaluation, Extrude, ExtrudeEnd, ExtrudeExtent, FeatureId, FeatureKind, Hole, HoleDepth,
-    HoleShape, HoleStyle, LinearDirection, LinearSpacing, MAX_CONE_ANGLE, MAX_PATTERN_INSTANCES,
-    MAX_PRISM_SIDES, MIN_PRISM_SIDES, OffsetFace, Pattern, PatternKind, PatternPath, Primitive,
-    PrimitiveAnchor, PrimitiveShape, ReachedEnd, ReachedSide, Shell, ShellSide, SizeRule,
-    SolidFeature, SolidStart, Wall, capitalized, displayed_axis, displayed_plane, face_plane,
-    hole_centres, hole_thread,
+    HoleShape, HoleSizing, HoleStep, HoleStyle, LinearDirection, LinearSpacing, MAX_CONE_ANGLE,
+    MAX_PATTERN_INSTANCES, MAX_PRISM_SIDES, MIN_PRISM_SIDES, OffsetFace, Pattern, PatternKind,
+    PatternPath, Primitive, PrimitiveAnchor, PrimitiveShape, ReachedEnd, ReachedSide, Shell,
+    ShellSide, SizeRule, SolidFeature, SolidStart, Wall, capitalized, circle_sizes, displayed_axis,
+    displayed_plane, face_plane, hole_centres, hole_thread,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
@@ -84,6 +84,8 @@ pub enum Measured {
     CounterboreDepth,
     CountersinkDiameter,
     CountersinkAngle,
+    StepDiameter(usize),
+    StepDepth(usize),
     SlotLength,
     SlotAngle,
     ThreadDepth,
@@ -201,6 +203,8 @@ impl Measured {
             | Self::CounterboreDiameter
             | Self::CounterboreDepth
             | Self::CountersinkDiameter
+            | Self::StepDiameter(_)
+            | Self::StepDepth(_)
             | Self::SlotLength
             | Self::ThreadDepth
             | Self::HoleEndOffset
@@ -224,6 +228,8 @@ impl Measured {
             | Self::CounterboreDiameter
             | Self::CounterboreDepth
             | Self::CountersinkDiameter
+            | Self::StepDiameter(_)
+            | Self::StepDepth(_)
             | Self::SlotLength
             | Self::ThreadDepth
             | Self::BlendSize
@@ -264,6 +270,8 @@ impl Measured {
             Self::CounterboreDepth => hole_panel::COUNTERBORE_DEPTH,
             Self::CountersinkDiameter => hole_panel::COUNTERSINK_DIAMETER,
             Self::CountersinkAngle => hole_panel::COUNTERSINK_ANGLE,
+            Self::StepDiameter(index) => return Some(hole_panel::step_diameter_caption(index)),
+            Self::StepDepth(index) => return Some(hole_panel::step_depth_caption(index)),
             Self::SlotLength => hole_panel::SLOT_LENGTH,
             Self::SlotAngle => hole_panel::SLOT_ANGLE,
             Self::ThreadDepth => hole_panel::THREAD_DEPTH,
@@ -307,6 +315,12 @@ impl Measured {
             Self::CounterboreDepth => "Drag to change the counterbore's depth",
             Self::CountersinkDiameter => "Drag to change the countersink's diameter",
             Self::CountersinkAngle => "Drag to change the countersink's angle",
+            Self::StepDiameter(index) => {
+                return format!("Drag to change the diameter of step {}", index + 1);
+            }
+            Self::StepDepth(index) => {
+                return format!("Drag to change the depth of step {}", index + 1);
+            }
             Self::SlotLength => "Drag to change the slot's length",
             Self::SlotAngle => "Drag to turn the slot",
             Self::ThreadDepth => "Drag to change how deep the thread goes",
@@ -390,6 +404,20 @@ impl Measured {
                     style: HoleStyle::Countersink { angle, .. },
                     ..
                 }) => Some(angle),
+                _ => None,
+            },
+            Self::StepDiameter(index) => match kind {
+                FeatureKind::Hole(Hole {
+                    style: HoleStyle::Stepped(steps),
+                    ..
+                }) => Some(&mut steps.get_mut(index)?.diameter),
+                _ => None,
+            },
+            Self::StepDepth(index) => match kind {
+                FeatureKind::Hole(Hole {
+                    style: HoleStyle::Stepped(steps),
+                    ..
+                }) => Some(&mut steps.get_mut(index)?.depth),
                 _ => None,
             },
             Self::SlotLength => match kind {
@@ -507,7 +535,9 @@ impl Measured {
             | Self::CounterboreDiameter
             | Self::CounterboreDepth
             | Self::CountersinkDiameter
-            | Self::CountersinkAngle => {
+            | Self::CountersinkAngle
+            | Self::StepDiameter(_)
+            | Self::StepDepth(_) => {
                 if let FeatureKind::Hole(hole) = kind {
                     hole.standard = None;
                 }
@@ -556,6 +586,8 @@ impl Measured {
             | Self::CounterboreDiameter
             | Self::CounterboreDepth
             | Self::CountersinkDiameter
+            | Self::StepDiameter(_)
+            | Self::StepDepth(_)
             | Self::SlotLength
             | Self::ThreadDepth
             | Self::HoleEndOffset
@@ -580,6 +612,8 @@ impl Measured {
             | Self::CounterboreDiameter
             | Self::CounterboreDepth
             | Self::CountersinkDiameter
+            | Self::StepDiameter(_)
+            | Self::StepDepth(_)
             | Self::SlotLength
             | Self::ThreadDepth
             | Self::BlendSize
@@ -739,7 +773,20 @@ impl Builder<'_> {
         let document = self.model.document();
         let sketch = document.feature(hole.sketch)?;
         let displayed = self.model.displayed_sketch(sketch)?;
-        let (_, centre) = hole_centres(&displayed).into_iter().next()?;
+        let (point, centre) = hole_centres(&displayed).into_iter().next()?;
+        let circle = hole
+            .sizing
+            .by_circles()
+            .then(|| circle_sizes(&displayed).get(&point).copied())
+            .flatten();
+        let typed = self.length(&hole.diameter);
+        let bore = circle.map(|circle| circle.diameter).or(typed);
+        let heads = match circle {
+            Some(circle) if hole.sizing == HoleSizing::CirclesAndHeads => typed
+                .filter(|typed| *typed > 0.0)
+                .map(|typed| circle.diameter / typed),
+            _ => Some(1.0),
+        };
         let plane = scene::sketch_plane(document, self.model.evaluation(), hole.sketch)?;
         let down = if hole.reversed {
             plane.normal()
@@ -750,6 +797,8 @@ impl Builder<'_> {
             plane,
             top: plane.to_world(centre),
             down,
+            bore,
+            heads,
         })
     }
 
@@ -788,12 +837,13 @@ impl Builder<'_> {
         self.length(&hole.diameter)
     }
 
-    fn bore_level(&self, hole: &Hole, width: f64) -> f64 {
+    fn bore_level(&self, hole: &Hole, top: &HoleTop, width: f64) -> f64 {
+        let heads = top.heads.unwrap_or(1.0);
         let level = match &hole.style {
             HoleStyle::Plain => Some(0.0),
-            HoleStyle::Counterbore { depth, .. } => self.length(depth),
+            HoleStyle::Counterbore { depth, .. } => self.length(depth).map(|depth| depth * heads),
             HoleStyle::Countersink { diameter, angle } => {
-                let wide = self.length(diameter);
+                let wide = self.length(diameter).map(|wide| wide * heads);
                 let angle = self.angle(angle);
                 wide.zip(angle).map(|(wide, angle)| {
                     ((wide - width) / 2.0 / (angle / 2.0).to_radians().tan()).max(0.0)
@@ -802,14 +852,15 @@ impl Builder<'_> {
             HoleStyle::Stepped(steps) => steps
                 .iter()
                 .map(|step| self.length(&step.depth))
-                .sum::<Option<f64>>(),
+                .sum::<Option<f64>>()
+                .map(|depth| depth * heads),
         };
         level.filter(|level| level.is_finite()).unwrap_or(0.0)
     }
 
     fn hole_diameter(&self, hole: &Hole, top: &HoleTop) -> Option<Gauge> {
         let value = self.hole_width(hole)?;
-        let level = self.bore_level(hole, value);
+        let level = self.bore_level(hole, top, value);
         let (base, direction) = top.rim(hole, self);
         Some(Gauge::line(
             Measured::HoleDiameter,
@@ -820,7 +871,7 @@ impl Builder<'_> {
     }
 
     fn hole_style(&self, hole: &Hole, top: &HoleTop) -> Vec<Gauge> {
-        let Some(width) = self.hole_width(hole) else {
+        let (Some(width), Some(heads)) = (top.bore, top.heads) else {
             return Vec::new();
         };
         let (rim_base, rim) = top.rim(hole, self);
@@ -831,11 +882,16 @@ impl Builder<'_> {
                     return Vec::new();
                 };
                 vec![
-                    Gauge::line(Measured::CounterboreDiameter, (rim_base, rim), 0.5, wide),
+                    Gauge::line(
+                        Measured::CounterboreDiameter,
+                        (rim_base, rim),
+                        0.5 * heads,
+                        wide,
+                    ),
                     Gauge::line(
                         Measured::CounterboreDepth,
-                        (wall_base + wall * (wide / 2.0), top.down),
-                        1.0,
+                        (wall_base + wall * (wide * heads / 2.0), top.down),
+                        heads,
                         deep,
                     ),
                 ]
@@ -846,8 +902,13 @@ impl Builder<'_> {
                 let (Some(wide), Some(angle)) = (self.length(diameter), self.angle(angle)) else {
                     return Vec::new();
                 };
-                let mouth = Gauge::line(Measured::CountersinkDiameter, (rim_base, rim), 0.5, wide);
-                let run = (wide - width) / 2.0;
+                let mouth = Gauge::line(
+                    Measured::CountersinkDiameter,
+                    (rim_base, rim),
+                    0.5 * heads,
+                    wide,
+                );
+                let run = (wide * heads - width) / 2.0;
                 let flare = (run > SMALLEST_RADIUS).then(|| Gauge {
                     measured: Measured::CountersinkAngle,
                     track: Track::Line {
@@ -859,19 +920,47 @@ impl Builder<'_> {
                 });
                 std::iter::once(mouth).chain(flare).collect()
             }
-            HoleStyle::Plain | HoleStyle::Countersink { .. } | HoleStyle::Stepped(_) => Vec::new(),
+            HoleStyle::Stepped(steps) => self.hole_steps(steps, hole, top),
+            HoleStyle::Plain | HoleStyle::Countersink { .. } => Vec::new(),
         }
+    }
+
+    fn hole_steps(&self, steps: &[HoleStep], hole: &Hole, top: &HoleTop) -> Vec<Gauge> {
+        let heads = top.heads.unwrap_or(1.0);
+        let (rim_base, rim) = top.rim(hole, self);
+        let (wall_base, wall) = top.wall(hole, self);
+        let mut gauges = Vec::new();
+        let mut above = 0.0;
+        for (index, step) in steps.iter().enumerate() {
+            let (Some(wide), Some(deep)) = (self.length(&step.diameter), self.length(&step.depth))
+            else {
+                break;
+            };
+            let level = top.down * above;
+            gauges.push(Gauge::line(
+                Measured::StepDiameter(index),
+                (rim_base + level, rim),
+                0.5 * heads,
+                wide,
+            ));
+            gauges.push(Gauge::line(
+                Measured::StepDepth(index),
+                (wall_base + level + wall * (wide * heads / 2.0), top.down),
+                heads,
+                deep,
+            ));
+            above += deep * heads;
+        }
+        gauges
     }
 
     fn hole_slot(&self, hole: &Hole, top: &HoleTop) -> Vec<Gauge> {
         let HoleShape::Slot { angle, .. } = &hole.shape else {
             return Vec::new();
         };
-        let (Some(angle), Some((along, _, length)), Some(width)) = (
-            self.angle(angle),
-            top.slot(hole, self),
-            self.hole_width(hole),
-        ) else {
+        let (Some(angle), Some((along, _, length)), Some(width)) =
+            (self.angle(angle), top.slot(hole, self), top.bore)
+        else {
             return Vec::new();
         };
         let tip = Gauge {
@@ -907,8 +996,8 @@ impl Builder<'_> {
         hole_thread(hole)?;
         let depth = hole.thread.depth.as_ref()?;
         let value = self.length(depth)?;
-        let width = self.hole_width(hole)?;
-        let level = self.bore_level(hole, width);
+        let width = top.bore?;
+        let level = self.bore_level(hole, top, width);
         let (wall_base, wall) = top.wall(hole, self);
         Some(Gauge::line(
             Measured::ThreadDepth,
@@ -1528,6 +1617,8 @@ struct HoleTop {
     plane: Plane,
     top: Point3,
     down: Vector3,
+    bore: Option<f64>,
+    heads: Option<f64>,
 }
 
 impl HoleTop {

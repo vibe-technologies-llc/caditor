@@ -44,6 +44,14 @@ pub const THREAD_FORM: &str = "Thread form";
 pub const THREAD_HAND: &str = "Thread hand";
 pub const THREAD_LENGTH: &str = "Thread length";
 pub const THREAD_DEPTH: &str = "Thread depth";
+pub fn step_diameter_caption(index: usize) -> String {
+    format!("Step {} diameter", index + 1)
+}
+
+pub fn step_depth_caption(index: usize) -> String {
+    format!("Step {} depth", index + 1)
+}
+
 pub const COUNTERBORE_DIAMETER: &str = "Counterbore diameter";
 pub const COUNTERBORE_DEPTH: &str = "Counterbore depth";
 pub const COUNTERSINK_DIAMETER: &str = "Countersink diameter";
@@ -1038,10 +1046,9 @@ impl Panel<'_> {
 
     fn step_rows(&mut self, ui: &mut Ui, steps: &[HoleStep]) {
         for (index, step) in steps.iter().enumerate() {
-            let number = index + 1;
             let rows = [
-                (true, format!("Step {number} diameter"), &step.diameter),
-                (false, format!("Step {number} depth"), &step.depth),
+                (true, step_diameter_caption(index), &step.diameter),
+                (false, step_depth_caption(index), &step.depth),
             ];
             for (diameter, caption, shown) in rows {
                 let quantity = Quantity {

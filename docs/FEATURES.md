@@ -63,12 +63,10 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   cannot chain a shift, a turn and a mirror.
 - [medium · hard] Rib and web from an open profile: a rib extrudes parallel to the sketch plane
   and a web square to it, each thickened and run on to the nearest faces of the body.
-- [low · medium] A few values still have no handle (`value_gauges.rs`): a stepped hole's step
-  diameters and depths, and the counterbore, countersink, slot and thread sizes of a hole sized by
-  circles, are only typed. A chamfer's feet on a curved face stand on the face's tangent line
-  rather than on the face, and a curve pattern's arrow slides along the curve's tangent while it is
-  dragged, rejoining the curve when the copies are placed again. Each would be a further `Measured`
-  with its `Gauge`, or for the last two a `Track` that follows a curve.
+- [low · medium] A chamfer's feet on a curved face stand on the face's tangent line rather than on
+  the face, and a curve pattern's arrow (`value_gauges.rs`) slides along the curve's tangent while
+  it is dragged, rejoining the curve when the copies are placed again. Each would be a `Track`
+  that follows a curve.
 - [low · medium] A hole's placement handles (`hole_handles.rs`) have no drag for sliding a point
   measured from one edge along that edge, and none for a point whose position follows parameters
   (its hover names what drives it). Place by takes only edges of bodies, not another sketch's
