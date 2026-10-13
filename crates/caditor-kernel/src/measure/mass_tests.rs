@@ -471,7 +471,7 @@ fn a_block_under_a_spline_sheet_matches_a_direct_integral() {
         breaks.extend(Interval::new(pair[0], pair[1]).unwrap().split(4));
     }
     breaks.dedup();
-    let surface = Surface::BSpline(sheet);
+    let surface = Surface::from(sheet);
     let over_sheet = |integrand: &dyn Fn(Point3, Vector3) -> f64| {
         integrate(&breaks, |u| {
             integrate(&breaks, |v| {
@@ -532,7 +532,7 @@ fn a_block_under_a_spline_sheet_matches_a_direct_integral() {
 #[test]
 fn extents_find_a_bump_inside_a_spline_face() {
     let sheet = bumped_sheet(10.0, 3.0, 12, 1.5);
-    let surface = Surface::BSpline(sheet);
+    let surface = Surface::from(sheet);
     let highest_on = |center: Point2, reach: f64| {
         let steps = 200;
         (0..=steps)

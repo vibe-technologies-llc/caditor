@@ -142,7 +142,7 @@ impl Sweep<'_> {
         let columns = points.len();
         points.extend(far_points);
         weights.extend(far_weights);
-        Ok(Surface::BSpline(BSplineSurface::new(
+        Ok(Surface::from(BSplineSurface::new(
             2,
             1,
             knots(piece.spans),

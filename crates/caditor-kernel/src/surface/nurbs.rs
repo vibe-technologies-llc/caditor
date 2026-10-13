@@ -1761,7 +1761,7 @@ mod tests {
 
     #[test]
     fn projection_lands_on_the_foot_to_rounding() {
-        for surface in [wavy(), bumpy(false), bumpy(true)].map(Surface::BSpline) {
+        for surface in [wavy(), bumpy(false), bumpy(true)].map(Surface::from) {
             for (point, uv) in lifted_points(&surface, 5, 400) {
                 for hint in [None, Some(uv + Point2::new(0.01, -0.01))] {
                     let found = surface.project(point, hint);
@@ -1780,7 +1780,7 @@ mod tests {
 
     #[test]
     fn projection_evaluates_the_surface_sparingly() {
-        for surface in [wavy(), quarter_cylinder(), bumpy(true)].map(Surface::BSpline) {
+        for surface in [wavy(), quarter_cylinder(), bumpy(true)].map(Surface::from) {
             let points = lifted_points(&surface, 11, 500);
             for hinted in [false, true] {
                 counting::DERIVATIVES.with(|count| count.set(0));
@@ -1868,7 +1868,7 @@ mod tests {
         }
         assert_eq!(surface.u_period(), None);
         assert!(surface.poles().is_empty());
-        let wrapped = Surface::BSpline(surface);
+        let wrapped = Surface::from(surface);
         let point = Point3::new(6.0 * FRAC_1_SQRT_2, 6.0 * FRAC_1_SQRT_2, 3.0);
         let uv = wrapped.project(point, None);
         let foot = wrapped.point_at(uv);
@@ -1902,7 +1902,7 @@ mod tests {
 
     #[test]
     fn projection_finds_the_foot_of_points_off_the_surface() {
-        let surface = Surface::BSpline(wavy());
+        let surface = Surface::from(wavy());
         for (u, v, lift) in [
             (0.1, 0.2, 0.3),
             (0.5, 1.0, -0.2),
@@ -1943,7 +1943,7 @@ mod tests {
         };
         let rough =
             BSplineSurface::new(3, 3, knots(size), knots(size), size, points, None).unwrap();
-        let surface = Surface::BSpline(rough);
+        let surface = Surface::from(rough);
 
         let mut missed = 0;
         for _ in 0..2000 {
@@ -2003,7 +2003,7 @@ mod tests {
                 .distance(cup.evaluate(0.25, 0.5).point)
                 < 1e-12
         );
-        let surface = Surface::BSpline(cup.clone());
+        let surface = Surface::from(cup.clone());
         let near_seam = surface.project(
             cup.evaluate(0.999, 0.7).point,
             Some(Point2::new(-0.01, 0.7)),

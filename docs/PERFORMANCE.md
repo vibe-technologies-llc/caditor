@@ -100,11 +100,11 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   once imported (`import_costs`, `CADITOR_IMPORT_IN_THE_APP_ONLY=1`, resident after settling; a
   jemalloc heap profile attributes it). The largest part left is solids: each copy of a part keeps
   its own `Solid` (`Solid::imported` names faces after the copy's feature, and placed copies are
-  `transformed` with new curves and surfaces), about 1.4 GiB beside one canonical solid per part. A
-  `Face` is 320 bytes because `Surface` is sized by its B-spline (232) and revolution (184)
-  variants while planes and cylinders need under 90; boxing those two would save about 300 MiB.
-  Sharing geometry between copies (names and placement over one solid) would save most of the
-  rest but reaches every kernel reader.
+  `transformed` with new curves and surfaces), about 1.4 GiB beside one canonical solid per part
+  when measured with 320-byte faces. Boxing the extrusion, revolution and B-spline surfaces has
+  since brought a `Face` to 192 bytes (`Surface` 96, sized by cones and tori); an `Edge` is 160
+  (`Curve` 96, its variants 48 to 88 bytes, nothing worth boxing). Sharing geometry between copies
+  (names and placement over one solid) would save most of the rest but reaches every kernel reader.
 - [low · medium] The kernel mesh keeps an f64 normal per vertex (`MeshVertex`, 32 bytes, about
   400 MiB on the VZ330) that every consumer turns into f32, and the scene draws body edges as one
   88-byte `Line` per segment (two f64 ends, colour, width, pick, stroke; about 450 MiB), while the

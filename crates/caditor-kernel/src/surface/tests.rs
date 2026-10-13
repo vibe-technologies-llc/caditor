@@ -648,7 +648,7 @@ fn projection_leaves_a_corner_where_the_surface_curves_back_from_the_point() {
         None,
     )
     .unwrap();
-    let surface = Surface::BSpline(spline);
+    let surface = Surface::from(spline);
     let foot = Point2::new(0.9375, 0.0);
     let point = surface.point_at(foot);
 

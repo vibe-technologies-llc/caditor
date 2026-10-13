@@ -718,10 +718,10 @@ impl<'a> Geometry<'a> {
                     .into())
             }
             "BEZIER_SURFACE" | "UNIFORM_SURFACE" | "QUASI_UNIFORM_SURFACE" => {
-                Ok(Surface::BSpline(self.spline_surface(entity)?))
+                Ok(Surface::from(self.spline_surface(entity)?))
             }
             _ if entity.is("B_SPLINE_SURFACE") || entity.is("B_SPLINE_SURFACE_WITH_KNOTS") => {
-                Ok(Surface::BSpline(self.spline_surface(entity)?))
+                Ok(Surface::from(self.spline_surface(entity)?))
             }
             "OFFSET_SURFACE" => {
                 let fields = entity.record("OFFSET_SURFACE")?;

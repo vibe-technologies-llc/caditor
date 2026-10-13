@@ -38,6 +38,10 @@ paths:
 
 ## Curves and surfaces
 
+- `Surface` boxes its extrusion, revolution and B-spline variants, so it is sized by a cone or
+  torus and a `Face` stays small (`faces_and_their_geometry_stay_small_with_large_surfaces_boxed`
+  bounds `Face`, `Surface` and `Curve`); build one with `Surface::from`. `Curve`'s variants are
+  close in size and unboxed. `Solid::owned_size` counts each boxed surface (`Surface::boxed_size`).
 - `Curve` and `Curve2` share one `BSpline<P>` and generic sampling, length and closest-point code.
   Lines run by arc length, circles and ellipses by angle in a `Plane` frame, splines over their
   knots; reversal maps t to `reversal_pivot() - t`.

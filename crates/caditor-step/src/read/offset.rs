@@ -407,7 +407,7 @@ fn fitted_surface(
             v_pieces,
         };
         fit.round(grid.u.len() * grid.v.len())?;
-        let fitted = Surface::BSpline(surface_through(basis, &grid, &exact)?);
+        let fitted = Surface::from(surface_through(basis, &grid, &exact)?);
         let mut reached = [0.0f64; 2];
         let (u_middles, v_middles) = (middles(&grid.u), middles(&grid.v));
         let checks = [
@@ -671,10 +671,9 @@ mod tests {
     fn offsets_of_extrusions_revolutions_and_splines_are_fitted_within_the_tolerance() {
         let unit = Interval::UNIT;
         let span = |start: f64, end: f64| Interval::new(start, end).unwrap();
-        let extruded =
-            Surface::Extrusion(Extrusion::new(Curve::BSpline(wave()), Vector3::Z).unwrap());
+        let extruded = Surface::from(Extrusion::new(Curve::BSpline(wave()), Vector3::Z).unwrap());
         let ellipse = caditor_kernel::Ellipse::new(Plane::XY, 8.0, 5.0).unwrap();
-        let oval = Surface::Extrusion(
+        let oval = Surface::from(
             Extrusion::new(Curve::Ellipse(ellipse), Vector3::new(0.0, 0.3, 1.0)).unwrap(),
         );
         let profile = BSpline::new(
@@ -688,7 +687,7 @@ mod tests {
             ],
         )
         .unwrap();
-        let vase = Surface::Revolution(
+        let vase = Surface::from(
             Revolution::new(Curve::BSpline(profile), Point3::ZERO, Vector3::Z).unwrap(),
         );
         let mut net = Vec::new();
@@ -698,7 +697,7 @@ mod tests {
                 net.push(Point3::new(x, y, 3.0 * (x * 0.3).sin() * (y * 0.2).cos()));
             }
         }
-        let bump = Surface::BSpline(
+        let bump = Surface::from(
             BSplineSurface::new(
                 3,
                 3,
@@ -722,7 +721,7 @@ mod tests {
     fn offsets_that_leave_no_surface_or_fold_over_are_refused_in_words() {
         let cylinder = Surface::Cylinder(Cylinder::new(frame(), 2.0).unwrap());
         let torus = Surface::Torus(Torus::new(frame(), 10.0, 3.0).unwrap());
-        let tight = Surface::Extrusion(Extrusion::new(Curve::BSpline(wave()), Vector3::Z).unwrap());
+        let tight = Surface::from(Extrusion::new(Curve::BSpline(wave()), Vector3::Z).unwrap());
 
         let refusal = |basis: &Surface, distance: f64| {
             offset(basis, distance, &within(1e-6))
@@ -747,7 +746,7 @@ mod tests {
 
     #[test]
     fn a_fit_that_cannot_reach_the_tolerance_says_how_close_it_came() {
-        let bumpy = Surface::Extrusion(Extrusion::new(Curve::BSpline(wave()), Vector3::Z).unwrap());
+        let bumpy = Surface::from(Extrusion::new(Curve::BSpline(wave()), Vector3::Z).unwrap());
 
         let refusal = offset(&bumpy, 1.0, &within(1e-9)).unwrap_err();
 
