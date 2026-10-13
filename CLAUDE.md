@@ -47,7 +47,7 @@ inside the workspace.
 | `caditor-file` | Persistence: binary container, version history, recovery journal, preferences, DXF/SVG/STEP and STL/OBJ/3MF mesh import, reference picture decoding, STL/3MF/OBJ/glTF/STEP/PNG and DXF/SVG drawing export. | document and everything it uses, step, zstd, windows |
 | `caditor-notices` | Release tool: writes `THIRD-PARTY-NOTICES.txt` from `cargo metadata` and the font licences. | none |
 | `caditor-render` | wgpu viewport, camera, GPU picking, reference pictures, image export; no winit or document dependency. | geometry (windows on Windows) |
-| `caditor` | The winit/egui application: UI, commands, sketch editing, file workflow. | all but step, zstd and notices (wayland on Unix, windows on Windows) |
+| `caditor` | The winit/egui application: UI, commands, sketch editing, file workflow; the headless MCP server. | all but step, zstd and notices (wayland on Unix, windows on Windows) |
 
 Platform code is a `cfg(unix)`/`cfg(windows)` pair behind one interface; Windows specifics are in
 `windows.md`.
@@ -98,5 +98,6 @@ rule's `paths:` covers, a rules file with nothing under its title and one missin
 | `document.md`, `document-recompute.md` | Transactions, undo, model parameters, every feature kind; recompute caching, failure containment, the worker. |
 | `file-format.md`, `file-journal.md`, `file-import-export.md` | Container, version history, atomic saving; recovery journal, storage worker, preferences; DXF, SVG, STEP and mesh import, model, image and drawing export, parameter files. |
 | `notices.md` | The third-party notices file: which crates and fonts it lists, where the texts come from, how packages install it. |
+| `mcp.md` | The headless MCP server (`caditor mcp`): JSON-RPC reader, session, tools, references, files and resources. |
 | `render.md` | Frames, devices, graphics settings, precision, depth, picking, navigation. |
 | `app.md`, `app-look.md`, `app-modelling.md`, `app-files.md`, `app-input.md`, `app-sketching.md`, `app-tests.md` | App shell, `Model` and `Action`s, the user guide; theme, widgets, panels, feature tree; modelling tools; file workflow and preferences; input, commands and keymap; sketch editing; the headless UI test harness. |

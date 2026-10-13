@@ -59,6 +59,20 @@ pub(super) fn encode_png(image: RgbaImage<'_>) -> Result<Vec<u8>, ImageExportErr
     Ok(encoded)
 }
 
+pub fn png_bytes<R: PixelRows + ?Sized>(
+    rows: &mut R,
+    cancel: &CancelToken,
+) -> Result<Vec<u8>, PngExportError<R::Error>> {
+    let mut encoded = Vec::new();
+    write_png(&mut encoded, rows, cancel).map_err(|halt| match halt {
+        Halt::Stopped(error) => error,
+        Halt::Io(error) => {
+            PngExportError::Export(ImageExportError::Writing(WriteFailure::of(&error)))
+        }
+    })?;
+    Ok(encoded)
+}
+
 pub trait PixelRows {
     type Error;
 

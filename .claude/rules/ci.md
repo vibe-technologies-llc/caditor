@@ -99,7 +99,8 @@ paths:
   `fuzz/fuzz_targets`. CI runs them with `--target x86_64-unknown-linux-gnu`: the released cargo-fuzz
   binary is built for musl and would otherwise build for musl, which AddressSanitizer refuses.
 - Byte targets feed parsers and loaders (expression, DXF, SVG, model files, journal, zstd, STEP,
-  meshes, preferences, recent files); `model_sealed` and the resealed journal target recompute chunk
+  meshes, preferences, recent files, and `mcp`: JSON-RPC lines through the MCP server's reader and
+  tool argument decoding, `caditor::fuzzing::mcp_lines`); `model_sealed` and the resealed journal target recompute chunk
   checksums so the decoders behind them are reached, while `journal_torn` leaves a damaged tail torn.
 - Structured targets (`profile_sweep`, `boolean`, `sketch_solve`, `document`, `save_load`) decode bytes
   with `arbitrary::Unstructured` through the generators in `fuzz/src`, biased to near-coincident and

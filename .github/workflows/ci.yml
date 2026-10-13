@@ -398,6 +398,7 @@ jobs:
           - { target: step_import, seeds: step, dictionary: step }
           - { target: preferences, seeds: preferences, dictionary: json }
           - { target: recent_files, seeds: recent_files, dictionary: json }
+          - { target: mcp, seeds: mcp, dictionary: mcp }
           - { target: profile_sweep, seeds: structured, dictionary: none }
           - { target: boolean, seeds: structured, dictionary: none }
           - { target: sketch_solve, seeds: structured, dictionary: none }

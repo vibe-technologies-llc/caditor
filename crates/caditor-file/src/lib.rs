@@ -49,7 +49,7 @@ pub use crate::{
         MeshOptions, MeshResolution, NamedFace, NamedSketch, Nesting, PNG_EXTENSION, PixelRows,
         PngExportError, RgbaImage, STEP_EXTENSION, STEP_EXTENSIONS, SheetLayout, SketchExported,
         SketchFormat, StlEncoding, export_bodies, export_drawing, export_face, export_faces,
-        export_png, export_sketch, export_sketches,
+        export_png, export_sketch, export_sketches, png_bytes,
     },
     format::FORMAT_VERSION,
     import::{

@@ -23,3 +23,9 @@ last computed, with a warning) or a configuration could not be exported while ot
 with nothing written when the model has no body, has no such configuration or cannot be read.
 
 `caditor --help` lists the options and `caditor --version` prints the version.
+
+## Serving an AI assistant
+
+`caditor mcp MODEL` opens no window either: it serves MODEL to an AI assistant over the Model
+Context Protocol until the assistant closes it. [Working with an AI assistant](mcp) says how to
+connect one and what it can do; `--folder DIR` lets it export into DIR as well.

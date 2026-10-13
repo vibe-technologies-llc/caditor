@@ -5,7 +5,7 @@ use std::{
 
 use anyhow::Result;
 use caditor_document::{CancelToken, Document, Evaluation};
-use caditor_render::{Scene, SurfaceSize, View};
+use caditor_render::{Scene, SurfaceSize, View, Viewpoint};
 
 use crate::{
     analysis::Analyses,
@@ -74,6 +74,33 @@ pub fn take_unless(
     ))
 }
 
+pub fn looking_from(
+    document: &Document,
+    evaluation: &Evaluation,
+    size: SurfaceSize,
+    starting: Viewpoint,
+    cancel: &CancelToken,
+) -> Result<Snapshot, Unmeshed> {
+    let pictures = ImageTextures::decoded_for(document);
+    let meshes = meshed(evaluation, cancel)?;
+    Ok(framed_from(
+        document,
+        evaluation,
+        &meshes,
+        size,
+        Canvas::default(),
+        Some(&pictures),
+        starting,
+    ))
+}
+
+pub fn home_viewpoint(document: &Document) -> Viewpoint {
+    document
+        .saved_views()
+        .home
+        .map_or_else(initial_viewpoint, saved_views::viewpoint)
+}
+
 pub fn of_bodies(
     document: &Document,
     evaluation: &Evaluation,
@@ -81,6 +108,26 @@ pub fn of_bodies(
     size: SurfaceSize,
     canvas: Canvas,
     pictures: Option<&ImageTextures>,
+) -> Snapshot {
+    framed_from(
+        document,
+        evaluation,
+        meshes,
+        size,
+        canvas,
+        pictures,
+        home_viewpoint(document),
+    )
+}
+
+fn framed_from(
+    document: &Document,
+    evaluation: &Evaluation,
+    meshes: &BodyMeshes,
+    size: SurfaceSize,
+    canvas: Canvas,
+    pictures: Option<&ImageTextures>,
+    starting: Viewpoint,
 ) -> Snapshot {
     let sketches = DisplayedSketches::default();
     let sources = Sources {
@@ -99,10 +146,6 @@ pub fn of_bodies(
     let (width, height) = (f64::from(size.width), f64::from(size.height));
 
     let first = build(&sources, FacetLevel::WITHOUT_A_VIEW);
-    let starting = document
-        .saved_views()
-        .home
-        .map_or_else(initial_viewpoint, saved_views::viewpoint);
     let initial = View::new(starting, width, height);
     let framed = View::new(initial.fitted(first.fit_all()), width, height);
     let level = FacetLevel::fitting(FacetLevel::wanted_chord(&framed));

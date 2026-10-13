@@ -115,6 +115,12 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   splitting and the rounding's retraced edges do not yet follow. Tapering the other way works down
   to corners a little larger than the fillet, and corners no larger than it are refused as
   `TooLarge`.
+- [low · medium] A points pattern's skipped copy names a sketch point by number, and one naming a
+  point the sketch does not have (a damaged or hand-made file) is not kept off later drawn points,
+  so a point drawn under that number starts out skipped. The other outside references raise the
+  sketch's counter (`FeatureKind::named_entities`), but a skipped instance decodes to any number up
+  to 2^64 and raising the counter on loading would change how the format corpus reads; the reserve
+  would need to happen only on edits, or a skipped point beyond the counter be dropped on loading.
 
 ## Sketch solver
 
