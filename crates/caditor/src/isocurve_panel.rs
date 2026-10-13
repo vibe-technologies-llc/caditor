@@ -4,6 +4,7 @@ use egui::{Label, Slider, TextWrapMode, Ui};
 use crate::{
     appearance::{SPACE_M, SPACE_S},
     comb,
+    commands::{Command, CommandFrame},
     guide::Page,
     icons,
     isocurves::{self, Directions, FaceLines, IsocurveTool, Isocurves},
@@ -24,6 +25,7 @@ pub const NOTHING_CHOSEN: &str = "Select faces of bodies to draw their parameter
                                   else.";
 pub const WORKING: &str = "Working out the lines…";
 pub const STOPPED: &str = "Stopped. Change a setting or the selected faces to draw the lines.";
+const NOT_WORKING: &str = "No isocurves are being worked out";
 const STOP_HOVER: &str = "Stop working out the lines and draw none";
 pub const FAILED: &str = "The lines of the chosen faces could not be worked out. Select them \
                           again or other faces.";
@@ -135,16 +137,24 @@ fn faces(ui: &mut Ui, units: Units, isocurves: &Isocurves) {
     });
 }
 
-fn findings(ui: &mut Ui, units: Units, tool: &mut IsocurveTool, shown: Option<&Isocurves>) {
+fn findings(
+    ui: &mut Ui,
+    units: Units,
+    tool: &mut IsocurveTool,
+    shown: Option<&Isocurves>,
+    commands: &mut CommandFrame<'_>,
+) {
+    let working = tool.is_working().then_some(()).ok_or(NOT_WORKING);
+    let mut stop = commands.invoke(Command::CancelIsocurves, &working);
     if tool.is_working() {
-        if widgets::progress(WORKING)
+        stop |= widgets::progress(WORKING)
             .wrapping()
             .cancel(STOP_HOVER)
-            .show(ui)
-        {
-            tool.stop();
-        }
+            .show(ui);
         ui.add_space(SPACE_S);
+    }
+    if stop {
+        tool.stop();
     }
     if tool.is_stopped() {
         widgets::callout(ui, Tone::Info, |ui| ui.label(STOPPED));
@@ -178,6 +188,7 @@ pub fn show(
     tool: &mut IsocurveTool,
     shown: Option<&Isocurves>,
     room: f32,
+    commands: &mut CommandFrame<'_>,
 ) {
     let panel = widgets::side_panel(
         ui,
@@ -194,7 +205,7 @@ pub fn show(
                 widgets::callout(ui, Tone::Info, |ui| ui.label(NOTHING_CHOSEN));
                 return;
             }
-            findings(ui, units, tool, shown);
+            findings(ui, units, tool, shown, commands);
         },
     );
     if panel.closed {

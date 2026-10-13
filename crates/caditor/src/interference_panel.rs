@@ -7,6 +7,7 @@ use egui::Ui;
 use crate::{
     appearance::{SPACE_M, SPACE_S},
     bodies::MassAccuracy,
+    commands::{Command, CommandFrame},
     guide::Page,
     icons,
     interference::{Bodies, Finding, InterferenceTool, Pair, Report, Scope},
@@ -33,6 +34,8 @@ pub const EVERYTHING: &str = "Every body shown, pair by pair. Select faces, edge
 pub const CHOSEN: &str = "The selected bodies, pair by pair.";
 pub const CHECKING: &str = "Checking pairs…";
 pub const CHECK_AGAIN: &str = "Check again";
+const NOT_CHECKING: &str = "No bodies are being checked for interference";
+const NOT_STOPPED: &str = "The interference check was not stopped";
 const STOP_HOVER: &str = "Stop checking and list what is found so far";
 pub const MAX_LISTED: usize = 50;
 const UNMESHED: &str = "The shared volume could not be meshed, so its size is not known.";
@@ -302,7 +305,13 @@ pub fn refresh(context: &InterferenceContext<'_>, tool: &mut InterferenceTool) {
     }
 }
 
-pub fn show(ui: &mut Ui, model: &Model, tool: &mut InterferenceTool, room: f32) -> Option<Point3> {
+pub fn show(
+    ui: &mut Ui,
+    model: &Model,
+    tool: &mut InterferenceTool,
+    room: f32,
+    commands: &mut CommandFrame<'_>,
+) -> Option<Point3> {
     let report = tool.report.as_ref()?;
     let document = model.document();
     let unit = model.length_unit();
@@ -367,6 +376,10 @@ pub fn show(ui: &mut Ui, model: &Model, tool: &mut InterferenceTool, room: f32) 
             ));
         }
     });
+    let checking = report.is_checking().then_some(()).ok_or(NOT_CHECKING);
+    let stopped = report.stopped.then_some(()).ok_or(NOT_STOPPED);
+    stop |= commands.invoke(Command::CancelInterference, &checking);
+    again |= commands.invoke(Command::CheckInterferenceAgain, &stopped);
     if stop {
         tool.interference.stop();
     }

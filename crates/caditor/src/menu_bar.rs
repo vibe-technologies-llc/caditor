@@ -119,6 +119,21 @@ const MODEL_PARAMETERS: [&[Command]; 1] = [&[
     Command::DeleteParameter,
     Command::DeleteUnusedParameters,
 ]];
+const VIEW_BACKGROUND_WORK: [&[Command]; 2] = [
+    &[
+        Command::CancelPreparingBodies,
+        Command::CancelAnalysis,
+        Command::CancelMassProperties,
+        Command::CancelIsocurves,
+        Command::CancelInterference,
+    ],
+    &[
+        Command::ShowRestOfBodies,
+        Command::AnalyseAgain,
+        Command::WorkOutMassProperties,
+        Command::CheckInterferenceAgain,
+    ],
+];
 const MODEL_RECOMPUTE: [&[Command]; 1] = [&[
     Command::Recompute,
     Command::CancelRecompute,
@@ -843,6 +858,13 @@ impl Menus<'_> {
                 ui.separator();
                 self.choice(ui, Command::Section(SectionCommand::Toggle));
                 self.item(ui, Command::Section(SectionCommand::Add));
+                ui.separator();
+                self.group(
+                    ui,
+                    Command::CancelAnalysis,
+                    "Background work",
+                    &VIEW_BACKGROUND_WORK,
+                );
             });
             submenu(
                 ui,

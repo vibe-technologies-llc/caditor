@@ -304,8 +304,17 @@ pub fn command(command: Command) -> &'static str {
         | Command::CancelImageExport
         | Command::CancelImport
         | Command::CancelRecompute
+        | Command::CancelAnalysis
+        | Command::CancelMassProperties
+        | Command::CancelPreparingBodies
+        | Command::CancelIsocurves
+        | Command::CancelInterference
         | Command::CancelPaste => phosphor::STOP_CIRCLE,
-        Command::Recompute => phosphor::ARROW_CLOCKWISE,
+        Command::Recompute
+        | Command::AnalyseAgain
+        | Command::WorkOutMassProperties
+        | Command::ShowRestOfBodies
+        | Command::CheckInterferenceAgain => phosphor::ARROW_CLOCKWISE,
         Command::RenameFeature | Command::RenameGroup => RENAME,
         Command::GroupFeatures => FEATURE_GROUP,
         Command::Ungroup => phosphor::FOLDER_MINUS,

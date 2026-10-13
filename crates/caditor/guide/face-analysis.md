@@ -22,7 +22,8 @@ display styles do not colour faces; the panel says so.
 
 A large body is worked out in the background and shown in its own colours until it is done, while
 the panel says it is working. **Cancel** stops it: the bodies not done stay in their own colours,
-their area is left out of the legend, and **Analyse again** finishes them. Changing a setting
-analyses them anew too.
+their area is left out of the legend, and **Analyse again** finishes them. The commands
+{command:view.cancel_analysis} and {command:view.analyse_again} do the same from the search and the
+View menu's Background work. Changing a setting analyses them anew too.
 
 See also the [curvature comb](curvature-comb) and [isocurves](isocurves).

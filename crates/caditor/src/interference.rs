@@ -15,6 +15,8 @@ use caditor_kernel::{
     Interference as Contact, LINEAR_RESOLUTION, MeshQuality, interference, interruptible,
 };
 
+#[cfg(test)]
+use crate::bodies::Hold;
 use crate::{
     bodies::BodyMass,
     model::{Model, Waker},
@@ -219,6 +221,8 @@ struct Job {
     ticket: u64,
     tasks: Vec<Task>,
     quality: MeshQuality,
+    #[cfg(test)]
+    hold: Hold,
 }
 
 enum Message {
@@ -244,6 +248,8 @@ fn run_job(job: &Job, current: &AtomicU64, send: &mut dyn FnMut(Message) -> bool
         if current.load(Ordering::SeqCst) != ticket {
             return;
         }
+        #[cfg(test)]
+        let _ = job.hold.wait();
         let finding = contained_check(&task.first, &task.second, &job.quality);
         let message = if current.load(Ordering::SeqCst) == ticket {
             Message::Found {
@@ -363,9 +369,16 @@ pub struct Interference {
     checked: BTreeMap<Pair, Checked>,
     changed: bool,
     stopped: bool,
+    #[cfg(test)]
+    hold: Hold,
 }
 
 impl Interference {
+    #[cfg(test)]
+    pub fn hold_on_a_thread(&mut self, hold: Hold) {
+        self.hold = hold;
+    }
+
     pub fn refresh(
         &mut self,
         model: &Model,
@@ -454,6 +467,8 @@ impl Interference {
                     ticket: self.ticket,
                     tasks,
                     quality: basis.quality,
+                    #[cfg(test)]
+                    hold: self.hold.clone(),
                 },
             );
         }

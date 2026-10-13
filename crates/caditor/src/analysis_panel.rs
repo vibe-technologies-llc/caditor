@@ -11,6 +11,7 @@ use crate::{
     },
     appearance::{SPACE_M, SPACE_S},
     bodies::BodyMeshes,
+    commands::{Command, CommandFrame},
     display_style::DisplayStyle,
     feature_fields, field,
     guide::Page,
@@ -31,6 +32,8 @@ pub const FAILED: &str = "The faces of a body could not be analysed.";
 pub const STOPPED: &str = "Stopped before every body was analysed. The bodies left are shown in \
                            their own colours and the areas leave them out.";
 pub const ANALYSE_AGAIN: &str = "Analyse again";
+const NOT_ANALYSING: &str = "No faces are being analysed";
+const NOT_STOPPED: &str = "The face analysis was not stopped";
 const STOP_HOVER: &str = "Stop working out the faces and show the bodies left uncoloured";
 const ANALYSE_AGAIN_HOVER: &str = "Work out the faces of the bodies left";
 pub const HIDDEN_STYLE: &str = "This display style does not colour faces. Choose a shaded style \
@@ -196,7 +199,12 @@ fn pull_rows(ui: &mut Ui, context: &AnalysisContext<'_>, tool: &mut AnalysisTool
     }
 }
 
-fn legend(ui: &mut Ui, context: &AnalysisContext<'_>, analysis: FaceAnalysis) {
+fn legend(
+    ui: &mut Ui,
+    context: &AnalysisContext<'_>,
+    analysis: FaceAnalysis,
+    commands: &mut CommandFrame<'_>,
+) {
     let palette = context.contrast.palette(context.canvas);
     let units: Units = context.model.units();
     let meshes = context.shown();
@@ -229,25 +237,30 @@ fn legend(ui: &mut Ui, context: &AnalysisContext<'_>, analysis: FaceAnalysis) {
             });
         }
     });
-    if tally.working
-        && widgets::progress(WORKING)
+    let working = tally.working.then_some(()).ok_or(NOT_ANALYSING);
+    let mut stop = commands.invoke(Command::CancelAnalysis, &working);
+    if tally.working {
+        stop |= widgets::progress(WORKING)
             .wrapping()
             .cancel(STOP_HOVER)
-            .show(ui)
-    {
+            .show(ui);
+    }
+    if stop {
         context.analyses.stop();
     }
+    let stopped = tally.stopped.then_some(()).ok_or(NOT_STOPPED);
+    let mut again = commands.invoke(Command::AnalyseAgain, &stopped);
     if tally.stopped {
         widgets::callout(ui, Tone::Info, |ui| {
             ui.add(Label::new(STOPPED).wrap_mode(TextWrapMode::Wrap));
-            if ui
+            again |= ui
                 .add(widgets::button(ANALYSE_AGAIN))
                 .on_hover_text(ANALYSE_AGAIN_HOVER)
-                .clicked()
-            {
-                context.analyses.resume();
-            }
+                .clicked();
         });
+    }
+    if again {
+        context.analyses.resume();
     }
     if tally.failed {
         widgets::callout(ui, Tone::Warning, |ui| ui.label(FAILED));
@@ -325,7 +338,12 @@ fn about(kind: Kind) -> &'static str {
     }
 }
 
-fn body(ui: &mut Ui, context: &AnalysisContext<'_>, tool: &mut AnalysisTool) {
+fn body(
+    ui: &mut Ui,
+    context: &AnalysisContext<'_>,
+    tool: &mut AnalysisTool,
+    commands: &mut CommandFrame<'_>,
+) {
     kind_row(ui, tool);
     ui.add_space(SPACE_S);
     ui.label(widgets::muted(about(tool.kind), ui));
@@ -368,7 +386,7 @@ fn body(ui: &mut Ui, context: &AnalysisContext<'_>, tool: &mut AnalysisTool) {
         ui.add_space(SPACE_S);
     }
     match tool.analysis(context.model) {
-        Ok(Analysis::Faces(analysis)) => legend(ui, context, analysis),
+        Ok(Analysis::Faces(analysis)) => legend(ui, context, analysis, commands),
         Ok(Analysis::Reflection(_)) => {}
         Err(problem) => {
             widgets::callout(ui, Tone::Warning, |ui| ui.label(problem.to_string()));
@@ -376,14 +394,20 @@ fn body(ui: &mut Ui, context: &AnalysisContext<'_>, tool: &mut AnalysisTool) {
     }
 }
 
-pub fn show(ui: &mut Ui, context: &AnalysisContext<'_>, tool: &mut AnalysisTool, room: f32) {
+pub fn show(
+    ui: &mut Ui,
+    context: &AnalysisContext<'_>,
+    tool: &mut AnalysisTool,
+    room: f32,
+    commands: &mut CommandFrame<'_>,
+) {
     let shown = widgets::side_panel(
         ui,
         room,
         PANEL,
         &HEADER,
         |_| {},
-        |ui| body(ui, context, tool),
+        |ui| body(ui, context, tool, commands),
     );
     if shown.closed {
         tool.open = false;

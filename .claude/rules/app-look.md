@@ -228,7 +228,12 @@ paths:
     user asks again, saying so in an info callout. Cancelled face analysis, mass properties and
     body preparing keep what they stopped as stopped (`Analyses::stop`, `BodyMesh::stop_mass`,
     `BodyMeshing::stop`) until the user asks again with the button beside the info callout or pill
-    that says so (Analyse again, Work them out, Show the rest).
+    that says so (Analyse again, Work them out, Show the rest). Each of these Cancels, and each of
+    those resuming buttons (Check again included), is also a command (`Command::CancelAnalysis`,
+    `CancelMassProperties`, `CancelPreparingBodies`, `CancelIsocurves`, `CancelInterference`;
+    `AnalyseAgain`, `WorkOutMassProperties`, `ShowRestOfBodies`, `CheckInterferenceAgain`), invoked
+    by the panel or status bar that draws the wait, so the button and the command share one path
+    (`app-input.md`).
   - One focus ring: `paint_focus_ring` in the panels' focus colour, `paint_focus_ring_in` with a
     colour and radius of the caller's; the 3D view's controls and the view cube pass the chrome's
     `focus`, which the canvas tests hold over the backdrop.

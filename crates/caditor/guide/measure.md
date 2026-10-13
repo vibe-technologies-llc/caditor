@@ -25,7 +25,9 @@ view, so it can be measured to. Mass properties are worked out exactly from each
 first time something asks for them, in the background; until then a body's card says so, and on a
 large assembly the total follows a few seconds later. While they are worked out the section counts
 the bodies done, and **Cancel** stops the rest: their cards say they were stopped, and **Work them
-out** starts them again.
+out** starts them again. {command:view.cancel_mass_properties} and
+{command:view.work_out_mass_properties} do the same from the search and the View menu's Background
+work.
 
 ## Relative to
 

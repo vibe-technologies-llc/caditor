@@ -771,7 +771,7 @@ pub fn show(
             bodies: viewport.bodies(),
             tree_bodies: &tree_bodies,
         };
-        measure_panel::show(ui, &context, measure, room, panels, actions);
+        measure_panel::show(ui, &context, measure, room, panels, &mut commands, actions);
     }
     let measured = measure
         .open
@@ -790,7 +790,8 @@ pub fn show(
             tree_bodies: &tree_bodies,
         };
         interference_panel::refresh(&context, interference);
-        if let Some(place) = interference_panel::show(ui, model, interference, room) {
+        if let Some(place) = interference_panel::show(ui, model, interference, room, &mut commands)
+        {
             viewport.show_place(place);
         }
         interference
@@ -814,7 +815,7 @@ pub fn show(
             canvas: canvas::canvas(ui.ctx()),
             shown: OnceCell::new(),
         };
-        analysis_panel::show(ui, &context, analysis, room);
+        analysis_panel::show(ui, &context, analysis, room, &mut commands);
         let analysing = analysis.analysis(model).ok();
         let shown = if analysing.and_then(Analysis::faces).is_some() {
             context.into_shown()
@@ -840,7 +841,14 @@ pub fn show(
     let lines = if isocurves.open {
         isocurves.follow(viewport.selection());
         let shown = isocurves.isocurves(model);
-        isocurve_panel::show(ui, model.units(), isocurves, shown.as_deref(), room);
+        isocurve_panel::show(
+            ui,
+            model.units(),
+            isocurves,
+            shown.as_deref(),
+            room,
+            &mut commands,
+        );
         shown
             .filter(|_| isocurves.open)
             .map(|shown| isocurves.drawing(&shown))

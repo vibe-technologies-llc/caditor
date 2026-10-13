@@ -13,4 +13,5 @@ the bodies meet. **Show where** frames it in the view, where overlaps are outlin
 is marked. Findings appear as each pair is checked, and only pairs whose bodies changed are checked
 again after an edit.
 **Cancel** beside the count stops checking and keeps what is found; **Check again** finishes the
-rest.
+rest. {command:view.cancel_interference} and {command:view.check_interference_again} do the same
+from the search and the View menu's Background work.
