@@ -418,6 +418,11 @@ fn screenshots() {
         drop(moving);
 
         let dir = TempDir::new().expect("a temporary directory");
+        let mut tracing = Harness::styled(look, dir.path(), false);
+        reference_image_scene(&mut tracing, dir.path(), &gpu, &out, look);
+        drop(tracing);
+
+        let dir = TempDir::new().expect("a temporary directory");
         let mut configured = Harness::styled(look, dir.path(), false);
         configured.open_sample(Sample::Bracket);
         configurations_scene(&mut configured, &gpu, &out, look);
@@ -1032,6 +1037,44 @@ fn interference(harness: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
     shoot(harness, gpu, out, "interference-overlap", look);
+}
+
+fn reference_image_scene(harness: &mut Harness, dir: &Path, gpu: &Gpu, out: &Path, look: Look) {
+    let photo = dir.join("bracket.png");
+    super::reference_images::write_drawing_photo(&photo);
+    harness.select([]);
+    harness.answer_dialog(Some(photo));
+    harness.command(crate::files::FileCommand::InsertImage(
+        crate::image_tools::ImageTarget::Plane {
+            plane: caditor_document::PlaneReference::Principal(
+                caditor_document::PrincipalPlane::Xy,
+            ),
+            at: caditor_geometry::Point2::ZERO,
+        },
+    ));
+    harness.wait_until("the picture is inserted", |harness| {
+        harness
+            .document()
+            .features()
+            .any(|feature| matches!(feature.kind, FeatureKind::ReferenceImage(_)))
+    });
+    harness.settle();
+    harness.key(Key::F, Modifiers::NONE);
+    harness.frame();
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    shoot(harness, gpu, out, "reference-image", look);
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    let sketch = harness.draw_on_new_sketch();
+    harness.use_tool(Key::L);
+    for corner in [(-30.0, -10.0), (20.0, -10.0), (20.0, 15.0), (-30.0, -10.0)] {
+        harness.click_at(caditor_geometry::Point2::new(corner.0, corner.1));
+    }
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    let _ = sketch;
+    shoot(harness, gpu, out, "reference-image-traced", look);
 }
 
 fn shoot_open(harness: &mut Harness, gpu: &Gpu, out: &Path, scene: &str, look: Look) {

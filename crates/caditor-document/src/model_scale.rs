@@ -25,6 +25,7 @@ use crate::{
     pattern::PatternKind,
     primitive::SizeRule,
     projection::ProjectionSource,
+    reference_image::ImagePlane,
     scaling::{MAX_SCALE_FACTOR, MIN_SCALE_FACTOR},
     solid::{
         Extrude, ExtrudeEnd, ExtrudeExtent, Revolve, RevolveAxis, RevolveExtent, SolidFeature,
@@ -577,6 +578,24 @@ impl Rescaler {
                     | PlaneReference::Frame { .. } => [0.0; 2],
                 };
                 for (at, shift) in primitive.at.iter_mut().zip(shifts) {
+                    self.placed(at, shift, name)?;
+                }
+            }
+            FeatureKind::ReferenceImage(image) => {
+                self.length(image.size.expression_mut(), name)?;
+                let shifts = match &image.plane {
+                    ImagePlane::Reference(PlaneReference::Principal(plane))
+                        if holds(PrincipalGeometry::Plane(*plane), self.centre) =>
+                    {
+                        let plane = plane.plane();
+                        [
+                            self.shift.dot(plane.x_axis()),
+                            self.shift.dot(plane.y_axis()),
+                        ]
+                    }
+                    ImagePlane::Reference(_) | ImagePlane::Sketch(_) => [0.0; 2],
+                };
+                for (at, shift) in image.at.iter_mut().zip(shifts) {
                     self.placed(at, shift, name)?;
                 }
             }
@@ -1139,6 +1158,10 @@ fn anchored(kind: &mut FeatureKind) -> Vec<Anchored<'_>> {
         FeatureKind::Solid(SolidFeature::Extrude(extrude)) => extrude_anchored(extrude),
         FeatureKind::Solid(SolidFeature::Revolve(revolve)) => revolve_anchored(revolve),
         FeatureKind::Primitive(primitive) => vec![Anchored::Plane(&mut primitive.plane)],
+        FeatureKind::ReferenceImage(image) => match &mut image.plane {
+            ImagePlane::Reference(plane) => vec![Anchored::Plane(plane)],
+            ImagePlane::Sketch(_) => Vec::new(),
+        },
         FeatureKind::Move(movement) => match &mut movement.about {
             TurnCentre::Axis(turn) => vec![Anchored::Axis(&mut turn.axis)],
             TurnCentre::Origin | TurnCentre::Body => Vec::new(),

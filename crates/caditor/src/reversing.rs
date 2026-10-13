@@ -111,7 +111,8 @@ pub fn reversed(feature: &Feature) -> Result<FeatureKind, String> {
         | FeatureKind::Import(_)
         | FeatureKind::Remove(_)
         | FeatureKind::Thread(_)
-        | FeatureKind::Measurement(_) => Err(NOTHING_TO_REVERSE.to_owned()),
+        | FeatureKind::Measurement(_)
+        | FeatureKind::ReferenceImage(_) => Err(NOTHING_TO_REVERSE.to_owned()),
     }
 }
 

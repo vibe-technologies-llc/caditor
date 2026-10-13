@@ -16,6 +16,7 @@ use std::{
 
 use caditor_document::{
     CancelToken, Document, FeatureId, FeatureResult, ImportedConfigurations, ImportedParameter,
+    PictureFormat,
 };
 use caditor_file::{
     Closing, ConfigurationFileError, Construction, DRAWING_IMPORT_EXTENSIONS, DiscardError,
@@ -57,6 +58,7 @@ use crate::{
     image_export::{
         self, IMAGE_HINT, ImageCommand, ImageExporter, ImageFailure, ReadPixels, RenderJob,
     },
+    image_tools::ImageTarget,
     import::{self, DrawingPlan, IMPORT_HINT, Placement, ReplacementSource, SourceRefusal},
     import_options::{self, Arrangement, Arranging, ImportOptionsCommand},
     menu_bar::{self, MenuEntries},
@@ -76,6 +78,7 @@ use crate::{
 pub mod configurations;
 mod dialogs;
 pub mod parameters;
+mod pictures;
 pub mod templates;
 mod themes;
 
@@ -193,6 +196,7 @@ pub enum FileCommand {
     CancelImport,
     CancelPick,
     KeepDrawingConstruction(bool),
+    InsertImage(ImageTarget),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -241,6 +245,7 @@ pub trait Dialogs {
         respond: Respond,
     );
     fn pick_configurations(&self, directory: Option<PathBuf>, respond: Respond);
+    fn pick_picture(&self, directory: Option<PathBuf>, respond: Respond);
 }
 
 pub struct NativeDialogs;
@@ -427,6 +432,22 @@ impl Dialogs for NativeDialogs {
         Self::spawn(respond, request);
     }
 
+    fn pick_picture(&self, directory: Option<PathBuf>, respond: Respond) {
+        let extensions = PictureFormat::extensions_of_all();
+        let filters = vec![
+            Filter::new(pictures::PICTURE_KIND, &extensions),
+            Filter::any(),
+        ];
+        let request = Self::request(
+            Mode::Open,
+            "Insert reference image",
+            directory,
+            None,
+            filters,
+        );
+        Self::spawn(respond, request);
+    }
+
     fn pick_image_path(&self, directory: Option<PathBuf>, file_name: String, respond: Respond) {
         let filters = vec![Filter::new(IMAGE_KIND, &[PNG_EXTENSION])];
         let request = Self::request(
@@ -493,13 +514,14 @@ enum Purpose {
     ImportParameters,
     ExportConfigurations,
     ImportConfigurations,
+    Picture,
 }
 
 impl Purpose {
     fn folder(self) -> Option<Folder> {
         match self {
             Self::Open => Some(Folder::Open),
-            Self::Import => Some(Folder::Import),
+            Self::Import | Self::Picture => Some(Folder::Import),
             Self::Export(_) => Some(Folder::Export),
             Self::Drawing => Some(Folder::Drawing),
             Self::ExportParameters
@@ -658,6 +680,12 @@ impl Replacement {
 }
 
 enum Event {
+    PictureRead {
+        path: PathBuf,
+        target: ImageTarget,
+        session: u64,
+        result: Result<pictures::ReadImage, pictures::ImageReadFailure>,
+    },
     ScanFailed,
     SaveTargetChecked {
         target: SaveTarget,
@@ -1041,6 +1069,7 @@ pub struct Files {
     themes: UserThemes,
     default_template: Option<String>,
     parameter_import: Option<ParameterImportDraft>,
+    image_target: Option<ImageTarget>,
     configuration_import: Option<ConfigurationImportDraft>,
     quit: bool,
     saved_folder: Option<PathBuf>,
@@ -1097,6 +1126,7 @@ impl Files {
             themes,
             default_template: None,
             parameter_import: None,
+            image_target: None,
             configuration_import: None,
             quit: false,
             saved_folder: None,
@@ -1396,6 +1426,7 @@ impl Files {
             FileCommand::ImportParameters => {
                 self.pick(Purpose::ImportParameters, model);
             }
+            FileCommand::InsertImage(target) => self.insert_image(target, model),
             FileCommand::Parameters(command) => self.parameter_import_command(command, model),
             FileCommand::ExportConfigurations => {
                 if self.picking.is_none() {
@@ -1924,6 +1955,12 @@ impl Files {
                 exported,
                 result,
             } => self.parameters_exported(&path, exported, result, model),
+            Event::PictureRead {
+                path,
+                target,
+                session,
+                result,
+            } => self.picture_read((path, target, session), result, model, editing),
             Event::ParametersRead {
                 path,
                 session,
@@ -2824,6 +2861,8 @@ impl Files {
                 self.check_output(Output::Parameters { path }, since.session);
             }
             (Purpose::ImportParameters, Some(path)) => self.read_parameter_file(path, model),
+            (Purpose::Picture, Some(path)) => self.read_picture(path, model),
+            (Purpose::Picture, None) => self.image_target = None,
             (Purpose::ExportConfigurations, Some(path)) => {
                 self.check_output(Output::Configurations { path }, since.session);
             }
@@ -2947,6 +2986,7 @@ impl Files {
                     .pick_parameters_path(directory, parameters::file_name(model), respond);
             }
             Purpose::ImportParameters => self.dialogs.pick_parameters(directory, respond),
+            Purpose::Picture => self.dialogs.pick_picture(directory, respond),
             Purpose::ExportConfigurations => {
                 self.dialogs.pick_configurations_path(
                     directory,

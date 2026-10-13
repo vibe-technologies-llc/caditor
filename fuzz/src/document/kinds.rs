@@ -5,7 +5,8 @@ use std::{
 };
 
 use caditor_document::{
-    AngleMate, AngleSides, AxisMate, AxisSide, AxisTurn, Between, Blend, BlendKind, BodyOperation,
+    AngleMate, AngleSides, Calibration, ImagePlane, ImageSize, ImageSpot, Picture, PixelSize,
+    ReferenceImage, AxisMate, AxisSide, AxisTurn, Between, Blend, BlendKind, BodyOperation,
     BodyPlacement, ChamferForm, CircularPattern, Combine, CombineOperation, CopyOrientation,
     CurvePattern, CurveSpacing, CurveStation, Datum, DatumAxis, DatumFrame, DatumPlane, DatumPoint,
     EdgeGroup, Extrude, ExtrudeEnd, ExtrudeExtent, FaceAxisMate, FaceMate, FaceOnRound, FacePair,
@@ -36,6 +37,8 @@ const MOST_REGIONS: usize = 4;
 const MOST_STEPS: u8 = 3;
 const MOST_SKIPPED: u8 = 3;
 const IMPORT_SIDE: f64 = 10.0;
+const PNG_SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
+const MOST_PICTURE_SIDE: u32 = 64;
 const IMPORT_FEATURE: u64 = 1;
 const IMPORT_SOURCES: [&str; 3] = ["block.step", "bracket.stp", "Ünïcode part.step"];
 const WALL_SIDES: [WallSide; 3] = [WallSide::Inside, WallSide::Outside, WallSide::Centred];
@@ -68,10 +71,11 @@ pub enum Family {
     Remove,
     Thread,
     Measurement,
+    ReferenceImage,
 }
 
 impl Family {
-    pub const ALL: [Self; 20] = [
+    pub const ALL: [Self; 21] = [
         Self::Sketch,
         Self::Solid,
         Self::Blend,
@@ -92,6 +96,7 @@ impl Family {
         Self::Remove,
         Self::Thread,
         Self::Measurement,
+        Self::ReferenceImage,
     ];
 
     pub fn of(kind: &FeatureKind) -> Self {
@@ -116,6 +121,7 @@ impl Family {
             FeatureKind::Remove(_) => Self::Remove,
             FeatureKind::Thread(_) => Self::Thread,
             FeatureKind::Measurement(_) => Self::Measurement,
+            FeatureKind::ReferenceImage(_) => Self::ReferenceImage,
         }
     }
 }
@@ -223,7 +229,52 @@ pub fn feature_kind(
                 None
             },
         }),
+        Family::ReferenceImage => return reference_image(input, scene),
     }))
+}
+
+fn reference_image(input: &mut Unstructured, scene: &Scene) -> Result<Option<FeatureKind>> {
+    let mut bytes = PNG_SIGNATURE.to_vec();
+    let length = usize::from(input.int_in_range(0u8..=32)?);
+    bytes.extend(input.bytes(length)?);
+    let size = PixelSize {
+        width: input.int_in_range(1..=MOST_PICTURE_SIDE)?,
+        height: input.int_in_range(1..=MOST_PICTURE_SIDE)?,
+    };
+    let Ok(picture) = Picture::new(bytes, size) else {
+        return Ok(None);
+    };
+    let plane = if input.arbitrary()? {
+        ImagePlane::Sketch(scene.sketch(input)?)
+    } else {
+        ImagePlane::Reference(scene.plane(input)?)
+    };
+    let spot = |input: &mut Unstructured| -> Result<ImageSpot> {
+        Ok(ImageSpot::new(
+            f64::from(input.int_in_range(0u8..=8)?) / 8.0,
+            f64::from(input.int_in_range(0u8..=8)?) / 8.0,
+        ))
+    };
+    let size = if input.arbitrary()? {
+        ImageSize::Width(scene.distance(input)?)
+    } else {
+        ImageSize::Calibrated(Calibration {
+            from: spot(input)?,
+            to: spot(input)?,
+            distance: scene.distance(input)?,
+        })
+    };
+    Ok(Some(FeatureKind::ReferenceImage(Box::new(ReferenceImage {
+        picture: Arc::new(picture),
+        plane,
+        at: [scene.distance(input)?, scene.distance(input)?],
+        turn: scene.turn(input)?,
+        flipped: input.arbitrary()?,
+        size,
+        opacity: input.arbitrary()?,
+        in_front: input.arbitrary()?,
+        locked: input.arbitrary()?,
+    }))))
 }
 
 fn sketch_kind(input: &mut Unstructured, scene: &Scene) -> Result<FeatureKind> {

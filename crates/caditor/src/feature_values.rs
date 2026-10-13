@@ -352,7 +352,8 @@ fn values_of(parameters: &ParameterValues, kind: &FeatureKind) -> Vec<Found> {
         | FeatureKind::Datum(_)
         | FeatureKind::Import(_)
         | FeatureKind::Remove(_)
-        | FeatureKind::Measurement(_) => Vec::new(),
+        | FeatureKind::Measurement(_)
+        | FeatureKind::ReferenceImage(_) => Vec::new(),
     }
 }
 

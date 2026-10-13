@@ -81,8 +81,10 @@ paths:
   (bodies, sketches, references, hover and selection colours, a `PickTable`) is rebuilt only when
   its content or highlight changes. Content is everything that can change the drawing (document
   revision, evaluation, the open feature's draft, displayed sketches, body meshes, display style,
-  `Contrast`, editing `Context`, faceting level); anything new that affects the drawing must feed
-  that key. The hovered `Pickable`s (with the faces and edges chosen modifying rows made) and
+  `Contrast`, editing `Context`, faceting level, the decoded reference pictures'
+  `ImageTextures::generation`, handed in as `Sources::pictures`); anything new that affects the
+  drawing must feed that key. Image export draws the model's pictures; the headless PNG and 3MF
+  thumbnail, built without a model, leave them out. The hovered `Pickable`s (with the faces and edges chosen modifying rows made) and
   chosen rows (with the bodies of rows that made no face, `viewport::LitRows`) in `Highlight` are
   sorted and deduplicated, since items look themselves up by binary search.
 - Each shown body is a `BodyPart` the cache keeps (`scene::Parts`): mesh instances, silhouette,

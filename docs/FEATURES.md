@@ -161,9 +161,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   put a dimension on each), a new constraint kind with its solver form, file record and glyph.
   An ellipse also cannot be offset within a chain of lines and arcs, whose joints would need the
   spline to meet them.
-- [low · hard] No reference image: a photo or scan cannot be placed on a sketch plane, scaled by two
-  points (or calibrated by a known distance), given an opacity, locked and traced, as a part
-  copied from an existing object or a drawing needs.
 - [low · hard · blocked by: vector hidden-line removal ("Technical drawings")] Project takes edges,
   corners and the boundaries of faces, but not the outline of a body seen square to the sketch
   plane: the silhouette lines of a cylinder lying along the plane or the circle of a sphere cannot

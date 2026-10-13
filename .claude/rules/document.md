@@ -1084,6 +1084,40 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   (`MeasuredParameterInlined`). A pasted measurement feeds nothing; its references follow a datum's
   paste rules.
 
+### Reference image (`reference_image.rs`, `picture.rs`)
+
+- A picture to trace over is a feature of its own, `FeatureKind::ReferenceImage` (boxed
+  `ReferenceImage`), not an item of a sketch: it is placed like a datum or primitive (on a
+  `PlaneReference`, or with `ImagePlane::Sketch` on a sketch's solved plane), it can stand on any
+  plane without a sketch there, hides with the datums, and one feature row is what the user opens,
+  hides, deletes and undoes. Keeping it out of `Sketch` also keeps the solver, sketch records and
+  clipboard free of picture bytes. It makes no body (`Feature::body` none) and can be hidden.
+- `ReferenceImage { picture, plane, at, turn, flipped, size, opacity, in_front, locked }`: `at` is two
+  lengths along the plane's X and Y to the picture's middle, `turn` an angle about the normal,
+  `flipped` mirrors it left to right, `size` is `ImageSize::Width` (a length above zero) or
+  `Calibrated` (`Calibration`: two `ImageSpot`s, fractions of the picture's width and height from
+  its bottom left as unflipped, and the real `distance` between them; the width is the distance over
+  their gap with the picture's aspect, `Calibration::spot_gap`). Every value is an expression
+  (parameters, inlining, model scale). `opacity` is a percent, settled by inserts and kind changes
+  into `MIN_IMAGE_OPACITY_PERCENT` to `IMAGE_OPAQUE_PERCENT` (`ReferenceImage::settle`, spots into
+  the picture); `in_front` and `locked` only change how the app shows and picks it.
+- Recompute resolves the plane at its place (a sketch's from its result; a face healed as "the face
+  it lies on"; datum, frame, body and sketch counted in `features()`, so a sketch-plane image stays
+  below its sketch) and gives `FeatureResult::Image` (`PlacedImage`: middle, the unit `across` and
+  `up` directions, width, height, flip; `point_at`, `spot_at`, `corners`, `placed_on`). A width not
+  above zero, two calibration spots at one place, a distance not above zero or a picture past
+  `MAX_SIZE` fails it alone in words.
+- `Picture` holds the file's bytes as they were read (never re-encoded), their blake3
+  `PictureDigest`, the `PictureFormat` sniffed from the bytes (`sniff_picture`: magic numbers for
+  PNG, JPEG, WebP, JPEG XL as a codestream or container, GIF, BMP, TIFF, QOI, a plausible header for
+  TGA; AVIF and HEIC named as `UnsupportedPicture`), and the pixel size the file decodes to, which
+  the shape of the placed picture follows. `Picture::new` refuses (`PictureError`) empty or unknown
+  bytes, more than `MAX_PICTURE_BYTES`, sides past `MAX_PICTURE_SIDE` and more than
+  `MAX_PICTURE_PIXELS`; it never decodes (`caditor-file` does). Kinds share it behind an `Arc`, so a
+  change of opacity copies no bytes; equality is by digest and size. `Picture::placeholder` is a
+  grey pixel standing in for a picture a file lost. `ReferenceImage::heap_size` counts the bytes, as
+  an import counts its STEP text, so undo bounds hold when a deleted image is the last holder.
+
 ### Import (`import.rs`)
 
 - Keeps the source file's name, its path (`Import::path`, set by `Import::from_file` only for valid

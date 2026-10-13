@@ -55,12 +55,18 @@ env_logger = {
     features = ["auto-color", "humantime"]
 }
 glam = "0.34.1"
+image = {
+    version = "0.25.10",
+    default-features = false,
+    features = ["bmp", "gif", "jpeg", "png", "qoi", "tga", "tiff", "webp"]
+}
 jiff = {
     version = "0.2.38",
     default-features = false,
     features = ["std", "tz-system", "tzdb-bundle-platform", "tzdb-zoneinfo"]
 }
 libzstd-rs-sys = "0.0.1-prerelease.2"
+jxl-oxide = { version = "0.12.6", default-features = false }
 log = "0.4.34"
 miniz_oxide = "0.9.1"
 naga = "30.0.1"
@@ -80,6 +86,7 @@ skrifa = { version = "0.44.0", default-features = false, features = ["std"] }
 spade = "2.15.1"
 tempfile = "3.27.0"
 thiserror = "2.0.21"
+tiff = { version = "0.11.3", default-features = false }
 wayland-client = "0.31.15"
 wayland-protocols = {
     version = "0.32.13",

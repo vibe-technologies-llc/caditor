@@ -550,6 +550,7 @@ fn settled_kind(mut kind: FeatureKind) -> FeatureKind {
         FeatureKind::SplitFace(split) if split.along.sketch().is_none() => {
             split.carry = SplitCarry::Square;
         }
+        FeatureKind::ReferenceImage(image) => image.settle(),
         _ => {}
     }
     kind
@@ -1086,7 +1087,8 @@ impl Document {
             | (FeatureKind::Pattern(_), FeatureKind::Pattern(_))
             | (FeatureKind::Import(_), FeatureKind::Import(_))
             | (FeatureKind::Remove(_), FeatureKind::Remove(_))
-            | (FeatureKind::Measurement(_), FeatureKind::Measurement(_)) => true,
+            | (FeatureKind::Measurement(_), FeatureKind::Measurement(_))
+            | (FeatureKind::ReferenceImage(_), FeatureKind::ReferenceImage(_)) => true,
             _ => false,
         };
         if !same_kind {

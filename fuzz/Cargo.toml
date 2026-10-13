@@ -154,3 +154,10 @@ path = "fuzz_targets/mesh.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "picture"
+path = "fuzz_targets/picture.rs"
+test = false
+doc = false
+bench = false

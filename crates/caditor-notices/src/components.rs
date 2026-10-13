@@ -17,6 +17,7 @@ const LICENSE_FILE_PREFIXES: [&str; 6] = [
 const MIT_TERMS: &str = include_str!("../licenses/MIT-terms.txt");
 const APACHE: &str = include_str!("../licenses/Apache-2.0.txt");
 const BOOST: &str = include_str!("../licenses/BSL-1.0.txt");
+const BSD_THREE_CLAUSE_TERMS: &str = include_str!("../licenses/BSD-3-Clause-terms.txt");
 const STANDARD_LIBRARY: &str = "Rust standard library";
 const STANDARD_LIBRARY_LICENSE: &str = "MIT OR Apache-2.0";
 const STANDARD_LIBRARY_AUTHORS: &str = "The Rust Project Developers";
@@ -215,6 +216,10 @@ fn standard_texts(license: &str, holders: &str) -> Vec<String> {
     if named("BSL-1.0") {
         texts.push(normalized(BOOST));
     }
+    if named("BSD-3-Clause") {
+        let bsd = format!("Copyright (c) {holders}\n\n{BSD_THREE_CLAUSE_TERMS}");
+        texts.push(normalized(&bsd));
+    }
     texts
 }
 
@@ -236,6 +241,7 @@ mod tests {
         let both = standard_texts("MIT OR Apache-2.0", "A. Author");
         let nested = standard_texts("(MIT OR Apache-2.0) AND OFL-1.1", "A. Author");
         let boost = standard_texts("BSL-1.0", "ignored");
+        let bsd = standard_texts("BSD-3-Clause", "A. Author");
         let unknown = standard_texts("GPL-3.0-only", "A. Author");
 
         assert_eq!(both.len(), 2);
@@ -253,6 +259,10 @@ mod tests {
             boost
                 .first()
                 .is_some_and(|text| text.starts_with("Boost Software License"))
+        );
+        assert!(
+            bsd.first()
+                .is_some_and(|text| text.starts_with("Copyright (c) A. Author\n\nRedistribution"))
         );
         assert!(unknown.is_empty());
     }

@@ -20,6 +20,7 @@ use crate::{
     pattern::PatternKind,
     projection::ProjectionSource,
     recompute::Inputs,
+    reference_image::ImagePlane,
     solid::{
         ExtrudeEnd, ExtrudeExtent, RegionChoice, RevolveAxis, RevolveExtent, SolidFeature,
         SolidStart,
@@ -198,6 +199,11 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
         FeatureKind::Split(split) => visit_split_along(&mut split.along, visitor),
         FeatureKind::Primitive(primitive) => {
             visit_plane(&mut primitive.plane, "the face it stands on", visitor);
+        }
+        FeatureKind::ReferenceImage(image) => {
+            if let ImagePlane::Reference(plane) = &mut image.plane {
+                visit_plane(plane, "the face it lies on", visitor);
+            }
         }
         FeatureKind::Shell(shell) => {
             let count = shell.open.len();

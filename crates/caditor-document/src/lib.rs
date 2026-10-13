@@ -36,6 +36,7 @@ mod paste;
 mod paste_picks;
 mod pattern;
 mod pattern_path;
+mod picture;
 mod pieces;
 mod pool;
 mod presenting;
@@ -43,6 +44,7 @@ mod primitive;
 mod projection;
 mod properties;
 mod recompute;
+mod reference_image;
 mod removal;
 mod scaling;
 mod section;
@@ -143,6 +145,11 @@ pub use crate::{
         repeatable_on,
     },
     pattern_path::{CopyStop, PathError, PatternPath, is_curve_path},
+    picture::{
+        MAX_PICTURE_BYTES, MAX_PICTURE_PIXELS, MAX_PICTURE_SIDE, Picture, PictureDigest,
+        PictureError, PictureFormat, PixelSize, Sniffed, UnsupportedPicture, picture_format,
+        sniff_picture,
+    },
     pieces::{Resolution, Unresolved},
     primitive::{
         Cap, MAX_PRISM_SIDES, MIN_PRISM_SIDES, Primitive, PrimitiveAnchor, PrimitiveKind,
@@ -159,6 +166,10 @@ pub use crate::{
     recompute::{
         CancelToken, Evaluation, Evaluator, Failure, FeatureError, FeatureResult, FeatureState,
         FeatureStatus, FixTarget, Inputs, MissingInput, ModelEvaluator, Recompute, SketchResult,
+    },
+    reference_image::{
+        Calibration, DEFAULT_IMAGE_OPACITY_PERCENT, IMAGE_OPAQUE_PERCENT, ImagePlane, ImageSize,
+        ImageSpot, MIN_IMAGE_OPACITY_PERCENT, PlacedImage, ReferenceImage, placed_on,
     },
     removal::Remove,
     scaling::{MAX_SCALE_FACTOR, MIN_SCALE_FACTOR, Scale},
@@ -264,6 +275,8 @@ mod primitive_tests;
 mod projection_tests;
 #[cfg(test)]
 mod properties_tests;
+#[cfg(test)]
+mod reference_image_tests;
 #[cfg(test)]
 mod removal_tests;
 #[cfg(test)]

@@ -28,6 +28,7 @@ pub const RELOAD: &str = phosphor::ARROW_CLOCKWISE;
 pub const MORE: &str = phosphor::DOTS_THREE;
 pub const DELETE: &str = phosphor::TRASH;
 pub const REMOVE_BODY: &str = phosphor::CUBE_FOCUS;
+pub const REFERENCE_IMAGE: &str = phosphor::IMAGE_SQUARE;
 pub const COPY_BODY: &str = phosphor::COPY;
 pub const REMOVE: &str = phosphor::X;
 pub const CLOSE: &str = phosphor::X;
@@ -226,6 +227,7 @@ pub fn command(command: Command) -> &'static str {
         Command::DatumAxis => AXIS,
         Command::DatumPoint => POINT,
         Command::CoordinateSystem => COORDINATE_SYSTEM,
+        Command::InsertImage => REFERENCE_IMAGE,
         Command::ScaleModel => phosphor::ARROWS_OUT,
         Command::Configurations => phosphor::TABLE,
         Command::FitView => phosphor::FRAME_CORNERS,
@@ -563,6 +565,7 @@ pub fn feature(kind: &FeatureKind) -> &'static str {
         FeatureKind::Import(_) => IMPORTED,
         FeatureKind::Remove(_) => REMOVE_BODY,
         FeatureKind::Measurement(_) => MEASURE,
+        FeatureKind::ReferenceImage(_) => REFERENCE_IMAGE,
     }
 }
 

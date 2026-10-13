@@ -44,9 +44,9 @@ inside the workspace.
 | `caditor-windows` | Safe wrappers over the Win32 calls nothing else offers safely; a crate with `unsafe`, empty off Windows. | none |
 | `caditor-wayland` | Safe Wayland protocol work on winit's own connection (files dragged onto the window, the window's `xdg-foreign` export for portal dialogs); the third crate with `unsafe`, empty off Unix. | none |
 | `caditor-document` | The parametric model: parameters, feature tree, transactions, undo, recompute worker. | expression, geometry, kernel, sketch, zstd |
-| `caditor-file` | Persistence: binary container, version history, recovery journal, preferences, DXF/SVG/STEP and STL/OBJ/3MF mesh import, STL/3MF/OBJ/glTF/STEP/PNG and DXF/SVG drawing export. | document and everything it uses, step, zstd, windows |
+| `caditor-file` | Persistence: binary container, version history, recovery journal, preferences, DXF/SVG/STEP and STL/OBJ/3MF mesh import, reference picture decoding, STL/3MF/OBJ/glTF/STEP/PNG and DXF/SVG drawing export. | document and everything it uses, step, zstd, windows |
 | `caditor-notices` | Release tool: writes `THIRD-PARTY-NOTICES.txt` from `cargo metadata` and the font licences. | none |
-| `caditor-render` | wgpu viewport, camera, GPU picking, image export; no winit or document dependency. | geometry (windows on Windows) |
+| `caditor-render` | wgpu viewport, camera, GPU picking, reference pictures, image export; no winit or document dependency. | geometry (windows on Windows) |
 | `caditor` | The winit/egui application: UI, commands, sketch editing, file workflow. | all but step, zstd and notices (wayland on Unix, windows on Windows) |
 
 Platform code is a `cfg(unix)`/`cfg(windows)` pair behind one interface; Windows specifics are in

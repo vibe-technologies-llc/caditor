@@ -6,6 +6,7 @@ use crate::{
     datum_tools,
     editing::SketchEditing,
     hole_tools::{self, HoleStart},
+    image_tools::{self, ImageTarget},
     mate_tools::{self, MateSource},
     measure,
     mirror_tools::{self, FaceMirrorSource, MirrorSource},
@@ -73,6 +74,7 @@ pub struct Offers {
     pub mate: Result<MateSource, &'static str>,
     pub mate_angle: Result<MateSource, &'static str>,
     pub hole: Result<HoleStart, &'static str>,
+    pub reference_image: Result<ImageTarget, &'static str>,
     pub described: Vec<String>,
     pub selected: usize,
     pub size: Option<String>,
@@ -143,6 +145,7 @@ impl Offers {
             mate: mate_tools::source(model, selection),
             mate_angle: mate_tools::angle_source(model, selection),
             hole: hole_tools::start(model, selection, editing),
+            reference_image: image_tools::target(model, selection, editing),
             described: selection
                 .iter()
                 .take(MAX_DESCRIBED)

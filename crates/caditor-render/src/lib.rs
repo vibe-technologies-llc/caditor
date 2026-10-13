@@ -13,6 +13,7 @@ mod offscreen;
 #[cfg(test)]
 mod offscreen_tests;
 mod picking;
+mod pictures;
 mod scene;
 mod settings;
 mod silhouette;
@@ -39,6 +40,7 @@ pub use crate::{
     },
     offscreen::OffscreenRenderer,
     picking::PickPoll,
+    pictures::{MAX_PICTURE_TEXTURE_SIDE, PictureTexture, ScenePicture},
     scene::{
         Batch, Color, CutFace, Fill, Grid, Layer, Line, MAX_SECTION_PLANES, Marker, PickHit,
         PickId, PickResult, Reflection, Scene, SectionPlane, Stroke, ViewportRect, is_cut_away,

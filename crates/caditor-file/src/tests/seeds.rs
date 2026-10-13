@@ -180,6 +180,58 @@ fn write_mesh_fuzz_seeds() {
     write_seeds(seeds);
 }
 
+#[test]
+#[ignore = "writes the picture fuzz seeds when CADITOR_WRITE_FUZZ_SEEDS is set"]
+fn write_picture_fuzz_seeds() {
+    if std::env::var_os(WRITE_SEEDS).is_none() {
+        return;
+    }
+    let quad = image::DynamicImage::ImageRgba8(image::RgbaImage::from_fn(4, 3, |x, y| {
+        image::Rgba([
+            if x < 2 { 255 } else { 0 },
+            if y < 2 { 255 } else { 0 },
+            128,
+            255,
+        ])
+    }));
+    let encoded = |format: image::ImageFormat| {
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        quad.write_to(&mut bytes, format).unwrap();
+        bytes.into_inner()
+    };
+    let seeds = [
+        ("picture/quad.png", encoded(image::ImageFormat::Png)),
+        ("picture/quad.jpg", {
+            let opaque = image::DynamicImage::ImageRgb8(quad.to_rgb8());
+            let mut bytes = std::io::Cursor::new(Vec::new());
+            opaque
+                .write_to(&mut bytes, image::ImageFormat::Jpeg)
+                .unwrap();
+            bytes.into_inner()
+        }),
+        ("picture/quad.webp", encoded(image::ImageFormat::WebP)),
+        ("picture/quad.gif", encoded(image::ImageFormat::Gif)),
+        ("picture/quad.bmp", encoded(image::ImageFormat::Bmp)),
+        ("picture/quad.tif", encoded(image::ImageFormat::Tiff)),
+        ("picture/quad.qoi", encoded(image::ImageFormat::Qoi)),
+        ("picture/quad.tga", encoded(image::ImageFormat::Tga)),
+        (
+            "picture/quad.jxl",
+            include_bytes!("../../pictures/quad.jxl").to_vec(),
+        ),
+    ];
+    write_seeds(seeds);
+}
+
+#[test]
+fn picture_seeds_decode() {
+    for (path, bytes) in seeds_in("picture") {
+        let pixels = crate::decode_picture(&bytes)
+            .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+        assert!(pixels.width > 0 && pixels.height > 0, "{}", path.display());
+    }
+}
+
 pub(super) fn seed_path(name: &str) -> Option<PathBuf> {
     let path = seeds_dir().join(name);
     (!corpus::inside_corpus(&path)).then_some(path)

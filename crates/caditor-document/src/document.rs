@@ -14,7 +14,7 @@ use crate::{
     body_appearance::BodyAppearance,
     combine::Combine,
     configurations::{ConfigurationId, Configurations},
-    datum::{Datum, PrincipalGeometry},
+    datum::{Datum, PlaneReference, PrincipalGeometry},
     edit::{Edit, Transaction},
     feature_list::FeatureList,
     hole::Hole,
@@ -30,6 +30,7 @@ use crate::{
     primitive::Primitive,
     projection::ProjectionSource,
     properties::ModelProperties,
+    reference_image::ReferenceImage,
     removal::Remove,
     scaling::Scale,
     selection_sets::SelectionSets,
@@ -121,6 +122,7 @@ pub enum FeatureKind {
     Remove(Remove),
     Thread(Thread),
     Measurement(Box<Measurement>),
+    ReferenceImage(Box<ReferenceImage>),
 }
 
 impl From<Measurement> for FeatureKind {
@@ -145,6 +147,7 @@ impl FeatureKind {
     pub fn stored_text_len(&self) -> usize {
         match self {
             Self::Import(import) => import.source.len() + import.path_len() + import.step.len(),
+            Self::ReferenceImage(image) => image.picture.bytes().len(),
             _ => 0,
         }
     }
@@ -185,6 +188,7 @@ impl FeatureKind {
             Self::Remove(_) => 0,
             Self::Thread(thread) => thread.heap_size(),
             Self::Measurement(measurement) => size_of::<Measurement>() + measurement.heap_size(),
+            Self::ReferenceImage(image) => image.heap_size(),
         };
         size_of::<Self>() + owned
     }
@@ -210,7 +214,8 @@ impl FeatureKind {
             | Self::Import(_)
             | Self::Remove(_)
             | Self::Thread(_)
-            | Self::Measurement(_) => None,
+            | Self::Measurement(_)
+            | Self::ReferenceImage(_) => None,
         }
     }
 
@@ -235,7 +240,8 @@ impl FeatureKind {
             | Self::Import(_)
             | Self::Remove(_)
             | Self::Thread(_)
-            | Self::Measurement(_) => None,
+            | Self::Measurement(_)
+            | Self::ReferenceImage(_) => None,
         }
     }
 
@@ -260,7 +266,8 @@ impl FeatureKind {
             | Self::Import(_)
             | Self::Remove(_)
             | Self::Thread(_)
-            | Self::Measurement(_) => None,
+            | Self::Measurement(_)
+            | Self::ReferenceImage(_) => None,
         }
     }
 
@@ -283,7 +290,9 @@ impl FeatureKind {
             Self::Pattern(pattern) => Some(pattern.body),
             Self::Remove(remove) => Some(remove.body),
             Self::Thread(thread) => Some(thread.body),
-            Self::Datum(_) | Self::Import(_) | Self::Measurement(_) => None,
+            Self::Datum(_) | Self::Import(_) | Self::Measurement(_) | Self::ReferenceImage(_) => {
+                None
+            }
         }
     }
 
@@ -318,6 +327,9 @@ impl FeatureKind {
             | Self::Import(_)
             | Self::Remove(_)
             | Self::Thread(_) => {}
+            Self::ReferenceImage(image) => {
+                used.extend(image.plane.reference().and_then(PlaneReference::body))
+            }
         }
         used
     }
@@ -350,6 +362,12 @@ impl FeatureKind {
             | Self::Import(_)
             | Self::Remove(_)
             | Self::Thread(_) => BTreeSet::new(),
+            Self::ReferenceImage(image) => image
+                .plane
+                .reference()
+                .and_then(PlaneReference::datum)
+                .into_iter()
+                .collect(),
         }
     }
 
@@ -374,7 +392,8 @@ impl FeatureKind {
             | Self::Hole(_)
             | Self::Import(_)
             | Self::Remove(_)
-            | Self::Thread(_) => BTreeSet::new(),
+            | Self::Thread(_)
+            | Self::ReferenceImage(_) => BTreeSet::new(),
         }
     }
 
@@ -417,6 +436,12 @@ impl FeatureKind {
             | Self::Combine(_)
             | Self::Remove(_)
             | Self::Thread(_) => BTreeSet::new(),
+            Self::ReferenceImage(image) => image
+                .plane
+                .reference()
+                .and_then(PlaneReference::frame)
+                .into_iter()
+                .collect(),
         }
     }
 
@@ -441,7 +466,8 @@ impl FeatureKind {
             | Self::Hole(_)
             | Self::Import(_)
             | Self::Remove(_)
-            | Self::Thread(_) => BTreeSet::new(),
+            | Self::Thread(_)
+            | Self::ReferenceImage(_) => BTreeSet::new(),
         }
     }
 
@@ -476,6 +502,7 @@ impl FeatureKind {
             | Self::Import(_)
             | Self::Remove(_)
             | Self::Thread(_) => BTreeSet::new(),
+            Self::ReferenceImage(image) => image.plane.sketch().into_iter().collect(),
         }
     }
 
@@ -500,7 +527,8 @@ impl FeatureKind {
             | Self::Datum(_)
             | Self::Import(_)
             | Self::Thread(_)
-            | Self::Measurement(_) => Vec::new(),
+            | Self::Measurement(_)
+            | Self::ReferenceImage(_) => Vec::new(),
         }
     }
 
@@ -542,7 +570,8 @@ impl FeatureKind {
             | Self::Import(_)
             | Self::Remove(_)
             | Self::Thread(_)
-            | Self::Measurement(_) => None,
+            | Self::Measurement(_)
+            | Self::ReferenceImage(_) => None,
         }
     }
 
@@ -567,7 +596,8 @@ impl FeatureKind {
             | Self::Import(_)
             | Self::Remove(_)
             | Self::Thread(_)
-            | Self::Measurement(_) => None,
+            | Self::Measurement(_)
+            | Self::ReferenceImage(_) => None,
         }
     }
 
@@ -592,7 +622,8 @@ impl FeatureKind {
             | Self::Import(_)
             | Self::Remove(_)
             | Self::Thread(_)
-            | Self::Measurement(_) => None,
+            | Self::Measurement(_)
+            | Self::ReferenceImage(_) => None,
         }
     }
 
@@ -617,7 +648,8 @@ impl FeatureKind {
             | Self::Datum(_)
             | Self::Import(_)
             | Self::Remove(_)
-            | Self::Measurement(_) => None,
+            | Self::Measurement(_)
+            | Self::ReferenceImage(_) => None,
         }
     }
 
@@ -649,7 +681,8 @@ impl FeatureKind {
             | Self::Import(_)
             | Self::Remove(_)
             | Self::Thread(_)
-            | Self::Measurement(_) => None,
+            | Self::Measurement(_)
+            | Self::ReferenceImage(_) => None,
         }
     }
 
@@ -674,7 +707,8 @@ impl FeatureKind {
             | Self::Datum(_)
             | Self::Import(_)
             | Self::Remove(_)
-            | Self::Measurement(_) => None,
+            | Self::Measurement(_)
+            | Self::ReferenceImage(_) => None,
         }
     }
 
@@ -706,7 +740,8 @@ impl FeatureKind {
             | Self::Import(_)
             | Self::Remove(_)
             | Self::Thread(_)
-            | Self::Measurement(_) => None,
+            | Self::Measurement(_)
+            | Self::ReferenceImage(_) => None,
         }
     }
 
@@ -731,7 +766,8 @@ impl FeatureKind {
             | Self::Import(_)
             | Self::Remove(_)
             | Self::Thread(_)
-            | Self::Measurement(_) => None,
+            | Self::Measurement(_)
+            | Self::ReferenceImage(_) => None,
         }
     }
 
@@ -756,7 +792,8 @@ impl FeatureKind {
             | Self::Import(_)
             | Self::Remove(_)
             | Self::Thread(_)
-            | Self::Measurement(_) => None,
+            | Self::Measurement(_)
+            | Self::ReferenceImage(_) => None,
         }
     }
 
@@ -781,7 +818,8 @@ impl FeatureKind {
             | Self::Import(_)
             | Self::Remove(_)
             | Self::Thread(_)
-            | Self::Measurement(_) => None,
+            | Self::Measurement(_)
+            | Self::ReferenceImage(_) => None,
         }
     }
 
@@ -806,7 +844,8 @@ impl FeatureKind {
             | Self::Import(_)
             | Self::Remove(_)
             | Self::Thread(_)
-            | Self::Measurement(_) => None,
+            | Self::Measurement(_)
+            | Self::ReferenceImage(_) => None,
         }
     }
 
@@ -831,7 +870,8 @@ impl FeatureKind {
             | Self::Import(_)
             | Self::Remove(_)
             | Self::Thread(_)
-            | Self::Measurement(_) => None,
+            | Self::Measurement(_)
+            | Self::ReferenceImage(_) => None,
         }
     }
 
@@ -856,7 +896,8 @@ impl FeatureKind {
             | Self::Import(_)
             | Self::Remove(_)
             | Self::Thread(_)
-            | Self::Measurement(_) => None,
+            | Self::Measurement(_)
+            | Self::ReferenceImage(_) => None,
         }
     }
 
@@ -881,7 +922,8 @@ impl FeatureKind {
             | Self::Import(_)
             | Self::Remove(_)
             | Self::Thread(_)
-            | Self::Measurement(_) => None,
+            | Self::Measurement(_)
+            | Self::ReferenceImage(_) => None,
         }
     }
 
@@ -906,7 +948,8 @@ impl FeatureKind {
             | Self::Import(_)
             | Self::Remove(_)
             | Self::Thread(_)
-            | Self::Measurement(_) => None,
+            | Self::Measurement(_)
+            | Self::ReferenceImage(_) => None,
         }
     }
 
@@ -931,7 +974,8 @@ impl FeatureKind {
             | Self::Datum(_)
             | Self::Remove(_)
             | Self::Thread(_)
-            | Self::Measurement(_) => None,
+            | Self::Measurement(_)
+            | Self::ReferenceImage(_) => None,
         }
     }
 
@@ -954,6 +998,7 @@ impl FeatureKind {
             Self::Import(import) => import.placement.parameters(),
             Self::Remove(_) | Self::Measurement(_) => BTreeSet::new(),
             Self::Thread(thread) => thread.parameters(),
+            Self::ReferenceImage(image) => image.parameters(),
         }
     }
 
@@ -976,6 +1021,7 @@ impl FeatureKind {
             Self::Import(import) => import.placement.uses_parameter(parameter),
             Self::Remove(_) | Self::Measurement(_) => false,
             Self::Thread(thread) => thread.uses_parameter(parameter),
+            Self::ReferenceImage(image) => image.uses_parameter(parameter),
         }
     }
 
@@ -1011,6 +1057,7 @@ impl FeatureKind {
             Self::Remove(remove) => remove.features(),
             Self::Thread(thread) => thread.features(),
             Self::Measurement(measurement) => measurement.features(),
+            Self::ReferenceImage(image) => image.features(),
             Self::Import(_) => BTreeSet::new(),
         };
         used.extend(self.bodies_used());
@@ -1052,6 +1099,7 @@ impl FeatureKind {
             Self::Datum(datum) => datum.origin_features(),
             Self::Thread(thread) => thread.origin_features(),
             Self::Measurement(measurement) => measurement.origin_features(),
+            Self::ReferenceImage(image) => image.origin_features(),
             Self::Import(_) | Self::Remove(_) => BTreeSet::new(),
         }
     }
@@ -1147,7 +1195,8 @@ impl Feature {
             FeatureKind::Sketch(_)
             | FeatureKind::Datum(_)
             | FeatureKind::Thread(_)
-            | FeatureKind::Measurement(_) => None,
+            | FeatureKind::Measurement(_)
+            | FeatureKind::ReferenceImage(_) => None,
         }
     }
 
@@ -1194,7 +1243,8 @@ impl Feature {
             | FeatureKind::Datum(_)
             | FeatureKind::Remove(_)
             | FeatureKind::Thread(_)
-            | FeatureKind::Measurement(_) => false,
+            | FeatureKind::Measurement(_)
+            | FeatureKind::ReferenceImage(_) => false,
         }
     }
 }
