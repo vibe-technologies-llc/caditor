@@ -1,9 +1,11 @@
+use caditor_document::FeatureId;
 use egui::Ui;
 
 use crate::{
     commands::Command,
     editing::EditingCommand,
     model::{Action, Model, Notice, RecomputeStatus},
+    selection::Pickable,
     widgets,
 };
 
@@ -12,6 +14,7 @@ pub const BODIES_SHAPE: &str = "A selected body has no shape yet";
 pub const MODEL_UP_TO_THERE: &str = "The model is not recomputed up to there yet";
 pub const SKETCH_SHOWN: &str = "The sketch is being recalculated";
 pub const CONSTRAINT_CHECK: &str = "The last constraint is still being checked against the sketch";
+pub const QUEUE_ON_CLICK: &str = "Click to run it once the model has recomputed.";
 pub const CANCEL_HOVER: &str = "Do not run it when the model is ready (Esc)";
 const RECOMPUTE_FIRST: &str = "recompute the model first";
 const RESTART_FIRST: &str = "restart the recompute first";
@@ -45,6 +48,10 @@ pub enum Rerun {
     Command(Command),
     Editing(EditingCommand),
     Typed(String),
+    OwnThickness {
+        feature: FeatureId,
+        pickable: Pickable,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -94,7 +101,11 @@ impl Queued {
 }
 
 pub fn refused(command: Command, title: &str, reason: &str) -> Action {
-    match Queued::new(Rerun::Command(command), title, reason) {
+    refused_rerun(Rerun::Command(command), title, reason)
+}
+
+pub fn refused_rerun(rerun: Rerun, title: &str, reason: &str) -> Action {
+    match Queued::new(rerun, title, reason) {
         Some(queued) => Action::Queue(Box::new(queued)),
         None => Action::Inform(Notice::warning(format!("{title}: {reason}"))),
     }

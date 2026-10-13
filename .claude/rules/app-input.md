@@ -174,6 +174,15 @@ paths:
   so it is refused and queued next frame), New sketch on a face not recomputed
   (`Rerun::Editing`) and the sketch's Move, Rotate and Scale field (`Rerun::Typed`) all send
   `Action::Queue`.
+- A ribbon button blocked by such a reason stays enabled (`toolbar::tool`, asking
+  `CommandFrame::awaits`) and says on hover that a click runs the command once the model has
+  recomputed (`queued::QUEUE_ON_CLICK`); the click calls `CommandFrame::queue`, which refuses the
+  command with the offer's own reason, so it queues exactly as the same key does. A menu item
+  (`menu_bar::MenuEntries`) stays enabled the same way and its click is chosen like any other, then
+  refused and queued next frame. A button or item blocked for any other reason stays disabled. The shell's own-thickness click in the view (`shell_tools::own_thickness_click`, a
+  shell input with no shape yet) queues `Rerun::OwnThickness` naming the feature and the clicked
+  `Pickable`, which `app::run_due` replays through the same click only while the feature's
+  own-thickness picking is still active.
 - `Model` keeps one `queued::Queue`: a newer queued action replaces it. It is held only while what
   it waits for runs (`Model::awaits`: a recompute, or a constraint trial); otherwise the refusal is
   a warning notice saying what to do first (`Queued::refusal`). It carries the session and

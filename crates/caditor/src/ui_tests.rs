@@ -115,6 +115,7 @@ mod primitive_creation;
 mod primitive_feet;
 mod primitives;
 mod principal_geometry;
+mod queued_clicks;
 mod reach_through;
 mod recovery;
 mod region_references;
