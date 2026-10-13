@@ -10,6 +10,7 @@ paths:
   - "crates/caditor/src/widgets.rs"
   - "crates/caditor/src/dialog_parts.rs"
   - "crates/caditor/src/canvas.rs"
+  - "crates/caditor/src/start_card.rs"
   - "crates/caditor/src/scene_palette.rs"
   - "crates/caditor/src/view_cube.rs"
   - "crates/caditor/src/layout.rs"
@@ -172,6 +173,19 @@ paths:
   and readouts (`view_cube::TRIAD_WIDTH`); labels beside the pointer, the grid spacing label (a
   screen-reader `Label`), cursor readout and navigation hints avoid each other as `app-input.md`
   says.
+- The start card (`start_card.rs`, behaviour in `app-input.md`) is a panel, not canvas chrome:
+  the dialog frame (`widgets::dialog_frame`: opaque window fill, border, shadow, `DIALOG_MARGIN`)
+  holding the kit's widgets, so the theme's checked tokens hold whatever the canvas. A heading
+  with a close icon button, a muted sentence laid out by `widgets::balanced_label` (the narrowest
+  width keeping its line count, so no word sits alone on the last line), Start with a sketch as a
+  full-width `primary_icon_button`, the other two equal `sized_icon_button`s side by side (stacked
+  when a label would not fit half the width), and Don't show this again as a `widgets::checkbox`.
+  `start_card::placement`: `WIDTH` wide, centred in the view `TOP_MARGIN` below its top when that
+  clears the view cube's area (`ViewportState::cube_area`); else as near the centre as the band
+  left of the cube allows while it is at least `MIN_WIDTH`; else under the cube, centred, and
+  without the sentence, so at 200% it fits the view
+  (`the_card_fits_in_the_view_clear_of_the_view_cube_at_every_interface_size`). Its child `Ui`
+  senses clicks and drags over the card, so a click on its background never reaches the view.
 - The view cube is one focusable button named after the hovered target, else the nearest view, with
   that name as tooltip followed by the bound keys of a standard view's direction
   (`CubeTexts::view_keys`; Isometric only while the model keeps no redefined Isometric view); arrow

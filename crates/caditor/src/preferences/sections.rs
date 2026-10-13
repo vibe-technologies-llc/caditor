@@ -126,7 +126,14 @@ impl Section {
                 "degrees",
                 "radians",
             ],
-            Self::Files => &["at startup", "open the last model", "recent files", "start"],
+            Self::Files => &[
+                "at startup",
+                "open the last model",
+                "recent files",
+                "start",
+                "start card",
+                "empty model",
+            ],
             Self::NewModels => &["start from", "template", "new model"],
             Self::FeatureTree => &["double-click", "rename", "edit"],
             Self::Keyboard => &["shortcuts", "keys", "keymap"],
@@ -240,6 +247,7 @@ impl Section {
             Self::Files => {
                 to.startup = from.startup;
                 to.recent_listed = from.recent_listed;
+                to.onboarding.start_card = from.onboarding.start_card;
             }
             Self::NewModels => to.default_template.clone_from(&from.default_template),
             Self::FeatureTree => to.double_click = from.double_click,

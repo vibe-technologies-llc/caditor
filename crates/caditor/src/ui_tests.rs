@@ -173,6 +173,7 @@ mod sketch_transform;
 mod sketch_trim_extend;
 mod solid_panels;
 mod stale_sketch_results;
+mod start_card;
 mod storage_worker;
 mod svg_import;
 mod templates;

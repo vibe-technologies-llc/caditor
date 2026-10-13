@@ -396,6 +396,16 @@ fn starting(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesComm
                 change(command, PreferenceChange::RecentListed(listed));
             }
         });
+        widgets::property(ui, "Empty models", |ui| {
+            toggle(
+                ui,
+                preferences.onboarding.start_card,
+                SHOW_START_CARD,
+                "The card over the 3D view offering a first sketch, a box or an import",
+                PreferenceChange::ShowStartCard,
+                command,
+            );
+        });
     });
 }
 
@@ -587,6 +597,7 @@ fn tips(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesCommand>
     });
 }
 
+pub const SHOW_START_CARD: &str = "Show the start card on empty models";
 pub const RELOAD_THEMES: &str = "Reload themes";
 pub const AUTOMATIC_GRID: &str = "Grid: automatic";
 pub const CUSTOM_GRID: &str = "Custom grid colour";

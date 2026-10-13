@@ -15,7 +15,8 @@ match, for example `zoom`, `grid` or `view cube`. Choosing a tab clears the sear
   in a model keep the units they were typed in. See [expressions](expressions).
 - **Starting and recent files**: whether caditor starts with a new model or opens the last model
   you had, and how many models Open recent lists (3, 5 or 10). Unsaved work offered for
-  recovery, or a file named on the [command line](command-line), comes first.
+  recovery, or a file named on the [command line](command-line), comes first. **Show the start
+  card on empty models** brings back the [start card](start) after Don't show this again.
 - **New models**: the [template](templates) a new model starts from.
 - **Feature tree**: what double-clicking a feature does, edit it (as Enter does) or rename it.
 - **Keyboard**: the shortcut editor; see [working from the keyboard](keyboard).

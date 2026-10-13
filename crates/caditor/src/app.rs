@@ -934,6 +934,7 @@ pub fn show(
     viewport.set_section(section.planes(model));
     let contrast = Contrast::of(preferences.appearance.high_contrast);
     viewport.set_contrast(contrast);
+    viewport.set_start_card(preferences.onboarding.start_card);
     canvas::set_contrast(ui.ctx(), contrast);
     viewport.set_canvas(canvas::canvas(ui.ctx()));
     viewport.set_grid(canvas::grid(ui.ctx()));

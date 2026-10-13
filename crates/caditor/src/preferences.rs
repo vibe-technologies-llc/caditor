@@ -5,8 +5,8 @@ use egui::KeyboardShortcut;
 
 #[cfg(test)]
 pub use self::dialog::{
-    AUTOMATIC_GRID, CLEAR_SEARCH, CUSTOM_GRID, GRID_SELECTOR, SEARCH_FIELD, accent_name,
-    custom_grid_name, reset_name, theme_card_id, view_name,
+    AUTOMATIC_GRID, CLEAR_SEARCH, CUSTOM_GRID, GRID_SELECTOR, SEARCH_FIELD, SHOW_START_CARD,
+    accent_name, custom_grid_name, reset_name, theme_card_id, view_name,
 };
 pub use self::{
     choices::{
@@ -531,6 +531,7 @@ pub enum PreferenceChange {
     Welcomed,
     DismissHint(Hint),
     ShowHints(bool),
+    ShowStartCard(bool),
     RestoreHints,
     DefenderReminded,
     RecentColour(Rgb),
@@ -844,6 +845,7 @@ impl Preferences {
                 self.onboarding.dismissed.insert(hint);
             }
             PreferenceChange::ShowHints(shown) => self.onboarding.hints = shown,
+            PreferenceChange::ShowStartCard(shown) => self.onboarding.start_card = shown,
             PreferenceChange::DefenderReminded => self.onboarding.defender_reminded = true,
             PreferenceChange::RecentColour(colour) => self.remember_colour(colour),
             PreferenceChange::RestoreHints => {

@@ -146,6 +146,9 @@ paths:
   that applies and was not dismissed. Dismissed ids are kept even when unknown
   (`onboarding.dismissed_hints`); Hide tips is `onboarding.hints`; Preferences restores both. Tip
   text uses the names the UI uses.
+- The start card on an empty model (`app-input.md`) is `onboarding.start_card` (on by default),
+  Preferences › General › Starting and recent files › Show the start card on empty models, reset
+  with that section.
 
 ## Export
 

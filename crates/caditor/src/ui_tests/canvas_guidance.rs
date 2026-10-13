@@ -1,13 +1,11 @@
-use caditor_document::Document;
 use caditor_geometry::Point2;
 use egui::{Event, Key, Modifiers, PointerButton, accesskit::Role};
 
 use super::{Harness, viewport_centre};
 use crate::{
-    app::Workspace,
     canvas::{FEWER_KEYS, MORE_KEYS, more_keys_words},
     drawing::Refusal,
-    viewport::{EMPTY_MODEL_TITLE, SELECT_PROMPT, START_WITH_SKETCH},
+    viewport::SELECT_PROMPT,
 };
 
 const HELD_SNAP: &str = "snap to the grid or nearby geometry";
@@ -56,24 +54,6 @@ fn a_short_list_of_keys_shows_whole_without_a_chip() {
     assert!(harness.shows(HELD_SNAP));
     assert!(!harness.shows_containing(MORE_KEYS));
     assert!(!harness.shows(&more_keys_words(1)));
-}
-
-#[test]
-fn an_empty_model_says_where_to_start_and_a_start_runs_its_command() {
-    let mut harness = Harness::starting(None, Document::default(), Workspace::new());
-    harness.context.enable_accesskit();
-    harness.frame();
-    harness.frame();
-
-    assert!(harness.shows(EMPTY_MODEL_TITLE));
-    assert!(harness.accessible_named(Role::Button, START_WITH_SKETCH));
-
-    harness.click_button(START_WITH_SKETCH);
-    harness.frame();
-    harness.frame();
-
-    assert!(harness.workspace.editing.is_choosing_plane());
-    assert!(!harness.shows(EMPTY_MODEL_TITLE));
 }
 
 #[test]

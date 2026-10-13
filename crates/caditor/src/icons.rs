@@ -370,6 +370,7 @@ pub fn command(command: Command) -> &'static str {
         Command::ReloadImport => phosphor::ARROW_CLOCKWISE,
         Command::DismissNotice | Command::DismissTip => CLOSE,
         Command::HideTips => phosphor::EYE_SLASH,
+        Command::ShowStartCard => phosphor::ROCKET_LAUNCH,
         Command::Welcome => phosphor::HAND_WAVING,
         Command::Guide => GUIDE,
         Command::About => phosphor::INFO,

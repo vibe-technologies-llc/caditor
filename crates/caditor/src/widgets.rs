@@ -79,6 +79,7 @@ const TOP_DIALOG_OFFSET: f32 = 72.0;
 const CAPTION_ROOM_KEY: &str = "property-caption-room";
 const MIN_SLIDER_WIDTH: f32 = 40.0;
 const WIDTH_CHANGE: f32 = 0.5;
+const BALANCE_STEPS: usize = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tone {
@@ -626,12 +627,55 @@ pub fn removable_row_hovered(ui: &mut Ui, text: RichText, hover: &str) -> Remova
     }
 }
 
+pub fn icon_text_button_width(ui: &Ui, text: &str) -> f32 {
+    let label = RichText::new(text.to_owned()).text_style(TextStyle::Body);
+    let label_width = unwrapped(ui, label, TextStyle::Body).size().x;
+    let spacing = ui.spacing();
+    ICON_SIZE + spacing.icon_spacing + label_width + 2.0 * spacing.button_padding.x
+}
+
+pub fn sized_icon_button(ui: &Ui, glyph: &str, text: &str, size: Vec2) -> Named<Button<'static>> {
+    let muted = appearance::tokens(ui).text_muted;
+    let label = RichText::new(text.to_owned()).text_style(TextStyle::Body);
+    Named::new(
+        Button::new((icon(glyph).color(muted), label)).min_size(size),
+        text,
+    )
+}
+
+pub fn balanced_label(ui: &mut Ui, text: RichText) -> Response {
+    let widest = ui.available_width();
+    let lay_out = |width: f32| {
+        WidgetText::from(text.clone()).into_galley(
+            ui,
+            Some(TextWrapMode::Wrap),
+            width,
+            TextStyle::Body,
+        )
+    };
+    let mut best = lay_out(widest);
+    let rows = best.rows.len();
+    if rows > 1 {
+        let mut narrow = widest / rows as f32;
+        let mut wide = widest;
+        for _ in 0..BALANCE_STEPS {
+            let middle = (narrow + wide) / 2.0;
+            let galley = lay_out(middle);
+            if galley.rows.len() > rows {
+                narrow = middle;
+            } else {
+                wide = middle;
+                best = galley;
+            }
+        }
+    }
+    ui.add(Label::new(best).selectable(false))
+}
+
 pub fn small_button(ui: &mut Ui, glyph: &str, text: &str) -> Named<Button<'static>> {
     let muted = appearance::tokens(ui).text_muted;
     let label = RichText::new(text.to_owned()).text_style(TextStyle::Body);
-    let label_width = unwrapped(ui, label.clone(), TextStyle::Body).size().x;
-    let spacing = ui.spacing();
-    let natural = ICON_SIZE + spacing.icon_spacing + label_width + 2.0 * spacing.button_padding.x;
+    let natural = icon_text_button_width(ui, text);
     let row = if ui.layout().main_wrap() {
         ui.max_rect().right().min(ui.clip_rect().right()) - ui.max_rect().left()
     } else {

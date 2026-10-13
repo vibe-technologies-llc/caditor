@@ -302,6 +302,7 @@ pub enum Command {
     DismissNotice,
     DismissTip,
     HideTips,
+    ShowStartCard,
     Welcome,
     Guide,
     About,
@@ -865,6 +866,7 @@ plain_commands! {
     DismissNotice,
     DismissTip,
     HideTips,
+    ShowStartCard,
     Mate,
     MateAngle,
     MirrorFaces,
@@ -1191,6 +1193,7 @@ impl Command {
             Self::DismissNotice => "edit.dismiss_notice",
             Self::DismissTip => "help.dismiss_tip",
             Self::HideTips => "help.hide_tips",
+            Self::ShowStartCard => "help.show_start_card",
             Self::Welcome => "help.welcome",
             Self::Guide => "help.guide",
             Self::About => "help.about",
@@ -1459,6 +1462,7 @@ impl Command {
             Self::DismissNotice => "Dismiss the notice",
             Self::DismissTip => "Dismiss the tip",
             Self::HideTips => "Hide tips",
+            Self::ShowStartCard => "Show the start card",
             Self::Welcome => "Welcome and samples…",
             Self::Guide => "User guide",
             Self::About => "About caditor",
@@ -1594,7 +1598,8 @@ impl Command {
             | Self::About
             | Self::Messages
             | Self::DismissTip
-            | Self::HideTips => Category::Help,
+            | Self::HideTips
+            | Self::ShowStartCard => Category::Help,
             Self::Palette
             | Self::Undo
             | Self::UndoHistory
@@ -2094,6 +2099,7 @@ impl Command {
             | Self::DismissNotice
             | Self::DismissTip
             | Self::HideTips
+            | Self::ShowStartCard
             | Self::Welcome
             | Self::About
             | Self::Messages
