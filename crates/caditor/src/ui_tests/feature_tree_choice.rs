@@ -323,7 +323,7 @@ fn hovering_a_row_lights_its_body_and_hovering_a_fillet_edge_lights_the_edge() {
             .scene
             .batches
             .iter()
-            .flat_map(|batch| batch.lines.iter())
+            .flat_map(|batch| batch.all_lines())
             .filter(|line| line.pick.is_some() && line.pick == pick)
             .map(|line| line.width)
             .fold(0.0_f32, f32::max)

@@ -516,6 +516,7 @@ mod tests {
                     Layer::Reference,
                     Some(id(7)),
                 )],
+                runs: Vec::new(),
             })],
             ..Scene::default()
         }
@@ -692,6 +693,7 @@ mod tests {
                 Layer::Reference,
                 Some(id(31)),
             )],
+            runs: Vec::new(),
         })];
         Arc::make_mut(&mut scene.batches[0]).markers.push(Marker {
             position: Point3::new(0.0, 0.0, -50.0),

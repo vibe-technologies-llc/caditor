@@ -99,8 +99,8 @@ pub use crate::{
         Sphere, Surface, SurfaceDerivatives, SurfaceSide, Torus,
     },
     tessellation::{
-        DisplayMesh, EdgePolyline, FaceTriangles, MassProperties, Mesh, MeshVertex, MeshedSolid,
-        SecondMoment, TessellationError,
+        DisplayMesh, EdgePolyline, FaceTriangles, MassProperties, Mesh, MeshNormal, MeshVertex,
+        MeshedSolid, SecondMoment, TessellationError,
     },
     thread::{
         GROOVE_PARTS, Handedness, MAX_THREAD_TURNS, RING_ENTITY, SPANS_PER_TURN, ThreadEnd,

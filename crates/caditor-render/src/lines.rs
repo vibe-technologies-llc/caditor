@@ -6,7 +6,7 @@ use caditor_geometry::Point3;
 use crate::{
     gpu::{self, Pack},
     mesh::{StyleLayout, pack_color},
-    scene::{Line, PickId, Stroke},
+    scene::{Line, PickId, StrokeKind},
     styles::{StyleTexel, style_texel_bytes},
     viewport::relative_to_eye,
 };
@@ -21,25 +21,6 @@ const PADDING_POINTS: u64 = 2;
 const CLOSED_STRIP_EXTRA_POINTS: u64 = 3;
 const OPEN_STRIP_EXTRA_POINTS: u64 = 1;
 const MIN_CLOSED_SEGMENTS: usize = 3;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum StrokeKind {
-    Solid,
-    Dashed,
-    DashedWhereHidden { seen_dashed: bool },
-}
-
-impl StrokeKind {
-    fn of(stroke: Stroke) -> Self {
-        match stroke {
-            Stroke::Solid => Self::Solid,
-            Stroke::Dashed { .. } => Self::Dashed,
-            Stroke::DashedWhereHidden { seen_dashed, .. } => {
-                Self::DashedWhereHidden { seen_dashed }
-            }
-        }
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct LineStyle {
@@ -420,7 +401,7 @@ fn strips(lines: &[&Line], style_of: &[u32], shown_lines: usize) -> Vec<Strip> {
 mod tests {
     use super::*;
     use crate::{
-        scene::{Color, Layer},
+        scene::{Color, Layer, Stroke},
         styles::STYLE_TEXEL_BYTES,
     };
 

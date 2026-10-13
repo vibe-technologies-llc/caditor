@@ -12,6 +12,8 @@ use crate::{
     topology::Solid,
 };
 
+const PACKED_NORMAL_ERROR: f64 = 1e-8;
+
 struct Expected {
     name: &'static str,
     solid: Solid,
@@ -260,7 +262,7 @@ fn normals_are_unit_and_face_outward() {
             let [a, b, c] = mesh.corner_points(*triangle).unwrap();
             let geometric = (b - a).cross(c - a).normalize();
             for corner in triangle {
-                let normal = mesh.vertices()[*corner as usize].normal;
+                let normal = mesh.vertices()[*corner as usize].normal.vector();
                 assert!((normal.length() - 1.0).abs() < 1e-9, "{}", expected.name);
                 assert!(
                     normal.dot(geometric) > 0.5,
@@ -616,7 +618,7 @@ fn a_displayed_cylinder_keeps_its_steps_within_the_angle_and_chord_and_shades_sm
         for triangle in &mesh.triangles()[face.triangles.clone()] {
             let corners = mesh.corner_points(*triangle).unwrap();
             for (corner, point) in triangle.iter().zip(corners) {
-                let normal = mesh.vertices()[*corner as usize].normal;
+                let normal = mesh.vertices()[*corner as usize].normal.vector();
                 let expected = if curved {
                     (point - Point3::new(0.0, 0.0, point.z)).normalize()
                 } else if point.z > 0.5 * height {
@@ -625,7 +627,7 @@ fn a_displayed_cylinder_keeps_its_steps_within_the_angle_and_chord_and_shades_sm
                     Vector3::NEG_Z
                 };
                 assert!(
-                    normal.distance(expected) < 1e-9,
+                    normal.distance(expected) < PACKED_NORMAL_ERROR,
                     "{normal} at {point} should be {expected}"
                 );
             }

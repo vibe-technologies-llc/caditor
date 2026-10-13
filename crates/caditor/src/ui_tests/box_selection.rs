@@ -211,7 +211,7 @@ fn a_display_style_hides_the_faces_or_the_edges_but_keeps_what_is_left_pickable(
             .scene
             .batches
             .iter()
-            .flat_map(|batch| batch.lines.iter())
+            .flat_map(|batch| batch.all_lines())
             .filter(|line| line.pick.is_some_and(|pick| edges.contains(&pick)))
             .map(|line| line.color.alpha)
             .collect()
@@ -319,7 +319,6 @@ fn shaded_with_hidden_edges_dashed_draws_each_edge_dashed_behind_the_faces_witho
             .scene
             .lines()
             .filter(|line| line.stroke.dashes_where_hidden())
-            .cloned()
             .collect::<Vec<_>>()
     };
     let line_count = |harness: &mut Harness| harness.built().scene.lines().count();

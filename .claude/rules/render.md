@@ -230,6 +230,15 @@ paths:
   texture per batch (`StyleTable`, `styles.rs`, laid out by `StyleLayout`, bound as group 1 for the
   line pipelines); a batch with more styles than fit draws only the lines before the first that
   does not.
+- A batch holds `Line`s (88 bytes a segment) and `PolylineRun`s (`runs.rs`): polylines read
+  through a shared `Arc<dyn PolylineSource>` (index lists over positions, as `MeshSource` is for
+  meshes), each with one `RunPolyline` style (polyline index, colour, width, pick, `StrokeKind`; 32
+  bytes, `a_styled_polyline_is_far_smaller_than_the_lines_it_draws`), a layer and an optional
+  placement. `Batch::all_lines` yields the lines, then each run's segments placed and with their
+  distance along their own polyline; the upload, `BatchBounds`, `Scene::lines` and `hits_through`
+  read that, so a run draws and picks exactly as its lines would
+  (`a_run_over_shared_polylines_draws_and_picks_as_the_lines_it_stands_for`) and its segments exist
+  only while a batch uploads. Runs compare by their source's address, so a kept part keeps its batch.
 - A batch uploads its fills once, ordered pickable reference fills, then other pickable fills, then
   the rest, each group in batch order (`FillGroups`): the pick pass draws the first two groups as
   one range each of the colour pass's buffer, and the colour pass's spans keep batch order. Each

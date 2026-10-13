@@ -3,7 +3,7 @@ use std::{num::NonZeroU32, sync::Arc};
 use caditor_geometry::{Plane, Point3, Vector3};
 use glam::DVec2;
 
-use crate::{mesh::MeshInstance, silhouette::Silhouette};
+use crate::{mesh::MeshInstance, runs::PolylineRun, silhouette::Silhouette};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PickId(NonZeroU32);
@@ -188,6 +188,35 @@ impl Stroke {
 
 const SOLID: f32 = -1.0;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum StrokeKind {
+    Solid,
+    Dashed,
+    DashedWhereHidden { seen_dashed: bool },
+}
+
+impl StrokeKind {
+    pub fn of(stroke: Stroke) -> Self {
+        match stroke {
+            Stroke::Solid => Self::Solid,
+            Stroke::Dashed { .. } => Self::Dashed,
+            Stroke::DashedWhereHidden { seen_dashed, .. } => {
+                Self::DashedWhereHidden { seen_dashed }
+            }
+        }
+    }
+
+    pub fn at(self, along: f32) -> Stroke {
+        match self {
+            Self::Solid => Stroke::Solid,
+            Self::Dashed => Stroke::Dashed { along },
+            Self::DashedWhereHidden { seen_dashed } => {
+                Stroke::DashedWhereHidden { along, seen_dashed }
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Marker {
     pub position: Point3,
@@ -242,19 +271,43 @@ pub struct Grid {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Batch {
     pub lines: Vec<Line>,
+    pub runs: Vec<PolylineRun>,
     pub markers: Vec<Marker>,
     pub fills: Vec<Fill>,
 }
 
 impl Batch {
     pub fn is_empty(&self) -> bool {
-        self.lines.is_empty() && self.markers.is_empty() && self.fills.is_empty()
+        self.lines.is_empty()
+            && self.runs.iter().all(|run| run.polylines.is_empty())
+            && self.markers.is_empty()
+            && self.fills.is_empty()
     }
 
     pub fn shrink_to_fit(&mut self) {
         self.lines.shrink_to_fit();
+        self.runs.shrink_to_fit();
+        for run in &mut self.runs {
+            run.polylines.shrink_to_fit();
+        }
         self.markers.shrink_to_fit();
         self.fills.shrink_to_fit();
+    }
+
+    pub fn all_lines(&self) -> impl Iterator<Item = Line> + '_ {
+        self.lines
+            .iter()
+            .cloned()
+            .chain(self.runs.iter().flat_map(PolylineRun::lines))
+    }
+
+    pub fn line_count(&self) -> usize {
+        self.lines.len()
+            + self
+                .runs
+                .iter()
+                .map(PolylineRun::segment_count)
+                .sum::<usize>()
     }
 }
 
@@ -300,8 +353,8 @@ impl Reflection {
 }
 
 impl Scene {
-    pub fn lines(&self) -> impl Iterator<Item = &Line> {
-        self.batches.iter().flat_map(|batch| batch.lines.iter())
+    pub fn lines(&self) -> impl Iterator<Item = Line> + '_ {
+        self.batches.iter().flat_map(|batch| batch.all_lines())
     }
 
     pub fn markers(&self) -> impl Iterator<Item = &Marker> {
