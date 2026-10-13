@@ -111,9 +111,7 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   degrees-of-freedom analysis), but the dragged part is still never memoised and the solve itself is
   the cost: dragging an end of a fully dimensioned chain of 2,000 lines to a point it cannot reach
   takes seconds a frame in a release build, where a chain joined only by `Coincident` takes tens of
-  milliseconds.
-- [low · medium] A drag past reach ends at the closest least-squares pose only in parts of at
-  most `DENSE_LIMIT` variables (`numeric/reach.rs` uses a dense SVD of the null space and one
-  Jacobian per free direction); a larger part keeps the `STIFF` solve's pose, or the last frame's
-  when that fails, so a long chain dragged past its reach stops instead of following. A sparse
-  null-space basis, or Hessian-vector products inside CGLS, would lift the limit.
+  milliseconds. Past its reach even a chain with only its lengths dimensioned pays this: for 2,000
+  lines the `FROZEN` and `STIFF` solves spend about 410 million work units failing before reaching
+  spends 92 million (`reach_tests.rs`); the reaching step's sparse factorisations could stand in
+  for their CGLS steps.

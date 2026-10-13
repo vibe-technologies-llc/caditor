@@ -12,6 +12,8 @@ mod numeric;
 mod pair;
 #[cfg(test)]
 mod projection_tests;
+#[cfg(test)]
+mod reach_tests;
 mod sparse;
 mod spline;
 #[cfg(test)]
@@ -45,7 +47,10 @@ use crate::{
         diagnosis::{DIAGNOSIS_WORK, diagnose_failure},
         equation::value,
         memo::Recall,
-        numeric::{Analysis, Cancelled, Component, Descent, FROZEN, Failure, Parts, STIFF, Solver},
+        numeric::{
+            Analysis, Cancelled, Component, Descent, FROZEN, Failure, Parts, REACH_WORK, ReachWork,
+            STIFF, Solver,
+        },
         system::System,
     },
 };
@@ -384,8 +389,9 @@ impl Sketch {
                         found.apply(&mut values);
                     }
                 }
+                let mut work = ReachWork::new(REACH_WORK);
                 for component in parts.at(&system, &values).iter() {
-                    solver.reach(component, &targets, &mut values)?;
+                    solver.reach(component, &targets, &drawn, &mut values, &mut work)?;
                 }
             }
             if round < SPACING_ROUNDS
