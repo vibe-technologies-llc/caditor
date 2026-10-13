@@ -1,5 +1,5 @@
 use caditor_geometry::{Plane, Point2, Vector2};
-use caditor_sketch::{Constraint, Entity, EntityId, Sketch};
+use caditor_sketch::{Constraint, Entity, EntityId, PointTarget, Sketch};
 use egui::{Event, Key, Modifiers, PointerButton};
 
 use super::{
@@ -597,7 +597,7 @@ fn a_point_dropped_on_a_line_stays_on_it() {
 }
 
 #[test]
-fn a_point_placed_at_the_centre_of_a_triangle_lands_there_but_is_not_kept_there() {
+fn a_point_placed_at_the_centre_of_a_drawn_triangle_is_held_at_the_centre_of_its_corners() {
     let mut harness = Harness::new();
     let feature = harness.draw_on_new_sketch();
     harness.use_tool(Key::L);
@@ -617,7 +617,7 @@ fn a_point_placed_at_the_centre_of_a_triangle_lands_there_but_is_not_kept_there(
     harness.use_tool(Key::P);
     harness.point_at(Point2::new(20.3, 19.8));
     assert!(harness.shows_containing("Centre of the outline of Line"));
-    assert!(harness.shows_containing("not kept there"));
+    assert!(!harness.shows_containing("not kept there"));
     harness.click_at(Point2::new(20.3, 19.8));
     harness.settle();
 
@@ -639,15 +639,25 @@ fn a_point_placed_at_the_centre_of_a_triangle_lands_there_but_is_not_kept_there(
         near(landed, Point2::new(20.0, 20.0)),
         "{landed} is not at the centre"
     );
+    let held: Vec<&Constraint> = sketch
+        .constraints()
+        .map(|(_, constraint)| constraint)
+        .filter(|constraint| constraint.entities().contains(&placed))
+        .collect();
     assert!(
-        !sketch
-            .constraints()
-            .any(|(_, constraint)| constraint.entities().contains(&placed))
+        matches!(
+            held[..],
+            [Constraint::Centroid { point, corners }]
+                if *point == placed
+                    && corners.len() == 3
+                    && corners.iter().all(|corner| owned.contains(corner))
+        ),
+        "{held:?}"
     );
 }
 
 #[test]
-fn a_point_drawn_square_to_a_line_from_its_end_lands_on_the_perpendicular() {
+fn a_point_drawn_square_to_a_line_from_its_end_lands_on_the_perpendicular_and_is_held_there() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
     let line = sketch.add_line(Point2::ZERO, Point2::new(15.0, 20.0));
@@ -660,9 +670,7 @@ fn a_point_drawn_square_to_a_line_from_its_end_lands_on_the_perpendicular() {
     harness.point_at(Point2::new(23.05, 14.03));
     let label = harness.sketch(feature).entity_label(line);
     let end_label = harness.sketch(feature).entity_label(end);
-    assert!(harness.shows(&format!(
-        "Perpendicular to {label} from {end_label}, not kept there"
-    )));
+    assert!(harness.shows(&format!("Perpendicular to {label} from {end_label}")));
     harness.click_at(Point2::new(23.05, 14.03));
     harness.settle();
 
@@ -679,4 +687,11 @@ fn a_point_drawn_square_to_a_line_from_its_end_lands_on_the_perpendicular() {
             < 1e-6,
         "{at}"
     );
+    assert!(sketch.constraints().any(|(_, constraint)| *constraint
+        == Constraint::OnDirection {
+            point: placed,
+            through: PointTarget::Point(end),
+            line,
+            square: true,
+        }));
 }

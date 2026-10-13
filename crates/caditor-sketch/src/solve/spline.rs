@@ -97,7 +97,16 @@ impl System {
         spline: EntityId,
     ) -> Result<Vec<f64>, SketchError> {
         let target = self.point(point)?.at(&self.values);
-        Ok(vec![start_on(
+        Ok(vec![self.closest_parameter(sketch, spline, target)?])
+    }
+
+    pub(super) fn closest_parameter(
+        &self,
+        sketch: &Sketch,
+        spline: EntityId,
+        target: Point2,
+    ) -> Result<f64, SketchError> {
+        Ok(start_on(
             &self.curve(sketch, spline)?,
             Wanted::Closest,
             |at| at.distance(target),
@@ -105,7 +114,7 @@ impl System {
                 let offset = at - target;
                 (offset.dot(tangent), tangent.dot(tangent) + offset.dot(bend))
             },
-        )])
+        ))
     }
 
     fn tangent_start(

@@ -176,6 +176,27 @@ paths:
   plus half the counter-clockwise sweep, a single branch since the opposite point is half a turn
   away.
 
+## Point targets (`solve/target.rs`)
+
+- A target is a `TargetHandle`: a weighted sum of point handles (a point, a line's middle, the
+  centre of corners), a circle's centre plus its radius along a fixed direction (`Rim`, a
+  quadrant, the radius through `push_radius`) or an ellipse turned to a fixed cosine and sine
+  (`Turned`, an axis end, through `EllipseHandle::turned` and `push_point`).
+- A crossing and the middle of an arc or elliptical arc have no closed form, so the constraint gets
+  a hidden point of its own (`System::targets`: two variables allocated after the curve
+  parameters, `Variable::Target` in the memo, perturbed like geometry, owned by no entity) held by
+  the forms defining it, owned by the constraint: on each curve (`Form::OnLine`, the circle form,
+  `OnEllipse`, or `OnSpline` along x and y at a curve parameter of the constraint started at the
+  closest point, `target_parameter_start`), or the forms `Midpoint` uses (`middle_forms`, shared).
+  It starts at `Sketch::target_position`, so a solve keeps the crossing the drawing chose; two
+  variables and two equations, it adds no freedom while the curves cross at an angle.
+- `HorizontalPoints` and `VerticalPoints` on a sketch point stay `Form::SameY` and `SameX`; on any
+  other target they are `Form::Level` (`along · (point − target)`). `OnDirection` is
+  `Form::OnDirection`: the offset from the target dotted with the line's unit direction (square)
+  or its normal, the line's turn reaching its ends through `Direction::back_from_unit`. `Centroid`
+  is `Form::Through` along x and y over the corners at equal weights. Their rows belong to their
+  constraint, so degrees of freedom, redundancy and conflict diagnosis need nothing of their own.
+
 ## Constraint state
 
 - Degrees of freedom and each entity's state come from the rank and null space of the Jacobian at

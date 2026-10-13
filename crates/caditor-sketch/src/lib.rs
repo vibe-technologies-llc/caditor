@@ -26,6 +26,7 @@ mod solve;
 mod spacing;
 mod split;
 mod tangent_circle;
+mod target;
 mod trim;
 
 pub use crate::{
@@ -56,5 +57,6 @@ pub use crate::{
     solve::{Drag, EntityState, Redundancy, SketchSolution, SolveMemo, Solved},
     split::SplitError,
     tangent_circle::{TangentCircle, TangentError},
+    target::{EllipseEnd, PointTarget, Quadrant},
     trim::{Cut, ExtendError, Extension, Piece, TrimError, Trimmed},
 };

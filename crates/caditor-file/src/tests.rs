@@ -1638,8 +1638,8 @@ fn with_added_kinds(mut document: Document) -> (Document, AddedKinds) {
     ]);
     let rider = sketch.add_point(Point2::new(10.0, 35.0));
     let mut add = |constraint| sketch.add_constraint(constraint).unwrap();
-    add(Constraint::HorizontalPoints(start, end));
-    add(Constraint::VerticalPoints(start, EntityId::ORIGIN));
+    add(Constraint::HorizontalPoints(start, end.into()));
+    add(Constraint::VerticalPoints(start, EntityId::ORIGIN.into()));
     add(Constraint::Midpoint {
         point: middle,
         curve: line,
@@ -1762,6 +1762,122 @@ fn ellipses_and_their_radii_round_trip_and_older_readers_report_them() {
     assert!(reported.contains("(elliptical_curl)"), "{reported}");
     assert!(reported.contains("(major_reach)"), "{reported}");
     assert!(reported.contains("(on_minor_ray)"), "{reported}");
+}
+
+fn tracked_sketch() -> Sketch {
+    use caditor_sketch::{EllipseEnd, PointTarget, Quadrant};
+
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::ZERO, Point2::new(20.0, 10.0));
+    let other = sketch.add_line(Point2::new(0.0, 10.0), Point2::new(20.0, 0.0));
+    let circle = sketch.add_circle(Point2::new(40.0, 0.0), 5.0);
+    let arc = sketch.add_arc(
+        Point2::new(60.0, 0.0),
+        Point2::new(65.0, 0.0),
+        Point2::new(55.0, 0.0),
+    );
+    let ellipse = sketch.add_ellipse(Point2::new(80.0, 0.0), Point2::new(90.0, 5.0), 4.0);
+    let corners = vec![
+        sketch.add_point(Point2::new(0.0, 30.0)),
+        sketch.add_point(Point2::new(15.0, 30.0)),
+        sketch.add_point(Point2::new(5.0, 45.0)),
+    ];
+    let held = |sketch: &mut Sketch, made: &dyn Fn(EntityId) -> Constraint| {
+        let point = sketch.add_point(Point2::new(100.0, 50.0));
+        sketch.add_constraint(made(point)).unwrap();
+    };
+    let targets = [
+        PointTarget::Point(corners[0]),
+        PointTarget::Middle(line),
+        PointTarget::Middle(arc),
+        PointTarget::Crossing(line, other),
+        PointTarget::Crossing(circle, EntityId::HORIZONTAL_AXIS),
+        PointTarget::Centroid(corners.clone()),
+        PointTarget::Quadrant {
+            curve: circle,
+            side: Quadrant::Right,
+        },
+        PointTarget::Quadrant {
+            curve: arc,
+            side: Quadrant::Top,
+        },
+        PointTarget::Quadrant {
+            curve: circle,
+            side: Quadrant::Left,
+        },
+        PointTarget::Quadrant {
+            curve: circle,
+            side: Quadrant::Bottom,
+        },
+    ]
+    .into_iter()
+    .chain(EllipseEnd::ALL.map(|end| PointTarget::EllipseEnd { ellipse, end }));
+    for (index, target) in targets.enumerate() {
+        held(&mut sketch, &|point| match index % 4 {
+            0 => Constraint::HorizontalPoints(point, target.clone()),
+            1 => Constraint::VerticalPoints(point, target.clone()),
+            2 => Constraint::OnDirection {
+                point,
+                through: target.clone(),
+                line: other,
+                square: false,
+            },
+            _ => Constraint::OnDirection {
+                point,
+                through: target.clone(),
+                line,
+                square: true,
+            },
+        });
+    }
+    held(&mut sketch, &|point| Constraint::Centroid {
+        point,
+        corners: corners.clone(),
+    });
+    held(&mut sketch, &|point| {
+        Constraint::HorizontalPoints(point, PointTarget::Middle(other))
+    });
+    held(&mut sketch, &|point| {
+        Constraint::VerticalPoints(point, PointTarget::Crossing(other, circle))
+    });
+    sketch
+}
+
+#[test]
+fn constraints_holding_points_at_targets_round_trip_and_older_readers_report_them() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Tracks");
+    transaction.add_feature("Tracked", FeatureKind::from(tracked_sketch()));
+    document.apply(transaction.finish()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let older = decode_text(
+        &text
+            .replace("\"horizontal_through\"", "\"horizontal_beyond\"")
+            .replace("\"vertical_through\"", "\"vertical_beyond\"")
+            .replace("\"on_direction\"", "\"on_heading\"")
+            .replace("\"centroid\"", "\"centre_of_mass\""),
+    );
+
+    assert!(text.contains("\"horizontal_points\""), "{text}");
+    assert!(text.contains("\"quadrant\""), "{text}");
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    let reported = older.issues.join(" ");
+    for kind in [
+        "horizontal_beyond",
+        "vertical_beyond",
+        "on_heading",
+        "centre_of_mass",
+    ] {
+        assert!(
+            reported.contains(&format!(
+                "a constraint of a kind this version of caditor does not know ({kind})"
+            )),
+            "{reported}"
+        );
+    }
 }
 
 #[test]

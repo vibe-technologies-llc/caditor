@@ -514,8 +514,8 @@ impl Direction {
 
     fn between(self, from: EntityId, to: EntityId) -> Option<Constraint> {
         match self {
-            Self::Horizontal => Some(Constraint::HorizontalPoints(from, to)),
-            Self::Vertical => Some(Constraint::VerticalPoints(from, to)),
+            Self::Horizontal => Some(Constraint::HorizontalPoints(from, to.into())),
+            Self::Vertical => Some(Constraint::VerticalPoints(from, to.into())),
             Self::Parallel(_) | Self::Perpendicular(_) | Self::Tangent(_) => None,
         }
     }
@@ -3527,13 +3527,11 @@ impl<'a> Draft<'a> {
         let point = self.entity(Entity::Point(placement.position));
         let joins = match placement.snap.target() {
             Some(Target::Body(body)) => self.body_joins(body, point),
-            Some(target) => target.joins(point),
+            Some(target) => target.joins(&self.shadow, point),
             None => Vec::new(),
         };
-        for constraint in joins {
-            self.constrain(constraint);
-        }
-        for constraint in placement.tracks.constraints(point) {
+        let tracked: Vec<Constraint> = placement.tracks.constraints(&self.shadow, point).collect();
+        for constraint in joins.into_iter().chain(tracked) {
             self.constrain(constraint);
         }
         point
@@ -4329,7 +4327,7 @@ mod tests {
         assert_eq!(
             drawing.snap_label(&sketch),
             Some(format!(
-                "Horizontal from the midpoint of {}, not kept there",
+                "Horizontal from the midpoint of {}",
                 sketch.entity_label(base)
             ))
         );

@@ -1252,7 +1252,7 @@ mod tests {
             })
             .unwrap();
         let level = sketch
-            .add_constraint(Constraint::HorizontalPoints(point, EntityId::ORIGIN))
+            .add_constraint(Constraint::HorizontalPoints(point, EntityId::ORIGIN.into()))
             .unwrap();
         let diameter = sketch
             .add_constraint(Constraint::Diameter {

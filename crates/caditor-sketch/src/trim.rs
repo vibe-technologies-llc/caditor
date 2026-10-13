@@ -1535,7 +1535,7 @@ pub(crate) fn keeps_length(constraint: &Constraint) -> bool {
     !matches!(
         constraint,
         Constraint::Midpoint { .. } | Constraint::Equal(..)
-    )
+    ) && !constraint.follows_a_middle()
 }
 
 pub(crate) fn keeps_sweep(constraint: &Constraint) -> bool {
@@ -1545,7 +1545,7 @@ pub(crate) fn keeps_sweep(constraint: &Constraint) -> bool {
             | Constraint::ArcLength { .. }
             | Constraint::Sweep { .. }
             | Constraint::Angle { .. }
-    )
+    ) && !constraint.follows_a_middle()
 }
 
 fn overlap_ends(course: &Course, cutter: &Shape, tolerance: f64) -> Option<Vec<Point2>> {

@@ -41,6 +41,7 @@ pub struct Grab {
     handle: Option<(EntityId, Point2)>,
     sent: Option<Vec<Drag>>,
     landing: Option<Landing>,
+    joins: Vec<Constraint>,
     guides: Vec<[Point2; 2]>,
     acquired: Acquired,
     bodies: SharedSnaps,
@@ -98,6 +99,7 @@ impl Grab {
             handle,
             sent: None,
             landing: None,
+            joins: Vec::new(),
             guides: Vec::new(),
             acquired: Acquired::default(),
             bodies: SharedSnaps::default(),
@@ -215,6 +217,10 @@ impl Grab {
         self.guides = landing
             .map(|(sketch, landing)| landing.guides(sketch))
             .unwrap_or_default();
+        self.joins = landing
+            .zip(self.handle)
+            .map(|((sketch, landing), (point, _))| landing.joins(sketch, point))
+            .unwrap_or_default();
         self.landing = landing.map(|(_, landing)| landing);
         let target = match (self.landing, self.handle) {
             (Some(landing), Some((_, original))) => self.from + (landing.position - original),
@@ -277,7 +283,7 @@ impl Grab {
                 .map(|((point, _), landing)| Join {
                     point,
                     at: landing.position,
-                    constraints: landing.joins(point),
+                    constraints: self.joins.clone(),
                     body: match landing.target {
                         Some(Target::Body(target)) => self.bodies.0.source(target).map(|source| {
                             Box::new(BodyJoin {
@@ -1377,7 +1383,7 @@ mod tests {
                 join: Some(Join {
                     point: end,
                     at: Point2::new(20.0, 10.0),
-                    constraints: vec![Constraint::HorizontalPoints(end, start)],
+                    constraints: vec![Constraint::HorizontalPoints(end, start.into())],
                     body: None,
                     rim_of: None,
                 }),

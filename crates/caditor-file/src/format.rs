@@ -33,7 +33,10 @@ use caditor_kernel::{
     BoundaryPiece, EdgeName, EdgeReference, FaceCopy, FaceName, FaceOrigin, FaceReference,
     PipeShape, RegionKey, RegionReference, Side, Solid, SweepOrientation, VertexName, WallSide,
 };
-use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, FitSpacing, Sketch, SplineKind};
+use caditor_sketch::{
+    Constraint, ConstraintId, EllipseEnd, Entity, EntityId, FitSpacing,
+    PointTarget as SketchTarget, Quadrant, Sketch, SplineKind,
+};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwned};
 use serde_json::Value;
 
@@ -1828,9 +1831,120 @@ pub(crate) enum ConstraintKindRecord {
         point: u64,
         ellipse: u64,
     },
+    HorizontalThrough {
+        point: u64,
+        through: TargetRecord,
+    },
+    VerticalThrough {
+        point: u64,
+        through: TargetRecord,
+    },
+    OnDirection {
+        point: u64,
+        through: TargetRecord,
+        line: u64,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        square: bool,
+    },
+    Centroid {
+        point: u64,
+        corners: Vec<u64>,
+    },
 }
 
-const CONSTRAINT_KINDS: [&str; 27] = [
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum TargetRecord {
+    Point(u64),
+    Middle(u64),
+    Crossing([u64; 2]),
+    Centroid(Vec<u64>),
+    Quadrant { curve: u64, side: QuadrantRecord },
+    EllipseEnd { ellipse: u64, end: EllipseEndRecord },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum QuadrantRecord {
+    Right,
+    Top,
+    Left,
+    Bottom,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum EllipseEndRecord {
+    Major,
+    FarMajor,
+    Minor,
+    FarMinor,
+}
+
+impl TargetRecord {
+    fn of(target: &SketchTarget) -> Self {
+        match target {
+            SketchTarget::Point(point) => Self::Point(point.raw()),
+            SketchTarget::Middle(curve) => Self::Middle(curve.raw()),
+            SketchTarget::Crossing(first, second) => Self::Crossing([first.raw(), second.raw()]),
+            SketchTarget::Centroid(corners) => {
+                Self::Centroid(corners.iter().map(|corner| corner.raw()).collect())
+            }
+            SketchTarget::Quadrant { curve, side } => Self::Quadrant {
+                curve: curve.raw(),
+                side: match side {
+                    Quadrant::Right => QuadrantRecord::Right,
+                    Quadrant::Top => QuadrantRecord::Top,
+                    Quadrant::Left => QuadrantRecord::Left,
+                    Quadrant::Bottom => QuadrantRecord::Bottom,
+                },
+            },
+            SketchTarget::EllipseEnd { ellipse, end } => Self::EllipseEnd {
+                ellipse: ellipse.raw(),
+                end: match end {
+                    EllipseEnd::Major => EllipseEndRecord::Major,
+                    EllipseEnd::FarMajor => EllipseEndRecord::FarMajor,
+                    EllipseEnd::Minor => EllipseEndRecord::Minor,
+                    EllipseEnd::FarMinor => EllipseEndRecord::FarMinor,
+                },
+            },
+        }
+    }
+
+    fn target(&self) -> SketchTarget {
+        let entity = EntityId::from_raw;
+        match self {
+            Self::Point(point) => SketchTarget::Point(entity(*point)),
+            Self::Middle(curve) => SketchTarget::Middle(entity(*curve)),
+            Self::Crossing([first, second]) => {
+                SketchTarget::Crossing(entity(*first), entity(*second))
+            }
+            Self::Centroid(corners) => {
+                SketchTarget::Centroid(corners.iter().map(|corner| entity(*corner)).collect())
+            }
+            Self::Quadrant { curve, side } => SketchTarget::Quadrant {
+                curve: entity(*curve),
+                side: match side {
+                    QuadrantRecord::Right => Quadrant::Right,
+                    QuadrantRecord::Top => Quadrant::Top,
+                    QuadrantRecord::Left => Quadrant::Left,
+                    QuadrantRecord::Bottom => Quadrant::Bottom,
+                },
+            },
+            Self::EllipseEnd { ellipse, end } => SketchTarget::EllipseEnd {
+                ellipse: entity(*ellipse),
+                end: match end {
+                    EllipseEndRecord::Major => EllipseEnd::Major,
+                    EllipseEndRecord::FarMajor => EllipseEnd::FarMajor,
+                    EllipseEndRecord::Minor => EllipseEnd::Minor,
+                    EllipseEndRecord::FarMinor => EllipseEnd::FarMinor,
+                },
+            },
+        }
+    }
+}
+
+const CONSTRAINT_KINDS: [&str; 31] = [
     "coincident",
     "horizontal",
     "vertical",
@@ -1858,6 +1972,10 @@ const CONSTRAINT_KINDS: [&str; 27] = [
     "minor_radius",
     "rho",
     "on_minor_axis",
+    "horizontal_through",
+    "vertical_through",
+    "on_direction",
+    "centroid",
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -4303,8 +4421,35 @@ fn constraint_kind_record(constraint: &Constraint) -> ConstraintKindRecord {
             entity: entity.raw(),
             value: value.to_stored_text(),
         },
-        Constraint::HorizontalPoints(a, b) => ConstraintKindRecord::HorizontalPoints(pair(a, b)),
-        Constraint::VerticalPoints(a, b) => ConstraintKindRecord::VerticalPoints(pair(a, b)),
+        Constraint::HorizontalPoints(a, SketchTarget::Point(b)) => {
+            ConstraintKindRecord::HorizontalPoints(pair(a, b))
+        }
+        Constraint::VerticalPoints(a, SketchTarget::Point(b)) => {
+            ConstraintKindRecord::VerticalPoints(pair(a, b))
+        }
+        Constraint::HorizontalPoints(point, through) => ConstraintKindRecord::HorizontalThrough {
+            point: point.raw(),
+            through: TargetRecord::of(through),
+        },
+        Constraint::VerticalPoints(point, through) => ConstraintKindRecord::VerticalThrough {
+            point: point.raw(),
+            through: TargetRecord::of(through),
+        },
+        Constraint::OnDirection {
+            point,
+            through,
+            line,
+            square,
+        } => ConstraintKindRecord::OnDirection {
+            point: point.raw(),
+            through: TargetRecord::of(through),
+            line: line.raw(),
+            square: *square,
+        },
+        Constraint::Centroid { point, corners } => ConstraintKindRecord::Centroid {
+            point: point.raw(),
+            corners: corners.iter().map(|corner| corner.raw()).collect(),
+        },
         Constraint::Midpoint { point, curve } => ConstraintKindRecord::Midpoint {
             point: point.raw(),
             line: curve.raw(),
@@ -8136,12 +8281,33 @@ fn constraint_from_record(
         }
         ConstraintKindRecord::HorizontalPoints(ids) => {
             let (a, b) = pair(*ids);
-            Constraint::HorizontalPoints(a, b)
+            Constraint::HorizontalPoints(a, b.into())
         }
         ConstraintKindRecord::VerticalPoints(ids) => {
             let (a, b) = pair(*ids);
-            Constraint::VerticalPoints(a, b)
+            Constraint::VerticalPoints(a, b.into())
         }
+        ConstraintKindRecord::HorizontalThrough { point, through } => {
+            Constraint::HorizontalPoints(entity(*point), through.target())
+        }
+        ConstraintKindRecord::VerticalThrough { point, through } => {
+            Constraint::VerticalPoints(entity(*point), through.target())
+        }
+        ConstraintKindRecord::OnDirection {
+            point,
+            through,
+            line,
+            square,
+        } => Constraint::OnDirection {
+            point: entity(*point),
+            through: through.target(),
+            line: entity(*line),
+            square: *square,
+        },
+        ConstraintKindRecord::Centroid { point, corners } => Constraint::Centroid {
+            point: entity(*point),
+            corners: corners.iter().map(|corner| entity(*corner)).collect(),
+        },
         ConstraintKindRecord::Midpoint { point, line } => Constraint::Midpoint {
             point: entity(*point),
             curve: entity(*line),

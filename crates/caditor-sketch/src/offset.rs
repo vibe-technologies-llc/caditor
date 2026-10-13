@@ -1714,7 +1714,7 @@ impl Sketch {
                     .ok_or(SketchError::NoSuchEntity(piece.curve))?;
                 let rim = self.add_point(center + Vector2::X * radius);
                 self.add_constraint(Constraint::Coincident(rim, piece.curve))?;
-                self.add_constraint(Constraint::HorizontalPoints(rim, center_point))?;
+                self.add_constraint(Constraint::HorizontalPoints(rim, center_point.into()))?;
                 self.add_constraint(Constraint::Distance {
                     from: rim,
                     to: original.curve,

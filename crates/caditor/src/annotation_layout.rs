@@ -2,7 +2,7 @@ use std::f64::consts::{FRAC_1_SQRT_2, PI, TAU};
 
 use caditor_geometry::{Point2, Vector2};
 use caditor_sketch::{
-    ArcGeometry, Constraint, Entity, EntityId, Sketch,
+    ArcGeometry, Constraint, Entity, EntityId, PointTarget, Sketch,
     annotation::{Footprint, LineSpan, Measured, Obstacles, away_from},
 };
 
@@ -863,6 +863,8 @@ pub enum GlyphKind {
     Collinear,
     Symmetric,
     Fix,
+    Through,
+    Centre,
 }
 
 pub fn glyphs_of(sketch: &Sketch, constraint: &Constraint) -> Vec<(EntityId, GlyphKind)> {
@@ -876,8 +878,14 @@ pub fn glyphs_of(sketch: &Sketch, constraint: &Constraint) -> Vec<(EntityId, Gly
     match *constraint {
         Constraint::Horizontal(line) => vec![(line, GlyphKind::Horizontal)],
         Constraint::Vertical(line) => vec![(line, GlyphKind::Vertical)],
-        Constraint::HorizontalPoints(a, b) => on_each(GlyphKind::Horizontal, [a, b]),
-        Constraint::VerticalPoints(a, b) => on_each(GlyphKind::Vertical, [a, b]),
+        Constraint::HorizontalPoints(point, ref through) => {
+            held_with(GlyphKind::Horizontal, point, through)
+        }
+        Constraint::VerticalPoints(point, ref through) => {
+            held_with(GlyphKind::Vertical, point, through)
+        }
+        Constraint::OnDirection { point, .. } => vec![(point, GlyphKind::Through)],
+        Constraint::Centroid { point, .. } => vec![(point, GlyphKind::Centre)],
         Constraint::Midpoint { point, .. } => vec![(point, GlyphKind::Midpoint)],
         Constraint::OnMinorAxis { point, .. } => vec![(point, GlyphKind::Perpendicular)],
         Constraint::Concentric(a, b) => on_each(GlyphKind::Concentric, [a, b]),
@@ -917,6 +925,19 @@ pub fn glyphs_of(sketch: &Sketch, constraint: &Constraint) -> Vec<(EntityId, Gly
         | Constraint::MinorRadius { .. }
         | Constraint::Rho { .. } => Vec::new(),
     }
+}
+
+fn held_with(
+    kind: GlyphKind,
+    point: EntityId,
+    through: &PointTarget,
+) -> Vec<(EntityId, GlyphKind)> {
+    [Some(point), through.point()]
+        .into_iter()
+        .flatten()
+        .filter(|entity| !entity.is_reference())
+        .map(|entity| (entity, kind))
+        .collect()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -1812,7 +1833,7 @@ mod tests {
         assert_eq!(
             glyphs_of(
                 &sketch,
-                &Constraint::HorizontalPoints(lone, EntityId::ORIGIN)
+                &Constraint::HorizontalPoints(lone, EntityId::ORIGIN.into())
             ),
             vec![(lone, GlyphKind::Horizontal)]
         );

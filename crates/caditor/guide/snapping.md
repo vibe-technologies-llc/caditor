@@ -6,9 +6,10 @@ snapped point keeps the relation as a constraint, so a line ending on a circle s
 ## What it snaps to
 
 - Points, the sketch origin and the middle of lines, arcs and elliptical arcs.
-- The centre of a closed outline such as a rectangle, slot or regular polygon. The whole outline
-  lights up, and on an outline of an even number of sides so do the two corners that will hold the
-  point there.
+- The centre of a closed outline such as a rectangle, slot, triangle or regular polygon. The whole
+  outline lights up, and on an outline of an even number of sides so do the two corners that will
+  hold the point there. On an outline of an odd number of straight sides the centre is the middle
+  of its corners, and the point stays there as the corners move.
 - Where two curves cross, and the right, top, left and bottom of circles and arcs.
 - The far end of an ellipse's major axis and the ends of its minor axis; the point stays at the
   end however the ellipse is turned.
@@ -32,9 +33,11 @@ the ends of an ellipse's axes. Moving level with one, or straight above or below
 guide and lines the new point up with it; from the middle of a line a guide also runs square to the
 line, along its perpendicular bisector. Where two guides cross, the point lands on the crossing.
 
-A point lined up with a sketch point keeps that as a constraint, so it stays level with it. Lined
-up with anything else, such as a line's middle, it lands exactly there but nothing holds it, and the
-label ends "not kept there"; add a dimension or constraint if it should stay.
+A lined-up point keeps that as a constraint, whatever it was lined up with: level with a point or a
+line's middle, straight above a crossing, on the perpendicular bisector, along or square to a line
+through the top of a circle. When the line, crossing, outline, circle or ellipse moves, the point
+moves with it. Its mark beside the point is H or V for level or upright, a slanted stroke through a
+ring for along or square to a line, and a triangle round a dot for the centre of corners.
 
 ## Controlling it
 

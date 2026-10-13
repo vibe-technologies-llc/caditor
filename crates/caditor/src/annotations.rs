@@ -57,6 +57,7 @@ const RADIUS_PREFIX: &str = "R ";
 const RHO_PREFIX: &str = "rho ";
 const DIAMETER_PREFIX: &str = "Ø ";
 const MIDPOINT_DOT: f32 = 1.8;
+const THROUGH_RING: f32 = 2.2;
 const INNER_RING: f32 = 1.8;
 const DASH_GAP: f32 = 1.2;
 const LOCK_HALF_WIDTH: f32 = 3.4;
@@ -1826,7 +1827,9 @@ pub fn glyph_letter(kind: GlyphKind) -> Option<&'static str> {
         | GlyphKind::Concentric
         | GlyphKind::Collinear
         | GlyphKind::Symmetric
-        | GlyphKind::Fix => None,
+        | GlyphKind::Fix
+        | GlyphKind::Through
+        | GlyphKind::Centre => None,
     }
 }
 
@@ -1885,7 +1888,9 @@ fn paint_glyph(painter: &egui::Painter, center: Pos2, kind: GlyphKind, color: Co
         | GlyphKind::Concentric
         | GlyphKind::Collinear
         | GlyphKind::Symmetric
-        | GlyphKind::Fix => {}
+        | GlyphKind::Fix
+        | GlyphKind::Through
+        | GlyphKind::Centre => {}
     }
     canvas::paint_backdrop(
         painter,
@@ -1976,6 +1981,24 @@ fn paint_glyph(painter: &egui::Painter, center: Pos2, kind: GlyphKind, color: Co
                 })
                 .collect();
             painter.add(Shape::line(shackle, stroke));
+        }
+        GlyphKind::Through => {
+            painter.line_segment(
+                [at(-SYMBOL_HALF, SYMBOL_HALF), at(SYMBOL_HALF, -SYMBOL_HALF)],
+                stroke,
+            );
+            painter.circle_stroke(center, THROUGH_RING, stroke);
+        }
+        GlyphKind::Centre => {
+            painter.add(Shape::closed_line(
+                vec![
+                    at(0.0, -SYMBOL_HALF),
+                    at(SYMBOL_HALF, SYMBOL_HALF),
+                    at(-SYMBOL_HALF, SYMBOL_HALF),
+                ],
+                stroke,
+            ));
+            painter.circle_filled(at(0.0, SYMBOL_HALF / 3.0), MIDPOINT_DOT, color);
         }
         GlyphKind::Horizontal
         | GlyphKind::Vertical

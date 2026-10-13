@@ -254,11 +254,11 @@ impl ConstraintTool {
             (Self::Concentric, _) => centred(items),
             (Self::Collinear, _) => chained(items, Line, Constraint::Collinear),
             (Self::Fix, _) => fixed(definition, shown, items),
-            (Self::Horizontal, &[(_, Point), ..]) => {
-                chained(items, Point, Constraint::HorizontalPoints)
-            }
+            (Self::Horizontal, &[(_, Point), ..]) => chained(items, Point, |a, b| {
+                Constraint::HorizontalPoints(a, b.into())
+            }),
             (Self::Vertical, &[(_, Point), ..]) => {
-                chained(items, Point, Constraint::VerticalPoints)
+                chained(items, Point, |a, b| Constraint::VerticalPoints(a, b.into()))
             }
             (Self::Horizontal, _) => each(items, Constraint::Horizontal),
             (Self::Vertical, _) => each(items, Constraint::Vertical),
@@ -1697,13 +1697,16 @@ mod tests {
                 &[f.slanted_start, f.lone, EntityId::ORIGIN]
             ),
             Ok(vec![
-                Constraint::HorizontalPoints(f.slanted_start, f.lone),
-                Constraint::HorizontalPoints(f.slanted_start, EntityId::ORIGIN),
+                Constraint::HorizontalPoints(f.slanted_start, f.lone.into()),
+                Constraint::HorizontalPoints(f.slanted_start, EntityId::ORIGIN.into()),
             ])
         );
         assert_eq!(
             candidates(&f, ConstraintTool::Vertical, &[f.lone, f.slanted_end]),
-            Ok(vec![Constraint::VerticalPoints(f.lone, f.slanted_end)])
+            Ok(vec![Constraint::VerticalPoints(
+                f.lone,
+                f.slanted_end.into()
+            )])
         );
         assert_eq!(
             candidates(

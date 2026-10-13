@@ -327,6 +327,14 @@ Sketch entities:
   `major_radius` and `minor_radius` constraints (`ellipse`, `value`, falling back to the drawn
   radius); `on_minor_axis` (`point`, `ellipse`). Naming an unknown kind skips the flags (`id`,
   `name`, `construction`, `split_from`, `inactive`, `label`).
+- Constraints holding a point at a target: `horizontal_points` and `vertical_points` stay two point
+  ids; held to any other target they are `horizontal_through` and `vertical_through` (`point`,
+  `through`), on a line through a target `on_direction` (`point`, `through`, `line`, `square` when
+  set), at the centre of corners `centroid` (`point`, `corners`). A target record is `point`,
+  `middle`, `crossing` (two ids), `centroid` (ids), `quadrant` (`curve`, `side` of `right`, `top`,
+  `left`, `bottom`) or `ellipse_end` (`ellipse`, `end` of `major`, `far_major`, `minor`,
+  `far_minor`). A reader not knowing them reports each as a kind from a newer version and the point
+  stays free; the corpus holds them in `point-targets.caditor`.
 - An entity record has `construction` when true and `split_from` (the id of the curve it was split
   from, `sketch.md`) when set, both left out otherwise, in the model and in a journaled
   `add_sketch_entity`. A `split_from` the sketch refuses (the entity itself) is reported and
