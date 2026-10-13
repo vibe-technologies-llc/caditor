@@ -66,6 +66,7 @@ pub fn can_hide(feature: &Feature) -> bool {
         | FeatureKind::Blend(_)
         | FeatureKind::Shell(_)
         | FeatureKind::OffsetFace(_)
+        | FeatureKind::DeleteFace(_)
         | FeatureKind::SplitFace(_)
         | FeatureKind::Primitive(_)
         | FeatureKind::Pipe(_)

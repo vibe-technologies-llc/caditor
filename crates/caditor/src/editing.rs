@@ -1043,6 +1043,7 @@ fn opened_solid(document: &Document, feature: FeatureId) -> bool {
             | FeatureKind::Blend(_)
             | FeatureKind::Shell(_)
             | FeatureKind::OffsetFace(_)
+            | FeatureKind::DeleteFace(_)
             | FeatureKind::SplitFace(_)
             | FeatureKind::Primitive(_)
             | FeatureKind::Pipe(_)

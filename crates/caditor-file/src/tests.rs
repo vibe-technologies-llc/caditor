@@ -4296,6 +4296,63 @@ fn an_unreadable_moved_face_is_left_where_it_is_and_reported() {
     assert!(restored.kind.offset_face().unwrap().faces.is_empty());
 }
 
+fn deletion_model() -> (Document, FeatureId) {
+    use caditor_document::DeleteFace;
+    use caditor_kernel::{FaceName, FaceOrigin, FaceReference};
+    let (mut document, base, _) = solid_model();
+    let top = FaceReference::new(
+        FaceName::from_digest(0xbeef),
+        Some(FaceOrigin::EndCap { feature: 1 }),
+        [FaceName::from_digest(2)],
+    );
+    let mut transaction = document.transaction("Delete face");
+    let deletion = transaction.add_feature(
+        "Delete face 1",
+        FeatureKind::DeleteFace(DeleteFace {
+            body: base,
+            faces: vec![top],
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    (document, deletion)
+}
+
+#[test]
+fn deleted_faces_are_saved_and_loaded_as_a_record_of_their_own() {
+    let (document, deletion) = deletion_model();
+    let text = encode(&document).unwrap();
+    assert!(text.contains(
+        "\"delete_face\":{\"body\":1,\"faces\":[{\"face\":\
+         \"0000000000000000000000000000beef\",\"neighbours\":[\"00000000000000000000000000000002\"],\
+         \"origin\":{\"end_cap\":{\"feature\":1}}}]}"
+    ));
+    let loaded = decode_text(&text);
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+
+    let kind = document.feature(deletion).unwrap().kind.clone();
+    let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: deletion, kind });
+    let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+    let record = through_binary(&text);
+    assert_eq!(format::restore_transaction(record), Some(transaction));
+}
+
+#[test]
+fn an_unreadable_deleted_face_is_left_on_the_body_and_reported() {
+    let (document, deletion) = deletion_model();
+    let text =
+        encode(&document)
+            .unwrap()
+            .replacen("0000000000000000000000000000beef", "not a digest", 1);
+    let loaded = decode_text(&text);
+    assert_eq!(
+        loaded.issues,
+        ["Some faces deleted by “Delete face 1” could not be read and were left on the body."]
+    );
+    let restored = loaded.document.feature(deletion).unwrap();
+    assert!(restored.kind.delete_face().unwrap().faces.is_empty());
+}
+
 fn sweep_model() -> (Document, FeatureId, FeatureId) {
     use caditor_document::{BodyOperation, SolidFeature, Sweep, SweepPath};
     use caditor_kernel::{EdgeName, EdgeReference, FaceName, SweepOrientation, VertexName};

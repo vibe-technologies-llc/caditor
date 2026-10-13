@@ -1154,14 +1154,14 @@ mod step {
     use std::time::SystemTime;
 
     use caditor_document::{
-        Blend, BlendKind, CancelToken, ChamferForm, Document, FeatureKind, ModelEvaluator,
-        Recompute, Rgb,
+        Blend, BlendKind, CancelToken, ChamferForm, DeleteFace, Document, FeatureKind,
+        ModelEvaluator, Recompute, Rgb,
     };
     use caditor_expression::Expression;
     use caditor_geometry::{Plane, Point2, Point3};
     use caditor_kernel::{
-        EdgeReference, LinearExtent, Profile, ProfileCurve, SamplingTolerance, Selection, Solid,
-        extrude,
+        BlendShape, EdgeReference, FaceReference, LinearExtent, Profile, ProfileCurve,
+        SamplingTolerance, Selection, Solid, Surface, blend, extrude,
     };
     use caditor_step::{StepBody, write_step};
 
@@ -1494,6 +1494,106 @@ mod step {
         assert_eq!(evaluation.failed_count(), 0);
         assert!((volume(evaluation.body(body).unwrap()) - rounded).abs() < 1e-9);
         assert!(evaluation.feature(fillet).is_some());
+    }
+
+    fn rounded_plate() -> Solid {
+        let corners = [(0.0, 0.0), (10.0, 0.0), (10.0, 8.0), (0.0, 8.0)];
+        let mut curves: Vec<ProfileCurve> = (0..4)
+            .map(|index| {
+                let (a, b) = (corners[index], corners[(index + 1) % 4]);
+                ProfileCurve::line(
+                    index as u64 + 1,
+                    Point2::new(a.0, a.1),
+                    Point2::new(b.0, b.1),
+                )
+            })
+            .collect();
+        curves.push(ProfileCurve::circle(5, Point2::new(5.0, 4.0), 2.0));
+        let regions = Profile::new(&curves)
+            .unwrap()
+            .select(&Selection::EvenDepth)
+            .unwrap();
+        let plate = extrude(
+            &Plane::XY,
+            &regions,
+            LinearExtent::one_side(4.0).unwrap(),
+            1,
+        )
+        .unwrap();
+        let rim = plate
+            .edges()
+            .find(|(_, edge)| {
+                let middle = edge.curve().point(edge.interval().middle());
+                middle.distance(Point3::new(5.0, 0.0, 4.0)) < 1e-9
+            })
+            .map(|(id, _)| id)
+            .unwrap();
+        blend(&plate, &[rim], BlendShape::Fillet { radius: 1.0 }, 2).unwrap()
+    }
+
+    #[test]
+    fn an_imported_body_loses_its_fillet_and_bore_when_their_faces_are_deleted() {
+        let solid = rounded_plate();
+        let text = write_step(
+            &[StepBody {
+                name: "Plate",
+                solid: &solid,
+                colour: None,
+                opacity: None,
+                layer: None,
+                threads: &[],
+                faces: &[],
+            }],
+            "plate",
+            SystemTime::UNIX_EPOCH,
+        )
+        .unwrap();
+        let import = parse_step(&text, "plate.step").unwrap();
+        let mut document = Document::default();
+        document
+            .apply(bodies_transaction(&document, &import.bodies, "Import"))
+            .unwrap();
+        let body = document.features().next().unwrap().id();
+        let mut engine = Recompute::default();
+        let evaluation = engine.run(
+            &document,
+            &ModelEvaluator,
+            &CancelToken::never(),
+            &|_, _| {},
+        );
+        let read = evaluation.body(body).unwrap();
+        let faces: Vec<FaceReference> = read
+            .faces()
+            .filter(|(_, face)| !matches!(face.surface(), Surface::Plane(_)))
+            .map(|(id, _)| FaceReference::capture(read, id).unwrap())
+            .collect();
+        assert_eq!(faces.len(), 2);
+
+        let mut transaction = document.transaction("Delete face");
+        transaction.add_feature(
+            "Delete face 1",
+            FeatureKind::DeleteFace(DeleteFace { body, faces }),
+        );
+        document.apply(transaction.finish()).unwrap();
+        let evaluation = engine.run(
+            &document,
+            &ModelEvaluator,
+            &CancelToken::never(),
+            &|_, _| {},
+        );
+        assert_eq!(evaluation.failed_count(), 0);
+        assert!((volume(evaluation.body(body).unwrap()) - 320.0).abs() < 1e-2);
+
+        let loaded = decode(&encode(&document).unwrap()).unwrap();
+        assert!(loaded.issues.is_empty(), "{:?}", loaded.issues);
+        let evaluation = Recompute::default().run(
+            &loaded.document,
+            &ModelEvaluator,
+            &CancelToken::never(),
+            &|_, _| {},
+        );
+        assert_eq!(evaluation.failed_count(), 0);
+        assert_eq!(evaluation.body(body).unwrap().faces().count(), 6);
     }
 
     const ASSEMBLY: &str = include_str!("../../../caditor-step/src/read/samples/assembly.step");

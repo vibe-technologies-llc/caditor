@@ -614,6 +614,7 @@ impl FeatureKind {
             Self::Blend(blend) => blend.body = rename(blend.body),
             Self::Shell(shell) => shell.body = rename(shell.body),
             Self::OffsetFace(offset) => offset.body = rename(offset.body),
+            Self::DeleteFace(delete) => delete.body = rename(delete.body),
             Self::Primitive(primitive) => {
                 primitive.operation = renamed_operation(primitive.operation, rename);
                 rename_plane(&mut primitive.plane, rename);

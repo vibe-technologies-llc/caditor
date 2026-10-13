@@ -8,6 +8,7 @@ mod configuration_import;
 mod configurations;
 mod datum;
 mod datum_construction;
+mod delete_face;
 mod dependencies;
 mod describe;
 mod document;
@@ -104,6 +105,7 @@ pub use crate::{
         describe_axis, describe_curve, describe_plane, describe_point, describe_points,
         displayed_axis, displayed_frame, displayed_plane,
     },
+    delete_face::DeleteFace,
     dependencies::DependencyGraph,
     describe::{describe_edge, describe_origin, describe_surface, edge_faces, origin_feature},
     document::{
@@ -251,6 +253,8 @@ mod datum_construction_tests;
 mod datum_point_tests;
 #[cfg(test)]
 mod datum_tests;
+#[cfg(test)]
+mod delete_face_tests;
 #[cfg(test)]
 mod extent_tests;
 #[cfg(test)]

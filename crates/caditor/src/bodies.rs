@@ -29,6 +29,7 @@ use parking_lot::{Condvar, Mutex};
 
 use crate::{
     blend_tools::{self, ChosenEdges},
+    delete_face_tools,
     model::Waker,
     offset_face_tools,
     selection::Pickable,
@@ -609,6 +610,7 @@ fn local_corner(
 pub enum FaceChoice {
     Opening,
     Moving { tangent: bool },
+    Deleting,
     Splitting,
 }
 
@@ -683,6 +685,22 @@ impl OpenChoice {
                     choice: FaceChoice::Moving {
                         tangent: offset.tangent,
                     },
+                },
+            },
+            Some(FeatureKind::DeleteFace(deletion)) => match previous {
+                Some(Self::Faces {
+                    references,
+                    opened,
+                    choice: FaceChoice::Deleting,
+                }) if references == deletion.faces => Self::Faces {
+                    references,
+                    opened,
+                    choice: FaceChoice::Deleting,
+                },
+                _ => Self::Faces {
+                    references: deletion.faces.clone(),
+                    opened: delete_face_tools::deleted_faces(solid, deletion),
+                    choice: FaceChoice::Deleting,
                 },
             },
             Some(FeatureKind::SplitFace(split)) => match previous {

@@ -121,7 +121,10 @@ fn past_apex(offsets: &Offsets<'_>, face: FaceId) -> Option<Collapse> {
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct Collapses(BTreeMap<FaceId, Collapse>);
+pub(super) struct Collapses {
+    collapsing: BTreeMap<FaceId, Collapse>,
+    deleted: BTreeSet<FaceId>,
+}
 
 impl Collapses {
     pub(super) fn of(offsets: &Offsets<'_>) -> Self {
@@ -136,26 +139,34 @@ impl Collapses {
             .filter_map(|(id, _)| Some((id, past_apex(offsets, id)?)))
             .collect();
         collapses.extend(apexes);
-        Self(collapses)
+        Self {
+            collapsing: collapses,
+            deleted: BTreeSet::new(),
+        }
+    }
+
+    pub(super) fn deleting(&mut self, deleted: BTreeMap<FaceId, BTreeSet<EdgeId>>) {
+        self.deleted.extend(deleted.keys().copied());
+        self.add_shrinking(deleted);
     }
 
     pub(super) fn contains(&self, face: FaceId) -> bool {
-        self.0.contains_key(&face)
+        self.collapsing.contains_key(&face)
     }
 
     pub(super) fn shrinks(&self, face: FaceId) -> bool {
-        matches!(self.0.get(&face), Some(Collapse::Shrinks(_)))
+        matches!(self.collapsing.get(&face), Some(Collapse::Shrinks(_)))
     }
 
     pub(super) fn apex_of(&self, face: FaceId) -> Option<FaceId> {
-        match self.0.get(&face)? {
+        match self.collapsing.get(&face)? {
             Collapse::Apex(cone) => Some(*cone),
             _ => None,
         }
     }
 
     pub(super) fn add_shrinking(&mut self, shrinking: BTreeMap<FaceId, BTreeSet<EdgeId>>) {
-        self.0.extend(
+        self.collapsing.extend(
             shrinking
                 .into_iter()
                 .map(|(face, across)| (face, Collapse::Shrinks(across))),
@@ -163,14 +174,16 @@ impl Collapses {
     }
 
     pub(super) fn shrinking(&self) -> impl Iterator<Item = (FaceId, &BTreeSet<EdgeId>)> {
-        self.0.iter().filter_map(|(face, collapse)| match collapse {
-            Collapse::Shrinks(across) => Some((*face, across)),
-            _ => None,
-        })
+        self.collapsing
+            .iter()
+            .filter_map(|(face, collapse)| match collapse {
+                Collapse::Shrinks(across) => Some((*face, across)),
+                _ => None,
+            })
     }
 
     pub(super) fn faces(&self) -> BTreeSet<FaceId> {
-        self.0.keys().copied().collect()
+        self.collapsing.keys().copied().collect()
     }
 
     pub(super) fn vanishing_edges(&self, solid: &Solid) -> BTreeSet<EdgeId> {
@@ -178,7 +191,7 @@ impl Collapses {
             .edges()
             .filter(|(id, edge)| {
                 coedge_faces(solid, *id).iter().any(|face| {
-                    self.0
+                    self.collapsing
                         .get(face)
                         .is_some_and(|collapse| collapse.vanishes(*id, edge.curve()))
                 })
@@ -188,7 +201,7 @@ impl Collapses {
     }
 
     pub(super) fn refusal(&self, solid: &Solid, face: FaceId) -> Option<ShellError> {
-        let collapse = self.0.get(&face)?;
+        let collapse = self.collapsing.get(&face)?;
         if !collapse.shrinks_away() {
             return Some(ShellError::TooCurved(face));
         }
@@ -210,9 +223,12 @@ impl Collapses {
         points: &[Point3],
     ) -> Result<(), ShellError> {
         for face in faces {
-            let Some(collapse) = self.0.get(face) else {
+            let Some(collapse) = self.collapsing.get(face) else {
                 continue;
             };
+            if self.deleted.contains(face) {
+                continue;
+            }
             let residuals: Option<Vec<f64>> = points
                 .iter()
                 .map(|point| Some(offsets.residual(*face, *point, None)?.0))

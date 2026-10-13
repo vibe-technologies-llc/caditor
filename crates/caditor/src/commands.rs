@@ -143,6 +143,7 @@ pub enum Command {
     Chamfer,
     Shell,
     OffsetFace,
+    DeleteFace,
     SplitFace,
     Combine,
     Move,
@@ -341,6 +342,7 @@ impl Command {
                 | Self::Chamfer
                 | Self::Shell
                 | Self::OffsetFace
+                | Self::DeleteFace
                 | Self::SplitFace
                 | Self::Combine
                 | Self::Move
@@ -755,6 +757,7 @@ plain_commands! {
     Chamfer,
     Shell,
     OffsetFace,
+    DeleteFace,
     SplitFace,
     Combine,
     Move,
@@ -1038,6 +1041,7 @@ impl Command {
             Self::Chamfer => "model.chamfer",
             Self::Shell => "model.shell",
             Self::OffsetFace => "model.offset_face",
+            Self::DeleteFace => "model.delete_face",
             Self::SplitFace => "model.split_face",
             Self::Combine => "model.combine",
             Self::Move => "model.move",
@@ -1319,6 +1323,7 @@ impl Command {
             Self::Chamfer => "Chamfer",
             Self::Shell => "Shell",
             Self::OffsetFace => "Offset face",
+            Self::DeleteFace => "Delete face",
             Self::SplitFace => "Split face",
             Self::Combine => "Combine",
             Self::Move => "Move body",
@@ -1546,6 +1551,14 @@ impl Command {
             Self::Fillet => &["round", "blend"],
             Self::Chamfer => &["bevel"],
             Self::Shell => &["hollow"],
+            Self::DeleteFace => &[
+                "remove face",
+                "defeature",
+                "remove fillet",
+                "remove chamfer",
+                "fill hole",
+                "heal",
+            ],
             Self::Hole => &["drill", "bore", "counterbore", "countersink"],
             Self::CurvePattern => &["path pattern", "pattern along a path", "repeat along"],
             Self::PointPattern => &["sketch pattern", "pattern at points", "repeat at"],
@@ -1746,6 +1759,7 @@ impl Command {
             | Self::Chamfer
             | Self::Shell
             | Self::OffsetFace
+            | Self::DeleteFace
             | Self::SplitFace
             | Self::Combine
             | Self::Move
@@ -2004,6 +2018,7 @@ impl Command {
             Self::Chamfer => vec![alt(Key::C)],
             Self::Shell => vec![alt(Key::S)],
             Self::OffsetFace => vec![alt(Key::Q)],
+            Self::DeleteFace => vec![alt_shift(Key::Q)],
             Self::SplitFace => vec![alt_shift(Key::K)],
             Self::Combine => vec![alt(Key::J)],
             Self::Move => vec![alt(Key::M)],

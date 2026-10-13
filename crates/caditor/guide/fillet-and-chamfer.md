@@ -36,5 +36,6 @@ split, so you can choose the pieces again rather than lose one without notice.
   the field and the body before it stays shown.
 
 {command:select.tangent_edges} adds the edges continuing the selected ones, and a
-[selection set](selection) can hold edges you fillet often. To round sketch corners instead, see
+[selection set](selection) can hold edges you fillet often. [Delete face](delete-face) takes a
+fillet or chamfer off again, an imported body's too. To round sketch corners instead, see
 [Sketch fillet](sketch-fillet).

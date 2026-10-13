@@ -61,6 +61,7 @@ pub enum Page {
     FilletAndChamfer,
     Shell,
     OffsetFace,
+    DeleteFace,
     Primitives,
     Combine,
     MoveAndCopy,
@@ -143,6 +144,7 @@ all_variants!(
     FilletAndChamfer,
     Shell,
     OffsetFace,
+    DeleteFace,
     Primitives,
     Combine,
     MoveAndCopy,
@@ -271,6 +273,7 @@ impl Page {
             Self::FilletAndChamfer => "fillet-and-chamfer",
             Self::Shell => "shell",
             Self::OffsetFace => "offset-face",
+            Self::DeleteFace => "delete-face",
             Self::Primitives => "primitives",
             Self::Combine => "combine",
             Self::MoveAndCopy => "move-and-copy",
@@ -359,6 +362,7 @@ impl Page {
             Self::FilletAndChamfer => include_str!("../guide/fillet-and-chamfer.md"),
             Self::Shell => include_str!("../guide/shell.md"),
             Self::OffsetFace => include_str!("../guide/offset-face.md"),
+            Self::DeleteFace => include_str!("../guide/delete-face.md"),
             Self::Primitives => include_str!("../guide/primitives.md"),
             Self::Combine => include_str!("../guide/combine.md"),
             Self::MoveAndCopy => include_str!("../guide/move-and-copy.md"),
@@ -441,6 +445,7 @@ impl Page {
             | Self::FilletAndChamfer
             | Self::Shell
             | Self::OffsetFace
+            | Self::DeleteFace
             | Self::Primitives
             | Self::Combine
             | Self::MoveAndCopy
@@ -511,6 +516,7 @@ impl Page {
             FeatureKind::Blend(_) => Self::FilletAndChamfer,
             FeatureKind::Shell(_) => Self::Shell,
             FeatureKind::OffsetFace(_) => Self::OffsetFace,
+            FeatureKind::DeleteFace(_) => Self::DeleteFace,
             FeatureKind::Primitive(_) => Self::Primitives,
             FeatureKind::Combine(_) => Self::Combine,
             FeatureKind::Move(_) => Self::MoveAndCopy,

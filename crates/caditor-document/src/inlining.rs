@@ -167,6 +167,7 @@ pub(crate) fn expressions_mut(kind: &mut FeatureKind) -> Vec<&mut Expression> {
         FeatureKind::Blend(blend) => blend.expressions_mut(),
         FeatureKind::Shell(shell) => shell.expressions_mut(),
         FeatureKind::OffsetFace(offset) => vec![&mut offset.distance],
+        FeatureKind::DeleteFace(_) => Vec::new(),
         FeatureKind::Primitive(primitive) => primitive.expressions_mut(),
         FeatureKind::Pipe(pipe) => pipe.expressions_mut(),
         FeatureKind::Coil(coil) => coil.expressions_mut(),

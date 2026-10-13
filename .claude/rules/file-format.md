@@ -296,7 +296,8 @@ Splits and faces:
   `{"body": id}` or `{"sketch": id}`. `split_surface`: `body`, `face` attachment record; unreadable
   splits along YZ.
 - `offset_face`: `body`, `distance` (unreadable 1 mm), `faces` (unreadable left in place),
-  `tangent` when set. `split_face`: `body`, `faces` (unreadable left whole), `along`
+  `tangent` when set. `delete_face`: `body`, `faces` (unreadable left on the body); the corpus holds
+  it in `deleted-faces.caditor`. `split_face`: `body`, `faces` (unreadable left whole), `along`
   (`{"plane": ref}` unreadable YZ, `{"body": id}`, `{"sketch": id}`). Wrappers: `split_face_along`
   (`direction`, axis reference; unreadable carried square), `split_face_surface` (`face`
   attachment record; unreadable along YZ), `split_face_wrapped` (wraps round a cylinder or cone).

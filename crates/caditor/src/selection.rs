@@ -382,6 +382,8 @@ impl Pickable {
                 let kind = document.feature(feature).map(|owner| &owner.kind);
                 if kind.is_some_and(|kind| kind.offset_face().is_some()) {
                     format!("{described}: click to move it with {owner} or leave it out")
+                } else if kind.is_some_and(|kind| kind.delete_face().is_some()) {
+                    format!("{described}: click to delete it with {owner} or keep it")
                 } else if kind.is_some_and(|kind| kind.split_face().is_some()) {
                     format!("{described}: click to split it with {owner} or leave it out")
                 } else {

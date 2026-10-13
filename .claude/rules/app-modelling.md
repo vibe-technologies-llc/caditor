@@ -17,6 +17,8 @@ paths:
   - "crates/caditor/src/shell_panel.rs"
   - "crates/caditor/src/offset_face_tools.rs"
   - "crates/caditor/src/offset_face_panel.rs"
+  - "crates/caditor/src/delete_face_tools.rs"
+  - "crates/caditor/src/delete_face_panel.rs"
   - "crates/caditor/src/split_face_tools.rs"
   - "crates/caditor/src/split_face_panel.rs"
   - "crates/caditor/src/primitive_tools.rs"
@@ -80,7 +82,7 @@ paths:
 # Modelling tools in the app
 
 Tools without a ribbon button (it stays one row) live in the Model menu and the palette: Offset face,
-Split face, the primitives, Pipe, Coil, Rib, Thread, Copy body, Split body, Mate body, Mirror faces, Curve and Point
+Delete face, Split face, the primitives, Pipe, Coil, Rib, Thread, Copy body, Split body, Mate body, Mirror faces, Curve and Point
 pattern, Coordinate system, Scale model and Configurations. Sweep has a button in the Solid group
 and a Model menu row, and is in the right-click menu of selected sketch curves
 (`view_menu::SKETCH_TOOLS`), as Pipe and Rib are. Panel rows, keys and wordings are in the
@@ -191,7 +193,7 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   Undo that returns to it (`app-sketching.md`, Editing context). Escape on an open feature still
   keeps its changes and closes it.
 - A tool whose body has no shape yet while a recompute runs (Move, Mirror, Combine, Fillet, Chamfer,
-  Shell, Offset faces, Split face, Thread, Sweep) is queued, not refused (`app-input.md`, Queued
+  Shell, Offset faces, Delete face, Split face, Thread, Sweep) is queued, not refused (`app-input.md`, Queued
   actions), and runs when the shape arrives.
 
 ## Feature panels
@@ -229,7 +231,7 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   before anything else; opening another feature or closing this one stops it too. While a slot is
   being chosen its row shows the prompt and Stop choosing (`feature_fields::choosing_prompt`, shared
   by every reference row, the shell's Own thickness and the hole's anchors and Add another hole).
-  Lists of regions, blend edges and shell, offset and split faces use `feature_fields::list_in_view`:
+  Lists of regions, blend edges and shell, offset, delete and split faces use `feature_fields::list_in_view`:
   Choose in the view (`widgets::choose_in_view`, the shared `CHOOSE_IN_VIEW` wording) opens the
   feature so clicks toggle entries, and while it is open the row shows the prompt and Stop choosing,
   which closes the feature keeping its changes, as Escape does.
@@ -538,10 +540,11 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   toggles one, and opening a face drops its own thickness (`shell_tools::without_own_thickness`).
 - Choose in the view on a fillet or chamfer first adds the edges selected in the view of its body and
   its selected faces as `EdgeGroup`s (`blend_tools::with_selected_edges`, one undoable change, edges
-  already in a chosen chain and faces whose edges are all chosen skipped), then opens it. A shell's and
-  an offset face's do the same with the selected faces of their body
-  (`shell_tools::with_selected_faces`, openable faces only; `offset_face_tools::with_selected_faces`;
-  already chosen skipped), the panels taking the selection through their `FacesRow`.
+  already in a chosen chain and faces whose edges are all chosen skipped), then opens it. A shell's,
+  an offset face's and a delete face's do the same with the selected faces of their body
+  (`shell_tools::with_selected_faces`, openable faces only; `offset_face_tools::with_selected_faces`,
+  `delete_face_tools::with_selected_faces`; already chosen skipped), the panels taking the
+  selection through their `FacesRow`.
 - A chamfer's Distances (Equal, Two, Angle; `blend_tools::FormChoice`) follow Shape: Two names the size
   First distance and adds Second distance (starting as the first), Angle adds an angle field (45 deg to
   start, refused at or past 180°, `Rule::ChamferAngle`), each previewed while typed, and either adds
@@ -558,15 +561,15 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   an opened or unoffsettable face refused in a notice. The thickness arrow stands on the first opened
   flat face's rim pointing into the wall: inward for Inside, outward for Outside, outward at half
   scale for Both sides.
-- Hovering a row of the edges, opened, moved or split faces in an open fillet's, chamfer's, shell's,
-  offset face's or split face's panel lights that edge or face (its pieces when split) as hovered
+- Hovering a row of the edges, opened, moved, deleted or split faces in an open fillet's, chamfer's,
+  shell's, offset face's, delete face's or split face's panel lights that edge or face (its pieces when split) as hovered
   (`widgets::removable_row_hovered`, `RowCache::preview`, handed to `ViewportState::preview_entities`
   each frame).
 - Chains and opened faces stay in `BodyBefore::choice` until the references change; each panel's list
   stays in `PanelState::reference_rows` (`reference_rows.rs`) until the state before it or the revision
   changes.
 
-## Offset face and Split face
+## Offset face, Delete face and Split face
 
 - Offset face (Alt+Q) takes the selected faces of one body, any shape (`offset_face_tools::selected_faces`),
   and creates an `OffsetFace` of 1 mm that opens (faces in words with Leave this face out, a signed
@@ -575,6 +578,14 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   (`FaceChoice::Moving`, `Builder::choosable_faces`, tangent chain included); a click moves a face or
   leaves it out; faces keep their keys across the feature. A failed or pending one shows the body before
   it with every face pickable.
+- Delete face (Alt+Shift+Q) takes the selected faces of one body
+  (`delete_face_tools::selected_faces`, through `offset_face_tools::faces_of_one_body`) and creates a
+  `DeleteFace` that opens (faces in words with Keep this face; no values). While open and computed it
+  draws the healed result with its faces `Pickable::ShellFace`s and, as an open shell does, the
+  deleted faces of the body before see-through in the selected colour and still picked
+  (`FaceChoice::Deleting`, `Builder::opened_faces`), so a click on a result face deletes it and a
+  click on a see-through one keeps it (`delete_face_tools::toggle_face`). A failed or pending one shows
+  the body before it with every face pickable, deleted ones in the selected colour.
 - Split face (Alt+Shift+K) takes the selected faces of one body (`split_face_tools::source`) and, from
   the rest of the selection, a principal or datum plane or the curves of one earlier sketch
   (`split_tools::chosen_along`, faces left aside), else the YZ plane, and creates a `SplitFace` that

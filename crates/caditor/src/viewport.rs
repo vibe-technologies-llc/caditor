@@ -32,7 +32,7 @@ use crate::{
     clipboard,
     comb::CombDrawing,
     commands::{CameraMove, Command, CommandFrame, Pasted, StandardView},
-    dimensioning,
+    delete_face_tools, dimensioning,
     display::Displayed,
     display_picker,
     display_style::DisplayStyle,
@@ -6020,6 +6020,9 @@ fn feature_prompt(kind: Option<&FeatureKind>) -> (&'static str, Clicks) {
         Some(FeatureKind::OffsetFace(_)) => {
             in_view("Click faces to move them, and again to leave one out")
         }
+        Some(FeatureKind::DeleteFace(_)) => {
+            in_view("Click faces to delete them, and again to keep one")
+        }
         Some(FeatureKind::SplitFace(_)) => {
             in_view("Click faces to split, and again to leave one out")
         }
@@ -6432,6 +6435,9 @@ fn pick_action(
             Some(match kind {
                 Some(FeatureKind::OffsetFace(_)) => {
                     offset_face_tools::toggle_face(model, feature, face)
+                }
+                Some(FeatureKind::DeleteFace(_)) => {
+                    delete_face_tools::toggle_face(model, feature, face)
                 }
                 Some(FeatureKind::SplitFace(_)) => {
                     split_face_tools::toggle_face(model, feature, face)

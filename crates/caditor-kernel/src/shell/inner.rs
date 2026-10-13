@@ -1248,8 +1248,24 @@ fn narrow_to_ridge(
 }
 
 pub(super) fn inner_solid(offsets: &Offsets<'_>, naming: Naming) -> Result<Inner, ShellError> {
-    let solid = offsets.solid;
+    inner_solid_collapsing(offsets, naming, Collapses::of(offsets))
+}
+
+pub(super) fn healed_solid(
+    offsets: &Offsets<'_>,
+    deleted: BTreeMap<FaceId, BTreeSet<EdgeId>>,
+) -> Result<Inner, ShellError> {
     let mut collapses = Collapses::of(offsets);
+    collapses.deleting(deleted);
+    inner_solid_collapsing(offsets, Naming::Kept, collapses)
+}
+
+fn inner_solid_collapsing(
+    offsets: &Offsets<'_>,
+    naming: Naming,
+    mut collapses: Collapses,
+) -> Result<Inner, ShellError> {
+    let solid = offsets.solid;
     for (id, _) in solid.faces() {
         if !collapses.contains(id) {
             offsets.surface(id)?;

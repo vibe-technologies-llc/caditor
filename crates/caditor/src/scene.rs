@@ -2305,7 +2305,7 @@ impl<'a> Builder<'a> {
         let faces = match &open.choice {
             OpenChoice::Faces {
                 opened,
-                choice: FaceChoice::Moving { .. } | FaceChoice::Splitting,
+                choice: FaceChoice::Moving { .. } | FaceChoice::Deleting | FaceChoice::Splitting,
                 ..
             } => self.choosable_faces(open.feature, &mesh.faces, opened, color, |_| true),
             OpenChoice::Faces {
@@ -2356,7 +2356,7 @@ impl<'a> Builder<'a> {
         }
         if let OpenChoice::Faces {
             opened,
-            choice: FaceChoice::Opening,
+            choice: FaceChoice::Opening | FaceChoice::Deleting,
             ..
         } = &open.choice
         {
