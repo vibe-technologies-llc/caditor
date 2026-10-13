@@ -383,12 +383,14 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   file, a fuzzed insert): an `AddSketchEntity` under one is refused (`EntityNumberNamed`), so the
   inverse of every addition, a removal, applies. Every other outside reference to a sketch entity
   (`FeatureKind::named_entities`: those curves plus the sketch points and lines named by datums,
-  measurements, mates, moves, coils, patterns including a points pattern's skipped copies, a split
+  measurements, mates, moves, coils, patterns' axes and bases, a split
   face's carry, a revolve's or extrusion's model axis, and the projection sources of other sketches) may
   name a number the sketch lacks the same way, but removing the entity stays allowed (the user fails
   with a reason until the deletion is undone), so its re-adding is not refused; instead inserts and
   kind changes raise the named sketch's ID counter past every such number, so a newly drawn entity
-  never takes it and silently becomes the axis, point or source. `AddSketchEntity` carries the construction flag and
+  never takes it and silently becomes the axis, point or source. A points pattern's skipped copies
+  are left out: an instance decodes to any number up to 2^64, and raising the counter on loading would
+  change how shipped files read (the format corpus holds one skipping copy 2^40). `AddSketchEntity` carries the construction flag and
   the curve a piece was split from (`split_from`), `AddSketchConstraint` the inactive flag and label offset, so undoing
   a removal restores them; `SetSketchConstraintActive` and `SetSketchLabel` change one;
   `reshape_sketch` emits them for kept constraints that differ. Setting an entity changes only its

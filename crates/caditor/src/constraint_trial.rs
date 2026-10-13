@@ -180,27 +180,50 @@ struct Job {
 }
 
 impl Job {
-    fn run(mut self) -> Outcome {
-        if self.document.apply(self.transaction).is_err() {
-            return Outcome::Unknown;
-        }
-        let Some(sketch) = self
-            .document
-            .feature(self.feature)
-            .and_then(|feature| feature.kind.sketch())
-        else {
-            return Outcome::Unknown;
-        };
-        let values = ParameterValues::evaluate(&self.document);
+    fn run(self) -> Outcome {
         let cancelled =
             || self.cancelled.load(Ordering::Relaxed) || self.started.elapsed() >= PATIENCE;
-        match sketch.solve(&|id| values.value(id), &cancelled) {
-            Ok(_) => Outcome::Holds,
-            Err(SketchError::Conflict { constraints }) => {
-                Outcome::Conflicts(refusal(sketch, &self.added, &constraints))
-            }
-            Err(_) => Outcome::Unknown,
+        let trial = ConstraintTrial {
+            feature: self.feature,
+            transaction: self.transaction,
+            added: self.added,
+        };
+        outcome(self.document, &trial, &cancelled)
+    }
+}
+
+pub fn conflict(
+    document: &Document,
+    trial: &ConstraintTrial,
+    cancelled: &dyn Fn() -> bool,
+) -> Option<String> {
+    match outcome(document.clone(), trial, cancelled) {
+        Outcome::Conflicts(reason) => Some(reason),
+        Outcome::Holds | Outcome::Unknown => None,
+    }
+}
+
+fn outcome(
+    mut document: Document,
+    trial: &ConstraintTrial,
+    cancelled: &dyn Fn() -> bool,
+) -> Outcome {
+    if document.apply(trial.transaction.clone()).is_err() {
+        return Outcome::Unknown;
+    }
+    let Some(sketch) = document
+        .feature(trial.feature)
+        .and_then(|feature| feature.kind.sketch())
+    else {
+        return Outcome::Unknown;
+    };
+    let values = ParameterValues::evaluate(&document);
+    match sketch.solve(&|id| values.value(id), cancelled) {
+        Ok(_) => Outcome::Holds,
+        Err(SketchError::Conflict { constraints }) => {
+            Outcome::Conflicts(refusal(sketch, &trial.added, &constraints))
         }
+        Err(_) => Outcome::Unknown,
     }
 }
 

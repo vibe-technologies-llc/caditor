@@ -1,0 +1,18 @@
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"seed","version":"1.0.0"}}}
+{"jsonrpc":"2.0","method":"notifications/initialized"}
+{"jsonrpc":"2.0","id":2,"method":"tools/list"}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"set_parameter","arguments":{"name":"length","expression":"80 mm"}}}
+{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"add_sketch","arguments":{"plane":"XY"}}}
+{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"add_sketch_geometry","arguments":{"sketch":"Sketch 1","items":[{"kind":"rectangle","corner":[0,0],"opposite":[80,50]},{"kind":"circle","center":[10,10],"radius":3},{"kind":"polyline","points":[[0,0],[1,2],[3,4]],"closed":true},{"kind":"line","from":[0,0],"to":[5,5]},{"kind":"point","at":[1,1]}]}}}
+{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"add_sketch_constraints","arguments":{"sketch":1,"constraints":[{"kind":"coincident","a":1,"b":"origin"},{"kind":"distance","from":1,"to":2,"value":"length"},{"kind":"radius","curve":9,"value":"3 mm"},{"kind":"angle","from":5,"to":6,"value":"30 deg"},{"kind":"symmetric","a":1,"b":3,"about":"vertical_axis"}]}}}
+{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"add_extrusion","arguments":{"sketch":"Sketch 1","distance":"10 mm","operation":"new_body","reversed":false}},"_meta":{"progressToken":"p"}}
+{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"add_hole","arguments":{"sketch":"Sketch 2","diameter":"6 mm","depth":"through all","body":"Extrude 1"}}}
+{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"list_faces","arguments":{"body":"Extrude 1"}}}
+{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"add_sketch","arguments":{"body":2,"face":"0123456789abcdef0123456789abcdef:0"}}}
+{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"render_view","arguments":{"view":"isometric","width":320,"height":200}}}
+{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"export","arguments":{"file":"plate.step","resolution":"fine"}}}
+{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":11,"reason":"seed"}}
+{"jsonrpc":"2.0","id":"r","method":"resources/read","params":{"uri":"caditor://guide/hole"}}
+{"jsonrpc":"2.0","id":13,"method":"tools/call","params":{"name":"undo","arguments":{}}}
+{"jsonrpc":"2.0","id":14,"result":{}}
+[{"jsonrpc":"2.0","id":15,"method":"ping"}]

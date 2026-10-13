@@ -88,6 +88,7 @@ pub enum Page {
     Templates,
     WindowsDefender,
     CommandLine,
+    Assistants,
     Preferences,
     Accessibility,
 }
@@ -169,6 +170,7 @@ all_variants!(
     Templates,
     WindowsDefender,
     CommandLine,
+    Assistants,
     Preferences,
     Accessibility,
 );
@@ -296,6 +298,7 @@ impl Page {
             Self::Templates => "templates",
             Self::WindowsDefender => "windows-defender",
             Self::CommandLine => "command-line",
+            Self::Assistants => "mcp",
             Self::Preferences => "preferences",
             Self::Accessibility => "accessibility",
         }
@@ -383,6 +386,7 @@ impl Page {
             Self::Templates => include_str!("../guide/templates.md"),
             Self::WindowsDefender => include_str!("../guide/windows-defender.md"),
             Self::CommandLine => include_str!("../guide/command-line.md"),
+            Self::Assistants => include_str!("../guide/mcp.md"),
             Self::Preferences => include_str!("../guide/preferences.md"),
             Self::Accessibility => include_str!("../guide/accessibility.md"),
         }
@@ -463,7 +467,8 @@ impl Page {
             | Self::Exporting
             | Self::Templates
             | Self::WindowsDefender
-            | Self::CommandLine => Chapter::Files,
+            | Self::CommandLine
+            | Self::Assistants => Chapter::Files,
             Self::Preferences | Self::Accessibility => Chapter::Settings,
         }
     }

@@ -136,9 +136,16 @@ pub fn body_state_before(
     body: FeatureId,
     index: usize,
 ) -> Result<&Solid, StateError> {
-    let evaluation = model.evaluation();
-    for feature in model
-        .document()
+    body_state_in(model.document(), model.evaluation(), body, index)
+}
+
+pub fn body_state_in<'a>(
+    document: &Document,
+    evaluation: &'a Evaluation,
+    body: FeatureId,
+    index: usize,
+) -> Result<&'a Solid, StateError> {
+    for feature in document
         .features()
         .take(index)
         .rev()
@@ -171,14 +178,24 @@ pub fn attachment_at(
     choice: FaceChoice,
     index: usize,
 ) -> Result<(FaceAttachment, Plane), &'static str> {
-    let body = bodies::shown(model.evaluation(), choice.body).ok_or(GONE)?;
+    attachment_in(model.document(), model.evaluation(), choice, index)
+}
+
+pub fn attachment_in(
+    document: &Document,
+    evaluation: &Evaluation,
+    choice: FaceChoice,
+    index: usize,
+) -> Result<(FaceAttachment, Plane), &'static str> {
+    let body = bodies::shown(evaluation, choice.body).ok_or(GONE)?;
     let face = bodies::find_face(body, choice.face).ok_or(GONE)?;
     let shown = &body.solid;
     if face_plane(shown, face).is_none() {
         return Err(NOT_FLAT);
     }
     let reference = FaceReference::capture(shown, face).ok_or(GONE)?;
-    let state = body_state_before(model, choice.body, index).map_err(StateError::face)?;
+    let state =
+        body_state_in(document, evaluation, choice.body, index).map_err(StateError::face)?;
     let there = reference
         .resolve(state)
         .map_err(|_| StateError::MadeAfter.face())?;

@@ -657,6 +657,8 @@ dependencies = [
  "png",
  "pollster",
  "rfd",
+ "serde",
+ "serde_json",
  "signal-hook",
  "thiserror 2.0.21",
  "wgpu",
