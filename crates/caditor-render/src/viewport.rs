@@ -3297,6 +3297,51 @@ mod tests {
     }
 
     #[test]
+    fn every_entry_point_translates_to_the_glsl_the_opengl_backend_runs() {
+        let module = naga::front::wgsl::parse_str(include_str!("viewport.wgsl")).unwrap();
+        let info = naga::valid::Validator::new(
+            naga::valid::ValidationFlags::all(),
+            naga::valid::Capabilities::default(),
+        )
+        .validate(&module)
+        .unwrap();
+        let options = naga::back::glsl::Options {
+            version: naga::back::glsl::Version::Embedded {
+                version: 300,
+                is_webgl: false,
+            },
+            ..naga::back::glsl::Options::default()
+        };
+
+        let failures: Vec<String> = module
+            .entry_points
+            .iter()
+            .filter_map(|entry| {
+                let pipeline = naga::back::glsl::PipelineOptions {
+                    shader_stage: entry.stage,
+                    entry_point: entry.name.clone(),
+                    multiview: None,
+                };
+                let mut glsl = String::new();
+                naga::back::glsl::Writer::new(
+                    &mut glsl,
+                    &module,
+                    &info,
+                    &options,
+                    &pipeline,
+                    naga::proc::BoundsCheckPolicies::default(),
+                )
+                .and_then(|mut writer| writer.write())
+                .err()
+                .map(|error| format!("{}: {error}", entry.name))
+            })
+            .collect();
+
+        assert!(!module.entry_points.is_empty());
+        assert_eq!(failures, Vec::<String>::new());
+    }
+
+    #[test]
     fn scene_targets_grow_in_steps_and_shrink_only_once_well_past_what_is_needed() {
         let size = |width: u32, height: u32| TargetSize {
             width,

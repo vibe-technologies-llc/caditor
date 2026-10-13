@@ -63,7 +63,11 @@ paths:
   (`machine/windows.rs`): `caditor_windows::battery_flag`: 128 desktop, 255 or a failed call
   unknown, anything else portable (a desktop on a UPS counts as portable). The app words the
   outcome (`Machine::reason`).
-- Nothing uses storage buffers, so downlevel and GL devices draw everything. The surface is clamped
+- Nothing uses storage buffers, so downlevel and GL devices draw everything. Every entry point of
+  `viewport.wgsl` translates to GLSL ES 3.0
+  (`every_entry_point_translates_to_the_glsl_the_opengl_backend_runs`), so a shader using what GLSL
+  lacks (a `textureLoad` of a depth texture, ES 3.1 builtins) fails `cargo test`, not only the GL
+  offscreen run. The surface is clamped
   to the largest texture side and is a plain 8-bit format, never a float or snorm one. Offered MSAA
   levels (`gpu::offered_msaa`) need surface and `Depth32Float` support with resolve.
 - `GraphicsSettings` (vsync, `Msaa`, `Shading`, `AdapterPreference`) is applied live by
@@ -214,7 +218,10 @@ paths:
   from the sun (`vs_shadow`, `fs_shadow`, `shadow_pipeline`, layout `[view, mesh]`) draws every mesh
   of `Scene::meshes` (translucent ones receive but do not cast; faces of no alpha and geometry cut
   away by a section cast nothing) into a `SHADOW_MAP_SIDE` depth map plus two `Rgba8Unorm` targets,
-  the lit diffuse albedo with the sun's cosine and the normal: a reflective shadow map. It is
+  the lit diffuse albedo with the sun's cosine and the normal, and an `R32Uint` target holding the
+  fragment's depth as f32 bits (`lit_depth`, without the pipeline's depth bias): a reflective shadow
+  map. The depth map is read only through the comparison sampler; `bounced` reads `lit_depth`,
+  since GLSL has no `textureLoad` of a depth texture. It is
   encoded before the scene pass whenever the kept view is drawn, and before each image tile.
   `LightFrame::fitted` fits an orthographic light frame to the placed corners of the meshes
   (`MeshCache::placed_corners`, f64, eye-relative), so it rides in the view uniform with its
@@ -230,8 +237,8 @@ paths:
   shows. Before the scene pass, three single-sampled passes over targets the size of the scene
   targets (`Occlusion`, made lazily in `gpu::scoped`, a refusal reporting
   `RenderFault::OcclusionRefused` once): `fs_surface` writes each opaque mesh's eye-relative
-  position (three f32 bits) and normal (`pack4x8snorm`) into an `Rgba32Uint` target with its own
-  depth (no float target, for GL); `fs_occlusion` (a full-screen triangle, `vs_screen`) integrates
+  position (three f32 bits) and normal (`packed_snorm`, WGSL's `pack4x8snorm` spelled out, which GLSL
+  ES 3.0 lacks) into an `Rgba32Uint` target with its own depth (no float target, for GL); `fs_occlusion` (a full-screen triangle, `vs_screen`) integrates
   the cosine-weighted visible arc of `OCCLUSION_SLICES` slices of `OCCLUSION_STEPS` steps each way,
   horizons taken from those positions within a world reach of `REACH_OF_SCENE` of the opaque
   meshes' box (falloff over its last `OCCLUSION_FALLOFF`), at most `MOST_PIXELS` away on screen,
