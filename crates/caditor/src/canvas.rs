@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use caditor_document::Rgb;
 use egui::{
     Align, Align2, Color32, CursorIcon, FontId, Galley, Id, Painter, Pos2, Rect, Response, Sense,
     Stroke, StrokeKind, Ui, Vec2, WidgetInfo, WidgetType, accesskit::Live, vec2,
@@ -10,6 +11,7 @@ use crate::{
         self, BORDER_WIDTH, CONTROL_HEIGHT, FOCUS_GAP, SMALL_RADIUS, SPACE_L, SPACE_M, SPACE_S,
         SPACE_SM, SPACE_XL, SPACE_XS, WIDGET_RADIUS,
     },
+    body_appearance::DEFAULT_COLOUR,
     fonts,
     scene_palette::{Canvas, Contrast},
     widgets,
@@ -18,6 +20,7 @@ use crate::{
 const CONTRAST_KEY: &str = "canvas-contrast";
 const CANVAS_KEY: &str = "canvas-lightness";
 const GRID_KEY: &str = "canvas-grid";
+const BODY_KEY: &str = "canvas-default-body";
 pub const CUBE_DIMMEST_LABELLED_FACING: f64 = 0.3;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -211,6 +214,15 @@ pub fn set_grid(ctx: &egui::Context, grid: Option<Color32>) {
 
 pub fn grid(ctx: &egui::Context) -> Option<Color32> {
     ctx.data(|data| data.get_temp(Id::new(GRID_KEY))).flatten()
+}
+
+pub fn set_body(ctx: &egui::Context, body: Rgb) {
+    ctx.data_mut(|data| data.insert_temp(Id::new(BODY_KEY), body));
+}
+
+pub fn body_colour(ctx: &egui::Context) -> Rgb {
+    ctx.data(|data| data.get_temp(Id::new(BODY_KEY)))
+        .unwrap_or(DEFAULT_COLOUR)
 }
 
 pub fn chrome(ctx: &egui::Context) -> &'static Chrome {

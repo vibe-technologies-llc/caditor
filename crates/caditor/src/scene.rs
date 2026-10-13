@@ -6,7 +6,7 @@ use std::{
 
 use caditor_document::{
     BodyAppearance, Datum, DatumResult, Document, Evaluation, Feature, FeatureId, FeatureResult,
-    FeatureState, PrincipalAxis, PrincipalGeometry, RegionChoice, RevolveAxis, SketchRegion,
+    FeatureState, PrincipalAxis, PrincipalGeometry, RegionChoice, RevolveAxis, Rgb, SketchRegion,
     SketchResult, SolidFeature, SolidResult, body_parts, datum_outline, displayed_axis,
     displayed_frame, placed_threads,
 };
@@ -56,11 +56,6 @@ const REFERENCE_MARGIN: f64 = 1.2;
 const PART_PICKS_FROM: usize = 1 << 26;
 const PART_PICKS_RESTART: usize = 1 << 31;
 
-const BODY: Color = Color::from_rgb8(
-    body_appearance::DEFAULT_COLOUR.red,
-    body_appearance::DEFAULT_COLOUR.green,
-    body_appearance::DEFAULT_COLOUR.blue,
-);
 const UNMARKED_VERTEX: Color = Color::from_rgba8(0, 0, 0, 0);
 const HIGHLIGHT_FILL_ALPHA: f32 = 0.22;
 const HOVERED_REGION_ALPHA: f32 = 0.4;
@@ -435,6 +430,7 @@ struct KeptLooks {
     appearance: BodyAppearance,
     result: Option<Shared<FeatureResult>>,
     palette: usize,
+    default: Color,
     looks: SameLooks,
 }
 
@@ -458,11 +454,12 @@ impl Parts {
         &mut self,
         previous: &mut BTreeMap<FeatureId, KeptLooks>,
         (document, evaluation): (&Document, &Evaluation),
-        feature: &Feature,
+        (feature, default): (&Feature, Color),
         palette: &ScenePalette,
     ) -> SameLooks {
+        let made = || face_looks(document, evaluation, (feature, default), palette);
         if feature.appearance.faces.is_empty() {
-            return SameLooks(Arc::new(face_looks(document, evaluation, feature, palette)));
+            return SameLooks(Arc::new(made()));
         }
         let body = feature.id();
         let result = evaluation
@@ -473,7 +470,8 @@ impl Parts {
             Some(kept)
                 if kept.appearance == feature.appearance
                     && kept.result == result
-                    && kept.palette == palette_key =>
+                    && kept.palette == palette_key
+                    && kept.default == default =>
             {
                 kept
             }
@@ -481,7 +479,8 @@ impl Parts {
                 appearance: feature.appearance.clone(),
                 result,
                 palette: palette_key,
-                looks: SameLooks(Arc::new(face_looks(document, evaluation, feature, palette))),
+                default,
+                looks: SameLooks(Arc::new(made())),
             },
         };
         let looks = kept.looks.clone();
@@ -982,6 +981,7 @@ pub fn build_keeping(
         reflection: aids.reflection,
         control_polygons: !aids.control_polygons_hidden,
         edges: aids.edges,
+        body: rgb_color(aids.body.0),
     };
 
     match &edited {
@@ -1113,7 +1113,7 @@ pub fn build_keeping(
         let health = healths.of_body(body);
         let color = match editing {
             Some(_) => None,
-            None => Some(health_color(palette, feature, health)),
+            None => Some(health_color(palette, (feature, builder.body), health)),
         };
         let opacity = feature
             .appearance
@@ -1125,12 +1125,13 @@ pub fn build_keeping(
             false => opacity,
         };
         let faces = match color {
-            Some(color) if color == palette.body(painted_by(feature)) => parts.face_looks(
-                &mut previous_looks,
-                (document, evaluation),
-                feature,
-                palette,
-            ),
+            Some(color) if color == palette.body(painted_by(feature, builder.body)) => parts
+                .face_looks(
+                    &mut previous_looks,
+                    (document, evaluation),
+                    (feature, builder.body),
+                    palette,
+                ),
             Some(_) | None => SameLooks(Arc::default()),
         };
         let dashed = palette.troubled_edges_dashed && editing.is_none() && health != Health::Sound;
@@ -1472,6 +1473,7 @@ struct Builder<'a> {
     reflection: Option<Reflection>,
     control_polygons: bool,
     edges: EdgeLook,
+    body: Color,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1501,6 +1503,7 @@ impl<'a> Builder<'a> {
             reflection: self.reflection,
             control_polygons: self.control_polygons,
             edges: self.edges,
+            body: self.body,
         }
     }
 
@@ -2201,7 +2204,7 @@ impl<'a> Builder<'a> {
         open: &BodyBefore,
         mesh: &BodyMesh,
     ) {
-        let color = body_color(self.palette, document, evaluation, open.body);
+        let color = body_color((self.palette, self.body), document, evaluation, open.body);
         let faces = match &open.choice {
             OpenChoice::Faces {
                 opened,
@@ -2324,8 +2327,8 @@ impl<'a> Builder<'a> {
     }
 
     fn ghost(&mut self, document: &Document, evaluation: &Evaluation, open: &BodyBefore) {
-        let color =
-            body_color(self.palette, document, evaluation, open.body).with_alpha(GHOST_ALPHA);
+        let color = body_color((self.palette, self.body), document, evaluation, open.body)
+            .with_alpha(GHOST_ALPHA);
         self.translucent_meshes.push(MeshInstance {
             mesh: Arc::clone(&open.before.mesh),
             faces: open
@@ -2396,7 +2399,7 @@ impl<'a> Builder<'a> {
             OpenChoice::Nothing => (None, None),
         };
         if with_faces {
-            let color = body_color(self.palette, document, evaluation, open.body);
+            let color = body_color((self.palette, self.body), document, evaluation, open.body);
             let faces = match opened {
                 Some((opened, choice)) => {
                     self.choosable_faces(open.feature, &open.before.faces, opened, color, |face| {
@@ -3105,7 +3108,7 @@ impl FaceLooks {
 fn face_looks(
     document: &Document,
     evaluation: &Evaluation,
-    feature: &Feature,
+    (feature, default): (&Feature, Color),
     palette: &ScenePalette,
 ) -> FaceLooks {
     let body = feature.id();
@@ -3139,11 +3142,11 @@ fn face_looks(
             .collect(),
         colours: looked()
             .map(|(key, look)| {
-                let colour = look.colour;
-                (
-                    key,
-                    palette.body(Color::from_rgb8(colour.red, colour.green, colour.blue)),
-                )
+                let colour = match appearance.colour {
+                    None if look.colour == body_appearance::DEFAULT_COLOUR => default,
+                    Some(_) | None => rgb_color(look.colour),
+                };
+                (key, palette.body(colour))
             })
             .collect(),
         opacities: looked()
@@ -3152,10 +3155,12 @@ fn face_looks(
     }
 }
 
-fn painted_by(feature: &Feature) -> Color {
-    feature.appearance.colour.map_or(BODY, |colour| {
-        Color::from_rgb8(colour.red, colour.green, colour.blue)
-    })
+fn rgb_color(colour: Rgb) -> Color {
+    Color::from_rgb8(colour.red, colour.green, colour.blue)
+}
+
+fn painted_by(feature: &Feature, default: Color) -> Color {
+    feature.appearance.colour.map_or(default, rgb_color)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -3209,22 +3214,28 @@ impl Healths {
     }
 }
 
-fn health_color(palette: &ScenePalette, feature: &Feature, health: Health) -> Color {
+fn health_color(
+    palette: &ScenePalette,
+    (feature, default): (&Feature, Color),
+    health: Health,
+) -> Color {
     palette.body(match health {
-        Health::Sound => painted_by(feature),
+        Health::Sound => painted_by(feature, default),
         Health::Outdated => palette.outdated_body,
         Health::Failed => palette.failed_body,
     })
 }
 
 fn body_color(
-    palette: &ScenePalette,
+    (palette, default): (&ScenePalette, Color),
     document: &Document,
     evaluation: &Evaluation,
     body: FeatureId,
 ) -> Color {
     palette.body(match body_health(document, evaluation, body) {
-        Health::Sound => document.feature(body).map_or(BODY, painted_by),
+        Health::Sound => document
+            .feature(body)
+            .map_or(default, |feature| painted_by(feature, default)),
         Health::Outdated => palette.outdated_body,
         Health::Failed => palette.failed_body,
     })

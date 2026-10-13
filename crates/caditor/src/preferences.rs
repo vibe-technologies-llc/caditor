@@ -5,8 +5,9 @@ use egui::KeyboardShortcut;
 
 #[cfg(test)]
 pub use self::dialog::{
-    AUTOMATIC_GRID, CLEAR_SEARCH, CUSTOM_GRID, GRID_SELECTOR, SEARCH_FIELD, accent_name,
-    custom_grid_name, reset_name, theme_card_id, view_name,
+    AUTOMATIC_GRID, BODY_SELECTOR, CLEAR_SEARCH, CUSTOM_BODY, CUSTOM_GRID, DEFAULT_BODY,
+    GRID_SELECTOR, SEARCH_FIELD, accent_name, body_swatch_name, custom_grid_name, reset_name,
+    theme_card_id, view_name,
 };
 pub use self::{
     choices::{
@@ -16,7 +17,7 @@ pub use self::{
     dialog::{PreferencesView, Shown, change, choice, dialog, section},
     sections::Section,
 };
-pub use crate::themes::{Accent, Appearance, GridColour, Theme, ViewChoice};
+pub use crate::themes::{Accent, Appearance, BodyColour, GridColour, Theme, ViewChoice};
 use crate::{
     appearance::{self},
     body_appearance::SWATCHES,
@@ -45,6 +46,7 @@ const THEME_KEY: &str = "appearance.theme";
 const ACCENT_KEY: &str = "appearance.accent";
 const VIEW_KEY: &str = "appearance.view";
 const GRID_KEY: &str = "appearance.grid";
+const BODY_KEY: &str = "appearance.body";
 const SCALE_KEY: &str = "appearance.scale";
 const HIGH_CONTRAST_KEY: &str = "appearance.high_contrast";
 const ORBIT_KEY: &str = "navigation.orbit_speed";
@@ -191,7 +193,8 @@ impl PreferencesTab {
                  changes; shortcuts are reset in the shortcut editor"
             }
             Self::Appearance => {
-                "Go back to the system theme with its own accent and 3D view, at normal size and \
+                "Go back to the system theme with its own accent, 3D view and body colour, at \
+                 normal size and \
                  contrast with caditor's title bar, standard hover help, standard edges with \
                  outlines and the view cube shown at its standard size at the top right. Only \
                  this tab changes"
@@ -501,6 +504,7 @@ pub enum PreferenceChange {
     Accent(Accent),
     View(ViewChoice),
     Grid(GridColour),
+    Body(BodyColour),
     Scale(f32),
     HighContrast(bool),
     OrbitSpeed(f64),
@@ -693,6 +697,10 @@ impl Preferences {
                     .text(GRID_KEY)
                     .and_then(GridColour::from_key)
                     .unwrap_or_default(),
+                body: raw
+                    .text(BODY_KEY)
+                    .and_then(BodyColour::from_key)
+                    .unwrap_or_default(),
                 scale: raw
                     .number(SCALE_KEY)
                     .map_or(1.0, |scale| appearance::clamp_scale(scale as f32)),
@@ -753,6 +761,7 @@ impl Preferences {
         settings.set_text(ACCENT_KEY, self.appearance.accent.key());
         settings.set_text(VIEW_KEY, self.appearance.view.key());
         settings.set_text(GRID_KEY, &self.appearance.grid.key());
+        settings.set_text(BODY_KEY, &self.appearance.body.key());
         settings.set_number(SCALE_KEY, f64::from(self.appearance.scale));
         settings.set_flag(HIGH_CONTRAST_KEY, self.appearance.high_contrast);
         settings.set_number(ORBIT_KEY, self.navigation.orbit_speed);
@@ -811,6 +820,7 @@ impl Preferences {
             PreferenceChange::Accent(accent) => self.appearance.accent = accent,
             PreferenceChange::View(view) => self.appearance.view = view,
             PreferenceChange::Grid(grid) => self.appearance.grid = grid,
+            PreferenceChange::Body(body) => self.appearance.body = body,
             PreferenceChange::Scale(scale) => {
                 self.appearance.scale = appearance::clamp_scale(scale);
             }

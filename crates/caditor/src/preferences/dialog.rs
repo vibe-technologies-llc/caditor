@@ -3,13 +3,13 @@ use caditor_file::Retention;
 use egui::{Id, Label, TextEdit, TextStyle, TextWrapMode, Ui, WidgetText};
 
 use super::{
-    Accent, Appearance, Choice, DoubleClick, GridColour, PreferenceChange, Preferences,
+    Accent, Appearance, BodyColour, Choice, DoubleClick, GridColour, PreferenceChange, Preferences,
     PreferencesCommand, PreferencesTab, RecentListed, Restored, Restoring, Section, Startup, Theme,
     TitleBar, TooltipDelay, ViewChoice, motion,
 };
 use crate::{
     appearance::{self, MAX_SCALE, MIN_SCALE, SCALE_STEP, SPACE_M, SPACE_S},
-    body_appearance::{self, color32},
+    body_appearance::{self, SWATCHES, color32},
     colour_selector,
     commands::Command,
     defender, dialog_parts,
@@ -693,7 +693,7 @@ fn sample(look: &Look, appearance: &Appearance) -> ThemeSample {
         accent: tokens.accent,
         canvas: skin.canvas.colour(),
         grid: scene_palette::shown_grid(skin.grid, contrast, skin.canvas),
-        body: color32(body_appearance::DEFAULT_COLOUR),
+        body: color32(appearance.body_on(skin.canvas)),
         edge: scene_palette::on_canvas(palette.body_edge, skin.canvas),
     }
 }
@@ -918,6 +918,94 @@ fn grid_swatches(
     }
 }
 
+pub const DEFAULT_BODY: &str = "Body colour: default";
+pub const CUSTOM_BODY: &str = "Custom body colour";
+pub const BODY_SELECTOR: &str = "preferences-body-colour";
+
+pub fn body_swatch_name(name: &str) -> String {
+    format!("Body colour: {name}")
+}
+
+fn body_swatches(
+    ui: &mut Ui,
+    current: &Appearance,
+    themes: &UserThemes,
+    command: &mut Option<PreferencesCommand>,
+) {
+    let canvas = current.view.canvas(chosen_look(current, themes).canvas);
+    let contrast = Contrast::of(current.high_contrast);
+    let custom = current.body.custom();
+    let selector = Id::new(BODY_SELECTOR);
+    let refusal = selector.with("refused");
+    let selecting = colour_selector::is_open(ui, selector);
+    let toggled = ui
+        .horizontal_wrapped(|ui| {
+            let default = widgets::swatch(
+                ui,
+                color32(body_appearance::DEFAULT_COLOUR),
+                DEFAULT_BODY,
+                custom.is_none(),
+            );
+            if default.clicked() && custom.is_some() {
+                change(command, PreferenceChange::Body(BodyColour::Default));
+            }
+            for swatch in &SWATCHES {
+                let fill = color32(swatch.colour);
+                let seen = scene_palette::seen_body(fill, canvas, contrast);
+                let chosen = custom == Some(swatch.colour);
+                let name = body_swatch_name(swatch.name);
+                let response = ui
+                    .add_enabled_ui(seen.is_ok(), |ui| widgets::swatch(ui, fill, &name, chosen))
+                    .inner;
+                let response = match &seen {
+                    Ok(_) => response,
+                    Err(unseen) => response.on_disabled_hover_text(unseen.sentence()),
+                };
+                if response.clicked() && !chosen {
+                    change(
+                        command,
+                        PreferenceChange::Body(BodyColour::Custom(swatch.colour)),
+                    );
+                }
+            }
+            if let Some(colour) =
+                custom.filter(|colour| SWATCHES.iter().all(|swatch| swatch.colour != *colour))
+            {
+                let name = body_swatch_name(&colour_selector::describe(colour));
+                widgets::swatch(ui, color32(colour), &name, true);
+            }
+            widgets::icon_swatch(ui, icons::ADD, CUSTOM_BODY, selecting).clicked()
+        })
+        .inner;
+    let shown = custom.unwrap_or(body_appearance::DEFAULT_COLOUR);
+    if toggled {
+        colour_selector::toggle(ui, selector, shown);
+    }
+    if let Some(colour) = colour_selector::show(ui, selector, shown) {
+        match scene_palette::seen_body(color32(colour), canvas, contrast) {
+            Ok(_) => {
+                ui.data_mut(|data| data.remove::<String>(refusal));
+                change(command, PreferenceChange::Body(BodyColour::Custom(colour)));
+            }
+            Err(unseen) => {
+                ui.data_mut(|data| data.insert_temp(refusal, unseen.sentence()));
+            }
+        }
+    }
+    if !colour_selector::is_open(ui, selector) {
+        ui.data_mut(|data| data.remove::<String>(refusal));
+    }
+    if let Some(words) = ui.data(|data| data.get_temp::<String>(refusal)) {
+        widgets::callout(ui, Tone::Error, |ui| {
+            ui.add(Label::new(words).wrap());
+        });
+    } else if let Some(unseen) = current.unseen_body(canvas) {
+        widgets::callout(ui, Tone::Warning, |ui| {
+            ui.add(Label::new(unseen.drawn_instead()).wrap());
+        });
+    }
+}
+
 fn appearance(
     ui: &mut Ui,
     shown: &Shown<'_>,
@@ -930,8 +1018,10 @@ fn appearance(
         theme_cards(ui, current, themes, command);
         themes_folder(ui, themes, command);
     });
-    let note = "The accent colours buttons, selections and links. High contrast replaces the \
-                theme's colours with stronger ones of the same lightness.";
+    let note = "The accent colours buttons, selections and links. Bodies without a colour of \
+                their own are drawn in the body colour; a model's files and exports keep only \
+                colours given to a body. High contrast replaces the theme's colours with stronger \
+                ones of the same lightness.";
     section(ui, shown, Section::Colours, Some(note.to_owned()), |ui| {
         widgets::property(ui, "Accent", |ui| {
             accent_swatches(ui, current, themes, command);
@@ -941,6 +1031,9 @@ fn appearance(
         });
         widgets::property(ui, "Grid", |ui| {
             ui.vertical(|ui| grid_swatches(ui, current, themes, command));
+        });
+        widgets::property(ui, "Bodies", |ui| {
+            ui.vertical(|ui| body_swatches(ui, current, themes, command));
         });
         widgets::property(ui, "Contrast", |ui| {
             let mut high_contrast = current.high_contrast;

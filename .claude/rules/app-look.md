@@ -115,6 +115,18 @@ paths:
   (view or contrast changed) is not drawn: `Appearance::skin_of` resolves the grid (custom colour,
   else the theme file's, each only while seen, else the palette's) and a warning callout says so
   (`Appearance::unseen_grid`, `UnseenGrid::drawn_instead`).
+- The Bodies row of the same section sets the colour of bodies without one of their own
+  (`themes::BodyColour`, `appearance.body`: `default` or `#rrggbb`, reset with the Colours
+  section): the default swatch (`DEFAULT_BODY`), the fixed `SWATCHES` named "Body colour: …"
+  (`body_swatch_name`), the custom colour and `CUSTOM_BODY`, which opens the colour selector
+  (`BODY_SELECTOR`). Every choice goes through `scene_palette::seen_body`: the colour as drawn
+  (`ScenePalette::body`, so lightened in high contrast) below `BODY_SEEN` (1.5:1) on the canvas in
+  use is refused in an error callout (`UnseenBody::sentence`), a swatch that would be is disabled
+  with that sentence on hover, and a chosen colour the canvas now hides is drawn as the default
+  with a warning callout (`Appearance::unseen_body`, `UnseenBody::drawn_instead`). The default
+  colour holds on every canvas in both contrasts
+  (`the_default_body_colour_is_seen_on_every_canvas_and_one_too_close_is_refused_in_words`); the
+  body card's Default colour swatch and the theme cards show the colour in use.
 - Six canvases (`Canvas::ALL`: Dark, Grey, Studio grey, Blue-grey, Light, White) give the 3D view its
   background; `Canvas::is_dark` (Dark and Grey) picks `DARK_CHROME` for labels, the others
   `LIGHT_CHROME`. The renderer clears to a solid colour, so a gradient would need a pass in

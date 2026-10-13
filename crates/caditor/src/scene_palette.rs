@@ -67,6 +67,7 @@ impl Contrast {
 }
 
 pub const GRID_SEEN: f32 = 1.5;
+pub const BODY_SEEN: f32 = 1.5;
 pub const HIGH_CONTRAST_GRID_SEEN: f32 = 3.0;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -221,14 +222,7 @@ impl UnseenGrid {
     }
 
     fn capitalised(&self) -> String {
-        let reason = self.reason();
-        let mut letters = reason.chars();
-        let capital: String = letters
-            .next()
-            .into_iter()
-            .flat_map(char::to_uppercase)
-            .collect();
-        format!("{capital}{}", letters.as_str())
+        capitalised(&self.reason())
     }
 }
 
@@ -247,6 +241,73 @@ pub fn seen_grid(
             canvas,
             ratio,
             needed,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct UnseenBody {
+    pub colour: egui::Color32,
+    pub canvas: Canvas,
+    pub ratio: f32,
+}
+
+impl UnseenBody {
+    pub fn reason(&self) -> String {
+        format!(
+            "the body colour {} shows at only {:.2}:1 on the {} 3D view, below the {}:1 a body \
+             needs to stand out from it",
+            hex(self.colour),
+            self.ratio,
+            self.canvas.label(),
+            BODY_SEEN
+        )
+    }
+
+    pub fn sentence(&self) -> String {
+        format!(
+            "{}. Choose a colour lighter or darker than the 3D view.",
+            capitalised(&self.reason())
+        )
+    }
+
+    pub fn drawn_instead(&self) -> String {
+        format!(
+            "{}, so bodies without a colour of their own are drawn in caditor's default colour. \
+             Choose another colour, or Default.",
+            capitalised(&self.reason())
+        )
+    }
+}
+
+fn capitalised(reason: &str) -> String {
+    let mut letters = reason.chars();
+    let capital: String = letters
+        .next()
+        .into_iter()
+        .flat_map(char::to_uppercase)
+        .collect();
+    format!("{capital}{}", letters.as_str())
+}
+
+pub fn seen_body(
+    colour: egui::Color32,
+    canvas: Canvas,
+    contrast: Contrast,
+) -> Result<egui::Color32, UnseenBody> {
+    let drawn = color32(contrast.palette(canvas).body(Color::from_rgb8(
+        colour.r(),
+        colour.g(),
+        colour.b(),
+    )));
+    let ratio = appearance::contrast_ratio(drawn, canvas.colour());
+    if ratio >= BODY_SEEN {
+        Ok(colour)
+    } else {
+        Err(UnseenBody {
+            colour,
+            canvas,
+            ratio,
         })
     }
 }
@@ -1128,6 +1189,50 @@ mod tests {
         assert!(seen_grid(grey, Canvas::Dark, Contrast::High).is_err());
         assert!(seen_grid(Color32::WHITE, Canvas::White, Contrast::Standard).is_err());
         assert!(seen_grid(Color32::BLACK, Canvas::White, Contrast::High).is_ok());
+    }
+
+    #[test]
+    fn the_default_body_colour_is_seen_on_every_canvas_and_one_too_close_is_refused_in_words() {
+        for contrast in [Contrast::Standard, Contrast::High] {
+            for canvas in Canvas::ALL {
+                assert_eq!(
+                    seen_body(body(), canvas, contrast),
+                    Ok(body()),
+                    "{canvas:?}"
+                );
+            }
+        }
+        for canvas in Canvas::ALL {
+            let same = canvas.colour();
+            assert!(
+                seen_body(same, canvas, Contrast::Standard).is_err(),
+                "{canvas:?}"
+            );
+        }
+        let black = Color32::BLACK;
+        assert_eq!(seen_body(black, Canvas::Dark, Contrast::High), Ok(black));
+        let unseen = seen_body(
+            Color32::from_rgb(34, 36, 40),
+            Canvas::Dark,
+            Contrast::Standard,
+        )
+        .unwrap_err();
+
+        assert!(unseen.ratio < BODY_SEEN);
+        assert_eq!(
+            unseen.sentence(),
+            format!(
+                "The body colour #222428 shows at only {:.2}:1 on the Dark 3D view, below the \
+                 1.5:1 a body needs to stand out from it. Choose a colour lighter or darker than \
+                 the 3D view.",
+                unseen.ratio
+            )
+        );
+        assert!(
+            unseen
+                .drawn_instead()
+                .contains("drawn in caditor's default colour")
+        );
     }
 
     #[test]

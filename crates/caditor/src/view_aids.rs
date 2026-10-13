@@ -1,6 +1,7 @@
+use caditor_document::Rgb;
 use caditor_render::Reflection;
 
-use crate::analysis::FaceAnalysis;
+use crate::{analysis::FaceAnalysis, body_appearance::DEFAULT_COLOUR};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct ViewAids {
@@ -9,6 +10,16 @@ pub struct ViewAids {
     pub analysis: Option<FaceAnalysis>,
     pub reflection: Option<Reflection>,
     pub edges: EdgeLook,
+    pub body: DefaultBody,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DefaultBody(pub Rgb);
+
+impl Default for DefaultBody {
+    fn default() -> Self {
+        Self(DEFAULT_COLOUR)
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

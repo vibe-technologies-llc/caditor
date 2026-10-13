@@ -9,7 +9,7 @@ use egui::{Color32, Id, Ui, Widget};
 
 use crate::{
     appearance::SPACE_S,
-    bodies, colour_selector,
+    bodies, canvas, colour_selector,
     feature_fields::{self, Choice},
     field::{self, Expected},
     icons,
@@ -447,7 +447,7 @@ impl Panel<'_> {
                 let mut chosen = None;
                 let default = widgets::swatch(
                     ui,
-                    color32(DEFAULT_COLOUR),
+                    color32(canvas::body_colour(ui.ctx())),
                     DEFAULT_COLOUR_NAME,
                     current.is_none(),
                 );
@@ -476,7 +476,7 @@ impl Panel<'_> {
                 (chosen, default.has_focus(), toggled)
             })
             .inner;
-        let shown = current.unwrap_or(DEFAULT_COLOUR);
+        let shown = current.unwrap_or_else(|| canvas::body_colour(ui.ctx()));
         if toggled {
             colour_selector::toggle(ui, selector, shown);
         }
@@ -525,7 +525,11 @@ impl Panel<'_> {
                     let mut chosen = None;
                     let default = widgets::swatch(
                         ui,
-                        color32(self.appearance.colour.unwrap_or(DEFAULT_COLOUR)),
+                        color32(
+                            self.appearance
+                                .colour
+                                .unwrap_or_else(|| canvas::body_colour(ui.ctx())),
+                        ),
                         &face_swatch_name(BODY_COLOUR_NAME),
                         shared == Some(None),
                     );

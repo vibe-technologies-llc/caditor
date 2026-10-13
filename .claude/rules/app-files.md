@@ -445,7 +445,8 @@ paths:
 - Appearance keys: `appearance.theme` (`system`, `dark`, `light`, `midnight`, `graphite`, `paper`,
   `slate`, `studio` or `user:<file stem>`), `appearance.accent` (`theme` or a hue),
   `appearance.view` (`theme` or a canvas key: `dark`, `grey`, `studio`, `blue_grey`, `light`,
-  `white`) and `appearance.grid` (`automatic` or `#rrggbb`), read leniently: an unknown or missing
+  `white`), `appearance.grid` (`automatic` or `#rrggbb`) and `appearance.body` (`default` or
+  `#rrggbb`), read leniently: an unknown or missing
   value is the default. Restore defaults on Appearance resets them all. The themes folder is listed
   like the templates (`app-look.md`).
 - Lenient keys, all left alone by Restore defaults and handed over by `apply_preferences`: recent

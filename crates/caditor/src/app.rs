@@ -929,6 +929,7 @@ pub fn show(
     canvas::set_contrast(ui.ctx(), contrast);
     viewport.set_canvas(canvas::canvas(ui.ctx()));
     viewport.set_grid(canvas::grid(ui.ctx()));
+    viewport.set_default_body(canvas::body_colour(ui.ctx()));
     let selection_before = viewport.selection().generation();
     viewport.show(ui, model, editing, keys_free, &mut commands, actions);
     completion::forget_taken_click(ui.ctx());
@@ -1375,6 +1376,7 @@ fn apply_appearance(
     let skin = appearance::skin(ctx);
     canvas::set_canvas(ctx, skin.canvas);
     canvas::set_grid(ctx, skin.grid);
+    canvas::set_body(ctx, workspace.preferences.appearance.body_on(skin.canvas));
     if delayed {
         Applied::Changed
     } else {

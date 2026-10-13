@@ -158,7 +158,16 @@ impl Section {
             Self::Tips => &["getting started", "show tips", "hints"],
             Self::SavingOnWindows => &["microsoft defender", "saving"],
             Self::Theme => &["theme", "dark", "light", "themes folder"],
-            Self::Colours => &["accent", "3d view", "background", "grid", "contrast"],
+            Self::Colours => &[
+                "accent",
+                "3d view",
+                "background",
+                "grid",
+                "contrast",
+                "body colour",
+                "default colour",
+                "bodies",
+            ],
             Self::Interface => &[
                 "size",
                 "scale",
@@ -275,6 +284,7 @@ impl Section {
                 to.appearance.accent = from.appearance.accent;
                 to.appearance.view = from.appearance.view;
                 to.appearance.grid = from.appearance.grid;
+                to.appearance.body = from.appearance.body;
                 to.appearance.high_contrast = from.appearance.high_contrast;
             }
             Self::Interface => {

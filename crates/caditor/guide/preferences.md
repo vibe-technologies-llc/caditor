@@ -52,6 +52,12 @@ match, for example `zoom`, `grid` or `view cube`. Choosing a tab clears the sear
   colour too close to the background to be seen (below 1.5:1, or 3:1 with high contrast) is
   refused, saying why. If you later choose a 3D view your colour does not show on, the view's own
   grid is drawn and Preferences says so until you choose another colour or Automatic.
+- **Bodies**: the colour of bodies that have no colour of their own, new ones included: caditor's
+  grey, one of the body swatches, or your own from the plus swatch. A colour too close to the 3D
+  view to stand out (below 1.5:1) is refused, saying why; if you later choose a 3D view it does not
+  show on, bodies are drawn grey and Preferences says so. It changes only how caditor shows
+  them: the model file and exports keep only colours you give a body in its
+  [colour and material](bodies) card.
 - **High contrast**: stronger text, outlines and focus, in the panels and in the 3D view. It uses
   its own colours in place of the theme's.
 - The interface size from 75% to 200%, whether caditor draws its own title bar or uses the

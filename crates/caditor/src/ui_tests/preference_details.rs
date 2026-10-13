@@ -1,3 +1,4 @@
+use caditor_document::Rgb;
 use caditor_file::Retention;
 use caditor_geometry::Point3;
 use egui::{Id, Key, Modifiers};
@@ -10,8 +11,11 @@ use super::{
 };
 use crate::{
     app,
+    body_appearance::DEFAULT_COLOUR,
+    canvas, colour_selector,
+    export::OwnedLook,
     model::Action,
-    preferences::{self, Choice, PreferenceChange, PreferencesCommand, PreferencesTab},
+    preferences::{self, BodyColour, Choice, PreferenceChange, PreferencesCommand, PreferencesTab},
     units::{Decimals, NumberFormat, TrailingZeros},
     view_cube::{Corner, CubePlacement, CubeSize},
 };
@@ -173,4 +177,83 @@ fn the_version_history_preference_keeps_more_or_fewer_old_versions_and_is_rememb
     assert_eq!(standard, SAVES as usize);
     assert!((5..standard).contains(&fewer), "{fewer} of {standard}");
     assert_eq!(remembered, Retention::Fewer);
+}
+
+fn drawn_body(harness: &mut Harness) -> caditor_render::Color {
+    let built = harness.built();
+    built
+        .scene
+        .meshes
+        .iter()
+        .chain(&built.scene.flat_meshes)
+        .find_map(|mesh| mesh.faces.first())
+        .map(|face| face.color)
+        .expect("the plate is drawn")
+}
+
+fn drawn(colour: Rgb) -> caditor_render::Color {
+    caditor_render::Color::from_rgb8(colour.red, colour.green, colour.blue)
+}
+
+#[test]
+fn a_chosen_body_colour_draws_bodies_without_their_own_refuses_an_unseen_one_and_is_remembered() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    let (plate, _) = extruded_plate(&mut harness);
+    harness.frame();
+    assert_eq!(drawn_body(&mut harness), drawn(DEFAULT_COLOUR));
+
+    harness.perform(Action::Preferences(PreferencesCommand::Tab(
+        PreferencesTab::Appearance,
+    )));
+    harness.perform(Action::Preferences(PreferencesCommand::Show));
+    harness.context.enable_accesskit();
+    harness.frame();
+    harness.frame();
+    harness.click_button(&preferences::body_swatch_name("Steel blue"));
+    harness.frame();
+    harness.frame();
+
+    let steel = Rgb::new(70, 130, 180);
+    assert_eq!(
+        harness.workspace.preferences.appearance.body,
+        BodyColour::Custom(steel)
+    );
+    assert_eq!(drawn_body(&mut harness), drawn(steel));
+    assert_eq!(canvas::body_colour(&harness.context), steel);
+    let appearance = &harness.document().feature(plate).unwrap().appearance;
+    assert_eq!(appearance.colour, None);
+    assert_eq!(OwnedLook::of(appearance), None);
+
+    let hex = colour_selector::hex_id(Id::new(preferences::BODY_SELECTOR));
+    harness.click_button(preferences::CUSTOM_BODY);
+    harness.frame();
+    harness.type_into_field(hex, "#1c1d20");
+    harness.frame();
+
+    assert_eq!(
+        harness.workspace.preferences.appearance.body,
+        BodyColour::Custom(steel)
+    );
+    assert!(harness.shows_containing("The body colour #1c1d20 shows at only 1.0"));
+    assert!(harness.shows_containing("Choose a colour lighter or darker than the 3D view."));
+
+    harness.click_button(preferences::DEFAULT_BODY);
+    harness.frame();
+    harness.frame();
+    assert_eq!(drawn_body(&mut harness), drawn(DEFAULT_COLOUR));
+    harness.click_button(&preferences::body_swatch_name("Steel blue"));
+    harness.frame();
+
+    wait_until_stored(&mut harness, dir.path(), |stored| {
+        stored.appearance.body == BodyColour::Custom(steel)
+    });
+    let mut again = reopened(dir.path());
+    extruded_plate(&mut again);
+    again.frame();
+    assert_eq!(
+        again.workspace.preferences.appearance.body,
+        BodyColour::Custom(steel)
+    );
+    assert_eq!(drawn_body(&mut again), drawn(steel));
 }

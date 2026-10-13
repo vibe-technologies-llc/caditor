@@ -40,8 +40,9 @@ finished. Each rule avoids a failure mode FreeCAD is known for.
   text on the dark 3D view uses the tested colours and backdrop of `canvas.rs`.
 - The 3D view takes one of six canvases, dark through grey to white, with the theme or on its own,
   each with its own chrome and scene palette under the same checks. A user-picked grid colour is
-  held to the grid's target on the canvas in use (1.5:1, 3:1 in high contrast): refused in words
-  naming the colour, canvas and ratio, never drawn where the canvas would hide it.
+  held to the grid's target on the canvas in use (1.5:1, 3:1 in high contrast), and a body colour
+  as drawn to 1.5:1: refused in words naming the colour, canvas and ratio, never drawn where the
+  canvas would hide it.
 - High contrast reaches the 3D view (`scene_palette.rs`): lines and points hold 3:1 against the
   canvas and dimmed bodies; bodies, edges and highlighted faces hold 3:1 on a body of any colour (a
   body too dark is drawn lightened, `ScenePalette::body`).

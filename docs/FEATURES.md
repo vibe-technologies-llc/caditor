@@ -230,9 +230,8 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Application
 
-- [low · medium] Preferences still lack settings other CAD programs offer: a default colour for
-  bodies without one (`body_appearance::DEFAULT_COLOUR` is one constant the scene, exports and
-  contrast tests share), following the system's reduce-motion
+- [low · medium] Preferences still lack settings other CAD programs offer: following the
+  system's reduce-motion
   setting (winit reports none; View changes › No motion does it by hand), turning off the
   constraints drawing infers kind by kind (snapping is all or nothing), and export choices
   remembered across restarts (kept for the session).

@@ -9,8 +9,8 @@ use crate::{
         self, ContrastFailure, DARK, GRAPHITE, LIGHT, MIDNIGHT, PAPER, READABLE, SLATE, STUDIO,
         Skin, Skins, Token, Tokens, VISIBLE_OUTLINE,
     },
-    body_appearance::color32,
-    scene_palette::{self, Canvas, Contrast, UnseenGrid},
+    body_appearance::{DEFAULT_COLOUR, color32},
+    scene_palette::{self, Canvas, Contrast, UnseenBody, UnseenGrid},
 };
 
 const USER_PREFIX: &str = "user:";
@@ -285,6 +285,41 @@ impl GridColour {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum BodyColour {
+    #[default]
+    Default,
+    Custom(Rgb),
+}
+
+impl BodyColour {
+    const DEFAULT_KEY: &str = "default";
+
+    pub fn key(self) -> String {
+        match self {
+            Self::Default => Self::DEFAULT_KEY.to_owned(),
+            Self::Custom(colour) => colour.hex(),
+        }
+    }
+
+    pub fn from_key(key: &str) -> Option<Self> {
+        if key == Self::DEFAULT_KEY {
+            return Some(Self::Default);
+        }
+        key.starts_with('#')
+            .then(|| Rgb::from_hex(key))
+            .flatten()
+            .map(Self::Custom)
+    }
+
+    pub fn custom(self) -> Option<Rgb> {
+        match self {
+            Self::Default => None,
+            Self::Custom(colour) => Some(colour),
+        }
+    }
+}
+
 fn mix(from: Color32, to: Color32, share: f32) -> Color32 {
     let share = share.clamp(0.0, 1.0);
     let channel = |a: u8, b: u8| {
@@ -350,6 +385,7 @@ pub struct Appearance {
     pub accent: Accent,
     pub view: ViewChoice,
     pub grid: GridColour,
+    pub body: BodyColour,
     pub scale: f32,
     pub high_contrast: bool,
 }
@@ -361,6 +397,7 @@ impl Default for Appearance {
             accent: Accent::default(),
             view: ViewChoice::default(),
             grid: GridColour::default(),
+            body: BodyColour::default(),
             scale: 1.0,
             high_contrast: false,
         }
@@ -390,6 +427,20 @@ impl Appearance {
     pub fn unseen_grid(&self, canvas: Canvas) -> Option<UnseenGrid> {
         let colour = self.grid.custom()?;
         scene_palette::seen_grid(color32(colour), canvas, self.contrast()).err()
+    }
+
+    pub fn unseen_body(&self, canvas: Canvas) -> Option<UnseenBody> {
+        let colour = self.body.custom()?;
+        scene_palette::seen_body(color32(colour), canvas, self.contrast()).err()
+    }
+
+    pub fn body_on(&self, canvas: Canvas) -> Rgb {
+        self.body
+            .custom()
+            .filter(|colour| {
+                scene_palette::seen_body(color32(*colour), canvas, self.contrast()).is_ok()
+            })
+            .unwrap_or(DEFAULT_COLOUR)
     }
 
     fn contrast(&self) -> Contrast {

@@ -194,6 +194,7 @@ fn hover_help_waits_as_long_as_preferences_say_and_is_remembered() {
     let standard = harness.context.global_style().interaction.tooltip_delay;
 
     open_tab(&mut harness, PreferencesTab::Appearance);
+    harness.draft_into_field(Id::new(preferences::SEARCH_FIELD), "hover help");
     harness.click(TooltipDelay::AtOnce.label());
     harness.frame();
 

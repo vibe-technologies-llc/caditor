@@ -2,7 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use caditor_document::{
     BlendKind, CarriedParameters, Datum, Document, Evaluation, Feature, FeatureId, FeatureKind,
-    PasteOrigin, PatternKind, SavedView, SolidFeature, Transaction,
+    PasteOrigin, PatternKind, Rgb, SavedView, SolidFeature, Transaction,
 };
 use caditor_file::PastedGeometry;
 use caditor_geometry::{Aabb, Plane, Point2, Point3, Ray, Rotation3, Vector2, Vector3};
@@ -85,7 +85,7 @@ use crate::{
     toggles,
     trimming::{self, Trimming},
     typed_point::{self, Typed, TypedPoint},
-    view_aids::ViewAids,
+    view_aids::{DefaultBody, ViewAids},
     view_cube::{self, Corner, CubeAction, CubePlacement, CubeTexts},
     view_history::{Gesture, ViewHistory},
     view_menu::{self, Held, Place, ViewMenu},
@@ -897,6 +897,10 @@ impl ViewportState {
 
     pub fn set_grid(&mut self, grid: Option<egui::Color32>) {
         self.grid = grid;
+    }
+
+    pub fn set_default_body(&mut self, colour: Rgb) {
+        self.aids.body = DefaultBody(colour);
     }
 
     pub fn filter(&self) -> SelectionFilter {

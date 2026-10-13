@@ -251,8 +251,15 @@ paths:
   (`BodyMesh::stop_mass`): a queued one is skipped, the one in flight returns at the next interrupt
   check and nothing is stored, so its card says it was stopped and an info callout counts them with
   Work them out (`BodyMesh::resume_mass`, which lets the next asking queue it again).
-- A body is drawn in its appearance colour, else `body_appearance::DEFAULT_COLOUR`; a failed or
-  outdated feature on it tints it. In high contrast every body and face colour passes through
+- A body is drawn in its appearance colour, else the Body colour preference
+  (`Appearance::body_on` the canvas in use, `body_appearance::DEFAULT_COLOUR` by default or when
+  the canvas would hide the chosen one), published per frame (`canvas::set_body`,
+  `canvas::body_colour`) and handed to the viewport (`ViewportState::set_default_body`) as
+  `ViewAids::body`, so it joins the scene key; a face stored in `DEFAULT_COLOUR` on a body without
+  its own colour (`released`) takes it too (`face_looks`, keyed by it in `KeptLooks`). The
+  preference never enters the document: thumbnails, version previews and the headless PNG build
+  with `ViewAids::default()`, and exports write only a body's own colour (`OwnedLook`, falling
+  back to the constant). A failed or outdated feature on a body tints it. In high contrast every body and face colour passes through
   `ScenePalette::body` (`app-look.md`). While a sketch is edited, bodies are dimmed and not
   pickable.
 - Every failed feature whose error has a `place` gets a marker there in the error colour, in front
