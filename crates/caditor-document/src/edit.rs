@@ -1092,6 +1092,7 @@ impl Document {
             | (FeatureKind::SplitFace(_), FeatureKind::SplitFace(_))
             | (FeatureKind::Primitive(_), FeatureKind::Primitive(_))
             | (FeatureKind::Pipe(_), FeatureKind::Pipe(_))
+            | (FeatureKind::Rib(_), FeatureKind::Rib(_))
             | (FeatureKind::Thread(_), FeatureKind::Thread(_))
             | (FeatureKind::Combine(_), FeatureKind::Combine(_))
             | (FeatureKind::Move(_), FeatureKind::Move(_))

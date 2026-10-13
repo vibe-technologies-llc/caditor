@@ -48,6 +48,8 @@ mod properties;
 mod recompute;
 mod reference_image;
 mod removal;
+mod rib;
+mod rib_tool;
 mod scaling;
 mod section;
 mod selection_sets;
@@ -179,6 +181,11 @@ pub use crate::{
         ImageSpot, MIN_IMAGE_OPACITY_PERCENT, PlacedImage, ReferenceImage, placed_on,
     },
     removal::Remove,
+    rib::{
+        RIB_SHAPE, Rib, direction_name as rib_direction_name, facing as rib_facing, is_rib_path,
+        side_name as rib_side_name,
+    },
+    rib_tool::{RibDirection, RibSide},
     scaling::{MAX_SCALE_FACTOR, MIN_SCALE_FACTOR, Scale},
     section::{SectionCurve, SectionError, datum_outline, section_curves},
     selection_sets::{
@@ -290,6 +297,8 @@ mod properties_tests;
 mod reference_image_tests;
 #[cfg(test)]
 mod removal_tests;
+#[cfg(test)]
+mod rib_tests;
 #[cfg(test)]
 mod scaling_tests;
 #[cfg(test)]

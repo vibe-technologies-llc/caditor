@@ -190,6 +190,9 @@ Extrusions and revolves:
 - `pipe`: `path` as a sweep's (unreadable loads as unchosen), `shape` (`round`, `square`,
   `triangle`), `size` (unreadable 10 mm), `wall` only when hollow (unreadable 1 mm), `bend`
   (unreadable 0 mm) and `operation`. The corpus holds it in `pipes.caditor`.
+- `rib`: `sketch`, `body`, `thickness` (unreadable 2 mm, reported), `side` (`one_side`,
+  `other_side`, `symmetric`), `direction` (`parallel`, `square`) and `reversed` only when set. The
+  corpus holds it in `ribs.caditor`.
 - `separate_pieces`: a wrapper around the whole feature kind record (`feature`) of a feature whose
   `pieces` is a body each, written only then; an older reader reports the feature as from a newer
   version instead of making one body that later features' piece bodies would not find. Restoring

@@ -57,8 +57,10 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   Every copy is the original's tool placed again, never recomputed where it lands (a copy of an
   extrusion up to next stops where the original did, not on the face it meets), and one pattern
   cannot chain a shift, a turn and a mirror.
-- [medium · hard] Rib and web from an open profile: a rib extrudes parallel to the sketch plane
-  and a web square to it, each thickened and run on to the nearest faces of the body.
+- [low · medium] Ribs (`rib.rs`) follow only chains that do not branch: two ribs meeting in a T
+  are refused (crossing chains work), a web is thickened only along lines and arcs
+  (`wall_regions`), free ends run on along their tangent only (no natural continuation of an arc),
+  a rib takes no draft angle, and its thickness has no value arrow in the view.
 - [low · medium] A chamfer's feet on a curved face stand on the face's tangent line rather than on
   the face, and a curve pattern's arrow (`value_gauges.rs`) slides along the curve's tangent while
   it is dragged, rejoining the curve when the copies are placed again. Each would be a `Track`
@@ -98,7 +100,7 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [low · hard · blocked by: sketch text ("Tools missing" under Sketching)] Emboss or deboss sketch
   text, or any sketch profile, onto a face, flat or curved (wrapped around it), raised or
   recessed by a depth.
-- [low · hard · blocked by: draft angle (above), rib and web (above)] No plastic-part features:
+- [low · hard · blocked by: draft angle (above)] No plastic-part features:
   the screw boss with its ribs, a lip and groove along a seam, snap fits (hook, loop, groove) and a
   rest (a flat seat on a curved face), which moulded parts need.
 

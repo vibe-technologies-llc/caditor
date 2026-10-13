@@ -15,6 +15,7 @@ use crate::{
     pattern_tools::{self, PatternSource, Shape},
     pipe_tools::{self, PipeStart},
     primitive_tools::{self, PrimitiveSource},
+    rib_tools::{self, RibStart},
     scale_tools,
     selection::{Pickable, Selection},
     shell_tools::{self, FaceSource},
@@ -59,6 +60,7 @@ pub struct Offers {
     pub revolve_faces: Option<Result<FaceProfile, &'static str>>,
     pub sweep: Result<SweepStart, &'static str>,
     pub pipe: Result<PipeStart, &'static str>,
+    pub rib: Result<RibStart, &'static str>,
     pub shell: Result<FaceSource, &'static str>,
     pub offset_face: Result<FaceSource, &'static str>,
     pub split_face: Result<SplitFaceSource, &'static str>,
@@ -114,6 +116,7 @@ impl Offers {
             revolve_faces: faces(Sweep::Revolve),
             sweep: sweep_tools::source(model, selection, editing),
             pipe: pipe_tools::source(model, selection),
+            rib: rib_tools::source(model, selection, (tree, rows)),
             sketch_target: sketch_placement::sketch_target(model, selection),
             pattern: pattern_tools::source(model, selection, tree, rows),
             curve_pattern: sketch_pattern_tools::source(

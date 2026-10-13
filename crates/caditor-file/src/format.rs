@@ -22,11 +22,11 @@ use caditor_document::{
     Pipe, PlaneReference, PlaneRotation, PlaneThrough, PointBy, PointMate, PointReference,
     PointTarget, PointsPattern, Primitive, PrimitiveAnchor, PrimitiveShape, PrincipalAxis,
     PrincipalGeometry, PrincipalPlane, ProjectionSource, Reading, RegionChoice, Remove, Revolve,
-    RevolveAxis, RevolveExtent, Rgb, RollbackBar, SavedView, SavedViews, Scale, Shell, ShellSide,
-    SketchAttachment, SketchFeature, SolidFeature, SolidStart, Split, SplitAlong, SplitCarry,
-    SplitFace, StepText, Sweep, SweepPath, TappedThread, Thread, ThreadFamily, ThreadForm,
-    ThreadHand, ThreadLength, ThreadSide, ThreadSize, Transaction, TurnCentre, Wall, group_name,
-    material_name, view_name,
+    RevolveAxis, RevolveExtent, Rgb, Rib, RibDirection, RibSide, RollbackBar, SavedView,
+    SavedViews, Scale, Shell, ShellSide, SketchAttachment, SketchFeature, SolidFeature, SolidStart,
+    Split, SplitAlong, SplitCarry, SplitFace, StepText, Sweep, SweepPath, TappedThread, Thread,
+    ThreadFamily, ThreadForm, ThreadHand, ThreadLength, ThreadSide, ThreadSize, Transaction,
+    TurnCentre, Wall, group_name, material_name, view_name,
 };
 use caditor_expression::{BinaryOperator, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Rotation3, Vector2, Vector3};
@@ -307,6 +307,33 @@ pub(crate) enum FeatureKindRecord {
     ReferenceImage(Box<ReferenceImageRecord>),
     Pipe(Box<PipeRecord>),
     SeparatePieces(Box<SeparatePiecesRecord>),
+    Rib(Box<RibRecord>),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct RibRecord {
+    pub sketch: u64,
+    pub body: u64,
+    pub thickness: String,
+    pub side: RibSideRecord,
+    pub direction: RibDirectionRecord,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub reversed: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum RibSideRecord {
+    OneSide,
+    OtherSide,
+    Symmetric,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum RibDirectionRecord {
+    Parallel,
+    Square,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -3048,6 +3075,7 @@ fn kind_record(kind: &FeatureKind) -> FeatureKindRecord {
         }
         FeatureKind::Mirror(mirror) => mirror_record(mirror),
         FeatureKind::Pipe(pipe) => pipe_record(pipe),
+        FeatureKind::Rib(rib) => rib_record(rib),
         FeatureKind::Primitive(primitive) => {
             FeatureKindRecord::Primitive(Box::new(primitive_record(primitive)))
         }
@@ -3368,6 +3396,42 @@ fn pipe_record(pipe: &Pipe) -> FeatureKindRecord {
         bend: text(&pipe.bend),
         operation: operation_record(pipe.operation),
     }))
+}
+
+fn rib_record(rib: &Rib) -> FeatureKindRecord {
+    FeatureKindRecord::Rib(Box::new(RibRecord {
+        sketch: rib.sketch.raw(),
+        body: rib.body.raw(),
+        thickness: rib.thickness.to_stored_text(),
+        side: match rib.side {
+            RibSide::OneSide => RibSideRecord::OneSide,
+            RibSide::OtherSide => RibSideRecord::OtherSide,
+            RibSide::Symmetric => RibSideRecord::Symmetric,
+        },
+        direction: match rib.direction {
+            RibDirection::Parallel => RibDirectionRecord::Parallel,
+            RibDirection::Square => RibDirectionRecord::Square,
+        },
+        reversed: rib.reversed,
+    }))
+}
+
+fn restore_rib(record: &RibRecord, feature: &str, issues: &mut Vec<String>) -> Rib {
+    Rib {
+        sketch: FeatureId::from_raw(record.sketch),
+        body: FeatureId::from_raw(record.body),
+        thickness: restore_value(&record.thickness, "thickness", "2 mm", feature, issues),
+        side: match record.side {
+            RibSideRecord::OneSide => RibSide::OneSide,
+            RibSideRecord::OtherSide => RibSide::OtherSide,
+            RibSideRecord::Symmetric => RibSide::Symmetric,
+        },
+        direction: match record.direction {
+            RibDirectionRecord::Parallel => RibDirection::Parallel,
+            RibDirectionRecord::Square => RibDirection::Square,
+        },
+        reversed: record.reversed,
+    }
 }
 
 fn restore_pipe(record: &PipeRecord, feature: &str, issues: &mut Vec<String>) -> Pipe {
@@ -6007,6 +6071,7 @@ fn restore_kind(
             FeatureKind::Mate(restore_point_mate(record, name, issues))
         }
         FeatureKindRecord::Pipe(record) => FeatureKind::Pipe(restore_pipe(record, name, issues)),
+        FeatureKindRecord::Rib(record) => FeatureKind::Rib(restore_rib(record, name, issues)),
         FeatureKindRecord::Primitive(record) => {
             FeatureKind::Primitive(restore_primitive(record, name, issues))
         }

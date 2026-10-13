@@ -626,6 +626,10 @@ impl FeatureKind {
                 pipe.operation = renamed_operation(pipe.operation, rename);
                 pipe.path = pipe.path.with_features_renamed(&rename);
             }
+            Self::Rib(rib) => {
+                rib.sketch = rename(rib.sketch);
+                rib.body = rename(rib.body);
+            }
             Self::Combine(combine) => {
                 combine.body = rename(combine.body);
                 combine.tool = rename(combine.tool);

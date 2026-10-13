@@ -7,6 +7,8 @@ paths:
   - "crates/caditor/src/sweep_tools.rs"
   - "crates/caditor/src/pipe_tools.rs"
   - "crates/caditor/src/pipe_panel.rs"
+  - "crates/caditor/src/rib_tools.rs"
+  - "crates/caditor/src/rib_panel.rs"
   - "crates/caditor/src/blend_tools.rs"
   - "crates/caditor/src/blend_panel.rs"
   - "crates/caditor/src/shell_tools.rs"
@@ -420,7 +422,7 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   in `feature_tree::feature_commands`' changes) acts on the open feature, else the tree's current one,
   doing what its panel's reverse control does (an extrusion's one-sided end, a revolve's one-sided or
   up-to turn, a hole, a primitive not centred on its place, a pattern's first direction, a mate's
-  facing or side, a split's kept side) as one "Reverse <feature>" change. An extrusion or revolve
+  facing or side, a split's kept side, a rib's side or way) as one "Reverse <feature>" change. An extrusion or revolve
   running both ways and a full turn are refused saying which Extent to choose, an angle or point mate
   saying it has no side (`MATE_HAS_NO_SIDE`); other kinds `NOTHING_TO_REVERSE`.
 - A revolve can also take two angles (refusing a pair turning more than a full turn), or turn Up to
@@ -478,6 +480,26 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   placed from `caditor_document::pipe_stand` (the path as the pipe walks it, through the kernel's
   `pipe_stand`: the section plane and the first corner between two straight lines, whether or not
   the bend rounds it), so they also stand when the pipe itself fails.
+
+## Rib
+
+- `Command::Rib` (no default key; `rib_tools.rs`, `Offers::rib`; Solid group menu, Model menu,
+  palette, `view_menu::SKETCH_TOOLS`) makes a `Rib` of `DEFAULT_THICKNESS`, symmetric, and opens
+  it. `rib_tools::source` takes the sketch of the selected curves or regions, or a sketch row chosen
+  in the tree (refusing several sketches, one made at or below the bar, or one whose curves are not
+  open chains, `is_rib_path`); with none it takes the newest sketch above the bar nothing later uses
+  that qualifies. The body is the one chosen in the tree or selected, else the body the sketch is
+  attached to, else the newest standing body; no body refuses it (`NO_BODY`).
+- A sketch attached to a face starts square to it (a web), any other parallel (a rib).
+  `rib_tools::facing_body` sets `reversed` from `caditor_document::rib_facing` (rays from the
+  curves along both ways: the nearer side meeting the body), on creation and when Direction
+  changes, reading the body as the rib sees it.
+- Panel (`rib_panel.rs`): Sketch (combo of the sketches above, those not `is_rib_path` refused in
+  words), Body (bodies before it), Direction (Parallel to sketch, Square to sketch, segmented),
+  Thickness (keyed `("rib-field", feature, "thickness")`), Side (One side, Other side, Symmetric,
+  each hover saying which side for the direction) and a reverse checkbox worded for the direction
+  (`REVERSE_FILL`, `REVERSE_DIRECTION`). It is not `modifies_body`, so the view shows the ribbed
+  body while it is open. Reverse direction flips `reversed`. It has no value arrows.
 
 ## Fillets, chamfers and shells
 

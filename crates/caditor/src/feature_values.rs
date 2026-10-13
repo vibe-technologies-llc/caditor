@@ -265,7 +265,9 @@ fn values_of(parameters: &ParameterValues, kind: &FeatureKind) -> Vec<Found> {
     match kind {
         FeatureKind::Solid(SolidFeature::Extrude(extrude)) => extrude_values(extrude),
         FeatureKind::Solid(SolidFeature::Revolve(revolve)) => revolve_values(parameters, revolve),
-        FeatureKind::Solid(SolidFeature::Sweep(_)) | FeatureKind::Pipe(_) => Vec::new(),
+        FeatureKind::Solid(SolidFeature::Sweep(_)) | FeatureKind::Pipe(_) | FeatureKind::Rib(_) => {
+            Vec::new()
+        }
         FeatureKind::Blend(blend) => blend_values(blend),
         FeatureKind::Shell(shell) => vec![found(
             ValueSlot::ShellThickness,

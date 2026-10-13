@@ -152,6 +152,8 @@ mod reference_rows;
 mod removal;
 mod repeating;
 mod reversing;
+mod rib_panel;
+mod rib_tools;
 mod ribbon;
 mod samples;
 mod saved_views;

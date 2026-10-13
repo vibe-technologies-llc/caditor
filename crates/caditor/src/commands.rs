@@ -128,6 +128,7 @@ pub enum Command {
     Revolve,
     Sweep,
     Pipe,
+    Rib,
     Hole,
     NewBox,
     NewCylinder,
@@ -324,6 +325,7 @@ impl Command {
                 | Self::Revolve
                 | Self::Sweep
                 | Self::Pipe
+                | Self::Rib
                 | Self::Hole
                 | Self::NewBox
                 | Self::NewCylinder
@@ -736,6 +738,7 @@ plain_commands! {
     Revolve,
     Sweep,
     Pipe,
+    Rib,
     Hole,
     NewBox,
     NewCylinder,
@@ -1017,6 +1020,7 @@ impl Command {
             Self::Revolve => "model.revolve",
             Self::Sweep => "model.sweep",
             Self::Pipe => "model.pipe",
+            Self::Rib => "model.rib",
             Self::Hole => "model.hole",
             Self::NewBox => "model.box",
             Self::NewCylinder => "model.cylinder",
@@ -1296,6 +1300,7 @@ impl Command {
             Self::Revolve => "Revolve",
             Self::Sweep => "Sweep",
             Self::Pipe => "Pipe",
+            Self::Rib => "Rib",
             Self::Hole => "Hole",
             Self::NewBox => "Box",
             Self::NewCylinder => "Cylinder",
@@ -1531,6 +1536,7 @@ impl Command {
             Self::Revolve => &["lathe", "turn", "spin"],
             Self::Sweep => &["pipe", "tube", "rail", "follow a path"],
             Self::Pipe => &["tube", "tubing", "handrail", "cable", "wire", "rod", "bend"],
+            Self::Rib => &["web", "stiffener", "gusset", "brace", "strengthen", "wall"],
             Self::Fillet => &["round", "blend"],
             Self::Chamfer => &["bevel"],
             Self::Shell => &["hollow"],
@@ -1719,6 +1725,7 @@ impl Command {
             | Self::Revolve
             | Self::Sweep
             | Self::Pipe
+            | Self::Rib
             | Self::Hole
             | Self::NewBox
             | Self::NewCylinder
@@ -2005,6 +2012,7 @@ impl Command {
             Self::ClearChosenRegions => vec![alt_shift(Key::R)],
             Self::TogglePrincipal => vec![plain(Key::P)],
             Self::VersionHistory
+            | Self::Rib
             | Self::SelectAllRegions
             | Self::CoordinateSystem
             | Self::InsertImage

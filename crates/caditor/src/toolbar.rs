@@ -19,7 +19,7 @@ use crate::{
     offers::Offers,
     offset_face_tools,
     pattern_tools::{self, Shape},
-    pipe_tools, primitive_tools, queued,
+    pipe_tools, primitive_tools, queued, rib_tools,
     ribbon::{self, GroupMenu, GroupTools},
     scale_tools,
     section::SectionCommand,
@@ -128,6 +128,7 @@ impl Group {
                     Command::Revolve,
                     Command::Sweep,
                     Command::Pipe,
+                    Command::Rib,
                     Command::Hole,
                     Command::Thread,
                 ],
@@ -319,6 +320,7 @@ fn group_buttons(
             solid_buttons(ui, model, context, commands, actions);
             sweep_button(ui, model, context, commands, actions);
             pipe_offer(model, context, commands, actions);
+            rib_offer(model, context, commands, actions);
             hole_button(ui, model, context, commands, actions);
             primitive_offers(model, context, commands, actions);
             thread_offer(model, context, commands, actions);
@@ -600,6 +602,18 @@ fn pipe_offer(
         && let Ok(source) = source
     {
         actions.extend(pipe_tools::create_actions(model, source));
+    }
+}
+
+fn rib_offer(
+    model: &Model,
+    context: &ToolbarContext<'_>,
+    commands: &mut CommandFrame<'_>,
+    actions: &mut Vec<Action>,
+) {
+    let source = &context.offers.rib;
+    if commands.invoke(Command::Rib, source) {
+        actions.extend(rib_tools::create_actions(model, source));
     }
 }
 

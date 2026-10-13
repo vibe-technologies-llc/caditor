@@ -38,3 +38,6 @@ chamfer and the floor, closes up and leaves the cavity, its neighbours' walls me
 Several can close at once, so walls thicker than the chamfers around an opening may narrow the
 cavity to a ridge or a point that still reaches through the opening. When two such faces lie side
 by side and their neighbours cannot meet, the shell names them and asks for a smaller thickness.
+
+To stiffen the walls of a shelled box, draw a line across it and add a [Rib](rib): it runs on
+to the walls and down to the floor by itself.

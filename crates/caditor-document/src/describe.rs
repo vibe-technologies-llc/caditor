@@ -8,7 +8,7 @@ use crate::{
     pattern::PatternKind,
     pipe,
     primitive::Cap,
-    thread,
+    rib, thread,
 };
 
 pub fn describe_surface(document: &Document, face: &FaceAttachment) -> String {
@@ -72,6 +72,9 @@ fn describe_made(document: &Document, origin: FaceOrigin) -> String {
         }
         FaceOrigin::EndCap { .. } if let Some(primitive) = feature.kind.primitive() => {
             format!("{name} {}", primitive.shape.cap_name(Cap::End))
+        }
+        _ if let Some(rib) = feature.kind.rib() => {
+            format!("{name} {}", rib::face_words(document, rib, origin))
         }
         FaceOrigin::Side { entity, .. } if let Some(pipe) = feature.kind.pipe() => {
             format!("{name} {}", pipe::side_name(pipe.shape, entity))

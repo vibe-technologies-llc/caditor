@@ -15,7 +15,7 @@ use caditor_document::{
     MeasuredItem, Measurement, MetricSize, Mirror, Move, Of, OffsetFace, Pattern, PatternKind,
     Picture, Pipe, PixelSize, PlaneRotation, PlaneThrough, PointBy, PointMate, PointTarget,
     PointsPattern, Primitive, PrimitiveAnchor, PrimitiveShape, PrincipalPlane, Reading,
-    ReferenceImage, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Scale, Shell,
+    ReferenceImage, RegionChoice, Remove, Revolve, Rib, RibDirection, RibSide, RevolveAxis, RevolveExtent, Scale, Shell,
     ShellSide, SketchAttachment, SketchFeature, SolidFeature, SolidStart, Split, SplitAlong,
     SplitCarry, SplitFace, StepText, Sweep, SweepPath, TappedThread, Thread, ThreadFamily,
     ThreadForm, ThreadHand, ThreadLength, ThreadSide, TurnCentre, Wall, sketch_regions,
@@ -48,6 +48,8 @@ const OPERATIONS: [CombineOperation; 3] = [
     CombineOperation::Intersect,
 ];
 const SIDES: [ThreadSide; 2] = [ThreadSide::Internal, ThreadSide::External];
+const RIB_SIDES: [RibSide; 3] = [RibSide::OneSide, RibSide::OtherSide, RibSide::Symmetric];
+const RIB_DIRECTIONS: [RibDirection; 2] = [RibDirection::Parallel, RibDirection::Square];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Family {
@@ -59,6 +61,7 @@ pub enum Family {
     SplitFace,
     Primitive,
     Pipe,
+    Rib,
     Combine,
     Move,
     Mate,
@@ -76,7 +79,7 @@ pub enum Family {
 }
 
 impl Family {
-    pub const ALL: [Self; 22] = [
+    pub const ALL: [Self; 23] = [
         Self::Sketch,
         Self::Solid,
         Self::Blend,
@@ -85,6 +88,7 @@ impl Family {
         Self::SplitFace,
         Self::Primitive,
         Self::Pipe,
+        Self::Rib,
         Self::Combine,
         Self::Move,
         Self::Mate,
@@ -111,6 +115,7 @@ impl Family {
             FeatureKind::SplitFace(_) => Self::SplitFace,
             FeatureKind::Primitive(_) => Self::Primitive,
             FeatureKind::Pipe(_) => Self::Pipe,
+            FeatureKind::Rib(_) => Self::Rib,
             FeatureKind::Combine(_) => Self::Combine,
             FeatureKind::Move(_) => Self::Move,
             FeatureKind::Mate(_) => Self::Mate,
@@ -189,6 +194,14 @@ pub fn feature_kind(
             },
             bend: scene.distance(input)?,
             operation: operation(input, scene)?,
+        }),
+        Family::Rib => FeatureKind::Rib(Rib {
+            sketch: scene.sketch(input)?,
+            body: scene.body(input)?,
+            thickness: scene.distance(input)?,
+            side: *input.choose(&RIB_SIDES)?,
+            direction: *input.choose(&RIB_DIRECTIONS)?,
+            reversed: input.arbitrary()?,
         }),
         Family::Combine => FeatureKind::Combine(Combine {
             body: scene.body(input)?,

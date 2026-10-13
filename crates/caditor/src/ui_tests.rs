@@ -130,6 +130,7 @@ mod region_references;
 mod remembered_starts;
 mod repeating_and_growing;
 mod ribbon_and_sketch_bar;
+mod ribs;
 mod scale_model;
 mod screenshots;
 mod sections;
