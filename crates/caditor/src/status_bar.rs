@@ -42,6 +42,12 @@ pub const UNDO_SWITCH: &str = "Undo";
 const UNDO_SWITCH_HOVER: &str =
     "Take back what came with the switch and go back to what was being edited";
 const UNDO_SWITCH_ID: &str = "status-notice-undo";
+const STOP_PREPARING_HOVER: &str =
+    "Stop preparing bodies for display; the ones not shown yet stay hidden until Show the rest";
+const STOPPED_PREPARING_HOVER: &str =
+    "Preparing bodies for display was stopped; the rest stay hidden until Show the rest";
+pub const SHOW_THE_REST: &str = "Show the rest";
+const SHOW_THE_REST_HOVER: &str = "Prepare the hidden bodies for display and show them";
 
 struct Hovers {
     cancel: String,
@@ -302,9 +308,9 @@ fn recompute_status(
         RecomputeStatus::Running { since } => {
             ui.ctx()
                 .request_repaint_after(SHOW_PROGRESS_AFTER.saturating_sub(since.elapsed()));
-            summary(ui, model, panels, hovers);
+            summary(ui, model, panels, hovers, actions);
         }
-        RecomputeStatus::UpToDate => summary(ui, model, panels, hovers),
+        RecomputeStatus::UpToDate => summary(ui, model, panels, hovers, actions),
         RecomputeStatus::Cancelled => {
             widgets::announced_status_pill(ui, Tone::Warning, CANCELLED)
                 .on_hover_text("Some features are outdated until the model is recomputed");
@@ -328,10 +334,36 @@ fn recompute_status(
     }
 }
 
-fn summary(ui: &mut Ui, model: &Model, panels: &mut PanelState, hovers: &Hovers) {
+pub fn showing_bodies_text(shown: usize, bodies: usize) -> String {
+    format!("Showing {shown} of {bodies} bodies")
+}
+
+fn summary(
+    ui: &mut Ui,
+    model: &Model,
+    panels: &mut PanelState,
+    hovers: &Hovers,
+    actions: &mut Vec<Action>,
+) {
     if let Some((shown, bodies)) = model.bodies_preparing() {
-        widgets::progress(format!("Showing {shown} of {bodies} bodies…")).show(ui);
+        if widgets::progress(format!("{}…", showing_bodies_text(shown, bodies)))
+            .cancel(STOP_PREPARING_HOVER)
+            .show(ui)
+        {
+            actions.push(Action::StopPreparingBodies);
+        }
         return;
+    }
+    if let Some((shown, bodies)) = model.bodies_stopped() {
+        widgets::announced_status_pill(ui, Tone::Info, showing_bodies_text(shown, bodies))
+            .on_hover_text(STOPPED_PREPARING_HOVER);
+        if ui
+            .add(widgets::button(SHOW_THE_REST))
+            .on_hover_text(SHOW_THE_REST_HOVER)
+            .clicked()
+        {
+            actions.push(Action::PrepareStoppedBodies);
+        }
     }
     let tokens = appearance::tokens(ui);
     let failed = model.evaluation().failed_count();

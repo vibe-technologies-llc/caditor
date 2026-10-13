@@ -144,7 +144,8 @@ paths:
   every vertex; the caller then copies.
 - `ShadedMesh::divide` makes another mesh splitting every face into one face per class a caller's
   classifier gives each triangle, with the source face and area of every piece (analysis
-  colouring, since styles are per face). `ShadedMesh::origin` and `face_triangles` let the app's
+  colouring, since styles are per face); the classifier may fail, which ends the division with
+  its error, so the app's analysis thread stops at its interrupt. `ShadedMesh::origin` and `face_triangles` let the app's
   reach analysis and `through.rs` work on triangles without a copy.
 - Per-face styles live in an `Rgba32Uint` texture (`StyleLayout`: colour, pick id, packed finish, a
   spare word) read by face index in the vertex shader, so hover and selection cost nothing in

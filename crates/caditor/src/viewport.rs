@@ -832,6 +832,11 @@ impl ViewportState {
         &self.analyses
     }
 
+    #[cfg(test)]
+    pub fn analyses_mut(&mut self) -> &mut Analyses {
+        &mut self.analyses
+    }
+
     pub fn glyphs_shown(&self) -> bool {
         self.glyphs_shown
     }

@@ -287,3 +287,44 @@ fn the_measure_panel_keeps_the_last_readout_until_the_next_one_arrives() {
     assert_eq!(blank_frames, 0);
     assert!(!harness.shows(crate::measure_panel::MEASURING));
 }
+
+#[test]
+fn working_out_mass_properties_can_be_cancelled_and_asked_for_again() {
+    use crate::{
+        bodies::{Hold, Holds},
+        measure_panel,
+    };
+
+    let mut harness = Harness::new();
+    extruded_plate(&mut harness);
+    let holds = Holds {
+        measures: Hold::holding(),
+        ..Holds::default()
+    };
+    harness.model.hold_body_work(&holds);
+    harness.select([]);
+
+    harness.click(crate::toolbar::MEASURE_LABEL);
+    harness.wait_until("the mass properties are being worked out", |harness| {
+        harness.shows(measure_panel::WORKING_OUT_MASSES)
+    });
+    let working = harness.shows("Working out this body's mass properties.");
+    harness.click("Cancel");
+    harness.wait_until("the mass properties stopped", |harness| {
+        harness.shows(&measure_panel::stopped_masses_text(1)) && !harness.model.masses_pending()
+    });
+
+    assert!(working);
+    assert!(harness.shows("Stopped before this body's mass properties were worked out."));
+    assert!(!harness.shows(measure_panel::WORKING_OUT_MASSES));
+    assert!(!harness.shows("16000.0 mm³"));
+
+    holds.measures.release();
+    harness.click(measure_panel::WORK_OUT_MASSES);
+    harness.wait_until("the mass properties are shown", |harness| {
+        harness.shows("16000.0 mm³")
+    });
+
+    assert!(!harness.shows(&measure_panel::stopped_masses_text(1)));
+    assert!(!harness.shows(measure_panel::WORKING_OUT_MASSES));
+}

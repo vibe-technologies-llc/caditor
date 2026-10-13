@@ -23,7 +23,9 @@ else every shown body, with a total for several. Set a density with
 [Body colour and material](bodies). {command:view.toggle_centres_of_mass} marks each centre in the
 view, so it can be measured to. Mass properties are worked out exactly from each body's faces the
 first time something asks for them, in the background; until then a body's card says so, and on a
-large assembly the total follows a few seconds later.
+large assembly the total follows a few seconds later. While they are worked out the section counts
+the bodies done, and **Cancel** stops the rest: their cards say they were stopped, and **Work them
+out** starts them again.
 
 ## Relative to
 

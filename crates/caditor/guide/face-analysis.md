@@ -20,4 +20,9 @@ moves between them. They never change the model.
 The legend names each colour with the area it covers, so nothing is told by colour alone. Some
 display styles do not colour faces; the panel says so.
 
+A large body is worked out in the background and shown in its own colours until it is done, while
+the panel says it is working. **Cancel** stops it: the bodies not done stay in their own colours,
+their area is left out of the legend, and **Analyse again** finishes them. Changing a setting
+analyses them anew too.
+
 See also the [curvature comb](curvature-comb) and [isocurves](isocurves).

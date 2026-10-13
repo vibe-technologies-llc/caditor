@@ -28,6 +28,11 @@ pub const CLOSE: &str = "Close the analysis panel";
 pub const NO_BODIES: &str = "There are no bodies to analyse.";
 pub const WORKING: &str = "Working out the faces of a large body…";
 pub const FAILED: &str = "The faces of a body could not be analysed.";
+pub const STOPPED: &str = "Stopped before every body was analysed. The bodies left are shown in \
+                           their own colours and the areas leave them out.";
+pub const ANALYSE_AGAIN: &str = "Analyse again";
+const STOP_HOVER: &str = "Stop working out the faces and show the bodies left uncoloured";
+const ANALYSE_AGAIN_HOVER: &str = "Work out the faces of the bodies left";
 pub const HIDDEN_STYLE: &str = "This display style does not colour faces. Choose a shaded style \
                                 to see the analysis.";
 pub const DRAFT_ABOUT: &str = "Faces are coloured by the angle between their surface and the \
@@ -224,8 +229,25 @@ fn legend(ui: &mut Ui, context: &AnalysisContext<'_>, analysis: FaceAnalysis) {
             });
         }
     });
-    if tally.working {
-        widgets::progress(WORKING).wrapping().show(ui);
+    if tally.working
+        && widgets::progress(WORKING)
+            .wrapping()
+            .cancel(STOP_HOVER)
+            .show(ui)
+    {
+        context.analyses.stop();
+    }
+    if tally.stopped {
+        widgets::callout(ui, Tone::Info, |ui| {
+            ui.add(Label::new(STOPPED).wrap_mode(TextWrapMode::Wrap));
+            if ui
+                .add(widgets::button(ANALYSE_AGAIN))
+                .on_hover_text(ANALYSE_AGAIN_HOVER)
+                .clicked()
+            {
+                context.analyses.resume();
+            }
+        });
     }
     if tally.failed {
         widgets::callout(ui, Tone::Warning, |ui| ui.label(FAILED));

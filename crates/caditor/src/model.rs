@@ -59,6 +59,8 @@ pub enum Action {
     Redo,
     Recompute,
     CancelRecompute,
+    StopPreparingBodies,
+    PrepareStoppedBodies,
     ShowThreadsAsCosmetic(bool),
     DismissNotice,
     Inform(Notice),
@@ -620,6 +622,15 @@ impl Model {
         self.display.meshing.preparing()
     }
 
+    pub fn bodies_stopped(&self) -> Option<(usize, usize)> {
+        self.display.meshing.stopped()
+    }
+
+    #[cfg(test)]
+    pub fn hold_body_work(&mut self, holds: &crate::bodies::Holds) {
+        self.display.meshing.hold(holds);
+    }
+
     pub fn masses_measured(&self) -> u64 {
         self.display.meshing.masses_measured()
     }
@@ -1003,6 +1014,15 @@ impl Model {
                 if let Some(recomputer) = &mut self.recomputer {
                     recomputer.cancel();
                 }
+                Ok(None)
+            }
+            Action::StopPreparingBodies => {
+                self.display.meshing.stop();
+                Ok(None)
+            }
+            Action::PrepareStoppedBodies => {
+                let make_waker = &self.services.make_waker;
+                self.display.meshing.resume(|| make_waker());
                 Ok(None)
             }
             Action::ShowThreadsAsCosmetic(cosmetic) => {

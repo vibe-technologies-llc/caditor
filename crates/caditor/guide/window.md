@@ -49,7 +49,9 @@ From the left: the recompute (with Cancel while it runs, or the failed features 
 many features are waiting for you to choose something; click either to go to the next one), file
 work such as saving or exporting or loading bodies to the graphics card, and the latest message.
 Work that can be stopped, such as a recompute, an import, an export or a paste, has a Cancel
-beside it. On the right: what is selected, its size or the distance between two selected items, the
+beside it. While a large model's bodies are prepared for display it says "Showing N of M bodies"
+with a Cancel; cancelled, the bodies not shown yet stay hidden, the count stays in blue and
+**Show the rest** brings them in. On the right: what is selected, its size or the distance between two selected items, the
 [selection filter](selection) while one is on (click it to select anything again), the length unit
 (click it for [Preferences](preferences)) and the interface size when it is not 100% (click it to
 go back to 100%). Hovering a button there names its keys.

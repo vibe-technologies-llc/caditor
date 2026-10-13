@@ -345,3 +345,52 @@ fn isocurves_draw_the_parameter_lines_of_the_chosen_faces_with_their_combs() {
     assert_eq!(comb_lines(&mut harness, look.isocurve), 0);
     assert_eq!(harness.model.revision(), revision);
 }
+
+#[test]
+fn analysing_a_large_body_can_be_cancelled_leaving_it_plain_until_analysed_again() {
+    use crate::{analysis::Band, analysis_panel, bodies::Hold, scene_palette::Contrast};
+
+    let mut harness = Harness::new();
+    extruded_plate(&mut harness);
+    let hold = Hold::holding();
+    harness
+        .workspace
+        .viewport
+        .analyses_mut()
+        .hold_on_a_thread(hold.clone());
+    let palette = Contrast::Standard.palette(crate::scene_palette::Canvas::Dark);
+    let revision = harness.model.revision();
+
+    run_from_palette(&mut harness, "analyse draft");
+    harness.wait_until("the faces are being analysed", |harness| {
+        harness.shows(analysis_panel::WORKING)
+    });
+    harness.click("Cancel");
+    harness.wait_until("the analysis stopped", |harness| {
+        harness.shows(analysis_panel::ANALYSE_AGAIN)
+    });
+
+    assert!(harness.shows_containing("Stopped before every body was analysed."));
+    assert!(!harness.shows(analysis_panel::WORKING));
+    assert!(harness.workspace.analysis.open);
+    assert_eq!(
+        painted_faces(&mut harness, Band::Drafted.colour(palette)),
+        0
+    );
+
+    hold.release();
+    harness.click(analysis_panel::ANALYSE_AGAIN);
+    harness.wait_until("the faces are analysed", |harness| {
+        !harness.shows(analysis_panel::WORKING) && !harness.shows(analysis_panel::ANALYSE_AGAIN)
+    });
+
+    assert_eq!(
+        painted_faces(&mut harness, Band::Drafted.colour(palette)),
+        1
+    );
+    assert_eq!(
+        painted_faces(&mut harness, Band::TooLittleDraft.colour(palette)),
+        4
+    );
+    assert_eq!(harness.model.revision(), revision);
+}

@@ -10,9 +10,12 @@ use std::{
 
 use caditor_expression::{Dimension, Expression, Unit};
 use caditor_geometry::{Point3, Vector3};
+use caditor_kernel::{Interrupted, check_interrupt, interruptible};
 use caditor_render::{Color, Corner, Piece, Reflection, ShadedMesh};
 use parking_lot::Mutex;
 
+#[cfg(test)]
+use crate::bodies::Hold;
 use crate::{
     bodies::BodyMeshes,
     measure,
@@ -520,14 +523,21 @@ pub struct Analysed {
 }
 
 impl Analysed {
-    fn of(mesh: &ShadedMesh, analysis: FaceAnalysis, occluders: Option<&Occluders>) -> Self {
+    fn of(
+        mesh: &ShadedMesh,
+        analysis: FaceAnalysis,
+        occluders: Option<&Occluders>,
+    ) -> Result<Self, Interrupted> {
         let origin = mesh.origin();
         let grid = occluders.map(Occluders::grid);
-        let division = mesh.divide(|corners| analysis.classify(origin, grid, corners));
-        Self {
+        let division = mesh.divide(|corners| {
+            check_interrupt()?;
+            Ok(analysis.classify(origin, grid, corners))
+        })?;
+        Ok(Self {
             mesh: Arc::new(division.mesh),
             pieces: division.pieces,
-        }
+        })
     }
 }
 
@@ -535,19 +545,44 @@ impl Analysed {
 pub enum Outcome {
     Ready(Arc<Analysed>),
     Working,
+    Stopped,
     Failed,
 }
 
 enum State {
     Working,
     Ready(Arc<Analysed>),
+    Stopped,
     Failed,
+}
+
+impl State {
+    fn outcome(&self) -> Outcome {
+        match self {
+            Self::Ready(analysed) => Outcome::Ready(Arc::clone(analysed)),
+            Self::Working => Outcome::Working,
+            Self::Stopped => Outcome::Stopped,
+            Self::Failed => Outcome::Failed,
+        }
+    }
+
+    fn worked_out(worked_out: thread::Result<Result<Analysed, Interrupted>>) -> Self {
+        match worked_out {
+            Ok(Ok(analysed)) => Self::Ready(Arc::new(analysed)),
+            Ok(Err(Interrupted)) => Self::Stopped,
+            Err(_) => {
+                log::error!("analysing the faces of a body panicked");
+                Self::Failed
+            }
+        }
+    }
 }
 
 struct Entry {
     mesh: Weak<ShadedMesh>,
     analysis: FaceAnalysis,
     state: State,
+    run: u64,
 }
 
 type MeshKey = usize;
@@ -559,9 +594,12 @@ fn key_of(mesh: &Weak<ShadedMesh>) -> MeshKey {
 pub struct Analyses {
     entries: Arc<Mutex<BTreeMap<MeshKey, Entry>>>,
     finished: Arc<AtomicU64>,
+    stops: Arc<AtomicU64>,
     wake: Arc<Mutex<Option<Waker>>>,
     occluders: Mutex<Option<Arc<Occluders>>>,
     inline_triangles: usize,
+    #[cfg(test)]
+    hold: Hold,
 }
 
 impl Default for Analyses {
@@ -575,10 +613,19 @@ impl Analyses {
         Self {
             entries: Arc::default(),
             finished: Arc::default(),
+            stops: Arc::default(),
             wake: Arc::default(),
             occluders: Mutex::default(),
             inline_triangles,
+            #[cfg(test)]
+            hold: Hold::default(),
         }
+    }
+
+    #[cfg(test)]
+    pub fn hold_on_a_thread(&mut self, hold: Hold) {
+        self.inline_triangles = 0;
+        self.hold = hold;
     }
 
     pub fn wake_with(&self, make: impl FnOnce() -> Waker) {
@@ -595,6 +642,25 @@ impl Analyses {
 
     pub fn finished(&self) -> u64 {
         self.finished.load(Ordering::Acquire)
+    }
+
+    pub fn stop(&self) {
+        self.stops.fetch_add(1, Ordering::AcqRel);
+        let mut entries = self.entries.lock();
+        for entry in entries.values_mut() {
+            if matches!(entry.state, State::Working) {
+                entry.state = State::Stopped;
+            }
+        }
+        drop(entries);
+        self.finished.fetch_add(1, Ordering::Release);
+    }
+
+    pub fn resume(&self) {
+        self.entries
+            .lock()
+            .retain(|_, entry| !matches!(entry.state, State::Stopped));
+        self.finished.fetch_add(1, Ordering::Release);
     }
 
     pub fn prepare(
@@ -652,28 +718,27 @@ impl Analyses {
         let key = key_of(&weak);
         let mut entries = self.entries.lock();
         if let Some(entry) = entries.get(&key).filter(|entry| entry.analysis == analysis) {
-            return match &entry.state {
-                State::Ready(analysed) => Outcome::Ready(Arc::clone(analysed)),
-                State::Working => Outcome::Working,
-                State::Failed => Outcome::Failed,
-            };
+            return entry.state.outcome();
         }
         entries.remove(&key);
         let work = mesh.triangle_count()
             + occluders
                 .as_ref()
                 .map_or(0, |occluders| occluders.triangles);
+        let run = self.stops.load(Ordering::Acquire);
         if work <= self.inline_triangles {
-            let analysed = Arc::new(Analysed::of(mesh, analysis, occluders.as_deref()));
+            let state = State::worked_out(Ok(Analysed::of(mesh, analysis, occluders.as_deref())));
+            let outcome = state.outcome();
             entries.insert(
                 key,
                 Entry {
                     mesh: weak,
                     analysis,
-                    state: State::Ready(Arc::clone(&analysed)),
+                    state,
+                    run,
                 },
             );
-            return Outcome::Ready(analysed);
+            return outcome;
         }
         entries.insert(
             key,
@@ -681,44 +746,49 @@ impl Analyses {
                 mesh: weak.clone(),
                 analysis,
                 state: State::Working,
+                run,
             },
         );
         drop(entries);
-        self.spawn(Arc::clone(mesh), weak, analysis, occluders);
+        self.spawn(Arc::clone(mesh), (weak, run), analysis, occluders);
         Outcome::Working
     }
 
     fn spawn(
         &self,
         mesh: Arc<ShadedMesh>,
-        weak: Weak<ShadedMesh>,
+        (weak, run): (Weak<ShadedMesh>, u64),
         analysis: FaceAnalysis,
         occluders: Option<Arc<Occluders>>,
     ) {
         let entries = Arc::clone(&self.entries);
         let finished = Arc::clone(&self.finished);
         let wake = Arc::clone(&self.wake);
+        let stops = Arc::clone(&self.stops);
+        #[cfg(test)]
+        let hold = self.hold.clone();
         let spawned = thread::Builder::new()
             .name("analysis".to_owned())
             .spawn(move || {
-                let analysed = panic::catch_unwind(AssertUnwindSafe(|| {
-                    Arc::new(Analysed::of(&mesh, analysis, occluders.as_deref()))
-                }));
-                if analysed.is_err() {
-                    log::error!("analysing the faces of a body panicked");
-                }
+                let stopped = Arc::new(move || stops.load(Ordering::Acquire) != run);
+                let worked_out = interruptible(stopped, || {
+                    panic::catch_unwind(AssertUnwindSafe(|| {
+                        #[cfg(test)]
+                        hold.wait()?;
+                        Analysed::of(&mesh, analysis, occluders.as_deref())
+                    }))
+                });
+                let state = State::worked_out(worked_out);
                 drop(mesh);
                 drop(occluders);
                 {
                     let mut entries = entries.lock();
-                    if let Some(entry) = entries
-                        .get_mut(&key_of(&weak))
-                        .filter(|entry| entry.analysis == analysis)
-                    {
-                        entry.state = match analysed {
-                            Ok(analysed) => State::Ready(analysed),
-                            Err(_) => State::Failed,
-                        };
+                    if let Some(entry) = entries.get_mut(&key_of(&weak)).filter(|entry| {
+                        entry.analysis == analysis
+                            && entry.run == run
+                            && matches!(entry.state, State::Working)
+                    }) {
+                        entry.state = state;
                     }
                 }
                 finished.fetch_add(1, Ordering::Release);
@@ -742,6 +812,7 @@ impl Analyses {
 pub struct Tally {
     pub areas: BTreeMap<Band, f64>,
     pub working: bool,
+    pub stopped: bool,
     pub failed: bool,
 }
 
@@ -767,6 +838,7 @@ impl Tally {
                     }
                 }
                 Outcome::Working => tally.working = true,
+                Outcome::Stopped => tally.stopped = true,
                 Outcome::Failed => tally.failed = true,
             }
         }

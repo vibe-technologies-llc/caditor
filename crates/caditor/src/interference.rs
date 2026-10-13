@@ -158,7 +158,9 @@ fn check(first: &FeatureResult, second: &FeatureResult, quality: &MeshQuality) -
         Ok(Contact::Touching(place)) => Finding::Touching(place),
         Ok(Contact::Overlapping(solid)) => {
             let mesh = solid.display_mesh(quality).ok();
-            let mass = mesh.as_ref().map(|mesh| BodyMass::of(&solid, mesh));
+            let mass = mesh
+                .as_ref()
+                .and_then(|mesh| BodyMass::of(&solid, mesh).ok());
             let place = mass
                 .as_ref()
                 .map(|mass| mass.properties.centroid)
