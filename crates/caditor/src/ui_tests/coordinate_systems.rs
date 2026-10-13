@@ -304,6 +304,7 @@ fn measure_reads_a_body_s_centroid_in_the_chosen_coordinate_system_and_keeps_it_
     harness.wait_until("the centroid is read in the coordinate system", |harness| {
         harness.shows("-20.000, 20.000, -5.000 mm")
     });
+    harness.settle();
     harness.click_button("More for Centroid");
     harness.show_new_windows();
     harness.click(&Keepable::of_mass_row("Centroid", Some(system))[0].menu_label());
