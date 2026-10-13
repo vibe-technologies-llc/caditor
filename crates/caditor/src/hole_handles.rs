@@ -222,7 +222,7 @@ impl HoleHandles {
                         }
                     }
                 }
-                Anchor::Concentric(_) => {}
+                Anchor::Concentric(_) | Anchor::At(_) => {}
             }
         }
         (!stands.is_empty()).then(|| Self {

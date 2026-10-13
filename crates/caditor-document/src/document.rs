@@ -337,7 +337,7 @@ impl FeatureKind {
                 .as_ref()
                 .and_then(SketchAttachment::datum)
                 .into_iter()
-                .chain(sketch.projected_datums())
+                .chain(sketch.projected_planes())
                 .collect(),
             Self::Solid(solid) => solid.end_datums(),
             Self::Datum(datum) => datum.plane_datums(),
@@ -371,8 +371,8 @@ impl FeatureKind {
             Self::Move(movement) => movement.axis_datum().into_iter().collect(),
             Self::Mate(mate) => mate.axis_datums(),
             Self::SplitFace(split) => split.direction_datum().into_iter().collect(),
-            Self::Sketch(_)
-            | Self::Blend(_)
+            Self::Sketch(sketch) => sketch.projected_axes().collect(),
+            Self::Blend(_)
             | Self::Shell(_)
             | Self::OffsetFace(_)
             | Self::Primitive(_)
@@ -437,8 +437,8 @@ impl FeatureKind {
             Self::Datum(datum) => datum.point_datums(),
             Self::Pattern(pattern) => pattern.point_datums(),
             Self::Mate(mate) => mate.point_datums(),
-            Self::Sketch(_)
-            | Self::Solid(_)
+            Self::Sketch(sketch) => sketch.projected_points().collect(),
+            Self::Solid(_)
             | Self::Blend(_)
             | Self::Shell(_)
             | Self::OffsetFace(_)
@@ -1031,7 +1031,10 @@ impl FeatureKind {
 
     pub fn features(&self) -> BTreeSet<FeatureId> {
         let mut used = match self {
-            Self::Sketch(sketch) => sketch.projected_sketches().collect(),
+            Self::Sketch(sketch) => sketch
+                .projected_sketches()
+                .chain(sketch.projected_points())
+                .collect(),
             Self::Solid(solid) => solid.features(),
             Self::Blend(blend) => blend.features(),
             Self::Shell(shell) => shell.features(),

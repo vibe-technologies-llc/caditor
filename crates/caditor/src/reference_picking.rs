@@ -161,8 +161,13 @@ pub fn prompt(model: &Model, picking: Picking) -> String {
             "Click a flat face where the hole goes, or press Escape to leave it where it is"
                 .to_owned()
         }
-        Slot::HoleEdge(_) => "Click a straight edge to measure the hole from".to_owned(),
-        Slot::HoleConcentric(_) => "Click a round edge to centre the hole on".to_owned(),
+        Slot::HoleEdge(_) => {
+            "Click a straight edge, a line of another sketch or an axis to measure the hole from"
+                .to_owned()
+        }
+        Slot::HoleConcentric(_) => "Click a round edge, a circle or arc of another sketch, or a \
+                                    point, to centre the hole on"
+            .to_owned(),
         Slot::HoleAdd => {
             "Click the face where each further hole goes, or press Escape to stop adding them"
                 .to_owned()

@@ -420,7 +420,11 @@ pub(crate) fn visit_projections(kind: &mut FeatureKind, visitor: &mut impl Refer
             ProjectionSource::Section { .. }
             | ProjectionSource::SketchEntity { .. }
             | ProjectionSource::DatumPlane { .. }
-            | ProjectionSource::PrincipalPlane { .. } => {}
+            | ProjectionSource::PrincipalPlane { .. }
+            | ProjectionSource::DatumAxis { .. }
+            | ProjectionSource::PrincipalAxis { .. }
+            | ProjectionSource::DatumPoint { .. }
+            | ProjectionSource::Origin => {}
         }
     }
 }

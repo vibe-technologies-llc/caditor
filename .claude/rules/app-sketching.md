@@ -268,11 +268,16 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
 - Project (`Tool::Project`, Alt+P, sketch bar Edit group) brings model geometry in: while active,
   `Context::projecting` draws bodies and other sketches as pickable background
   (`Presence::Projectable`) and `Pickable::is_available` lets their faces, edges, corners and curves
-  be hovered. A click or Activate runs `projecting::project`: an edge, a corner, every boundary edge
-  of a face not seen end-on, or a curve or point of a sketch above it, each one undoable transaction
-  from the body's state at the sketch (`body_result_seen_by`). Geometry made later in the tree, a
-  corner shared by two vertices of one name and anything already projected are refused in words. The
-  highlight commands step only through projectable items.
+  be hovered; it also draws the shown principal axes and origin and the shown datum axes and points
+  above the sketch (`Builder::projectable_references`). A click or Activate runs
+  `projecting::project` over `projections_of` (shared with a hole's Place by): an edge, a corner,
+  every boundary edge of a face not seen end-on, a curve or point of a sketch above it, a datum or
+  principal axis (a line spanning the shown bodies, `axis_reach`, or a point where it stands square
+  to the sketch), a datum point or the origin, each one undoable transaction from the body's state at
+  the sketch (`body_result_seen_by`). Geometry made later in the tree, a datum plane (Intersect takes
+  it), a corner shared by two vertices of one name and anything already projected
+  (`ProjectionSource::is_same_source`) are refused in words. The highlight commands step only
+  through projectable items.
 - Intersect (`Tool::Intersect`, Alt+I; in Project's corner menu, `sketch_toolbar::OFF_RIBBON`,
   `MODEL_GEOMETRY_TOOLS`) draws where the model crosses the sketch plane. It is a projecting tool
   (`Tool::projects`); `Context::intersecting` also offers shown datum planes above the sketch and

@@ -565,11 +565,14 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
 - The panel places the holes while the sketch reads as a placement (`hole_placement::read`): only free
   points, each held by nothing (free, optionally by a `HorizontalDistance` and `VerticalDistance` from
   the sketch origin, `PlacedHole::along`), by `Distance` constraints to at most `MAX_EDGES` projected
-  straight edges, or by a `Coincident` with the centre of one projected round edge, every projection an
-  edge of a body (`ProjectionSource::Edge`, an `EdgeReference`) used by exactly one of those
-  constraints. The placement lives wholly in the hidden sketch (no record added, the file format is the
-  sketch's) and the hole follows those edges as any projection does. A sketch drawn otherwise is placed
-  by editing it, Placed on then only naming its face.
+  lines, by a `Coincident` with the centre of one projected circle or arc (`Anchor::Concentric`), or
+  projected itself from a point (`Anchor::At`: the hole's own point carries the source, since a
+  sketch point cannot be construction and a second projected point would be drilled too). Every
+  projection is a body's edge or corner, a curve or point of an earlier sketch, a datum or principal
+  axis, a datum point or the origin (`places_holes`; sections and plane lines are not), each curve
+  used by exactly one of those constraints. The placement lives wholly in the hidden sketch (no
+  record added, the file format is the sketch's) and the hole follows its sources as any projection
+  does. A sketch drawn otherwise is placed by editing it, Placed on then only naming its face.
 - Placed on names the face the sketch lies on; while the sketch holds one point and no constraint
   (`hole_tools::lone_point`) it also has Use selected or Choose in the view (`Slot::HolePlace`): a click
   on a flat face while choosing (`hole_tools::place_click`, routed by `pick_action` with the pointer's
@@ -592,19 +595,25 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
 - A hole held by edges or Concentric has no Use selected under Placed on (that takes only
   `hole_tools::lone_point` sketches) and no place arrows along x and y (see the last bullet of this
   section for its handles). One measured from edges has a Measured from row
-  per edge (`edge_words`, Stop measuring from this edge, `released`) and its Distance (key
-  `hole-edge-distance`, previewed, one "Move <hole>" `SetDimension`). One centred on an edge has
-  Concentric with and a Stop centring row. Place by offers From an edge (`Slot::HoleEdge(point)`, while
-  fewer than two edges hold it and it is not centred) and Concentric (`Slot::HoleConcentric(point)`),
-  each applying at once when the one selected edge gives a change, else choosing in the view.
-  - From an edge (`hole_placement::edge_change`) projects a straight edge of a body seen by the sketch
-    as construction (`add_projected`) and adds a `Distance` from the point at its measured value in the
-    model's unit, refusing in words an edge made after the sketch, a curved one, one square to the face,
-    the same edge, one parallel to the first, a centre lying on the edge, a third edge and a centred
-    hole.
+  per edge or axis (`source_words`, Stop measuring from this edge or axis, `released`) and its
+  Distance (key `hole-edge-distance`, previewed, one "Move <hole>" `SetDimension`). One centred on
+  something has Concentric with and a Stop centring row (`unpinned` for a point). Place by offers
+  From an edge (`Slot::HoleEdge(point)`, while fewer than two hold it and it is not centred) and
+  Concentric (`Slot::HoleConcentric(point)`), each applying at once when the one selected item gives a
+  change, else choosing in the view.
+  - What a slot takes (`hole_placement::projected`): the one selected edge of a body (seen by the
+    sketch, refused in the hole's own words when made after it), else a corner, a curve or point of an
+    earlier sketch, a datum axis or point, a principal axis or the origin, projected into the hole's
+    sketch by `projecting::projections_of` (the Project tool's, axes reaching across the shown
+    bodies), which refuses later features and datum planes in words.
+  - From an edge (`hole_placement::edge_change`) projects a line (a straight edge, a sketch line or
+    an axis) as construction (`add_projected`) and adds a `Distance` from the point at its measured
+    value in the model's unit, refusing in words a curved one, one square to the face, the same one,
+    one parallel to the first, a centre lying on it, a third and a centred hole.
   - Concentric (`concentric_change`) projects a circle or arc as construction (drilling and sizing
-    nothing), moves the point to its centre and adds the `Coincident`, replacing whatever held the
-    point, in one "Make <hole> concentric with an edge" change.
+    nothing), moves the point to its centre and adds the `Coincident` ("Make <hole> concentric with an
+    edge"), or for a point moves the hole's point there and gives it the point's source ("Make <hole>
+    centred on a point"), replacing whatever held the point, in one change.
 - While a hole of one free point is open (nothing being chosen), its centre carries handles on the face
   (`place_handles.rs`, `Manipulator::Place`): a square to drag it anywhere on the face and an arrow
   along the sketch plane's x and y (`PlaceGrip`), in `ScenePalette::handle` at `ARROW_SHARE` of the move

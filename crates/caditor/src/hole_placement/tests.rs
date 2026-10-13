@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use caditor_document::SketchFeature;
+use caditor_document::{PrincipalPlane, ProjectionSource, SketchFeature};
 use caditor_geometry::{Plane, Point2};
 use caditor_sketch::{Constraint, Sketch};
 
@@ -35,6 +35,34 @@ fn loose_points_are_free_holes_in_the_order_they_were_placed() {
         placement.taken(),
         vec![Point2::new(5.0, 5.0), Point2::new(15.0, 5.0)]
     );
+}
+
+#[test]
+fn a_point_projected_from_the_origin_is_a_hole_placed_at_it_and_a_section_is_no_placement() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let point = sketch.add_point(Point2::ZERO);
+    sketch.set_projected(point, true).unwrap();
+    let mut at_origin = definition(sketch.clone());
+    at_origin
+        .projections
+        .insert(point, ProjectionSource::Origin);
+    let mut on_plane = definition(sketch);
+    on_plane.projections.insert(
+        point,
+        ProjectionSource::PrincipalPlane {
+            plane: PrincipalPlane::Xz,
+            reach: 10.0,
+        },
+    );
+
+    let placement = of_sketch(&at_origin).expect("a pinned point is a placement");
+
+    assert_eq!(placement.holes[0].point, point);
+    assert_eq!(
+        placement.holes[0].anchor,
+        Anchor::At(ProjectionSource::Origin)
+    );
+    assert_eq!(of_sketch(&on_plane), None);
 }
 
 #[test]

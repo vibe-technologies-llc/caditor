@@ -1618,6 +1618,18 @@ pub(crate) enum ProjectionSourceRecord {
         plane: PrincipalPlaneRecord,
         reach: f64,
     },
+    DatumAxis {
+        datum: u64,
+        reach: f64,
+    },
+    PrincipalAxis {
+        axis: PrincipalAxisRecord,
+        reach: f64,
+    },
+    DatumPoint {
+        datum: u64,
+    },
+    Origin,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -4074,6 +4086,18 @@ fn projection_source_record(source: &ProjectionSource) -> ProjectionSourceRecord
                 reach: *reach,
             }
         }
+        ProjectionSource::DatumAxis { datum, reach } => ProjectionSourceRecord::DatumAxis {
+            datum: datum.raw(),
+            reach: *reach,
+        },
+        ProjectionSource::PrincipalAxis { axis, reach } => ProjectionSourceRecord::PrincipalAxis {
+            axis: principal_axis_record(*axis),
+            reach: *reach,
+        },
+        ProjectionSource::DatumPoint { datum } => {
+            ProjectionSourceRecord::DatumPoint { datum: datum.raw() }
+        }
+        ProjectionSource::Origin => ProjectionSourceRecord::Origin,
     }
 }
 
@@ -4097,15 +4121,31 @@ fn restore_projection_source(record: &ProjectionSourceRecord) -> Option<Projecti
         },
         ProjectionSourceRecord::DatumPlane { datum, reach } => ProjectionSource::DatumPlane {
             datum: FeatureId::from_raw(*datum),
-            reach: Some(*reach).filter(|reach| reach.is_finite() && *reach > 0.0)?,
+            reach: usable_reach(*reach)?,
         },
         ProjectionSourceRecord::PrincipalPlane { plane, reach } => {
             ProjectionSource::PrincipalPlane {
                 plane: restore_principal_plane(*plane),
-                reach: Some(*reach).filter(|reach| reach.is_finite() && *reach > 0.0)?,
+                reach: usable_reach(*reach)?,
             }
         }
+        ProjectionSourceRecord::DatumAxis { datum, reach } => ProjectionSource::DatumAxis {
+            datum: FeatureId::from_raw(*datum),
+            reach: usable_reach(*reach)?,
+        },
+        ProjectionSourceRecord::PrincipalAxis { axis, reach } => ProjectionSource::PrincipalAxis {
+            axis: restore_principal_axis(*axis),
+            reach: usable_reach(*reach)?,
+        },
+        ProjectionSourceRecord::DatumPoint { datum } => ProjectionSource::DatumPoint {
+            datum: FeatureId::from_raw(*datum),
+        },
+        ProjectionSourceRecord::Origin => ProjectionSource::Origin,
     })
+}
+
+fn usable_reach(reach: f64) -> Option<f64> {
+    Some(reach).filter(|reach| reach.is_finite() && *reach > 0.0)
 }
 
 fn restore_projections(

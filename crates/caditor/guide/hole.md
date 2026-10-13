@@ -22,11 +22,13 @@
   face, or type its **Position X** and **Position Y** on the face. A position typed with
   [parameters](parameters), such as `width / 2`, keeps following them; such a hole is then moved
   from its fields only, and a plain number typed there lets go of the expression.
-- **Place by** ties the hole to the body: **From an edge** measures it from a straight edge
-  (select the edge first, or choose it in the view) with a **Distance** you can type, and a
-  second edge across the first fixes it, so a hole 8 mm from two sides stays there when the body
-  changes. **Concentric** centres it on a round edge, a circle or an arc, and it follows that
-  edge. Each edge can be let go again from its row. While the hole is open, a hole measured from
+- **Place by** ties the hole to the model: **From an edge** measures it from a straight edge, a
+  line of another sketch, a datum axis or the X, Y or Z axis (select it first, or choose it in the
+  view) with a **Distance** you can type, and a second one across the first fixes it, so a hole
+  8 mm from two sides stays there when the body changes. **Concentric** centres it on a round edge,
+  a circle or arc of another sketch, or a point: a corner, a point of another sketch, a datum point
+  or the origin. The hole follows what it is placed by when that moves, and each can be let go
+  again from its row. While the hole is open, a hole measured from
   an edge has an arrow at its centre pointing away from the edge, whose drag changes that
   **Distance** (it stops a step short of the edge, and a distance named or driven by a
   [parameter](parameters) keeps its name or says what drives it), one arrow for each edge. A hole

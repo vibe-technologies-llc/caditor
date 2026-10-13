@@ -140,8 +140,11 @@ The journal snapshot carries the same record under the same name, held by the se
 - Sketch `projections`, only when projected: each `entity` and `source` (`edge` or `section` with
   `body` and an edge record, `vertex` with `body` and the vertex name's digest, `sketch_entity`
   with `sketch` and `entity`, `datum_plane` with `datum` and a finite positive `reach`,
-  `principal_plane` with `plane` `xy`/`xz`/`yz` and `reach`). The projected flags are derived on
-  load after the constraints. Unknown or unreadable source: geometry kept as ordinary, reported.
+  `principal_plane` with `plane` `xy`/`xz`/`yz` and `reach`, `datum_axis` with `datum` and
+  `reach`, `principal_axis` with `axis` `x`/`y`/`z` and `reach`, `datum_point` with `datum`, or
+  `origin`; the corpus holds the last four in `projected-datums.caditor`). The projected flags are
+  derived on load after the constraints. Unknown or unreadable source (an older reader meeting a
+  newer kind): geometry kept as ordinary, reported.
   Journal: `set_sketch_projection`, absent for none.
 
 ## Feature and entity records

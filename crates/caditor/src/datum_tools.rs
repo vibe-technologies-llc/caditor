@@ -215,6 +215,10 @@ pub fn is_plane(document: &Document, feature: FeatureId) -> bool {
     is_datum(document, feature, DatumKind::Plane)
 }
 
+pub fn is_axis_or_point(document: &Document, feature: FeatureId) -> bool {
+    is_datum(document, feature, DatumKind::Axis) || is_datum(document, feature, DatumKind::Point)
+}
+
 fn is_datum(document: &Document, feature: FeatureId, kind: DatumKind) -> bool {
     document
         .feature(feature)

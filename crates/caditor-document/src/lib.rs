@@ -151,8 +151,8 @@ pub use crate::{
         PrimitiveShape, SizeRule,
     },
     projection::{
-        Outline, PROJECTED_SPLINE_POINTS, Projected, ProjectionSource, edge_outline,
-        sketch_outline, vertex_outline,
+        Outline, PROJECTED_SPLINE_POINTS, Projected, ProjectionSource, axis_outline, edge_outline,
+        point_outline, sketch_outline, vertex_outline,
     },
     properties::{
         MAX_DESCRIPTION_CHARS, MAX_MODEL_NOTES_CHARS, MAX_PROPERTY_CHARS, ModelProperties,

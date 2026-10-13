@@ -3,9 +3,9 @@ use std::collections::BTreeMap;
 use caditor_document::{
     BodyAppearance, Configuration, ConfigurationId, Configurations, ConfiguredValue, Edit,
     FaceColour, FeatureId, Finish, ModelProperties, ModelProperty, NamedView, Outline,
-    ParameterOwner, PrincipalGeometry, PrincipalPlane, ProjectionSource, Rgb, RollbackBar,
-    SavedView, SavedViews, SelectionSet, SelectionSets, SetMember, Setting, SketchAttachment,
-    Transaction,
+    ParameterOwner, PrincipalAxis, PrincipalGeometry, PrincipalPlane, ProjectionSource, Rgb,
+    RollbackBar, SavedView, SavedViews, SelectionSet, SelectionSets, SetMember, Setting,
+    SketchAttachment, Transaction,
 };
 use caditor_geometry::{Point3, Rotation3, Vector2};
 use caditor_sketch::{ConstraintId, Entity, EntityId, Sketch};
@@ -111,7 +111,7 @@ pub fn parameter_edit(input: &mut Unstructured, scene: &Scene) -> Result<Option<
         return Ok(None);
     };
     let count = scene.document.parameters().len();
-    Ok(match input.int_in_range(0u8..=5)? {
+    Ok(match input.int_in_range(0u8..=9)? {
         0 => single(Edit::RemoveParameter { id }),
         1 => single(Edit::RenameParameter {
             id,
@@ -325,10 +325,22 @@ fn projection_source(input: &mut Unstructured, scene: &Scene) -> Result<Projecti
             datum: scene.datum(input)?,
             reach,
         },
-        _ => ProjectionSource::PrincipalPlane {
+        5 => ProjectionSource::PrincipalPlane {
             plane: *input.choose(&PrincipalPlane::ALL)?,
             reach,
         },
+        6 => ProjectionSource::DatumAxis {
+            datum: scene.datum(input)?,
+            reach,
+        },
+        7 => ProjectionSource::PrincipalAxis {
+            axis: *input.choose(&PrincipalAxis::ALL)?,
+            reach,
+        },
+        8 => ProjectionSource::DatumPoint {
+            datum: scene.datum(input)?,
+        },
+        _ => ProjectionSource::Origin,
     })
 }
 

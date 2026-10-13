@@ -561,12 +561,9 @@ fn keep_once(features: &mut Vec<FeatureId>) {
 }
 
 fn check_reach(source: &ProjectionSource) -> Result<(), EditError> {
-    match source {
-        ProjectionSource::DatumPlane { reach, .. }
-        | ProjectionSource::PrincipalPlane { reach, .. }
-            if !(reach.is_finite() && *reach > 0.0) =>
-        {
-            Err(EditError::ProjectionReach(*reach))
+    match source.reach() {
+        Some(reach) if !(reach.is_finite() && reach > 0.0) => {
+            Err(EditError::ProjectionReach(reach))
         }
         _ => Ok(()),
     }

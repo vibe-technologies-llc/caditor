@@ -1001,6 +1001,8 @@ pub fn build_keeping(
                         builder.datum(evaluation, datum.id(), false, reference_size);
                     }
                 }
+            } else if context.projecting {
+                builder.projectable_references(document, evaluation, feature.id(), reference_size);
             }
         }
         None => {
@@ -2688,6 +2690,35 @@ impl<'a> Builder<'a> {
             pick: self.picks.register(pickable, PickPriority::Curve),
             stroke: Stroke::Solid,
         });
+    }
+
+    fn projectable_references(
+        &mut self,
+        document: &Document,
+        evaluation: &Evaluation,
+        sketch: FeatureId,
+        size: f64,
+    ) {
+        for axis in Axis::ALL {
+            if visibility::is_principal_shown(document, PrincipalGeometry::Axis(axis.principal())) {
+                self.axis(axis, size);
+            }
+        }
+        if visibility::is_principal_shown(document, PrincipalGeometry::Origin) {
+            self.origin();
+        }
+        let earlier = document
+            .active_features()
+            .take_while(|earlier| earlier.id() != sketch);
+        for datum in earlier {
+            let projectable = datum
+                .kind
+                .datum()
+                .is_some_and(|kind| kind.is_axis() || kind.is_point());
+            if !datum.hidden && projectable {
+                self.datum(evaluation, datum.id(), false, size);
+            }
+        }
     }
 
     fn origin(&mut self) {
