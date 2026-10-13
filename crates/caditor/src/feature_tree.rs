@@ -76,8 +76,7 @@ const NOTHING_HEALED: &str = "Every reference it holds is found as it was chosen
 pub const HEALING_AWAITS_RECOMPUTE: &str =
     "The recompute has not checked its references since the last change; wait for it to finish";
 pub const OPEN_SAMPLE_LABEL: &str = "Open a sample";
-pub const EMPTY_TREE: &str = "The model has no features yet. Start with New sketch, here or in the ribbon, or open a \
-     sample to see how one is built.";
+pub const EMPTY_TREE: &str = "The model has no features yet.";
 pub const DIMENSIONS_TITLE: &str = "Dimensions";
 pub const CONSTRAINTS_TITLE: &str = "Constraints";
 const CARD_ROW_INDENT: f32 = SPACE_M;
