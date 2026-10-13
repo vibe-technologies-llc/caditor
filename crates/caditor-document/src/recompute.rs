@@ -36,7 +36,7 @@ use crate::{
     presenting::{Glimpse, MESHES_REPORTED_EVERY, Presentation, SettledBody},
     primitive, projection,
     reference_image::{self, PlacedImage},
-    removal, scaling, shell,
+    removal, rib, scaling, shell,
     solid::{self, SketchRegion, SolidFeature, SolidResult, body_part, body_parts},
     split, split_face,
     thread::{self, ThreadResult},
@@ -1906,6 +1906,7 @@ impl Evaluator for ModelEvaluator {
             FeatureKind::Pipe(definition) => pipe::evaluate(feature, definition, inputs, cancel),
             FeatureKind::Loft(definition) => loft::evaluate(feature, definition, inputs, cancel),
             FeatureKind::Coil(definition) => coil::evaluate(feature, definition, inputs, cancel),
+            FeatureKind::Rib(definition) => rib::evaluate(feature, definition, inputs, cancel),
             FeatureKind::Thread(definition) => {
                 thread::evaluate(feature, definition, inputs, cancel)
             }

@@ -199,6 +199,7 @@ pub fn command(command: Command) -> &'static str {
         Command::Pipe => PIPE,
         Command::Loft => LOFT,
         Command::Coil => COIL,
+        Command::Rib => RIB,
         Command::Fillet => blend(BlendKind::Fillet),
         Command::Chamfer => blend(BlendKind::Chamfer),
         Command::Shell => SHELL,
@@ -392,6 +393,7 @@ const SWEEP: &str = phosphor::PIPE;
 const PIPE: &str = phosphor::PIPE_WRENCH;
 const LOFT: &str = phosphor::LAMP_PENDANT;
 const COIL: &str = phosphor::SPIRAL;
+const RIB: &str = phosphor::COLUMNS;
 const SHELL: &str = icon_font::SHELL;
 const COMBINE: &str = phosphor::UNITE;
 const MOVE: &str = phosphor::HAND_GRABBING;
@@ -555,6 +557,7 @@ pub fn feature(kind: &FeatureKind) -> &'static str {
         FeatureKind::Pipe(_) => PIPE,
         FeatureKind::Loft(_) => LOFT,
         FeatureKind::Coil(_) => COIL,
+        FeatureKind::Rib(_) => RIB,
         FeatureKind::Blend(blend) => self::blend(blend.kind),
         FeatureKind::Shell(_) => SHELL,
         FeatureKind::OffsetFace(_) => OFFSET_FACE,

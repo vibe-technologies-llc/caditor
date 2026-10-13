@@ -200,6 +200,9 @@ Extrusions and revolves:
   (`round`, `square`), `size` (unreadable 2 mm), `placement` (`inside`, `centred`, `outside`),
   `taper` (unreadable 0 deg), `turning` (`counter_clockwise`, `clockwise`) and `operation`. The
   corpus holds it in `coils.caditor`.
+- `rib`: `sketch`, `body`, `thickness` (unreadable 2 mm, reported), `side` (`one_side`,
+  `other_side`, `symmetric`), `direction` (`parallel`, `square`) and `reversed` only when set. The
+  corpus holds it in `ribs.caditor`.
 - `separate_pieces`: a wrapper around the whole feature kind record (`feature`) of a feature whose
   `pieces` is a body each, written only then; an older reader reports the feature as from a newer
   version instead of making one body that later features' piece bodies would not find. Restoring

@@ -637,6 +637,10 @@ impl FeatureKind {
                 coil.operation = renamed_operation(coil.operation, rename);
                 rename_axis(&mut coil.axis, rename);
             }
+            Self::Rib(rib) => {
+                rib.sketch = rename(rib.sketch);
+                rib.body = rename(rib.body);
+            }
             Self::Combine(combine) => {
                 combine.body = rename(combine.body);
                 combine.tool = rename(combine.tool);

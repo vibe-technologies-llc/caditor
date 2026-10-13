@@ -468,11 +468,11 @@ pub enum SweptError {
     Sweep(SweepError),
 }
 
-struct Heights {
-    low: f64,
-    high: f64,
-    margin: f64,
-    across: Aabb2,
+pub(crate) struct Heights {
+    pub(crate) low: f64,
+    pub(crate) high: f64,
+    pub(crate) margin: f64,
+    pub(crate) across: Aabb2,
 }
 
 fn slant(plane: &Plane, direction: Option<Vector3>) -> Vector3 {
@@ -482,7 +482,7 @@ fn slant(plane: &Plane, direction: Option<Vector3>) -> Vector3 {
         .unwrap_or_else(|| plane.normal())
 }
 
-fn heights(solid: &Solid, plane: &Plane, slant: Vector3) -> Option<Heights> {
+pub(crate) fn heights(solid: &Solid, plane: &Plane, slant: Vector3) -> Option<Heights> {
     let bounds = solid.bounding_box()?;
     let margin = bounds.diagonal() * HALF_SPACE_REACH + HALF_SPACE_MARGIN;
     let local: Vec<(Point2, f64)> = bounds
@@ -557,19 +557,19 @@ fn rectangle(bounds: &Aabb2) -> [Point2; 4] {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct End {
-    point: Point2,
-    outward: Vector2,
-    order: (u64, bool),
+pub(crate) struct End {
+    pub(crate) point: Point2,
+    pub(crate) outward: Vector2,
+    pub(crate) order: (u64, bool),
 }
 
-struct Chain {
-    start: End,
-    finish: End,
-    bounds: Aabb2,
+pub(crate) struct Chain {
+    pub(crate) start: End,
+    pub(crate) finish: End,
+    pub(crate) bounds: Aabb2,
 }
 
-fn chain(curves: &[ProfileCurve]) -> Result<Chain, SweptError> {
+pub(crate) fn chain(curves: &[ProfileCurve]) -> Result<Chain, SweptError> {
     let mut ends = Vec::with_capacity(curves.len() * 2);
     let mut bounds: Option<Aabb2> = None;
     for curve in curves {
@@ -656,13 +656,13 @@ fn walked(partners: &[Vec<usize>], from: usize) -> Option<(usize, usize)> {
     None
 }
 
-struct Perimeter {
+pub(crate) struct Perimeter {
     corners: [(f64, Point2); 4],
     length: f64,
 }
 
 impl Perimeter {
-    fn new(bounds: &Aabb2) -> Self {
+    pub(crate) fn new(bounds: &Aabb2) -> Self {
         let size = bounds.size();
         let [first, second, third, fourth] = rectangle(bounds);
         Self {
@@ -676,7 +676,7 @@ impl Perimeter {
         }
     }
 
-    fn exit(&self, bounds: &Aabb2, end: &End) -> Option<(f64, Point2)> {
+    pub(crate) fn exit(&self, bounds: &Aabb2, end: &End) -> Option<(f64, Point2)> {
         let (min, max) = (bounds.min(), bounds.max());
         let reach = |from: f64, toward: f64, low: f64, high: f64| {
             if toward > 0.0 {
@@ -715,7 +715,12 @@ impl Perimeter {
         Some(place)
     }
 
-    fn walk(&self, from: (f64, Point2), to: (f64, Point2), forward: bool) -> Vec<Point2> {
+    pub(crate) fn walk(
+        &self,
+        from: (f64, Point2),
+        to: (f64, Point2),
+        forward: bool,
+    ) -> Vec<Point2> {
         let ahead = |at: f64, of: f64| {
             if forward {
                 (at - of).rem_euclid(self.length)
@@ -752,7 +757,7 @@ fn ends_of(curve: &ProfileCurve) -> Option<[Point2; 2]> {
     (first.distance(last) > LINEAR_RESOLUTION).then_some([first, last])
 }
 
-fn component_of(parents: &mut [usize], index: usize) -> usize {
+pub(crate) fn component_of(parents: &mut [usize], index: usize) -> usize {
     let mut root = index;
     while let Some(parent) = parents.get(root).copied().filter(|parent| *parent != root) {
         root = parent;
@@ -815,7 +820,7 @@ pub(crate) fn mixed_curves(sketch: &Sketch) -> Option<MixedCurves> {
     (!outlines.is_empty() && self::chain(&chain).is_ok()).then_some(MixedCurves { chain, outlines })
 }
 
-fn curve_links(curves: &[ProfileCurve]) -> Vec<Option<[usize; 2]>> {
+pub(crate) fn curve_links(curves: &[ProfileCurve]) -> Vec<Option<[usize; 2]>> {
     let mut points: Vec<(usize, Point2)> = curves
         .iter()
         .enumerate()

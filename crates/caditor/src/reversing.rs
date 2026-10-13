@@ -4,10 +4,10 @@ use caditor_document::{
 };
 use caditor_expression::Expression;
 
-use crate::{coil_tools, field, model::Notice, solid_tools};
+use crate::{coil_tools, field, model::Notice, rib_tools, solid_tools};
 
-pub const NOTHING_TO_REVERSE: &str = "Only an extrusion, revolve, hole, primitive, pattern, mate \
-                                      or split has a direction to reverse";
+pub const NOTHING_TO_REVERSE: &str = "Only an extrusion, revolve, hole, primitive, pattern, \
+                                      mate, split, coil or rib has a direction to reverse";
 const MATE_HAS_NO_SIDE: &str = "sets an angle or puts a point in place, so it has no side to \
                                 flip; edit its angle or what it mates onto instead";
 const POINTS_HAVE_NO_DIRECTION: &str =
@@ -59,6 +59,7 @@ pub fn reversed(feature: &Feature) -> Result<FeatureKind, String> {
             "follows its path from the profile, so it has no direction to reverse",
         )),
         FeatureKind::Coil(coil) => Ok(FeatureKind::Coil(coil_tools::reversed(coil))),
+        FeatureKind::Rib(rib) => Ok(FeatureKind::Rib(rib_tools::reversed(rib))),
         FeatureKind::Pipe(_) => Err(refusal(
             feature,
             "follows its path, so it has no direction to reverse",

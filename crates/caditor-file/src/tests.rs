@@ -4446,6 +4446,54 @@ fn an_unreadable_bend_radius_of_a_pipe_loads_as_sharp_corners_and_is_reported() 
     assert_eq!(restored.bend, Expression::parse_stored("0 mm").unwrap());
 }
 
+#[test]
+fn ribs_are_saved_and_loaded_as_a_record_of_their_own() {
+    use caditor_document::{Rib, RibDirection, RibSide};
+    let (mut document, base, _) = solid_model();
+    let mut transaction = document.transaction("Ribs");
+    let mut line = Sketch::new(Plane::XY);
+    line.add_line(Point2::new(1.0, 1.0), Point2::new(6.0, 4.0));
+    let line = transaction.add_feature("Rib line", FeatureKind::from(line));
+    let rib = transaction.add_feature(
+        "Web 1",
+        FeatureKind::Rib(Rib {
+            side: RibSide::OtherSide,
+            direction: RibDirection::Square,
+            reversed: true,
+            ..Rib::new(line, base, Expression::parse_stored("1.5 mm").unwrap())
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let broken =
+        decode_text(&text.replacen("\"thickness\":\"1.5 mm\"", "\"thickness\":\"1.5 (\"", 1));
+
+    assert!(text.contains("\"rib\":{"), "{text}");
+    assert!(text.contains("\"direction\":\"square\""), "{text}");
+    assert!(text.contains("\"side\":\"other_side\""), "{text}");
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert_eq!(broken.issues.len(), 1, "{:?}", broken.issues);
+    assert!(
+        broken.issues[0].contains("thickness"),
+        "{:?}",
+        broken.issues
+    );
+    assert_eq!(
+        broken
+            .document
+            .feature(rib)
+            .unwrap()
+            .kind
+            .rib()
+            .unwrap()
+            .thickness,
+        Expression::parse_stored("2 mm").unwrap()
+    );
+}
+
 fn coil_model() -> (Document, FeatureId) {
     use caditor_document::{
         AxisReference, BodyOperation, Coil, CoilLength, CoilTurning, PrincipalAxis,

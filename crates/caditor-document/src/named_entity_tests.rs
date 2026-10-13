@@ -313,6 +313,17 @@ fn a_coil_round_a_missing_sketch_line_reserves_its_number() {
 }
 
 #[test]
+fn a_rib_names_no_single_entity_since_it_follows_every_curve_of_its_sketch() {
+    let scene = scene();
+
+    let rib = FeatureKind::Rib(Rib::new(scene.marks, scene.body, Expression::number(2.0)));
+
+    assert!(rib.named_entities().is_empty());
+    assert!(rib.reference_sketches().contains(&scene.marks));
+    assert!(rib.features().contains(&scene.marks));
+}
+
+#[test]
 fn a_loft_ending_at_a_missing_sketch_point_reserves_its_number() {
     assert_never_reused(|scene| {
         FeatureKind::Loft(Loft {

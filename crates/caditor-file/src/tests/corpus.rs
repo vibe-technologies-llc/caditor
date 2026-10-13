@@ -15,10 +15,10 @@ use caditor_document::{
     MetricSize, Mirror, ModelProperties, Move, OffsetFace, Outline, ParameterOwner,
     ParameterValues, Pattern, PatternKind, PieceKey, PieceLooks, Pieces, Pipe, PlaneRotation,
     PlaneThrough, PointBy, PointReference, PointsPattern, PrincipalAxis, PrincipalGeometry,
-    ProjectionSource, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rgb, Scale, Shell,
-    ShellSide, SketchFeature, SolidFeature, SolidStart, Split, SplitAlong, SplitCarry, SplitFace,
-    Sweep, SweepPath, TappedThread, ThreadFamily, ThreadForm, ThreadHand, TurnCentre, Wall,
-    point_instance,
+    ProjectionSource, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rgb, Rib,
+    RibDirection, RibSide, Scale, Shell, ShellSide, SketchFeature, SolidFeature, SolidStart, Split,
+    SplitAlong, SplitCarry, SplitFace, Sweep, SweepPath, TappedThread, ThreadFamily, ThreadForm,
+    ThreadHand, TurnCentre, Wall, point_instance,
 };
 use caditor_kernel::{
     BoundaryPiece, CoilPlacement, CoilShape, EdgeName, EdgeReference, FaceName, FaceOrigin,
@@ -52,7 +52,7 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 33] = [
+const KEPT: [(&str, &str); 34] = [
     (
         "journal-1/by-reference.journal",
         "fe98725da8d9df46b19d7cede1474bcfb92bbda00d4de9c890e5bca5d0f2899f",
@@ -152,6 +152,10 @@ const KEPT: [(&str, &str); 33] = [
     (
         "model-1/reference-images.caditor",
         "d7e693bdc1a275426b2507a33a627d7108a9e0753c9976ae82f24ca4e816d0b4",
+    ),
+    (
+        "model-1/ribs.caditor",
+        "34bfe6046a6df636261e77d609a641b7bc0d8442011fb2b3e12d9e82808a9823",
     ),
     (
         "model-1/separate-pieces.caditor",
@@ -718,6 +722,7 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
         (model("sweeps"), saved(&sweeps(), "Sweeps")),
         (model("path-sweeps"), saved(&path_sweeps(), "Path sweeps")),
         (model("pipes"), saved(&pipes(), "Pipes")),
+        (model("ribs"), saved(&ribs(), "Ribs")),
         (model("coils"), saved(&coils(), "Coils")),
         (model("lofts"), saved(&lofts(), "Lofts")),
         (
@@ -1420,6 +1425,37 @@ fn lofts() -> Document {
             skin: LoftSkin::Ruled,
             operation: BodyOperation::Add(base),
             ..Loft::new(vec![LoftSection::whole(middle)])
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
+fn ribs() -> Document {
+    let (mut document, base, _) = solid_model();
+    let parse = |text: &str| Expression::parse_stored(text).unwrap();
+    let mut transaction = document.transaction("Ribs");
+    let mut sketch = Sketch::new(Plane::XY);
+    sketch.add_line(Point2::new(2.0, 2.0), Point2::new(8.0, 6.0));
+    let sketch = transaction.add_feature("Rib line", FeatureKind::from(sketch));
+    transaction.add_feature(
+        "Rib",
+        FeatureKind::Rib(Rib::new(sketch, base, parse("2 mm"))),
+    );
+    transaction.add_feature(
+        "Web",
+        FeatureKind::Rib(Rib {
+            side: RibSide::OneSide,
+            direction: RibDirection::Square,
+            reversed: true,
+            ..Rib::new(sketch, base, parse("1.5 mm"))
+        }),
+    );
+    transaction.add_feature(
+        "Other side",
+        FeatureKind::Rib(Rib {
+            side: RibSide::OtherSide,
+            ..Rib::new(sketch, base, parse("1 mm"))
         }),
     );
     document.apply(transaction.finish()).unwrap();

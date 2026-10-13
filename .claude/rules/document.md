@@ -587,6 +587,44 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   sizes it cannot be built with.
 - Faces are worded "<coil> start" and "end", a round section's sides "<coil> surface" and a
   square's "inside", "outside", "top" and "underside" (`coil::part_name`).
+### Rib (`rib.rs`, `rib_tool.rs`)
+
+- `Rib { sketch, body, thickness, side, direction, reversed }` joins thin walls along the
+  non-construction curves of a whole sketch to a body (`Feature::body` is the body; not
+  `makes_body`, not `modifies_body`). `RibDirection::Parallel` (a rib) puts the material in the
+  sketch plane on the left of each chain walked from its first end (the end on the curve of lowest
+  entity id, as a split's; the right when `reversed`) and the thickness across the plane
+  (`RibSide::OneSide` in front, along the normal, `OtherSide` behind, `Symmetric` half each);
+  `Square` (a web) thickens each chain in the plane (`OneSide` left of the walk, `OtherSide` right,
+  `Symmetric` centred; `wall_regions`, `Inside` or `Outside` picked by a probe point, since an open
+  chain's inside is its bend) and runs it along the sketch normal (against it when `reversed`).
+  The thickness is its one expression (parameters, inlining, model scale). The sketch is in
+  `reference_sketches` and `features()`.
+- `rib_tool::rib_tools` builds a generous tool per chain and keeps only what lies between the drawn
+  curves and the body: chains are grouped by shared ends (`split::curve_links`), each must be one
+  open chain (`split::chain`: a closed outline or a circle fails, a branch fails naming its
+  curves). Free ends are carried on along their end tangents past the body's box: an end line is
+  lengthened in place (one face, keeping its name), an arc end gets a line keyed `START_RUN` or
+  `END_RUN` with the arc's entity. A rib's region is closed round the box like a split's half
+  space (perimeter lines `PERIMETER_ENTITIES`) and extruded by the thickness; a web's wall is
+  extruded from the sketch plane past the box. The tool less the body (`boolean` difference) is
+  taken apart (`Solid::lumps`) and the lumps holding seed points (just off the curves on the
+  material side, outside the body) are kept. A kept lump with no face of the body is
+  `MeetsNothing`, one holding the far cap is `RunsPastDepth`, a carried end's cap `RunsPastEnd`
+  (naming the curve), a perimeter face `RunsPast`; so a rib never floats or pokes out. A body wholly
+  behind the sketch is `Behind`, seeds all inside the body `Inside`. The kept lumps of every chain
+  are joined to the body one by one (crossing webs overlap there) and kept as the result's `joins`.
+- Failures are worded per `RibError` (`rib::Words`): sketch problems fixed on the sketch, the rest
+  on the rib with what to do (reverse it, draw the curve so it runs into a wall); a join failure
+  goes through `trouble.rs`.
+- Faces are named by extrusion naming from the rib's feature id: worded (`rib::face_words`)
+  "<rib> side from <curve>" (a web's side), "edge face along <curve>" (a rib's drawn edge), "side
+  carried on from <curve>", "top face" (a web's cap at the sketch) and "face in front of" or
+  "behind the sketch" (a rib's flat sides). A face flush with a body face merges into the body's.
+- `rib::facing` (exported `rib_facing`) says whether the rib should be `reversed` to meet the body:
+  a ray from the first chain (a web: square to the sketch from a point on a curve; a rib: in the
+  plane from the chord's middle, square to it) both ways, the nearer crossing winning; none is
+  none. The app sets the default from it.
 
 ### Blend and shell (`blend.rs`, `shell.rs`)
 

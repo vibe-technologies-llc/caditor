@@ -53,12 +53,13 @@ const FACE_TOOLS: [Command; 7] = [
     Command::Thread,
     Command::MirrorFaces,
 ];
-const SKETCH_TOOLS: [Command; 5] = [
+const SKETCH_TOOLS: [Command; 6] = [
     Command::Extrude,
     Command::Revolve,
     Command::Sweep,
     Command::Pipe,
     Command::Loft,
+    Command::Rib,
 ];
 const BODY_COMMANDS: [Command; 8] = [
     Command::Move,

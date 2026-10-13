@@ -563,6 +563,7 @@ impl Rescaler {
                     self.length(length, name)?;
                 }
             }
+            FeatureKind::Rib(rib) => self.length(&mut rib.thickness, name)?,
             FeatureKind::Blend(blend) => {
                 self.length(&mut blend.size, name)?;
                 if let ChamferForm::TwoDistances { second } = &mut blend.form {
@@ -1251,6 +1252,7 @@ fn anchored(kind: &mut FeatureKind) -> Vec<Anchored<'_>> {
         FeatureKind::Sketch(_)
         | FeatureKind::Solid(SolidFeature::Sweep(_))
         | FeatureKind::Pipe(_)
+        | FeatureKind::Rib(_)
         | FeatureKind::Blend(_)
         | FeatureKind::Shell(_)
         | FeatureKind::OffsetFace(_)

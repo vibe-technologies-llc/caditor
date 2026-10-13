@@ -9,6 +9,7 @@ use crate::{
     pattern::PatternKind,
     pipe,
     primitive::Cap,
+    rib,
     solid::SolidFeature,
     thread,
 };
@@ -74,6 +75,9 @@ fn describe_made(document: &Document, origin: FaceOrigin) -> String {
         }
         FaceOrigin::EndCap { .. } if let Some(primitive) = feature.kind.primitive() => {
             format!("{name} {}", primitive.shape.cap_name(Cap::End))
+        }
+        _ if let Some(rib) = feature.kind.rib() => {
+            format!("{name} {}", rib::face_words(document, rib, origin))
         }
         FaceOrigin::Side { entity, .. } if let Some(coil) = feature.kind.coil() => {
             format!("{name} {}", coil::part_name(coil.shape, entity))
