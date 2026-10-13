@@ -42,8 +42,8 @@ paths:
 # Sketch editing in the app
 
 Default keys come from `Command::default_shortcuts`, not from here. A tool or command listed
-without a key has none (every free one is taken) and is reached from the Sketch menu, the palette
-and, for off-ribbon tools, a partner's corner menu.
+without a key has none (every free one is taken) and is reached from the Sketch menu, the palette,
+the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a partner's corner menu.
 
 ## Editing context
 
@@ -573,8 +573,9 @@ and, for off-ribbon tools, a partner's corner menu.
   selection, revision, evaluation, displayed sketches or units change
   (`sketch_toolbar::ConstraintOffers`).
 - Curvature (`ConstraintTool::Curvature`) takes a spline and the line, arc or spline at one of its
-  ends and adds `Tangent` (left out when already there) with `Curvature`. It is not on the sketch bar,
-  whose Constrain group would grow a third row (`sketch_toolbar::OFF_RIBBON_CONSTRAINTS`).
+  ends and adds `Tangent` (left out when already there) with `Curvature`. It has no button on the
+  sketch bar, whose Constrain group would grow a third row (`sketch_toolbar::OFF_RIBBON_CONSTRAINTS`),
+  and is in the Constrain group's menu.
 - Chaining constraints (parallel, equal, collinear, concentric, perpendicular, coincident points,
   horizontal or vertical points) relate every selected item to the first in one transaction. Coincident
   also puts every selected point on the one curve selected with them, and Tangent makes the one line
@@ -650,8 +651,9 @@ and, for off-ribbon tools, a partner's corner menu.
   (`DimensionFromDatum`, taking the one selected point) and Check the sketch for flaws (`CheckSketch`)
   open the Constrain automatically panel (`tidy_panel.rs`, a right-hand panel sharing the side
   panels' room) at its Relations, Dimensions or Check task; a segmented control switches between
-  them. They are in the Sketch menu and palette, not on the sketch bar, whose Dimension group would
-  push it past one row at 1400 points.
+  them. They are in the Sketch menu, the palette and the sketch bar's Constrain and Dimension group
+  menus, with no button there, as the Dimension group would push the bar past one row at 1400
+  points.
 - `Tidying` (`tidying.rs`, in the `Workspace`) works on the settled sketch only
   (`Model::settled_sketch`; "Waiting for the sketch to solve…" otherwise) on a thread of its own, since
   finding relations and dimensions solves (`sketch.md`): a job per basis (feature, revision,

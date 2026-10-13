@@ -1,13 +1,15 @@
 use std::{fmt::Debug, hash::Hash, sync::Arc};
 
 use egui::{
-    Frame, Galley, Id, Label, Margin, Rect, Response, RichText, Stroke, Style, TextStyle,
-    TextWrapMode, Ui, WidgetText, pos2, vec2,
+    Frame, Galley, Id, Label, Margin, Popup, Rect, Response, RichText, Sense, Stroke, Style,
+    TextStyle, TextWrapMode, Ui, WidgetText, pos2, vec2,
 };
 
 use crate::{
     appearance::{self, BORDER_WIDTH, SPACE_L, SPACE_M, SPACE_S, SPACE_XS},
-    widgets,
+    commands::Command,
+    menu_bar::MenuEntries,
+    widgets::{self, CornerMenu},
 };
 
 pub const TOOL_GAP: f32 = widgets::COMPACT_TOOL_GAP;
@@ -154,6 +156,118 @@ pub fn captioned_by(
         natural
     });
     (shown.response.rect, shown.inner)
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct GroupTools {
+    pub width: f32,
+    pub host: Rect,
+    pub compact_host: bool,
+}
+
+pub struct GroupMenu<'a> {
+    pub id: Id,
+    pub name: &'a str,
+    pub contents: &'a str,
+}
+
+impl GroupMenu<'_> {
+    fn corner(&self) -> CornerMenu<'_> {
+        CornerMenu {
+            id: self.id,
+            name: self.name,
+            contents: self.contents,
+            on_selected: false,
+        }
+    }
+}
+
+pub fn menu_group(
+    ui: &mut Ui,
+    title: Option<Arc<Galley>>,
+    show_caption: bool,
+    menu: &GroupMenu<'_>,
+    content: impl FnOnce(&mut Ui) -> GroupTools,
+) -> ((Rect, f32), Option<Response>) {
+    let titled = show_caption && title.is_some();
+    let title_width = title
+        .as_ref()
+        .map_or(0.0, |title| widgets::group_title_width(ui, title));
+    let mut corner = None;
+    let mut caption = None;
+    let shown = captioned_by(
+        ui,
+        title,
+        show_caption,
+        |ui| {
+            let tools = content(ui);
+            if !titled {
+                corner = Some(corner_trigger(ui, tools, menu));
+            }
+            tools.width.max(title_width)
+        },
+        |ui, rect, title| {
+            let rect =
+                Rect::from_min_size(rect.min, vec2(rect.width().max(title_width), rect.height()));
+            let height = rect.height().max(title.size().y);
+            let strip = Rect::from_min_size(rect.min, vec2(rect.width(), height));
+            ui.allocate_rect(strip, Sense::hover());
+            caption = Some(widgets::group_title(
+                ui,
+                rect,
+                menu.id.with("title"),
+                title,
+                menu.name,
+            ));
+        },
+    );
+    (shown, caption.or(corner))
+}
+
+fn corner_trigger(ui: &mut Ui, tools: GroupTools, menu: &GroupMenu<'_>) -> Response {
+    let corner = menu.corner();
+    if tools.compact_host {
+        widgets::compact_corner_menu_button(ui, tools.host, &corner)
+    } else {
+        widgets::corner_menu_button(ui, tools.host, &corner)
+    }
+}
+
+pub fn group_menu(
+    trigger: &Response,
+    entries: MenuEntries<'_>,
+    body: impl FnOnce(&mut Ui, &mut MenuEntries<'_>),
+) -> Vec<Command> {
+    let mut entries = if trigger.clicked() {
+        entries.focusing_first()
+    } else {
+        entries
+    };
+    let shown = Popup::menu(trigger).show(|ui| {
+        widgets::fitted_menu(ui, |ui| body(ui, &mut entries));
+        let picked = entries.take_chosen();
+        if !picked.is_empty() {
+            ui.close();
+        }
+        picked
+    });
+    shown.map(|shown| shown.inner).unwrap_or_default()
+}
+
+pub fn menu_sections<S: AsRef<[Command]>>(
+    ui: &mut Ui,
+    entries: &mut MenuEntries<'_>,
+    sections: &[S],
+    mut entry: impl FnMut(&mut Ui, &mut MenuEntries<'_>, Command),
+) {
+    for (index, section) in sections.iter().enumerate() {
+        if index > 0 {
+            ui.separator();
+        }
+        for &command in section.as_ref() {
+            entry(ui, entries, command);
+        }
+    }
 }
 
 pub fn explained(response: Response, title: &str, help: &Result<String, String>) -> Response {

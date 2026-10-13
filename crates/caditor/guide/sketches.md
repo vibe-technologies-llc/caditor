@@ -28,6 +28,11 @@ takes it back and returns to the sketch.
 
 - Pick a tool from the sketch ribbon, by its key, or from {command:palette}. Escape steps back one
   stage at a time and then returns to Select; holding it down takes only one step.
+- Click a group's name on the sketch ribbon (Draw, Modify, Constrain and the others, with the small
+  arrow beside them) for a menu of everything in that group, the tools and commands without a
+  button included: every way to draw each shape, Rotate and Scale, Copy and Paste, Curvature,
+  Add the relations the drawing shows, Dimension fully from a datum point and more. The tool in
+  use and each shape's current way are marked.
 - A button with a small triangle in its corner holds more tools, such as Tangent circle under
   Offset: click the triangle for the menu, or hover it to see what is inside. Undo and Redo sit
   at the start of the sketch ribbon too.

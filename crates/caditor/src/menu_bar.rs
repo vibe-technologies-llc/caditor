@@ -561,6 +561,21 @@ impl<'a> MenuEntries<'a> {
         }
     }
 
+    pub fn history_item(&mut self, ui: &mut Ui, command: Command, model: &Model) -> bool {
+        let step = match command {
+            Command::Undo => Some(model.undo_label()),
+            Command::Redo => Some(model.redo_label()),
+            _ => None,
+        };
+        let title = match (step, self.detail(command)) {
+            (Some(step), _) => step_title(command, step, self.is_available(command)),
+            (None, Some(last)) if command == Command::RepeatLast => command.title_with(last),
+            (None, _) => return false,
+        };
+        self.titled_item(ui, command, &title);
+        true
+    }
+
     fn keys(&self, command: Command) -> Option<String> {
         self.keymap
             .first(command)

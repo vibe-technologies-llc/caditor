@@ -666,15 +666,25 @@ pub fn show(
     }
     section_commands(model, viewport, section, &mut commands);
     viewport.arc_on_tangent_arc_key(editing, &mut commands);
-    sketch_toolbar::show(
+    let sketch_bar = sketch_toolbar::BarContext {
+        selection: viewport.selection(),
+        snaps: viewport.body_snaps(),
+        last_offers,
+        toggles,
+    };
+    let chosen = sketch_toolbar::show(
         ui,
         model,
         editing,
-        (viewport.selection(), viewport.body_snaps()),
+        &sketch_bar,
         &mut commands,
         panels,
         actions,
     );
+    if !chosen.is_empty() {
+        ui.ctx().request_repaint();
+        deferred_commands.extend(chosen);
+    }
     tidy_panel::commands(editing, viewport.selection(), tidying, &mut commands);
     tidying.refresh(model, editing.active().map(|active| active.feature));
     guide_commands(

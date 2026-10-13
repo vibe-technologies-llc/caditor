@@ -1,26 +1,26 @@
-use std::cell::RefCell;
-
 use caditor_document::{BlendKind, Datum, Document, PrimitiveKind, RegionChoice, describe_axis};
-use egui::{Id, Popup, Rect, Response, Sense, Ui, Vec2, vec2};
+use egui::{Id, Response, Ui, Vec2};
 
 use crate::{
     analysis::{AnalysisCommand, Kind},
     blend_panel, blend_tools, combine_tools,
-    commands::{Command, CommandFrame, Keymap, Offer},
+    commands::{Command, CommandFrame, Offer},
     datum_tools,
     editing::{EditingCommand, SketchEditing},
     feature_tree::count,
     hole_tools, icons,
     last_values::Starts,
     mate_tools,
-    menu_bar::{self, MenuEntries},
+    menu_bar::MenuEntries,
     mirror_tools,
     model::{Action, Model},
     move_tools,
     offers::Offers,
     offset_face_tools,
     pattern_tools::{self, Shape},
-    pipe_tools, primitive_tools, queued, ribbon, scale_tools,
+    pipe_tools, primitive_tools, queued,
+    ribbon::{self, GroupMenu, GroupTools},
+    scale_tools,
     section::SectionCommand,
     selection::Selection,
     shell_tools,
@@ -29,7 +29,7 @@ use crate::{
     split_face_tools, split_tools, sweep_tools, thread_tools,
     toggles::ToggleStates,
     viewport::CHOOSE_PLANE_PROMPT,
-    widgets::{self, CornerMenu, ToolButton},
+    widgets::ToolButton,
 };
 
 pub const NEW_SKETCH_LABEL: &str = "New sketch";
@@ -99,6 +99,13 @@ impl Group {
 
     fn menu_name(self) -> String {
         format!("{} commands", self.caption())
+    }
+
+    fn menu_contents(self) -> String {
+        format!(
+            "Every {} command, the ones without a button included",
+            self.caption()
+        )
     }
 
     fn sections(self) -> &'static [&'static [Command]] {
@@ -198,7 +205,7 @@ pub fn show(
 ) -> Vec<Command> {
     let frame = ribbon::bar_frame(ui.style());
     let keymap = commands.keymap();
-    let chosen = RefCell::new(Vec::new());
+    let mut chosen = Vec::new();
     egui::Panel::top("toolbar").frame(frame).show(ui, |ui| {
         ui.spacing_mut().item_spacing = Vec2::splat(ribbon::TOOL_GAP);
         let full = ui.available_width();
@@ -223,91 +230,46 @@ pub fn show(
             ui.horizontal_top(|ui| {
                 ribbon::row(ui, ribbon_name, &row, |ui, group| {
                     let title = (!compact).then(|| ribbon::caption_galley(ui, group.caption()));
-                    ribbon::captioned_by(
-                        ui,
-                        title,
-                        captions,
-                        |ui| {
-                            let tools = ui
-                                .horizontal_top(|ui| {
-                                    group_buttons(ui, group, model, context, commands, actions);
-                                })
-                                .response
-                                .rect;
-                            if !captions {
-                                let response = corner_menu(ui, tools, group, compact);
-                                group_menu(&response, group, model, context, keymap, &chosen);
-                            }
-                            tools.width()
-                        },
-                        |ui, rect, title| {
-                            let height = rect.height().max(title.size().y);
-                            let strip = Rect::from_min_size(rect.min, vec2(rect.width(), height));
-                            ui.allocate_rect(strip, Sense::hover());
-                            let id = ui.id().with(("group-title", group));
-                            let response =
-                                widgets::group_title(ui, rect, id, title, &group.menu_name());
-                            group_menu(&response, group, model, context, keymap, &chosen);
-                        },
-                    )
+                    let name = group.menu_name();
+                    let contents = group.menu_contents();
+                    let menu = GroupMenu {
+                        id: Id::new(("ribbon-group-menu", group)),
+                        name: &name,
+                        contents: &contents,
+                    };
+                    let (shown, trigger) = ribbon::menu_group(ui, title, captions, &menu, |ui| {
+                        let tools = ui
+                            .horizontal_top(|ui| {
+                                group_buttons(ui, group, model, context, commands, actions);
+                            })
+                            .response
+                            .rect;
+                        GroupTools {
+                            width: tools.width(),
+                            host: tools,
+                            compact_host: compact,
+                        }
+                    });
+                    if let Some(trigger) = trigger {
+                        let entries =
+                            MenuEntries::new(context.last_offers, context.toggles, keymap);
+                        chosen.extend(ribbon::group_menu(&trigger, entries, |ui, entries| {
+                            ribbon::menu_sections(
+                                ui,
+                                entries,
+                                group.sections(),
+                                |ui, entries, command| {
+                                    group_entry(ui, entries, command, model, context);
+                                },
+                            );
+                        }));
+                    }
+                    shown
                 });
             });
         }
     });
-    chosen.into_inner()
-}
-
-fn corner_menu(ui: &mut Ui, tools: Rect, group: Group, compact: bool) -> Response {
-    let name = group.menu_name();
-    let contents = format!(
-        "Every {} command, the ones without a button included",
-        group.caption()
-    );
-    let menu = CornerMenu {
-        id: Id::new(("ribbon-group-menu", group)),
-        name: &name,
-        contents: &contents,
-        on_selected: false,
-    };
-    if compact {
-        widgets::compact_corner_menu_button(ui, tools, &menu)
-    } else {
-        widgets::corner_menu_button(ui, tools, &menu)
-    }
-}
-
-fn group_menu(
-    response: &Response,
-    group: Group,
-    model: &Model,
-    context: &ToolbarContext<'_>,
-    keymap: &Keymap,
-    chosen: &RefCell<Vec<Command>>,
-) {
-    let mut entries = MenuEntries::new(context.last_offers, context.toggles, keymap);
-    if response.clicked() {
-        entries = entries.focusing_first();
-    }
-    let shown = Popup::menu(response).show(|ui| {
-        widgets::fitted_menu(ui, |ui| {
-            for (index, section) in group.sections().iter().enumerate() {
-                if index > 0 {
-                    ui.separator();
-                }
-                for &command in *section {
-                    group_entry(ui, &mut entries, command, model, context);
-                }
-            }
-        });
-        let picked = entries.take_chosen();
-        if !picked.is_empty() {
-            ui.close();
-        }
-        picked
-    });
-    if let Some(shown) = shown {
-        chosen.borrow_mut().extend(shown.inner);
-    }
+    chosen
 }
 
 fn group_entry(
@@ -317,20 +279,10 @@ fn group_entry(
     model: &Model,
     context: &ToolbarContext<'_>,
 ) {
-    let step = match command {
-        Command::Undo => Some(model.undo_label()),
-        Command::Redo => Some(model.redo_label()),
-        _ => None,
-    };
-    if let Some(step) = step {
-        let title = menu_bar::step_title(command, step, entries.is_available(command));
-        entries.titled_item(ui, command, &title);
-    } else if command == Command::RepeatLast
-        && let Some(last) = entries.detail(command)
-    {
-        let title = command.title_with(last);
-        entries.titled_item(ui, command, &title);
-    } else if let Some(on) = panel_state(context, command) {
+    if entries.history_item(ui, command, model) {
+        return;
+    }
+    if let Some(on) = panel_state(context, command) {
         entries.marked(ui, command, on);
     } else {
         entries.item(ui, command);

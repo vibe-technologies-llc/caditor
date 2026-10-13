@@ -1820,12 +1820,8 @@ pub fn group_title(ui: &mut Ui, rect: Rect, id: Id, title: Arc<Galley>, name: &s
         } else {
             tokens.text_muted
         };
-        let caret = unwrapped(
-            ui,
-            RichText::new(icons::EXPANDED).font(icon_font(SMALL_SIZE)),
-            TextStyle::Small,
-        );
-        let width = title.size().x + SPACE_XS + caret.size().x;
+        let caret = title_caret(ui);
+        let width = group_title_width(ui, &title);
         let left = rect.center().x - width / 2.0;
         let title_at = pos2(left, rect.center().y - title.size().y / 2.0);
         let caret_at = pos2(
@@ -1838,6 +1834,18 @@ pub fn group_title(ui: &mut Ui, rect: Rect, id: Id, title: Arc<Galley>, name: &s
             .galley_with_override_text_color(caret_at, caret, colour);
     }
     response
+}
+
+pub fn group_title_width(ui: &Ui, title: &Galley) -> f32 {
+    title.size().x + SPACE_XS + title_caret(ui).size().x
+}
+
+fn title_caret(ui: &Ui) -> Arc<Galley> {
+    unwrapped(
+        ui,
+        RichText::new(icons::EXPANDED).font(icon_font(SMALL_SIZE)),
+        TextStyle::Small,
+    )
 }
 
 fn group_menu_trigger(ui: &Ui, response: &Response, rect: Rect, name: &str) -> bool {
