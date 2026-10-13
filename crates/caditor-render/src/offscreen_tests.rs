@@ -4869,6 +4869,7 @@ fn an_unchanged_frame_copies_the_kept_view_and_every_change_draws_it_again() {
         render_with(&mut fresh, &device, &queue, frame)
     };
     let mut renderer = viewport_renderer(&device, 4);
+    renderer.set_shading(Shading::Standard);
 
     let first = render_with(
         &mut renderer,

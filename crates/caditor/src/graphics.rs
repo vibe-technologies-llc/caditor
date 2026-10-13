@@ -664,7 +664,7 @@ mod tests {
         let odd = Graphics::from_settings(&odd);
         assert_eq!(odd.frame_limit, FrameLimit::Display);
         assert_eq!(odd.msaa, Msaa::X2);
-        assert_eq!(odd.shading, Shading::Standard);
+        assert_eq!(odd.shading, Shading::Enhanced);
         assert_eq!(odd.curves, CurveQuality::Smooth);
         assert_eq!(odd.adapter, AdapterPreference::Auto);
 

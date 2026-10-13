@@ -54,8 +54,8 @@ impl Msaa {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Shading {
-    #[default]
     Standard,
+    #[default]
     Enhanced,
 }
 
