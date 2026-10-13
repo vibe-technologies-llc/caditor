@@ -1134,8 +1134,15 @@ pub(crate) struct Measured {
 
 impl Measured {
     pub(crate) fn of(document: &Document) -> Self {
-        let by_parameter: BTreeMap<ParameterId, FeatureId> = document
-            .features()
+        Self::among(document, document.features())
+    }
+
+    pub(crate) fn among<'a>(
+        document: &Document,
+        features: impl IntoIterator<Item = &'a Feature>,
+    ) -> Self {
+        let by_parameter: BTreeMap<ParameterId, FeatureId> = features
+            .into_iter()
             .filter_map(|feature| {
                 let parameter = feature.kind.measurement()?.parameter?;
                 Some((parameter, feature.id()))

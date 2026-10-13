@@ -343,6 +343,14 @@ Sketch entities:
   absent feature goes to the end. Suppressed IDs of absent features are dropped silently.
 - A feature referring to an absent feature loads as saved (deleting a feature may keep its
   dependents, `document.md`); it fails when computed, saying what it lost.
+- Features load in use order (`Document::in_use_order`, before applying): one stored above a
+  feature it uses (by `features()` or a measurement it reads; only a damaged or hand-made file,
+  since no edit leaves one) comes right after it, everything else keeping its stored order, and
+  each such feature is reported ("“Base” was stored above “Outline”, which it uses, so it now comes
+  after it."). Inserts refuse to land below a user (`BelowUser`), so without this the used feature
+  would be left out. A file already in order costs one pass over the features. Features using each
+  other in a circle are taken in stored order once nothing else can come, and the one that would
+  land below a user is left out, reported.
 - Records not matching the head's digest with no damaged chunk (cut between chunks) are reported as
   ending early; the model loads with problems and keeps its `.damaged` copy on the next save.
 - `load_cancellable` and `load_version_cancellable` run under a `CancelToken`, checked after

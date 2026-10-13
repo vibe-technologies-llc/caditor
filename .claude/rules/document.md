@@ -32,7 +32,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 - Edits carry their IDs, so redo restores them; counters never move backwards. Parameter and
   feature IDs stay below `FIRST_UNSTORABLE_ID` (`ReservedId`).
 - Edits refuse to break invariants: references to a feature below the one using it or to itself
-  (an insert naming its own id too), unknown parameters, parameter cycles, deleting a parameter in
+  (an insert naming its own id too), an insert landing below a feature already using its id
+  (`BelowUser`, found through `FeatureList::users_of`), unknown parameters, parameter cycles, deleting a parameter in
   use, moving a feature past one it uses by `features()` or a measurement it reads (what inserts
   and kind changes check, `Measured::features_read_by`), two features sharing a name (loading
   renames the second, with a report). Weaker ties (`origin_features`, a Combine consuming a used
@@ -57,7 +58,15 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   app calls them per body and row; scans were quadratic on imports of thousands of bodies). The
   features making or changing each body (`Feature::body`) are grouped on first ask
   (`Document::features_on_body`, read by `face_splits` and the scene's body health) and forgotten
-  by any change to the list or a feature in it.
+  by any change to the list or a feature in it. The users of each ID by `features()` (`users_of`,
+  present or not) are gathered on first ask, then kept by inserts and removals and forgotten by any
+  change to a feature, so loading and `transaction_to`, which insert every feature, stay linear.
+- `Document::in_use_order` (`use_order.rs`) puts features about to be inserted in an order every
+  insert accepts: a stable topological order by `Measured::features_read_by`, the earliest stored
+  ready feature first, returning the list unchanged after one pass when nothing is used from
+  above. `UseOrder::lowered` names each feature placed below a feature it was stored above
+  (loading reports them, `file-format.md`); features using each other in a circle are taken in
+  stored order once nothing else is ready, and are not reported.
 - `Document::inline_parameter` builds the one transaction deleting a parameter in use: its
   expression (not value, so links survive) is substituted into every parameter, sketch dimension,
   feature and body density using it (`Expression::inlining`, round-tripping through stored text to

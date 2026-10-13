@@ -474,6 +474,8 @@ pub enum EditError {
     AboveDependency { name: String, other: String },
     #[error("{name} cannot move below {other}, which uses it")]
     BelowDependent { name: String, other: String },
+    #[error("{name} cannot go below {other}, which uses it")]
+    BelowUser { name: String, other: String },
     #[error(
         "{name} cannot move below {other}, which combines the body of {body} it uses into another"
     )]
@@ -1325,6 +1327,7 @@ impl Document {
             return Err(EditError::MissingFeature);
         }
         self.check_feature_references(&feature.kind, index)?;
+        self.check_users_below(&feature, index)?;
         self.check_measurement_order(&feature, index)?;
         let appearance = feature.appearance.clone().settled();
         if appearance != feature.appearance {
@@ -1350,6 +1353,23 @@ impl Document {
         self.reserve_past_references(&feature.kind);
         self.features.insert(index, feature);
         Ok(Edit::RemoveFeature { id })
+    }
+
+    fn check_users_below(&self, feature: &Feature, index: usize) -> Result<(), EditError> {
+        let highest_user = self
+            .features
+            .users_of(feature.id())
+            .iter()
+            .filter_map(|user| self.features.position(*user))
+            .filter(|position| *position < index)
+            .min();
+        match highest_user.and_then(|position| self.features.get(position)) {
+            Some(user) => Err(EditError::BelowUser {
+                name: feature.name.clone(),
+                other: user.name.clone(),
+            }),
+            None => Ok(()),
+        }
     }
 
     fn reserve_past_references(&mut self, kind: &FeatureKind) {
