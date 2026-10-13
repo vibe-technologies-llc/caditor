@@ -155,7 +155,12 @@ paths:
   changes, the whole texture is written.
 - Faces are lit two-sided and write depth, hiding edges and sketches behind them in view and
   picking alike (everything but `Layer::Front`). A face without a pick id writes id 0 with its
-  depth in the pick pass, not discarded. Enhanced shading scales highlight and rim with the face
+  depth in the pick pass, not discarded. The opaque mesh pass
+  (`fs_mesh_solid`) discards the back faces of a closed mesh (`CAPPABLE`, `is_back_face`): the
+  slope-scaled `FACE_DEPTH_BIAS` pushes a grazing front face back further than the steeper back
+  face under it, so along a silhouette that back face won a pixel-wide band and showed its shadowed
+  inside (a dark rim line in the rendered view). Open meshes, translucent and sectioned meshes keep
+  both sides. Enhanced shading scales highlight and rim with the face
   colour's lightness so dimmed and tinted bodies stay dark and keep their hue.
 
 ## Colour and light

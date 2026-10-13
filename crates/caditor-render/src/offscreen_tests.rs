@@ -5548,3 +5548,87 @@ fn the_rendered_view_draws_a_blue_sky_and_the_ground_catches_a_body_s_shadow() {
         pixel(&unshadowed, shadow)
     );
 }
+
+fn upright_disc(radius: f64, height: f64, segments: u32) -> ShadedMesh {
+    let ring = |z: f64, step: u32, normal: Vector3, round: bool| {
+        let angle = std::f64::consts::TAU * f64::from(step) / f64::from(segments);
+        let outward = Vector3::new(angle.cos(), angle.sin(), 0.0);
+        MeshPoint {
+            position: Point3::new(outward.x * radius, outward.y * radius, z),
+            normal: if round { outward } else { normal },
+        }
+    };
+    let wall = MeshFace {
+        points: (0..=segments)
+            .flat_map(|step| [0.0, height].map(|z| ring(z, step, Vector3::ZERO, true)))
+            .collect(),
+        triangles: (0..segments)
+            .flat_map(|step| {
+                let first = step * 2;
+                [[first, first + 2, first + 3], [first, first + 3, first + 1]]
+            })
+            .collect(),
+    };
+    let cap = |z: f64, normal: Vector3| MeshFace {
+        points: std::iter::once(MeshPoint {
+            position: Point3::new(0.0, 0.0, z),
+            normal,
+        })
+        .chain((0..=segments).map(|step| ring(z, step, normal, false)))
+        .collect(),
+        triangles: (0..segments).map(|step| [0, step + 1, step + 2]).collect(),
+    };
+    ShadedMesh::new([wall, cap(height, Vector3::Z), cap(0.0, -Vector3::Z)]).with_closed(true)
+}
+
+#[test]
+fn the_hidden_inside_of_a_closed_body_never_shows_along_its_far_silhouette() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let disc = Arc::new(upright_disc(40.0, 8.0, 96));
+    let wall_style = FaceStyle {
+        color: Color::from_rgb8(255, 0, 0),
+        pick: None,
+        finish: Some(MATTE),
+    };
+    let cap_style = FaceStyle {
+        color: Color::from_rgb8(160, 170, 200),
+        ..wall_style
+    };
+    let scene = Scene {
+        meshes: vec![MeshInstance {
+            mesh: Arc::clone(&disc),
+            faces: vec![wall_style, cap_style, cap_style].into(),
+            placement: None,
+        }],
+        lighting: Some(crate::Lighting {
+            environment: 1.0,
+            shadows: true,
+            ..lit_by(-1.4, std::f64::consts::FRAC_PI_4)
+        }),
+        ..Scene::default()
+    };
+    let viewpoint =
+        Viewpoint::looking_from(Vector3::new(0.8, -1.0, 0.6), Point3::ZERO, 150.0).unwrap();
+    let view = View::new(viewpoint, f64::from(SIZE), f64::from(SIZE));
+    let middle = view.project(Point3::new(0.0, 0.0, 8.0)).unwrap();
+    let mut renderer = viewport_renderer(&device, 4);
+
+    let rendered = render_with(
+        &mut renderer,
+        &device,
+        &queue,
+        &full_frame(&view, &scene, middle),
+    );
+    let far_side = (0..SIZE)
+        .flat_map(|x| (0..middle.y as u32).map(move |y| DVec2::new(f64::from(x), f64::from(y))));
+    let showing_through = far_side
+        .filter(|at| {
+            let [red, _, blue, _] = pixel(&rendered, *at);
+            red > blue
+        })
+        .count();
+
+    assert_eq!(showing_through, 0);
+}

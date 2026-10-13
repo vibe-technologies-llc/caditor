@@ -2563,7 +2563,7 @@ impl Pipelines {
                 &lit_mesh_pipeline_layout,
                 "vs_mesh",
                 &meshes,
-                "fs_mesh",
+                "fs_mesh_solid",
                 true,
             ),
             sectioned_meshes: color(

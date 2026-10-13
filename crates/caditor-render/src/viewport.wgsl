@@ -1381,6 +1381,16 @@ fn fs_mesh(in: Varyings) -> @location(0) vec4<f32> {
     return shade(in);
 }
 
+@fragment
+fn fs_mesh_solid(in: Varyings) -> @location(0) vec4<f32> {
+    let back = is_back_face(in);
+    let hidden_inside = back && (in.sectioned & CAPPABLE) != 0u;
+    if in.color.a <= 0.0 || is_cut(in) || hidden_inside {
+        discard;
+    }
+    return shade(in);
+}
+
 fn ray_reach(relative: vec3<f32>) -> vec3<f32> {
     if is_orthographic() {
         return view.forward_near.xyz * view_depth(relative);
