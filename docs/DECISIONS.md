@@ -39,6 +39,11 @@ decision recorded in `docs/` before work starts.
   HTTP on localhost with a token), whether connecting needs a click in the app every time or once
   per client, whether an assistant's changes are one undo step per call or grouped per request,
   and whether it may save over the user's file or only export beside it.
+- [low · medium] A body made of one separate piece of a feature (`app-modelling.md`, Separate
+  pieces) takes its ID from the range of feature IDs no feature can hold, so body references keep
+  their type through the code and the file format; the price is that a body ID is no longer always
+  a feature ID. Decide whether to keep that or give bodies an ID type of their own, which reaches
+  about 600 sites and the file format.
 - [low · easy] Trim cuts at the reference axes as at any curve (`Cutter::Axis`), so a circle
   centred on the X axis, as a lever's pivot on the origin or a slot along the axis is, loses only
   the quarter between a tangent line's touching point and the axis when its inside is picked: the
