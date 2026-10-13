@@ -93,6 +93,7 @@ use crate::{
     undo_history,
     version_preview::PICTURE_SIZE,
     viewport::ViewportState,
+    visibility::{self, Needs},
     window_export::WindowExport,
     window_frame::{self, Chrome},
 };
@@ -198,6 +199,7 @@ pub struct Workspace {
     pair_reading: PairReading,
     awaiting_paste: Option<Command>,
     copied: Option<String>,
+    principal_listed: bool,
     session: u64,
 }
 
@@ -257,6 +259,7 @@ impl Workspace {
             pair_reading: PairReading::default(),
             awaiting_paste: None,
             copied: None,
+            principal_listed: false,
             session: 0,
         }
     }
@@ -500,6 +503,7 @@ pub fn show(
     actions: &mut Vec<Action>,
 ) {
     workspace.sync(model);
+    workspace.principal_listed = visibility::take_listing(ui.ctx());
     completion::publish(ui.ctx(), model);
     if model.is_checking_constraints() {
         ui.ctx().request_repaint_after(constraint_trial::PATIENCE);
@@ -623,7 +627,8 @@ pub fn show(
     }
     let mut commands = CommandFrame::new(&preferences.keymap, triggered).with_clipboard(clipboard);
     let toggles = ToggleStates::of(viewport, section.open)
-        .with_cosmetic_threads(model.threads_shown_cosmetic());
+        .with_cosmetic_threads(model.threads_shown_cosmetic())
+        .with_principal_when_needed(preferences.principal.when_needed());
     let menu = MenuContext {
         views: model.document().saved_views(),
         sets: model.document().selection_sets(),
@@ -653,6 +658,11 @@ pub fn show(
     }
     if commands.available(Command::Measure) {
         measure.toggle();
+    }
+    if commands.available(Command::ShowPrincipalWhenNeeded) {
+        actions.push(Action::Preferences(PreferencesCommand::Change(
+            PreferenceChange::PrincipalWhenNeeded(!preferences.principal.when_needed()),
+        )));
     }
     if commands.available(Command::Interference) {
         interference.toggle();
@@ -978,7 +988,8 @@ pub fn show(
         None => {}
     }
     let menu_toggles = ToggleStates::of(viewport, section.open)
-        .with_cosmetic_threads(model.threads_shown_cosmetic());
+        .with_cosmetic_threads(model.threads_shown_cosmetic())
+        .with_principal_when_needed(preferences.principal.when_needed());
     let entries = MenuEntries::new(&offers, menu_toggles, &preferences.keymap);
     deferred_commands.extend(viewport.show_menu(ui.ctx(), model, editing, entries, blocked));
     if let Some(feature) = viewport.take_row_to_choose() {
@@ -1022,7 +1033,8 @@ pub fn show(
             palette.open();
         }
         let toggles = ToggleStates::of(viewport, section.open)
-            .with_cosmetic_threads(model.threads_shown_cosmetic());
+            .with_cosmetic_threads(model.threads_shown_cosmetic())
+        .with_principal_when_needed(preferences.principal.when_needed());
         palette.show(
             ui.ctx(),
             &offers,
@@ -1448,7 +1460,18 @@ pub fn perform(
     workspace
         .editing
         .announce_switch(model, notice_before.as_ref());
+    tuck_principal_away(model, workspace);
     rerun
+}
+
+fn tuck_principal_away(model: &mut Model, workspace: &Workspace) {
+    let needs = Needs {
+        editing: &workspace.editing,
+        measuring: workspace.measure.open,
+        listing: workspace.principal_listed,
+    };
+    let tucked = visibility::tucked_away(model.document(), workspace.preferences.principal, &needs);
+    model.tuck_principal_away(tucked);
 }
 
 fn run_due(model: &mut Model, workspace: &mut Workspace) -> bool {

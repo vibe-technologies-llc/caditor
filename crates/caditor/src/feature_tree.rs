@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use caditor_document::{
     BlendKind, CombineOperation, Datum, Document, Edit, Feature, FeatureError, FeatureId,
     FeatureKind, FeatureState, FeatureStatus, FixTarget, Healing, MissingInput, PatternKind,
-    PrimitiveKind, RollbackBar, SketchFeature, SolidFeature, SolidResult, Transaction, TreeRow,
+    PrimitiveKind, PrincipalGeometry, RollbackBar, SketchFeature, SolidFeature, SolidResult, Transaction, TreeRow,
 };
 use caditor_expression::Expression;
 use caditor_sketch::{Constraint, ConstraintId, Redundancy, Sketch, SketchSolution};
@@ -2502,17 +2502,25 @@ fn feature_commands(
         actions.push(Action::Apply(transaction));
     }
     if let Some(transaction) = offer_change(offers, commands, Command::HideOthers, None, || {
-        visibility::hide_others(document, selection, chosen.rows, editing.feature())
+        visibility::hide_others(
+            document,
+            model.principal_view(),
+            selection,
+            chosen.rows,
+            editing.feature(),
+        )
     }) {
         actions.push(Action::Apply(transaction));
     }
     if let Some(transaction) = offer_change(offers, commands, Command::ShowAll, None, || {
         visibility::show_all(document)
     }) {
+        let shown_principal: Vec<PrincipalGeometry> = document.hidden_principal().collect();
         actions.push(Action::Apply(transaction));
+        actions.push(Action::KeepPrincipalShown(shown_principal));
     }
     if commands.invoke(Command::TogglePrincipal, &Ok::<_, String>(())) {
-        actions.push(Action::Apply(visibility::toggle_principal_group(document)));
+        actions.extend(visibility::toggle_principal_group(document, model.principal_view()).actions);
     }
     for (command, kind) in [
         Command::ToggleSketches,

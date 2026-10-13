@@ -198,6 +198,7 @@ pub enum Command {
     ToggleVisibility,
     ShowAll,
     TogglePrincipal,
+    ShowPrincipalWhenNeeded,
     ToggleSketches,
     ToggleDatums,
     ToggleBodies,
@@ -712,6 +713,7 @@ plain_commands! {
     ToggleVisibility,
     ShowAll,
     TogglePrincipal,
+    ShowPrincipalWhenNeeded,
     ToggleSketches,
     ToggleDatums,
     ToggleBodies,
@@ -1079,6 +1081,7 @@ impl Command {
             Self::ToggleVisibility => "view.toggle_visibility",
             Self::ShowAll => "view.show_all",
             Self::TogglePrincipal => "view.toggle_principal",
+            Self::ShowPrincipalWhenNeeded => "view.principal_when_needed",
             Self::ToggleSketches => "view.toggle_sketches",
             Self::ToggleDatums => "view.toggle_datums",
             Self::ToggleBodies => "view.toggle_bodies",
@@ -1349,6 +1352,7 @@ impl Command {
             Self::ToggleVisibility => "Hide or show feature",
             Self::ShowAll => "Show everything",
             Self::TogglePrincipal => "Hide or show principal planes, axes and origin",
+            Self::ShowPrincipalWhenNeeded => "Show principal planes only when needed",
             Self::ToggleSketches => "Hide or show every sketch",
             Self::ToggleDatums => "Hide or show every datum",
             Self::ToggleBodies => "Hide or show every body",
@@ -1543,6 +1547,7 @@ impl Command {
             Self::TakeBackPoint => &["backspace", "undo point"],
             Self::FinishShape => &["stop", "end", "done"],
             Self::ChainArc => &["arc", "tangent", "segment", "chain"],
+            Self::ShowPrincipalWhenNeeded => &["hide planes", "reference planes", "automatically"],
             _ => &[],
         }
     }
@@ -1645,6 +1650,7 @@ impl Command {
             | Self::ToggleVisibility
             | Self::ShowAll
             | Self::TogglePrincipal
+            | Self::ShowPrincipalWhenNeeded
             | Self::ToggleSketches
             | Self::ToggleDatums
             | Self::ToggleBodies
@@ -2041,6 +2047,7 @@ impl Command {
             | Self::ToggleCentresOfMass
             | Self::ToggleControlPolygons
             | Self::ToggleCosmeticThreads
+            | Self::ShowPrincipalWhenNeeded
             | Self::MinimizeWindow
             | Self::MaximizeWindow
             | Self::SaveView

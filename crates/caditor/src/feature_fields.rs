@@ -16,6 +16,7 @@ use crate::{
     pattern_tools,
     reference_picking::{self, Picking, Slot},
     selection::Selection,
+    visibility,
     widgets::{self, FIELD_WIDTH, Named, Tone},
 };
 
@@ -371,8 +372,30 @@ pub fn combo<T>(
     selected: impl Into<WidgetText>,
     choices: impl FnOnce() -> Vec<Choice<T>>,
 ) -> Option<T> {
+    listing(ui, id, selected, choices).0
+}
+
+pub fn principal_combo<T>(
+    ui: &mut Ui,
+    id: Id,
+    selected: impl Into<WidgetText>,
+    choices: impl FnOnce() -> Vec<Choice<T>>,
+) -> Option<T> {
+    let (chosen, open) = listing(ui, id, selected, choices);
+    if open {
+        visibility::listing_principal(ui.ctx());
+    }
+    chosen
+}
+
+fn listing<T>(
+    ui: &mut Ui,
+    id: Id,
+    selected: impl Into<WidgetText>,
+    choices: impl FnOnce() -> Vec<Choice<T>>,
+) -> (Option<T>, bool) {
     let mut chosen = None;
-    widgets::combo(id, selected).show(ui, |ui| {
+    let shown = widgets::combo(id, selected).show(ui, |ui| {
         for choice in choices() {
             let enabled = choice.change.is_ok() || choice.selected;
             let button = widgets::button(choice.label.clone()).selected(choice.selected);
@@ -392,7 +415,7 @@ pub fn combo<T>(
             }
         }
     });
-    chosen
+    (chosen, shown.inner.is_some())
 }
 
 pub fn operation_name(operation: BodyOperation) -> &'static str {
@@ -663,7 +686,7 @@ pub fn axis_row(
                     Some(text) => text.into(),
                     None => widgets::muted(NONE_CHOSEN, ui).into(),
                 };
-                actions.extend(combo(ui, id, shown, listed));
+                actions.extend(principal_combo(ui, id, shown, listed));
             }
             (None, Some(text)) => {
                 ui.add(Label::new(text).wrap());

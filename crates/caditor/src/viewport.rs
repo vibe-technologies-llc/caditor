@@ -1251,7 +1251,7 @@ impl ViewportState {
         let evaluation = model.evaluation();
         let display = model.display();
         let edited = editing.feature();
-        let context = editing.context();
+        let context = editing.context().with_principal(model.principal_view());
         self.filter_applies =
             context.sketch.is_none() && context.solid.is_none() && !context.choosing_plane;
         if edited != self.edited {
@@ -1573,7 +1573,7 @@ impl ViewportState {
             canvas: self.canvas,
             draft: None,
         };
-        let context = editing.context();
+        let context = editing.context().with_principal(model.principal_view());
         let view = self
             .camera
             .view(f64::from(size.width), f64::from(size.height));
@@ -2197,7 +2197,7 @@ impl ViewportState {
         };
         let document = model.document();
         let evaluation = model.evaluation();
-        let context = editing.context();
+        let context = editing.context().with_principal(model.principal_view());
         let mut painted: Vec<Pickable> = Vec::new();
         for at in samples {
             for face in paint_selection::faces_under(
@@ -2578,7 +2578,7 @@ impl ViewportState {
             let touched: Vec<FeatureId> = caught.iter().filter_map(|item| item.body()).collect();
             caught = body_selection::whole_bodies(model, &touched, body_selection::Kind::Faces);
         }
-        let context = editing.context();
+        let context = editing.context().with_principal(model.principal_view());
         caught.retain(|pickable| pickable.is_available(document, evaluation, context));
         if !keep {
             self.selection.clear();

@@ -72,6 +72,42 @@ impl Slot {
             Self::SweepPath | Self::ShellOwnThickness | Self::HoleAdd
         )
     }
+
+    pub fn takes_principal_geometry(self) -> bool {
+        match self {
+            Self::RevolveAxis
+            | Self::ExtrudeTarget(_)
+            | Self::StartPlane
+            | Self::HoleTarget
+            | Self::RevolveTarget
+            | Self::ExtrudeDirection
+            | Self::MirrorPlane
+            | Self::SplitPlane
+            | Self::SplitDirection
+            | Self::PatternDirection
+            | Self::PatternSecond
+            | Self::PatternBase
+            | Self::DatumBase
+            | Self::DatumRotation
+            | Self::MoveAxis
+            | Self::PrimitivePlace
+            | Self::MateTarget(_)
+            | Self::FrameOrigin
+            | Self::FrameAxis
+            | Self::FramePlane
+            | Self::ScaleCentre
+            | Self::MeasuredItem(_)
+            | Self::HoleEdge(_)
+            | Self::HoleConcentric(_) => true,
+            Self::HolePlace
+            | Self::HoleAdd
+            | Self::ShellOwnThickness
+            | Self::ThreadFace
+            | Self::SweepPath
+            | Self::PatternPath
+            | Self::MateMoving(_) => false,
+        }
+    }
 }
 
 pub const MAX_HELD: usize = 2;

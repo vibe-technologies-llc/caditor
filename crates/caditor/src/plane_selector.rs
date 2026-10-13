@@ -45,7 +45,7 @@ pub fn combo_showing<T>(
     planes: Vec<PlaneReference>,
     change: impl Fn(&PlaneReference) -> Result<T, String>,
 ) -> Option<T> {
-    feature_fields::combo(ui, id, shown, || {
+    feature_fields::principal_combo(ui, id, shown, || {
         planes
             .into_iter()
             .map(|plane| Choice {

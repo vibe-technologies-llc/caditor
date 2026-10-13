@@ -832,6 +832,7 @@ impl Menus<'_> {
                     self.choice(ui, Command::ToggleCentresOfMass);
                     self.choice(ui, Command::ToggleControlPolygons);
                     self.choice(ui, Command::ToggleCosmeticThreads);
+                    self.choice(ui, Command::ShowPrincipalWhenNeeded);
                     ui.separator();
                     self.items(
                         ui,

@@ -36,7 +36,7 @@ use crate::{
     scene_palette::{Canvas, Contrast, Highlights, PointFill, ScenePalette, SketchState},
     selection::{self, Axis, Pickable, PrincipalPlane, Selection, SelectionFilter},
     view_aids::ViewAids,
-    visibility,
+    visibility::{self, PrincipalView},
 };
 
 pub const fn opaque(color: egui::Color32) -> Color {
@@ -987,7 +987,9 @@ pub fn build_keeping(
             builder.sketch_references(feature.id(), displayed.plane(), reference_size);
             if context.intersecting {
                 for plane in PrincipalPlane::ALL {
-                    if visibility::is_principal_shown(document, PrincipalGeometry::Plane(plane))
+                    if context
+                        .principal
+                        .shows(document, PrincipalGeometry::Plane(plane))
                         && datum_outline(&plane.plane(), &displayed.plane(), 1.0).is_some()
                     {
                         builder.principal_plane(plane, reference_size);
@@ -1002,26 +1004,33 @@ pub fn build_keeping(
                     }
                 }
             } else if context.projecting {
-                builder.projectable_references(document, evaluation, feature.id(), reference_size);
+                builder.projectable_references(
+                    (document, context.principal),
+                    evaluation,
+                    feature.id(),
+                    reference_size,
+                );
             }
         }
         None => {
             for plane in PrincipalPlane::ALL {
                 if context.choosing_plane
-                    || visibility::is_principal_shown(document, PrincipalGeometry::Plane(plane))
+                    || context
+                        .principal
+                        .shows(document, PrincipalGeometry::Plane(plane))
                 {
                     builder.principal_plane(plane, reference_size);
                 }
             }
             for axis in Axis::ALL {
-                if visibility::is_principal_shown(
-                    document,
-                    PrincipalGeometry::Axis(axis.principal()),
-                ) {
+                if context
+                    .principal
+                    .shows(document, PrincipalGeometry::Axis(axis.principal()))
+                {
                     builder.axis(axis, reference_size);
                 }
             }
-            if visibility::is_principal_shown(document, PrincipalGeometry::Origin) {
+            if context.principal.shows(document, PrincipalGeometry::Origin) {
                 builder.origin();
             }
             for feature in document.active_features() {
@@ -2694,17 +2703,17 @@ impl<'a> Builder<'a> {
 
     fn projectable_references(
         &mut self,
-        document: &Document,
+        (document, principal): (&Document, PrincipalView),
         evaluation: &Evaluation,
         sketch: FeatureId,
         size: f64,
     ) {
         for axis in Axis::ALL {
-            if visibility::is_principal_shown(document, PrincipalGeometry::Axis(axis.principal())) {
+            if principal.shows(document, PrincipalGeometry::Axis(axis.principal())) {
                 self.axis(axis, size);
             }
         }
-        if visibility::is_principal_shown(document, PrincipalGeometry::Origin) {
+        if principal.shows(document, PrincipalGeometry::Origin) {
             self.origin();
         }
         let earlier = document

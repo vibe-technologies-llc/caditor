@@ -9,7 +9,7 @@ use std::{
 use caditor_document::{
     Base, Document, Editor, Evaluation, Feature, FeatureError, FeatureId, FeatureKind,
     FeatureResult, FeatureState, Healing, ModelEvaluator, Move, Outcome, ParameterValues, Pivot,
-    Prepared, Progress, Recomputer, Rgb, SketchResult, Stale, Transaction, TransactionBuilder,
+    Prepared, PrincipalGeometry, Progress, Recomputer, Rgb, SketchResult, Stale, Transaction, TransactionBuilder,
     TurnCentre, UndoMark, displayed_axis, displayed_frame,
 };
 use caditor_file::{
@@ -38,6 +38,7 @@ use crate::{
     scene,
     selection::SelectionFilter,
     units::{AngleUnit, LengthUnit, Units},
+    visibility::{KeptShown, PrincipalView},
     widgets::Tone,
 };
 
@@ -62,6 +63,7 @@ pub enum Action {
     StopPreparingBodies,
     PrepareStoppedBodies,
     ShowThreadsAsCosmetic(bool),
+    KeepPrincipalShown(Vec<PrincipalGeometry>),
     DismissNotice,
     Inform(Notice),
     Drag(DragCommand),
@@ -262,6 +264,7 @@ pub struct Model {
     pasted: Option<PastedFeatures>,
     pastes_finished: u64,
     threads_cosmetic: bool,
+    principal: PrincipalView,
 }
 
 pub const THREADS_COSMETIC_ON: &str = "Modelled threads are shown as cosmetic while you edit, so \
@@ -315,6 +318,7 @@ impl Model {
             pasted: None,
             pastes_finished: 0,
             threads_cosmetic: false,
+            principal: PrincipalView::default(),
         };
         model.start_storage(None, None);
         model.recompute(Retry::Nothing);
@@ -327,6 +331,14 @@ impl Model {
 
     pub fn threads_shown_cosmetic(&self) -> bool {
         self.threads_cosmetic
+    }
+
+    pub fn principal_view(&self) -> PrincipalView {
+        self.principal
+    }
+
+    pub fn tuck_principal_away(&mut self, tucked_away: bool) {
+        self.principal.tucked_away = tucked_away;
     }
 
     pub fn document_as_shown(&self) -> Document {
@@ -1038,6 +1050,10 @@ impl Model {
                 }));
                 Ok(None)
             }
+            Action::KeepPrincipalShown(geometries) => {
+                self.principal.kept = self.principal.kept.with(geometries);
+                Ok(None)
+            }
             Action::DismissNotice => {
                 self.notice = None;
                 Ok(None)
@@ -1605,6 +1621,7 @@ impl Model {
         self.on_disk = session.on_disk;
         self.entries = entries;
         self.keep_original = session.keep_original;
+        self.principal.kept = KeptShown::default();
         self.unprotected = None;
         self.pending_save = None;
         self.notice = None;

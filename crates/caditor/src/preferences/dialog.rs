@@ -27,6 +27,10 @@ const HEIGHT_CHANGE: f32 = 0.5;
 const CONFIRM_KEY: &str = "preferences-confirm-defaults";
 const TALLEST_KEY: &str = "preferences-tallest-body";
 const RESTORE_DEFAULTS: &str = "Restore defaults";
+const PRINCIPAL_WHEN_NEEDED: &str = "Show principal planes only when needed";
+const PRINCIPAL_WHEN_NEEDED_HOVER: &str = "Once the model has a body, the principal planes, axes \
+     and origin show only while you choose a plane, axis or point; showing them yourself keeps \
+     them shown";
 
 pub struct PreferencesView<'a> {
     pub tab: PreferencesTab,
@@ -729,6 +733,15 @@ fn navigation(ui: &mut Ui, preferences: &Preferences, command: &mut Option<Prefe
             });
             if let Some(projection) = choice(ui, &options, navigation.projection) {
                 change(command, PreferenceChange::Projection(projection));
+            }
+        });
+        widgets::property(ui, "Principal planes", |ui| {
+            let mut when_needed = preferences.principal.when_needed();
+            if widgets::checkbox(ui, &mut when_needed, PRINCIPAL_WHEN_NEEDED)
+                .on_hover_text(PRINCIPAL_WHEN_NEEDED_HOVER)
+                .changed()
+            {
+                change(command, PreferenceChange::PrincipalWhenNeeded(when_needed));
             }
         });
     });

@@ -452,15 +452,14 @@ impl Pickable {
             Self::Plane(plane) => {
                 (editing.is_none() || context.intersecting)
                     && (context.choosing_plane
-                        || visibility::is_principal_shown(
-                            document,
-                            PrincipalGeometry::Plane(plane),
-                        ))
+                        || context
+                            .principal
+                            .shows(document, PrincipalGeometry::Plane(plane)))
             }
             Self::Origin | Self::Axis(_) => {
                 (editing.is_none() || (context.projecting && !context.intersecting))
                     && visibility::principal(self)
-                        .is_some_and(|geometry| visibility::is_principal_shown(document, geometry))
+                        .is_some_and(|geometry| context.principal.shows(document, geometry))
             }
             Self::Face { body, face } => {
                 outside_sketch

@@ -23,6 +23,7 @@ use crate::{
     onboarding::{Hint, Onboarding},
     palette,
     units::{AngleUnit, LengthUnit},
+    visibility::PrincipalPreference,
 };
 
 pub const MIN_SPEED: f64 = 0.25;
@@ -40,6 +41,7 @@ const ZOOM_KEY: &str = "navigation.zoom_speed";
 const INVERT_ZOOM_KEY: &str = "navigation.invert_zoom";
 const INPUT_MODE_KEY: &str = "navigation.input_mode";
 const PROJECTION_KEY: &str = "navigation.projection";
+const PRINCIPAL_WHEN_NEEDED_KEY: &str = "navigation.principal_when_needed";
 const TITLE_BAR_KEY: &str = "appearance.title_bar";
 const PALETTE_RECENT_KEY: &str = "palette.recent";
 const RECENT_COLOURS_KEY: &str = "body.recent_colours";
@@ -150,8 +152,8 @@ impl PreferencesTab {
                  contrast with caditor's title bar. Only this tab changes"
             }
             Self::Navigation => {
-                "Go back to perspective, normal orbit and zoom speeds, and scrolling up to zoom \
-                 in. Only this tab changes"
+                "Go back to perspective, principal planes shown only when needed, normal orbit \
+                 and zoom speeds, and scrolling up to zoom in. Only this tab changes"
             }
             Self::Graphics => {
                 "Go back to vsync on, matching the display's frame rate, 4× anti-aliasing, \
@@ -335,6 +337,7 @@ pub struct Preferences {
     pub angle: AngleUnit,
     pub appearance: Appearance,
     pub navigation: Navigation,
+    pub principal: PrincipalPreference,
     pub title_bar: TitleBar,
     pub graphics: Graphics,
     pub onboarding: Onboarding,
@@ -363,6 +366,7 @@ pub enum PreferenceChange {
     ZoomSpeed(f64),
     InvertZoom(bool),
     Projection(ProjectionMode),
+    PrincipalWhenNeeded(bool),
     InputMode(InputMode),
     TitleBar(TitleBar),
     DefaultTemplate(Option<String>),
@@ -515,6 +519,10 @@ impl Preferences {
                     .and_then(InputMode::from_key)
                     .unwrap_or_default(),
             },
+            principal: raw
+                .flag(PRINCIPAL_WHEN_NEEDED_KEY)
+                .map(PrincipalPreference::from_flag)
+                .unwrap_or_default(),
             title_bar: raw
                 .text(TITLE_BAR_KEY)
                 .and_then(TitleBar::from_key)
@@ -548,6 +556,7 @@ impl Preferences {
         settings.set_flag(INVERT_ZOOM_KEY, self.navigation.invert_zoom);
         settings.set_text(PROJECTION_KEY, projection_key(self.navigation.projection));
         settings.set_text(INPUT_MODE_KEY, self.navigation.input_mode.key());
+        settings.set_flag(PRINCIPAL_WHEN_NEEDED_KEY, self.principal.when_needed());
         settings.set_text(TITLE_BAR_KEY, self.title_bar.key());
         self.graphics.write(&mut settings);
         self.keymap.write(&self.loaded_keymap, &mut settings);
@@ -596,6 +605,9 @@ impl Preferences {
             PreferenceChange::InvertZoom(invert) => self.navigation.invert_zoom = invert,
             PreferenceChange::Projection(projection) => self.navigation.projection = projection,
             PreferenceChange::InputMode(mode) => self.navigation.input_mode = mode,
+            PreferenceChange::PrincipalWhenNeeded(when_needed) => {
+                self.principal = PrincipalPreference::from_flag(when_needed);
+            }
             PreferenceChange::TitleBar(bar) => self.title_bar = bar,
             PreferenceChange::DefaultTemplate(name) => self.default_template = name,
             PreferenceChange::Vsync(vsync) => self.graphics.vsync = vsync,
@@ -667,7 +679,10 @@ impl Preferences {
                 self.appearance = from.appearance.clone();
                 self.title_bar = from.title_bar;
             }
-            PreferencesTab::Navigation => self.navigation = from.navigation,
+            PreferencesTab::Navigation => {
+                self.navigation = from.navigation;
+                self.principal = from.principal;
+            }
             PreferencesTab::Graphics => self.graphics = from.graphics,
         }
     }

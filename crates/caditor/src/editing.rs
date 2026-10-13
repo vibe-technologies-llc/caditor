@@ -15,6 +15,7 @@ use crate::{
     shape_modes::{ShapeMode, ShapeModes},
     sketch_placement::{self, DatumTarget, FaceChoice},
     variants::all_variants,
+    visibility::PrincipalView,
 };
 
 const NEW_SKETCH_PREFIX: &str = "Sketch";
@@ -298,9 +299,14 @@ pub struct Context {
     pub intersecting: bool,
     pub selecting: bool,
     pub choosing_in_view: bool,
+    pub principal: PrincipalView,
 }
 
 impl Context {
+    pub fn with_principal(self, principal: PrincipalView) -> Self {
+        Self { principal, ..self }
+    }
+
     pub fn picks_shown_regions(self) -> bool {
         self.sketch.is_none()
             && self.solid.is_none()
@@ -458,6 +464,7 @@ impl SketchEditing {
                 .active
                 .is_some_and(|active| active.tool == Tool::Select),
             choosing_in_view: self.picking.is_some(),
+            principal: PrincipalView::default(),
         }
     }
 
