@@ -3,7 +3,7 @@ use std::{cell::LazyCell, f64::consts::TAU};
 use caditor_geometry::{Point2, Vector2};
 use caditor_sketch::{ArcGeometry, Constraint, EllipseGeometry, Entity, EntityId, Sketch};
 
-use crate::body_snap::BodyTarget;
+use crate::body_snap::{BodySnaps, BodyTarget};
 
 pub const POINT_TOLERANCE: f64 = 8.0;
 pub const CURVE_TOLERANCE: f64 = 6.0;
@@ -379,12 +379,13 @@ pub fn resolve(
         })
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy)]
 pub struct Lookup<'a> {
     pub pending: &'a [(usize, Point2)],
     pub accept: Accept,
     pub extended: &'a [EntityId],
     pub ignored: &'a [EntityId],
+    pub bodies: Option<&'a BodySnaps>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -427,20 +428,36 @@ pub fn held(
         Accept::Points => Vec::new(),
         Accept::OnCircle { center, radius } => crossings(sketch, center, radius),
     };
-    let on_curve = || {
-        let snapped = nearest(curve_like, pull(HELD_CURVE_PULL))?;
-        Some(
-            grid.and_then(|spacing| grid_crossing_on(sketch, snapped, spacing))
-                .unwrap_or(snapped),
-        )
+    let on_grid = |snapped: Snapped| {
+        grid.and_then(|spacing| grid_crossing_on(sketch, lookup.bodies, snapped, spacing))
+            .unwrap_or(snapped)
+    };
+    let on_curve = || nearest(curve_like, pull(HELD_CURVE_PULL)).map(on_grid);
+    let body_point = || {
+        lookup
+            .bodies?
+            .point_within(screen, pointer, lookup.accept, pull(HELD_POINT_PULL))
+    };
+    let body_edge = || {
+        lookup
+            .bodies?
+            .edge_within(screen, pointer, lookup.accept, pull(HELD_CURVE_PULL))
+            .map(on_grid)
     };
     nearest(point_like, pull(HELD_POINT_PULL))
+        .or_else(body_point)
         .or_else(on_curve)
+        .or_else(body_edge)
         .map(Held::Target)
         .or(crossing.map(|(_, position)| Held::Grid(position)))
 }
 
-fn grid_crossing_on(sketch: &Sketch, snapped: Snapped, spacing: f64) -> Option<Snapped> {
+fn grid_crossing_on(
+    sketch: &Sketch,
+    bodies: Option<&BodySnaps>,
+    snapped: Snapped,
+    spacing: f64,
+) -> Option<Snapped> {
     let crossing = (snapped.position / spacing).round() * spacing;
     let foot = match snapped.target {
         Target::Curve(axis) if axis == EntityId::HORIZONTAL_AXIS => Point2::new(crossing.x, 0.0),
@@ -463,8 +480,8 @@ fn grid_crossing_on(sketch: &Sketch, snapped: Snapped, spacing: f64) -> Option<S
         | Target::Tangent(_)
         | Target::Intersection(..)
         | Target::Centre { .. }
-        | Target::Centroid(_)
-        | Target::Body(_) => return None,
+        | Target::Centroid(_) => return None,
+        Target::Body(target) => bodies?.foot(target, crossing)?,
     };
     let on = foot.distance(crossing) <= ON_GRID_TOLERANCE * (1.0 + crossing.abs().max_element());
     on.then_some(Snapped {
@@ -1571,6 +1588,7 @@ pub mod tests {
             accept: Accept::Anything,
             extended: &[],
             ignored: &[],
+            bodies: None,
         };
         held(sketch, &Scaled(10.0), pointer_at(at), lookup, grid)
     }

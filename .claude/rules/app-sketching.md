@@ -104,8 +104,9 @@ and, for off-ribbon tools, a partner's corner menu.
   and itself ignored, never a point nearer the centre than `SMALLEST_SNAPPED_RADIUS`, no body items,
   tracks or guides); release adds `Coincident` of that point with the circle (`Join::rim_of`, which
   `reached` also checks against the solved radius). Tracks and extensions work as while drawing, from the grab's own `Acquired`. It snaps to body
-  items too (`Grab::snapping_to_bodies`, `Grab::onto_body`): where `tracking::land` found no
-  point-like target, a body corner, middle or centre, else an edge; never with Alt. Release sends the
+  items too (`Grab::snapping_to_bodies`, handed to `tracking::land`, whose `onto_body` takes them):
+  where no point-like target was found, a body corner, middle or centre, else an edge; with Alt they
+  pull as in the held snap (Snapping). Release sends the
   target's and tracks' constraints (`Landing::joins`, `Join::body` as `BodyJoin`) with
   `DragCommand::Finish`; `Model::commit_drag` adds them (projecting body items, or reusing the
   projection) to the settle transaction when the solved point reached the landing, leaving out any
@@ -506,7 +507,10 @@ and, for off-ribbon tools, a partner's corner menu.
   curve. Targets keep their constraints; a grid crossing is free and, for points that align or level
   from a start (`aligned_from`, `levelled_from`), exactly level or upright with it takes Horizontal or
   Vertical. Width points never snap, typed points are untouched, and with the grid hidden only
-  entities are taken.
+  entities are taken. Body items pull too (`Lookup::bodies`, none for a tangent arc's start or a
+  circle's rim drag): corners, middles and centres after point-like sketch targets
+  (`BodySnaps::point_within`), body edges after sketch curves (`BodySnaps::edge_within`), an edge
+  moving to the grid crossing nearest its foot when that lies on it (`BodySnaps::foot`).
 - While a drawing tool draws, the shown bodies standing at the sketch (`Evaluation::body_state_seen_by`;
   later or hidden bodies left out) are snapped to too (`body_snap.rs`, `Target::Body`): corners, edge
   middles projecting to a line or arc, round edge centres, and any point on an edge, each matched where
@@ -515,9 +519,8 @@ and, for off-ribbon tools, a partner's corner menu.
   more than it saves). Where two project to one place the one nearer the sketch plane wins
   (`BodySnaps` keeps candidates sorted by depth). Priority: point-like sketch targets, body corners,
   middles and centres, sketch curves, body edges. `Accept::Points` takes body corners and centres
-  only, `OnCircle` none, nor does a tangent arc's start; the held snap, directions' and tracks'
-  crossings and acquired points take none, as a body item is not in the sketch until a point lands on
-  it.
+  only, `OnCircle` none, nor does a tangent arc's start; directions' and tracks' crossings and
+  acquired points take none, as a body item is not in the sketch until a point lands on it.
 - A point landing on a body item projects that vertex or edge in the shape's own transaction
   (`Draft::projection` through `TransactionBuilder::add_projected`: the same fixed geometry and stable
   `ProjectionSource` Project makes, or the existing projection, once per shape) and joins it:
@@ -535,7 +538,12 @@ and, for off-ribbon tools, a partner's corner menu.
   pick survives a cache rebuild): where the GPU hover is no sketch point, the nearest body corner or
   round-edge centre within `POINT_TOLERANCE` is hovered, else, where no sketch curve either, the
   nearest body edge; drawn by `ViewportState::body_preview`, available only while that sketch is
-  edited. `body_picks::Staged` turns picked sketch entities and body items into one sketch: each body
+  edited. The highlight commands reach them after the scene's pickables
+  (`ViewportState::steppable_body_items` from `BodySnaps::steppable`: corners and round-edge
+  centres, then edges, each place or path once, the one nearer the sketch plane kept), the
+  highlighted one drawn by `body_preview` as a hovered one and kept while the cache holds it;
+  Activate picks it as a click would and Show the context menu opens at it
+  (`ViewportState::body_item_on_screen`). `body_picks::Staged` turns picked sketch entities and body items into one sketch: each body
   item is projected through a throwaway transaction (`add_projected`, reusing the sketch's existing
   projection of that source or one already staged), its entities inserted into clones of the
   definition and displayed sketch as projected; staged ids are those the real transaction allocates,

@@ -1222,6 +1222,7 @@ impl Drawing {
             accept: self.accept(shape),
             extended: self.acquired.lines(),
             ignored: &[],
+            bodies: self.offers_bodies(shape).then_some(&*self.bodies),
         };
         match snap::held(sketch, screen, pointer, lookup, hold.grid) {
             Some(Held::Target(snapped)) => Placement::snapped(snapped),
@@ -1230,6 +1231,10 @@ impl Drawing {
             }
             None => Placement::free(pointer.sketch),
         }
+    }
+
+    fn offers_bodies(&self, shape: Shape) -> bool {
+        !(shape == Shape::TangentArc && self.placed.is_empty())
     }
 
     fn level_on_grid(&self, shape: Shape, crossing: Point2) -> Option<Direction> {
@@ -2835,7 +2840,7 @@ impl Drawing {
             self.acquired.lines(),
             &[],
         );
-        let offers_bodies = !(shape == Shape::TangentArc && self.placed.is_empty());
+        let offers_bodies = self.offers_bodies(shape);
         let resolved = match resolved {
             Some(resolved) if resolved.target.is_point_like() || !offers_bodies => Some(resolved),
             None if !offers_bodies => None,

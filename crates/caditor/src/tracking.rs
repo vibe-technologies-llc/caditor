@@ -2,9 +2,10 @@ use caditor_geometry::{Point2, Vector2};
 use caditor_sketch::{Constraint, Entity, EntityId, Sketch};
 
 use crate::{
+    body_snap::BodySnaps,
     snap::{
         self, Accept, AxisEnd, Held, Hold, Lookup, NOT_KEPT_THERE, ON_THE_GRID, Pointer, Screen,
-        Target,
+        Snapped, Target,
     },
     trimming,
 };
@@ -513,13 +514,59 @@ pub fn land(
     sketch: &Sketch,
     screen: &impl Screen,
     pointer: Pointer,
-    acquired: &Acquired,
-    ignored: &[EntityId],
+    (acquired, ignored): (&Acquired, &[EntityId]),
     hold: Option<Hold>,
+    bodies: Option<&BodySnaps>,
 ) -> Option<Landing> {
     if let Some(hold) = hold {
-        return land_held(sketch, screen, pointer, acquired, ignored, hold);
+        let lookup = Lookup {
+            pending: &[],
+            accept: Accept::Anything,
+            extended: acquired.lines(),
+            ignored,
+            bodies,
+        };
+        return land_held(sketch, screen, pointer, lookup, hold);
     }
+    let landing = land_freely(sketch, screen, pointer, acquired, ignored);
+    match bodies {
+        Some(bodies) => onto_body(bodies, landing, screen, pointer),
+        None => landing,
+    }
+}
+
+fn onto_body(
+    bodies: &BodySnaps,
+    landing: Option<Landing>,
+    screen: &impl Screen,
+    pointer: Pointer,
+) -> Option<Landing> {
+    let on_body = |snapped: Snapped| Landing {
+        position: snapped.position,
+        target: Some(snapped.target),
+        tracks: Tracks::default(),
+        on_grid: false,
+    };
+    match landing {
+        Some(landing) if landing.target.is_some_and(Target::is_point_like) => Some(landing),
+        Some(landing) => bodies
+            .point(screen, pointer, Accept::Anything)
+            .map(on_body)
+            .or(Some(landing)),
+        None => bodies
+            .point(screen, pointer, Accept::Anything)
+            .or_else(|| bodies.edge(screen, pointer, Accept::Anything))
+            .map(on_body),
+    }
+}
+
+fn land_freely(
+    sketch: &Sketch,
+    screen: &impl Screen,
+    pointer: Pointer,
+    acquired: &Acquired,
+    ignored: &[EntityId],
+) -> Option<Landing> {
     let snapped = snap::resolve(
         sketch,
         screen,
@@ -568,16 +615,9 @@ fn land_held(
     sketch: &Sketch,
     screen: &impl Screen,
     pointer: Pointer,
-    acquired: &Acquired,
-    ignored: &[EntityId],
+    lookup: Lookup,
     hold: Hold,
 ) -> Option<Landing> {
-    let lookup = Lookup {
-        pending: &[],
-        accept: Accept::Anything,
-        extended: acquired.lines(),
-        ignored,
-    };
     let landing = match snap::held(sketch, screen, pointer, lookup, hold.grid)? {
         Held::Target(snapped) => Landing {
             position: snapped.position,

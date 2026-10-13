@@ -16,6 +16,7 @@ use crate::{
 };
 
 const SAME_POINT: f64 = 1e-9;
+const SAME_PLACE: f64 = 1e-6;
 const ARC_PREVIEW_SEGMENTS: usize = 64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -376,6 +377,16 @@ impl BodySnaps {
     }
 
     pub fn point(&self, screen: &impl Screen, pointer: Pointer, accept: Accept) -> Option<Snapped> {
+        self.point_within(screen, pointer, accept, snap::POINT_TOLERANCE)
+    }
+
+    pub fn point_within(
+        &self,
+        screen: &impl Screen,
+        pointer: Pointer,
+        accept: Accept,
+        tolerance: f64,
+    ) -> Option<Snapped> {
         nearest(
             self.points
                 .iter()
@@ -383,12 +394,22 @@ impl BodySnaps {
                 .map(|point| (point.position, point.source, point.part)),
             screen,
             pointer,
-            snap::POINT_TOLERANCE,
+            tolerance,
         )
         .map(|(position, source, part)| self.snapped(position, source, part))
     }
 
     pub fn edge(&self, screen: &impl Screen, pointer: Pointer, accept: Accept) -> Option<Snapped> {
+        self.edge_within(screen, pointer, accept, snap::CURVE_TOLERANCE)
+    }
+
+    pub fn edge_within(
+        &self,
+        screen: &impl Screen,
+        pointer: Pointer,
+        accept: Accept,
+        tolerance: f64,
+    ) -> Option<Snapped> {
         if !BodyPart::Edge.takes(accept) {
             return None;
         }
@@ -402,9 +423,64 @@ impl BodySnaps {
             }),
             screen,
             pointer,
-            snap::CURVE_TOLERANCE,
+            tolerance,
         )
         .map(|(position, source, part)| self.snapped(position, source, part))
+    }
+
+    pub fn foot(&self, target: BodyTarget, point: Point2) -> Option<Point2> {
+        self.source(target)?;
+        if target.part != BodyPart::Edge {
+            return None;
+        }
+        self.edges
+            .iter()
+            .find(|edge| edge.source == target.source)?
+            .path
+            .closest(point)
+    }
+
+    pub fn steppable(&self) -> Vec<(FeatureId, BodyItem)> {
+        let mut places: Vec<Point2> = Vec::new();
+        let points = self
+            .points
+            .iter()
+            .filter(|point| matches!(point.part, BodyPart::Corner | BodyPart::Centre))
+            .filter(|point| {
+                let fresh = places
+                    .iter()
+                    .all(|place| place.distance(point.position) > SAME_PLACE);
+                if fresh {
+                    places.push(point.position);
+                }
+                fresh
+            })
+            .map(|point| (point.source, point.part))
+            .collect::<Vec<_>>();
+        let mut paths: Vec<Vec<Point2>> = Vec::new();
+        let edges = self
+            .edges
+            .iter()
+            .filter(|edge| {
+                let path = edge.path.polyline();
+                let fresh = paths.iter().all(|seen| !same_path(seen, &path));
+                if fresh {
+                    paths.push(path);
+                }
+                fresh
+            })
+            .map(|edge| (edge.source, BodyPart::Edge));
+        points
+            .into_iter()
+            .chain(edges)
+            .filter_map(|(source, part)| {
+                self.item(BodyTarget {
+                    source,
+                    part,
+                    generation: self.generation,
+                })
+            })
+            .collect()
     }
 
     fn snapped(&self, position: Point2, source: usize, part: BodyPart) -> Snapped {
@@ -479,6 +555,12 @@ impl BodySnaps {
             BodyPart::Edge => format!("On an edge of {body}"),
         })
     }
+}
+
+fn same_path(first: &[Point2], second: &[Point2]) -> bool {
+    let near = |(a, b): (&Point2, &Point2)| a.distance(*b) <= SAME_PLACE;
+    first.len() == second.len()
+        && (first.iter().zip(second).all(near) || first.iter().zip(second.iter().rev()).all(near))
 }
 
 fn nearest(
