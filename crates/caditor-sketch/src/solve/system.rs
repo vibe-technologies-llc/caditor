@@ -39,6 +39,7 @@ pub(crate) struct System {
     pub spans_at_variable: BTreeMap<usize, Vec<usize>>,
     pub splines: BTreeMap<EntityId, Arc<SplineHandle>>,
     pub hidden: BTreeMap<EntityId, Vec<usize>>,
+    pub targets: BTreeMap<ConstraintId, usize>,
     pub rhos: BTreeMap<EntityId, f64>,
 }
 
@@ -100,6 +101,7 @@ impl System {
             spans_at_variable: BTreeMap::new(),
             splines: BTreeMap::new(),
             hidden: BTreeMap::new(),
+            targets: BTreeMap::new(),
             rhos: sketch
                 .active_constraints()
                 .filter_map(|(id, constraint)| match *constraint {
@@ -168,6 +170,9 @@ impl System {
             if starts.is_empty() {
                 starts = system.parameter_start(sketch, &joints, constraint)?;
             }
+            if starts.is_empty() {
+                starts = system.target_parameter_start(sketch, constraint)?;
+            }
             if !starts.is_empty() {
                 let indices = starts
                     .into_iter()
@@ -187,6 +192,12 @@ impl System {
                     })
                     .collect();
                 system.parameters.insert(id, indices);
+            }
+        }
+        for (id, constraint) in sketch.active_constraints() {
+            if let Some(start) = system.hidden_target_start(sketch, constraint) {
+                system.targets.insert(id, system.values.len());
+                system.values.extend([start.x, start.y]);
             }
         }
         for (id, constraint) in sketch.active_constraints() {
@@ -513,49 +524,17 @@ impl System {
             },
             Constraint::Horizontal(line) => vec![Form::Horizontal(self.line(sketch, line)?)],
             Constraint::Vertical(line) => vec![Form::Vertical(self.line(sketch, line)?)],
-            Constraint::HorizontalPoints(a, b) => vec![Form::SameY(self.point(a)?, self.point(b)?)],
-            Constraint::VerticalPoints(a, b) => vec![Form::SameX(self.point(a)?, self.point(b)?)],
+            Constraint::HorizontalPoints(..)
+            | Constraint::VerticalPoints(..)
+            | Constraint::OnDirection { .. }
+            | Constraint::Centroid { .. } => self.tracking_forms(sketch, id, constraint)?,
             Constraint::OnMinorAxis { point, ellipse } => vec![Form::OnMinorAxis {
                 point: self.point(point)?,
                 axis: self.line(sketch, ellipse)?,
             }],
-            Constraint::Midpoint { point, curve } => match sketch.entity(curve) {
-                Some(&Entity::EllipticalArc { start, end, .. }) => {
-                    let (point, ellipse) = (self.point(point)?, self.ellipse(sketch, curve)?);
-                    vec![
-                        Form::OnEllipse { point, ellipse },
-                        Form::EllipseMiddle {
-                            point,
-                            ends: (self.point(start)?, self.point(end)?),
-                            ellipse,
-                        },
-                    ]
-                }
-                Some(&Entity::Arc { start, end, .. }) => {
-                    let (point, arc) = (self.point(point)?, self.circle(sketch, curve)?);
-                    let (start, end) = (self.point(start)?, self.point(end)?);
-                    let chord = LineHandle {
-                        start,
-                        end,
-                        fallback: self.initial_direction(start, end),
-                    };
-                    vec![
-                        Form::OnBisector { point, chord },
-                        Form::ArcBulge { point, chord, arc },
-                    ]
-                }
-                _ => {
-                    let (point, line) = (self.point(point)?, self.line(sketch, curve)?);
-                    [Vector2::X, Vector2::Y]
-                        .into_iter()
-                        .map(|along| Form::Middle {
-                            point,
-                            ends: (line.start, line.end),
-                            along,
-                        })
-                        .collect()
-                }
-            },
+            Constraint::Midpoint { point, curve } => {
+                self.middle_forms(sketch, self.point(point)?, curve)?
+            }
             Constraint::Concentric(a, b) => {
                 let centre = |entity: EntityId| match role(entity)? {
                     Role::Point => self.point(entity),

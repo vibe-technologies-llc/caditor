@@ -166,6 +166,25 @@ paths:
   the solver shapes the conic with the evaluated value (`System::rhos`) and writes it into the
   solved geometry, so a parameter drives the shape. `Sketch::measured` gives it. Projected conics
   refuse it (`OnlyReference`).
+- Point targets (`target.rs`, `PointTarget`): a sketch point, the middle of a line, arc or
+  elliptical arc, the crossing of two curves (lines, axes, circles, arcs, ellipses, splines), the
+  centre of corners (`Centroid`, their mean), a quadrant of a circle or of an arc's whole circle
+  (`Quadrant`) and an end of an ellipse's axes (`EllipseEnd`). `HorizontalPoints` and
+  `VerticalPoints` hold a point level or upright with one (a sketch point is the two-point form
+  every older use writes); `OnDirection { point, through, line, square }` holds it on the line
+  through one along a line or square to it (the perpendicular bisector when `through` is that
+  line's middle); `Centroid { point, corners }` holds it at the centre of corners. `check_target`
+  refuses a wrong kind, a repeated entity or the held point itself (`SameEntity`) and fewer than
+  two corners (`TooFewCorners`); `Constraint::entities` lists each entity once. `target_places`
+  gives where a target lies (both crossings of a line and a circle), `target_position` the one a
+  constraint means: the place it misses least, the nearest the held point among ties.
+  `describe_target` names it in words ("the crossing of Line 1 and Circle 2"), so `describe`
+  reads "Horizontal Point 5 and the midpoint of Line 1", "Perpendicular bisector of Line 1 at
+  Point 5", "Centre of Point 1, Point 2 and Point 3 at Point 7". `restating` compares targets with
+  a crossing's curves and the corners in order, and a target that is a sketch point keeps the
+  two-point subject. Trim, extend, split and the sketch fillet drop a constraint tracking a middle
+  of a curve they reshape (`follows_a_middle` in `keeps_length` and `keeps_sweep`), as they drop
+  `Midpoint`.
 - `Midpoint { point, curve }` takes a line, arc or elliptical arc, never a circle or whole ellipse.
   On an arc it is two single-branch equations (`Form::OnBisector`, on the chord's perpendicular
   bisector; `Form::ArcBulge`, signed distance from the centre across the chord equals the radius on

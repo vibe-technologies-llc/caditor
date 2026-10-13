@@ -750,7 +750,7 @@ fn shift_constraints(
     let vertical = literal && vector.x.abs() <= tolerance;
     let horizontal = literal && vector.y.abs() <= tolerance;
     let across = if vertical {
-        Constraint::VerticalPoints(earlier, later)
+        Constraint::VerticalPoints(earlier, later.into())
     } else {
         Constraint::HorizontalDistance {
             from: earlier,
@@ -763,7 +763,7 @@ fn shift_constraints(
         }
     };
     let up = if horizontal {
-        Constraint::HorizontalPoints(earlier, later)
+        Constraint::HorizontalPoints(earlier, later.into())
     } else {
         Constraint::VerticalDistance {
             from: earlier,

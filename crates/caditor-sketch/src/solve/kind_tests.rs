@@ -560,8 +560,14 @@ fn points_made_horizontal_or_vertical_line_up() {
     let level = sketch.add_point(Point2::new(8.0, 3.0));
     let plumb = sketch.add_point(Point2::new(2.0, -6.0));
     fix(&mut sketch, anchor);
-    add(&mut sketch, Constraint::HorizontalPoints(anchor, level));
-    add(&mut sketch, Constraint::VerticalPoints(plumb, anchor));
+    add(
+        &mut sketch,
+        Constraint::HorizontalPoints(anchor, level.into()),
+    );
+    add(
+        &mut sketch,
+        Constraint::VerticalPoints(plumb, anchor.into()),
+    );
 
     let solved = solve(&sketch).unwrap();
 
@@ -572,7 +578,7 @@ fn points_made_horizontal_or_vertical_line_up() {
     let line = sketch.add_line(Point2::new(0.0, 10.0), Point2::new(5.0, 10.5));
     let (start, end) = ends(&sketch, line);
     let horizontal = add(&mut sketch, Constraint::Horizontal(line));
-    let repeated = add(&mut sketch, Constraint::HorizontalPoints(start, end));
+    let repeated = add(&mut sketch, Constraint::HorizontalPoints(start, end.into()));
     let solved = solve(&sketch).unwrap();
     assert_eq!(
         solved.solution.redundancies(),
@@ -704,11 +710,11 @@ fn a_point_keeps_its_side_of_a_circle_at_a_distance() {
     let inside = sketch.add_point(Point2::new(0.0, -7.0));
     add(
         &mut sketch,
-        Constraint::HorizontalPoints(outside, EntityId::ORIGIN),
+        Constraint::HorizontalPoints(outside, EntityId::ORIGIN.into()),
     );
     add(
         &mut sketch,
-        Constraint::VerticalPoints(inside, EntityId::ORIGIN),
+        Constraint::VerticalPoints(inside, EntityId::ORIGIN.into()),
     );
     add(
         &mut sketch,
@@ -810,11 +816,11 @@ fn circles_keep_their_gap_outside_or_within_each_other() {
     }
     add(
         &mut sketch,
-        Constraint::HorizontalPoints(outside_centre, middle),
+        Constraint::HorizontalPoints(outside_centre, middle.into()),
     );
     add(
         &mut sketch,
-        Constraint::VerticalPoints(inside_centre, middle),
+        Constraint::VerticalPoints(inside_centre, middle.into()),
     );
     add(
         &mut sketch,
@@ -854,7 +860,7 @@ fn a_circle_keeps_its_gap_from_a_line_on_its_side() {
     );
     add(
         &mut sketch,
-        Constraint::VerticalPoints(centre, EntityId::ORIGIN),
+        Constraint::VerticalPoints(centre, EntityId::ORIGIN.into()),
     );
     let gap = add(
         &mut sketch,
@@ -1075,7 +1081,7 @@ fn a_point_on_a_spline_slides_along_it() {
     let point = sketch.add_point(Point2::new(5.0, 9.0));
     let guide = sketch.add_point(Point2::new(5.0, -3.0));
     fix(&mut sketch, guide);
-    add(&mut sketch, Constraint::VerticalPoints(point, guide));
+    add(&mut sketch, Constraint::VerticalPoints(point, guide.into()));
     add(&mut sketch, Constraint::Coincident(point, spline));
 
     let solved = solve(&sketch).unwrap();
@@ -1374,7 +1380,10 @@ fn two_splines_joined_end_to_end_turn_tangent_at_the_joint() {
     add(&mut sketch, Constraint::Coincident(theirs[0], ours[2]));
     fix(&mut sketch, theirs[2]);
     let column = guide(&mut sketch, Point2::new(25.0, -20.0));
-    add(&mut sketch, Constraint::VerticalPoints(theirs[1], column));
+    add(
+        &mut sketch,
+        Constraint::VerticalPoints(theirs[1], column.into()),
+    );
     add(&mut sketch, Constraint::Tangent(first, second));
 
     let solved = solve(&sketch).unwrap();
@@ -1442,7 +1451,10 @@ fn a_spline_joined_to_an_arc_with_curvature_bends_as_the_arc_does() {
     add(&mut sketch, Constraint::Coincident(points[0], start));
     fix(&mut sketch, points[1]);
     let row = guide(&mut sketch, Point2::new(-20.0, -12.0));
-    add(&mut sketch, Constraint::HorizontalPoints(points[2], row));
+    add(
+        &mut sketch,
+        Constraint::HorizontalPoints(points[2], row.into()),
+    );
     add(&mut sketch, Constraint::Curvature(spline, arc));
 
     let solved = solve(&sketch).unwrap();
@@ -1466,8 +1478,14 @@ fn a_spline_running_on_from_a_line_with_curvature_starts_straight() {
     add(&mut sketch, Constraint::Coincident(points[0], end));
     let near = guide(&mut sketch, Point2::new(5.0, -20.0));
     let far = guide(&mut sketch, Point2::new(10.0, -20.0));
-    add(&mut sketch, Constraint::VerticalPoints(points[1], near));
-    add(&mut sketch, Constraint::VerticalPoints(points[2], far));
+    add(
+        &mut sketch,
+        Constraint::VerticalPoints(points[1], near.into()),
+    );
+    add(
+        &mut sketch,
+        Constraint::VerticalPoints(points[2], far.into()),
+    );
     add(&mut sketch, Constraint::Tangent(spline, line));
     add(&mut sketch, Constraint::Curvature(spline, line));
 
@@ -1495,8 +1513,14 @@ fn two_splines_with_curvature_bend_alike_through_their_joint() {
     add(&mut sketch, Constraint::Coincident(theirs[0], ours[2]));
     let near = guide(&mut sketch, Point2::new(25.0, 20.0));
     let far = guide(&mut sketch, Point2::new(30.0, 20.0));
-    add(&mut sketch, Constraint::VerticalPoints(theirs[1], near));
-    add(&mut sketch, Constraint::VerticalPoints(theirs[2], far));
+    add(
+        &mut sketch,
+        Constraint::VerticalPoints(theirs[1], near.into()),
+    );
+    add(
+        &mut sketch,
+        Constraint::VerticalPoints(theirs[2], far.into()),
+    );
     add(&mut sketch, Constraint::Tangent(second, first));
     add(&mut sketch, Constraint::Curvature(second, first));
 
@@ -1514,7 +1538,10 @@ fn a_point_keeps_its_distance_from_a_spline_measured_square_to_it() {
     let spline = arch(&mut sketch);
     let point = sketch.add_point(Point2::new(10.0, 9.0));
     let column = guide(&mut sketch, Point2::new(10.0, -20.0));
-    add(&mut sketch, Constraint::VerticalPoints(point, column));
+    add(
+        &mut sketch,
+        Constraint::VerticalPoints(point, column.into()),
+    );
     let measured = sketch
         .measured(&Constraint::Distance {
             from: point,
@@ -1554,7 +1581,7 @@ fn a_point_off_the_side_of_a_spline_slides_to_its_distance_along_a_guide() {
     let spline = arch(&mut sketch);
     let point = sketch.add_point(Point2::new(4.0, 1.0));
     let row = guide(&mut sketch, Point2::new(-30.0, 1.0));
-    add(&mut sketch, Constraint::HorizontalPoints(point, row));
+    add(&mut sketch, Constraint::HorizontalPoints(point, row.into()));
     add(
         &mut sketch,
         Constraint::Distance {
@@ -1647,7 +1674,10 @@ fn two_splines_touch_tangent_away_from_their_ends() {
     fix(&mut sketch, points[0]);
     fix(&mut sketch, points[2]);
     let column = guide(&mut sketch, Point2::new(10.0, -20.0));
-    add(&mut sketch, Constraint::VerticalPoints(points[1], column));
+    add(
+        &mut sketch,
+        Constraint::VerticalPoints(points[1], column.into()),
+    );
     add(&mut sketch, Constraint::Tangent(below, above));
 
     let solved = solve(&sketch).unwrap();
@@ -1671,7 +1701,7 @@ fn equal_splines_and_a_line_take_one_length() {
     fix(&mut sketch, points[1]);
     add(
         &mut sketch,
-        Constraint::HorizontalPoints(points[0], points[2]),
+        Constraint::HorizontalPoints(points[0], points[2].into()),
     );
     add(&mut sketch, Constraint::Equal(spline, other));
     let line = sketch.add_line(Point2::new(0.0, -20.0), Point2::new(5.0, -20.0));

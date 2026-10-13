@@ -190,23 +190,22 @@ impl Track {
         }
     }
 
-    fn constraint(self, point: EntityId) -> Option<Constraint> {
-        match (self.anchor, self.axis) {
-            (Target::Point(anchor), Axis::Level) => {
-                Some(Constraint::HorizontalPoints(point, anchor))
-            }
-            (Target::Point(anchor), Axis::Upright) => {
-                Some(Constraint::VerticalPoints(point, anchor))
-            }
-            _ => None,
-        }
+    fn constraint(self, sketch: &Sketch, point: EntityId) -> Option<Constraint> {
+        let through = self.anchor.point_target(sketch, self.from)?;
+        Some(match self.axis {
+            Axis::Level => Constraint::HorizontalPoints(point, through),
+            Axis::Upright => Constraint::VerticalPoints(point, through),
+            Axis::Slanted { line, square, .. } => Constraint::OnDirection {
+                point,
+                through,
+                line,
+                square,
+            },
+        })
     }
 
-    fn is_held(self) -> bool {
-        matches!(
-            (self.anchor, self.axis),
-            (Target::Point(_), Axis::Level | Axis::Upright)
-        )
+    fn is_held(self, sketch: &Sketch) -> bool {
+        self.anchor.point_target(sketch, self.from).is_some()
     }
 
     fn shares_anchor(self, other: Self) -> bool {
@@ -283,8 +282,9 @@ impl Tracks {
         self.iter().map(|track| track.anchor)
     }
 
-    pub fn constraints(self, point: EntityId) -> impl Iterator<Item = Constraint> {
-        self.iter().filter_map(move |track| track.constraint(point))
+    pub fn constraints(self, sketch: &Sketch, point: EntityId) -> impl Iterator<Item = Constraint> {
+        self.iter()
+            .filter_map(move |track| track.constraint(sketch, point))
     }
 
     pub fn guides(self, to: Point2) -> impl Iterator<Item = [Point2; 2]> {
@@ -293,7 +293,7 @@ impl Tracks {
 
     pub fn label(self, sketch: &Sketch) -> Option<String> {
         let (held, loose): (Vec<Track>, Vec<Track>) =
-            self.iter().partition(|track| track.is_held());
+            self.iter().partition(|track| track.is_held(sketch));
         let words: Vec<String> = held
             .iter()
             .chain(&loose)
@@ -363,7 +363,9 @@ pub fn nearby(
             let Some(kept) = best.get_mut(slot) else {
                 continue;
             };
-            if offset <= TRACK_TOLERANCE && kept.is_none_or(|kept| prefers((offset, track), kept)) {
+            if offset <= TRACK_TOLERANCE
+                && kept.is_none_or(|kept| prefers(sketch, (offset, track), kept))
+            {
                 *kept = Some((offset, track));
             }
         }
@@ -385,9 +387,19 @@ pub fn nearby(
     }
 }
 
-fn prefers((offset, track): (f64, Track), (kept_offset, kept): (f64, Track)) -> bool {
+fn prefers(
+    sketch: &Sketch,
+    (offset, track): (f64, Track),
+    (kept_offset, kept): (f64, Track),
+) -> bool {
     if (offset - kept_offset).abs() <= TIED_OFFSET {
-        track.is_held() && !kept.is_held()
+        let rank = |track: Track| {
+            (
+                track.is_held(sketch),
+                matches!(track.anchor, Target::Point(_)),
+            )
+        };
+        rank(track) > rank(kept)
     } else {
         offset < kept_offset
     }
@@ -482,12 +494,12 @@ pub struct Landing {
 }
 
 impl Landing {
-    pub fn joins(self, point: EntityId) -> Vec<Constraint> {
+    pub fn joins(self, sketch: &Sketch, point: EntityId) -> Vec<Constraint> {
         self.target
-            .map(|target| target.joins(point))
+            .map(|target| target.joins(sketch, point))
             .unwrap_or_default()
             .into_iter()
-            .chain(self.tracks.constraints(point))
+            .chain(self.tracks.constraints(sketch, point))
             .collect()
     }
 
@@ -730,6 +742,7 @@ fn nearest(
 #[cfg(test)]
 mod tests {
     use caditor_geometry::Plane;
+    use caditor_sketch::{PointTarget, Quadrant};
 
     use super::*;
     use crate::snap::tests::Scaled;
@@ -821,10 +834,11 @@ mod tests {
             ))
         );
         assert_eq!(
-            both.constraints(EntityId::from_raw(99)).collect::<Vec<_>>(),
+            both.constraints(&sketch, EntityId::from_raw(99))
+                .collect::<Vec<_>>(),
             vec![
-                Constraint::HorizontalPoints(EntityId::from_raw(99), left),
-                Constraint::VerticalPoints(EntityId::from_raw(99), below),
+                Constraint::HorizontalPoints(EntityId::from_raw(99), left.into()),
+                Constraint::VerticalPoints(EntityId::from_raw(99), below.into()),
             ]
         );
 
@@ -926,7 +940,7 @@ mod tests {
         assert_eq!(
             squared.label(&sketch),
             Some(format!(
-                "perpendicular to {} from {}{NOT_KEPT_THERE}",
+                "perpendicular to {} from {}",
                 sketch.entity_label(line),
                 sketch.entity_label(end)
             ))
@@ -937,7 +951,17 @@ mod tests {
                 .abs()
                 < 1e-9
         );
-        assert_eq!(squared.constraints(EntityId::from_raw(99)).count(), 0);
+        assert_eq!(
+            squared
+                .constraints(&sketch, EntityId::from_raw(99))
+                .collect::<Vec<_>>(),
+            vec![Constraint::OnDirection {
+                point: EntityId::from_raw(99),
+                through: PointTarget::Point(end),
+                line,
+                square: true,
+            }]
+        );
         assert!(matches!(
             along.slanted,
             Some(Track {
@@ -953,8 +977,17 @@ mod tests {
         );
         assert!(met.position.distance(Point2::new(250.0 / 3.0, 0.0)) < 1e-9);
         assert_eq!(
-            both.constraints(EntityId::from_raw(99)).collect::<Vec<_>>(),
-            vec![Constraint::HorizontalPoints(EntityId::from_raw(99), other)]
+            both.constraints(&sketch, EntityId::from_raw(99))
+                .collect::<Vec<_>>(),
+            vec![
+                Constraint::HorizontalPoints(EntityId::from_raw(99), other.into()),
+                Constraint::OnDirection {
+                    point: EntityId::from_raw(99),
+                    through: PointTarget::Point(end),
+                    line,
+                    square: true,
+                },
+            ]
         );
     }
 
@@ -983,11 +1016,18 @@ mod tests {
         assert_eq!(level.position, Point2::new(45.0, 20.0));
         assert_eq!(
             level.tracks.label(&sketch),
-            Some(format!(
-                "horizontal from the midpoint of {label}{NOT_KEPT_THERE}"
-            ))
+            Some(format!("horizontal from the midpoint of {label}"))
         );
-        assert_eq!(level.tracks.constraints(EntityId::from_raw(99)).count(), 0);
+        assert_eq!(
+            level
+                .tracks
+                .constraints(&sketch, EntityId::from_raw(99))
+                .collect::<Vec<_>>(),
+            vec![Constraint::HorizontalPoints(
+                EntityId::from_raw(99),
+                PointTarget::Middle(line)
+            )]
+        );
         assert_eq!(upright.position, Point2::new(15.0, -10.0));
         assert!(
             (bisecting.position - middle)
@@ -997,9 +1037,19 @@ mod tests {
         );
         assert_eq!(
             bisecting.tracks.label(&sketch),
-            Some(format!(
-                "on the perpendicular bisector of {label}{NOT_KEPT_THERE}"
-            ))
+            Some(format!("on the perpendicular bisector of {label}"))
+        );
+        assert_eq!(
+            bisecting
+                .tracks
+                .constraints(&sketch, EntityId::from_raw(99))
+                .collect::<Vec<_>>(),
+            vec![Constraint::OnDirection {
+                point: EntityId::from_raw(99),
+                through: PointTarget::Middle(line),
+                line,
+                square: true,
+            }]
         );
         assert_eq!(
             bisecting.tracks.anchors().collect::<Vec<_>>(),
@@ -1077,7 +1127,7 @@ mod tests {
         assert_eq!(
             level_with_crossing.tracks.label(&sketch),
             Some(format!(
-                "horizontal from the crossing of {} and {}{NOT_KEPT_THERE}",
+                "horizontal from the crossing of {} and {}",
                 sketch.entity_label(rising),
                 sketch.entity_label(falling)
             ))
@@ -1090,7 +1140,15 @@ mod tests {
                 < 1e-9
         );
         assert!(met.position.distance(Point2::new(10.0, 45.0)) < 1e-9);
-        assert_eq!(met.tracks.constraints(EntityId::from_raw(99)).count(), 0);
+        let met_constraints: Vec<Constraint> = met
+            .tracks
+            .constraints(&sketch, EntityId::from_raw(99))
+            .collect();
+        assert_eq!(met_constraints.len(), 2);
+        assert!(met_constraints.contains(&Constraint::VerticalPoints(
+            EntityId::from_raw(99),
+            PointTarget::Crossing(rising, falling)
+        )));
 
         let ellipse_centre = sketch.entity(ellipse).unwrap().points()[0];
         sketch.remove_unused_entity(falling).unwrap();
@@ -1122,7 +1180,7 @@ mod tests {
     }
 
     #[test]
-    fn a_track_held_by_a_point_wins_over_an_unheld_one_lying_on_it() {
+    fn a_track_through_a_sketch_point_wins_over_another_lying_on_it() {
         let mut sketch = Sketch::new(Plane::XY);
         let circle = sketch.add_circle(Point2::ZERO, 10.0);
         let centre = sketch.entity(circle).unwrap().points()[0];
@@ -1146,17 +1204,32 @@ mod tests {
         assert_eq!(acquired.targets(), vec![top, Target::Point(centre), right]);
         assert_eq!(
             level_with_centre
-                .constraints(EntityId::from_raw(99))
+                .constraints(&sketch, EntityId::from_raw(99))
                 .collect::<Vec<_>>(),
-            vec![Constraint::HorizontalPoints(EntityId::from_raw(99), centre)]
+            vec![Constraint::HorizontalPoints(
+                EntityId::from_raw(99),
+                centre.into()
+            )]
         );
         assert_eq!(level_with_top.level.map(|track| track.anchor), Some(top));
         assert_eq!(
             level_with_top.label(&sketch),
             Some(format!(
-                "horizontal from the top of {}{NOT_KEPT_THERE}",
+                "horizontal from the top of {}",
                 sketch.entity_label(circle)
             ))
+        );
+        assert_eq!(
+            level_with_top
+                .constraints(&sketch, EntityId::from_raw(99))
+                .collect::<Vec<_>>(),
+            vec![Constraint::HorizontalPoints(
+                EntityId::from_raw(99),
+                PointTarget::Quadrant {
+                    curve: circle,
+                    side: Quadrant::Top,
+                }
+            )]
         );
     }
 

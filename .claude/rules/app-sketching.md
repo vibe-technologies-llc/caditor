@@ -107,7 +107,8 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   items too (`Grab::snapping_to_bodies`, handed to `tracking::land`, whose `onto_body` takes them):
   where no point-like target was found, a body corner, middle or centre, else an edge; with Alt they
   pull as in the held snap (Snapping). Release sends the
-  target's and tracks' constraints (`Landing::joins`, `Join::body` as `BodyJoin`) with
+  target's and tracks' constraints (`Landing::joins`, worked out on the displayed sketch each time
+  the landing is found and kept in `Grab::joins`; `Join::body` as `BodyJoin`) with
   `DragCommand::Finish`; `Model::commit_drag` adds them (projecting body items, or reusing the
   projection) to the settle transaction when the solved point reached the landing, leaving out any
   the sketch refuses, already has or contradicts.
@@ -419,8 +420,8 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   `Sketch::curve_crossings`), quadrants of a circle or arc (`Target::Quadrant`) and ellipse axis ends
   (`Target::AxisEnd`); then lines, circles, arcs, splines and axes within `CURVE_TOLERANCE`,
   projecting onto the curve. A snapped point gets a `Coincident` with its target (both curves at a
-  crossing), a `Midpoint` for a middle, a `Symmetric` of two opposite corners about it for a centre,
-  and for a quadrant a `Coincident` plus a horizontal or vertical points constraint with the centre.
+  crossing), a `Midpoint` for a middle, a `Symmetric` of two opposite corners about it for a centre
+  (a `Centroid` of the corners for an odd outline's), and for a quadrant a `Coincident` plus a horizontal or vertical points constraint with the centre.
   A major axis end is held by a `Symmetric` of the axis point and the new point about the centre; a
   minor axis end by a `Coincident` with the ellipse plus a vertical or horizontal points constraint
   with the centre when the major axis is level or upright (`AxisEnd::MinorUpright`, `MinorLevel`), else
@@ -435,9 +436,10 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   most `MAX_OUTLINE_LINES` pieces) of an even count whose opposite corners share one midpoint and
   whose opposite pieces are both lines or both arcs of one radius with centres mirrored about it
   (rectangle, parallelogram, even regular polygon, slot, rounded rectangle); a third piece at a corner
-  breaks the loop. An odd loop of lines has the area centroid as centre (`Target::Centroid`): the
-  point lands there but no constraint holds it, and the label ends "not kept there". A loop with a
-  piece or corner moving in a drag offers no centre.
+  breaks the loop. An odd loop of lines has the centre of its corners (their mean; none for a loop
+  of no area) as centre (`Target::Centroid`), held by a `Centroid` of the corner points the outline
+  search finds again from the target's piece (`snap::outline_corners`, one point per corner, so
+  `Target` stays `Copy`). A loop with a piece or corner moving in a drag offers no centre.
 - `Accept` keeps every shown snap a constraint that already holds: a circle's rim takes points only;
   an arc's end takes points on its circle and where it crosses other curves
   (`Sketch::circle_crossings`) and the axes.
@@ -472,21 +474,23 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   they cross. A track joins a curve snap where it crosses the curve (never along a line it runs on)
   and a line's direction where they cross, within `ALIGNED_CROSSING_TOLERANCE` (`tracking.rs`);
   point snaps never take one.
-- Only a track through a sketch point holds the placed point, by `HorizontalPoints` or
-  `VerticalPoints`. Through any other anchor the point lands exactly with no constraint: those take
-  sketch points only, and holding it would need a construction point at the middle, crossing or
-  centre (with its `Midpoint`, `Coincident`s or `Symmetric`) made in the shape's transaction,
-  clutter the user did not draw that stays behind, free, once its curves go; a perpendicular
-  bisector would need a construction line as well. The missing constraint is in
-  `docs/FEATURES.md`. The label names held tracks first and ends `NOT_KEPT_THERE` when any track
-  is not held, as an odd outline's centre does. Where two tracks of one kind coincide (a right
-  quadrant level with its centre), the held one wins (`prefers`, within `TIED_OFFSET`).
+- Every track holds the placed point at its anchor (`Track::constraint`): the anchor's
+  `Target::point_target` (`sketch.md`, point targets: a point, a middle, a crossing, the two
+  opposite corners of a `Centre` or the corners of a `Centroid`, a quadrant, an ellipse's far
+  major or nearer minor end) in `HorizontalPoints` or `VerticalPoints`, so the point follows the
+  middle, crossing or centre when its geometry moves, with no construction point left in the
+  sketch. The label names held tracks first and ends `NOT_KEPT_THERE` when a track's anchor has no
+  target (none does today). Where two tracks of one kind coincide (a right quadrant level with its
+  centre), a held one wins, then one through a sketch point, the simpler constraint (`prefers`,
+  within `TIED_OFFSET`). The canvas marks them H or V on the point (and on a target that is a
+  sketch point); `OnDirection` is `GlyphKind::Through` (a slanted stroke through a ring) and
+  `Centroid` `GlyphKind::Centre` (a triangle round a dot).
 - An anchor also tracks along each acquired line's direction and square to it (`Axis::Slanted`),
   never along a line through the anchor itself nor where the direction is level or upright, and the
   middle of a line tracks square to that line (`bisector`, labelled "on the perpendicular bisector
-  of"; for a level or upright line it is the upright or level track). Slanted tracks hold no
-  constraint (the sketch has none); a slanted track crossing a horizontal or vertical one keeps
-  that one's constraint. An acquired line extends past its ends: after curves, the pointer within
+  of"; for a level or upright line it is the upright or level track). A slanted track holds the
+  point by `OnDirection` along or square to its line through the anchor's target; crossing a
+  horizontal or vertical track, both hold. An acquired line extends past its ends: after curves, the pointer within
   `CURVE_TOLERANCE` of its infinite carrier snaps to it (`Target::Extension`, a `Coincident` on the
   line, which the solver treats as infinite); directions and tracks join it as they do a curve.
 - Snap to the grid (`Command::ToggleGridSnapping`, off by default, session-only in

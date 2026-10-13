@@ -46,7 +46,7 @@ fn a_sketch_drawn_by_hand_is_no_placement() {
     let first = with_constraint.add_point(Point2::new(5.0, 5.0));
     let second = with_constraint.add_point(Point2::new(15.0, 5.0));
     with_constraint
-        .add_constraint(Constraint::HorizontalPoints(first, second))
+        .add_constraint(Constraint::HorizontalPoints(first, second.into()))
         .unwrap();
     let empty = Sketch::new(Plane::XY);
 

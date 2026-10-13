@@ -50,7 +50,7 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 25] = [
+const KEPT: [(&str, &str); 26] = [
     (
         "journal-1/by-reference.journal",
         "fe98725da8d9df46b19d7cede1474bcfb92bbda00d4de9c890e5bca5d0f2899f",
@@ -118,6 +118,10 @@ const KEPT: [(&str, &str); 25] = [
     (
         "model-1/pipes.caditor",
         "909988d8544c3f301cd5ee4eaf0004e495666d337a5cbb5c912082cf7edc1667",
+    ),
+    (
+        "model-1/point-targets.caditor",
+        "63353e88ac0ec528f701fd78e6d927bd62bb1f737a17edda9f6588682c4ed3ce",
     ),
     (
         "model-1/primitives.caditor",
@@ -680,6 +684,10 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
         (model("sweeps"), saved(&sweeps(), "Sweeps")),
         (model("path-sweeps"), saved(&path_sweeps(), "Path sweeps")),
         (model("pipes"), saved(&pipes(), "Pipes")),
+        (
+            model("point-targets"),
+            saved(&point_targets(), "Point targets"),
+        ),
         (model("holes"), saved(&holes(), "Holes")),
         (
             model("modelled-threads"),
@@ -1017,6 +1025,14 @@ fn path_sweeps() -> Document {
         "Unchosen",
         FeatureKind::Solid(SolidFeature::Sweep(Sweep::new(sketch, SweepPath::Unchosen))),
     );
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
+fn point_targets() -> Document {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Point targets");
+    transaction.add_feature("Tracked", FeatureKind::from(tracked_sketch()));
     document.apply(transaction.finish()).unwrap();
     document
 }

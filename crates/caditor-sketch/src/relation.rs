@@ -5,6 +5,7 @@ use crate::{
     entity::Entity,
     id::{ConstraintId, EntityId},
     sketch::Sketch,
+    target::PointTarget,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -21,6 +22,14 @@ enum Subject {
     Pair(&'static str, [EntityId; 2]),
     Single(&'static str, EntityId),
     Triple(&'static str, EntityId, [EntityId; 2]),
+    Through(Direction, EntityId, PointTarget),
+    Along {
+        point: EntityId,
+        through: PointTarget,
+        line: EntityId,
+        square: bool,
+    },
+    Centre(EntityId, Vec<EntityId>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -106,10 +115,28 @@ impl Sketch {
         match *constraint {
             Constraint::Horizontal(line) => Subject::Direction(Direction::Level, self.ends(line)),
             Constraint::Vertical(line) => Subject::Direction(Direction::Plumb, self.ends(line)),
-            Constraint::HorizontalPoints(a, b) => {
-                Subject::Direction(Direction::Level, ordered(a, b))
+            Constraint::HorizontalPoints(point, ref through) => {
+                level_subject(Direction::Level, point, through)
             }
-            Constraint::VerticalPoints(a, b) => Subject::Direction(Direction::Plumb, ordered(a, b)),
+            Constraint::VerticalPoints(point, ref through) => {
+                level_subject(Direction::Plumb, point, through)
+            }
+            Constraint::OnDirection {
+                point,
+                ref through,
+                line,
+                square,
+            } => Subject::Along {
+                point,
+                through: canonical(through),
+                line,
+                square,
+            },
+            Constraint::Centroid { point, ref corners } => {
+                let mut corners = corners.clone();
+                corners.sort_unstable();
+                Subject::Centre(point, corners)
+            }
             Constraint::Coincident(a, b)
             | Constraint::Parallel(a, b)
             | Constraint::Perpendicular(a, b)
@@ -167,6 +194,28 @@ impl Sketch {
     }
 }
 
+fn level_subject(direction: Direction, point: EntityId, through: &PointTarget) -> Subject {
+    match through.point() {
+        Some(other) => Subject::Direction(direction, ordered(point, other)),
+        None => Subject::Through(direction, point, canonical(through)),
+    }
+}
+
+fn canonical(target: &PointTarget) -> PointTarget {
+    match target {
+        PointTarget::Crossing(first, second) => {
+            let [first, second] = ordered(*first, *second);
+            PointTarget::Crossing(first, second)
+        }
+        PointTarget::Centroid(corners) => {
+            let mut corners = corners.clone();
+            corners.sort_unstable();
+            PointTarget::Centroid(corners)
+        }
+        other => other.clone(),
+    }
+}
+
 fn ordered(a: EntityId, b: EntityId) -> [EntityId; 2] {
     if a <= b { [a, b] } else { [b, a] }
 }
@@ -209,7 +258,7 @@ mod tests {
 
         assert_eq!(sketch.restating(&Constraint::Horizontal(line)), Some(level));
         assert_eq!(
-            sketch.restating(&Constraint::HorizontalPoints(end, start)),
+            sketch.restating(&Constraint::HorizontalPoints(end, start.into())),
             Some(level)
         );
         assert_eq!(

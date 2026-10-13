@@ -15,6 +15,7 @@ use crate::{
         arc_joint, curve_pair_gap, ellipse_gap, joined_at_end, not_joined, spline_gap,
         straight_spline,
     },
+    target::{PointTarget, listed},
 };
 
 pub(crate) fn spline_through(positions: &[Point2], kind: SplineKind) -> Option<BSpline> {
@@ -119,6 +120,8 @@ pub enum SketchError {
     },
     #[error("it only uses reference or projected geometry, which never moves")]
     OnlyReference,
+    #[error("a centre needs at least two corners")]
+    TooFewCorners,
     #[error("{point} is part of {curve}")]
     OwnPoint { point: String, curve: String },
     #[error("{first} and {second} already share their centre")]
@@ -464,9 +467,48 @@ impl Sketch {
             | Constraint::Fix { point: entity, .. } => {
                 format!("{kind} {}", label(entity))
             }
+            Constraint::HorizontalPoints(point, ref through)
+            | Constraint::VerticalPoints(point, ref through) => {
+                format!(
+                    "{kind} {} and {}",
+                    label(point),
+                    self.describe_target(through)
+                )
+            }
+            Constraint::OnDirection {
+                point,
+                through: PointTarget::Middle(middle),
+                line,
+                square: true,
+            } if middle == line => {
+                format!(
+                    "Perpendicular bisector of {} at {}",
+                    label(line),
+                    label(point)
+                )
+            }
+            Constraint::OnDirection {
+                point,
+                ref through,
+                line,
+                square,
+            } => format!(
+                "{} {} through {} at {}",
+                if square {
+                    "Perpendicular to"
+                } else {
+                    "Parallel to"
+                },
+                label(line),
+                self.describe_target(through),
+                label(point)
+            ),
+            Constraint::Centroid { point, ref corners } => format!(
+                "{kind} of {} at {}",
+                listed(corners.iter().map(|corner| label(*corner)).collect()),
+                label(point)
+            ),
             Constraint::Coincident(a, b)
-            | Constraint::HorizontalPoints(a, b)
-            | Constraint::VerticalPoints(a, b)
             | Constraint::Parallel(a, b)
             | Constraint::Perpendicular(a, b)
             | Constraint::Tangent(a, b)
@@ -566,6 +608,8 @@ impl Sketch {
             | Constraint::Collinear(..)
             | Constraint::Symmetric { .. }
             | Constraint::OnMinorAxis { .. }
+            | Constraint::OnDirection { .. }
+            | Constraint::Centroid { .. }
             | Constraint::Fix { .. } => return None,
         };
         value.is_finite().then_some(value)
@@ -1033,9 +1077,27 @@ impl Sketch {
                 self.expect(line, &[Role::Line, Role::Elliptic], "a line or an ellipse")?;
                 self.check_not_only_reference(&entities, unmoving)
             }
-            Constraint::HorizontalPoints(a, b) | Constraint::VerticalPoints(a, b) => {
-                self.expect(a, &[Role::Point], "a point")?;
-                self.expect(b, &[Role::Point], "a point")?;
+            Constraint::HorizontalPoints(point, ref through)
+            | Constraint::VerticalPoints(point, ref through) => {
+                self.expect(point, &[Role::Point], "a point")?;
+                self.check_target(through, point)?;
+                self.check_not_only_reference(&entities, unmoving)
+            }
+            Constraint::OnDirection {
+                point,
+                ref through,
+                line,
+                ..
+            } => {
+                self.expect(point, &[Role::Point], "a point")?;
+                self.check_target(through, point)?;
+                self.expect(line, &[Role::Line], "a line")?;
+                self.check_not_own_point(point, line)?;
+                self.check_not_only_reference(&entities, unmoving)
+            }
+            Constraint::Centroid { point, ref corners } => {
+                self.expect(point, &[Role::Point], "a point")?;
+                self.check_target(&PointTarget::Centroid(corners.clone()), point)?;
                 self.check_not_only_reference(&entities, unmoving)
             }
             Constraint::HorizontalDistance { from: a, to: b, .. }
@@ -2315,7 +2377,7 @@ mod tests {
             "a point must have finite coordinates"
         );
         assert_eq!(
-            refused(Constraint::HorizontalPoints(line, lone)),
+            refused(Constraint::HorizontalPoints(line, lone.into())),
             "it needs a point, but Line 2 is not one"
         );
         assert_eq!(
@@ -2366,11 +2428,11 @@ mod tests {
                 "Fix Point 12",
             ),
             (
-                Constraint::HorizontalPoints(lone, EntityId::ORIGIN),
+                Constraint::HorizontalPoints(lone, EntityId::ORIGIN.into()),
                 "Horizontal Point 12 and Origin",
             ),
             (
-                Constraint::VerticalPoints(lone, start),
+                Constraint::VerticalPoints(lone, start.into()),
                 "Vertical Point 12 and Point 0",
             ),
             (

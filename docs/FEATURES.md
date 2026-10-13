@@ -134,15 +134,11 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   A pair of meshing gears at a centre distance following from the same parameters is missing, and
   so is a sprocket for roller chain (ISO 606 pitch and roller diameter, tooth count) in the same
   tool.
-- [medium · hard] The centre of an outline of odd sides, a slanted track and a track through
-  anything but a sketch point (a line's middle and its perpendicular bisector, a crossing of two
-  curves, an outline's centre, a quadrant, an ellipse's axis end) place a point without a
-  constraint keeping it there: the sketch has no centroid or point-on-a-direction constraint, and
-  `HorizontalPoints`/`VerticalPoints` take sketch points only, so holding a point level with a
-  middle or crossing needs a constraint taking that target itself (a solver form, a file record
-  and a glyph) rather than a construction point left in the sketch. An odd outline with arcs has
-  no centre at all. A drag snaps only its handle (the moving point
-  nearest the press), not whichever moving point comes near a target.
+- [medium · medium] An outline of odd sides with an arc among them has no centre to snap or track
+  to: the centre of an odd outline is the centre of its corners, which reads as its middle only
+  for straight sides, and nothing yet says where the middle of such an outline is. A drag snaps
+  only its handle (the moving point nearest the press), not whichever moving point comes near a
+  target.
 - [medium · hard] Offset takes one chain at a time, leaves the free ends of an open chain sliding
   along their curves and cannot offset splines; a sketch fillet cannot round a spline and drops
   equal lengths and midpoints of the lines it shortens, as trim does. A trimmed fit-point spline is
