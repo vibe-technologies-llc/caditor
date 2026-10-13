@@ -231,10 +231,10 @@ fn frame_name(document: &Document, frame: FeatureId) -> &str {
         })
 }
 
-pub fn body_name(document: &Document, body: FeatureId) -> &str {
+pub fn body_name(document: &Document, body: FeatureId) -> String {
     document
-        .feature(body)
-        .map_or("A deleted body", |feature| feature.name.as_str())
+        .body_label(body)
+        .unwrap_or_else(|| "A deleted body".to_owned())
 }
 
 impl Pickable {
@@ -364,7 +364,7 @@ impl Pickable {
                 format!("{} › {}", frame_name(document, feature), plane.name())
             }
             Self::CentreOfMass(body) => format!("Centre of mass of {}", body_name(document, body)),
-            Self::BodyItem { body, item, .. } => item.words(body_name(document, body)),
+            Self::BodyItem { body, item, .. } => item.words(&body_name(document, body)),
             Self::FeatureValue { feature, value } => {
                 let owner = document
                     .feature(feature)

@@ -121,8 +121,14 @@ fn a_body_keeps_a_name_of_its_own_beside_its_feature() {
         .document
         .apply(set(pair.peg, name(&"x".repeat(MAX_BODY_NAME_CHARS + 1))));
 
-    assert_eq!(pair.document.body_name(pair.peg), Some("Locating peg"));
-    assert_eq!(pair.document.body_name(pair.plate), Some("Plate"));
+    assert_eq!(
+        pair.document.body_name(pair.peg).as_deref(),
+        Some("Locating peg")
+    );
+    assert_eq!(
+        pair.document.body_name(pair.plate).as_deref(),
+        Some("Plate")
+    );
     assert_eq!(
         refused,
         Err(EditError::BodyNameTooLong(MAX_BODY_NAME_CHARS + 1))

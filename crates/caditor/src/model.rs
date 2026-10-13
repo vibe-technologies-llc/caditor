@@ -8,9 +8,9 @@ use std::{
 
 use caditor_document::{
     Base, Document, Editor, Evaluation, Feature, FeatureError, FeatureId, FeatureKind,
-    FeatureResult, FeatureState, Healing, ModelEvaluator, Move, Outcome, ParameterValues, Pivot,
-    Prepared, PrincipalGeometry, Progress, Recomputer, Rgb, SketchResult, Stale, Transaction,
-    TransactionBuilder, TurnCentre, UndoMark, displayed_axis, displayed_frame,
+    FeatureResult, FeatureState, Healing, ModelEvaluator, Move, Outcome, ParameterValues, Pieces,
+    Pivot, Prepared, PrincipalGeometry, Progress, Recomputer, Rgb, SketchResult, Stale,
+    Transaction, TransactionBuilder, TurnCentre, UndoMark, displayed_axis, displayed_frame,
 };
 use caditor_file::{
     Closing, FileDigest, Flusher, Handover, JournalEntry, JournalFailure, KeepRequest, Recovered,
@@ -249,6 +249,7 @@ pub struct Model {
     angle_unit: AngleUnit,
     recent_colours: Vec<Rgb>,
     last_values: LastValues,
+    new_body_pieces: Pieces,
     mesh_quality: MeshQuality,
     mesh_requested: Vec<Arc<FeatureResult>>,
     regions_requested: Option<Arc<FeatureResult>>,
@@ -304,6 +305,7 @@ impl Model {
             angle_unit: AngleUnit::default(),
             recent_colours: Vec::new(),
             last_values: LastValues::default(),
+            new_body_pieces: Pieces::OneBody,
             mesh_quality: MeshQuality::default(),
             mesh_requested: Vec::new(),
             regions_requested: None,
@@ -391,6 +393,14 @@ impl Model {
 
     pub fn set_last_values(&mut self, last: &LastValues) {
         self.last_values.clone_from(last);
+    }
+
+    pub fn new_body_pieces(&self) -> Pieces {
+        self.new_body_pieces
+    }
+
+    pub fn set_new_body_pieces(&mut self, pieces: Pieces) {
+        self.new_body_pieces = pieces;
     }
 
     pub fn mesh_quality(&self) -> MeshQuality {

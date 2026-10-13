@@ -5,11 +5,12 @@ use caditor_expression::{Dimension, Expression, ParameterId, Quantity, Unit};
 use crate::{
     attachment::SketchAttachment,
     body_appearance::BodyAppearance,
+    body_pieces::{PieceKey, PieceLooks},
     datum::{
         AxisReference, CurveStation, Datum, DatumAxis, FaceTangent, PlaneReference, PlaneThrough,
         PointBy, PointReference,
     },
-    document::{Document, Feature, FeatureId, FeatureKind},
+    document::{Document, FIRST_UNSTORABLE_ID, Feature, FeatureId, FeatureKind},
     edit::{EditError, Transaction},
     hole::HoleDepth,
     inlining::expressions_mut,
@@ -25,7 +26,9 @@ use crate::{
     values::ParameterValues,
 };
 
-const PLACEHOLDER_BASE: u64 = u64::MAX / 2;
+const PLACEHOLDER_BASE: u64 = FIRST_UNSTORABLE_ID / 2;
+const PIECE_PLACEHOLDER_BASE: u64 = PLACEHOLDER_BASE + PLACEHOLDER_BASE / 2;
+const PIECE_KEY_BITS: u32 = u32::BITS;
 const COPY_SUFFIX: &str = "copy";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -288,6 +291,7 @@ impl PickFinder for Unsought {
 struct Pasted {
     kind: FeatureKind,
     appearance: BodyAppearance,
+    piece_looks: PieceLooks,
     inlined: usize,
     deep: Vec<FeatureId>,
 }
@@ -337,6 +341,7 @@ impl Document {
             let Pasted {
                 mut kind,
                 appearance,
+                piece_looks,
                 inlined: carried,
                 deep,
             } = match self.pasted_kind(feature, &copied, &renamed, parameters, origin) {
@@ -368,6 +373,8 @@ impl Document {
             copy.hidden = feature.hidden;
             copy.suppressed = feature.suppressed;
             copy.appearance = appearance;
+            copy.pieces = feature.pieces;
+            copy.piece_looks = piece_looks;
             copy.group.clone_from(&feature.group);
             let id = builder.add_copied_feature(copy);
             renamed.insert(feature.id(), id);
@@ -407,10 +414,15 @@ impl Document {
             });
         }
         let placeholder_of = |input: FeatureId| {
-            inputs
+            let index = inputs
                 .iter()
-                .position(|candidate| *candidate == input)
-                .map(|index| FeatureId::from_raw(PLACEHOLDER_BASE + index as u64))
+                .position(|candidate| *candidate == input.maker())? as u64;
+            Some(FeatureId::from_raw(match input.piece_key() {
+                Some(key) => {
+                    PIECE_PLACEHOLDER_BASE + (index << PIECE_KEY_BITS) + u64::from(key.raw())
+                }
+                None => PLACEHOLDER_BASE + index,
+            }))
         };
         let mut kind = feature.kind.clone();
         kind.rename_features(&|id| placeholder_of(id).unwrap_or(id));
@@ -446,6 +458,18 @@ impl Document {
             }
         }
         kind.rename_features(&|id| {
+            if let Some(placed) = id.raw().checked_sub(PIECE_PLACEHOLDER_BASE) {
+                let index = usize::try_from(placed >> PIECE_KEY_BITS).ok();
+                let key = u32::try_from(placed & u64::from(u32::MAX))
+                    .ok()
+                    .map(PieceKey::from_raw);
+                return index
+                    .and_then(|index| inputs.get(index))
+                    .and_then(|input| renamed.get(input))
+                    .zip(key)
+                    .and_then(|(copy, key)| copy.piece(key))
+                    .unwrap_or(id);
+            }
             id.raw()
                 .checked_sub(PLACEHOLDER_BASE)
                 .and_then(|index| inputs.get(usize::try_from(index).ok()?))
@@ -454,10 +478,19 @@ impl Document {
                 .unwrap_or(id)
         });
         let mut appearance = feature.appearance.clone();
-        let inlined = carry_values(&mut kind, &mut appearance, parameters, self, origin)?;
+        let mut inlined = carry_values(&mut kind, &mut appearance, parameters, self, origin)?;
+        let mut piece_looks = feature.piece_looks.clone();
+        for look in piece_looks.appearances_mut() {
+            if let Some(density) = &mut look.density {
+                let carried = parameters.carry(density, self, origin)?;
+                inlined += carried.inlined;
+                *density = carried.expression;
+            }
+        }
         Ok(Pasted {
             kind,
             appearance,
+            piece_looks,
             inlined,
             deep,
         })

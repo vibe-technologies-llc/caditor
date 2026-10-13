@@ -181,15 +181,20 @@ pub fn tree_bodies(document: &Document, chosen: &[FeatureId]) -> Vec<FeatureId> 
     unique(
         chosen
             .iter()
-            .filter_map(|id| document.feature(*id))
-            .filter_map(|feature| {
-                if feature.makes_body() {
+            .filter_map(|id| {
+                if id.is_piece() {
+                    return Some(*id);
+                }
+                let feature = document.feature(*id)?;
+                if feature.separates_pieces() {
+                    None
+                } else if feature.makes_body() {
                     Some(feature.id())
                 } else {
                     feature.body()
                 }
             })
-            .filter(|body| document.feature(*body).is_some_and(Feature::makes_body)),
+            .filter(|body| document.body_maker(*body).is_some_and(Feature::makes_body)),
     )
 }
 

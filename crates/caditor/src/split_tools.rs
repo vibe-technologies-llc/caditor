@@ -35,8 +35,8 @@ pub fn describe(document: &Document, along: &SplitAlong) -> String {
     match along {
         SplitAlong::Plane(plane) => capitalized(&describe_plane(document, plane)),
         SplitAlong::Body(tool) => document
-            .feature(*tool)
-            .map_or_else(|| "A deleted body".to_owned(), |tool| tool.name.clone()),
+            .body_label(*tool)
+            .unwrap_or_else(|| "A deleted body".to_owned()),
         SplitAlong::Sketch(sketch) => document.feature(*sketch).map_or_else(
             || "The curve of a deleted sketch".to_owned(),
             |sketch| format!("The curve of {}", sketch.name),
@@ -60,7 +60,7 @@ pub fn choices(model: &Model, feature: FeatureId, split: &Split) -> Vec<SplitAlo
         .into_iter()
         .map(SplitAlong::Plane);
     let bodies = document
-        .bodies_before(feature)
+        .bodies_before_in(feature, model.evaluation())
         .into_iter()
         .filter(|body| *body != split.body)
         .map(SplitAlong::Body);
@@ -224,7 +224,7 @@ pub fn along_change(
     let along = match chosen_along(model, selection, index)? {
         Some((along, _)) => along,
         None => {
-            let earlier = document.bodies_before(feature);
+            let earlier = document.bodies_before_in(feature, model.evaluation());
             let tools: Vec<FeatureId> = body_selection::bodies_in(selection)
                 .into_iter()
                 .filter(|body| *body != split.body && earlier.contains(body))

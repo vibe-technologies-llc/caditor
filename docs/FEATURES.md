@@ -75,6 +75,10 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   where an arc, spline or edge curve meets another curve still fails asking for a fillet in the
   path's sketch, and a pipe has no arrows in the view for its size and bend radius (panel fields
   only).
+- [low · medium] A body of each separate piece is keyed by the lowest sketch curve that drew it, so
+  deleting and redrawing that one curve of a shape makes its piece a new body; a configuration
+  file's colour column cannot name a piece (`plan_configuration_import` finds bodies by making
+  feature); Hide others keeps every piece of the kept piece's feature shown.
 - [low · hard] Split face wraps closed outlines only within once round a cylinder or cone, and a
   wrapped open chain may not run right round and back to the edge of the faces it started from:
   a helical stripe drawn as one outline running round more than once, a band whose ends meet

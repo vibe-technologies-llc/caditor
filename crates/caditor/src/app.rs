@@ -475,6 +475,7 @@ pub fn apply_preferences(model: &mut Model, preferences: &Preferences) {
     model.set_angle_unit(preferences.angle);
     model.set_recent_colours(&preferences.recent_colours);
     model.set_last_values(&preferences.last_values);
+    model.set_new_body_pieces(preferences.new_bodies.pieces());
     model.set_mesh_quality(preferences.graphics.curves.mesh_quality());
 }
 

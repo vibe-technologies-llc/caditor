@@ -1,3 +1,4 @@
+use caditor_document::Pieces;
 use caditor_file::Settings;
 use caditor_render::DEFAULT_FIELD_OF_VIEW_DEGREES;
 
@@ -382,6 +383,52 @@ impl Choice for DoubleClick {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum NewBodies {
+    #[default]
+    OneBody,
+    BodyEach,
+}
+
+impl NewBodies {
+    pub fn pieces(self) -> Pieces {
+        match self {
+            Self::OneBody => Pieces::OneBody,
+            Self::BodyEach => Pieces::BodyEach,
+        }
+    }
+}
+
+impl Choice for NewBodies {
+    const ALL: &'static [Self] = &[Self::OneBody, Self::BodyEach];
+
+    fn key(self) -> &'static str {
+        match self {
+            Self::OneBody => "one_body",
+            Self::BodyEach => "body_each",
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::OneBody => "One body",
+            Self::BodyEach => "A body each",
+        }
+    }
+
+    fn description(self) -> &'static str {
+        match self {
+            Self::OneBody => {
+                "A new extrusion, revolve or sweep of separate shapes makes one body of them all"
+            }
+            Self::BodyEach => {
+                "A new extrusion, revolve or sweep of separate shapes makes a body of each \
+                 separate piece"
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -413,6 +460,7 @@ mod tests {
         keys_are_distinct_and_read_back::<Startup>();
         keys_are_distinct_and_read_back::<RecentListed>();
         keys_are_distinct_and_read_back::<DoubleClick>();
+        keys_are_distinct_and_read_back::<NewBodies>();
     }
 
     #[test]
@@ -425,5 +473,6 @@ mod tests {
         assert_eq!(EdgeWeight::default().factor(), 1.0);
         assert_eq!(RecentListed::default().count(), caditor_file::RECENT_LIMIT);
         assert_eq!(TooltipDelay::default().seconds(), TOOLTIP_DELAY);
+        assert_eq!(NewBodies::default().pieces(), Pieces::OneBody);
     }
 }

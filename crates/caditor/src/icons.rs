@@ -338,6 +338,7 @@ pub fn command(command: Command) -> &'static str {
         Command::CancelFeature => CLOSE,
         Command::DetachSketch => phosphor::LINK_BREAK,
         Command::ClearChosenRegions => phosphor::SELECTION_SLASH,
+        Command::SelectAllRegions => phosphor::SELECTION_ALL,
         Command::PlaceSketch
         | Command::UseSelectedAxis
         | Command::ExtrudeUpToSelected

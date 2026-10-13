@@ -150,7 +150,11 @@ pub fn source(
     let (body, repeated) = match pattern_tools::repeatable(document, rows) {
         Some(repeating) => repeating,
         None if tree.is_empty() && holds_only_sketch_geometry(selection) => (
-            document.bodies_standing().last().copied().ok_or(NO_BODY)?,
+            document
+                .bodies_standing_in(model.evaluation())
+                .last()
+                .copied()
+                .ok_or(NO_BODY)?,
             Vec::new(),
         ),
         None => (

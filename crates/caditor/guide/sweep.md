@@ -26,7 +26,10 @@ starts where the path crosses the profile's plane and closes on itself.
   so. The cross clears the path.
 - **Orientation**: **Square to path** turns the profile with the path, keeping its angle to it as a
   bent pipe does; **Parallel** only moves it along the path, keeping it parallel to its sketch.
-- **New body**, **Add**, **Remove from body** or **Intersect with body**, as for an extrusion.
+- **New body**, **Add**, **Remove from body** or **Intersect with body**, and for a new body
+  **Separate pieces** (one body, or a body each), as for an extrusion.
+- **Select all** in the regions row, or {command:model.select_all_regions}, takes every closed
+  region of the profile, as for an extrusion.
 
 ## Corners and limits
 

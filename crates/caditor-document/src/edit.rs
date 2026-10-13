@@ -15,6 +15,7 @@ use crate::{
     body_appearance::{
         BodyAppearance, MAX_BODY_NAME_CHARS, MAX_MATERIAL_NAME_CHARS, MIN_OPACITY_PERCENT,
     },
+    body_pieces::Pieces,
     configurations::{
         ConfigurationId, Configurations, ConfiguredValue, MAX_CONFIGURATION_NAME_CHARS,
         MAX_CONFIGURATIONS, MAX_CONFIGURED_VALUES,
@@ -98,6 +99,10 @@ pub enum Edit {
     SetBodyAppearance {
         id: FeatureId,
         appearance: BodyAppearance,
+    },
+    SetFeaturePieces {
+        id: FeatureId,
+        pieces: Pieces,
     },
     SetRollbackBar {
         bar: RollbackBar,
@@ -249,8 +254,9 @@ impl Transaction {
                 | Edit::SetFeatureSuppressed { id, .. }
                 | Edit::SetFeatureGroup { id, .. }
                 | Edit::SetBodyAppearance { id, .. }
+                | Edit::SetFeaturePieces { id, .. }
                 | Edit::SetFeatureKind { id, .. } => {
-                    touched.features.insert(*id);
+                    touched.features.insert(id.maker());
                 }
                 Edit::SetSketchPlacement { feature, .. } => {
                     touched.features.insert(*feature);
@@ -333,6 +339,7 @@ impl Transaction {
                 | Edit::MoveFeature { .. }
                 | Edit::SetFeatureHidden { .. }
                 | Edit::SetFeatureSuppressed { .. }
+                | Edit::SetFeaturePieces { .. }
                 | Edit::SetRollbackBar { .. }
                 | Edit::SetActiveConfiguration { .. }
                 | Edit::SetPrincipalHidden { .. }
@@ -530,6 +537,8 @@ pub enum EditError {
     KindChange(String),
     #[error("{name} makes the body that {users} use, so it must keep making a new body")]
     BodyInUse { name: String, users: String },
+    #[error("{name} makes the bodies that {users} use, so its pieces must stay as they are")]
+    PiecesInUse { name: String, users: String },
     #[error("In {feature}, {name} is used by {users}. Remove those first.")]
     EntityInUse {
         feature: String,
@@ -626,7 +635,7 @@ impl FollowedValue {
             (
                 Self::Feature(id),
                 ConfiguredValue::Suppressed(other) | ConfiguredValue::Colour(other),
-            ) => id == other,
+            ) => id == other || id == other.maker(),
             _ => false,
         }
     }
@@ -870,6 +879,7 @@ impl Document {
             }
             Edit::SetFeatureGroup { id, group } => self.set_feature_group(id, group),
             Edit::SetBodyAppearance { id, appearance } => self.set_body_appearance(id, appearance),
+            Edit::SetFeaturePieces { id, pieces } => self.set_feature_pieces(id, pieces),
             Edit::SetRollbackBar { bar } => self.set_rollback_bar(bar),
             Edit::SetPrincipalHidden { geometry, hidden } => {
                 Ok(self.set_principal_hidden(geometry, hidden))
@@ -979,7 +989,7 @@ impl Document {
         for body in kind
             .bodies_used()
             .into_iter()
-            .filter_map(|id| self.feature(id))
+            .filter_map(|id| self.feature(id.maker()))
         {
             if !body.makes_body() {
                 return Err(EditError::NotABody(body.name.clone()));
@@ -1092,16 +1102,14 @@ impl Document {
         if !same_kind {
             return Err(EditError::KindChange(name));
         }
+        let separated = existing.separates_pieces();
+        let mut changed = existing.clone();
+        changed.kind = kind.clone();
         self.check_feature_references(&kind, index)?;
         self.check_measurement_order(&Feature::new(id, name.clone(), kind.clone()), index)?;
         self.reserve_past_references(&kind);
-        let keeps_body = Feature::new(id, name.clone(), kind.clone()).makes_body();
-        if !keeps_body {
-            let users: Vec<String> = self
-                .features()
-                .filter(|other| other.kind.bodies_used().contains(&id))
-                .map(|other| other.name.clone())
-                .collect();
+        if !changed.makes_body() {
+            let users = self.users_of_bodies_made_by(id);
             if !users.is_empty() {
                 return Err(EditError::BodyInUse {
                     name,
@@ -1109,9 +1117,52 @@ impl Document {
                 });
             }
         }
+        if changed.separates_pieces() != separated {
+            self.check_pieces_unused(&changed)?;
+        }
         let feature = self.feature_mut(id)?;
         let previous = std::mem::replace(&mut feature.kind, kind);
         Ok(Edit::SetFeatureKind { id, kind: previous })
+    }
+
+    fn users_of_bodies_made_by(&self, id: FeatureId) -> Vec<String> {
+        self.features()
+            .filter(|other| {
+                other
+                    .kind
+                    .bodies_used()
+                    .iter()
+                    .any(|body| body.maker() == id)
+            })
+            .map(|other| other.name.clone())
+            .collect()
+    }
+
+    fn check_pieces_unused(&self, feature: &Feature) -> Result<(), EditError> {
+        let users = self.users_of_bodies_made_by(feature.id());
+        if users.is_empty() {
+            Ok(())
+        } else {
+            Err(EditError::PiecesInUse {
+                name: feature.name.clone(),
+                users: list_names(&users),
+            })
+        }
+    }
+
+    fn set_feature_pieces(&mut self, id: FeatureId, pieces: Pieces) -> Result<Edit, EditError> {
+        let existing = self.feature(id).ok_or(EditError::MissingFeature)?;
+        let mut changed = existing.clone();
+        changed.pieces = pieces;
+        if changed.separates_pieces() != existing.separates_pieces() {
+            self.check_pieces_unused(existing)?;
+        }
+        let feature = self.feature_mut(id)?;
+        let previous = std::mem::replace(&mut feature.pieces, pieces);
+        Ok(Edit::SetFeaturePieces {
+            id,
+            pieces: previous,
+        })
     }
 
     fn set_sketch_placement(
@@ -1346,8 +1397,18 @@ impl Document {
                 Arc::make_mut(&mut feature).kind = kind;
             }
         }
+        let piece_looks = feature
+            .piece_looks
+            .clone()
+            .settled(&feature.inherited_piece_appearance());
+        if piece_looks != feature.piece_looks {
+            Arc::make_mut(&mut feature).piece_looks = piece_looks;
+        }
         check_appearance(&feature.appearance)?;
-        self.check_parameters_exist(feature.appearance.parameters())?;
+        for (_, appearance) in feature.piece_looks.appearances() {
+            check_appearance(appearance)?;
+        }
+        self.check_parameters_exist(feature.parameters())?;
         let id = feature.id();
         self.next_feature_id = self.next_feature_id.max(id.raw().saturating_add(1));
         self.reserve_past_references(&feature.kind);
@@ -1406,8 +1467,11 @@ impl Document {
     }
 
     fn set_feature_hidden(&mut self, id: FeatureId, hidden: bool) -> Result<Edit, EditError> {
-        let feature = self.feature_mut(id)?;
-        let previous = std::mem::replace(&mut feature.hidden, hidden);
+        let feature = self.feature_mut(id.maker())?;
+        let previous = match id.piece_key() {
+            Some(key) => feature.piece_looks.set_hidden(key, hidden),
+            None => std::mem::replace(&mut feature.hidden, hidden),
+        };
         Ok(Edit::SetFeatureHidden {
             id,
             hidden: previous,
@@ -1453,14 +1517,22 @@ impl Document {
         appearance: BodyAppearance,
     ) -> Result<Edit, EditError> {
         let appearance = appearance.settled();
-        let existing = self.feature(id).ok_or(EditError::MissingFeature)?;
+        let existing = self.feature(id.maker()).ok_or(EditError::MissingFeature)?;
         if !existing.makes_body() {
             return Err(EditError::NotABody(existing.name.clone()));
         }
         check_appearance(&appearance)?;
         self.check_parameters_exist(appearance.parameters())?;
-        let feature = self.feature_mut(id)?;
-        let previous = std::mem::replace(&mut feature.appearance, appearance);
+        let feature = self.feature_mut(id.maker())?;
+        let previous = match id.piece_key() {
+            Some(key) => {
+                let inherited = feature.inherited_piece_appearance();
+                feature
+                    .piece_looks
+                    .set_appearance(key, appearance, &inherited)
+            }
+            None => std::mem::replace(&mut feature.appearance, appearance),
+        };
         Ok(Edit::SetBodyAppearance {
             id,
             appearance: previous,
@@ -1553,11 +1625,11 @@ impl Document {
             }
         }
         for body in sets.bodies() {
-            check_storable(body.raw())?;
+            check_storable(body.maker().raw())?;
         }
         let beyond = sets
             .bodies()
-            .map(|body| body.raw().saturating_add(1))
+            .map(|body| body.maker().raw().saturating_add(1))
             .max()
             .unwrap_or(0);
         self.next_feature_id = self.next_feature_id.max(beyond);
@@ -1580,7 +1652,7 @@ impl Document {
             check_storable(id.raw())?;
         }
         for id in configurations.features_named() {
-            check_storable(id.raw())?;
+            check_storable(id.maker().raw())?;
         }
         check_storable(configurations.next_id)?;
         let parameters_beyond = configurations
@@ -1590,7 +1662,7 @@ impl Document {
             .unwrap_or(0);
         let features_beyond = configurations
             .features_named()
-            .map(|id| id.raw().saturating_add(1))
+            .map(|id| id.maker().raw().saturating_add(1))
             .max()
             .unwrap_or(0);
         self.next_parameter_id = self.next_parameter_id.max(parameters_beyond);

@@ -190,6 +190,17 @@ Extrusions and revolves:
 - `pipe`: `path` as a sweep's (unreadable loads as unchosen), `shape` (`round`, `square`,
   `triangle`), `size` (unreadable 10 mm), `wall` only when hollow (unreadable 1 mm), `bend`
   (unreadable 0 mm) and `operation`. The corpus holds it in `pipes.caditor`.
+- `separate_pieces`: a wrapper around the whole feature kind record (`feature`) of a feature whose
+  `pieces` is a body each, written only then; an older reader reports the feature as from a newer
+  version instead of making one body that later features' piece bodies would not find. Restoring
+  unwraps it onto `Feature::pieces`; one nested inside another is unwrapped and reported. Bodies of
+  pieces are stored as any body ID (a piece's ID is above `FIRST_UNSTORABLE_ID`, `document.md`), and
+  the selection set and configuration readers accept them by their making feature's ID. The
+  feature's `piece_looks` is an optional feature field (in `FEATURE_FIELDS`): each `piece` key with
+  an `appearance` record (as `appearance`, settled) and `hidden` when set; an unreadable entry is
+  left out, reported. Journal: `set_feature_pieces` (`one_body`, `body_each`); a piece's look and
+  hidden flag travel in `set_body_appearance` and `set_feature_hidden` under the piece's body ID. The
+  corpus holds them in `separate-pieces.caditor` and `journal-1/separate-pieces.journal`.
 
 Holes:
 

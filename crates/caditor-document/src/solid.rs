@@ -22,6 +22,7 @@ use caditor_sketch::{Entity, EntityId, Reference, Sketch};
 
 use crate::{
     attachment::{AttachmentError, FaceAttachment, face_plane},
+    body_pieces,
     datum::{
         AxisReference, PlaneReference, Resolver, capitalized, describe_axis, describe_plane,
         displayed_plane,
@@ -1101,11 +1102,7 @@ pub(crate) fn evaluate(
     cancel: &CancelToken,
 ) -> Result<FeatureResult, Failure> {
     let sketch_id = solid.sketch();
-    let sketch_name = inputs
-        .document
-        .feature(sketch_id)
-        .map(|sketch| sketch.name.clone())
-        .unwrap_or_default();
+    let sketch_name = inputs.document.body_label(sketch_id).unwrap_or_default();
     let Some(FeatureResult::Sketch(sketch)) = inputs.features.get(&sketch_id).map(AsRef::as_ref)
     else {
         return Err(Failure::Error(Box::new(FeatureError {
@@ -1282,6 +1279,16 @@ pub(crate) fn evaluate(
             ));
         }
     };
+    if operation == BodyOperation::NewBody && feature.separates_pieces() {
+        let mut pieces = body_pieces::separated(feature, &solid)?
+            .into_iter()
+            .map(|(piece, lump)| SolidResult::new(piece, lump));
+        if let Some(first) = pieces.next() {
+            return Ok(FeatureResult::Solid(
+                first.reaching(reached).with_others(pieces),
+            ));
+        }
+    }
     Ok(FeatureResult::Solid(
         SolidResult::new(body, solid)
             .reaching(reached)
@@ -1843,11 +1850,7 @@ fn boolean_failure(
     operation: BodyOperation,
     error: &BooleanError,
 ) -> Failure {
-    let body_name = inputs
-        .document
-        .feature(body)
-        .map(|feature| feature.name.clone())
-        .unwrap_or_default();
+    let body_name = inputs.document.body_label(body).unwrap_or_default();
     let failure = match error {
         BooleanError::Cancelled(_) => Failure::Cancelled,
         BooleanError::Empty => {
@@ -2013,11 +2016,7 @@ impl Side {
 }
 
 fn feature_name(inputs: &Inputs<'_>, feature: FeatureId) -> String {
-    inputs
-        .document
-        .feature(feature)
-        .map(|feature| feature.name.clone())
-        .unwrap_or_default()
+    inputs.document.body_label(feature).unwrap_or_default()
 }
 
 struct Ends<'a> {

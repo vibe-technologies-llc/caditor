@@ -26,7 +26,8 @@ until it has one, its row in the tree says "Waiting for a path" rather than fail
   that radius, measured to the middle of the pipe, as a pipe bender would. Zero leaves the corners
   sharp: both sides then meet on the plane halving the corner, as mitred tube does.
 - **Result**: **New body**, **Add to body**, **Remove from body** or **Intersect with body**, and
-  the **Body** it changes. Removing makes a channel or groove of the section.
+  the **Body** it changes. Removing makes a channel or groove of the section. A pipe follows one
+  path without gaps, so it is always one piece and has no Separate pieces setting.
 
 Every size takes units and expressions, so a pipe can follow a parameter such as `tube_d`.
 

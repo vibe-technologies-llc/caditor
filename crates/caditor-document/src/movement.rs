@@ -483,8 +483,7 @@ pub(crate) fn evaluate(
     let context = Context { feature, inputs };
     let body_name = inputs
         .document
-        .feature(definition.body)
-        .map(|body| body.name.clone())
+        .body_label(definition.body)
         .unwrap_or_default();
     let Some(solid) = inputs.body(definition.body) else {
         return Err(inputs.missing_body(definition.body));

@@ -142,11 +142,7 @@ impl Path {
 }
 
 fn feature_name(inputs: &Inputs<'_>, feature: FeatureId) -> String {
-    inputs
-        .document
-        .feature(feature)
-        .map(|feature| feature.name.clone())
-        .unwrap_or_default()
+    inputs.document.body_label(feature).unwrap_or_default()
 }
 
 fn no_path() -> Failure {

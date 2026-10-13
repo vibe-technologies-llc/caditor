@@ -2,7 +2,7 @@ use caditor_document::Rgb;
 use egui::{Id, Label, TextEdit, TextStyle, TextWrapMode, Ui, WidgetText};
 
 use super::{
-    Accent, Appearance, Choice, DoubleClick, GridColour, PreferenceChange, Preferences,
+    Accent, Appearance, Choice, DoubleClick, GridColour, NewBodies, PreferenceChange, Preferences,
     PreferencesCommand, PreferencesTab, RecentListed, Restored, Restoring, Section, Startup, Theme,
     TitleBar, TooltipDelay, ViewChoice, motion,
 };
@@ -22,6 +22,7 @@ use crate::{
     widgets::{self, DialogBody, DialogWidth, SectionAction, Tab, ThemeSample, Tone},
 };
 
+pub const NEW_BODIES_CAPTION: &str = "New bodies from separate pieces";
 const EMPTY_MODEL: &str = "An empty model";
 const HEIGHT_CHANGE: f32 = 0.5;
 const CONFIRM_KEY: &str = "preferences-confirm-defaults";
@@ -415,6 +416,11 @@ fn feature_tree(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<Preferences
         widgets::property(ui, "Double-clicking a feature", |ui| {
             if let Some(double_click) = pick::<DoubleClick>(ui, preferences.double_click) {
                 change(command, PreferenceChange::DoubleClick(double_click));
+            }
+        });
+        widgets::property(ui, NEW_BODIES_CAPTION, |ui| {
+            if let Some(new_bodies) = pick::<NewBodies>(ui, preferences.new_bodies) {
+                change(command, PreferenceChange::NewBodies(new_bodies));
             }
         });
     });

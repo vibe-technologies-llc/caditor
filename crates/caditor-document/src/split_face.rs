@@ -732,8 +732,7 @@ pub(crate) fn evaluate(
 ) -> Result<FeatureResult, Failure> {
     let body_name = inputs
         .document
-        .feature(definition.body)
-        .map(|body| body.name.clone())
+        .body_label(definition.body)
         .unwrap_or_default();
     let context = Context {
         resolver: Resolver { feature, inputs },

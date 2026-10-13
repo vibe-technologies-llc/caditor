@@ -1,4 +1,7 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    borrow::Cow,
+    collections::{BTreeMap, BTreeSet},
+};
 
 use caditor_document::{
     Document, Edit, FeatureId, MAX_SET_NAME_CHARS, SelectionSet, SelectionSets, SetItem, SetLoss,
@@ -243,7 +246,7 @@ impl Missed {
         let name = |body: FeatureId| {
             document
                 .body_name(body)
-                .map_or_else(|| "a deleted body".to_owned(), str::to_owned)
+                .map_or_else(|| "a deleted body".to_owned(), Cow::into_owned)
         };
         let mut parts: Vec<String> = Vec::new();
         for (body, count) in &self.faces {
@@ -261,7 +264,7 @@ impl Missed {
             ));
         }
         for body in &self.bodies {
-            parts.push(match document.feature(*body) {
+            parts.push(match document.body_maker(*body) {
                 Some(_) => format!("{} has no body now", name(*body)),
                 None => "a body in it was deleted".to_owned(),
             });

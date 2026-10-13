@@ -1,6 +1,7 @@
 mod attachment;
 mod blend;
 mod body_appearance;
+mod body_pieces;
 mod combine;
 mod configuration_import;
 mod configurations;
@@ -76,6 +77,7 @@ pub use crate::{
         MAX_BODY_NAME_CHARS, MAX_DENSITY, MAX_MATERIAL_NAME_CHARS, MIN_OPACITY_PERCENT,
         OPACITY_STEPS, OPAQUE_PERCENT, Rgb, density_of, material_name, nearest_opacity_step,
     },
+    body_pieces::{PieceKey, PieceLooks, Pieces},
     combine::{Combine, CombineOperation},
     configuration_import::{
         CellChange, CellProblem, ColumnKind, ColumnOutcome, ColumnRefusal, ConfigurationImport,
@@ -215,6 +217,8 @@ mod attachment_tests;
 mod blend_tests;
 #[cfg(test)]
 mod body_appearance_tests;
+#[cfg(test)]
+mod body_pieces_tests;
 #[cfg(test)]
 mod combine_tests;
 #[cfg(test)]

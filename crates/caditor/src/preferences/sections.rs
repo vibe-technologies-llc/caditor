@@ -135,7 +135,14 @@ impl Section {
                 "empty model",
             ],
             Self::NewModels => &["start from", "template", "new model"],
-            Self::FeatureTree => &["double-click", "rename", "edit"],
+            Self::FeatureTree => &[
+                "double-click",
+                "rename",
+                "edit",
+                "new bodies",
+                "separate pieces",
+                "a body each",
+            ],
             Self::Keyboard => &["shortcuts", "keys", "keymap"],
             Self::Tips => &["getting started", "show tips", "hints"],
             Self::SavingOnWindows => &["microsoft defender", "saving"],
@@ -250,7 +257,10 @@ impl Section {
                 to.onboarding.start_card = from.onboarding.start_card;
             }
             Self::NewModels => to.default_template.clone_from(&from.default_template),
-            Self::FeatureTree => to.double_click = from.double_click,
+            Self::FeatureTree => {
+                to.double_click = from.double_click;
+                to.new_bodies = from.new_bodies;
+            }
             Self::Keyboard | Self::Tips | Self::SavingOnWindows => {}
             Self::Theme => to.appearance.theme = from.appearance.theme.clone(),
             Self::Colours => {
