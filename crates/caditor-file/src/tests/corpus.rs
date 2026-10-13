@@ -12,16 +12,16 @@ use caditor_document::{
     ExtrudeEnd, ExtrudeExtent, FaceColour, FaceTangent, FaceThickness, FinePitch, Finish, Hole,
     HoleBottom, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle,
     Import, Mate, MatePair, MetricSize, Mirror, ModelProperties, Move, OffsetFace, Outline,
-    ParameterOwner, ParameterValues, Pattern, PatternKind, PlaneRotation, PlaneThrough, PointBy,
-    PointReference, PointsPattern, PrincipalAxis, PrincipalGeometry, ProjectionSource,
+    ParameterOwner, ParameterValues, Pattern, PatternKind, Pipe, PlaneRotation, PlaneThrough,
+    PointBy, PointReference, PointsPattern, PrincipalAxis, PrincipalGeometry, ProjectionSource,
     RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rgb, Scale, Shell, ShellSide,
     SketchFeature, SolidFeature, SolidStart, Split, SplitAlong, SplitCarry, SplitFace, Sweep,
     SweepPath, TappedThread, ThreadFamily, ThreadForm, ThreadHand, TurnCentre, Wall,
     point_instance,
 };
 use caditor_kernel::{
-    EdgeName, EdgeReference, FaceName, FaceOrigin, FaceReference, Solid, SweepOrientation,
-    VertexName, WallSide,
+    EdgeName, EdgeReference, FaceName, FaceOrigin, FaceReference, PipeShape, Solid,
+    SweepOrientation, VertexName, WallSide,
 };
 use serde::{
     Deserializer,
@@ -50,7 +50,7 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 23] = [
+const KEPT: [(&str, &str); 24] = [
     (
         "journal-1/by-reference.journal",
         "fe98725da8d9df46b19d7cede1474bcfb92bbda00d4de9c890e5bca5d0f2899f",
@@ -114,6 +114,10 @@ const KEPT: [(&str, &str); 23] = [
     (
         "model-1/pieces.caditor",
         "f4745712d55b915884d644d687473b879d96e9ba8f066938a5358ba1a16023b2",
+    ),
+    (
+        "model-1/pipes.caditor",
+        "909988d8544c3f301cd5ee4eaf0004e495666d337a5cbb5c912082cf7edc1667",
     ),
     (
         "model-1/primitives.caditor",
@@ -667,6 +671,7 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
         (model("starts"), saved(&starts_model().0, "Starts")),
         (model("sweeps"), saved(&sweeps(), "Sweeps")),
         (model("path-sweeps"), saved(&path_sweeps(), "Path sweeps")),
+        (model("pipes"), saved(&pipes(), "Pipes")),
         (model("holes"), saved(&holes(), "Holes")),
         (
             model("modelled-threads"),
@@ -979,6 +984,53 @@ fn path_sweeps() -> Document {
     transaction.add_feature(
         "Unchosen",
         FeatureKind::Solid(SolidFeature::Sweep(Sweep::new(sketch, SweepPath::Unchosen))),
+    );
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
+fn pipes() -> Document {
+    let (mut document, base, _) = solid_model();
+    let parse = |text: &str| Expression::parse_stored(text).unwrap();
+    let mut transaction = document.transaction("Pipes");
+    let mut path = Sketch::new(Plane::XY);
+    let first = path.add_line(Point2::ZERO, Point2::new(20.0, 0.0));
+    let second = path.add_line(Point2::new(20.0, 0.0), Point2::new(20.0, 30.0));
+    let path = transaction.add_feature("Pipe path", FeatureKind::from(path));
+    let curves = SweepPath::Curves {
+        sketch: path,
+        curves: vec![first, second],
+    };
+    transaction.add_feature(
+        "Round",
+        FeatureKind::Pipe(Pipe::new(curves.clone(), parse("4 mm"), parse("6 mm"))),
+    );
+    transaction.add_feature(
+        "Square tube",
+        FeatureKind::Pipe(Pipe {
+            shape: PipeShape::Square,
+            wall: Some(parse("1 mm")),
+            ..Pipe::new(curves, parse("5 mm"), parse("0 mm"))
+        }),
+    );
+    transaction.add_feature(
+        "Triangular groove",
+        FeatureKind::Pipe(Pipe {
+            shape: PipeShape::Triangle,
+            operation: BodyOperation::Remove(base),
+            ..Pipe::new(
+                SweepPath::Edges {
+                    body: base,
+                    edges: vec![edge(0x5eed)],
+                },
+                parse("2 mm"),
+                parse("3 mm"),
+            )
+        }),
+    );
+    transaction.add_feature(
+        "Unchosen pipe",
+        FeatureKind::Pipe(Pipe::new(SweepPath::Unchosen, parse("4 mm"), parse("6 mm"))),
     );
     document.apply(transaction.finish()).unwrap();
     document

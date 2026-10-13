@@ -37,6 +37,7 @@ mod paste_picks;
 mod pattern;
 mod pattern_path;
 mod pieces;
+mod pipe;
 mod pool;
 mod presenting;
 mod primitive;
@@ -144,6 +145,7 @@ pub use crate::{
     },
     pattern_path::{CopyStop, PathError, PatternPath, is_curve_path},
     pieces::{Resolution, Unresolved},
+    pipe::{PIPE_SHAPE, Pipe, shape_name as pipe_shape_name, size_name as pipe_size_name},
     primitive::{
         Cap, MAX_PRISM_SIDES, MIN_PRISM_SIDES, Primitive, PrimitiveAnchor, PrimitiveKind,
         PrimitiveShape, SizeRule,
@@ -256,6 +258,8 @@ mod paste_tests;
 mod pattern_path_tests;
 #[cfg(test)]
 mod pattern_tests;
+#[cfg(test)]
+mod pipe_tests;
 #[cfg(test)]
 mod presenting_tests;
 #[cfg(test)]

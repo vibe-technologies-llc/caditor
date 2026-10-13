@@ -32,6 +32,7 @@ use crate::{
     panels::{Focus, PanelState, Renaming},
     pattern_panel,
     pattern_tools::{self, Reference},
+    pipe_panel,
     preferences::PreferencesCommand,
     primitive_panel, principal_tree,
     reference_picking::{Picking, Slot},
@@ -303,6 +304,7 @@ pub fn kind_words(kind: &FeatureKind) -> &'static [&'static str] {
         FeatureKind::Solid(SolidFeature::Extrude(_)) => &["extrude", "extrusion"],
         FeatureKind::Solid(SolidFeature::Revolve(_)) => &["revolve", "revolution"],
         FeatureKind::Solid(SolidFeature::Sweep(_)) => &["sweep", "pipe"],
+        FeatureKind::Pipe(_) => &["pipe", "tube", "tubing", "handrail", "cable", "sweep"],
         FeatureKind::Blend(blend) => match blend.kind {
             BlendKind::Fillet => &["fillet", "round"],
             BlendKind::Chamfer => &["chamfer", "bevel"],
@@ -1072,6 +1074,10 @@ fn body(
             primitive_panel::show(ui, model, row.selection, actions, feature, primitive);
             body_display(ui, model, feature);
         }
+        FeatureKind::Pipe(pipe) => {
+            pipe_panel::show(ui, model, row.selection, actions, feature, pipe);
+            body_display(ui, model, feature);
+        }
         FeatureKind::Combine(combine) => {
             combine_panel::show(ui, model, actions, feature, combine);
             body_display(ui, model, feature);
@@ -1176,6 +1182,7 @@ fn kind_color(tokens: &appearance::Tokens, row: &Row<'_>) -> Color32 {
         | FeatureKind::OffsetFace(_)
         | FeatureKind::SplitFace(_)
         | FeatureKind::Primitive(_)
+        | FeatureKind::Pipe(_)
         | FeatureKind::Combine(_)
         | FeatureKind::Move(_)
         | FeatureKind::Mate(_)
@@ -1303,6 +1310,7 @@ fn edit_command(feature: &Feature, edited: bool) -> Option<EditingCommand> {
             | FeatureKind::OffsetFace(_)
             | FeatureKind::SplitFace(_)
             | FeatureKind::Primitive(_)
+            | FeatureKind::Pipe(_)
             | FeatureKind::Combine(_)
             | FeatureKind::Move(_)
             | FeatureKind::Mate(_)
@@ -1324,6 +1332,7 @@ fn edit_command(feature: &Feature, edited: bool) -> Option<EditingCommand> {
             | FeatureKind::OffsetFace(_)
             | FeatureKind::SplitFace(_)
             | FeatureKind::Primitive(_)
+            | FeatureKind::Pipe(_)
             | FeatureKind::Combine(_)
             | FeatureKind::Move(_)
             | FeatureKind::Mate(_)

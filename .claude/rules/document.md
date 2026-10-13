@@ -497,6 +497,28 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   errors go through `sweep_failure` as "sweep". A path curve no longer in its sketch, or an edge
   lost or tied, asks to choose the path again.
 
+### Pipe (`pipe.rs`)
+
+- `Pipe { path, shape, size, wall, bend, operation }` runs a section of the kernel's `PipeShape`
+  (round of a diameter, square of a width, equilateral triangle of a side length) along a
+  `SweepPath` chosen and resolved as a sweep's (`sweep::path_of`, shared, which also gives the
+  path's `up`: the path sketch's normal, else Z), solid or hollow with `wall` (a thickness), its
+  corners between straight lines bent to the `bend` radius (zero leaves them mitred). Size and wall
+  are lengths above zero, the bend zero or more (`primitive::Context`, shared, worded "The diameter
+  of the pipe must be more than zero."); all three are its expressions (parameters, inlining, model
+  scale). It calls kernel `pipe` and joins, cuts or intersects like a primitive
+  (`primitive::combined`, keeping its tool as `joins` or `cuts`, so `repeatable_on` takes it).
+- The path's sketch is in `reference_sketches` and `features()`, its body in `bodies_used`, its
+  edges' origins among `origin_features`; healing visits its edges (`healing::visit_path`), a path
+  curve cannot be removed (`EntityInUse`) and no path waits (`MissingInput::Path`).
+- Failures: a wall too thick names the limit (half the diameter or width, a third of the triangle's
+  height); a bend too tight for the section or one needing more than the lines at a corner names the
+  two path curves, fixed on the pipe; a corner too sharp to turn; the rest per `PathSweepError` in
+  `sweep::path_failure` (shared wording for any path follower: branches, gaps, a curve too short, a
+  sharp corner where an arc meets another curve, a bend of the path too tight, running into itself).
+- Faces are worded "<pipe> outside" and "<pipe> inside" (`pipe::side_name`: entities past the
+  section's `PipeShape::curves` are the inner outline), caps as a sweep's.
+
 ### Blend and shell (`blend.rs`, `shell.rs`)
 
 - A `Blend` is a fillet or chamfer of `size`. A chamfer's `form` is `Equal`,
@@ -880,8 +902,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 - Repeats the whole body as it stands before the pattern and unions the copies (kernel `pattern`).
   Boxed in `FeatureKind`. It changes its body but is not `modifies_body` (the app shows the
   patterned body while open).
-- With `repeated` features (`Pattern::repeating`; `repeatable_on`: an extrusion, revolve or
-  primitive adding to or removing from a body, or a hole) it repeats their tools instead: for each,
+- With `repeated` features (`Pattern::repeating`; `repeatable_on`: an extrusion, revolve,
+  primitive or pipe adding to or removing from a body, or a hole) it repeats their tools instead: for each,
   in tree order, the tools kept in its result (`SolidResult::cuts` of a removal or hole, `joins` of
   an addition) are placed at every copy and unioned without the original (kernel `pattern_copies`),
   then cut from or joined to the body as it stands. The repeated features are in `features()` and a

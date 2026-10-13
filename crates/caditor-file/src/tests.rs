@@ -4227,6 +4227,69 @@ fn an_unreadable_edge_of_a_sweep_path_is_left_out_and_reported() {
     assert!(path.is_empty());
 }
 
+fn pipe_model() -> (Document, FeatureId) {
+    use caditor_document::{BodyOperation, Pipe, SweepPath};
+    use caditor_kernel::PipeShape;
+    let (mut document, base, _) = solid_model();
+    let parse = |text: &str| Expression::parse_stored(text).unwrap();
+    let mut transaction = document.transaction("Pipes");
+    let mut path = Sketch::new(Plane::XY);
+    let first = path.add_line(Point2::ZERO, Point2::new(20.0, 0.0));
+    let second = path.add_line(Point2::new(20.0, 0.0), Point2::new(20.0, 30.0));
+    let path = transaction.add_feature("Pipe path", FeatureKind::from(path));
+    let pipe = transaction.add_feature(
+        "Pipe 1",
+        FeatureKind::Pipe(Pipe {
+            shape: PipeShape::Triangle,
+            wall: Some(parse("0.5 mm")),
+            operation: BodyOperation::Add(base),
+            ..Pipe::new(
+                SweepPath::Curves {
+                    sketch: path,
+                    curves: vec![first, second],
+                },
+                parse("4 mm"),
+                parse("6 mm"),
+            )
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    (document, pipe)
+}
+
+#[test]
+fn pipes_are_saved_and_loaded_as_a_record_of_their_own() {
+    let (document, _) = pipe_model();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+
+    assert!(text.contains("\"pipe\":{"), "{text}");
+    assert!(text.contains("\"shape\":\"triangle\""), "{text}");
+    assert!(text.contains("\"wall\":\"0.5 mm\""), "{text}");
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+}
+
+#[test]
+fn an_unreadable_bend_radius_of_a_pipe_loads_as_sharp_corners_and_is_reported() {
+    let (document, pipe) = pipe_model();
+    let text = encode(&document)
+        .unwrap()
+        .replacen("\"bend\":\"6 mm\"", "\"bend\":\"6 (\"", 1);
+
+    let loaded = decode_text(&text);
+    let restored = loaded.document.feature(pipe).unwrap().kind.pipe().unwrap();
+
+    assert_eq!(loaded.issues.len(), 1, "{:?}", loaded.issues);
+    assert!(
+        loaded.issues[0].contains("bend radius"),
+        "{:?}",
+        loaded.issues
+    );
+    assert_eq!(restored.bend, Expression::parse_stored("0 mm").unwrap());
+}
+
 fn primitive_model() -> (Document, FeatureId, FeatureId) {
     use caditor_document::{BodyOperation, Primitive, PrimitiveAnchor, PrimitiveShape};
     use caditor_kernel::{FaceName, FaceOrigin, FaceReference};

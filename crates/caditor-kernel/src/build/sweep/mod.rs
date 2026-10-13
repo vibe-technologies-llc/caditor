@@ -1,4 +1,7 @@
 mod path;
+mod pipe;
+#[cfg(test)]
+mod pipe_tests;
 mod stations;
 #[cfg(test)]
 mod tests;
@@ -8,6 +11,7 @@ use std::f64::consts::PI;
 use caditor_geometry::{Aabb2, Plane, Point2, Point3, RigidTransform, Vector2, Vector3};
 use thiserror::Error;
 
+pub use self::pipe::{PipeError, PipeSection, PipeShape, pipe};
 use self::{
     path::{Chain, Leg},
     stations::{FIT_TOLERANCE, Stations, rotating, rotation_minimising, sliding_surface},

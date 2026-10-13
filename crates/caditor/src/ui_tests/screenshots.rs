@@ -1241,6 +1241,19 @@ fn feature_panel_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) 
     threaded.select([wall]);
     threaded.key(Key::O, Modifiers::ALT | Modifiers::SHIFT);
     shoot_open(&mut threaded, gpu, out, "panel-thread", look);
+
+    let piped_dir = TempDir::new().expect("a temporary directory");
+    let mut piped = Harness::styled(look, piped_dir.path(), false);
+    let mut elbow = Sketch::new(Plane::XY);
+    elbow.add_line(Point2::ZERO, Point2::new(40.0, 0.0));
+    elbow.add_line(Point2::new(40.0, 0.0), Point2::new(40.0, 30.0));
+    piped.add_sketch(elbow);
+    piped.select([]);
+    run_from_palette(&mut piped, "Pipe");
+    piped.settle();
+    piped.key(Key::Escape, Modifiers::NONE);
+    piped.settle();
+    shoot_open(&mut piped, gpu, out, "panel-pipe", look);
 }
 
 fn close_dialog(harness: &mut Harness) {

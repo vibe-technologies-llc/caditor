@@ -127,6 +127,7 @@ pub enum Command {
     Extrude,
     Revolve,
     Sweep,
+    Pipe,
     Hole,
     NewBox,
     NewCylinder,
@@ -316,6 +317,7 @@ impl Command {
                 | Self::Extrude
                 | Self::Revolve
                 | Self::Sweep
+                | Self::Pipe
                 | Self::Hole
                 | Self::NewBox
                 | Self::NewCylinder
@@ -724,6 +726,7 @@ plain_commands! {
     Extrude,
     Revolve,
     Sweep,
+    Pipe,
     Hole,
     NewBox,
     NewCylinder,
@@ -1001,6 +1004,7 @@ impl Command {
             Self::Extrude => "model.extrude",
             Self::Revolve => "model.revolve",
             Self::Sweep => "model.sweep",
+            Self::Pipe => "model.pipe",
             Self::Hole => "model.hole",
             Self::NewBox => "model.box",
             Self::NewCylinder => "model.cylinder",
@@ -1273,6 +1277,7 @@ impl Command {
             Self::Extrude => "Extrude",
             Self::Revolve => "Revolve",
             Self::Sweep => "Sweep",
+            Self::Pipe => "Pipe",
             Self::Hole => "Hole",
             Self::NewBox => "Box",
             Self::NewCylinder => "Cylinder",
@@ -1501,6 +1506,7 @@ impl Command {
             Self::Extrude => &["pad", "pocket", "boss", "push pull"],
             Self::Revolve => &["lathe", "turn", "spin"],
             Self::Sweep => &["pipe", "tube", "rail", "follow a path"],
+            Self::Pipe => &["tube", "tubing", "handrail", "cable", "wire", "rod", "bend"],
             Self::Fillet => &["round", "blend"],
             Self::Chamfer => &["bevel"],
             Self::Shell => &["hollow"],
@@ -1666,6 +1672,7 @@ impl Command {
             | Self::Extrude
             | Self::Revolve
             | Self::Sweep
+            | Self::Pipe
             | Self::Hole
             | Self::NewBox
             | Self::NewCylinder
@@ -1924,6 +1931,7 @@ impl Command {
             Self::Extrude => vec![alt(Key::E)],
             Self::Revolve => vec![alt(Key::R)],
             Self::Sweep => vec![alt_shift(Key::W)],
+            Self::Pipe => vec![alt_shift(Key::I)],
             Self::Hole => vec![alt(Key::O)],
             Self::NewBox => vec![alt(Key::B)],
             Self::NewCylinder => vec![alt(Key::Y)],

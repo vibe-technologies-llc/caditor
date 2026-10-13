@@ -13,9 +13,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   hole in the wrong place or a fillet to remove means remodelling it from scratch. Direct edits
   become features of their own, named from the faces they move, so they stay parametric and
   undoable.
-- [medium · medium] No pipe tool: a sweep makes tubing from a drawn profile, but a pipe taking only
-  a path and a round, square or triangular section size, solid or with a wall thickness, rounding
-  the path's sharp corners, would be the ready tool for tubing, handrails and cable runs.
 - [medium · hard] Offset face moves planes, cylinders, cones, spheres and tori only: a spline,
   extrusion or revolution face becomes its offset surface (which needs a surface fitted within
   tolerance), and a fillet moved beside a plane that stays is refused rather than re-blended.
@@ -75,6 +72,10 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   it: an opening on an extrusion, revolution or spline face, one running all the way around a
   round face (a collar or a groove), or one spanning several curved faces is refused, since
   closing it needs a freeform patch, a ring face or a surface fitted across it.
+- [low · medium] A pipe's bend radius rounds only corners between two straight lines: a sharp corner
+  where an arc, spline or edge curve meets another curve still fails asking for a fillet in the
+  path's sketch, and a pipe has no arrows in the view for its size and bend radius (panel fields
+  only).
 - [low · hard] Split face wraps closed outlines only within once round a cylinder or cone, and a
   wrapped open chain may not run right round and back to the edge of the faces it started from:
   a helical stripe drawn as one outline running round more than once, a band whose ends meet

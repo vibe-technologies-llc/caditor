@@ -5819,6 +5819,9 @@ fn feature_prompt(kind: Option<&FeatureKind>) -> (&'static str, Clicks) {
         Some(FeatureKind::Primitive(_)) => {
             in_panel("Type the sizes and choose where the shape goes in the panel")
         }
+        Some(FeatureKind::Pipe(_)) => {
+            in_panel("Choose the path, the section and its sizes in the panel")
+        }
         Some(FeatureKind::Thread(_)) => {
             in_panel("Choose the face to thread, its size and its length in the panel")
         }

@@ -614,12 +614,17 @@ impl Document {
         let axis_users: Vec<String> = self
             .features()
             .filter(|other| {
-                other.kind.solid().is_some_and(|solid| {
-                    (solid.sketch() == feature && solid.axis_line() == Some(id))
-                        || solid
-                            .path()
-                            .is_some_and(|path| path.holds_curve(feature, id))
-                })
+                let follows = other
+                    .kind
+                    .pipe()
+                    .is_some_and(|pipe| pipe.path.holds_curve(feature, id));
+                follows
+                    || other.kind.solid().is_some_and(|solid| {
+                        (solid.sketch() == feature && solid.axis_line() == Some(id))
+                            || solid
+                                .path()
+                                .is_some_and(|path| path.holds_curve(feature, id))
+                    })
             })
             .map(|other| other.name.clone())
             .collect();

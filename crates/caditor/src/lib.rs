@@ -126,6 +126,8 @@ mod pattern_panel;
 mod pattern_tools;
 mod patterning;
 mod pick_list;
+mod pipe_panel;
+mod pipe_tools;
 mod place_handles;
 mod plane_selector;
 mod portal;

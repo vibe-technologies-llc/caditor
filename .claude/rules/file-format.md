@@ -182,6 +182,9 @@ Extrusions and revolves:
   `orientation` (`square`, `parallel`) and `operation`; other bodies cut wrap it in `cut_several`.
   An unreadable path loads as unchosen (the sweep fails asking for one) and an unreadable edge is
   left out, each reported. The corpus holds it in `path-sweeps.caditor`.
+- `pipe`: `path` as a sweep's (unreadable loads as unchosen), `shape` (`round`, `square`,
+  `triangle`), `size` (unreadable 10 mm), `wall` only when hollow (unreadable 1 mm), `bend`
+  (unreadable 0 mm) and `operation`. The corpus holds it in `pipes.caditor`.
 
 Holes:
 
