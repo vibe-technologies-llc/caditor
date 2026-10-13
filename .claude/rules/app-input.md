@@ -261,8 +261,8 @@ paths:
 ## Keyboard-only operation
 
 - Every command is in the palette, including those with no button: recompute and its cancel,
-  next or previous failed feature, adding a parameter and deleting the one whose field last had
-  focus (`PanelState::parameter`), opening or removing each recent model (the `Offer`'s detail
+  next or previous failed or waiting feature, adding a parameter and deleting the one whose field
+  last had focus (`PanelState::parameter`), opening or removing each recent model (the `Offer`'s detail
   carries the file name), recovering unsaved work, cancelling an export, dismissing the notice and
   dismissing or hiding the current tip.
 - A feature row's and panel's actions are commands on the tree's current feature

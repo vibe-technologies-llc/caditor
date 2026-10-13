@@ -282,6 +282,8 @@ pub enum Command {
     ParameterNote,
     ShowNextFailed,
     ShowPreviousFailed,
+    ShowNextWaiting,
+    ShowPreviousWaiting,
     UpdateReferences,
     ReplaceImport,
     ReloadImport,
@@ -830,6 +832,8 @@ plain_commands! {
     ParameterNote,
     ShowNextFailed,
     ShowPreviousFailed,
+    ShowNextWaiting,
+    ShowPreviousWaiting,
     UpdateReferences,
     ReplaceImport,
     ReloadImport,
@@ -1142,6 +1146,8 @@ impl Command {
             Self::ParameterNote => "model.parameter_note",
             Self::ShowNextFailed => "model.first_failed",
             Self::ShowPreviousFailed => "model.previous_failed",
+            Self::ShowNextWaiting => "model.next_waiting",
+            Self::ShowPreviousWaiting => "model.previous_waiting",
             Self::UpdateReferences => "model.update_references",
             Self::ReplaceImport => "file.replace_import",
             Self::ReloadImport => "file.reload_import",
@@ -1396,6 +1402,8 @@ impl Command {
             Self::ParameterNote => "Add or edit the parameter's note",
             Self::ShowNextFailed => "Go to the next failed feature",
             Self::ShowPreviousFailed => "Go to the previous failed feature",
+            Self::ShowNextWaiting => "Go to the next feature waiting for input",
+            Self::ShowPreviousWaiting => "Go to the previous feature waiting for input",
             Self::UpdateReferences => "Update references",
             Self::ReplaceImport => "Replace import from file…",
             Self::ReloadImport => "Reload import from its file",
@@ -1690,6 +1698,8 @@ impl Command {
             | Self::ParameterNote
             | Self::ShowNextFailed
             | Self::ShowPreviousFailed
+            | Self::ShowNextWaiting
+            | Self::ShowPreviousWaiting
             | Self::UpdateReferences
             | Self::ReplaceImport
             | Self::ReloadImport => Category::Model,
@@ -1849,6 +1859,8 @@ impl Command {
             Self::EditFeature => vec![plain(Key::E)],
             Self::ShowNextFailed => vec![plain(Key::F8)],
             Self::ShowPreviousFailed => vec![KeyboardShortcut::new(Modifiers::SHIFT, Key::F8)],
+            Self::ShowNextWaiting => vec![plain(Key::F9)],
+            Self::ShowPreviousWaiting => vec![KeyboardShortcut::new(Modifiers::SHIFT, Key::F9)],
             Self::Guide => vec![plain(Key::F1)],
             Self::FilterFeatures => vec![command(Key::F)],
             Self::RollbackUp => vec![KeyboardShortcut::new(Modifiers::ALT, Key::ArrowUp)],

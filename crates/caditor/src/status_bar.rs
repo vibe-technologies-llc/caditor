@@ -35,6 +35,7 @@ const DIVIDER_WIDTH: f32 = SPACE_S;
 const NO_NOTICE: &str = "There is no notice to dismiss";
 const NOT_RECOMPUTING: &str = "Nothing is being recomputed";
 const NOTHING_FAILED: &str = "No feature has failed";
+const NOTHING_WAITING: &str = "No feature is waiting for input";
 const WAITING_HOVER: &str = "Show the next feature waiting for you to choose something";
 pub const SHOW_MESSAGES: &str = "Show recent messages";
 pub const UNDO_SWITCH: &str = "Undo";
@@ -47,6 +48,7 @@ struct Hovers {
     recompute: String,
     restart: String,
     failed: String,
+    waiting: String,
     messages: String,
 }
 
@@ -64,6 +66,7 @@ impl Hovers {
                 "Start recomputing again. Your model is safe.",
             ),
             failed: commands.with_keys(Command::ShowNextFailed, "Show the next failed feature"),
+            waiting: commands.with_keys(Command::ShowNextWaiting, WAITING_HOVER),
             messages: commands.with_keys(Command::Messages, SHOW_MESSAGES),
         }
     }
@@ -100,6 +103,17 @@ pub fn show(
         let failed = failed_after(model, panels.selected, way).ok_or(NOTHING_FAILED);
         if commands.invoke(command, &failed)
             && let Ok(feature) = failed
+        {
+            panels.request_focus(Focus::Feature(feature));
+        }
+    }
+    for (command, way) in [
+        (Command::ShowNextWaiting, Step::Next),
+        (Command::ShowPreviousWaiting, Step::Previous),
+    ] {
+        let waiting = waiting_after(model, panels.selected, way).ok_or(NOTHING_WAITING);
+        if commands.invoke(command, &waiting)
+            && let Ok(feature) = waiting
         {
             panels.request_focus(Focus::Feature(feature));
         }
@@ -336,7 +350,7 @@ fn summary(ui: &mut Ui, model: &Model, panels: &mut PanelState, hovers: &Hovers)
     }
     if waiting > 0 {
         let text = format!("{waiting} waiting");
-        if feature_pill(ui, Tone::Info, &text, WAITING_HOVER).clicked()
+        if feature_pill(ui, Tone::Info, &text, &hovers.waiting).clicked()
             && let Some(feature) = waiting_after(model, panels.selected, Step::Next)
         {
             panels.request_focus(Focus::Feature(feature));

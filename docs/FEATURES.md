@@ -245,9 +245,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   would go through `Action`s and `Transaction`s like the UI, so scripts cannot break the model's
   rules, and would need a decision on the language and on safety (a script cannot reach files
   or the network unasked).
-- [low · easy] A feature waiting for input is reached only through the status bar's "N waiting"
-  pill: no palette command or key goes to the next waiting feature, as F8 goes to the next failed
-  one, so the keyboard cannot reach it (`ux.md`).
 - [low · medium] A queued action (`queued.rs`) is queued only from keys, menus and the palette: a
   ribbon button stays disabled while the model recomputes, and a shell's own-thickness click in the
   view is refused with a notice, since that click cannot be rerun as a command.
