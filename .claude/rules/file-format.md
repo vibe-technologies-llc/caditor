@@ -318,7 +318,9 @@ Bodies and solids:
   `reference_images.rs`, `PictureField`, which encodes a kept `Picture` only while serialising),
   `pixels` (width and height), `plane` (`{"plane": ref}` or `{"sketch": id}`), `at` (two texts),
   `turn`, `size` (`{"width": text}` or `{"calibrated": {"from", "to", "distance"}}` with two
-  fractions per spot), `opacity`, and `flipped`, `in_front`, `locked` when set. Unreadable plane
+  fractions per spot), `opacity`, and `flipped`, `in_front`, `locked` when set, written as
+  `ReferenceImage::settle` leaves it, so a journaled request the document settles (an opacity below
+  the least, a spot off the picture) reads back without a report. Unreadable plane
   loads as XY, size as 100 mm wide, values as 0 mm or 0 deg, spots held within the picture, an
   opacity below the least raised, each reported. A model or journal snapshot (`feature_records`)
   writes each picture's `data` once, in the first record of that digest in tree order

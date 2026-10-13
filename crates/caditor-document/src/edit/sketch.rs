@@ -536,7 +536,36 @@ impl Document {
                     .transpose()
             });
         inserted.map_err(|error| EditError::Sketch { name, error })?;
+        let users = self.curve_users(feature, id);
+        if !users.is_empty() {
+            let (name, sketch) = self.sketch_mut(feature)?;
+            return Err(EditError::EntityNumberNamed {
+                feature: name,
+                name: sketch.entity_label(id),
+                users: list_names(&users),
+            });
+        }
         Ok(Edit::RemoveSketchEntity { feature, id })
+    }
+
+    pub(super) fn reserve_named_curves(&mut self, kind: &FeatureKind) {
+        for (sketch, curve) in kind.named_curves() {
+            let beyond = curve.raw().saturating_add(1);
+            let behind = self
+                .feature(sketch)
+                .and_then(|feature| feature.kind.sketch())
+                .is_some_and(|named| !curve.is_reference() && named.next_id() < beyond);
+            if behind && let Ok((_, named)) = self.sketch_mut(sketch) {
+                named.reserve_ids_below(beyond);
+            }
+        }
+    }
+
+    fn curve_users(&self, feature: FeatureId, id: EntityId) -> Vec<String> {
+        self.features()
+            .filter(|other| other.kind.names_curve(feature, id))
+            .map(|other| other.name.clone())
+            .collect()
     }
 
     pub(super) fn set_sketch_construction(
@@ -611,23 +640,7 @@ impl Document {
         feature: FeatureId,
         id: EntityId,
     ) -> Result<Edit, EditError> {
-        let axis_users: Vec<String> = self
-            .features()
-            .filter(|other| {
-                let follows = other
-                    .kind
-                    .pipe()
-                    .is_some_and(|pipe| pipe.path.holds_curve(feature, id));
-                follows
-                    || other.kind.solid().is_some_and(|solid| {
-                        (solid.sketch() == feature && solid.axis_line() == Some(id))
-                            || solid
-                                .path()
-                                .is_some_and(|path| path.holds_curve(feature, id))
-                    })
-            })
-            .map(|other| other.name.clone())
-            .collect();
+        let axis_users = self.curve_users(feature, id);
         if !axis_users.is_empty() {
             let (name, sketch) = self.sketch_mut(feature)?;
             return Err(EditError::EntityInUse {
