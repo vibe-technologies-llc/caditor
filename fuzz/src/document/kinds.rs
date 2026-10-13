@@ -79,7 +79,7 @@ pub enum Family {
 }
 
 impl Family {
-    pub const ALL: [Self; 23] = [
+    pub const ALL: [Self; 24] = [
         Self::Sketch,
         Self::Solid,
         Self::Blend,
