@@ -1,3 +1,5 @@
+mod augmented;
+
 use nalgebra::{DMatrix, DVector, SVD, SymmetricEigen};
 
 use crate::solve::{
@@ -12,6 +14,26 @@ const LOOSE: f64 = 1.0;
 const REACH_TOLERANCE: f64 = 1e-10;
 pub(super) const PROBE: f64 = 1e-7;
 const FLATTEST: f64 = 1e-3;
+pub(crate) const REACH_WORK: usize = 120_000_000;
+
+#[derive(Debug)]
+pub(crate) struct ReachWork {
+    left: usize,
+}
+
+impl ReachWork {
+    pub fn new(units: usize) -> Self {
+        Self { left: units }
+    }
+
+    fn spend(&mut self, units: usize) {
+        self.left = self.left.saturating_sub(units);
+    }
+
+    fn spent(&self) -> bool {
+        self.left == 0
+    }
+}
 
 struct Aim {
     column: usize,
@@ -85,7 +107,9 @@ impl Solver<'_> {
         &self,
         component: &Component,
         targets: &[(usize, f64)],
+        drawn: &[f64],
         values: &mut [f64],
+        work: &mut ReachWork,
     ) -> Result<(), Cancelled> {
         let part = self.part(component);
         let aims: Vec<Aim> = component
@@ -103,16 +127,23 @@ impl Solver<'_> {
                     })
             })
             .collect();
-        if aims.is_empty()
-            || component.variables.len() > DENSE_LIMIT
-            || !self.converged(&part, values)
-        {
+        if aims.is_empty() {
+            return Ok(());
+        }
+        let solved = self.converged(&part, values);
+        if self.converged(&part, drawn) && (!solved || miss(&aims, drawn) < miss(&aims, values)) {
+            let from = self.start(&part, drawn);
+            self.restore(component, &from, values);
+        } else if !solved {
             return Ok(());
         }
         let loose = Solver {
             stiffness: LOOSE,
             ..*self
         };
+        if component.variables.len() > DENSE_LIMIT {
+            return loose.reach_far(&part, &aims, values, work);
+        }
         let tolerance = REACH_TOLERANCE * part.context.scale;
         let longest = MAX_STEP * part.context.scale;
         let mut gap = miss(&aims, values);

@@ -9,6 +9,7 @@ mod newton;
 mod reach;
 
 use self::newton::Damping;
+pub(crate) use self::reach::{REACH_WORK, ReachWork};
 use crate::{
     id::{ConstraintId, EntityId},
     solve::{

@@ -14,7 +14,12 @@ const LEAST_PIVOT: f64 = 1e-12;
 
 const SETTLED_FALL: f64 = 1.0 - STALLED_COST_RATIO;
 
-type Entries = Vec<(usize, f64)>;
+pub(super) type Entries = Vec<(usize, f64)>;
+
+pub(super) struct Curvature {
+    pub columns: Vec<BTreeMap<usize, f64>>,
+    pub work: usize,
+}
 
 pub(super) struct Fell {
     pub remaining: f64,
@@ -99,7 +104,7 @@ fn dot(a: &[f64], b: &[f64]) -> f64 {
     a.iter().zip(b).map(|(x, y)| x * y).sum()
 }
 
-fn colours(rows: &[Entries], width: usize) -> Vec<Vec<usize>> {
+fn colours(rows: &[Entries], width: usize) -> (Vec<Vec<usize>>, usize) {
     let mut rows_of_column: Vec<Vec<usize>> = vec![Vec::new(); width];
     for (index, row) in rows.iter().enumerate() {
         for (column, _) in row {
@@ -110,6 +115,7 @@ fn colours(rows: &[Entries], width: usize) -> Vec<Vec<usize>> {
     }
     let mut colour_of: Vec<Option<usize>> = vec![None; width];
     let mut colours: Vec<Vec<usize>> = Vec::new();
+    let mut work = 0;
     for column in 0..width {
         let taken: Vec<usize> = rows_of_column
             .get(column)
@@ -120,6 +126,7 @@ fn colours(rows: &[Entries], width: usize) -> Vec<Vec<usize>> {
             .filter_map(|(other, _)| colour_of.get(*other).copied().flatten())
             .collect();
         tally::add(taken.len() + 1);
+        work += taken.len() + 1;
         let colour = (0..)
             .find(|candidate| !taken.contains(candidate))
             .unwrap_or(0);
@@ -131,7 +138,7 @@ fn colours(rows: &[Entries], width: usize) -> Vec<Vec<usize>> {
             None => colours.push(vec![column]),
         }
     }
-    colours
+    (colours, work)
 }
 
 impl Solver<'_> {
@@ -193,48 +200,11 @@ impl Solver<'_> {
     }
 
     fn model(&self, part: &Part<'_>, values: &[f64], scales: Vec<f64>) -> Model {
-        let component = part.component;
-        let width = component.variables.len();
+        let width = part.component.variables.len();
         let (rows, residuals) = self.structural_linearize(part, values);
-        let probe = PROBE * part.context.scale;
-        let mut curvature: Vec<BTreeMap<usize, f64>> = vec![BTreeMap::new(); width];
-        let mut probed = values.to_vec();
-        for members in colours(&rows, width) {
-            for column in &members {
-                if let Some(variable) = component.variables.get(*column)
-                    && let Some(slot) = probed.get_mut(*variable)
-                {
-                    *slot = value(values, *variable) + probe;
-                }
-            }
-            let (moved, _) = self.structural_linearize(part, &probed);
-            for ((row, moved_row), residual) in rows.iter().zip(&moved).zip(&residuals) {
-                let Some(column) = row
-                    .iter()
-                    .map(|(column, _)| *column)
-                    .find(|column| members.binary_search(column).is_ok())
-                else {
-                    continue;
-                };
-                let Some(bent) = curvature.get_mut(column) else {
-                    continue;
-                };
-                for (other, after) in moved_row {
-                    let before = row
-                        .iter()
-                        .find(|(at, _)| at == other)
-                        .map_or(0.0, |(_, before)| *before);
-                    *bent.entry(*other).or_default() += residual * (after - before) / probe;
-                }
-            }
-            for column in &members {
-                if let Some(variable) = component.variables.get(*column)
-                    && let Some(slot) = probed.get_mut(*variable)
-                {
-                    *slot = value(values, *variable);
-                }
-            }
-        }
+        let curvature = self
+            .weighted_curvature(part, values, &rows, &residuals)
+            .columns;
         let scale_of = |column: usize| scales.get(column).copied().unwrap_or(1.0);
         let rows: Vec<Entries> = rows
             .into_iter()
@@ -285,7 +255,67 @@ impl Solver<'_> {
         }
     }
 
-    fn structural_linearize(&self, part: &Part<'_>, values: &[f64]) -> (Vec<Entries>, Vec<f64>) {
+    pub(super) fn weighted_curvature(
+        &self,
+        part: &Part<'_>,
+        values: &[f64],
+        rows: &[Entries],
+        weights: &[f64],
+    ) -> Curvature {
+        let component = part.component;
+        let width = component.variables.len();
+        let probe = PROBE * part.context.scale;
+        let mut curvature: Vec<BTreeMap<usize, f64>> = vec![BTreeMap::new(); width];
+        let mut probed = values.to_vec();
+        let (colours, colouring) = colours(rows, width);
+        let work = colouring + colours.len() * rows.len();
+        for members in colours {
+            for column in &members {
+                if let Some(variable) = component.variables.get(*column)
+                    && let Some(slot) = probed.get_mut(*variable)
+                {
+                    *slot = value(values, *variable) + probe;
+                }
+            }
+            let (moved, _) = self.structural_linearize(part, &probed);
+            for ((row, moved_row), weight) in rows.iter().zip(&moved).zip(weights) {
+                let Some(column) = row
+                    .iter()
+                    .map(|(column, _)| *column)
+                    .find(|column| members.binary_search(column).is_ok())
+                else {
+                    continue;
+                };
+                let Some(bent) = curvature.get_mut(column) else {
+                    continue;
+                };
+                for (other, after) in moved_row {
+                    let before = row
+                        .iter()
+                        .find(|(at, _)| at == other)
+                        .map_or(0.0, |(_, before)| *before);
+                    *bent.entry(*other).or_default() += weight * (after - before) / probe;
+                }
+            }
+            for column in &members {
+                if let Some(variable) = component.variables.get(*column)
+                    && let Some(slot) = probed.get_mut(*variable)
+                {
+                    *slot = value(values, *variable);
+                }
+            }
+        }
+        Curvature {
+            columns: curvature,
+            work,
+        }
+    }
+
+    pub(super) fn structural_linearize(
+        &self,
+        part: &Part<'_>,
+        values: &[f64],
+    ) -> (Vec<Entries>, Vec<f64>) {
         let component = part.component;
         let mut gradient = Gradient::new();
         let mut rows = Vec::with_capacity(component.equations.len());
