@@ -379,7 +379,8 @@ paths:
   a result with an older ticket is dropped. Failures are in words (`PreviewFailure`,
   `PictureFailure`) and the rest of the card still shows.
 - The picture is drawn like the 3MF thumbnail: the prepared `Snapshot` (initial viewpoint fitted to
-  the bodies, no grid or highlights) waits until the session draws it at `PICTURE_SIZE` with
+  the bodies, no grid or highlights, the version's reference images decoded on the `preview` thread
+  by `ImageTextures::decoded_for` and handed to `snapshot::take_unless`) waits until the session draws it at `PICTURE_SIZE` with
   `Renderer::render_image`, in the scene palette of the canvas in use when Preview was pressed
   (carried by `HistoryCommand::Preview` to `version_preview::prepare`; `Files::preview_picture`,
   `preview_rendered`; a busy renderer leaves it waiting). Bands are read on a `preview` thread into

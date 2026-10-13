@@ -232,6 +232,17 @@ impl AxisReference {
         }
     }
 
+    pub fn sketch_entity(&self) -> Option<(FeatureId, EntityId)> {
+        match self {
+            Self::Sketch { sketch, entity } => Some((*sketch, *entity)),
+            Self::Principal(_)
+            | Self::Datum(_)
+            | Self::Edge { .. }
+            | Self::Face { .. }
+            | Self::Frame { .. } => None,
+        }
+    }
+
     pub fn origin_features(&self) -> BTreeSet<FeatureId> {
         match self {
             Self::Edge { edge, .. } => origins::of_edge(edge),
@@ -331,6 +342,18 @@ impl PointReference {
     pub fn sketch(&self) -> Option<FeatureId> {
         match self {
             Self::Sketch { sketch, .. } => Some(*sketch),
+            Self::Origin
+            | Self::Datum(_)
+            | Self::Vertex { .. }
+            | Self::Centre { .. }
+            | Self::SurfaceCentre { .. }
+            | Self::Frame(_) => None,
+        }
+    }
+
+    pub fn sketch_entity(&self) -> Option<(FeatureId, EntityId)> {
+        match self {
+            Self::Sketch { sketch, entity } => Some((*sketch, *entity)),
             Self::Origin
             | Self::Datum(_)
             | Self::Vertex { .. }

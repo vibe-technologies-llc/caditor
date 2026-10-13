@@ -1450,7 +1450,7 @@ impl Document {
             .max()
             .unwrap_or(0);
         self.next_feature_id = self.next_feature_id.max(beyond);
-        self.reserve_named_curves(kind);
+        self.reserve_named_entities(kind);
     }
 
     fn remove_feature(&mut self, id: FeatureId) -> Result<Edit, EditError> {

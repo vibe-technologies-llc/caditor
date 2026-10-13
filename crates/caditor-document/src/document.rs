@@ -16,7 +16,7 @@ use crate::{
     body_pieces::{PieceKey, PieceLooks, Pieces},
     combine::Combine,
     configurations::{ConfigurationId, Configurations},
-    datum::{Datum, PlaneReference, PrincipalGeometry},
+    datum::{AxisReference, Datum, PlaneReference, PointReference, PrincipalGeometry},
     edit::{Edit, Transaction},
     feature_list::FeatureList,
     hole::Hole,
@@ -534,6 +534,66 @@ impl FeatureKind {
 
     pub fn names_curve(&self, sketch: FeatureId, curve: EntityId) -> bool {
         self.named_curves().contains(&(sketch, curve))
+    }
+
+    pub fn named_entities(&self) -> Vec<(FeatureId, EntityId)> {
+        let references = match self {
+            Self::Solid(solid) => solid
+                .model_axis()
+                .and_then(AxisReference::sketch_entity)
+                .into_iter()
+                .collect(),
+            Self::Move(movement) => movement
+                .about
+                .axis()
+                .and_then(AxisReference::sketch_entity)
+                .into_iter()
+                .collect(),
+            Self::SplitFace(split) => split
+                .direction()
+                .and_then(AxisReference::sketch_entity)
+                .into_iter()
+                .collect(),
+            Self::Mate(mate) => mate
+                .axis_references()
+                .into_iter()
+                .filter_map(AxisReference::sketch_entity)
+                .chain(
+                    mate.points()
+                        .into_iter()
+                        .filter_map(PointReference::sketch_entity),
+                )
+                .collect(),
+            Self::Datum(datum) => datum
+                .axes()
+                .into_iter()
+                .filter_map(AxisReference::sketch_entity)
+                .chain(
+                    datum
+                        .points()
+                        .into_iter()
+                        .filter_map(PointReference::sketch_entity),
+                )
+                .collect(),
+            Self::Pattern(pattern) => pattern.sketch_entities(),
+            Self::Measurement(measurement) => measurement.sketch_entities(),
+            Self::Sketch(sketch) => sketch.projected_entities().collect(),
+            Self::Pipe(_)
+            | Self::Blend(_)
+            | Self::Shell(_)
+            | Self::OffsetFace(_)
+            | Self::Primitive(_)
+            | Self::Combine(_)
+            | Self::Mirror(_)
+            | Self::Split(_)
+            | Self::Scale(_)
+            | Self::Hole(_)
+            | Self::Import(_)
+            | Self::Remove(_)
+            | Self::Thread(_)
+            | Self::ReferenceImage(_) => Vec::new(),
+        };
+        self.named_curves().into_iter().chain(references).collect()
     }
 
     pub fn reference_sketches(&self) -> BTreeSet<FeatureId> {
