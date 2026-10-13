@@ -154,7 +154,8 @@ paths:
   `scene_palette::color32` (canvases, axis colours, analysis swatches, the palette tests), a
   document `Rgb` only through `body_appearance::color32`.
 - The axis triad (`view_cube::show_axis_triad`) draws in the palette's `axes` with each letter on the
-  label backdrop; axis colours hold 4.5:1 (7:1 in high contrast) over it on black, white and hover,
+  label backdrop, every letter over every line (the letter of an axis pointing away sits on the
+  origin, where the other two lines meet); axis colours hold 4.5:1 (7:1 in high contrast) over it on black, white and hover,
   which is why the standard dark red and blue are lighter and the light ones darker than a plain
   hue. `Highlight::emphasis` widens hovered geometry by `HIGHLIGHT_EXTRA_WIDTH` and selected by the
   palette's `selection_widening` (1 standard, 2 high contrast); the high-contrast palette dashes the
