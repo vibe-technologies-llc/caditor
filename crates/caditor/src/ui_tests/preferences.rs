@@ -240,6 +240,10 @@ fn preferences_tabs_switch_by_mouse_and_keyboard_and_the_last_one_stays_open() {
     let ctrl_shift = Modifiers::COMMAND | Modifiers::SHIFT;
     assert_eq!(
         tab_after(&mut harness, Key::Tab, ctrl),
+        PreferencesTab::Sketching
+    );
+    assert_eq!(
+        tab_after(&mut harness, Key::Tab, ctrl),
         PreferencesTab::Graphics
     );
     assert!(harness.shows("Anti-aliasing"));
@@ -253,7 +257,7 @@ fn preferences_tabs_switch_by_mouse_and_keyboard_and_the_last_one_stays_open() {
     );
     assert_eq!(
         tab_after(&mut harness, Key::PageUp, ctrl),
-        PreferencesTab::Navigation
+        PreferencesTab::Sketching
     );
     assert_eq!(
         tab_after(&mut harness, Key::PageDown, ctrl),
@@ -302,7 +306,7 @@ fn preferences_tabs_switch_by_mouse_and_keyboard_and_the_last_one_stays_open() {
         tab_after(&mut harness, Key::ArrowLeft, none),
         PreferencesTab::Graphics
     );
-    assert_eq!(focused_tab(&harness), Some(3));
+    assert_eq!(focused_tab(&harness), Some(4));
     assert!(harness.shows("Anti-aliasing"));
 }
 

@@ -52,7 +52,7 @@ const ICON_SPACING: f32 = SPACE_SM;
 pub const TOOLTIP_WIDTH: f32 = 340.0;
 pub const MENU_WIDTH: f32 = 260.0;
 pub const COMBO_WIDTH: f32 = 140.0;
-const TOOLTIP_DELAY: f32 = 0.35;
+pub const TOOLTIP_DELAY: f32 = 0.35;
 
 const HIGH_CONTRAST_DISABLED_ALPHA: f32 = 0.7;
 const DISABLED_ALPHA: f32 = 0.5;

@@ -517,5 +517,5 @@ paths:
   point, when the shape draws one. `Drawing::type_dimensioned` keeps them with the placement and
   `Draft::finish` adds them to the shape's transaction against the points at those places, through
   the shadow check like any inferred constraint. Keep typed values as dimensions
-  (`Command::ToggleTypedDimensions`; on by default, `ViewportState::typed_dimensions`, session only)
-  turns this off.
+  (`Command::ToggleTypedDimensions`; on by default, `ViewportState::typed_dimensions`, session
+  only, starting as Preferences › Sketching says) turns this off.

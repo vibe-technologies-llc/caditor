@@ -58,7 +58,10 @@ use crate::{
     paint_selection::{self, Painting},
     pattern_tools,
     pick_list::{self, PickList},
-    preferences::{InputMode, Navigation, PreferenceChange, PreferencesCommand},
+    preferences::{
+        InputMode, Navigation, OrbitAround, PreferenceChange, PreferencesCommand, Sketching,
+        StartingToggles, ViewDetails, ZoomToward,
+    },
     primitive_tools, projecting,
     queued::{self, Queued, Rerun},
     reference_picking::{self, Slot},
@@ -342,6 +345,8 @@ pub struct ViewportState {
     annotations: Annotations,
     bodies: BodyMeshes,
     navigation: Navigation,
+    sketching: Sketching,
+    view_cube_shown: bool,
     keyboard_highlight: Option<Pickable>,
     pick_list: Option<PickList>,
     list_hold: bool,
@@ -573,12 +578,6 @@ fn problems(model: &Model) -> Vec<Problem> {
         .collect()
 }
 
-fn camera_looking_from(view: SavedView, projection: ProjectionMode) -> Camera {
-    let mut camera = Camera::new(saved_views::viewpoint(view));
-    camera.set_projection(projection);
-    camera
-}
-
 pub fn initial_viewpoint() -> Viewpoint {
     Viewpoint::looking_from(INITIAL_LOOK_FROM, Point3::ZERO, INITIAL_DISTANCE).unwrap_or(
         Viewpoint {
@@ -623,6 +622,8 @@ impl ViewportState {
             annotations: Annotations::default(),
             bodies: BodyMeshes::default(),
             navigation: Navigation::default(),
+            sketching: Sketching::default(),
+            view_cube_shown: true,
             keyboard_highlight: None,
             pick_list: None,
             list_hold: false,
@@ -967,12 +968,11 @@ impl ViewportState {
     fn start_from_home(&mut self, model: &Model) {
         match model.document().saved_views().home {
             Some(home) => {
-                self.camera = camera_looking_from(home, self.navigation.projection);
+                self.camera = self.fresh_camera(saved_views::viewpoint(home));
                 self.home_applied = true;
             }
             None if self.home_applied => {
-                self.camera = Camera::new(initial_viewpoint());
-                self.camera.set_projection(self.navigation.projection);
+                self.camera = self.fresh_camera(initial_viewpoint());
                 self.home_applied = false;
             }
             None => {}
@@ -1090,6 +1090,49 @@ impl ViewportState {
     pub fn set_navigation(&mut self, navigation: Navigation) {
         self.navigation = navigation;
         self.camera.set_projection(navigation.projection);
+        self.camera
+            .set_field_of_view(navigation.field_of_view.degrees());
+        self.camera
+            .set_transition_scale(navigation.transitions.scale());
+    }
+
+    fn fresh_camera(&self, viewpoint: Viewpoint) -> Camera {
+        let mut camera = Camera::new(viewpoint);
+        camera.set_projection(self.navigation.projection);
+        camera.set_field_of_view(self.navigation.field_of_view.degrees());
+        camera.set_transition_scale(self.navigation.transitions.scale());
+        camera
+    }
+
+    pub fn set_view_details(&mut self, details: ViewDetails) {
+        self.aids.edges = details.edges;
+        self.view_cube_shown = details.view_cube;
+    }
+
+    pub fn set_sketching(&mut self, sketching: Sketching) {
+        self.sketching = sketching;
+    }
+
+    pub fn start_with(&mut self, toggles: StartingToggles) {
+        self.glyphs_shown = toggles.glyphs;
+        self.snapping = toggles.snapping;
+        self.grid_snapping = toggles.grid_snapping;
+        self.typed_dimensions = toggles.typed_dimensions;
+        if self.dimensions_shown && !toggles.model_dimensions {
+            self.model_dimensions.clear();
+        }
+        self.dimensions_shown = toggles.model_dimensions;
+    }
+
+    fn cube_area(&self, rect: Rect) -> Rect {
+        if self.view_cube_shown {
+            view_cube::area(rect)
+        } else {
+            Rect::from_min_size(
+                pos2(rect.right() - canvas::MARGIN, rect.top() + canvas::MARGIN),
+                Vec2::ZERO,
+            )
+        }
     }
 
     pub fn edit_dimension(&mut self, feature: FeatureId, constraint: ConstraintId) {
@@ -1256,7 +1299,9 @@ impl ViewportState {
             context.sketch.is_none() && context.solid.is_none() && !context.choosing_plane;
         if edited != self.edited {
             self.edited = edited;
-            self.face_edited_sketch = edited.map(|_| SketchFacing::Entering);
+            self.face_edited_sketch = edited
+                .filter(|_| self.sketching.look_at_on_entering)
+                .map(|_| SketchFacing::Entering);
             self.last_pick = None;
         }
         self.bodies.update_when_changed(
@@ -1448,7 +1493,7 @@ impl ViewportState {
         if self.needs_initial_fit
             && let Some(home) = model.document().saved_views().home
         {
-            self.camera = camera_looking_from(home, self.navigation.projection);
+            self.camera = self.fresh_camera(saved_views::viewpoint(home));
             self.home_applied = true;
         }
         let Some(view) = self.view() else {
@@ -1457,8 +1502,7 @@ impl ViewportState {
         let heading = self.destination_view().unwrap_or(view);
         let mut going = None;
         if self.needs_initial_fit {
-            self.camera = Camera::new(view.fitted(built.fit_all()));
-            self.camera.set_projection(self.navigation.projection);
+            self.camera = self.fresh_camera(view.fitted(built.fit_all()));
             self.needs_initial_fit = false;
         } else if let Some(asked) = self.face_edited_sketch.take() {
             going = built.edited.map(|sketch| {
@@ -1902,7 +1946,10 @@ impl ViewportState {
                 Some(DragMotion::Orbit) => self.orbit_by(&view, drag, rect, self.drag_anchor),
                 Some(DragMotion::Pan) => self.pan_by(&view, drag, self.drag_anchor),
                 Some(DragMotion::Zoom) => {
-                    let pivot = self.drag_anchor.unwrap_or(view.viewpoint().target);
+                    let pivot = self
+                        .drag_anchor
+                        .filter(|_| self.navigation.zoom_toward == ZoomToward::Pointer)
+                        .unwrap_or(view.viewpoint().target);
                     self.camera
                         .zoom(pivot, zoom_factor(&self.navigation, -drag.y));
                 }
@@ -1936,10 +1983,13 @@ impl ViewportState {
         let Some(cursor) = self.cursor else {
             return;
         };
-        let anchor = self
-            .hit_under(cursor)
-            .or_else(|| view.focal_point_under(cursor))
-            .unwrap_or(view.viewpoint().target);
+        let anchor = match self.navigation.zoom_toward {
+            ZoomToward::Pointer => self
+                .hit_under(cursor)
+                .or_else(|| view.focal_point_under(cursor))
+                .unwrap_or(view.viewpoint().target),
+            ZoomToward::Centre => view.viewpoint().target,
+        };
         self.history
             .moving(Gesture::Wheel, self.camera.destination(), self.clock);
         self.camera.zoom(anchor, factor);
@@ -1955,7 +2005,14 @@ impl ViewportState {
     }
 
     fn orbit_by(&mut self, view: &View, drag: Vector2, rect: Rect, anchor: Option<Point3>) {
-        let pivot = anchor.unwrap_or(view.viewpoint().target);
+        let pivot = anchor
+            .filter(|_| self.navigation.orbit_around == OrbitAround::Pointer)
+            .unwrap_or(view.viewpoint().target);
+        let turned = |inverted: bool| if inverted { -1.0 } else { 1.0 };
+        let drag = Vector2::new(
+            drag.x * turned(self.navigation.invert_orbit_x),
+            drag.y * turned(self.navigation.invert_orbit_y),
+        );
         self.orbit_mark = Some(OrbitMark {
             pivot,
             at: self.clock,
@@ -4219,7 +4276,7 @@ impl ViewportState {
         };
         let Some(typed) = self.typed_point.show(
             ui.ctx(),
-            top_band(rect),
+            top_band(rect, self.cube_area(rect)),
             anchor,
             typed_point::FIELD_LABEL,
             &hint,
@@ -4385,7 +4442,7 @@ impl ViewportState {
         let anchor = rect.center_top() + vec2(0.0, TYPED_POINT_OFFSET);
         let typed = self.typed_point.show(
             ui.ctx(),
-            top_band(rect),
+            top_band(rect, self.cube_area(rect)),
             anchor,
             &typing.label,
             &hint,
@@ -4457,7 +4514,7 @@ impl ViewportState {
             .to_owned();
         let Some(typed) = self.typed_point.show(
             ui.ctx(),
-            top_band(rect),
+            top_band(rect, self.cube_area(rect)),
             anchor,
             field.label,
             &hint,
@@ -4490,7 +4547,7 @@ impl ViewportState {
         let anchor = rect.center_top() + vec2(0.0, TYPED_POINT_OFFSET);
         let typed = self.typed_point.show(
             ui.ctx(),
-            top_band(rect),
+            top_band(rect, self.cube_area(rect)),
             anchor,
             typed_point::MOVE_LABEL,
             &hint,
@@ -4542,7 +4599,7 @@ impl ViewportState {
         let anchor = rect.center_top() + vec2(0.0, TYPED_POINT_OFFSET);
         let typed = self.typed_point.show(
             ui.ctx(),
-            top_band(rect),
+            top_band(rect, self.cube_area(rect)),
             anchor,
             typed_point::MOVE_LABEL,
             &hint,
@@ -4588,7 +4645,7 @@ impl ViewportState {
         let anchor = rect.center_top() + vec2(0.0, TYPED_POINT_OFFSET);
         let typed = self.typed_point.show(
             ui.ctx(),
-            top_band(rect),
+            top_band(rect, self.cube_area(rect)),
             anchor,
             field.label,
             field.hint,
@@ -4983,7 +5040,9 @@ impl ViewportState {
         } else if !self.selection.is_empty() {
             self.selection.clear();
         } else if active.is_some() {
-            actions.push(Action::Editing(EditingCommand::Finish));
+            if self.sketching.escape_finishes {
+                actions.push(Action::Editing(EditingCommand::Finish));
+            }
         } else if editing.solid().is_some() {
             actions.push(Action::Editing(EditingCommand::CloseSolid));
         } else {
@@ -5103,7 +5162,12 @@ impl ViewportState {
             home_hover: &key_hints.home,
             view_keys: &view_keys,
         };
-        match view_cube::show(ui, rect, orientation, &texts) {
+        let acted = if self.view_cube_shown {
+            view_cube::show(ui, rect, orientation, &texts)
+        } else {
+            None
+        };
+        match acted {
             Some(CubeAction::LookFrom(direction)) => {
                 let destination = self.camera.destination();
                 if let Some(viewpoint) =
@@ -5182,14 +5246,15 @@ impl ViewportState {
                         canvas::Label::new(painter, label, canvas::small(), color, f32::INFINITY);
                     let wanted = Align2::CENTER_BOTTOM
                         .anchor_size(position + vec2(0.0, -PROBLEM_LABEL_LIFT), chip.size());
-                    let placed = clear_of(wanted, view_cube::area(rect), rect);
+                    let placed = clear_of(wanted, self.cube_area(rect), rect);
                     let shown = chip.paint(painter, placed.min);
                     canvas::announce(ui, shown, &format!("problem {index}"), label, None);
                 }
             }
         }
-        let band = top_band(rect);
-        let mut taken: Vec<Rect> = vec![view_cube::area(rect)];
+        let cube = self.cube_area(rect);
+        let band = top_band(rect, cube);
+        let mut taken: Vec<Rect> = vec![cube];
         let prompt = self
             .prompt(model, editing, key_hints)
             .map(|(text, keys)| {
@@ -5696,11 +5761,15 @@ impl ViewportState {
             .with(KeyHint::new("Drag", "move geometry").ranked(Rank::Useful))
             .with(KeyHint::new("Shift+click", "add to the selection").ranked(Rank::Extra));
         if self.selection.is_empty() {
-            let finish = match &key_hints.finish {
-                Some(finish) => format!("Esc or {finish}"),
-                None => "Esc".to_owned(),
+            let finish = match (&key_hints.finish, self.sketching.escape_finishes) {
+                (Some(finish), true) => Some(format!("Esc or {finish}")),
+                (None, true) => Some("Esc".to_owned()),
+                (Some(finish), false) => Some(finish.clone()),
+                (None, false) => None,
             };
-            keys.push(KeyHint::new(&finish, "finish the sketch"));
+            if let Some(finish) = finish {
+                keys.push(KeyHint::new(&finish, "finish the sketch"));
+            }
         } else {
             keys.push(KeyHint::new("Esc", "clear the selection"));
         }
@@ -5784,8 +5853,8 @@ fn pressed_without_repeat(input: &egui::InputState, pressed: Key) -> bool {
     })
 }
 
-fn top_band(rect: Rect) -> Rect {
-    let right = view_cube::area(rect).left() - canvas::MARGIN;
+fn top_band(rect: Rect, cube: Rect) -> Rect {
+    let right = cube.left() - canvas::MARGIN;
     let left = rect.left() + canvas::MARGIN;
     Rect::from_min_max(
         pos2(left, rect.top() + canvas::MARGIN),
@@ -5978,6 +6047,11 @@ fn drag_motion(
             (middle && !shift && !ctrl) || (right && !shift),
             (middle && shift) || (right && shift),
             middle && ctrl && !shift,
+        ),
+        InputMode::SolidWorks => (
+            (middle && !shift && !ctrl) || (right && !shift),
+            (middle && ctrl && !shift) || (right && shift),
+            middle && shift && !ctrl,
         ),
     };
     if zoom {
@@ -8166,6 +8240,22 @@ mod navigation_tests {
             Some(DragMotion::Orbit)
         );
         assert_eq!(motion(InputMode::Blender, NONE, false, false), None);
+        assert_eq!(
+            motion(InputMode::SolidWorks, MIDDLE, false, false),
+            Some(DragMotion::Orbit)
+        );
+        assert_eq!(
+            motion(InputMode::SolidWorks, MIDDLE, false, true),
+            Some(DragMotion::Pan)
+        );
+        assert_eq!(
+            motion(InputMode::SolidWorks, MIDDLE, true, false),
+            Some(DragMotion::Zoom)
+        );
+        assert_eq!(
+            motion(InputMode::SolidWorks, RIGHT, true, false),
+            Some(DragMotion::Pan)
+        );
     }
 
     #[test]

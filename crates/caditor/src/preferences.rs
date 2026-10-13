@@ -5,10 +5,17 @@ use egui::KeyboardShortcut;
 
 #[cfg(test)]
 pub use self::dialog::{
-    AUTOMATIC_GRID, CUSTOM_GRID, GRID_SELECTOR, accent_name, custom_grid_name, theme_card_id,
-    view_name,
+    AUTOMATIC_GRID, CLEAR_SEARCH, CUSTOM_GRID, GRID_SELECTOR, SEARCH_FIELD, accent_name,
+    custom_grid_name, reset_name, theme_card_id, view_name,
 };
-pub use self::dialog::{PreferencesView, change, choice, dialog, section};
+pub use self::{
+    choices::{
+        Choice, DoubleClick, FieldOfView, OrbitAround, RecentListed, Startup, TooltipDelay,
+        Transitions, ZoomToward,
+    },
+    dialog::{PreferencesView, Shown, change, choice, dialog, section},
+    sections::Section,
+};
 pub use crate::themes::{Accent, Appearance, GridColour, Theme, ViewChoice};
 use crate::{
     appearance::{self},
@@ -23,6 +30,7 @@ use crate::{
     onboarding::{Hint, Onboarding},
     palette,
     units::{AngleUnit, LengthUnit},
+    view_aids::{EdgeLook, EdgeWeight},
 };
 
 pub const MIN_SPEED: f64 = 0.25;
@@ -41,11 +49,34 @@ const INVERT_ZOOM_KEY: &str = "navigation.invert_zoom";
 const INPUT_MODE_KEY: &str = "navigation.input_mode";
 const PROJECTION_KEY: &str = "navigation.projection";
 const TITLE_BAR_KEY: &str = "appearance.title_bar";
+const TOOLTIP_DELAY_KEY: &str = "appearance.tooltip_delay";
+const ZOOM_TOWARD_KEY: &str = "navigation.zoom_toward";
+const ORBIT_AROUND_KEY: &str = "navigation.orbit_around";
+const INVERT_ORBIT_X_KEY: &str = "navigation.invert_orbit_x";
+const INVERT_ORBIT_Y_KEY: &str = "navigation.invert_orbit_y";
+const TRANSITIONS_KEY: &str = "navigation.transitions";
+const FIELD_OF_VIEW_KEY: &str = "navigation.field_of_view";
+const EDGE_WEIGHT_KEY: &str = "view.edges";
+const OUTLINES_KEY: &str = "view.outlines";
+const VIEW_CUBE_KEY: &str = "view.view_cube";
+const LOOK_AT_SKETCH_KEY: &str = "sketch.look_at";
+const ESCAPE_FINISHES_KEY: &str = "sketch.escape_finishes";
+const GLYPHS_KEY: &str = "sketch.glyphs";
+const SNAPPING_KEY: &str = "sketch.snapping";
+const GRID_SNAPPING_KEY: &str = "sketch.grid_snapping";
+const TYPED_DIMENSIONS_KEY: &str = "sketch.typed_dimensions";
+const MODEL_DIMENSIONS_KEY: &str = "model.dimensions";
+pub const STARTUP_KEY: &str = "files.startup";
+pub const RECENT_LISTED_KEY: &str = "files.recent_listed";
+const DOUBLE_CLICK_KEY: &str = "tree.double_click";
 const PALETTE_RECENT_KEY: &str = "palette.recent";
 const RECENT_COLOURS_KEY: &str = "body.recent_colours";
 pub const RECENT_COLOURS_LIMIT: usize = 6;
 
+mod choices;
 mod dialog;
+mod motion;
+mod sections;
 
 pub fn unreadable_notice(error: &SettingsError) -> Notice {
     let cause = match error {
@@ -110,14 +141,16 @@ pub enum PreferencesTab {
     General,
     Appearance,
     Navigation,
+    Sketching,
     Graphics,
 }
 
 impl PreferencesTab {
-    pub const ALL: [Self; 4] = [
+    pub const ALL: [Self; 5] = [
         Self::General,
         Self::Appearance,
         Self::Navigation,
+        Self::Sketching,
         Self::Graphics,
     ];
 
@@ -126,6 +159,7 @@ impl PreferencesTab {
             Self::General => "General",
             Self::Appearance => "Appearance",
             Self::Navigation => "Navigation",
+            Self::Sketching => "Sketching",
             Self::Graphics => "Graphics",
         }
     }
@@ -135,6 +169,7 @@ impl PreferencesTab {
             Self::General => icons::GENERAL,
             Self::Appearance => icons::APPEARANCE,
             Self::Navigation => icons::NAVIGATION,
+            Self::Sketching => icons::SKETCH,
             Self::Graphics => icons::GRAPHICS,
         }
     }
@@ -142,16 +177,24 @@ impl PreferencesTab {
     fn defaults(self) -> &'static str {
         match self {
             Self::General => {
-                "Go back to millimetres and to new models starting empty. Only this tab \
+                "Go back to millimetres, to starting with an empty model, ten recent files, new \
+                 models starting empty and double-click editing a feature. Only this tab \
                  changes; shortcuts are reset in the shortcut editor"
             }
             Self::Appearance => {
                 "Go back to the system theme with its own accent and 3D view, at normal size and \
-                 contrast with caditor's title bar. Only this tab changes"
+                 contrast with caditor's title bar, standard hover help, standard edges with \
+                 outlines and the view cube shown. Only this tab changes"
             }
             Self::Navigation => {
-                "Go back to perspective, normal orbit and zoom speeds, and scrolling up to zoom \
-                 in. Only this tab changes"
+                "Go back to perspective with the standard field of view and view changes, normal \
+                 orbit and zoom speeds, zooming and orbiting about the pointer, and scrolling up \
+                 to zoom in. Only this tab changes"
+            }
+            Self::Sketching => {
+                "Go back to looking at a sketch when it opens, Escape finishing it, constraint \
+                 glyphs, snapping and typed dimensions on, and grid snapping and model dimensions \
+                 off. Only this tab changes"
             }
             Self::Graphics => {
                 "Go back to vsync on, matching the display's frame rate, 4× anti-aliasing, \
@@ -210,15 +253,17 @@ pub enum InputMode {
     Fusion360,
     FreeCad,
     Blender,
+    SolidWorks,
 }
 
 impl InputMode {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::Caditor,
         Self::Laptop,
         Self::Fusion360,
         Self::FreeCad,
         Self::Blender,
+        Self::SolidWorks,
     ];
 
     pub fn label(self) -> &'static str {
@@ -228,6 +273,7 @@ impl InputMode {
             Self::Fusion360 => "Fusion 360",
             Self::FreeCad => "FreeCAD",
             Self::Blender => "Blender",
+            Self::SolidWorks => "SolidWorks",
         }
     }
 
@@ -253,6 +299,10 @@ impl InputMode {
                 "As in Blender: middle-drag orbits, Shift+middle-drag pans, Ctrl+middle-drag and \
                  the wheel zoom; right-drag still orbits"
             }
+            Self::SolidWorks => {
+                "As in SolidWorks: middle-drag orbits, Ctrl+middle-drag pans, Shift+middle-drag \
+                 and the wheel zoom; right-drag still orbits"
+            }
         }
     }
 
@@ -266,6 +316,7 @@ impl InputMode {
                  and scroll to zoom."
             }
             Self::Blender => "Middle-drag to orbit, Shift+middle-drag to pan and scroll to zoom.",
+            Self::SolidWorks => "Middle-drag to orbit, Ctrl+middle-drag to pan and scroll to zoom.",
         }
     }
 
@@ -290,6 +341,10 @@ impl InputMode {
                 "Middle-drag or right-drag: orbit   Shift+middle-drag or Shift+right-drag: pan   \
                  Scroll or Ctrl+middle-drag: zoom"
             }
+            Self::SolidWorks => {
+                "Middle-drag or right-drag: orbit   Ctrl+middle-drag or Shift+right-drag: pan   \
+                 Scroll or Shift+middle-drag: zoom"
+            }
         }
     }
 
@@ -300,6 +355,7 @@ impl InputMode {
             Self::Fusion360 => "fusion360",
             Self::FreeCad => "freecad",
             Self::Blender => "blender",
+            Self::SolidWorks => "solidworks",
         }
     }
 
@@ -315,6 +371,12 @@ pub struct Navigation {
     pub invert_zoom: bool,
     pub projection: ProjectionMode,
     pub input_mode: InputMode,
+    pub zoom_toward: ZoomToward,
+    pub orbit_around: OrbitAround,
+    pub invert_orbit_x: bool,
+    pub invert_orbit_y: bool,
+    pub transitions: Transitions,
+    pub field_of_view: FieldOfView,
 }
 
 impl Default for Navigation {
@@ -325,6 +387,65 @@ impl Default for Navigation {
             invert_zoom: false,
             projection: ProjectionMode::default(),
             input_mode: InputMode::default(),
+            zoom_toward: ZoomToward::default(),
+            orbit_around: OrbitAround::default(),
+            invert_orbit_x: false,
+            invert_orbit_y: false,
+            transitions: Transitions::default(),
+            field_of_view: FieldOfView::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ViewDetails {
+    pub edges: EdgeLook,
+    pub view_cube: bool,
+}
+
+impl Default for ViewDetails {
+    fn default() -> Self {
+        Self {
+            edges: EdgeLook::default(),
+            view_cube: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Sketching {
+    pub look_at_on_entering: bool,
+    pub escape_finishes: bool,
+    pub at_start: StartingToggles,
+}
+
+impl Default for Sketching {
+    fn default() -> Self {
+        Self {
+            look_at_on_entering: true,
+            escape_finishes: true,
+            at_start: StartingToggles::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StartingToggles {
+    pub glyphs: bool,
+    pub snapping: bool,
+    pub grid_snapping: bool,
+    pub typed_dimensions: bool,
+    pub model_dimensions: bool,
+}
+
+impl Default for StartingToggles {
+    fn default() -> Self {
+        Self {
+            glyphs: true,
+            snapping: true,
+            grid_snapping: false,
+            typed_dimensions: true,
+            model_dimensions: false,
         }
     }
 }
@@ -336,6 +457,12 @@ pub struct Preferences {
     pub appearance: Appearance,
     pub navigation: Navigation,
     pub title_bar: TitleBar,
+    pub tooltip_delay: TooltipDelay,
+    pub view_details: ViewDetails,
+    pub sketching: Sketching,
+    pub startup: Startup,
+    pub recent_listed: RecentListed,
+    pub double_click: DoubleClick,
     pub graphics: Graphics,
     pub onboarding: Onboarding,
     pub keymap: Keymap,
@@ -364,7 +491,27 @@ pub enum PreferenceChange {
     InvertZoom(bool),
     Projection(ProjectionMode),
     InputMode(InputMode),
+    ZoomToward(ZoomToward),
+    OrbitAround(OrbitAround),
+    InvertOrbitX(bool),
+    InvertOrbitY(bool),
+    Transitions(Transitions),
+    FieldOfView(FieldOfView),
     TitleBar(TitleBar),
+    TooltipDelay(TooltipDelay),
+    EdgeWeight(EdgeWeight),
+    Outlines(bool),
+    ViewCube(bool),
+    LookAtSketch(bool),
+    EscapeFinishesSketch(bool),
+    StartWithGlyphs(bool),
+    StartWithSnapping(bool),
+    StartWithGridSnapping(bool),
+    StartWithTypedDimensions(bool),
+    StartWithModelDimensions(bool),
+    Startup(Startup),
+    RecentListed(RecentListed),
+    DoubleClick(DoubleClick),
     DefaultTemplate(Option<String>),
     Vsync(bool),
     FrameLimit(FrameLimit),
@@ -383,6 +530,7 @@ pub enum PreferenceChange {
     DefenderReminded,
     RecentColour(Rgb),
     Defaults(PreferencesTab),
+    SectionDefaults(Section),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -418,22 +566,45 @@ pub enum PreferencesCommand {
     Preview(PreferenceChange),
     RememberRecent(Vec<Command>),
     RememberLast(Vec<(Remembered, String)>),
+    Search(String),
     Undo,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Restoring {
+    Tab(PreferencesTab),
+    Section(Section),
+}
+
+impl Restoring {
+    pub fn tab(self) -> PreferencesTab {
+        match self {
+            Self::Tab(tab) => tab,
+            Self::Section(section) => section.tab(),
+        }
+    }
+
+    fn sections(self) -> Vec<Section> {
+        match self {
+            Self::Tab(tab) => Section::restored_with(tab),
+            Self::Section(section) => vec![section],
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Restored {
     Defaults {
-        tab: PreferencesTab,
+        restoring: Restoring,
         before: Box<Preferences>,
     },
     Shortcuts(Box<Keymap>),
 }
 
 impl Restored {
-    pub fn tab(&self) -> Option<PreferencesTab> {
+    pub fn restoring(&self) -> Option<Restoring> {
         match self {
-            Self::Defaults { tab, .. } => Some(*tab),
+            Self::Defaults { restoring, .. } => Some(*restoring),
             Self::Shortcuts(_) => None,
         }
     }
@@ -514,11 +685,23 @@ impl Preferences {
                     .text(INPUT_MODE_KEY)
                     .and_then(InputMode::from_key)
                     .unwrap_or_default(),
+                zoom_toward: ZoomToward::read(&raw, ZOOM_TOWARD_KEY),
+                orbit_around: OrbitAround::read(&raw, ORBIT_AROUND_KEY),
+                invert_orbit_x: raw.flag(INVERT_ORBIT_X_KEY).unwrap_or(false),
+                invert_orbit_y: raw.flag(INVERT_ORBIT_Y_KEY).unwrap_or(false),
+                transitions: Transitions::read(&raw, TRANSITIONS_KEY),
+                field_of_view: FieldOfView::read(&raw, FIELD_OF_VIEW_KEY),
             },
             title_bar: raw
                 .text(TITLE_BAR_KEY)
                 .and_then(TitleBar::from_key)
                 .unwrap_or_default(),
+            tooltip_delay: TooltipDelay::read(&raw, TOOLTIP_DELAY_KEY),
+            view_details: ViewDetails::from_settings(&raw),
+            sketching: Sketching::from_settings(&raw),
+            startup: Startup::read(&raw, STARTUP_KEY),
+            recent_listed: RecentListed::read(&raw, RECENT_LISTED_KEY),
+            double_click: DoubleClick::read(&raw, DOUBLE_CLICK_KEY),
             graphics: Graphics::from_settings(&raw),
             onboarding: Onboarding::from_settings(&raw),
             keymap: Keymap::from_settings(&raw),
@@ -548,7 +731,19 @@ impl Preferences {
         settings.set_flag(INVERT_ZOOM_KEY, self.navigation.invert_zoom);
         settings.set_text(PROJECTION_KEY, projection_key(self.navigation.projection));
         settings.set_text(INPUT_MODE_KEY, self.navigation.input_mode.key());
+        settings.set_text(ZOOM_TOWARD_KEY, self.navigation.zoom_toward.key());
+        settings.set_text(ORBIT_AROUND_KEY, self.navigation.orbit_around.key());
+        settings.set_flag(INVERT_ORBIT_X_KEY, self.navigation.invert_orbit_x);
+        settings.set_flag(INVERT_ORBIT_Y_KEY, self.navigation.invert_orbit_y);
+        settings.set_text(TRANSITIONS_KEY, self.navigation.transitions.key());
+        settings.set_text(FIELD_OF_VIEW_KEY, self.navigation.field_of_view.key());
         settings.set_text(TITLE_BAR_KEY, self.title_bar.key());
+        settings.set_text(TOOLTIP_DELAY_KEY, self.tooltip_delay.key());
+        self.view_details.write(&mut settings);
+        self.sketching.write(&mut settings);
+        settings.set_text(STARTUP_KEY, self.startup.key());
+        settings.set_text(RECENT_LISTED_KEY, self.recent_listed.key());
+        settings.set_text(DOUBLE_CLICK_KEY, self.double_click.key());
         self.graphics.write(&mut settings);
         self.keymap.write(&self.loaded_keymap, &mut settings);
         self.onboarding.write(&mut settings);
@@ -596,7 +791,35 @@ impl Preferences {
             PreferenceChange::InvertZoom(invert) => self.navigation.invert_zoom = invert,
             PreferenceChange::Projection(projection) => self.navigation.projection = projection,
             PreferenceChange::InputMode(mode) => self.navigation.input_mode = mode,
+            PreferenceChange::ZoomToward(toward) => self.navigation.zoom_toward = toward,
+            PreferenceChange::OrbitAround(around) => self.navigation.orbit_around = around,
+            PreferenceChange::InvertOrbitX(invert) => self.navigation.invert_orbit_x = invert,
+            PreferenceChange::InvertOrbitY(invert) => self.navigation.invert_orbit_y = invert,
+            PreferenceChange::Transitions(transitions) => {
+                self.navigation.transitions = transitions;
+            }
+            PreferenceChange::FieldOfView(field) => self.navigation.field_of_view = field,
             PreferenceChange::TitleBar(bar) => self.title_bar = bar,
+            PreferenceChange::TooltipDelay(delay) => self.tooltip_delay = delay,
+            PreferenceChange::EdgeWeight(weight) => self.view_details.edges.weight = weight,
+            PreferenceChange::Outlines(shown) => self.view_details.edges.outlines_hidden = !shown,
+            PreferenceChange::ViewCube(shown) => self.view_details.view_cube = shown,
+            PreferenceChange::LookAtSketch(on) => self.sketching.look_at_on_entering = on,
+            PreferenceChange::EscapeFinishesSketch(on) => self.sketching.escape_finishes = on,
+            PreferenceChange::StartWithGlyphs(on) => self.sketching.at_start.glyphs = on,
+            PreferenceChange::StartWithSnapping(on) => self.sketching.at_start.snapping = on,
+            PreferenceChange::StartWithGridSnapping(on) => {
+                self.sketching.at_start.grid_snapping = on;
+            }
+            PreferenceChange::StartWithTypedDimensions(on) => {
+                self.sketching.at_start.typed_dimensions = on;
+            }
+            PreferenceChange::StartWithModelDimensions(on) => {
+                self.sketching.at_start.model_dimensions = on;
+            }
+            PreferenceChange::Startup(startup) => self.startup = startup,
+            PreferenceChange::RecentListed(listed) => self.recent_listed = listed,
+            PreferenceChange::DoubleClick(double_click) => self.double_click = double_click,
             PreferenceChange::DefaultTemplate(name) => self.default_template = name,
             PreferenceChange::Vsync(vsync) => self.graphics.vsync = vsync,
             PreferenceChange::FrameLimit(limit) => self.graphics.frame_limit = limit,
@@ -619,7 +842,10 @@ impl Preferences {
                 self.onboarding.hints = true;
                 self.onboarding.dismissed.clear();
             }
-            PreferenceChange::Defaults(tab) => self.restore_defaults(tab),
+            PreferenceChange::Defaults(tab) => self.restore(Restoring::Tab(tab)),
+            PreferenceChange::SectionDefaults(section) => {
+                self.restore(Restoring::Section(section));
+            }
         }
     }
 
@@ -633,11 +859,18 @@ impl Preferences {
     }
 
     pub fn restoring(&self, change: &PreferenceChange) -> Option<Restored> {
-        match change {
-            PreferenceChange::Defaults(tab) => Some(Restored::Defaults {
-                tab: *tab,
+        let restoring = match change {
+            PreferenceChange::Defaults(tab) => Some(Restoring::Tab(*tab)),
+            PreferenceChange::SectionDefaults(section) => Some(Restoring::Section(*section)),
+            _ => None,
+        };
+        if let Some(restoring) = restoring {
+            return Some(Restored::Defaults {
+                restoring,
                 before: Box::new(self.clone()),
-            }),
+            });
+        }
+        match change {
             PreferenceChange::ResetShortcuts => {
                 Some(Restored::Shortcuts(Box::new(self.keymap.clone())))
             }
@@ -647,29 +880,65 @@ impl Preferences {
 
     pub fn undo(&mut self, restored: Restored) {
         match restored {
-            Restored::Defaults { tab, before } => self.copy_tab(tab, &before),
+            Restored::Defaults { restoring, before } => self.copy(restoring, &before),
             Restored::Shortcuts(keymap) => self.keymap = *keymap,
         }
     }
 
-    fn restore_defaults(&mut self, tab: PreferencesTab) {
-        self.copy_tab(tab, &Self::default());
+    fn restore(&mut self, restoring: Restoring) {
+        self.copy(restoring, &Self::default());
     }
 
-    fn copy_tab(&mut self, tab: PreferencesTab, from: &Self) {
-        match tab {
-            PreferencesTab::General => {
-                self.unit = from.unit;
-                self.angle = from.angle;
-                self.default_template.clone_from(&from.default_template);
-            }
-            PreferencesTab::Appearance => {
-                self.appearance = from.appearance.clone();
-                self.title_bar = from.title_bar;
-            }
-            PreferencesTab::Navigation => self.navigation = from.navigation,
-            PreferencesTab::Graphics => self.graphics = from.graphics,
+    fn copy(&mut self, restoring: Restoring, from: &Self) {
+        for section in restoring.sections() {
+            section.copy(self, from);
         }
+    }
+}
+
+impl ViewDetails {
+    fn from_settings(raw: &Settings) -> Self {
+        Self {
+            edges: EdgeLook {
+                weight: EdgeWeight::read(raw, EDGE_WEIGHT_KEY),
+                outlines_hidden: !raw.flag(OUTLINES_KEY).unwrap_or(true),
+            },
+            view_cube: raw.flag(VIEW_CUBE_KEY).unwrap_or(true),
+        }
+    }
+
+    fn write(&self, settings: &mut Settings) {
+        settings.set_text(EDGE_WEIGHT_KEY, self.edges.weight.key());
+        settings.set_flag(OUTLINES_KEY, !self.edges.outlines_hidden);
+        settings.set_flag(VIEW_CUBE_KEY, self.view_cube);
+    }
+}
+
+impl Sketching {
+    fn from_settings(raw: &Settings) -> Self {
+        let defaults = Self::default();
+        let flag = |key: &str, default: bool| raw.flag(key).unwrap_or(default);
+        Self {
+            look_at_on_entering: flag(LOOK_AT_SKETCH_KEY, defaults.look_at_on_entering),
+            escape_finishes: flag(ESCAPE_FINISHES_KEY, defaults.escape_finishes),
+            at_start: StartingToggles {
+                glyphs: flag(GLYPHS_KEY, defaults.at_start.glyphs),
+                snapping: flag(SNAPPING_KEY, defaults.at_start.snapping),
+                grid_snapping: flag(GRID_SNAPPING_KEY, defaults.at_start.grid_snapping),
+                typed_dimensions: flag(TYPED_DIMENSIONS_KEY, defaults.at_start.typed_dimensions),
+                model_dimensions: flag(MODEL_DIMENSIONS_KEY, defaults.at_start.model_dimensions),
+            },
+        }
+    }
+
+    fn write(&self, settings: &mut Settings) {
+        settings.set_flag(LOOK_AT_SKETCH_KEY, self.look_at_on_entering);
+        settings.set_flag(ESCAPE_FINISHES_KEY, self.escape_finishes);
+        settings.set_flag(GLYPHS_KEY, self.at_start.glyphs);
+        settings.set_flag(SNAPPING_KEY, self.at_start.snapping);
+        settings.set_flag(GRID_SNAPPING_KEY, self.at_start.grid_snapping);
+        settings.set_flag(TYPED_DIMENSIONS_KEY, self.at_start.typed_dimensions);
+        settings.set_flag(MODEL_DIMENSIONS_KEY, self.at_start.model_dimensions);
     }
 }
 
@@ -912,6 +1181,86 @@ mod tests {
         assert_eq!(preferences.angle, AngleUnit::Radian);
         preferences.apply(PreferenceChange::Defaults(PreferencesTab::General));
         assert_eq!(preferences.angle, AngleUnit::Degree);
+    }
+
+    #[test]
+    fn the_newer_settings_round_trip_and_an_older_or_odd_file_reads_as_today_s_behaviour() {
+        let older = Preferences::from_settings(Settings::default());
+        let mut odd = Settings::default();
+        for key in [
+            TOOLTIP_DELAY_KEY,
+            ZOOM_TOWARD_KEY,
+            TRANSITIONS_KEY,
+            FIELD_OF_VIEW_KEY,
+            EDGE_WEIGHT_KEY,
+            STARTUP_KEY,
+            RECENT_LISTED_KEY,
+            DOUBLE_CLICK_KEY,
+        ] {
+            odd.set_text(key, "from a newer caditor");
+        }
+        odd.set_text(OUTLINES_KEY, "yes");
+        odd.set_number(GLYPHS_KEY, 3.0);
+        let odd = Preferences::from_settings(odd);
+        let defaults = Preferences::default();
+
+        for read in [&older, &odd] {
+            assert_eq!(read.navigation, defaults.navigation);
+            assert_eq!(read.view_details, defaults.view_details);
+            assert_eq!(read.sketching, defaults.sketching);
+            assert_eq!(read.tooltip_delay, defaults.tooltip_delay);
+            assert_eq!(read.startup, Startup::EmptyModel);
+            assert_eq!(read.recent_listed, RecentListed::Ten);
+            assert_eq!(read.double_click, DoubleClick::Edit);
+        }
+
+        let mut preferences = Preferences::default();
+        for change in [
+            PreferenceChange::ZoomToward(ZoomToward::Centre),
+            PreferenceChange::OrbitAround(OrbitAround::Centre),
+            PreferenceChange::InvertOrbitX(true),
+            PreferenceChange::InvertOrbitY(true),
+            PreferenceChange::Transitions(Transitions::Slow),
+            PreferenceChange::FieldOfView(FieldOfView::Narrow),
+            PreferenceChange::InputMode(InputMode::SolidWorks),
+            PreferenceChange::TooltipDelay(TooltipDelay::Later),
+            PreferenceChange::EdgeWeight(EdgeWeight::Thin),
+            PreferenceChange::Outlines(false),
+            PreferenceChange::ViewCube(false),
+            PreferenceChange::LookAtSketch(false),
+            PreferenceChange::EscapeFinishesSketch(false),
+            PreferenceChange::StartWithGlyphs(false),
+            PreferenceChange::StartWithSnapping(false),
+            PreferenceChange::StartWithGridSnapping(true),
+            PreferenceChange::StartWithTypedDimensions(false),
+            PreferenceChange::StartWithModelDimensions(true),
+            PreferenceChange::Startup(Startup::LastModel),
+            PreferenceChange::RecentListed(RecentListed::Five),
+            PreferenceChange::DoubleClick(DoubleClick::Rename),
+        ] {
+            preferences.apply(change);
+        }
+        let settings = preferences.settings();
+        let read = Preferences::from_settings(settings.clone());
+
+        assert_eq!(settings.text(FIELD_OF_VIEW_KEY), Some("narrow"));
+        assert_eq!(settings.text(INPUT_MODE_KEY), Some("solidworks"));
+        assert_eq!(settings.flag(OUTLINES_KEY), Some(false));
+        assert_eq!(read.navigation, preferences.navigation);
+        assert_eq!(read.view_details, preferences.view_details);
+        assert_eq!(read.sketching, preferences.sketching);
+        assert_eq!(read.tooltip_delay, preferences.tooltip_delay);
+        assert_eq!(read.startup, preferences.startup);
+        assert_eq!(read.recent_listed, preferences.recent_listed);
+        assert_eq!(read.double_click, preferences.double_click);
+
+        for tab in PreferencesTab::ALL {
+            preferences.apply(PreferenceChange::Defaults(tab));
+        }
+        assert_eq!(preferences.navigation, defaults.navigation);
+        assert_eq!(preferences.view_details, defaults.view_details);
+        assert_eq!(preferences.sketching, defaults.sketching);
+        assert_eq!(preferences.double_click, defaults.double_click);
     }
 
     #[test]
