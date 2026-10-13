@@ -33,8 +33,8 @@ fn a_model_saved_as_a_template_starts_untitled_copies() {
 
     harness.answer_dialog(Some(templates_folder(dir.path()).join("Bracket")));
     run_from_palette(&mut harness, "Save as template");
-    harness.wait_until("the template is saved", |harness| {
-        notice_says(harness, "as a template")
+    harness.wait_until("the template is saved and listed", |harness| {
+        notice_says(harness, "as a template") && !harness.files.templates().listed().is_empty()
     });
 
     assert!(template.is_file());

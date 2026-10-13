@@ -125,7 +125,10 @@ paths:
   and 3MF thumbnail in the dark one (`snapshot::of_bodies` takes the canvas).
 - Every scene colour and line weight comes from the `ScenePalette` of the viewport's `Contrast`
   (`scene_palette.rs`, set from the High contrast preference each frame), never a constant in
-  `scene.rs`. Colours shared with canvas labels (hover, selection, snap, measure, problems) stay
+  `scene.rs`. Body edges and outlines take the palette's `body_edge_width` times the Edges
+  preference (`EdgeWeight::factor`, `Builder::edge_width`), and the Outlines preference leaves the
+  silhouettes out; both ride in `ViewAids::edges` (`EdgeLook`), so they join the scene key and each
+  body part's `BodyLook`. Colours shared with canvas labels (hover, selection, snap, measure, problems) stay
   `canvas` colours in both palettes.
 
 ## Sketch faceting
@@ -212,8 +215,11 @@ paths:
   holding the result's `Arc` is the `MeshSource` (`render.md`;
   `a_body_mesh_reads_the_kernel_mesh_rather_than_holding_a_copy_of_it`) and a `BodyEdge` is its name
   plus the index of the kernel mesh's polyline, read through the `Arc` by `BodyMesh::points`
-  (`body_edges_read_their_points_from_the_kernel_mesh`). A panic leaves that body meshless; without
-  a worker it runs on the UI thread.
+  (`body_edges_read_their_points_from_the_kernel_mesh`). The scene draws a body's edges as one
+  `PolylineRun` over the same `DisplayedMesh` (`BodyMesh::polylines`, one `Arc` per body mesh, so
+  the part's batch compares equal while its look holds) with a style per edge, never a `Line` per
+  segment (`a_bodys_edges_are_one_styled_run_over_its_mesh_polylines_not_a_line_per_segment`). A
+  panic leaves that body meshless; without a worker it runs on the UI thread.
 - Arrivals are held and shown together: the first at once, then all that arrived whenever
   `SHOWN_TOGETHER_FOR` has passed since the last showing or nothing is left to convert, so a large
   import is drawn in a few batches. `BodyMeshes` takes each batch, keeping the previous mesh until

@@ -186,8 +186,12 @@ impl EllipseHandle {
     }
 
     fn at(&self, values: &[f64], context: &Context, parameter: usize) -> EllipseAt {
-        let frame = self.frame(values, context);
         let (sin, cos) = (TAU * value(values, parameter)).sin_cos();
+        self.turned(values, context, cos, sin)
+    }
+
+    fn turned(&self, values: &[f64], context: &Context, cos: f64, sin: f64) -> EllipseAt {
+        let frame = self.frame(values, context);
         let (unit, across) = (frame.axis.unit, frame.axis.unit.perp());
         let radial = unit * (frame.major * cos) + across * (frame.minor * sin);
         EllipseAt {
@@ -254,6 +258,52 @@ impl EllipseHandle {
         self.center.push(gradient, -along);
         self.minor_circle()
             .push_radius(values, context, gradient, partials.minor);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum TargetHandle {
+    Sum(Arc<[(PointHandle, f64)]>),
+    Rim {
+        circle: CircleHandle,
+        toward: Vector2,
+    },
+    Turned {
+        ellipse: EllipseHandle,
+        cos: f64,
+        sin: f64,
+    },
+}
+
+impl TargetHandle {
+    pub(crate) fn at(&self, values: &[f64], context: &Context) -> Point2 {
+        match self {
+            Self::Sum(terms) => terms.iter().fold(Vector2::ZERO, |sum, (term, weight)| {
+                sum + term.at(values) * *weight
+            }),
+            Self::Rim { circle, toward } => {
+                circle.center.at(values) + *toward * circle.radius(values)
+            }
+            Self::Turned { ellipse, cos, sin } => ellipse.turned(values, context, *cos, *sin).point,
+        }
+    }
+
+    fn push(&self, values: &[f64], context: &Context, gradient: &mut Gradient, partial: Vector2) {
+        match self {
+            Self::Sum(terms) => {
+                for (term, weight) in terms.iter() {
+                    term.push(gradient, partial * *weight);
+                }
+            }
+            Self::Rim { circle, toward } => {
+                circle.center.push(gradient, partial);
+                circle.push_radius(values, context, gradient, partial.dot(*toward));
+            }
+            Self::Turned { ellipse, cos, sin } => {
+                let at = ellipse.turned(values, context, *cos, *sin);
+                ellipse.push_point(values, context, &at, gradient, partial);
+            }
+        }
     }
 }
 
@@ -823,6 +873,17 @@ pub(crate) enum Form {
         reversed: bool,
         radians: f64,
     },
+    Level {
+        point: PointHandle,
+        target: TargetHandle,
+        along: Vector2,
+    },
+    OnDirection {
+        point: PointHandle,
+        target: TargetHandle,
+        line: LineHandle,
+        square: bool,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -908,12 +969,41 @@ impl Form {
             | Self::EllipseFoot { .. }
             | Self::EllipseAcrossRadius { .. }
             | Self::OnMinorAxis { .. }
+            | Self::Level { .. }
+            | Self::OnDirection { .. }
             | Self::Through { .. } => None,
         }
     }
 
     fn evaluate(&self, values: &[f64], context: &Context, gradient: &mut Gradient) -> f64 {
         match *self {
+            Self::Level {
+                point,
+                ref target,
+                along,
+            } => {
+                point.push(gradient, along);
+                target.push(values, context, gradient, -along);
+                along.dot(point.at(values) - target.at(values, context))
+            }
+            Self::OnDirection {
+                point,
+                ref target,
+                line,
+                square,
+            } => {
+                let direction = line.direction(values, context);
+                let offset = point.at(values) - target.at(values, context);
+                let (normal, turning) = if square {
+                    (direction.unit, offset)
+                } else {
+                    (direction.unit.perp(), -offset.perp())
+                };
+                point.push(gradient, normal);
+                target.push(values, context, gradient, -normal);
+                line.push_vector(gradient, direction.back_from_unit(turning));
+                normal.dot(offset)
+            }
             Self::Through {
                 point,
                 ref terms,
@@ -2442,6 +2532,57 @@ mod tests {
                 parameter: 17,
                 circle: circle(8, 11),
                 fallbacks: (Vector2::X, Vector2::Y),
+            },
+            Form::Level {
+                point: point(14),
+                target: TargetHandle::Sum(Arc::new([(point(0), 0.5), (point(2), 0.5)])),
+                along: Vector2::Y,
+            },
+            Form::Level {
+                point: point(14),
+                target: TargetHandle::Rim {
+                    circle: arc(6, 8),
+                    toward: -Vector2::Y,
+                },
+                along: Vector2::X,
+            },
+            Form::Level {
+                point: point(14),
+                target: TargetHandle::Turned {
+                    ellipse: ellipse(4, 8, 11),
+                    cos: 0.0,
+                    sin: -1.0,
+                },
+                along: Vector2::Y,
+            },
+            Form::OnDirection {
+                point: point(14),
+                target: TargetHandle::Sum(Arc::new([
+                    (point(0), 1.0 / 3.0),
+                    (point(2), 1.0 / 3.0),
+                    (point(4), 1.0 / 3.0),
+                ])),
+                line: line(6, 8),
+                square: false,
+            },
+            Form::OnDirection {
+                point: point(12),
+                target: TargetHandle::Turned {
+                    ellipse: ellipse(4, 8, 11),
+                    cos: -1.0,
+                    sin: 0.0,
+                },
+                line: line(0, 2),
+                square: true,
+            },
+            Form::OnDirection {
+                point: point(12),
+                target: TargetHandle::Rim {
+                    circle: circle(6, 10),
+                    toward: Vector2::X,
+                },
+                line: line(0, 14),
+                square: false,
             },
         ]
     }

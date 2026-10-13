@@ -32,7 +32,8 @@ use crate::{
     panels::{Focus, PanelState, Renaming},
     pattern_panel,
     pattern_tools::{self, Reference},
-    preferences::PreferencesCommand,
+    pipe_panel,
+    preferences::{DoubleClick, PreferencesCommand},
     primitive_panel, principal_tree,
     reference_picking::{Picking, Slot},
     removal, reversing, scale_panel,
@@ -75,8 +76,7 @@ const NOTHING_HEALED: &str = "Every reference it holds is found as it was chosen
 pub const HEALING_AWAITS_RECOMPUTE: &str =
     "The recompute has not checked its references since the last change; wait for it to finish";
 pub const OPEN_SAMPLE_LABEL: &str = "Open a sample";
-pub const EMPTY_TREE: &str = "The model has no features yet. Start with New sketch, here or in the ribbon, or open a \
-     sample to see how one is built.";
+pub const EMPTY_TREE: &str = "The model has no features yet.";
 pub const DIMENSIONS_TITLE: &str = "Dimensions";
 pub const CONSTRAINTS_TITLE: &str = "Constraints";
 const CARD_ROW_INDENT: f32 = SPACE_M;
@@ -303,6 +303,7 @@ pub fn kind_words(kind: &FeatureKind) -> &'static [&'static str] {
         FeatureKind::Solid(SolidFeature::Extrude(_)) => &["extrude", "extrusion"],
         FeatureKind::Solid(SolidFeature::Revolve(_)) => &["revolve", "revolution"],
         FeatureKind::Solid(SolidFeature::Sweep(_)) => &["sweep", "pipe"],
+        FeatureKind::Pipe(_) => &["pipe", "tube", "tubing", "handrail", "cable", "sweep"],
         FeatureKind::Blend(blend) => match blend.kind {
             BlendKind::Fillet => &["fillet", "round"],
             BlendKind::Chamfer => &["chamfer", "bevel"],
@@ -902,7 +903,10 @@ fn respond(
         state.choose_only(id);
         name.scroll_to_me(Some(Align::Center));
     }
-    if name.double_clicked() || (name.has_focus() && enter) {
+    let renames = name.double_clicked() && state.double_click == DoubleClick::Rename;
+    if renames {
+        start_renaming(state, row.feature);
+    } else if name.double_clicked() || (name.has_focus() && enter) {
         open_feature(ui, document, actions, row, collapsing);
     }
     name.context_menu(|ui| {
@@ -1080,6 +1084,10 @@ fn body(
             primitive_panel::show(ui, model, row.selection, actions, feature, primitive);
             body_display(ui, model, feature);
         }
+        FeatureKind::Pipe(pipe) => {
+            pipe_panel::show(ui, model, row.selection, actions, feature, pipe);
+            body_display(ui, model, feature);
+        }
         FeatureKind::Combine(combine) => {
             combine_panel::show(ui, model, actions, feature, combine);
             body_display(ui, model, feature);
@@ -1188,6 +1196,7 @@ fn kind_color(tokens: &appearance::Tokens, row: &Row<'_>) -> Color32 {
         | FeatureKind::OffsetFace(_)
         | FeatureKind::SplitFace(_)
         | FeatureKind::Primitive(_)
+        | FeatureKind::Pipe(_)
         | FeatureKind::Combine(_)
         | FeatureKind::Move(_)
         | FeatureKind::Mate(_)
@@ -1315,6 +1324,7 @@ fn edit_command(feature: &Feature, edited: bool) -> Option<EditingCommand> {
             | FeatureKind::OffsetFace(_)
             | FeatureKind::SplitFace(_)
             | FeatureKind::Primitive(_)
+            | FeatureKind::Pipe(_)
             | FeatureKind::Combine(_)
             | FeatureKind::Move(_)
             | FeatureKind::Mate(_)
@@ -1337,6 +1347,7 @@ fn edit_command(feature: &Feature, edited: bool) -> Option<EditingCommand> {
             | FeatureKind::OffsetFace(_)
             | FeatureKind::SplitFace(_)
             | FeatureKind::Primitive(_)
+            | FeatureKind::Pipe(_)
             | FeatureKind::Combine(_)
             | FeatureKind::Move(_)
             | FeatureKind::Mate(_)

@@ -23,12 +23,16 @@ pub const NOTHING_TO_SWEEP: &str = "Select the regions or curves of a sketch to 
                                     curves of another sketch or edges of a body to sweep along";
 const SEVERAL_PATH_SKETCHES: &str = "Curves of more than two sketches are selected; select the \
                                      profile's sketch and the curves of one sketch to follow";
-const PATH_EDGES_OF_SEVERAL_BODIES: &str =
+pub const PATH_EDGES_OF_SEVERAL_BODIES: &str =
     "Edges of several bodies are selected; select the edges of the path on one body only";
-const CURVES_AND_EDGES: &str = "Both sketch curves and body edges are selected for the path; \
+pub const CURVES_AND_EDGES: &str = "Both sketch curves and body edges are selected for the path; \
                                 select one or the other";
 const NOT_A_PATH: &str = "Click a curve of a sketch other than the profile's, or an edge of a body";
+pub const SEVERAL_SKETCHES: &str =
+    "Curves of more than one sketch are selected; select the curves of one sketch to follow";
+const NOT_A_CURVE_OR_EDGE: &str = "Click a curve of a sketch or an edge of a body";
 const NO_BODY_SHAPE: &str = queued::BODY_SHAPE;
+pub const ALREADY_FOLLOWED: &str = "It already follows the selected path";
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum PathPick {
@@ -49,7 +53,7 @@ pub struct SweepStart {
     pub path: PathPick,
 }
 
-fn is_path_curve(document: &Document, sketch: FeatureId, entity: EntityId) -> bool {
+pub fn is_path_curve(document: &Document, sketch: FeatureId, entity: EntityId) -> bool {
     entity.reference().is_none()
         && editing::edited_sketch(document, sketch)
             .and_then(|definition| profile_curve(definition, entity))
@@ -193,7 +197,7 @@ fn captured_edges(
         .collect()
 }
 
-fn captured(evaluation: &Evaluation, path: &PathPick) -> Result<SweepPath, &'static str> {
+pub fn captured(evaluation: &Evaluation, path: &PathPick) -> Result<SweepPath, &'static str> {
     Ok(match path {
         PathPick::Unchosen => SweepPath::Unchosen,
         PathPick::Curves { sketch, curves } => SweepPath::Curves {
@@ -277,7 +281,7 @@ pub fn selected_path(
     model: &Model,
     selection: &Selection,
     feature: FeatureId,
-    sweep: &Sweep,
+    profile: Option<FeatureId>,
 ) -> Result<SweepPath, String> {
     let document = model.document();
     let evaluation = model.evaluation();
@@ -288,7 +292,7 @@ pub fn selected_path(
             Pickable::SketchEntity {
                 feature: sketch,
                 entity,
-            } if sketch != sweep.sketch && is_path_curve(document, sketch, entity) => {
+            } if Some(sketch) != profile && is_path_curve(document, sketch, entity) => {
                 curves.push((sketch, entity));
             }
             Pickable::Edge { body, edge } => edges.push((body, edge)),
@@ -296,11 +300,19 @@ pub fn selected_path(
         }
     }
     match (curves.first(), edges.first()) {
-        (None, None) => Err(NOT_A_PATH.to_owned()),
+        (None, None) => Err(match profile {
+            Some(_) => NOT_A_PATH,
+            None => NOT_A_CURVE_OR_EDGE,
+        }
+        .to_owned()),
         (Some(_), Some(_)) => Err(CURVES_AND_EDGES.to_owned()),
         (Some((sketch, _)), None) => {
             if curves.iter().any(|(other, _)| other != sketch) {
-                return Err(SEVERAL_PATH_SKETCHES.to_owned());
+                return Err(match profile {
+                    Some(_) => SEVERAL_PATH_SKETCHES,
+                    None => SEVERAL_SKETCHES,
+                }
+                .to_owned());
             }
             Ok(SweepPath::Curves {
                 sketch: *sketch,
@@ -325,10 +337,10 @@ pub fn toggled_path(
     model: &Model,
     selection: &Selection,
     feature: FeatureId,
-    sweep: &Sweep,
+    (current, profile): (&SweepPath, Option<FeatureId>),
 ) -> Result<SweepPath, String> {
-    let picked = selected_path(model, selection, feature, sweep)?;
-    Ok(match (&sweep.path, picked) {
+    let picked = selected_path(model, selection, feature, profile)?;
+    Ok(match (current, picked) {
         (
             SweepPath::Curves { sketch, curves },
             SweepPath::Curves {
@@ -389,9 +401,9 @@ pub fn selected_change(
     feature: FeatureId,
     sweep: &Sweep,
 ) -> Result<Transaction, String> {
-    let path = selected_path(model, selection, feature, sweep)?;
+    let path = selected_path(model, selection, feature, Some(sweep.sketch))?;
     if path == sweep.path {
-        return Err("It already follows the selected path".to_owned());
+        return Err(ALREADY_FOLLOWED.to_owned());
     }
     change(
         model,
@@ -409,7 +421,7 @@ pub fn path_change(
     feature: FeatureId,
     sweep: &Sweep,
 ) -> Result<Transaction, String> {
-    let path = toggled_path(model, selection, feature, sweep)?;
+    let path = toggled_path(model, selection, feature, (&sweep.path, Some(sweep.sketch)))?;
     change(
         model,
         feature,

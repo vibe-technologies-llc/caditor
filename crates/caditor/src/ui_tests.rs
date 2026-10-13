@@ -110,7 +110,9 @@ mod path_sweeps;
 mod pattern_grid;
 mod patterns;
 mod pick_list;
+mod pipes;
 mod plane_selectors;
+mod preference_groups;
 mod preferences;
 mod primitive_creation;
 mod primitive_feet;
@@ -2539,6 +2541,5 @@ fn thread_lines(harness: &mut Harness) -> Vec<caditor_render::Line> {
         .scene
         .lines()
         .filter(|line| line.color == thread)
-        .cloned()
         .collect()
 }

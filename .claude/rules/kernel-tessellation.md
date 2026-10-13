@@ -129,6 +129,14 @@ paths:
 - Vertices are per face and carry the surface's analytic normal (flipped by the face sense, nudged
   into the triangle at a pole): curved faces shade smoothly, the edge between a cylinder and its
   cap stays crisp. Edge polylines are the samplings the faces used, so outlines follow silhouettes.
+- Positions stay f64 (`Point3`), but a normal is a display attribute, so a `MeshVertex` is a
+  position index and a `MeshNormal` (`normal.rs`): octahedral, two `i32` snorms, zero or non-finite
+  kept as the corner code (-1, -1) and a direction rounding onto it taking the opposite corner
+  (both are -Z). `vector()` comes back within 1e-8 rad (finer than the f32 the app's analyses
+  and the GPU read), the axes exactly. A vertex is 12 bytes, not 32
+  (`a_packed_normal_is_eight_bytes_and_a_mesh_vertex_twelve`); a mesh of the VZ330 holds about 150
+  MiB of them, not 400. Nothing exact reads normals: mass properties, validation's volume checks
+  and every export (facet normals from positions) use positions alone.
 - `mass_properties` (volume, area, centroid, second moments) by the divergence theorem over the
   triangles: what validation measures, and the fallback for a face exact integration gives up on
   (`kernel.md`). `Mesh::chord` records the chord asked for (retried faces only get closer); the app

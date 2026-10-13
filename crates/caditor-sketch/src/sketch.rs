@@ -9,12 +9,13 @@ use caditor_geometry::{Plane, Point2, Vector2};
 use crate::{
     constraint::{Constraint, DimensionError},
     curve::{ArcGeometry, BSpline, EllipseGeometry, Faceting},
-    entity::{Entity, FitSpacing, Role, SplineKind},
+    entity::{Entity, FitSpacing, MIN_PIECE_POINTS, Role, SplineKind},
     id::{ConstraintId, EntityId, FIRST_UNSTORABLE_ID, Reference},
     solve::{
         arc_joint, curve_pair_gap, ellipse_gap, joined_at_end, not_joined, spline_gap,
         straight_spline,
     },
+    target::{PointTarget, listed},
 };
 
 pub(crate) fn spline_through(positions: &[Point2], kind: SplineKind) -> Option<BSpline> {
@@ -49,6 +50,7 @@ pub(crate) fn spline_through(positions: &[Point2], kind: SplineKind) -> Option<B
         }
         (SplineKind::Conic { rho }, &[start, apex, end]) => BSpline::conic(start, apex, end, rho),
         (SplineKind::Conic { .. }, _) => None,
+        (SplineKind::Piece { lead, trail }, _) => BSpline::piece(positions.to_vec(), lead, trail),
     }
 }
 
@@ -92,6 +94,10 @@ pub enum SketchError {
     TooFewClosedPoints,
     #[error("a conic needs exactly its start, apex and end")]
     ConicPoints,
+    #[error("a piece of a spline needs at least five control points")]
+    TooFewPiecePoints,
+    #[error("the end spans of a piece of a spline must be finite and longer than nothing")]
+    InvalidEndSpans,
     #[error("it uses {label} twice")]
     SameEntity { entity: EntityId, label: String },
     #[error("it needs {needed}, but {found} is not one")]
@@ -114,6 +120,8 @@ pub enum SketchError {
     },
     #[error("it only uses reference or projected geometry, which never moves")]
     OnlyReference,
+    #[error("a centre needs at least two corners")]
+    TooFewCorners,
     #[error("{point} is part of {curve}")]
     OwnPoint { point: String, curve: String },
     #[error("{first} and {second} already share their centre")]
@@ -369,7 +377,9 @@ impl Sketch {
             .map(|point| self.point(*point))
             .collect::<Option<Vec<_>>>()?;
         match *kind {
-            SplineKind::Control { closed: false } | SplineKind::Conic { .. } => Some(positions),
+            SplineKind::Control { closed: false }
+            | SplineKind::Conic { .. }
+            | SplineKind::Piece { .. } => Some(positions),
             SplineKind::Control { closed: true } => {
                 Some(positions.iter().chain(positions.first()).copied().collect())
             }
@@ -457,9 +467,48 @@ impl Sketch {
             | Constraint::Fix { point: entity, .. } => {
                 format!("{kind} {}", label(entity))
             }
+            Constraint::HorizontalPoints(point, ref through)
+            | Constraint::VerticalPoints(point, ref through) => {
+                format!(
+                    "{kind} {} and {}",
+                    label(point),
+                    self.describe_target(through)
+                )
+            }
+            Constraint::OnDirection {
+                point,
+                through: PointTarget::Middle(middle),
+                line,
+                square: true,
+            } if middle == line => {
+                format!(
+                    "Perpendicular bisector of {} at {}",
+                    label(line),
+                    label(point)
+                )
+            }
+            Constraint::OnDirection {
+                point,
+                ref through,
+                line,
+                square,
+            } => format!(
+                "{} {} through {} at {}",
+                if square {
+                    "Perpendicular to"
+                } else {
+                    "Parallel to"
+                },
+                label(line),
+                self.describe_target(through),
+                label(point)
+            ),
+            Constraint::Centroid { point, ref corners } => format!(
+                "{kind} of {} at {}",
+                listed(corners.iter().map(|corner| label(*corner)).collect()),
+                label(point)
+            ),
             Constraint::Coincident(a, b)
-            | Constraint::HorizontalPoints(a, b)
-            | Constraint::VerticalPoints(a, b)
             | Constraint::Parallel(a, b)
             | Constraint::Perpendicular(a, b)
             | Constraint::Tangent(a, b)
@@ -540,7 +589,9 @@ impl Sketch {
             Constraint::MinorRadius { ellipse, .. } => self.ellipse(ellipse)?.minor_radius,
             Constraint::Rho { conic, .. } => match self.entity(conic)?.spline_kind()? {
                 SplineKind::Conic { rho } => rho,
-                SplineKind::Control { .. } | SplineKind::Fit { .. } => return None,
+                SplineKind::Control { .. } | SplineKind::Fit { .. } | SplineKind::Piece { .. } => {
+                    return None;
+                }
             },
             Constraint::Coincident(..)
             | Constraint::Horizontal(_)
@@ -557,6 +608,8 @@ impl Sketch {
             | Constraint::Collinear(..)
             | Constraint::Symmetric { .. }
             | Constraint::OnMinorAxis { .. }
+            | Constraint::OnDirection { .. }
+            | Constraint::Centroid { .. }
             | Constraint::Fix { .. } => return None,
         };
         value.is_finite().then_some(value)
@@ -1024,9 +1077,27 @@ impl Sketch {
                 self.expect(line, &[Role::Line, Role::Elliptic], "a line or an ellipse")?;
                 self.check_not_only_reference(&entities, unmoving)
             }
-            Constraint::HorizontalPoints(a, b) | Constraint::VerticalPoints(a, b) => {
-                self.expect(a, &[Role::Point], "a point")?;
-                self.expect(b, &[Role::Point], "a point")?;
+            Constraint::HorizontalPoints(point, ref through)
+            | Constraint::VerticalPoints(point, ref through) => {
+                self.expect(point, &[Role::Point], "a point")?;
+                self.check_target(through, point)?;
+                self.check_not_only_reference(&entities, unmoving)
+            }
+            Constraint::OnDirection {
+                point,
+                ref through,
+                line,
+                ..
+            } => {
+                self.expect(point, &[Role::Point], "a point")?;
+                self.check_target(through, point)?;
+                self.expect(line, &[Role::Line], "a line")?;
+                self.check_not_own_point(point, line)?;
+                self.check_not_only_reference(&entities, unmoving)
+            }
+            Constraint::Centroid { point, ref corners } => {
+                self.expect(point, &[Role::Point], "a point")?;
+                self.check_target(&PointTarget::Centroid(corners.clone()), point)?;
                 self.check_not_only_reference(&entities, unmoving)
             }
             Constraint::HorizontalDistance { from: a, to: b, .. }
@@ -1542,6 +1613,18 @@ impl Sketch {
                 kind: SplineKind::Conic { .. },
             } if points.len() != 3 => {
                 return Err(SketchError::ConicPoints);
+            }
+            Entity::Spline {
+                ref points,
+                kind: SplineKind::Piece { .. },
+            } if points.len() < MIN_PIECE_POINTS => {
+                return Err(SketchError::TooFewPiecePoints);
+            }
+            Entity::Spline {
+                kind: SplineKind::Piece { lead, trail },
+                ..
+            } if !(SplineKind::end_span_is_valid(lead) && SplineKind::end_span_is_valid(trail)) => {
+                return Err(SketchError::InvalidEndSpans);
             }
             Entity::Spline { ref points, kind } if points.len() < kind.fewest_points() => {
                 return Err(SketchError::TooFewClosedPoints);
@@ -2294,7 +2377,7 @@ mod tests {
             "a point must have finite coordinates"
         );
         assert_eq!(
-            refused(Constraint::HorizontalPoints(line, lone)),
+            refused(Constraint::HorizontalPoints(line, lone.into())),
             "it needs a point, but Line 2 is not one"
         );
         assert_eq!(
@@ -2345,11 +2428,11 @@ mod tests {
                 "Fix Point 12",
             ),
             (
-                Constraint::HorizontalPoints(lone, EntityId::ORIGIN),
+                Constraint::HorizontalPoints(lone, EntityId::ORIGIN.into()),
                 "Horizontal Point 12 and Origin",
             ),
             (
-                Constraint::VerticalPoints(lone, start),
+                Constraint::VerticalPoints(lone, start.into()),
                 "Vertical Point 12 and Point 0",
             ),
             (

@@ -26,6 +26,7 @@ mod solve;
 mod spacing;
 mod split;
 mod tangent_circle;
+mod target;
 mod trim;
 
 pub use crate::{
@@ -36,7 +37,7 @@ pub use crate::{
     clip::{ClipError, SketchClip},
     constraint::{Constraint, DimensionError, MAX_LENGTH},
     curve::{ArcGeometry, BSpline, EllipseGeometry, Faceting, conic_weight},
-    entity::{Entity, FitSpacing, MAX_RHO, MIN_RHO, SplineKind},
+    entity::{Entity, FitSpacing, MAX_RHO, MIN_PIECE_POINTS, MIN_RHO, SplineKind},
     fillet::{Bevel, ChamferSize, Corner, CrossingPlan, FilletError, Pick, Rounding},
     fit::FittedSpline,
     gear::{
@@ -56,5 +57,6 @@ pub use crate::{
     solve::{Drag, EntityState, Redundancy, SketchSolution, SolveMemo, Solved},
     split::SplitError,
     tangent_circle::{TangentCircle, TangentError},
+    target::{EllipseEnd, PointTarget, Quadrant},
     trim::{Cut, ExtendError, Extension, Piece, TrimError, Trimmed},
 };

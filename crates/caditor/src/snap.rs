@@ -1,9 +1,12 @@
 use std::{cell::LazyCell, f64::consts::TAU};
 
 use caditor_geometry::{Point2, Vector2};
-use caditor_sketch::{ArcGeometry, Constraint, EllipseGeometry, Entity, EntityId, Sketch};
+use caditor_sketch::{
+    ArcGeometry, Constraint, EllipseEnd, EllipseGeometry, Entity, EntityId, PointTarget, Quadrant,
+    Sketch,
+};
 
-use crate::body_snap::BodyTarget;
+use crate::body_snap::{BodySnaps, BodyTarget};
 
 pub const POINT_TOLERANCE: f64 = 8.0;
 pub const CURVE_TOLERANCE: f64 = 6.0;
@@ -61,6 +64,15 @@ impl Side {
             Self::Top => "Top",
             Self::Left => "Left",
             Self::Bottom => "Bottom",
+        }
+    }
+
+    fn quadrant(self) -> Quadrant {
+        match self {
+            Self::Right => Quadrant::Right,
+            Self::Top => Quadrant::Top,
+            Self::Left => Quadrant::Left,
+            Self::Bottom => Quadrant::Bottom,
         }
     }
 }
@@ -131,10 +143,9 @@ impl Target {
             Self::Centre { outline, .. } => {
                 format!("Centre of the outline of {}", sketch.entity_label(outline))
             }
-            Self::Centroid(outline) => format!(
-                "Centre of the outline of {}{NOT_KEPT_THERE}",
-                sketch.entity_label(outline)
-            ),
+            Self::Centroid(outline) => {
+                format!("Centre of the outline of {}", sketch.entity_label(outline))
+            }
             Self::Intersection(first, second) => format!(
                 "Crossing of {} and {}",
                 sketch.entity_label(first),
@@ -150,9 +161,55 @@ impl Target {
         }
     }
 
-    pub fn joins(self, point: EntityId) -> Vec<Constraint> {
+    pub fn point_target(self, sketch: &Sketch, at: Point2) -> Option<PointTarget> {
         match self {
-            Self::Pending(_) | Self::Centroid(_) | Self::Body(_) => Vec::new(),
+            Self::Point(point) => Some(PointTarget::Point(point)),
+            Self::Midpoint(curve) => Some(PointTarget::Middle(curve)),
+            Self::Quadrant { curve, side, .. } => Some(PointTarget::Quadrant {
+                curve,
+                side: side.quadrant(),
+            }),
+            Self::AxisEnd {
+                curve,
+                end: AxisEnd::FarMajor,
+                ..
+            } => Some(PointTarget::EllipseEnd {
+                ellipse: curve,
+                end: EllipseEnd::FarMajor,
+            }),
+            Self::AxisEnd { curve, .. } => {
+                let end = [EllipseEnd::Minor, EllipseEnd::FarMinor]
+                    .into_iter()
+                    .min_by(|a, b| {
+                        minor_end_offset(sketch, curve, *a, at)
+                            .total_cmp(&minor_end_offset(sketch, curve, *b, at))
+                    })?;
+                Some(PointTarget::EllipseEnd {
+                    ellipse: curve,
+                    end,
+                })
+            }
+            Self::Intersection(first, second) => Some(PointTarget::Crossing(first, second)),
+            Self::Centre {
+                corners: (first, second),
+                ..
+            } => Some(PointTarget::Centroid(vec![first, second])),
+            Self::Centroid(outline) => outline_corners(sketch, outline).map(PointTarget::Centroid),
+            Self::Pending(_)
+            | Self::Curve(_)
+            | Self::Extension(_)
+            | Self::Tangent(_)
+            | Self::Body(_) => None,
+        }
+    }
+
+    pub fn joins(self, sketch: &Sketch, point: EntityId) -> Vec<Constraint> {
+        match self {
+            Self::Pending(_) | Self::Body(_) => Vec::new(),
+            Self::Centroid(outline) => outline_corners(sketch, outline)
+                .map(|corners| Constraint::Centroid { point, corners })
+                .into_iter()
+                .collect(),
             Self::Midpoint(curve) => vec![Constraint::Midpoint { point, curve }],
             Self::Quadrant {
                 curve,
@@ -161,9 +218,9 @@ impl Target {
             } => vec![
                 Constraint::Coincident(point, curve),
                 if side.is_level() {
-                    Constraint::HorizontalPoints(point, centre)
+                    Constraint::HorizontalPoints(point, centre.into())
                 } else {
-                    Constraint::VerticalPoints(point, centre)
+                    Constraint::VerticalPoints(point, centre.into())
                 },
             ],
             Self::AxisEnd {
@@ -179,11 +236,11 @@ impl Target {
                 }],
                 AxisEnd::MinorUpright => vec![
                     Constraint::Coincident(point, curve),
-                    Constraint::VerticalPoints(point, centre),
+                    Constraint::VerticalPoints(point, centre.into()),
                 ],
                 AxisEnd::MinorLevel => vec![
                     Constraint::Coincident(point, curve),
-                    Constraint::HorizontalPoints(point, centre),
+                    Constraint::HorizontalPoints(point, centre.into()),
                 ],
                 AxisEnd::MinorSlanted => vec![
                     Constraint::Coincident(point, curve),
@@ -379,12 +436,13 @@ pub fn resolve(
         })
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy)]
 pub struct Lookup<'a> {
     pub pending: &'a [(usize, Point2)],
     pub accept: Accept,
     pub extended: &'a [EntityId],
     pub ignored: &'a [EntityId],
+    pub bodies: Option<&'a BodySnaps>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -427,20 +485,36 @@ pub fn held(
         Accept::Points => Vec::new(),
         Accept::OnCircle { center, radius } => crossings(sketch, center, radius),
     };
-    let on_curve = || {
-        let snapped = nearest(curve_like, pull(HELD_CURVE_PULL))?;
-        Some(
-            grid.and_then(|spacing| grid_crossing_on(sketch, snapped, spacing))
-                .unwrap_or(snapped),
-        )
+    let on_grid = |snapped: Snapped| {
+        grid.and_then(|spacing| grid_crossing_on(sketch, lookup.bodies, snapped, spacing))
+            .unwrap_or(snapped)
+    };
+    let on_curve = || nearest(curve_like, pull(HELD_CURVE_PULL)).map(on_grid);
+    let body_point = || {
+        lookup
+            .bodies?
+            .point_within(screen, pointer, lookup.accept, pull(HELD_POINT_PULL))
+    };
+    let body_edge = || {
+        lookup
+            .bodies?
+            .edge_within(screen, pointer, lookup.accept, pull(HELD_CURVE_PULL))
+            .map(on_grid)
     };
     nearest(point_like, pull(HELD_POINT_PULL))
+        .or_else(body_point)
         .or_else(on_curve)
+        .or_else(body_edge)
         .map(Held::Target)
         .or(crossing.map(|(_, position)| Held::Grid(position)))
 }
 
-fn grid_crossing_on(sketch: &Sketch, snapped: Snapped, spacing: f64) -> Option<Snapped> {
+fn grid_crossing_on(
+    sketch: &Sketch,
+    bodies: Option<&BodySnaps>,
+    snapped: Snapped,
+    spacing: f64,
+) -> Option<Snapped> {
     let crossing = (snapped.position / spacing).round() * spacing;
     let foot = match snapped.target {
         Target::Curve(axis) if axis == EntityId::HORIZONTAL_AXIS => Point2::new(crossing.x, 0.0),
@@ -463,8 +537,8 @@ fn grid_crossing_on(sketch: &Sketch, snapped: Snapped, spacing: f64) -> Option<S
         | Target::Tangent(_)
         | Target::Intersection(..)
         | Target::Centre { .. }
-        | Target::Centroid(_)
-        | Target::Body(_) => return None,
+        | Target::Centroid(_) => return None,
+        Target::Body(target) => bodies?.foot(target, crossing)?,
     };
     let on = foot.distance(crossing) <= ON_GRID_TOLERANCE * (1.0 + crossing.abs().max_element());
     on.then_some(Snapped {
@@ -1018,6 +1092,18 @@ fn loop_through(sketch: &Sketch, piece: EntityId) -> Option<(Vec<OutlineLine>, V
     Some((lines, steps))
 }
 
+fn minor_end_offset(sketch: &Sketch, ellipse: EntityId, end: EllipseEnd, at: Point2) -> f64 {
+    sketch
+        .target_places(&PointTarget::EllipseEnd { ellipse, end })
+        .first()
+        .map_or(f64::INFINITY, |place| place.distance(at))
+}
+
+pub fn outline_corners(sketch: &Sketch, piece: EntityId) -> Option<Vec<EntityId>> {
+    let (_, steps) = loop_through(sketch, piece)?;
+    Some(steps.iter().map(|step| step.corner.0).collect())
+}
+
 pub fn outline_through(sketch: &Sketch, piece: EntityId) -> Option<Vec<EntityId>> {
     let (lines, steps) = loop_through(sketch, piece)?;
     Some(
@@ -1089,14 +1175,11 @@ fn centroid(lines: &[OutlineLine], steps: &[OutlineStep]) -> Option<Point2> {
     }
     let corners: Vec<Point2> = steps.iter().map(|step| step.corner.1).collect();
     let anchor = *corners.first()?;
-    let (twice_area, weighted) = corners
+    let twice_area: f64 = corners
         .iter()
         .zip(corners.iter().cycle().skip(1))
-        .map(|(from, to)| (*from - anchor, *to - anchor))
-        .fold((0.0, Vector2::ZERO), |(area, sum), (from, to)| {
-            let cross = from.perp_dot(to);
-            (area + cross, sum + (from + to) * cross)
-        });
+        .map(|(from, to)| (*from - anchor).perp_dot(*to - anchor))
+        .sum();
     let span = corners
         .iter()
         .map(|corner| corner.distance(anchor))
@@ -1104,7 +1187,10 @@ fn centroid(lines: &[OutlineLine], steps: &[OutlineStep]) -> Option<Point2> {
     if twice_area.abs() <= DEGENERATE_AREA * span * span {
         return None;
     }
-    Some(anchor + weighted / (3.0 * twice_area))
+    let sum = corners
+        .iter()
+        .fold(Vector2::ZERO, |sum, corner| sum + *corner);
+    Some(sum / corners.len() as f64)
 }
 
 const DEGENERATE_AREA: f64 = 1e-9;
@@ -1571,6 +1657,7 @@ pub mod tests {
             accept: Accept::Anything,
             extended: &[],
             ignored: &[],
+            bodies: None,
         };
         held(sketch, &Scaled(10.0), pointer_at(at), lookup, grid)
     }
@@ -1822,7 +1909,7 @@ pub mod tests {
     }
 
     #[test]
-    fn an_outline_of_odd_sides_snaps_to_its_centre_without_holding_a_point_there() {
+    fn an_outline_of_odd_sides_snaps_to_the_centre_of_its_corners_and_holds_a_point_there() {
         let mut sketch = Sketch::new(Plane::XY);
         let triangle = outline(
             &mut sketch,
@@ -1852,10 +1939,26 @@ pub mod tests {
             &[corner],
         );
 
+        let corners = outline_corners(&sketch, triangle[0]).unwrap();
+        let mut sorted = corners.clone();
+        sorted.sort_unstable();
+        let mut expected: Vec<EntityId> = triangle
+            .iter()
+            .map(|line| sketch.entity(*line).unwrap().points()[1])
+            .collect();
+        expected.sort_unstable();
+
         assert_eq!(centre.target, Target::Centroid(triangle[0]));
         assert!(centre.position.distance(Point2::new(10.0, 10.0)) < 1e-9);
-        assert_eq!(centre.target.joins(EntityId::from_raw(99)), Vec::new());
-        assert!(centre.target.label(&sketch).ends_with("not kept there"));
+        assert_eq!(sorted, expected);
+        assert_eq!(
+            centre.target.joins(&sketch, EntityId::from_raw(99)),
+            vec![Constraint::Centroid {
+                point: EntityId::from_raw(99),
+                corners,
+            }]
+        );
+        assert!(!centre.target.label(&sketch).ends_with("not kept there"));
         assert!(matches!(pentagon_centre.target, Target::Centroid(_)));
         assert!(pentagon_centre.position.distance(Point2::new(80.0, 20.0)) < 1e-9);
         assert_eq!(moving, None);
@@ -2302,7 +2405,7 @@ pub mod tests {
             }
         );
         assert_eq!(
-            far.target.joins(EntityId::from_raw(99)),
+            far.target.joins(&sketch, EntityId::from_raw(99)),
             vec![Constraint::Symmetric {
                 first: major,
                 second: EntityId::from_raw(99),
@@ -2311,10 +2414,10 @@ pub mod tests {
         );
         assert!((below.position - Point2::new(50.0, 16.0)).length() < 1e-9);
         assert_eq!(
-            below.target.joins(EntityId::from_raw(99)),
+            below.target.joins(&sketch, EntityId::from_raw(99)),
             vec![
                 Constraint::Coincident(EntityId::from_raw(99), ellipse),
-                Constraint::VerticalPoints(EntityId::from_raw(99), centre),
+                Constraint::VerticalPoints(EntityId::from_raw(99), centre.into()),
             ]
         );
         assert!(matches!(
@@ -2326,7 +2429,7 @@ pub mod tests {
             } if curve == slanted
         ));
         assert_eq!(
-            across.target.joins(EntityId::from_raw(99)),
+            across.target.joins(&sketch, EntityId::from_raw(99)),
             vec![
                 Constraint::Coincident(EntityId::from_raw(99), slanted),
                 Constraint::OnMinorAxis {

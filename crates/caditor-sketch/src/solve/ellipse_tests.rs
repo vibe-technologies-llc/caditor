@@ -322,7 +322,10 @@ fn ellipse_constraints_refuse_what_does_not_fit() {
             value: mm(10.0),
         },
     );
-    let level = add(&mut sketch, Constraint::HorizontalPoints(center, major));
+    let level = add(
+        &mut sketch,
+        Constraint::HorizontalPoints(center, major.into()),
+    );
     assert_eq!(
         sketch.restating(&Constraint::MajorRadius {
             ellipse,
@@ -749,7 +752,7 @@ fn arch_over_ellipse(sketch: &mut Sketch, middle_height: f64) -> (EntityId, Enti
     fix(sketch, points[2]);
     add(
         sketch,
-        Constraint::VerticalPoints(points[1], EntityId::ORIGIN),
+        Constraint::VerticalPoints(points[1], EntityId::ORIGIN.into()),
     );
     (spline, points[1])
 }
@@ -827,7 +830,10 @@ fn a_spline_ending_on_an_elliptical_arc_and_tangent_leaves_along_it() {
     fix(&mut sketch, below);
     fix(&mut sketch, points[2]);
     add(&mut sketch, Constraint::Coincident(points[0], top));
-    add(&mut sketch, Constraint::VerticalPoints(points[1], below));
+    add(
+        &mut sketch,
+        Constraint::VerticalPoints(points[1], below.into()),
+    );
     add(&mut sketch, Constraint::Tangent(spline, arc));
 
     let solved = solve(&sketch).unwrap();
@@ -845,8 +851,14 @@ fn ellipses_sharing_a_point_and_tangent_run_along_each_other_there() {
     let (center, major) = axis_points(&sketch, upper);
     let anchor = sketch.add_point(Point2::new(0.0, 12.0));
     fix(&mut sketch, anchor);
-    add(&mut sketch, Constraint::HorizontalPoints(center, anchor));
-    add(&mut sketch, Constraint::HorizontalPoints(center, major));
+    add(
+        &mut sketch,
+        Constraint::HorizontalPoints(center, anchor.into()),
+    );
+    add(
+        &mut sketch,
+        Constraint::HorizontalPoints(center, major.into()),
+    );
     add(
         &mut sketch,
         Constraint::Distance {

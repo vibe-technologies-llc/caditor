@@ -29,7 +29,7 @@ use crate::{
     lookahead::Lookahead,
     mate,
     measurement::{self, Measured, Measurement, MeasurementResult},
-    mirror, movement, offset_face, pattern,
+    mirror, movement, offset_face, pattern, pipe,
     pool::{Claim, Job, Landed, LastMeshes, Pool, Threads, Work, available_workers},
     presenting::{Glimpse, MESHES_REPORTED_EVERY, Presentation, SettledBody},
     primitive, projection,
@@ -120,7 +120,7 @@ impl MissingInput {
                     .to_owned()
             }
             Self::Path => {
-                "Choose the curves of a sketch or the edges of a body to sweep along.".to_owned()
+                "Choose the curves of a sketch or the edges of a body to follow.".to_owned()
             }
             Self::Regions { sketch } => {
                 format!("Choose at least one region of {} to sweep.", name(sketch))
@@ -1810,6 +1810,7 @@ impl Evaluator for ModelEvaluator {
             FeatureKind::Primitive(definition) => {
                 primitive::evaluate(feature, definition, inputs, cancel)
             }
+            FeatureKind::Pipe(definition) => pipe::evaluate(feature, definition, inputs, cancel),
             FeatureKind::Thread(definition) => {
                 thread::evaluate(feature, definition, inputs, cancel)
             }

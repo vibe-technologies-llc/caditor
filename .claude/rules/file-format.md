@@ -142,8 +142,11 @@ The journal snapshot carries the same record under the same name, held by the se
 - Sketch `projections`, only when projected: each `entity` and `source` (`edge` or `section` with
   `body` and an edge record, `vertex` with `body` and the vertex name's digest, `sketch_entity`
   with `sketch` and `entity`, `datum_plane` with `datum` and a finite positive `reach`,
-  `principal_plane` with `plane` `xy`/`xz`/`yz` and `reach`). The projected flags are derived on
-  load after the constraints. Unknown or unreadable source: geometry kept as ordinary, reported.
+  `principal_plane` with `plane` `xy`/`xz`/`yz` and `reach`, `datum_axis` with `datum` and
+  `reach`, `principal_axis` with `axis` `x`/`y`/`z` and `reach`, `datum_point` with `datum`, or
+  `origin`; the corpus holds the last four in `projected-datums.caditor`). The projected flags are
+  derived on load after the constraints. Unknown or unreadable source (an older reader meeting a
+  newer kind): geometry kept as ordinary, reported.
   Journal: `set_sketch_projection`, absent for none.
 
 ## Feature and entity records
@@ -184,6 +187,9 @@ Extrusions and revolves:
   `orientation` (`square`, `parallel`) and `operation`; other bodies cut wrap it in `cut_several`.
   An unreadable path loads as unchosen (the sweep fails asking for one) and an unreadable edge is
   left out, each reported. The corpus holds it in `path-sweeps.caditor`.
+- `pipe`: `path` as a sweep's (unreadable loads as unchosen), `shape` (`round`, `square`,
+  `triangle`), `size` (unreadable 10 mm), `wall` only when hollow (unreadable 1 mm), `bend`
+  (unreadable 0 mm) and `operation`. The corpus holds it in `pipes.caditor`.
 
 Holes:
 
@@ -347,12 +353,23 @@ Sketch entities:
 - `spline` (`control_points`) is an open control spline. Other kinds are their own records:
   `closed_spline`, `fit_spline` and `closed_fit_spline` (`fit_points`, evenly spaced),
   `centripetal_fit_spline` and `closed_centripetal_fit_spline` (`FitSpacing::Centripetal`), `conic`
-  (`start`, `apex`, `end`, `rho`; an out-of-range rho is refused like any bad entity). A conic's
-  rho dimension is a `rho` constraint (`conic`, `value`), falling back to the drawn rho.
+  (`start`, `apex`, `end`, `rho`; an out-of-range rho is refused like any bad entity),
+  `spline_piece` (`control_points`, `lead`, `trail`; what trim and extend leave of a control spline,
+  refused with fewer than five points or end spans not above zero; `spline-pieces.caditor` in the
+  corpus). A conic's rho dimension is a `rho` constraint (`conic`, `value`), falling back to the
+  drawn rho.
 - `ellipse` (`center`, `major`, `minor_radius`), `elliptical_arc` (plus `start`, `end`). Radii are
   `major_radius` and `minor_radius` constraints (`ellipse`, `value`, falling back to the drawn
   radius); `on_minor_axis` (`point`, `ellipse`). Naming an unknown kind skips the flags (`id`,
   `name`, `construction`, `split_from`, `inactive`, `label`).
+- Constraints holding a point at a target: `horizontal_points` and `vertical_points` stay two point
+  ids; held to any other target they are `horizontal_through` and `vertical_through` (`point`,
+  `through`), on a line through a target `on_direction` (`point`, `through`, `line`, `square` when
+  set), at the centre of corners `centroid` (`point`, `corners`). A target record is `point`,
+  `middle`, `crossing` (two ids), `centroid` (ids), `quadrant` (`curve`, `side` of `right`, `top`,
+  `left`, `bottom`) or `ellipse_end` (`ellipse`, `end` of `major`, `far_major`, `minor`,
+  `far_minor`). A reader not knowing them reports each as a kind from a newer version and the point
+  stays free; the corpus holds them in `point-targets.caditor`.
 - An entity record has `construction` when true and `split_from` (the id of the curve it was split
   from, `sketch.md`) when set, both left out otherwise, in the model and in a journaled
   `add_sketch_entity`. A `split_from` the sketch refuses (the entity itself) is reported and

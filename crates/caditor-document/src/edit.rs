@@ -562,12 +562,9 @@ fn keep_once(features: &mut Vec<FeatureId>) {
 }
 
 fn check_reach(source: &ProjectionSource) -> Result<(), EditError> {
-    match source {
-        ProjectionSource::DatumPlane { reach, .. }
-        | ProjectionSource::PrincipalPlane { reach, .. }
-            if !(reach.is_finite() && *reach > 0.0) =>
-        {
-            Err(EditError::ProjectionReach(*reach))
+    match source.reach() {
+        Some(reach) if !(reach.is_finite() && reach > 0.0) => {
+            Err(EditError::ProjectionReach(reach))
         }
         _ => Ok(()),
     }
@@ -1076,6 +1073,7 @@ impl Document {
             | (FeatureKind::OffsetFace(_), FeatureKind::OffsetFace(_))
             | (FeatureKind::SplitFace(_), FeatureKind::SplitFace(_))
             | (FeatureKind::Primitive(_), FeatureKind::Primitive(_))
+            | (FeatureKind::Pipe(_), FeatureKind::Pipe(_))
             | (FeatureKind::Thread(_), FeatureKind::Thread(_))
             | (FeatureKind::Combine(_), FeatureKind::Combine(_))
             | (FeatureKind::Move(_), FeatureKind::Move(_))

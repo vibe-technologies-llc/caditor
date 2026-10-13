@@ -197,7 +197,7 @@ fn a_dragged_point_tracks_the_other_end_of_its_line_and_is_kept_level_with_it() 
     let sketch = harness.sketch(feature);
     assert_eq!(
         aligned_point_pairs(sketch),
-        vec![Constraint::HorizontalPoints(end, start)]
+        vec![Constraint::HorizontalPoints(end, start.into())]
     );
     let (from, to) = (sketch.point(start).unwrap(), sketch.point(end).unwrap());
     assert!((from.y - to.y).abs() < 1e-6, "{from} {to}");

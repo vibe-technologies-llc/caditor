@@ -58,6 +58,10 @@ pub fn reversed(feature: &Feature) -> Result<FeatureKind, String> {
             feature,
             "follows its path from the profile, so it has no direction to reverse",
         )),
+        FeatureKind::Pipe(_) => Err(refusal(
+            feature,
+            "follows its path, so it has no direction to reverse",
+        )),
         FeatureKind::Hole(hole) => {
             let mut hole = hole.clone();
             hole.reversed = !hole.reversed;

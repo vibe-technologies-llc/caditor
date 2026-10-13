@@ -13,7 +13,7 @@ use crate::{
     model::{Action, Model, Notice},
     move_tools,
     pattern_tools::{self, Reference},
-    primitive_tools, scale_tools,
+    pipe_tools, primitive_tools, scale_tools,
     selection::{Pickable, Selection},
     shell_tools, sketch_pattern_tools, solid_panel, split_face_tools, split_tools, sweep_tools,
     thread_tools,
@@ -163,8 +163,13 @@ pub fn prompt(model: &Model, picking: Picking) -> String {
             "Click a flat face where the hole goes, or press Escape to leave it where it is"
                 .to_owned()
         }
-        Slot::HoleEdge(_) => "Click a straight edge to measure the hole from".to_owned(),
-        Slot::HoleConcentric(_) => "Click a round edge to centre the hole on".to_owned(),
+        Slot::HoleEdge(_) => {
+            "Click a straight edge, a line of another sketch or an axis to measure the hole from"
+                .to_owned()
+        }
+        Slot::HoleConcentric(_) => "Click a round edge, a circle or arc of another sketch, or a \
+                                    point, to centre the hole on"
+            .to_owned(),
         Slot::HoleAdd => {
             "Click the face where each further hole goes, or press Escape to stop adding them"
                 .to_owned()
@@ -215,7 +220,7 @@ pub fn prompt(model: &Model, picking: Picking) -> String {
         }
         Slot::ThreadFace => "Click the round face of a bore, shaft or boss to thread".to_owned(),
         Slot::SweepPath => {
-            "Click the curves of a sketch or the edges of a body to sweep along, again to leave \
+            "Click the curves of a sketch or the edges of a body to follow, again to leave \
              one out; press Escape when the path is complete"
                 .to_owned()
         }
@@ -314,6 +319,9 @@ pub fn change(
         }
         (Slot::SweepPath, FeatureKind::Solid(SolidFeature::Sweep(sweep))) => {
             sweep_tools::path_change(model, selection, feature, sweep)
+        }
+        (Slot::SweepPath, FeatureKind::Pipe(pipe)) => {
+            pipe_tools::path_change(model, selection, feature, pipe)
         }
         (Slot::ExtrudeDirection, FeatureKind::Solid(SolidFeature::Extrude(extrude))) => {
             solid_panel::direction_change(model, selection, feature, extrude)

@@ -92,7 +92,7 @@ fn offsets(
             to,
             value: millimetres(offset.x.abs()),
         },
-        _ => Constraint::VerticalPoints(from, to),
+        _ => Constraint::VerticalPoints(from, to.into()),
     };
     let up = match offset.y.abs().partial_cmp(&tolerance.distance) {
         Some(Ordering::Greater) => Constraint::VerticalDistance {
@@ -100,7 +100,7 @@ fn offsets(
             to,
             value: millimetres(offset.y.abs()),
         },
-        _ => Constraint::HorizontalPoints(from, to),
+        _ => Constraint::HorizontalPoints(from, to.into()),
     };
     vec![across, up]
 }

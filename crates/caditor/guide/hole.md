@@ -8,9 +8,13 @@
   depth and the one at its rim, between the two moving arrows, its diameter (making the size
   Custom); a counterbore has arrows for its diameter at the mouth and its depth on the wall, a
   countersink for its diameter and, down the bore wall where the cone ends, its angle (drag it
-  deeper for a narrower cone), a slot for its length at one tip and its angle at the other, a
+  deeper for a narrower cone), a stepped hole a diameter arrow at the mouth of each step and a
+  depth arrow down its wall, a slot for its length at one tip and its angle at the other, a
   tapped hole with a thread length for how deep the thread goes, and one drilled Up to next or Up to
-  face for how far it goes past the face; zoomed out far enough that they would lie on the moving
+  face for how far it goes past the face. A hole sized by circles has these too, standing on the
+  first hole and drawn at the size that circle gives (a counterbore, countersink or step sized with
+  the circle is drawn scaled with it, and a drag sets the value the panel shows); only the bore's
+  diameter is left to the circle. Zoomed out far enough that they would lie on the moving
   arrows they are left out until you zoom in, the panel's fields still setting them. The square stops on a round
   edge's centre or an edge's middle under the pointer, and on a corner; hold Ctrl to drag freely.
   With the pointer on a handle, type a value (or x, y for the square) and press Enter. Its panel's
@@ -18,14 +22,18 @@
   face, or type its **Position X** and **Position Y** on the face. A position typed with
   [parameters](parameters), such as `width / 2`, keeps following them; such a hole is then moved
   from its fields only, and a plain number typed there lets go of the expression.
-- **Place by** ties the hole to the body: **From an edge** measures it from a straight edge
-  (select the edge first, or choose it in the view) with a **Distance** you can type, and a
-  second edge across the first fixes it, so a hole 8 mm from two sides stays there when the body
-  changes. **Concentric** centres it on a round edge, a circle or an arc, and it follows that
-  edge. Each edge can be let go again from its row. While the hole is open, a hole measured from
+- **Place by** ties the hole to the model: **From an edge** measures it from a straight edge, a
+  line of another sketch, a datum axis or the X, Y or Z axis (select it first, or choose it in the
+  view) with a **Distance** you can type, and a second one across the first fixes it, so a hole
+  8 mm from two sides stays there when the body changes. **Concentric** centres it on a round edge,
+  a circle or arc of another sketch, or a point: a corner, a point of another sketch, a datum point
+  or the origin. The hole follows what it is placed by when that moves, and each can be let go
+  again from its row. While the hole is open, a hole measured from
   an edge has an arrow at its centre pointing away from the edge, whose drag changes that
   **Distance** (it stops a step short of the edge, and a distance named or driven by a
-  [parameter](parameters) keeps its name or says what drives it), one arrow for each edge.
+  [parameter](parameters) keeps its name or says what drives it), one arrow for each edge. A hole
+  measured from just one edge has a second arrow pointing along that edge: drag it to slide the
+  hole along the edge, keeping its distance, in one change (it takes no typed value).
 - **Add another hole** under **Placed on** drills more holes of the same size and depth: click
   each spot on the face, or highlight the face with the keyboard to put one where there is most
   room, and press Escape when done. Each hole is listed with its own position or edges and can

@@ -14,8 +14,8 @@ use caditor_geometry::{Aabb, Plane, Point2, Point3, Ray, RigidTransform};
 use caditor_kernel::{EdgeName, RegionKey, RegionMesh, RegionReference, resolve_regions};
 use caditor_render::{
     Batch, Color, FaceStyle, Fill, Grid, Layer, Line, Marker, MeshInstance, PickHit, PickId,
-    PickResult, PictureTexture, Reflection, Scene, ScenePicture, ShadedMesh, Silhouette, Stroke,
-    SurfaceFinish,
+    PickResult, PictureTexture, PolylineRun, Reflection, RunPolyline, Scene, ScenePicture,
+    ShadedMesh, Silhouette, Stroke, StrokeKind, SurfaceFinish,
 };
 use caditor_sketch::{
     Constraint, ConstraintId, Entity, EntityId, EntityState, Faceting, Reference, Sketch,
@@ -37,7 +37,7 @@ use crate::{
     interference_panel::{Mark, MarkKind},
     scene_palette::{Canvas, Contrast, Highlights, PointFill, ScenePalette, SketchState},
     selection::{self, Axis, Pickable, PrincipalPlane, Selection, SelectionFilter},
-    view_aids::ViewAids,
+    view_aids::{EdgeLook, ViewAids},
     visibility,
 };
 
@@ -548,6 +548,7 @@ struct BodyLook {
     style: DisplayStyle,
     palette: usize,
     reflective: bool,
+    edges: EdgeLook,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -911,7 +912,7 @@ fn sketch_shapes(
 fn control_polygon(sketch: &Sketch, id: EntityId, entity: &Entity) -> Vec<Segment> {
     let shows_handles = matches!(
         entity.spline_kind(),
-        Some(SplineKind::Control { .. } | SplineKind::Conic { .. })
+        Some(SplineKind::Control { .. } | SplineKind::Conic { .. } | SplineKind::Piece { .. })
     );
     match sketch.spline_control_points(id) {
         Some(points) if shows_handles => curve_segments(sketch.plane(), &points, true).collect(),
@@ -985,6 +986,7 @@ pub fn build_keeping(
         reflection: aids.reflection,
         control_polygons: !aids.control_polygons_hidden,
         pictures: Vec::new(),
+        edges: aids.edges,
     };
 
     match &edited {
@@ -1006,6 +1008,8 @@ pub fn build_keeping(
                         builder.datum(evaluation, datum.id(), false, reference_size);
                     }
                 }
+            } else if context.projecting {
+                builder.projectable_references(document, evaluation, feature.id(), reference_size);
             }
         }
         None => {
@@ -1166,6 +1170,7 @@ pub fn build_keeping(
             style: builder.style,
             palette: palette_key,
             reflective: builder.reflection.is_some(),
+            edges: builder.edges,
         };
         let lit = lit_parts.of_part(highlight, PartKey::Body(body));
         let part = match previous.remove(&body) {
@@ -1489,6 +1494,7 @@ struct Builder<'a> {
     reflection: Option<Reflection>,
     control_polygons: bool,
     pictures: Vec<ScenePicture>,
+    edges: EdgeLook,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1518,6 +1524,7 @@ impl<'a> Builder<'a> {
             reflection: self.reflection,
             control_polygons: self.control_polygons,
             pictures: Vec::new(),
+            edges: self.edges,
         }
     }
 
@@ -2028,10 +2035,10 @@ impl<'a> Builder<'a> {
         } else {
             self.palette.body_edge.with_alpha(0.0)
         };
-        let edge_width = self.palette.body_edge_width;
+        let edge_width = self.edge_width();
         let pickable_edges = pickable;
         let shows_hidden_edges = style.shows_hidden_edges() && color.is_some();
-        if style.shows_edges() {
+        if style.shows_edges() && !self.edges.outlines_hidden {
             let silhouette_color = match color {
                 Some(_) => self.palette.body_edge,
                 None => self.palette.background_body_edge,
@@ -2046,6 +2053,7 @@ impl<'a> Builder<'a> {
             };
             self.silhouettes.push(silhouette);
         }
+        let mut polylines = Vec::with_capacity(mesh.edges.len());
         for edge in &mesh.edges {
             let pickable = Pickable::Edge {
                 body,
@@ -2076,9 +2084,23 @@ impl<'a> Builder<'a> {
                 dashed,
                 dashed_where_hidden: shows_hidden_edges,
             };
-            self.scene
-                .lines
-                .extend(edge_lines(mesh.points(edge).segments(), &placed, drawn));
+            if let Ok(polyline) = u32::try_from(edge.polyline()) {
+                polylines.push(RunPolyline {
+                    polyline,
+                    color,
+                    width,
+                    pick,
+                    stroke: drawn.kind(),
+                });
+            }
+        }
+        if !polylines.is_empty() {
+            self.scene.runs.push(PolylineRun {
+                source: mesh.polylines(),
+                placement,
+                layer: Layer::Model,
+                polylines,
+            });
         }
         if color.is_none() && !pickable_edges {
             return;
@@ -2113,11 +2135,18 @@ impl<'a> Builder<'a> {
         }
     }
 
+    fn edge_width(&self) -> f32 {
+        self.palette.body_edge_width * self.edges.weight.factor()
+    }
+
     fn plain_silhouette(&mut self, mesh: &Arc<ShadedMesh>) {
+        if self.edges.outlines_hidden {
+            return;
+        }
         self.silhouettes.push(Silhouette {
             mesh: Arc::clone(mesh),
             color: self.palette.body_edge,
-            width: self.palette.body_edge_width,
+            width: self.edge_width(),
             dashed: false,
             dashed_where_hidden: false,
             placement: None,
@@ -2224,12 +2253,13 @@ impl<'a> Builder<'a> {
             .into(),
             placement: None,
         });
+        let width = self.edge_width();
         for edge in &cut.edges {
             let segments = cut.points(edge).segments().map(|(start, end)| Line {
                 start,
                 end,
                 color: self.palette.cut_preview_edge,
-                width: self.palette.body_edge_width,
+                width,
                 layer: Layer::Front,
                 pick: None,
                 stroke: Stroke::Solid,
@@ -2284,6 +2314,7 @@ impl<'a> Builder<'a> {
             placement: None,
         });
         self.plain_silhouette(&mesh.mesh);
+        let width = self.edge_width();
         for edge in &mesh.edges {
             self.scene
                 .lines
@@ -2291,7 +2322,7 @@ impl<'a> Builder<'a> {
                     start,
                     end,
                     color: self.palette.body_edge,
-                    width: self.palette.body_edge_width,
+                    width,
                     layer: Layer::Model,
                     pick: None,
                     stroke: Stroke::Solid,
@@ -2310,6 +2341,7 @@ impl<'a> Builder<'a> {
 
     fn split_edges(&mut self, open: &BodyBefore, result: &BodyMesh) {
         let before: BTreeSet<EdgeName> = open.before.edges.iter().map(|edge| edge.name).collect();
+        let width = self.edge_width() + CHOSEN_EDGE_EXTRA_WIDTH;
         for edge in result
             .edges
             .iter()
@@ -2319,7 +2351,7 @@ impl<'a> Builder<'a> {
                 start,
                 end,
                 color: self.palette.lines.selected,
-                width: self.palette.body_edge_width + CHOSEN_EDGE_EXTRA_WIDTH,
+                width,
                 layer: Layer::Model,
                 pick: None,
                 stroke: Stroke::Solid,
@@ -2482,16 +2514,15 @@ impl<'a> Builder<'a> {
                     } else {
                         base
                     };
-                    let width = self.palette.body_edge_width
-                        + extra
-                        + self.emphasis(pickable) * HIGHLIGHT_EXTRA_WIDTH;
+                    let width =
+                        self.edge_width() + extra + self.emphasis(pickable) * HIGHLIGHT_EXTRA_WIDTH;
                     (
                         color,
                         width,
                         self.picks.register(pickable, PickPriority::Curve),
                     )
                 }
-                None => (self.palette.body_edge, self.palette.body_edge_width, None),
+                None => (self.palette.body_edge, self.edge_width(), None),
             };
             let segments = open
                 .before
@@ -2749,6 +2780,35 @@ impl<'a> Builder<'a> {
         });
     }
 
+    fn projectable_references(
+        &mut self,
+        document: &Document,
+        evaluation: &Evaluation,
+        sketch: FeatureId,
+        size: f64,
+    ) {
+        for axis in Axis::ALL {
+            if visibility::is_principal_shown(document, PrincipalGeometry::Axis(axis.principal())) {
+                self.axis(axis, size);
+            }
+        }
+        if visibility::is_principal_shown(document, PrincipalGeometry::Origin) {
+            self.origin();
+        }
+        let earlier = document
+            .active_features()
+            .take_while(|earlier| earlier.id() != sketch);
+        for datum in earlier {
+            let projectable = datum
+                .kind
+                .datum()
+                .is_some_and(|kind| kind.is_axis() || kind.is_point());
+            if !datum.hidden && projectable {
+                self.datum(evaluation, datum.id(), false, size);
+            }
+        }
+    }
+
     fn origin(&mut self) {
         let pickable = Pickable::Origin;
         self.scene.markers.push(Marker {
@@ -2896,6 +2956,16 @@ struct EdgeStroke {
     dashed_where_hidden: bool,
 }
 
+impl EdgeStroke {
+    fn kind(&self) -> StrokeKind {
+        match (self.dashed_where_hidden, self.dashed) {
+            (true, seen_dashed) => StrokeKind::DashedWhereHidden { seen_dashed },
+            (false, true) => StrokeKind::Dashed,
+            (false, false) => StrokeKind::Solid,
+        }
+    }
+}
+
 fn edge_lines<'a>(
     segments: impl Iterator<Item = (Point3, Point3)> + 'a,
     placed: &'a impl Fn(Point3) -> Point3,
@@ -2903,16 +2973,7 @@ fn edge_lines<'a>(
 ) -> impl Iterator<Item = Line> + 'a {
     let mut along = 0.0;
     segments.map(move |(start, end)| {
-        let line_stroke = match (stroke.dashed_where_hidden, stroke.dashed) {
-            (true, seen_dashed) => Stroke::DashedWhereHidden {
-                along: along as f32,
-                seen_dashed,
-            },
-            (false, true) => Stroke::Dashed {
-                along: along as f32,
-            },
-            (false, false) => Stroke::Solid,
-        };
+        let line_stroke = stroke.kind().at(along as f32);
         along += start.distance(end);
         Line {
             start: placed(start),

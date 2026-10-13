@@ -11,7 +11,14 @@ A disabled button says on hover what to select.
 - **Concentric** gives circles, arcs and ellipses one centre.
 - **Collinear** puts lines on one straight line.
 - **Fix** locks points where they are.
-- **Horizontal** and **Vertical** level lines, or line up two points.
+- **Horizontal** and **Vertical** level lines, or line up two points. Lined up while drawing, a
+  point can also be held level with or straight above the middle of a line or arc, where two
+  curves cross, the centre of an outline, the top, bottom or sides of a circle, or an end of an
+  ellipse's axis ([snapping](snapping)).
+- **Parallel through** and **Perpendicular through** hold a point on the line through such a
+  place running along another line or square to it; the perpendicular bisector of a line is one.
+  **Centre** holds a point at the middle of an outline's corners. These come from drawing with
+  the guides, not from a button.
 - **Parallel** and **Perpendicular** relate lines; a line perpendicular to a circle runs through
   its centre.
 - **Tangent** makes a line and a curve, or two curves, touch smoothly; a circle, arc, spline or
@@ -25,7 +32,9 @@ A disabled button says on hover what to select.
 With more than two items, chaining constraints relate every item to the first one selected.
 
 A corner, the centre of a round edge or an edge of a body made before the sketch can be selected
-with them, where it falls on the sketch plane: clicking it with Select picks it, Shift adds it.
+with them, where it falls on the sketch plane: clicking it with Select picks it, Shift adds it,
+and from the keyboard {command:view.highlight_next} reaches it and
+{command:view.activate_highlighted} adds it.
 The constraint [projects](project-and-intersect) it into the sketch in the same undoable change.
 
 ## When constraints disagree

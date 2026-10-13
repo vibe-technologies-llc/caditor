@@ -24,7 +24,7 @@ use caditor_kernel::{
     Interrupted, MassProperties, MeasureError, Mesh, Solid, SolidMass, VertexId, VertexName,
     check_interrupt, extent, interruptible, mass_properties,
 };
-use caditor_render::{MeshFace, MeshPoint, MeshSource, ShadedMesh};
+use caditor_render::{MeshFace, MeshPoint, MeshSource, PolylineSource, ShadedMesh};
 use parking_lot::{Condvar, Mutex};
 
 use crate::{
@@ -139,6 +139,12 @@ pub struct BodyFace {
 pub struct BodyEdge {
     pub name: EdgeName,
     polyline: usize,
+}
+
+impl BodyEdge {
+    pub fn polyline(&self) -> usize {
+        self.polyline
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -329,6 +335,7 @@ pub struct BodyMesh {
     pub faces: Vec<BodyFace>,
     pub edges: Vec<BodyEdge>,
     pub vertices: Vec<BodyVertex>,
+    polylines: Arc<DisplayedMesh>,
     mass: Arc<MassSlot>,
 }
 
@@ -401,6 +408,7 @@ impl BodyMesh {
             faces,
             edges,
             vertices,
+            polylines: Arc::new(DisplayedMesh(Arc::clone(source))),
             mass: Arc::new(MassSlot {
                 source: Arc::clone(source),
                 reading: OnceLock::new(),
@@ -433,6 +441,10 @@ impl BodyMesh {
 
     pub fn source(&self) -> &Arc<FeatureResult> {
         &self.source
+    }
+
+    pub fn polylines(&self) -> Arc<dyn PolylineSource> {
+        Arc::clone(&self.polylines) as Arc<dyn PolylineSource>
     }
 
     pub fn vertex_position(&self, key: VertexKey) -> Option<Point3> {
@@ -499,6 +511,7 @@ impl Iterator for EdgePoints<'_> {
     }
 }
 
+#[derive(Debug)]
 struct DisplayedMesh(Arc<FeatureResult>);
 
 impl DisplayedMesh {
@@ -521,8 +534,20 @@ impl MeshSource for DisplayedMesh {
         let vertex = mesh.vertices().get(index as usize)?;
         Some(MeshPoint {
             position: mesh.position(vertex.position)?,
-            normal: vertex.normal,
+            normal: vertex.normal.vector(),
         })
+    }
+}
+
+impl PolylineSource for DisplayedMesh {
+    fn polyline(&self, index: usize) -> &[u32] {
+        self.mesh()
+            .and_then(|mesh| mesh.edges().get(index))
+            .map_or(&[], |polyline| polyline.positions.as_slice())
+    }
+
+    fn point(&self, index: u32) -> Option<Point3> {
+        self.mesh()?.position(index)
     }
 }
 
@@ -574,7 +599,7 @@ fn local_corner(
     let index = u32::try_from(drawn.points.len()).ok()?;
     drawn.points.push(MeshPoint {
         position: mesh.position(source.position)?,
-        normal: source.normal,
+        normal: source.normal.vector(),
     });
     corners.insert(vertex, index);
     Some(index)

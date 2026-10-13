@@ -1,6 +1,9 @@
 use caditor_expression::{EvalError, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2};
-use caditor_sketch::{Constraint, Drag, Entity, EntityId, FitSpacing, Sketch, SplineKind};
+use caditor_sketch::{
+    Constraint, Drag, EllipseEnd, Entity, EntityId, FitSpacing, PointTarget, Quadrant, Sketch,
+    SplineKind,
+};
 use libfuzzer_sys::arbitrary::{Result, Unstructured};
 
 use crate::{angle, length, point};
@@ -8,6 +11,7 @@ use crate::{angle, length, point};
 const MOST_SHAPES: usize = 8;
 const MOST_CONSTRAINTS: usize = 12;
 const MOST_SPLINE_POINTS: usize = 5;
+const MOST_CORNERS: usize = 5;
 const STRANGE_LENGTHS: [f64; 4] = [0.0, -1.0, 1e-9, 2e6];
 
 pub fn no_parameters(_: ParameterId) -> std::result::Result<Quantity, EvalError> {
@@ -64,7 +68,7 @@ fn shape(input: &mut Unstructured, sketch: &mut Sketch) -> Result<Option<EntityI
             let points = (0..count)
                 .map(|_| point_id(input, sketch))
                 .collect::<Result<Vec<_>>>()?;
-            let kind = match input.int_in_range(0u8..=2)? {
+            let kind = match input.int_in_range(0u8..=3)? {
                 0 => SplineKind::Control {
                     closed: input.arbitrary()?,
                 },
@@ -76,8 +80,12 @@ fn shape(input: &mut Unstructured, sketch: &mut Sketch) -> Result<Option<EntityI
                         FitSpacing::Even
                     },
                 },
-                _ => SplineKind::Conic {
+                2 => SplineKind::Conic {
                     rho: input.arbitrary()?,
+                },
+                _ => SplineKind::Piece {
+                    lead: input.arbitrary()?,
+                    trail: input.arbitrary()?,
                 },
             };
             insert(sketch, Entity::Spline { points, kind })
@@ -127,14 +135,38 @@ pub fn angle_value(input: &mut Unstructured) -> Result<Expression> {
     ))
 }
 
+fn some_entities(input: &mut Unstructured, sketch: &Sketch) -> Result<Vec<EntityId>> {
+    (0..input.int_in_range(0..=MOST_CORNERS)?)
+        .map(|_| any_entity(input, sketch))
+        .collect()
+}
+
+fn point_target(input: &mut Unstructured, sketch: &Sketch) -> Result<PointTarget> {
+    let entity = |input: &mut Unstructured| any_entity(input, sketch);
+    Ok(match input.int_in_range(0u8..=5)? {
+        0 => PointTarget::Point(entity(input)?),
+        1 => PointTarget::Middle(entity(input)?),
+        2 => PointTarget::Crossing(entity(input)?, entity(input)?),
+        3 => PointTarget::Centroid(some_entities(input, sketch)?),
+        4 => PointTarget::Quadrant {
+            curve: entity(input)?,
+            side: *input.choose(&Quadrant::ALL)?,
+        },
+        _ => PointTarget::EllipseEnd {
+            ellipse: entity(input)?,
+            end: *input.choose(&EllipseEnd::ALL)?,
+        },
+    })
+}
+
 pub fn constraint(input: &mut Unstructured, sketch: &Sketch) -> Result<Constraint> {
     let entity = |input: &mut Unstructured| any_entity(input, sketch);
-    Ok(match input.int_in_range(0u8..=17)? {
+    Ok(match input.int_in_range(0u8..=19)? {
         0 => Constraint::Coincident(entity(input)?, entity(input)?),
         1 => Constraint::Horizontal(entity(input)?),
         2 => Constraint::Vertical(entity(input)?),
-        3 => Constraint::HorizontalPoints(entity(input)?, entity(input)?),
-        4 => Constraint::VerticalPoints(entity(input)?, entity(input)?),
+        3 => Constraint::HorizontalPoints(entity(input)?, point_target(input, sketch)?),
+        4 => Constraint::VerticalPoints(entity(input)?, point_target(input, sketch)?),
         5 => Constraint::Parallel(entity(input)?, entity(input)?),
         6 => Constraint::Perpendicular(entity(input)?, entity(input)?),
         7 => Constraint::Tangent(entity(input)?, entity(input)?),
@@ -173,6 +205,16 @@ pub fn constraint(input: &mut Unstructured, sketch: &Sketch) -> Result<Constrain
             to: entity(input)?,
             reversed: input.arbitrary()?,
             value: angle_value(input)?,
+        },
+        17 => Constraint::OnDirection {
+            point: entity(input)?,
+            through: point_target(input, sketch)?,
+            line: entity(input)?,
+            square: input.arbitrary()?,
+        },
+        18 => Constraint::Centroid {
+            point: entity(input)?,
+            corners: some_entities(input, sketch)?,
         },
         _ => {
             let circle = entity(input)?;

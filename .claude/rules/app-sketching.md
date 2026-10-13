@@ -42,8 +42,8 @@ paths:
 # Sketch editing in the app
 
 Default keys come from `Command::default_shortcuts`, not from here. A tool or command listed
-without a key has none (every free one is taken) and is reached from the Sketch menu, the palette
-and, for off-ribbon tools, a partner's corner menu.
+without a key has none (every free one is taken) and is reached from the Sketch menu, the palette,
+the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a partner's corner menu.
 
 ## Editing context
 
@@ -74,8 +74,10 @@ and, for off-ribbon tools, a partner's corner menu.
   (`EditingCommand::SwitchBack`) undoes the batch's steps and restores the closed sketch's
   `Entered` or feature's `Opened`. A feature closed for another feature says nothing.
 - Entering faces the camera to the plane, fits it, dims other features (unpickable) and keeps only
-  that sketch selected. `Command::LookAtSketch` (Alt+Shift+V) returns to the facing view, and turns
-  it a quarter turn when already facing.
+  that sketch selected; with Preferences › Sketching › Opening a sketch off
+  (`Sketching::look_at_on_entering`, handed over by `ViewportState::set_sketching`) the view stays
+  where it is. `Command::LookAtSketch` (Alt+Shift+V) returns to the facing view, and turns it a
+  quarter turn when already facing.
 - The edited sketch, its origin and axes and the drawing preview go on `Layer::Front`
   (`render.md`), so a body never hides or z-fights with them.
 - Slice the bodies at the sketch plane (`SectionCommand::SliceSketch`, session-only in
@@ -85,8 +87,10 @@ and, for off-ribbon tools, a partner's corner menu.
 - Clicks and primary drags select with Select; a drawing tool (`Tool::draws`) draws and the modify
   tools (`Tool::modifies`) act on what is under the pointer. Escape backs out one step in the order
   of `ViewportState::escape`, ignoring key repeats (`pressed_without_repeat`), so a held Escape never
-  walks on to finishing the sketch. The Select and Finish tooltips (`SELECT_KEY`, `FINISH_KEYS`) say
-  when Escape reaches them.
+  walks on to finishing the sketch. Its last step, finishing the sketch, is taken only while
+  `Sketching::escape_finishes` (Preferences › Sketching › Escape, on by default); off, Escape stops
+  at clearing the selection and the Select prompt names only the Finish keys. The Select and Finish
+  tooltips (`SELECT_KEY`, `FINISH_KEYS`) say when Escape reaches them.
 
 ## Dragging, box selection and selection commands
 
@@ -104,9 +108,11 @@ and, for off-ribbon tools, a partner's corner menu.
   and itself ignored, never a point nearer the centre than `SMALLEST_SNAPPED_RADIUS`, no body items,
   tracks or guides); release adds `Coincident` of that point with the circle (`Join::rim_of`, which
   `reached` also checks against the solved radius). Tracks and extensions work as while drawing, from the grab's own `Acquired`. It snaps to body
-  items too (`Grab::snapping_to_bodies`, `Grab::onto_body`): where `tracking::land` found no
-  point-like target, a body corner, middle or centre, else an edge; never with Alt. Release sends the
-  target's and tracks' constraints (`Landing::joins`, `Join::body` as `BodyJoin`) with
+  items too (`Grab::snapping_to_bodies`, handed to `tracking::land`, whose `onto_body` takes them):
+  where no point-like target was found, a body corner, middle or centre, else an edge; with Alt they
+  pull as in the held snap (Snapping). Release sends the
+  target's and tracks' constraints (`Landing::joins`, worked out on the displayed sketch each time
+  the landing is found and kept in `Grab::joins`; `Join::body` as `BodyJoin`) with
   `DragCommand::Finish`; `Model::commit_drag` adds them (projecting body items, or reusing the
   projection) to the settle transaction when the solved point reached the landing, leaving out any
   the sketch refuses, already has or contradicts.
@@ -182,7 +188,7 @@ and, for off-ribbon tools, a partner's corner menu.
   point draws a tangent arc. `Drawing::readout` shows the size so far below the snap label.
 - Ctrl places the point exactly under the pointer: no snapping, no guides (`Drawing::place_freely`),
   and no tangent arc start. Snapping off (`Command::ToggleSnapping`, session-only in
-  `ViewportState::snapping`) equals holding Ctrl always, except Alt still snaps; the prompt then says
+  `ViewportState::snapping`, starting as Preferences › Sketching says, `StartingToggles`) equals holding Ctrl always, except Alt still snaps; the prompt then says
   "Snapping off" before the Alt hint. Ctrl wins over Alt (AltGr arrives as Ctrl+Alt on Windows). The
   pointer is on the sketch only within `MAX_LENGTH` of the origin, so an edge-on view cannot place a
   point at an enormous distance.
@@ -267,11 +273,16 @@ and, for off-ribbon tools, a partner's corner menu.
 - Project (`Tool::Project`, Alt+P, sketch bar Edit group) brings model geometry in: while active,
   `Context::projecting` draws bodies and other sketches as pickable background
   (`Presence::Projectable`) and `Pickable::is_available` lets their faces, edges, corners and curves
-  be hovered. A click or Activate runs `projecting::project`: an edge, a corner, every boundary edge
-  of a face not seen end-on, or a curve or point of a sketch above it, each one undoable transaction
-  from the body's state at the sketch (`body_result_seen_by`). Geometry made later in the tree, a
-  corner shared by two vertices of one name and anything already projected are refused in words. The
-  highlight commands step only through projectable items.
+  be hovered; it also draws the shown principal axes and origin and the shown datum axes and points
+  above the sketch (`Builder::projectable_references`). A click or Activate runs
+  `projecting::project` over `projections_of` (shared with a hole's Place by): an edge, a corner,
+  every boundary edge of a face not seen end-on, a curve or point of a sketch above it, a datum or
+  principal axis (a line spanning the shown bodies, `axis_reach`, or a point where it stands square
+  to the sketch), a datum point or the origin, each one undoable transaction from the body's state at
+  the sketch (`body_result_seen_by`). Geometry made later in the tree, a datum plane (Intersect takes
+  it), a corner shared by two vertices of one name and anything already projected
+  (`ProjectionSource::is_same_source`) are refused in words. The highlight commands step only
+  through projectable items.
 - Intersect (`Tool::Intersect`, Alt+I; in Project's corner menu, `sketch_toolbar::OFF_RIBBON`,
   `MODEL_GEOMETRY_TOOLS`) draws where the model crosses the sketch plane. It is a projecting tool
   (`Tool::projects`); `Context::intersecting` also offers shown datum planes above the sketch and
@@ -314,9 +325,9 @@ and, for off-ribbon tools, a partner's corner menu.
 - `trimming.rs` and `modifying.rs` (a facade over `offsetting.rs`, `mirroring.rs`, `patterning.rs`,
   `filleting.rs`) hold the tools' UI state; geometry and constraint rules are the sketch's
   (`sketch.md`). Each frame the tool aims through the displayed sketch, previews the result and puts
-  its words, or why not, where hover descriptions go. Trim and Extend aim at splines too, so can be
-  refused in words. Ellipses and elliptical arcs are Trim's targets (`trimming::is_trimmable`); Extend
-  takes elliptical arc ends and refuses whole ellipses. The axes and collinear or co-circular overlaps
+  its words, or why not, where hover descriptions go. Every curve is Trim's target
+  (`trimming::is_trimmable`); Extend takes the ends of lines, arcs, elliptical arcs and open splines
+  (`trimming::ends_of`) and refuses whole ellipses and closed splines in words. The axes and collinear or co-circular overlaps
   cut and bound curves like any curve (`sketch.md`): the words name them and the preview highlights
   the overlapping curve; the axes themselves are never aimed at.
 - A click acts at once, without a GPU pick: one transaction built by `reshape_sketch` from a working
@@ -418,8 +429,8 @@ and, for off-ribbon tools, a partner's corner menu.
   `Sketch::curve_crossings`), quadrants of a circle or arc (`Target::Quadrant`) and ellipse axis ends
   (`Target::AxisEnd`); then lines, circles, arcs, splines and axes within `CURVE_TOLERANCE`,
   projecting onto the curve. A snapped point gets a `Coincident` with its target (both curves at a
-  crossing), a `Midpoint` for a middle, a `Symmetric` of two opposite corners about it for a centre,
-  and for a quadrant a `Coincident` plus a horizontal or vertical points constraint with the centre.
+  crossing), a `Midpoint` for a middle, a `Symmetric` of two opposite corners about it for a centre
+  (a `Centroid` of the corners for an odd outline's), and for a quadrant a `Coincident` plus a horizontal or vertical points constraint with the centre.
   A major axis end is held by a `Symmetric` of the axis point and the new point about the centre; a
   minor axis end by a `Coincident` with the ellipse plus a vertical or horizontal points constraint
   with the centre when the major axis is level or upright (`AxisEnd::MinorUpright`, `MinorLevel`), else
@@ -434,9 +445,10 @@ and, for off-ribbon tools, a partner's corner menu.
   most `MAX_OUTLINE_LINES` pieces) of an even count whose opposite corners share one midpoint and
   whose opposite pieces are both lines or both arcs of one radius with centres mirrored about it
   (rectangle, parallelogram, even regular polygon, slot, rounded rectangle); a third piece at a corner
-  breaks the loop. An odd loop of lines has the area centroid as centre (`Target::Centroid`): the
-  point lands there but no constraint holds it, and the label ends "not kept there". A loop with a
-  piece or corner moving in a drag offers no centre.
+  breaks the loop. An odd loop of lines has the centre of its corners (their mean; none for a loop
+  of no area) as centre (`Target::Centroid`), held by a `Centroid` of the corner points the outline
+  search finds again from the target's piece (`snap::outline_corners`, one point per corner, so
+  `Target` stays `Copy`). A loop with a piece or corner moving in a drag offers no centre.
 - `Accept` keeps every shown snap a constraint that already holds: a circle's rim takes points only;
   an arc's end takes points on its circle and where it crosses other curves
   (`Sketch::circle_crossings`) and the axes.
@@ -471,25 +483,27 @@ and, for off-ribbon tools, a partner's corner menu.
   they cross. A track joins a curve snap where it crosses the curve (never along a line it runs on)
   and a line's direction where they cross, within `ALIGNED_CROSSING_TOLERANCE` (`tracking.rs`);
   point snaps never take one.
-- Only a track through a sketch point holds the placed point, by `HorizontalPoints` or
-  `VerticalPoints`. Through any other anchor the point lands exactly with no constraint: those take
-  sketch points only, and holding it would need a construction point at the middle, crossing or
-  centre (with its `Midpoint`, `Coincident`s or `Symmetric`) made in the shape's transaction,
-  clutter the user did not draw that stays behind, free, once its curves go; a perpendicular
-  bisector would need a construction line as well. The missing constraint is in
-  `docs/FEATURES.md`. The label names held tracks first and ends `NOT_KEPT_THERE` when any track
-  is not held, as an odd outline's centre does. Where two tracks of one kind coincide (a right
-  quadrant level with its centre), the held one wins (`prefers`, within `TIED_OFFSET`).
+- Every track holds the placed point at its anchor (`Track::constraint`): the anchor's
+  `Target::point_target` (`sketch.md`, point targets: a point, a middle, a crossing, the two
+  opposite corners of a `Centre` or the corners of a `Centroid`, a quadrant, an ellipse's far
+  major or nearer minor end) in `HorizontalPoints` or `VerticalPoints`, so the point follows the
+  middle, crossing or centre when its geometry moves, with no construction point left in the
+  sketch. The label names held tracks first and ends `NOT_KEPT_THERE` when a track's anchor has no
+  target (none does today). Where two tracks of one kind coincide (a right quadrant level with its
+  centre), a held one wins, then one through a sketch point, the simpler constraint (`prefers`,
+  within `TIED_OFFSET`). The canvas marks them H or V on the point (and on a target that is a
+  sketch point); `OnDirection` is `GlyphKind::Through` (a slanted stroke through a ring) and
+  `Centroid` `GlyphKind::Centre` (a triangle round a dot).
 - An anchor also tracks along each acquired line's direction and square to it (`Axis::Slanted`),
   never along a line through the anchor itself nor where the direction is level or upright, and the
   middle of a line tracks square to that line (`bisector`, labelled "on the perpendicular bisector
-  of"; for a level or upright line it is the upright or level track). Slanted tracks hold no
-  constraint (the sketch has none); a slanted track crossing a horizontal or vertical one keeps
-  that one's constraint. An acquired line extends past its ends: after curves, the pointer within
+  of"; for a level or upright line it is the upright or level track). A slanted track holds the
+  point by `OnDirection` along or square to its line through the anchor's target; crossing a
+  horizontal or vertical track, both hold. An acquired line extends past its ends: after curves, the pointer within
   `CURVE_TOLERANCE` of its infinite carrier snaps to it (`Target::Extension`, a `Coincident` on the
   line, which the solver treats as infinite); directions and tracks join it as they do a curve.
 - Snap to the grid (`Command::ToggleGridSnapping`, off by default, session-only in
-  `ViewportState::grid_snapping`) places a point no target, direction or track took on the nearest
+  `ViewportState::grid_snapping`, starting as Preferences say) places a point no target, direction or track took on the nearest
   crossing of the grid's current level (`ViewportState::snap_grid_spacing`, handed to
   `Drawing::snap_to_grid`) within `POINT_TOLERANCE`; the point stays free, labelled "On the grid"
   (`Snap::Grid`). The grid draws three levels, 1, 10 and 100 times `grid_minor_spacing`, each
@@ -506,7 +520,10 @@ and, for off-ribbon tools, a partner's corner menu.
   curve. Targets keep their constraints; a grid crossing is free and, for points that align or level
   from a start (`aligned_from`, `levelled_from`), exactly level or upright with it takes Horizontal or
   Vertical. Width points never snap, typed points are untouched, and with the grid hidden only
-  entities are taken.
+  entities are taken. Body items pull too (`Lookup::bodies`, none for a tangent arc's start or a
+  circle's rim drag): corners, middles and centres after point-like sketch targets
+  (`BodySnaps::point_within`), body edges after sketch curves (`BodySnaps::edge_within`), an edge
+  moving to the grid crossing nearest its foot when that lies on it (`BodySnaps::foot`).
 - While a drawing tool draws, the shown bodies standing at the sketch (`Evaluation::body_state_seen_by`;
   later or hidden bodies left out) are snapped to too (`body_snap.rs`, `Target::Body`): corners, edge
   middles projecting to a line or arc, round edge centres, and any point on an edge, each matched where
@@ -515,9 +532,8 @@ and, for off-ribbon tools, a partner's corner menu.
   more than it saves). Where two project to one place the one nearer the sketch plane wins
   (`BodySnaps` keeps candidates sorted by depth). Priority: point-like sketch targets, body corners,
   middles and centres, sketch curves, body edges. `Accept::Points` takes body corners and centres
-  only, `OnCircle` none, nor does a tangent arc's start; the held snap, directions' and tracks'
-  crossings and acquired points take none, as a body item is not in the sketch until a point lands on
-  it.
+  only, `OnCircle` none, nor does a tangent arc's start; directions' and tracks' crossings and
+  acquired points take none, as a body item is not in the sketch until a point lands on it.
 - A point landing on a body item projects that vertex or edge in the shape's own transaction
   (`Draft::projection` through `TransactionBuilder::add_projected`: the same fixed geometry and stable
   `ProjectionSource` Project makes, or the existing projection, once per shape) and joins it:
@@ -535,7 +551,12 @@ and, for off-ribbon tools, a partner's corner menu.
   pick survives a cache rebuild): where the GPU hover is no sketch point, the nearest body corner or
   round-edge centre within `POINT_TOLERANCE` is hovered, else, where no sketch curve either, the
   nearest body edge; drawn by `ViewportState::body_preview`, available only while that sketch is
-  edited. `body_picks::Staged` turns picked sketch entities and body items into one sketch: each body
+  edited. The highlight commands reach them after the scene's pickables
+  (`ViewportState::steppable_body_items` from `BodySnaps::steppable`: corners and round-edge
+  centres, then edges, each place or path once, the one nearer the sketch plane kept), the
+  highlighted one drawn by `body_preview` as a hovered one and kept while the cache holds it;
+  Activate picks it as a click would and Show the context menu opens at it
+  (`ViewportState::body_item_on_screen`). `body_picks::Staged` turns picked sketch entities and body items into one sketch: each body
   item is projected through a throwaway transaction (`add_projected`, reusing the sketch's existing
   projection of that source or one already staged), its entities inserted into clones of the
   definition and displayed sketch as projected; staged ids are those the real transaction allocates,
@@ -565,8 +586,9 @@ and, for off-ribbon tools, a partner's corner menu.
   selection, revision, evaluation, displayed sketches or units change
   (`sketch_toolbar::ConstraintOffers`).
 - Curvature (`ConstraintTool::Curvature`) takes a spline and the line, arc or spline at one of its
-  ends and adds `Tangent` (left out when already there) with `Curvature`. It is not on the sketch bar,
-  whose Constrain group would grow a third row (`sketch_toolbar::OFF_RIBBON_CONSTRAINTS`).
+  ends and adds `Tangent` (left out when already there) with `Curvature`. It has no button on the
+  sketch bar, whose Constrain group would grow a third row (`sketch_toolbar::OFF_RIBBON_CONSTRAINTS`),
+  and is in the Constrain group's menu.
 - Chaining constraints (parallel, equal, collinear, concentric, perpendicular, coincident points,
   horizontal or vertical points) relate every selected item to the first in one transaction. Coincident
   also puts every selected point on the one curve selected with them, and Tangent makes the one line
@@ -642,8 +664,9 @@ and, for off-ribbon tools, a partner's corner menu.
   (`DimensionFromDatum`, taking the one selected point) and Check the sketch for flaws (`CheckSketch`)
   open the Constrain automatically panel (`tidy_panel.rs`, a right-hand panel sharing the side
   panels' room) at its Relations, Dimensions or Check task; a segmented control switches between
-  them. They are in the Sketch menu and palette, not on the sketch bar, whose Dimension group would
-  push it past one row at 1400 points.
+  them. They are in the Sketch menu, the palette and the sketch bar's Constrain and Dimension group
+  menus, with no button there, as the Dimension group would push the bar past one row at 1400
+  points.
 - `Tidying` (`tidying.rs`, in the `Workspace`) works on the settled sketch only
   (`Model::settled_sketch`; "Waiting for the sketch to solve…" otherwise) on a thread of its own, since
   finding relations and dimensions solves (`sketch.md`): a job per basis (feature, revision,
@@ -755,8 +778,8 @@ and, for off-ribbon tools, a partner's corner menu.
   places are generated lazily from the middle out, at most `MAX_GLYPH_SHIFTS` each way, so zooming in
   never makes a frame walk a line's full length. An entity shows at most `MAX_STACKED` glyphs: past
   that the last slot is a "+N" mark whose hover lists the rest and whose click selects the first.
-  Show or hide constraint glyphs (Alt+G, `ViewportState::glyphs_shown`) hides them all, dimensions
-  staying. Labels use `canvas::body` on the canvas backdrop, glyph letters `canvas::emphasis`.
+  Show or hide constraint glyphs (Alt+G, `ViewportState::glyphs_shown`, shown at start unless
+  Preferences › Sketching says otherwise) hides them all, dimensions staying. Labels use `canvas::body` on the canvas backdrop, glyph letters `canvas::emphasis`.
 - Labels show the expression in the document's naming, followed by its value when not a literal;
   conflicting and redundant constraints take the error and warning colours. Label texts are cached per
   sketch (`annotations::LabelTexts`), their measured sizes by text across revisions (`SizesKey`, at
@@ -796,7 +819,7 @@ and, for off-ribbon tools, a partner's corner menu.
 ## Dimensions on the model
 
 - Show or hide dimensions on the model (`Command::ToggleDimensions`) is a session-only view toggle
-  (`ViewportState::dimensions_shown`, off at first). While on and no sketch is edited,
+  (`ViewportState::dimensions_shown`, off at first unless Preferences › Sketching turns it on). While on and no sketch is edited,
   `ViewportState::annotate` hands `model_dimensions::ModelDimensions` the view and the subjects: the
   feature of the highlighted or hovered item (`viewport::feature_of`), the rows chosen or hovered in
   the tree, then the features of the first `SUBJECT_ITEMS_READ` selected items, at most `MAX_SUBJECTS`

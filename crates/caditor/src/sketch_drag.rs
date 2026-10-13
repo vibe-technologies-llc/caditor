@@ -10,8 +10,8 @@ use crate::{
     body_snap::BodySnaps,
     drag_solver::{BodyJoin, DragCommand, Join},
     feature_tree::count,
-    snap::{Accept, Hold, Pointer, Screen, Snapped, Target},
-    tracking::{self, Acquired, Landing, Tracks},
+    snap::{Hold, Pointer, Screen, Target},
+    tracking::{self, Acquired, Landing},
 };
 
 const SMALLEST_DRAGGED_RADIUS: f64 = 1e-3;
@@ -41,6 +41,7 @@ pub struct Grab {
     handle: Option<(EntityId, Point2)>,
     sent: Option<Vec<Drag>>,
     landing: Option<Landing>,
+    joins: Vec<Constraint>,
     guides: Vec<[Point2; 2]>,
     acquired: Acquired,
     bodies: SharedSnaps,
@@ -98,6 +99,7 @@ impl Grab {
             handle,
             sent: None,
             landing: None,
+            joins: Vec::new(),
             guides: Vec::new(),
             acquired: Acquired::default(),
             bodies: SharedSnaps::default(),
@@ -174,35 +176,6 @@ impl Grab {
         }
     }
 
-    fn onto_body(
-        &self,
-        landing: Option<Landing>,
-        screen: &impl Screen,
-        pointer: Pointer,
-    ) -> Option<Landing> {
-        let on_body = |snapped: Snapped| Landing {
-            position: snapped.position,
-            target: Some(snapped.target),
-            tracks: Tracks::default(),
-            on_grid: false,
-        };
-        match landing {
-            Some(landing) if landing.target.is_some_and(Target::is_point_like) => Some(landing),
-            Some(landing) => self
-                .bodies
-                .0
-                .point(screen, pointer, Accept::Anything)
-                .map(on_body)
-                .or(Some(landing)),
-            None => self
-                .bodies
-                .0
-                .point(screen, pointer, Accept::Anything)
-                .or_else(|| self.bodies.0.edge(screen, pointer, Accept::Anything))
-                .map(on_body),
-        }
-    }
-
     pub fn guides(&self) -> &[[Point2; 2]] {
         &self.guides
     }
@@ -226,12 +199,14 @@ impl Grab {
                     sketch: moved,
                 };
                 let ignored = self.moving_with(sketch);
-                let landing =
-                    tracking::land(sketch, screen, pointer, &self.acquired, &ignored, hold);
-                let landing = match hold {
-                    Some(_) => landing,
-                    None => self.onto_body(landing, screen, pointer),
-                }?;
+                let landing = tracking::land(
+                    sketch,
+                    screen,
+                    pointer,
+                    (&self.acquired, &ignored),
+                    hold,
+                    Some(&self.bodies.0),
+                )?;
                 Some((sketch, landing))
             });
         if let Some((sketch, landing)) = landing
@@ -241,6 +216,10 @@ impl Grab {
         }
         self.guides = landing
             .map(|(sketch, landing)| landing.guides(sketch))
+            .unwrap_or_default();
+        self.joins = landing
+            .zip(self.handle)
+            .map(|((sketch, landing), (point, _))| landing.joins(sketch, point))
             .unwrap_or_default();
         self.landing = landing.map(|(_, landing)| landing);
         let target = match (self.landing, self.handle) {
@@ -271,9 +250,9 @@ impl Grab {
                 sketch,
                 screen,
                 pointer,
-                &self.acquired,
-                &[circle, *center],
+                (&self.acquired, &[circle, *center]),
                 hold,
+                None,
             )?;
             let reached = centre.distance(landing.position) > SMALLEST_SNAPPED_RADIUS;
             (matches!(landing.target, Some(Target::Point(_))) && reached).then_some(landing)
@@ -304,7 +283,7 @@ impl Grab {
                 .map(|((point, _), landing)| Join {
                     point,
                     at: landing.position,
-                    constraints: landing.joins(point),
+                    constraints: self.joins.clone(),
                     body: match landing.target {
                         Some(Target::Body(target)) => self.bodies.0.source(target).map(|source| {
                             Box::new(BodyJoin {
@@ -1404,7 +1383,7 @@ mod tests {
                 join: Some(Join {
                     point: end,
                     at: Point2::new(20.0, 10.0),
-                    constraints: vec![Constraint::HorizontalPoints(end, start)],
+                    constraints: vec![Constraint::HorizontalPoints(end, start.into())],
                     body: None,
                     rim_of: None,
                 }),

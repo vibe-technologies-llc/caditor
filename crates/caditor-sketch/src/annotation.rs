@@ -210,6 +210,8 @@ pub fn measured(sketch: &Sketch, constraint: &Constraint) -> Option<Measured> {
         | Constraint::Equal(..)
         | Constraint::Midpoint { .. }
         | Constraint::OnMinorAxis { .. }
+        | Constraint::OnDirection { .. }
+        | Constraint::Centroid { .. }
         | Constraint::Concentric(..)
         | Constraint::Collinear(..)
         | Constraint::Symmetric { .. }

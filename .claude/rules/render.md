@@ -230,6 +230,15 @@ paths:
   texture per batch (`StyleTable`, `styles.rs`, laid out by `StyleLayout`, bound as group 1 for the
   line pipelines); a batch with more styles than fit draws only the lines before the first that
   does not.
+- A batch holds `Line`s (88 bytes a segment) and `PolylineRun`s (`runs.rs`): polylines read
+  through a shared `Arc<dyn PolylineSource>` (index lists over positions, as `MeshSource` is for
+  meshes), each with one `RunPolyline` style (polyline index, colour, width, pick, `StrokeKind`; 32
+  bytes, `a_styled_polyline_is_far_smaller_than_the_lines_it_draws`), a layer and an optional
+  placement. `Batch::all_lines` yields the lines, then each run's segments placed and with their
+  distance along their own polyline; the upload, `BatchBounds`, `Scene::lines` and `hits_through`
+  read that, so a run draws and picks exactly as its lines would
+  (`a_run_over_shared_polylines_draws_and_picks_as_the_lines_it_stands_for`) and its segments exist
+  only while a batch uploads. Runs compare by their source's address, so a kept part keeps its batch.
 - A batch uploads its fills once, ordered pickable reference fills, then other pickable fills, then
   the rest, each group in batch order (`FillGroups`): the pick pass draws the first two groups as
   one range each of the colour pass's buffer, and the colour pass's spans keep batch order. Each
@@ -476,6 +485,10 @@ paths:
 
 - Right-drag orbits (turntable around world Z, stopping at the poles; a rolled view turns level),
   middle-drag or Shift+right-drag pans, wheel and pinch zoom toward the point under the cursor.
+  Preferences › Navigation can zoom toward the view's centre instead (`ZoomToward`), orbit about
+  the view's centre rather than the point under the pointer (`OrbitAround`; the app passes no
+  pivot) and turn either orbit axis round (`invert_orbit_x`, `invert_orbit_y`, on pointer and cube
+  drags, not the orbit keys) (`viewport::orbit_by`).
   View cube and fit changes animate. While an orbit runs, and for `ORBIT_MARK_LINGER` after, the
   app rings its pivot (`ViewportState::orbit_mark`, `canvas_guidance::paint_pivot` in the palette's
   `snap` over an `outline` halo); the renderer draws nothing for it.
@@ -484,7 +497,13 @@ paths:
   `pan` and `zoom` apply them to the shown viewpoint and end any transition; `animate_to` eases in
   and out over `TRANSITION_DURATION`, and `glide_to` eases out only over the shorter
   `GLIDE_DURATION`, so a key held down, each repeat gliding on from the last destination, follows
-  smoothly instead of restarting from rest.
+  smoothly instead of restarting from rest. Both durations are multiplied by
+  `Camera::set_transition_scale` (the View changes preference); a scale of zero lands every
+  transition at once, one under way included.
+- The vertical field of view is `DEFAULT_FIELD_OF_VIEW_DEGREES` (30°) unless `Camera::set_field_of_view`
+  sets another, clamped to 10° to 90°; `Camera::view_from` carries it into each `View`
+  (`View::with_field_of_view`), whose projection, rays, pixel sizes, plane projections, fitting and
+  the orthographic scale all read it.
 - `Camera::destination_view` and `view_from` build a `View` for the destination or any viewpoint
   with the projection resolved against that viewpoint, so a fit started during a turn into a
   standard view is fitted in the projection it will end in.
@@ -494,10 +513,11 @@ paths:
   Alt-drag orbits and Shift+Alt-drag pans, the Alt press never starting a selection. Alt pressed
   once a primary drag has begun leaves the drag to it: in the sketch Alt holds the snap
   (`app-sketching.md`), in a model box, lasso or paint drag it reaches through (`app-input.md`). Fusion 360 (middle-drag pans, Shift+middle-drag orbits), FreeCAD (CAD style:
-  middle-drag pans, middle held with left or right orbits) and Blender (middle-drag orbits,
-  Shift+middle-drag pans, Ctrl+middle-drag zooms) follow those programs; every mode keeps
+  middle-drag pans, middle held with left or right orbits), Blender (middle-drag orbits,
+  Shift+middle-drag pans, Ctrl+middle-drag zooms) and SolidWorks (middle-drag orbits,
+  Ctrl+middle-drag pans, Shift+middle-drag zooms) follow those programs; every mode keeps
   right-drag orbiting and Shift+right-drag panning, the wheel zooms, and a primary drag with the
   middle button held never starts a selection (`viewport::drag_motion`). Invert zoom turns the wheel
-  and Blender's Ctrl+middle-drag round alike (`viewport::zoom_factor`). A middle-button double-click
+  and the Blender and SolidWorks zoom drags round alike (`viewport::zoom_factor`). A middle-button double-click
   fits the view in every mode. The canvas hint at the bottom right is
   `InputMode::navigation_hint`.

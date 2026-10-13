@@ -180,6 +180,16 @@ pub(super) fn chain(
     centre: Point3,
     tolerance: f64,
 ) -> Result<Chain, PathSweepError> {
+    let Chain { legs, closed } = ordered(segments, tolerance)?;
+    let legs = if closed {
+        opened_at_profile(legs, plane, centre, tolerance)?
+    } else {
+        started_near_profile(legs, plane, centre, tolerance)
+    };
+    Ok(Chain { legs, closed })
+}
+
+pub(super) fn ordered(segments: &[PathSegment], tolerance: f64) -> Result<Chain, PathSweepError> {
     if segments.is_empty() {
         return Err(PathSweepError::NoPath);
     }
@@ -208,16 +218,11 @@ pub(super) fn chain(
             });
         }
     }
-    let ordered = walk(segments, &ends)?;
-    let closed = ordered
+    let legs = walk(segments, &ends)?;
+    let closed = legs
         .first()
-        .zip(ordered.last())
+        .zip(legs.last())
         .is_some_and(|(first, last)| first.start_point().distance(last.end_point()) <= tolerance);
-    let legs = if closed {
-        opened_at_profile(ordered, plane, centre, tolerance)?
-    } else {
-        started_near_profile(ordered, plane, centre, tolerance)
-    };
     Ok(Chain { legs, closed })
 }
 

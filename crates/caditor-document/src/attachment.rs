@@ -170,10 +170,22 @@ impl SketchFeature {
             .filter_map(ProjectionSource::sketch)
     }
 
-    pub fn projected_datums(&self) -> impl Iterator<Item = FeatureId> + '_ {
+    pub fn projected_planes(&self) -> impl Iterator<Item = FeatureId> + '_ {
         self.projections
             .values()
-            .filter_map(ProjectionSource::datum)
+            .filter_map(ProjectionSource::plane_datum)
+    }
+
+    pub fn projected_axes(&self) -> impl Iterator<Item = FeatureId> + '_ {
+        self.projections
+            .values()
+            .filter_map(ProjectionSource::axis_datum)
+    }
+
+    pub fn projected_points(&self) -> impl Iterator<Item = FeatureId> + '_ {
+        self.projections
+            .values()
+            .filter_map(ProjectionSource::point_datum)
     }
 
     pub fn projection(&self, entity: EntityId) -> Option<&ProjectionSource> {

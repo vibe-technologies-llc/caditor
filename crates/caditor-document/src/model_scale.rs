@@ -15,7 +15,7 @@ use crate::{
     configurations::{Configurations, ConfiguredValue, Setting},
     datum::{
         AxisReference, Datum, DatumAxis, DatumFrame, DatumPlane, DatumPoint, PlaneReference,
-        PlaneThrough, PointBy, PointReference, PrincipalGeometry, PrincipalPlane,
+        PlaneThrough, PointBy, PointReference, PrincipalAxis, PrincipalGeometry, PrincipalPlane,
     },
     document::{Document, Feature, FeatureId, FeatureKind},
     edit::{Edit, Transaction},
@@ -493,10 +493,31 @@ impl Rescaler {
                         },
                     }
                 }
+                ProjectionSource::DatumAxis { datum, reach } => ProjectionSource::DatumAxis {
+                    datum: *datum,
+                    reach: reach * self.factor,
+                },
+                ProjectionSource::PrincipalAxis { axis, reach } => {
+                    match self.datums.axes.get(axis) {
+                        Some(datum) => ProjectionSource::DatumAxis {
+                            datum: *datum,
+                            reach: reach * self.factor,
+                        },
+                        None => ProjectionSource::PrincipalAxis {
+                            axis: *axis,
+                            reach: reach * self.factor,
+                        },
+                    }
+                }
+                ProjectionSource::Origin => match self.datums.origin {
+                    Some(datum) => ProjectionSource::DatumPoint { datum },
+                    None => continue,
+                },
                 ProjectionSource::Edge { .. }
                 | ProjectionSource::Vertex { .. }
                 | ProjectionSource::SketchEntity { .. }
-                | ProjectionSource::Section { .. } => continue,
+                | ProjectionSource::Section { .. }
+                | ProjectionSource::DatumPoint { .. } => continue,
             };
             edits.push(Edit::SetSketchProjection {
                 feature: id,
@@ -532,6 +553,11 @@ impl Rescaler {
                 }
             }
             FeatureKind::Solid(SolidFeature::Sweep(_)) => {}
+            FeatureKind::Pipe(pipe) => {
+                for length in pipe.expressions_mut() {
+                    self.length(length, name)?;
+                }
+            }
             FeatureKind::Blend(blend) => {
                 self.length(&mut blend.size, name)?;
                 if let ChamferForm::TwoDistances { second } = &mut blend.form {
@@ -871,6 +897,7 @@ struct ScaledDatums {
     origin: Option<FeatureId>,
     frame: Option<FeatureId>,
     planes: BTreeMap<PrincipalPlane, FeatureId>,
+    axes: BTreeMap<PrincipalAxis, FeatureId>,
 }
 
 struct DatumPlacing<'a> {
@@ -905,13 +932,23 @@ fn placed_datums(
     displaced: &[DisplacedFeature],
     shift: Vector3,
 ) -> PlacedDatums {
-    let projected: BTreeSet<PrincipalPlane> = displaced
+    let projected: BTreeSet<PrincipalGeometry> = displaced
         .iter()
         .filter(|moved| moved.projects)
-        .flat_map(|moved| &moved.geometry)
+        .flat_map(|moved| moved.geometry.iter().copied())
+        .collect();
+    let projected_planes: Vec<PrincipalPlane> = projected
+        .iter()
         .filter_map(|geometry| match geometry {
             PrincipalGeometry::Plane(plane) => Some(*plane),
             PrincipalGeometry::Origin | PrincipalGeometry::Axis(_) => None,
+        })
+        .collect();
+    let projected_axes: Vec<PrincipalAxis> = projected
+        .iter()
+        .filter_map(|geometry| match geometry {
+            PrincipalGeometry::Axis(axis) => Some(*axis),
+            PrincipalGeometry::Origin | PrincipalGeometry::Plane(_) => None,
         })
         .collect();
     let held = || {
@@ -920,8 +957,11 @@ fn placed_datums(
             .filter(|moved| !moved.projects)
             .flat_map(|moved| &moved.geometry)
     };
-    let framed = held().any(|geometry| *geometry != PrincipalGeometry::Origin);
-    let at_origin = framed || held().any(|geometry| *geometry == PrincipalGeometry::Origin);
+    let framed =
+        !projected_axes.is_empty() || held().any(|geometry| *geometry != PrincipalGeometry::Origin);
+    let at_origin = framed
+        || projected.contains(&PrincipalGeometry::Origin)
+        || held().any(|geometry| *geometry == PrincipalGeometry::Origin);
     let mut placing = DatumPlacing {
         document,
         next_id: document.next_feature_id(),
@@ -948,7 +988,7 @@ fn placed_datums(
             ));
         }
     }
-    for plane in projected {
+    for plane in projected_planes {
         let id = placing.insert(
             &format!("{}, scaled", plane.name()),
             Datum::Plane(DatumPlane {
@@ -958,6 +998,15 @@ fn placed_datums(
             }),
         );
         datums.planes.insert(plane, id);
+    }
+    if let Some(frame) = datums.frame {
+        for axis in projected_axes {
+            let id = placing.insert(
+                &format!("{}, scaled", axis.name()),
+                Datum::Axis(DatumAxis::Along(AxisReference::Frame { frame, axis })),
+            );
+            datums.axes.insert(axis, id);
+        }
     }
     PlacedDatums {
         datums,
@@ -1194,6 +1243,7 @@ fn anchored(kind: &mut FeatureKind) -> Vec<Anchored<'_>> {
         },
         FeatureKind::Sketch(_)
         | FeatureKind::Solid(SolidFeature::Sweep(_))
+        | FeatureKind::Pipe(_)
         | FeatureKind::Blend(_)
         | FeatureKind::Shell(_)
         | FeatureKind::OffsetFace(_)
@@ -1206,14 +1256,18 @@ fn anchored(kind: &mut FeatureKind) -> Vec<Anchored<'_>> {
     }
 }
 
-fn projected_plane(source: &ProjectionSource) -> Option<PrincipalPlane> {
+fn projected_geometry(source: &ProjectionSource) -> Option<PrincipalGeometry> {
     match source {
-        ProjectionSource::PrincipalPlane { plane, .. } => Some(*plane),
+        ProjectionSource::PrincipalPlane { plane, .. } => Some(PrincipalGeometry::Plane(*plane)),
+        ProjectionSource::PrincipalAxis { axis, .. } => Some(PrincipalGeometry::Axis(*axis)),
+        ProjectionSource::Origin => Some(PrincipalGeometry::Origin),
         ProjectionSource::Edge { .. }
         | ProjectionSource::Vertex { .. }
         | ProjectionSource::SketchEntity { .. }
         | ProjectionSource::Section { .. }
-        | ProjectionSource::DatumPlane { .. } => None,
+        | ProjectionSource::DatumPlane { .. }
+        | ProjectionSource::DatumAxis { .. }
+        | ProjectionSource::DatumPoint { .. } => None,
     }
 }
 
@@ -1222,8 +1276,7 @@ fn displaced_geometry(kind: &FeatureKind, centre: Point3, used: bool) -> Vec<Pri
         FeatureKind::Sketch(sketch) => sketch
             .projections
             .values()
-            .filter_map(projected_plane)
-            .map(PrincipalGeometry::Plane)
+            .filter_map(projected_geometry)
             .collect(),
         _ => {
             let mut copy = kind.clone();

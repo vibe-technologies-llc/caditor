@@ -5,8 +5,11 @@ be dragged and follows its source whenever the model changes.
 
 ## Project
 
-{command:sketch.project} copies an edge, a corner or every edge round a face of a body, or a curve
-or point of another sketch, onto this sketch. Hover shows what a click would add. Projected curves
+{command:sketch.project} copies an edge, a corner or every edge round a face of a body, a curve
+or point of another sketch, a datum axis or point, the X, Y or Z axis or the origin onto this
+sketch. While it is active the axes, the origin and the datum axes and points made before the
+sketch are shown to click. An axis comes in as a line reaching across the bodies, or as a point
+where it runs straight through the sketch. Hover shows what a click would add. Projected curves
 make regions and take constraints like drawn ones.
 
 A projected edge follows its body when an earlier sketch is changed. If [Trim](trim-and-extend) or

@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use caditor_geometry::Plane;
+use caditor_geometry::{Plane, Vector3};
 use caditor_kernel::{
     EdgeNaming, EdgeReference, PathSegment, PathSweepError, ReferenceError, Region, Solid,
     SweepOrientation, sweep,
@@ -9,9 +9,9 @@ use caditor_sketch::EntityId;
 
 use crate::{
     describe::describe_edge,
-    document::{FeatureId, list_names},
+    document::{Feature, FeatureId, list_names},
     origins,
-    recompute::{Failure, FeatureResult, FixTarget, Inputs, MissingInput},
+    recompute::{Failure, FeatureError, FeatureResult, FixTarget, Inputs, MissingInput},
     solid::{BodyOperation, Context, RegionChoice, profile_curve, sweep_failure},
 };
 
@@ -119,15 +119,16 @@ impl Sweep {
     }
 }
 
-struct Path {
-    segments: Vec<PathSegment>,
+pub(crate) struct Path {
+    pub(crate) segments: Vec<PathSegment>,
     labels: Vec<String>,
-    fix: FixTarget,
-    owner: String,
+    pub(crate) fix: FixTarget,
+    pub(crate) owner: String,
+    pub(crate) up: Vector3,
 }
 
 impl Path {
-    fn labels(&self, segments: &[usize]) -> String {
+    pub(crate) fn labels(&self, segments: &[usize]) -> String {
         let named: Vec<String> = segments
             .iter()
             .filter_map(|segment| self.labels.get(*segment).cloned())
@@ -135,7 +136,7 @@ impl Path {
         list_names(&named)
     }
 
-    fn label(&self, segment: usize) -> String {
+    pub(crate) fn label(&self, segment: usize) -> String {
         self.labels.get(segment).cloned().unwrap_or_default()
     }
 }
@@ -152,8 +153,18 @@ fn no_path() -> Failure {
     Failure::Waiting(MissingInput::Path)
 }
 
+pub(crate) fn failed(reason: String, remedy: String, fix: FixTarget) -> Failure {
+    Failure::Error(Box::new(FeatureError {
+        reason,
+        remedy,
+        fix: Some(fix),
+        constraints: Vec::new(),
+        place: None,
+    }))
+}
+
 fn curve_path(
-    context: &Context<'_>,
+    feature: &Feature,
     inputs: &Inputs<'_>,
     sketch_id: FeatureId,
     curves: &[EntityId],
@@ -161,7 +172,7 @@ fn curve_path(
     let sketch_name = feature_name(inputs, sketch_id);
     let Some(FeatureResult::Sketch(sketch)) = inputs.features.get(&sketch_id).map(AsRef::as_ref)
     else {
-        return Err(context.error(
+        return Err(failed(
             format!("It needs the path drawn in {sketch_name}, which is not available."),
             format!("Fix {sketch_name} first, or choose another path."),
             FixTarget::Feature(sketch_id),
@@ -173,14 +184,14 @@ fn curve_path(
     let mut labels = Vec::with_capacity(curves.len());
     for curve in curves {
         let missing = || {
-            context.error(
+            failed(
                 format!(
                     "A curve of the path is no longer a curve of {sketch_name}, so {} cannot \
                      follow it.",
-                    context.feature.name
+                    feature.name
                 ),
                 "Choose the path again.".to_owned(),
-                context.own(),
+                FixTarget::Feature(feature.id()),
             )
         };
         let (flat, range) = profile_curve(geometry, *curve)
@@ -196,16 +207,18 @@ fn curve_path(
         labels,
         fix: FixTarget::Feature(sketch_id),
         owner: format!(" of {sketch_name}"),
+        up: plane.normal(),
     })
 }
 
 fn edge_path(
-    context: &Context<'_>,
+    feature: &Feature,
     inputs: &Inputs<'_>,
     body: FeatureId,
     edges: &[EdgeReference],
 ) -> Result<Path, Failure> {
     let body_name = feature_name(inputs, body);
+    let own = FixTarget::Feature(feature.id());
     let solid: &Solid = inputs.body(body).ok_or_else(|| inputs.missing_body(body))?;
     let naming = EdgeNaming::new(solid);
     let mut segments = Vec::with_capacity(edges.len());
@@ -216,20 +229,20 @@ fn edge_path(
                 ReferenceError::Ambiguous { .. } => format!(
                     "An edge of the path now matches several edges of {body_name}, so {} cannot \
                      tell which to follow.",
-                    context.feature.name
+                    feature.name
                 ),
                 ReferenceError::Missing => format!(
                     "An edge of the path is no longer part of {body_name}, so {} cannot follow it.",
-                    context.feature.name
+                    feature.name
                 ),
             };
-            context.error(reason, "Choose the path again.".to_owned(), context.own())
+            failed(reason, "Choose the path again.".to_owned(), own)
         })?;
         let edge = solid.edge(id).ok_or_else(|| {
-            context.error(
+            failed(
                 format!("An edge of the path is no longer part of {body_name}."),
                 "Choose the path again.".to_owned(),
-                context.own(),
+                own,
             )
         })?;
         segments.push(PathSegment::new(
@@ -242,9 +255,26 @@ fn edge_path(
     Ok(Path {
         segments,
         labels,
-        fix: context.own(),
+        fix: own,
         owner: format!(" of {body_name}"),
+        up: Vector3::Z,
     })
+}
+
+pub(crate) fn path_of(
+    feature: &Feature,
+    inputs: &Inputs<'_>,
+    path: &SweepPath,
+) -> Result<Path, Failure> {
+    let built = match path {
+        SweepPath::Unchosen => return Err(no_path()),
+        SweepPath::Curves { sketch, curves } => curve_path(feature, inputs, *sketch, curves)?,
+        SweepPath::Edges { body, edges } => edge_path(feature, inputs, *body, edges)?,
+    };
+    if built.segments.is_empty() {
+        return Err(no_path());
+    }
+    Ok(built)
 }
 
 pub(crate) fn swept(
@@ -253,17 +283,7 @@ pub(crate) fn swept(
     (plane, regions): (&Plane, &[Region]),
     definition: &Sweep,
 ) -> Result<Solid, Failure> {
-    if definition.path.is_empty() {
-        return Err(no_path());
-    }
-    let path = match &definition.path {
-        SweepPath::Unchosen => return Err(no_path()),
-        SweepPath::Curves { sketch, curves } => curve_path(context, inputs, *sketch, curves)?,
-        SweepPath::Edges { body, edges } => edge_path(context, inputs, *body, edges)?,
-    };
-    if path.segments.is_empty() {
-        return Err(no_path());
-    }
+    let path = path_of(context.feature, inputs, &definition.path)?;
     sweep(
         plane,
         regions,
@@ -274,17 +294,17 @@ pub(crate) fn swept(
     .map_err(|error| failure(context, &path, &error))
 }
 
-fn failure(context: &Context<'_>, path: &Path, error: &PathSweepError) -> Failure {
-    let name = &context.feature.name;
+pub(crate) fn path_failure(feature: &Feature, path: &Path, error: &PathSweepError) -> Failure {
+    let name = &feature.name;
     let owner = &path.owner;
-    let in_path = |reason: String, remedy: &str| context.error(reason, remedy.to_owned(), path.fix);
+    let own = FixTarget::Feature(feature.id());
+    let in_path = |reason: String, remedy: &str| failed(reason, remedy.to_owned(), path.fix);
     match error {
         PathSweepError::Cancelled(_) => Failure::Cancelled,
-        PathSweepError::Sweep(error) => sweep_failure(context, SWEEP_SHAPE, error),
         PathSweepError::NoPath => no_path(),
         PathSweepError::SegmentTooShort { segment } => in_path(
             format!(
-                "{}{owner} is too short to sweep along.",
+                "{}{owner} is too short to follow.",
                 capital(&path.label(*segment))
             ),
             "Lengthen it, or leave it out of the path.",
@@ -311,6 +331,73 @@ fn failure(context: &Context<'_>, path: &Path, error: &PathSweepError) -> Failur
         PathSweepError::TooLong => in_path(
             "The path reaches farther than the largest model allows.".to_owned(),
             "Choose a shorter path.",
+        ),
+        PathSweepError::TooIntricate { segment } => in_path(
+            format!(
+                "{}{owner} bends too intricately to follow.",
+                capital(&path.label(*segment))
+            ),
+            "Simplify that curve.",
+        ),
+        PathSweepError::Corner { segments } => in_path(
+            format!(
+                "The path turns a sharp corner between {}{owner}, which {name} cannot follow.",
+                path.labels(segments)
+            ),
+            "Round the corner with a fillet in the path, or meet it with straight lines on both \
+             sides.",
+        ),
+        PathSweepError::CornerTooSharp { segments } => in_path(
+            format!(
+                "The corner between {}{owner} turns back too sharply for {name} to follow.",
+                path.labels(segments)
+            ),
+            "Open the corner up, or lengthen the lines at it.",
+        ),
+        PathSweepError::ProfileTooLarge { segment } => in_path(
+            format!(
+                "{name} is too large for the bend of {}{owner}: it would reach past the centre \
+                 the path bends around.",
+                path.label(*segment)
+            ),
+            "Make it smaller or the bend gentler.",
+        ),
+        PathSweepError::ClosedPathTwists => in_path(
+            "Following the closed path brings the section back turned, so it would not close."
+                .to_owned(),
+            "Use a closed path lying in one plane, or an open path.",
+        ),
+        PathSweepError::CrossesItself => failed(
+            format!("{name} runs into itself along its path."),
+            "Make it smaller, or move the parts of the path farther apart.".to_owned(),
+            own,
+        ),
+        PathSweepError::Sweep(_)
+        | PathSweepError::StartsAlongProfile
+        | PathSweepError::TurnsAlongProfile { .. }
+        | PathSweepError::ClosedPathMissesProfile => {
+            log::warn!("{name} could not follow its path: {error}");
+            failed(
+                format!("{name} cannot be built along this path."),
+                "Choose another path or change its sizes.".to_owned(),
+                own,
+            )
+        }
+    }
+}
+
+fn failure(context: &Context<'_>, path: &Path, error: &PathSweepError) -> Failure {
+    let name = &context.feature.name;
+    let owner = &path.owner;
+    let in_path = |reason: String, remedy: &str| context.error(reason, remedy.to_owned(), path.fix);
+    match error {
+        PathSweepError::Sweep(error) => sweep_failure(context, SWEEP_SHAPE, error),
+        PathSweepError::SegmentTooShort { segment } => in_path(
+            format!(
+                "{}{owner} is too short to sweep along.",
+                capital(&path.label(*segment))
+            ),
+            "Lengthen it, or leave it out of the path.",
         ),
         PathSweepError::StartsAlongProfile => context.error(
             format!(
@@ -386,10 +473,16 @@ fn failure(context: &Context<'_>, path: &Path, error: &PathSweepError) -> Failur
             "Make the profile smaller, or move the parts of the path farther apart.".to_owned(),
             context.own(),
         ),
+        PathSweepError::Cancelled(_)
+        | PathSweepError::NoPath
+        | PathSweepError::Branches { .. }
+        | PathSweepError::Apart { .. }
+        | PathSweepError::UnsupportedPath { .. }
+        | PathSweepError::TooLong => path_failure(context.feature, path, error),
     }
 }
 
-fn capital(text: &str) -> String {
+pub(crate) fn capital(text: &str) -> String {
     let mut characters = text.chars();
     match characters.next() {
         Some(first) => first.to_uppercase().chain(characters).collect(),

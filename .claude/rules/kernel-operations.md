@@ -122,6 +122,19 @@ paths:
   itself. A square sweep of more than one leg or with a fitted leg runs `find_crossing` after
   validating (`CrossesItself`; inconclusive passes). Taper, twist, guide rails, round corners and
   lofts are roadmap entries.
+- `pipe(path, PipeSection, bend, up, feature)` (`sweep/pipe.rs`) is `sweep` of a section it
+  builds: `PipeShape` round, square or equilateral triangle, centred on the path, with an inner
+  outline `wall` inside for a hollow pipe (entities 1 up for the outer outline, `curves()` more for
+  the inner, so the region is the depth-0 ring), placed square to the path's first tangent with
+  `up` (rejected from the tangent, falling back to Z, X, Y) as its y axis so flat sides lie along
+  the path's plane. It chains the path (`path::ordered`, the walk without orienting to a profile)
+  and, for `bend` above zero, replaces each corner between two lines turning more than
+  `SMOOTH_TURN` by an arc of that radius tangent to both, the lines cut back by
+  `bend · tan(turn / 2)` (a line used up exactly is dropped, more than its length is `BendTooLong`,
+  a turn past `MOST_MITRE_TURN` `CornerTooSharp`); arcs are keyed `naming::path_bend` of the two
+  lines' keys. Sweep errors come back naming input segments (`Rounded::remapped`), a fold on an
+  inserted arc as `BendTooTight`; a wall leaving no inside is `WallTooThick`. Corners touching an
+  arc or spline are left to the sweep.
 - `heights(plane, regions, target)` gives the least and most signed height of a target plane over
   the profile, to tell a plane ahead from one behind or across.
 - `next_face(solid, plane, regions, reversed)` casts rays from the regions' triangle centroids

@@ -1,14 +1,23 @@
 # Preferences
 
 {command:file.preferences} opens Preferences. Changes apply at once and are saved for the next
-start. **Restore defaults** resets only the tab you are on, and offers Undo.
+start. **Restore defaults** resets only the tab you are on, and offers Undo. A section you have
+changed shows a reset button at the right of its title, which puts back that section's defaults
+alone and also offers Undo.
+
+Type in **Search settings**, under the tabs, to see the sections of every tab whose settings
+match, for example `zoom`, `grid` or `view cube`. Choosing a tab clears the search.
 
 ## General
 
 - **Units**: lengths in micrometres, millimetres, centimetres or metres, and angles in degrees or
   radians. They decide how values are shown and what a plain number you type means; values already
   in a model keep the units they were typed in. See [expressions](expressions).
+- **Starting and recent files**: whether caditor starts with a new model or opens the last model
+  you had, and how many models Open recent lists (3, 5 or 10). Unsaved work offered for
+  recovery, or a file named on the [command line](command-line), comes first.
 - **New models**: the [template](templates) a new model starts from.
+- **Feature tree**: what double-clicking a feature does, edit it (as Enter does) or rename it.
 - **Keyboard**: the shortcut editor; see [working from the keyboard](keyboard).
 - **Tips**: show tips in the view, and bring back dismissed ones.
 - **Saving on Windows**, on Windows only: shows again the reminder about
@@ -35,8 +44,11 @@ start. **Restore defaults** resets only the tab you are on, and offers Undo.
   grid is drawn and Preferences says so until you choose another colour or Automatic.
 - **High contrast**: stronger text, outlines and focus, in the panels and in the 3D view. It uses
   its own colours in place of the theme's.
-- The interface size from 75% to 200%, and whether caditor draws its own title bar or uses the
-  system's. See [accessibility](accessibility).
+- The interface size from 75% to 200%, whether caditor draws its own title bar or uses the
+  system's, and how soon hover help appears: at once, after about a third of a second, or after a
+  second. See [accessibility](accessibility).
+- **In the 3D view**: thin, standard or thick body edges, whether the outlines of round faces are
+  drawn, and whether the view cube with Fit all and the Isometric view button is shown.
 
 ## Your own themes
 
@@ -61,8 +73,25 @@ the one you had and says why.
 
 ## Navigation
 
-The mouse input mode, orbit and zoom speeds, the zoom direction and the projection. See
-[moving around the view](navigation).
+- **View**: the projection; the field of view, narrow (20°), standard (30°) or wide (45°), for
+  less or more perspective; and how view changes move: standard, quick, slow or with no motion at
+  all, so standard views, fitting and opening a sketch jump straight to the new view.
+- **Input**: the mouse input mode: caditor, Laptop, Fusion 360, FreeCAD, Blender or SolidWorks.
+- **Movement**: orbit and zoom speeds, the zoom direction, whether zooming goes toward the pointer
+  or keeps the view's centre still, whether orbiting turns about the point under the pointer or
+  the middle of the view, and turning either orbit direction round.
+
+See [moving around the view](navigation).
+
+## Sketching
+
+- **Editing a sketch**: whether opening a sketch turns the view to face it, and whether Escape
+  finishes the sketch once there is nothing left to cancel. Off, Escape still cancels shapes,
+  tools and the selection, and Finish sketch finishes.
+- **On when caditor starts**: constraint glyphs, snapping, snapping to the grid, keeping typed
+  values as dimensions, and dimensions shown on the model. Each can still be turned on or off
+  while you work; changing one here changes it now too. See [snapping](snapping) and
+  [dimensions](dimensions).
 
 ## Graphics
 

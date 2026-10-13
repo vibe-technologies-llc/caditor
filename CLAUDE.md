@@ -55,6 +55,7 @@ Platform code is a `cfg(unix)`/`cfg(windows)` pair behind one interface; Windows
 Invariants across crates:
 
 - The world is Z-up and model data is f64; conversion to f32 happens only at the GPU boundary.
+  Display mesh normals, a display attribute, are packed in the kernel (`kernel-tessellation.md`).
 - Entities, constraints, parameters and features have stable IDs (`EntityId`, `ConstraintId`,
   `ParameterId`, `FeatureId`) from a per-container counter: never reused, never positional.
   Generated topology is named from the feature that made it (`FaceName`, `EdgeName`). Anything

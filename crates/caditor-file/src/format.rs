@@ -18,9 +18,9 @@ use caditor_document::{
     MAX_MATERIAL_NAME_CHARS, MAX_PATTERN_INSTANCES, MAX_SAVED_VIEWS, MAX_VIEW_NAME_CHARS,
     MIN_OPACITY_PERCENT, Mate, MatePair, MeasuredItem, Measurement, MetricSize, Mirror,
     ModelProperties, ModelProperty, Move, NamedView, OPAQUE_PERCENT, ORIGINAL_INSTANCE, Of,
-    OffsetFace, Parameter, ParameterOwner, Pattern, PatternKind, PlaneReference, PlaneRotation,
-    PlaneThrough, PointBy, PointMate, PointReference, PointTarget, PointsPattern, Primitive,
-    PrimitiveAnchor, PrimitiveShape, PrincipalAxis, PrincipalGeometry, PrincipalPlane,
+    OffsetFace, Parameter, ParameterOwner, Pattern, PatternKind, Pipe, PlaneReference,
+    PlaneRotation, PlaneThrough, PointBy, PointMate, PointReference, PointTarget, PointsPattern,
+    Primitive, PrimitiveAnchor, PrimitiveShape, PrincipalAxis, PrincipalGeometry, PrincipalPlane,
     ProjectionSource, Reading, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rgb,
     RollbackBar, SavedView, SavedViews, Scale, Shell, ShellSide, SketchAttachment, SketchFeature,
     SolidFeature, SolidStart, Split, SplitAlong, SplitCarry, SplitFace, StepText, Sweep, SweepPath,
@@ -31,9 +31,12 @@ use caditor_expression::{BinaryOperator, Expression, ParameterId, Quantity, Unit
 use caditor_geometry::{Plane, Point2, Point3, Rotation3, Vector2, Vector3};
 use caditor_kernel::{
     BoundaryPiece, EdgeName, EdgeReference, FaceCopy, FaceName, FaceOrigin, FaceReference,
-    RegionKey, RegionReference, Side, Solid, SweepOrientation, VertexName, WallSide,
+    PipeShape, RegionKey, RegionReference, Side, Solid, SweepOrientation, VertexName, WallSide,
 };
-use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, FitSpacing, Sketch, SplineKind};
+use caditor_sketch::{
+    Constraint, ConstraintId, EllipseEnd, Entity, EntityId, FitSpacing,
+    PointTarget as SketchTarget, Quadrant, Sketch, SplineKind,
+};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwned};
 use serde_json::Value;
 
@@ -278,6 +281,26 @@ pub(crate) enum FeatureKindRecord {
     BlendGroups(Box<BlendGroupsRecord>),
     Sweep(Box<SweepRecord>),
     ReferenceImage(Box<ReferenceImageRecord>),
+    Pipe(Box<PipeRecord>),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct PipeRecord {
+    pub path: Lenient<SweepPathRecord>,
+    pub shape: PipeShapeRecord,
+    pub size: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wall: Option<String>,
+    pub bend: String,
+    pub operation: OperationRecord,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum PipeShapeRecord {
+    Round,
+    Square,
+    Triangle,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1614,6 +1637,18 @@ pub(crate) enum ProjectionSourceRecord {
         plane: PrincipalPlaneRecord,
         reach: f64,
     },
+    DatumAxis {
+        datum: u64,
+        reach: f64,
+    },
+    PrincipalAxis {
+        axis: PrincipalAxisRecord,
+        reach: f64,
+    },
+    DatumPoint {
+        datum: u64,
+    },
+    Origin,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1697,6 +1732,11 @@ pub(crate) enum EntityKindRecord {
         end: u64,
         rho: f64,
     },
+    SplinePiece {
+        control_points: Vec<u64>,
+        lead: f64,
+        trail: f64,
+    },
     Ellipse {
         center: u64,
         major: u64,
@@ -1713,7 +1753,7 @@ pub(crate) enum EntityKindRecord {
 
 const DEFAULT_THREAD_DIAMETER: f64 = 8.0;
 
-const ENTITY_KINDS: [&str; 13] = [
+const ENTITY_KINDS: [&str; 14] = [
     "point",
     "line",
     "circle",
@@ -1725,6 +1765,7 @@ const ENTITY_KINDS: [&str; 13] = [
     "centripetal_fit_spline",
     "closed_centripetal_fit_spline",
     "conic",
+    "spline_piece",
     "ellipse",
     "elliptical_arc",
 ];
@@ -1824,9 +1865,120 @@ pub(crate) enum ConstraintKindRecord {
         point: u64,
         ellipse: u64,
     },
+    HorizontalThrough {
+        point: u64,
+        through: TargetRecord,
+    },
+    VerticalThrough {
+        point: u64,
+        through: TargetRecord,
+    },
+    OnDirection {
+        point: u64,
+        through: TargetRecord,
+        line: u64,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        square: bool,
+    },
+    Centroid {
+        point: u64,
+        corners: Vec<u64>,
+    },
 }
 
-const CONSTRAINT_KINDS: [&str; 27] = [
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum TargetRecord {
+    Point(u64),
+    Middle(u64),
+    Crossing([u64; 2]),
+    Centroid(Vec<u64>),
+    Quadrant { curve: u64, side: QuadrantRecord },
+    EllipseEnd { ellipse: u64, end: EllipseEndRecord },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum QuadrantRecord {
+    Right,
+    Top,
+    Left,
+    Bottom,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum EllipseEndRecord {
+    Major,
+    FarMajor,
+    Minor,
+    FarMinor,
+}
+
+impl TargetRecord {
+    fn of(target: &SketchTarget) -> Self {
+        match target {
+            SketchTarget::Point(point) => Self::Point(point.raw()),
+            SketchTarget::Middle(curve) => Self::Middle(curve.raw()),
+            SketchTarget::Crossing(first, second) => Self::Crossing([first.raw(), second.raw()]),
+            SketchTarget::Centroid(corners) => {
+                Self::Centroid(corners.iter().map(|corner| corner.raw()).collect())
+            }
+            SketchTarget::Quadrant { curve, side } => Self::Quadrant {
+                curve: curve.raw(),
+                side: match side {
+                    Quadrant::Right => QuadrantRecord::Right,
+                    Quadrant::Top => QuadrantRecord::Top,
+                    Quadrant::Left => QuadrantRecord::Left,
+                    Quadrant::Bottom => QuadrantRecord::Bottom,
+                },
+            },
+            SketchTarget::EllipseEnd { ellipse, end } => Self::EllipseEnd {
+                ellipse: ellipse.raw(),
+                end: match end {
+                    EllipseEnd::Major => EllipseEndRecord::Major,
+                    EllipseEnd::FarMajor => EllipseEndRecord::FarMajor,
+                    EllipseEnd::Minor => EllipseEndRecord::Minor,
+                    EllipseEnd::FarMinor => EllipseEndRecord::FarMinor,
+                },
+            },
+        }
+    }
+
+    fn target(&self) -> SketchTarget {
+        let entity = EntityId::from_raw;
+        match self {
+            Self::Point(point) => SketchTarget::Point(entity(*point)),
+            Self::Middle(curve) => SketchTarget::Middle(entity(*curve)),
+            Self::Crossing([first, second]) => {
+                SketchTarget::Crossing(entity(*first), entity(*second))
+            }
+            Self::Centroid(corners) => {
+                SketchTarget::Centroid(corners.iter().map(|corner| entity(*corner)).collect())
+            }
+            Self::Quadrant { curve, side } => SketchTarget::Quadrant {
+                curve: entity(*curve),
+                side: match side {
+                    QuadrantRecord::Right => Quadrant::Right,
+                    QuadrantRecord::Top => Quadrant::Top,
+                    QuadrantRecord::Left => Quadrant::Left,
+                    QuadrantRecord::Bottom => Quadrant::Bottom,
+                },
+            },
+            Self::EllipseEnd { ellipse, end } => SketchTarget::EllipseEnd {
+                ellipse: entity(*ellipse),
+                end: match end {
+                    EllipseEndRecord::Major => EllipseEnd::Major,
+                    EllipseEndRecord::FarMajor => EllipseEnd::FarMajor,
+                    EllipseEndRecord::Minor => EllipseEnd::Minor,
+                    EllipseEndRecord::FarMinor => EllipseEnd::FarMinor,
+                },
+            },
+        }
+    }
+}
+
+const CONSTRAINT_KINDS: [&str; 31] = [
     "coincident",
     "horizontal",
     "vertical",
@@ -1854,6 +2006,10 @@ const CONSTRAINT_KINDS: [&str; 27] = [
     "minor_radius",
     "rho",
     "on_minor_axis",
+    "horizontal_through",
+    "vertical_through",
+    "on_direction",
+    "centroid",
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -2787,6 +2943,7 @@ fn kind_record(kind: &FeatureKind) -> FeatureKindRecord {
             }
         }
         FeatureKind::Mirror(mirror) => mirror_record(mirror),
+        FeatureKind::Pipe(pipe) => pipe_record(pipe),
         FeatureKind::Primitive(primitive) => {
             FeatureKindRecord::Primitive(Box::new(primitive_record(primitive)))
         }
@@ -3062,8 +3219,8 @@ fn revolve_from_record(revolve: &Revolve, start: &SolidStart) -> FeatureKindReco
     })
 }
 
-fn sweep_record(sweep: &Sweep) -> FeatureKindRecord {
-    let path = match &sweep.path {
+fn sweep_path_record(path: &SweepPath) -> SweepPathRecord {
+    match path {
         SweepPath::Unchosen => SweepPathRecord::Unchosen,
         SweepPath::Curves { sketch, curves } => SweepPathRecord::Curves {
             sketch: sketch.raw(),
@@ -3076,12 +3233,15 @@ fn sweep_record(sweep: &Sweep) -> FeatureKindRecord {
                 .map(|edge| Lenient::Read(edge_record(edge)))
                 .collect(),
         },
-    };
+    }
+}
+
+fn sweep_record(sweep: &Sweep) -> FeatureKindRecord {
     FeatureKindRecord::Sweep(Box::new(SweepRecord {
         sketch: sweep.sketch.raw(),
         regions: regions_record(&sweep.regions),
         region_references: region_references_record(&sweep.regions),
-        path: Lenient::Read(path),
+        path: Lenient::Read(sweep_path_record(&sweep.path)),
         orientation: match sweep.orientation {
             SweepOrientation::Square => SweepOrientationRecord::Square,
             SweepOrientation::Parallel => SweepOrientationRecord::Parallel,
@@ -3090,8 +3250,46 @@ fn sweep_record(sweep: &Sweep) -> FeatureKindRecord {
     }))
 }
 
-fn restore_sweep(record: &SweepRecord, feature: &str, issues: &mut Vec<String>) -> Sweep {
-    let path = match &record.path {
+fn pipe_record(pipe: &Pipe) -> FeatureKindRecord {
+    let text = Expression::to_stored_text;
+    FeatureKindRecord::Pipe(Box::new(PipeRecord {
+        path: Lenient::Read(sweep_path_record(&pipe.path)),
+        shape: match pipe.shape {
+            PipeShape::Round => PipeShapeRecord::Round,
+            PipeShape::Square => PipeShapeRecord::Square,
+            PipeShape::Triangle => PipeShapeRecord::Triangle,
+        },
+        size: text(&pipe.size),
+        wall: pipe.wall.as_ref().map(text),
+        bend: text(&pipe.bend),
+        operation: operation_record(pipe.operation),
+    }))
+}
+
+fn restore_pipe(record: &PipeRecord, feature: &str, issues: &mut Vec<String>) -> Pipe {
+    Pipe {
+        path: restore_sweep_path(&record.path, feature, issues),
+        shape: match record.shape {
+            PipeShapeRecord::Round => PipeShape::Round,
+            PipeShapeRecord::Square => PipeShape::Square,
+            PipeShapeRecord::Triangle => PipeShape::Triangle,
+        },
+        size: restore_value(&record.size, "size", "10 mm", feature, issues),
+        wall: record
+            .wall
+            .as_ref()
+            .map(|wall| restore_value(wall, "wall thickness", "1 mm", feature, issues)),
+        bend: restore_value(&record.bend, "bend radius", "0 mm", feature, issues),
+        operation: restore_operation(record.operation),
+    }
+}
+
+fn restore_sweep_path(
+    record: &Lenient<SweepPathRecord>,
+    feature: &str,
+    issues: &mut Vec<String>,
+) -> SweepPath {
+    match record {
         Lenient::Read(SweepPathRecord::Unchosen) => SweepPath::Unchosen,
         Lenient::Read(SweepPathRecord::Curves { sketch, curves }) => SweepPath::Curves {
             sketch: FeatureId::from_raw(*sketch),
@@ -3122,11 +3320,14 @@ fn restore_sweep(record: &SweepRecord, feature: &str, issues: &mut Vec<String>) 
             ));
             SweepPath::Unchosen
         }
-    };
+    }
+}
+
+fn restore_sweep(record: &SweepRecord, feature: &str, issues: &mut Vec<String>) -> Sweep {
     Sweep {
         sketch: FeatureId::from_raw(record.sketch),
         regions: restore_regions(&record.regions, &record.region_references, feature, issues),
-        path,
+        path: restore_sweep_path(&record.path, feature, issues),
         orientation: match record.orientation {
             SweepOrientationRecord::Square => SweepOrientation::Square,
             SweepOrientationRecord::Parallel => SweepOrientation::Parallel,
@@ -4031,6 +4232,18 @@ fn projection_source_record(source: &ProjectionSource) -> ProjectionSourceRecord
                 reach: *reach,
             }
         }
+        ProjectionSource::DatumAxis { datum, reach } => ProjectionSourceRecord::DatumAxis {
+            datum: datum.raw(),
+            reach: *reach,
+        },
+        ProjectionSource::PrincipalAxis { axis, reach } => ProjectionSourceRecord::PrincipalAxis {
+            axis: principal_axis_record(*axis),
+            reach: *reach,
+        },
+        ProjectionSource::DatumPoint { datum } => {
+            ProjectionSourceRecord::DatumPoint { datum: datum.raw() }
+        }
+        ProjectionSource::Origin => ProjectionSourceRecord::Origin,
     }
 }
 
@@ -4054,15 +4267,31 @@ fn restore_projection_source(record: &ProjectionSourceRecord) -> Option<Projecti
         },
         ProjectionSourceRecord::DatumPlane { datum, reach } => ProjectionSource::DatumPlane {
             datum: FeatureId::from_raw(*datum),
-            reach: Some(*reach).filter(|reach| reach.is_finite() && *reach > 0.0)?,
+            reach: usable_reach(*reach)?,
         },
         ProjectionSourceRecord::PrincipalPlane { plane, reach } => {
             ProjectionSource::PrincipalPlane {
                 plane: restore_principal_plane(*plane),
-                reach: Some(*reach).filter(|reach| reach.is_finite() && *reach > 0.0)?,
+                reach: usable_reach(*reach)?,
             }
         }
+        ProjectionSourceRecord::DatumAxis { datum, reach } => ProjectionSource::DatumAxis {
+            datum: FeatureId::from_raw(*datum),
+            reach: usable_reach(*reach)?,
+        },
+        ProjectionSourceRecord::PrincipalAxis { axis, reach } => ProjectionSource::PrincipalAxis {
+            axis: restore_principal_axis(*axis),
+            reach: usable_reach(*reach)?,
+        },
+        ProjectionSourceRecord::DatumPoint { datum } => ProjectionSource::DatumPoint {
+            datum: FeatureId::from_raw(*datum),
+        },
+        ProjectionSourceRecord::Origin => ProjectionSource::Origin,
     })
+}
+
+fn usable_reach(reach: f64) -> Option<f64> {
+    Some(reach).filter(|reach| reach.is_finite() && *reach > 0.0)
 }
 
 fn restore_projections(
@@ -4196,6 +4425,11 @@ fn entity_kind_record(entity: &Entity) -> EntityKindRecord {
                 (SplineKind::Conic { .. }, _) => EntityKindRecord::Spline {
                     control_points: raw,
                 },
+                (SplineKind::Piece { lead, trail }, _) => EntityKindRecord::SplinePiece {
+                    control_points: raw,
+                    lead,
+                    trail,
+                },
             }
         }
         Entity::Ellipse {
@@ -4260,8 +4494,35 @@ fn constraint_kind_record(constraint: &Constraint) -> ConstraintKindRecord {
             entity: entity.raw(),
             value: value.to_stored_text(),
         },
-        Constraint::HorizontalPoints(a, b) => ConstraintKindRecord::HorizontalPoints(pair(a, b)),
-        Constraint::VerticalPoints(a, b) => ConstraintKindRecord::VerticalPoints(pair(a, b)),
+        Constraint::HorizontalPoints(a, SketchTarget::Point(b)) => {
+            ConstraintKindRecord::HorizontalPoints(pair(a, b))
+        }
+        Constraint::VerticalPoints(a, SketchTarget::Point(b)) => {
+            ConstraintKindRecord::VerticalPoints(pair(a, b))
+        }
+        Constraint::HorizontalPoints(point, through) => ConstraintKindRecord::HorizontalThrough {
+            point: point.raw(),
+            through: TargetRecord::of(through),
+        },
+        Constraint::VerticalPoints(point, through) => ConstraintKindRecord::VerticalThrough {
+            point: point.raw(),
+            through: TargetRecord::of(through),
+        },
+        Constraint::OnDirection {
+            point,
+            through,
+            line,
+            square,
+        } => ConstraintKindRecord::OnDirection {
+            point: point.raw(),
+            through: TargetRecord::of(through),
+            line: line.raw(),
+            square: *square,
+        },
+        Constraint::Centroid { point, corners } => ConstraintKindRecord::Centroid {
+            point: point.raw(),
+            corners: corners.iter().map(|corner| corner.raw()).collect(),
+        },
         Constraint::Midpoint { point, curve } => ConstraintKindRecord::Midpoint {
             point: point.raw(),
             line: curve.raw(),
@@ -5619,6 +5880,7 @@ fn restore_kind(
         FeatureKindRecord::PointMate(record) => {
             FeatureKind::Mate(restore_point_mate(record, name, issues))
         }
+        FeatureKindRecord::Pipe(record) => FeatureKind::Pipe(restore_pipe(record, name, issues)),
         FeatureKindRecord::Primitive(record) => {
             FeatureKind::Primitive(restore_primitive(record, name, issues))
         }
@@ -7929,6 +8191,17 @@ fn restore_entity(record: &EntityKindRecord) -> Entity {
             points: vec![entity(*start), entity(*apex), entity(*end)],
             kind: SplineKind::Conic { rho: *rho },
         },
+        EntityKindRecord::SplinePiece {
+            control_points,
+            lead,
+            trail,
+        } => Entity::Spline {
+            points: control_points.iter().copied().map(entity).collect(),
+            kind: SplineKind::Piece {
+                lead: *lead,
+                trail: *trail,
+            },
+        },
         EntityKindRecord::Ellipse {
             center,
             major,
@@ -8119,12 +8392,33 @@ fn constraint_from_record(
         }
         ConstraintKindRecord::HorizontalPoints(ids) => {
             let (a, b) = pair(*ids);
-            Constraint::HorizontalPoints(a, b)
+            Constraint::HorizontalPoints(a, b.into())
         }
         ConstraintKindRecord::VerticalPoints(ids) => {
             let (a, b) = pair(*ids);
-            Constraint::VerticalPoints(a, b)
+            Constraint::VerticalPoints(a, b.into())
         }
+        ConstraintKindRecord::HorizontalThrough { point, through } => {
+            Constraint::HorizontalPoints(entity(*point), through.target())
+        }
+        ConstraintKindRecord::VerticalThrough { point, through } => {
+            Constraint::VerticalPoints(entity(*point), through.target())
+        }
+        ConstraintKindRecord::OnDirection {
+            point,
+            through,
+            line,
+            square,
+        } => Constraint::OnDirection {
+            point: entity(*point),
+            through: through.target(),
+            line: entity(*line),
+            square: *square,
+        },
+        ConstraintKindRecord::Centroid { point, corners } => Constraint::Centroid {
+            point: entity(*point),
+            corners: corners.iter().map(|corner| entity(*corner)).collect(),
+        },
         ConstraintKindRecord::Midpoint { point, line } => Constraint::Midpoint {
             point: entity(*point),
             curve: entity(*line),

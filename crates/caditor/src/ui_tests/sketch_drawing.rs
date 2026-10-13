@@ -45,10 +45,11 @@ fn a_point_hovered_while_drawing_guides_later_points_into_line_with_it() {
 
     let sketch = harness.sketch(feature);
     let guided = sketch.point(guide).unwrap();
-    let [Constraint::HorizontalPoints(corner, reference)] = aligned_point_pairs(sketch)[..] else {
+    let [Constraint::HorizontalPoints(corner, ref reference)] = aligned_point_pairs(sketch)[..]
+    else {
         panic!("the far corner should line up beside the hovered point");
     };
-    assert_eq!(reference, guide);
+    assert_eq!(*reference, guide.into());
     assert_eq!(sketch.point(corner).map(|at| at.y), Some(guided.y));
 
     harness.use_tool(Key::L);
@@ -61,14 +62,14 @@ fn a_point_hovered_while_drawing_guides_later_points_into_line_with_it() {
 
     let sketch = harness.sketch(feature);
     let pairs = aligned_point_pairs(sketch);
-    let [_, Constraint::VerticalPoints(end, reference)] = pairs[..] else {
+    let [_, Constraint::VerticalPoints(end, ref reference)] = pairs[..] else {
         panic!("the line's end should line up under the hovered point: {pairs:?}");
     };
     let [.., line] = entities_of_kind(sketch, "Line")[..] else {
         panic!("a line should be drawn");
     };
     let (start, _) = line_ends(sketch, line);
-    assert_eq!(reference, guide);
+    assert_eq!(*reference, guide.into());
     assert_eq!(
         sketch.point(end),
         Some(Point2::new(guided.x, sketch.point(start).unwrap().y))
@@ -141,7 +142,7 @@ fn an_arc_starting_level_with_its_centre_and_a_spline_point_above_the_last_stay_
     };
     let pairs = aligned_point_pairs(sketch);
     assert!(
-        pairs.contains(&Constraint::HorizontalPoints(center, start)),
+        pairs.contains(&Constraint::HorizontalPoints(center, start.into())),
         "{pairs:?}"
     );
 
@@ -166,7 +167,7 @@ fn an_arc_starting_level_with_its_centre_and_a_spline_point_above_the_last_stay_
     assert!(
         aligned_point_pairs(sketch).contains(&Constraint::VerticalPoints(
             control_points[0],
-            control_points[1]
+            control_points[1].into()
         ))
     );
 }

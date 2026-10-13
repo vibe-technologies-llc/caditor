@@ -13,6 +13,7 @@ use crate::{
     model::Model,
     move_tools, offset_face_tools,
     pattern_tools::{self, PatternSource, Shape},
+    pipe_tools::{self, PipeStart},
     primitive_tools::{self, PrimitiveSource},
     scale_tools,
     selection::{Pickable, Selection},
@@ -57,6 +58,7 @@ pub struct Offers {
     pub extrude_faces: Option<Result<FaceProfile, &'static str>>,
     pub revolve_faces: Option<Result<FaceProfile, &'static str>>,
     pub sweep: Result<SweepStart, &'static str>,
+    pub pipe: Result<PipeStart, &'static str>,
     pub shell: Result<FaceSource, &'static str>,
     pub offset_face: Result<FaceSource, &'static str>,
     pub split_face: Result<SplitFaceSource, &'static str>,
@@ -111,6 +113,7 @@ impl Offers {
             extrude_faces: faces(Sweep::Extrude),
             revolve_faces: faces(Sweep::Revolve),
             sweep: sweep_tools::source(model, selection, editing),
+            pipe: pipe_tools::source(model, selection),
             sketch_target: sketch_placement::sketch_target(model, selection),
             pattern: pattern_tools::source(model, selection, tree, rows),
             curve_pattern: sketch_pattern_tools::source(

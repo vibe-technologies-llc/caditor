@@ -2,6 +2,8 @@ use std::f64::consts::{FRAC_PI_2, TAU};
 
 use caditor_geometry::{Point2, Vector2};
 
+use crate::entity::{MIN_PIECE_POINTS, SplineKind};
+
 const MAX_SEGMENTS: usize = 4096;
 const MIN_SEGMENT_ANGLE: f64 = 1e-3;
 const DEFAULT_SEGMENT_ANGLE: f64 = 5.0 * TAU / 360.0;
@@ -337,6 +339,16 @@ impl BSpline {
             control_points: kept,
             degree,
             knots: clamped,
+            weights: None,
+        })
+    }
+
+    pub fn piece(control_points: Vec<Point2>, lead: f64, trail: f64) -> Option<Self> {
+        let (degree, knots) = piece_knots(control_points.len(), lead, trail)?;
+        Some(Self {
+            control_points,
+            degree,
+            knots,
             weights: None,
         })
     }
@@ -754,6 +766,20 @@ pub(crate) fn clamped_knots(count: usize) -> (usize, Vec<f64>) {
         .chain(std::iter::repeat_n(1.0, degree + 1))
         .collect();
     (degree, knots)
+}
+
+pub(crate) fn piece_knots(count: usize, lead: f64, trail: f64) -> Option<(usize, Vec<f64>)> {
+    let inner = count.checked_sub(MIN_PIECE_POINTS)?;
+    if !(SplineKind::end_span_is_valid(lead) && SplineKind::end_span_is_valid(trail)) {
+        return None;
+    }
+    let degree = MAX_SPLINE_DEGREE;
+    let total = lead + inner as f64 + trail;
+    let knots = std::iter::repeat_n(0.0, degree + 1)
+        .chain((0..=inner).map(|index| (lead + index as f64) / total))
+        .chain(std::iter::repeat_n(1.0, degree + 1))
+        .collect();
+    Some((degree, knots))
 }
 
 fn span_of(degree: usize, knots: &[f64], count: usize, parameter: f64) -> usize {

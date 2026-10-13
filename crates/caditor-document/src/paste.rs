@@ -533,8 +533,12 @@ impl FeatureKind {
                         | ProjectionSource::Vertex { body, .. }
                         | ProjectionSource::Section { body, .. } => *body = rename(*body),
                         ProjectionSource::SketchEntity { sketch, .. } => *sketch = rename(*sketch),
-                        ProjectionSource::DatumPlane { datum, .. } => *datum = rename(*datum),
-                        ProjectionSource::PrincipalPlane { .. } => {}
+                        ProjectionSource::DatumPlane { datum, .. }
+                        | ProjectionSource::DatumAxis { datum, .. }
+                        | ProjectionSource::DatumPoint { datum } => *datum = rename(*datum),
+                        ProjectionSource::PrincipalPlane { .. }
+                        | ProjectionSource::PrincipalAxis { .. }
+                        | ProjectionSource::Origin => {}
                     }
                 }
             }
@@ -585,6 +589,10 @@ impl FeatureKind {
                 ImagePlane::Reference(plane) => rename_plane(plane, rename),
                 ImagePlane::Sketch(sketch) => *sketch = rename(*sketch),
             },
+            Self::Pipe(pipe) => {
+                pipe.operation = renamed_operation(pipe.operation, rename);
+                pipe.path = pipe.path.with_features_renamed(&rename);
+            }
             Self::Combine(combine) => {
                 combine.body = rename(combine.body);
                 combine.tool = rename(combine.tool);

@@ -97,6 +97,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   references: a datum point "Origin, scaled", for planes and axes a coordinate system "Axes and
   planes, scaled" (exact images, frame origins included); a datum plane offset from a principal
   plane that something uses is rebased on the frame's plane with only its offset scaled; a sketch
+  projecting a principal axis gets a datum axis "<axis>, scaled" along the frame's axis and one
+  projecting the origin the "Origin, scaled" point; a sketch
   projecting a principal plane gets a datum plane "<plane>, scaled", since a projection cannot name
   a frame's plane. `ScaleSummary::moved` and `datums` list what moved and was added. Saved views
   follow (target mapped, distance multiplied).
@@ -497,6 +499,28 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   errors go through `sweep_failure` as "sweep". A path curve no longer in its sketch, or an edge
   lost or tied, asks to choose the path again.
 
+### Pipe (`pipe.rs`)
+
+- `Pipe { path, shape, size, wall, bend, operation }` runs a section of the kernel's `PipeShape`
+  (round of a diameter, square of a width, equilateral triangle of a side length) along a
+  `SweepPath` chosen and resolved as a sweep's (`sweep::path_of`, shared, which also gives the
+  path's `up`: the path sketch's normal, else Z), solid or hollow with `wall` (a thickness), its
+  corners between straight lines bent to the `bend` radius (zero leaves them mitred). Size and wall
+  are lengths above zero, the bend zero or more (`primitive::Context`, shared, worded "The diameter
+  of the pipe must be more than zero."); all three are its expressions (parameters, inlining, model
+  scale). It calls kernel `pipe` and joins, cuts or intersects like a primitive
+  (`primitive::combined`, keeping its tool as `joins` or `cuts`, so `repeatable_on` takes it).
+- The path's sketch is in `reference_sketches` and `features()`, its body in `bodies_used`, its
+  edges' origins among `origin_features`; healing visits its edges (`healing::visit_path`), a path
+  curve cannot be removed (`EntityInUse`) and no path waits (`MissingInput::Path`).
+- Failures: a wall too thick names the limit (half the diameter or width, a third of the triangle's
+  height); a bend too tight for the section or one needing more than the lines at a corner names the
+  two path curves, fixed on the pipe; a corner too sharp to turn; the rest per `PathSweepError` in
+  `sweep::path_failure` (shared wording for any path follower: branches, gaps, a curve too short, a
+  sharp corner where an arc meets another curve, a bend of the path too tight, running into itself).
+- Faces are worded "<pipe> outside" and "<pipe> inside" (`pipe::side_name`: entities past the
+  section's `PipeShape::curves` are the inner outline), caps as a sweep's.
+
 ### Blend and shell (`blend.rs`, `shell.rs`)
 
 - A `Blend` is a fillet or chamfer of `size`. A chamfer's `form` is `Equal`,
@@ -880,8 +904,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 - Repeats the whole body as it stands before the pattern and unions the copies (kernel `pattern`).
   Boxed in `FeatureKind`. It changes its body but is not `modifies_body` (the app shows the
   patterned body while open).
-- With `repeated` features (`Pattern::repeating`; `repeatable_on`: an extrusion, revolve or
-  primitive adding to or removing from a body, or a hole) it repeats their tools instead: for each,
+- With `repeated` features (`Pattern::repeating`; `repeatable_on`: an extrusion, revolve,
+  primitive or pipe adding to or removing from a body, or a hole) it repeats their tools instead: for each,
   in tree order, the tools kept in its result (`SolidResult::cuts` of a removal or hole, `joins` of
   an addition) are placed at every copy and unioned without the original (kernel `pattern_copies`),
   then cut from or joined to the body as it stands. The repeated features are in `features()` and a
@@ -939,10 +963,10 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   `SketchAttachment::heap_size` counts the box and its neighbour names, `SketchFeature::heap_size`
   the projections.
 - `projections` (`projection.rs`) map a projected entity to its `ProjectionSource`: an edge of a body
-  (`EdgeReference`), a corner (`VertexName`), an entity of an earlier sketch, a section edge or a
-  datum plane's line. Before solving, recompute places each in the sketch plane from the source as
-  it stands at the sketch (`refreshed`): a line, circle or arc in a parallel plane (turned to stay
-  counter-clockwise), a point, or otherwise a spline through `PROJECTED_SPLINE_POINTS` samples;
+  (`EdgeReference`), a corner (`VertexName`), an entity of an earlier sketch, a section edge, a
+  datum plane's line, an axis or a point (Datum sources below). Before solving, recompute places
+  each in the sketch plane from the source as it stands at the sketch (`refreshed`): a line, circle
+  or arc in a parallel plane (turned to stay counter-clockwise), a point, or otherwise a spline through `PROJECTED_SPLINE_POINTS` samples;
   another sketch's spline maps its points and keeps its kind (exact except a centripetal fit spline
   on a non-parallel plane, which passes the projected fit points but spaces them as in the new
   plane); an ellipse or elliptical arc (another sketch's, or a body's elliptical edge) in a parallel
@@ -977,6 +1001,17 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   parallel plane); datum sources count in `planes_used`, so an edit refuses a non-datum-plane
   (`NotAPlane`). `PrincipalPlane { plane, reach }` is the same line for XY, XZ or YZ; it has no
   source feature (`ProjectionSource::feature` is `None`), so only the sketch's own plane moves it.
+- Datum sources: `DatumAxis { datum, reach }` and `PrincipalAxis { axis, reach }` project an axis
+  onto the sketch plane (`axis_outline`): a line through the foot nearest the sketch origin,
+  `reach` long either way (refused like a plane's reach), or a point where the axis stands square
+  to the plane, so an axis turned end-on (or back) fails the sketch as a changed shape naming it.
+  `DatumPoint { datum }` and `Origin` project a point (`point_outline`). A datum source that is gone
+  or not of its kind fails the sketch alone (a deleted datum through `missing_upstream`); datum
+  axes count in `axes_used` and datum points in `points_used` and `features()`, so the sketch
+  depends on them and recomputes with them, and an edit refuses a non-datum-axis (`NotAnAxis`) or
+  non-datum-point (`NotAPoint`). Principal axes and the origin have no source feature.
+  `ProjectionSource::is_same_source` says two sources name the same geometry (edges by name,
+  datums by id, principal geometry by kind), which the app uses to refuse projecting twice.
 - Datums are planes, axes, points and coordinate systems with a `DatumResult`, referring to model
   geometry in each body's state at the feature's place. Edits refuse a sketch or plane based on a
   non-datum-plane (`NotAPlane`), an axis reference to a non-datum-axis (`NotAnAxis`), a point

@@ -75,7 +75,9 @@ paths:
   20 (a guide page's title); radii `SMALL_RADIUS` (key caps), `WIDGET_RADIUS`, `CARD_RADIUS`,
   `WINDOW_RADIUS`; `CONTROL_HEIGHT`, `CONTROL_MIN_WIDTH`, `BORDER_WIDTH`, `FOCUS_WIDTH` and
   `FOCUS_GAP`. The egui `Style` is built from named values only (`ITEM_SPACING`, `BUTTON_PADDING`,
-  `TOOLTIP_WIDTH`, `MENU_WIDTH`, `COMBO_WIDTH`, …).
+  `TOOLTIP_WIDTH`, `MENU_WIDTH`, `COMBO_WIDTH`, …). `TOOLTIP_DELAY` is the Standard hover help
+  delay; `app::apply_appearance` replaces it in every installed style with the Hover help
+  preference (`TooltipDelay::seconds`) whenever the styles or the preference change.
 - `app::apply_appearance` resolves the preference (`themes::Appearance::resolve`) into `Skins`, one
   per egui theme (Follow the system fills dark and light; a named theme both, and sets egui's
   preference to its lightness), installs the styles and publishes the skins in egui temp data
@@ -154,7 +156,8 @@ paths:
   `scene_palette::color32` (canvases, axis colours, analysis swatches, the palette tests), a
   document `Rgb` only through `body_appearance::color32`.
 - The axis triad (`view_cube::show_axis_triad`) draws in the palette's `axes` with each letter on the
-  label backdrop; axis colours hold 4.5:1 (7:1 in high contrast) over it on black, white and hover,
+  label backdrop, every letter over every line (the letter of an axis pointing away sits on the
+  origin, where the other two lines meet); axis colours hold 4.5:1 (7:1 in high contrast) over it on black, white and hover,
   which is why the standard dark red and blue are lighter and the light ones darker than a plain
   hue. `Highlight::emphasis` widens hovered geometry by `HIGHLIGHT_EXTRA_WIDTH` and selected by the
   palette's `selection_widening` (1 standard, 2 high contrast); the high-contrast palette dashes the
@@ -175,7 +178,10 @@ paths:
   keys step to the neighbouring target. A primary drag orbits like a right-drag
   (`CubeAction::Orbit`). Fit all (Fit selection when something is selected) under it is a canvas
   control (`canvas::button`) and left of it `canvas::icon_button` "Isometric view" goes to
-  Isometric as Alt+0 does; `view_cube::area` covers both.
+  Isometric as Alt+0 does; `view_cube::area` covers both. Preferences › Appearance › In the 3D
+  view can hide the cube with both buttons (`ViewDetails::view_cube`,
+  `ViewportState::view_cube_shown`), leaving their commands; the overlays then keep clear of an
+  empty corner (`ViewportState::cube_area`). The axis triad stays.
 
 ## Widgets
 
@@ -356,27 +362,52 @@ paths:
   Interference); compact through `toolbar::tool_button`. While a plane is being chosen for a new
   sketch, New sketch shows selected and clicking it stops choosing (as Escape does), so the ribbon
   keeps its height.
-- Every main-ribbon group opens a menu of all its commands (`Group::sections`, paragraphs split by
-  separators), buttonless ones included (Thread, the primitives, Offset face, Split face, Copy body,
-  Mirror faces, Split, Mates, Scale model, the face analyses, the comb, isocurves, Add a section
-  plane, centres of mass). Analyse is where the analysis and inspection commands live: Measure,
+- Every captioned group of both ribbons opens a menu of all its commands, buttonless ones included,
+  through one implementation in `ribbon.rs`: `ribbon::menu_group` draws the group with its trigger,
+  `ribbon::group_menu` shows the menu and `ribbon::menu_sections` its paragraphs split by separators.
+  The trigger is the group's caption while captions show (`widgets::group_title`: the caption and a
+  caret, a strip as wide as the group, drawn in the caption's place by `ribbon::captioned_by`), else
+  a corner mark over one tool the group names (`ribbon::GroupTools::host`): the caret
+  (`widgets::corner_menu_button`) on a full button, the notch (`compact_corner_menu_button`) on a
+  compact one. The title with its caret (`widgets::group_title_width`) counts in the group's natural
+  width like the caption alone did; that widens only a group narrower than it (the sketch ribbon's
+  History column), so the main ribbon's widths and every layout's packing stay as
+  they were (`the_ribbons_settle_on_one_layout_at_every_interface_size`, `interface_fit`,
+  `large_interface`). Both triggers are buttons whose screen-reader name is the menu's and open an
+  egui `Popup` of `PopupKind::Menu` through `widgets::fitted_menu`, so Escape or a click outside
+  closes it and it scrolls when taller than the room. Group menus hold no submenus: scrolling one
+  with the wheel would pass a submenu's button under the pointer, open it and send the wheel to it.
+  Entries are `menu_bar::MenuEntries` from the last frame's offers, keymap and `ToggleStates`
+  (disabled with the reason on hover, bound keys, checkmarks through `MenuEntries::marked`, Undo and
+  Redo named for the step and Repeat for the command through `MenuEntries::history_item`); opening
+  it by click, Enter or Space focuses the first available entry. A chosen command closes the menu
+  and is returned by `toolbar::show` or `sketch_toolbar::show`; `app::show` runs it next frame
+  through `Workspace::deferred_commands` as the context menu's are, so the same `Command` path as
+  the button, palette and keys decides what happens (`ui_tests/group_menus.rs`).
+- The main ribbon's menus are named "<group> commands" (`Group::menu_name`) and listed by
+  `Group::sections` (Thread, the primitives, Offset face, Split face, Copy body, Mirror faces,
+  Split, Mates, Scale model, the face analyses, the comb, isocurves, Add a section plane, centres of
+  mass without buttons); their trigger's host is the whole row of tools, so the corner sits over the
+  last tool. `ToolbarContext::analysing`, `combing`, `isocurving` and the measure and interference
+  flags mark the open panels. Analyse is where the analysis and inspection commands live: Measure,
   Check interference, the six face analyses, comb, isocurves, section view and centres of mass; no
   command of another group belongs to it, and it keeps two buttons because the ribbon already fills
   a 1400-point window, so another button would wrap it into two rows and move the view of every
-  test. The menu opens from the group's caption while captions show (`widgets::group_title`: the
-  caption and a caret, a strip as wide as the group, which `ribbon::captioned_by` draws in the
-  caption's place), else from the group's corner menu (`widgets::corner_menu_button`, the compact
-  notch on a compact ribbon) over its last tool, so neither adds width and the one-row, wrapped and
-  compact layouts pack as before. Both triggers are buttons named "<group> commands"
-  (`Group::menu_name`) and open an egui `Popup` of `PopupKind::Menu` through `widgets::fitted_menu`,
-  so Escape or a click outside closes it and it scrolls at 200%. Entries are
-  `menu_bar::MenuEntries` from the last frame's offers, keymap and `ToggleStates` (disabled with the
-  reason on hover, bound keys, checkmarks; `ToolbarContext::analysing`, `combing`, `isocurving` and
-  the measure and interference flags mark the open panels, `MenuEntries::marked`); opening it by
-  click, Enter or Space focuses the first available entry. A chosen command closes the menu and is
-  returned by `toolbar::show`; `app::show` runs it next frame through `Workspace::deferred_commands`
-  as the context menu's are, so the same `Command` path as the button, palette and keys decides what
-  happens (`ui_tests/group_menus.rs`).
+  test.
+- The sketch ribbon's menus are named "Sketch <group> commands" (`sketch_toolbar::group_menu_name`,
+  apart from the main ribbon's History and Modify) and listed by `sketch_toolbar::menu_sections`:
+  History (Undo, Redo, Repeat, Undo history; Cancel sketch), Select (the Select tool; Select all,
+  what is still free, the open ends, the redundant constraints), Draw (every drawing tool and Spur
+  gear; each shape's ways, one paragraph a shape; the drawing aids; typed dimensions, drawing
+  symmetrically, slicing the bodies), Modify (Construction and every modify and projecting tool;
+  Offset's and Blend curve's ways; Split, Break, Respace; Move, Rotate, Scale; Copy, Cut, Paste,
+  Delete; Intersect the whole body), Constrain (every geometric constraint, Curvature included; Add
+  the relations the drawing shows, Check the sketch for flaws) and Dimension (Smart dimension and
+  every dimension; Disable, Dimension fully from a datum point; Scale the whole sketch on its first
+  dimension). The active tool, Construction while drawing construction and each shape's current way
+  (`ShapeModes::of`) are marked; choosing the active tool again is dropped, so the menu never steps
+  its way. Corner hosts: Redo, Select, Line (`DRAW_MENU_HOST`, the last Draw button without a corner
+  menu of its own), Delete, the last constraint button and Disable.
 - While a sketch is edited the sketch ribbon (`sketch_toolbar.rs`) sits under it on `accent_surface`
   with an accent line along its top: a header without a caption (sketch badge, "Editing <name>"
   truncating with the full name on hover, the sketch's counts as `count_pill`s at the right and its
@@ -384,7 +415,7 @@ paths:
   widest status so constraining never moves the groups or the view; `app-sketching.md`, Status
   pills), then History (compact Undo over Redo, named for the step as the main ribbon's are, sending
   `Action::Undo` and `Redo` without invoking the commands the main ribbon invokes), Select, Draw,
-  Modify, Constrain and Dimension. Compact (`Bar::compact`, at 200% in the screenshot window) the
+  Modify, Constrain and Dimension, each with its group menu. Compact (`Bar::compact`, at 200% in the screenshot window) the
   header drops its badge, Select and the Draw buttons go icon-only and Draw folds into
   `COMPACT_DRAW_ROWS` rows, so the bar packs into two rows; every button keeps its accessible name.
   Finish sketch is a primary button at the right of the first row, `CONTROL_HEIGHT` tall and
@@ -600,7 +631,9 @@ paths:
   (`feature_tree::choose_among`, resolved after layout); the chevron alone shows the details. A
   double-click, Enter, the edit button or the menu's Edit opens the feature (a sketch for editing,
   another feature as its panel, an imported body by showing its details); a suppressed or
-  rolled-back one leaves a notice with the reason instead.
+  rolled-back one leaves a notice with the reason instead. With Preferences › General › Feature
+  tree set to rename (`PanelState::double_click`, `DoubleClick::Rename`) a double-click on the
+  name starts renaming instead, Enter and the rest still opening.
 - Rename (F2) and Move up or down act on the primary row, else the open feature
   (`feature_tree::current_feature`); Suppress, Hide or show feature and Delete act on every chosen
   row; Delete selection deletes them outside sketch editing. The row menu's Hide or Show

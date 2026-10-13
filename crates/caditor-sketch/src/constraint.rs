@@ -4,6 +4,7 @@ use caditor_geometry::Point2;
 use crate::{
     entity::{MAX_RHO, MIN_RHO, SplineKind},
     id::EntityId,
+    target::PointTarget,
 };
 
 pub const MAX_LENGTH: f64 = 1e6;
@@ -15,8 +16,8 @@ pub enum Constraint {
     Coincident(EntityId, EntityId),
     Horizontal(EntityId),
     Vertical(EntityId),
-    HorizontalPoints(EntityId, EntityId),
-    VerticalPoints(EntityId, EntityId),
+    HorizontalPoints(EntityId, PointTarget),
+    VerticalPoints(EntityId, PointTarget),
     Parallel(EntityId, EntityId),
     Perpendicular(EntityId, EntityId),
     Tangent(EntityId, EntityId),
@@ -95,6 +96,16 @@ pub enum Constraint {
         point: EntityId,
         ellipse: EntityId,
     },
+    OnDirection {
+        point: EntityId,
+        through: PointTarget,
+        line: EntityId,
+        square: bool,
+    },
+    Centroid {
+        point: EntityId,
+        corners: Vec<EntityId>,
+    },
 }
 
 impl Constraint {
@@ -130,10 +141,34 @@ impl Constraint {
             Self::MinorRadius { .. } => "Minor radius",
             Self::Rho { .. } => "Rho",
             Self::OnMinorAxis { .. } => "On minor axis",
+            Self::OnDirection { square: false, .. } => "Parallel through",
+            Self::OnDirection { square: true, .. } => "Perpendicular through",
+            Self::Centroid { .. } => "Centre",
         }
     }
 
     pub fn entities(&self) -> Vec<EntityId> {
+        match self {
+            Self::HorizontalPoints(point, target) | Self::VerticalPoints(point, target) => {
+                return distinct(std::iter::once(*point).chain(target.entities()));
+            }
+            Self::OnDirection {
+                point,
+                through,
+                line,
+                ..
+            } => {
+                return distinct(
+                    std::iter::once(*point)
+                        .chain(through.entities())
+                        .chain([*line]),
+                );
+            }
+            Self::Centroid { point, corners } => {
+                return distinct(std::iter::once(*point).chain(corners.iter().copied()));
+            }
+            _ => {}
+        }
         match *self {
             Self::Horizontal(entity)
             | Self::Vertical(entity)
@@ -149,9 +184,11 @@ impl Constraint {
                 ellipse: entity, ..
             }
             | Self::Rho { conic: entity, .. } => vec![entity],
+            Self::HorizontalPoints(..)
+            | Self::VerticalPoints(..)
+            | Self::OnDirection { .. }
+            | Self::Centroid { .. } => Vec::new(),
             Self::Coincident(a, b)
-            | Self::HorizontalPoints(a, b)
-            | Self::VerticalPoints(a, b)
             | Self::Parallel(a, b)
             | Self::Perpendicular(a, b)
             | Self::Tangent(a, b)
@@ -208,6 +245,8 @@ impl Constraint {
             | Self::Collinear(..)
             | Self::Symmetric { .. }
             | Self::OnMinorAxis { .. }
+            | Self::OnDirection { .. }
+            | Self::Centroid { .. }
             | Self::Fix { .. } => None,
         }
     }
@@ -280,8 +319,25 @@ impl Constraint {
             | Self::Collinear(..)
             | Self::Symmetric { .. }
             | Self::OnMinorAxis { .. }
+            | Self::OnDirection { .. }
+            | Self::Centroid { .. }
             | Self::Fix { .. } => None,
         }
+    }
+
+    pub fn target(&self) -> Option<&PointTarget> {
+        match self {
+            Self::HorizontalPoints(_, target)
+            | Self::VerticalPoints(_, target)
+            | Self::OnDirection {
+                through: target, ..
+            } => Some(target),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn follows_a_middle(&self) -> bool {
+        self.target().is_some_and(PointTarget::follows_length)
     }
 
     pub(crate) fn references(&self, id: EntityId) -> bool {
@@ -309,9 +365,27 @@ impl Constraint {
                 ellipse: entity, ..
             }
             | Self::Rho { conic: entity, .. } => *entity = swap(*entity),
+            Self::HorizontalPoints(point, target) | Self::VerticalPoints(point, target) => {
+                *point = swap(*point);
+                target.map_entities(&swap);
+            }
+            Self::OnDirection {
+                point,
+                through,
+                line,
+                ..
+            } => {
+                *point = swap(*point);
+                through.map_entities(&swap);
+                *line = swap(*line);
+            }
+            Self::Centroid { point, corners } => {
+                *point = swap(*point);
+                for corner in corners {
+                    *corner = swap(*corner);
+                }
+            }
             Self::Coincident(a, b)
-            | Self::HorizontalPoints(a, b)
-            | Self::VerticalPoints(a, b)
             | Self::Parallel(a, b)
             | Self::Perpendicular(a, b)
             | Self::Tangent(a, b)
@@ -346,6 +420,16 @@ impl Constraint {
         }
         replaced
     }
+}
+
+fn distinct(entities: impl Iterator<Item = EntityId>) -> Vec<EntityId> {
+    let mut found = Vec::new();
+    for entity in entities {
+        if !found.contains(&entity) {
+            found.push(entity);
+        }
+    }
+    found
 }
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]

@@ -406,11 +406,16 @@ pub fn show_axis_triad(ui: &Ui, viewport: Rect, orientation: Rotation3, palette:
     axes.sort_by(|a, b| a.0.total_cmp(&b.0));
 
     let painter = ui.painter();
+    for (_, axis) in &axes {
+        let tip = projector.project(axis.direction());
+        painter.line_segment(
+            [projector.center, tip],
+            Stroke::new(TRIAD_STROKE, palette.axis_colour(*axis)),
+        );
+    }
     for (_, axis) in axes {
         let color = palette.axis_colour(axis);
-        let tip = projector.project(axis.direction());
         let label = projector.project(axis.direction() * f64::from(TRIAD_LABEL_REACH));
-        painter.line_segment([projector.center, tip], Stroke::new(TRIAD_STROKE, color));
         canvas::label(
             painter,
             label,
@@ -671,6 +676,27 @@ mod tests {
                 assert_eq!(letters, expected, "{contrast:?} {canvas:?} letters");
                 assert_eq!(backdrops, 3, "{contrast:?} {canvas:?} backdrops");
             }
+        }
+    }
+
+    #[test]
+    fn the_axis_triad_draws_every_letter_over_every_line() {
+        for contrast in [Contrast::Standard, Contrast::High] {
+            let shapes = triad_shapes(contrast, Canvas::ALL[0]);
+
+            let last_line = shapes
+                .iter()
+                .rposition(|shape| matches!(shape, Shape::LineSegment { .. }));
+            let first_letter = shapes
+                .iter()
+                .position(|shape| matches!(shape, Shape::Text(_)));
+            let first_backdrop = shapes
+                .iter()
+                .position(|shape| matches!(shape, Shape::Rect(_)));
+
+            assert!(last_line.is_some(), "{contrast:?}");
+            assert!(last_line < first_letter, "{contrast:?}");
+            assert!(last_line < first_backdrop, "{contrast:?}");
         }
     }
 }

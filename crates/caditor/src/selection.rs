@@ -458,7 +458,7 @@ impl Pickable {
                         ))
             }
             Self::Origin | Self::Axis(_) => {
-                editing.is_none()
+                (editing.is_none() || (context.projecting && !context.intersecting))
                     && visibility::principal(self)
                         .is_some_and(|geometry| visibility::is_principal_shown(document, geometry))
             }
@@ -510,7 +510,7 @@ impl Pickable {
                         .is_some_and(|solid| bodies::find_edge(solid, edge).is_some())
             }
             Self::Datum(feature) => {
-                (editing.is_none() || context.intersecting)
+                (editing.is_none() || context.projecting)
                     && document
                         .feature(feature)
                         .is_some_and(|datum| datum.kind.datum().is_some())

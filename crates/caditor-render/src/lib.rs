@@ -14,6 +14,7 @@ mod offscreen;
 mod offscreen_tests;
 mod picking;
 mod pictures;
+mod runs;
 mod scene;
 mod settings;
 mod silhouette;
@@ -30,7 +31,10 @@ use std::{
 use wgpu::rwh::{HasDisplayHandle, HasWindowHandle};
 
 pub use crate::{
-    camera::{Camera, PlaneProjection, Projection, ProjectionMode, View, Viewpoint},
+    camera::{
+        Camera, DEFAULT_FIELD_OF_VIEW_DEGREES, PlaneProjection, Projection, ProjectionMode, View,
+        Viewpoint,
+    },
     gpu::Wake,
     image::{Background, ImageBands, ImageError, ImageRequest, MAX_IMAGE_SIDE},
     machine::Machine,
@@ -41,10 +45,11 @@ pub use crate::{
     offscreen::OffscreenRenderer,
     picking::PickPoll,
     pictures::{MAX_PICTURE_TEXTURE_SIDE, PictureTexture, ScenePicture},
+    runs::{PolylineRun, PolylineSource, RunPolyline},
     scene::{
         Batch, Color, CutFace, Fill, Grid, Layer, Line, MAX_SECTION_PLANES, Marker, PickHit,
-        PickId, PickResult, Reflection, Scene, SectionPlane, Stroke, ViewportRect, is_cut_away,
-        kept_span, section_slack,
+        PickId, PickResult, Reflection, Scene, SectionPlane, Stroke, StrokeKind, ViewportRect,
+        is_cut_away, kept_span, section_slack,
     },
     settings::{AdapterPreference, GraphicsInfo, GraphicsSettings, Msaa, Shading},
     silhouette::Silhouette,

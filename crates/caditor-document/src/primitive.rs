@@ -347,17 +347,24 @@ impl Primitive {
     }
 }
 
-struct Context<'a> {
+pub(crate) struct Context<'a> {
     resolver: Resolver<'a>,
     shape: &'static str,
 }
 
-impl Context<'_> {
+impl<'a> Context<'a> {
+    pub(crate) fn new(feature: &'a Feature, inputs: &'a Inputs<'a>, shape: &'static str) -> Self {
+        Self {
+            resolver: Resolver { feature, inputs },
+            shape,
+        }
+    }
+
     fn feature(&self) -> &Feature {
         self.resolver.feature
     }
 
-    fn error(&self, reason: String, remedy: String) -> Failure {
+    pub(crate) fn error(&self, reason: String, remedy: String) -> Failure {
         Failure::Error(Box::new(FeatureError {
             reason,
             remedy,
@@ -421,7 +428,7 @@ impl Context<'_> {
         ))
     }
 
-    fn size(&self, expression: &Expression, what: &str) -> Result<f64, Failure> {
+    pub(crate) fn size(&self, expression: &Expression, what: &str) -> Result<f64, Failure> {
         let value = self.value(expression, what)?;
         if value <= 0.0 {
             return Err(self.error(
@@ -432,7 +439,7 @@ impl Context<'_> {
         self.within_reach(value, what)
     }
 
-    fn size_or_zero(&self, expression: &Expression, what: &str) -> Result<f64, Failure> {
+    pub(crate) fn size_or_zero(&self, expression: &Expression, what: &str) -> Result<f64, Failure> {
         let value = self.value(expression, what)?;
         if value < 0.0 {
             return Err(self.error(
@@ -878,10 +885,7 @@ pub(crate) fn evaluate(
     inputs: &Inputs<'_>,
     cancel: &CancelToken,
 ) -> Result<FeatureResult, Failure> {
-    let context = Context {
-        resolver: Resolver { feature, inputs },
-        shape: definition.shape.kind().noun(),
-    };
+    let context = Context::new(feature, inputs, definition.shape.kind().noun());
     let sizes = Sizes::of(&context, &definition.shape)?;
     let [along, across] = &definition.at;
     let at = Point2::new(
@@ -909,9 +913,20 @@ pub(crate) fn evaluate(
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }
-    let operation = definition.operation;
+    combined(&context, made, definition.operation)
+}
+
+pub(crate) fn combined(
+    context: &Context<'_>,
+    made: Solid,
+    operation: BodyOperation,
+) -> Result<FeatureResult, Failure> {
+    let inputs = context.resolver.inputs;
     let Some(body) = operation.target() else {
-        return Ok(FeatureResult::Solid(SolidResult::new(feature.id(), made)));
+        return Ok(FeatureResult::Solid(SolidResult::new(
+            context.feature().id(),
+            made,
+        )));
     };
     let current = inputs.body(body).ok_or_else(|| inputs.missing_body(body))?;
     let kernel_operation = match operation {
@@ -920,7 +935,7 @@ pub(crate) fn evaluate(
         BodyOperation::NewBody | BodyOperation::Add(_) => BooleanOperation::Union,
     };
     let combined = boolean(current, &made, kernel_operation)
-        .map_err(|error| combine_failure(&context, [current, &made], body, operation, &error))?;
+        .map_err(|error| combine_failure(context, [current, &made], body, operation, &error))?;
     let result = SolidResult::new(body, combined);
     Ok(FeatureResult::Solid(match operation {
         BodyOperation::Remove(_) => result.cutting([made]),

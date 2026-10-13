@@ -13,9 +13,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   hole in the wrong place or a fillet to remove means remodelling it from scratch. Direct edits
   become features of their own, named from the faces they move, so they stay parametric and
   undoable.
-- [medium · medium] No pipe tool: a sweep makes tubing from a drawn profile, but a pipe taking only
-  a path and a round, square or triangular section size, solid or with a wall thickness, rounding
-  the path's sharp corners, would be the ready tool for tubing, handrails and cable runs.
 - [medium · hard] Offset face moves planes, cylinders, cones, spheres and tori only: a spline,
   extrusion or revolution face becomes its offset surface (which needs a surface fitted within
   tolerance), and a fillet moved beside a plane that stays is refused rather than re-blended.
@@ -63,20 +60,21 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   cannot chain a shift, a turn and a mirror.
 - [medium · hard] Rib and web from an open profile: a rib extrudes parallel to the sketch plane
   and a web square to it, each thickened and run on to the nearest faces of the body.
-- [low · medium] A few values still have no handle (`value_gauges.rs`): a stepped hole's step
-  diameters and depths, and the counterbore, countersink, slot and thread sizes of a hole sized by
-  circles, are only typed. A chamfer's feet on a curved face stand on the face's tangent line
-  rather than on the face, and a curve pattern's arrow slides along the curve's tangent while it is
-  dragged, rejoining the curve when the copies are placed again. Each would be a further `Measured`
-  with its `Gauge`, or for the last two a `Track` that follows a curve.
-- [low · medium] A hole's placement handles (`hole_handles.rs`) have no drag for sliding a point
-  measured from one edge along that edge, and none for a point whose position follows parameters
-  (its hover names what drives it). Place by takes only edges of bodies, not another sketch's
-  curves, datum axes or the origin.
+- [low · medium] A chamfer's feet on a curved face stand on the face's tangent line rather than on
+  the face, and a curve pattern's arrow (`value_gauges.rs`) slides along the curve's tangent while
+  it is dragged, rejoining the curve when the copies are placed again. Each would be a `Track`
+  that follows a curve.
+- [low · medium] A hole's placement handles (`hole_handles.rs`) have no drag for a point whose
+  position follows parameters (its hover names what drives it), and no typed length for the arrow
+  sliding a point along its one edge.
 - [low · medium] Mirror faces closes an opening only in one plane or on one elementary face beside
   it: an opening on an extrusion, revolution or spline face, one running all the way around a
   round face (a collar or a groove), or one spanning several curved faces is refused, since
   closing it needs a freeform patch, a ring face or a surface fitted across it.
+- [low · medium] A pipe's bend radius rounds only corners between two straight lines: a sharp corner
+  where an arc, spline or edge curve meets another curve still fails asking for a fillet in the
+  path's sketch, and a pipe has no arrows in the view for its size and bend radius (panel fields
+  only).
 - [low · hard] Split face wraps closed outlines only within once round a cylinder or cone, and a
   wrapped open chain may not run right round and back to the edge of the faces it started from:
   a helical stripe drawn as one outline running round more than once, a band whose ends meet
@@ -104,12 +102,11 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Sketching
 
-- [medium · hard] Body items (`body_snap.rs`) are snapped to by drawing and grabs and picked by
-  Select and Smart dimension, but they are not acquired for tracks, never pulled by the held snap
-  (Alt) and never crossed by a direction or track, since they are not in the sketch until a point
-  lands on them: acquiring one would need tracks that hold a point the shape has yet to project.
-  Nor do the keyboard highlight commands reach them (`Pickable::BodyItem` is not a scene
-  pickable), so picking a body item for a dimension or constraint needs the pointer.
+- [medium · hard] Body items (`body_snap.rs`) are snapped to by drawing and grabs, pulled by the
+  held snap and picked by Select and Smart dimension, from the pointer or the highlight keys, but
+  they are not acquired for tracks and never crossed by a direction or track, since they are not in
+  the sketch until a point lands on them: acquiring one would need tracks that hold a point the
+  shape has yet to project.
 - [medium · hard] A projected edge (`projection.rs`) that an upstream trim, split or break cut into
   pieces with a gap between them fails the sketch in words rather than projecting each piece as a
   curve of its own: a projection is one sketch curve with the points it was made with, and the
@@ -135,19 +132,16 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   A pair of meshing gears at a centre distance following from the same parameters is missing, and
   so is a sprocket for roller chain (ISO 606 pitch and roller diameter, tooth count) in the same
   tool.
-- [medium · hard] The centre of an outline of odd sides, a slanted track and a track through
-  anything but a sketch point (a line's middle and its perpendicular bisector, a crossing of two
-  curves, an outline's centre, a quadrant, an ellipse's axis end) place a point without a
-  constraint keeping it there: the sketch has no centroid or point-on-a-direction constraint, and
-  `HorizontalPoints`/`VerticalPoints` take sketch points only, so holding a point level with a
-  middle or crossing needs a constraint taking that target itself (a solver form, a file record
-  and a glyph) rather than a construction point left in the sketch. An odd outline with arcs has
-  no centre at all. A drag snaps only its handle (the moving point
-  nearest the press), not whichever moving point comes near a target.
-- [medium · hard] Splines cannot be trimmed or extended (`TrimError::Spline`). Offset takes
-  one chain at a time, leaves the free ends of an open chain sliding along their curves and cannot
-  offset splines; a sketch fillet cannot round a spline and drops equal lengths and midpoints of the
-  lines it shortens, as trim does.
+- [medium · medium] An outline of odd sides with an arc among them has no centre to snap or track
+  to: the centre of an odd outline is the centre of its corners, which reads as its middle only
+  for straight sides, and nothing yet says where the middle of such an outline is. A drag snaps
+  only its handle (the moving point nearest the press), not whichever moving point comes near a
+  target.
+- [medium · hard] Offset takes one chain at a time, leaves the free ends of an open chain sliding
+  along their curves and cannot offset splines; a sketch fillet cannot round a spline and drops
+  equal lengths and midpoints of the lines it shortens, as trim does. A trimmed fit-point spline is
+  refitted through its remaining points rather than kept exactly (its knots follow its points, so
+  no fit spline holds the piece), and a spline cannot be split or broken at a point.
 - [medium · hard] Sketches lie on one plane, so a sweep path or rail that bends in space (a cable
   run, a handle) cannot be drawn; only a chain of model edges gives the sweep one. A 3D sketch of
   lines, arcs and splines, with points placed by typed coordinates in space or moved off the
@@ -233,6 +227,18 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Application
 
+- [low · medium] Preferences still lack settings other CAD programs offer: decimal places and
+  trailing zeros for shown lengths and angles (each readout in `units.rs` keeps its own
+  precision), a default colour for bodies without one (`body_appearance::DEFAULT_COLOUR` is one
+  constant the scene, exports and contrast tests share), the view cube's size and corner (the
+  overlays and tests lay out around `view_cube::area`), following the system's reduce-motion
+  setting (winit reports none; View changes › No motion does it by hand), turning off the
+  constraints drawing infers kind by kind (snapping is all or nothing), and export choices
+  remembered across restarts (kept for the session).
+- [low · hard] Version history thinning (`binary/retention.rs`) has one fixed policy; presets that
+  keep more or fewer versions would have to travel from Preferences through the model's storage
+  worker to every save. The recovery journal and atomic saving stay without a setting
+  (`reliability.md`).
 - [low · medium] A copy from another model keeps none of its references outside the copied set. A
   sketch's section projection of a copied body is still left out, its edge being named by the
   sketch's own cut (`section.rs`), and a corner picked on a body outside the copy is not followed

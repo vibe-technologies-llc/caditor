@@ -1,14 +1,17 @@
-use std::{collections::BTreeSet, f64::consts::TAU};
+use std::{cmp::Ordering, collections::BTreeSet, f64::consts::TAU};
 
 use caditor_geometry::{Point2, Vector2};
 
+mod spline;
+
 use crate::{
     constraint::Constraint,
-    curve::{ArcGeometry, EllipseGeometry, Faceting, direction_angle},
+    curve::{ArcGeometry, BSpline, EllipseGeometry, Faceting, direction_angle},
     entity::Entity,
     id::{ConstraintId, EntityId, Reference},
     intersect::{self, Carrier, Shape},
     sketch::{DetachedConstraint, Sketch, SketchError},
+    trim::spline::{Reshape, SplineCourse},
 };
 
 const TOLERANCE: f64 = 1e-7;
@@ -19,8 +22,8 @@ pub enum TrimError {
     NoSuchCurve(EntityId),
     #[error("{label} is not a curve, so it cannot be trimmed")]
     NotACurve { entity: EntityId, label: String },
-    #[error("{label} cannot be trimmed; only lines, circles, arcs and ellipses can")]
-    NotTrimmable { entity: EntityId, label: String },
+    #[error("the piece of {label} this trim would leave cannot be drawn as a spline")]
+    NoPiece { entity: EntityId, label: String },
     #[error("{label} has no length to trim")]
     NoLength { entity: EntityId, label: String },
     #[error("{label} is built into the sketch, so it cannot be trimmed")]
@@ -28,19 +31,17 @@ pub enum TrimError {
     #[error("{label} follows the geometry it was projected from, so it cannot be trimmed")]
     Projected { entity: EntityId, label: String },
     #[error(transparent)]
-    Edit(SketchError),
+    Edit(#[from] SketchError),
 }
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum ExtendError {
     #[error("the curve to extend no longer exists")]
     NoSuchCurve(EntityId),
-    #[error("{label} is not a line, an arc or an elliptical arc, so it has no end to extend")]
+    #[error("{label} is not a curve, so it has no end to extend")]
     NotACurve { entity: EntityId, label: String },
     #[error("{label} is closed, so it has no end to extend")]
     Closed { entity: EntityId, label: String },
-    #[error("{label} cannot be extended; only lines, arcs and elliptical arcs can")]
-    NotExtendable { entity: EntityId, label: String },
     #[error("{label} has no length to extend")]
     NoLength { entity: EntityId, label: String },
     #[error("{label} is built into the sketch, so it cannot be extended")]
@@ -106,7 +107,7 @@ impl Piece {
         let parameter = self.course.parameter(point);
         let slack = self.course.slack(self.course.extent() * TOLERANCE);
         let within = |value: f64| value >= self.from - slack && value <= self.to + slack;
-        within(parameter) || (self.course.is_closed() && within(parameter + TAU))
+        within(parameter) || (self.course.is_closed() && within(parameter + self.course.period()))
     }
 }
 
@@ -129,19 +130,24 @@ pub struct Extension {
     reach: Reach,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 enum Reach {
     Straight,
     Around(ArcGeometry),
     AroundEllipse(EllipseGeometry),
+    Spline {
+        continuation: BSpline,
+        shape: Reshape,
+    },
 }
 
 impl Extension {
     pub fn faceted(&self, faceting: Faceting) -> Vec<Point2> {
-        match self.reach {
+        match &self.reach {
             Reach::Straight => vec![self.from, self.to],
             Reach::Around(arc) => arc.faceted(faceting),
             Reach::AroundEllipse(ellipse) => ellipse.faceted(faceting),
+            Reach::Spline { continuation, .. } => continuation.faceted(faceting),
         }
     }
 }
@@ -150,14 +156,16 @@ impl Extension {
 enum Around {
     Circle(ArcGeometry, bool),
     Ellipse(EllipseGeometry, bool),
+    Spline(bool),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 enum Course {
     Line { start: Point2, end: Point2 },
     Circle { center: Point2, radius: f64 },
     Arc(ArcGeometry),
     Ellipse(EllipseGeometry),
+    Spline(SplineCourse),
 }
 
 impl Course {
@@ -172,46 +180,53 @@ impl Course {
                 center: arc.center,
                 radius: arc.radius,
             }),
-            Self::Ellipse(_) => None,
+            Self::Ellipse(_) | Self::Spline(_) => None,
         }
     }
 
     fn has_length(&self) -> bool {
         match self {
             Self::Ellipse(ellipse) => ellipse.major_radius() > 0.0 && ellipse.minor_radius > 0.0,
+            Self::Spline(spline) => spline.length > 0.0,
             Self::Line { .. } | Self::Circle { .. } | Self::Arc(_) => {
                 self.slack(1.0) > 0.0 && self.carrier().is_some()
             }
         }
     }
 
-    fn shape(&self) -> Shape {
-        match *self {
-            Self::Line { start, end } => Shape::Segment { start, end },
-            Self::Circle { center, radius } => Shape::Circle { center, radius },
-            Self::Arc(arc) => Shape::Arc(arc),
-            Self::Ellipse(ellipse) => Shape::Ellipse(ellipse),
-        }
-    }
-
     fn extent(&self) -> f64 {
-        self.shape().extent().max(1.0)
+        let reach = match *self {
+            Self::Line { start, end } => Shape::Segment { start, end }.extent(),
+            Self::Circle { center, radius } => Shape::Circle { center, radius }.extent(),
+            Self::Arc(arc) => Shape::Arc(arc).extent(),
+            Self::Ellipse(ellipse) => Shape::Ellipse(ellipse).extent(),
+            Self::Spline(ref spline) => spline.extent(),
+        };
+        reach.max(1.0)
     }
 
     fn is_closed(&self) -> bool {
         match self {
             Self::Circle { .. } => true,
             Self::Ellipse(ellipse) => ellipse.is_full(),
+            Self::Spline(spline) => spline.closed,
             Self::Line { .. } | Self::Arc(_) => false,
         }
     }
 
     fn span(&self) -> f64 {
         match self {
-            Self::Line { .. } => 1.0,
+            Self::Line { .. } | Self::Spline(_) => 1.0,
             Self::Circle { .. } => TAU,
             Self::Arc(arc) => arc.sweep,
             Self::Ellipse(ellipse) => ellipse.sweep,
+        }
+    }
+
+    fn period(&self) -> f64 {
+        match self {
+            Self::Spline(_) => 1.0,
+            Self::Line { .. } | Self::Circle { .. } | Self::Arc(_) | Self::Ellipse(_) => TAU,
         }
     }
 
@@ -239,6 +254,7 @@ impl Course {
                     within_span(offset, ellipse.sweep)
                 }
             }
+            Self::Spline(ref spline) => spline.parameter(point),
         }
     }
 
@@ -248,6 +264,7 @@ impl Course {
             Self::Circle { center, radius } => center + Vector2::from_angle(parameter) * radius,
             Self::Arc(arc) => arc.point_at(arc.start_angle + parameter),
             Self::Ellipse(ellipse) => ellipse.point_at(ellipse.start + parameter),
+            Self::Spline(ref spline) => spline.at(parameter),
         }
     }
 
@@ -257,6 +274,7 @@ impl Course {
             Self::Circle { radius, .. } => radius,
             Self::Arc(arc) => arc.radius,
             Self::Ellipse(ellipse) => ellipse.major_radius().max(ellipse.minor_radius),
+            Self::Spline(ref spline) => spline.length,
         };
         if size > 0.0 { tolerance / size } else { 0.0 }
     }
@@ -283,6 +301,7 @@ impl Course {
                 ..ellipse
             }
             .faceted(faceting),
+            Self::Spline(ref spline) => spline.faceted(from, to, faceting),
         }
     }
 }
@@ -325,8 +344,12 @@ impl Cutter {
     }
 
     fn cut_positions(&self, course: &Course, tolerance: f64) -> Vec<Point2> {
-        if let Course::Ellipse(ellipse) = course {
-            return self.ellipse_cut_positions(ellipse, tolerance);
+        match course {
+            Course::Ellipse(ellipse) => return self.ellipse_cut_positions(ellipse, tolerance),
+            Course::Spline(spline) => {
+                return self.spline_cut_positions(&spline.spline, tolerance);
+            }
+            Course::Line { .. } | Course::Circle { .. } | Course::Arc(_) => {}
         }
         let Some(carrier) = course.carrier() else {
             return Vec::new();
@@ -335,6 +358,45 @@ impl Cutter {
             Self::Shape(shape) => overlap_ends(course, shape, tolerance)
                 .unwrap_or_else(|| intersect::crossings(carrier, shape, tolerance)),
             Self::Axis(_) => self.crossings(carrier, tolerance),
+        }
+    }
+
+    fn spline_cut_positions(&self, own: &BSpline, tolerance: f64) -> Vec<Point2> {
+        let along = |through: Point2, direction: Vector2| {
+            intersect::spline_roots(own, |point| direction.perp_dot(point - through), tolerance)
+        };
+        let around = |center: Point2, radius: f64| {
+            intersect::spline_roots(own, |point| point.distance(center) - radius, tolerance)
+        };
+        match self {
+            Self::Axis(direction) => along(Point2::ZERO, *direction),
+            Self::Shape(Shape::Segment { start, end }) => {
+                let Some(direction) = (*end - *start).try_normalize() else {
+                    return Vec::new();
+                };
+                let length = start.distance(*end);
+                along(*start, direction)
+                    .into_iter()
+                    .filter(|point| {
+                        let reach = (*point - *start).dot(direction);
+                        reach >= -tolerance && reach <= length + tolerance
+                    })
+                    .collect()
+            }
+            Self::Shape(Shape::Circle { center, radius }) => around(*center, *radius),
+            Self::Shape(Shape::Arc(arc)) => around(arc.center, arc.radius)
+                .into_iter()
+                .filter(|point| intersect::on_arc(arc, *point, tolerance))
+                .collect(),
+            Self::Shape(Shape::Spline(other)) => intersect::spline_spline(own, other, tolerance),
+            Self::Shape(Shape::Ellipse(ellipse)) => intersect::spline_roots(
+                own,
+                |point| intersect::ellipse_level(ellipse, point),
+                tolerance,
+            )
+            .into_iter()
+            .filter(|point| intersect::on_ellipse_sweep(ellipse, *point, tolerance))
+            .collect(),
         }
     }
 
@@ -415,67 +477,24 @@ impl Sketch {
     }
 
     pub fn curve_crossings(&self, spline: EntityId, other: EntityId) -> Vec<Point2> {
-        let shape = match self.shape_of(spline) {
-            Some(shape @ Shape::Spline(_)) => shape,
+        let own = match self.shape_of(spline) {
+            Some(Shape::Spline(own)) => own,
             Some(Shape::Ellipse(ellipse)) => {
                 return self.ellipse_crossings(spline, &ellipse, other);
             }
             _ => return Vec::new(),
         };
-        let tolerance = TOLERANCE * shape.extent().max(1.0);
-        let axis = |direction: Vector2| {
-            intersect::crossings(
-                Carrier::Line {
-                    through: Point2::ZERO,
-                    direction,
-                },
-                &shape,
-                tolerance,
-            )
-        };
-        match other.reference() {
-            Some(Reference::HorizontalAxis) => return axis(Vector2::X),
-            Some(Reference::VerticalAxis) => return axis(Vector2::Y),
+        let tolerance = TOLERANCE * SplineCourse::reach_of(&own).max(1.0);
+        let cutter = match other.reference() {
+            Some(Reference::HorizontalAxis) => Cutter::Axis(Vector2::X),
+            Some(Reference::VerticalAxis) => Cutter::Axis(Vector2::Y),
             Some(Reference::Origin) => return Vec::new(),
-            None => {}
-        }
-        match self.shape_of(other) {
-            Some(Shape::Segment { start, end }) => self.segment_crossings(spline, start, end),
-            Some(Shape::Circle { center, radius }) => {
-                intersect::crossings(Carrier::Circle { center, radius }, &shape, tolerance)
-            }
-            Some(Shape::Arc(arc)) => intersect::crossings(
-                Carrier::Circle {
-                    center: arc.center,
-                    radius: arc.radius,
-                },
-                &shape,
-                tolerance,
-            )
-            .into_iter()
-            .filter(|point| intersect::on_arc(&arc, *point, tolerance))
-            .collect(),
-            Some(Shape::Spline(other)) => {
-                let Shape::Spline(own) = &shape else {
-                    return Vec::new();
-                };
-                intersect::spline_spline(own, &other, tolerance)
-            }
-            Some(Shape::Ellipse(ellipse)) => {
-                let Shape::Spline(own) = &shape else {
-                    return Vec::new();
-                };
-                intersect::spline_roots(
-                    own,
-                    |point| intersect::ellipse_level(&ellipse, point),
-                    tolerance,
-                )
-                .into_iter()
-                .filter(|point| intersect::on_ellipse_sweep(&ellipse, *point, tolerance))
-                .collect()
-            }
-            None => Vec::new(),
-        }
+            None => match self.shape_of(other) {
+                Some(shape) => Cutter::Shape(shape),
+                None => return Vec::new(),
+            },
+        };
+        cutter.spline_cut_positions(&own, tolerance)
     }
 
     fn ellipse_crossings(
@@ -554,17 +573,18 @@ impl Sketch {
     pub fn trim_pieces(&self, curve: EntityId) -> Result<Vec<Piece>, TrimError> {
         let course = self.trim_course(curve)?;
         let cuts = self.cuts(curve, &course);
+        let period = course.period();
         let piece = |start: Option<Cut>, end: Option<Cut>, from: f64, to: f64| Piece {
             curve,
             start,
             end,
-            course,
+            course: course.clone(),
             from,
             to,
         };
         if course.is_closed() {
             if cuts.len() < 2 {
-                return Ok(vec![piece(None, None, 0.0, TAU)]);
+                return Ok(vec![piece(None, None, 0.0, period)]);
             }
             let following = cuts.iter().skip(1).chain(cuts.first());
             return Ok(cuts
@@ -574,7 +594,7 @@ impl Sketch {
                     let to = if end.parameter > start.parameter {
                         end.parameter
                     } else {
-                        end.parameter + TAU
+                        end.parameter + period
                     };
                     piece(Some(*start), Some(*end), start.parameter, to)
                 })
@@ -598,11 +618,13 @@ impl Sketch {
         let course = self.trim_course(curve)?;
         let parameter = match course {
             Course::Line { .. } => course.parameter(near).clamp(0.0, 1.0),
-            Course::Circle { .. } | Course::Arc(_) | Course::Ellipse(_) => course.parameter(near),
+            Course::Circle { .. } | Course::Arc(_) | Course::Ellipse(_) | Course::Spline(_) => {
+                course.parameter(near)
+            }
         };
         let inside = |piece: &Piece| {
             (parameter >= piece.from && parameter <= piece.to)
-                || (course.is_closed() && parameter + TAU <= piece.to)
+                || (course.is_closed() && parameter + course.period() <= piece.to)
         };
         pieces
             .iter()
@@ -620,7 +642,10 @@ impl Sketch {
     pub fn trim(&mut self, curve: EntityId, near: Point2) -> Result<Trimmed, TrimError> {
         let piece = self.trim_piece(curve, near)?;
         let mut working = self.clone();
-        let trimmed = working.remove_piece(&piece).map_err(TrimError::Edit)?;
+        let trimmed = match self.entity(curve) {
+            Some(Entity::Spline { .. }) => working.trim_spline(&piece)?,
+            _ => working.remove_piece(&piece)?,
+        };
         *self = working;
         Ok(trimmed)
     }
@@ -657,11 +682,25 @@ impl Sketch {
                     label: label(),
                 });
             }
-            Entity::Spline { .. } => {
-                return Err(ExtendError::NotExtendable {
+            Entity::Spline { kind, .. } if kind.is_closed() => {
+                return Err(ExtendError::Closed {
                     entity: curve,
                     label: label(),
                 });
+            }
+            ref spline @ Entity::Spline { .. } => {
+                let (start, end) = spline.spline_ends().ok_or_else(no_length)?;
+                let own = self.spline(curve).ok_or_else(no_length)?;
+                if own.length().partial_cmp(&0.0) != Some(Ordering::Greater) {
+                    return Err(no_length());
+                }
+                let at_end = self.spline_end_is_last(curve, near).ok_or_else(no_length)?;
+                let (moving, from) = if at_end {
+                    (end, own.point_at(1.0))
+                } else {
+                    (start, own.point_at(0.0))
+                };
+                (moving, from, Vector2::ZERO, Some(Around::Spline(at_end)))
             }
             Entity::Line { start, end } => {
                 let (start_at, end_at) = self.line_endpoints(curve).ok_or_else(no_length)?;
@@ -722,6 +761,7 @@ impl Sketch {
             Some(Around::Ellipse(ellipse, at_end)) => {
                 self.reach_around_ellipse(curve, ellipse, at_end)
             }
+            Some(Around::Spline(at_end)) => self.reach_along_spline(curve, end, at_end),
         };
         let (to, target, reach) = reached.ok_or_else(|| ExtendError::NothingToReach {
             entity: curve,
@@ -806,12 +846,10 @@ impl Sketch {
                     label: label(),
                 });
             }
-            Entity::Spline { .. } => {
-                return Err(TrimError::NotTrimmable {
-                    entity: curve,
-                    label: label(),
-                });
-            }
+            Entity::Spline { kind, .. } => Course::Spline(SplineCourse::new(
+                self.spline(curve).ok_or_else(no_length)?,
+                kind.is_closed(),
+            )),
             Entity::Line { .. } => {
                 let (start, end) = self.line_endpoints(curve).ok_or_else(no_length)?;
                 Course::Line { start, end }
@@ -868,7 +906,8 @@ impl Sketch {
             && merged.len() > 1
             && matches!(
                 (merged.first(), merged.last()),
-                (Some(first), Some(last)) if first.parameter + TAU - last.parameter <= slack
+                (Some(first), Some(last))
+                    if first.parameter + course.period() - last.parameter <= slack
             );
         if wraps {
             merged.pop();
@@ -1423,10 +1462,11 @@ impl Sketch {
         self.cutters(curve)
             .flat_map(|(target, shape)| {
                 let tolerance = TOLERANCE * course.extent().max(shape.extent());
+                let slack = course.slack(tolerance);
                 shape
                     .crossings(carrier, tolerance)
                     .into_iter()
-                    .map(move |point| (point, target, course.slack(tolerance)))
+                    .map(move |point| (point, target, slack))
             })
             .filter_map(|(point, target, slack)| {
                 let angle = direction_angle(point - arc.center);
@@ -1464,10 +1504,11 @@ impl Sketch {
         self.cutters(curve)
             .flat_map(|(target, cutter)| {
                 let tolerance = TOLERANCE * course.extent().max(cutter.extent());
+                let slack = course.slack(tolerance);
                 cutter
                     .ellipse_cut_positions(&ellipse, tolerance)
                     .into_iter()
-                    .map(move |point| (point, target, course.slack(tolerance)))
+                    .map(move |point| (point, target, slack))
             })
             .filter_map(|(point, target, slack)| {
                 let angle = ellipse.parameter_of(point);
@@ -1512,6 +1553,7 @@ impl Sketch {
         }
         let keeps: fn(&Constraint) -> bool = match self.entity(curve) {
             Some(Entity::Line { .. }) => keeps_length,
+            Some(Entity::Spline { .. }) => keeps_spline_shape,
             _ => keeps_sweep,
         };
         let changed: Vec<ConstraintId> = self
@@ -1523,6 +1565,9 @@ impl Sketch {
             self.remove_constraint(id)?;
         }
         self.replace_entity(extension.end, Entity::Point(extension.to))?;
+        if let Reach::Spline { shape, .. } = &extension.reach {
+            self.extend_spline(curve, shape)?;
+        }
         let joint = match extension.target_point {
             Some(point) => Joint::Point(point),
             None => Joint::Curve(extension.target),
@@ -1535,7 +1580,11 @@ pub(crate) fn keeps_length(constraint: &Constraint) -> bool {
     !matches!(
         constraint,
         Constraint::Midpoint { .. } | Constraint::Equal(..)
-    )
+    ) && !constraint.follows_a_middle()
+}
+
+fn keeps_spline_shape(constraint: &Constraint) -> bool {
+    !matches!(constraint, Constraint::Equal(..) | Constraint::Rho { .. })
 }
 
 pub(crate) fn keeps_sweep(constraint: &Constraint) -> bool {
@@ -1545,7 +1594,7 @@ pub(crate) fn keeps_sweep(constraint: &Constraint) -> bool {
             | Constraint::ArcLength { .. }
             | Constraint::Sweep { .. }
             | Constraint::Angle { .. }
-    )
+    ) && !constraint.follows_a_middle()
 }
 
 fn overlap_ends(course: &Course, cutter: &Shape, tolerance: f64) -> Option<Vec<Point2>> {

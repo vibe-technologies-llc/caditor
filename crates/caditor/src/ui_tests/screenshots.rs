@@ -80,7 +80,7 @@ struct Look {
     scale: f32,
 }
 
-const LOOKS: [Look; 13] = [
+const LOOKS: [Look; 14] = [
     Look {
         name: "dark",
         theme: "dark",
@@ -112,6 +112,13 @@ const LOOKS: [Look; 13] = [
     Look {
         name: "dark-200",
         theme: "dark",
+        view: "theme",
+        high_contrast: false,
+        scale: 2.0,
+    },
+    Look {
+        name: "light-200",
+        theme: "light",
         view: "theme",
         high_contrast: false,
         scale: 2.0,
@@ -550,6 +557,14 @@ fn screenshots() {
         if let Some(sketch) = sketch {
             model.edit(sketch);
             shoot(&mut model, &gpu, &out, "sketch", look);
+            for group in ["Draw", "Modify", "Constrain"] {
+                model.click_button(&sketch_toolbar::group_menu_name(group));
+                model.frame();
+                let scene = format!("sketch-menu-{}", group.to_lowercase());
+                shoot(&mut model, &gpu, &out, &scene, look);
+                model.key(Key::Escape, Modifiers::NONE);
+                model.frame();
+            }
             run_from_palette(&mut model, "slice the bodies at the sketch plane");
             model.frame();
             model.frame();
@@ -753,6 +768,9 @@ fn canvas_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
         model.frame();
         model.key(Key::Escape, Modifiers::NONE);
         model.frame();
+        if model.editing().is_none() {
+            model.edit(sketch);
+        }
         model.use_tool(Key::G);
         model.workspace.viewport.show_more_keys(true);
         model.frame();
@@ -1284,6 +1302,19 @@ fn feature_panel_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) 
     threaded.select([wall]);
     threaded.key(Key::O, Modifiers::ALT | Modifiers::SHIFT);
     shoot_open(&mut threaded, gpu, out, "panel-thread", look);
+
+    let piped_dir = TempDir::new().expect("a temporary directory");
+    let mut piped = Harness::styled(look, piped_dir.path(), false);
+    let mut elbow = Sketch::new(Plane::XY);
+    elbow.add_line(Point2::ZERO, Point2::new(40.0, 0.0));
+    elbow.add_line(Point2::new(40.0, 0.0), Point2::new(40.0, 30.0));
+    piped.add_sketch(elbow);
+    piped.select([]);
+    run_from_palette(&mut piped, "Pipe");
+    piped.settle();
+    piped.key(Key::Escape, Modifiers::NONE);
+    piped.settle();
+    shoot_open(&mut piped, gpu, out, "panel-pipe", look);
 }
 
 fn close_dialog(harness: &mut Harness) {

@@ -46,9 +46,10 @@ pub use crate::{
     bspline::{BSpline, MAX_SPLINE_DEGREE},
     build::{
         AngularExtent, Axis2, Heights, LinearBound, LinearExtent, MAX_TAPER_DEGREES, NextFace,
-        PathSegment, PathSweepError, ReachError, StopError, Stopped, SweepError, SweepOrientation,
-        WrapError, extrude, extrude_along, extrude_tapered, heights, heights_along, next_face,
-        revolve, stop_at_body, sweep, wrap_chain, wrap_regions,
+        PathSegment, PathSweepError, PipeError, PipeSection, PipeShape, ReachError, StopError,
+        Stopped, SweepError, SweepOrientation, WrapError, extrude, extrude_along, extrude_tapered,
+        heights, heights_along, next_face, pipe, revolve, stop_at_body, sweep, wrap_chain,
+        wrap_regions,
     },
     coordinates::Coordinates,
     curve::{
@@ -99,8 +100,8 @@ pub use crate::{
         Sphere, Surface, SurfaceDerivatives, SurfaceSide, Torus,
     },
     tessellation::{
-        DisplayMesh, EdgePolyline, FaceTriangles, MassProperties, Mesh, MeshVertex, MeshedSolid,
-        SecondMoment, TessellationError,
+        DisplayMesh, EdgePolyline, FaceTriangles, MassProperties, Mesh, MeshNormal, MeshVertex,
+        MeshedSolid, SecondMoment, TessellationError,
     },
     thread::{
         GROOVE_PARTS, Handedness, MAX_THREAD_TURNS, RING_ENTITY, SPANS_PER_TURN, ThreadEnd,

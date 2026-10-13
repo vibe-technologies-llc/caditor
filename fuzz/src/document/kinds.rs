@@ -5,26 +5,26 @@ use std::{
 };
 
 use caditor_document::{
-    AngleMate, AngleSides, Calibration, ImagePlane, ImageSize, ImageSpot, Picture, PixelSize,
-    ReferenceImage, AxisMate, AxisSide, AxisTurn, Between, Blend, BlendKind, BodyOperation,
-    BodyPlacement, ChamferForm, CircularPattern, Combine, CombineOperation, CopyOrientation,
-    CurvePattern, CurveSpacing, CurveStation, Datum, DatumAxis, DatumFrame, DatumPlane, DatumPoint,
-    EdgeGroup, Extrude, ExtrudeEnd, ExtrudeExtent, FaceAxisMate, FaceMate, FaceOnRound, FacePair,
-    FaceTangent, FaceThickness, FeatureId, FeatureKind, FinePitch, Hole, HoleBottom, HoleDepth,
-    HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle, Import, LinearDirection,
-    LinearSpacing, Mate, MatePair, MeasuredItem, Measurement, MetricSize, Mirror, Move, Of,
-    OffsetFace, Pattern, PatternKind, PlaneRotation, PlaneThrough, PointBy, PointMate, PointTarget,
+    AngleMate, AngleSides, AxisMate, AxisSide, AxisTurn, Between, Blend, BlendKind, BodyOperation,
+    BodyPlacement, Calibration, ChamferForm, CircularPattern, Combine, CombineOperation,
+    CopyOrientation, CurvePattern, CurveSpacing, CurveStation, Datum, DatumAxis, DatumFrame,
+    DatumPlane, DatumPoint, EdgeGroup, Extrude, ExtrudeEnd, ExtrudeExtent, FaceAxisMate, FaceMate,
+    FaceOnRound, FacePair, FaceTangent, FaceThickness, FeatureId, FeatureKind, FinePitch, Hole,
+    HoleBottom, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle,
+    ImagePlane, ImageSize, ImageSpot, Import, LinearDirection, LinearSpacing, Mate, MatePair,
+    MeasuredItem, Measurement, MetricSize, Mirror, Move, Of, OffsetFace, Pattern, PatternKind,
+    Picture, Pipe, PixelSize, PlaneRotation, PlaneThrough, PointBy, PointMate, PointTarget,
     PointsPattern, Primitive, PrimitiveAnchor, PrimitiveShape, PrincipalPlane, Reading,
-    RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Scale, Shell, ShellSide,
-    SketchAttachment, SketchFeature, SolidFeature, SolidStart, Split, SplitAlong, SplitCarry,
-    SplitFace, StepText, Sweep, SweepPath, TappedThread, Thread, ThreadFamily, ThreadForm, ThreadHand,
-    ThreadLength, ThreadSide, TurnCentre, Wall, sketch_regions,
+    ReferenceImage, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Scale, Shell,
+    ShellSide, SketchAttachment, SketchFeature, SolidFeature, SolidStart, Split, SplitAlong,
+    SplitCarry, SplitFace, StepText, Sweep, SweepPath, TappedThread, Thread, ThreadFamily,
+    ThreadForm, ThreadHand, ThreadLength, ThreadSide, TurnCentre, Wall, sketch_regions,
 };
 use caditor_expression::Expression;
 use caditor_geometry::{Plane, Point2};
 use caditor_kernel::{
-    LinearExtent, Profile, ProfileCurve, RegionReference, Selection, Solid, SweepOrientation,
-    WallSide, extrude, interruptible,
+    LinearExtent, PipeShape, Profile, ProfileCurve, RegionReference, Selection, Solid,
+    SweepOrientation, WallSide, extrude, interruptible,
 };
 use caditor_sketch::EntityId;
 use caditor_step::{StepBody, write_step};
@@ -58,6 +58,7 @@ pub enum Family {
     OffsetFace,
     SplitFace,
     Primitive,
+    Pipe,
     Combine,
     Move,
     Mate,
@@ -75,7 +76,7 @@ pub enum Family {
 }
 
 impl Family {
-    pub const ALL: [Self; 21] = [
+    pub const ALL: [Self; 22] = [
         Self::Sketch,
         Self::Solid,
         Self::Blend,
@@ -83,6 +84,7 @@ impl Family {
         Self::OffsetFace,
         Self::SplitFace,
         Self::Primitive,
+        Self::Pipe,
         Self::Combine,
         Self::Move,
         Self::Mate,
@@ -108,6 +110,7 @@ impl Family {
             FeatureKind::OffsetFace(_) => Self::OffsetFace,
             FeatureKind::SplitFace(_) => Self::SplitFace,
             FeatureKind::Primitive(_) => Self::Primitive,
+            FeatureKind::Pipe(_) => Self::Pipe,
             FeatureKind::Combine(_) => Self::Combine,
             FeatureKind::Move(_) => Self::Move,
             FeatureKind::Mate(_) => Self::Mate,
@@ -175,6 +178,18 @@ pub fn feature_kind(
             })
         }
         Family::Primitive => FeatureKind::Primitive(primitive(input, scene)?),
+        Family::Pipe => FeatureKind::Pipe(Pipe {
+            path: sweep_path(input, scene)?,
+            shape: *input.choose(&PipeShape::ALL)?,
+            size: scene.distance(input)?,
+            wall: if input.arbitrary()? {
+                Some(scene.distance(input)?)
+            } else {
+                None
+            },
+            bend: scene.distance(input)?,
+            operation: operation(input, scene)?,
+        }),
         Family::Combine => FeatureKind::Combine(Combine {
             body: scene.body(input)?,
             tool: scene.body(input)?,
@@ -264,17 +279,19 @@ fn reference_image(input: &mut Unstructured, scene: &Scene) -> Result<Option<Fea
             distance: scene.distance(input)?,
         })
     };
-    Ok(Some(FeatureKind::ReferenceImage(Box::new(ReferenceImage {
-        picture: Arc::new(picture),
-        plane,
-        at: [scene.distance(input)?, scene.distance(input)?],
-        turn: scene.turn(input)?,
-        flipped: input.arbitrary()?,
-        size,
-        opacity: input.arbitrary()?,
-        in_front: input.arbitrary()?,
-        locked: input.arbitrary()?,
-    }))))
+    Ok(Some(FeatureKind::ReferenceImage(Box::new(
+        ReferenceImage {
+            picture: Arc::new(picture),
+            plane,
+            at: [scene.distance(input)?, scene.distance(input)?],
+            turn: scene.turn(input)?,
+            flipped: input.arbitrary()?,
+            size,
+            opacity: input.arbitrary()?,
+            in_front: input.arbitrary()?,
+            locked: input.arbitrary()?,
+        },
+    ))))
 }
 
 fn sketch_kind(input: &mut Unstructured, scene: &Scene) -> Result<FeatureKind> {

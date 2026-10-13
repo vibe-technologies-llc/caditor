@@ -254,3 +254,45 @@ fn preparing_bodies_for_display_can_be_cancelled_leaving_the_rest_hidden_until_s
     assert!(!harness.shows(status_bar::SHOW_THE_REST));
     assert_eq!(harness.workspace.viewport.bodies().iter().count(), 2);
 }
+
+#[test]
+fn a_bodys_edges_are_one_styled_run_over_its_mesh_polylines_not_a_line_per_segment() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    harness.select([]);
+    harness.frame();
+
+    let built = harness.built();
+    let edge_picks: Vec<_> = built
+        .picks
+        .pickables()
+        .filter(|pickable| matches!(pickable, Pickable::Edge { body, .. } if *body == plate))
+        .filter_map(|pickable| built.picks.id_of(pickable))
+        .collect();
+    let batch = built
+        .scene
+        .batches
+        .iter()
+        .find(|batch| {
+            batch
+                .runs
+                .iter()
+                .flat_map(|run| &run.polylines)
+                .any(|drawn| drawn.pick.is_some_and(|pick| edge_picks.contains(&pick)))
+        })
+        .expect("the plate's edges are drawn");
+    let run = batch.runs.first().expect("the plate has a run");
+    let lines: Vec<_> = batch.all_lines().collect();
+
+    assert_eq!(edge_picks.len(), 12);
+    assert!(batch.lines.is_empty());
+    assert_eq!(batch.runs.len(), 1);
+    assert_eq!(run.polylines.len(), 12);
+    assert_eq!(lines.len(), run.segment_count());
+    assert!(lines.len() >= 12);
+    assert!(
+        edge_picks
+            .iter()
+            .all(|pick| lines.iter().any(|line| line.pick == Some(*pick)))
+    );
+}

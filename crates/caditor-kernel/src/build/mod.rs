@@ -27,7 +27,10 @@ pub use self::{
         stop_at_body,
     },
     revolve::revolve,
-    sweep::{PathSegment, PathSweepError, SweepOrientation, sweep},
+    sweep::{
+        PathSegment, PathSweepError, PipeError, PipeSection, PipeShape, SweepOrientation, pipe,
+        sweep,
+    },
     taper::{MAX_TAPER_DEGREES, extrude_tapered},
     wrap::{WrapError, wrap_regions},
     wrap_cut::wrap_chain,

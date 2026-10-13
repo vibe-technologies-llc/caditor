@@ -12,16 +12,16 @@ use caditor_document::{
     ExtrudeEnd, ExtrudeExtent, FaceColour, FaceTangent, FaceThickness, FinePitch, Finish, Hole,
     HoleBottom, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle,
     Import, Mate, MatePair, MetricSize, Mirror, ModelProperties, Move, OffsetFace, Outline,
-    ParameterOwner, ParameterValues, Pattern, PatternKind, PlaneRotation, PlaneThrough, PointBy,
-    PointReference, PointsPattern, PrincipalAxis, PrincipalGeometry, ProjectionSource,
+    ParameterOwner, ParameterValues, Pattern, PatternKind, Pipe, PlaneRotation, PlaneThrough,
+    PointBy, PointReference, PointsPattern, PrincipalAxis, PrincipalGeometry, ProjectionSource,
     RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rgb, Scale, Shell, ShellSide,
     SketchFeature, SolidFeature, SolidStart, Split, SplitAlong, SplitCarry, SplitFace, Sweep,
     SweepPath, TappedThread, ThreadFamily, ThreadForm, ThreadHand, TurnCentre, Wall,
     point_instance,
 };
 use caditor_kernel::{
-    EdgeName, EdgeReference, FaceName, FaceOrigin, FaceReference, Solid, SweepOrientation,
-    VertexName, WallSide,
+    EdgeName, EdgeReference, FaceName, FaceOrigin, FaceReference, PipeShape, Solid,
+    SweepOrientation, VertexName, WallSide,
 };
 use serde::{
     Deserializer,
@@ -50,7 +50,7 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 25] = [
+const KEPT: [(&str, &str); 29] = [
     (
         "journal-1/by-reference.journal",
         "fe98725da8d9df46b19d7cede1474bcfb92bbda00d4de9c890e5bca5d0f2899f",
@@ -120,8 +120,20 @@ const KEPT: [(&str, &str); 25] = [
         "f4745712d55b915884d644d687473b879d96e9ba8f066938a5358ba1a16023b2",
     ),
     (
+        "model-1/pipes.caditor",
+        "909988d8544c3f301cd5ee4eaf0004e495666d337a5cbb5c912082cf7edc1667",
+    ),
+    (
+        "model-1/point-targets.caditor",
+        "63353e88ac0ec528f701fd78e6d927bd62bb1f737a17edda9f6588682c4ed3ce",
+    ),
+    (
         "model-1/primitives.caditor",
         "a951119ab531bb07364933525a7861e66093225c496ef672a87f2cc03e4917f3",
+    ),
+    (
+        "model-1/projected-datums.caditor",
+        "ba72f19aff762f3bea392f66c955ceda4d55df4a927d8d7740bb883dfc560f0f",
     ),
     (
         "model-1/reference-images.caditor",
@@ -138,6 +150,10 @@ const KEPT: [(&str, &str); 25] = [
     (
         "model-1/sliced.caditor",
         "4d56af94bbefdc7ca4d04154800c5ee3b009a13b6083696abbaf7c5c728ead87",
+    ),
+    (
+        "model-1/spline-pieces.caditor",
+        "d6b13fe6a8e0771a6d16da0077d3c92e4831b9ce1c312fb0420539f3fa3d6b3b",
     ),
     (
         "model-1/starts.caditor",
@@ -671,10 +687,23 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
     let mut files = vec![
         (model("sketches"), saved(&sketches(), "Sketches")),
         (model("pieces"), saved(&pieces(), "Pieces")),
+        (
+            model("spline-pieces"),
+            saved(&spline_pieces(), "Spline pieces"),
+        ),
+        (
+            model("projected-datums"),
+            saved(&projected_datums(), "Projected datums"),
+        ),
         (model("extents"), saved(&extents_model().0, "Extents")),
         (model("starts"), saved(&starts_model().0, "Starts")),
         (model("sweeps"), saved(&sweeps(), "Sweeps")),
         (model("path-sweeps"), saved(&path_sweeps(), "Path sweeps")),
+        (model("pipes"), saved(&pipes(), "Pipes")),
+        (
+            model("point-targets"),
+            saved(&point_targets(), "Point targets"),
+        ),
         (model("holes"), saved(&holes(), "Holes")),
         (
             model("modelled-threads"),
@@ -747,6 +776,30 @@ fn pieces() -> Document {
     let mut document = Document::default();
     let mut transaction = document.transaction("Pieces");
     transaction.add_feature("Trimmed", FeatureKind::from(drawn));
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
+fn spline_pieces() -> Document {
+    let mut drawn = Sketch::new(Plane::XY);
+    let wave = [
+        Point2::new(100.0, 100.0),
+        Point2::new(110.0, 115.0),
+        Point2::new(120.0, 90.0),
+        Point2::new(130.0, 112.0),
+        Point2::new(140.0, 86.0),
+        Point2::new(150.0, 108.0),
+        Point2::new(160.0, 100.0),
+    ];
+    let spline = drawn.add_spline(&wave);
+    for x in [113.0, 147.0] {
+        drawn.add_line(Point2::new(x, 60.0), Point2::new(x, 140.0));
+    }
+    drawn.trim(spline, Point2::new(101.0, 101.0)).unwrap();
+    drawn.trim(spline, Point2::new(159.0, 101.0)).unwrap();
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Spline pieces");
+    transaction.add_feature("Trimmed spline", FeatureKind::from(drawn));
     document.apply(transaction.finish()).unwrap();
     document
 }
@@ -925,6 +978,65 @@ fn sketches() -> Document {
     document
 }
 
+fn projected_datums() -> Document {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Datums");
+    let spot = transaction.add_feature(
+        "Spot",
+        FeatureKind::Datum(Datum::Point(DatumPoint {
+            base: PointReference::Origin,
+            offset: ["10 mm", "5 mm", "0 mm"].map(|text| Expression::parse_stored(text).unwrap()),
+        })),
+    );
+    let post = transaction.add_feature(
+        "Post",
+        FeatureKind::Datum(Datum::Axis(DatumAxis::NormalTo(
+            PlaneReference::Principal(PrincipalPlane::Xy),
+            PointReference::Datum(spot),
+        ))),
+    );
+    let side = transaction.add_feature("Side", FeatureKind::from(Sketch::new(Plane::XZ)));
+    let projections = [
+        (
+            ProjectionSource::DatumAxis {
+                datum: post,
+                reach: 20.0,
+            },
+            Outline::Line {
+                start: Point2::new(10.0, -20.0),
+                end: Point2::new(10.0, 20.0),
+            },
+        ),
+        (
+            ProjectionSource::PrincipalAxis {
+                axis: PrincipalAxis::X,
+                reach: 30.0,
+            },
+            Outline::Line {
+                start: Point2::new(-30.0, 0.0),
+                end: Point2::new(30.0, 0.0),
+            },
+        ),
+        (
+            ProjectionSource::PrincipalAxis {
+                axis: PrincipalAxis::Y,
+                reach: 30.0,
+            },
+            Outline::Point(Point2::ZERO),
+        ),
+        (
+            ProjectionSource::DatumPoint { datum: spot },
+            Outline::Point(Point2::new(10.0, 0.0)),
+        ),
+        (ProjectionSource::Origin, Outline::Point(Point2::ZERO)),
+    ];
+    for (source, outline) in projections {
+        transaction.add_projection(side, source, &outline);
+    }
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
 fn plain_extrude(sketch: FeatureId, extent: ExtrudeExtent, operation: BodyOperation) -> Extrude {
     Extrude {
         sketch,
@@ -992,6 +1104,61 @@ fn path_sweeps() -> Document {
     transaction.add_feature(
         "Unchosen",
         FeatureKind::Solid(SolidFeature::Sweep(Sweep::new(sketch, SweepPath::Unchosen))),
+    );
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
+fn point_targets() -> Document {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Point targets");
+    transaction.add_feature("Tracked", FeatureKind::from(tracked_sketch()));
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
+fn pipes() -> Document {
+    let (mut document, base, _) = solid_model();
+    let parse = |text: &str| Expression::parse_stored(text).unwrap();
+    let mut transaction = document.transaction("Pipes");
+    let mut path = Sketch::new(Plane::XY);
+    let first = path.add_line(Point2::ZERO, Point2::new(20.0, 0.0));
+    let second = path.add_line(Point2::new(20.0, 0.0), Point2::new(20.0, 30.0));
+    let path = transaction.add_feature("Pipe path", FeatureKind::from(path));
+    let curves = SweepPath::Curves {
+        sketch: path,
+        curves: vec![first, second],
+    };
+    transaction.add_feature(
+        "Round",
+        FeatureKind::Pipe(Pipe::new(curves.clone(), parse("4 mm"), parse("6 mm"))),
+    );
+    transaction.add_feature(
+        "Square tube",
+        FeatureKind::Pipe(Pipe {
+            shape: PipeShape::Square,
+            wall: Some(parse("1 mm")),
+            ..Pipe::new(curves, parse("5 mm"), parse("0 mm"))
+        }),
+    );
+    transaction.add_feature(
+        "Triangular groove",
+        FeatureKind::Pipe(Pipe {
+            shape: PipeShape::Triangle,
+            operation: BodyOperation::Remove(base),
+            ..Pipe::new(
+                SweepPath::Edges {
+                    body: base,
+                    edges: vec![edge(0x5eed)],
+                },
+                parse("2 mm"),
+                parse("3 mm"),
+            )
+        }),
+    );
+    transaction.add_feature(
+        "Unchosen pipe",
+        FeatureKind::Pipe(Pipe::new(SweepPath::Unchosen, parse("4 mm"), parse("6 mm"))),
     );
     document.apply(transaction.finish()).unwrap();
     document

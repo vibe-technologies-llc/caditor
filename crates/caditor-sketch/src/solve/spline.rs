@@ -6,7 +6,7 @@ use crate::{
     constraint::Constraint,
     curve::{
         BSpline, CONIC_DEGREE, CONIC_KNOTS, MAX_SPLINE_DEGREE, clamped_knots, conic_weight,
-        periodic_knots,
+        periodic_knots, piece_knots,
     },
     entity::{Entity, FitSpacing, Role, SplineKind},
     id::{ConstraintId, EntityId},
@@ -97,7 +97,16 @@ impl System {
         spline: EntityId,
     ) -> Result<Vec<f64>, SketchError> {
         let target = self.point(point)?.at(&self.values);
-        Ok(vec![start_on(
+        Ok(vec![self.closest_parameter(sketch, spline, target)?])
+    }
+
+    pub(super) fn closest_parameter(
+        &self,
+        sketch: &Sketch,
+        spline: EntityId,
+        target: Point2,
+    ) -> Result<f64, SketchError> {
+        Ok(start_on(
             &self.curve(sketch, spline)?,
             Wanted::Closest,
             |at| at.distance(target),
@@ -105,7 +114,7 @@ impl System {
                 let offset = at - target;
                 (offset.dot(tangent), tangent.dot(tangent) + offset.dot(bend))
             },
-        )])
+        ))
     }
 
     fn tangent_start(
@@ -388,6 +397,7 @@ impl System {
                 SplineKind::Fit { closed, spacing } => {
                     self.fit_handle(id, &handles, closed, spacing)
                 }
+                SplineKind::Piece { lead, trail } => piece_handle(handles, lead, trail),
             };
             self.splines.insert(id, Arc::new(handle));
         }
@@ -471,6 +481,19 @@ impl System {
 
 fn clamped_handle(points: Vec<PointHandle>) -> SplineHandle {
     let (degree, knots) = clamped_knots(points.len());
+    SplineHandle {
+        points,
+        degree,
+        knots,
+        weights: None,
+        periodic: false,
+    }
+}
+
+fn piece_handle(points: Vec<PointHandle>, lead: f64, trail: f64) -> SplineHandle {
+    let Some((degree, knots)) = piece_knots(points.len(), lead, trail) else {
+        return clamped_handle(points);
+    };
     SplineHandle {
         points,
         degree,

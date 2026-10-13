@@ -78,7 +78,8 @@ paths:
 - `System::add_splines` builds every spline's `SplineHandle` once, before the constraints (control
   point handles, degree, knots, weights); the forms read only the handle, so each constraint works
   on every kind. Open control spline: its points; closed: its points taken round again (`points +
-  3` handles on `periodic_knots`, gradients arriving at each copy); conic: three points with
+  3` handles on `periodic_knots`, gradients arriving at each copy); a piece (`SplineKind::Piece`)
+  its points on `piece_knots`; conic: three points with
   rational weights, from the active `Rho` dimension else the stored rho, and `Key::weights` holds
   them in the memo key since rho is no variable.
 - A fit-point spline's control points are variables of their own (`System::hidden`, `Variable::Control`
@@ -175,6 +176,27 @@ paths:
   times the wrapped difference between the point's parameter (`atan2(y/b, x/a)`) and the start's
   plus half the counter-clockwise sweep, a single branch since the opposite point is half a turn
   away.
+
+## Point targets (`solve/target.rs`)
+
+- A target is a `TargetHandle`: a weighted sum of point handles (a point, a line's middle, the
+  centre of corners), a circle's centre plus its radius along a fixed direction (`Rim`, a
+  quadrant, the radius through `push_radius`) or an ellipse turned to a fixed cosine and sine
+  (`Turned`, an axis end, through `EllipseHandle::turned` and `push_point`).
+- A crossing and the middle of an arc or elliptical arc have no closed form, so the constraint gets
+  a hidden point of its own (`System::targets`: two variables allocated after the curve
+  parameters, `Variable::Target` in the memo, perturbed like geometry, owned by no entity) held by
+  the forms defining it, owned by the constraint: on each curve (`Form::OnLine`, the circle form,
+  `OnEllipse`, or `OnSpline` along x and y at a curve parameter of the constraint started at the
+  closest point, `target_parameter_start`), or the forms `Midpoint` uses (`middle_forms`, shared).
+  It starts at `Sketch::target_position`, so a solve keeps the crossing the drawing chose; two
+  variables and two equations, it adds no freedom while the curves cross at an angle.
+- `HorizontalPoints` and `VerticalPoints` on a sketch point stay `Form::SameY` and `SameX`; on any
+  other target they are `Form::Level` (`along · (point − target)`). `OnDirection` is
+  `Form::OnDirection`: the offset from the target dotted with the line's unit direction (square)
+  or its normal, the line's turn reaching its ends through `Direction::back_from_unit`. `Centroid`
+  is `Form::Through` along x and y over the corners at equal weights. Their rows belong to their
+  constraint, so degrees of freedom, redundancy and conflict diagnosis need nothing of their own.
 
 ## Constraint state
 

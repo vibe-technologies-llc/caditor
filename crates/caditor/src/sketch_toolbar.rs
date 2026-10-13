@@ -14,15 +14,17 @@ use crate::{
     },
     body_picks::{self, BodyPick, Projections, Staged},
     body_snap::BodySnaps,
-    commands::{Command, CommandFrame},
+    commands::{self, Command, CommandFrame},
     constraint_trial::ConstraintTrial,
     editing::{ActiveSketch, EditingCommand, SketchEditing, Tool},
     feature_tree::count,
     fonts, icons,
+    menu_bar::MenuEntries,
     model::{Action, Model, Notice},
     panels::{Focus, PanelState},
     queued,
-    ribbon::{self, explained},
+    ribbon::{self, GroupMenu, GroupTools, explained},
+    section::SectionCommand,
     selection::Selection,
     shape_modes::{ShapeMode, ShapeModes},
     sketch_drag::{self, Moving},
@@ -31,6 +33,7 @@ use crate::{
         self, ActivityChange, BreakChange, ConstraintTool, ConstructionChange, RespaceChange,
         SplitChange,
     },
+    toggles::ToggleStates,
     units::Units,
     widgets::{self, CornerMenu, ToolButton},
 };
@@ -200,6 +203,112 @@ const BAR_MARGIN: Margin = Margin {
 };
 const GEOMETRIC_COLUMNS: usize = 6;
 const DIMENSION_COLUMNS: usize = 3;
+const DRAW_MENU_HOST: Tool = Tool::Line;
+const HISTORY_MENU: &[&[Command]] = &[&[Command::CancelSketch]];
+const SELECT_MENU: &[&[Command]] = &[&[
+    Command::SelectAll,
+    Command::SelectFree,
+    Command::SelectOpenEnds,
+    Command::SelectRedundant,
+]];
+const DRAW_MENU: &[&[Command]] = &[
+    &[
+        Command::ChainArc,
+        Command::ReverseArc,
+        Command::MoreSides,
+        Command::FewerSides,
+    ],
+    &[
+        Command::TypeValue,
+        Command::ToggleTypedDimensions,
+        Command::DrawSymmetrically,
+        Command::Section(SectionCommand::SliceSketch),
+    ],
+];
+const MODIFY_MENU: &[&[Command]] = &[
+    &[
+        Command::SplitCurve,
+        Command::BreakCurves,
+        Command::RespaceFitSplines,
+    ],
+    &[
+        Command::MoveGeometry,
+        Command::RotateGeometry,
+        Command::ScaleGeometry,
+    ],
+    &[
+        Command::CopyGeometry,
+        Command::CutGeometry,
+        Command::PasteGeometry,
+        Command::DeleteSelection,
+    ],
+    &[Command::IntersectBody],
+];
+const CONSTRAIN_MENU: &[&[Command]] = &[&[Command::FindRelations, Command::CheckSketch]];
+const DIMENSION_MENU: &[&[Command]] = &[
+    &[Command::ToggleConstraintActive, Command::DimensionFromDatum],
+    &[Command::ToggleFirstDimensionScales],
+];
+
+pub fn group_menu_name(caption: &str) -> String {
+    format!("Sketch {} commands", caption.to_lowercase())
+}
+
+fn menu_sections(group: Group) -> Vec<Vec<Command>> {
+    let tools: Vec<Tool> = Tool::ALL
+        .into_iter()
+        .filter(|tool| match group {
+            Group::Draw => tool.draws() || *tool == Tool::Gear,
+            Group::Modify => {
+                !tool.draws() && !matches!(tool, Tool::Select | Tool::Gear | Tool::Dimension)
+            }
+            _ => false,
+        })
+        .collect();
+    let tool_commands = tools.iter().copied().map(Command::SketchTool);
+    let (lead, rest): (Vec<Command>, &[&[Command]]) = match group {
+        Group::Header => return Vec::new(),
+        Group::History => (
+            vec![
+                Command::Undo,
+                Command::Redo,
+                Command::RepeatLast,
+                Command::UndoHistory,
+            ],
+            HISTORY_MENU,
+        ),
+        Group::Select => (vec![Command::SketchTool(Tool::Select)], SELECT_MENU),
+        Group::Draw => (tool_commands.collect(), DRAW_MENU),
+        Group::Modify => (
+            std::iter::once(Command::Construction)
+                .chain(tool_commands)
+                .collect(),
+            MODIFY_MENU,
+        ),
+        Group::Constrain => (constraint_commands(false).collect(), CONSTRAIN_MENU),
+        Group::Dimension => (
+            std::iter::once(Command::SketchTool(Tool::Dimension))
+                .chain(constraint_commands(true))
+                .collect(),
+            DIMENSION_MENU,
+        ),
+    };
+    let ways = tools
+        .iter()
+        .map(|tool| ShapeMode::of_tool(*tool).map(Command::ShapeMode).collect())
+        .filter(|ways: &Vec<Command>| !ways.is_empty());
+    std::iter::once(lead)
+        .chain(ways)
+        .chain(rest.iter().map(|section| section.to_vec()))
+        .collect()
+}
+
+fn constraint_commands(dimensions: bool) -> impl Iterator<Item = Command> {
+    ConstraintTool::ALL
+        .into_iter()
+        .filter(move |tool| tool.is_dimension() == dimensions)
+        .map(Command::Constraint)
+}
 
 type Offer = (ConstraintTool, Result<Vec<Constraint>, String>);
 
@@ -293,24 +402,34 @@ impl ConstraintOffers {
     }
 }
 
+pub struct BarContext<'a> {
+    pub selection: &'a Selection,
+    pub snaps: &'a BodySnaps,
+    pub last_offers: &'a [commands::Offer],
+    pub toggles: ToggleStates,
+}
+
 pub fn show(
     ui: &mut Ui,
     model: &Model,
     editing: &SketchEditing,
-    (selection, snaps): (&Selection, &BodySnaps),
+    context: &BarContext<'_>,
     commands: &mut CommandFrame<'_>,
     panels: &mut PanelState,
     actions: &mut Vec<Action>,
-) {
+) -> Vec<Command> {
+    let BarContext {
+        selection, snaps, ..
+    } = *context;
     let Some(active) = editing.active() else {
-        return;
+        return Vec::new();
     };
     let Some(feature) = model.document().feature(active.feature) else {
-        return;
+        return Vec::new();
     };
     let (Some(definition), Some(shown)) = (feature.kind.sketch(), model.displayed_sketch(feature))
     else {
-        return;
+        return Vec::new();
     };
     let selected = sketch_tools::selected_entities(selection, feature.id());
     let bodies = body_picks::selected(selection, feature.id());
@@ -375,6 +494,8 @@ pub fn show(
         select_all,
         cancel,
         commands,
+        last_offers: context.last_offers,
+        toggles: context.toggles,
         request: Request::default(),
         compact: false,
     };
@@ -504,6 +625,7 @@ pub fn show(
         actions.push(Action::Editing(EditingCommand::CancelSketch));
     }
     actions.extend(request.history);
+    request.chosen
 }
 
 struct Deletable {
@@ -549,6 +671,7 @@ struct Request {
     finish: bool,
     cancel: bool,
     history: Option<Action>,
+    chosen: Vec<Command>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -608,6 +731,8 @@ struct Bar<'a, 'b> {
     select_all: Result<(), String>,
     cancel: Result<(), String>,
     commands: &'a mut CommandFrame<'b>,
+    last_offers: &'a [commands::Offer],
+    toggles: ToggleStates,
     request: Request,
     compact: bool,
 }
@@ -694,24 +819,99 @@ impl Bar<'_, '_> {
     }
 
     fn group(&mut self, ui: &mut Ui, group: Group, packing: Packing) -> (Rect, f32) {
-        let caption = group.caption().filter(|_| !self.compact);
-        ribbon::captioned(ui, caption, packing.captions, |ui| {
-            self.content(ui, group, packing)
-        })
+        let Some(caption) = group.caption() else {
+            return ribbon::captioned(ui, None, packing.captions, |ui| {
+                self.tools(ui, group, packing).width
+            });
+        };
+        let title = (!self.compact).then(|| ribbon::caption_galley(ui, caption));
+        let name = group_menu_name(caption);
+        let contents =
+            format!("Every {caption} command of the sketch, the ones without a button included");
+        let menu = GroupMenu {
+            id: Id::new(("sketch-ribbon-group-menu", group)),
+            name: &name,
+            contents: &contents,
+        };
+        let (shown, trigger) = ribbon::menu_group(ui, title, packing.captions, &menu, |ui| {
+            self.tools(ui, group, packing)
+        });
+        if let Some(trigger) = trigger {
+            let entries = MenuEntries::new(self.last_offers, self.toggles, self.commands.keymap());
+            let chosen = ribbon::group_menu(&trigger, entries, |ui, entries| {
+                self.group_menu(ui, entries, group);
+            });
+            let active = Command::SketchTool(self.active.tool);
+            self.request
+                .chosen
+                .extend(chosen.into_iter().filter(|command| *command != active));
+        }
+        shown
     }
 
-    fn content(&mut self, ui: &mut Ui, group: Group, packing: Packing) -> f32 {
-        match group {
-            Group::Header => self.header(ui, packing),
-            Group::History => self.history_buttons(ui),
+    fn tools(&mut self, ui: &mut Ui, group: Group, packing: Packing) -> GroupTools {
+        let (width, host, compact_host) = match group {
+            Group::Header => {
+                let width = self.header(ui, packing);
+                (width, ui.min_rect(), true)
+            }
+            Group::History => {
+                let (width, host) = self.history_buttons(ui);
+                (width, host, true)
+            }
             Group::Select => {
                 let select = Tool::Select;
-                self.tool_button(ui, select, select.label()).rect.width()
+                let host = self.tool_button(ui, select, select.label()).rect;
+                (host.width(), host, self.compact)
             }
-            Group::Draw => self.drawing_tools(ui),
-            Group::Modify => self.edit_buttons(ui),
-            Group::Constrain => self.constraint_buttons(ui, false, GEOMETRIC_COLUMNS),
-            Group::Dimension => self.dimension_buttons(ui),
+            Group::Draw => {
+                let (width, host) = self.drawing_tools(ui);
+                (width, host, self.compact)
+            }
+            Group::Modify => {
+                let (width, host) = self.edit_buttons(ui);
+                (width, host, true)
+            }
+            Group::Constrain => {
+                let (width, host) = self.constraint_buttons(ui, false, GEOMETRIC_COLUMNS);
+                (width, host, true)
+            }
+            Group::Dimension => {
+                let (width, host) = self.dimension_buttons(ui);
+                (width, host, true)
+            }
+        };
+        GroupTools {
+            width,
+            host,
+            compact_host,
+        }
+    }
+
+    fn group_menu(&self, ui: &mut Ui, entries: &mut MenuEntries<'_>, group: Group) {
+        ribbon::menu_sections(
+            ui,
+            entries,
+            &menu_sections(group),
+            |ui, entries, command| {
+                self.menu_entry(ui, entries, command);
+            },
+        );
+    }
+
+    fn menu_entry(&self, ui: &mut Ui, entries: &mut MenuEntries<'_>, command: Command) {
+        if entries.history_item(ui, command, self.model) {
+            return;
+        }
+        let chosen = match command {
+            Command::SketchTool(tool) => Some(self.active.tool == tool),
+            Command::ShapeMode(mode) => Some(self.modes.of(mode.tool()) == Some(mode)),
+            Command::Construction => Some(self.active.construction),
+            _ => self.toggles.shown(command).map(|shown| shown.is_on()),
+        };
+        match chosen {
+            Some(chosen) => entries.marked(ui, command, chosen),
+            None => entries.item(ui, command),
         }
     }
 
@@ -719,7 +919,7 @@ impl Bar<'_, '_> {
         format!("Editing {}", self.feature.name)
     }
 
-    fn history_buttons(&mut self, ui: &mut Ui) -> f32 {
+    fn history_buttons(&mut self, ui: &mut Ui) -> (f32, Rect) {
         let steps = [
             (
                 Command::Undo,
@@ -747,9 +947,11 @@ impl Bar<'_, '_> {
                 if response.clicked() {
                     self.request.history = Some(action);
                 }
-                response.rect.width()
+                response.rect
             })
-            .fold(0.0, f32::max)
+            .fold((0.0, Rect::NOTHING), |(width, _), rect| {
+                (width.max(rect.width()), rect)
+            })
     }
 
     fn header_width(&self, ui: &Ui, compact: bool) -> f32 {
@@ -1007,7 +1209,7 @@ impl Bar<'_, '_> {
         }
     }
 
-    fn drawing_tools(&mut self, ui: &mut Ui) -> f32 {
+    fn drawing_tools(&mut self, ui: &mut Ui) -> (f32, Rect) {
         let shown: Vec<Tool> = Tool::ALL
             .into_iter()
             .filter(|tool| {
@@ -1016,21 +1218,29 @@ impl Bar<'_, '_> {
             .collect();
         let rows = if self.compact { COMPACT_DRAW_ROWS } else { 1 };
         let per_row = shown.len().div_ceil(rows).max(1);
-        shown
+        let mut host = Rect::NOTHING;
+        let width = shown
             .chunks(per_row)
             .map(|row| {
                 ui.horizontal_wrapped(|ui| {
                     row.iter()
-                        .map(|tool| self.drawing_button(ui, *tool))
+                        .map(|tool| {
+                            let button = self.drawing_button(ui, *tool);
+                            if *tool == DRAW_MENU_HOST {
+                                host = button;
+                            }
+                            button.width()
+                        })
                         .reduce(|total, width| total + ribbon::TOOL_GAP + width)
                         .unwrap_or_default()
                 })
                 .inner
             })
-            .fold(0.0, f32::max)
+            .fold(0.0, f32::max);
+        (width, host)
     }
 
-    fn drawing_button(&mut self, ui: &mut Ui, tool: Tool) -> f32 {
+    fn drawing_button(&mut self, ui: &mut Ui, tool: Tool) -> Rect {
         if let Some(group) = ToolGroup::of(tool) {
             return self.group_button(ui, group);
         }
@@ -1038,10 +1248,10 @@ impl Bar<'_, '_> {
         if let Some(mode) = self.modes.of(tool) {
             self.mode_menu(ui, mode, button);
         }
-        button.width()
+        button
     }
 
-    fn group_button(&mut self, ui: &mut Ui, group: &ToolGroup) -> f32 {
+    fn group_button(&mut self, ui: &mut Ui, group: &ToolGroup) -> Rect {
         let remembered = Id::new(group.id);
         let first = group.tools.first().copied().unwrap_or(Tool::Arc);
         let current = if group.tools.contains(&self.active.tool) {
@@ -1107,10 +1317,10 @@ impl Bar<'_, '_> {
             Some(GroupChoice::Way(mode)) => self.request.mode = Some(mode),
             None => {}
         }
-        button.width()
+        button
     }
 
-    fn edit_buttons(&mut self, ui: &mut Ui) -> f32 {
+    fn edit_buttons(&mut self, ui: &mut Ui) -> (f32, Rect) {
         if self.commands.invoke(Command::SplitCurve, &self.split) {
             self.request.split = true;
         }
@@ -1151,16 +1361,17 @@ impl Bar<'_, '_> {
             ) {
                 self.commands.trigger(Command::SelectAll);
             }
-            self.delete_button(ui);
+            self.delete_button(ui)
         });
-        first
+        let width = first
             .response
             .rect
             .width()
-            .max(second.response.rect.width())
+            .max(second.response.rect.width());
+        (width, second.inner)
     }
 
-    fn activity_button(&mut self, ui: &mut Ui) {
+    fn activity_button(&mut self, ui: &mut Ui) -> Rect {
         let availability = self
             .activity
             .map(|_| ())
@@ -1186,9 +1397,11 @@ impl Bar<'_, '_> {
                 &format!("{help}. {reason}"),
             )),
         };
-        if explained(response, label, &described).clicked() || invoked {
+        let response = explained(response, label, &described);
+        if response.clicked() || invoked {
             self.request.activity = true;
         }
+        response.rect
     }
 
     fn construction_button(&mut self, ui: &mut Ui) {
@@ -1228,7 +1441,7 @@ impl Bar<'_, '_> {
         explained(response, label, &help).clicked()
     }
 
-    fn delete_button(&mut self, ui: &mut Ui) {
+    fn delete_button(&mut self, ui: &mut Ui) -> Rect {
         let invoked = self
             .commands
             .invoke(Command::DeleteSelection, &self.deletable);
@@ -1246,9 +1459,10 @@ impl Bar<'_, '_> {
         if response.clicked() || invoked {
             self.request.delete = true;
         }
+        response.rect
     }
 
-    fn constraint_buttons(&mut self, ui: &mut Ui, dimensions: bool, columns: usize) -> f32 {
+    fn constraint_buttons(&mut self, ui: &mut Ui, dimensions: bool, columns: usize) -> (f32, Rect) {
         let offers = self.offers;
         let (off_ribbon, offers): (Vec<&Offer>, Vec<&Offer>) = offers
             .iter()
@@ -1261,22 +1475,24 @@ impl Bar<'_, '_> {
                 self.request.constraints = Some((*tool, constraints.clone()));
             }
         }
-        offers
+        let mut host = Rect::NOTHING;
+        let width = offers
             .chunks(columns.max(1))
             .map(|row| {
                 ui.horizontal_top(|ui| {
                     for (tool, offer) in row {
-                        self.constraint_button(ui, *tool, offer);
+                        host = self.constraint_button(ui, *tool, offer);
                     }
                 })
                 .response
                 .rect
                 .width()
             })
-            .fold(0.0, f32::max)
+            .fold(0.0, f32::max);
+        (width, host)
     }
 
-    fn dimension_buttons(&mut self, ui: &mut Ui) -> f32 {
+    fn dimension_buttons(&mut self, ui: &mut Ui) -> (f32, Rect) {
         let offers: Vec<&Offer> = self
             .offers
             .iter()
@@ -1293,9 +1509,10 @@ impl Bar<'_, '_> {
             for (tool, offer) in second {
                 self.constraint_button(ui, *tool, offer);
             }
-            self.activity_button(ui);
+            self.activity_button(ui)
         });
-        top.response.rect.width().max(bottom.response.rect.width())
+        let width = top.response.rect.width().max(bottom.response.rect.width());
+        (width, bottom.inner)
     }
 
     fn constraint_button(
@@ -1303,7 +1520,7 @@ impl Bar<'_, '_> {
         ui: &mut Ui,
         tool: ConstraintTool,
         offer: &Result<Vec<Constraint>, String>,
-    ) {
+    ) -> Rect {
         let command = Command::Constraint(tool);
         let invoked = self.commands.invoke(command, offer);
         let button = ToolButton::new(icons::constraint(tool), tool.label()).compact();
@@ -1320,6 +1537,7 @@ impl Bar<'_, '_> {
         {
             self.request.constraints = Some((tool, constraints.clone()));
         }
+        response.rect
     }
 
     fn finish(&mut self, ui: &mut Ui, width_id: Id, beside: Beside) {

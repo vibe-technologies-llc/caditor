@@ -65,7 +65,7 @@ use crate::{
     model::{Action, FileEvent, Model, Notice, RecomputeStatus, WakerFactory, display_name},
     onboarding,
     portal::{self, DialogError, FileRequest, Filter, Mode},
-    preferences::PreferencesCommand,
+    preferences::{self, Choice, PreferencesCommand, RecentListed, Startup},
     samples::Sample,
     scene_palette::Canvas,
     sketch_placement::FaceChoice,
@@ -1068,6 +1068,9 @@ pub struct Files {
     templates: Templates,
     themes: UserThemes,
     default_template: Option<String>,
+    recent_listed: RecentListed,
+    startup: Startup,
+    open_last: bool,
     parameter_import: Option<ParameterImportDraft>,
     image_target: Option<ImageTarget>,
     configuration_import: Option<ConfigurationImportDraft>,
@@ -1125,6 +1128,9 @@ impl Files {
             templates,
             themes,
             default_template: None,
+            recent_listed: RecentListed::default(),
+            startup: Startup::default(),
+            open_last: false,
             parameter_import: None,
             image_target: None,
             configuration_import: None,
@@ -1157,6 +1163,7 @@ impl Files {
         );
         self.list_templates(None, model);
         self.list_themes();
+        self.open_last = open.is_none() && self.startup == Startup::LastModel;
         match open {
             Some(path) if is_importable_file(&path) => self.dropped(vec![path], None, model),
             Some(path) => self.perform(FileCommand::OpenPath(path), model),
@@ -1221,7 +1228,8 @@ impl Files {
     }
 
     pub fn recent(&self) -> &[PathBuf] {
-        self.recent.paths()
+        let paths = self.recent.paths();
+        paths.get(..self.recent_listed.count()).unwrap_or(paths)
     }
 
     pub fn is_missing(&self, path: &Path) -> bool {
@@ -1923,6 +1931,7 @@ impl Files {
                     }
                     self.offer(recovered, false);
                 }
+                self.open_last_model(model);
             }
             Event::Opened {
                 path,
@@ -2673,6 +2682,21 @@ impl Files {
         }
     }
 
+    fn open_last_model(&mut self, model: &mut Model) {
+        let wanted = std::mem::take(&mut self.open_last);
+        let untouched = model.path().is_none() && !model.is_dirty() && self.opening.is_none();
+        if !wanted || !untouched || !self.recoverable.is_empty() {
+            return;
+        }
+        if let Some(last) = self.recent.paths().first().cloned() {
+            log::info!(
+                "opening the last model, {}, as Preferences ask",
+                last.display()
+            );
+            self.perform(FileCommand::OpenPath(last), model);
+        }
+    }
+
     fn offer(&mut self, recovered: Recovered, open_file_on_discard: bool) {
         self.recovery_open = true;
         log::info!(
@@ -3243,11 +3267,18 @@ impl Files {
 
     pub fn settings_loaded(&mut self, settings: Settings) {
         self.read_default_template(&settings);
+        self.read_habits(&settings);
         self.stored_settings = Some(settings);
+    }
+
+    fn read_habits(&mut self, settings: &Settings) {
+        self.recent_listed = RecentListed::read(settings, preferences::RECENT_LISTED_KEY);
+        self.startup = Startup::read(settings, preferences::STARTUP_KEY);
     }
 
     pub fn store_settings(&mut self, settings: Settings) {
         self.read_default_template(&settings);
+        self.read_habits(&settings);
         let Some(config_dir) = self.config.config_dir.clone() else {
             return;
         };

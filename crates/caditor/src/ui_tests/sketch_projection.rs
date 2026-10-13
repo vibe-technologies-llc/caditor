@@ -27,7 +27,8 @@ fn the_project_tool_brings_a_face_outline_into_the_sketch_and_follows_the_keyboa
 
     assert_eq!(harness.tool(), Some(Tool::Project));
     assert!(harness.shows(
-        "Click an edge, corner or face of a body, or a curve of another sketch, to project it"
+        "Click an edge, corner or face of a body, a curve or point of another sketch, an axis, a \
+         datum point or the origin, to project it"
     ));
 
     harness.click_pickable(Plane::XY, Point2::new(20.0, 20.0), top);
@@ -211,4 +212,89 @@ fn the_intersect_tool_draws_where_a_principal_plane_crosses_the_sketch() {
     harness.settle();
 
     assert!(harness.shows_containing(crate::projecting::ALREADY_INTERSECTED));
+}
+
+#[test]
+fn the_project_tool_brings_in_the_principal_axes_the_origin_and_datum_points() {
+    let mut harness = Harness::new();
+    let mut transaction = harness.document().transaction("Spot");
+    let offset = ["7 mm", "3 mm", "4 mm"].map(|text| harness.document().parse(text).unwrap());
+    let spot = transaction.add_feature(
+        "Spot",
+        FeatureKind::Datum(caditor_document::Datum::Point(
+            caditor_document::DatumPoint {
+                base: caditor_document::PointReference::Origin,
+                offset,
+            },
+        )),
+    );
+    harness.perform(Action::Apply(transaction.finish()));
+    harness.settle();
+    let across = Plane::from_frame(Point3::new(0.0, 20.0, 0.0), -Vector3::Y, Vector3::X).unwrap();
+    let sketch = harness.add_sketch(Sketch::new(across));
+    harness.edit(sketch);
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    let offered = |harness: &mut Harness, wanted: Pickable| {
+        harness
+            .built()
+            .picks
+            .pickables()
+            .any(|pickable| pickable == wanted)
+    };
+    let x_axis = Pickable::Axis(crate::selection::Axis::X);
+
+    assert!(!offered(&mut harness, x_axis));
+
+    harness.use_tool_with(Key::P, Modifiers::ALT);
+
+    assert!(offered(&mut harness, x_axis));
+    assert!(offered(&mut harness, Pickable::Origin));
+    assert!(offered(&mut harness, Pickable::Datum(spot)));
+
+    harness.click_pickable(across, Point2::new(5.0, 0.0), x_axis);
+    harness.settle();
+    let line = harness
+        .sketch(sketch)
+        .projected()
+        .find(|id| matches!(harness.shown(sketch).entity(*id), Some(Entity::Line { .. })))
+        .expect("the X axis is projected as a line");
+    let (start, end) = harness.shown(sketch).line_endpoints(line).unwrap();
+
+    assert_eq!(harness.model.undo_label(), Some("Project the X axis"));
+    assert!(across.to_world(start).z.abs() < 1e-9 && across.to_world(end).z.abs() < 1e-9);
+    assert!((across.to_world(start).x - across.to_world(end).x).abs() > 1.0);
+
+    harness.click_pickable(across, Point2::ZERO, Pickable::Origin);
+    harness.settle();
+
+    assert_eq!(harness.model.undo_label(), Some("Project the origin"));
+
+    harness.click_pickable(across, Point2::new(7.0, 4.0), Pickable::Datum(spot));
+    harness.settle();
+    let shown = harness.shown(sketch);
+    let points: Vec<Point3> = harness
+        .sketch(sketch)
+        .projected()
+        .filter(|id| shown.entities_using(*id).is_empty())
+        .filter_map(|id| shown.point(id))
+        .map(|at| across.to_world(at))
+        .collect();
+
+    assert_eq!(harness.model.undo_label(), Some("Project Spot"));
+    assert!(
+        points
+            .iter()
+            .any(|point| point.distance(Point3::new(0.0, 20.0, 0.0)) < 1e-9)
+    );
+    assert!(
+        points
+            .iter()
+            .any(|point| point.distance(Point3::new(7.0, 20.0, 4.0)) < 1e-9)
+    );
+
+    harness.click_pickable(across, Point2::new(5.0, 0.0), x_axis);
+    harness.settle();
+
+    assert!(harness.shows_containing(crate::projecting::ALREADY_PROJECTED));
 }

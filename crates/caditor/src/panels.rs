@@ -17,6 +17,7 @@ use crate::{
     model::{Action, Model},
     new_sketch_panel,
     parameter_table::{self, NoteDraft, ParameterUses},
+    preferences::DoubleClick,
     reference_rows::RowCache,
     selection::{Pickable, Selection},
     sketch_toolbar::ConstraintOffers,
@@ -104,6 +105,7 @@ struct PendingFocus {
 #[derive(Debug, Clone, Default)]
 pub struct PanelState {
     focus: Option<PendingFocus>,
+    pub double_click: DoubleClick,
     pub renaming: Option<Renaming>,
     pub renaming_group: Option<Renaming>,
     pub opened_for_editing: Option<FeatureId>,

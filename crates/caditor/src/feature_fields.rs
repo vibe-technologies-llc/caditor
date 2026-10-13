@@ -1,5 +1,5 @@
 use caditor_document::{
-    AxisReference, Document, FeatureId, MAX_CONE_ANGLE, MAX_MATE_ANGLE_DEGREES,
+    AxisReference, BodyOperation, Document, FeatureId, MAX_CONE_ANGLE, MAX_MATE_ANGLE_DEGREES,
     MAX_PATTERN_INSTANCES, MAX_PRISM_SIDES, MIN_PRISM_SIDES, ParameterOwner, Transaction,
     capitalized, describe_axis,
 };
@@ -393,6 +393,88 @@ pub fn combo<T>(
         }
     });
     chosen
+}
+
+pub fn operation_name(operation: BodyOperation) -> &'static str {
+    match operation {
+        BodyOperation::NewBody => "New body",
+        BodyOperation::Add(_) => "Add to body",
+        BodyOperation::Remove(_) => "Remove from body",
+        BodyOperation::Intersect(_) => "Intersect with body",
+    }
+}
+
+pub struct OperationRows {
+    pub feature: FeatureId,
+    pub operation: BodyOperation,
+    pub ids: (&'static str, &'static str),
+}
+
+pub fn body_operation_rows(
+    ui: &mut Ui,
+    model: &Model,
+    rows: &OperationRows,
+    change: impl Fn(BodyOperation) -> Result<Transaction, String>,
+) -> Vec<Action> {
+    let OperationRows {
+        feature,
+        operation,
+        ids: (operation_id, body_id),
+    } = *rows;
+    let mut actions = Vec::new();
+    let document = model.document();
+    let bodies = document.bodies_before(feature);
+    let target = operation.target().or(bodies.last().copied());
+    widgets::caption(ui, "Result");
+    let candidates = [
+        Some(BodyOperation::NewBody),
+        target.map(BodyOperation::Add),
+        target.map(BodyOperation::Remove),
+        target.map(BodyOperation::Intersect),
+    ];
+    let chosen = combo(
+        ui,
+        Id::new((operation_id, feature)),
+        operation_name(operation),
+        || {
+            candidates
+                .into_iter()
+                .flatten()
+                .map(|candidate| Choice {
+                    label: operation_name(candidate).to_owned(),
+                    selected: operation_name(candidate) == operation_name(operation),
+                    change: change(candidate).map(Action::Apply),
+                })
+                .collect()
+        },
+    );
+    ui.end_row();
+    actions.extend(chosen);
+    let Some(target) = operation.target() else {
+        return actions;
+    };
+    widgets::caption(ui, "Body");
+    let name = feature_name(document, target);
+    let chosen = ui
+        .horizontal(|ui| {
+            let text = combo_text(ui, name, MISSING_BODY);
+            combo(ui, Id::new((body_id, feature)), text, || {
+                bodies
+                    .iter()
+                    .filter_map(|body| {
+                        Some(Choice {
+                            label: document.feature(*body)?.name.clone(),
+                            selected: *body == target,
+                            change: change(operation.with_target(*body)).map(Action::Apply),
+                        })
+                    })
+                    .collect()
+            })
+        })
+        .inner;
+    ui.end_row();
+    actions.extend(chosen);
+    actions
 }
 
 pub struct Segment<'a> {

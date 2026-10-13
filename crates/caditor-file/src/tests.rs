@@ -1638,8 +1638,8 @@ fn with_added_kinds(mut document: Document) -> (Document, AddedKinds) {
     ]);
     let rider = sketch.add_point(Point2::new(10.0, 35.0));
     let mut add = |constraint| sketch.add_constraint(constraint).unwrap();
-    add(Constraint::HorizontalPoints(start, end));
-    add(Constraint::VerticalPoints(start, EntityId::ORIGIN));
+    add(Constraint::HorizontalPoints(start, end.into()));
+    add(Constraint::VerticalPoints(start, EntityId::ORIGIN.into()));
     add(Constraint::Midpoint {
         point: middle,
         curve: line,
@@ -1762,6 +1762,122 @@ fn ellipses_and_their_radii_round_trip_and_older_readers_report_them() {
     assert!(reported.contains("(elliptical_curl)"), "{reported}");
     assert!(reported.contains("(major_reach)"), "{reported}");
     assert!(reported.contains("(on_minor_ray)"), "{reported}");
+}
+
+fn tracked_sketch() -> Sketch {
+    use caditor_sketch::{EllipseEnd, PointTarget, Quadrant};
+
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::ZERO, Point2::new(20.0, 10.0));
+    let other = sketch.add_line(Point2::new(0.0, 10.0), Point2::new(20.0, 0.0));
+    let circle = sketch.add_circle(Point2::new(40.0, 0.0), 5.0);
+    let arc = sketch.add_arc(
+        Point2::new(60.0, 0.0),
+        Point2::new(65.0, 0.0),
+        Point2::new(55.0, 0.0),
+    );
+    let ellipse = sketch.add_ellipse(Point2::new(80.0, 0.0), Point2::new(90.0, 5.0), 4.0);
+    let corners = vec![
+        sketch.add_point(Point2::new(0.0, 30.0)),
+        sketch.add_point(Point2::new(15.0, 30.0)),
+        sketch.add_point(Point2::new(5.0, 45.0)),
+    ];
+    let held = |sketch: &mut Sketch, made: &dyn Fn(EntityId) -> Constraint| {
+        let point = sketch.add_point(Point2::new(100.0, 50.0));
+        sketch.add_constraint(made(point)).unwrap();
+    };
+    let targets = [
+        PointTarget::Point(corners[0]),
+        PointTarget::Middle(line),
+        PointTarget::Middle(arc),
+        PointTarget::Crossing(line, other),
+        PointTarget::Crossing(circle, EntityId::HORIZONTAL_AXIS),
+        PointTarget::Centroid(corners.clone()),
+        PointTarget::Quadrant {
+            curve: circle,
+            side: Quadrant::Right,
+        },
+        PointTarget::Quadrant {
+            curve: arc,
+            side: Quadrant::Top,
+        },
+        PointTarget::Quadrant {
+            curve: circle,
+            side: Quadrant::Left,
+        },
+        PointTarget::Quadrant {
+            curve: circle,
+            side: Quadrant::Bottom,
+        },
+    ]
+    .into_iter()
+    .chain(EllipseEnd::ALL.map(|end| PointTarget::EllipseEnd { ellipse, end }));
+    for (index, target) in targets.enumerate() {
+        held(&mut sketch, &|point| match index % 4 {
+            0 => Constraint::HorizontalPoints(point, target.clone()),
+            1 => Constraint::VerticalPoints(point, target.clone()),
+            2 => Constraint::OnDirection {
+                point,
+                through: target.clone(),
+                line: other,
+                square: false,
+            },
+            _ => Constraint::OnDirection {
+                point,
+                through: target.clone(),
+                line,
+                square: true,
+            },
+        });
+    }
+    held(&mut sketch, &|point| Constraint::Centroid {
+        point,
+        corners: corners.clone(),
+    });
+    held(&mut sketch, &|point| {
+        Constraint::HorizontalPoints(point, PointTarget::Middle(other))
+    });
+    held(&mut sketch, &|point| {
+        Constraint::VerticalPoints(point, PointTarget::Crossing(other, circle))
+    });
+    sketch
+}
+
+#[test]
+fn constraints_holding_points_at_targets_round_trip_and_older_readers_report_them() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Tracks");
+    transaction.add_feature("Tracked", FeatureKind::from(tracked_sketch()));
+    document.apply(transaction.finish()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let older = decode_text(
+        &text
+            .replace("\"horizontal_through\"", "\"horizontal_beyond\"")
+            .replace("\"vertical_through\"", "\"vertical_beyond\"")
+            .replace("\"on_direction\"", "\"on_heading\"")
+            .replace("\"centroid\"", "\"centre_of_mass\""),
+    );
+
+    assert!(text.contains("\"horizontal_points\""), "{text}");
+    assert!(text.contains("\"quadrant\""), "{text}");
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    let reported = older.issues.join(" ");
+    for kind in [
+        "horizontal_beyond",
+        "vertical_beyond",
+        "on_heading",
+        "centre_of_mass",
+    ] {
+        assert!(
+            reported.contains(&format!(
+                "a constraint of a kind this version of caditor does not know ({kind})"
+            )),
+            "{reported}"
+        );
+    }
 }
 
 #[test]
@@ -4225,6 +4341,69 @@ fn an_unreadable_edge_of_a_sweep_path_is_left_out_and_reported() {
     let restored = loaded.document.feature(along_edges).unwrap();
     let path = restored.kind.solid().unwrap().path().unwrap();
     assert!(path.is_empty());
+}
+
+fn pipe_model() -> (Document, FeatureId) {
+    use caditor_document::{BodyOperation, Pipe, SweepPath};
+    use caditor_kernel::PipeShape;
+    let (mut document, base, _) = solid_model();
+    let parse = |text: &str| Expression::parse_stored(text).unwrap();
+    let mut transaction = document.transaction("Pipes");
+    let mut path = Sketch::new(Plane::XY);
+    let first = path.add_line(Point2::ZERO, Point2::new(20.0, 0.0));
+    let second = path.add_line(Point2::new(20.0, 0.0), Point2::new(20.0, 30.0));
+    let path = transaction.add_feature("Pipe path", FeatureKind::from(path));
+    let pipe = transaction.add_feature(
+        "Pipe 1",
+        FeatureKind::Pipe(Pipe {
+            shape: PipeShape::Triangle,
+            wall: Some(parse("0.5 mm")),
+            operation: BodyOperation::Add(base),
+            ..Pipe::new(
+                SweepPath::Curves {
+                    sketch: path,
+                    curves: vec![first, second],
+                },
+                parse("4 mm"),
+                parse("6 mm"),
+            )
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    (document, pipe)
+}
+
+#[test]
+fn pipes_are_saved_and_loaded_as_a_record_of_their_own() {
+    let (document, _) = pipe_model();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+
+    assert!(text.contains("\"pipe\":{"), "{text}");
+    assert!(text.contains("\"shape\":\"triangle\""), "{text}");
+    assert!(text.contains("\"wall\":\"0.5 mm\""), "{text}");
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+}
+
+#[test]
+fn an_unreadable_bend_radius_of_a_pipe_loads_as_sharp_corners_and_is_reported() {
+    let (document, pipe) = pipe_model();
+    let text = encode(&document)
+        .unwrap()
+        .replacen("\"bend\":\"6 mm\"", "\"bend\":\"6 (\"", 1);
+
+    let loaded = decode_text(&text);
+    let restored = loaded.document.feature(pipe).unwrap().kind.pipe().unwrap();
+
+    assert_eq!(loaded.issues.len(), 1, "{:?}", loaded.issues);
+    assert!(
+        loaded.issues[0].contains("bend radius"),
+        "{:?}",
+        loaded.issues
+    );
+    assert_eq!(restored.bend, Expression::parse_stored("0 mm").unwrap());
 }
 
 fn primitive_model() -> (Document, FeatureId, FeatureId) {
@@ -8711,6 +8890,82 @@ fn intersected_geometry_and_its_sources_survive_saving_and_the_journal() {
     assert!(sketch.is_projected(cut) && sketch.is_projected(along) && sketch.is_projected(level));
     assert_eq!(format::restore_transaction(journaled), Some(change));
     assert_eq!(format::restore_transaction(undone), Some(undo));
+}
+
+#[test]
+fn projected_datum_axes_points_principal_axes_and_the_origin_survive_saving_and_the_journal() {
+    let mut document = sample();
+    let side = named(&document, "Side sketch");
+    let mut transaction = document.transaction("Project");
+    let post = transaction.add_projection(
+        side,
+        caditor_document::ProjectionSource::DatumAxis {
+            datum: FeatureId::from_raw(92),
+            reach: 30.0,
+        },
+        &caditor_document::Outline::Line {
+            start: Point2::new(5.0, -30.0),
+            end: Point2::new(5.0, 30.0),
+        },
+    );
+    let across = transaction.add_projection(
+        side,
+        caditor_document::ProjectionSource::PrincipalAxis {
+            axis: caditor_document::PrincipalAxis::X,
+            reach: 45.0,
+        },
+        &caditor_document::Outline::Line {
+            start: Point2::new(-45.0, 0.0),
+            end: Point2::new(45.0, 0.0),
+        },
+    );
+    let spot = transaction.add_projection(
+        side,
+        caditor_document::ProjectionSource::DatumPoint {
+            datum: FeatureId::from_raw(93),
+        },
+        &caditor_document::Outline::Point(Point2::new(7.0, 2.0)),
+    );
+    let origin = transaction.add_projection(
+        side,
+        caditor_document::ProjectionSource::Origin,
+        &caditor_document::Outline::Point(Point2::ZERO),
+    );
+    let change = transaction.finish();
+    let undo = document.apply(change.clone()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let journaled: format::TransactionRecord =
+        through_binary(&serde_json::to_string(&format::transaction_record(&change)).unwrap());
+    let undone: format::TransactionRecord =
+        through_binary(&serde_json::to_string(&format::transaction_record(&undo)).unwrap());
+    let sketch = loaded
+        .document
+        .feature(side)
+        .and_then(|feature| feature.kind.sketch())
+        .unwrap();
+
+    assert!(text.contains("\"datum_axis\""), "{text}");
+    assert!(text.contains("\"principal_axis\""), "{text}");
+    assert!(text.contains("\"datum_point\""), "{text}");
+    assert!(text.contains("\"source\":\"origin\""), "{text}");
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert!(
+        [post, across, spot, origin]
+            .iter()
+            .all(|id| sketch.is_projected(*id))
+    );
+    assert_eq!(format::restore_transaction(journaled), Some(change));
+    assert_eq!(format::restore_transaction(undone), Some(undo));
+
+    let older = decode_text(&text.replacen("\"datum_axis\"", "\"hologram\"", 1));
+
+    assert!(issues_mention(
+        &older,
+        "the source of projected geometry could not be read"
+    ));
 }
 
 #[test]

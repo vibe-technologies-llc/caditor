@@ -18,6 +18,9 @@ mod spline;
 mod spline_kind_tests;
 mod system;
 pub(crate) mod tally;
+mod target;
+#[cfg(test)]
+mod target_tests;
 #[cfg(test)]
 mod tests;
 mod witness;

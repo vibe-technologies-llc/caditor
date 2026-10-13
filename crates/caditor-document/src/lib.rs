@@ -38,6 +38,7 @@ mod pattern;
 mod pattern_path;
 mod picture;
 mod pieces;
+mod pipe;
 mod pool;
 mod presenting;
 mod primitive;
@@ -151,13 +152,14 @@ pub use crate::{
         sniff_picture,
     },
     pieces::{Resolution, Unresolved},
+    pipe::{PIPE_SHAPE, Pipe, shape_name as pipe_shape_name, size_name as pipe_size_name},
     primitive::{
         Cap, MAX_PRISM_SIDES, MIN_PRISM_SIDES, Primitive, PrimitiveAnchor, PrimitiveKind,
         PrimitiveShape, SizeRule,
     },
     projection::{
-        Outline, PROJECTED_SPLINE_POINTS, Projected, ProjectionSource, edge_outline,
-        sketch_outline, vertex_outline,
+        Outline, PROJECTED_SPLINE_POINTS, Projected, ProjectionSource, axis_outline, edge_outline,
+        point_outline, sketch_outline, vertex_outline,
     },
     properties::{
         MAX_DESCRIPTION_CHARS, MAX_MODEL_NOTES_CHARS, MAX_PROPERTY_CHARS, ModelProperties,
@@ -267,6 +269,8 @@ mod paste_tests;
 mod pattern_path_tests;
 #[cfg(test)]
 mod pattern_tests;
+#[cfg(test)]
+mod pipe_tests;
 #[cfg(test)]
 mod presenting_tests;
 #[cfg(test)]
@@ -1261,7 +1265,7 @@ mod tests {
             })
             .unwrap();
         let level = sketch
-            .add_constraint(Constraint::HorizontalPoints(point, EntityId::ORIGIN))
+            .add_constraint(Constraint::HorizontalPoints(point, EntityId::ORIGIN.into()))
             .unwrap();
         let diameter = sketch
             .add_constraint(Constraint::Diameter {

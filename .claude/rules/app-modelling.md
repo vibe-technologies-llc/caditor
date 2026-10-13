@@ -4,6 +4,8 @@ paths:
   - "crates/caditor/src/body_reach.rs"
   - "crates/caditor/src/solid_panel.rs"
   - "crates/caditor/src/sweep_tools.rs"
+  - "crates/caditor/src/pipe_tools.rs"
+  - "crates/caditor/src/pipe_panel.rs"
   - "crates/caditor/src/blend_tools.rs"
   - "crates/caditor/src/blend_panel.rs"
   - "crates/caditor/src/shell_tools.rs"
@@ -72,10 +74,10 @@ paths:
 # Modelling tools in the app
 
 Tools without a ribbon button (it stays one row) live in the Model menu and the palette: Offset face,
-Split face, the primitives, Thread, Copy body, Split body, Mate body, Mirror faces, Curve and Point
+Split face, the primitives, Pipe, Thread, Copy body, Split body, Mate body, Mirror faces, Curve and Point
 pattern, Coordinate system, Scale model and Configurations. Sweep has a button in the Solid group
 and a Model menu row, and is in the right-click menu of selected sketch curves
-(`view_menu::SKETCH_TOOLS`). Panel rows, keys and wordings are in the
+(`view_menu::SKETCH_TOOLS`), as Pipe is. Panel rows, keys and wordings are in the
 `*_panel.rs` files; this file holds the behaviour behind them.
 
 ## Preview while open
@@ -413,6 +415,25 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
 - It has no arrows or values; Reverse direction refuses it (it follows its path from the profile)
   and `body_reach` decides nothing for it.
 
+## Pipe
+
+- `Command::Pipe` (Alt+Shift+I, `pipe_tools.rs`, `Offers::pipe`; Solid group menu, Model menu,
+  palette, `view_menu::SKETCH_TOOLS`) makes a `Pipe` of `DEFAULT_SIZE` round, solid, with a
+  `DEFAULT_BEND` radius, and opens it. `pipe_tools::source` takes the selected path curves of one
+  sketch (`sweep_tools::is_path_curve`) or edges of one body in pick order, refusing a mix, two
+  sketches or two bodies in words (`sweep_tools::SEVERAL_SKETCHES`, `CURVES_AND_EDGES`,
+  `PATH_EDGES_OF_SEVERAL_BODIES`); along edges it adds to their body, else it is a new body. With
+  nothing selected it opens choosing its path (`Slot::SweepPath`) and waits (`MissingInput::Path`).
+- The path is chosen and toggled as a sweep's (`sweep_tools::selected_path`, `toggled_path` with no
+  profile sketch to leave out; `reference_picking::change` routes `Slot::SweepPath` of a `Pipe` to
+  `pipe_tools::path_change`).
+- Panel (`pipe_panel.rs`): Path as a sweep's, Section (`PipeShape` Round, Square, Triangle,
+  segmented), the size captioned by `pipe_size_name` (Diameter, Width, Side length), Wall (Solid,
+  Hollow; Hollow sets `DEFAULT_WALL` and shows Wall thickness), Bend radius (zero or more) and the
+  shared Result and Body rows (`feature_fields::body_operation_rows`, which the primitive panel
+  uses too). Fields are keyed `("pipe-field", feature, "size" | "wall" | "bend")`. It has no arrows
+  and Reverse direction refuses it.
+
 ## Fillets, chamfers and shells
 
 - Fillet, Chamfer and Shell take the selected edges (or faces) of one body and create a feature
@@ -547,11 +568,14 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
 - The panel places the holes while the sketch reads as a placement (`hole_placement::read`): only free
   points, each held by nothing (free, optionally by a `HorizontalDistance` and `VerticalDistance` from
   the sketch origin, `PlacedHole::along`), by `Distance` constraints to at most `MAX_EDGES` projected
-  straight edges, or by a `Coincident` with the centre of one projected round edge, every projection an
-  edge of a body (`ProjectionSource::Edge`, an `EdgeReference`) used by exactly one of those
-  constraints. The placement lives wholly in the hidden sketch (no record added, the file format is the
-  sketch's) and the hole follows those edges as any projection does. A sketch drawn otherwise is placed
-  by editing it, Placed on then only naming its face.
+  lines, by a `Coincident` with the centre of one projected circle or arc (`Anchor::Concentric`), or
+  projected itself from a point (`Anchor::At`: the hole's own point carries the source, since a
+  sketch point cannot be construction and a second projected point would be drilled too). Every
+  projection is a body's edge or corner, a curve or point of an earlier sketch, a datum or principal
+  axis, a datum point or the origin (`places_holes`; sections and plane lines are not), each curve
+  used by exactly one of those constraints. The placement lives wholly in the hidden sketch (no
+  record added, the file format is the sketch's) and the hole follows its sources as any projection
+  does. A sketch drawn otherwise is placed by editing it, Placed on then only naming its face.
 - Placed on names the face the sketch lies on; while the sketch holds one point and no constraint
   (`hole_tools::lone_point`) it also has Use selected or Choose in the view (`Slot::HolePlace`): a click
   on a flat face while choosing (`hole_tools::place_click`, routed by `pick_action` with the pointer's
@@ -574,19 +598,25 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
 - A hole held by edges or Concentric has no Use selected under Placed on (that takes only
   `hole_tools::lone_point` sketches) and no place arrows along x and y (see the last bullet of this
   section for its handles). One measured from edges has a Measured from row
-  per edge (`edge_words`, Stop measuring from this edge, `released`) and its Distance (key
-  `hole-edge-distance`, previewed, one "Move <hole>" `SetDimension`). One centred on an edge has
-  Concentric with and a Stop centring row. Place by offers From an edge (`Slot::HoleEdge(point)`, while
-  fewer than two edges hold it and it is not centred) and Concentric (`Slot::HoleConcentric(point)`),
-  each applying at once when the one selected edge gives a change, else choosing in the view.
-  - From an edge (`hole_placement::edge_change`) projects a straight edge of a body seen by the sketch
-    as construction (`add_projected`) and adds a `Distance` from the point at its measured value in the
-    model's unit, refusing in words an edge made after the sketch, a curved one, one square to the face,
-    the same edge, one parallel to the first, a centre lying on the edge, a third edge and a centred
-    hole.
+  per edge or axis (`source_words`, Stop measuring from this edge or axis, `released`) and its
+  Distance (key `hole-edge-distance`, previewed, one "Move <hole>" `SetDimension`). One centred on
+  something has Concentric with and a Stop centring row (`unpinned` for a point). Place by offers
+  From an edge (`Slot::HoleEdge(point)`, while fewer than two hold it and it is not centred) and
+  Concentric (`Slot::HoleConcentric(point)`), each applying at once when the one selected item gives a
+  change, else choosing in the view.
+  - What a slot takes (`hole_placement::projected`): the one selected edge of a body (seen by the
+    sketch, refused in the hole's own words when made after it), else a corner, a curve or point of an
+    earlier sketch, a datum axis or point, a principal axis or the origin, projected into the hole's
+    sketch by `projecting::projections_of` (the Project tool's, axes reaching across the shown
+    bodies), which refuses later features and datum planes in words.
+  - From an edge (`hole_placement::edge_change`) projects a line (a straight edge, a sketch line or
+    an axis) as construction (`add_projected`) and adds a `Distance` from the point at its measured
+    value in the model's unit, refusing in words a curved one, one square to the face, the same one,
+    one parallel to the first, a centre lying on it, a third and a centred hole.
   - Concentric (`concentric_change`) projects a circle or arc as construction (drilling and sizing
-    nothing), moves the point to its centre and adds the `Coincident`, replacing whatever held the
-    point, in one "Make <hole> concentric with an edge" change.
+    nothing), moves the point to its centre and adds the `Coincident` ("Make <hole> concentric with an
+    edge"), or for a point moves the hole's point there and gives it the point's source ("Make <hole>
+    centred on a point"), replacing whatever held the point, in one change.
 - While a hole of one free point is open (nothing being chosen), its centre carries handles on the face
   (`place_handles.rs`, `Manipulator::Place`): a square to drag it anywhere on the face and an arrow
   along the sketch plane's x and y (`PlaceGrip`), in `ScenePalette::handle` at `ARROW_SHARE` of the move
@@ -599,7 +629,12 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   (`HoleGrip::Square(point)`) and, on a point measured from edges, an arrow per `Distance`
   (`HoleGrip::Distance(constraint)`) standing at the point and pointing along the edge's normal
   away from the edge (`leaving`, read off the solved sketch of the draft's evaluation while one is
-  shown); a point centred on an edge has none. A drag is a `place_handles::Slide` (shared with
+  shown); a point centred on an edge has none. A point measured from exactly one edge also has an
+  arrow along that edge (`HoleGrip::Along(point)`, `running`) sliding it along it: the `Slide`
+  runs on the edge's direction with no least value, and release commits one "Move <hole>"
+  `SetSketchEntity` of the point (`hole_placement::slid`), the distance constraint untouched, so the
+  solver keeps the distance. It is never driven (a point with edges has no origin dimensions) and
+  takes no typed value. A drag is a `place_handles::Slide` (shared with
   `PlaceDrag`: a plane or a line, steps, Ctrl free, snapping to corners, edge middles and round
   centres, the arrow also kept at least one step from the edge) committed on release as one "Move
   <hole>" change: the square through `hole_placement::positioned` with the moved axes as measured
@@ -628,13 +663,20 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
     the side of a slot; not when sized by circles; dragging makes the size Custom). A counterbore's
     Diameter (its mouth) and Depth (down its wall, opposite the bore's arrow); a countersink's Diameter
     (its mouth) and Angle (an arrow down the bore wall at the foot of the cone, so dragging the foot
-    deeper narrows the cone); a slot's Length (its tip) and Angle (a turn arrow at the other tip); a
+    deeper narrows the cone); a stepped hole's Step n diameter (at the step's mouth, on the rim
+    diagonal at the level its wall starts, the sum of the depths above) and Step n depth (down the
+    step's wall, opposite, `Measured::StepDiameter`, `StepDepth`, captions `hole_panel::step_diameter_caption`
+    and `step_depth_caption`); a slot's Length (its tip) and Angle (a turn arrow at the other tip); a
     tapped hole's Thread depth (down the bore wall from where the bore starts, only with a thread
     length); and an up-to hole's Past the face, standing where its axis meets the face (an up-to-next
-    hole's from the plane the recompute recorded, `ReachedEnd`). All of these but Depth and Past the
-    face are left out for a hole sized by circles and the countersink's for a slot (which cannot be
-    countersunk); dragging a counterbore or countersink value makes the size Custom as the diameter
-    does, the thread depth and slot values keep it.
+    hole's from the plane the recompute recorded, `ReachedEnd`). The countersink's are left out for a
+    slot (which cannot be countersunk); dragging a counterbore, countersink or step value makes the
+    size Custom as the diameter does, the thread depth and slot values keep it.
+  - A hole sized by circles has all of these but the Diameter, standing on its first hole
+    (`HoleTop`): the bore is that hole's circle (or the typed diameter when its centre has no
+    circle), and with `CirclesAndHeads` every counterbore, countersink and step diameter and depth is
+    drawn scaled by circle over typed diameter (`HoleTop::heads`, the `Mapping`'s scale), the way the
+    recompute sizes it, while a drag sets the typed value the panel shows (position over scale).
   - An offset face's Distance; a datum plane's Offset and Angle (an arrow along the turn at an arm of
     `ARROW_POINTS` from the axis).
   - A fillet's or chamfer's size (along the bisector of its faces into the material, foot on the

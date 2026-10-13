@@ -26,11 +26,13 @@ use crate::{
 };
 
 const ARROW_SHARE: f64 = 0.7;
+const ALONG_EDGE: &str = "Along the edge";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HoleGrip {
     Square(EntityId),
     Distance(ConstraintId),
+    Along(EntityId),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -93,6 +95,13 @@ fn leaving(solved: &Sketch, held: &HeldEdge, at: Point2) -> Option<Away> {
         direction: normal * offset.signum(),
         distance: offset.abs(),
     })
+}
+
+fn running(solved: &Sketch, held: &HeldEdge) -> Option<Vector2> {
+    let Some(Entity::Line { start, end }) = solved.entity(held.curve) else {
+        return None;
+    };
+    (solved.point(*end)? - solved.point(*start)?).try_normalize()
 }
 
 fn along_words(
@@ -187,6 +196,20 @@ impl HoleHandles {
                     away: None,
                 }),
                 Anchor::Edges(edges) => {
+                    if let [only] = edges.as_slice()
+                        && let Some(direction) = running(solved, &only.held)
+                    {
+                        stands.push(Stand {
+                            grip: HoleGrip::Along(placed.point),
+                            number,
+                            at,
+                            per_point,
+                            away: Some(Away {
+                                direction,
+                                distance: 0.0,
+                            }),
+                        });
+                    }
                     for distance in edges {
                         if let Some(away) = leaving(solved, &distance.held, at) {
                             stands.push(Stand {
@@ -199,7 +222,7 @@ impl HoleHandles {
                         }
                     }
                 }
-                Anchor::Concentric(_) => {}
+                Anchor::Concentric(_) | Anchor::At(_) => {}
             }
         }
         (!stands.is_empty()).then(|| Self {
@@ -280,6 +303,7 @@ impl HoleHandles {
                 let distance = placement.edge_distance(constraint)?;
                 Held::of(document, self.feature, EDGE_DISTANCE, &distance.value).driven()
             }
+            HoleGrip::Along(_) => None,
         }
     }
 
@@ -294,16 +318,18 @@ impl HoleHandles {
         match grip {
             HoleGrip::Square(_) => format!("Drag to move {noun} on its face"),
             HoleGrip::Distance(_) => format!("Drag to change {noun}'s distance from its edge"),
+            HoleGrip::Along(_) => format!("Drag to slide {noun} along its edge"),
         }
     }
 
     pub fn typing(&self, grip: HoleGrip) -> Option<(String, Vec<Rule>)> {
         self.stand(grip)?;
         let [x, y] = POSITION_CAPTIONS;
-        Some(match grip {
-            HoleGrip::Square(_) => (format!("{x}, {y}"), vec![Rule::Any; 2]),
-            HoleGrip::Distance(_) => (EDGE_DISTANCE.to_owned(), vec![Rule::ZeroOrMore]),
-        })
+        match grip {
+            HoleGrip::Square(_) => Some((format!("{x}, {y}"), vec![Rule::Any; 2])),
+            HoleGrip::Distance(_) => Some((EDGE_DISTANCE.to_owned(), vec![Rule::ZeroOrMore])),
+            HoleGrip::Along(_) => None,
+        }
     }
 
     pub fn hit(&self, view: &View, cursor: Vector2, pixels_per_point: f64) -> Option<Handle> {
@@ -374,10 +400,11 @@ impl HoleDrag {
     pub fn begin(handles: &HoleHandles, grip: HoleGrip, ray: Ray) -> Option<Self> {
         let stand = handles.stand(grip)?;
         let step = stand.step();
+        let kept_off_edge = matches!(grip, HoleGrip::Distance(_));
         let line = stand.away.map(|away| Line {
             direction: away.direction,
             value: away.distance,
-            least: Some(step),
+            least: kept_off_edge.then_some(step),
         });
         let slide = Slide::begin(handles.plane, ray, step, stand.at, line)?;
         Some(Self { grip, slide })
@@ -424,6 +451,9 @@ impl HoleDrag {
                 );
                 field::checked(document, transaction).ok()
             }
+            HoleGrip::Along(point) => {
+                hole_placement::slid(model, feature, hole, point, self.slide.at()).ok()
+            }
         }
     }
 
@@ -431,6 +461,9 @@ impl HoleDrag {
         let shown = match (self.grip, self.slide.value()) {
             (HoleGrip::Distance(_), Some(value)) => {
                 format!("{EDGE_DISTANCE} {}", units.readout_text(value))
+            }
+            (HoleGrip::Along(_), Some(value)) => {
+                format!("{ALONG_EDGE} {}", units.readout_text(value))
             }
             _ => {
                 let [x, y] = POSITION_CAPTIONS;
@@ -466,5 +499,6 @@ pub fn typed(
             let value = values.first()?.clone();
             hole_placement::distance_change(document, feature, hole, constraint, value).ok()
         }
+        HoleGrip::Along(_) => None,
     }
 }

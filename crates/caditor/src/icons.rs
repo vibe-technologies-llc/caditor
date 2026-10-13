@@ -25,6 +25,7 @@ pub const FIX: &str = phosphor::WRENCH;
 pub const EDIT: &str = phosphor::PENCIL_SIMPLE;
 pub const DONE: &str = phosphor::CHECK;
 pub const RELOAD: &str = phosphor::ARROW_CLOCKWISE;
+pub const RESET_SECTION: &str = phosphor::ARROW_COUNTER_CLOCKWISE;
 pub const MORE: &str = phosphor::DOTS_THREE;
 pub const DELETE: &str = phosphor::TRASH;
 pub const REMOVE_BODY: &str = phosphor::CUBE_FOCUS;
@@ -192,6 +193,7 @@ pub fn command(command: Command) -> &'static str {
         Command::Extrude => EXTRUDE,
         Command::Revolve => REVOLVE,
         Command::Sweep => SWEEP,
+        Command::Pipe => PIPE,
         Command::Fillet => blend(BlendKind::Fillet),
         Command::Chamfer => blend(BlendKind::Chamfer),
         Command::Shell => SHELL,
@@ -378,6 +380,7 @@ pub fn command(command: Command) -> &'static str {
 const EXTRUDE: &str = icon_font::EXTRUDE;
 const REVOLVE: &str = icon_font::REVOLVE;
 const SWEEP: &str = phosphor::PIPE;
+const PIPE: &str = phosphor::PIPE_WRENCH;
 const SHELL: &str = icon_font::SHELL;
 const COMBINE: &str = phosphor::UNITE;
 const MOVE: &str = phosphor::HAND_GRABBING;
@@ -538,6 +541,7 @@ pub fn feature(kind: &FeatureKind) -> &'static str {
         FeatureKind::Solid(SolidFeature::Extrude(_)) => EXTRUDE,
         FeatureKind::Solid(SolidFeature::Revolve(_)) => REVOLVE,
         FeatureKind::Solid(SolidFeature::Sweep(_)) => SWEEP,
+        FeatureKind::Pipe(_) => PIPE,
         FeatureKind::Blend(blend) => self::blend(blend.kind),
         FeatureKind::Shell(_) => SHELL,
         FeatureKind::OffsetFace(_) => OFFSET_FACE,

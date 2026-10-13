@@ -1,13 +1,12 @@
 use caditor_document::{
-    BodyOperation, Feature, FeatureId, Primitive, PrimitiveAnchor, PrimitiveKind, SizeRule,
-    capitalized,
+    Feature, FeatureId, Primitive, PrimitiveAnchor, PrimitiveKind, SizeRule, capitalized,
 };
 use caditor_expression::{Dimension, Expression};
 use egui::{Id, Ui};
 
 use crate::{
     datum_tools,
-    feature_fields::{self, Choice, MISSING_BODY, Picker, Quantity, Rule, Segment},
+    feature_fields::{self, OperationRows, Picker, Quantity, Rule, Segment},
     model::{Action, Model},
     plane_selector, primitive_tools,
     reference_picking::Slot,
@@ -41,15 +40,6 @@ fn anchor_hover(anchor: PrimitiveAnchor) -> &'static str {
     }
 }
 
-fn operation_name(operation: BodyOperation) -> &'static str {
-    match operation {
-        BodyOperation::NewBody => "New body",
-        BodyOperation::Add(_) => "Add to body",
-        BodyOperation::Remove(_) => "Remove from body",
-        BodyOperation::Intersect(_) => "Intersect with body",
-    }
-}
-
 struct Panel<'a> {
     model: &'a Model,
     selection: &'a Selection,
@@ -61,10 +51,6 @@ struct Panel<'a> {
 impl Panel<'_> {
     fn id(&self) -> FeatureId {
         self.feature.id()
-    }
-
-    fn change(&self, primitive: Primitive) -> Result<Action, String> {
-        primitive_tools::change(self.model, self.id(), primitive).map(Action::Apply)
     }
 
     fn apply(&mut self, primitive: Primitive) {
@@ -248,62 +234,18 @@ impl Panel<'_> {
     }
 
     fn operation_rows(&mut self, ui: &mut Ui) {
-        let operation = self.primitive.operation;
-        let bodies = self.model.document().bodies_before(self.id());
-        let target = operation.target().or(bodies.last().copied());
-        widgets::caption(ui, "Result");
-        let candidates = [
-            Some(BodyOperation::NewBody),
-            target.map(BodyOperation::Add),
-            target.map(BodyOperation::Remove),
-            target.map(BodyOperation::Intersect),
-        ];
-        let chosen = feature_fields::combo(
-            ui,
-            Id::new(("primitive-operation", self.id())),
-            operation_name(operation),
-            || {
-                candidates
-                    .into_iter()
-                    .flatten()
-                    .map(|candidate| Choice {
-                        label: operation_name(candidate).to_owned(),
-                        selected: operation_name(candidate) == operation_name(operation),
-                        change: self
-                            .change(primitive_tools::with_operation(self.primitive, candidate)),
-                    })
-                    .collect()
-            },
-        );
-        ui.end_row();
-        self.actions.extend(chosen);
-        let Some(target) = operation.target() else {
-            return;
+        let rows = OperationRows {
+            feature: self.id(),
+            operation: self.primitive.operation,
+            ids: ("primitive-operation", "primitive-body"),
         };
-        widgets::caption(ui, "Body");
-        let document = self.model.document();
-        let name = feature_fields::feature_name(document, target);
-        let chosen = ui
-            .horizontal(|ui| {
-                let text = feature_fields::combo_text(ui, name, MISSING_BODY);
-                feature_fields::combo(ui, Id::new(("primitive-body", self.id())), text, || {
-                    bodies
-                        .iter()
-                        .filter_map(|body| {
-                            Some(Choice {
-                                label: document.feature(*body)?.name.clone(),
-                                selected: *body == target,
-                                change: self.change(primitive_tools::with_operation(
-                                    self.primitive,
-                                    operation.with_target(*body),
-                                )),
-                            })
-                        })
-                        .collect()
-                })
-            })
-            .inner;
-        ui.end_row();
+        let chosen = feature_fields::body_operation_rows(ui, self.model, &rows, |operation| {
+            primitive_tools::change(
+                self.model,
+                self.id(),
+                primitive_tools::with_operation(self.primitive, operation),
+            )
+        });
         self.actions.extend(chosen);
     }
 }
