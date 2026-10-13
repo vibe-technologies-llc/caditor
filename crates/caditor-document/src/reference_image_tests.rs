@@ -250,6 +250,62 @@ fn opacity_is_held_within_its_range_and_every_change_undoes() {
 }
 
 #[test]
+fn an_inserted_image_is_settled_as_a_kind_change_settles_it_so_undoing_a_change_restores_it() {
+    let mut document = Document::default();
+    let plane = ImagePlane::Reference(PlaneReference::Principal(PrincipalPlane::Xy));
+    let mut faint = image(plane.clone());
+    faint.opacity = 0;
+    faint.size = ImageSize::Calibrated(Calibration {
+        from: ImageSpot {
+            across: -1.0,
+            up: f64::NAN,
+        },
+        to: ImageSpot {
+            across: 2.0,
+            up: 0.5,
+        },
+        distance: millimetres(30.0),
+    });
+    let feature = add(
+        &mut document,
+        "Photo",
+        FeatureKind::ReferenceImage(Box::new(faint)),
+    );
+    let inserted = document.clone();
+
+    let inverse = document
+        .apply(Transaction::single(
+            "Edit",
+            Edit::SetFeatureKind {
+                id: feature,
+                kind: FeatureKind::ReferenceImage(Box::new(image(plane))),
+            },
+        ))
+        .unwrap();
+    document.apply(inverse).unwrap();
+
+    let FeatureKind::ReferenceImage(kept) = &inserted.feature(feature).unwrap().kind else {
+        panic!("not an image");
+    };
+    assert_eq!(kept.opacity, MIN_IMAGE_OPACITY_PERCENT);
+    assert_eq!(
+        kept.size,
+        ImageSize::Calibrated(Calibration {
+            from: ImageSpot {
+                across: 0.0,
+                up: 0.5,
+            },
+            to: ImageSpot {
+                across: 1.0,
+                up: 0.5,
+            },
+            distance: millimetres(30.0),
+        })
+    );
+    assert!(document.same_content(&inserted));
+}
+
+#[test]
 fn a_picture_is_known_by_its_content_and_refuses_what_it_cannot_be() {
     let first = picture(4, 3);
     let same = picture(4, 3);

@@ -545,6 +545,14 @@ pub enum EditError {
         name: String,
         users: String,
     },
+    #[error(
+        "In {feature}, {name} cannot be added: a curve of that number, which the sketch does not have, is named by {users}. Choose the curves of {users} again first."
+    )]
+    EntityNumberNamed {
+        feature: String,
+        name: String,
+        users: String,
+    },
 }
 
 fn settled_kind(mut kind: FeatureKind) -> FeatureKind {
@@ -1391,6 +1399,7 @@ impl Document {
                 | FeatureKind::Mate(_)
                 | FeatureKind::SplitFace(_)
                 | FeatureKind::Blend(_)
+                | FeatureKind::ReferenceImage(_)
         ) {
             let kind = settled_kind(feature.kind.clone());
             if kind != feature.kind {
@@ -1441,6 +1450,7 @@ impl Document {
             .max()
             .unwrap_or(0);
         self.next_feature_id = self.next_feature_id.max(beyond);
+        self.reserve_named_curves(kind);
     }
 
     fn remove_feature(&mut self, id: FeatureId) -> Result<Edit, EditError> {

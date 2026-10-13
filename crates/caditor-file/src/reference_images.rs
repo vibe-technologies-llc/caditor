@@ -120,6 +120,9 @@ impl Pictures {
 }
 
 pub(crate) fn reference_image_record(image: &ReferenceImage) -> ReferenceImageRecord {
+    let mut image = image.clone();
+    image.settle();
+
     let text = Expression::to_stored_text;
     let size = image.picture.size();
     let spot = |spot: ImageSpot| [spot.across, spot.up];

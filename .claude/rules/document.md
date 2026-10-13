@@ -378,11 +378,16 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 
 - Sketch content changes only through sketch edits. Removing an entity something still uses is
   refused, not cascaded; `remove_sketch_items` expands a deletion into constraints, curves, then
-  points. `AddSketchEntity` carries the construction flag and the curve a piece was split from
-  (`split_from`), `AddSketchConstraint` the inactive flag and label offset, so undoing a removal
-  restores them; `SetSketchConstraintActive` and `SetSketchLabel` change one; `reshape_sketch`
-  emits them for kept constraints that differ. Setting an entity changes only its value, never its
-  kind or points.
+  points. A revolve's axis line and a sweep's or pipe's path curves (`FeatureKind::named_curves`)
+  are uses from other features that may name a number the sketch has no entity under (a damaged
+  file, a fuzzed insert): inserts and kind changes raise that sketch's ID counter past them, so
+  new entities never take such a number and silently become the axis or path, and an
+  `AddSketchEntity` under one is refused (`EntityNumberNamed`), so the inverse of every addition,
+  a removal, applies. `AddSketchEntity` carries the construction flag and the curve a piece was
+  split from (`split_from`), `AddSketchConstraint` the inactive flag and label offset, so undoing
+  a removal restores them; `SetSketchConstraintActive` and `SetSketchLabel` change one;
+  `reshape_sketch` emits them for kept constraints that differ. Setting an entity changes only its
+  value, never its kind or points.
 - `Edit::SetSketchProjection` gives an entity a `ProjectionSource` (or none) and sets the projected
   flag on it and its points in one step. The flags always follow `projections`: an entity is
   flagged when it or a curve using it has a source, so taking one projection off leaves a point
@@ -400,7 +405,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 - An insert or kind change settles a kind as loading would read it back (`settled_kind`): a
   mirror's and a pattern's features each kept once, a pattern's skipped copies settled (Pattern
   below), an angle or point mate or an equal blend never flipped, a split face's carry square
-  unless it splits along a sketch. A combine keeps its tools as chosen; one chosen twice fails.
+  unless it splits along a sketch, a reference image's opacity and spots held in range. A combine
+  keeps its tools as chosen; one chosen twice fails.
 - `SetFeatureKind` replaces settings but never the kind (`EditError::KindChange`); a blend may
   switch fillet/chamfer, a pattern between its kinds, a datum within its `Datum::kind`. Sketches
   change through sketch edits. An edit whose new kind still `makes_body` keeps the body for its

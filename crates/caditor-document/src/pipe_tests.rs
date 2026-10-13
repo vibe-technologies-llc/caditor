@@ -3,7 +3,7 @@ use std::f64::consts::{FRAC_PI_2, PI};
 use caditor_expression::Expression;
 use caditor_geometry::{Plane, Point2};
 use caditor_kernel::{PipeShape, SamplingTolerance};
-use caditor_sketch::{EntityId, Sketch};
+use caditor_sketch::{Entity, EntityId, Sketch};
 
 use crate::*;
 
@@ -194,6 +194,72 @@ fn a_curve_of_the_path_cannot_be_deleted_while_a_pipe_follows_it() {
         matches!(refused, Err(EditError::EntityInUse { .. })),
         "{refused:?}"
     );
+}
+
+fn naming_a_missing_curve() -> (Model, EntityId) {
+    let mut model = piped(round);
+    let missing = EntityId::from_raw(40);
+    let Some(pipe) = model
+        .document
+        .feature(model.pipe)
+        .and_then(|pipe| pipe.kind.pipe())
+    else {
+        panic!("the pipe is gone");
+    };
+    let mut changed = pipe.clone();
+    changed.path = SweepPath::Curves {
+        sketch: model.path_sketch,
+        curves: vec![model.curves[0], missing],
+    };
+    let mut transaction = model.document.transaction("Path");
+    transaction.edit(Edit::SetFeatureKind {
+        id: model.pipe,
+        kind: FeatureKind::Pipe(changed),
+    });
+    model.document.apply(transaction.finish()).unwrap();
+    (model, missing)
+}
+
+#[test]
+fn a_curve_drawn_in_a_path_sketch_never_takes_a_number_a_pipe_names_and_undoes() {
+    let (mut model, missing) = naming_a_missing_curve();
+    let before = model.document.clone();
+
+    let mut transaction = model.document.transaction("Draw");
+    let drawn =
+        transaction.add_sketch_entity(model.path_sketch, Entity::Point(Point2::new(4.5, 11.5)));
+    let inverse = model.document.apply(transaction.finish()).unwrap();
+    model.document.apply(inverse).unwrap();
+
+    assert!(drawn.raw() > missing.raw(), "{drawn:?}");
+    assert!(model.document.same_content(&before));
+}
+
+#[test]
+fn an_entity_cannot_be_added_under_a_number_a_pipe_names_so_undoing_an_addition_always_applies() {
+    let (mut model, missing) = naming_a_missing_curve();
+    let before = model.document.clone();
+
+    let refused = model.document.apply(Transaction::new(
+        "Draw",
+        vec![Edit::AddSketchEntity {
+            feature: model.path_sketch,
+            id: missing,
+            entity: Entity::Point(Point2::new(4.5, 11.5)),
+            construction: false,
+            split_from: None,
+        }],
+    ));
+
+    let Err(error) = refused else {
+        panic!("an entity was added under a number the pipe names: {refused:?}");
+    };
+    assert_eq!(
+        error.to_string(),
+        "In Path, Point 40 cannot be added: a curve of that number, which the sketch does not \
+         have, is named by Pipe 1. Choose the curves of Pipe 1 again first."
+    );
+    assert!(model.document == before);
 }
 
 #[test]

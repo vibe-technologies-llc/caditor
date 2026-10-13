@@ -372,3 +372,31 @@ fn a_rewritten_journal_keeps_the_pictures_of_its_base_and_entries_once_each() {
     assert_eq!(replayed.editor.document(), editor.document());
     assert!(bytes.len() < first.bytes().len() * 3 / 2);
 }
+
+#[test]
+fn a_journaled_image_change_the_document_settles_reads_back_as_the_document_holds_it() {
+    let (base, features) = with_images(&[picture(4)]);
+    let mut editor = Editor::new(base.clone());
+    let mut entries = Vec::new();
+    for opacity in [0, 242] {
+        let change = set_opacity(editor.document(), features[0], opacity);
+        editor.apply(change.clone()).unwrap();
+        entries.push(journal::Logged::Entry(JournalEntry::Apply(change)));
+    }
+    let head = journal::JournalHead {
+        file: None,
+        on_disk: None,
+        loaded_with_problems: false,
+        folded: 0,
+    };
+
+    let bytes = journal::encode_journal(&head, &base, &entries).unwrap();
+    let contents = journal::decode_journal(&bytes).unwrap();
+    let issues = contents.issues.clone();
+    let unreadable = contents.unreadable_entries;
+    let replayed = journal::replay(contents.base, contents.entries);
+
+    assert_eq!(unreadable, 0);
+    assert!(issues.is_empty(), "{issues:?}");
+    assert_eq!(replayed.editor.document(), editor.document());
+}

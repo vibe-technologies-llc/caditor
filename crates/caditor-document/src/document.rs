@@ -7,7 +7,7 @@ use std::{
 
 use caditor_expression::{Expression, ParameterId, ParseError};
 use caditor_kernel::FaceReference;
-use caditor_sketch::Sketch;
+use caditor_sketch::{EntityId, Sketch};
 
 use crate::{
     attachment::{FaceAttachment, SketchAttachment, SketchFeature},
@@ -513,6 +513,27 @@ impl FeatureKind {
             | Self::Thread(_)
             | Self::ReferenceImage(_) => BTreeSet::new(),
         }
+    }
+
+    pub fn named_curves(&self) -> Vec<(FeatureId, EntityId)> {
+        let path = match self {
+            Self::Pipe(pipe) => Some(&pipe.path),
+            Self::Solid(solid) => solid.path(),
+            _ => None,
+        };
+        let along_path = path.into_iter().flat_map(|path| {
+            path.sketch()
+                .into_iter()
+                .flat_map(|sketch| path.curves().iter().map(move |curve| (sketch, *curve)))
+        });
+        let axis = self
+            .solid()
+            .and_then(|solid| solid.axis_line().map(|line| (solid.sketch(), line)));
+        along_path.chain(axis).collect()
+    }
+
+    pub fn names_curve(&self, sketch: FeatureId, curve: EntityId) -> bool {
+        self.named_curves().contains(&(sketch, curve))
     }
 
     pub fn reference_sketches(&self) -> BTreeSet<FeatureId> {
