@@ -23,6 +23,8 @@ const OUTLINE_SEGMENT_ANGLE: f64 = 0.02;
 const OUTLINE_SLACK_PER_SIZE: f64 = 1e-3;
 const BOX_SLACK: f64 = 100.0 * LINEAR_RESOLUTION;
 const SAME_VOLUME: f64 = 1e-6;
+const SLAB_PER_SIZE: f64 = 1e-3;
+const SLAB_FLOOR: f64 = 1e3 * LINEAR_RESOLUTION;
 
 pub fn reached_body(
     document: &Document,
@@ -31,7 +33,7 @@ pub fn reached_body(
     solid: &SolidFeature,
 ) -> Option<FeatureId> {
     let deadline = Instant::now() + REACH_BUDGET;
-    reaches(document, evaluation, parameters, solid, deadline)?
+    reaches(document, evaluation, parameters, solid, deadline, None)?
         .most()
         .map(|reached| reached.body)
 }
@@ -42,6 +44,7 @@ pub fn reaches(
     parameters: &ParameterValues,
     solid: &SolidFeature,
     deadline: Instant,
+    footprint_of: Option<FeatureId>,
 ) -> Option<Reaches> {
     let sketch = solved_sketch(document, evaluation, solid.sketch())?;
     let swept = Swept::of(evaluation, parameters, solid, sketch)?;
@@ -66,7 +69,9 @@ pub fn reaches(
         });
     }
     let interrupt: Interrupt = Arc::new(move || Instant::now() >= deadline);
-    let reached = interruptible(interrupt, || swept.contacts(sketch, solid, &near))?;
+    let reached = interruptible(interrupt, || {
+        swept.contacts(sketch, solid, &near, footprint_of)
+    })?;
     Some(Reaches {
         examined,
         reached,
@@ -86,6 +91,7 @@ pub struct Reached {
     pub body: FeatureId,
     pub touch: Touch,
     pub depth: Option<f64>,
+    pub spans_footprint: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -188,6 +194,7 @@ struct Swept {
     wall: Option<f64>,
 }
 
+#[derive(Clone, Copy)]
 enum Motion {
     Along { start: f64, end: f64 },
     About(Axis2),
@@ -303,6 +310,10 @@ impl Swept {
     }
 
     fn tool(&self, sketch: &Sketch, solid: &SolidFeature) -> Option<Solid> {
+        self.tool_over(sketch, solid, self.motion)
+    }
+
+    fn tool_over(&self, sketch: &Sketch, solid: &SolidFeature, motion: Motion) -> Option<Solid> {
         let curves: Vec<ProfileCurve> = sketch
             .entities()
             .filter(|(id, _)| !sketch.is_construction(*id))
@@ -312,18 +323,86 @@ impl Swept {
             (Some(thickness), Some(wall)) => wall_regions(&curves, thickness, wall.side).ok()?,
             _ => chosen_regions(&curves, solid.regions())?,
         };
-        let feature = solid.sketch().raw();
-        match self.motion {
+        self.swept_regions(&regions, solid.sketch().raw(), motion)
+    }
+
+    fn swept_regions(&self, regions: &[Region], feature: u64, motion: Motion) -> Option<Solid> {
+        match motion {
             Motion::Along { start, end } => extrude(
                 &self.plane,
-                &regions,
+                regions,
                 LinearExtent::two_sided(end, -start).ok()?,
                 feature,
             )
             .ok(),
             Motion::About(axis) => {
-                revolve(&self.plane, &regions, axis, AngularExtent::full(), feature).ok()
+                revolve(&self.plane, regions, axis, AngularExtent::full(), feature).ok()
             }
+        }
+    }
+
+    fn spans_footprint(
+        &self,
+        sketch: &Sketch,
+        solid: &SolidFeature,
+        body: &Standing<'_>,
+    ) -> Option<bool> {
+        let Motion::Along { start, end } = self.motion else {
+            return None;
+        };
+        let thickness = (body.bounds.diagonal() * SLAB_PER_SIZE).max(SLAB_FLOOR);
+        let slab = match end > -start {
+            true => Motion::Along {
+                start: 0.0,
+                end: thickness,
+            },
+            false => Motion::Along {
+                start: -thickness,
+                end: 0.0,
+            },
+        };
+        let footprint = Aabb2::from_points(
+            body.bounds
+                .corners()
+                .into_iter()
+                .map(|corner| self.plane.to_local(corner)),
+        )?
+        .expanded(BOX_SLACK);
+        let mut around = Sketch::new(self.plane);
+        let corners = [
+            footprint.min(),
+            Point2::new(footprint.max().x, footprint.min().y),
+            footprint.max(),
+            Point2::new(footprint.min().x, footprint.max().y),
+        ];
+        let curves: Vec<ProfileCurve> = (0..corners.len())
+            .filter_map(|index| {
+                let line = around.add_line(*corners.get(index)?, *corners.get((index + 1) % 4)?);
+                profile_curve(&around, line)
+            })
+            .collect();
+        let whole = chosen_regions(&curves, &RegionChoice::All)?;
+        let feature = solid.sketch().raw();
+        let cover = self.swept_regions(&whole, feature, slab)?;
+        let profile = self.tool_over(sketch, solid, slab)?;
+        let reach_of = |tool: &Solid| match interference(tool, body.solid) {
+            Ok(Interference::Overlapping(overlap)) => Aabb2::from_points(
+                overlap
+                    .bounding_box()?
+                    .corners()
+                    .map(|corner| self.plane.to_local(corner)),
+            ),
+            Ok(Interference::Apart | Interference::Touching(_)) | Err(_) => None,
+        };
+        let (taken, available) = (reach_of(&profile), reach_of(&cover));
+        let tolerance = BOX_SLACK + footprint.size().length() * OUTLINE_SLACK_PER_SIZE;
+        match (taken, available) {
+            (Some(taken), Some(available)) => Some(
+                (taken.min() - available.min()).abs().max_element() <= tolerance
+                    && (taken.max() - available.max()).abs().max_element() <= tolerance,
+            ),
+            (None, Some(_)) => Some(false),
+            (_, None) => None,
         }
     }
 
@@ -332,6 +411,7 @@ impl Swept {
         sketch: &Sketch,
         solid: &SolidFeature,
         near: &[Standing<'_>],
+        footprint_of: Option<FeatureId>,
     ) -> Option<Vec<Reached>> {
         let tool = self.tool(sketch, solid)?;
         let touches: Vec<(&Standing<'_>, Result<Solid, Touch>)> = near
@@ -350,16 +430,23 @@ impl Swept {
             > 1;
         let reached = touches
             .into_iter()
-            .map(|(body, overlap)| Reached {
-                body: body.body,
-                touch: match overlap {
-                    Ok(overlap) if several => Touch::Overlap {
-                        volume: overlap_volume(&overlap),
+            .map(|(body, overlap)| {
+                let overlap_is_solid = overlap.is_ok();
+                Reached {
+                    body: body.body,
+                    touch: match overlap {
+                        Ok(overlap) if several => Touch::Overlap {
+                            volume: overlap_volume(&overlap),
+                        },
+                        Ok(_) => Touch::Overlap { volume: 0.0 },
+                        Err(touch) => touch,
                     },
-                    Ok(_) => Touch::Overlap { volume: 0.0 },
-                    Err(touch) => touch,
-                },
-                depth: self.depth_of(&body.bounds),
+                    depth: self.depth_of(&body.bounds),
+                    spans_footprint: match (footprint_of == Some(body.body), overlap_is_solid) {
+                        (true, true) => self.spans_footprint(sketch, solid, body),
+                        _ => None,
+                    },
+                }
             })
             .collect();
         Some(reached)

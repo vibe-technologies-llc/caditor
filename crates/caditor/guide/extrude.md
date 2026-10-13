@@ -87,7 +87,8 @@ edge, sketch line or axis you select, measuring the distance along it.
   reaching several, it adds to the one it overlaps most. With faces of a body selected along with
   the sketch, it adds to that body.
 - A sketch on a face of a body cuts into that body by default, unless the shape was drawn off the
-  body (a notice says so, and the extrusion makes a new body instead). A cut whose default distance
+  body (a notice says so, and the extrusion makes a new body instead) or spans the whole face (a
+  polygon larger than the pipe it sits on, where it adds outward instead). A cut whose default distance
   more than clears the body starts as **Through all**.
 - A new extrusion that would run away from a body but would reach it the other way points toward it
   and adds to it, and a notice says so. One that already reaches a body is never turned.

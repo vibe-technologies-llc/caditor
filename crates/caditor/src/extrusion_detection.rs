@@ -24,6 +24,7 @@ pub fn extrusion(
     chosen: Option<FeatureId>,
 ) -> Detected {
     let deadline = Instant::now() + REACH_BUDGET;
+    let footprint_of = standing_on.filter(|body| chosen.is_none_or(|chosen| chosen == *body));
     let sweep = |reversed: bool| {
         let solid = SolidFeature::Extrude(directed(template, reversed));
         body_reach::reaches(
@@ -32,6 +33,7 @@ pub fn extrusion(
             reach.parameters,
             &solid,
             deadline,
+            footprint_of,
         )
     };
     let label = |body: FeatureId| {
@@ -51,6 +53,12 @@ pub fn extrusion(
         match sweep(true) {
             None => return cut(false),
             Some(reaches) => match reaches.verdict(body) {
+                Verdict::Overlaps(reached) if reached.spans_footprint == Some(true) => {
+                    told = Some(format!(
+                        "The sketch spans the whole face of {}, so the extrusion adds to it instead of cutting.",
+                        label(body)
+                    ));
+                }
                 Verdict::Overlaps(reached) => return cut(reaches.clears(&reached)),
                 Verdict::Unknown => return cut(false),
                 Verdict::Misses => {

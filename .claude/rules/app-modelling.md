@@ -291,6 +291,13 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
     (`Verdict::Misses`: apart, or only touching), as with a profile drawn off the face, the
     extrusion does not cut; it takes the outward direction and a notice says the sketch lies off the
     body.
+  - A profile spanning the whole face: when a thin slab of the profile under the sketch plane
+    reaches the same in-plane extent of the body as a rectangle round the body's whole footprint
+    does (`Reached::spans_footprint`, `Swept::spans_footprint`, asked only for the face's body),
+    as with a polygon larger than the pipe it lies on, the extrusion does not cut: cutting would
+    slice the body across or remove all of it. It adds outward and a notice says the sketch spans
+    the face. The comparison is of boxes, so a profile covering most of the face but not its
+    extremes still cuts.
   - A cut that clears the body: when the body's box ends before the distance does
     (`Reaches::clears`, measured along the sweep from the sketch plane with `BOX_SLACK`), the end is
     Through all instead of a distance, since the cut passes the body however thick it is made.

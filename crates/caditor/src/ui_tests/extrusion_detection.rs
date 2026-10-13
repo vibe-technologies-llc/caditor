@@ -1,7 +1,9 @@
 use caditor_document::{BodyOperation, ExtrudeEnd, ExtrudeExtent, FeatureId, SolidFeature};
+use caditor_geometry::{Plane, Point2, Point3, Vector3};
+use caditor_sketch::Sketch;
 use egui::{Id, Key};
 
-use super::{CAMERA_SETTLE, Harness, extruded_plate};
+use super::{CAMERA_SETTLE, Harness, extruded_plate, rectangle};
 use crate::{last_values::LastValues, selection::Pickable};
 
 fn extent(harness: &Harness, feature: FeatureId) -> ExtrudeExtent {
@@ -23,7 +25,7 @@ fn extruded_from_the_top_face(
     harness.frame();
     harness.use_tool(Key::R);
     for (x, y) in corners {
-        harness.click_at(caditor_geometry::Point2::new(x, y));
+        harness.click_at(Point2::new(x, y));
     }
     harness.settle();
     harness.click("Extrude");
@@ -117,4 +119,60 @@ fn a_sketch_on_a_face_drawn_off_the_body_does_not_cut_it() {
     assert!(harness.shows_containing("so the extrusion does not cut into it"));
     assert!((harness.body_volume(plate) - 16000.0).abs() < 1.0);
     assert_eq!(harness.model.evaluation().failed_count(), 0);
+}
+
+#[test]
+fn a_sketch_on_a_face_larger_than_it_adds_to_the_body_instead_of_cutting_it() {
+    let mut harness = Harness::new();
+    let (plate, top) = extruded_plate(&mut harness);
+
+    let flange = extruded_from_the_top_face(&mut harness, top, [(-10.0, -10.0), (50.0, 50.0)]);
+
+    assert_eq!(harness.solid(flange).operation(), BodyOperation::Add(plate));
+    assert!(matches!(
+        extent(&harness, flange),
+        ExtrudeExtent::OneSide {
+            reversed: false,
+            ..
+        }
+    ));
+    assert!(harness.shows_containing("spans the whole face"));
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+}
+
+#[test]
+fn a_sketch_larger_than_the_boss_it_lies_on_adds_even_though_the_body_is_wider() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    let mut raised = Sketch::new(
+        Plane::from_frame(Point3::new(0.0, 0.0, 10.0), Vector3::Z, Vector3::X).unwrap(),
+    );
+    rectangle(
+        &mut raised,
+        Point2::new(10.0, 10.0),
+        Point2::new(20.0, 20.0),
+    );
+    harness.add_sketch(raised);
+    harness.select([]);
+    harness.click_tool("Extrude");
+    harness.settle();
+    let boss = harness.workspace.editing.solid().expect("the boss is open");
+    harness.key(Key::Escape, egui::Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+    let boss_top = harness
+        .built()
+        .picks
+        .pickables()
+        .find(|pickable| {
+            pickable.describe(harness.document(), harness.model.evaluation())
+                == "Extrude 1 › Extrude 2 end face"
+        })
+        .expect("the boss top is pickable");
+
+    let flange = extruded_from_the_top_face(&mut harness, boss_top, [(5.0, 5.0), (25.0, 25.0)]);
+
+    assert_eq!(harness.solid(boss).operation(), BodyOperation::Add(plate));
+    assert_eq!(harness.solid(flange).operation(), BodyOperation::Add(plate));
+    assert!(harness.shows_containing("spans the whole face"));
 }
