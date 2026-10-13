@@ -29,7 +29,9 @@
   edge. Each edge can be let go again from its row. While the hole is open, a hole measured from
   an edge has an arrow at its centre pointing away from the edge, whose drag changes that
   **Distance** (it stops a step short of the edge, and a distance named or driven by a
-  [parameter](parameters) keeps its name or says what drives it), one arrow for each edge.
+  [parameter](parameters) keeps its name or says what drives it), one arrow for each edge. A hole
+  measured from just one edge has a second arrow pointing along that edge: drag it to slide the
+  hole along the edge, keeping its distance, in one change (it takes no typed value).
 - **Add another hole** under **Placed on** drills more holes of the same size and depth: click
   each spot on the face, or highlight the face with the keyboard to put one where there is most
   room, and press Escape when done. Each hole is listed with its own position or edges and can

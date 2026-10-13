@@ -64,10 +64,11 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   the face, and a curve pattern's arrow (`value_gauges.rs`) slides along the curve's tangent while
   it is dragged, rejoining the curve when the copies are placed again. Each would be a `Track`
   that follows a curve.
-- [low · medium] A hole's placement handles (`hole_handles.rs`) have no drag for sliding a point
-  measured from one edge along that edge, and none for a point whose position follows parameters
-  (its hover names what drives it). Place by takes only edges of bodies, not another sketch's
-  curves, datum axes or the origin.
+- [low · medium] A hole's placement handles (`hole_handles.rs`) have no drag for a point whose
+  position follows parameters (its hover names what drives it), and no typed length for the arrow
+  sliding a point along its one edge. Place by takes only edges of bodies, not another sketch's
+  curves, datum axes or the origin (a projection is only of a body's edge, so each would need its
+  own `ProjectionSource` and file record).
 - [low · medium] Mirror faces closes an opening only in one plane or on one elementary face beside
   it: an opening on an extrusion, revolution or spline face, one running all the way around a
   round face (a collar or a groove), or one spanning several curved faces is refused, since

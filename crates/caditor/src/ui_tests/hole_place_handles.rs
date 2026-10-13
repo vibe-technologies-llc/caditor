@@ -288,3 +288,64 @@ fn a_value_typed_over_an_edge_arrow_sets_the_distance_in_one_change() {
         30.0
     );
 }
+
+#[test]
+fn a_hole_measured_from_one_edge_slides_along_it_keeping_its_distance_in_one_change() {
+    let mut harness = Harness::new();
+    let (_, hole) = open_measured_hole(&mut harness, &[FRONT]);
+    let at = placed_holes(&harness, hole)[0].1;
+    let point = placed_holes(&harness, hole)[0].0.point;
+    let sliding = Handle::Hole(HoleGrip::Along(point));
+
+    hover(&mut harness, sliding);
+
+    assert!(harness.shows("Drag to slide the hole along its edge"));
+
+    let step = drag_handle(&mut harness, sliding, 7.0);
+    let moved = placed_holes(&harness, hole)[0].1;
+
+    assert_eq!(harness.model.undo_label(), Some("Move Hole 1"));
+    assert!(
+        (moved.x - at.x).abs() > 1.0 && (moved.x - at.x).abs() <= 7.0 + step,
+        "{at:?} to {moved:?} with steps of {step}"
+    );
+    assert!((moved.y - at.y).abs() < 1e-6, "{at:?} to {moved:?}");
+    assert_eq!(distance_text(&harness, hole, 0), "20 mm");
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+
+    harness.perform(Action::Undo);
+    harness.settle();
+
+    assert!(placed_holes(&harness, hole)[0].1.distance(at) < 1e-9);
+}
+
+#[test]
+fn a_hole_measured_from_two_edges_has_no_arrow_along_an_edge() {
+    let mut harness = Harness::new();
+    let (_, hole) = open_measured_hole(&mut harness, &[FRONT, LEFT]);
+    let point = placed_holes(&harness, hole)[0].0.point;
+
+    assert!(
+        harness
+            .workspace
+            .viewport
+            .handle_position(Handle::Hole(HoleGrip::Along(point)), 0.0)
+            .is_none()
+    );
+}
+
+#[test]
+fn a_hole_sliding_along_its_edge_takes_no_typed_value() {
+    let mut harness = Harness::new();
+    let (_, hole) = open_measured_hole(&mut harness, &[FRONT]);
+    let point = placed_holes(&harness, hole)[0].0.point;
+    let before = placed_holes(&harness, hole)[0].1;
+
+    hover(&mut harness, Handle::Hole(HoleGrip::Along(point)));
+    harness.type_text("30");
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.frame();
+    harness.settle();
+
+    assert_eq!(placed_holes(&harness, hole)[0].1, before);
+}

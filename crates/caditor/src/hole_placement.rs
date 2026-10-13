@@ -42,6 +42,8 @@ const NOT_ROUND: &str = "Choose a round edge, a circle or an arc, to centre the 
 const ALREADY_CONCENTRIC: &str = "The hole is already concentric with that edge";
 const NOT_FREE: &str = "That hole is placed by edges; change its distances or remove them to \
                         move it";
+const NOT_SLIDING: &str = "That hole slides along an edge only while it is measured from exactly \
+                           one edge";
 const LAST_HOLE: &str = "A hole keeps at least one point; delete the hole to remove it";
 const NOT_ON_FACE: &str = "Click the face the holes are drilled on";
 const MISSED: &str = "The click missed the face's plane";
@@ -520,6 +522,32 @@ pub fn distance_change(
                 feature: hole.sketch,
                 constraint,
                 value,
+            },
+        ),
+    )
+}
+
+pub fn slid(
+    model: &Model,
+    feature: FeatureId,
+    hole: &Hole,
+    point: EntityId,
+    to: Point2,
+) -> Result<Transaction, String> {
+    let document = model.document();
+    let Target { name, placed, .. } = target(document, feature, hole, point)?;
+    match &placed.anchor {
+        Anchor::Edges(edges) if edges.len() == 1 => {}
+        _ => return Err(NOT_SLIDING.to_owned()),
+    }
+    field::checked(
+        document,
+        Transaction::single(
+            format!("Move {name}"),
+            Edit::SetSketchEntity {
+                feature: hole.sketch,
+                id: point,
+                entity: Entity::Point(to),
             },
         ),
     )

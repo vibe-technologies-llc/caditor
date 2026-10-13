@@ -617,7 +617,12 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   (`HoleGrip::Square(point)`) and, on a point measured from edges, an arrow per `Distance`
   (`HoleGrip::Distance(constraint)`) standing at the point and pointing along the edge's normal
   away from the edge (`leaving`, read off the solved sketch of the draft's evaluation while one is
-  shown); a point centred on an edge has none. A drag is a `place_handles::Slide` (shared with
+  shown); a point centred on an edge has none. A point measured from exactly one edge also has an
+  arrow along that edge (`HoleGrip::Along(point)`, `running`) sliding it along it: the `Slide`
+  runs on the edge's direction with no least value, and release commits one "Move <hole>"
+  `SetSketchEntity` of the point (`hole_placement::slid`), the distance constraint untouched, so the
+  solver keeps the distance. It is never driven (a point with edges has no origin dimensions) and
+  takes no typed value. A drag is a `place_handles::Slide` (shared with
   `PlaceDrag`: a plane or a line, steps, Ctrl free, snapping to corners, edge middles and round
   centres, the arrow also kept at least one step from the edge) committed on release as one "Move
   <hole>" change: the square through `hole_placement::positioned` with the moved axes as measured
