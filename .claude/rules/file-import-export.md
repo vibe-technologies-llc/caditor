@@ -200,6 +200,9 @@ paths:
   onto each lump through `caditor_step::lump_faces` for every lump whose face count matches. STEP
   opacity (percent) is snapped on reading to the nearest body opacity step, solid included
   (`nearest_opacity_step`, `document.md`), so a nearly solid body imports solid.
+  A part whose face looks could not all be carried (no lump faces to line up with, another lump
+  count, a lump of another face count, or a face in no lump) gets one note naming it and how many
+  were left out (`FaceLooks::dropped`, `dropped_looks_note`); the body keeps its own look.
 - `bodies_transaction` adds an `Import` feature per body under unique names (stored as `import` or
   `placed_import`, `file-format.md`). A coloured or see-through body gets one `SetBodyAppearance`;
   each `ImportedFace` a `FaceColour` naming it (`FaceName::imported`, origin `Imported`), coloured
@@ -256,8 +259,10 @@ paths:
     body, coloured with the body's colour or the app's default (`ExportBody::look`).
   - OBJ: one named object per body, global 1-based indices, millimetres, Z up, no normals; bodies
     with a look name a material `<index>_<material or body>` (whitespace as `_`) from a `.mtl` of
-    the same stem written first, `Kd` the colour; an existing `.mtl` not starting with caditor's
-    header is never replaced and the OBJ goes without colours.
+    the same stem written first, `Kd` the colour; when the `.obj` then fails to write, the
+    previous `.mtl` is put back (removed if there was none), so a library and mesh never mismatch;
+    an existing `.mtl` not starting with caditor's header is never replaced and the OBJ goes
+    without colours.
   - Binary glTF (`.glb`): one node and mesh per body, f32 positions in metres with Y up (`x, z, -y`
     of the model's, keeping winding) with the bounds glTF requires, no normals (flat); a body with a
     look gets a material named like its 3MF base, colour as linear `baseColorFactor`.

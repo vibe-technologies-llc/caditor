@@ -17,7 +17,7 @@ mod three_mf;
 pub(crate) mod zip;
 
 use std::{
-    fs::File,
+    fs::{self, File},
     io::{self, BufWriter, Write},
     panic::{self, AssertUnwindSafe},
     path::Path,
@@ -587,13 +587,38 @@ pub fn export_bodies(
     if cancel.is_cancelled() {
         return Err(ExportError::Cancelled);
     }
-    if let Some((library, materials)) = materials {
-        write_atomically(&library, &materials)
-            .map_err(|error| ExportError::Writing(WriteFailure::of(&error)))?;
+    let Some((library, materials)) = materials else {
+        write_atomically(path, &contents).map_err(writing)?;
+        return Ok(exported(None));
+    };
+    let previous = previous_contents(&library).map_err(writing)?;
+    write_atomically(&library, &materials).map_err(writing)?;
+    if let Err(error) = write_atomically(path, &contents) {
+        restore_contents(&library, previous);
+        return Err(writing(error));
     }
-    write_atomically(path, &contents)
-        .map_err(|error| ExportError::Writing(WriteFailure::of(&error)))?;
     Ok(exported(None))
+}
+
+fn previous_contents(path: &Path) -> io::Result<Option<Vec<u8>>> {
+    match fs::read(path) {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+fn restore_contents(path: &Path, previous: Option<Vec<u8>>) {
+    let restored = match previous {
+        Some(bytes) => write_atomically(path, &bytes),
+        None => fs::remove_file(path),
+    };
+    if let Err(error) = restored {
+        log::warn!(
+            "the previous material library {} could not be put back: {error}",
+            path.display()
+        );
+    }
 }
 
 fn writing(error: io::Error) -> ExportError {

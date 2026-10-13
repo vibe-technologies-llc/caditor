@@ -1167,7 +1167,11 @@ mod step {
 
     use crate::{
         decode, encode,
-        import::{ImportError, bodies_transaction, parse_step, read_step_file},
+        import::{
+            ImportError, bodies_transaction,
+            model::{dropped_looks_note, face_looks},
+            parse_step, read_step_file,
+        },
     };
 
     fn block() -> Solid {
@@ -1778,6 +1782,67 @@ mod step {
             }
         }
         assert_eq!(see_through, 1);
+    }
+
+    fn red_look(face: usize) -> caditor_step::FaceLook {
+        caditor_step::FaceLook {
+            face,
+            colour: Some([255, 0, 0]),
+            opacity: None,
+            finish: None,
+        }
+    }
+
+    #[test]
+    fn face_looks_carried_onto_the_stored_solid_are_not_counted_as_dropped() {
+        let read = block();
+        let lumps = [(block(), ())];
+
+        let looks = face_looks(&[red_look(0), red_look(3)], None, &read, &lumps);
+
+        assert_eq!(looks.dropped, 0);
+        assert_eq!(looks.per_lump.iter().map(Vec::len).sum::<usize>(), 2);
+    }
+
+    #[test]
+    fn a_look_matching_the_body_is_not_a_look_left_out() {
+        let read = block();
+        let plain = caditor_step::FaceLook {
+            face: 0,
+            colour: None,
+            opacity: Some(100),
+            finish: None,
+        };
+
+        let looks = face_looks(&[plain], None, &read, &[(block(), ())]);
+
+        assert_eq!(looks.dropped, 0);
+        assert!(looks.per_lump.iter().all(Vec::is_empty));
+    }
+
+    #[test]
+    fn face_looks_are_counted_as_dropped_when_the_lumps_do_not_line_up() {
+        let read = block();
+        let looks = [red_look(0), red_look(1), red_look(2)];
+
+        let other_lump_count = face_looks(&looks, None, &read, &[(block(), ()), (block(), ())]);
+        let other_face_count = face_looks(&looks, None, &read, &[(pair(), ())]);
+        let outside_every_lump = face_looks(&[red_look(40)], None, &read, &[(block(), ())]);
+
+        assert_eq!(other_lump_count.dropped, 3);
+        assert_eq!(other_face_count.dropped, 3);
+        assert_eq!(outside_every_lump.dropped, 1);
+        assert!(other_lump_count.per_lump.iter().all(Vec::is_empty));
+        assert!(other_face_count.per_lump.iter().all(Vec::is_empty));
+    }
+
+    #[test]
+    fn the_note_for_dropped_face_looks_names_the_part_and_how_many() {
+        let one = dropped_looks_note("Bracket", 1);
+        let several = dropped_looks_note("Bracket", 3);
+
+        assert!(one.contains("“Bracket”") && one.contains("1 face colour, opacity or finish"));
+        assert!(several.contains("3 face colours, opacities or finishes"));
     }
 
     #[test]
