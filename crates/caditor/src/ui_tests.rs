@@ -43,6 +43,7 @@ use crate::{
 
 mod accessibility;
 mod analysis;
+mod background_work;
 mod blend_feet;
 mod blends;
 mod bodies;

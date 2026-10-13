@@ -234,6 +234,15 @@ pub enum Command {
     CancelImport,
     Recompute,
     CancelRecompute,
+    CancelAnalysis,
+    AnalyseAgain,
+    CancelMassProperties,
+    WorkOutMassProperties,
+    CancelPreparingBodies,
+    ShowRestOfBodies,
+    CancelIsocurves,
+    CancelInterference,
+    CheckInterferenceAgain,
     RenameFeature,
     GroupFeatures,
     Ungroup,
@@ -784,6 +793,15 @@ plain_commands! {
     CancelImport,
     Recompute,
     CancelRecompute,
+    CancelAnalysis,
+    AnalyseAgain,
+    CancelMassProperties,
+    WorkOutMassProperties,
+    CancelPreparingBodies,
+    ShowRestOfBodies,
+    CancelIsocurves,
+    CancelInterference,
+    CheckInterferenceAgain,
     RenameFeature,
     GroupFeatures,
     Ungroup,
@@ -1098,6 +1116,15 @@ impl Command {
             Self::CancelImport => "file.cancel_import",
             Self::Recompute => "model.recompute",
             Self::CancelRecompute => "model.cancel_recompute",
+            Self::CancelAnalysis => "view.cancel_analysis",
+            Self::AnalyseAgain => "view.analyse_again",
+            Self::CancelMassProperties => "view.cancel_mass_properties",
+            Self::WorkOutMassProperties => "view.work_out_mass_properties",
+            Self::CancelPreparingBodies => "view.cancel_preparing_bodies",
+            Self::ShowRestOfBodies => "view.show_rest_of_bodies",
+            Self::CancelIsocurves => "view.cancel_isocurves",
+            Self::CancelInterference => "view.cancel_interference",
+            Self::CheckInterferenceAgain => "view.check_interference_again",
             Self::RenameFeature => "model.rename_feature",
             Self::GroupFeatures => "model.group_features",
             Self::Ungroup => "model.ungroup",
@@ -1354,6 +1381,15 @@ impl Command {
             Self::CancelImport => "Cancel the import",
             Self::Recompute => "Recompute the model",
             Self::CancelRecompute => "Cancel the recompute",
+            Self::CancelAnalysis => "Cancel the face analysis",
+            Self::AnalyseAgain => "Analyse faces again",
+            Self::CancelMassProperties => "Cancel the mass properties",
+            Self::WorkOutMassProperties => "Work out the stopped mass properties",
+            Self::CancelPreparingBodies => "Cancel preparing bodies for display",
+            Self::ShowRestOfBodies => "Show the rest of the bodies",
+            Self::CancelIsocurves => "Cancel the isocurves",
+            Self::CancelInterference => "Cancel the interference check",
+            Self::CheckInterferenceAgain => "Check interference again",
             Self::RenameFeature => "Rename feature",
             Self::GroupFeatures => "Group features",
             Self::Ungroup => "Ungroup",
@@ -1450,6 +1486,15 @@ impl Command {
                 &["visibility", "show", "hide"]
             }
             Self::ShowAll => &["visibility", "unhide", "reveal"],
+            Self::CancelAnalysis
+            | Self::CancelMassProperties
+            | Self::CancelPreparingBodies
+            | Self::CancelIsocurves
+            | Self::CancelInterference => &["stop", "abort", "background work"],
+            Self::AnalyseAgain
+            | Self::WorkOutMassProperties
+            | Self::ShowRestOfBodies
+            | Self::CheckInterferenceAgain => &["resume", "continue", "background work"],
             Self::Measure => &["distance", "ruler", "length", "angle", "area", "volume"],
             Self::Interference => &["collision", "clash", "overlap"],
             Self::DeleteSelection | Self::DeleteFeature => &["remove", "erase"],
@@ -1566,6 +1611,15 @@ impl Command {
             | Self::Filter(_)
             | Self::Style(_)
             | Self::Analysis(_)
+            | Self::CancelAnalysis
+            | Self::AnalyseAgain
+            | Self::CancelMassProperties
+            | Self::WorkOutMassProperties
+            | Self::CancelPreparingBodies
+            | Self::ShowRestOfBodies
+            | Self::CancelIsocurves
+            | Self::CancelInterference
+            | Self::CheckInterferenceAgain
             | Self::Section(
                 SectionCommand::Toggle
                 | SectionCommand::Add
@@ -1949,6 +2003,15 @@ impl Command {
             | Self::CancelImageExport
             | Self::CancelImport
             | Self::CancelRecompute
+            | Self::CancelAnalysis
+            | Self::AnalyseAgain
+            | Self::CancelMassProperties
+            | Self::WorkOutMassProperties
+            | Self::CancelPreparingBodies
+            | Self::ShowRestOfBodies
+            | Self::CancelIsocurves
+            | Self::CancelInterference
+            | Self::CheckInterferenceAgain
             | Self::CancelPaste
             | Self::Ungroup
             | Self::RenameGroup

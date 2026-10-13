@@ -16,6 +16,8 @@ use caditor_kernel::{
 use caditor_render::{Batch, Layer, Line, Stroke};
 use parking_lot::Mutex;
 
+#[cfg(test)]
+use crate::bodies::Hold;
 use crate::{
     bodies,
     comb::{self, Comb, CombDrawing, Combed, HALO_WIDTH, Tooth},
@@ -321,6 +323,8 @@ pub struct IsocurveTool {
     finished: Finished,
     shown: Option<(Basis, Arc<Isocurves>)>,
     drawn: Option<(f64, Arc<Isocurves>, Arc<IsocurveDrawing>)>,
+    #[cfg(test)]
+    hold: Hold,
 }
 
 impl Default for IsocurveTool {
@@ -340,11 +344,18 @@ impl Default for IsocurveTool {
             finished: Finished::default(),
             shown: None,
             drawn: None,
+            #[cfg(test)]
+            hold: Hold::default(),
         }
     }
 }
 
 impl IsocurveTool {
+    #[cfg(test)]
+    pub fn hold_on_a_thread(&mut self, hold: Hold) {
+        self.hold = hold;
+    }
+
     pub fn toggle(&mut self) {
         if self.open {
             *self = Self {
@@ -498,6 +509,8 @@ impl IsocurveTool {
             cancelled: Arc::clone(&cancelled),
             finished: Arc::clone(&self.finished),
             wake: model.waker(),
+            #[cfg(test)]
+            hold: self.hold.clone(),
         });
         match spawned {
             Ok(()) => {
@@ -542,6 +555,8 @@ struct Work {
     cancelled: Arc<AtomicBool>,
     finished: Finished,
     wake: Waker,
+    #[cfg(test)]
+    hold: Hold,
 }
 
 fn spawn(work: Work) -> std::io::Result<()> {
@@ -556,12 +571,18 @@ fn spawn(work: Work) -> std::io::Result<()> {
                 cancelled,
                 finished,
                 wake,
+                #[cfg(test)]
+                hold,
             } = work;
             let stop = Arc::clone(&cancelled);
             let outcome = panic::catch_unwind(AssertUnwindSafe(|| {
                 caditor_kernel::interruptible(
                     Arc::new(move || stop.load(Ordering::Acquire)),
-                    || work_out(&chosen, gone, settings),
+                    || {
+                        #[cfg(test)]
+                        let _ = hold.wait();
+                        work_out(&chosen, gone, settings)
+                    },
                 )
             }));
             let isocurves = match outcome {

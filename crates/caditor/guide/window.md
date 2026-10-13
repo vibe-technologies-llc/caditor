@@ -51,7 +51,12 @@ work such as saving or exporting or loading bodies to the graphics card, and the
 Work that can be stopped, such as a recompute, an import, an export or a paste, has a Cancel
 beside it. While a large model's bodies are prepared for display it says "Showing N of M bodies"
 with a Cancel; cancelled, the bodies not shown yet stay hidden, the count stays in blue and
-**Show the rest** brings them in. On the right: what is selected, its size or the distance between two selected items, the
+**Show the rest** brings them in. {command:view.cancel_preparing_bodies} and
+{command:view.show_rest_of_bodies} do the same from the search. Every Cancel for work in the
+background that is not a recompute, a file or a paste (preparing bodies, face analysis, mass
+properties, isocurves and interference) is also a command in the View menu's Background work, offered
+while that work runs, and the command that picks it up again is offered once it was stopped. Escape
+is not bound to them, as it already closes or cancels what is open. On the right: what is selected, its size or the distance between two selected items, the
 [selection filter](selection) while one is on (click it to select anything again), the length unit
 (click it for [Preferences](preferences)) and the interface size when it is not 100% (click it to
 go back to 100%). Hovering a button there names its keys.

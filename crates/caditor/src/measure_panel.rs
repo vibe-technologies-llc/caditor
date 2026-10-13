@@ -9,6 +9,7 @@ use egui::{Label, Popup, TextWrapMode, Ui};
 use crate::{
     appearance::{SPACE_M, SPACE_S},
     bodies::{BodyMass, BodyMesh, BodyMeshes, MassAccuracy},
+    commands::{Command, CommandFrame},
     datum_tools, field,
     guide::Page,
     icons,
@@ -44,6 +45,8 @@ const MASS_SECTION: &str = "measure-mass";
 const STALE_OPACITY: f32 = 0.5;
 const DIRECTION_STEP: f64 = 1e-4;
 const WORKING_OUT_MASS: &str = "Working out this body's mass properties.";
+const NO_MASSES_PENDING: &str = "No mass properties are being worked out";
+const NO_MASSES_STOPPED: &str = "No mass properties were stopped";
 const STOPPED_MASS: &str = "Stopped before this body's mass properties were worked out.";
 pub const WORKING_OUT_MASSES: &str = "Working out mass properties…";
 const STOP_MASSES_HOVER: &str =
@@ -665,6 +668,20 @@ enum MassWork {
     Resume,
 }
 
+fn mass_commands(masses: &Masses, commands: &mut CommandFrame<'_>) -> Option<MassWork> {
+    let pending = (masses.pending > 0).then_some(()).ok_or(NO_MASSES_PENDING);
+    let stopped = (masses.stopped > 0).then_some(()).ok_or(NO_MASSES_STOPPED);
+    let stop = commands.invoke(Command::CancelMassProperties, &pending);
+    let resume = commands.invoke(Command::WorkOutMassProperties, &stopped);
+    if stop {
+        Some(MassWork::Stop)
+    } else if resume {
+        Some(MassWork::Resume)
+    } else {
+        None
+    }
+}
+
 fn steer_masses(context: &MeasureContext<'_>, masses: &Masses, work: MassWork) {
     for mesh in masses
         .listed
@@ -716,6 +733,7 @@ pub fn show(
     tool: &mut MeasureTool,
     room: f32,
     state: &mut PanelState,
+    commands: &mut CommandFrame<'_>,
     actions: &mut Vec<Action>,
 ) {
     let relative = relative(context.model, tool);
@@ -778,7 +796,7 @@ pub fn show(
         });
     });
     tool.relative_to = relative_to;
-    if let Some(work) = mass_work {
+    if let Some(work) = mass_commands(&masses, commands).or(mass_work) {
         steer_masses(context, &masses, work);
     }
     if panel.closed {

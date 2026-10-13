@@ -163,6 +163,19 @@ paths:
 - A command's button calls `CommandFrame::invoke` with its availability, which records an `Offer`
   and says whether it triggered; a triggered unavailable command becomes a notice with the reason.
   Hover texts and menu items show the current binding (`commands::display`).
+- The Cancel of every background wait is a command, and so is the button that picks the work up
+  again, so each is in the palette and the View menu's Background work: `CancelAnalysis`,
+  `CancelMassProperties`, `CancelPreparingBodies`, `CancelIsocurves`, `CancelInterference` and
+  `AnalyseAgain`, `WorkOutMassProperties`, `ShowRestOfBodies`, `CheckInterferenceAgain` (with
+  `CancelRecompute`, `CancelImport`, `CancelPaste` and the export Cancels, which already were).
+  The code drawing the wait calls `invoke` beside its button and ORs the two
+  (`status_bar::body_commands` for the bodies; `analysis_panel`, `measure_panel`, `isocurve_panel`
+  and `interference_panel` for the rest), so the click and the command run one path. Each is offered
+  (unavailable, with a reason such as `NOT_ANALYSING`) only while the panel or bar drawing it is
+  on screen, ready only while its work runs or was stopped, and has no default key: Escape is
+  reserved and already closes, cancels or stops choosing in the view, panels and dialogs, so
+  binding it to background work would take it from them
+  (`ui_tests/background_work.rs` runs each through the palette).
 
 ## Queued actions
 

@@ -8,5 +8,5 @@
 
 The panel lists each face with the smallest radius of its lines in each direction. Selecting
 something that is not a face keeps the faces shown. The lines are worked out in the background and
-redrawn after every change to the model. **Cancel** beside the progress stops them until you change
-a setting or the selected faces.
+redrawn after every change to the model. **Cancel** beside the progress, or
+{command:view.cancel_isocurves}, stops them until you change a setting or the selected faces.

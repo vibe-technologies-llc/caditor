@@ -34,6 +34,8 @@ const MIN_SELECTION_WIDTH: f32 = 120.0;
 const DIVIDER_WIDTH: f32 = SPACE_S;
 const NO_NOTICE: &str = "There is no notice to dismiss";
 const NOT_RECOMPUTING: &str = "Nothing is being recomputed";
+const NOT_PREPARING: &str = "No bodies are being prepared for display";
+const NOT_STOPPED_PREPARING: &str = "Preparing bodies for display was not stopped";
 const NOTHING_FAILED: &str = "No feature has failed";
 const NOTHING_WAITING: &str = "No feature is waiting for input";
 const WAITING_HOVER: &str = "Show the next feature waiting for you to choose something";
@@ -268,6 +270,21 @@ fn recompute_commands(model: &Model, commands: &mut CommandFrame<'_>, actions: &
     };
     if commands.invoke(Command::CancelRecompute, &running) {
         actions.push(Action::CancelRecompute);
+    }
+    body_commands(model, commands, actions);
+}
+
+fn body_commands(model: &Model, commands: &mut CommandFrame<'_>, actions: &mut Vec<Action>) {
+    let preparing = model.bodies_preparing().map(|_| ()).ok_or(NOT_PREPARING);
+    if commands.invoke(Command::CancelPreparingBodies, &preparing) {
+        actions.push(Action::StopPreparingBodies);
+    }
+    let stopped = model
+        .bodies_stopped()
+        .map(|_| ())
+        .ok_or(NOT_STOPPED_PREPARING);
+    if commands.invoke(Command::ShowRestOfBodies, &stopped) {
+        actions.push(Action::PrepareStoppedBodies);
     }
 }
 
