@@ -258,7 +258,7 @@ impl Solid {
         let faces: usize = self
             .faces
             .iter()
-            .map(|face| size_of_val(face.loops.as_slice()))
+            .map(|face| size_of_val(face.loops.as_slice()) + face.surface.boxed_size())
             .sum();
         let shells: usize = self
             .shells

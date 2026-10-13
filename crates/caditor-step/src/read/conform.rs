@@ -797,7 +797,7 @@ impl Bender<'_, '_> {
         let Some(lines) = self.lines.get(&face) else {
             return Ok(());
         };
-        let surface = Surface::BSpline(spline.clone());
+        let surface = Surface::from(spline.clone());
         let fits: Vec<usize> = lines
             .iter()
             .enumerate()
@@ -834,7 +834,7 @@ impl Bender<'_, '_> {
             current =
                 self.bend_side(face, current, (lines, line), fitting, &sides, &mut corners)?;
         }
-        self.surfaces.insert(face, Surface::BSpline(current));
+        self.surfaces.insert(face, Surface::from(current));
         self.bent.insert(face);
         Ok(())
     }
@@ -1131,7 +1131,7 @@ impl Bender<'_, '_> {
                     closest_on_line(spline, line, ends[1], raw[1]).ok_or_else(missing)?,
                 ];
                 Map::Line {
-                    spline: spline.clone(),
+                    spline: BSplineSurface::clone(spline),
                     line,
                     table,
                     shift: [wanted[0] - raw[0], wanted[1] - raw[1]],
@@ -1156,7 +1156,7 @@ impl Bender<'_, '_> {
                     closest_on_patch(spline, ends[1], raw[1]).ok_or_else(missing)?,
                 ];
                 Map::Patch {
-                    spline: spline.clone(),
+                    spline: BSplineSurface::clone(spline),
                     table,
                     shift: [wanted[0] - raw[0], wanted[1] - raw[1]],
                 }

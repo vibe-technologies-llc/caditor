@@ -7,12 +7,15 @@ use crate::{
     curve::{Circle, Line},
     fixtures::{self, Fixture, Tweak},
     interval::Interval,
-    surface::{Cone, Cylinder, PlaneSurface, Sphere},
+    surface::{BSplineSurface, Cone, Cylinder, PlaneSurface, Sphere},
     test_support::{assert_cancelled_anywhere, polls_during},
 };
 
 const PRISM_SIDES: usize = 4000;
 const PRISM_CROSSING_POLLS_PER_SIDE: usize = 32;
+const MOST_SURFACE_BYTES: usize = 96;
+const MOST_CURVE_BYTES: usize = 96;
+const MOST_FACE_BYTES: usize = 192;
 
 #[test]
 fn every_fixture_validates() {
@@ -976,4 +979,27 @@ fn a_validation_error_names_the_faces_it_involves() {
         ValidationError::PcurveGap(coedge).faces(&block),
         vec![block.coedge_face(coedge).unwrap()]
     );
+}
+
+#[test]
+fn faces_and_their_geometry_stay_small_with_large_surfaces_boxed() {
+    let surface = size_of::<Surface>();
+    let curve = size_of::<Curve>();
+    let face = size_of::<Face>();
+
+    assert!(
+        surface <= MOST_SURFACE_BYTES,
+        "a Surface takes {surface} bytes"
+    );
+    assert!(curve <= MOST_CURVE_BYTES, "a Curve takes {curve} bytes");
+    assert!(face <= MOST_FACE_BYTES, "a Face takes {face} bytes");
+}
+
+#[test]
+fn a_boxed_surface_counts_towards_the_bytes_a_face_owns() {
+    let plane = Surface::from(PlaneSurface::new(Plane::XY).unwrap());
+    let spline = Surface::from(fixtures::bumped_sheet(100.0, 0.0, 5, 2.0));
+
+    assert_eq!(plane.boxed_size(), 0);
+    assert_eq!(spline.boxed_size(), size_of::<BSplineSurface>());
 }

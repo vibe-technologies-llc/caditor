@@ -66,12 +66,25 @@ pub enum Surface {
     Cone(Cone),
     Sphere(Sphere),
     Torus(Torus),
-    Extrusion(Extrusion),
-    Revolution(Revolution),
-    BSpline(BSplineSurface),
+    Extrusion(Box<Extrusion>),
+    Revolution(Box<Revolution>),
+    BSpline(Box<BSplineSurface>),
 }
 
 impl Surface {
+    pub fn boxed_size(&self) -> usize {
+        match self {
+            Self::Plane(_)
+            | Self::Cylinder(_)
+            | Self::Cone(_)
+            | Self::Sphere(_)
+            | Self::Torus(_) => 0,
+            Self::Extrusion(extrusion) => size_of_val(&**extrusion),
+            Self::Revolution(revolution) => size_of_val(&**revolution),
+            Self::BSpline(spline) => size_of_val(&**spline),
+        }
+    }
+
     pub fn shared_buffers(&self, found: &mut dyn FnMut(SharedBuffer)) {
         match self {
             Self::Plane(_)
@@ -430,7 +443,7 @@ impl Surface {
             Self::Extrusion(extrusion) => {
                 let (profile, along) = extrusion.profile().mapped(similarity)?;
                 (
-                    Self::Extrusion(Extrusion::new(
+                    Self::from(Extrusion::new(
                         profile,
                         similarity.apply_direction(extrusion.direction()),
                     )?),
@@ -443,7 +456,7 @@ impl Surface {
             Self::Revolution(revolution) => {
                 let (profile, along) = revolution.profile().mapped(similarity)?;
                 (
-                    Self::Revolution(Revolution::new(
+                    Self::from(Revolution::new(
                         profile,
                         similarity.apply_point(revolution.axis_origin()),
                         similarity.apply_direction(revolution.axis_direction()),
@@ -452,7 +465,7 @@ impl Surface {
                 )
             }
             Self::BSpline(spline) => (
-                Self::BSpline(spline.mapped(|point| similarity.apply_point(point))?),
+                Self::from(spline.mapped(|point| similarity.apply_point(point))?),
                 UvMap::IDENTITY,
             ),
         })
@@ -491,18 +504,18 @@ impl From<Torus> for Surface {
 
 impl From<Extrusion> for Surface {
     fn from(extrusion: Extrusion) -> Self {
-        Self::Extrusion(extrusion)
+        Self::Extrusion(Box::new(extrusion))
     }
 }
 
 impl From<Revolution> for Surface {
     fn from(revolution: Revolution) -> Self {
-        Self::Revolution(revolution)
+        Self::Revolution(Box::new(revolution))
     }
 }
 
 impl From<BSplineSurface> for Surface {
     fn from(spline: BSplineSurface) -> Self {
-        Self::BSpline(spline)
+        Self::BSpline(Box::new(spline))
     }
 }

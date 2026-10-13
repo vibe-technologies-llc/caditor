@@ -531,7 +531,7 @@ mod tests {
             None,
         )
         .unwrap();
-        let surface = Surface::BSpline(saddle);
+        let surface = Surface::from(saddle);
         let tolerance = SamplingTolerance::new(0.01, 0.2).unwrap();
 
         let found = density(&surface, unit_square(), &tolerance);
@@ -545,7 +545,7 @@ mod tests {
 
     #[test]
     fn a_small_bump_divides_only_the_rows_and_columns_through_it() {
-        let surface = Surface::BSpline(fixtures::bumped_sheet(100.0, 0.0, 41, 2.0));
+        let surface = Surface::from(fixtures::bumped_sheet(100.0, 0.0, 41, 2.0));
         let tolerance = SamplingTolerance::new(0.01, 0.2).unwrap();
 
         let found = density(&surface, unit_square(), &tolerance);

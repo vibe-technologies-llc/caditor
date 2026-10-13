@@ -556,10 +556,10 @@ impl<'g, 'a> Topology<'g, 'a> {
         let reversed = self.geometry.reversed(surface_id);
         let (surface, transposed) = upright(self.geometry.surface(surface_id)?);
         let surface = match surface {
-            Surface::BSpline(spline) if self.healing == Healing::Extended => Surface::BSpline(
+            Surface::BSpline(spline) if self.healing == Healing::Extended => Surface::from(
                 spline
                     .extended(SPLINE_EXTENSION, self.geometry.units.uncertainty())
-                    .unwrap_or(spline),
+                    .unwrap_or(*spline),
             ),
             other => other,
         };
@@ -1429,7 +1429,7 @@ fn upright(surface: Surface) -> (Surface, bool) {
             let sideways = spline.degenerate_column(0) || spline.degenerate_column(last_column);
             let upright = spline.degenerate_row(0) || spline.degenerate_row(last_row);
             if sideways && !upright {
-                (Surface::BSpline(spline.transposed()), true)
+                (Surface::from(spline.transposed()), true)
             } else {
                 (Surface::BSpline(spline), false)
             }
@@ -1633,7 +1633,7 @@ mod tests {
         let weights = (0..size * size)
             .map(|index| 1.0 + (index % 3) as f64 * 0.3)
             .collect();
-        Surface::BSpline(
+        Surface::from(
             BSplineSurface::new(3, 3, knots.clone(), knots, size, points, Some(weights)).unwrap(),
         )
     }

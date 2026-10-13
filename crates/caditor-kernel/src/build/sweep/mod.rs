@@ -935,10 +935,10 @@ impl Course {
             }
             Motion::Slide { path, from } => {
                 let profile = piece_spline(&placed, piece)?;
-                Surface::BSpline(sliding_surface(&profile, path, *from)?)
+                Surface::from(sliding_surface(&profile, path, *from)?)
             }
             Motion::Fitted(stations) => {
-                Surface::BSpline(stations.surface(&piece_spline(plane, piece)?)?)
+                Surface::from(stations.surface(&piece_spline(plane, piece)?)?)
             }
         })
     }
