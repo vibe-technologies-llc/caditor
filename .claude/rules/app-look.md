@@ -182,6 +182,13 @@ paths:
   (`the_key_hint_panel_is_opaque_on_every_canvas_so_no_label_shows_through`); a folded list ends in
   the More keys chip, a bordered chip resting on that panel colour (control-coloured when hovered or
   pressed, with the focus ring). Each key, "or" and action is its own text, so tests use `shows_hint`.
+- The display picker (`display_picker.rs`, `canvas::menu_button`: the style's icon, its
+  `DisplayStyle::short_title` and a caret) sits at the top of the 3D view in the corner across from
+  a top-left cube, else at the top left, named "Display style: <title>" for screen readers. A click
+  opens the style menu as the ribbon's group menus do (`ribbon::group_menu` from
+  `ViewportState::show_menu`, so a choice runs next frame like the context menu's): every display
+  style checked as `ToggleStates` says, then Light the rendered view. The prompt band
+  (`top_band`) and the pointer labels keep clear of it as of the cube (`display_area`).
 - Overlay text keeps clear of the view cube wherever it sits (`ViewportState::cube_area`, the
   `CubePlacement`'s area): a failure or interference label covering the cube or its buttons moves
   to the side of them away from the view's edge (`viewport::clear_of`); the prompt and its hints

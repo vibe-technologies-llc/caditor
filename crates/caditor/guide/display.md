@@ -2,7 +2,8 @@
 
 ## Display styles
 
-View › Display style chooses how bodies are drawn:
+The display picker at the top of the 3D view, which names the style in use, or View › Display
+style chooses how bodies are drawn:
 
 - **Shaded with edges**, the default.
 - **Shaded with hidden edges dashed**: edges behind faces show dashed.

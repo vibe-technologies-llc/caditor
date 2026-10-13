@@ -8,6 +8,7 @@ paths:
   - "crates/caditor/src/menu_bar.rs"
   - "crates/caditor/src/typed_point.rs"
   - "crates/caditor/src/viewport.rs"
+  - "crates/caditor/src/display_picker.rs"
   - "crates/caditor/src/pick_list.rs"
   - "crates/caditor/src/view_menu.rs"
   - "crates/caditor/src/saved_views.rs"
@@ -469,7 +470,8 @@ paths:
   view turns (`render.md`); with hidden edges dashed a coloured body's silhouette is
   `dashed_where_hidden` and never picks. It applies to bodies outside sketch editing, reaches the
   scene through `Sources::style` and `Revisions::style`, shapes image exports too and is kept for
-  the session. X-ray also turns off: choosing it while it is the style returns to the style it
+  the session, chosen from View › Display style, the palette or the display picker in the 3D view
+  (`app-look.md`). X-ray also turns off: choosing it while it is the style returns to the style it
   replaced (`ViewportState::choose_style`; `set_style` remembers the last opaque one), so the View
   menu and the palette switch it both ways like the other toggles.
 

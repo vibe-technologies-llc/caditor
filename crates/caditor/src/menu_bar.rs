@@ -449,6 +449,10 @@ impl<'a> MenuEntries<'a> {
         }
     }
 
+    pub fn fresh(&self) -> Self {
+        Self::new(self.offers, self.toggles, self.keymap)
+    }
+
     pub fn focusing_first(mut self) -> Self {
         self.focus_first = true;
         self

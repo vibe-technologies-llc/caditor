@@ -42,6 +42,18 @@ impl DisplayStyle {
         }
     }
 
+    pub fn short_title(self) -> &'static str {
+        match self {
+            Self::ShadedWithEdges => "Shaded",
+            Self::ShadedWithHiddenEdges => "Hidden edges",
+            Self::Shaded => "Shaded, no edges",
+            Self::Wireframe => "Wireframe",
+            Self::HiddenLine => "Hidden lines",
+            Self::XRay => "X-ray",
+            Self::Rendered => "Rendered",
+        }
+    }
+
     pub fn shows_faces(self) -> bool {
         !matches!(self, Self::Wireframe)
     }

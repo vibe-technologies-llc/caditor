@@ -41,6 +41,7 @@ mod defender;
 mod dialog_parts;
 mod dimensioning;
 mod display;
+mod display_picker;
 mod display_style;
 mod drag_solver;
 mod drawing;

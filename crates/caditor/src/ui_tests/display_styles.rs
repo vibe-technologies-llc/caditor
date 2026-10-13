@@ -15,7 +15,7 @@ fn plate() -> Harness {
 fn choose_from_menu(harness: &mut Harness, title: &str) {
     harness.click("View");
     harness.hover("Display style");
-    harness.click(title);
+    harness.click_lowest(title);
     harness.frame();
 }
 
@@ -212,4 +212,31 @@ fn the_lighting_panel_opens_from_the_palette_and_its_settings_reach_the_rendered
     assert!(harness.shows(crate::lighting_panel::TITLE));
     assert_eq!(lit, Some(low_sun.render()));
     assert_eq!(reset, crate::lighting::Lighting::default());
+}
+
+#[test]
+fn the_display_picker_in_the_view_names_the_style_and_switches_it_from_its_menu() {
+    let mut harness = plate();
+    let shaded = crate::display_picker::name_of(DisplayStyle::ShadedWithEdges);
+    let rendered = crate::display_picker::name_of(DisplayStyle::Rendered);
+    let at_first = harness.button_rect(&shaded);
+
+    harness.click_button(&shaded);
+    harness.frame();
+    harness.click("Rendered");
+    harness.frame();
+    harness.frame();
+    let style = harness.workspace.viewport.style();
+    let renamed = harness.button_rect(&rendered);
+
+    harness.click_button(&rendered);
+    harness.frame();
+    harness.click(&crate::commands::Command::Lighting.title());
+    harness.frame();
+    harness.frame();
+
+    assert!(at_first.width() > 0.0);
+    assert_eq!(style, DisplayStyle::Rendered);
+    assert!(renamed.width() > 0.0);
+    assert!(harness.workspace.lighting.open);
 }

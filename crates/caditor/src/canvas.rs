@@ -12,7 +12,7 @@ use crate::{
         SPACE_SM, SPACE_XL, SPACE_XS, WIDGET_RADIUS,
     },
     body_appearance::DEFAULT_COLOUR,
-    fonts,
+    fonts, icons,
     scene_palette::{Canvas, Contrast},
     widgets,
 };
@@ -852,14 +852,53 @@ fn paint_atom(painter: &Painter, rect: Rect, atom: Atom, look: ChipLook) {
 }
 
 pub fn button(ui: &Ui, rect: Rect, id: Id, glyph: &str, text: &str) -> Response {
-    control(ui, rect, id, glyph, Some(text), text)
+    control(ui, rect, id, (glyph, Some(text), None), text)
 }
 
 pub fn icon_button(ui: &Ui, rect: Rect, id: Id, glyph: &str, name: &str) -> Response {
-    control(ui, rect, id, glyph, None, name)
+    control(ui, rect, id, (glyph, None, None), name)
 }
 
-fn control(ui: &Ui, rect: Rect, id: Id, glyph: &str, text: Option<&str>, name: &str) -> Response {
+pub fn menu_button(
+    ui: &Ui,
+    rect: Rect,
+    id: Id,
+    (glyph, text): (&str, &str),
+    name: &str,
+) -> Response {
+    control(
+        ui,
+        rect,
+        id,
+        (glyph, Some(text), Some(icons::MENU_CARET)),
+        name,
+    )
+}
+
+pub fn menu_button_width(ui: &Ui, glyph: &str, text: &str) -> f32 {
+    let painter = ui.painter();
+    let width = |text: &str, font: FontId| {
+        painter
+            .layout_no_wrap(text.to_owned(), font, Color32::WHITE)
+            .size()
+            .x
+    };
+    width(glyph, icon())
+        + BUTTON_GAP
+        + width(text, emphasis())
+        + BUTTON_GAP
+        + width(icons::MENU_CARET, icon())
+        + 2.0 * PADDING.x
+        + 2.0 * BUTTON_GAP
+}
+
+fn control(
+    ui: &Ui,
+    rect: Rect,
+    id: Id,
+    (glyph, text, trailing): (&str, Option<&str>, Option<&str>),
+    name: &str,
+) -> Response {
     let response = ui.interact(rect, id, Sense::click());
     response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, ui.is_enabled(), name));
     let chrome = chrome(ui.ctx());
@@ -883,16 +922,26 @@ fn control(ui: &Ui, rect: Rect, id: Id, glyph: &str, text: Option<&str>, name: &
     );
     let glyph = painter.layout_no_wrap(glyph.to_owned(), icon(), chrome.text);
     let label = text.map(|text| painter.layout_no_wrap(text.to_owned(), emphasis(), chrome.text));
+    let caret = trailing.map(|caret| painter.layout_no_wrap(caret.to_owned(), icon(), chrome.text));
     let label_width = label
         .as_ref()
         .map_or(0.0, |label| BUTTON_GAP + label.size().x);
-    let left = rect.center().x - (glyph.size().x + label_width) / 2.0;
+    let caret_width = caret
+        .as_ref()
+        .map_or(0.0, |caret| BUTTON_GAP + caret.size().x);
+    let glyph_width = glyph.size().x;
+    let left = rect.center().x - (glyph_width + label_width + caret_width) / 2.0;
     let centred = |height: f32| rect.center().y - height / 2.0;
-    let label_left = left + glyph.size().x + BUTTON_GAP;
+    let label_left = left + glyph_width + BUTTON_GAP;
     painter.galley(Pos2::new(left, centred(glyph.size().y)), glyph, chrome.text);
     if let Some(label) = label {
         let label_top = centred(label.size().y);
         painter.galley(Pos2::new(label_left, label_top), label, chrome.text);
+    }
+    if let Some(caret) = caret {
+        let caret_left = left + glyph_width + label_width + BUTTON_GAP;
+        let caret_top = centred(caret.size().y);
+        painter.galley(Pos2::new(caret_left, caret_top), caret, chrome.text);
     }
     if response.has_focus() {
         widgets::paint_focus_ring_in(painter, rect.expand(FOCUS_GAP), RADIUS, chrome.focus);

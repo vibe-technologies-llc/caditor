@@ -34,6 +34,7 @@ use crate::{
     commands::{CameraMove, Command, CommandFrame, Pasted, StandardView},
     dimensioning,
     display::Displayed,
+    display_picker,
     display_style::DisplayStyle,
     drag_solver::DragCommand,
     drawing::{self, Drawing, Ended, Preview},
@@ -421,6 +422,8 @@ pub struct ViewportState {
     body_hovered: Option<Pickable>,
     more_keys: bool,
     chosen_commands: Vec<Command>,
+    display_button: Option<Response>,
+    display_area: Rect,
     start_card: StartCard,
     refusal: Option<RefusalNote>,
     hover_delay: HoverDelay,
@@ -707,6 +710,8 @@ impl ViewportState {
             body_hovered: None,
             more_keys: false,
             chosen_commands: Vec::new(),
+            display_button: None,
+            display_area: Rect::NOTHING,
             start_card: StartCard::default(),
             refusal: None,
             hover_delay: HoverDelay::default(),
@@ -4348,7 +4353,7 @@ impl ViewportState {
         };
         let Some(typed) = self.typed_point.show(
             ui.ctx(),
-            top_band(rect, self.cube_area(rect)),
+            top_band(rect, self.cube_area(rect), self.display_area),
             anchor,
             typed_point::FIELD_LABEL,
             &hint,
@@ -4514,7 +4519,7 @@ impl ViewportState {
         let anchor = rect.center_top() + vec2(0.0, TYPED_POINT_OFFSET);
         let typed = self.typed_point.show(
             ui.ctx(),
-            top_band(rect, self.cube_area(rect)),
+            top_band(rect, self.cube_area(rect), self.display_area),
             anchor,
             &typing.label,
             &hint,
@@ -4586,7 +4591,7 @@ impl ViewportState {
             .to_owned();
         let Some(typed) = self.typed_point.show(
             ui.ctx(),
-            top_band(rect, self.cube_area(rect)),
+            top_band(rect, self.cube_area(rect), self.display_area),
             anchor,
             field.label,
             &hint,
@@ -4619,7 +4624,7 @@ impl ViewportState {
         let anchor = rect.center_top() + vec2(0.0, TYPED_POINT_OFFSET);
         let typed = self.typed_point.show(
             ui.ctx(),
-            top_band(rect, self.cube_area(rect)),
+            top_band(rect, self.cube_area(rect), self.display_area),
             anchor,
             typed_point::MOVE_LABEL,
             &hint,
@@ -4671,7 +4676,7 @@ impl ViewportState {
         let anchor = rect.center_top() + vec2(0.0, TYPED_POINT_OFFSET);
         let typed = self.typed_point.show(
             ui.ctx(),
-            top_band(rect, self.cube_area(rect)),
+            top_band(rect, self.cube_area(rect), self.display_area),
             anchor,
             typed_point::MOVE_LABEL,
             &hint,
@@ -4717,7 +4722,7 @@ impl ViewportState {
         let anchor = rect.center_top() + vec2(0.0, TYPED_POINT_OFFSET);
         let typed = self.typed_point.show(
             ui.ctx(),
-            top_band(rect, self.cube_area(rect)),
+            top_band(rect, self.cube_area(rect), self.display_area),
             anchor,
             field.label,
             field.hint,
@@ -5004,6 +5009,9 @@ impl ViewportState {
         if blocked {
             chosen.clear();
         }
+        if let Some(button) = self.display_button.take().filter(|_| !blocked) {
+            chosen.extend(display_picker::menu(&button, entries.fresh()));
+        }
         chosen.extend(self.show_context_menu(ctx, model, editing, entries, blocked));
         chosen
     }
@@ -5239,6 +5247,9 @@ impl ViewportState {
         } else {
             None
         };
+        let cube_corner = self.view_cube_shown.then_some(self.cube_placement.corner);
+        self.display_area = display_picker::area(ui, rect, cube_corner, self.style);
+        self.display_button = Some(display_picker::show(ui, self.display_area, self.style));
         match acted {
             Some(CubeAction::LookFrom(direction)) => {
                 let destination = self.camera.destination();
@@ -5350,13 +5361,13 @@ impl ViewportState {
             }
         }
         let cube = self.cube_area(rect);
-        let band = top_band(rect, cube);
+        let band = top_band(rect, cube, self.display_area);
         let bottom_reserved = if cube.center().y > rect.center().y {
             view_cube::TRIAD_WIDTH.max(rect.bottom() - cube.top())
         } else {
             view_cube::TRIAD_WIDTH
         };
-        let mut taken: Vec<Rect> = vec![cube];
+        let mut taken: Vec<Rect> = vec![cube, self.display_area];
         let prompt = match self.prompt(model, editing, key_hints) {
             Some((text, keys)) => Some(canvas_guidance::show_prompt(
                 ui,
@@ -5952,14 +5963,16 @@ fn is_blank(model: &Model, editing: &SketchEditing) -> bool {
         && !editing.is_choosing_plane()
 }
 
-fn top_band(rect: Rect, cube: Rect) -> Rect {
+fn top_band(rect: Rect, cube: Rect, display: Rect) -> Rect {
     let mut left = rect.left() + canvas::MARGIN;
     let mut right = rect.right() - canvas::MARGIN;
-    if cube.center().y <= rect.center().y {
-        if cube.center().x < rect.center().x {
-            left = cube.right() + canvas::MARGIN;
-        } else {
-            right = cube.left() - canvas::MARGIN;
+    for keep_out in [cube, display] {
+        if keep_out.is_positive() && keep_out.center().y <= rect.center().y {
+            if keep_out.center().x < rect.center().x {
+                left = left.max(keep_out.right() + canvas::MARGIN);
+            } else {
+                right = right.min(keep_out.left() - canvas::MARGIN);
+            }
         }
     }
     Rect::from_min_max(
