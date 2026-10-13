@@ -195,22 +195,43 @@ paths:
 
 - A body the exact and extended builds refuse is built in `Healing::Snapped` when the file declares
   a precision, and refused at once in that mode when nothing snaps; `Healing::Bent` snaps first
-  too, so a body needing both is bent around its snapped planes.
-- Only planes move. A plane meeting a cylinder, cone or torus along an edge, with normals within
-  `PARALLEL_ANGLE`, becomes that face's tangent plane at the foot of the edge's middle sample,
-  when every sample's foot on the round face lies on that plane within a quarter of the resolution
-  and some lies farther off the plane as written (a plane meeting it across along a ruling is left
-  alone). Planes meeting along an edge or at a corner, parallel within `PARALLEL_ANGLE` and
-  apart there by more than a quarter of the resolution, join a group whose planes all become one:
-  a plane already snapped to a round face, else the one the shared edges and corners lie closest
-  to; each other keeps its normal's sense and its own x axis.
-- A move is the largest distance from the plane as written to the new one over the corners of
-  the box its edge samples span in the plane (an overestimate for a turn, exact for a shift); one
-  past the precision or under a quarter of the resolution is not made. Faces at
-  a corner or edge shared by more than `MOST_FACES_AT_A_CORNER` faces are not paired there, so a
-  crafted file stays linear. The note gives the planes moved and the largest move
+  too, so a body needing both is bent around its snapped faces.
+- Round faces move first (`round_faces`). Two cylinders, cones, spheres or tori meeting along an
+  edge, with normals within `PARALLEL_ANGLE` at its middle sample, are a pair when the feet of the
+  edge's samples on one lie farther than a quarter of the resolution off the other. A pair already
+  meeting exactly holds both its faces; pairs are then taken in face order, a moved face counting
+  as moved, and a face moved or moved onto is not moved again. Either face of a pair may move onto
+  the other: the candidates are the face offset along its normal by the gap at the middle foot (a
+  new radius), translated by that gap, turned and slid onto the other's axis or centre (a sphere's),
+  and that alignment offset; a candidate counts when every foot lies on it within a quarter of the
+  resolution, and the one the face's own edges as written lie closest to wins, then the smaller
+  move. Of the two faces, the one whose winner leaves its written edges closer (by more than a
+  quarter of the resolution) moves, else the one meeting fewer neighbours tangentially, then fewer
+  neighbours, then the later entity: a fillet whose axis is off by a hair goes back onto the
+  shaft's rather than the shaft onto it, keeping every edge as written.
+- Planes move next, against the round faces as snapped. A plane meeting a cylinder, cone or torus
+  along an edge, with normals within `PARALLEL_ANGLE`, becomes that face's tangent plane at the
+  foot of the edge's middle sample, when every sample's foot on the round face lies on that plane
+  within a quarter of the resolution and some lies farther off the plane as written (a plane
+  meeting it across along a ruling is left alone). Planes meeting along an edge or at a corner,
+  parallel within `PARALLEL_ANGLE` and apart there by more than a quarter of the resolution, join a
+  group whose planes all become one: a plane already snapped to a round face, else the one the
+  shared edges and corners lie closest to; each other keeps its normal's sense and its own x axis.
+- A plane's move is the largest distance from the plane as written to the new one over the corners
+  of the box its edge samples span in the plane (an overestimate for a turn, exact for a shift); a
+  round face's is the largest distance from its feet of its edge samples (thinned evenly to
+  `MOST_OUTLINE_SAMPLES`, so a pair costs a bounded amount) to the new surface. One past the
+  precision or under a quarter of the resolution is not made. Faces at a corner or edge shared by
+  more than `MOST_FACES_AT_A_CORNER` faces are not paired there, so a crafted file stays linear.
+- An edge of one face only (a seam) left off its moved face is rebuilt as that face's parameter
+  line through its vertices (`seam_through`: a line on a cylinder or cone, a meridian on a sphere,
+  a tube or ring circle on a torus), accepted when both ends lie on it within the resolution.
+- The note gives the faces moved (flat, curved, or just faces when both) and the largest move
   (`a_flat_face_just_off_the_cylinder_it_is_tangent_to_is_moved_onto_it_and_imports_exact`,
-  `halves_of_a_split_face_apart_within_the_precision_are_moved_onto_one_plane_and_import_exact`).
+  `halves_of_a_split_face_apart_within_the_precision_are_moved_onto_one_plane_and_import_exact`,
+  `a_cylinder_just_off_the_cylinder_it_is_tangent_to_is_moved_onto_it_and_imports_exact`,
+  `a_fillet_whose_axis_is_a_hair_off_the_shaft_s_is_moved_onto_it_and_imports_exact`,
+  `a_shaft_written_a_hair_off_its_fillet_is_moved_onto_it_and_its_seam_follows`).
 
 ## Bent faces (`conform.rs`)
 

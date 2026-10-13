@@ -16,7 +16,7 @@ use crate::read::{
     geometry::{Crossings, Geometry},
     graph::{Entity, Graph, Problem, Read, friendly},
     loose::{exact_kind, farthest, met_at_ends},
-    snap::snap,
+    snap::{seam_through, snap},
 };
 
 const LOOP_SAMPLES: usize = 16;
@@ -211,8 +211,15 @@ pub(crate) struct Bending {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub(crate) struct Snapping {
-    pub faces: usize,
+    pub flat: usize,
+    pub curved: usize,
     pub farthest: f64,
+}
+
+impl Snapping {
+    pub fn faces(&self) -> usize {
+        self.flat + self.curved
+    }
 }
 
 struct FacePlan {
@@ -413,7 +420,7 @@ impl<'g, 'a> Topology<'g, 'a> {
         if snapped.surfaces.is_empty() && self.healing == Healing::Snapped {
             return Err(Problem::new(
                 id,
-                "has no flat face within the file's precision of meeting a neighbour exactly",
+                "has no face within the file's precision of meeting a neighbour exactly",
             ));
         }
         for (face, surface) in &snapped.surfaces {
@@ -422,7 +429,8 @@ impl<'g, 'a> Topology<'g, 'a> {
             }
         }
         self.snapping = Snapping {
-            faces: snapped.surfaces.len(),
+            flat: snapped.flat,
+            curved: snapped.curved,
             farthest: snapped.farthest,
         };
         Ok(())
@@ -1045,7 +1053,10 @@ impl<'g, 'a> Topology<'g, 'a> {
             return None;
         }
         let [first, second] = surfaces else {
-            return None;
+            let [only] = surfaces else {
+                return None;
+            };
+            return healed_seam(only, &samples, [from, to], start == end).map(|seam| (seam, gap));
         };
         let mut points: Vec<Point3> = interval
             .split(HEAL_SAMPLES)
@@ -1159,6 +1170,19 @@ impl<'g, 'a> Topology<'g, 'a> {
         points.pop();
         points
     }
+}
+
+fn healed_seam(
+    surface: &Surface,
+    samples: &[Point3],
+    [from, to]: [Point3; 2],
+    closed: bool,
+) -> Option<(Curve, Interval)> {
+    let seam = seam_through(surface, samples, from, to)?;
+    let interval = parameter_range(&seam, from, to, closed)?;
+    let fits = seam.point(interval.start()).distance(from) <= LINEAR_RESOLUTION
+        && seam.point(interval.end()).distance(to) <= LINEAR_RESOLUTION;
+    fits.then_some((seam, interval))
 }
 
 fn parameter_range(curve: &Curve, from: Point3, to: Point3, closed: bool) -> Option<Interval> {

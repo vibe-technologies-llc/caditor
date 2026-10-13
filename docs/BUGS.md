@@ -154,12 +154,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   "Micro Switch" (two pairs of parallel planes 1e-4 mm apart meeting at one corner), are what
   snapping (`step-read.md`, "Snapped faces") now makes exact in fixtures built after them; reading
   the file again should confirm they import exact.
-- [medium · medium] Only planes are snapped (`step-read.md`, "Snapped faces"): curved rigid faces
-  that meet within the file's declared precision but not within `LINEAR_RESOLUTION` (two
-  cylinders, or a cylinder and a torus, tangent a few micrometres off; coaxial faces whose axes
-  differ by a hair) still turn the whole body into flat facets, since bending moves only splines.
-  Snapping them would move the face with fewer neighbours onto its partner's axis or radius, each
-  move bounded by the precision and noted like a plane's.
 - [medium · medium] The VZ330 assembly (an Autodesk export at 0.01 mm, 3,894 copies) leaves 14
   parts out. Thirteen are refused as "a vertex 0.00001 to 0.0015 mm away from the end of its
   edge", the exact build's refusal at faces meeting tangentially further apart than the
