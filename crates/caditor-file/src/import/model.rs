@@ -275,20 +275,23 @@ fn parse_step_reporting(
             None => match copy.solid.mapped(&copy.placement) {
                 Ok(mapped) => Placed::Mapped(canonical(&copy.name, &mapped).map(|lumps| {
                     let opacity = copy.opacity.and_then(nearest_opacity_step);
-                    let faces = face_looks(&copy.faces, opacity, &mapped, &lumps);
-                    lumps
-                        .into_iter()
-                        .zip(faces)
-                        .map(|((stored, step), faces)| ImportedBody {
-                            import: Import::new(source, stored, step),
-                            name: copy.name.clone(),
-                            colour: copy.colour.map(rgb),
-                            opacity,
-                            finish: copy.finish.map(finish),
-                            group: copy.layer.clone(),
-                            faces,
-                        })
-                        .collect()
+                    let looks = face_looks(&copy.faces, opacity, &mapped, &lumps);
+                    PlacedBodies {
+                        dropped_looks: looks.dropped,
+                        bodies: lumps
+                            .into_iter()
+                            .zip(looks.per_lump)
+                            .map(|((stored, step), faces)| ImportedBody {
+                                import: Import::new(source, stored, step),
+                                name: copy.name.clone(),
+                                colour: copy.colour.map(rgb),
+                                opacity,
+                                finish: copy.finish.map(finish),
+                                group: copy.layer.clone(),
+                                faces,
+                            })
+                            .collect(),
+                    }
                 })),
                 Err(_) => Placed::Unplaceable,
             },
@@ -297,10 +300,15 @@ fn parse_step_reporting(
     check_interrupt().map_err(|_| ImportError::Cancelled)?;
     let mut lost = Vec::new();
     let mut unplaceable: Vec<String> = Vec::new();
+    let mut dropped_looks: Vec<(String, usize)> = Vec::new();
     for (copy, placed) in model.copies.into_iter().zip(placed) {
         match placed {
-            Some(Placed::Rigidly(bodies) | Placed::Mapped(Some(bodies))) => {
-                imported.bodies.extend(bodies);
+            Some(Placed::Rigidly(placed) | Placed::Mapped(Some(placed))) => {
+                let known = dropped_looks.iter().any(|(name, _)| *name == copy.name);
+                if placed.dropped_looks > 0 && !known {
+                    dropped_looks.push((copy.name, placed.dropped_looks));
+                }
+                imported.bodies.extend(placed.bodies);
             }
             None | Some(Placed::Mapped(None)) => lost.push(copy.name),
             Some(Placed::Unplaceable) if unplaceable.contains(&copy.name) => {}
@@ -313,6 +321,11 @@ fn parse_step_reporting(
         ));
     }
     imported.notes.extend(
+        dropped_looks
+            .iter()
+            .map(|(name, dropped)| dropped_looks_note(name, *dropped)),
+    );
+    imported.notes.extend(
         unplaceable
             .iter()
             .map(|name| Misplacement::CopyUnplaceable.note(name)),
@@ -324,9 +337,26 @@ fn parse_step_reporting(
 }
 
 enum Placed {
-    Rigidly(Vec<ImportedBody>),
-    Mapped(Option<Vec<ImportedBody>>),
+    Rigidly(PlacedBodies),
+    Mapped(Option<PlacedBodies>),
     Unplaceable,
+}
+
+struct PlacedBodies {
+    bodies: Vec<ImportedBody>,
+    dropped_looks: usize,
+}
+
+pub(super) fn dropped_looks_note(name: &str, dropped: usize) -> String {
+    let faces = if dropped == 1 {
+        "1 face colour, opacity or finish".to_owned()
+    } else {
+        format!("{dropped} face colours, opacities or finishes")
+    };
+    format!(
+        "“{name}” was imported, but {faces} could not be carried onto it, so those faces show the \
+         body's own look."
+    )
 }
 
 fn in_parallel<T: Sync, R: Send>(items: &[T], work: impl Fn(&T) -> R + Sync) -> Vec<R> {
@@ -392,18 +422,19 @@ fn placed_copies(
     source: &str,
     copy: &StepCopy,
     lumps: &[(Arc<Solid>, StepText)],
-) -> Option<Vec<ImportedBody>> {
+) -> Option<PlacedBodies> {
     let placement = if copy.placement == Similarity::IDENTITY {
         BodyPlacement::default()
     } else {
         body_placement(&copy.placement, &copy.solid)?
     };
     let opacity = copy.opacity.and_then(nearest_opacity_step);
-    let faces = face_looks(&copy.faces, opacity, &copy.solid, lumps);
-    Some(
-        lumps
+    let looks = face_looks(&copy.faces, opacity, &copy.solid, lumps);
+    Some(PlacedBodies {
+        dropped_looks: looks.dropped,
+        bodies: lumps
             .iter()
-            .zip(faces)
+            .zip(looks.per_lump)
             .map(|((solid, step), faces)| ImportedBody {
                 import: Import::shared(source, Arc::clone(solid), step.clone())
                     .placed(placement.clone()),
@@ -415,23 +446,72 @@ fn placed_copies(
                 faces,
             })
             .collect(),
-    )
+    })
 }
 
-fn face_looks<S: std::borrow::Borrow<Solid>>(
+pub(super) struct FaceLooks {
+    pub per_lump: Vec<Vec<ImportedFace>>,
+    pub dropped: usize,
+}
+
+pub(super) fn face_looks<S: std::borrow::Borrow<Solid>>(
     looks: &[FaceLook],
     body_opacity: Option<u8>,
     read: &Solid,
     lumps: &[(S, impl Sized)],
-) -> Vec<Vec<ImportedFace>> {
+) -> FaceLooks {
+    let body_opacity = body_opacity.unwrap_or(OPAQUE_PERCENT);
+    let distinct: Vec<(usize, ImportedFace)> = looks
+        .iter()
+        .filter_map(|look| {
+            let opacity = look
+                .opacity
+                .map(|percent| nearest_opacity_step(percent).unwrap_or(OPAQUE_PERCENT))
+                .filter(|opacity| *opacity != body_opacity);
+            let colour = look.colour.map(rgb);
+            let finish = look.finish.map(finish);
+            (colour.is_some() || opacity.is_some() || finish.is_some()).then_some((
+                look.face,
+                ImportedFace {
+                    face: 0,
+                    colour,
+                    opacity,
+                    finish,
+                },
+            ))
+        })
+        .collect();
     let mut per_lump = vec![Vec::new(); lumps.len()];
-    if looks.is_empty() {
-        return per_lump;
+    let stored_at = stored_face_positions(read, lumps);
+    let mut carried = 0;
+    for (face, look) in distinct.iter().copied() {
+        let Some((lump, position)) = stored_at.get(&face) else {
+            continue;
+        };
+        let (Some(faces), Ok(position)) = (per_lump.get_mut(*lump), u32::try_from(*position))
+        else {
+            continue;
+        };
+        faces.push(ImportedFace {
+            face: position,
+            ..look
+        });
+        carried += 1;
     }
+    FaceLooks {
+        per_lump,
+        dropped: distinct.len() - carried,
+    }
+}
+
+fn stored_face_positions<S: std::borrow::Borrow<Solid>>(
+    read: &Solid,
+    lumps: &[(S, impl Sized)],
+) -> BTreeMap<usize, (usize, usize)> {
+    let mut stored_at = BTreeMap::new();
     let Some(written) = lump_faces(read).filter(|written| written.len() == lumps.len()) else {
-        return per_lump;
+        return stored_at;
     };
-    let mut stored_at: BTreeMap<usize, (usize, usize)> = BTreeMap::new();
     for (lump, (faces, (stored, _))) in written.iter().zip(lumps).enumerate() {
         if faces.len() != stored.borrow().faces().count() {
             continue;
@@ -440,30 +520,7 @@ fn face_looks<S: std::borrow::Borrow<Solid>>(
             stored_at.insert(*face, (lump, position));
         }
     }
-    let body_opacity = body_opacity.unwrap_or(OPAQUE_PERCENT);
-    for look in looks {
-        let opacity = look
-            .opacity
-            .map(|percent| nearest_opacity_step(percent).unwrap_or(OPAQUE_PERCENT))
-            .filter(|opacity| *opacity != body_opacity);
-        let colour = look.colour.map(rgb);
-        let finish = look.finish.map(finish);
-        let Some((lump, position)) = stored_at.get(&look.face) else {
-            continue;
-        };
-        let (Some(faces), Ok(face)) = (per_lump.get_mut(*lump), u32::try_from(*position)) else {
-            continue;
-        };
-        if colour.is_some() || opacity.is_some() || finish.is_some() {
-            faces.push(ImportedFace {
-                face,
-                colour,
-                opacity,
-                finish,
-            });
-        }
-    }
-    per_lump
+    stored_at
 }
 
 fn rgb([red, green, blue]: [u8; 3]) -> Rgb {

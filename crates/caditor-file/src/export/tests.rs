@@ -823,6 +823,69 @@ fn an_obj_never_replaces_a_material_library_it_did_not_write() {
     );
 }
 
+fn coloured_block(solid: &Solid, colour: Rgb) -> [ExportBody<'_>; 1] {
+    [ExportBody {
+        name: "Block",
+        solid,
+        look: Some(Look {
+            colour,
+            opacity: None,
+            material: None,
+        }),
+        group: None,
+        threads: &[],
+        faces: &[],
+    }]
+}
+
+fn try_export_obj(
+    path: &std::path::Path,
+    bodies: &[ExportBody<'_>],
+) -> Result<Exported, ExportError> {
+    export_bodies(
+        path,
+        ExportFormat::Obj,
+        &MeshOptions {
+            resolution: MeshResolution::Coarse,
+            ..MeshOptions::default()
+        },
+        bodies,
+        &ModelProperties::default(),
+        &CancelToken::never(),
+    )
+}
+
+#[test]
+fn an_obj_that_fails_writing_the_mesh_puts_the_previous_material_library_back() {
+    let dir = TempDir::new().unwrap();
+    let block = block();
+    let path = dir.path().join("part.obj");
+    let library = dir.path().join("part.mtl");
+
+    export_obj(&path, &coloured_block(&block, Rgb::new(10, 20, 30)));
+    let before = std::fs::read(&library).unwrap();
+    std::fs::remove_file(&path).unwrap();
+    std::fs::create_dir(&path).unwrap();
+
+    let failed = try_export_obj(&path, &coloured_block(&block, Rgb::new(200, 100, 50)));
+
+    assert!(matches!(failed, Err(ExportError::Writing(_))));
+    assert_eq!(std::fs::read(&library).unwrap(), before);
+}
+
+#[test]
+fn an_obj_that_fails_writing_the_mesh_leaves_no_new_material_library() {
+    let dir = TempDir::new().unwrap();
+    let block = block();
+    let path = dir.path().join("part.obj");
+    std::fs::create_dir(&path).unwrap();
+
+    let failed = try_export_obj(&path, &coloured_block(&block, Rgb::new(200, 100, 50)));
+
+    assert!(matches!(failed, Err(ExportError::Writing(_))));
+    assert!(!dir.path().join("part.mtl").exists());
+}
+
 #[test]
 fn an_obj_of_plain_bodies_writes_no_material_library() {
     let dir = TempDir::new().unwrap();

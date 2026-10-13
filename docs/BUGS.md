@@ -226,33 +226,11 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   duct (1)" (the lead screw bracket's tangent strip). Reproduce by reading the file with
   `read_step_copies` in release (about 80 s); `STEP_CORPUS` reads through `read_step`, which
   places only the first 1000 copies.
-- [low · easy] A STEP body whose face colours, opacities or finishes cannot be carried onto the
-  stored solid imports with only the body's look and no word of the loss. `face_looks`
-  (`import/model.rs`) returns no looks when `caditor_step::lump_faces` fails or finds another
-  number of lumps than the canonicalised copy has, skips a lump whose stored face count differs
-  from the faces written for it, and skips a look whose face is in no such lump; the body is still
-  imported and `imported.notes` names only parts that could not be stored or placed. A body that
-  reads back as several lumps, or whose stored faces no longer line up, so loses its per-face
-  looks silently. One note per part, naming it and how many face looks were dropped, whenever
-  `looks` was not empty and any was left out, would tell the user.
 - [low · hard] A face whose surface cannot be read is left out (`step-read.md`, "Unreadable
   faces"), but from the outer shell that turns the whole body into flat facets, since the kernel
   holds only closed solids, and a lost face with holes is not closed at all; an edge whose curve
   cannot be read still loses the whole body. An offset that folds anywhere in its basis's domain
   is refused even where the face's own region is clear: fit over the region the face uses.
-
-
-## Export
-
-- [low · easy] An OBJ export that fails writing the `.obj` leaves the new material library beside
-  the old mesh. `export_bodies` (`export/mod.rs`) replaces the `.mtl` with `write_atomically` first
-  and the `.obj` after it, and only the temporary of the write that fails is removed, so when the
-  disk fills or the folder stops being writable between the two, the previous caditor material
-  library is gone and the `.obj` still there is the previous export naming materials of the one
-  that was not written. Writing the mesh first leaves a new mesh with no new materials when the
-  library then fails, which the export's notice can say; keeping the previous library's bytes and
-  putting them back when the mesh write fails keeps today's pairing. `file-import-export.md` says
-  the `.mtl` is written first.
 
 
 ## Viewer
