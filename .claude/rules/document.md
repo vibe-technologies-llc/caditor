@@ -380,11 +380,16 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   refused, not cascaded; `remove_sketch_items` expands a deletion into constraints, curves, then
   points. A revolve's axis line and a sweep's or pipe's path curves (`FeatureKind::named_curves`)
   are uses from other features that may name a number the sketch has no entity under (a damaged
-  file, a fuzzed insert): inserts and kind changes raise that sketch's ID counter past them, so
-  new entities never take such a number and silently become the axis or path, and an
-  `AddSketchEntity` under one is refused (`EntityNumberNamed`), so the inverse of every addition,
-  a removal, applies. `AddSketchEntity` carries the construction flag and the curve a piece was
-  split from (`split_from`), `AddSketchConstraint` the inactive flag and label offset, so undoing
+  file, a fuzzed insert): an `AddSketchEntity` under one is refused (`EntityNumberNamed`), so the
+  inverse of every addition, a removal, applies. Every other outside reference to a sketch entity
+  (`FeatureKind::named_entities`: those curves plus the sketch points and lines named by datums,
+  measurements, mates, moves, patterns including a points pattern's skipped copies, a split face's
+  carry, a revolve's or extrusion's model axis, and the projection sources of other sketches) may
+  name a number the sketch lacks the same way, but removing the entity stays allowed (the user fails
+  with a reason until the deletion is undone), so its re-adding is not refused; instead inserts and
+  kind changes raise the named sketch's ID counter past every such number, so a newly drawn entity
+  never takes it and silently becomes the axis, point or source. `AddSketchEntity` carries the construction flag and
+  the curve a piece was split from (`split_from`), `AddSketchConstraint` the inactive flag and label offset, so undoing
   a removal restores them; `SetSketchConstraintActive` and `SetSketchLabel` change one;
   `reshape_sketch` emits them for kept constraints that differ. Setting an entity changes only its
   value, never its kind or points.

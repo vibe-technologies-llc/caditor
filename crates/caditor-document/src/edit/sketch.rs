@@ -548,8 +548,8 @@ impl Document {
         Ok(Edit::RemoveSketchEntity { feature, id })
     }
 
-    pub(super) fn reserve_named_curves(&mut self, kind: &FeatureKind) {
-        for (sketch, curve) in kind.named_curves() {
+    pub(super) fn reserve_named_entities(&mut self, kind: &FeatureKind) {
+        for (sketch, curve) in kind.named_entities() {
             let beyond = curve.raw().saturating_add(1);
             let behind = self
                 .feature(sketch)
