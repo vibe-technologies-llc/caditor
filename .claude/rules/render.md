@@ -479,7 +479,9 @@ paths:
   the bands turn the premultiplied colour of a transparent clear into straight alpha.
 - `OffscreenRenderer` opens a device without a surface and draws the same `ImageRequest` into an
   `Rgba8Unorm` target, its `ImageBands` drawing the tiles inline as it reads them (`drawn_inline`):
-  the headless `--export` of a PNG (`app.md`) streams them to the file.
+  the headless `--export` of a PNG (`app.md`) streams them to the file. Both draw a scene's
+  pictures behind or in front of its bodies as the window does
+  (`a_window_less_renderer_draws_a_scene_s_pictures_behind_bodies_or_in_front_of_them`).
 
 ## Navigation
 

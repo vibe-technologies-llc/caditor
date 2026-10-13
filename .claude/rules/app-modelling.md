@@ -69,6 +69,7 @@ paths:
   - "crates/caditor/src/image_tools.rs"
   - "crates/caditor/src/image_panel.rs"
   - "crates/caditor/src/image_textures.rs"
+  - "crates/caditor/src/image_handles.rs"
 ---
 
 # Modelling tools in the app
@@ -1078,6 +1079,33 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   (`EditingCommand::CalibrateFrom`, also holding the image in `Picking::pending` so the prompt asks
   for the second); the second sets `ImageSize::Calibrated` with the distance the two points lie apart
   now, so nothing moves until the user types the real distance.
+- While the first point is held the view shows it (`image_tools::calibration_guide`, kept in
+  `ViewportState::calibration`, a `CalibrationGuide` that joins the overlay): a marker of
+  `CALIBRATION_START_DIAMETER` at the point and, while the pointer is on the picture
+  (`spot_under`; off it the band and label go, as a click would be refused), a band in
+  `ScenePalette::measured` to where it points (`scene::add_calibration`) with its length in the
+  picture's present scale at the middle (`LengthUnit::measured_length`, painted by `canvas::label`
+  in `Chrome::measure` on the opaque canvas backdrop, announced as "calibration"). It follows the
+  draft evaluation of the image when there is one and ends with the second click or Escape.
+- While the image's panel is open and nothing is being chosen in the view (`Manipulator::Image`,
+  `image_handles.rs`, `Handle::Image(ImageGrip)`) the picture carries three handles in
+  `ScenePalette::handle`, drawn on the front layer, placed from the draft's values and the plane
+  the image lies on (so they follow a preview at once, not after its recompute): a square at the
+  middle (`Move`), a square on the corner of its up-and-across diagonal (`Scale`) and a knob on a
+  stem standing `STEM_POINTS` beyond the middle of its top edge (`Turn`). None is shown with the
+  picture's plane seen edge-on. Hits are on the UI thread (`ImageHandles::hit`: the stem within
+  `HIT_POINTS`, then the corner square, then the middle square). A drag (`ImageDrag`) works on the
+  plane: Move is a `place_handles::Slide` (steps, Ctrl free, snapping to corners, edge middles and
+  round centres) setting Position X and Y; Turn adds the angle the pointer sweeps about the middle
+  (tracked incrementally, so it passes a half turn) to Angle in steps of 5 degrees, or exactly to
+  a point snapped to; Scale scales Width by the ratio of the pointer's distance along the
+  diagonal to where it was grabbed, in steps, never below a hundredth of the width or over the
+  largest model size, and for a calibrated picture the distance by the same ratio, so the two
+  calibration points stay. Each preview is an `Action::Preview` and the release one "Edit
+  <name>" `SetFeatureKind` through `manipulator::keeping_names`; a value named by a parameter
+  sets that parameter (`Held`) and one that follows other parameters is driven: the handle does
+  not drag and its hover says what drives it. Typing over a handle sets its fields (`x, y`,
+  an angle, the width or the calibrated distance) as the panel does (`image_handles::typed`).
 - `image_textures.rs` (`ImageTextures`, owned by `Model`) decodes each picture of the document on a
   thread of its own (`picture`, under `catch_unwind`) into a `PictureTexture` when the revision
   changes (`want`), wakes the app with the result (`poll`, from `Model::poll`) and forgets pictures

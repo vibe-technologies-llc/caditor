@@ -93,6 +93,7 @@ const HIGHLIGHT_EXTRA_DIAMETER: f32 = 3.0;
 const SNAP_MARKER_DIAMETER: f32 = 13.0;
 const MEASURED_WIDTH: f32 = 2.0;
 const MEASURED_END_DIAMETER: f32 = 8.0;
+const CALIBRATION_START_DIAMETER: f32 = 13.0;
 const PROBLEM_DIAMETER: f32 = 11.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -3096,6 +3097,24 @@ pub fn add_measurement(scene: &mut Batch, palette: &ScenePalette, from: Point3, 
             layer: Layer::Front,
             pick: None,
         });
+    }
+}
+
+pub fn add_calibration(
+    scene: &mut Batch,
+    palette: &ScenePalette,
+    from: Point3,
+    to: Option<Point3>,
+) {
+    scene.markers.push(Marker {
+        position: from,
+        color: palette.measured,
+        diameter: CALIBRATION_START_DIAMETER,
+        layer: Layer::Front,
+        pick: None,
+    });
+    if let Some(to) = to {
+        add_measurement(scene, palette, from, to);
     }
 }
 

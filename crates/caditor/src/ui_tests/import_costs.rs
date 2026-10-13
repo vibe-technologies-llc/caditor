@@ -196,7 +196,14 @@ fn stages(path: &Path) {
         height: 1080,
     };
     let started = Instant::now();
-    let snapshot = snapshot::of_bodies(&document, &evaluation, &meshes, size, Canvas::default());
+    let snapshot = snapshot::of_bodies(
+        &document,
+        &evaluation,
+        &meshes,
+        size,
+        Canvas::default(),
+        None,
+    );
     report(
         "scene built twice (fitting, then drawn)",
         started,

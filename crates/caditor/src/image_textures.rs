@@ -59,6 +59,32 @@ fn decoded(picture: &Picture) -> Result<Arc<PictureTexture>, String> {
 }
 
 impl ImageTextures {
+    pub fn decoded_for(document: &Document) -> Self {
+        let mut textures = Self::default();
+        for feature in document.features() {
+            let FeatureKind::ReferenceImage(image) = &feature.kind else {
+                continue;
+            };
+            let digest = image.picture.digest();
+            if textures.entries.contains_key(&digest) {
+                continue;
+            }
+            let entry = match decoded(&image.picture) {
+                Ok(texture) => Entry::Ready(texture),
+                Err(reason) => {
+                    log::warn!(
+                        "the reference image “{}” is left out: {reason}",
+                        feature.name
+                    );
+                    Entry::Failed(reason)
+                }
+            };
+            textures.entries.insert(digest, entry);
+        }
+        textures.generation += 1;
+        textures
+    }
+
     pub fn generation(&self) -> u64 {
         self.generation
     }

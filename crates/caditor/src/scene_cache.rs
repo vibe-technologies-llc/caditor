@@ -11,6 +11,7 @@ use crate::{
     drawing::Preview,
     editing::Context,
     faceting::FacetLevel,
+    image_tools::CalibrationGuide,
     interference_panel::Mark,
     isocurves::IsocurveDrawing,
     manipulator::Drawn,
@@ -51,6 +52,7 @@ pub struct Overlay {
     pub plane: Option<Plane>,
     pub previews: Vec<Preview>,
     pub measured: Option<[Point3; 2]>,
+    pub calibration: Option<CalibrationGuide>,
     pub problems: Vec<Point3>,
     pub kept: Vec<[Point3; 2]>,
     pub interference: Vec<Mark>,
@@ -70,6 +72,9 @@ impl Overlay {
         }
         if let Some([from, to]) = self.measured {
             scene::add_measurement(&mut batch, palette, from, to);
+        }
+        if let Some(guide) = &self.calibration {
+            scene::add_calibration(&mut batch, palette, guide.from, guide.to);
         }
         for [from, to] in &self.kept {
             scene::add_measurement(&mut batch, palette, *from, *to);

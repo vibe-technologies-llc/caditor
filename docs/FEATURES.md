@@ -266,6 +266,10 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   the user's approval of each client, a status pill naming the connected client with a Disconnect,
   its changes landing in the user's undo history interleaved with their own, and its tool calls
   queued like `queued.rs` actions while the model recomputes, never blocking the UI thread.
+- [low · easy] The version preview (history card) draws bodies only: a model's reference images
+  are left out of its picture, though image export, the window's 3MF thumbnail and the headless
+  PNG and 3MF thumbnail now show them. `version_preview::prepare` would hand `snapshot::take_unless`
+  the pictures decoded on its own thread (`ImageTextures::decoded_for`), under its cancel token.
 - [low · medium] Preferences still lack settings other CAD programs offer: decimal places and
   trailing zeros for shown lengths and angles (each readout in `units.rs` keeps its own
   precision), a default colour for bodies without one (`body_appearance::DEFAULT_COLOUR` is one
