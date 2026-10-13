@@ -103,12 +103,11 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Sketching
 
-- [medium · hard] Body items (`body_snap.rs`) are snapped to by drawing and grabs and picked by
-  Select and Smart dimension, but they are not acquired for tracks, never pulled by the held snap
-  (Alt) and never crossed by a direction or track, since they are not in the sketch until a point
-  lands on them: acquiring one would need tracks that hold a point the shape has yet to project.
-  Nor do the keyboard highlight commands reach them (`Pickable::BodyItem` is not a scene
-  pickable), so picking a body item for a dimension or constraint needs the pointer.
+- [medium · hard] Body items (`body_snap.rs`) are snapped to by drawing and grabs, pulled by the
+  held snap and picked by Select and Smart dimension, from the pointer or the highlight keys, but
+  they are not acquired for tracks and never crossed by a direction or track, since they are not in
+  the sketch until a point lands on them: acquiring one would need tracks that hold a point the
+  shape has yet to project.
 - [medium · hard] A projected edge (`projection.rs`) that an upstream trim, split or break cut into
   pieces with a gap between them fails the sketch in words rather than projecting each piece as a
   curve of its own: a projection is one sketch curve with the points it was made with, and the

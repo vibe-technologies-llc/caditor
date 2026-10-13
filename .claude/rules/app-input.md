@@ -319,7 +319,9 @@ paths:
   commands are in `app-sketching.md`.
 - Highlight next and previous step a keyboard highlight through the scene's pickables in pick-table
   order (drawn and described like hover; a pointer move or Escape clears it), then, while a sketch
-  is edited, through its constraints and dimensions in id order (`Pickable::SketchConstraint`).
+  is edited, through the body corners, round-edge centres and edges Select and Smart dimension pick
+  (`Pickable::BodyItem`, with those tools only, `app-sketching.md`) and its constraints and
+  dimensions in id order (`Pickable::SketchConstraint`).
   Outside sketch editing, while dimensions are shown on the model, they step through its dimension
   and value labels. Activate acts as a click would (selection toggle, or the region, blend edge,
   shell face or sketch plane action through `pick_action`); Enter opens what the item belongs to as

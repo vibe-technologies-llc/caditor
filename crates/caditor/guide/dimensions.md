@@ -16,7 +16,8 @@ for example `width / 2` or `30 deg`.
 - Anything else gives the distance between the two items, the origin and axes included.
 
 Smart dimension also takes a corner, the centre of a round edge or an edge of a body made before
-the sketch, where it falls on the sketch plane, labelled for example "Edge of Base". It is
+the sketch, where it falls on the sketch plane, labelled for example "Edge of Base", clicked or
+reached with {command:view.highlight_next} and picked with {command:view.activate_highlighted}. It is
 [projected](project-and-intersect) into the sketch with the dimension, and one undo takes both
 away.
 

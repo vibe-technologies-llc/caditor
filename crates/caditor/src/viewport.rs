@@ -1439,6 +1439,7 @@ impl ViewportState {
             && !(matches!(highlight, Pickable::SketchConstraint { .. })
                 && highlight.is_available(document, evaluation, context))
             && !self.model_dimensions.holds(highlight)
+            && !(self.steps_body_items(editing) && self.has_body_item(highlight, editing))
         {
             self.keyboard_highlight = None;
         }
@@ -1759,6 +1760,32 @@ impl ViewportState {
 
     fn pointed(&self) -> Option<Pickable> {
         self.body_hovered.or(self.hovered)
+    }
+
+    fn steps_body_items(&self, editing: &SketchEditing) -> bool {
+        editing
+            .active()
+            .is_some_and(|active| matches!(active.tool, Tool::Select | Tool::Dimension))
+    }
+
+    fn has_body_item(&self, pickable: Pickable, editing: &SketchEditing) -> bool {
+        editing
+            .feature()
+            .and_then(|feature| BodyPick::of(pickable, feature))
+            .and_then(|pick| self.body_snaps.find(pick.body, pick.item))
+            .is_some()
+    }
+
+    fn steppable_body_items(&self, editing: &SketchEditing) -> Vec<Pickable> {
+        match editing.feature() {
+            Some(feature) if self.steps_body_items(editing) => self
+                .body_snaps
+                .steppable()
+                .into_iter()
+                .map(|(body, item)| BodyPick { body, item }.pickable(feature))
+                .collect(),
+            Some(_) | None => Vec::new(),
+        }
     }
 
     fn body_hover(
@@ -2286,7 +2313,7 @@ impl ViewportState {
         };
         let mut preview = Preview::default();
         let hovered = self
-            .body_hovered
+            .highlighted()
             .and_then(|hovered| BodyPick::of(hovered, feature))
             .into_iter()
             .map(|pick| (pick, true));
@@ -4047,6 +4074,7 @@ impl ViewportState {
                 )
             })
             .unwrap_or_default();
+        let body_items = self.steppable_body_items(editing);
         let highlightable: Vec<Pickable> = self
             .scenes
             .highlightable()
@@ -4056,6 +4084,7 @@ impl ViewportState {
             .filter(|pickable| {
                 projecting.is_none_or(|active| projecting::projectable(model, active, *pickable))
             })
+            .chain(body_items)
             .chain(constraints)
             .chain(
                 self.model_dimensions
@@ -4776,13 +4805,36 @@ impl ViewportState {
         let centre = self.view().map(|view| view.size() / 2.0);
         let selected: Vec<Pickable> = self.selection.iter().collect();
         let cursor = target
-            .and_then(|highlight| self.screen_centre_of(model, editing, vec![highlight]))
+            .and_then(|highlight| {
+                self.body_item_on_screen(model, editing, highlight)
+                    .or_else(|| self.screen_centre_of(model, editing, vec![highlight]))
+            })
             .or_else(|| self.screen_centre_of(model, editing, selected))
             .or(centre);
         let on_item = target.is_some() || !self.selection.is_empty();
         if let Some(cursor) = cursor {
             self.open_menu(cursor, target, on_item, model, editing);
         }
+    }
+
+    fn body_item_on_screen(
+        &self,
+        model: &Model,
+        editing: &SketchEditing,
+        pickable: Pickable,
+    ) -> Option<Vector2> {
+        let feature = editing.feature()?;
+        let pick = BodyPick::of(pickable, feature)?;
+        let target = self.body_snaps.find(pick.body, pick.item)?;
+        let on_sketch = self.body_snaps.position(target).or_else(|| {
+            let path = self.body_snaps.path(target)?;
+            path.get(path.len() / 2).copied()
+        })?;
+        let plane = scene::sketch_plane(model.document(), model.evaluation(), feature)?;
+        let view = self.view()?;
+        let size = view.size();
+        view.project(plane.to_world(on_sketch))
+            .filter(|pixel| (0.0..=size.x).contains(&pixel.x) && (0.0..=size.y).contains(&pixel.y))
     }
 
     fn screen_centre_of(

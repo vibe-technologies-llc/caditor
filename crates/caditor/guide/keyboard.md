@@ -40,7 +40,9 @@ adds a [constraint](constraints), such as {command:constraint.horizontal}.
 - {command:view.context_menu} opens the view's right-click menu at the highlighted item, else at
   the selection; the arrows move through it and Enter runs an entry.
 - In a sketch, the highlight also reaches constraints and dimensions, and Enter on a dimension
-  edits its value. With {command:view.toggle_dimensions} on, it reaches the dimensions and values
+  edits its value. With Select or Smart dimension it reaches the corners, round-edge centres and
+  edges of bodies made before the sketch too, so one is picked for a dimension or constraint
+  without the pointer. With {command:view.toggle_dimensions} on, it reaches the dimensions and values
   shown on the model the same way.
 - With a drawing tool active, type a number, or `=` before a parameter's name, to place a point
   exactly, or use {command:sketch.type_value}; see [sketches](sketches).

@@ -10,8 +10,8 @@ use crate::{
     body_snap::BodySnaps,
     drag_solver::{BodyJoin, DragCommand, Join},
     feature_tree::count,
-    snap::{Accept, Hold, Pointer, Screen, Snapped, Target},
-    tracking::{self, Acquired, Landing, Tracks},
+    snap::{Hold, Pointer, Screen, Target},
+    tracking::{self, Acquired, Landing},
 };
 
 const SMALLEST_DRAGGED_RADIUS: f64 = 1e-3;
@@ -174,35 +174,6 @@ impl Grab {
         }
     }
 
-    fn onto_body(
-        &self,
-        landing: Option<Landing>,
-        screen: &impl Screen,
-        pointer: Pointer,
-    ) -> Option<Landing> {
-        let on_body = |snapped: Snapped| Landing {
-            position: snapped.position,
-            target: Some(snapped.target),
-            tracks: Tracks::default(),
-            on_grid: false,
-        };
-        match landing {
-            Some(landing) if landing.target.is_some_and(Target::is_point_like) => Some(landing),
-            Some(landing) => self
-                .bodies
-                .0
-                .point(screen, pointer, Accept::Anything)
-                .map(on_body)
-                .or(Some(landing)),
-            None => self
-                .bodies
-                .0
-                .point(screen, pointer, Accept::Anything)
-                .or_else(|| self.bodies.0.edge(screen, pointer, Accept::Anything))
-                .map(on_body),
-        }
-    }
-
     pub fn guides(&self) -> &[[Point2; 2]] {
         &self.guides
     }
@@ -226,12 +197,14 @@ impl Grab {
                     sketch: moved,
                 };
                 let ignored = self.moving_with(sketch);
-                let landing =
-                    tracking::land(sketch, screen, pointer, &self.acquired, &ignored, hold);
-                let landing = match hold {
-                    Some(_) => landing,
-                    None => self.onto_body(landing, screen, pointer),
-                }?;
+                let landing = tracking::land(
+                    sketch,
+                    screen,
+                    pointer,
+                    (&self.acquired, &ignored),
+                    hold,
+                    Some(&self.bodies.0),
+                )?;
                 Some((sketch, landing))
             });
         if let Some((sketch, landing)) = landing
@@ -271,9 +244,9 @@ impl Grab {
                 sketch,
                 screen,
                 pointer,
-                &self.acquired,
-                &[circle, *center],
+                (&self.acquired, &[circle, *center]),
                 hold,
+                None,
             )?;
             let reached = centre.distance(landing.position) > SMALLEST_SNAPPED_RADIUS;
             (matches!(landing.target, Some(Target::Point(_))) && reached).then_some(landing)
