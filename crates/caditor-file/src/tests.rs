@@ -8892,6 +8892,82 @@ fn intersected_geometry_and_its_sources_survive_saving_and_the_journal() {
 }
 
 #[test]
+fn projected_datum_axes_points_principal_axes_and_the_origin_survive_saving_and_the_journal() {
+    let mut document = sample();
+    let side = named(&document, "Side sketch");
+    let mut transaction = document.transaction("Project");
+    let post = transaction.add_projection(
+        side,
+        caditor_document::ProjectionSource::DatumAxis {
+            datum: FeatureId::from_raw(92),
+            reach: 30.0,
+        },
+        &caditor_document::Outline::Line {
+            start: Point2::new(5.0, -30.0),
+            end: Point2::new(5.0, 30.0),
+        },
+    );
+    let across = transaction.add_projection(
+        side,
+        caditor_document::ProjectionSource::PrincipalAxis {
+            axis: caditor_document::PrincipalAxis::X,
+            reach: 45.0,
+        },
+        &caditor_document::Outline::Line {
+            start: Point2::new(-45.0, 0.0),
+            end: Point2::new(45.0, 0.0),
+        },
+    );
+    let spot = transaction.add_projection(
+        side,
+        caditor_document::ProjectionSource::DatumPoint {
+            datum: FeatureId::from_raw(93),
+        },
+        &caditor_document::Outline::Point(Point2::new(7.0, 2.0)),
+    );
+    let origin = transaction.add_projection(
+        side,
+        caditor_document::ProjectionSource::Origin,
+        &caditor_document::Outline::Point(Point2::ZERO),
+    );
+    let change = transaction.finish();
+    let undo = document.apply(change.clone()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let journaled: format::TransactionRecord =
+        through_binary(&serde_json::to_string(&format::transaction_record(&change)).unwrap());
+    let undone: format::TransactionRecord =
+        through_binary(&serde_json::to_string(&format::transaction_record(&undo)).unwrap());
+    let sketch = loaded
+        .document
+        .feature(side)
+        .and_then(|feature| feature.kind.sketch())
+        .unwrap();
+
+    assert!(text.contains("\"datum_axis\""), "{text}");
+    assert!(text.contains("\"principal_axis\""), "{text}");
+    assert!(text.contains("\"datum_point\""), "{text}");
+    assert!(text.contains("\"source\":\"origin\""), "{text}");
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert!(
+        [post, across, spot, origin]
+            .iter()
+            .all(|id| sketch.is_projected(*id))
+    );
+    assert_eq!(format::restore_transaction(journaled), Some(change));
+    assert_eq!(format::restore_transaction(undone), Some(undo));
+
+    let older = decode_text(&text.replacen("\"datum_axis\"", "\"hologram\"", 1));
+
+    assert!(issues_mention(
+        &older,
+        "the source of projected geometry could not be read"
+    ));
+}
+
+#[test]
 fn an_unreadable_projection_leaves_ordinary_geometry_and_is_reported() {
     let mut document = sample();
     let side = named(&document, "Side sketch");

@@ -1,4 +1,7 @@
-use caditor_document::{Edit, FeatureKind, Transaction};
+use caditor_document::{
+    Datum, DatumAxis, DatumPoint, Edit, FeatureKind, PlaneReference, PointReference,
+    PrincipalPlane, Transaction,
+};
 use caditor_expression::Expression;
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
 use caditor_sketch::{Entity, Sketch};
@@ -10,8 +13,11 @@ use super::{
     rows_named, run_from_palette, selected_of,
 };
 use crate::{
-    editing::EditingCommand, model::Action, move_manipulator::Handle, panels::Focus,
-    selection::Pickable,
+    editing::EditingCommand,
+    model::Action,
+    move_manipulator::Handle,
+    panels::Focus,
+    selection::{Axis, Pickable},
 };
 
 #[test]
@@ -727,6 +733,168 @@ fn a_hole_centred_on_a_round_edge_follows_it_and_takes_further_holes_clicked_on_
             .take(2)
             .all(|(_, at)| at.distance(holes[2].1) > 5.0)
     );
+}
+
+fn datum_spot(harness: &Harness, [x, y, z]: [&str; 3]) -> FeatureKind {
+    FeatureKind::Datum(Datum::Point(DatumPoint {
+        base: PointReference::Origin,
+        offset: [x, y, z].map(|text| harness.document().parse(text).unwrap()),
+    }))
+}
+
+fn the_hole_at(harness: &Harness, hole: caditor_document::FeatureId, at: Point3) -> bool {
+    placed_holes(harness, hole)[0].1.distance(at) < 1e-6
+}
+
+#[test]
+fn a_hole_is_placed_by_axes_a_datum_point_the_origin_and_another_sketch_s_circle() {
+    let mut harness = Harness::new();
+    let (plate, top) = extruded_plate(&mut harness);
+    let lid = Plane::from_frame(Point3::new(0.0, 0.0, 10.0), Vector3::Z, Vector3::X).unwrap();
+    let mut ring = Sketch::new(lid);
+    let circle = ring.add_circle(Point2::new(10.0, 30.0), 3.0);
+    let mut transaction = harness.document().transaction("References");
+    let spot = transaction.add_feature("Spot", datum_spot(&harness, ["30 mm", "15 mm", "10 mm"]));
+    let rail = transaction.add_feature(
+        "Rail",
+        FeatureKind::Datum(Datum::Axis(DatumAxis::NormalTo(
+            PlaneReference::Principal(PrincipalPlane::Yz),
+            PointReference::Datum(spot),
+        ))),
+    );
+    let ring = transaction.add_feature("Ring", FeatureKind::from(ring));
+    harness.perform(Action::Apply(transaction.finish()));
+    harness.settle();
+    let hole = open_hole_on(&mut harness, top);
+
+    harness.select([Pickable::Axis(Axis::Y)]);
+    harness.click(crate::hole_panel::MEASURE_SELECTED);
+    harness.settle();
+
+    assert_eq!(
+        harness.model.undo_label(),
+        Some("Place Hole 1 from an edge")
+    );
+    assert!(harness.shows("The Y axis"));
+
+    harness.select([Pickable::Datum(rail)]);
+    harness.click(crate::hole_panel::MEASURE_SELECTED);
+    harness.settle();
+    let values: Vec<String> = match &placed_holes(&harness, hole)[0].0.anchor {
+        crate::hole_placement::Anchor::Edges(edges) => edges
+            .iter()
+            .map(|distance| harness.document().expression_text(&distance.value))
+            .collect(),
+        anchor => panic!("the hole is measured from two axes, not {anchor:?}"),
+    };
+
+    assert_eq!(values, ["20 mm", "5 mm"]);
+    assert!(harness.shows("Rail"));
+    assert!(harness.document().dependents_of(&[rail]).contains(&hole));
+
+    harness.perform(Action::Apply(Transaction::single(
+        "Move the spot",
+        Edit::SetFeatureKind {
+            id: spot,
+            kind: datum_spot(&harness, ["30 mm", "12 mm", "10 mm"]),
+        },
+    )));
+    harness.settle();
+
+    assert!(the_hole_at(&harness, hole, Point3::new(20.0, 17.0, 10.0)));
+    assert!(removed_about(
+        &harness,
+        plate,
+        std::f64::consts::PI * 9.0 * 10.0
+    ));
+
+    harness.click_button("Stop measuring hole 1 from this axis");
+    harness.settle();
+    harness.click_button("Stop measuring hole 1 from this axis");
+    harness.settle();
+
+    assert_eq!(harness.model.undo_label(), Some("Free Hole 1 from an axis"));
+    assert_eq!(
+        placed_holes(&harness, hole)[0].0.anchor,
+        crate::hole_placement::Anchor::Free
+    );
+
+    harness.select([Pickable::Datum(spot)]);
+    harness.click(crate::hole_panel::CENTRE_SELECTED);
+    harness.settle();
+
+    assert_eq!(
+        harness.model.undo_label(),
+        Some("Make Hole 1 centred on a point")
+    );
+    assert!(harness.shows(crate::hole_panel::CONCENTRIC_WITH));
+    assert!(harness.shows("Spot"));
+    assert!(the_hole_at(&harness, hole, Point3::new(30.0, 12.0, 10.0)));
+    assert!(matches!(
+        placed_holes(&harness, hole)[0].0.anchor,
+        crate::hole_placement::Anchor::At(_)
+    ));
+
+    harness.perform(Action::Apply(Transaction::single(
+        "Move the spot",
+        Edit::SetFeatureKind {
+            id: spot,
+            kind: datum_spot(&harness, ["25 mm", "12 mm", "10 mm"]),
+        },
+    )));
+    harness.settle();
+
+    assert!(the_hole_at(&harness, hole, Point3::new(25.0, 12.0, 10.0)));
+    assert!(removed_about(
+        &harness,
+        plate,
+        std::f64::consts::PI * 9.0 * 10.0
+    ));
+
+    harness.select([Pickable::SketchEntity {
+        feature: ring,
+        entity: circle,
+    }]);
+    harness.click(crate::hole_panel::CENTRE_SELECTED);
+    harness.settle();
+
+    assert_eq!(
+        harness.model.undo_label(),
+        Some("Make Hole 1 concentric with an edge")
+    );
+    assert!(harness.shows(&format!("Circle {circle} of Ring")));
+    assert!(the_hole_at(&harness, hole, Point3::new(10.0, 30.0, 10.0)));
+
+    let Some(Entity::Circle { center, .. }) = harness.sketch(ring).entity(circle).cloned() else {
+        panic!("the ring is a circle");
+    };
+    harness.perform(Action::Apply(Transaction::single(
+        "Move the ring",
+        Edit::SetSketchEntity {
+            feature: ring,
+            id: center,
+            entity: Entity::Point(Point2::new(12.0, 28.0)),
+        },
+    )));
+    harness.settle();
+
+    assert!(the_hole_at(&harness, hole, Point3::new(12.0, 28.0, 10.0)));
+
+    let mut origin = crate::selection::Selection::default();
+    origin.toggle(Pickable::Origin);
+    let centred = crate::hole_placement::concentric_change(
+        &harness.model,
+        &origin,
+        hole,
+        &open_hole(&harness, hole),
+        placed_holes(&harness, hole)[0].0.point,
+    )
+    .unwrap();
+    harness.perform(Action::Apply(centred));
+    harness.settle();
+
+    assert!(the_hole_at(&harness, hole, Point3::new(0.0, 0.0, 10.0)));
+    assert!(harness.shows("The origin"));
 }
 
 #[test]

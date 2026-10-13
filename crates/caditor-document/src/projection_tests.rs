@@ -1,5 +1,5 @@
 use caditor_expression::{Expression, ParameterId, Unit};
-use caditor_geometry::{Plane, Point2, Point3, Vector3};
+use caditor_geometry::{Plane, Point2, Point3, Ray, Vector3};
 use caditor_kernel::{EdgeId, EdgeReference, Solid};
 use caditor_sketch::{Constraint, Entity, EntityId, Sketch};
 
@@ -612,4 +612,219 @@ fn undoing_the_removal_of_a_constraint_whose_points_were_projected_since_restore
 
     assert_eq!(projected_flags(&document, sketch), vec![centre, circle]);
     assert!(document.same_content(&before));
+}
+
+struct Datums {
+    document: Document,
+    point: FeatureId,
+    axis: FeatureId,
+    plane: FeatureId,
+    sketch: FeatureId,
+    line: EntityId,
+    at_point: EntityId,
+    origin: EntityId,
+    across: EntityId,
+}
+
+fn datum_point_at(document: &Document, x: &str) -> Datum {
+    Datum::Point(DatumPoint {
+        base: PointReference::Origin,
+        offset: [x, "5 mm", "0 mm"].map(|text| document.parse(text).unwrap()),
+    })
+}
+
+fn datums() -> Datums {
+    let mut document = Document::default();
+    let side = PrincipalPlane::Xz.plane();
+    let mut transaction = document.transaction("Datums");
+    let point = transaction.add_feature(
+        "Spot",
+        FeatureKind::Datum(datum_point_at(&document, "10 mm")),
+    );
+    let axis = transaction.add_feature(
+        "Post",
+        FeatureKind::Datum(Datum::Axis(DatumAxis::NormalTo(
+            PlaneReference::Principal(PrincipalPlane::Xy),
+            PointReference::Datum(point),
+        ))),
+    );
+    let plane = transaction.add_feature(
+        "Shelf",
+        FeatureKind::Datum(Datum::Plane(DatumPlane {
+            base: PlaneReference::Principal(PrincipalPlane::Xy),
+            rotation: None,
+            offset: document.parse("4 mm").unwrap(),
+        })),
+    );
+    let sketch = transaction.add_feature("Side", FeatureKind::from(Sketch::new(side)));
+    let post = Ray::new(Point3::new(10.0, 5.0, 0.0), Vector3::Z).unwrap();
+    let line = transaction.add_projection(
+        sketch,
+        ProjectionSource::DatumAxis {
+            datum: axis,
+            reach: 20.0,
+        },
+        &axis_outline(&post, &side, 20.0).unwrap(),
+    );
+    let at_point = transaction.add_projection(
+        sketch,
+        ProjectionSource::DatumPoint { datum: point },
+        &point_outline(Point3::new(10.0, 5.0, 0.0), &side),
+    );
+    let origin = transaction.add_projection(
+        sketch,
+        ProjectionSource::Origin,
+        &point_outline(Point3::ZERO, &side),
+    );
+    let across = transaction.add_projection(
+        sketch,
+        ProjectionSource::PrincipalAxis {
+            axis: PrincipalAxis::Y,
+            reach: 20.0,
+        },
+        &axis_outline(&PrincipalAxis::Y.ray().unwrap(), &side, 20.0).unwrap(),
+    );
+    document.apply(transaction.finish()).unwrap();
+    Datums {
+        document,
+        point,
+        axis,
+        plane,
+        sketch,
+        line,
+        at_point,
+        origin,
+        across,
+    }
+}
+
+fn world(sketch: &Sketch, point: Point2) -> Point3 {
+    sketch.plane().to_world(point)
+}
+
+#[test]
+fn datum_axes_points_principal_axes_and_the_origin_project_and_follow_their_datums() {
+    let mut model = datums();
+    let mut engine = Recompute::default();
+
+    let first = solved(&evaluate(&model.document, &mut engine), model.sketch);
+    let [start, end] = ends(&first, model.line);
+
+    assert!((world(&first, start).x - 10.0).abs() < EXACT);
+    assert!((world(&first, end).x - 10.0).abs() < EXACT);
+    assert!((world(&first, start).z - world(&first, end).z).abs() > 39.0);
+    assert!(
+        world(&first, first.point(model.at_point).unwrap()).distance(Point3::new(10.0, 0.0, 0.0))
+            < EXACT
+    );
+    assert!(world(&first, first.point(model.origin).unwrap()).length() < EXACT);
+    assert!(
+        world(&first, first.point(model.across).unwrap()).length() < EXACT,
+        "the Y axis is seen end-on from the XZ plane"
+    );
+    assert!(first.is_projected(model.line));
+    assert_eq!(
+        model.document.dependents_of(&[model.point]),
+        vec![model.axis, model.sketch]
+    );
+    assert_eq!(
+        model.document.dependents_of(&[model.axis]),
+        vec![model.sketch]
+    );
+
+    model
+        .document
+        .apply(Transaction::single(
+            "Move the spot",
+            Edit::SetFeatureKind {
+                id: model.point,
+                kind: FeatureKind::Datum(datum_point_at(&model.document, "25 mm")),
+            },
+        ))
+        .unwrap();
+    let moved = solved(&evaluate(&model.document, &mut engine), model.sketch);
+    let [start, end] = ends(&moved, model.line);
+
+    assert!((world(&moved, start).x - 25.0).abs() < EXACT);
+    assert!((world(&moved, end).x - 25.0).abs() < EXACT);
+    assert!(
+        world(&moved, moved.point(model.at_point).unwrap()).distance(Point3::new(25.0, 0.0, 0.0))
+            < EXACT
+    );
+}
+
+#[test]
+fn a_projected_datum_must_be_of_its_kind_and_one_deleted_fails_the_sketch_in_words() {
+    let mut model = datums();
+    let mut engine = Recompute::default();
+    let wrong = |source: ProjectionSource| {
+        model.document.check(&Transaction::single(
+            "Project",
+            Edit::SetSketchProjection {
+                feature: model.sketch,
+                id: model.line,
+                source: Some(source),
+            },
+        ))
+    };
+
+    assert_eq!(
+        wrong(ProjectionSource::DatumAxis {
+            datum: model.plane,
+            reach: 20.0,
+        }),
+        Err(EditError::NotAnAxis("Shelf".to_owned()))
+    );
+    assert_eq!(
+        wrong(ProjectionSource::DatumPoint { datum: model.axis }),
+        Err(EditError::NotAPoint("Post".to_owned()))
+    );
+    assert_eq!(
+        wrong(ProjectionSource::PrincipalAxis {
+            axis: PrincipalAxis::X,
+            reach: 0.0,
+        }),
+        Err(EditError::ProjectionReach(0.0))
+    );
+
+    model
+        .document
+        .apply(Transaction::single(
+            "Delete the post",
+            Edit::RemoveFeature { id: model.axis },
+        ))
+        .unwrap();
+    let error = failure(&evaluate(&model.document, &mut engine), model.sketch);
+
+    assert_eq!(error.reason, "It uses a feature that no longer exists.");
+}
+
+#[test]
+fn a_projected_axis_turned_end_on_fails_its_sketch_naming_the_axis() {
+    let mut model = datums();
+    let mut engine = Recompute::default();
+
+    model
+        .document
+        .apply(Transaction::single(
+            "Lay the post down",
+            Edit::SetFeatureKind {
+                id: model.axis,
+                kind: FeatureKind::Datum(Datum::Axis(DatumAxis::NormalTo(
+                    PlaneReference::Principal(PrincipalPlane::Xz),
+                    PointReference::Datum(model.point),
+                ))),
+            },
+        ))
+        .unwrap();
+    let error = failure(&evaluate(&model.document, &mut engine), model.sketch);
+
+    assert_eq!(
+        error.reason,
+        format!(
+            "Line {} is projected from Post whose shape in this sketch changed kind, for \
+             example a line now seen end-on.",
+            model.line
+        )
+    );
 }

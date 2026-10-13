@@ -123,8 +123,8 @@ pub const EMPTY_MODEL_TEXT: &str =
 pub const START_WITH_SKETCH: &str = "Start with a sketch";
 pub const START_WITH_BOX: &str = "Start with a box";
 pub const START_WITH_IMPORT: &str = "Import a file…";
-const PROJECT_PROMPT: &str =
-    "Click an edge, corner or face of a body, or a curve of another sketch, to project it";
+const PROJECT_PROMPT: &str = "Click an edge, corner or face of a body, a curve or point of another \
+     sketch, an axis, a datum point or the origin, to project it";
 const INTERSECT_PROMPT: &str = "Click a face to draw where the sketch cuts it, Shift-click for its \
      whole body, or click a datum plane";
 const KEYBOARD_ORBIT_FRACTION: f64 = 1.0 / 12.0;

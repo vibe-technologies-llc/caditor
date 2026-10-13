@@ -732,6 +732,83 @@ fn a_projected_principal_plane_moves_onto_a_datum_plane_where_it_lands() {
 }
 
 #[test]
+fn a_projected_principal_axis_and_origin_move_onto_datums_where_they_land() {
+    let mut model = model();
+    let mut transaction = model.document.transaction("Sketch");
+    let sketch = transaction.add_feature("Side", FeatureKind::from(Sketch::new(Plane::XZ)));
+    let line = transaction.add_projection(
+        sketch,
+        ProjectionSource::PrincipalAxis {
+            axis: PrincipalAxis::X,
+            reach: 20.0,
+        },
+        &axis_outline(&PrincipalAxis::X.ray().unwrap(), &Plane::XZ, 20.0).unwrap(),
+    );
+    let origin = transaction.add_projection(
+        sketch,
+        ProjectionSource::Origin,
+        &point_outline(Point3::ZERO, &Plane::XZ),
+    );
+    model.document.apply(transaction.finish()).unwrap();
+    let centre = Point3::new(0.0, 0.0, 5.0);
+
+    let displaced = model.document.displaced_by_scale(centre);
+    let scaled = model
+        .document
+        .scaled(&scale(2.0, centre, ScaledValues::Plain))
+        .unwrap();
+    model.document.apply(scaled.transaction).unwrap();
+    let after = evaluate(&model.document);
+    let solved = after
+        .feature(sketch)
+        .and_then(|status| status.result.as_deref())
+        .and_then(FeatureResult::sketch)
+        .map(|result| result.geometry.clone())
+        .unwrap();
+    let (start, end) = solved.line_endpoints(line).unwrap();
+    let height = |point: Point2| solved.plane().to_world(point).z;
+    let Some(FeatureKind::Sketch(definition)) =
+        model.document.feature(sketch).map(|feature| &feature.kind)
+    else {
+        panic!("the sketch is still a sketch");
+    };
+    let projections = &definition.projections;
+
+    assert!(displaced.iter().any(|moved| moved.feature == sketch
+        && moved.geometry
+            == vec![
+                PrincipalGeometry::Axis(PrincipalAxis::X),
+                PrincipalGeometry::Origin
+            ]));
+    assert_eq!(
+        scaled.summary.datums,
+        vec![
+            "Origin, scaled".to_owned(),
+            "Axes and planes, scaled".to_owned(),
+            "X axis, scaled".to_owned()
+        ]
+    );
+    assert!(matches!(
+        projections.get(&line),
+        Some(ProjectionSource::DatumAxis { reach, .. }) if (reach - 40.0).abs() < 1e-9
+    ));
+    assert!(matches!(
+        projections.get(&origin),
+        Some(ProjectionSource::DatumPoint { .. })
+    ));
+    assert_eq!(after.failed_count(), 0);
+    assert!((height(start) + 5.0).abs() < 1e-9, "{}", height(start));
+    assert!((height(end) + 5.0).abs() < 1e-9, "{}", height(end));
+    assert!(
+        solved
+            .plane()
+            .to_world(solved.point(origin).unwrap())
+            .distance(Point3::new(0.0, 0.0, -5.0))
+            < 1e-9
+    );
+}
+
+#[test]
 fn a_factor_that_is_not_above_zero_or_is_one_is_refused() {
     let model = model();
     let refused = |factor: f64| {

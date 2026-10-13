@@ -75,21 +75,24 @@ pub const MEASURED_FROM: &str = "Measured from";
 pub const EDGE_DISTANCE: &str = "Distance";
 pub const CONCENTRIC_WITH: &str = "Concentric with";
 pub const PLACE_BY: &str = "Place by";
-pub const MEASURE_SELECTED: &str = "From the selected edge";
+pub const MEASURE_SELECTED: &str = "From the selection";
 pub const MEASURE_CHOOSE: &str = "From an edge";
-pub const CENTRE_SELECTED: &str = "Concentric with the selected edge";
+pub const CENTRE_SELECTED: &str = "Concentric with the selection";
 pub const CENTRE_CHOOSE: &str = "Concentric";
 pub const ADD_HOLE: &str = "Add another hole";
 pub const STOP_ADDING: &str = "Stop adding holes";
-const MEASURE_HOVER: &str = "Measure the hole from the selected straight edge, so it keeps its \
-                             distance when the body changes";
-const CENTRE_HOVER: &str = "Centre the hole on the selected round edge, so it follows the edge \
-                            when the body changes";
+const MEASURE_HOVER: &str = "Measure the hole from the selected straight edge, line of another \
+                             sketch, datum axis or principal axis, so it keeps its distance when \
+                             that moves";
+const CENTRE_HOVER: &str = "Centre the hole on the selected round edge, circle or arc of another \
+                            sketch, corner, sketch point, datum point or the origin, so it \
+                            follows that when it moves";
 const ADD_HOLE_HOVER: &str = "Click further spots on the face to drill more holes of this size \
                               and depth";
 const FREE_WORDS: &str = "Placed by its position";
-const ONE_EDGE_WORDS: &str = "Measured from an edge";
+const ONE_EDGE_WORDS: &str = "Measured from an edge or axis";
 const CONCENTRIC_WORDS: &str = "Concentric with an edge";
+const AT_POINT_WORDS: &str = "Centred on a point";
 
 fn depth_label(depth: &HoleDepth) -> &'static str {
     match depth {
@@ -819,8 +822,9 @@ impl Panel<'_> {
             let words = match &placed.anchor {
                 Anchor::Free => FREE_WORDS.to_owned(),
                 Anchor::Edges(edges) if edges.len() == 1 => ONE_EDGE_WORDS.to_owned(),
-                Anchor::Edges(edges) => format!("Measured from {} edges", edges.len()),
+                Anchor::Edges(edges) => format!("Measured from {} edges or axes", edges.len()),
                 Anchor::Concentric(_) => CONCENTRIC_WORDS.to_owned(),
+                Anchor::At(_) => AT_POINT_WORDS.to_owned(),
             };
             let hover = format!("Remove hole {number}");
             if widgets::removable_row(ui, widgets::muted(words, ui), &hover) {
@@ -838,10 +842,23 @@ impl Panel<'_> {
                     self.edge_rows(ui, number, distance);
                 }
             }
+            Anchor::At(source) => {
+                widgets::caption(ui, CONCENTRIC_WITH);
+                let words = hole_placement::source_words(self.model, self.hole.sketch, source);
+                let hover = format!("Stop centring hole {number} on this point");
+                if widgets::removable_row(ui, RichText::new(words), &hover) {
+                    self.actions.push(feature_fields::applied(
+                        &self.feature.name,
+                        hole_placement::unpinned(document, id, self.hole, placed.point),
+                    ));
+                }
+                ui.end_row();
+            }
             Anchor::Concentric(held) => {
                 widgets::caption(ui, CONCENTRIC_WITH);
-                let words = hole_placement::edge_words(self.model, self.hole.sketch, held);
-                let hover = format!("Stop centring hole {number} on this edge");
+                let words =
+                    hole_placement::source_words(self.model, self.hole.sketch, &held.source);
+                let hover = format!("Stop centring hole {number} on this {}", held.noun());
                 if widgets::removable_row(ui, RichText::new(words), &hover) {
                     self.release(held.constraint);
                 }
@@ -851,7 +868,7 @@ impl Panel<'_> {
         let measured = match &placed.anchor {
             Anchor::Free => Some(0),
             Anchor::Edges(edges) => Some(edges.len()),
-            Anchor::Concentric(_) => None,
+            Anchor::Concentric(_) | Anchor::At(_) => None,
         };
         widgets::caption(ui, PLACE_BY);
         ui.vertical(|ui| {
@@ -954,8 +971,12 @@ impl Panel<'_> {
         let document = self.model.document();
         let id = self.id();
         widgets::caption(ui, MEASURED_FROM);
-        let words = hole_placement::edge_words(self.model, self.hole.sketch, &distance.held);
-        let hover = format!("Stop measuring hole {number} from this edge");
+        let words =
+            hole_placement::source_words(self.model, self.hole.sketch, &distance.held.source);
+        let hover = format!(
+            "Stop measuring hole {number} from this {}",
+            distance.held.noun()
+        );
         if widgets::removable_row(ui, RichText::new(words), &hover) {
             self.release(distance.held.constraint);
         }

@@ -2,10 +2,10 @@ use std::collections::BTreeSet;
 
 use caditor_document::{
     Document, Edit, FeatureId, FeatureKind, Outline, ProjectionSource, SectionError, SketchFeature,
-    SolidResult, Transaction, datum_outline, edge_outline, section_curves, sketch_outline,
-    vertex_outline,
+    SolidResult, Transaction, axis_outline, datum_outline, edge_outline, point_outline,
+    section_curves, sketch_outline, vertex_outline,
 };
-use caditor_geometry::{Aabb, Plane};
+use caditor_geometry::{Aabb, Plane, Point3, Ray};
 use caditor_kernel::{EdgeId, EdgeReference, FaceId};
 use caditor_sketch::EntityId;
 
@@ -21,6 +21,12 @@ pub const ALREADY_INTERSECTED: &str = "That cut is already drawn in this sketch"
 pub const FACE_NOT_CUT: &str = "The sketch plane does not cut that face";
 pub const NO_FACE_HIGHLIGHTED: &str =
     "Choose the Intersect tool and highlight a face of a body first";
+const NOT_PROJECTABLE: &str = "Only edges, corners and faces of bodies, curves and points of other \
+                               sketches, axes, datum points and the origin can be projected";
+const REFERENCE_NOT_PROJECTED: &str = "A sketch's own origin and axes cannot be projected; project \
+                                       the model's origin or axes instead";
+const DATUM_NOT_PROJECTED: &str =
+    "Only datum axes and points can be projected; intersect a datum plane instead";
 const DEFAULT_DATUM_REACH: f64 = 50.0;
 const DATUM_REACH_MARGIN: f64 = 1.1;
 
@@ -30,7 +36,15 @@ pub fn projectable(model: &Model, active: ActiveSketch, pickable: Pickable) -> b
         (true, Pickable::Datum(datum)) => datum_tools::is_plane(model.document(), datum),
         (true, Pickable::Plane(_)) => true,
         (true, _) => false,
-        (false, Pickable::Edge { .. } | Pickable::Vertex { .. } | Pickable::Face { .. }) => true,
+        (
+            false,
+            Pickable::Edge { .. }
+            | Pickable::Vertex { .. }
+            | Pickable::Face { .. }
+            | Pickable::Axis(_)
+            | Pickable::Origin,
+        ) => true,
+        (false, Pickable::Datum(datum)) => datum_tools::is_axis_or_point(model.document(), datum),
         (false, Pickable::SketchEntity { feature, entity }) => {
             feature != active.feature && !entity.is_reference()
         }
@@ -77,6 +91,9 @@ pub fn describe(model: &Model, active: ActiveSketch, pickable: Pickable) -> Opti
             let source = owner.kind.sketch()?;
             format!("{} of {}", source.entity_label(entity), owner.name)
         }
+        Pickable::Datum(datum) => feature_name(document, datum),
+        Pickable::Axis(axis) => format!("the {}", axis.name()),
+        Pickable::Origin => "the origin".to_owned(),
         _ => return None,
     };
     Some(format!("Project {what}"))
@@ -93,82 +110,8 @@ pub fn project(
     }
     let sketch = active.feature;
     let document = model.document();
-    let edited = document
-        .feature(sketch)
-        .ok_or_else(|| "The sketch being edited no longer exists".to_owned())?;
-    let FeatureKind::Sketch(definition) = &edited.kind else {
-        return Err("Only a sketch can take projected geometry".to_owned());
-    };
-    let plane = model
-        .displayed_sketch(edited)
-        .map_or_else(|| definition.sketch.plane(), |displayed| displayed.plane());
-    let projections = match pickable {
-        Pickable::Edge { body, edge } => {
-            let result = seen_or_refuse(model, sketch, body)?;
-            let id =
-                bodies::find_edge(result, edge).ok_or_else(|| later_geometry(document, sketch))?;
-            vec![
-                edge_projection(result, body, id, &plane)
-                    .ok_or_else(|| "That edge cannot be projected into this sketch".to_owned())?,
-            ]
-        }
-        Pickable::Vertex { body, vertex } => {
-            let result = seen_or_refuse(model, sketch, body)?;
-            let id = bodies::find_vertex(result, vertex)
-                .ok_or_else(|| later_geometry(document, sketch))?;
-            if result.names().vertices_named(vertex.name).len() > 1 {
-                return Err(
-                    "That corner cannot be told apart from another between the same faces, so \
-                     the sketch could not follow it"
-                        .to_owned(),
-                );
-            }
-            let outline = vertex_outline(&result.solid, id, &plane)
-                .ok_or_else(|| "That corner cannot be projected into this sketch".to_owned())?;
-            vec![(
-                ProjectionSource::Vertex {
-                    body,
-                    vertex: vertex.name,
-                },
-                outline,
-            )]
-        }
-        Pickable::Face { body, face } => {
-            let result = seen_or_refuse(model, sketch, body)?;
-            let id =
-                bodies::find_face(result, face).ok_or_else(|| later_geometry(document, sketch))?;
-            face_projections(result, body, &[id], &plane)
-        }
-        Pickable::SketchEntity { feature, entity } => {
-            let position = |id: FeatureId| document.features().position(|other| other.id() == id);
-            if position(feature) >= position(sketch) {
-                return Err(format!(
-                    "{} comes after {} in the tree, so its geometry cannot be projected into it",
-                    feature_name(document, feature),
-                    edited.name
-                ));
-            }
-            let owner = document
-                .feature(feature)
-                .ok_or_else(|| "That sketch no longer exists".to_owned())?;
-            let source = model
-                .displayed_sketch(owner)
-                .ok_or_else(|| format!("{} has not been computed yet", owner.name))?;
-            let outline = sketch_outline(&source, entity, &plane)
-                .ok_or_else(|| "That geometry cannot be projected into this sketch".to_owned())?;
-            vec![(
-                ProjectionSource::SketchEntity {
-                    sketch: feature,
-                    entity,
-                },
-                outline,
-            )]
-        }
-        _ => return Err(
-            "Only edges, corners and faces of bodies and curves of other sketches can be projected"
-                .to_owned(),
-        ),
-    };
+    let (definition, plane) = sketch_plane(model, sketch)?;
+    let projections = projections_of(model, sketch, &plane, pickable)?;
     let fresh: Vec<(ProjectionSource, Outline)> = projections
         .into_iter()
         .filter(|(source, _)| !already_projected(definition, source))
@@ -185,6 +128,130 @@ pub fn project(
         transaction.add_projection(sketch, source.clone(), outline);
     }
     Ok(transaction.finish())
+}
+
+pub fn projections_of(
+    model: &Model,
+    sketch: FeatureId,
+    plane: &Plane,
+    pickable: Pickable,
+) -> Result<Vec<(ProjectionSource, Outline)>, String> {
+    let document = model.document();
+    Ok(match pickable {
+        Pickable::Edge { body, edge } => {
+            let result = seen_or_refuse(model, sketch, body)?;
+            let id =
+                bodies::find_edge(result, edge).ok_or_else(|| later_geometry(document, sketch))?;
+            vec![
+                edge_projection(result, body, id, plane)
+                    .ok_or_else(|| "That edge cannot be projected into this sketch".to_owned())?,
+            ]
+        }
+        Pickable::Vertex { body, vertex } => {
+            let result = seen_or_refuse(model, sketch, body)?;
+            let id = bodies::find_vertex(result, vertex)
+                .ok_or_else(|| later_geometry(document, sketch))?;
+            if result.names().vertices_named(vertex.name).len() > 1 {
+                return Err(
+                    "That corner cannot be told apart from another between the same faces, so \
+                     the sketch could not follow it"
+                        .to_owned(),
+                );
+            }
+            let outline = vertex_outline(&result.solid, id, plane)
+                .ok_or_else(|| "That corner cannot be projected into this sketch".to_owned())?;
+            vec![(
+                ProjectionSource::Vertex {
+                    body,
+                    vertex: vertex.name,
+                },
+                outline,
+            )]
+        }
+        Pickable::Face { body, face } => {
+            let result = seen_or_refuse(model, sketch, body)?;
+            let id =
+                bodies::find_face(result, face).ok_or_else(|| later_geometry(document, sketch))?;
+            face_projections(result, body, &[id], plane)
+        }
+        Pickable::SketchEntity { feature, entity } => {
+            refuse_later(document, feature, sketch)?;
+            if entity.is_reference() {
+                return Err(REFERENCE_NOT_PROJECTED.to_owned());
+            }
+            let owner = document
+                .feature(feature)
+                .ok_or_else(|| "That sketch no longer exists".to_owned())?;
+            let source = model
+                .displayed_sketch(owner)
+                .ok_or_else(|| format!("{} has not been computed yet", owner.name))?;
+            let outline = sketch_outline(&source, entity, plane)
+                .ok_or_else(|| "That geometry cannot be projected into this sketch".to_owned())?;
+            vec![(
+                ProjectionSource::SketchEntity {
+                    sketch: feature,
+                    entity,
+                },
+                outline,
+            )]
+        }
+        Pickable::Datum(datum) => {
+            refuse_later(document, datum, sketch)?;
+            let result = datum_tools::result(model.evaluation(), datum).ok_or_else(|| {
+                format!(
+                    "{} has not been computed yet",
+                    feature_name(document, datum)
+                )
+            })?;
+            match (result.axis(), result.point()) {
+                (Some(axis), _) => {
+                    let reach = axis_reach(model, &axis, plane);
+                    vec![(
+                        ProjectionSource::DatumAxis { datum, reach },
+                        axis_projection(&axis, plane, reach)?,
+                    )]
+                }
+                (None, Some(point)) => vec![(
+                    ProjectionSource::DatumPoint { datum },
+                    point_outline(point, plane),
+                )],
+                (None, None) => return Err(DATUM_NOT_PROJECTED.to_owned()),
+            }
+        }
+        Pickable::Axis(axis) => {
+            let principal = axis.principal();
+            let ray = principal
+                .ray()
+                .ok_or_else(|| format!("The {} has no direction", axis.name()))?;
+            let reach = axis_reach(model, &ray, plane);
+            vec![(
+                ProjectionSource::PrincipalAxis {
+                    axis: principal,
+                    reach,
+                },
+                axis_projection(&ray, plane, reach)?,
+            )]
+        }
+        Pickable::Origin => vec![(ProjectionSource::Origin, point_outline(Point3::ZERO, plane))],
+        _ => return Err(NOT_PROJECTABLE.to_owned()),
+    })
+}
+
+fn axis_projection(axis: &Ray, plane: &Plane, reach: f64) -> Result<Outline, String> {
+    axis_outline(axis, plane, reach)
+        .ok_or_else(|| "That axis cannot be projected into this sketch".to_owned())
+}
+
+fn refuse_later(document: &Document, feature: FeatureId, sketch: FeatureId) -> Result<(), String> {
+    let position = |id: FeatureId| document.features().position(|other| other.id() == id);
+    if position(feature) >= position(sketch) {
+        return Err(format!(
+            "{} comes after {} in the tree, so its geometry cannot be projected into it",
+            feature_name(document, feature),
+            feature_name(document, sketch)
+        ));
+    }
+    Ok(())
 }
 
 pub fn face_projections(
@@ -235,31 +302,7 @@ pub fn existing_projection(
     definition
         .projections
         .iter()
-        .find(|(_, existing)| match (*existing, source) {
-            (
-                ProjectionSource::Edge { body, edge },
-                ProjectionSource::Edge {
-                    body: other_body,
-                    edge: other,
-                },
-            )
-            | (
-                ProjectionSource::Section { body, edge },
-                ProjectionSource::Section {
-                    body: other_body,
-                    edge: other,
-                },
-            ) => body == other_body && edge.name() == other.name(),
-            (
-                ProjectionSource::DatumPlane { datum, .. },
-                ProjectionSource::DatumPlane { datum: other, .. },
-            ) => datum == other,
-            (
-                ProjectionSource::PrincipalPlane { plane, .. },
-                ProjectionSource::PrincipalPlane { plane: other, .. },
-            ) => plane == other,
-            _ => *existing == source,
-        })
+        .find(|(_, existing)| existing.is_same_source(source))
         .map(|(id, _)| *id)
 }
 
@@ -269,7 +312,7 @@ fn sketch_plane(model: &Model, sketch: FeatureId) -> Result<(&SketchFeature, Pla
         .feature(sketch)
         .ok_or_else(|| "The sketch being edited no longer exists".to_owned())?;
     let FeatureKind::Sketch(definition) = &edited.kind else {
-        return Err("Only a sketch can take intersected geometry".to_owned());
+        return Err("Only a sketch can take projected or intersected geometry".to_owned());
     };
     let plane = model
         .displayed_sketch(edited)
@@ -405,6 +448,23 @@ fn section_refusal(document: &Document, body: FeatureId, error: &SectionError) -
 }
 
 fn datum_reach(model: &Model, datum: &Plane, plane: &Plane) -> f64 {
+    let foot = datum_outline(datum, plane, 1.0).and_then(|outline| middle(&outline, plane));
+    reach_about(model, foot)
+}
+
+fn axis_reach(model: &Model, axis: &Ray, plane: &Plane) -> f64 {
+    let foot = axis_outline(axis, plane, 1.0).and_then(|outline| middle(&outline, plane));
+    reach_about(model, foot)
+}
+
+fn middle(outline: &Outline, plane: &Plane) -> Option<Point3> {
+    match outline {
+        Outline::Line { start, end } => Some(plane.to_world((*start + *end) / 2.0)),
+        _ => None,
+    }
+}
+
+fn reach_about(model: &Model, foot: Option<Point3>) -> f64 {
     let document = model.document();
     let evaluation = model.evaluation();
     let bounds = evaluation
@@ -413,10 +473,6 @@ fn datum_reach(model: &Model, datum: &Plane, plane: &Plane) -> f64 {
         .filter(|body| visibility::is_shown(document, *body))
         .filter_map(|body| bodies::shown(evaluation, body)?.solid.bounding_box())
         .reduce(Aabb::union);
-    let foot = datum_outline(datum, plane, 1.0).and_then(|outline| match outline {
-        Outline::Line { start, end } => Some(plane.to_world((start + end) / 2.0)),
-        _ => None,
-    });
     match (bounds, foot) {
         (Some(bounds), Some(foot)) => {
             (foot.distance(bounds.center()) + bounds.diagonal() / 2.0) * DATUM_REACH_MARGIN

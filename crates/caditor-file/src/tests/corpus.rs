@@ -50,7 +50,7 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 26] = [
+const KEPT: [(&str, &str); 27] = [
     (
         "journal-1/by-reference.journal",
         "fe98725da8d9df46b19d7cede1474bcfb92bbda00d4de9c890e5bca5d0f2899f",
@@ -126,6 +126,10 @@ const KEPT: [(&str, &str); 26] = [
     (
         "model-1/primitives.caditor",
         "a951119ab531bb07364933525a7861e66093225c496ef672a87f2cc03e4917f3",
+    ),
+    (
+        "model-1/projected-datums.caditor",
+        "ba72f19aff762f3bea392f66c955ceda4d55df4a927d8d7740bb883dfc560f0f",
     ),
     (
         "model-1/shell-walls.caditor",
@@ -679,6 +683,10 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
             model("spline-pieces"),
             saved(&spline_pieces(), "Spline pieces"),
         ),
+        (
+            model("projected-datums"),
+            saved(&projected_datums(), "Projected datums"),
+        ),
         (model("extents"), saved(&extents_model().0, "Extents")),
         (model("starts"), saved(&starts_model().0, "Starts")),
         (model("sweeps"), saved(&sweeps(), "Sweeps")),
@@ -952,6 +960,65 @@ fn sketches() -> Document {
     let mut transaction = document.transaction("Project");
     for (source, outline) in projections {
         transaction.add_projection(projected, source, &outline);
+    }
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
+fn projected_datums() -> Document {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Datums");
+    let spot = transaction.add_feature(
+        "Spot",
+        FeatureKind::Datum(Datum::Point(DatumPoint {
+            base: PointReference::Origin,
+            offset: ["10 mm", "5 mm", "0 mm"].map(|text| Expression::parse_stored(text).unwrap()),
+        })),
+    );
+    let post = transaction.add_feature(
+        "Post",
+        FeatureKind::Datum(Datum::Axis(DatumAxis::NormalTo(
+            PlaneReference::Principal(PrincipalPlane::Xy),
+            PointReference::Datum(spot),
+        ))),
+    );
+    let side = transaction.add_feature("Side", FeatureKind::from(Sketch::new(Plane::XZ)));
+    let projections = [
+        (
+            ProjectionSource::DatumAxis {
+                datum: post,
+                reach: 20.0,
+            },
+            Outline::Line {
+                start: Point2::new(10.0, -20.0),
+                end: Point2::new(10.0, 20.0),
+            },
+        ),
+        (
+            ProjectionSource::PrincipalAxis {
+                axis: PrincipalAxis::X,
+                reach: 30.0,
+            },
+            Outline::Line {
+                start: Point2::new(-30.0, 0.0),
+                end: Point2::new(30.0, 0.0),
+            },
+        ),
+        (
+            ProjectionSource::PrincipalAxis {
+                axis: PrincipalAxis::Y,
+                reach: 30.0,
+            },
+            Outline::Point(Point2::ZERO),
+        ),
+        (
+            ProjectionSource::DatumPoint { datum: spot },
+            Outline::Point(Point2::new(10.0, 0.0)),
+        ),
+        (ProjectionSource::Origin, Outline::Point(Point2::ZERO)),
+    ];
+    for (source, outline) in projections {
+        transaction.add_projection(side, source, &outline);
     }
     document.apply(transaction.finish()).unwrap();
     document
