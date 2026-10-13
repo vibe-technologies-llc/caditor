@@ -788,11 +788,10 @@ impl Hints {
         }
         if self.padding != Vec2::ZERO {
             let chrome = chrome(painter.ctx());
-            let contrast = contrast(painter.ctx());
             painter.rect(
                 rect,
                 HINT_RADIUS,
-                chrome.backdrop(contrast),
+                chrome.panel,
                 Stroke::new(EDGE_WIDTH, chrome.control_edge),
                 StrokeKind::Inside,
             );
@@ -829,7 +828,7 @@ fn paint_atom(painter: &Painter, rect: Rect, atom: Atom, look: ChipLook) {
             } else if look.hovered || look.focused {
                 chrome.control_hovered
             } else {
-                chrome.backdrop(contrast(painter.ctx()))
+                chrome.panel
             };
             painter.rect(
                 rect,
@@ -991,6 +990,16 @@ mod tests {
                 contrast_ratio(chrome.error, chrome.panel) >= READABLE,
                 "{name}"
             );
+            for (what, fill) in [
+                ("hovered chip", chrome.control_hovered),
+                ("pressed chip", chrome.control_pressed),
+            ] {
+                let ratio = contrast_ratio(chrome.text, over(fill, chrome.panel));
+                assert!(
+                    ratio >= READABLE,
+                    "{name} text on a {what} over the hint panel is {ratio:.2}:1"
+                );
+            }
             for below in below(&chrome) {
                 for (what, fill) in [
                     ("control", chrome.backdrop),

@@ -170,7 +170,7 @@ pub fn choices(model: &Model, feature: FeatureId, split: &SplitFace) -> Vec<Spli
         .into_iter()
         .map(SplitAlong::Plane);
     let bodies = document
-        .bodies_before(feature)
+        .bodies_before_in(feature, model.evaluation())
         .into_iter()
         .filter(|body| *body != split.body)
         .map(SplitAlong::Body);
@@ -195,7 +195,7 @@ pub fn along_change(
     let along = match split_tools::chosen_along(model, selection, index)? {
         Some((along, _)) => along,
         None => {
-            let earlier = document.bodies_before(feature);
+            let earlier = document.bodies_before_in(feature, model.evaluation());
             let tools: Vec<FeatureId> = body_selection::bodies_in(selection)
                 .into_iter()
                 .filter(|body| *body != split.body && earlier.contains(body))

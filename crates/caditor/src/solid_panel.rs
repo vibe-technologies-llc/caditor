@@ -1,8 +1,8 @@
 use caditor_document::{
     AxisReference, AxisSide, BodyOperation, Document, Extrude, ExtrudeEnd, ExtrudeExtent, Feature,
-    FeatureId, PlaneReference, RegionChoice, Revolve, RevolveAxis, RevolveExtent, SolidFeature,
-    SolidStart, Sweep, SweepPath, Transaction, Wall, along_plane, capitalized, describe_axis,
-    describe_origin, displayed_axis,
+    FeatureId, Pieces, PlaneReference, RegionChoice, Revolve, RevolveAxis, RevolveExtent,
+    SolidFeature, SolidStart, Sweep, SweepPath, Transaction, Wall, along_plane, capitalized,
+    describe_axis, describe_origin, displayed_axis,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_geometry::Point2;
@@ -86,6 +86,10 @@ const WALL_OUTSIDE: &str = "Thicken away from the inside";
 const WALL_CENTRED: &str = "Thicken half the thickness to each side of the curves";
 pub const CLEAR_REGIONS: &str = "Clear";
 const CLEAR_REGIONS_HOVER: &str = "Choose no region, then click in the view the regions to sweep";
+const SELECT_ALL_REGIONS: &str = "Select all";
+pub const SEPARATE_PIECES: &str = "Separate pieces";
+const SELECT_ALL_REGIONS_HOVER: &str =
+    "Take every closed region of the sketch, and any closed region drawn in it later";
 const START_BY_OFFSET: &str = "Sketch plane, offset";
 const START_ON_FACE: &str = "Face or plane";
 const THROUGH_ALL_NEEDS_A_CUT: &str = "Through all cuts into a body or intersects with it; choose Remove from body or Intersect \
@@ -371,6 +375,18 @@ impl Panel<'_> {
                 if !all {
                     let chosen = format!("{} chosen", count(chosen_count, "region", "regions"));
                     ui.label(widgets::muted(chosen, ui));
+                    let every = widgets::small_button(
+                        ui,
+                        icons::command(Command::SelectAllRegions),
+                        SELECT_ALL_REGIONS,
+                    );
+                    if ui
+                        .add(every)
+                        .on_hover_text(SELECT_ALL_REGIONS_HOVER)
+                        .clicked()
+                    {
+                        change = Some(solid_tools::select_all_regions(self.model, self.feature));
+                    }
                 }
                 if chosen_count > 0 {
                     let clear = widgets::small_button(
@@ -1296,7 +1312,9 @@ impl Panel<'_> {
 
     fn operation_rows(&mut self, ui: &mut Ui) {
         let operation = self.solid.operation();
-        let bodies = self.document().bodies_before(self.id());
+        let bodies = self
+            .document()
+            .bodies_before_in(self.id(), self.model.evaluation());
         let fallback = bodies.last().copied();
         widgets::caption(ui, "Result");
         self.combo(ui, "operation", operation_name(operation), |panel| {
@@ -1321,18 +1339,19 @@ impl Panel<'_> {
         });
         ui.end_row();
         let Some(target) = operation.target() else {
+            self.pieces_row(ui);
             return;
         };
         widgets::caption(ui, "Body");
         let model = self.model;
         ui.horizontal(|ui| {
-            let name = feature_fields::feature_name(model.document(), target);
-            let text = feature_fields::combo_text(ui, name, MISSING_BODY);
+            let name = model.document().body_label(target);
+            let text = feature_fields::combo_text(ui, name.as_deref(), MISSING_BODY);
             self.combo(ui, "body", text, |panel| {
                 bodies
                     .iter()
                     .filter_map(|body| {
-                        let label = panel.document().feature(*body)?.name.clone();
+                        let label = panel.document().body_label(*body)?;
                         Some(Choice {
                             label,
                             selected: *body == target,
@@ -1351,6 +1370,23 @@ impl Panel<'_> {
         if let BodyOperation::Remove(_) = operation {
             self.other_body_rows(ui, &bodies, target);
         }
+    }
+
+    fn pieces_row(&mut self, ui: &mut Ui) {
+        let current = self.feature.pieces;
+        widgets::caption(ui, SEPARATE_PIECES);
+        self.combo(ui, "pieces", current.words(), |panel| {
+            Pieces::ALL
+                .into_iter()
+                .map(|pieces| Choice {
+                    label: pieces.words().to_owned(),
+                    selected: pieces == current,
+                    change: solid_tools::pieces_change(panel.model, panel.feature, pieces)
+                        .map(Action::Apply),
+                })
+                .collect()
+        });
+        ui.end_row();
     }
 
     fn other_body_rows(&mut self, ui: &mut Ui, bodies: &[FeatureId], target: FeatureId) {
@@ -1400,7 +1436,7 @@ impl Panel<'_> {
             candidates
                 .iter()
                 .filter_map(|body| {
-                    let label = panel.document().feature(*body)?.name.clone();
+                    let label = panel.document().body_label(*body)?;
                     let mut chosen = others.clone();
                     chosen.push(*body);
                     Some(Choice {
@@ -1888,7 +1924,7 @@ fn change(model: &Model, feature: FeatureId, solid: SolidFeature) -> Result<Tran
     field::checked(document, transaction)
 }
 
-fn with_sketch(solid: &SolidFeature, sketch: FeatureId) -> SolidFeature {
+pub(crate) fn with_sketch(solid: &SolidFeature, sketch: FeatureId) -> SolidFeature {
     match solid {
         SolidFeature::Extrude(extrude) => SolidFeature::Extrude(Extrude {
             sketch,

@@ -3,7 +3,7 @@ use caditor_file::Retention;
 use egui::{Id, Label, TextEdit, TextStyle, TextWrapMode, Ui, WidgetText};
 
 use super::{
-    Accent, Appearance, BodyColour, Choice, DoubleClick, ExportMemory, GridColour,
+    Accent, Appearance, BodyColour, Choice, DoubleClick, ExportMemory, GridColour, NewBodies,
     PreferenceChange, Preferences, PreferencesCommand, PreferencesTab, RecentListed, Restored,
     Restoring, Section, Startup, Theme, TitleBar, TooltipDelay, ViewChoice, motion,
 };
@@ -24,6 +24,7 @@ use crate::{
     widgets::{self, DialogBody, DialogWidth, SectionAction, Tab, ThemeSample, Tone},
 };
 
+pub const NEW_BODIES_CAPTION: &str = "New bodies from separate pieces";
 const EMPTY_MODEL: &str = "An empty model";
 const SAMPLE_LENGTH: f64 = 12.5;
 const SAMPLE_ANGLE: f64 = 30.0;
@@ -420,6 +421,16 @@ fn starting(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesComm
                 change(command, PreferenceChange::RecentListed(listed));
             }
         });
+        widgets::property(ui, "Empty models", |ui| {
+            toggle(
+                ui,
+                preferences.onboarding.start_card,
+                SHOW_START_CARD,
+                "The card over the 3D view offering a first sketch, a box or an import",
+                PreferenceChange::ShowStartCard,
+                command,
+            );
+        });
     });
 }
 
@@ -429,6 +440,11 @@ fn feature_tree(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<Preferences
         widgets::property(ui, "Double-clicking a feature", |ui| {
             if let Some(double_click) = pick::<DoubleClick>(ui, preferences.double_click) {
                 change(command, PreferenceChange::DoubleClick(double_click));
+            }
+        });
+        widgets::property(ui, NEW_BODIES_CAPTION, |ui| {
+            if let Some(new_bodies) = pick::<NewBodies>(ui, preferences.new_bodies) {
+                change(command, PreferenceChange::NewBodies(new_bodies));
             }
         });
     });
@@ -699,6 +715,7 @@ fn tips(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesCommand>
     });
 }
 
+pub const SHOW_START_CARD: &str = "Show the start card on empty models";
 pub const RELOAD_THEMES: &str = "Reload themes";
 pub const AUTOMATIC_GRID: &str = "Grid: automatic";
 pub const CUSTOM_GRID: &str = "Custom grid colour";
@@ -1149,6 +1166,17 @@ fn in_the_view(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesC
             if let Some(corner) = pick::<Corner>(ui, details.cube.corner) {
                 change(command, PreferenceChange::ViewCubeCorner(corner));
             }
+        });
+        widgets::property(ui, "Principal planes", |ui| {
+            toggle(
+                ui,
+                details.principal_when_needed,
+                "Show principal planes only when needed",
+                "Once the model has a body, the principal planes, axes and origin show only while \
+                 you choose a plane, axis or point; showing them yourself keeps them shown",
+                PreferenceChange::PrincipalWhenNeeded,
+                command,
+            );
         });
     });
 }

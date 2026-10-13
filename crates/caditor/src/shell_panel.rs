@@ -27,6 +27,10 @@ const ADD_OWN_THICKNESS_HOVER: &str =
 const NO_OWN_THICKNESS: &str = "None: every wall takes the thickness";
 const SHELLS_THICKNESS: &str = "Give this face the shell's thickness";
 
+pub fn own_thickness_caption(index: usize) -> String {
+    format!("Thickness of face {}", index + 1)
+}
+
 fn change(model: &Model, feature: FeatureId, shell: Shell) -> Result<Transaction, String> {
     let document = model.document();
     let transaction = shell_tools::edit(document, feature, shell)

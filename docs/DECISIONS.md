@@ -29,6 +29,16 @@ decision recorded in `docs/` before work starts.
 
 ## Open questions
 
+- [medium · easy] MCP server dependencies: the official Rust SDK (`rmcp`) brings tokio and its
+  macros into a workspace that has no async runtime, while MCP over stdio is newline-delimited
+  JSON-RPC that `serde_json` and one reader thread can serve. Decide whether `caditor mcp` uses
+  `rmcp` (protocol changes tracked upstream) or a small JSON-RPC layer of our own in a new
+  `caditor-mcp` crate (no runtime, fuzzable, but each protocol revision followed by hand).
+- [medium · medium] In-app assistant connection (`FEATURES.md`, Application): which transport the
+  running app listens on for MCP clients (a local socket or named pipe per user, or streamable
+  HTTP on localhost with a token), whether connecting needs a click in the app every time or once
+  per client, whether an assistant's changes are one undo step per call or grouped per request,
+  and whether it may save over the user's file or only export beside it.
 - [low · easy] Trim cuts at the reference axes as at any curve (`Cutter::Axis`), so a circle
   centred on the X axis, as a lever's pivot on the origin or a slot along the axis is, loses only
   the quarter between a tangent line's touching point and the axis when its inside is picked: the

@@ -148,9 +148,23 @@ impl Section {
                 "trailing zeros",
                 "readouts",
             ],
-            Self::Files => &["at startup", "open the last model", "recent files", "start"],
+            Self::Files => &[
+                "at startup",
+                "open the last model",
+                "recent files",
+                "start",
+                "start card",
+                "empty model",
+            ],
             Self::NewModels => &["start from", "template", "new model"],
-            Self::FeatureTree => &["double-click", "rename", "edit"],
+            Self::FeatureTree => &[
+                "double-click",
+                "rename",
+                "edit",
+                "new bodies",
+                "separate pieces",
+                "a body each",
+            ],
             Self::VersionHistory => &[
                 "versions",
                 "old versions",
@@ -193,6 +207,9 @@ impl Section {
                 "view cube",
                 "corner",
                 "size",
+                "principal planes",
+                "axes",
+                "origin",
             ],
             Self::NavigationView => &[
                 "projection",
@@ -283,9 +300,13 @@ impl Section {
             Self::Files => {
                 to.startup = from.startup;
                 to.recent_listed = from.recent_listed;
+                to.onboarding.start_card = from.onboarding.start_card;
             }
             Self::NewModels => to.default_template.clone_from(&from.default_template),
-            Self::FeatureTree => to.double_click = from.double_click,
+            Self::FeatureTree => {
+                to.double_click = from.double_click;
+                to.new_bodies = from.new_bodies;
+            }
             Self::VersionHistory => to.retention = from.retention,
             Self::Exports => {
                 to.export_memory = from.export_memory;

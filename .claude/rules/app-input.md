@@ -47,10 +47,17 @@ paths:
   (blend, shell, offset and split faces, extrude, revolve and sweep regions, pattern copies),
   else where in its panel to look, per datum and pattern kind; Select in an edited sketch has
   `SELECT_PROMPT` with Esc finishing or clearing.
-- An empty model (no feature, nothing open, no plane being chosen) shows a card at the prompt's
-  place (`canvas_guidance::show_empty_state`): Start with a sketch, Start with a box, Import a
-  file…, canvas buttons whose commands reach the app through `ViewportState::show_menu`
-  (`chosen_commands`), so they run next frame like a context menu's.
+- An empty model (no feature, nothing open, no plane being chosen, no drag) shows the start card
+  at the prompt's place (`start_card.rs`, look and placement in `app-look.md`): Start with a
+  sketch (the primary), Start with a box and Import a file…, whose commands reach the app through
+  `ViewportState::show_menu` (`chosen_commands`), so they run next frame like a context menu's.
+  Its close button hides it for the model in use only (`StartCard::closed_in`, by
+  `Model::session`); its Don't show this again checkbox, when the card is closed or a start used
+  with it ticked, turns off `onboarding.start_card` through `PreferenceChange::ShowStartCard`
+  (`StartCard::take_stop_asked`), handed back each frame by `ViewportState::set_start_card`.
+  Turning the preference on again clears a close. Show the start card (`Command::ShowStartCard`,
+  no key) brings it back for the model in use even while the preference is off, unavailable with
+  `start_card::NOT_EMPTY` or `ALREADY_SHOWN`. None of it touches the document.
 - Beside the pointer, stacked without overlap and kept inside the view
   (`canvas_guidance::paint_beside_pointer`, flipping left or above near an edge): a refused click's
   note (any warning or error notice the click produced, `RefusalNote`, fading over its last

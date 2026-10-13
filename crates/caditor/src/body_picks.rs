@@ -150,7 +150,7 @@ impl Staged {
             staged.names.push((
                 id,
                 pick.item
-                    .words(selection::body_name(model.document(), pick.body)),
+                    .words(&selection::body_name(model.document(), pick.body)),
             ));
             staged.picks.push(id);
             staged.bodies.push((*pick, id));

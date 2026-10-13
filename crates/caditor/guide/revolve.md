@@ -34,8 +34,9 @@ through a hidden sketch that follows their edges.
 
 ## Result
 
-**New body**, **Add**, **Remove from body** or **Intersect with body**, as for an extrusion, and a
-**Thin wall** fill for a shell of revolution. A new revolve adds to the body it reaches, else
+**New body**, **Add**, **Remove from body** or **Intersect with body**, and for a new body
+**Separate pieces** (one body, or a body of each piece that does not touch the others), as for an
+extrusion, and a **Thin wall** fill for a shell of revolution. A new revolve adds to the body it reaches, else
 makes a new body, as a new extrusion does.
 
 A construction line in the sketch makes a good axis: it guides the drawing and never makes a

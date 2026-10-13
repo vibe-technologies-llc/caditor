@@ -147,6 +147,9 @@ paths:
   that applies and was not dismissed. Dismissed ids are kept even when unknown
   (`onboarding.dismissed_hints`); Hide tips is `onboarding.hints`; Preferences restores both. Tip
   text uses the names the UI uses.
+- The start card on an empty model (`app-input.md`) is `onboarding.start_card` (on by default),
+  Preferences › General › Starting and recent files › Show the start card on empty models, reset
+  with that section.
 
 ## Export
 
@@ -305,6 +308,16 @@ paths:
   into what was edited at the drop, each after the previous report closed. Mixed or multi-model
   drops, or drops during an import or dialog, are refused with a notice.
 
+## Reference image files
+
+- `FileCommand::InsertImage` (`files/pictures.rs`) picks a picture (`Purpose::Picture`, the import
+  folder; `Dialogs::pick_picture` filters on `PictureFormat::extensions_of_all`, then All files) and
+  reads it on an `import` thread (`read_picture_file`): the bytes, the format by content, the pixels
+  and the `PictureTexture` for showing, so the UI thread never decodes. The answer
+  (`Event::PictureRead`, dropped after another model opened) inserts the image (`app-modelling.md`)
+  or says in a notice why the picture cannot be used ("Could not insert the picture “…”: it is an
+  HEIC picture, which caditor cannot read yet; save it as PNG or JPEG.").
+
 ## Parameter files
 
 - `Command::ImportParameters` and `ExportParameters` (`files/parameters.rs`) move the model's
@@ -445,12 +458,16 @@ paths:
   `standard`, `later`, applied over the installed styles by `app::apply_appearance`),
   `view.edges` (`thin`, `standard`, `thick`), `view.outlines`, `view.view_cube`,
   `view.view_cube_size` (`small`, `standard`, `large`), `view.view_cube_corner` (`top_left`,
-  `top_right`, `bottom_left`, `bottom_right`), `sketch.look_at`,
+  `top_right`, `bottom_left`, `bottom_right`), `view.principal_when_needed` (on unless stored
+  off, `app-modelling.md`), `sketch.look_at`,
   `sketch.escape_finishes`, the starting states `sketch.glyphs`, `sketch.snapping`,
   `sketch.grid_snapping`, `sketch.typed_dimensions` and `model.dimensions`
   (`StartingToggles`, set on the viewport at startup and again when one of them changes, the
   toggles staying session state), `files.startup` (`empty`, `last`), `files.recent_listed` (`3`,
-  `5`, `10`), `tree.double_click` (`edit`, `rename`) and `files.version_retention` (`more`,
+  `5`, `10`), `tree.double_click` (`edit`, `rename`), `modelling.new_bodies` (`one_body`,
+  `body_each`: `NewBodies`, shown in the Feature tree section as New bodies from separate pieces,
+  handed to `Model::set_new_body_pieces` by `apply_preferences`; whether a new extrusion, revolve or
+  sweep starts with `Pieces::BodyEach`, `app-modelling.md`) and `files.version_retention` (`more`,
   `standard`, `fewer`: `caditor_file::Retention`, a `Choice`, in General › Version history, handed
   to the model by `apply_preferences` and sent with every `SaveRequest`, `file-format.md`).
   Recovery's journal and atomic saving have no setting (`reliability.md`).

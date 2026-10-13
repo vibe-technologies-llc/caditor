@@ -126,6 +126,10 @@ paths:
   panic counts, including ones recompute would contain.
 - The byte entry points are `caditor_file::fuzzing` and `caditor::fuzzing`, behind their `fuzzing`
   features.
+- `picture` feeds bytes to `caditor_file::fuzzing::decode_picture` (every format a reference image
+  reads), seeded with a small picture of each format (`write_picture_fuzz_seeds`, checked by
+  `picture_seeds_decode`); the document generators make reference images with a few bytes behind a
+  PNG signature, since the document never decodes them.
 - Seeds are committed in `fuzz/seeds/<kind>` and dictionaries in `fuzz/dictionaries/<kind>.dict`,
   shared by targets reading the same kind of input. The model, journal and zstd seeds are written by
   `CADITOR_WRITE_FUZZ_SEEDS=1 cargo test -p caditor-file write_fuzz_seeds -- --ignored`; tests keep

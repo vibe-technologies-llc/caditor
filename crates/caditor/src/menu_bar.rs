@@ -60,12 +60,15 @@ const MODEL_PRIMITIVES: [&[Command]; 1] = [&[
     Command::NewWedge,
     Command::NewPrism,
 ]];
-const MODEL_DATUMS: [&[Command]; 1] = [&[
-    Command::DatumPlane,
-    Command::DatumAxis,
-    Command::DatumPoint,
-    Command::CoordinateSystem,
-]];
+const MODEL_DATUMS: [&[Command]; 2] = [
+    &[
+        Command::DatumPlane,
+        Command::DatumAxis,
+        Command::DatumPoint,
+        Command::CoordinateSystem,
+    ],
+    &[Command::InsertImage],
+];
 const MODEL_BODIES: [&[Command]; 2] = [
     &[
         Command::Move,
@@ -832,6 +835,7 @@ impl Menus<'_> {
                     self.choice(ui, Command::ToggleCentresOfMass);
                     self.choice(ui, Command::ToggleControlPolygons);
                     self.choice(ui, Command::ToggleCosmeticThreads);
+                    self.choice(ui, Command::ShowPrincipalWhenNeeded);
                     ui.separator();
                     self.items(
                         ui,

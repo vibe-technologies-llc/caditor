@@ -23,6 +23,8 @@ caditor-zstd.workspace = true
 
 blake3.workspace = true
 crc32fast.workspace = true
+image.workspace = true
+jxl-oxide.workspace = true
 log.workspace = true
 miniz_oxide.workspace = true
 parking_lot.workspace = true
@@ -43,3 +45,4 @@ caditor-windows.workspace = true
 [dev-dependencies]
 roxmltree.workspace = true
 tempfile.workspace = true
+tiff.workspace = true

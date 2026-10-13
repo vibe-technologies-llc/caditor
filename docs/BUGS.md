@@ -186,16 +186,3 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   multisampled texture as `TEXTURE_2D` (`gles::Texture::get_info_from_desc` never chooses
   `TEXTURE_2D_MULTISAMPLE`), so every sample reads as zero there and the frame comes out black. It
   needs that fixed in wgpu, or a GL-only blit resolve into an sRGB texture.
-
-## Interface
-
-- [low · easy] At 200% the parameter table's name column is about 65 points wide, so `thickness` is
-  cut to `thickne` in its field (scenes `orbit`, `more-keys` and `waiting-circular-pattern`, look
-  `dark-200` and `light-200`, before the panel is widened). `FieldWidths::fitting` splits the room
-  evenly between name and expression (`NAME_SHARE`); the name field has no ellipsis and the value
-  of a long name is only readable by dragging the panel wider. A larger name share, or sizing the
-  name column to the longest name in the table, would keep names whole.
-- [low · easy] The folded key hints and the more-keys panel over the 3D view are translucent, so a
-  dimension label beneath shows through faintly as a ghost line of text (scene `more-keys`, look
-  `white-view`, behind the polygon hints). Painting the panel opaque, or on the label backdrop's
-  fill, would remove it.

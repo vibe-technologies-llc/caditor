@@ -86,6 +86,7 @@ mod hole_feet;
 mod hole_highlights;
 mod hole_place_handles;
 mod holes;
+mod image_handles;
 mod import_costs;
 mod import_jobs;
 mod imported_bodies;
@@ -123,6 +124,7 @@ mod queued_actions;
 mod queued_clicks;
 mod reach_through;
 mod recovery;
+mod reference_images;
 mod region_references;
 mod remembered_starts;
 mod repeating_and_growing;
@@ -135,6 +137,7 @@ mod selection_filters;
 mod selection_readouts;
 mod selection_sets;
 mod selection_targets;
+mod separate_pieces;
 mod shaped_sweeps;
 mod shell_and_offset;
 mod shell_walls;
@@ -173,6 +176,7 @@ mod sketch_transform;
 mod sketch_trim_extend;
 mod solid_panels;
 mod stale_sketch_results;
+mod start_card;
 mod storage_worker;
 mod svg_import;
 mod templates;
@@ -321,6 +325,10 @@ impl Dialogs for ScriptedDialogs {
     }
 
     fn pick_configurations(&self, directory: Option<PathBuf>, respond: Respond) {
+        self.respond(directory, respond);
+    }
+
+    fn pick_picture(&self, directory: Option<PathBuf>, respond: Respond) {
         self.respond(directory, respond);
     }
 }
@@ -688,6 +696,7 @@ impl Harness {
         matches!(self.model.status(), RecomputeStatus::Running { .. })
             || self.model.bodies_pending()
             || self.model.masses_pending()
+            || self.model.pictures().pending()
     }
 
     fn wait_until(&mut self, what: &str, done: impl Fn(&Self) -> bool) {

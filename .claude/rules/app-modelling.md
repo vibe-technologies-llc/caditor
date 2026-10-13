@@ -66,6 +66,10 @@ paths:
   - "crates/caditor/src/value_handles.rs"
   - "crates/caditor/src/projecting.rs"
   - "crates/caditor/src/similar.rs"
+  - "crates/caditor/src/image_tools.rs"
+  - "crates/caditor/src/image_panel.rs"
+  - "crates/caditor/src/image_textures.rs"
+  - "crates/caditor/src/image_handles.rs"
 ---
 
 # Modelling tools in the app
@@ -285,7 +289,10 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
     and touches to the later body in the tree; a check that fails or times out counts as a touch.
     Deciding before the feature exists keeps creation one undoable step and the preview in its final
     colour from the first frame.
-  - The panel's Body list is `Document::bodies_before`. `SketchEditing` holds at most one open solid
+  - The panel's Body list is `Document::bodies_before_in` (every body standing before it in the
+    evaluation, a separating feature's pieces in place of its own id; every body list and
+    last-body fallback in a panel or tool reads the `_in` forms, and body labels come from
+    `Document::body_label`). `SketchEditing` holds at most one open solid
     feature, never with an edited sketch; `editing::Context` carries both to the scene and
     availability checks.
 - With regions selected (`Pickable::SketchRegion`, `app-sketching.md`), a new extrusion or revolve
@@ -299,7 +306,21 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   them; `Pickable::Region` clicks add or leave out, turning `RegionChoice::All` into explicit keys.
   `Command::ClearChosenRegions` (Alt+Shift+R, the panel's Clear, palette; `solid_tools::clear_regions`,
   on the open feature else the tree's row) chooses none in one undoable change; the feature then waits
-  for regions (`MissingInput::Regions`). Double-clicking a face opens the feature that made it.
+  for regions (`MissingInput::Regions`). `Command::SelectAllRegions` (no default key, the panel's
+  Select all beside the chosen count, palette; `solid_tools::select_all_regions`, same targets, a wall
+  or a feature already taking all refused in words) takes every region as one undoable change by
+  setting `RegionChoice::All`, the document's whole-sketch choice, so a closed region drawn later is
+  taken too and holes stay holes. While a solid feature is open, a sketch row's context menu offers
+  Take all regions of that sketch (`solid_tools::take_sketch_regions`: the same sketch selects all,
+  another switches the feature to it with every region, as the panel's Sketch list does through
+  `solid_panel::with_sketch`). Shift+click on a region adds as before. Double-clicking a face opens the
+  feature that made it.
+- Under Result, a new body offers Separate pieces (`solid_panel::SEPARATE_PIECES`, One body or A body
+  each, `Pieces::words`; `solid_tools::pieces_change`, one `Edit::SetFeaturePieces` checked first, so
+  `PiecesInUse` is offered disabled with its reason). New extrusions and revolves
+  (`solid_tools::create`, from `Starts::pieces`) and sweeps (`sweep_tools::create`) start with
+  `Model::new_body_pieces`, the New bodies from separate pieces preference (`app-files.md`), adding the
+  edit to the creating transaction when it is A body each.
 - Each extrusion side has an end kind; one that cannot apply is offered disabled with the reason on
   hover. Up to face takes the selected face or plane captured where the extrusion sits in the tree
   (`solid_panel::selected_target`, through `datum_tools::plane_reference`), or one selected curved face
@@ -428,8 +449,11 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   segmented), the size captioned by `pipe_size_name` (Diameter, Width, Side length), Wall (Solid,
   Hollow; Hollow sets `DEFAULT_WALL` and shows Wall thickness), Bend radius (zero or more) and the
   shared Result and Body rows (`feature_fields::body_operation_rows`, which the primitive panel
-  uses too). Fields are keyed `("pipe-field", feature, "size" | "wall" | "bend")`. It has no arrows
-  and Reverse direction refuses it.
+  uses too). Fields are keyed `("pipe-field", feature, "size" | "wall" | "bend")`. Reverse direction
+  refuses it. Its value arrows (Value handles) stand at the pipe's start section and first corner,
+  placed from `caditor_document::pipe_stand` (the path as the pipe walks it, through the kernel's
+  `pipe_stand`: the section plane and the first corner between two straight lines, whether or not
+  the bend rounds it), so they also stand when the pipe itself fails.
 
 ## Fillets, chamfers and shells
 
@@ -686,8 +710,20 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
     meets the other face (`Corner::cut_length`, the swing's radius being that point's distance from
     the first foot, or an arm of `ARROW_POINTS` when the cut misses). Distances run along the faces' tangent lines at the
     edge's middle, which lie on a plane face and only touch a curved one.
-  - A shell's and a thin wall's Thickness; an extrusion's Taper (shown with no taper too, zero clearing
-    it) and an end Up to face's or Up to next's Past the face (an Up to next end stands on the first
+  - A pipe's size, Wall thickness and Bend radius (`Measured::PipeSize`, `PipeWall`, `PipeBend`), on
+    the start section's axis across the path (`stand.section.x_axis()`): the size from the middle to
+    the outer rim (a round or square section's half, a triangle's third, where its right side meets
+    that axis), the wall pointing inward from the outer rim (a triangle's wall slanting, so scaled by
+    `2/sqrt(3)`), left out for a solid pipe; the bend radius at the middle of the first rounded
+    corner, along the bisector from the corner (`1/cos(turn/2) - 1` of the radius, as a fillet's
+    size), left out for a pipe without a corner between two lines. A bend radius of zero stands at the
+    corner and can be dragged out.
+  - A shell's and a thin wall's Thickness; a shell's Own thickness of each face given one
+    (`Measured::ShellFaceThickness(index)`, captioned `shell_panel::own_thickness_caption`), standing
+    on the face (the middle of a flat face, `hole_tools::middle_of`; the middle of a curved face's
+    first edge) along its outward normal, inward for Inside walls and outward for Outside and Both
+    sides (half the thickness for the latter), left out for a face that matches several or none; an
+    extrusion's Taper (shown with no taper too, zero clearing it) and an end Up to face's or Up to next's Past the face (an Up to next end stands on the first
     face's plane the recompute recorded, `ReachedEnd::level_over`; none when that face is slanted or
     curved).
   - A primitive's sizes (`primitive_arrows`, the mapping worked out from the footprint and anchor),
@@ -986,6 +1022,28 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
 - Principal planes, axes and origin hide through a group row (`principal_tree.rs`) with an eye for the
   group and one per item. Hidden ones are drawn and offered anyway while a sketch's plane is chosen
   (`Context::choosing_plane`).
+- Show principal planes only when needed (`ViewDetails::principal_when_needed`, on by default; also
+  `Command::ShowPrincipalWhenNeeded`, a View menu and palette toggle) tucks away the principal
+  geometry the model has not hidden once a body stands at the bar (`visibility::has_body`), except
+  while it is needed (`visibility::principal_needed`): New sketch choosing its plane, the sketch
+  Intersect or Project tool, Measure open, an open datum or coordinate system, a slot being chosen in
+  the view that takes a plane, axis or point (`Slot::takes_principal_geometry`, an exhaustive match
+  each new slot must answer), or an open plane or axis list (`feature_fields::principal_combo`,
+  published through egui temp data and read next frame, `visibility::take_listing`). Selected
+  principal geometry shows while selected, and a tree row selects it even when tucked away.
+- Tucking away is view state, never content: `app::perform` ends by working it out
+  (`visibility::tucked_away`, `selected_principal`) into `Model::tuck_principal_away`, and
+  `Model::principal_view` (`PrincipalView`: tucked, kept, selected) reaches the scene and
+  availability through `Context::principal` and the tree directly. Nothing is journaled, undone or
+  marked unsaved.
+- The explicit controls work on what shows (`PrincipalView::shows`). Showing (an eye, the group eye,
+  Hide or show principal planes, Show everything) is the content change it always was for geometry
+  the model hid, and also keeps it shown (`Action::KeepPrincipalShown`, `PrincipalSet` on `Model`,
+  cleared when another model opens), so it no longer tucks away; showing geometry that is only
+  tucked away is that keeping alone, no change to the model. Hiding hides what shows, as content
+  that undo reverses; hidden geometry stays hidden from every selector but New sketch. Hide
+  everything but the selection leaves tucked-away geometry alone. With the preference off nothing
+  tucks away, so the controls behave as before it existed.
 
 ## Datums
 
@@ -1025,6 +1083,73 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
 - A datum cannot switch between plane and axis, nor an extrusion and a revolve, since `SetFeatureKind`
   refuses a kind change (`document.md`). Outside sketch editing datums are picked as `Pickable::Datum`
   and tinted when failed; double-clicking one opens it.
+
+## Reference images
+
+- Insert reference image… (`Command::InsertImage`, `model.insert_reference_image`, no default key) is
+  in the palette, the Model menu's Datums group and the Reference ribbon group's menu; it has no
+  ribbon button, since the ribbon stays one row. Its offer (`Offers::reference_image`,
+  `image_tools::target`) is the edited sketch's plane (`ImageTarget::Sketch`), else the one selected
+  plane, datum or coordinate system plane or flat face (`datum_tools::chosen_plane`; a face at its
+  middle, `primitive_tools::chosen_spot`), else XY at the origin; several planes refuse. It sends
+  `FileCommand::InsertImage` (`app-files.md`), whose answer `image_tools::create` turns into one
+  "Insert <file stem>" change adding a `ReferenceImage` at the bar, 100 mm wide
+  (`DEFAULT_WIDTH`), `DEFAULT_IMAGE_OPACITY_PERCENT`, behind bodies, unlocked, named after the file
+  (else "Image N"). It opens the image's panel unless a sketch is edited, which stays open.
+- The panel (`image_panel.rs`, shared rows of `feature_fields`): a description of the picture's
+  format and pixels with a "Preparing" line while it decodes or an error callout when it cannot be
+  shown, for a sketch-plane image the sketch it lies on, Placed on (`plane_selector::row`, slot
+  `Slot::ImagePlace`; a click in the view places the middle where the ray meets the plane,
+  `image_tools::place_click`), Position X and Y, Angle, Flip left to right, Width or, once
+  calibrated, Distance between the points (keys `("image-field", feature, "along" | "across" |
+  "turn" | "width" | "distance")`), Calibrate by two points or Calibrate again and Size by width,
+  Opacity (`image_panel::OPACITY_STEPS`, a stored value shown at the nearest step), Shows (Behind or
+  In front of bodies) and Locked. Each is one "Edit <name>" `SetFeatureKind`.
+- Calibrating (`Slot::ImageCalibration`) takes two clicks on the picture, each the ray meeting its
+  plane read back as an `ImageSpot` (`image_tools::spot_under`; a click off the picture or
+  meeting no plane warns and keeps choosing). The first is held in `SketchEditing`
+  (`EditingCommand::CalibrateFrom`, also holding the image in `Picking::pending` so the prompt asks
+  for the second); the second sets `ImageSize::Calibrated` with the distance the two points lie apart
+  now, so nothing moves until the user types the real distance.
+- While the first point is held the view shows it (`image_tools::calibration_guide`, kept in
+  `ViewportState::calibration`, a `CalibrationGuide` that joins the overlay): a marker of
+  `CALIBRATION_START_DIAMETER` at the point and, while the pointer is on the picture
+  (`spot_under`; off it the band and label go, as a click would be refused), a band in
+  `ScenePalette::measured` to where it points (`scene::add_calibration`) with its length in the
+  picture's present scale at the middle (`LengthUnit::measured_length`, painted by `canvas::label`
+  in `Chrome::measure` on the opaque canvas backdrop, announced as "calibration"). It follows the
+  draft evaluation of the image when there is one and ends with the second click or Escape.
+- While the image's panel is open and nothing is being chosen in the view (`Manipulator::Image`,
+  `image_handles.rs`, `Handle::Image(ImageGrip)`) the picture carries three handles in
+  `ScenePalette::handle`, drawn on the front layer, placed from the draft's values and the plane
+  the image lies on (so they follow a preview at once, not after its recompute): a square at the
+  middle (`Move`), a square on the corner of its up-and-across diagonal (`Scale`) and a knob on a
+  stem standing `STEM_POINTS` beyond the middle of its top edge (`Turn`). None is shown with the
+  picture's plane seen edge-on. Hits are on the UI thread (`ImageHandles::hit`: the stem within
+  `HIT_POINTS`, then the corner square, then the middle square). A drag (`ImageDrag`) works on the
+  plane: Move is a `place_handles::Slide` (steps, Ctrl free, snapping to corners, edge middles and
+  round centres) setting Position X and Y; Turn adds the angle the pointer sweeps about the middle
+  (tracked incrementally, so it passes a half turn) to Angle in steps of 5 degrees, or exactly to
+  a point snapped to; Scale scales Width by the ratio of the pointer's distance along the
+  diagonal to where it was grabbed, in steps, never below a hundredth of the width or over the
+  largest model size, and for a calibrated picture the distance by the same ratio, so the two
+  calibration points stay. Each preview is an `Action::Preview` and the release one "Edit
+  <name>" `SetFeatureKind` through `manipulator::keeping_names`; a value named by a parameter
+  sets that parameter (`Held`) and one that follows other parameters is driven: the handle does
+  not drag and its hover says what drives it. Typing over a handle sets its fields (`x, y`,
+  an angle, the width or the calibrated distance) as the panel does (`image_handles::typed`).
+- `image_textures.rs` (`ImageTextures`, owned by `Model`) decodes each picture of the document on a
+  thread of its own (`picture`, under `catch_unwind`) into a `PictureTexture` when the revision
+  changes (`want`), wakes the app with the result (`poll`, from `Model::poll`) and forgets pictures
+  the document no longer holds; the insert hands over the texture its read already made (`keep`), so
+  a new picture is not decoded twice. Its `generation` joins the scene key (`Revisions::pictures`).
+- The scene (`scene::Builder::reference_image`) draws each active, shown image (the open one even
+  when hidden, from the draft while edited) from its `PlacedImage` and texture, with an outline in
+  the datum colours while it is open, hovered, selected or has no texture yet. An unlocked image is
+  `Pickable::Datum` of its feature outside sketch editing (selecting, opening and hiding it as a
+  datum, every datum command refusing it as not a datum); a locked one, and every image while a
+  sketch is edited, is never picked, so clicks reach the sketch and what lies behind it. Images count
+  in fitting (`model_bounds`, `datum_points`) and hide with the datums (`visibility::Kind::Datums`).
 
 ## Coordinate systems
 

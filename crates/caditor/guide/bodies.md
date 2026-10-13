@@ -4,6 +4,11 @@ The Bodies section above the features lists the bodies standing at the end of th
 own name or the name of the feature that made them. Click one to choose its feature in the tree;
 Ctrl-click and Shift-click choose several, as in the feature tree. The eye hides or shows it.
 
+An extrusion, revolve or sweep set to make **A body each** (its **Separate pieces** row) lists one
+body per separate piece, named after the feature and the sketch curve that drew the piece, such as
+"Extrude 1 (Line 5)". Each has its own eye, colour, material and name, and is selected, measured,
+exported and used by later features on its own; hiding the feature itself hides all of them.
+
 ## Colour, material and name
 
 {command:model.body_appearance}, or the paint bucket on a body's row, opens its card:

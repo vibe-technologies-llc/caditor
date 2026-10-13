@@ -4091,6 +4091,44 @@ fn split_faces_are_saved_and_loaded_as_a_record_of_their_own() {
 }
 
 #[test]
+fn a_body_of_each_separate_piece_round_trips_with_its_piece_looks_and_older_readers_report_it() {
+    let document = corpus::separate_pieces();
+    let blocks = document
+        .features()
+        .find(|feature| feature.name == "Blocks")
+        .unwrap()
+        .id();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let older = decode_text(&text.replace("separate_pieces", "separate_piecex"));
+
+    assert!(text.contains("\"separate_pieces\":{\"feature\":{\"extrude\":"));
+    assert!(text.contains("\"piece_looks\":["));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert!(older.document.feature(blocks).is_none());
+    assert!(!older.issues.is_empty());
+}
+
+#[test]
+fn choosing_separate_pieces_round_trips_through_the_journal() {
+    use caditor_document::Pieces;
+    let transaction = Transaction::single(
+        "A body each",
+        Edit::SetFeaturePieces {
+            id: FeatureId::from_raw(4),
+            pieces: Pieces::BodyEach,
+        },
+    );
+
+    let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+    let record = through_binary(&text);
+
+    assert_eq!(format::restore_transaction(record), Some(transaction));
+}
+
+#[test]
 fn a_split_face_wrapping_its_sketch_is_a_kind_older_readers_report() {
     use caditor_document::{SplitAlong, SplitCarry};
     let (mut document, split) = split_face_model(|document, _| {
@@ -6017,6 +6055,7 @@ fn a_revolve_whose_axis_line_is_gone_loads_turning_about_the_vertical_axis() {
 
 mod configurations;
 mod corpus;
+mod pictures;
 mod save_costs;
 mod seeds;
 mod selection_sets;

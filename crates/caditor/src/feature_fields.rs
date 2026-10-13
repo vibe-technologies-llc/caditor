@@ -16,6 +16,7 @@ use crate::{
     pattern_tools,
     reference_picking::{self, Picking, Slot},
     selection::Selection,
+    visibility,
     widgets::{self, FIELD_WIDTH, Named, Tone},
 };
 
@@ -295,7 +296,7 @@ pub fn feature_name(document: &Document, feature: FeatureId) -> Option<&str> {
 
 pub fn feature_row(ui: &mut Ui, document: &Document, caption: &str, feature: FeatureId) {
     widgets::caption(ui, caption);
-    match feature_name(document, feature) {
+    match document.body_label(feature) {
         Some(name) => {
             ui.label(name);
         }
@@ -371,8 +372,30 @@ pub fn combo<T>(
     selected: impl Into<WidgetText>,
     choices: impl FnOnce() -> Vec<Choice<T>>,
 ) -> Option<T> {
+    listing(ui, id, selected, choices).0
+}
+
+pub fn principal_combo<T>(
+    ui: &mut Ui,
+    id: Id,
+    selected: impl Into<WidgetText>,
+    choices: impl FnOnce() -> Vec<Choice<T>>,
+) -> Option<T> {
+    let (chosen, open) = listing(ui, id, selected, choices);
+    if open {
+        visibility::listing_principal(ui.ctx());
+    }
+    chosen
+}
+
+fn listing<T>(
+    ui: &mut Ui,
+    id: Id,
+    selected: impl Into<WidgetText>,
+    choices: impl FnOnce() -> Vec<Choice<T>>,
+) -> (Option<T>, bool) {
     let mut chosen = None;
-    widgets::combo(id, selected).show(ui, |ui| {
+    let shown = widgets::combo(id, selected).show(ui, |ui| {
         for choice in choices() {
             let enabled = choice.change.is_ok() || choice.selected;
             let button = widgets::button(choice.label.clone()).selected(choice.selected);
@@ -392,7 +415,7 @@ pub fn combo<T>(
             }
         }
     });
-    chosen
+    (chosen, shown.inner.is_some())
 }
 
 pub fn operation_name(operation: BodyOperation) -> &'static str {
@@ -423,7 +446,7 @@ pub fn body_operation_rows(
     } = *rows;
     let mut actions = Vec::new();
     let document = model.document();
-    let bodies = document.bodies_before(feature);
+    let bodies = document.bodies_before_in(feature, model.evaluation());
     let target = operation.target().or(bodies.last().copied());
     widgets::caption(ui, "Result");
     let candidates = [
@@ -454,16 +477,16 @@ pub fn body_operation_rows(
         return actions;
     };
     widgets::caption(ui, "Body");
-    let name = feature_name(document, target);
+    let name = document.body_label(target);
     let chosen = ui
         .horizontal(|ui| {
-            let text = combo_text(ui, name, MISSING_BODY);
+            let text = combo_text(ui, name.as_deref(), MISSING_BODY);
             combo(ui, Id::new((body_id, feature)), text, || {
                 bodies
                     .iter()
                     .filter_map(|body| {
                         Some(Choice {
-                            label: document.feature(*body)?.name.clone(),
+                            label: document.body_label(*body)?,
                             selected: *body == target,
                             change: change(operation.with_target(*body)).map(Action::Apply),
                         })
@@ -663,7 +686,7 @@ pub fn axis_row(
                     Some(text) => text.into(),
                     None => widgets::muted(NONE_CHOSEN, ui).into(),
                 };
-                actions.extend(combo(ui, id, shown, listed));
+                actions.extend(principal_combo(ui, id, shown, listed));
             }
             (None, Some(text)) => {
                 ui.add(Label::new(text).wrap());

@@ -313,6 +313,27 @@ paths:
   instances of one mesh: in `meshes` with those faces at alpha 0 and in `translucent_meshes` with
   only those faces visible, both carrying every face's pick id.
 
+## Reference pictures (`pictures.rs`)
+
+- `Scene::pictures` are `ScenePicture`s: an `Arc<PictureTexture>` (RGBA8 in sRGB, as every colour
+  here, shrunk by box averaging until no side passes `MAX_PICTURE_TEXTURE_SIDE` and carrying its
+  whole mip chain, built off the UI thread by the app), the four corners (the picture's bottom
+  left, bottom right, top right, top left, so a flip is the app's corner order), an alpha, whether
+  it shows in front of bodies and an optional pick id.
+- `PictureCache` uploads each texture once per `Arc` (from the first mip level within the device's
+  largest texture side, inside `gpu::scoped`; a refusal counts as a refused mesh and the picture is
+  left out alone), keeps a uniform and bind group per picture (corners relative to the anchor in
+  f64, alpha, pick id; written only when they change, which joins `Prepared::changed`) and drops
+  what leaves the scene. Image siblings make their own cache sharing the bind group layout.
+- `vs_picture` draws a quad of six vertices from the uniform with the model fill depth bias
+  (`MODEL_FILL_DEPTH_BIAS`), so a picture on a face shows over it, and `fs_picture` samples with
+  linear mipmapped filtering, multiplying the texture's alpha. A picture behind bodies draws right
+  after the opaque, flat and reflective meshes, depth-tested and writing no depth; one in front
+  draws after the translucent and overlay meshes with no depth test. Both draw before silhouettes,
+  lines and markers, so sketch curves always show over a picture, and neither is sectioned. A
+  picture with a pick id is drawn in the reference pick pass (`fs_picture_pick`, writing its depth),
+  so it owns a pixel only where nothing else is picked; one without draws nothing there.
+
 ## Sections
 
 - `Scene::section` holds up to `MAX_SECTION_PLANES` `SectionPlane`s (a `Plane` and a `CutFace`,
@@ -458,7 +479,9 @@ paths:
   the bands turn the premultiplied colour of a transparent clear into straight alpha.
 - `OffscreenRenderer` opens a device without a surface and draws the same `ImageRequest` into an
   `Rgba8Unorm` target, its `ImageBands` drawing the tiles inline as it reads them (`drawn_inline`):
-  the headless `--export` of a PNG (`app.md`) streams them to the file.
+  the headless `--export` of a PNG (`app.md`) streams them to the file. Both draw a scene's
+  pictures behind or in front of its bodies as the window does
+  (`a_window_less_renderer_draws_a_scene_s_pictures_behind_bodies_or_in_front_of_them`).
 
 ## Navigation
 

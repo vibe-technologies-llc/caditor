@@ -3,7 +3,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use caditor_document::{
     BlendKind, CombineOperation, Datum, Document, Edit, Feature, FeatureError, FeatureId,
     FeatureKind, FeatureState, FeatureStatus, FixTarget, Healing, MissingInput, PatternKind,
-    PrimitiveKind, RollbackBar, SketchFeature, SolidFeature, SolidResult, Transaction, TreeRow,
+    PrimitiveKind, PrincipalGeometry, RollbackBar, SketchFeature, SolidFeature, SolidResult,
+    Transaction, TreeRow,
 };
 use caditor_expression::Expression;
 use caditor_sketch::{Constraint, ConstraintId, Redundancy, Sketch, SketchSolution};
@@ -25,8 +26,8 @@ use crate::{
     feature_clipboard, feature_fields, feature_groups,
     field::{self, DimensionTarget},
     files::FileCommand,
-    fonts, hole_panel, icons, import_panel, manipulator, mate_panel, measurement_panel,
-    mirror_panel, mirror_tools,
+    fonts, hole_panel, icons, image_panel, import_panel, manipulator, mate_panel,
+    measurement_panel, mirror_panel, mirror_tools,
     model::{Action, Model, Notice},
     move_panel, move_tools, offset_face_panel,
     panels::{Focus, PanelState, Renaming},
@@ -191,6 +192,10 @@ fn rows(
             selection,
             edited: editing.feature() == Some(id) || editing.solid() == Some(id),
             opened: editing.opened().filter(|opened| opened.feature == id),
+            taking_regions: editing
+                .solid()
+                .and_then(|open| document.feature(open))
+                .filter(|open| open.kind.solid().is_some()),
             selected: chosen.contains(&id) || state.reads_selected(id),
             rolled_back: index >= bar,
             grouped: group.is_some(),
@@ -348,6 +353,14 @@ pub fn kind_words(kind: &FeatureKind) -> &'static [&'static str] {
         FeatureKind::Import(_) => &["import", "imported", "step"],
         FeatureKind::Remove(_) => &["remove", "body"],
         FeatureKind::Measurement(_) => &["measurement", "measure", "reading", "clearance"],
+        FeatureKind::ReferenceImage(_) => &[
+            "reference image",
+            "image",
+            "picture",
+            "photo",
+            "canvas",
+            "trace",
+        ],
     }
 }
 
@@ -395,6 +408,7 @@ struct Row<'a> {
     selection: &'a Selection,
     edited: bool,
     opened: Option<Opened>,
+    taking_regions: Option<&'a Feature>,
     selected: bool,
     rolled_back: bool,
     grouped: bool,
@@ -1163,6 +1177,9 @@ fn body(
         FeatureKind::Measurement(measurement) => {
             measurement_panel::show(ui, model, row.selection, actions, feature, measurement);
         }
+        FeatureKind::ReferenceImage(image) => {
+            image_panel::show(ui, model, row.selection, actions, feature, image);
+        }
     }
 }
 
@@ -1175,9 +1192,10 @@ fn kind_color(tokens: &appearance::Tokens, row: &Row<'_>) -> Color32 {
     }
     match row.feature.kind {
         FeatureKind::Sketch(_) => tokens.accent_text,
-        FeatureKind::Datum(_) | FeatureKind::Thread(_) | FeatureKind::Measurement(_) => {
-            tokens.text_muted
-        }
+        FeatureKind::Datum(_)
+        | FeatureKind::Thread(_)
+        | FeatureKind::Measurement(_)
+        | FeatureKind::ReferenceImage(_) => tokens.text_muted,
         FeatureKind::Solid(_)
         | FeatureKind::Blend(_)
         | FeatureKind::Shell(_)
@@ -1324,7 +1342,8 @@ fn edit_command(feature: &Feature, edited: bool) -> Option<EditingCommand> {
             | FeatureKind::Datum(_)
             | FeatureKind::Remove(_)
             | FeatureKind::Thread(_)
-            | FeatureKind::Measurement(_),
+            | FeatureKind::Measurement(_)
+            | FeatureKind::ReferenceImage(_),
             true,
         ) => EditingCommand::CloseSolid,
         (
@@ -1346,7 +1365,8 @@ fn edit_command(feature: &Feature, edited: bool) -> Option<EditingCommand> {
             | FeatureKind::Datum(_)
             | FeatureKind::Remove(_)
             | FeatureKind::Thread(_)
-            | FeatureKind::Measurement(_),
+            | FeatureKind::Measurement(_)
+            | FeatureKind::ReferenceImage(_),
             false,
         ) => EditingCommand::OpenSolid(id),
         (FeatureKind::Import(_), _) => return None,
@@ -1464,6 +1484,22 @@ fn context_menu(
                 actions.push(Action::Editing(EditingCommand::CancelSolid));
                 ui.close();
             }
+        }
+        ui.separator();
+    }
+    if let Some(open) = row.taking_regions
+        && feature.kind.sketch().is_some()
+    {
+        let taking = solid_tools::take_sketch_regions(model, open, feature.id());
+        let title = format!("Take all regions of {} for {}", feature.name, open.name);
+        if menu_entry(
+            ui,
+            icons::command(Command::SelectAllRegions),
+            &title,
+            &taking,
+        ) && let Ok(transaction) = taking
+        {
+            actions.push(Action::Apply(transaction));
         }
         ui.separator();
     }
@@ -2505,17 +2541,26 @@ fn feature_commands(
         actions.push(Action::Apply(transaction));
     }
     if let Some(transaction) = offer_change(offers, commands, Command::HideOthers, None, || {
-        visibility::hide_others(document, selection, chosen.rows, editing.feature())
+        visibility::hide_others(
+            document,
+            model.principal_view(),
+            selection,
+            chosen.rows,
+            editing.feature(),
+        )
     }) {
         actions.push(Action::Apply(transaction));
     }
     if let Some(transaction) = offer_change(offers, commands, Command::ShowAll, None, || {
         visibility::show_all(document)
     }) {
+        let shown_principal: Vec<PrincipalGeometry> = document.hidden_principal().collect();
         actions.push(Action::Apply(transaction));
+        actions.push(Action::KeepPrincipalShown(shown_principal));
     }
     if commands.invoke(Command::TogglePrincipal, &Ok::<_, String>(())) {
-        actions.push(Action::Apply(visibility::toggle_principal_group(document)));
+        actions
+            .extend(visibility::toggle_principal_group(document, model.principal_view()).actions);
     }
     for (command, kind) in [
         Command::ToggleSketches,
@@ -2541,7 +2586,7 @@ fn feature_commands(
         actions.push(Action::Apply(transaction));
     }
     let target = chosen.open.or(current);
-    let changes: [(Command, FeatureChange<'_>); 19] = [
+    let changes: [(Command, FeatureChange<'_>); 20] = [
         (Command::PlaceSketch, &|feature| {
             place_change(model, selection, feature)
         }),
@@ -2553,6 +2598,9 @@ fn feature_commands(
         }),
         (Command::ClearChosenRegions, &|feature| {
             solid_tools::clear_regions(model, feature)
+        }),
+        (Command::SelectAllRegions, &|feature| {
+            solid_tools::select_all_regions(model, feature)
         }),
         (Command::StartAtSelected, &|feature| {
             start_at_change(model, selection, feature)

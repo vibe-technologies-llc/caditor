@@ -5,8 +5,11 @@ it and from values you can change at any time. Change a value and everything aft
 
 ## A first part
 
-An empty model shows where to start in the view itself: **Start with a sketch**, **Start with a
-box** ([primitives](primitives)) or **Import a file…** ([importing](importing)).
+An empty model shows a start card in the view: **Start with a sketch**, **Start with a box**
+([primitives](primitives)) or **Import a file…** ([importing](importing)). Its close button hides
+it for this model; tick **Don't show this again** before closing it or choosing a start to stop it
+appearing on empty models. {command:help.show_start_card} brings it back for the model you are in,
+and **Show the start card on empty models** in [Preferences](preferences) turns it back on.
 
 - Choose {command:model.new_sketch} and click a plane in the view, such as the XY plane.
 - Draw a closed outline with the [Line](line), [Rectangle](rectangle) or [Circle](circle) tool.

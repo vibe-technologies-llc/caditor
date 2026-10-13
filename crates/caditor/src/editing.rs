@@ -1,7 +1,7 @@
 use std::{borrow::Cow, collections::BTreeSet};
 
 use caditor_document::{
-    Document, Edit, FeatureId, FeatureKind, ParameterOwner, Transaction, UndoMark,
+    Document, Edit, FeatureId, FeatureKind, ImageSpot, ParameterOwner, Transaction, UndoMark,
 };
 use caditor_expression::ParameterId;
 use caditor_sketch::Sketch;
@@ -10,11 +10,12 @@ use crate::{
     commands::{Command, Reason},
     model::{Action, Model, Notice, NoticeKind},
     queued::{Queued, Rerun},
-    reference_picking::Picking,
+    reference_picking::{Picking, Slot},
     selection::{Pickable, PrincipalPlane},
     shape_modes::{ShapeMode, ShapeModes},
     sketch_placement::{self, DatumTarget, FaceChoice},
     variants::all_variants,
+    visibility::PrincipalView,
 };
 
 const NEW_SKETCH_PREFIX: &str = "Sketch";
@@ -287,6 +288,7 @@ pub enum EditingCommand {
     Pick(Picking),
     HoldPicked(Pickable),
     StopPicking,
+    CalibrateFrom(ImageSpot),
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -298,9 +300,14 @@ pub struct Context {
     pub intersecting: bool,
     pub selecting: bool,
     pub choosing_in_view: bool,
+    pub principal: PrincipalView,
 }
 
 impl Context {
+    pub fn with_principal(self, principal: PrincipalView) -> Self {
+        Self { principal, ..self }
+    }
+
     pub fn picks_shown_regions(self) -> bool {
         self.sketch.is_none()
             && self.solid.is_none()
@@ -398,6 +405,7 @@ pub struct SketchEditing {
     entered: Option<Entered>,
     solid: Option<Opened>,
     picking: Option<Picking>,
+    calibration_from: Option<ImageSpot>,
     choosing_plane: bool,
     modes: ShapeModes,
     session: u64,
@@ -458,6 +466,7 @@ impl SketchEditing {
                 .active
                 .is_some_and(|active| active.tool == Tool::Select),
             choosing_in_view: self.picking.is_some(),
+            principal: PrincipalView::default(),
         }
     }
 
@@ -467,6 +476,13 @@ impl SketchEditing {
 
     pub fn picking(&self) -> Option<Picking> {
         self.picking
+    }
+
+    pub fn calibration_from(&self) -> Option<ImageSpot> {
+        self.calibration_from.filter(|_| {
+            self.picking
+                .is_some_and(|picking| picking.slot == Slot::ImageCalibration)
+        })
     }
 
     #[cfg(test)]
@@ -532,6 +548,7 @@ impl SketchEditing {
             EditingCommand::CloseSolid => self.solid = None,
             EditingCommand::CancelSolid => self.cancel(model),
             EditingCommand::Pick(picking) => {
+                self.calibration_from = None;
                 self.open_solid(picking.feature, model, since);
                 if self.solid() == Some(picking.feature) {
                     self.picking = Some(picking);
@@ -542,7 +559,16 @@ impl SketchEditing {
                     picking.hold(pickable);
                 }
             }
-            EditingCommand::StopPicking => self.picking = None,
+            EditingCommand::StopPicking => {
+                self.picking = None;
+                self.calibration_from = None;
+            }
+            EditingCommand::CalibrateFrom(spot) => {
+                self.calibration_from = Some(spot);
+                if let Some(picking) = &mut self.picking {
+                    picking.hold(Pickable::Datum(picking.feature));
+                }
+            }
         }
         self.drop_stale_picking();
         if switches(command) {
@@ -1030,7 +1056,8 @@ fn opened_solid(document: &Document, feature: FeatureId) -> bool {
             | FeatureKind::Pattern(_)
             | FeatureKind::Datum(_)
             | FeatureKind::Thread(_)
-            | FeatureKind::Measurement(_) => true,
+            | FeatureKind::Measurement(_)
+            | FeatureKind::ReferenceImage(_) => true,
             FeatureKind::Sketch(_) | FeatureKind::Import(_) | FeatureKind::Remove(_) => false,
         })
 }

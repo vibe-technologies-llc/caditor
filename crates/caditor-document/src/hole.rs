@@ -503,11 +503,7 @@ struct Context<'a> {
 
 impl Context<'_> {
     fn name(&self, id: FeatureId) -> String {
-        self.inputs
-            .document
-            .feature(id)
-            .map(|feature| feature.name.clone())
-            .unwrap_or_default()
+        self.inputs.document.body_label(id).unwrap_or_default()
     }
 
     fn error(&self, reason: String, remedy: String) -> Failure {

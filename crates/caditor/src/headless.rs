@@ -788,4 +788,121 @@ mod tests {
         );
         assert!(!folder.path().join("out.step").exists());
     }
+
+    fn magenta_picture() -> std::sync::Arc<caditor_document::Picture> {
+        let mut bytes = Vec::new();
+        let mut encoder = png::Encoder::new(&mut bytes, 8, 4);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header().unwrap();
+        writer
+            .write_image_data(&[255, 0, 255, 255].repeat(32))
+            .unwrap();
+        writer.finish().unwrap();
+        caditor_file::read_picture(bytes).unwrap().picture
+    }
+
+    fn plate_with_a_picture() -> Document {
+        use caditor_document::{
+            FeatureKind, ImagePlane, ImageSize, PlaneReference, PrincipalPlane, ReferenceImage,
+        };
+
+        let mut document = Sample::Plate.document().unwrap();
+        let mut transaction = document.transaction("Insert picture");
+        let zero = transaction.parse("0 mm").unwrap();
+        let turn = transaction.parse("0 deg").unwrap();
+        let width = transaction.parse("400 mm").unwrap();
+        transaction.add_feature(
+            "Picture",
+            FeatureKind::ReferenceImage(Box::new(ReferenceImage {
+                picture: magenta_picture(),
+                plane: ImagePlane::Reference(PlaneReference::Principal(PrincipalPlane::Xy)),
+                at: [zero.clone(), zero],
+                turn,
+                flipped: false,
+                size: ImageSize::Width(width),
+                opacity: 100,
+                in_front: true,
+                locked: false,
+            })),
+        );
+        document.apply(transaction.finish()).unwrap();
+        document
+    }
+
+    fn magenta_pixels(pixels: &[u8], channels: usize) -> usize {
+        pixels
+            .chunks_exact(channels)
+            .filter(|pixel| {
+                matches!(pixel, [red, green, blue, ..] if *red > 200 && *green < 80 && *blue > 200)
+                    && pixel.get(3).is_none_or(|alpha| *alpha > 200)
+            })
+            .count()
+    }
+
+    fn png_magenta(output: &Path) -> usize {
+        let mut reader = png::Decoder::new(std::io::Cursor::new(std::fs::read(output).unwrap()))
+            .read_info()
+            .unwrap();
+        let mut pixels = vec![0; reader.output_buffer_size().unwrap()];
+        let frame = reader.next_frame(&mut pixels).unwrap();
+        magenta_pixels(&pixels[..frame.buffer_size()], frame.color_type.samples())
+    }
+
+    #[test]
+    fn a_png_draws_the_pictures_a_model_holds() {
+        let folder = TempDir::new().unwrap();
+        let plain = saved_sample(&folder);
+        let with_picture = folder.path().join("picture.caditor");
+        caditor_file::save(&plate_with_a_picture(), &with_picture, false).unwrap();
+        let drawn = |model: &Path, name: &str| {
+            let output = folder.path().join(name);
+            convert(&Conversion {
+                size: Some(SurfaceSize {
+                    width: 320,
+                    height: 200,
+                }),
+                ..conversion(model, &output)
+            })
+            .map(|_| png_magenta(&output))
+        };
+
+        let Ok(pictured) = drawn(&with_picture, "picture.png") else {
+            assert!(std::env::var_os("CADITOR_REQUIRE_GPU").is_none());
+            return;
+        };
+        let unpictured = drawn(&plain, "plain.png").unwrap();
+
+        assert_eq!(unpictured, 0);
+        assert!(pictured > 5_000, "{pictured} picture pixels");
+    }
+
+    #[test]
+    fn a_3mf_thumbnail_draws_the_pictures_a_model_holds() {
+        let pictured = plate_with_a_picture();
+        let plain = Sample::Plate.document().unwrap();
+        let thumbnail_of = |document: &Document| {
+            let evaluation = Recompute::default().run(
+                document,
+                &ModelEvaluator,
+                &CancelToken::never(),
+                &|_, _| {},
+            );
+            draw_thumbnail(document, &evaluation)
+        };
+
+        let Some((size, pixels)) = thumbnail_of(&pictured) else {
+            assert!(std::env::var_os("CADITOR_REQUIRE_GPU").is_none());
+            return;
+        };
+        let (_, unpictured) = thumbnail_of(&plain).unwrap();
+
+        assert_eq!(pixels.len(), size.width as usize * size.height as usize * 4);
+        assert_eq!(magenta_pixels(&unpictured, 4), 0);
+        assert!(
+            magenta_pixels(&pixels, 4) > 1_000,
+            "{} picture pixels",
+            magenta_pixels(&pixels, 4)
+        );
+    }
 }

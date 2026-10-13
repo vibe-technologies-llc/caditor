@@ -135,6 +135,11 @@ paths:
   lines' keys. Sweep errors come back naming input segments (`Rounded::remapped`), a fold on an
   inserted arc as `BendTooTight`; a wall leaving no inside is `WallTooThick`. Corners touching an
   arc or spline are left to the sweep.
+- `pipe_stand(path, bend, up)` walks the same chain and returns the `PipeStand` the app's value
+  arrows stand on: the section plane `pipe` places (from the rounded chain, else the unrounded one)
+  and the first `PipeCorner` between two lines turning above `SMOOTH_TURN` and up to
+  `MOST_MITRE_TURN`, found whether or not `bend` rounds it. It needs no section, so it works for
+  sizes `pipe` refuses.
 - `heights(plane, regions, target)` gives the least and most signed height of a target plane over
   the profile, to tell a plane ahead from one behind or across.
 - `next_face(solid, plane, regions, reversed)` casts rays from the regions' triangle centroids

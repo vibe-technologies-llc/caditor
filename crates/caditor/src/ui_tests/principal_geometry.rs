@@ -1,9 +1,14 @@
+use caditor_document::UndoMark;
 use egui::{Key, Modifiers};
 
-use super::Harness;
+use super::{Harness, extruded_plate, run_from_palette, top_edge_along_x};
 use crate::{
     editing::{EditingCommand, Tool},
+    icons,
     model::Action,
+    preferences::{PreferenceChange, PreferencesCommand},
+    principal_tree::GROUP_TITLE,
+    reference_picking::Slot,
     selection::{Pickable, PrincipalPlane},
 };
 
@@ -106,4 +111,176 @@ fn a_principal_plane_chosen_in_the_tree_is_selected_in_the_view() {
             .contains(Pickable::Plane(PrincipalPlane::Xy))
     );
     assert!(harness.workspace.panels.chosen().is_empty());
+}
+
+fn set_when_needed(harness: &mut Harness, when_needed: bool) {
+    harness.perform(Action::Preferences(PreferencesCommand::Change(
+        PreferenceChange::PrincipalWhenNeeded(when_needed),
+    )));
+    harness.settle();
+}
+
+#[derive(Debug, PartialEq)]
+struct ModelState {
+    revision: u64,
+    undo: UndoMark,
+    dirty: bool,
+}
+
+fn model_state(harness: &Harness) -> ModelState {
+    ModelState {
+        revision: harness.model.revision(),
+        undo: harness.model.undo_mark(),
+        dirty: harness.model.is_dirty(),
+    }
+}
+
+#[test]
+fn principal_geometry_shows_until_the_first_body_and_then_only_while_a_sketch_plane_is_chosen() {
+    let mut harness = Harness::new();
+    harness.settle();
+    let before_a_body = principal_pickables(&mut harness).len();
+
+    extruded_plate(&mut harness);
+    harness.settle();
+    let after_the_body = principal_pickables(&mut harness);
+    let model_after_the_body = model_state(&harness);
+
+    harness.perform(Action::Editing(EditingCommand::NewSketch(None)));
+    harness.settle();
+    let while_choosing = principal_pickables(&mut harness).len();
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.settle();
+    let after_escape = principal_pickables(&mut harness);
+    let model_after_escape = model_state(&harness);
+
+    harness.perform(Action::Editing(EditingCommand::NewSketch(None)));
+    harness.settle();
+    harness.perform(Action::Editing(EditingCommand::NewSketch(Some(
+        PrincipalPlane::Xy,
+    ))));
+    harness.settle();
+    let sketching = harness.editing().is_some();
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.settle();
+    let after_sketching = principal_pickables(&mut harness);
+
+    assert_eq!(before_a_body, 7);
+    assert!(after_the_body.is_empty());
+    assert_eq!(while_choosing, 7);
+    assert!(after_escape.is_empty());
+    assert_eq!(model_after_escape, model_after_the_body);
+    assert!(sketching);
+    assert!(after_sketching.is_empty());
+    assert!(harness.document().hidden_principal().next().is_none());
+}
+
+#[test]
+fn choosing_a_mirror_plane_in_the_view_shows_the_principal_geometry_for_as_long_as_it_lasts() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    harness.select([Pickable::Edge {
+        body: plate,
+        edge: top_edge_along_x(&harness, plate, 0.0),
+    }]);
+    harness.click("Mirror body");
+    harness.settle();
+    harness.select([]);
+    let mirror_open = principal_pickables(&mut harness);
+
+    harness.click_beside(icons::CHOOSE_IN_VIEW, "Mirror across");
+    harness.settle();
+    let choosing = harness
+        .workspace
+        .editing
+        .picking()
+        .map(|picking| picking.slot);
+    let while_choosing = principal_pickables(&mut harness).len();
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.settle();
+    let after_choosing = principal_pickables(&mut harness);
+
+    assert!(mirror_open.is_empty());
+    assert_eq!(choosing, Some(Slot::MirrorPlane));
+    assert_eq!(while_choosing, 7);
+    assert!(after_choosing.is_empty());
+}
+
+#[test]
+fn showing_principal_geometry_yourself_keeps_it_shown_without_changing_the_model() {
+    let mut harness = Harness::new();
+    extruded_plate(&mut harness);
+    harness.settle();
+    let before = model_state(&harness);
+    let tucked_away = principal_pickables(&mut harness).is_empty();
+
+    harness.click_beside(icons::HIDE, GROUP_TITLE);
+    harness.settle();
+    let kept = principal_pickables(&mut harness).len();
+    let after_showing = model_state(&harness);
+    harness.perform(Action::Editing(EditingCommand::NewSketch(None)));
+    harness.settle();
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.settle();
+    let after_choosing = principal_pickables(&mut harness).len();
+
+    harness.click_beside(icons::SHOW, GROUP_TITLE);
+    harness.settle();
+    let hidden = principal_pickables(&mut harness);
+    let hide_label = harness.model.undo_label().map(str::to_owned);
+    harness.perform(Action::Undo);
+    harness.settle();
+    let after_undo = principal_pickables(&mut harness).len();
+
+    assert!(tucked_away);
+    assert_eq!(kept, 7);
+    assert_eq!(after_showing, before);
+    assert_eq!(after_choosing, 7);
+    assert!(hidden.is_empty());
+    assert_eq!(
+        hide_label.as_deref(),
+        Some("Hide principal planes, axes and origin")
+    );
+    assert_eq!(harness.document().hidden_principal().count(), 0);
+    assert_eq!(after_undo, 7);
+}
+
+#[test]
+fn a_principal_plane_chosen_in_the_tree_shows_while_it_is_selected() {
+    let mut harness = Harness::new();
+    extruded_plate(&mut harness);
+    harness.settle();
+
+    harness.click_button("Show details of Principal planes, axes and origin");
+    harness.let_animations_finish();
+    harness.click("XY plane");
+    harness.settle();
+    let xy = Pickable::Plane(PrincipalPlane::Xy);
+    let shown = principal_pickables(&mut harness);
+
+    assert!(harness.workspace.viewport.selection().contains(xy));
+    assert_eq!(shown, [xy]);
+}
+
+#[test]
+fn with_the_preference_off_principal_geometry_never_hides_by_itself() {
+    let mut harness = Harness::new();
+    set_when_needed(&mut harness, false);
+
+    extruded_plate(&mut harness);
+    harness.settle();
+    let after_the_body = principal_pickables(&mut harness).len();
+
+    run_from_palette(&mut harness, "show principal planes only when needed");
+    harness.settle();
+    let toggled_on = harness
+        .workspace
+        .preferences
+        .view_details
+        .principal_when_needed;
+    let after_toggling = principal_pickables(&mut harness);
+
+    assert_eq!(after_the_body, 7);
+    assert!(toggled_on);
+    assert!(after_toggling.is_empty());
 }

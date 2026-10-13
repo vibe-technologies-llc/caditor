@@ -20,7 +20,17 @@ use crate::{
 };
 
 const ERROR_OUTLINE_WIDTH: f32 = 1.5;
-const FIELD_MARGIN: Margin = Margin::symmetric(6, 3);
+const HORIZONTAL_MARGIN: i8 = 6;
+const FIELD_MARGIN: Margin = Margin::symmetric(HORIZONTAL_MARGIN, 3);
+const CARET_ROOM: f32 = 2.0;
+
+pub fn text_margins() -> f32 {
+    2.0 * f32::from(HORIZONTAL_MARGIN)
+}
+
+pub fn text_inset() -> f32 {
+    text_margins() + CARET_ROOM
+}
 
 const SUGGESTING: &str = "suggesting";
 

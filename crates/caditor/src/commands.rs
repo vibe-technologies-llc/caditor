@@ -159,6 +159,7 @@ pub enum Command {
     DatumAxis,
     DatumPoint,
     CoordinateSystem,
+    InsertImage,
     ScaleModel,
     Configurations,
     FitView,
@@ -198,6 +199,7 @@ pub enum Command {
     ToggleVisibility,
     ShowAll,
     TogglePrincipal,
+    ShowPrincipalWhenNeeded,
     ToggleSketches,
     ToggleDatums,
     ToggleBodies,
@@ -268,6 +270,7 @@ pub enum Command {
     UseSelectedAxis,
     ExtrudeUpToSelected,
     ClearChosenRegions,
+    SelectAllRegions,
     StartAtSelected,
     MirrorAcrossSelected,
     MirrorSelectedFaces,
@@ -300,6 +303,7 @@ pub enum Command {
     DismissNotice,
     DismissTip,
     HideTips,
+    ShowStartCard,
     Welcome,
     Guide,
     About,
@@ -712,6 +716,7 @@ plain_commands! {
     ToggleVisibility,
     ShowAll,
     TogglePrincipal,
+    ShowPrincipalWhenNeeded,
     ToggleSketches,
     ToggleDatums,
     ToggleBodies,
@@ -758,6 +763,7 @@ plain_commands! {
     DatumAxis,
     DatumPoint,
     CoordinateSystem,
+    InsertImage,
     ScaleModel,
     Configurations,
     FinishSketch,
@@ -829,6 +835,7 @@ plain_commands! {
     UseSelectedAxis,
     ExtrudeUpToSelected,
     ClearChosenRegions,
+    SelectAllRegions,
     StartAtSelected,
     MirrorAcrossSelected,
     MirrorSelectedFaces,
@@ -861,6 +868,7 @@ plain_commands! {
     DismissNotice,
     DismissTip,
     HideTips,
+    ShowStartCard,
     Mate,
     MateAngle,
     MirrorFaces,
@@ -1036,6 +1044,7 @@ impl Command {
             Self::DatumAxis => "model.axis",
             Self::DatumPoint => "model.point",
             Self::CoordinateSystem => "model.coordinate_system",
+            Self::InsertImage => "model.insert_reference_image",
             Self::ScaleModel => "model.scale_model",
             Self::Configurations => "model.configurations",
             Self::FitView => "view.fit",
@@ -1079,6 +1088,7 @@ impl Command {
             Self::ToggleVisibility => "view.toggle_visibility",
             Self::ShowAll => "view.show_all",
             Self::TogglePrincipal => "view.toggle_principal",
+            Self::ShowPrincipalWhenNeeded => "view.principal_when_needed",
             Self::ToggleSketches => "view.toggle_sketches",
             Self::ToggleDatums => "view.toggle_datums",
             Self::ToggleBodies => "view.toggle_bodies",
@@ -1153,6 +1163,7 @@ impl Command {
             Self::UseSelectedAxis => "model.use_selected_axis",
             Self::ExtrudeUpToSelected => "model.extrude_up_to_selected",
             Self::ClearChosenRegions => "model.clear_chosen_regions",
+            Self::SelectAllRegions => "model.select_all_regions",
             Self::StartAtSelected => "model.start_at_selected",
             Self::MirrorAcrossSelected => "model.mirror_across_selected",
             Self::MirrorSelectedFaces => "model.mirror_selected_faces",
@@ -1185,6 +1196,7 @@ impl Command {
             Self::DismissNotice => "edit.dismiss_notice",
             Self::DismissTip => "help.dismiss_tip",
             Self::HideTips => "help.hide_tips",
+            Self::ShowStartCard => "help.show_start_card",
             Self::Welcome => "help.welcome",
             Self::Guide => "help.guide",
             Self::About => "help.about",
@@ -1309,6 +1321,7 @@ impl Command {
             Self::DatumAxis => "Datum axis",
             Self::DatumPoint => "Datum point",
             Self::CoordinateSystem => "Coordinate system",
+            Self::InsertImage => "Insert reference image…",
             Self::ScaleModel => "Scale model…",
             Self::Configurations => "Configurations…",
             Self::FitView => "Fit view",
@@ -1349,6 +1362,7 @@ impl Command {
             Self::ToggleVisibility => "Hide or show feature",
             Self::ShowAll => "Show everything",
             Self::TogglePrincipal => "Hide or show principal planes, axes and origin",
+            Self::ShowPrincipalWhenNeeded => "Show principal planes only when needed",
             Self::ToggleSketches => "Hide or show every sketch",
             Self::ToggleDatums => "Hide or show every datum",
             Self::ToggleBodies => "Hide or show every body",
@@ -1419,6 +1433,7 @@ impl Command {
             Self::UseSelectedAxis => "Revolve about selected axis",
             Self::ExtrudeUpToSelected => "Extrude up to selected face or plane",
             Self::ClearChosenRegions => "Clear the chosen regions",
+            Self::SelectAllRegions => "Select all regions of the sketch",
             Self::StartAtSelected => "Start extrusion or revolution at selected face or plane",
             Self::MirrorAcrossSelected => "Mirror across selected face or plane",
             Self::MirrorSelectedFaces => "Mirror the selected faces",
@@ -1451,6 +1466,7 @@ impl Command {
             Self::DismissNotice => "Dismiss the notice",
             Self::DismissTip => "Dismiss the tip",
             Self::HideTips => "Hide tips",
+            Self::ShowStartCard => "Show the start card",
             Self::Welcome => "Welcome and samples…",
             Self::Guide => "User guide",
             Self::About => "About caditor",
@@ -1543,6 +1559,7 @@ impl Command {
             Self::TakeBackPoint => &["backspace", "undo point"],
             Self::FinishShape => &["stop", "end", "done"],
             Self::ChainArc => &["arc", "tangent", "segment", "chain"],
+            Self::ShowPrincipalWhenNeeded => &["hide planes", "reference planes", "automatically"],
             _ => &[],
         }
     }
@@ -1585,7 +1602,8 @@ impl Command {
             | Self::About
             | Self::Messages
             | Self::DismissTip
-            | Self::HideTips => Category::Help,
+            | Self::HideTips
+            | Self::ShowStartCard => Category::Help,
             Self::Palette
             | Self::Undo
             | Self::UndoHistory
@@ -1645,6 +1663,7 @@ impl Command {
             | Self::ToggleVisibility
             | Self::ShowAll
             | Self::TogglePrincipal
+            | Self::ShowPrincipalWhenNeeded
             | Self::ToggleSketches
             | Self::ToggleDatums
             | Self::ToggleBodies
@@ -1707,6 +1726,7 @@ impl Command {
             | Self::DatumAxis
             | Self::DatumPoint
             | Self::CoordinateSystem
+            | Self::InsertImage
             | Self::ScaleModel
             | Self::Configurations
             | Self::Recompute
@@ -1735,6 +1755,7 @@ impl Command {
             | Self::UseSelectedAxis
             | Self::ExtrudeUpToSelected
             | Self::ClearChosenRegions
+            | Self::SelectAllRegions
             | Self::StartAtSelected
             | Self::MirrorAcrossSelected
             | Self::MirrorSelectedFaces
@@ -1957,7 +1978,9 @@ impl Command {
             Self::ClearChosenRegions => vec![alt_shift(Key::R)],
             Self::TogglePrincipal => vec![plain(Key::P)],
             Self::VersionHistory
+            | Self::SelectAllRegions
             | Self::CoordinateSystem
+            | Self::InsertImage
             | Self::ScaleModel
             | Self::Configurations
             | Self::ModelProperties
@@ -2041,6 +2064,7 @@ impl Command {
             | Self::ToggleCentresOfMass
             | Self::ToggleControlPolygons
             | Self::ToggleCosmeticThreads
+            | Self::ShowPrincipalWhenNeeded
             | Self::MinimizeWindow
             | Self::MaximizeWindow
             | Self::SaveView
@@ -2081,6 +2105,7 @@ impl Command {
             | Self::DismissNotice
             | Self::DismissTip
             | Self::HideTips
+            | Self::ShowStartCard
             | Self::Welcome
             | Self::About
             | Self::Messages

@@ -8,9 +8,9 @@ use std::{
 
 use caditor_document::{
     Base, Document, Editor, Evaluation, Feature, FeatureError, FeatureId, FeatureKind,
-    FeatureResult, FeatureState, Healing, ModelEvaluator, Move, Outcome, ParameterValues, Pivot,
-    Prepared, Progress, Recomputer, Rgb, SketchResult, Stale, Transaction, TransactionBuilder,
-    TurnCentre, UndoMark, displayed_axis, displayed_frame,
+    FeatureResult, FeatureState, Healing, ModelEvaluator, Move, Outcome, ParameterValues, Pieces,
+    Pivot, Prepared, PrincipalGeometry, Progress, Recomputer, Rgb, SketchResult, Stale,
+    Transaction, TransactionBuilder, TurnCentre, UndoMark, displayed_axis, displayed_frame,
 };
 use caditor_file::{
     Closing, FileDigest, Flusher, Handover, JournalEntry, JournalFailure, KeepRequest, Recovered,
@@ -28,6 +28,7 @@ use crate::{
     drag_solver::{self, DragCommand, Finished, Join, Polled},
     editing::{EditingCommand, SwitchBack},
     files::FileCommand,
+    image_textures::ImageTextures,
     last_values::LastValues,
     pasting::{
         self, PasteFinished, PasteProgress, PasteRequest, PasteTarget, PastedFeatures, Pastes,
@@ -38,6 +39,7 @@ use crate::{
     scene,
     selection::SelectionFilter,
     units::{AngleUnit, LengthUnit, NumberFormat, Units},
+    visibility::{PrincipalSet, PrincipalView},
     widgets::Tone,
 };
 
@@ -62,6 +64,7 @@ pub enum Action {
     StopPreparingBodies,
     PrepareStoppedBodies,
     ShowThreadsAsCosmetic(bool),
+    KeepPrincipalShown(Vec<PrincipalGeometry>),
     DismissNotice,
     Inform(Notice),
     Drag(DragCommand),
@@ -248,6 +251,7 @@ pub struct Model {
     retention: Retention,
     recent_colours: Vec<Rgb>,
     last_values: LastValues,
+    new_body_pieces: Pieces,
     mesh_quality: MeshQuality,
     mesh_requested: Vec<Arc<FeatureResult>>,
     regions_requested: Option<Arc<FeatureResult>>,
@@ -264,6 +268,8 @@ pub struct Model {
     pasted: Option<PastedFeatures>,
     pastes_finished: u64,
     threads_cosmetic: bool,
+    principal: PrincipalView,
+    pictures: ImageTextures,
 }
 
 pub const THREADS_COSMETIC_ON: &str = "Modelled threads are shown as cosmetic while you edit, so \
@@ -303,6 +309,7 @@ impl Model {
             retention: Retention::default(),
             recent_colours: Vec::new(),
             last_values: LastValues::default(),
+            new_body_pieces: Pieces::OneBody,
             mesh_quality: MeshQuality::default(),
             mesh_requested: Vec::new(),
             regions_requested: None,
@@ -319,6 +326,8 @@ impl Model {
             pasted: None,
             pastes_finished: 0,
             threads_cosmetic: false,
+            principal: PrincipalView::default(),
+            pictures: ImageTextures::default(),
         };
         model.start_storage(None, None);
         model.recompute(Retry::Nothing);
@@ -331,6 +340,15 @@ impl Model {
 
     pub fn threads_shown_cosmetic(&self) -> bool {
         self.threads_cosmetic
+    }
+
+    pub fn principal_view(&self) -> PrincipalView {
+        self.principal
+    }
+
+    pub fn tuck_principal_away(&mut self, tucked_away: bool, selected: PrincipalSet) {
+        self.principal.tucked_away = tucked_away;
+        self.principal.selected = selected;
     }
 
     pub fn document_as_shown(&self) -> Document {
@@ -388,6 +406,14 @@ impl Model {
 
     pub fn set_last_values(&mut self, last: &LastValues) {
         self.last_values.clone_from(last);
+    }
+
+    pub fn new_body_pieces(&self) -> Pieces {
+        self.new_body_pieces
+    }
+
+    pub fn set_new_body_pieces(&mut self, pieces: Pieces) {
+        self.new_body_pieces = pieces;
     }
 
     pub fn mesh_quality(&self) -> MeshQuality {
@@ -1051,6 +1077,10 @@ impl Model {
                 }));
                 Ok(None)
             }
+            Action::KeepPrincipalShown(geometries) => {
+                self.principal.kept = self.principal.kept.with(geometries);
+                Ok(None)
+            }
             Action::DismissNotice => {
                 self.notice = None;
                 Ok(None)
@@ -1256,7 +1286,22 @@ impl Model {
 
     pub fn poll(&mut self) -> bool {
         let recomputed = self.poll_recompute();
-        recomputed | self.settle_held_draft()
+        let revision = self.revision();
+        self.pictures.want(
+            self.editor.document(),
+            revision,
+            self.services.make_waker.as_ref(),
+        );
+        let decoded = self.pictures.poll();
+        recomputed | self.settle_held_draft() | decoded
+    }
+
+    pub fn pictures(&self) -> &ImageTextures {
+        &self.pictures
+    }
+
+    pub fn pictures_mut(&mut self) -> &mut ImageTextures {
+        &mut self.pictures
     }
 
     fn try_constraints(&mut self, trial: ConstraintTrial) {
@@ -1619,6 +1664,7 @@ impl Model {
         self.on_disk = session.on_disk;
         self.entries = entries;
         self.keep_original = session.keep_original;
+        self.principal.kept = PrincipalSet::default();
         self.unprotected = None;
         self.pending_save = None;
         self.notice = None;

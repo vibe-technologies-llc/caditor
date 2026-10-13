@@ -221,3 +221,28 @@ fn path_errors_name_the_segments_as_given() {
         PipeError::Path(PathSweepError::Apart { .. })
     ));
 }
+
+#[test]
+fn the_stand_is_the_start_section_and_the_first_corner_with_or_without_a_bend() {
+    let path = elbow();
+
+    for bend in [0.0, 5.0] {
+        let stand = pipe_stand(&path, bend, Vector3::Z).unwrap();
+        let corner = stand.corner.expect("the elbow has a corner");
+
+        assert_eq!(stand.section.origin(), Point3::ZERO);
+        assert!(stand.section.normal().distance(Vector3::X) < 1e-9);
+        assert_eq!(corner.point, Point3::new(20.0, 0.0, 0.0));
+        assert!(corner.incoming.distance(Vector3::X) < 1e-9);
+        assert!(corner.outgoing.distance(Vector3::Y) < 1e-9);
+    }
+}
+
+#[test]
+fn a_straight_path_has_no_corner_in_its_stand() {
+    let path = [line(10, Point3::ZERO, Point3::new(0.0, 0.0, 40.0))];
+
+    let stand = pipe_stand(&path, 5.0, Vector3::Z).unwrap();
+
+    assert_eq!(stand.corner, None);
+}

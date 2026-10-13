@@ -1,5 +1,5 @@
 use caditor_document::{
-    BodyAppearance, Document, Edit, FaceColour, Feature, FeatureId, Finish, MAX_BODY_NAME_CHARS,
+    BodyAppearance, Document, Edit, FaceColour, FeatureId, Finish, MAX_BODY_NAME_CHARS,
     MAX_MATERIAL_NAME_CHARS, Rgb, Transaction, density_of, material_name,
 };
 use caditor_expression::{Dimension, Expression};
@@ -253,10 +253,10 @@ pub fn change(
     appearance: BodyAppearance,
     what: &str,
 ) -> Result<Transaction, String> {
-    let feature = document
-        .feature(body)
+    let name = document
+        .body_name(body)
         .ok_or_else(|| "The body no longer exists".to_owned())?;
-    let label = format!("Change the {what} of {}", feature.name);
+    let label = format!("Change the {what} of {name}");
     field::checked(
         document,
         Transaction::single(
@@ -426,7 +426,8 @@ struct Panel<'a> {
 impl Panel<'_> {
     fn apply(&mut self, appearance: BodyAppearance, what: &str) {
         let change = change(self.model.document(), self.body, appearance, what);
-        let name = feature_fields::feature_name(self.model.document(), self.body).unwrap_or("");
+        let name =
+            feature_fields::feature_name(self.model.document(), self.body.maker()).unwrap_or("");
         self.actions.push(feature_fields::applied(name, change));
     }
 
@@ -588,7 +589,7 @@ impl Panel<'_> {
         }
     }
 
-    fn name_row(&mut self, ui: &mut Ui, feature: &Feature, focus: bool) -> bool {
+    fn name_row(&mut self, ui: &mut Ui, unnamed: &str, focus: bool) -> bool {
         widgets::caption(ui, BODY_NAME_CAPTION);
         let stored = self.appearance.name.clone().unwrap_or_default();
         let field = field::commit_field(
@@ -611,8 +612,7 @@ impl Panel<'_> {
         let landed = field.response.has_focus();
         field.response.on_hover_text(format!(
             "The body's own name, used in the Bodies list and in exports; empty, it is named \
-             after {}",
-            feature.name
+             {unnamed}"
         ));
         ui.end_row();
         if let Some(error) = field.error {
@@ -850,28 +850,33 @@ pub fn show(
     model: &Model,
     selection: &Selection,
     actions: &mut Vec<Action>,
-    feature: &Feature,
+    body: FeatureId,
     (focus, naming): (bool, bool),
 ) -> bool {
+    let document = model.document();
+    let Some(appearance) = document.body_appearance(body) else {
+        return false;
+    };
+    let unnamed = unnamed_words(document, body);
     let mut panel = Panel {
         model,
-        body: feature.id(),
-        appearance: &feature.appearance,
+        body,
+        appearance: &appearance,
         actions,
     };
     let swatch_focused = panel.swatches(ui, focus && !naming);
     ui.add_space(SPACE_S);
-    let faces = selected_faces(model, selection, feature.id());
-    if !faces.is_empty() || !feature.appearance.faces.is_empty() {
+    let faces = selected_faces(model, selection, body);
+    if !faces.is_empty() || !appearance.faces.is_empty() {
         panel.face_swatches(ui, &faces);
         ui.add_space(SPACE_S);
     }
-    if let Some(note) = other_faces_note(faces_of_other_bodies(selection, feature.id())) {
+    if let Some(note) = other_faces_note(faces_of_other_bodies(selection, body)) {
         ui.label(widgets::muted(note, ui));
         ui.add_space(SPACE_S);
     }
-    let name_focused = widgets::properties(ui, ("body-appearance", feature.id()), |ui| {
-        let landed = panel.name_row(ui, feature, focus && naming);
+    let name_focused = widgets::properties(ui, ("body-appearance", body), |ui| {
+        let landed = panel.name_row(ui, &unnamed, focus && naming);
         panel.colour_row(ui);
         panel.opacity_row(ui);
         panel.finish_row(ui);
@@ -880,6 +885,16 @@ pub fn show(
         landed
     });
     if naming { name_focused } else { swatch_focused }
+}
+
+fn unnamed_words(document: &Document, body: FeatureId) -> String {
+    let maker = document
+        .body_maker(body)
+        .map_or("", |feature| feature.name.as_str());
+    match document.piece_curve(body) {
+        Some(curve) => format!("after {maker} and the curve that drew it, {curve}"),
+        None => format!("after {maker}"),
+    }
 }
 
 pub fn name_field_id(body: FeatureId) -> Id {

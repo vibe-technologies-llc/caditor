@@ -18,7 +18,7 @@ fn a_body_is_renamed_selected_whole_and_removed_from_the_palette() {
     harness.type_text("Base plate");
     harness.key(Key::Enter, Modifiers::NONE);
     harness.settle();
-    let named = harness.document().body_name(plate) == Some("Base plate");
+    let named = harness.document().body_name(plate).as_deref() == Some("Base plate");
     let listed = harness.shows("Base plate");
 
     harness.select([top]);

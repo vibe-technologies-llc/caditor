@@ -1,5 +1,6 @@
 use std::{
     any::Any,
+    borrow::Cow,
     collections::{BTreeMap, BTreeSet},
     panic::{self, AssertUnwindSafe},
     sync::{
@@ -20,6 +21,7 @@ use caditor_sketch::{
 use crate::{
     attachment, blend,
     body_appearance::BodyAppearance,
+    body_pieces::PieceKey,
     combine,
     datum::{self, DatumResult},
     document::{Document, Feature, FeatureId, FeatureKind, list_names},
@@ -32,7 +34,9 @@ use crate::{
     mirror, movement, offset_face, pattern, pipe,
     pool::{Claim, Job, Landed, LastMeshes, Pool, Threads, Work, available_workers},
     presenting::{Glimpse, MESHES_REPORTED_EVERY, Presentation, SettledBody},
-    primitive, projection, removal, scaling, shell,
+    primitive, projection,
+    reference_image::{self, PlacedImage},
+    removal, scaling, shell,
     solid::{self, SketchRegion, SolidFeature, SolidResult, body_part, body_parts},
     split, split_face,
     thread::{self, ThreadResult},
@@ -257,6 +261,7 @@ pub enum FeatureResult {
     Datum(DatumResult),
     Thread(ThreadResult),
     Measurement(MeasurementResult),
+    Image(PlacedImage),
 }
 
 impl FeatureResult {
@@ -269,6 +274,7 @@ impl FeatureResult {
             (Self::Solid(own), Self::Solid(theirs)) => own.same_shapes(theirs),
             (Self::Thread(own), Self::Thread(theirs)) => own == theirs,
             (Self::Measurement(own), Self::Measurement(theirs)) => own.value == theirs.value,
+            (Self::Image(own), Self::Image(theirs)) => own == theirs,
             _ => false,
         }
     }
@@ -276,35 +282,62 @@ impl FeatureResult {
     pub fn sketch(&self) -> Option<&SketchResult> {
         match self {
             Self::Sketch(sketch) => Some(sketch),
-            Self::Solid(_) | Self::Datum(_) | Self::Thread(_) | Self::Measurement(_) => None,
+            Self::Solid(_)
+            | Self::Datum(_)
+            | Self::Thread(_)
+            | Self::Measurement(_)
+            | Self::Image(_) => None,
         }
     }
 
     pub fn solid(&self) -> Option<&SolidResult> {
         match self {
             Self::Solid(solid) => Some(solid),
-            Self::Sketch(_) | Self::Datum(_) | Self::Thread(_) | Self::Measurement(_) => None,
+            Self::Sketch(_)
+            | Self::Datum(_)
+            | Self::Thread(_)
+            | Self::Measurement(_)
+            | Self::Image(_) => None,
         }
     }
 
     pub fn datum(&self) -> Option<&DatumResult> {
         match self {
             Self::Datum(datum) => Some(datum),
-            Self::Sketch(_) | Self::Solid(_) | Self::Thread(_) | Self::Measurement(_) => None,
+            Self::Sketch(_)
+            | Self::Solid(_)
+            | Self::Thread(_)
+            | Self::Measurement(_)
+            | Self::Image(_) => None,
         }
     }
 
     pub fn thread(&self) -> Option<&ThreadResult> {
         match self {
             Self::Thread(thread) => Some(thread),
-            Self::Sketch(_) | Self::Solid(_) | Self::Datum(_) | Self::Measurement(_) => None,
+            Self::Sketch(_)
+            | Self::Solid(_)
+            | Self::Datum(_)
+            | Self::Measurement(_)
+            | Self::Image(_) => None,
         }
     }
 
     pub fn measurement(&self) -> Option<&MeasurementResult> {
         match self {
             Self::Measurement(measurement) => Some(measurement),
-            Self::Sketch(_) | Self::Solid(_) | Self::Datum(_) | Self::Thread(_) => None,
+            Self::Sketch(_)
+            | Self::Solid(_)
+            | Self::Datum(_)
+            | Self::Thread(_)
+            | Self::Image(_) => None,
+        }
+    }
+
+    pub fn image(&self) -> Option<&PlacedImage> {
+        match self {
+            Self::Image(image) => Some(image),
+            _ => None,
         }
     }
 }
@@ -331,10 +364,13 @@ impl<'a> Inputs<'a> {
         let document = self.document;
         let name = |id: FeatureId| {
             document
-                .feature(id)
-                .map(|feature| feature.name.clone())
+                .body_name(id)
+                .map(Cow::into_owned)
                 .unwrap_or_default()
         };
+        if let Some(gone) = self.missing_piece(body) {
+            return Failure::from(gone);
+        }
         let body_name = name(body);
         let consumer = document.features().find(|feature| {
             self.features.contains_key(&feature.id())
@@ -376,12 +412,61 @@ impl<'a> Inputs<'a> {
             None => FeatureError {
                 reason: format!("The body made by {body_name} has no shape."),
                 remedy: format!("Fix {body_name} first."),
-                fix: Some(FixTarget::Feature(body)),
+                fix: Some(FixTarget::Feature(body.maker())),
                 constraints: Vec::new(),
                 place: None,
             },
         };
         Failure::Error(Box::new(error))
+    }
+
+    fn missing_piece(&self, body: FeatureId) -> Option<FeatureError> {
+        body.piece_key()?;
+        let maker = self.document.body_maker(body)?;
+        let made = self.features.get(&maker.id())?;
+        let curve = self
+            .document
+            .piece_curve(body)
+            .unwrap_or_else(|| "a curve since deleted".to_owned());
+        if !maker.separates_pieces() {
+            return Some(FeatureError {
+                reason: format!(
+                    "{} no longer makes a body of each separate piece, so the piece drawn by \
+                     {curve} is not a body of its own.",
+                    maker.name
+                ),
+                remedy: format!(
+                    "Set Separate pieces of {} back to a body each, or choose another body.",
+                    maker.name
+                ),
+                fix: Some(FixTarget::Feature(maker.id())),
+                constraints: Vec::new(),
+                place: None,
+            });
+        }
+        let stands = body_part(made, body).is_some();
+        let sketch = maker
+            .kind
+            .solid()
+            .map(SolidFeature::sketch)
+            .and_then(|sketch| self.document.feature(sketch));
+        (!stands).then(|| FeatureError {
+            reason: format!(
+                "The piece of {} drawn by {curve} is no longer there, so there is no body to \
+                 work on.",
+                maker.name
+            ),
+            remedy: match sketch {
+                Some(sketch) => format!(
+                    "Draw the piece again in {}, or choose another body.",
+                    sketch.name
+                ),
+                None => "Choose another body.".to_owned(),
+            },
+            fix: sketch.map(|sketch| FixTarget::Feature(sketch.id())),
+            constraints: Vec::new(),
+            place: None,
+        })
     }
 }
 
@@ -484,6 +569,20 @@ impl Evaluation {
     ) -> Option<&Arc<FeatureResult>> {
         let state = self.seen_bodies.get(&feature)?.get(&body)?;
         body_part(self.features.get(state)?.result.as_ref()?, body)
+    }
+
+    pub fn pieces_made_by(&self, maker: FeatureId) -> Vec<FeatureId> {
+        self.features
+            .get(&maker)
+            .and_then(|status| status.result.as_ref())
+            .map(|result| {
+                body_parts(result)
+                    .filter_map(|part| part.solid())
+                    .map(|solid| solid.body)
+                    .filter(|body| body.is_piece() && body.maker() == maker)
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     pub fn is_stale(&self, body: FeatureId) -> bool {
@@ -638,6 +737,7 @@ impl CacheEntry {
     fn matches(&self, definition: &Arc<Feature>, key: &Key) -> bool {
         let same_definition = Arc::ptr_eq(&self.definition, definition)
             || (self.definition.id() == definition.id()
+                && self.definition.pieces == definition.pieces
                 && self.definition.kind.same_content(&definition.kind));
         let same_message = match self.state {
             FeatureState::Failed(_) => {
@@ -694,10 +794,7 @@ impl Key {
             .unwrap_or_default()
             .into_iter()
             .map(|body| {
-                let appearance = run
-                    .document
-                    .feature(body)
-                    .map(|feature| feature.appearance.clone());
+                let appearance = run.document.body_appearance(body).map(Cow::into_owned);
                 (body, appearance)
             })
             .collect();
@@ -1202,14 +1299,15 @@ impl Recompute {
         glimpsed: &mut Glimpsed,
         show: &dyn Fn(Glimpse),
     ) {
+        let listed: BTreeSet<FeatureId> = settling.values().flatten().copied().collect();
         let settled: Vec<SettledBody> = settling
             .range(glimpsed.settled_before..reached)
             .flat_map(|(_, bodies)| bodies)
-            .filter_map(|body| {
-                let (_, result) = walk.bodies.get(body)?;
+            .flat_map(|body| settled_bodies(walk, *body, &listed))
+            .filter_map(|(body, result)| {
                 let unmeshed = result.solid().is_some_and(|solid| !solid.is_meshed());
                 unmeshed.then(|| SettledBody {
-                    name: body_name(run.document, *body).to_owned(),
+                    name: body_name(run.document, body),
                     result: Arc::clone(result),
                 })
             })
@@ -1281,7 +1379,7 @@ impl Recompute {
             let meshes = meshes.clone();
             pool.mesh(
                 SettledBody {
-                    name: body_name(document, *body).to_owned(),
+                    name: body_name(document, *body),
                     result: Arc::clone(result),
                 },
                 Box::new(move |done| {
@@ -1568,6 +1666,27 @@ fn settling(features: &[Arc<Feature>], bar: usize) -> Settling {
     settling
 }
 
+fn settled_bodies<'a>(
+    walk: &'a Walk,
+    body: FeatureId,
+    listed: &BTreeSet<FeatureId>,
+) -> Vec<(FeatureId, &'a Arc<FeatureResult>)> {
+    if let Some((_, result)) = walk.bodies.get(&body) {
+        return vec![(body, result)];
+    }
+    let (Some(first), Some(last)) = (
+        body.piece(PieceKey::from_raw(0)),
+        body.piece(PieceKey::from_raw(u32::MAX)),
+    ) else {
+        return Vec::new();
+    };
+    walk.bodies
+        .range(first..=last)
+        .filter(|(piece, _)| !listed.contains(piece))
+        .map(|(piece, (_, result))| (*piece, result))
+        .collect()
+}
+
 fn skipped(feature: &Feature, index: usize, bar: usize) -> Option<FeatureState> {
     if index >= bar {
         Some(FeatureState::RolledBack)
@@ -1578,10 +1697,10 @@ fn skipped(feature: &Feature, index: usize, bar: usize) -> Option<FeatureState> 
     }
 }
 
-fn body_name(document: &Document, body: FeatureId) -> &str {
+fn body_name(document: &Document, body: FeatureId) -> String {
     document
-        .feature(body)
-        .map_or("a feature", |feature| feature.name.as_str())
+        .body_name(body)
+        .map_or_else(|| "a feature".to_owned(), Cow::into_owned)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1610,7 +1729,7 @@ fn last_good_bodies(
             continue;
         };
         for solid in body_parts(last_good).filter_map(|part| part.solid()) {
-            if made.contains(&solid.body)
+            if made.contains(&solid.body.maker())
                 && !current.contains_key(&solid.body)
                 && !consumed.contains(&solid.body)
             {
@@ -1806,6 +1925,9 @@ impl Evaluator for ModelEvaluator {
             FeatureKind::Datum(definition) => datum::evaluate(feature, definition, inputs),
             FeatureKind::Import(definition) => import::evaluate(feature, definition, inputs),
             FeatureKind::Remove(definition) => removal::evaluate(feature, definition, inputs),
+            FeatureKind::ReferenceImage(definition) => {
+                reference_image::evaluate(feature, definition, inputs)
+            }
             FeatureKind::Measurement(definition) => {
                 measurement::evaluate(feature, definition, inputs, cancel)
             }

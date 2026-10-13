@@ -28,7 +28,7 @@ use crate::{
     body_snap::BodySnaps,
     box_selection::{self, Catch},
     canvas::{self, HintList, KeyHint, Rank},
-    canvas_guidance::{self, HoverDelay, OrbitMark, PointerLabel, RefusalNote, Start, Waited},
+    canvas_guidance::{self, HoverDelay, OrbitMark, PointerLabel, RefusalNote, Waited},
     clipboard,
     comb::CombDrawing,
     commands::{CameraMove, Command, CommandFrame, Pasted, StandardView},
@@ -43,6 +43,7 @@ use crate::{
     gearing::GearSettings,
     handle_snap::{self, Guide, Snap},
     hole_placement, hole_tools,
+    image_tools::{self, CalibrationGuide},
     interference_panel::{Mark, MarkKind},
     isocurves::IsocurveDrawing,
     look_at::{self, LookTarget},
@@ -81,6 +82,7 @@ use crate::{
     sketch_status, sketch_toolbar, sketch_tools,
     snap::{Accept, Hold, Pointer, Screen, Target},
     snapshot, solid_tools, split_face_tools,
+    start_card::{self, Start, StartCard},
     symmetric_drawing::{self, Mirror, Symmetry},
     toggles,
     trimming::{self, Trimming},
@@ -120,12 +122,6 @@ pub const CHOOSE_PLANE_PROMPT: &str = "Click a plane or a flat face to sketch on
 const CHOOSE_PLANE_HINT: &str = "Esc: cancel";
 const DONE_HINT: &str = "Esc: done";
 pub const SELECT_PROMPT: &str = "Choose a tool to draw, or click geometry to select it";
-pub const EMPTY_MODEL_TITLE: &str = "Start the model";
-pub const EMPTY_MODEL_TEXT: &str =
-    "Sketch on a plane and extrude it, start from a box, or import a file.";
-pub const START_WITH_SKETCH: &str = "Start with a sketch";
-pub const START_WITH_BOX: &str = "Start with a box";
-pub const START_WITH_IMPORT: &str = "Import a file…";
 const PROJECT_PROMPT: &str = "Click an edge, corner or face of a body, a curve or point of another \
      sketch, an axis, a datum point or the origin, to project it";
 const INTERSECT_PROMPT: &str = "Click a face to draw where the sketch cuts it, Shift-click for its \
@@ -383,6 +379,7 @@ pub struct ViewportState {
     fit_when_computed: bool,
     scene_bounds: Option<Aabb>,
     measured: Option<(MeasuredLine, String)>,
+    calibration: Option<CalibrationGuide>,
     problems: Vec<Problem>,
     kept: Vec<measurement_tools::Shown>,
     interference: Vec<Mark>,
@@ -424,6 +421,7 @@ pub struct ViewportState {
     body_hovered: Option<Pickable>,
     more_keys: bool,
     chosen_commands: Vec<Command>,
+    start_card: StartCard,
     refusal: Option<RefusalNote>,
     hover_delay: HoverDelay,
     orbit_mark: Option<OrbitMark>,
@@ -667,6 +665,7 @@ impl ViewportState {
             fit_when_computed: false,
             scene_bounds: None,
             measured: None,
+            calibration: None,
             problems: Vec::new(),
             kept: Vec::new(),
             interference: Vec::new(),
@@ -708,6 +707,7 @@ impl ViewportState {
             body_hovered: None,
             more_keys: false,
             chosen_commands: Vec::new(),
+            start_card: StartCard::default(),
             refusal: None,
             hover_delay: HoverDelay::default(),
             orbit_mark: None,
@@ -881,6 +881,10 @@ impl ViewportState {
         } else {
             self.set_style(style);
         }
+    }
+
+    pub fn set_start_card(&mut self, enabled: bool) {
+        self.start_card.set_enabled(enabled);
     }
 
     pub fn set_contrast(&mut self, contrast: Contrast) {
@@ -1272,6 +1276,10 @@ impl ViewportState {
             self.fit_requested = Some(FitAsked::OnOpening);
             self.fit_when_computed = false;
         }
+        let bring_back = self.start_card_return(model, editing);
+        if commands.invoke(Command::ShowStartCard, &bring_back) {
+            self.start_card.bring_back(model.session());
+        }
         self.keyboard_commands(model, editing, commands, actions);
         let key_hints = KeyHints::new(commands, self.navigation.input_mode);
         egui::CentralPanel::no_frame().show(ui, |ui| {
@@ -1313,6 +1321,25 @@ impl ViewportState {
             self.annotate(ui, rect, model, editing, actions);
             self.decorate(ui, rect, model, editing, &key_hints);
         });
+        if self.start_card.take_stop_asked() {
+            actions.push(Action::Preferences(PreferencesCommand::Change(
+                PreferenceChange::ShowStartCard(false),
+            )));
+        }
+    }
+
+    fn start_card_return(
+        &self,
+        model: &Model,
+        editing: &SketchEditing,
+    ) -> Result<(), &'static str> {
+        if !is_blank(model, editing) {
+            Err(start_card::NOT_EMPTY)
+        } else if self.start_card.shown_in(model.session()) {
+            Err(start_card::ALREADY_SHOWN)
+        } else {
+            Ok(())
+        }
     }
 
     pub fn build_scene(&mut self, model: &Model, editing: &SketchEditing) -> Option<&BuiltScene> {
@@ -1320,7 +1347,7 @@ impl ViewportState {
         let evaluation = model.evaluation();
         let display = model.display();
         let edited = editing.feature();
-        let context = editing.context();
+        let context = editing.context().with_principal(model.principal_view());
         self.filter_applies =
             context.sketch.is_none() && context.solid.is_none() && !context.choosing_plane;
         if edited != self.edited {
@@ -1467,6 +1494,7 @@ impl ViewportState {
                 contrast: self.contrast,
                 canvas: self.canvas,
                 draft: model.draft_generation(),
+                pictures: model.pictures().generation(),
             },
             context,
             highlight: Highlight {
@@ -1483,6 +1511,11 @@ impl ViewportState {
             .set_grid(self.grid.map(scene_palette::grid_colour));
         self.problems = problems(model);
         self.kept = measurement_tools::shown(model);
+        let pointer_ray = self
+            .cursor
+            .zip(view.as_ref())
+            .and_then(|(cursor, view)| view.ray_through(cursor));
+        self.calibration = image_tools::calibration_guide(model, editing, pointer_ray);
         self.scenes.show(Overlay {
             contrast: self.contrast,
             canvas: self.canvas,
@@ -1495,6 +1528,7 @@ impl ViewportState {
                 self.body_preview(editing),
             ],
             measured: self.measured.as_ref().map(|(line, _)| [line.from, line.to]),
+            calibration: self.calibration.clone(),
             problems: self.problems.iter().map(|problem| problem.place).collect(),
             kept: self.kept.iter().filter_map(|kept| kept.line).collect(),
             interference: self.interference.clone(),
@@ -1642,8 +1676,9 @@ impl ViewportState {
             contrast: Contrast::Standard,
             canvas: self.canvas,
             draft: None,
+            pictures: Some(model.pictures()),
         };
-        let context = editing.context();
+        let context = editing.context().with_principal(model.principal_view());
         let view = self
             .camera
             .view(f64::from(size.width), f64::from(size.height));
@@ -1684,6 +1719,7 @@ impl ViewportState {
             &meshes,
             size,
             Canvas::default(),
+            Some(model.pictures()),
         );
         ImageView {
             view: snapshot.view,
@@ -1756,6 +1792,11 @@ impl ViewportState {
     pub fn screen_position(&self, plane: Plane, point: Point2) -> Option<egui::Pos2> {
         let pixel = self.view()?.project(plane.to_world(point))? / f64::from(self.pixels_per_point);
         Some(self.rect?.min + egui::Vec2::new(pixel.x as f32, pixel.y as f32))
+    }
+
+    #[cfg(test)]
+    pub fn calibration(&self) -> Option<&CalibrationGuide> {
+        self.calibration.as_ref()
     }
 
     #[cfg(test)]
@@ -2280,7 +2321,7 @@ impl ViewportState {
         };
         let document = model.document();
         let evaluation = model.evaluation();
-        let context = editing.context();
+        let context = editing.context().with_principal(model.principal_view());
         let mut painted: Vec<Pickable> = Vec::new();
         for at in samples {
             for face in paint_selection::faces_under(
@@ -2661,7 +2702,7 @@ impl ViewportState {
             let touched: Vec<FeatureId> = caught.iter().filter_map(|item| item.body()).collect();
             caught = body_selection::whole_bodies(model, &touched, body_selection::Kind::Faces);
         }
-        let context = editing.context();
+        let context = editing.context().with_principal(model.principal_view());
         caught.retain(|pickable| pickable.is_available(document, evaluation, context));
         if !keep {
             self.selection.clear();
@@ -5241,6 +5282,26 @@ impl ViewportState {
                 canvas::announce(ui, shown, "measure", label, None);
             }
         }
+        if let Some(guide) = &self.calibration
+            && let Some(to) = guide.to
+            && let Some(label) = &guide.label
+            && let Some(view) = self.view()
+            && let Some(pixel) = view.project(guide.from.midpoint(to))
+        {
+            let position =
+                rect.min + egui::Vec2::new(pixel.x as f32, pixel.y as f32) / self.pixels_per_point;
+            if rect.contains(position) {
+                let shown = canvas::label(
+                    painter,
+                    position + vec2(0.0, -MEASURE_LABEL_LIFT),
+                    Align2::CENTER_BOTTOM,
+                    label,
+                    canvas::body(),
+                    canvas::chrome(painter.ctx()).measure,
+                );
+                canvas::announce(ui, shown, "calibration", label, None);
+            }
+        }
         if let Some(view) = self.view() {
             let interference = self.interference.iter().map(|mark| {
                 let color = match mark.kind {
@@ -5291,22 +5352,20 @@ impl ViewportState {
             view_cube::TRIAD_WIDTH
         };
         let mut taken: Vec<Rect> = vec![cube];
-        let prompt = self
-            .prompt(model, editing, key_hints)
-            .map(|(text, keys)| {
-                canvas_guidance::show_prompt(
-                    ui,
-                    rect,
-                    band,
-                    bottom_reserved,
-                    &canvas_guidance::Prompt {
-                        text: &text,
-                        keys: &keys,
-                    },
-                    &mut self.more_keys,
-                )
-            })
-            .or_else(|| self.show_empty_state(ui, rect, band, model, editing, key_hints));
+        let prompt = match self.prompt(model, editing, key_hints) {
+            Some((text, keys)) => Some(canvas_guidance::show_prompt(
+                ui,
+                rect,
+                band,
+                bottom_reserved,
+                &canvas_guidance::Prompt {
+                    text: &text,
+                    keys: &keys,
+                },
+                &mut self.more_keys,
+            )),
+            None => self.show_start_card(ui, rect, cube, model, editing, key_hints),
+        };
         taken.extend(prompt);
         self.paint_orbit_pivot(ui, rect);
         let keyboard_description = self.paint_pointer_labels(ui, rect, model, editing);
@@ -5402,35 +5461,26 @@ impl ViewportState {
         }
     }
 
-    fn show_empty_state(
+    fn show_start_card(
         &mut self,
-        ui: &Ui,
+        ui: &mut Ui,
         rect: Rect,
-        band: Rect,
+        cube: Rect,
         model: &Model,
         editing: &SketchEditing,
         key_hints: &KeyHints,
     ) -> Option<Rect> {
-        let empty = model.document().features().next().is_none()
-            && editing.feature().is_none()
-            && editing.solid().is_none()
-            && !editing.is_choosing_plane()
-            && self.primary.is_none();
-        if !empty {
+        let shown = is_blank(model, editing)
+            && self.primary.is_none()
+            && self.start_card.shown_in(model.session());
+        if !shown {
             return None;
         }
-        let (card, chosen) = canvas_guidance::show_empty_state(
-            ui,
-            rect,
-            band,
-            &canvas_guidance::EmptyState {
-                title: EMPTY_MODEL_TITLE,
-                text: EMPTY_MODEL_TEXT,
-                starts: &key_hints.starts,
-            },
-        );
-        self.chosen_commands.extend(chosen);
-        Some(card)
+        let card = self
+            .start_card
+            .show(ui, rect, cube, model.session(), &key_hints.starts);
+        self.chosen_commands.extend(card.chosen);
+        Some(card.area)
     }
 
     fn paint_orbit_pivot(&mut self, ui: &Ui, rect: Rect) {
@@ -5890,6 +5940,13 @@ fn pressed_without_repeat(input: &egui::InputState, pressed: Key) -> bool {
     })
 }
 
+fn is_blank(model: &Model, editing: &SketchEditing) -> bool {
+    model.document().features().next().is_none()
+        && editing.feature().is_none()
+        && editing.solid().is_none()
+        && !editing.is_choosing_plane()
+}
+
 fn top_band(rect: Rect, cube: Rect) -> Rect {
     let mut left = rect.left() + canvas::MARGIN;
     let mut right = rect.right() - canvas::MARGIN;
@@ -5989,6 +6046,9 @@ fn feature_prompt(kind: Option<&FeatureKind>) -> (&'static str, Clicks) {
         }
         Some(FeatureKind::Thread(_)) => {
             in_panel("Choose the face to thread, its size and its length in the panel")
+        }
+        Some(FeatureKind::ReferenceImage(_)) => {
+            in_panel("Choose where the picture lies, its size and how it shows in the panel")
         }
         Some(
             FeatureKind::Sketch(_)
@@ -6163,6 +6223,7 @@ fn scene_sources<'a>(
         contrast: parts.contrast,
         canvas: parts.canvas,
         draft: solid.and_then(|feature| model.draft_evaluation_of(feature)),
+        pictures: Some(model.pictures()),
     }
 }
 
@@ -6235,6 +6296,25 @@ fn pick_action(
     editing: &SketchEditing,
     whole: bool,
 ) -> Option<Vec<Action>> {
+    if let Some(picking) = editing.picking()
+        && picking.slot == Slot::ImageCalibration
+    {
+        return Some(image_tools::calibration_click(
+            model,
+            editing,
+            picking.feature,
+            ray,
+        ));
+    }
+    if let Some(picking) = editing.picking()
+        && picking.slot == Slot::ImagePlace
+    {
+        return Some(
+            pickable
+                .map(|pickable| image_tools::place_click(model, picking.feature, pickable, ray))
+                .unwrap_or_default(),
+        );
+    }
     if let Some(picking) = editing.picking()
         && picking.slot == Slot::PrimitivePlace
     {
@@ -6463,17 +6543,17 @@ impl KeyHints {
             starts: [
                 (
                     Command::NewSketch,
-                    START_WITH_SKETCH,
+                    start_card::START_WITH_SKETCH,
                     "Sketch on the plane or flat face you click next, then extrude it",
                 ),
                 (
                     Command::NewBox,
-                    START_WITH_BOX,
+                    start_card::START_WITH_BOX,
                     "Add a box and set its sizes in its panel",
                 ),
                 (
                     Command::Import,
-                    START_WITH_IMPORT,
+                    start_card::START_WITH_IMPORT,
                     "Bring in a STEP, mesh, DXF or SVG file",
                 ),
             ]

@@ -29,6 +29,7 @@ pub const RESET_SECTION: &str = phosphor::ARROW_COUNTER_CLOCKWISE;
 pub const MORE: &str = phosphor::DOTS_THREE;
 pub const DELETE: &str = phosphor::TRASH;
 pub const REMOVE_BODY: &str = phosphor::CUBE_FOCUS;
+pub const REFERENCE_IMAGE: &str = phosphor::IMAGE_SQUARE;
 pub const COPY_BODY: &str = phosphor::COPY;
 pub const REMOVE: &str = phosphor::X;
 pub const CLOSE: &str = phosphor::X;
@@ -228,6 +229,7 @@ pub fn command(command: Command) -> &'static str {
         Command::DatumAxis => AXIS,
         Command::DatumPoint => POINT,
         Command::CoordinateSystem => COORDINATE_SYSTEM,
+        Command::InsertImage => REFERENCE_IMAGE,
         Command::ScaleModel => phosphor::ARROWS_OUT,
         Command::Configurations => phosphor::TABLE,
         Command::FitView => phosphor::FRAME_CORNERS,
@@ -289,7 +291,7 @@ pub fn command(command: Command) -> &'static str {
         Command::SelectLoop => phosphor::CIRCLE_NOTCH,
         Command::SelectSimilar => phosphor::SELECTION_PLUS,
         Command::ShowAll => SHOW,
-        Command::TogglePrincipal => PRINCIPAL_GROUP,
+        Command::TogglePrincipal | Command::ShowPrincipalWhenNeeded => PRINCIPAL_GROUP,
         Command::ToggleSketches => SKETCH,
         Command::ToggleDatums => AXIS,
         Command::ToggleBodies => BODIES,
@@ -336,6 +338,7 @@ pub fn command(command: Command) -> &'static str {
         Command::CancelFeature => CLOSE,
         Command::DetachSketch => phosphor::LINK_BREAK,
         Command::ClearChosenRegions => phosphor::SELECTION_SLASH,
+        Command::SelectAllRegions => phosphor::SELECTION_ALL,
         Command::PlaceSketch
         | Command::UseSelectedAxis
         | Command::ExtrudeUpToSelected
@@ -368,6 +371,7 @@ pub fn command(command: Command) -> &'static str {
         Command::ReloadImport => phosphor::ARROW_CLOCKWISE,
         Command::DismissNotice | Command::DismissTip => CLOSE,
         Command::HideTips => phosphor::EYE_SLASH,
+        Command::ShowStartCard => phosphor::ROCKET_LAUNCH,
         Command::Welcome => phosphor::HAND_WAVING,
         Command::Guide => GUIDE,
         Command::About => phosphor::INFO,
@@ -567,6 +571,7 @@ pub fn feature(kind: &FeatureKind) -> &'static str {
         FeatureKind::Import(_) => IMPORTED,
         FeatureKind::Remove(_) => REMOVE_BODY,
         FeatureKind::Measurement(_) => MEASURE,
+        FeatureKind::ReferenceImage(_) => REFERENCE_IMAGE,
     }
 }
 

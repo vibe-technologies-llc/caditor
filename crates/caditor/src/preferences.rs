@@ -6,13 +6,13 @@ use egui::KeyboardShortcut;
 #[cfg(test)]
 pub use self::dialog::{
     AUTOMATIC_GRID, BODY_SELECTOR, CLEAR_SEARCH, CUSTOM_BODY, CUSTOM_GRID, DEFAULT_BODY,
-    GRID_SELECTOR, SEARCH_FIELD, accent_name, body_swatch_name, custom_grid_name, reset_name,
-    theme_card_id, view_name,
+    GRID_SELECTOR, NEW_BODIES_CAPTION, SEARCH_FIELD, SHOW_START_CARD, accent_name,
+    body_swatch_name, custom_grid_name, reset_name, theme_card_id, view_name,
 };
 pub use self::{
     choices::{
-        Choice, DoubleClick, ExportMemory, FieldOfView, OrbitAround, RecentListed, Startup,
-        TooltipDelay, Transitions, ZoomToward,
+        Choice, DoubleClick, ExportMemory, FieldOfView, NewBodies, OrbitAround, RecentListed,
+        Startup, TooltipDelay, Transitions, ZoomToward,
     },
     dialog::{PreferencesView, Shown, change, choice, dialog, section},
     sections::Section,
@@ -70,6 +70,7 @@ const OUTLINES_KEY: &str = "view.outlines";
 const VIEW_CUBE_KEY: &str = "view.view_cube";
 const VIEW_CUBE_SIZE_KEY: &str = "view.view_cube_size";
 const VIEW_CUBE_CORNER_KEY: &str = "view.view_cube_corner";
+const PRINCIPAL_WHEN_NEEDED_KEY: &str = "view.principal_when_needed";
 const LOOK_AT_SKETCH_KEY: &str = "sketch.look_at";
 const ESCAPE_FINISHES_KEY: &str = "sketch.escape_finishes";
 const GLYPHS_KEY: &str = "sketch.glyphs";
@@ -81,6 +82,7 @@ pub const STARTUP_KEY: &str = "files.startup";
 pub const RECENT_LISTED_KEY: &str = "files.recent_listed";
 const DOUBLE_CLICK_KEY: &str = "tree.double_click";
 const RETENTION_KEY: &str = "files.version_retention";
+const NEW_BODIES_KEY: &str = "modelling.new_bodies";
 const PALETTE_RECENT_KEY: &str = "palette.recent";
 const RECENT_COLOURS_KEY: &str = "body.recent_colours";
 pub const RECENT_COLOURS_LIMIT: usize = 6;
@@ -199,7 +201,8 @@ impl PreferencesTab {
                 "Go back to the system theme with its own accent, 3D view and body colour, at \
                  normal size and \
                  contrast with caditor's title bar, standard hover help, standard edges with \
-                 outlines and the view cube shown at its standard size at the top right. Only \
+                 outlines, the view cube shown at its standard size at the top right and principal \
+                 planes shown only when needed. Only \
                  this tab changes"
             }
             Self::Navigation => {
@@ -418,6 +421,7 @@ pub struct ViewDetails {
     pub edges: EdgeLook,
     pub view_cube: bool,
     pub cube: CubePlacement,
+    pub principal_when_needed: bool,
 }
 
 impl Default for ViewDetails {
@@ -426,6 +430,7 @@ impl Default for ViewDetails {
             edges: EdgeLook::default(),
             view_cube: true,
             cube: CubePlacement::default(),
+            principal_when_needed: true,
         }
     }
 }
@@ -485,6 +490,7 @@ pub struct Preferences {
     pub retention: Retention,
     pub export_memory: ExportMemory,
     pub exports: RememberedExports,
+    pub new_bodies: NewBodies,
     pub graphics: Graphics,
     pub onboarding: Onboarding,
     pub keymap: Keymap,
@@ -530,6 +536,7 @@ pub enum PreferenceChange {
     ViewCube(bool),
     ViewCubeSize(CubeSize),
     ViewCubeCorner(Corner),
+    PrincipalWhenNeeded(bool),
     LookAtSketch(bool),
     EscapeFinishesSketch(bool),
     StartWithGlyphs(bool),
@@ -543,6 +550,7 @@ pub enum PreferenceChange {
     Retention(Retention),
     ExportMemory(ExportMemory),
     ForgetExports,
+    NewBodies(NewBodies),
     DefaultTemplate(Option<String>),
     Vsync(bool),
     FrameLimit(FrameLimit),
@@ -557,6 +565,7 @@ pub enum PreferenceChange {
     Welcomed,
     DismissHint(Hint),
     ShowHints(bool),
+    ShowStartCard(bool),
     RestoreHints,
     DefenderReminded,
     RecentColour(Rgb),
@@ -749,6 +758,7 @@ impl Preferences {
                 ExportMemory::Remembered => RememberedExports::from_settings(&raw),
                 ExportMemory::SessionOnly => RememberedExports::default(),
             },
+            new_bodies: NewBodies::read(&raw, NEW_BODIES_KEY),
             graphics: Graphics::from_settings(&raw),
             onboarding: Onboarding::from_settings(&raw),
             keymap: Keymap::from_settings(&raw),
@@ -798,6 +808,7 @@ impl Preferences {
         settings.set_text(RETENTION_KEY, self.retention.key());
         settings.set_text(remembered::REMEMBER_KEY, self.export_memory.key());
         self.exports.write(&mut settings);
+        settings.set_text(NEW_BODIES_KEY, self.new_bodies.key());
         self.graphics.write(&mut settings);
         self.keymap.write(&self.loaded_keymap, &mut settings);
         self.onboarding.write(&mut settings);
@@ -864,6 +875,9 @@ impl Preferences {
             PreferenceChange::ViewCube(shown) => self.view_details.view_cube = shown,
             PreferenceChange::ViewCubeSize(size) => self.view_details.cube.size = size,
             PreferenceChange::ViewCubeCorner(corner) => self.view_details.cube.corner = corner,
+            PreferenceChange::PrincipalWhenNeeded(when_needed) => {
+                self.view_details.principal_when_needed = when_needed;
+            }
             PreferenceChange::LookAtSketch(on) => self.sketching.look_at_on_entering = on,
             PreferenceChange::EscapeFinishesSketch(on) => self.sketching.escape_finishes = on,
             PreferenceChange::StartWithGlyphs(on) => self.sketching.at_start.glyphs = on,
@@ -888,6 +902,7 @@ impl Preferences {
                 }
             }
             PreferenceChange::ForgetExports => self.exports = RememberedExports::default(),
+            PreferenceChange::NewBodies(new_bodies) => self.new_bodies = new_bodies,
             PreferenceChange::DefaultTemplate(name) => self.default_template = name,
             PreferenceChange::Vsync(vsync) => self.graphics.vsync = vsync,
             PreferenceChange::FrameLimit(limit) => self.graphics.frame_limit = limit,
@@ -904,6 +919,7 @@ impl Preferences {
                 self.onboarding.dismissed.insert(hint);
             }
             PreferenceChange::ShowHints(shown) => self.onboarding.hints = shown,
+            PreferenceChange::ShowStartCard(shown) => self.onboarding.start_card = shown,
             PreferenceChange::DefenderReminded => self.onboarding.defender_reminded = true,
             PreferenceChange::RecentColour(colour) => self.remember_colour(colour),
             PreferenceChange::RestoreHints => {
@@ -976,6 +992,7 @@ impl ViewDetails {
                 size: CubeSize::read(raw, VIEW_CUBE_SIZE_KEY),
                 corner: Corner::read(raw, VIEW_CUBE_CORNER_KEY),
             },
+            principal_when_needed: raw.flag(PRINCIPAL_WHEN_NEEDED_KEY).unwrap_or(true),
         }
     }
 
@@ -985,6 +1002,7 @@ impl ViewDetails {
         settings.set_flag(VIEW_CUBE_KEY, self.view_cube);
         settings.set_text(VIEW_CUBE_SIZE_KEY, self.cube.size.key());
         settings.set_text(VIEW_CUBE_CORNER_KEY, self.cube.corner.key());
+        settings.set_flag(PRINCIPAL_WHEN_NEEDED_KEY, self.principal_when_needed);
     }
 }
 
@@ -1225,6 +1243,24 @@ mod tests {
     }
 
     #[test]
+    fn principal_planes_show_only_when_needed_by_default_and_the_choice_is_stored() {
+        let mut preferences = Preferences::from_settings(Settings::default());
+        let on_at_first = preferences.view_details.principal_when_needed;
+
+        preferences.apply(PreferenceChange::PrincipalWhenNeeded(false));
+        let settings = preferences.settings();
+        let read = Preferences::from_settings(settings.clone());
+        let section_changed = !Section::InTheView.is_default(&read);
+        preferences.apply(PreferenceChange::SectionDefaults(Section::InTheView));
+
+        assert!(on_at_first);
+        assert_eq!(settings.flag(PRINCIPAL_WHEN_NEEDED_KEY), Some(false));
+        assert!(!read.view_details.principal_when_needed);
+        assert!(section_changed);
+        assert!(preferences.view_details.principal_when_needed);
+    }
+
+    #[test]
     fn graphics_preferences_are_stored_beside_the_others_and_restored_by_their_tab() {
         let mut preferences = Preferences::from_settings(Settings::default());
         preferences.apply(PreferenceChange::Vsync(false));
@@ -1270,6 +1306,7 @@ mod tests {
             STARTUP_KEY,
             RECENT_LISTED_KEY,
             DOUBLE_CLICK_KEY,
+            NEW_BODIES_KEY,
         ] {
             odd.set_text(key, "from a newer caditor");
         }
@@ -1286,6 +1323,7 @@ mod tests {
             assert_eq!(read.startup, Startup::EmptyModel);
             assert_eq!(read.recent_listed, RecentListed::Ten);
             assert_eq!(read.double_click, DoubleClick::Edit);
+            assert_eq!(read.new_bodies, NewBodies::OneBody);
         }
 
         let mut preferences = Preferences::default();
@@ -1311,6 +1349,7 @@ mod tests {
             PreferenceChange::Startup(Startup::LastModel),
             PreferenceChange::RecentListed(RecentListed::Five),
             PreferenceChange::DoubleClick(DoubleClick::Rename),
+            PreferenceChange::NewBodies(NewBodies::BodyEach),
         ] {
             preferences.apply(change);
         }
@@ -1327,6 +1366,7 @@ mod tests {
         assert_eq!(read.startup, preferences.startup);
         assert_eq!(read.recent_listed, preferences.recent_listed);
         assert_eq!(read.double_click, preferences.double_click);
+        assert_eq!(read.new_bodies, NewBodies::BodyEach);
 
         for tab in PreferencesTab::ALL {
             preferences.apply(PreferenceChange::Defaults(tab));
@@ -1335,6 +1375,7 @@ mod tests {
         assert_eq!(preferences.view_details, defaults.view_details);
         assert_eq!(preferences.sketching, defaults.sketching);
         assert_eq!(preferences.double_click, defaults.double_click);
+        assert_eq!(preferences.new_bodies, defaults.new_bodies);
     }
 
     #[test]

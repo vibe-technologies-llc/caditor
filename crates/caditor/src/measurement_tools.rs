@@ -257,7 +257,7 @@ fn body_at(model: &Model, pickable: Pickable, index: usize) -> Result<MeasuredIt
     .ok_or(NOT_OF_A_BODY)?;
     let made_before = model
         .document()
-        .feature_index(body)
+        .feature_index(body.maker())
         .is_some_and(|position| position < index);
     if made_before && sketch_placement::body_state_before(model, body, index).is_ok() {
         Ok(MeasuredItem::Body(body))

@@ -1,10 +1,10 @@
 use caditor_document::Document;
 use caditor_geometry::Point2;
-use egui::{Key, KeyboardShortcut, Modifiers, Rect};
+use egui::{Event, Key, KeyboardShortcut, Modifiers, Pos2, Rect, accesskit::Role};
 use tempfile::TempDir;
 
 use super::{
-    CAMERA_SETTLE, Harness, Wheel, add_block, add_peg, combine_nearly_touching_blocks,
+    CAMERA_SETTLE, Harness, Wheel, add_block, add_peg, combine_nearly_touching_blocks, drag_screen,
     extruded_plate, write_drawing,
 };
 use crate::{
@@ -398,4 +398,98 @@ fn readouts_in_a_short_sketch_view_give_way_to_the_prompt() {
 
     assert!(harness.tool().is_some());
     assert!(problems.is_empty(), "{problems:#?}");
+}
+
+const SCALES: [f32; 4] = [0.75, 1.0, 1.5, LARGEST];
+const NAME_INSET: f32 = 6.0;
+const ELLIPSIS: &str = "…";
+const LONG_NAME: &str = "front_suspension_bracket_thickness_after_the_second_revision";
+
+fn add_parameter_named(harness: &mut Harness, name: &str) {
+    let document = harness.document();
+    let mut transaction = document.transaction(format!("Add {name}"));
+    transaction.add_parameter(
+        name,
+        caditor_expression::Expression::parse("5 mm", &|_| None).unwrap(),
+    );
+    harness.perform(Action::Apply(transaction.finish()));
+    harness.settle();
+}
+
+fn name_field(harness: &Harness, name: &str) -> Rect {
+    let bounds = harness
+        .accessible
+        .iter()
+        .find(|(_, node)| node.role() == Role::TextInput && node.value() == Some(name))
+        .and_then(|(_, node)| node.bounds())
+        .unwrap_or_else(|| panic!("the field of {name} is not on screen"));
+    Rect::from_min_max(
+        egui::pos2(bounds.x0 as f32, bounds.y0 as f32),
+        egui::pos2(bounds.x1 as f32, bounds.y1 as f32),
+    )
+}
+
+#[test]
+fn parameter_names_of_normal_length_show_whole_from_75_to_200_percent() {
+    for scale in SCALES {
+        let dir = TempDir::new().unwrap();
+        let mut harness = with_sample(scale, &dir, Sample::Bracket);
+        let wide = harness.panel_rect("model");
+        drag_screen(
+            &mut harness,
+            Pos2::new(wide.max.x - 1.0, 300.0),
+            Pos2::new(60.0, 300.0),
+        );
+        harness.let_animations_finish();
+        let panel = harness.panel_rect("model");
+        harness.wheel_until_shown(panel.center(), "hole", Wheel::Down);
+
+        assert!(panel.width() < wide.width());
+        harness.read_screen();
+        for name in ["leg", "width", "thickness", "hole"] {
+            let field = name_field(&harness, name);
+            let text = text_rect(&harness, name);
+            assert!(
+                text.max.x <= field.max.x - NAME_INSET,
+                "{name} {text:?} runs out of its field {field:?} at {scale}"
+            );
+        }
+        assert!(!harness.shows(ELLIPSIS), "a name is shortened at {scale}");
+    }
+}
+
+#[test]
+fn a_parameter_name_longer_than_its_column_ends_in_an_ellipsis_and_shows_whole_on_hover() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = with_sample(LARGEST, &dir, Sample::Bracket);
+    add_parameter_named(&mut harness, LONG_NAME);
+    let panel = harness.panel_rect("model");
+    harness.events.push(Event::PointerMoved(panel.center()));
+    harness.frame();
+    for _ in 0..super::WHEEL_TRIES {
+        if harness.fully_shown(ELLIPSIS) && harness.shows(LONG_NAME) {
+            break;
+        }
+        harness.events.push(Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, Wheel::Down.delta()),
+            phase: egui::TouchPhase::Move,
+            modifiers: harness.held,
+        });
+        harness.let_animations_finish();
+    }
+
+    assert!(harness.fully_shown(ELLIPSIS));
+    assert_eq!(harness.count_shown(LONG_NAME), 1);
+
+    let field = text_rect(&harness, LONG_NAME);
+    harness.events.push(Event::PointerMoved(egui::pos2(
+        field.min.x + 4.0,
+        field.center().y,
+    )));
+    for _ in 0..super::TOOLTIP_FRAMES {
+        harness.frame();
+    }
+
+    assert_eq!(harness.count_shown(LONG_NAME), 2);
 }

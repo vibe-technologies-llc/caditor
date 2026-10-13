@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     collections::{BTreeMap, BTreeSet, VecDeque},
     fmt,
     sync::Arc,
@@ -12,9 +13,10 @@ use crate::{
     attachment::{FaceAttachment, SketchAttachment, SketchFeature},
     blend::Blend,
     body_appearance::BodyAppearance,
+    body_pieces::{PieceKey, PieceLooks, Pieces},
     combine::Combine,
     configurations::{ConfigurationId, Configurations},
-    datum::{Datum, PrincipalGeometry},
+    datum::{Datum, PlaneReference, PrincipalGeometry},
     edit::{Edit, Transaction},
     feature_list::FeatureList,
     hole::Hole,
@@ -31,6 +33,7 @@ use crate::{
     primitive::Primitive,
     projection::ProjectionSource,
     properties::ModelProperties,
+    reference_image::ReferenceImage,
     removal::Remove,
     scaling::Scale,
     selection_sets::SelectionSets,
@@ -47,6 +50,10 @@ pub const FIRST_UNSTORABLE_ID: u64 = 1 << 63;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct FeatureId(u64);
 
+const PIECE_MARK: u64 = FIRST_UNSTORABLE_ID;
+const PIECE_KEY_BITS: u32 = u32::BITS;
+const FIRST_MAKER_WITHOUT_PIECES: u64 = 1 << (u64::BITS - 1 - PIECE_KEY_BITS);
+
 impl FeatureId {
     pub const fn from_raw(raw: u64) -> Self {
         Self(raw)
@@ -54,6 +61,32 @@ impl FeatureId {
 
     pub const fn raw(self) -> u64 {
         self.0
+    }
+
+    pub fn piece(self, key: PieceKey) -> Option<Self> {
+        (self.0 < FIRST_MAKER_WITHOUT_PIECES)
+            .then(|| Self(PIECE_MARK | (self.0 << PIECE_KEY_BITS) | u64::from(key.raw())))
+    }
+
+    pub fn piece_key(self) -> Option<PieceKey> {
+        if self.0 & PIECE_MARK == 0 {
+            return None;
+        }
+        u32::try_from(self.0 & u64::from(u32::MAX))
+            .ok()
+            .map(PieceKey::from_raw)
+    }
+
+    pub fn is_piece(self) -> bool {
+        self.0 & PIECE_MARK != 0
+    }
+
+    pub fn maker(self) -> Self {
+        if self.is_piece() {
+            Self((self.0 & !PIECE_MARK) >> PIECE_KEY_BITS)
+        } else {
+            self
+        }
     }
 }
 
@@ -123,6 +156,7 @@ pub enum FeatureKind {
     Remove(Remove),
     Thread(Thread),
     Measurement(Box<Measurement>),
+    ReferenceImage(Box<ReferenceImage>),
 }
 
 impl From<Measurement> for FeatureKind {
@@ -147,6 +181,7 @@ impl FeatureKind {
     pub fn stored_text_len(&self) -> usize {
         match self {
             Self::Import(import) => import.source.len() + import.path_len() + import.step.len(),
+            Self::ReferenceImage(image) => image.picture.bytes().len(),
             _ => 0,
         }
     }
@@ -188,6 +223,7 @@ impl FeatureKind {
             Self::Remove(_) => 0,
             Self::Thread(thread) => thread.heap_size(),
             Self::Measurement(measurement) => size_of::<Measurement>() + measurement.heap_size(),
+            Self::ReferenceImage(image) => image.heap_size(),
         };
         size_of::<Self>() + owned
     }
@@ -214,7 +250,8 @@ impl FeatureKind {
             | Self::Import(_)
             | Self::Remove(_)
             | Self::Thread(_)
-            | Self::Measurement(_) => None,
+            | Self::Measurement(_)
+            | Self::ReferenceImage(_) => None,
         }
     }
 
@@ -240,7 +277,8 @@ impl FeatureKind {
             | Self::Import(_)
             | Self::Remove(_)
             | Self::Thread(_)
-            | Self::Measurement(_) => None,
+            | Self::Measurement(_)
+            | Self::ReferenceImage(_) => None,
         }
     }
 
@@ -266,7 +304,8 @@ impl FeatureKind {
             | Self::Import(_)
             | Self::Remove(_)
             | Self::Thread(_)
-            | Self::Measurement(_) => None,
+            | Self::Measurement(_)
+            | Self::ReferenceImage(_) => None,
         }
     }
 
@@ -290,7 +329,9 @@ impl FeatureKind {
             Self::Pattern(pattern) => Some(pattern.body),
             Self::Remove(remove) => Some(remove.body),
             Self::Thread(thread) => Some(thread.body),
-            Self::Datum(_) | Self::Import(_) | Self::Measurement(_) => None,
+            Self::Datum(_) | Self::Import(_) | Self::Measurement(_) | Self::ReferenceImage(_) => {
+                None
+            }
         }
     }
 
@@ -326,6 +367,9 @@ impl FeatureKind {
             | Self::Import(_)
             | Self::Remove(_)
             | Self::Thread(_) => {}
+            Self::ReferenceImage(image) => {
+                used.extend(image.plane.reference().and_then(PlaneReference::body))
+            }
         }
         used
     }
@@ -359,6 +403,12 @@ impl FeatureKind {
             | Self::Import(_)
             | Self::Remove(_)
             | Self::Thread(_) => BTreeSet::new(),
+            Self::ReferenceImage(image) => image
+                .plane
+                .reference()
+                .and_then(PlaneReference::datum)
+                .into_iter()
+                .collect(),
         }
     }
 
@@ -384,7 +434,8 @@ impl FeatureKind {
             | Self::Hole(_)
             | Self::Import(_)
             | Self::Remove(_)
-            | Self::Thread(_) => BTreeSet::new(),
+            | Self::Thread(_)
+            | Self::ReferenceImage(_) => BTreeSet::new(),
         }
     }
 
@@ -428,6 +479,12 @@ impl FeatureKind {
             | Self::Combine(_)
             | Self::Remove(_)
             | Self::Thread(_) => BTreeSet::new(),
+            Self::ReferenceImage(image) => image
+                .plane
+                .reference()
+                .and_then(PlaneReference::frame)
+                .into_iter()
+                .collect(),
         }
     }
 
@@ -453,7 +510,8 @@ impl FeatureKind {
             | Self::Hole(_)
             | Self::Import(_)
             | Self::Remove(_)
-            | Self::Thread(_) => BTreeSet::new(),
+            | Self::Thread(_)
+            | Self::ReferenceImage(_) => BTreeSet::new(),
         }
     }
 
@@ -489,6 +547,7 @@ impl FeatureKind {
             | Self::Import(_)
             | Self::Remove(_)
             | Self::Thread(_) => BTreeSet::new(),
+            Self::ReferenceImage(image) => image.plane.sketch().into_iter().collect(),
         }
     }
 
@@ -514,7 +573,8 @@ impl FeatureKind {
             | Self::Datum(_)
             | Self::Import(_)
             | Self::Thread(_)
-            | Self::Measurement(_) => Vec::new(),
+            | Self::Measurement(_)
+            | Self::ReferenceImage(_) => Vec::new(),
         }
     }
 
@@ -557,7 +617,8 @@ impl FeatureKind {
             | Self::Import(_)
             | Self::Remove(_)
             | Self::Thread(_)
-            | Self::Measurement(_) => None,
+            | Self::Measurement(_)
+            | Self::ReferenceImage(_) => None,
         }
     }
 
@@ -583,7 +644,8 @@ impl FeatureKind {
             | Self::Import(_)
             | Self::Remove(_)
             | Self::Thread(_)
-            | Self::Measurement(_) => None,
+            | Self::Measurement(_)
+            | Self::ReferenceImage(_) => None,
         }
     }
 
@@ -609,7 +671,8 @@ impl FeatureKind {
             | Self::Import(_)
             | Self::Remove(_)
             | Self::Thread(_)
-            | Self::Measurement(_) => None,
+            | Self::Measurement(_)
+            | Self::ReferenceImage(_) => None,
         }
     }
 
@@ -635,7 +698,8 @@ impl FeatureKind {
             | Self::Datum(_)
             | Self::Import(_)
             | Self::Remove(_)
-            | Self::Measurement(_) => None,
+            | Self::Measurement(_)
+            | Self::ReferenceImage(_) => None,
         }
     }
 
@@ -675,7 +739,8 @@ impl FeatureKind {
             | Self::Import(_)
             | Self::Remove(_)
             | Self::Thread(_)
-            | Self::Measurement(_) => None,
+            | Self::Measurement(_)
+            | Self::ReferenceImage(_) => None,
         }
     }
 
@@ -701,7 +766,8 @@ impl FeatureKind {
             | Self::Datum(_)
             | Self::Import(_)
             | Self::Remove(_)
-            | Self::Measurement(_) => None,
+            | Self::Measurement(_)
+            | Self::ReferenceImage(_) => None,
         }
     }
 
@@ -734,7 +800,8 @@ impl FeatureKind {
             | Self::Import(_)
             | Self::Remove(_)
             | Self::Thread(_)
-            | Self::Measurement(_) => None,
+            | Self::Measurement(_)
+            | Self::ReferenceImage(_) => None,
         }
     }
 
@@ -760,7 +827,8 @@ impl FeatureKind {
             | Self::Import(_)
             | Self::Remove(_)
             | Self::Thread(_)
-            | Self::Measurement(_) => None,
+            | Self::Measurement(_)
+            | Self::ReferenceImage(_) => None,
         }
     }
 
@@ -786,7 +854,8 @@ impl FeatureKind {
             | Self::Import(_)
             | Self::Remove(_)
             | Self::Thread(_)
-            | Self::Measurement(_) => None,
+            | Self::Measurement(_)
+            | Self::ReferenceImage(_) => None,
         }
     }
 
@@ -812,7 +881,8 @@ impl FeatureKind {
             | Self::Import(_)
             | Self::Remove(_)
             | Self::Thread(_)
-            | Self::Measurement(_) => None,
+            | Self::Measurement(_)
+            | Self::ReferenceImage(_) => None,
         }
     }
 
@@ -838,7 +908,8 @@ impl FeatureKind {
             | Self::Import(_)
             | Self::Remove(_)
             | Self::Thread(_)
-            | Self::Measurement(_) => None,
+            | Self::Measurement(_)
+            | Self::ReferenceImage(_) => None,
         }
     }
 
@@ -864,7 +935,8 @@ impl FeatureKind {
             | Self::Import(_)
             | Self::Remove(_)
             | Self::Thread(_)
-            | Self::Measurement(_) => None,
+            | Self::Measurement(_)
+            | Self::ReferenceImage(_) => None,
         }
     }
 
@@ -890,7 +962,8 @@ impl FeatureKind {
             | Self::Import(_)
             | Self::Remove(_)
             | Self::Thread(_)
-            | Self::Measurement(_) => None,
+            | Self::Measurement(_)
+            | Self::ReferenceImage(_) => None,
         }
     }
 
@@ -916,7 +989,8 @@ impl FeatureKind {
             | Self::Import(_)
             | Self::Remove(_)
             | Self::Thread(_)
-            | Self::Measurement(_) => None,
+            | Self::Measurement(_)
+            | Self::ReferenceImage(_) => None,
         }
     }
 
@@ -942,7 +1016,8 @@ impl FeatureKind {
             | Self::Import(_)
             | Self::Remove(_)
             | Self::Thread(_)
-            | Self::Measurement(_) => None,
+            | Self::Measurement(_)
+            | Self::ReferenceImage(_) => None,
         }
     }
 
@@ -968,7 +1043,8 @@ impl FeatureKind {
             | Self::Datum(_)
             | Self::Remove(_)
             | Self::Thread(_)
-            | Self::Measurement(_) => None,
+            | Self::Measurement(_)
+            | Self::ReferenceImage(_) => None,
         }
     }
 
@@ -992,6 +1068,7 @@ impl FeatureKind {
             Self::Import(import) => import.placement.parameters(),
             Self::Remove(_) | Self::Measurement(_) => BTreeSet::new(),
             Self::Thread(thread) => thread.parameters(),
+            Self::ReferenceImage(image) => image.parameters(),
         }
     }
 
@@ -1015,6 +1092,7 @@ impl FeatureKind {
             Self::Import(import) => import.placement.uses_parameter(parameter),
             Self::Remove(_) | Self::Measurement(_) => false,
             Self::Thread(thread) => thread.uses_parameter(parameter),
+            Self::ReferenceImage(image) => image.uses_parameter(parameter),
         }
     }
 
@@ -1054,13 +1132,14 @@ impl FeatureKind {
             Self::Remove(remove) => remove.features(),
             Self::Thread(thread) => thread.features(),
             Self::Measurement(measurement) => measurement.features(),
+            Self::ReferenceImage(image) => image.features(),
             Self::Import(_) => BTreeSet::new(),
         };
         used.extend(self.bodies_used());
         used.extend(self.planes_used());
         used.extend(self.axes_used());
         used.extend(self.frames_used());
-        used
+        used.into_iter().map(FeatureId::maker).collect()
     }
 
     pub fn origin_features(&self) -> BTreeSet<FeatureId> {
@@ -1096,6 +1175,7 @@ impl FeatureKind {
             Self::Datum(datum) => datum.origin_features(),
             Self::Thread(thread) => thread.origin_features(),
             Self::Measurement(measurement) => measurement.origin_features(),
+            Self::ReferenceImage(image) => image.origin_features(),
             Self::Import(_) | Self::Remove(_) => BTreeSet::new(),
         }
     }
@@ -1116,6 +1196,8 @@ pub struct Feature {
     pub suppressed: bool,
     pub appearance: BodyAppearance,
     pub group: Option<String>,
+    pub pieces: Pieces,
+    pub piece_looks: PieceLooks,
 }
 
 impl Feature {
@@ -1132,6 +1214,8 @@ impl Feature {
             suppressed: false,
             appearance: BodyAppearance::default(),
             group: None,
+            pieces: Pieces::OneBody,
+            piece_looks: PieceLooks::default(),
         }
     }
 
@@ -1146,17 +1230,22 @@ impl Feature {
             && self.suppressed == other.suppressed
             && self.appearance == other.appearance
             && self.group == other.group
+            && self.pieces == other.pieces
+            && self.piece_looks == other.piece_looks
             && self.kind.same_content(&other.kind)
     }
 
     pub fn parameters(&self) -> BTreeSet<ParameterId> {
         let mut used = self.kind.parameters();
         used.extend(self.appearance.parameters());
+        used.extend(self.piece_looks.parameters());
         used
     }
 
     pub fn uses_parameter(&self, parameter: ParameterId) -> bool {
-        self.kind.uses_parameter(parameter) || self.appearance.uses_parameter(parameter)
+        self.kind.uses_parameter(parameter)
+            || self.appearance.uses_parameter(parameter)
+            || self.piece_looks.uses_parameter(parameter)
     }
 
     pub fn heap_size(&self) -> usize {
@@ -1164,6 +1253,31 @@ impl Feature {
             + self.kind.approximate_size()
             + self.appearance.heap_size()
             + self.group.as_ref().map_or(0, String::len)
+            + self.piece_looks.heap_size()
+    }
+
+    pub fn separates_pieces(&self) -> bool {
+        self.pieces == Pieces::BodyEach && self.can_separate_pieces()
+    }
+
+    pub fn can_separate_pieces(&self) -> bool {
+        self.kind
+            .solid()
+            .is_some_and(|solid| solid.operation() == BodyOperation::NewBody)
+    }
+
+    pub fn piece_appearance(&self, key: PieceKey) -> Cow<'_, BodyAppearance> {
+        match self.piece_looks.appearance(key) {
+            Some(own) => Cow::Borrowed(own),
+            None => Cow::Owned(self.inherited_piece_appearance()),
+        }
+    }
+
+    pub(crate) fn inherited_piece_appearance(&self) -> BodyAppearance {
+        BodyAppearance {
+            name: None,
+            ..self.appearance.clone()
+        }
     }
 
     pub fn body(&self) -> Option<FeatureId> {
@@ -1192,7 +1306,8 @@ impl Feature {
             FeatureKind::Sketch(_)
             | FeatureKind::Datum(_)
             | FeatureKind::Thread(_)
-            | FeatureKind::Measurement(_) => None,
+            | FeatureKind::Measurement(_)
+            | FeatureKind::ReferenceImage(_) => None,
         }
     }
 
@@ -1240,7 +1355,8 @@ impl Feature {
             | FeatureKind::Datum(_)
             | FeatureKind::Remove(_)
             | FeatureKind::Thread(_)
-            | FeatureKind::Measurement(_) => false,
+            | FeatureKind::Measurement(_)
+            | FeatureKind::ReferenceImage(_) => false,
         }
     }
 }
@@ -1313,15 +1429,43 @@ impl Document {
         self.features.get_by_id(id)
     }
 
-    pub fn body_name(&self, body: FeatureId) -> Option<&str> {
-        let feature = self.feature(body)?;
-        Some(feature.appearance.name.as_deref().unwrap_or(&feature.name))
+    pub fn body_name(&self, body: FeatureId) -> Option<Cow<'_, str>> {
+        let feature = self.feature(body.maker())?;
+        let Some(key) = body.piece_key() else {
+            return Some(Cow::Borrowed(
+                feature.appearance.name.as_deref().unwrap_or(&feature.name),
+            ));
+        };
+        if let Some(own) = feature
+            .piece_looks
+            .appearance(key)
+            .and_then(|appearance| appearance.name.as_deref())
+        {
+            return Some(Cow::Borrowed(own));
+        }
+        Some(Cow::Owned(match self.piece_curve(body) {
+            Some(curve) => format!("{} ({curve})", feature.name),
+            None => feature.name.clone(),
+        }))
+    }
+
+    pub fn body_appearance(&self, body: FeatureId) -> Option<Cow<'_, BodyAppearance>> {
+        let feature = self.feature(body.maker())?;
+        Some(match body.piece_key() {
+            Some(key) => feature.piece_appearance(key),
+            None => Cow::Borrowed(&feature.appearance),
+        })
     }
 
     pub fn features_on_body(&self, body: FeatureId) -> impl Iterator<Item = &Feature> {
-        self.features
-            .on_body(body)
+        let making = if body.is_piece() {
+            self.features.on_body(body.maker())
+        } else {
+            &[]
+        };
+        making
             .iter()
+            .chain(self.features.on_body(body))
             .filter_map(|id| self.feature(*id))
     }
 

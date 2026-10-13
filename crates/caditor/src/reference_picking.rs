@@ -6,7 +6,7 @@ use crate::{
     datum_panel::{self, FramePart},
     datum_tools,
     editing::EditingCommand,
-    hole_panel, hole_placement, hole_tools,
+    hole_panel, hole_placement, hole_tools, image_tools,
     mate_tools::{self, MatePart},
     measurement_tools::{self, MeasuredPart},
     mirror_tools,
@@ -63,6 +63,8 @@ pub enum Slot {
     HoleAdd,
     ShellOwnThickness,
     SweepPath,
+    ImagePlace,
+    ImageCalibration,
 }
 
 impl Slot {
@@ -71,6 +73,44 @@ impl Slot {
             self,
             Self::SweepPath | Self::ShellOwnThickness | Self::HoleAdd
         )
+    }
+
+    pub fn takes_principal_geometry(self) -> bool {
+        match self {
+            Self::RevolveAxis
+            | Self::ExtrudeTarget(_)
+            | Self::StartPlane
+            | Self::HoleTarget
+            | Self::RevolveTarget
+            | Self::ExtrudeDirection
+            | Self::MirrorPlane
+            | Self::SplitPlane
+            | Self::SplitDirection
+            | Self::PatternDirection
+            | Self::PatternSecond
+            | Self::PatternBase
+            | Self::DatumBase
+            | Self::DatumRotation
+            | Self::MoveAxis
+            | Self::PrimitivePlace
+            | Self::MateTarget(_)
+            | Self::FrameOrigin
+            | Self::FrameAxis
+            | Self::FramePlane
+            | Self::ScaleCentre
+            | Self::MeasuredItem(_)
+            | Self::HoleEdge(_)
+            | Self::HoleConcentric(_)
+            | Self::ImagePlace => true,
+            Self::HolePlace
+            | Self::ImageCalibration
+            | Self::HoleAdd
+            | Self::ShellOwnThickness
+            | Self::ThreadFace
+            | Self::SweepPath
+            | Self::PatternPath
+            | Self::MateMoving(_) => false,
+        }
     }
 }
 
@@ -224,6 +264,10 @@ pub fn prompt(model: &Model, picking: Picking) -> String {
         }
         Slot::MeasuredItem(part) => part.prompt().to_owned(),
         Slot::FramePlane => "Click a plane or flat face for its XY plane".to_owned(),
+        Slot::ImagePlace => "Click a plane or flat face where the picture goes".to_owned(),
+        Slot::ImageCalibration => {
+            image_tools::calibration_prompt(picking.held_count() > 0).to_owned()
+        }
         Slot::PrimitivePlace => {
             let noun = kind(model, picking.feature)
                 .and_then(FeatureKind::primitive)
@@ -385,6 +429,9 @@ pub fn change(
         }
         (Slot::PrimitivePlace, FeatureKind::Primitive(primitive)) => {
             primitive_tools::place_change(model, selection, feature, primitive)
+        }
+        (Slot::ImagePlace, FeatureKind::ReferenceImage(image)) => {
+            image_tools::place_change(model, selection, feature, image)
         }
         (Slot::MateMoving(part), FeatureKind::Mate(mate)) => {
             mate_tools::moving_change(model, selection, feature, mate, part)

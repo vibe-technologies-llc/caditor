@@ -828,11 +828,7 @@ fn combine_failure(
 ) -> Failure {
     let inputs = context.resolver.inputs;
     let shape = context.shape;
-    let body_name = inputs
-        .document
-        .feature(body)
-        .map(|feature| feature.name.clone())
-        .unwrap_or_default();
+    let body_name = inputs.document.body_label(body).unwrap_or_default();
     let failure = match error {
         BooleanError::Cancelled(_) => Failure::Cancelled,
         BooleanError::Empty => {

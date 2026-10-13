@@ -2,9 +2,9 @@ use std::collections::BTreeSet;
 
 use caditor_document::{
     AxisReference, BodyOperation, Document, Edit, Evaluation, Extrude, ExtrudeExtent, Feature,
-    FeatureId, FeatureKind, FeatureResult, ParameterValues, RegionChoice, Revolve, RevolveAxis,
-    RevolveExtent, SketchAttachment, SketchFeature, SketchRegion, SolidFeature, SolidStart,
-    Transaction, Wall, describe_axis, face_plane, profile_curve, sketch_regions,
+    FeatureId, FeatureKind, FeatureResult, ParameterValues, Pieces, RegionChoice, Revolve,
+    RevolveAxis, RevolveExtent, SketchAttachment, SketchFeature, SketchRegion, SolidFeature,
+    SolidStart, Transaction, Wall, describe_axis, face_plane, profile_curve, sketch_regions,
 };
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Plane, Point2};
@@ -15,6 +15,7 @@ use crate::{
     bodies::{self, FaceKey},
     body_reach, body_selection,
     editing::{self, EditingCommand, SketchEditing},
+    field,
     last_values::{Remembered, Starts},
     model::{Action, Model, Notice},
     projecting, scene,
@@ -594,7 +595,10 @@ pub fn face_body(document: &Document, sketch: FeatureId) -> Option<FeatureId> {
         SketchAttachment::Face(face) => face.body,
         SketchAttachment::Datum(_) | SketchAttachment::Frame { .. } => return None,
     };
-    document.bodies_standing().contains(&body).then_some(body)
+    document
+        .bodies_standing()
+        .contains(&body.maker())
+        .then_some(body)
 }
 
 pub fn degrees(value: f64) -> Expression {
@@ -682,6 +686,12 @@ pub fn create(
     let solid = with_operation(&solid, operation);
     let mut transaction = document.transaction(format!("Create {name}"));
     let feature = transaction.add_feature(name, FeatureKind::Solid(solid));
+    if starts.pieces() == Pieces::BodyEach {
+        transaction.edit(Edit::SetFeaturePieces {
+            id: feature,
+            pieces: Pieces::BodyEach,
+        });
+    }
     if visibility::is_shown(document, source.sketch) {
         transaction.edit(Edit::SetFeatureHidden {
             id: source.sketch,
@@ -837,6 +847,86 @@ pub fn clear_regions(model: &Model, feature: &Feature) -> Result<Transaction, St
             kind: FeatureKind::Solid(with_regions(solid, RegionChoice::Chosen(Vec::new()))),
         },
     ))
+}
+
+pub fn pieces_change(
+    model: &Model,
+    feature: &Feature,
+    pieces: Pieces,
+) -> Result<Transaction, String> {
+    let label = match pieces {
+        Pieces::OneBody => format!("Make one body of {}", feature.name),
+        Pieces::BodyEach => format!("Make a body of each piece of {}", feature.name),
+    };
+    field::checked(
+        model.document(),
+        Transaction::single(
+            label,
+            Edit::SetFeaturePieces {
+                id: feature.id(),
+                pieces,
+            },
+        ),
+    )
+}
+
+pub fn select_all_regions(model: &Model, feature: &Feature) -> Result<Transaction, String> {
+    let Some(solid) = feature.kind.solid() else {
+        return Err(format!("{} takes no regions of a sketch", feature.name));
+    };
+    if solid.wall().is_some() {
+        return Err(format!(
+            "{} is a thin wall, which follows every curve of its sketch",
+            feature.name
+        ));
+    }
+    if matches!(solid.regions(), RegionChoice::All) {
+        return Err(format!(
+            "{} already takes every region of its sketch",
+            feature.name
+        ));
+    }
+    let sketch = model
+        .document()
+        .feature(solid.sketch())
+        .map_or("the sketch", |sketch| sketch.name.as_str());
+    Ok(Transaction::single(
+        format!("Select all regions of {sketch} for {}", feature.name),
+        Edit::SetFeatureKind {
+            id: feature.id(),
+            kind: FeatureKind::Solid(with_regions(solid, RegionChoice::All)),
+        },
+    ))
+}
+
+pub fn take_sketch_regions(
+    model: &Model,
+    feature: &Feature,
+    sketch: FeatureId,
+) -> Result<Transaction, String> {
+    let Some(solid) = feature.kind.solid() else {
+        return Err(format!("{} takes no regions of a sketch", feature.name));
+    };
+    if solid.sketch() == sketch {
+        return select_all_regions(model, feature);
+    }
+    let document = model.document();
+    let name = document
+        .feature(sketch)
+        .filter(|candidate| candidate.kind.sketch().is_some())
+        .map(|sketch| sketch.name.clone())
+        .ok_or_else(|| "Only a sketch has regions to take".to_owned())?;
+    let transaction = Transaction::single(
+        format!("Take all regions of {name} for {}", feature.name),
+        Edit::SetFeatureKind {
+            id: feature.id(),
+            kind: FeatureKind::Solid(solid_panel::with_sketch(solid, sketch)),
+        },
+    );
+    document
+        .check(&transaction)
+        .map(|()| transaction)
+        .map_err(|error| error.to_string())
 }
 
 #[cfg(test)]

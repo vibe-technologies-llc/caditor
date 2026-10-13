@@ -10,6 +10,7 @@ paths:
   - "crates/caditor/src/widgets.rs"
   - "crates/caditor/src/dialog_parts.rs"
   - "crates/caditor/src/canvas.rs"
+  - "crates/caditor/src/start_card.rs"
   - "crates/caditor/src/scene_palette.rs"
   - "crates/caditor/src/view_cube.rs"
   - "crates/caditor/src/layout.rs"
@@ -176,8 +177,11 @@ paths:
   edges of a failed or outdated body (`scene::body_health`), outside sketch editing.
 - Key hints (`canvas::Hints`) lay out a `canvas::HintList` (`app-input.md`, Guidance in the 3D
   view) as key caps (alternatives joined by " or ") beside a muted action, plain for a note, on a
-  bordered panel; a folded list ends in the More keys chip, a control-coloured bordered chip with
-  the focus ring. Each key, "or" and action is its own text, so tests use `shows_hint`.
+  bordered panel filled with the chrome's opaque `panel` colour on every canvas and contrast, never
+  the translucent label backdrop, so a dimension label beneath cannot show through
+  (`the_key_hint_panel_is_opaque_on_every_canvas_so_no_label_shows_through`); a folded list ends in
+  the More keys chip, a bordered chip resting on that panel colour (control-coloured when hovered or
+  pressed, with the focus ring). Each key, "or" and action is its own text, so tests use `shows_hint`.
 - Overlay text keeps clear of the view cube wherever it sits (`ViewportState::cube_area`, the
   `CubePlacement`'s area): a failure or interference label covering the cube or its buttons moves
   to the side of them away from the view's edge (`viewport::clear_of`); the prompt and its hints
@@ -189,6 +193,24 @@ paths:
   screen-reader `Label`), cursor readout and navigation hints avoid each other as `app-input.md`
   says (`the_view_cube_takes_any_size_and_corner_with_the_overlays_clear_of_it_and_is_remembered`
   checks every size and corner).
+- The start card (`start_card.rs`, behaviour in `app-input.md`) is a panel, not canvas chrome:
+  the dialog frame (`widgets::dialog_frame`: opaque window fill, border, shadow, `DIALOG_MARGIN`)
+  holding the kit's widgets, so the theme's checked tokens hold whatever the canvas. A heading
+  with a close icon button, a muted sentence laid out by `widgets::balanced_label` (the narrowest
+  width keeping its line count, so no word sits alone on the last line), Start with a sketch as a
+  full-width `primary_icon_button`, the other two equal `sized_icon_button`s side by side (stacked
+  when a label would not fit half the width), and Don't show this again as a `widgets::checkbox`.
+  `start_card::placement`: `WIDTH` wide, centred in the view `TOP_MARGIN` below its top when that
+  clears the view cube's area (`ViewportState::cube_area`, wherever the cube sits); else as near
+  the centre as the band beside a top cube allows while it is at least `MIN_WIDTH`; else under the
+  cube, centred, and without the sentence. A bottom cube shortens its area while the card, as tall
+  as it was drawn the frame before (`StartCard::drawn_height`), ends above it, and otherwise is
+  treated as a top cube is, its fallback being the top without the sentence
+  (`the_card_keeps_clear_of_the_view_cube_in_every_corner_and_size`,
+  `the_card_moves_clear_of_the_view_cube_at_every_size_and_corner`; at 200% a large cube in a bottom
+  corner leaves the view too little room and may meet the card), so at 200% it fits the view
+  (`the_card_fits_in_the_view_clear_of_the_view_cube_at_every_interface_size`). Its child `Ui`
+  senses clicks and drags over the card, so a click on its background never reaches the view.
 - The view cube is one focusable button named after the hovered target, else the nearest view, with
   that name as tooltip followed by the bound keys of a standard view's direction
   (`CubeTexts::view_keys`; Isometric only while the model keeps no redefined Isometric view); arrow
@@ -533,8 +555,17 @@ paths:
 
 ### Parameters
 
-- The parameter table's name and expression fields share the panel's width beside a fixed value
-  column (`VALUE_WIDTH`), since wider content widens the panel the next frame. Hovering a value shows
+- The parameter table's name and expression fields share the panel's width beside a value column
+  that is as wide as its widest value and icons up to `VALUE_WIDTH`, since wider content widens the
+  panel the next frame. `Content::measure` lays out every name, expression and value once per
+  frame (all parameters, not only the filtered ones, so a filter never moves a column) and
+  `FieldWidths::fitting` gives the name its longest name's width whenever that exceeds its
+  `NAME_SHARE`, capped at `LONGEST_NAME_SHARE` of the room and so that the expression keeps its
+  widest text down to `LEAST_EXPRESSION_WIDTH`. A name longer than that ends in an ellipsis painted
+  over the field's end (`ellipsize_clipped_name`) with its full text on hover, until the field is
+  edited
+  (`parameter_names_of_normal_length_show_whole_from_75_to_200_percent`,
+  `a_parameter_name_longer_than_its_column_ends_in_an_ellipsis_and_shows_whole_on_hover`). Hovering a value shows
   it in full and what uses it (`used_by`, only for the hovered row, since
   `Document::parameter_users` scans every feature). Whether a row is in use comes from
   `Document::used_parameters`, one scan cached per model revision (`ParameterUses`; it counts a
@@ -684,7 +715,9 @@ paths:
   and the tree chooses and reveals the copies through `Model::pasted` (`PanelState::paste_shown`).
   A panic in the search pastes nothing and says so. A model switch cancels it.
 - Principal group rows: hover highlights in the view, a click or tab selects in the view (clearing
-  the tree's feature selection), and a row reads as selected while its pickable is.
+  the tree's feature selection), and a row reads as selected while its pickable is. Rows and eyes
+  read what the view shows (`PrincipalView::shows`), so geometry tucked away while not needed reads
+  hidden, yet its row still selects it, which shows it (`app-modelling.md`, Visibility).
 - The rollback bar is a row of its own (`feature_tree::rollback_bar`, named "Rollback bar"), at the
   end of the tree when nothing is rolled back. It and every row name drag (`PanelState::dragging`):
   the gap under the pointer shows an accent line, or an error one with a reason when
@@ -723,6 +756,12 @@ paths:
   feature that made each; a body a Combine or Remove consumed is not listed. A click or tab chooses
   that feature (Ctrl+click toggles and Shift+click extends over the listed bodies, through
   `feature_tree::choose_among`) and the eye hides or shows it like the feature's own.
+  A separating feature lists each piece as a row of its own (`Document::body_name`: its own name,
+  else "<feature> (<curve>)"), whose eye toggles only that piece (`visibility::toggle_body`, which
+  also shows the feature when it was hidden) and whose card edits only its look; choosing a piece row
+  chooses that body for the body commands (`body_selection::tree_bodies` keeps piece ids). Hide
+  selection hides a picked piece alone and Show everything shows hidden pieces too; Hide others
+  keeps a piece's whole feature shown.
   Right-clicking a row offers Rename body… (the card below with its Body name field focused), Select
   the whole body (its faces in the view, through `PanelState::selected_in_tree`) and Remove body,
   which adds a `Remove` feature at the bar with a notice saying how to bring the body back; the same

@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
 use caditor_document::{
-    AxisReference, Document, Evaluation, FaceAttachment, Feature, FeatureId, PlaneReference,
-    PointReference, PrincipalAxis, PrincipalPlane,
+    AxisReference, Document, Evaluation, FaceAttachment, Feature, FeatureId, PieceKey,
+    PlaneReference, PointReference, PrincipalAxis, PrincipalPlane,
 };
 use caditor_expression::{Expression, ParameterId};
 use caditor_kernel::{
@@ -101,7 +101,16 @@ impl Scene<'_> {
     }
 
     pub fn body(&self, input: &mut Unstructured) -> Result<FeatureId> {
-        self.one_of(input, Feature::makes_body)
+        let body = self.one_of(input, Feature::makes_body)?;
+        let separates = self
+            .document
+            .feature(body)
+            .is_some_and(Feature::separates_pieces);
+        if separates && input.arbitrary::<bool>()? {
+            let key = PieceKey::from_raw(input.int_in_range(0u32..=32)?);
+            return Ok(body.piece(key).unwrap_or(body));
+        }
+        Ok(body)
     }
 
     pub fn sketch(&self, input: &mut Unstructured) -> Result<FeatureId> {

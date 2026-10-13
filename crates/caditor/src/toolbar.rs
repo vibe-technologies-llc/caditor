@@ -8,6 +8,7 @@ use crate::{
     datum_tools,
     editing::{EditingCommand, SketchEditing},
     feature_tree::count,
+    files::FileCommand,
     hole_tools, icons,
     last_values::Starts,
     mate_tools,
@@ -166,12 +167,15 @@ impl Group {
                 Command::CurvePattern,
                 Command::PointPattern,
             ]],
-            Self::Reference => &[&[
-                Command::DatumPlane,
-                Command::DatumAxis,
-                Command::DatumPoint,
-                Command::CoordinateSystem,
-            ]],
+            Self::Reference => &[
+                &[
+                    Command::DatumPlane,
+                    Command::DatumAxis,
+                    Command::DatumPoint,
+                    Command::CoordinateSystem,
+                ],
+                &[Command::InsertImage],
+            ],
             Self::Analyse => &[
                 &[Command::Measure, Command::Interference],
                 &[
@@ -333,6 +337,7 @@ fn group_buttons(
         Group::Reference => {
             datum_buttons(ui, model, context, commands, actions);
             coordinate_system_offer(model, context, commands, actions);
+            image_offer(context, commands, actions);
         }
         Group::Analyse => {
             measure_button(ui, context.measuring, commands);
@@ -734,6 +739,19 @@ fn coordinate_system_offer(
         && let Ok(frame) = frame
     {
         actions.extend(datum_tools::create_actions(model.document(), frame.clone()));
+    }
+}
+
+fn image_offer(
+    context: &ToolbarContext<'_>,
+    commands: &mut CommandFrame<'_>,
+    actions: &mut Vec<Action>,
+) {
+    let target = &context.offers.reference_image;
+    if commands.invoke(Command::InsertImage, target)
+        && let Ok(target) = target
+    {
+        actions.push(Action::File(FileCommand::InsertImage(target.clone())));
     }
 }
 

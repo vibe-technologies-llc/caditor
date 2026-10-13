@@ -52,14 +52,38 @@ paths:
   constraints does not move; under-constrained geometry moves as little as possible.
 - A part whose `STIFF` solve fails (a pointer past what the geometry reaches) solves from where it
   was drawn (`solve_from_drawn`); only a part failing from both is diagnosed. Every part with a
-  target that holds then reaches toward it (`numeric/reach.rs`): the closest least-squares pose. A
-  first-order step cannot tell an arm turning toward the pointer from one bending away, so each
-  step is Newton's in the constraints' null space (SVD of the normalised rows), curvature being the
-  targets' plus the constraints' second derivatives weighted by their multipliers, by finite
-  differences of the analytic Jacobian (`PROBE` of the part's scale), negative or flat curvatures
-  replaced by their size or `FLATTEST`. The step is projected back onto the constraints by
-  unit-weight Gauss-Newton and halved until the pose holds and lies closer, so every accepted pose
-  is a solution. Parts above `DENSE_LIMIT` keep the `STIFF` pose.
+  target then reaches toward it (`numeric/reach.rs`) from whichever of its solved and drawn poses
+  holds and lies closer (the drawn one is the last frame's while dragging): the closest
+  least-squares pose. A first-order step cannot tell an arm turning toward the pointer from one
+  bending away, so each step is Newton's on the constraints, curvature being the targets' plus the
+  constraints' second derivatives weighted by their least-squares multipliers, by finite
+  differences of the analytic Jacobian (`PROBE` of the part's scale). Every accepted pose is a
+  solution.
+- Up to `DENSE_LIMIT` variables the step is exact: Newton in the null space of the normalised rows
+  (SVD), negative or flat curvatures replaced by their size or `FLATTEST`, projected back onto the
+  constraints by unit-weight Gauss-Newton and halved until the pose holds and lies closer.
+- Above it (`numeric/reach/augmented.rs`) nothing is dense. The multipliers come from a sparse
+  Cholesky of the Gram matrix `J Jᵀ`; the step is Newton's on the augmented Lagrangian at the
+  current pose, `(H + ρ JᵀJ) p = -(g + Jᵀλ)` with `ρ` `AUGMENTATION` times the steepest curvature,
+  factored by `sparse::Cholesky` (the multiplier Hessian probed by colour as in `newton.rs`) under a
+  shift from `LEAST_SHIFT` of that curvature, raised until it factors, then its remainder off the
+  null space removed through the Gram factor. A tiny shift matters: a long chain turning about its
+  end bends in modes whose curvature falls with the square of its length. Steps are capped by
+  their largest single move (`MAX_STEP` of the scale), not their norm, since swinging a long chain
+  moves everything. The step is halved (each step starting from twice the last fraction) until a
+  restoration lands closer: Gauss-Newton corrections in the metric of the constraints' own
+  unit-weight curvature plus `RESTORING_SHIFT`, `(M + ρ JᵀJ) Δ = -ρ Jᵀc`, refactored each
+  correction and each required to halve the residuals, until every residual is within `CLOSE_SHARE`
+  of the tolerance (stopping at the tolerance itself lets the steps creep along it). The
+  minimal-norm correction fails there: in a chain of nearly parallel links it shortens them by
+  folding the joints sideways, amplified with the chain's length, where the metric pulls each link
+  back along itself.
+- A frame's reaching stops once it has spent `REACH_WORK` units (`ReachWork`, counting what
+  `tally` counts, refused factorisations and orderings included); the pose it stops at holds and
+  the next frame goes on from it. A 500-line zig-zag chain dragged past its reach lands on the ray
+  toward the pointer at full extension in about 31 million units for the whole frame (5 million
+  reaching), a 2,000-line one in about 505 million (92 million reaching, the rest the `FROZEN` and
+  `STIFF` solves; an ignored test in `reach_tests.rs`, run nightly).
 - `drag_solver.rs` runs it on its own worker thread through `solve_geometry_from`: the same solve
   without rank and degrees-of-freedom analysis, returning a memo whose parts are marked not
   analysed, so they warm-start a later solve but never stand in for its analysis.

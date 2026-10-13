@@ -149,7 +149,7 @@ pub(crate) struct Triangular {
 
 impl Triangular {
     pub fn ordered_for<'a>(width: usize, rows: impl IntoIterator<Item = &'a Row>) -> Self {
-        let columns = fill_reducing_order(width, rows);
+        let (columns, _) = fill_reducing_order(width, rows);
         let mut positions = vec![0; width];
         for (position, column) in columns.iter().enumerate() {
             if let Some(slot) = positions.get_mut(*column) {
@@ -386,6 +386,12 @@ impl Triangular {
 pub(crate) struct Cholesky {
     columns: Vec<usize>,
     rows: Vec<Row>,
+    work: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct NotDefinite {
+    pub work: usize,
 }
 
 impl Cholesky {
@@ -395,8 +401,17 @@ impl Cholesky {
         least_pivot: f64,
         pattern: impl IntoIterator<Item = &'a Row>,
     ) -> Option<Self> {
+        Self::factor_counting(matrix, shift, least_pivot, pattern).ok()
+    }
+
+    pub fn factor_counting<'a>(
+        matrix: &[Row],
+        shift: f64,
+        least_pivot: f64,
+        pattern: impl IntoIterator<Item = &'a Row>,
+    ) -> Result<Self, NotDefinite> {
         let width = matrix.len();
-        let columns = fill_reducing_order(width, pattern);
+        let (columns, ordering) = fill_reducing_order(width, pattern);
         let mut positions = vec![0; width];
         for (position, column) in columns.iter().enumerate() {
             if let Some(slot) = positions.get_mut(*column) {
@@ -422,18 +437,24 @@ impl Cholesky {
             }
         }
         let mut rows = Vec::with_capacity(width);
+        let mut work = ordering;
         for position in 0..width {
-            let row = pending.get_mut(position).map(std::mem::take)?;
+            let row = pending
+                .get_mut(position)
+                .map(std::mem::take)
+                .unwrap_or_default();
             let pivot = row.get(&position).copied().unwrap_or(0.0);
             if pivot.is_nan() || pivot <= least_pivot {
-                return None;
+                return Err(NotDefinite { work });
             }
             let root = pivot.sqrt();
             let factor_row: Row = row
                 .into_iter()
                 .map(|(later, value)| (later, value / root))
                 .collect();
-            tally::add(factor_row.len() * factor_row.len());
+            let row_work = factor_row.len() * factor_row.len();
+            tally::add(row_work);
+            work += row_work;
             for (index, (first, first_value)) in factor_row.iter().enumerate().skip(1) {
                 let Some(target) = pending.get_mut(*first) else {
                     continue;
@@ -444,7 +465,19 @@ impl Cholesky {
             }
             rows.push(factor_row);
         }
-        Some(Self { columns, rows })
+        Ok(Self {
+            columns,
+            rows,
+            work,
+        })
+    }
+
+    pub fn work(&self) -> usize {
+        self.work
+    }
+
+    pub fn entries(&self) -> usize {
+        self.rows.iter().map(Vec::len).sum()
     }
 
     pub fn solve(&self, load: &[f64]) -> Vec<f64> {
@@ -547,10 +580,16 @@ fn rotate(pivot_row: &mut Row, incoming: &[(usize, f64)]) -> Row {
     remainder
 }
 
-fn fill_reducing_order<'a>(width: usize, rows: impl IntoIterator<Item = &'a Row>) -> Vec<usize> {
+fn fill_reducing_order<'a>(
+    width: usize,
+    rows: impl IntoIterator<Item = &'a Row>,
+) -> (Vec<usize>, usize) {
     let mut neighbours: Vec<BTreeSet<usize>> = vec![BTreeSet::new(); width];
+    let mut work = 0;
     for row in rows {
-        tally::add(row.len() * row.len());
+        let pairs = row.len() * row.len();
+        tally::add(pairs);
+        work += pairs;
         for (column, _) in row {
             if let Some(adjacent) = neighbours.get_mut(*column) {
                 adjacent.extend(
@@ -573,7 +612,9 @@ fn fill_reducing_order<'a>(width: usize, rows: impl IntoIterator<Item = &'a Row>
             .get_mut(column)
             .map(std::mem::take)
             .unwrap_or_default();
-        tally::add(degree * degree.min(CLIQUE_LIMIT) + 1);
+        let eliminated = degree * degree.min(CLIQUE_LIMIT) + 1;
+        tally::add(eliminated);
+        work += eliminated;
         for other in &adjacent {
             let Some(theirs) = neighbours.get_mut(*other) else {
                 continue;
@@ -588,7 +629,7 @@ fn fill_reducing_order<'a>(width: usize, rows: impl IntoIterator<Item = &'a Row>
             }
         }
     }
-    order
+    (order, work)
 }
 
 pub(crate) fn duplicates(

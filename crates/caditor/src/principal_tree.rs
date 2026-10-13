@@ -1,4 +1,4 @@
-use caditor_document::{Document, PrincipalGeometry};
+use caditor_document::PrincipalGeometry;
 use egui::{Id, Label, RichText, Ui, collapsing_header::CollapsingState};
 
 use crate::{
@@ -20,12 +20,13 @@ pub fn show(
     actions: &mut Vec<Action>,
 ) {
     let document = model.document();
+    let view = model.principal_view();
     let mut collapsing = CollapsingState::load_with_default_open(
         ui.ctx(),
         ui.make_persistent_id("principal-geometry"),
         false,
     );
-    let shown = visibility::any_principal_shown(document);
+    let shown = visibility::any_principal_shown(document, view);
     let muted = appearance::tokens(ui).text_muted;
     let open = collapsing.is_open();
     let row = tree_row::show(
@@ -51,9 +52,9 @@ pub fn show(
         |ui| {
             tree_row::empty_slot(ui);
             tree_row::slot(ui, |ui| {
-                let transaction = visibility::toggle_principal_group(document);
-                if eye(ui, shown, transaction.label()) {
-                    actions.push(Action::Apply(transaction));
+                let toggle = visibility::toggle_principal_group(document, view);
+                if eye(ui, shown, &toggle.label) {
+                    actions.extend(toggle.actions);
                 }
             });
         },
@@ -67,7 +68,7 @@ pub fn show(
     }
     collapsing.show_body_unindented(ui, |ui| {
         for geometry in PrincipalGeometry::ALL {
-            item(ui, document, selection, state, actions, geometry);
+            item(ui, model, selection, state, actions, geometry);
         }
     });
     collapsing.store(ui.ctx());
@@ -75,16 +76,19 @@ pub fn show(
 
 fn item(
     ui: &mut Ui,
-    document: &Document,
+    model: &Model,
     selection: &Selection,
     state: &mut PanelState,
     actions: &mut Vec<Action>,
     geometry: PrincipalGeometry,
 ) {
-    let shown = visibility::is_principal_shown(document, geometry);
+    let document = model.document();
+    let view = model.principal_view();
+    let shown = view.shows(document, geometry);
+    let choosable = visibility::is_principal_shown(document, geometry);
     let muted = appearance::tokens(ui).text_muted;
     let pickable = visibility::pickable(geometry);
-    let transaction = visibility::toggle_principal(document, geometry);
+    let toggle = visibility::toggle_principal(document, view, geometry);
     let look = Look {
         selected: selection.contains(pickable),
         open: false,
@@ -110,7 +114,7 @@ fn item(
         },
         |ui| {
             tree_row::empty_slot(ui);
-            tree_row::slot(ui, |ui| eye(ui, shown, transaction.label()))
+            tree_row::slot(ui, |ui| eye(ui, shown, &toggle.label))
         },
     );
     let name = row.leading;
@@ -120,12 +124,12 @@ fn item(
     if ui.rect_contains_pointer(row.rect) && shown {
         state.hovered_in_tree = Some(pickable);
     }
-    if (name.clicked() || name.gained_focus()) && shown {
+    if (name.clicked() || name.gained_focus()) && choosable {
         state.selected = None;
         state.chosen_in_tree = Some(pickable);
     }
     if row.trailing {
-        actions.push(Action::Apply(transaction));
+        actions.extend(toggle.actions);
     }
 }
 

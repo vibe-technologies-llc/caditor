@@ -734,18 +734,15 @@ impl Panel<'_> {
         let id = self.id();
         widgets::caption(ui, "Body");
         let current = self.hole.body;
-        let selected = feature_fields::combo_text(
-            ui,
-            feature_fields::feature_name(document, current),
-            NOT_A_BODY,
-        );
+        let current_name = document.body_label(current);
+        let selected = feature_fields::combo_text(ui, current_name.as_deref(), NOT_A_BODY);
         let chosen = feature_fields::combo(ui, Id::new(("hole-body", id)), selected, || {
             document
-                .bodies_before(id)
+                .bodies_before_in(id, self.model.evaluation())
                 .into_iter()
                 .filter_map(|body| {
                     Some(Choice {
-                        label: feature_fields::feature_name(document, body)?.to_owned(),
+                        label: document.body_label(body)?,
                         selected: body == current,
                         change: self
                             .change(Hole {

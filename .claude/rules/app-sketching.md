@@ -743,6 +743,14 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   the reference size use, until the document or evaluation changes (`forget`). Its `generation` moves
   on `forget` and when a dragged sketch is shown or dropped, which the cached scene watches (`app.md`).
 
+## Tracing reference images
+
+- Reference images (`app-modelling.md`) stay drawn while a sketch is edited and are never picked
+  then, so drawing tools place points, snap to sketch geometry and show their previews over a
+  picture as anywhere else, and the edited sketch's curves draw over it (`render.md`). Insert
+  reference image… while a sketch is edited puts the picture on that sketch's plane and keeps the
+  sketch open (`ui_tests/reference_images.rs`).
+
 ## Annotations
 
 - Drawn with the egui painter (`annotations.rs`; placement in `annotation_layout.rs` over the

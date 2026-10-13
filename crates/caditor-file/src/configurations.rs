@@ -117,7 +117,9 @@ fn restore_value(record: ConfiguredValueRecord) -> Option<ConfiguredValue> {
             ConfiguredValue::Suppressed(FeatureId::from_raw(storable(raw)?))
         }
         ConfiguredValueRecord::Colour(raw) => {
-            ConfiguredValue::Colour(FeatureId::from_raw(storable(raw)?))
+            let body = FeatureId::from_raw(raw);
+            storable(body.maker().raw())?;
+            ConfiguredValue::Colour(body)
         }
     })
 }

@@ -28,6 +28,24 @@ The style is kept while caditor runs and also shapes exported images.
 Hidden items are not drawn, picked or counted when fitting the view. Hiding is part of the model
 and can be undone.
 
+## Principal planes only when needed
+
+While {command:view.principal_when_needed} is on, as it is at first (Preferences › Appearance › In
+the 3D view), the principal planes, axes and origin show in a model without a body, and once the
+first body exists they step aside. They come back for as long as you are choosing a plane, axis
+or point: picking the plane of a new sketch, clicking Choose in the view for a mirror plane, a
+pattern's axis, a revolve's axis, a datum's or coordinate system's references, a shape's or
+picture's place or a hole's Place by, measuring, projecting or intersecting in a sketch, an open datum, or an open
+list of planes or axes in a panel. One you select, in the view or by its row in the
+[feature tree](feature-tree), shows while it is selected.
+
+This stepping aside is only how the view looks: it adds nothing to undo and leaves the model
+unchanged. Showing them yourself, with an eye in the feature tree,
+{command:view.toggle_principal} or {command:view.show_all}, keeps them shown until you hide them
+again; hiding them yourself is a change to the model as before, and hidden ones stay hidden even
+while you choose (New sketch still offers hidden planes). Turn the setting off to have them stay
+as you set them.
+
 ## View aids
 
 {command:view.toggle_glyphs} hides the constraint marks of the edited sketch, keeping dimensions.

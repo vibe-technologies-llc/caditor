@@ -26,6 +26,7 @@ const WELCOMED_KEY: &str = "onboarding.welcomed";
 const HINTS_KEY: &str = "onboarding.hints";
 const DISMISSED_KEY: &str = "onboarding.dismissed_hints";
 const DEFENDER_KEY: &str = "onboarding.defender_reminded";
+const START_CARD_KEY: &str = "onboarding.start_card";
 const TIP_TITLE: &str = "Tip";
 const DISMISS_TIP: &str = "Dismiss the tip";
 const RECENT_TITLE: &str = "Recent files";
@@ -115,6 +116,7 @@ pub struct Onboarding {
     pub hints: bool,
     pub dismissed: BTreeSet<Hint>,
     pub defender_reminded: bool,
+    pub start_card: bool,
 }
 
 impl Default for Onboarding {
@@ -124,6 +126,7 @@ impl Default for Onboarding {
             hints: true,
             dismissed: BTreeSet::new(),
             defender_reminded: false,
+            start_card: true,
         }
     }
 }
@@ -140,6 +143,7 @@ impl Onboarding {
                 .filter_map(|id| Hint::from_id(id))
                 .collect(),
             defender_reminded: settings.flag(DEFENDER_KEY).unwrap_or(false),
+            start_card: settings.flag(START_CARD_KEY).unwrap_or(true),
         }
     }
 
@@ -147,6 +151,7 @@ impl Onboarding {
         settings.set_flag(WELCOMED_KEY, self.welcomed);
         settings.set_flag(HINTS_KEY, self.hints);
         settings.set_flag(DEFENDER_KEY, self.defender_reminded);
+        settings.set_flag(START_CARD_KEY, self.start_card);
         let known: Vec<String> = self
             .dismissed
             .iter()
@@ -168,6 +173,7 @@ impl Onboarding {
             hints: false,
             dismissed: BTreeSet::new(),
             defender_reminded: true,
+            start_card: true,
         }
     }
 }

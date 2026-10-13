@@ -22,9 +22,13 @@ match, for example `zoom`, `grid` or `view cube`. Choosing a tab clears the sear
   keeps every value as you entered it, and a field shows what you typed.
 - **Starting and recent files**: whether caditor starts with a new model or opens the last model
   you had, and how many models Open recent lists (3, 5 or 10). Unsaved work offered for
-  recovery, or a file named on the [command line](command-line), comes first.
+  recovery, or a file named on the [command line](command-line), comes first. **Show the start
+  card on empty models** brings back the [start card](start) after Don't show this again.
 - **New models**: the [template](templates) a new model starts from.
-- **Feature tree**: what double-clicking a feature does, edit it (as Enter does) or rename it.
+- **Feature tree**: what double-clicking a feature does, edit it (as Enter does) or rename it, and
+  **New bodies from separate pieces**: whether a new extrusion, revolve or sweep of shapes that do
+  not touch makes **One body** of them all (as before) or **A body each**; each feature can still
+  be switched in its panel's Separate pieces row.
 - **Version history**: how many earlier versions a save keeps inside the file, more, standard or
   fewer; see [version history](version-history). Versions you keep always stay, and unsaved work
   is always kept for recovery.
@@ -67,9 +71,10 @@ match, for example `zoom`, `grid` or `view cube`. Choosing a tab clears the sear
   system's, and how soon hover help appears: at once, after about a third of a second, or after a
   second. See [accessibility](accessibility).
 - **In the 3D view**: thin, standard or thick body edges, whether the outlines of round faces are
-  drawn, and whether the view cube with Fit all and the Isometric view button is shown, how large
-  it is (small, standard or large) and which corner of the view it sits in. In a bottom corner the
-  axes or the mouse hints move aside to make room for it.
+  drawn, whether the view cube with Fit all and the Isometric view button is shown, how large
+  it is (small, standard or large) and which corner of the view it sits in (in a bottom corner the
+  axes or the mouse hints move aside to make room for it), and **Show principal planes only when
+  needed**, on at first: see [display styles and hiding](display).
 
 ## Your own themes
 

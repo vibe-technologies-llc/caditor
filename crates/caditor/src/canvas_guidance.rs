@@ -5,10 +5,8 @@ use egui::{
 };
 
 use crate::{
-    appearance::{SPACE_M, SPACE_S, SPACE_SM},
+    appearance::SPACE_S,
     canvas::{self, ChipLook, FEWER_KEYS, HintList, Hints, MORE_KEYS},
-    commands::Command,
-    icons,
     scene_palette::{ScenePalette, color32},
 };
 
@@ -26,9 +24,6 @@ const PIVOT_STROKE: f32 = 2.0;
 const PIVOT_HALO: f32 = 4.0;
 const PROMPT_MARGIN: f32 = 16.0;
 const PROMPT_MAX_WIDTH: f32 = 720.0;
-const EMPTY_WIDTH: f32 = 420.0;
-const EMPTY_BUTTON_PADDING: f32 = SPACE_M;
-const EMPTY_GAP: f32 = SPACE_SM;
 const MORE_KEYS_ID: &str = "more keys";
 
 #[derive(Debug, Clone, PartialEq)]
@@ -311,111 +306,4 @@ fn more_keys_chip(ui: &Ui, chip: Rect, more_keys: &mut bool) -> ChipLook {
         pressed: response.is_pointer_button_down_on(),
         focused: response.has_focus(),
     }
-}
-
-pub struct Start {
-    pub command: Command,
-    pub label: &'static str,
-    pub hover: String,
-}
-
-pub struct EmptyState<'a> {
-    pub title: &'a str,
-    pub text: &'a str,
-    pub starts: &'a [Start],
-}
-
-pub fn show_empty_state(
-    ui: &Ui,
-    view: Rect,
-    band: Rect,
-    empty: &EmptyState<'_>,
-) -> (Rect, Option<Command>) {
-    let painter = ui.painter();
-    let chrome = canvas::chrome(painter.ctx());
-    let width = band.width().min(EMPTY_WIDTH);
-    let padding = Vec2::splat(canvas::MARGIN);
-    let inner = (width - padding.x * 2.0).max(0.0);
-    let title = painter.layout(empty.title.to_owned(), canvas::title(), chrome.text, inner);
-    let text = painter.layout(empty.text.to_owned(), canvas::body(), chrome.muted, inner);
-    let buttons: Vec<(Vec2, &Start)> = empty
-        .starts
-        .iter()
-        .map(|start| {
-            let glyph = painter.layout_no_wrap(
-                icons::command(start.command).to_owned(),
-                canvas::icon(),
-                chrome.text,
-            );
-            let label =
-                painter.layout_no_wrap(start.label.to_owned(), canvas::emphasis(), chrome.text);
-            let size = vec2(
-                glyph.size().x + SPACE_SM + label.size().x + EMPTY_BUTTON_PADDING * 2.0,
-                canvas::BUTTON_HEIGHT,
-            );
-            (size, start)
-        })
-        .collect();
-    let mut rows: Vec<Vec<(Vec2, &Start)>> = Vec::new();
-    for (size, start) in buttons {
-        let fits = rows.last().is_some_and(|row| {
-            let used: f32 = row.iter().map(|(size, _)| size.x + EMPTY_GAP).sum();
-            used + size.x <= inner
-        });
-        match rows.last_mut() {
-            Some(row) if fits => row.push((size, start)),
-            _ => rows.push(vec![(size, start)]),
-        }
-    }
-    let rows_height = rows.len() as f32 * (canvas::BUTTON_HEIGHT + EMPTY_GAP);
-    let content = vec2(
-        inner,
-        title.size().y + EMPTY_GAP + text.size().y + EMPTY_GAP * 2.0 + rows_height - EMPTY_GAP,
-    );
-    let size = content + padding * 2.0;
-    let half = size.x / 2.0;
-    let x = view
-        .center()
-        .x
-        .min(band.right() - half)
-        .max(band.left() + half);
-    let card = Align2::CENTER_TOP.anchor_size(pos2(x, view.top() + PROMPT_MARGIN), size);
-    canvas::paint_backdrop(painter, card);
-    let mut y = card.top() + padding.y;
-    let title_height = title.size().y;
-    painter.galley(pos2(card.left() + padding.x, y), title, chrome.text);
-    y += title_height + EMPTY_GAP;
-    let text_height = text.size().y;
-    painter.galley(pos2(card.left() + padding.x, y), text, chrome.muted);
-    canvas::announce(
-        ui,
-        card,
-        "empty model",
-        &format!("{} {}", empty.title, empty.text),
-        None,
-    );
-    y += text_height + EMPTY_GAP * 2.0;
-    let mut chosen = None;
-    for row in rows {
-        let row_width: f32 =
-            row.iter().map(|(size, _)| size.x + EMPTY_GAP).sum::<f32>() - EMPTY_GAP;
-        let mut x = card.center().x - row_width / 2.0;
-        for (size, start) in row {
-            let rect = Rect::from_min_size(pos2(x, y), size);
-            let response = canvas::button(
-                ui,
-                rect,
-                ui.id().with(("empty model", start.label)),
-                icons::command(start.command),
-                start.label,
-            )
-            .on_hover_text(&start.hover);
-            if response.clicked() {
-                chosen = Some(start.command);
-            }
-            x += size.x + EMPTY_GAP;
-        }
-        y += canvas::BUTTON_HEIGHT + EMPTY_GAP;
-    }
-    (card, chosen)
 }

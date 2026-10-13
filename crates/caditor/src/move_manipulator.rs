@@ -11,6 +11,7 @@ use crate::{
     feature_fields::Rule,
     handle_snap::{Guide, Snap},
     hole_handles::HoleGrip,
+    image_handles::ImageGrip,
     manipulator::{self, Held},
     model::Model,
     move_panel,
@@ -51,6 +52,7 @@ pub enum Handle {
     Hole(HoleGrip),
     Value(Measured),
     Revolve(TurnEnd),
+    Image(ImageGrip),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -125,7 +127,8 @@ impl Handle {
             | Self::Place(_)
             | Self::Hole(_)
             | Self::Value(_)
-            | Self::Revolve(_) => Vec::new(),
+            | Self::Revolve(_)
+            | Self::Image(_) => Vec::new(),
         }
     }
 
@@ -149,6 +152,7 @@ impl Handle {
             Self::Hole(_) => "Drag to move the hole".to_owned(),
             Self::Value(_) => "Drag to change the value".to_owned(),
             Self::Revolve(end) => end.words(),
+            Self::Image(grip) => grip.words().to_owned(),
         }
     }
 }
@@ -361,7 +365,8 @@ impl MoveHandles {
             | Handle::Place(_)
             | Handle::Hole(_)
             | Handle::Value(_)
-            | Handle::Revolve(_) => None,
+            | Handle::Revolve(_)
+            | Handle::Image(_) => None,
         }
     }
 
@@ -379,7 +384,8 @@ impl MoveHandles {
             | Handle::Place(_)
             | Handle::Hole(_)
             | Handle::Value(_)
-            | Handle::Revolve(_) => false,
+            | Handle::Revolve(_)
+            | Handle::Image(_) => false,
         });
         let reach = HIT_POINTS * pixels_per_point;
         let arrows = MoveAxis::ALL.into_iter().filter_map(|axis| {
@@ -430,7 +436,8 @@ impl MoveHandles {
             | Handle::Place(_)
             | Handle::Hole(_)
             | Handle::Value(_)
-            | Handle::Revolve(_) => None,
+            | Handle::Revolve(_)
+            | Handle::Image(_) => None,
         }
     }
 
@@ -656,7 +663,8 @@ impl MoveDrag {
             | Handle::Place(_)
             | Handle::Hole(_)
             | Handle::Value(_)
-            | Handle::Revolve(_) => Guide::Points,
+            | Handle::Revolve(_)
+            | Handle::Image(_) => Guide::Points,
         }
     }
 
@@ -670,7 +678,8 @@ impl MoveDrag {
             | Handle::Place(_)
             | Handle::Hole(_)
             | Handle::Value(_)
-            | Handle::Revolve(_) => None,
+            | Handle::Revolve(_)
+            | Handle::Image(_) => None,
         }
     }
 
@@ -908,7 +917,8 @@ pub fn typing(handle: Handle) -> Option<(String, Dimension, usize)> {
         | Handle::Place(_)
         | Handle::Hole(_)
         | Handle::Value(_)
-        | Handle::Revolve(_) => None,
+        | Handle::Revolve(_)
+        | Handle::Image(_) => None,
     }
 }
 
@@ -959,7 +969,8 @@ pub fn typed(
         | Handle::Place(_)
         | Handle::Hole(_)
         | Handle::Value(_)
-        | Handle::Revolve(_) => return None,
+        | Handle::Revolve(_)
+        | Handle::Image(_) => return None,
     }
     manipulator::keeping_names(document, feature, FeatureKind::Move(movement), named)
 }
@@ -1021,7 +1032,8 @@ fn point_on(
         | Handle::Place(_)
         | Handle::Hole(_)
         | Handle::Value(_)
-        | Handle::Revolve(_) => None,
+        | Handle::Revolve(_)
+        | Handle::Image(_) => None,
     }
 }
 

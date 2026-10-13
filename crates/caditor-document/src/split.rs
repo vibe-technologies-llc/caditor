@@ -311,8 +311,7 @@ pub(crate) fn evaluate(
 ) -> Result<FeatureResult, Failure> {
     let body_name = inputs
         .document
-        .feature(definition.body)
-        .map(|body| body.name.clone())
+        .body_label(definition.body)
         .unwrap_or_default();
     let words = Words::new(inputs.document, &definition.along, &body_name);
     let context = Context {

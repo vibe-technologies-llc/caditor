@@ -10,6 +10,10 @@ use crate::{
     settings::Settings,
 };
 
+pub fn decode_picture(bytes: &[u8]) -> Result<crate::RgbaPixels, crate::PictureReadError> {
+    crate::decode_picture(bytes)
+}
+
 pub fn reseal(bytes: &[u8]) -> Vec<u8> {
     binary::reseal(bytes)
 }

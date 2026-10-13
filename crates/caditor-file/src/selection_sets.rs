@@ -67,7 +67,8 @@ pub(crate) fn selection_sets_record(document: &Document) -> Option<SelectionSets
 }
 
 fn storable(raw: u64) -> Option<FeatureId> {
-    (raw < FIRST_UNSTORABLE_ID).then(|| FeatureId::from_raw(raw))
+    let body = FeatureId::from_raw(raw);
+    (body.maker().raw() < FIRST_UNSTORABLE_ID).then_some(body)
 }
 
 fn restore_member(record: &SetMemberRecord) -> Option<SetMember> {

@@ -6,18 +6,18 @@ use std::{
 };
 
 use caditor_document::{
-    AxisMate, AxisReference, AxisSide, AxisTurn, BlendKind, BodyAppearance, BodyOperation,
+    AxisMate, AxisReference, AxisSide, AxisTurn, Blend, BlendKind, BodyAppearance, BodyOperation,
     BodyPlacement, ChamferForm, Combine, CombineOperation, CopyOrientation, CurvePattern,
     CurveSpacing, Datum, DatumAxis, DatumFrame, DatumPlane, DatumPoint, EdgeGroup, Extrude,
-    ExtrudeEnd, ExtrudeExtent, FaceColour, FaceTangent, FaceThickness, FinePitch, Finish, Hole,
-    HoleBottom, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle,
+    ExtrudeEnd, ExtrudeExtent, FaceColour, FaceTangent, FaceThickness, Feature, FinePitch, Finish,
+    Hole, HoleBottom, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle,
     Import, Mate, MatePair, MetricSize, Mirror, ModelProperties, Move, OffsetFace, Outline,
-    ParameterOwner, ParameterValues, Pattern, PatternKind, Pipe, PlaneRotation, PlaneThrough,
-    PointBy, PointReference, PointsPattern, PrincipalAxis, PrincipalGeometry, ProjectionSource,
-    RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rgb, Scale, Shell, ShellSide,
-    SketchFeature, SolidFeature, SolidStart, Split, SplitAlong, SplitCarry, SplitFace, Sweep,
-    SweepPath, TappedThread, ThreadFamily, ThreadForm, ThreadHand, TurnCentre, Wall,
-    point_instance,
+    ParameterOwner, ParameterValues, Pattern, PatternKind, PieceKey, PieceLooks, Pieces, Pipe,
+    PlaneRotation, PlaneThrough, PointBy, PointReference, PointsPattern, PrincipalAxis,
+    PrincipalGeometry, ProjectionSource, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent,
+    Rgb, Scale, Shell, ShellSide, SketchFeature, SolidFeature, SolidStart, Split, SplitAlong,
+    SplitCarry, SplitFace, Sweep, SweepPath, TappedThread, ThreadFamily, ThreadForm, ThreadHand,
+    TurnCentre, Wall, point_instance,
 };
 use caditor_kernel::{
     EdgeName, EdgeReference, FaceName, FaceOrigin, FaceReference, PipeShape, Solid,
@@ -50,7 +50,7 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 27] = [
+const KEPT: [(&str, &str); 31] = [
     (
         "journal-1/by-reference.journal",
         "fe98725da8d9df46b19d7cede1474bcfb92bbda00d4de9c890e5bca5d0f2899f",
@@ -62,6 +62,14 @@ const KEPT: [(&str, &str); 27] = [
     (
         "journal-1/rebased.journal",
         "29586076a032208d8c3f3630c649dbca0afb09ef7023c4b25c24d93860c6c741",
+    ),
+    (
+        "journal-1/reference-images.journal",
+        "817180e04d6aa6752c2000efc746d716fc67646baeb6f5b6f772d6537c2fdeb5",
+    ),
+    (
+        "journal-1/separate-pieces.journal",
+        "9878be6506ba65ce5af74de2f72f137ab88a29a868596a2d9dbc8966f06d1afe",
     ),
     (
         "journal-1/sliced.journal",
@@ -130,6 +138,14 @@ const KEPT: [(&str, &str); 27] = [
     (
         "model-1/projected-datums.caditor",
         "ba72f19aff762f3bea392f66c955ceda4d55df4a927d8d7740bb883dfc560f0f",
+    ),
+    (
+        "model-1/reference-images.caditor",
+        "d7e693bdc1a275426b2507a33a627d7108a9e0753c9976ae82f24ca4e816d0b4",
+    ),
+    (
+        "model-1/separate-pieces.caditor",
+        "624f5fbd3edf58847ef20022d29608d450a4ff1bd4136cca9f5c0939ddbdd915",
     ),
     (
         "model-1/shell-walls.caditor",
@@ -693,6 +709,10 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
         (model("path-sweeps"), saved(&path_sweeps(), "Path sweeps")),
         (model("pipes"), saved(&pipes(), "Pipes")),
         (
+            model("separate-pieces"),
+            saved(&separate_pieces(), "Separate pieces"),
+        ),
+        (
             model("point-targets"),
             saved(&point_targets(), "Point targets"),
         ),
@@ -712,6 +732,10 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
         ),
         (model("measured"), saved(&measured_model().0, "Measure")),
         (model("imports"), saved(&imports(), "Imports")),
+        (
+            model("reference-images"),
+            saved(&reference_images(), "Reference images"),
+        ),
         (model("document"), document_with_history()),
         (
             model("sliced"),
@@ -719,8 +743,10 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
         ),
         (journal("every-edit"), every_edit_journal()),
         (journal("by-reference"), seed_journal_by_reference(0)),
+        (journal("separate-pieces"), separate_pieces_journal()),
         (journal("rebased"), seed_journal_by_reference(12)),
         (journal("sliced"), with_slices_of(SLICE, every_edit_journal)),
+        (journal("reference-images"), reference_image_journal()),
         (parameters("exported"), exported_parameters().into_bytes()),
     ];
     files.sort();
@@ -789,6 +815,130 @@ fn spline_pieces() -> Document {
     transaction.add_feature("Trimmed spline", FeatureKind::from(drawn));
     document.apply(transaction.finish()).unwrap();
     document
+}
+
+fn blocks_sketch() -> (Sketch, [EntityId; 3]) {
+    let mut drawn = Sketch::new(Plane::XY);
+    let mut first_lines = [EntityId::from_raw(0); 3];
+    for (index, x) in [0.0, 20.0, 40.0].into_iter().enumerate() {
+        let corners = [
+            Point2::new(x, 0.0),
+            Point2::new(x + 10.0, 0.0),
+            Point2::new(x + 10.0, 10.0),
+            Point2::new(x, 10.0),
+        ];
+        for side in 0..4 {
+            let line = drawn.add_line(corners[side], corners[(side + 1) % 4]);
+            if side == 0
+                && let Some(first) = first_lines.get_mut(index)
+            {
+                *first = line;
+            }
+        }
+    }
+    (drawn, first_lines)
+}
+
+fn blocks(sketch: FeatureId) -> FeatureKind {
+    FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+        sketch,
+        regions: RegionChoice::All,
+        extent: ExtrudeExtent::one_side(Expression::parse_stored("5 mm").unwrap(), false),
+        operation: BodyOperation::NewBody,
+        start: None,
+        other_bodies: Vec::new(),
+        taper: None,
+        wall: None,
+        direction: None,
+    }))
+}
+
+fn piece_key(line: EntityId) -> PieceKey {
+    PieceKey::of_entity(line).unwrap()
+}
+
+pub(super) fn separate_pieces() -> Document {
+    let (drawn, lines) = blocks_sketch();
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Separate pieces");
+    let sketch = transaction.add_feature("Blocks sketch", FeatureKind::from(drawn));
+    let mut extruded = Feature::new(FeatureId::from_raw(0), "Blocks".to_owned(), blocks(sketch));
+    extruded.pieces = Pieces::BodyEach;
+    extruded.piece_looks = PieceLooks::default()
+        .with_appearance(
+            piece_key(lines[0]),
+            BodyAppearance {
+                colour: Some(Rgb {
+                    red: 200,
+                    green: 40,
+                    blue: 40,
+                }),
+                name: Some("Left block".to_owned()),
+                ..BodyAppearance::default()
+            },
+        )
+        .with_hidden(piece_key(lines[2]));
+    let extruded = transaction.add_copied_feature(extruded);
+    transaction.add_feature(
+        "Rounded middle",
+        FeatureKind::Blend(Blend {
+            kind: BlendKind::Fillet,
+            body: extruded.piece(piece_key(lines[1])).unwrap(),
+            groups: Vec::new(),
+            edges: vec![edge(9)],
+            size: Expression::parse_stored("1 mm").unwrap(),
+            form: ChamferForm::Equal,
+            flipped: false,
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
+fn separate_pieces_journal() -> Vec<u8> {
+    let (drawn, lines) = blocks_sketch();
+    let mut base = Document::default();
+    let mut transaction = base.transaction("Blocks");
+    let sketch = transaction.add_feature("Blocks sketch", FeatureKind::from(drawn));
+    let extruded = transaction.add_feature("Blocks", blocks(sketch));
+    base.apply(transaction.finish()).unwrap();
+    let middle = extruded.piece(piece_key(lines[1])).unwrap();
+    let mut session = Session {
+        editor: Editor::new(base.clone()),
+        entries: Vec::new(),
+    };
+    session.apply(Transaction::single(
+        "A body each",
+        Edit::SetFeaturePieces {
+            id: extruded,
+            pieces: Pieces::BodyEach,
+        },
+    ));
+    session.apply(Transaction::new(
+        "Looks",
+        vec![
+            Edit::SetBodyAppearance {
+                id: middle,
+                appearance: BodyAppearance {
+                    name: Some("Middle block".to_owned()),
+                    ..BodyAppearance::default()
+                },
+            },
+            Edit::SetFeatureHidden {
+                id: extruded.piece(piece_key(lines[2])).unwrap(),
+                hidden: true,
+            },
+        ],
+    ));
+    let model = save_bytes(&base, None, at(1_700_000_000), Some("Blocks")).unwrap();
+    let on_disk = decode(&model).unwrap().digest.unwrap();
+    let head = JournalHead {
+        file: Some(Path::new("/models/blocks.caditor")),
+        on_disk: Some(&on_disk),
+        loaded_with_problems: false,
+        folded: 0,
+    };
+    encode_journal(&head, &base, &session.entries).unwrap()
 }
 
 fn sketches() -> Document {
@@ -2351,6 +2501,127 @@ fn every_edit_journal() -> Vec<u8> {
         folded: 0,
     };
     encode_journal(&head, &base, &entries).unwrap()
+}
+
+fn corpus_picture(width: u32, height: u32) -> std::sync::Arc<caditor_document::Picture> {
+    let pixels = image::RgbaImage::from_fn(width, height, |x, y| {
+        let shade = u8::try_from((x * 31 + y * 17) % 256).unwrap();
+        image::Rgba([shade, 255 - shade, 128, 255])
+    });
+    let mut bytes = io::Cursor::new(Vec::new());
+    image::DynamicImage::ImageRgba8(pixels)
+        .write_to(&mut bytes, image::ImageFormat::Png)
+        .unwrap();
+    crate::read_picture(bytes.into_inner()).unwrap().picture
+}
+
+fn reference_image(
+    picture: &std::sync::Arc<caditor_document::Picture>,
+    plane: caditor_document::ImagePlane,
+) -> caditor_document::ReferenceImage {
+    let parse = |text: &str| Expression::parse_stored(text).unwrap();
+    caditor_document::ReferenceImage {
+        picture: std::sync::Arc::clone(picture),
+        plane,
+        at: [parse("12 mm"), parse("-4 mm")],
+        turn: parse("15 deg"),
+        flipped: false,
+        size: caditor_document::ImageSize::Width(parse("120 mm")),
+        opacity: caditor_document::DEFAULT_IMAGE_OPACITY_PERCENT,
+        in_front: false,
+        locked: false,
+    }
+}
+
+fn reference_images() -> Document {
+    let photo = corpus_picture(6, 4);
+    let scan = corpus_picture(3, 5);
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Reference images");
+    let width = transaction.add_parameter("width", transaction.parse("80 mm").unwrap());
+    let sketch = transaction.add_feature("Tracing", FeatureKind::from(Sketch::new(Plane::YZ)));
+    transaction.add_feature(
+        "Photo",
+        FeatureKind::ReferenceImage(Box::new(reference_image(
+            &photo,
+            caditor_document::ImagePlane::Reference(PlaneReference::Principal(PrincipalPlane::Xz)),
+        ))),
+    );
+    transaction.add_feature(
+        "Photo again",
+        FeatureKind::ReferenceImage(Box::new(caditor_document::ReferenceImage {
+            flipped: true,
+            in_front: true,
+            locked: true,
+            opacity: 20,
+            ..reference_image(
+                &photo,
+                caditor_document::ImagePlane::Reference(PlaneReference::Principal(
+                    PrincipalPlane::Xy,
+                )),
+            )
+        })),
+    );
+    transaction.add_feature(
+        "Scan",
+        FeatureKind::ReferenceImage(Box::new(caditor_document::ReferenceImage {
+            size: caditor_document::ImageSize::Calibrated(caditor_document::Calibration {
+                from: caditor_document::ImageSpot::new(0.25, 0.125),
+                to: caditor_document::ImageSpot::new(0.75, 0.875),
+                distance: Expression::Parameter(width),
+            }),
+            ..reference_image(&scan, caditor_document::ImagePlane::Sketch(sketch))
+        })),
+    );
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
+fn reference_image_journal() -> Vec<u8> {
+    let base = reference_images();
+    let photo = named(&base, "Photo");
+    let mut session = Session {
+        editor: Editor::new(base.clone()),
+        entries: Vec::new(),
+    };
+    let mut inserting = session.editor.document().transaction("Insert");
+    let drawing = inserting.add_feature(
+        "Drawing",
+        FeatureKind::ReferenceImage(Box::new(reference_image(
+            &corpus_picture(4, 4),
+            caditor_document::ImagePlane::Reference(PlaneReference::Principal(PrincipalPlane::Xy)),
+        ))),
+    );
+    session.apply(inserting.finish());
+    for (feature, opacity) in [(drawing, 40), (photo, 80), (drawing, 100)] {
+        let FeatureKind::ReferenceImage(image) = session
+            .editor
+            .document()
+            .feature(feature)
+            .unwrap()
+            .kind
+            .clone()
+        else {
+            panic!("a reference image");
+        };
+        session.apply(Transaction::single(
+            "Edit",
+            Edit::SetFeatureKind {
+                id: feature,
+                kind: FeatureKind::ReferenceImage(Box::new(caditor_document::ReferenceImage {
+                    opacity,
+                    ..*image
+                })),
+            },
+        ));
+    }
+    let head = JournalHead {
+        file: None,
+        on_disk: None,
+        loaded_with_problems: false,
+        folded: 0,
+    };
+    encode_journal(&head, &base, &session.entries).unwrap()
 }
 
 fn exported_parameters() -> String {

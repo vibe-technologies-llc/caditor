@@ -270,8 +270,8 @@ impl BodySnaps {
                 continue;
             };
             let name = document
-                .feature(*body)
-                .map_or_else(|| "a body".to_owned(), |feature| feature.name.clone());
+                .body_label(*body)
+                .unwrap_or_else(|| "a body".to_owned());
             snaps.add_corners(result, *body, &name, &basis.plane);
             snaps.add_edges(result, *body, &name, &basis.plane);
         }

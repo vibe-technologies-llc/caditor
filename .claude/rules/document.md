@@ -30,7 +30,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   applies a transaction to that copy, `Editor::commit` swaps it in only if the revision is
   unchanged, else `Stale`.
 - Edits carry their IDs, so redo restores them; counters never move backwards. Parameter and
-  feature IDs stay below `FIRST_UNSTORABLE_ID` (`ReservedId`).
+  feature IDs stay below `FIRST_UNSTORABLE_ID` (`ReservedId`); the IDs at or above it name the bodies
+  of separate pieces (Separate pieces below), never a feature.
 - Edits refuse to break invariants: references to a feature below the one using it or to itself
   (an insert naming its own id too), an insert landing below a feature already using its id
   (`BelowUser`, found through `FeatureList::users_of`), unknown parameters, parameter cycles, deleting a parameter in
@@ -231,12 +232,16 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 
 - `hidden` (`Edit::SetFeatureHidden`) and `suppressed` (`SetFeatureSuppressed`) are undoable,
   journaled content carried by `InsertFeature`, so undoing a deletion restores them. Recompute
-  ignores `hidden` and skips a suppressed feature as if absent.
+  ignores `hidden` and skips a suppressed feature as if absent. `SetFeatureHidden` of a piece's body
+  sets that piece's flag in its feature's `piece_looks` (Separate pieces below).
 - Hidden principal planes, axes and origin (`PrincipalGeometry`, `Edit::SetPrincipalHidden`) are
-  content too, so hiding a mixed selection and undoing it are one change.
+  content too, so hiding a mixed selection and undoing it are one change. The app tucking them away
+  while no plane, axis or point is being chosen is view state outside the document
+  (`app-modelling.md`, Visibility).
 - Content in the `same_content`/`transaction_to`/`heap_size` family, ignored by recompute: a
-  feature's `group`, `appearance`, `ModelProperties`, `SavedViews`, `SelectionSets` and
-  `Configurations`. Each has one whole-set edit whose inverse holds the previous set.
+  feature's `group`, `appearance`, `piece_looks`, `ModelProperties`, `SavedViews`, `SelectionSets`
+  and `Configurations`. Each has one whole-set edit whose inverse holds the previous set. A
+  feature's `pieces` is in the family too but is computed (Separate pieces below).
 
 ### Feature groups (`grouping.rs`)
 
@@ -318,7 +323,9 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 
 - `BodyAppearance`: an sRGB `Rgb` colour, a material name, a density expression, an optional
   `Finish`, `name`, `opacity`, `faces`. `Edit::SetBodyAppearance` sets it whole on a feature that
-  `makes_body` (else `NotABody`); a feature that stops making a body keeps it unused. Recompute
+  `makes_body` (else `NotABody`), or, given a piece's body, on that piece (Separate pieces below); a
+  feature that stops making a body keeps it unused. `Document::body_appearance` and `body_hidden`
+  read a body's look whichever it is. Recompute
   ignores it except a measurement of a whole body, whose cache key holds the appearance and the
   density's parameters.
 - Material name: trimmed, blank is none, past `MAX_MATERIAL_NAME_CHARS` refused. `name` is the
@@ -397,8 +404,9 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 - `SetFeatureKind` replaces settings but never the kind (`EditError::KindChange`); a blend may
   switch fillet/chamfer, a pattern between its kinds, a datum within its `Datum::kind`. Sketches
   change through sketch edits. An edit whose new kind still `makes_body` keeps the body for its
-  users; one that stops making it is refused as `BodyInUse` naming the users. Update references
-  (`healing.rs`) is not refused by it.
+  users; one that stops making it is refused as `BodyInUse` naming the users (of its body or of any
+  of its pieces), and one that starts or stops making a body of each piece while any of them is used
+  as `PiecesInUse`. Update references (`healing.rs`) is not refused by it.
 - `bodies_used`, `planes_used` and `axes_used` extend `features()`, so dependents, moves and
   deletions account for them. `origin_features` (features that made the faces and edges a feature
   holds, from the references' `FaceOrigin`s) join them in `dependencies()`, which `dependents_of`,
@@ -510,6 +518,9 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   of the pipe must be more than zero."); all three are its expressions (parameters, inlining, model
   scale). It calls kernel `pipe` and joins, cuts or intersects like a primitive
   (`primitive::combined`, keeping its tool as `joins` or `cuts`, so `repeatable_on` takes it).
+- `pipe::stand` (exported as `pipe_stand`) resolves the path from an `Evaluation` the way the
+  recompute does (the path sketch's result, the path body as the pipe sees it) and asks kernel
+  `pipe_stand` for the start section's plane and first corner, for the app's value arrows.
 - The path's sketch is in `reference_sketches` and `features()`, its body in `bodies_used`, its
   edges' origins among `origin_features`; healing visits its edges (`healing::visit_path`), a path
   curve cannot be removed (`EntityInUse`) and no path waits (`MissingInput::Path`).
@@ -835,10 +846,64 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
     fail in words. Body counted in `bodies_used`, origins among the feature's, healing visits.
   - A tool that misses the body fails naming the plane, curve or body; a sketch's own problems fail
     with the fix on the sketch.
-- It is the one feature whose result holds two bodies: the kept part is the result's `SolidResult`
-  and the split-off part is in `SolidResult::others`. `Feature::bodies` lists both (settling counts
-  both), the walk stands each part under its own body (`body_parts`), and `Evaluation::body_result`
-  and `body_seen_by` find a body inside its state's result (`body_part`).
+- Its result holds two bodies: the kept part is the result's `SolidResult` and the split-off part
+  is in `SolidResult::others`. `Feature::bodies` lists both (settling counts both), the walk stands
+  each part under its own body (`body_parts`), and `Evaluation::body_result` and `body_seen_by` find a
+  body inside its state's result (`body_part`). A feature making a body of each piece holds its
+  pieces the same way (Separate pieces below).
+
+### Separate pieces (`body_pieces.rs`)
+
+- A feature's `pieces` (`Pieces::OneBody`, the default and what every older model holds, or
+  `BodyEach`) says whether a new body of several pieces that do not touch stays one body of several
+  lumps or becomes a body per piece. It lives on the `Feature`, beside `hidden` and `appearance`, so
+  every body-making kind can take it; only a `SolidFeature` (extrusion, revolve, sweep) making a
+  `NewBody` acts on it (`Feature::can_separate_pieces`, `separates_pieces`). A pipe follows one path
+  without gaps and so is always one piece; a primitive, import or copy is one solid as made.
+  `Edit::SetFeaturePieces` sets it (undoable, journaled); the recompute cache compares it with the
+  kind.
+- A piece's body ID is a `FeatureId` at or above `FIRST_UNSTORABLE_ID`: the mark bit, the making
+  feature's ID (below 2^31) and a 32-bit `PieceKey` (`FeatureId::piece`, `piece_key`, `maker`,
+  `is_piece`). So every field naming a body (a target, a tool, a blend's or reference's body, a
+  selection set's or configuration's colour) names a piece unchanged, and the file stores it as any
+  body ID. `FeatureKind::features` maps every ID through `maker`, so dependencies, deletion
+  questions, moves, inserts' checks and the ID counter see the making feature; `bodies_used` and
+  `consumed_bodies` keep the piece IDs. A piece of a feature with a larger ID, or keyed past 2^32,
+  fails the feature in words.
+- The key is the sketch curve that drew the piece, never its place in the result:
+  `body_pieces::separated` takes the built solid apart (`Solid::lumps`), gathers the entities of each
+  lump's side faces made by the feature (`FaceOrigin::Side`), and keys the lump by the lowest of
+  them; lumps sharing their lowest curve (a long line under two shapes) each take their lowest curve
+  no other lump has, and lumps drawn wholly by shared curves fail the feature saying they cannot be
+  told apart. Moving shapes, drawing new ones (new bodies) and holes inside a shape keep every key;
+  pieces that grow together into one keep the key of the one whose curve was drawn first (the lowest
+  entity ID), and the other's body is gone. Pieces sort by key: the first is the result's own
+  `SolidResult`, the rest its `others`, all under the making feature's state, so `body_part`,
+  `Evaluation::body_result`, `bodies` and the stale last good bodies (`last_good_bodies`, by maker)
+  read them like any body; `Evaluation::pieces_made_by` lists a feature's pieces. Settling at a
+  separating feature's index settles each of its pieces no later feature changes
+  (`settled_bodies`).
+- A feature using a piece that no longer stands fails through `Inputs::missing_body`
+  (`missing_piece`): with the maker separating, "The piece of <feature> drawn by <curve> is no
+  longer there" ("a curve since deleted" when the curve is gone), fixed on the sketch; with the maker
+  no longer separating, saying to set it back to a body each.
+- `piece_looks` (`PieceLooks`) holds each piece's own `BodyAppearance` and hidden flag by key. A piece
+  without its own look takes the feature's appearance without its name (`Feature::piece_appearance`,
+  `inherited_piece_appearance`); `SetBodyAppearance` of an appearance equal to that stores none, so
+  the inverse restores exactly what was there. `InsertFeature` settles them and checks each
+  appearance; their densities count among the feature's parameters, inlining rewrites them per
+  piece and pasting carries them. Looks of pieces gone are kept, so a piece drawn again gets its
+  look back.
+- `Document::body_name` (a `Cow`) gives a piece's own name, else "<feature> (<curve label>)"
+  (`piece_curve`, the entity's label in the sketch while it exists); `body_label` gives a piece that
+  name and any other body its feature's name, which every failure naming a body uses. `body_maker`
+  is the making feature. `features_on_body` of a piece includes the features on its maker, so the
+  scene's health and `face_splits` see them. `bodies_before_in` and `bodies_standing_in` list the
+  bodies with each separating feature's pieces, read from an `Evaluation`; `bodies_before` and
+  `bodies_standing` stay by making feature.
+- Pasting maps a piece of a copied feature through a placeholder of its own
+  (`PIECE_PLACEHOLDER_BASE`, below `FIRST_UNSTORABLE_ID` like the plain placeholders), so a copy
+  using a piece of a copy uses the matching piece of the new feature.
 
 ### Split face (`split_face.rs`)
 
@@ -1118,6 +1183,40 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   same parameter (`ParameterMeasuredTwice`); and inlining a measured parameter
   (`MeasuredParameterInlined`). A pasted measurement feeds nothing; its references follow a datum's
   paste rules.
+
+### Reference image (`reference_image.rs`, `picture.rs`)
+
+- A picture to trace over is a feature of its own, `FeatureKind::ReferenceImage` (boxed
+  `ReferenceImage`), not an item of a sketch: it is placed like a datum or primitive (on a
+  `PlaneReference`, or with `ImagePlane::Sketch` on a sketch's solved plane), it can stand on any
+  plane without a sketch there, hides with the datums, and one feature row is what the user opens,
+  hides, deletes and undoes. Keeping it out of `Sketch` also keeps the solver, sketch records and
+  clipboard free of picture bytes. It makes no body (`Feature::body` none) and can be hidden.
+- `ReferenceImage { picture, plane, at, turn, flipped, size, opacity, in_front, locked }`: `at` is two
+  lengths along the plane's X and Y to the picture's middle, `turn` an angle about the normal,
+  `flipped` mirrors it left to right, `size` is `ImageSize::Width` (a length above zero) or
+  `Calibrated` (`Calibration`: two `ImageSpot`s, fractions of the picture's width and height from
+  its bottom left as unflipped, and the real `distance` between them; the width is the distance over
+  their gap with the picture's aspect, `Calibration::spot_gap`). Every value is an expression
+  (parameters, inlining, model scale). `opacity` is a percent, settled by inserts and kind changes
+  into `MIN_IMAGE_OPACITY_PERCENT` to `IMAGE_OPAQUE_PERCENT` (`ReferenceImage::settle`, spots into
+  the picture); `in_front` and `locked` only change how the app shows and picks it.
+- Recompute resolves the plane at its place (a sketch's from its result; a face healed as "the face
+  it lies on"; datum, frame, body and sketch counted in `features()`, so a sketch-plane image stays
+  below its sketch) and gives `FeatureResult::Image` (`PlacedImage`: middle, the unit `across` and
+  `up` directions, width, height, flip; `point_at`, `spot_at`, `corners`, `placed_on`). A width not
+  above zero, two calibration spots at one place, a distance not above zero or a picture past
+  `MAX_SIZE` fails it alone in words.
+- `Picture` holds the file's bytes as they were read (never re-encoded), their blake3
+  `PictureDigest`, the `PictureFormat` sniffed from the bytes (`sniff_picture`: magic numbers for
+  PNG, JPEG, WebP, JPEG XL as a codestream or container, GIF, BMP, TIFF, QOI, a plausible header for
+  TGA; AVIF and HEIC named as `UnsupportedPicture`), and the pixel size the file decodes to, which
+  the shape of the placed picture follows. `Picture::new` refuses (`PictureError`) empty or unknown
+  bytes, more than `MAX_PICTURE_BYTES`, sides past `MAX_PICTURE_SIDE` and more than
+  `MAX_PICTURE_PIXELS`; it never decodes (`caditor-file` does). Kinds share it behind an `Arc`, so a
+  change of opacity copies no bytes; equality is by digest and size. `Picture::placeholder` is a
+  grey pixel standing in for a picture a file lost. `ReferenceImage::heap_size` counts the bytes, as
+  an import counts its STEP text, so undo bounds hold when a deleted image is the last holder.
 
 ### Import (`import.rs`)
 

@@ -26,9 +26,18 @@ until it has one, its row in the tree says "Waiting for a path" rather than fail
   that radius, measured to the middle of the pipe, as a pipe bender would. Zero leaves the corners
   sharp: both sides then meet on the plane halving the corner, as mitred tube does.
 - **Result**: **New body**, **Add to body**, **Remove from body** or **Intersect with body**, and
-  the **Body** it changes. Removing makes a channel or groove of the section.
+  the **Body** it changes. Removing makes a channel or groove of the section. A pipe follows one
+  path without gaps, so it is always one piece and has no Separate pieces setting.
 
 Every size takes units and expressions, so a pipe can follow a parameter such as `tube_d`.
+
+While the pipe is open, arrows in the view drag its sizes: one across the section at the start of
+the path for the diameter, width or side length, one pointing inward from its outer edge for the
+wall thickness (only on a hollow pipe), and one at the middle of the first rounded corner for the
+bend radius (only when the path has a corner between two straight lines). Each drag is one
+undoable change and follows the same steps and snapping as other arrows; Ctrl drags freely, and
+typing a number while holding or hovering an arrow sets the value as the panel field would,
+parameters included.
 
 ## Corners and limits
 

@@ -10,6 +10,8 @@ The Parameters section of the model panel lists them with a name, an
 
 - Type a name and an expression, such as `wall` and `2.5 mm`. An expression may use other
   parameters: `inner = outer - 2 * wall`.
+- The name column is as wide as the longest name needs, within a share of the panel; a longer
+  name ends in an ellipsis and shows whole when hovered.
 - Hover a value to see what uses the parameter. A parameter nothing uses has a muted mark before
   its value.
 - Right-click a row to move it up or down, add a note or delete it. For a parameter in use the
