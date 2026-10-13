@@ -6,7 +6,7 @@ use super::{
     OFFSET_TOLERANCE, Offsets, ShellError,
     collapse::{Collapses, coedge_faces, loop_edges},
     edge::{offset_edge, reverses},
-    split::{Cluster, Split, split_vertex},
+    split::{Cluster, Split, split_vertex, stranded},
 };
 use crate::{
     build::plan::{Plan, PlanCoedge, PlanError, PlanFace},
@@ -897,6 +897,9 @@ fn place_edges(
             .find(|face| collapses.contains(**face))
             .copied()
             .ok_or(ShellError::UnsupportedEdge(id))?;
+        if live.is_empty() && faces.iter().all(|face| collapses.shrinks(*face)) {
+            continue;
+        }
         let [face] = live.as_slice() else {
             return Err(collapses
                 .refusal(solid, dead)
@@ -1077,12 +1080,76 @@ pub(super) struct Inner {
     pub dropped: BTreeSet<FaceId>,
 }
 
+fn enclosed_faces(
+    offsets: &Offsets<'_>,
+    collapses: &Collapses,
+) -> BTreeMap<FaceId, BTreeSet<EdgeId>> {
+    let solid = offsets.solid;
+    let vanishing = collapses.vanishing_edges(solid);
+    let clusters = Clusters::new(solid, &vanishing);
+    let mut within: BTreeMap<VertexId, Vec<(FaceId, BTreeSet<EdgeId>)>> = BTreeMap::new();
+    for (id, face) in solid.faces() {
+        if collapses.contains(id) || face.loops().len() != 1 {
+            continue;
+        }
+        let edges: BTreeSet<EdgeId> = loop_edges(solid, id).into_iter().collect();
+        if !edges.iter().any(|edge| vanishing.contains(edge)) {
+            continue;
+        }
+        let roots: BTreeSet<VertexId> = edges
+            .iter()
+            .filter_map(|edge| solid.edge(*edge))
+            .flat_map(|edge| [edge.start(), edge.end()])
+            .map(|vertex| clusters.find(vertex))
+            .collect();
+        if let (Some(root), 1) = (roots.first(), roots.len()) {
+            within.entry(*root).or_default().push((id, edges));
+        }
+    }
+    let members = clusters.members();
+    let dropped = collapses.faces();
+    let mut enclosed = BTreeMap::new();
+    for (root, faces) in within {
+        let Some(members) = members.get(&root) else {
+            continue;
+        };
+        let members: BTreeSet<VertexId> = members.iter().copied().collect();
+        let cluster = Cluster {
+            members: &members,
+            vanishing: &vanishing,
+            dropped: &dropped,
+        };
+        let stranded = stranded(offsets, &cluster);
+        enclosed.extend(
+            faces
+                .into_iter()
+                .filter(|(face, _)| stranded.contains(face)),
+        );
+    }
+    enclosed
+}
+
 fn settled_layout(offsets: &Offsets<'_>, collapses: &mut Collapses) -> Result<Layout, ShellError> {
     let solid = offsets.solid;
     let mut unsettled = Vec::new();
+    let mut first_failure = None;
     for _ in 0..=solid.faces().count() {
         interrupt::check()?;
-        let layout = Layout::new(offsets, collapses)?;
+        let layout = match Layout::new(offsets, collapses) {
+            Ok(layout) => layout,
+            Err(error @ ShellError::Cancelled(_)) => return Err(error),
+            Err(error) => {
+                let enclosed = enclosed_faces(offsets, collapses);
+                let failure = first_failure.unwrap_or(error);
+                if enclosed.is_empty() {
+                    return Err(failure);
+                }
+                first_failure = Some(failure);
+                unsettled = enclosed.keys().copied().collect();
+                collapses.add_shrinking(enclosed);
+                continue;
+            }
+        };
         let shrinking = layout.shrinking_faces(solid, collapses);
         if shrinking.is_empty() {
             return Ok(layout);

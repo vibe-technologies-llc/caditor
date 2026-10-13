@@ -32,8 +32,8 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   edges alternate (two ridges of different slopes crossing) or one convex edge meets concave ones (a
   cavity whose ridge runs over its inside corner): the offset there joins faces the body keeps
   apart, or runs an edge between another pair of faces, which splitting the corner into several
-  cannot give. Corners of more than eight faces are not split either. All are refused as `Corner`
-  (`shell::tests::a_corner_where_ridges_and_valleys_alternate_is_named`,
+  cannot give. Corners of more than `MAX_SPLIT_FACES` (24) faces are not split either. All are
+  refused as `Corner` (`shell::tests::a_corner_where_ridges_and_valleys_alternate_is_named`,
   `a_cavity_whose_ridge_runs_over_its_inside_corner_is_named`).
 - [medium · hard] `select::classify` lets inside or outside samples win over coincident ones in a
   partly coincident fragment (only coincident samples of opposite senses make it `Ambiguous`). A
@@ -42,6 +42,16 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   `stress_cylinders_on_a_grid`, and none occurs in the boolean tests or the aligned-contact survey;
   making a mixed fragment `Ambiguous` is unchecked against the random-placement survey, and
   splitting fragments exactly at coincident boundaries would replace it.
+- [medium · hard] A box with every edge chamfered by about a third of its height, shelled open at
+  the top, is still refused as `EdgeCollapses` in narrow bands of thickness although the opening
+  stays open (150×150×40 chamfered 15 mm at 14.5, 20.5, 22 and 25 mm; 100×100×30 chamfered 10 mm
+  near 25 mm). Each round decides which faces close from vertices solved on the topology before
+  it: at 14.5 mm the vertical chamfers are taken as closing between their corner triangles when the
+  triangles close and the chamfers survive as small rhombi, and at 20.5 mm the bottom chamfers
+  close only once the sides above them have, which no round sees because the corners they touch
+  cannot be split first. No test pins them; a sweep of chamfered boxes against the cavity's convex
+  planes (as `boxes_with_triangle_corners_shell_open_and_closed_or_refuse_cleanly` builds them)
+  finds them.
 - [low · hard] Two faces side by side that the shell's thickness both closes up (a narrow chamfer
   cone below a narrow lid cone) are refused as `ClosesBesideClosing`: their joints would need the
   offset of the next face that survives, found across a run of dropped bands whose ridges meet

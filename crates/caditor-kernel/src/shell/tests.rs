@@ -1284,6 +1284,52 @@ fn boxes_with_triangle_corners_shell_open_and_closed_or_refuse_cleanly() {
     }
 }
 
+fn chamfered_box(size: Vector3, chamfer: f64, bottom: bool) -> (Solid, Vec<(Vector3, f64)>) {
+    let solid = cuboid(size);
+    let above_floor = |vertex: VertexId| solid.vertex(vertex).is_some_and(|at| at.point().z > 0.0);
+    let edges: Vec<EdgeId> = solid
+        .edges()
+        .filter(|(_, edge)| bottom || above_floor(edge.start()) || above_floor(edge.end()))
+        .map(|(id, _)| id)
+        .collect();
+    let bevelled = blend(&solid, &edges, BlendShape::Chamfer { distance: chamfer }, 5).unwrap();
+
+    let mut planes = bevelled_planes(size, chamfer);
+    if !bottom {
+        planes.retain(|(normal, _)| normal.z >= 0.0 || *normal == Vector3::NEG_Z);
+    }
+    (bevelled, planes)
+}
+
+#[test]
+fn walls_closing_up_chamfers_sides_and_the_top_still_open_the_body() {
+    let cases = [
+        (Vector3::new(100.0, 100.0, 60.0), 15.0, true, 20.625),
+        (Vector3::new(150.0, 150.0, 60.0), 5.0, false, 40.0),
+        (Vector3::new(150.0, 150.0, 40.0), 10.0, false, 33.0),
+        (Vector3::new(150.0, 150.0, 40.0), 15.0, false, 25.0),
+        (Vector3::new(150.0, 150.0, 40.0), 5.0, true, 25.0),
+    ];
+    for (size, chamfer, bottom, thickness) in cases {
+        let (bevelled, outer) = chamfered_box(size, chamfer, bottom);
+        let top = face_facing(
+            &bevelled,
+            Vector3::Z,
+            Point3::new(size.x / 2.0, size.y / 2.0, size.z),
+        );
+        let cavity = cavity_planes(&outer, thickness, true);
+        let name = format!("{size} chamfer {chamfer} bottom {bottom} at {thickness}");
+
+        let result = run(&bevelled, &[top], thickness);
+
+        check(
+            &name,
+            &result,
+            convex_volume(&outer) - convex_volume(&cavity),
+        );
+    }
+}
+
 #[test]
 fn an_opening_under_leaning_walls_is_refused_rather_than_cut_straight() {
     let solid = cuboid(Vector3::new(10.0, 14.0, 10.0));

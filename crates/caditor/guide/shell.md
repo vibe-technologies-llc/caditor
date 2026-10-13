@@ -33,6 +33,8 @@ neither opened nor offset yet.
 Faces leaning over an opening, such as a chamfer around it, keep their thickness up to the
 opening; when the thickness would close the opening or cut such a wall thinner, the shell names
 the face and asks for a smaller thickness instead.
-A face narrower than the walls it lies between, such as a small chamfer, closes up and leaves the
-cavity, its neighbours' walls meeting where it was. When two such faces lie side by side, the shell
-names them and asks for a smaller thickness.
+A face narrower than the walls it lies between, such as a small chamfer or a low side between a
+chamfer and the floor, closes up and leaves the cavity, its neighbours' walls meeting where it was.
+Several can close at once, so walls thicker than the chamfers around an opening may narrow the
+cavity to a ridge or a point that still reaches through the opening. When two such faces lie side
+by side and their neighbours cannot meet, the shell names them and asks for a smaller thickness.

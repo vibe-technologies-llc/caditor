@@ -484,9 +484,19 @@ paths:
   - vanishing edges merge their vertices; a merged vertex must lie strictly inside the offset of
     each face that shrank away there, and beyond an opened face offset outward, so the cavity still
     opens through it, else the edge shrinking to nothing is reported (`Collapses::closes_over`);
-  - a vertex of four to `MAX_SPLIT_FACES` (12) faces whose offsets do not meet is split along a
+  - an edge between two faces that both close as bands (a bottom chamfer and the side above it)
+    vanishes into the ridge, and the edges beyond them, now with the same ends, join across both;
+  - when a round's layout cannot be built, a face whose every vertex lies in one cluster and on
+    whose offset no corner of that cluster can be solved (`split::stranded`, a vertical chamfer
+    left inside a corner whose sides closed) closes with all its edges, and the round is tried
+    again; the split points must still lie inside its offset;
+  - a vertex of four to `MAX_SPLIT_FACES` (24) faces whose offsets do not meet is split along a
     triangulation of its cycle of faces (`split.rs`) when its edges are all convex, all concave, or
-    convex but for one concave edge; other corners are `Corner`. A cluster of merged vertices that
+    convex but for one concave edge; other corners are `Corner`. The triangulation is searched by
+    dynamic programming over the cycle (`Search`, each triangle's point and each diagonal memoised),
+    taking the valid one with the fewest diagonals between coincident split points, ties to the
+    earliest apex: otherwise a corner where a whole top closes could map both ends of a ridge to
+    one point instead of rising to the apex. A cluster of merged vertices that
     cannot be placed at one point is split the same way (`Cluster`): the cycle walks spokes (an
     edge and the cluster vertex it leaves), so a face may come round more than once and an edge
     with both ends in the cluster gets a split point at each end; dropped faces are walked through,

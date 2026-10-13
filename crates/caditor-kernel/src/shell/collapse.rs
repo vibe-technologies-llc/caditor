@@ -143,6 +143,10 @@ impl Collapses {
         self.0.contains_key(&face)
     }
 
+    pub(super) fn shrinks(&self, face: FaceId) -> bool {
+        matches!(self.0.get(&face), Some(Collapse::Shrinks(_)))
+    }
+
     pub(super) fn apex_of(&self, face: FaceId) -> Option<FaceId> {
         match self.0.get(&face)? {
             Collapse::Apex(cone) => Some(*cone),

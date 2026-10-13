@@ -10,13 +10,14 @@ use super::{
 use crate::{
     build::plan::{Plan, PlanCoedge},
     curve::Line,
+    interrupt,
     interval::Interval,
     naming::{EdgeName, FaceName},
     sense::Sense,
     topology::{EdgeId, FaceId, Solid, VertexId},
 };
 
-const MAX_SPLIT_FACES: usize = 12;
+const MAX_SPLIT_FACES: usize = 24;
 
 pub(super) type Spoke = (EdgeId, VertexId);
 
@@ -177,32 +178,6 @@ impl Shape {
     }
 }
 
-fn triangulations(polygon: &[usize]) -> Vec<Vec<Triangle>> {
-    let (Some(first), Some(last)) = (polygon.first(), polygon.last()) else {
-        return vec![Vec::new()];
-    };
-    if polygon.len() < 3 {
-        return vec![Vec::new()];
-    }
-    let mut all = Vec::new();
-    for apex in 1..polygon.len() - 1 {
-        let (Some(left), Some(right), Some(tip)) =
-            (polygon.get(..=apex), polygon.get(apex..), polygon.get(apex))
-        else {
-            continue;
-        };
-        for before in triangulations(left) {
-            for after in triangulations(right) {
-                let mut triangles = before.clone();
-                triangles.extend(after.iter().copied());
-                triangles.push([*first, *tip, *last]);
-                all.push(triangles);
-            }
-        }
-    }
-    all
-}
-
 pub(super) struct Split {
     pub points: Vec<Point3>,
     pub ends: BTreeMap<Spoke, usize>,
@@ -278,42 +253,203 @@ impl Corners<'_> {
     }
 }
 
-fn candidate(corners: &mut Corners<'_>, triangles: Vec<Triangle>) -> Option<Candidate> {
-    let (offsets, around) = (corners.offsets, corners.around);
-    let mut points = Vec::with_capacity(triangles.len());
-    for triangle in &triangles {
-        points.push(corners.point(triangle)?);
+fn straight(offsets: &Offsets<'_>, around: &Around, sides: [usize; 2], ends: [Point3; 2]) -> bool {
+    let [from, to] = ends;
+    let Ok(line) = Line::through(from, to) else {
+        return false;
+    };
+    let Some(interval) = Interval::new(0.0, from.distance(to)) else {
+        return false;
+    };
+    let faces: Vec<FaceId> = sides
+        .iter()
+        .filter_map(|index| around.face(*index))
+        .collect();
+    follows(offsets, &faces, &line.into(), interval)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Join {
+    Edge,
+    Merged,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Under {
+    apex: usize,
+    merges: usize,
+}
+
+struct Search<'a, 'b> {
+    corners: &'b mut Corners<'a>,
+    fans: BTreeMap<Triangle, Option<usize>>,
+    unders: BTreeMap<(usize, usize, Triangle), Option<Under>>,
+    joins: BTreeMap<(Triangle, Triangle), Option<Join>>,
+}
+
+impl Search<'_, '_> {
+    fn fan(&mut self, triangle: Triangle) -> Option<usize> {
+        if let Some(known) = self.fans.get(&triangle) {
+            return *known;
+        }
+        interrupt::check().ok()?;
+        let [first, apex, last] = triangle;
+        let merges = match self.corners.point(&triangle) {
+            Some(_) => self
+                .closes(first, apex, triangle)
+                .zip(self.closes(apex, last, triangle))
+                .map(|(before, after)| before + after),
+            None => None,
+        };
+        self.fans.insert(triangle, merges);
+        merges
     }
-    let candidate = Candidate { triangles, points };
-    let straight = candidate
-        .diagonals(around.count())
-        .into_iter()
-        .all(|(a, b, first, second)| {
-            let (Some(from), Some(to)) =
-                (candidate.points.get(first), candidate.points.get(second))
-            else {
-                return false;
+
+    fn closes(&mut self, first: usize, last: usize, above: Triangle) -> Option<usize> {
+        if last == first + 1 {
+            return Some(0);
+        }
+        self.under(first, last, above).map(|under| under.merges)
+    }
+
+    fn under(&mut self, first: usize, last: usize, above: Triangle) -> Option<Under> {
+        if let Some(known) = self.unders.get(&(first, last, above)) {
+            return *known;
+        }
+        let mut best: Option<Under> = None;
+        for apex in first + 1..last {
+            let below = [first, apex, last];
+            let Some(inside) = self.fan(below) else {
+                continue;
             };
-            if coincide(*from, *to) {
-                return true;
+            let Some(join) = self.join(below, above) else {
+                continue;
+            };
+            let merges = inside + usize::from(join == Join::Merged);
+            if best.is_none_or(|known| merges < known.merges) {
+                best = Some(Under { apex, merges });
             }
-            let Ok(line) = Line::through(*from, *to) else {
-                return false;
-            };
-            let Some(interval) = Interval::new(0.0, from.distance(*to)) else {
-                return false;
-            };
-            let faces: Vec<FaceId> = [a, b]
-                .iter()
-                .filter_map(|index| around.face(*index))
-                .collect();
-            follows(offsets, &faces, &line.into(), interval)
+        }
+        self.unders.insert((first, last, above), best);
+        best
+    }
+
+    fn join(&mut self, below: Triangle, above: Triangle) -> Option<Join> {
+        if let Some(known) = self.joins.get(&(below, above)) {
+            return *known;
+        }
+        let [first, _, last] = below;
+        let ends = self.corners.point(&below).zip(self.corners.point(&above));
+        let join = ends.and_then(|(from, to)| {
+            if coincide(from, to) {
+                return Some(Join::Merged);
+            }
+            straight(
+                self.corners.offsets,
+                self.corners.around,
+                [first, last],
+                [from, to],
+            )
+            .then_some(Join::Edge)
         });
-    straight.then_some(candidate)
+        self.joins.insert((below, above), join);
+        join
+    }
+
+    fn collect(
+        &mut self,
+        first: usize,
+        last: usize,
+        above: Triangle,
+        triangles: &mut Vec<Triangle>,
+    ) -> Option<()> {
+        if last == first + 1 {
+            return Some(());
+        }
+        let apex = self.under(first, last, above)?.apex;
+        let below = [first, apex, last];
+        self.collect(first, apex, below, triangles)?;
+        self.collect(apex, last, below, triangles)?;
+        triangles.push(below);
+        Some(())
+    }
+
+    fn fewest_merges(&mut self, count: usize) -> Option<Candidate> {
+        let last = count.checked_sub(1)?;
+        let mut best: Option<Under> = None;
+        for apex in 1..last {
+            let Some(merges) = self.fan([0, apex, last]) else {
+                continue;
+            };
+            if best.is_none_or(|known| merges < known.merges) {
+                best = Some(Under { apex, merges });
+            }
+        }
+        let top = [0, best?.apex, last];
+        let mut triangles = Vec::with_capacity(count - 2);
+        self.collect(0, top[1], top, &mut triangles)?;
+        self.collect(top[1], last, top, &mut triangles)?;
+        triangles.push(top);
+        let points = triangles
+            .iter()
+            .map(|triangle| self.corners.point(triangle))
+            .collect::<Option<Vec<Point3>>>()?;
+        Some(Candidate { triangles, points })
+    }
 }
 
 fn coincide(first: Point3, second: Point3) -> bool {
     first.distance(second) <= OFFSET_TOLERANCE
+}
+
+fn centre(solid: &Solid, cluster: &Cluster<'_>) -> Point3 {
+    let points: Vec<Point3> = cluster
+        .members
+        .iter()
+        .filter_map(|vertex| Some(solid.vertex(*vertex)?.point()))
+        .collect();
+    points.iter().fold(Point3::ZERO, |sum, point| sum + *point) / points.len().max(1) as f64
+}
+
+pub(super) fn stranded(offsets: &Offsets<'_>, cluster: &Cluster<'_>) -> BTreeSet<FaceId> {
+    let solid = offsets.solid;
+    let Some(around) = Around::of(solid, cluster) else {
+        return BTreeSet::new();
+    };
+    let count = around.count();
+    let Some(shape) = around.shape(solid) else {
+        return BTreeSet::new();
+    };
+    if !(4..=MAX_SPLIT_FACES).contains(&count) {
+        return BTreeSet::new();
+    }
+    let mut corners = Corners {
+        offsets,
+        around: &around,
+        shape,
+        start: centre(solid, cluster),
+        solved: BTreeMap::new(),
+    };
+    let mut reached = BTreeSet::new();
+    for first in 0..count {
+        if interrupt::check().is_err() {
+            return BTreeSet::new();
+        }
+        for second in first + 1..count {
+            for third in second + 1..count {
+                let triangle = [first, second, third];
+                if corners.point(&triangle).is_some() {
+                    reached.extend(triangle.iter().filter_map(|index| around.face(*index)));
+                }
+            }
+        }
+    }
+    around
+        .faces
+        .iter()
+        .filter(|face| !reached.contains(*face))
+        .copied()
+        .collect()
 }
 
 pub(super) fn split_vertex(
@@ -322,13 +458,7 @@ pub(super) fn split_vertex(
     plan: &mut Plan,
 ) -> Option<Split> {
     let solid = offsets.solid;
-    let points: Vec<Point3> = cluster
-        .members
-        .iter()
-        .filter_map(|vertex| Some(solid.vertex(*vertex)?.point()))
-        .collect();
-    let start =
-        points.iter().fold(Point3::ZERO, |sum, point| sum + *point) / points.len().max(1) as f64;
+    let start = centre(solid, cluster);
     let around = Around::of(solid, cluster)?;
     let count = around.count();
     if !(4..=MAX_SPLIT_FACES).contains(&count) {
@@ -341,10 +471,13 @@ pub(super) fn split_vertex(
         start,
         solved: BTreeMap::new(),
     };
-    let polygon: Vec<usize> = (0..count).collect();
-    let chosen = triangulations(&polygon)
-        .into_iter()
-        .find_map(|triangles| candidate(&mut corners, triangles))?;
+    let chosen = Search {
+        corners: &mut corners,
+        fans: BTreeMap::new(),
+        unders: BTreeMap::new(),
+        joins: BTreeMap::new(),
+    }
+    .fewest_merges(count)?;
     let mut merged: Vec<usize> = (0..chosen.points.len()).collect();
     for (_, _, first, second) in chosen.diagonals(count) {
         let (Some(from), Some(to)) = (chosen.points.get(first), chosen.points.get(second)) else {
