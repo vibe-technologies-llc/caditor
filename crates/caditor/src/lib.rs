@@ -95,6 +95,8 @@ mod last_values;
 mod layout;
 mod lighting;
 mod lighting_panel;
+mod loft_panel;
+mod loft_tools;
 mod logging;
 mod logo;
 mod look_at;

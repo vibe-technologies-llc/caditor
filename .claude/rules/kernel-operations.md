@@ -120,8 +120,8 @@ paths:
   `FOLD_MARGIN` (`ProfileTooLarge`: the profile reaches the bend's centre); a parallel sweep must
   keep rising by `LEAST_RISE` along every leg (`TurnsAlongProfile`), which also makes it never cross
   itself. A square sweep of more than one leg or with a fitted leg runs `find_crossing` after
-  validating (`CrossesItself`; inconclusive passes). Taper, twist, guide rails, round corners and
-  lofts are roadmap entries.
+  validating (`CrossesItself`; inconclusive passes). Taper, twist, guide rails and round corners
+  are roadmap entries.
 - `pipe(path, PipeSection, bend, up, feature)` (`sweep/pipe.rs`) is `sweep` of a section it
   builds: `PipeShape` round, square or equilateral triangle, centred on the path, with an inner
   outline `wall` inside for a hollow pipe (entities 1 up for the outer outline, `curves()` more for
@@ -140,6 +140,29 @@ paths:
   and the first `PipeCorner` between two lines turning above `SMOOTH_TURN` and up to
   `MOST_MITRE_TURN`, found whether or not `bend` rounds it. It needs no section, so it works for
   sizes `pipe` refuses.
+- `loft(profiles, apex, LoftSkin, feature)` (`build/loft/`) passes a solid through
+  `LoftProfile`s (a plane and one `Region`, refused as `Holes` when it has any), closing to `apex`
+  when given: valid or a `LoftError`. `rings.rs` turns each profile's outer loop to run
+  counter-clockwise about the way the loft runs there (towards the next centre, from the previous
+  one at the last; a plane within `LEAST_RISE` of that way is `AlongProfile`, centres within the
+  tolerance `Coincident`), then matches counts: every profile is split to the most pieces any has,
+  its longest span halved by parameter again and again, except that a lone circle or ellipse is
+  split evenly starting at the point facing its neighbour's first vertex. From the first profile
+  with the most pieces outward, each neighbour is turned (cyclic shift) so corresponding vertices
+  lie nearest about their centres. `skin.rs` makes each column of matched pieces compatible in
+  homogeneous coordinates: Bezier segments extracted, degree raised to the column's highest, the
+  union of normalised breakpoints inserted, each segment reweighted to end weights 1 so every
+  vertex and joint has weight 1. `Ruled` (and any loft of two rows) is a spline surface linear
+  across each pair of neighbouring rows, its edges along the vertices straight lines and the
+  profile edges between legs shared; `Smooth` interpolates every column through all rows at
+  chord-length stations of the centres (degree up to 3), its edges along the vertices are the
+  surfaces' u-start sides, and inner profiles leave no edge. Profile edges are each profile's own
+  curves over the pieces' ranges; an apex is a pole row and one vertex. Faces are
+  `FaceName::lofted` of the first profile's piece, part and leg (`kernel-naming.md`), caps are
+  start and end caps of the first and last region keys. Sides running into each other are refused
+  by `find_crossing` after validation (`CrossesItself`). At most `MAX_LOFT_PROFILES` profiles,
+  `MAX_SPANS` pieces a profile and `MAX_SEGMENTS` segments a column (`TooIntricate`). Rails, a
+  centreline and end conditions are roadmap entries.
 - `heights(plane, regions, target)` gives the least and most signed height of a target plane over
   the profile, to tell a plane ahead from one behind or across.
 - `next_face(solid, plane, regions, reversed)` casts rays from the regions' triangle centroids

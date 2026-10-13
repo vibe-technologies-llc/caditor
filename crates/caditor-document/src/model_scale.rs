@@ -552,7 +552,7 @@ impl Rescaler {
                     self.length(&mut wall.thickness, name)?;
                 }
             }
-            FeatureKind::Solid(SolidFeature::Sweep(_)) => {}
+            FeatureKind::Solid(SolidFeature::Sweep(_)) | FeatureKind::Loft(_) => {}
             FeatureKind::Pipe(pipe) => {
                 for length in pipe.expressions_mut() {
                     self.length(length, name)?;
@@ -1237,6 +1237,7 @@ fn anchored(kind: &mut FeatureKind) -> Vec<Anchored<'_>> {
             PatternKind::Linear { .. } | PatternKind::Curve(_) => Vec::new(),
         },
         FeatureKind::Datum(datum) => datum_anchored(datum),
+        FeatureKind::Loft(loft) => loft.end.iter_mut().map(Anchored::Point).collect(),
         FeatureKind::Hole(hole) => match &mut hole.depth {
             HoleDepth::UpToFace { target, .. } => vec![Anchored::Plane(target)],
             HoleDepth::Blind(_) | HoleDepth::ThroughAll | HoleDepth::UpToNext { .. } => Vec::new(),

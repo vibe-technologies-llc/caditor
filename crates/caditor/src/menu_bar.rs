@@ -921,6 +921,7 @@ impl Menus<'_> {
                     Command::Revolve,
                     Command::Sweep,
                     Command::Pipe,
+                    Command::Loft,
                     Command::Hole,
                     Command::Thread,
                 ],

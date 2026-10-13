@@ -44,6 +44,10 @@ paths:
   path's opening point, else 0), so a face is named by what made it, never by its place on the path.
   A pipe's bend between two lines is a path segment keyed `path_bend` of their keys (tag
   `PATH_BEND`), so its faces keep their names when the bend radius or the lines change.
+- A lofted side face is `FaceName::lofted` (tag `LOFTED_FACE`) of the feature, the first
+  profile's piece, which part of that piece it is after splitting for matching counts (by parameter
+  order) and the leg (the pair of neighbouring profiles a ruled loft joins, 0 for a smooth one), so
+  changing later profiles never renames a face.
 - A thread groove face is `FaceName::thread` of the feature and its part (`kernel-operations.md`).
   A closing face of `enclose_faces` is `FaceName::closure` of the feature and the sorted, deduped
   names of its edges.

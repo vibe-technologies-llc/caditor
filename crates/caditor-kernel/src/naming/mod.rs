@@ -25,6 +25,7 @@ const CLOSURE_FACE: u8 = 0x0b;
 const THREAD_FACE: u8 = 0x0c;
 const SWEPT_FACE: u8 = 0x0d;
 const PATH_BEND: u8 = 0x0e;
+const LOFTED_FACE: u8 = 0x0f;
 const EDGE_BETWEEN: u8 = 0x10;
 const EDGE_BETWEEN_AT: u8 = 0x11;
 const SEAM_EDGE: u8 = 0x12;
@@ -158,6 +159,15 @@ impl FaceName {
         piece.write(&mut digest);
         digest.u128(path);
         digest.byte(part);
+        Self(digest.finish())
+    }
+
+    pub fn lofted(feature: u64, piece: &PieceId, part: u32, leg: u32) -> Self {
+        let mut digest = Digest::new(LOFTED_FACE);
+        digest.u64(feature);
+        piece.write(&mut digest);
+        digest.u32(part);
+        digest.u32(leg);
         Self(digest.finish())
     }
 

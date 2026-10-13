@@ -206,6 +206,11 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
             }
         }
         FeatureKind::Pipe(pipe) => visit_path(&mut pipe.path, visitor),
+        FeatureKind::Loft(loft) => {
+            if let Some(end) = &mut loft.end {
+                visit_point(end, "end point", visitor);
+            }
+        }
         FeatureKind::Shell(shell) => {
             let count = shell.open.len();
             for (index, face) in shell.open.iter_mut().enumerate() {

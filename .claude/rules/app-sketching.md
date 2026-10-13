@@ -728,8 +728,8 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   (`Context::selecting`) each is `Pickable::SketchRegion`, the area between crossings: hover tints it,
   a click selects it, Shift or Ctrl adds, curves and points win near them, a drag starting on one
   draws a box. Other tools leave them unpicked. Outside sketch editing, with no feature open and
-  nothing chosen in the view (`Context::picks_shown_regions`), every shown sketch's regions are drawn
-  and picked likewise, like faces, on `Layer::Model` (a body in front hides them, one lying on a face
+  nothing chosen in the view, or while a loft chooses its profiles (`Context::picks_shown_regions`),
+  every shown sketch's regions are drawn and picked likewise, like faces, on `Layer::Model` (a body in front hides them, one lying on a face
   draws over it). Extrude and Revolve take the selected regions (`app-modelling.md`), and Measure
   reads their area and section (`app.md`). A sketch too large for recompute to find them unasked gets
   them asked for each frame it is edited (`Model::request_regions`, one request per result), and

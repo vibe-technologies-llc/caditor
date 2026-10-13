@@ -96,6 +96,7 @@ mod keyboard_driving;
 mod laptop_input;
 mod large_interface;
 mod large_sketch_rows;
+mod lofts;
 mod measure;
 mod model_dimensions;
 mod model_properties_and_views;

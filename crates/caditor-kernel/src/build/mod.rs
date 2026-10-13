@@ -1,4 +1,5 @@
 mod extrude;
+mod loft;
 pub(crate) mod plan;
 mod reach;
 mod revolve;
@@ -22,6 +23,7 @@ use thiserror::Error;
 
 pub use self::{
     extrude::{extrude, extrude_along},
+    loft::{LoftError, LoftProfile, LoftSkin, MAX_LOFT_PROFILES, loft},
     reach::{
         Heights, NextFace, ReachError, StopError, Stopped, heights, heights_along, next_face,
         stop_at_body,

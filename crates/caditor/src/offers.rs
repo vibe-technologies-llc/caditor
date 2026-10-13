@@ -7,6 +7,7 @@ use crate::{
     editing::SketchEditing,
     hole_tools::{self, HoleStart},
     image_tools::{self, ImageTarget},
+    loft_tools::{self, LoftStart},
     mate_tools::{self, MateSource},
     measure,
     mirror_tools::{self, FaceMirrorSource, MirrorSource},
@@ -59,6 +60,7 @@ pub struct Offers {
     pub revolve_faces: Option<Result<FaceProfile, &'static str>>,
     pub sweep: Result<SweepStart, &'static str>,
     pub pipe: Result<PipeStart, &'static str>,
+    pub loft: Result<LoftStart, &'static str>,
     pub shell: Result<FaceSource, &'static str>,
     pub offset_face: Result<FaceSource, &'static str>,
     pub split_face: Result<SplitFaceSource, &'static str>,
@@ -114,6 +116,7 @@ impl Offers {
             revolve_faces: faces(Sweep::Revolve),
             sweep: sweep_tools::source(model, selection, editing),
             pipe: pipe_tools::source(model, selection),
+            loft: loft_tools::source(model, selection),
             sketch_target: sketch_placement::sketch_target(model, selection),
             pattern: pattern_tools::source(model, selection, tree, rows),
             curve_pattern: sketch_pattern_tools::source(

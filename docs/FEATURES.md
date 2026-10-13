@@ -38,10 +38,10 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   curves or model edges, square to the path or parallel to the profile, but takes no guide rail,
   taper or twist (so a closed path out of one plane, which brings the profile back turned, is
   refused), mitres only sharp corners between two lines (other sharp corners are refused: no
-  round corners), and sweeps no thin wall of open curves. There is no loft: two or more profiles
-  or faces (a point may end it), open or closed back to the first, with optional rails or a
-  centreline and tangent or curvature-continuous conditions at its ends; it needs a kernel
-  operation of its own (the sweep's fitted stations, `build/sweep/stations.rs`, are a start).
+  round corners), and sweeps no thin wall of open curves. A loft passes through closed sketch
+  profiles without holes in order, smooth or ruled, and may end at a point, but takes no faces of
+  bodies as profiles, no guide rails or centreline, no tangent or curvature-continuous conditions
+  at its ends, and cannot close back to its first profile.
 - [medium · hard] No helix or spiral curve: springs and coils cannot be modelled. The sweep takes
   only sketch curves and model edges as its path, so a helix needs a curve of its own the path can
   name (a datum curve, or a curve of a 3D sketch, Sketching). A coil feature would be the ready

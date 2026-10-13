@@ -14,25 +14,26 @@ use caditor_document::{
     ExtrudeEnd, ExtrudeExtent, FaceAttachment, FaceAxisMate, FaceColour, FaceMate, FaceOnRound,
     FacePair, FaceTangent, FaceThickness, Feature, FeatureId, FeatureKind, Finish, HOME_VIEW_NAME,
     Hole, HoleBottom, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle,
-    Import, LinearDirection, LinearSpacing, MAX_BODY_NAME_CHARS, MAX_GROUP_NAME_CHARS,
-    MAX_MATERIAL_NAME_CHARS, MAX_PATTERN_INSTANCES, MAX_SAVED_VIEWS, MAX_VIEW_NAME_CHARS,
-    MIN_OPACITY_PERCENT, Mate, MatePair, MeasuredItem, Measurement, MetricSize, Mirror,
-    ModelProperties, ModelProperty, Move, NamedView, OPAQUE_PERCENT, ORIGINAL_INSTANCE, Of,
-    OffsetFace, Parameter, ParameterOwner, Pattern, PatternKind, PieceKey, PieceLooks, Pieces,
-    Pipe, PlaneReference, PlaneRotation, PlaneThrough, PointBy, PointMate, PointReference,
-    PointTarget, PointsPattern, Primitive, PrimitiveAnchor, PrimitiveShape, PrincipalAxis,
-    PrincipalGeometry, PrincipalPlane, ProjectionSource, Reading, RegionChoice, Remove, Revolve,
-    RevolveAxis, RevolveExtent, Rgb, RollbackBar, SavedView, SavedViews, Scale, Shell, ShellSide,
-    SketchAttachment, SketchFeature, SolidFeature, SolidStart, Split, SplitAlong, SplitCarry,
-    SplitFace, StepText, Sweep, SweepPath, TappedThread, Thread, ThreadFamily, ThreadForm,
-    ThreadHand, ThreadLength, ThreadSide, ThreadSize, Transaction, TurnCentre, Wall, group_name,
-    material_name, view_name,
+    Import, LinearDirection, LinearSpacing, Loft, LoftSection, MAX_BODY_NAME_CHARS,
+    MAX_GROUP_NAME_CHARS, MAX_MATERIAL_NAME_CHARS, MAX_PATTERN_INSTANCES, MAX_SAVED_VIEWS,
+    MAX_VIEW_NAME_CHARS, MIN_OPACITY_PERCENT, Mate, MatePair, MeasuredItem, Measurement,
+    MetricSize, Mirror, ModelProperties, ModelProperty, Move, NamedView, OPAQUE_PERCENT,
+    ORIGINAL_INSTANCE, Of, OffsetFace, Parameter, ParameterOwner, Pattern, PatternKind, PieceKey,
+    PieceLooks, Pieces, Pipe, PlaneReference, PlaneRotation, PlaneThrough, PointBy, PointMate,
+    PointReference, PointTarget, PointsPattern, Primitive, PrimitiveAnchor, PrimitiveShape,
+    PrincipalAxis, PrincipalGeometry, PrincipalPlane, ProjectionSource, Reading, RegionChoice,
+    Remove, Revolve, RevolveAxis, RevolveExtent, Rgb, RollbackBar, SavedView, SavedViews, Scale,
+    Shell, ShellSide, SketchAttachment, SketchFeature, SolidFeature, SolidStart, Split, SplitAlong,
+    SplitCarry, SplitFace, StepText, Sweep, SweepPath, TappedThread, Thread, ThreadFamily,
+    ThreadForm, ThreadHand, ThreadLength, ThreadSide, ThreadSize, Transaction, TurnCentre, Wall,
+    group_name, material_name, view_name,
 };
 use caditor_expression::{BinaryOperator, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Rotation3, Vector2, Vector3};
 use caditor_kernel::{
     BoundaryPiece, EdgeName, EdgeReference, FaceCopy, FaceName, FaceOrigin, FaceReference,
-    PipeShape, RegionKey, RegionReference, Side, Solid, SweepOrientation, VertexName, WallSide,
+    LoftSkin, PipeShape, RegionKey, RegionReference, Side, Solid, SweepOrientation, VertexName,
+    WallSide,
 };
 use caditor_sketch::{
     Constraint, ConstraintId, EllipseEnd, Entity, EntityId, FitSpacing,
@@ -307,6 +308,32 @@ pub(crate) enum FeatureKindRecord {
     ReferenceImage(Box<ReferenceImageRecord>),
     Pipe(Box<PipeRecord>),
     SeparatePieces(Box<SeparatePiecesRecord>),
+    Loft(Box<LoftRecord>),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct LoftRecord {
+    pub profiles: Vec<Lenient<LoftProfileRecord>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end: Option<Lenient<PointReferenceRecord>>,
+    pub skin: LoftSkinRecord,
+    pub operation: OperationRecord,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct LoftProfileRecord {
+    pub sketch: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub region: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reference: Option<Lenient<RegionReferenceRecord>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum LoftSkinRecord {
+    Smooth,
+    Ruled,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -3048,6 +3075,7 @@ fn kind_record(kind: &FeatureKind) -> FeatureKindRecord {
         }
         FeatureKind::Mirror(mirror) => mirror_record(mirror),
         FeatureKind::Pipe(pipe) => pipe_record(pipe),
+        FeatureKind::Loft(loft) => loft_record(loft),
         FeatureKind::Primitive(primitive) => {
             FeatureKindRecord::Primitive(Box::new(primitive_record(primitive)))
         }
@@ -3368,6 +3396,93 @@ fn pipe_record(pipe: &Pipe) -> FeatureKindRecord {
         bend: text(&pipe.bend),
         operation: operation_record(pipe.operation),
     }))
+}
+
+fn loft_record(loft: &Loft) -> FeatureKindRecord {
+    FeatureKindRecord::Loft(Box::new(LoftRecord {
+        profiles: loft
+            .profiles
+            .iter()
+            .map(|section| {
+                Lenient::Read(LoftProfileRecord {
+                    sketch: section.sketch.raw(),
+                    region: section
+                        .region
+                        .as_ref()
+                        .map(|region| hex(region.key().digest())),
+                    reference: section
+                        .region
+                        .as_ref()
+                        .filter(|region| region_reference_captured(region))
+                        .map(|region| Lenient::Read(region_reference_record(region))),
+                })
+            })
+            .collect(),
+        end: loft
+            .end
+            .as_ref()
+            .map(|end| Lenient::Read(point_record(end))),
+        skin: match loft.skin {
+            LoftSkin::Smooth => LoftSkinRecord::Smooth,
+            LoftSkin::Ruled => LoftSkinRecord::Ruled,
+        },
+        operation: operation_record(loft.operation),
+    }))
+}
+
+fn restore_loft_section(record: &LoftProfileRecord) -> Option<LoftSection> {
+    let region = match &record.region {
+        None => None,
+        Some(key) => {
+            let key = RegionKey::from_digest(restore_digest(key)?);
+            let reference = match &record.reference {
+                Some(Lenient::Read(reference)) => Some(reference),
+                Some(Lenient::Unreadable(_)) | None => None,
+            };
+            Some(restore_region_reference(key, reference))
+        }
+    };
+    Some(LoftSection {
+        sketch: FeatureId::from_raw(record.sketch),
+        region,
+    })
+}
+
+fn restore_loft(record: &LoftRecord, feature: &str, issues: &mut Vec<String>) -> Loft {
+    let profiles: Vec<LoftSection> = record
+        .profiles
+        .iter()
+        .filter_map(|profile| match profile {
+            Lenient::Read(profile) => restore_loft_section(profile),
+            Lenient::Unreadable(_) => None,
+        })
+        .collect();
+    if profiles.len() < record.profiles.len() {
+        issues.push(format!(
+            "Some profiles of “{feature}” could not be read and were left out."
+        ));
+    }
+    let end = record.end.as_ref().and_then(|end| {
+        let read = match end {
+            Lenient::Read(end) => restore_point(end),
+            Lenient::Unreadable(_) => None,
+        };
+        if read.is_none() {
+            issues.push(format!(
+                "The end point of “{feature}” could not be read, so it ends at its last profile."
+            ));
+        }
+        read
+    });
+    Loft {
+        profiles,
+        end,
+        skin: match record.skin {
+            LoftSkinRecord::Smooth => LoftSkin::Smooth,
+            LoftSkinRecord::Ruled => LoftSkin::Ruled,
+        },
+        operation: restore_operation(record.operation),
+    }
 }
 
 fn restore_pipe(record: &PipeRecord, feature: &str, issues: &mut Vec<String>) -> Pipe {
@@ -3775,33 +3890,36 @@ fn regions_record(regions: &RegionChoice) -> RegionsRecord {
     }
 }
 
+fn region_reference_captured(reference: &RegionReference) -> bool {
+    !reference.boundary().is_empty() || reference.anchor().is_some()
+}
+
+fn region_reference_record(reference: &RegionReference) -> RegionReferenceRecord {
+    RegionReferenceRecord {
+        boundary: reference
+            .boundary()
+            .iter()
+            .map(|piece| BoundaryPieceRecord {
+                entity: piece.entity,
+                side: match piece.side {
+                    Side::Left => SideRecord::Left,
+                    Side::Right => SideRecord::Right,
+                },
+                piece: hex(piece.piece),
+            })
+            .collect(),
+        anchor: reference.anchor().map(|anchor| anchor.to_array()),
+    }
+}
+
 fn region_references_record(regions: &RegionChoice) -> RegionReferencesRecord {
     let RegionChoice::Chosen(references) = regions else {
         return None;
     };
-    let captured = |reference: &RegionReference| {
-        !reference.boundary().is_empty() || reference.anchor().is_some()
-    };
-    references.iter().any(captured).then(|| {
+    references.iter().any(region_reference_captured).then(|| {
         references
             .iter()
-            .map(|reference| {
-                Lenient::Read(RegionReferenceRecord {
-                    boundary: reference
-                        .boundary()
-                        .iter()
-                        .map(|piece| BoundaryPieceRecord {
-                            entity: piece.entity,
-                            side: match piece.side {
-                                Side::Left => SideRecord::Left,
-                                Side::Right => SideRecord::Right,
-                            },
-                            piece: hex(piece.piece),
-                        })
-                        .collect(),
-                    anchor: reference.anchor().map(|anchor| anchor.to_array()),
-                })
-            })
+            .map(|reference| Lenient::Read(region_reference_record(reference)))
             .collect()
     })
 }
@@ -6007,6 +6125,7 @@ fn restore_kind(
             FeatureKind::Mate(restore_point_mate(record, name, issues))
         }
         FeatureKindRecord::Pipe(record) => FeatureKind::Pipe(restore_pipe(record, name, issues)),
+        FeatureKindRecord::Loft(record) => FeatureKind::Loft(restore_loft(record, name, issues)),
         FeatureKindRecord::Primitive(record) => {
             FeatureKind::Primitive(restore_primitive(record, name, issues))
         }

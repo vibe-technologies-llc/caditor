@@ -4446,6 +4446,82 @@ fn an_unreadable_bend_radius_of_a_pipe_loads_as_sharp_corners_and_is_reported() 
     assert_eq!(restored.bend, Expression::parse_stored("0 mm").unwrap());
 }
 
+fn loft_model() -> (Document, FeatureId) {
+    use caditor_document::{BodyOperation, Loft, LoftSection, PointReference};
+    use caditor_kernel::{BoundaryPiece, LoftSkin, RegionKey, RegionReference, Side};
+    let (mut document, base, _) = solid_model();
+    let mut transaction = document.transaction("Lofts");
+    let mut low = Sketch::new(Plane::XY);
+    low.add_circle(Point2::new(3.0, 2.0), 1.5);
+    let low = transaction.add_feature("Low", FeatureKind::from(low));
+    let mut high = Sketch::new(Plane::new(Point3::new(0.0, 0.0, 6.0), Vector3::Z).unwrap());
+    high.add_circle(Point2::new(3.0, 2.0), 1.0);
+    high.add_circle(Point2::new(9.0, 2.0), 1.0);
+    let high = transaction.add_feature("High", FeatureKind::from(high));
+    let chosen = RegionReference::new(
+        RegionKey::from_digest(0x0abc_def0_1234_5678_9abc_def0_1234_5678),
+        BTreeSet::from([BoundaryPiece {
+            entity: 1,
+            side: Side::Left,
+            piece: 0x1111_2222_3333_4444_5555_6666_7777_8888,
+        }]),
+        Some(Point2::new(3.0, 2.0)),
+    );
+    let loft = transaction.add_feature(
+        "Loft 1",
+        FeatureKind::Loft(Loft {
+            profiles: vec![
+                LoftSection::whole(low),
+                LoftSection {
+                    sketch: high,
+                    region: Some(chosen),
+                },
+            ],
+            end: Some(PointReference::Origin),
+            skin: LoftSkin::Ruled,
+            operation: BodyOperation::Remove(base),
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    (document, loft)
+}
+
+#[test]
+fn lofts_are_saved_and_loaded_as_a_record_of_their_own() {
+    let (document, _) = loft_model();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+
+    assert!(text.contains("\"loft\":{"), "{text}");
+    assert!(text.contains("\"skin\":\"ruled\""), "{text}");
+    assert!(text.contains("\"end\":"), "{text}");
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+}
+
+#[test]
+fn an_unreadable_end_point_of_a_loft_loads_ending_at_its_last_profile_and_is_reported() {
+    let (document, loft) = loft_model();
+    let text =
+        encode(&document)
+            .unwrap()
+            .replacen("\"end\":\"origin\"", "\"end\":{\"nowhere\":1}", 1);
+
+    let loaded = decode_text(&text);
+    let restored = loaded.document.feature(loft).unwrap().kind.loft().unwrap();
+
+    assert!(text.contains("nowhere"), "{text}");
+    assert_eq!(loaded.issues.len(), 1, "{:?}", loaded.issues);
+    assert!(
+        loaded.issues[0].contains("end point"),
+        "{:?}",
+        loaded.issues
+    );
+    assert_eq!(restored.end, None);
+    assert_eq!(restored.profiles.len(), 2);
+}
+
 fn primitive_model() -> (Document, FeatureId, FeatureId) {
     use caditor_document::{BodyOperation, Primitive, PrimitiveAnchor, PrimitiveShape};
     use caditor_kernel::{FaceName, FaceOrigin, FaceReference};

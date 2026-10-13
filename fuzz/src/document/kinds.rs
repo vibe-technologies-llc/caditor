@@ -11,19 +11,19 @@ use caditor_document::{
     DatumPlane, DatumPoint, EdgeGroup, Extrude, ExtrudeEnd, ExtrudeExtent, FaceAxisMate, FaceMate,
     FaceOnRound, FacePair, FaceTangent, FaceThickness, FeatureId, FeatureKind, FinePitch, Hole,
     HoleBottom, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle,
-    ImagePlane, ImageSize, ImageSpot, Import, LinearDirection, LinearSpacing, Mate, MatePair,
-    MeasuredItem, Measurement, MetricSize, Mirror, Move, Of, OffsetFace, Pattern, PatternKind,
-    Picture, Pipe, PixelSize, PlaneRotation, PlaneThrough, PointBy, PointMate, PointTarget,
-    PointsPattern, Primitive, PrimitiveAnchor, PrimitiveShape, PrincipalPlane, Reading,
-    ReferenceImage, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Scale, Shell,
-    ShellSide, SketchAttachment, SketchFeature, SolidFeature, SolidStart, Split, SplitAlong,
+    ImagePlane, ImageSize, ImageSpot, Import, LinearDirection, LinearSpacing, Loft, LoftSection,
+    Mate, MatePair, MeasuredItem, Measurement, MetricSize, Mirror, Move, Of, OffsetFace, Pattern,
+    PatternKind, Picture, Pipe, PixelSize, PlaneRotation, PlaneThrough, PointBy, PointMate,
+    PointTarget, PointsPattern, Primitive, PrimitiveAnchor, PrimitiveShape, PrincipalPlane,
+    Reading, ReferenceImage, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Scale,
+    Shell, ShellSide, SketchAttachment, SketchFeature, SolidFeature, SolidStart, Split, SplitAlong,
     SplitCarry, SplitFace, StepText, Sweep, SweepPath, TappedThread, Thread, ThreadFamily,
     ThreadForm, ThreadHand, ThreadLength, ThreadSide, TurnCentre, Wall, sketch_regions,
 };
 use caditor_expression::Expression;
 use caditor_geometry::{Plane, Point2};
 use caditor_kernel::{
-    LinearExtent, PipeShape, Profile, ProfileCurve, RegionReference, Selection, Solid,
+    LinearExtent, LoftSkin, PipeShape, Profile, ProfileCurve, RegionReference, Selection, Solid,
     SweepOrientation, WallSide, extrude, interruptible,
 };
 use caditor_sketch::EntityId;
@@ -36,6 +36,7 @@ use crate::{WORK_BUDGET, interrupt_after, plane, sketch::sketch};
 const MOST_REGIONS: usize = 4;
 const MOST_STEPS: u8 = 3;
 const MOST_SKIPPED: u8 = 3;
+const MOST_LOFT_PROFILES: u8 = 4;
 const IMPORT_SIDE: f64 = 10.0;
 const PNG_SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
 const MOST_PICTURE_SIDE: u32 = 64;
@@ -59,6 +60,7 @@ pub enum Family {
     SplitFace,
     Primitive,
     Pipe,
+    Loft,
     Combine,
     Move,
     Mate,
@@ -76,7 +78,7 @@ pub enum Family {
 }
 
 impl Family {
-    pub const ALL: [Self; 22] = [
+    pub const ALL: [Self; 23] = [
         Self::Sketch,
         Self::Solid,
         Self::Blend,
@@ -85,6 +87,7 @@ impl Family {
         Self::SplitFace,
         Self::Primitive,
         Self::Pipe,
+        Self::Loft,
         Self::Combine,
         Self::Move,
         Self::Mate,
@@ -111,6 +114,7 @@ impl Family {
             FeatureKind::SplitFace(_) => Self::SplitFace,
             FeatureKind::Primitive(_) => Self::Primitive,
             FeatureKind::Pipe(_) => Self::Pipe,
+            FeatureKind::Loft(_) => Self::Loft,
             FeatureKind::Combine(_) => Self::Combine,
             FeatureKind::Move(_) => Self::Move,
             FeatureKind::Mate(_) => Self::Mate,
@@ -190,6 +194,7 @@ pub fn feature_kind(
             bend: scene.distance(input)?,
             operation: operation(input, scene)?,
         }),
+        Family::Loft => FeatureKind::Loft(loft(input, scene)?),
         Family::Combine => FeatureKind::Combine(Combine {
             body: scene.body(input)?,
             tool: scene.body(input)?,
@@ -374,6 +379,30 @@ fn regions(
         }
     }
     Ok(RegionChoice::Chosen(chosen))
+}
+
+fn loft(input: &mut Unstructured, scene: &Scene) -> Result<Loft> {
+    let mut profiles = Vec::new();
+    for _ in 0..input.int_in_range(0..=MOST_LOFT_PROFILES)? {
+        let Some(sketch) = scene.existing_sketch(input)? else {
+            break;
+        };
+        let region = match regions(input, scene, Some(sketch))? {
+            RegionChoice::Chosen(chosen) => chosen.into_iter().next(),
+            RegionChoice::All => None,
+        };
+        profiles.push(LoftSection { sketch, region });
+    }
+    Ok(Loft {
+        profiles,
+        end: if input.arbitrary()? {
+            Some(scene.point(input)?)
+        } else {
+            None
+        },
+        skin: *input.choose(&[LoftSkin::Smooth, LoftSkin::Ruled])?,
+        operation: operation(input, scene)?,
+    })
 }
 
 fn start(input: &mut Unstructured, scene: &Scene) -> Result<Option<SolidStart>> {

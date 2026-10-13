@@ -6072,6 +6072,9 @@ fn feature_prompt(kind: Option<&FeatureKind>) -> (&'static str, Clicks) {
         Some(FeatureKind::Pipe(_)) => {
             in_panel("Choose the path, the section and its sizes in the panel")
         }
+        Some(FeatureKind::Loft(_)) => in_panel(
+            "Choose the profiles in order, where it ends and how its sides run in the panel",
+        ),
         Some(FeatureKind::Thread(_)) => {
             in_panel("Choose the face to thread, its size and its length in the panel")
         }

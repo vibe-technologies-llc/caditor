@@ -69,6 +69,7 @@ pub fn can_hide(feature: &Feature) -> bool {
         | FeatureKind::SplitFace(_)
         | FeatureKind::Primitive(_)
         | FeatureKind::Pipe(_)
+        | FeatureKind::Loft(_)
         | FeatureKind::Combine(_)
         | FeatureKind::Move(_)
         | FeatureKind::Mate(_)

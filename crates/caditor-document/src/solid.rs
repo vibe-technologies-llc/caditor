@@ -1047,7 +1047,21 @@ pub(crate) struct Context<'a> {
     sketch: &'a Sketch,
 }
 
-impl Context<'_> {
+impl<'a> Context<'a> {
+    pub(crate) fn of_sketch(
+        feature: &'a Feature,
+        sketch_name: String,
+        sketch_id: FeatureId,
+        sketch: &'a Sketch,
+    ) -> Self {
+        Self {
+            feature,
+            sketch_name,
+            sketch_id,
+            sketch,
+        }
+    }
+
     pub(crate) fn error(&self, reason: String, remedy: String, fix: FixTarget) -> Failure {
         Failure::Error(Box::new(FeatureError {
             reason,
@@ -1630,7 +1644,7 @@ fn open_gaps(context: &Context<'_>, open_ends: &[OpenEnd]) -> Option<String> {
     Some(text)
 }
 
-fn profile_failure(context: &Context<'_>, error: &ProfileError) -> Failure {
+pub(crate) fn profile_failure(context: &Context<'_>, error: &ProfileError) -> Failure {
     let sketch = &context.sketch_name;
     match error {
         ProfileError::Cancelled(_) => Failure::Cancelled,

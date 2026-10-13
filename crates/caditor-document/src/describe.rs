@@ -8,6 +8,7 @@ use crate::{
     pattern::PatternKind,
     pipe,
     primitive::Cap,
+    solid::SolidFeature,
     thread,
 };
 
@@ -87,7 +88,12 @@ fn describe_made(document: &Document, origin: FaceOrigin) -> String {
             let curve = feature
                 .kind
                 .solid()
-                .and_then(|solid| document.feature(solid.sketch()))
+                .map(SolidFeature::sketch)
+                .or_else(|| {
+                    let loft = feature.kind.loft()?;
+                    loft.profiles.first().map(|section| section.sketch)
+                })
+                .and_then(|sketch| document.feature(sketch))
                 .and_then(|sketch| sketch.kind.sketch())
                 .map_or_else(
                     || "a sketch curve".to_owned(),

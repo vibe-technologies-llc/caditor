@@ -27,7 +27,7 @@ use crate::{
     document::{Document, Feature, FeatureId, FeatureKind, list_names},
     healing::{self, Healing},
     history::ResultHistory,
-    hole, import,
+    hole, import, loft,
     lookahead::Lookahead,
     mate,
     measurement::{self, Measured, Measurement, MeasurementResult},
@@ -92,6 +92,7 @@ pub struct FeatureError {
 pub enum MissingInput {
     Axis,
     Path,
+    Profiles,
     Regions { sketch: FeatureId },
     Edges { body: FeatureId },
     FacesToMove { body: FeatureId },
@@ -103,6 +104,7 @@ impl MissingInput {
         match self {
             Self::Axis => "Waiting for an axis",
             Self::Path => "Waiting for a path",
+            Self::Profiles => "Waiting for profiles",
             Self::Regions { .. } => "Waiting for regions",
             Self::Edges { .. } => "Waiting for edges",
             Self::FacesToMove { .. } | Self::FacesToSplit { .. } => "Waiting for faces",
@@ -124,6 +126,9 @@ impl MissingInput {
             Self::Path => {
                 "Choose the curves of a sketch or the edges of a body to follow.".to_owned()
             }
+            Self::Profiles => "Choose at least two sketch profiles to loft through, or one and a \
+                               point to end at."
+                .to_owned(),
             Self::Regions { sketch } => {
                 format!("Choose at least one region of {} to sweep.", name(sketch))
             }
@@ -1899,6 +1904,7 @@ impl Evaluator for ModelEvaluator {
                 primitive::evaluate(feature, definition, inputs, cancel)
             }
             FeatureKind::Pipe(definition) => pipe::evaluate(feature, definition, inputs, cancel),
+            FeatureKind::Loft(definition) => loft::evaluate(feature, definition, inputs, cancel),
             FeatureKind::Thread(definition) => {
                 thread::evaluate(feature, definition, inputs, cancel)
             }

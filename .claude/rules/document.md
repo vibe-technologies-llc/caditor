@@ -538,6 +538,26 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 - Faces are worded "<pipe> outside" and "<pipe> inside" (`pipe::side_name`: entities past the
   section's `PipeShape::curves` are the inner outline), caps as a sweep's.
 
+### Loft (`loft.rs`)
+
+- `Loft { profiles, end, skin, operation }` passes through `LoftSection`s in order (a sketch and an
+  optional `RegionReference`; none takes the sketch's even-depth shapes, which must be one), ending
+  at an optional `PointReference` resolved like a datum point's, with the kernel's `LoftSkin`. Each
+  section's region resolves on the sketch's result as an extrusion's does (`resolve_regions`), the
+  plane is the solved sketch plane, and kernel `loft` builds the tool, joined, cut or intersected
+  like a primitive's (`primitive::combined`, so patterns and mirrors repeat it, `repeatable_on`).
+  It has no expressions.
+- The sketches and the end point's sketch are `reference_sketches` and `features()`, the end's
+  body, datum and frame `bodies_used`, `points_used` and `frames_used`, its origins
+  `origin_features`; healing visits the end point, pasting renames all of them and model scale
+  holds an end at the origin as principal geometry.
+- Fewer than two rows (profiles plus the end point) waits (`MissingInput::Profiles`). Failures name
+  the sketch: one not available, one with no closed shape or several (asking to choose a region),
+  a shape with a hole, a profile lying along the way the loft runs, two profiles in one place, sides
+  running into each other, too many curves; profile problems go through `solid::profile_failure`.
+- Side faces are worded "<loft> side from <curve>" of the first profile's sketch
+  (`describe_origin`), caps as a sweep's.
+
 ### Blend and shell (`blend.rs`, `shell.rs`)
 
 - A `Blend` is a fillet or chamfer of `size`. A chamfer's `form` is `Equal`,

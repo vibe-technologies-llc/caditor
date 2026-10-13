@@ -6,7 +6,7 @@ use crate::{
     datum_panel::{self, FramePart},
     datum_tools,
     editing::EditingCommand,
-    hole_panel, hole_placement, hole_tools, image_tools,
+    hole_panel, hole_placement, hole_tools, image_tools, loft_tools,
     mate_tools::{self, MatePart},
     measurement_tools::{self, MeasuredPart},
     mirror_tools,
@@ -63,6 +63,8 @@ pub enum Slot {
     HoleAdd,
     ShellOwnThickness,
     SweepPath,
+    LoftProfiles,
+    LoftEnd,
     ImagePlace,
     ImageCalibration,
 }
@@ -71,7 +73,7 @@ impl Slot {
     pub fn keeps_choosing(self) -> bool {
         matches!(
             self,
-            Self::SweepPath | Self::ShellOwnThickness | Self::HoleAdd
+            Self::SweepPath | Self::LoftProfiles | Self::ShellOwnThickness | Self::HoleAdd
         )
     }
 
@@ -101,6 +103,7 @@ impl Slot {
             | Self::MeasuredItem(_)
             | Self::HoleEdge(_)
             | Self::HoleConcentric(_)
+            | Self::LoftEnd
             | Self::ImagePlace => true,
             Self::HolePlace
             | Self::ImageCalibration
@@ -108,6 +111,7 @@ impl Slot {
             | Self::ShellOwnThickness
             | Self::ThreadFace
             | Self::SweepPath
+            | Self::LoftProfiles
             | Self::PatternPath
             | Self::MateMoving(_) => false,
         }
@@ -262,6 +266,16 @@ pub fn prompt(model: &Model, picking: Picking) -> String {
              one out; press Escape when the path is complete"
                 .to_owned()
         }
+        Slot::LoftProfiles => {
+            "Click a region or a curve of each sketch to loft through, in order, again to leave \
+             one out; press Escape when every profile is chosen"
+                .to_owned()
+        }
+        Slot::LoftEnd => {
+            "Click a corner, round edge, sphere or torus, sketch point or datum point for the loft \
+             to end at"
+                .to_owned()
+        }
         Slot::MeasuredItem(part) => part.prompt().to_owned(),
         Slot::FramePlane => "Click a plane or flat face for its XY plane".to_owned(),
         Slot::ImagePlace => "Click a plane or flat face where the picture goes".to_owned(),
@@ -360,6 +374,12 @@ pub fn change(
         }
         (Slot::SweepPath, FeatureKind::Pipe(pipe)) => {
             pipe_tools::path_change(model, selection, feature, pipe)
+        }
+        (Slot::LoftProfiles, FeatureKind::Loft(loft)) => {
+            loft_tools::profile_change(model, selection, feature, loft)
+        }
+        (Slot::LoftEnd, FeatureKind::Loft(loft)) => {
+            loft_tools::end_change(model, selection, feature, loft)
         }
         (Slot::ExtrudeDirection, FeatureKind::Solid(SolidFeature::Extrude(extrude))) => {
             solid_panel::direction_change(model, selection, feature, extrude)

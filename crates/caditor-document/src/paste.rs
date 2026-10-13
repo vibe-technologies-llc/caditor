@@ -626,6 +626,13 @@ impl FeatureKind {
                 pipe.operation = renamed_operation(pipe.operation, rename);
                 pipe.path = pipe.path.with_features_renamed(&rename);
             }
+            Self::Loft(loft) => {
+                *loft = loft.with_features_renamed(&rename);
+                loft.operation = renamed_operation(loft.operation, rename);
+                if let Some(end) = &mut loft.end {
+                    rename_point(end, rename);
+                }
+            }
             Self::Combine(combine) => {
                 combine.body = rename(combine.body);
                 combine.tool = rename(combine.tool);

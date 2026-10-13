@@ -21,6 +21,7 @@ mod hole;
 mod hole_standard;
 mod import;
 mod inlining;
+mod loft;
 mod lookahead;
 mod mate;
 mod mate_placement;
@@ -116,6 +117,7 @@ pub use crate::{
     },
     hole_standard::{FinePitch, HeatSetInsert, HoleFit, HoleStandard, MetricSize, pitch_text},
     import::Import,
+    loft::{LOFT_SHAPE, Loft, LoftSection, skin_name as loft_skin_name},
     mate::{
         AngleMate, AngleSides, AxisMate, FaceAxisMate, FaceMate, FaceOnRound, FacePair,
         MAX_MATE_ANGLE_DEGREES, Mate, MatePair, PointMate, PointTarget, RoundFaceError, round_face,
@@ -246,6 +248,8 @@ mod grouping_tests;
 mod history_tests;
 #[cfg(test)]
 mod hole_tests;
+#[cfg(test)]
+mod loft_tests;
 #[cfg(test)]
 mod mate_tests;
 #[cfg(test)]

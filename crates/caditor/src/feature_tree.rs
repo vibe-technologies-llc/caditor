@@ -26,7 +26,7 @@ use crate::{
     feature_clipboard, feature_fields, feature_groups,
     field::{self, DimensionTarget},
     files::FileCommand,
-    fonts, hole_panel, icons, image_panel, import_panel, manipulator, mate_panel,
+    fonts, hole_panel, icons, image_panel, import_panel, loft_panel, manipulator, mate_panel,
     measurement_panel, mirror_panel, mirror_tools,
     model::{Action, Model, Notice},
     move_panel, move_tools, offset_face_panel,
@@ -309,6 +309,7 @@ pub fn kind_words(kind: &FeatureKind) -> &'static [&'static str] {
         FeatureKind::Solid(SolidFeature::Revolve(_)) => &["revolve", "revolution"],
         FeatureKind::Solid(SolidFeature::Sweep(_)) => &["sweep", "pipe"],
         FeatureKind::Pipe(_) => &["pipe", "tube", "tubing", "handrail", "cable", "sweep"],
+        FeatureKind::Loft(_) => &["loft", "blend", "skin", "transition"],
         FeatureKind::Blend(blend) => match blend.kind {
             BlendKind::Fillet => &["fillet", "round"],
             BlendKind::Chamfer => &["chamfer", "bevel"],
@@ -1094,6 +1095,10 @@ fn body(
             pipe_panel::show(ui, model, row.selection, actions, feature, pipe);
             body_display(ui, model, feature);
         }
+        FeatureKind::Loft(loft) => {
+            loft_panel::show(ui, model, row.selection, actions, feature, loft);
+            body_display(ui, model, feature);
+        }
         FeatureKind::Combine(combine) => {
             combine_panel::show(ui, model, actions, feature, combine);
             body_display(ui, model, feature);
@@ -1203,6 +1208,7 @@ fn kind_color(tokens: &appearance::Tokens, row: &Row<'_>) -> Color32 {
         | FeatureKind::SplitFace(_)
         | FeatureKind::Primitive(_)
         | FeatureKind::Pipe(_)
+        | FeatureKind::Loft(_)
         | FeatureKind::Combine(_)
         | FeatureKind::Move(_)
         | FeatureKind::Mate(_)
@@ -1331,6 +1337,7 @@ fn edit_command(feature: &Feature, edited: bool) -> Option<EditingCommand> {
             | FeatureKind::SplitFace(_)
             | FeatureKind::Primitive(_)
             | FeatureKind::Pipe(_)
+            | FeatureKind::Loft(_)
             | FeatureKind::Combine(_)
             | FeatureKind::Move(_)
             | FeatureKind::Mate(_)
@@ -1354,6 +1361,7 @@ fn edit_command(feature: &Feature, edited: bool) -> Option<EditingCommand> {
             | FeatureKind::SplitFace(_)
             | FeatureKind::Primitive(_)
             | FeatureKind::Pipe(_)
+            | FeatureKind::Loft(_)
             | FeatureKind::Combine(_)
             | FeatureKind::Move(_)
             | FeatureKind::Mate(_)
@@ -2905,6 +2913,7 @@ fn waiting(
         let start = match missing {
             MissingInput::Axis => EditingCommand::Pick(Picking::new(id, Slot::PatternDirection)),
             MissingInput::Path => EditingCommand::Pick(Picking::new(id, Slot::SweepPath)),
+            MissingInput::Profiles => EditingCommand::Pick(Picking::new(id, Slot::LoftProfiles)),
             MissingInput::Regions { .. }
             | MissingInput::Edges { .. }
             | MissingInput::FacesToMove { .. }

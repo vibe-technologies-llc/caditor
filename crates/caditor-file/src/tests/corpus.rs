@@ -11,17 +11,17 @@ use caditor_document::{
     CurveSpacing, Datum, DatumAxis, DatumFrame, DatumPlane, DatumPoint, EdgeGroup, Extrude,
     ExtrudeEnd, ExtrudeExtent, FaceColour, FaceTangent, FaceThickness, Feature, FinePitch, Finish,
     Hole, HoleBottom, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle,
-    Import, Mate, MatePair, MetricSize, Mirror, ModelProperties, Move, OffsetFace, Outline,
-    ParameterOwner, ParameterValues, Pattern, PatternKind, PieceKey, PieceLooks, Pieces, Pipe,
-    PlaneRotation, PlaneThrough, PointBy, PointReference, PointsPattern, PrincipalAxis,
-    PrincipalGeometry, ProjectionSource, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent,
-    Rgb, Scale, Shell, ShellSide, SketchFeature, SolidFeature, SolidStart, Split, SplitAlong,
-    SplitCarry, SplitFace, Sweep, SweepPath, TappedThread, ThreadFamily, ThreadForm, ThreadHand,
-    TurnCentre, Wall, point_instance,
+    Import, Loft, LoftSection, Mate, MatePair, MetricSize, Mirror, ModelProperties, Move,
+    OffsetFace, Outline, ParameterOwner, ParameterValues, Pattern, PatternKind, PieceKey,
+    PieceLooks, Pieces, Pipe, PlaneRotation, PlaneThrough, PointBy, PointReference, PointsPattern,
+    PrincipalAxis, PrincipalGeometry, ProjectionSource, RegionChoice, Remove, Revolve, RevolveAxis,
+    RevolveExtent, Rgb, Scale, Shell, ShellSide, SketchFeature, SolidFeature, SolidStart, Split,
+    SplitAlong, SplitCarry, SplitFace, Sweep, SweepPath, TappedThread, ThreadFamily, ThreadForm,
+    ThreadHand, TurnCentre, Wall, point_instance,
 };
 use caditor_kernel::{
-    EdgeName, EdgeReference, FaceName, FaceOrigin, FaceReference, PipeShape, Solid,
-    SweepOrientation, VertexName, WallSide,
+    BoundaryPiece, EdgeName, EdgeReference, FaceName, FaceOrigin, FaceReference, LoftSkin,
+    PipeShape, RegionKey, RegionReference, Side, Solid, SweepOrientation, VertexName, WallSide,
 };
 use serde::{
     Deserializer,
@@ -50,7 +50,7 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 31] = [
+const KEPT: [(&str, &str); 32] = [
     (
         "journal-1/by-reference.journal",
         "fe98725da8d9df46b19d7cede1474bcfb92bbda00d4de9c890e5bca5d0f2899f",
@@ -102,6 +102,10 @@ const KEPT: [(&str, &str); 31] = [
     (
         "model-1/imports.caditor",
         "f172dff8d721a9e2b87cec9c788a954cebb79dd198f0335636da641731addfbb",
+    ),
+    (
+        "model-1/lofts.caditor",
+        "f3e8d60297f4e779d8444e9971f45d96b71642ea56001e1b590fc74cf41378f4",
     ),
     (
         "model-1/measured.caditor",
@@ -708,6 +712,7 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
         (model("sweeps"), saved(&sweeps(), "Sweeps")),
         (model("path-sweeps"), saved(&path_sweeps(), "Path sweeps")),
         (model("pipes"), saved(&pipes(), "Pipes")),
+        (model("lofts"), saved(&lofts(), "Lofts")),
         (
             model("separate-pieces"),
             saved(&separate_pieces(), "Separate pieces"),
@@ -1296,6 +1301,61 @@ fn pipes() -> Document {
     transaction.add_feature(
         "Unchosen pipe",
         FeatureKind::Pipe(Pipe::new(SweepPath::Unchosen, parse("4 mm"), parse("6 mm"))),
+    );
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
+fn lofts() -> Document {
+    let (mut document, base, _) = solid_model();
+    let mut transaction = document.transaction("Lofts");
+    let level = |height: f64| Plane::new(Point3::new(0.0, 0.0, height), Vector3::Z).unwrap();
+    let mut low = Sketch::new(level(0.0));
+    let corners = [(0.0, 0.0), (6.0, 0.0), (6.0, 4.0), (0.0, 4.0)];
+    for index in 0..4 {
+        let (a, b) = (corners[index], corners[(index + 1) % 4]);
+        low.add_line(Point2::new(a.0, a.1), Point2::new(b.0, b.1));
+    }
+    let low = transaction.add_feature("Loft bottom", FeatureKind::from(low));
+    let mut middle = Sketch::new(level(4.0));
+    middle.add_circle(Point2::new(3.0, 2.0), 1.5);
+    let middle = transaction.add_feature("Loft middle", FeatureKind::from(middle));
+    let mut high = Sketch::new(level(8.0));
+    let disc = high.add_circle(Point2::new(3.0, 2.0), 1.0);
+    high.add_circle(Point2::new(9.0, 2.0), 1.0);
+    let tip = high.add_point(Point2::new(3.0, 2.0));
+    let high = transaction.add_feature("Loft top", FeatureKind::from(high));
+    let chosen = RegionReference::new(
+        RegionKey::from_digest(0x0abc_def0_1234_5678_9abc_def0_1234_5678),
+        BTreeSet::from([BoundaryPiece {
+            entity: disc.raw(),
+            side: Side::Left,
+            piece: 0x1111_2222_3333_4444_5555_6666_7777_8888,
+        }]),
+        Some(Point2::new(3.0, 2.0)),
+    );
+    transaction.add_feature(
+        "Smooth loft",
+        FeatureKind::Loft(Loft::new(vec![
+            LoftSection::whole(low),
+            LoftSection::whole(middle),
+            LoftSection {
+                sketch: high,
+                region: Some(chosen),
+            },
+        ])),
+    );
+    transaction.add_feature(
+        "Ruled spike",
+        FeatureKind::Loft(Loft {
+            end: Some(PointReference::Sketch {
+                sketch: high,
+                entity: tip,
+            }),
+            skin: LoftSkin::Ruled,
+            operation: BodyOperation::Add(base),
+            ..Loft::new(vec![LoftSection::whole(middle)])
+        }),
     );
     document.apply(transaction.finish()).unwrap();
     document

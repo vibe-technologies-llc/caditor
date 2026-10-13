@@ -16,11 +16,12 @@ use crate::{
     body_pieces::{PieceKey, PieceLooks, Pieces},
     combine::Combine,
     configurations::{ConfigurationId, Configurations},
-    datum::{Datum, PlaneReference, PrincipalGeometry},
+    datum::{Datum, PlaneReference, PointReference, PrincipalGeometry},
     edit::{Edit, Transaction},
     feature_list::FeatureList,
     hole::Hole,
     import::Import,
+    loft::Loft,
     mate::Mate,
     measurement::Measurement,
     mirror::Mirror,
@@ -143,6 +144,7 @@ pub enum FeatureKind {
     SplitFace(SplitFace),
     Primitive(Primitive),
     Pipe(Pipe),
+    Loft(Loft),
     Combine(Combine),
     Move(Move),
     Mate(Mate),
@@ -204,6 +206,7 @@ impl FeatureKind {
             Self::SplitFace(split) => split.heap_size(),
             Self::Primitive(primitive) => primitive.heap_size(),
             Self::Pipe(pipe) => pipe.heap_size(),
+            Self::Loft(loft) => loft.heap_size(),
             Self::Combine(combine) => size_of_val(combine.more_tools.as_slice()),
             Self::Move(movement) => movement.heap_size(),
             Self::Mate(mate) => mate.heap_size(),
@@ -238,6 +241,7 @@ impl FeatureKind {
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
+            | Self::Loft(_)
             | Self::Combine(_)
             | Self::Move(_)
             | Self::Mate(_)
@@ -265,6 +269,7 @@ impl FeatureKind {
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
+            | Self::Loft(_)
             | Self::Combine(_)
             | Self::Move(_)
             | Self::Mate(_)
@@ -292,6 +297,7 @@ impl FeatureKind {
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
+            | Self::Loft(_)
             | Self::Combine(_)
             | Self::Move(_)
             | Self::Mate(_)
@@ -319,6 +325,7 @@ impl FeatureKind {
             Self::SplitFace(split) => Some(split.body),
             Self::Primitive(primitive) => primitive.operation.target(),
             Self::Pipe(pipe) => pipe.operation.target(),
+            Self::Loft(loft) => loft.operation.target(),
             Self::Combine(combine) => Some(combine.body),
             Self::Move(movement) => Some(movement.body),
             Self::Mate(mate) => Some(mate.body),
@@ -357,6 +364,7 @@ impl FeatureKind {
             }
             Self::Primitive(primitive) => used.extend(primitive.plane.body()),
             Self::Pipe(pipe) => used.extend(pipe.path.body()),
+            Self::Loft(loft) => used.extend(loft.end.as_ref().and_then(PointReference::body)),
             Self::Sketch(sketch) => used.extend(sketch.projected_bodies()),
             Self::Hole(hole) => used.extend(hole.end_body()),
             Self::Measurement(measurement) => used.extend(measurement.bodies()),
@@ -396,6 +404,7 @@ impl FeatureKind {
             | Self::Shell(_)
             | Self::OffsetFace(_)
             | Self::Pipe(_)
+            | Self::Loft(_)
             | Self::Combine(_)
             | Self::Move(_)
             | Self::Scale(_)
@@ -427,6 +436,7 @@ impl FeatureKind {
             | Self::OffsetFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
+            | Self::Loft(_)
             | Self::Combine(_)
             | Self::Mirror(_)
             | Self::Split(_)
@@ -479,6 +489,12 @@ impl FeatureKind {
             | Self::Combine(_)
             | Self::Remove(_)
             | Self::Thread(_) => BTreeSet::new(),
+            Self::Loft(loft) => loft
+                .end
+                .as_ref()
+                .and_then(PointReference::frame)
+                .into_iter()
+                .collect(),
             Self::ReferenceImage(image) => image
                 .plane
                 .reference()
@@ -495,6 +511,12 @@ impl FeatureKind {
             Self::Pattern(pattern) => pattern.point_datums(),
             Self::Mate(mate) => mate.point_datums(),
             Self::Sketch(sketch) => sketch.projected_points().collect(),
+            Self::Loft(loft) => loft
+                .end
+                .as_ref()
+                .and_then(PointReference::datum)
+                .into_iter()
+                .collect(),
             Self::Solid(_)
             | Self::Blend(_)
             | Self::Shell(_)
@@ -556,6 +578,7 @@ impl FeatureKind {
                 .chain(split.direction_sketch())
                 .collect(),
             Self::Pipe(pipe) => pipe.path.sketch().into_iter().collect(),
+            Self::Loft(loft) => loft.reference_sketches(),
             Self::Sketch(_)
             | Self::Blend(_)
             | Self::Shell(_)
@@ -584,6 +607,7 @@ impl FeatureKind {
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
+            | Self::Loft(_)
             | Self::Move(_)
             | Self::Mate(_)
             | Self::Mirror(_)
@@ -626,6 +650,7 @@ impl FeatureKind {
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
+            | Self::Loft(_)
             | Self::Combine(_)
             | Self::Move(_)
             | Self::Mate(_)
@@ -653,6 +678,7 @@ impl FeatureKind {
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
+            | Self::Loft(_)
             | Self::Combine(_)
             | Self::Move(_)
             | Self::Mate(_)
@@ -680,6 +706,7 @@ impl FeatureKind {
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
+            | Self::Loft(_)
             | Self::Combine(_)
             | Self::Move(_)
             | Self::Mate(_)
@@ -707,6 +734,7 @@ impl FeatureKind {
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
+            | Self::Loft(_)
             | Self::Thread(_)
             | Self::Combine(_)
             | Self::Move(_)
@@ -738,10 +766,18 @@ impl FeatureKind {
         }
     }
 
+    pub fn loft(&self) -> Option<&Loft> {
+        match self {
+            Self::Loft(loft) => Some(loft),
+            _ => None,
+        }
+    }
+
     pub fn primitive(&self) -> Option<&Primitive> {
         match self {
             Self::Primitive(primitive) => Some(primitive),
             Self::Pipe(_)
+            | Self::Loft(_)
             | Self::Sketch(_)
             | Self::Solid(_)
             | Self::Blend(_)
@@ -771,6 +807,7 @@ impl FeatureKind {
             Self::Sketch(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
+            | Self::Loft(_)
             | Self::Solid(_)
             | Self::Blend(_)
             | Self::Shell(_)
@@ -810,6 +847,7 @@ impl FeatureKind {
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
+            | Self::Loft(_)
             | Self::Combine(_)
             | Self::Move(_)
             | Self::Mate(_)
@@ -838,6 +876,7 @@ impl FeatureKind {
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
+            | Self::Loft(_)
             | Self::Combine(_)
             | Self::Mirror(_)
             | Self::Split(_)
@@ -864,6 +903,7 @@ impl FeatureKind {
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
+            | Self::Loft(_)
             | Self::Combine(_)
             | Self::Move(_)
             | Self::Mirror(_)
@@ -892,6 +932,7 @@ impl FeatureKind {
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
+            | Self::Loft(_)
             | Self::Combine(_)
             | Self::Move(_)
             | Self::Mate(_)
@@ -918,6 +959,7 @@ impl FeatureKind {
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
+            | Self::Loft(_)
             | Self::Combine(_)
             | Self::Move(_)
             | Self::Mate(_)
@@ -945,6 +987,7 @@ impl FeatureKind {
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
+            | Self::Loft(_)
             | Self::Combine(_)
             | Self::Move(_)
             | Self::Mate(_)
@@ -972,6 +1015,7 @@ impl FeatureKind {
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
+            | Self::Loft(_)
             | Self::Move(_)
             | Self::Mate(_)
             | Self::Mirror(_)
@@ -999,6 +1043,7 @@ impl FeatureKind {
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
+            | Self::Loft(_)
             | Self::Combine(_)
             | Self::Move(_)
             | Self::Mate(_)
@@ -1026,6 +1071,7 @@ impl FeatureKind {
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
+            | Self::Loft(_)
             | Self::Combine(_)
             | Self::Move(_)
             | Self::Mate(_)
@@ -1053,6 +1099,7 @@ impl FeatureKind {
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
+            | Self::Loft(_)
             | Self::Combine(_)
             | Self::Move(_)
             | Self::Mate(_)
@@ -1078,6 +1125,7 @@ impl FeatureKind {
             Self::OffsetFace(offset) => offset.parameters(),
             Self::Primitive(primitive) => primitive.parameters(),
             Self::Pipe(pipe) => pipe.parameters(),
+            Self::Loft(_) => BTreeSet::new(),
             Self::Combine(_) => BTreeSet::new(),
             Self::Move(movement) => movement.parameters(),
             Self::Mate(mate) => mate.parameters(),
@@ -1102,6 +1150,7 @@ impl FeatureKind {
             Self::OffsetFace(offset) => offset.uses_parameter(parameter),
             Self::Primitive(primitive) => primitive.uses_parameter(parameter),
             Self::Pipe(pipe) => pipe.uses_parameter(parameter),
+            Self::Loft(_) => false,
             Self::Combine(_) => false,
             Self::Move(movement) => movement.uses_parameter(parameter),
             Self::Mate(mate) => mate.uses_parameter(parameter),
@@ -1141,6 +1190,7 @@ impl FeatureKind {
             Self::SplitFace(split) => split.features(),
             Self::Primitive(primitive) => primitive.features(),
             Self::Pipe(pipe) => pipe.features(),
+            Self::Loft(loft) => loft.features(),
             Self::Combine(combine) => combine.features(),
             Self::Move(movement) => movement.features(),
             Self::Mate(mate) => mate.features(),
@@ -1186,6 +1236,7 @@ impl FeatureKind {
             Self::SplitFace(split) => split.origin_features(),
             Self::Primitive(primitive) => primitive.origin_features(),
             Self::Pipe(pipe) => pipe.origin_features(),
+            Self::Loft(loft) => loft.origin_features(),
             Self::Move(movement) => movement.origin_features(),
             Self::Mate(mate) => mate.origin_features(),
             Self::Hole(hole) => hole.origin_features(),
@@ -1312,6 +1363,7 @@ impl Feature {
                 Some(primitive.operation.target().unwrap_or(self.id))
             }
             FeatureKind::Pipe(pipe) => Some(pipe.operation.target().unwrap_or(self.id)),
+            FeatureKind::Loft(loft) => Some(loft.operation.target().unwrap_or(self.id)),
             FeatureKind::Combine(combine) => Some(combine.body),
             FeatureKind::Move(movement) if movement.copy => Some(self.id),
             FeatureKind::Move(movement) => Some(movement.body),
@@ -1361,6 +1413,7 @@ impl Feature {
             FeatureKind::Import(_) | FeatureKind::Split(_) => true,
             FeatureKind::Primitive(primitive) => primitive.operation == BodyOperation::NewBody,
             FeatureKind::Pipe(pipe) => pipe.operation == BodyOperation::NewBody,
+            FeatureKind::Loft(loft) => loft.operation == BodyOperation::NewBody,
             FeatureKind::Move(movement) => movement.copy,
             FeatureKind::Mate(_)
             | FeatureKind::Sketch(_)

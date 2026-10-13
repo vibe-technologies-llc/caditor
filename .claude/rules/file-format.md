@@ -190,6 +190,10 @@ Extrusions and revolves:
 - `pipe`: `path` as a sweep's (unreadable loads as unchosen), `shape` (`round`, `square`,
   `triangle`), `size` (unreadable 10 mm), `wall` only when hollow (unreadable 1 mm), `bend`
   (unreadable 0 mm) and `operation`. The corpus holds it in `pipes.caditor`.
+- `loft`: `profiles` (each `sketch`, and `region` with its key's digest and `reference` as a
+  `region_references` entry when a region is chosen), `end` (point reference, only when set),
+  `skin` (`smooth`, `ruled`) and `operation`. An unreadable profile is left out and an unreadable end
+  loads ending at the last profile, each reported. The corpus holds it in `lofts.caditor`.
 - `separate_pieces`: a wrapper around the whole feature kind record (`feature`) of a feature whose
   `pieces` is a body each, written only then; an older reader reports the feature as from a newer
   version instead of making one body that later features' piece bodies would not find. Restoring

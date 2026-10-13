@@ -300,6 +300,7 @@ pub struct Context {
     pub intersecting: bool,
     pub selecting: bool,
     pub choosing_in_view: bool,
+    pub choosing_profiles: bool,
     pub principal: PrincipalView,
 }
 
@@ -310,9 +311,8 @@ impl Context {
 
     pub fn picks_shown_regions(self) -> bool {
         self.sketch.is_none()
-            && self.solid.is_none()
             && !self.choosing_plane
-            && !self.choosing_in_view
+            && (self.choosing_profiles || (self.solid.is_none() && !self.choosing_in_view))
     }
 }
 
@@ -466,6 +466,9 @@ impl SketchEditing {
                 .active
                 .is_some_and(|active| active.tool == Tool::Select),
             choosing_in_view: self.picking.is_some(),
+            choosing_profiles: self
+                .picking
+                .is_some_and(|picking| picking.slot == Slot::LoftProfiles),
             principal: PrincipalView::default(),
         }
     }
@@ -1046,6 +1049,7 @@ fn opened_solid(document: &Document, feature: FeatureId) -> bool {
             | FeatureKind::SplitFace(_)
             | FeatureKind::Primitive(_)
             | FeatureKind::Pipe(_)
+            | FeatureKind::Loft(_)
             | FeatureKind::Combine(_)
             | FeatureKind::Move(_)
             | FeatureKind::Mate(_)

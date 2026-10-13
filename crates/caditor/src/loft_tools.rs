@@ -1,0 +1,349 @@
+use caditor_document::{
+    BodyOperation, Document, Edit, Evaluation, FeatureId, FeatureKind, Loft, LoftSection,
+    PointReference, Transaction,
+};
+use caditor_kernel::{LoftSkin, RegionKey};
+
+use crate::{
+    body_selection,
+    commands::Command,
+    datum_tools,
+    editing::{self, EditingCommand},
+    field,
+    model::{Action, Model},
+    queued,
+    reference_picking::{Picking, Slot},
+    selection::{self, Pickable, Selection},
+    sweep_tools, visibility,
+};
+
+pub const TITLE: &str = "Loft";
+const GONE: &str = "The feature no longer exists";
+const NOT_A_PROFILE: &str = "Click a region or a curve of a sketch with a closed shape";
+const NO_PROFILE_SELECTED: &str =
+    "Select a region or a curve of each sketch to loft through, in order";
+const NO_POINT_SELECTED: &str =
+    "Select one corner, round edge, sphere, sketch point or datum point to end at";
+const REGION_GONE: &str = "The selected region is no longer part of its sketch";
+const ALREADY_THROUGH: &str = "It already lofts through the selected profiles";
+const ALREADY_ENDS: &str = "It already ends at that point";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProfilePick {
+    pub sketch: FeatureId,
+    pub region: Option<RegionKey>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LoftStart {
+    pub profiles: Vec<ProfilePick>,
+    pub end: Option<PointReference>,
+    pub body: Option<FeatureId>,
+}
+
+impl LoftStart {
+    fn rows(&self) -> usize {
+        self.profiles.len() + usize::from(self.end.is_some())
+    }
+}
+
+fn has_regions(evaluation: &Evaluation, sketch: FeatureId) -> bool {
+    selection::sketch_regions(evaluation, sketch).is_some_and(|regions| !regions.is_empty())
+}
+
+fn profile_of(model: &Model, pickable: Pickable) -> Option<ProfilePick> {
+    match pickable {
+        Pickable::SketchRegion { feature, region } => Some(ProfilePick {
+            sketch: feature,
+            region: Some(region),
+        }),
+        Pickable::SketchEntity { feature, entity }
+            if sweep_tools::is_path_curve(model.document(), feature, entity)
+                && has_regions(model.evaluation(), feature) =>
+        {
+            Some(ProfilePick {
+                sketch: feature,
+                region: None,
+            })
+        }
+        _ => None,
+    }
+}
+
+fn profile_picks(model: &Model, selection: &Selection) -> Vec<ProfilePick> {
+    let mut picks: Vec<ProfilePick> = Vec::new();
+    for pickable in selection.in_pick_order() {
+        let Some(pick) = profile_of(model, pickable) else {
+            continue;
+        };
+        if !picks.iter().any(|known| known.sketch == pick.sketch) {
+            picks.push(pick);
+        }
+    }
+    picks
+}
+
+pub fn source(model: &Model, selection: &Selection) -> Result<LoftStart, &'static str> {
+    let document = model.document();
+    let index = document.bar_index();
+    let profiles = profile_picks(model, selection);
+    let end = selection
+        .in_pick_order()
+        .into_iter()
+        .filter(|pickable| profile_of(model, *pickable).is_none())
+        .find_map(|pickable| datum_tools::point_reference(model, pickable, index));
+    let body = match body_selection::bodies_in(selection).as_slice() {
+        [only] => Some(*only),
+        _ => None,
+    };
+    Ok(LoftStart {
+        profiles,
+        end,
+        body,
+    })
+}
+
+fn captured(evaluation: &Evaluation, pick: ProfilePick) -> Result<LoftSection, &'static str> {
+    let Some(key) = pick.region else {
+        return Ok(LoftSection::whole(pick.sketch));
+    };
+    let region = selection::sketch_regions(evaluation, pick.sketch)
+        .and_then(|regions| regions.iter().find(|region| region.region.key() == key))
+        .ok_or(REGION_GONE)?;
+    Ok(LoftSection {
+        sketch: pick.sketch,
+        region: Some(region.reference()),
+    })
+}
+
+pub fn create(
+    document: &Document,
+    evaluation: &Evaluation,
+    start: &LoftStart,
+) -> Result<(Transaction, FeatureId), &'static str> {
+    let profiles = start
+        .profiles
+        .iter()
+        .map(|pick| captured(evaluation, *pick))
+        .collect::<Result<Vec<_>, _>>()?;
+    let name = editing::next_feature_name(document, TITLE);
+    let loft = Loft {
+        end: start.end.clone(),
+        operation: start
+            .body
+            .map_or(BodyOperation::NewBody, BodyOperation::Add),
+        ..Loft::new(profiles)
+    };
+    let mut transaction = document.transaction(format!("Create {name}"));
+    let feature = transaction.add_feature(name, FeatureKind::Loft(loft));
+    if start.rows() >= 2 {
+        for pick in &start.profiles {
+            if visibility::is_shown(document, pick.sketch) {
+                transaction.edit(Edit::SetFeatureHidden {
+                    id: pick.sketch,
+                    hidden: true,
+                });
+            }
+        }
+    }
+    Ok((transaction.finish(), feature))
+}
+
+pub fn create_actions(model: &Model, start: &LoftStart) -> Vec<Action> {
+    match create(model.document(), model.evaluation(), start) {
+        Ok((transaction, feature)) => {
+            let mut actions = vec![
+                Action::Apply(transaction),
+                Action::Editing(EditingCommand::OpenSolid(feature)),
+            ];
+            if start.rows() < 2 {
+                actions.push(Action::Editing(EditingCommand::Pick(Picking::new(
+                    feature,
+                    Slot::LoftProfiles,
+                ))));
+            }
+            actions
+        }
+        Err(reason) => vec![queued::refused(Command::Loft, TITLE, reason)],
+    }
+}
+
+pub fn edit(document: &Document, feature: FeatureId, loft: Loft) -> Option<Transaction> {
+    let name = &document.feature(feature)?.name;
+    Some(Transaction::single(
+        format!("Edit {name}"),
+        Edit::SetFeatureKind {
+            id: feature,
+            kind: FeatureKind::Loft(loft),
+        },
+    ))
+}
+
+pub fn change(model: &Model, feature: FeatureId, loft: Loft) -> Result<Transaction, String> {
+    let document = model.document();
+    let transaction = edit(document, feature, loft).ok_or_else(|| GONE.to_owned())?;
+    field::checked(document, transaction)
+}
+
+pub fn with_operation(loft: &Loft, operation: BodyOperation) -> Loft {
+    Loft {
+        operation,
+        ..loft.clone()
+    }
+}
+
+pub fn with_skin(loft: &Loft, skin: LoftSkin) -> Loft {
+    Loft {
+        skin,
+        ..loft.clone()
+    }
+}
+
+pub fn without_end(loft: &Loft) -> Loft {
+    Loft {
+        end: None,
+        ..loft.clone()
+    }
+}
+
+pub fn without_profile(loft: &Loft, index: usize) -> Loft {
+    let mut profiles = loft.profiles.clone();
+    if index < profiles.len() {
+        profiles.remove(index);
+    }
+    Loft {
+        profiles,
+        ..loft.clone()
+    }
+}
+
+pub fn moved(loft: &Loft, index: usize, earlier: bool) -> Option<Loft> {
+    let other = if earlier {
+        index.checked_sub(1)?
+    } else {
+        index + 1
+    };
+    if other >= loft.profiles.len() || index >= loft.profiles.len() {
+        return None;
+    }
+    let mut profiles = loft.profiles.clone();
+    profiles.swap(index, other);
+    Some(Loft {
+        profiles,
+        ..loft.clone()
+    })
+}
+
+fn is_pick(section: &LoftSection, pick: ProfilePick) -> bool {
+    section.sketch == pick.sketch
+        && match (pick.region, &section.region) {
+            (None, _) => true,
+            (Some(key), Some(reference)) => reference.key() == key,
+            (Some(_), None) => false,
+        }
+}
+
+pub fn profile_change(
+    model: &Model,
+    selection: &Selection,
+    feature: FeatureId,
+    loft: &Loft,
+) -> Result<Transaction, String> {
+    let picks = profile_picks(model, selection);
+    let [pick] = picks.as_slice() else {
+        return Err(NOT_A_PROFILE.to_owned());
+    };
+    let mut profiles = loft.profiles.clone();
+    match profiles
+        .iter()
+        .position(|section| section.sketch == pick.sketch)
+    {
+        Some(index)
+            if profiles
+                .get(index)
+                .is_some_and(|known| is_pick(known, *pick)) =>
+        {
+            profiles.remove(index);
+        }
+        Some(index) => {
+            let section = captured(model.evaluation(), *pick)?;
+            if let Some(slot) = profiles.get_mut(index) {
+                *slot = section;
+            }
+        }
+        None => profiles.push(captured(model.evaluation(), *pick)?),
+    }
+    change(
+        model,
+        feature,
+        Loft {
+            profiles,
+            ..loft.clone()
+        },
+    )
+}
+
+pub fn selected_change(
+    model: &Model,
+    selection: &Selection,
+    feature: FeatureId,
+    loft: &Loft,
+) -> Result<Transaction, String> {
+    let picks = profile_picks(model, selection);
+    if picks.is_empty() {
+        return Err(NO_PROFILE_SELECTED.to_owned());
+    }
+    let profiles = picks
+        .iter()
+        .map(|pick| captured(model.evaluation(), *pick))
+        .collect::<Result<Vec<_>, _>>()?;
+    let unchanged = profiles.len() == loft.profiles.len()
+        && picks.iter().zip(&loft.profiles).all(|(pick, known)| {
+            is_pick(known, *pick) && pick.region.is_some() == known.region.is_some()
+        });
+    if unchanged {
+        return Err(ALREADY_THROUGH.to_owned());
+    }
+    change(
+        model,
+        feature,
+        Loft {
+            profiles,
+            ..loft.clone()
+        },
+    )
+}
+
+pub fn end_change(
+    model: &Model,
+    selection: &Selection,
+    feature: FeatureId,
+    loft: &Loft,
+) -> Result<Transaction, String> {
+    let index = model.document().feature_index(feature).ok_or(GONE)?;
+    let mut picked = selection.iter();
+    let end = match (picked.next(), picked.next()) {
+        (Some(only), None) => datum_tools::point_reference(model, only, index),
+        _ => None,
+    }
+    .ok_or(NO_POINT_SELECTED)?;
+    if loft.end.as_ref() == Some(&end) {
+        return Err(ALREADY_ENDS.to_owned());
+    }
+    change(
+        model,
+        feature,
+        Loft {
+            end: Some(end),
+            ..loft.clone()
+        },
+    )
+}
+
+pub fn profile_words(document: &Document, section: &LoftSection) -> Option<String> {
+    let name = &document.feature(section.sketch)?.name;
+    Some(match section.region {
+        Some(_) => format!("A region of {name}"),
+        None => name.clone(),
+    })
+}

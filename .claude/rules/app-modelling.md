@@ -7,6 +7,8 @@ paths:
   - "crates/caditor/src/sweep_tools.rs"
   - "crates/caditor/src/pipe_tools.rs"
   - "crates/caditor/src/pipe_panel.rs"
+  - "crates/caditor/src/loft_tools.rs"
+  - "crates/caditor/src/loft_panel.rs"
   - "crates/caditor/src/blend_tools.rs"
   - "crates/caditor/src/blend_panel.rs"
   - "crates/caditor/src/shell_tools.rs"
@@ -76,10 +78,10 @@ paths:
 # Modelling tools in the app
 
 Tools without a ribbon button (it stays one row) live in the Model menu and the palette: Offset face,
-Split face, the primitives, Pipe, Thread, Copy body, Split body, Mate body, Mirror faces, Curve and Point
+Split face, the primitives, Pipe, Loft, Thread, Copy body, Split body, Mate body, Mirror faces, Curve and Point
 pattern, Coordinate system, Scale model and Configurations. Sweep has a button in the Solid group
 and a Model menu row, and is in the right-click menu of selected sketch curves
-(`view_menu::SKETCH_TOOLS`), as Pipe is. Panel rows, keys and wordings are in the
+(`view_menu::SKETCH_TOOLS`), as Pipe and Loft are. Panel rows, keys and wordings are in the
 `*_panel.rs` files; this file holds the behaviour behind them.
 
 ## Preview while open
@@ -478,6 +480,29 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   placed from `caditor_document::pipe_stand` (the path as the pipe walks it, through the kernel's
   `pipe_stand`: the section plane and the first corner between two straight lines, whether or not
   the bend rounds it), so they also stand when the pipe itself fails.
+
+## Loft
+
+- `Command::Loft` (`loft_tools.rs`, `Offers::loft`; Solid group menu, Model menu, palette,
+  `view_menu::SKETCH_TOOLS`, no default key) makes a `Loft`, Smooth, and opens it.
+  `loft_tools::source` reads the selection in pick order: each selected region
+  (`Pickable::SketchRegion`) or curve of a sketch with regions names that sketch's profile (a
+  region chooses it, a curve takes the whole sketch), the first per sketch counting; the first
+  other pick giving a point (`datum_tools::point_reference` at the bar) is the end; the one body
+  of selected faces is added to, else it is a new body. With two rows or more the profile sketches
+  are hidden in the same transaction; with fewer it opens choosing profiles
+  (`Slot::LoftProfiles`) and waits (`MissingInput::Profiles`).
+- `Slot::LoftProfiles` keeps choosing: a click on a curve of a sketch adds it at the end or, when
+  the sketch is a profile, leaves it out; a click on a region adds it, takes that region instead of
+  the profile's, or leaves out the same region (`loft_tools::profile_change`). While it is chosen
+  `editing::Context::choosing_profiles` makes shown sketches' regions pickable
+  (`Context::picks_shown_regions`). `Slot::LoftEnd` takes one point as a point pattern's base does
+  (`loft_tools::end_change`).
+- Panel (`loft_panel.rs`): Profiles (a numbered line per profile, `loft_tools::profile_words`, with
+  move earlier, later and leave out buttons; Use selected replaces them in pick order, Choose in the
+  view), Ends at (Its last profile, or the point, `describe_point`, with Use selected, Choose in the
+  view and the cross), Sides (`segmented` Smooth, Ruled) and the shared Result and Body rows
+  (`feature_fields::body_operation_rows`). Reverse direction refuses it. It has no arrows or values.
 
 ## Fillets, chamfers and shells
 
