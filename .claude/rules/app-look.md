@@ -800,7 +800,8 @@ paths:
   plainly so its tested colours hold) and the face is neither hovered nor selected
   (`Builder::finish_of`), never in X-ray, the drawing style, an analysis or a reflection view. The
   rendered style gives every face a finish in high contrast too, falling back to the material
-  preset's (`app.md`, Rendered view).
+  preset's, and outside high contrast keeps it on hovered and selected faces (`app.md`, Rendered
+  view).
 - The Custom colour swatch, on the body row and the selected-faces row alike, opens
   `colour_selector.rs` in the card (state in egui temp data keyed by `body_appearance::selector_id`,
   so a body and its faces each have their own): a saturation and brightness square, a hue strip,

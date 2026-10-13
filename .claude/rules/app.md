@@ -534,8 +534,10 @@ paths:
   `ScenePalette::shows_finishes` says: its own, else the body's, else its material preset's
   (`body_appearance::rendered_finish`, `material_named` matching `MATERIALS` by name ignoring
   case), else `RENDERED_DEFAULT` (Satin). The finish mode joins `KeptLooks`. Hovered and selected
-  faces keep no finish, so the renderer draws them with the ordinary shading and their palette
-  colours hold in high contrast; failed and outdated bodies keep their tint unfinished.
+  faces keep it too, drawn rendered in their highlight colour (`FaceLooks::lit_when_highlighted`),
+  except in high contrast (no `shows_finishes`), where they keep no finish so the renderer draws
+  them with the ordinary shading and their tested colours hold; failed and outdated bodies keep
+  their tint unfinished.
 - While rendered with no sketch edited, no feature open and no plane being chosen (`bare` in
   `scene::build_keeping`), the scene leaves out the grid, the principal planes, axes and origin,
   datums, sketch curves and regions, so only bodies show against the sky (`render.md`).
@@ -545,7 +547,8 @@ paths:
   uniform write. Image export sets it the same way, so an exported image matches the view;
   thumbnails, version previews and the headless PNG keep the default style.
 - The light is a preference (`lighting::Lighting`, keys `rendering.*`, `app-files.md`), not
-  document content: frame (`LightFrame`, the view or the model), turn and height in degrees, sun
+  document content: frame (`LightFrame`, the model by default, so the sun and its shadows stay put
+  as the view turns, or the view), turn and height in degrees, sun
   strength, colour temperature (a blackbody fit normalised to unit luminance, `light_colour`),
   sky light, bounced light, ambient occlusion, exposure in stops and shadows, each read
   clamped. Light the

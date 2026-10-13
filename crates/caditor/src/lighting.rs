@@ -27,8 +27,8 @@ const LUMINANCE: [f64; 3] = [0.2126, 0.7152, 0.0722];
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum LightFrame {
-    #[default]
     View,
+    #[default]
     Model,
 }
 
@@ -78,9 +78,9 @@ pub struct Lighting {
 impl Default for Lighting {
     fn default() -> Self {
         Self {
-            frame: LightFrame::View,
-            azimuth: -35.0,
-            elevation: 40.0,
+            frame: LightFrame::Model,
+            azimuth: -80.0,
+            elevation: 45.0,
             strength: 3.0,
             temperature: 5600.0,
             environment: 1.0,
@@ -205,7 +205,7 @@ mod tests {
     #[test]
     fn lighting_round_trips_and_odd_or_missing_keys_read_as_the_defaults() {
         let lighting = Lighting {
-            frame: LightFrame::Model,
+            frame: LightFrame::View,
             azimuth: 120.0,
             elevation: 15.0,
             strength: 5.5,
@@ -230,7 +230,7 @@ mod tests {
             Lighting::default()
         );
         let read = Lighting::from_settings(&odd);
-        assert_eq!(read.frame, LightFrame::View);
+        assert_eq!(read.frame, LightFrame::Model);
         assert_eq!(read.elevation, *ELEVATION.end());
         assert_eq!(read.strength, Lighting::default().strength);
     }
@@ -274,7 +274,7 @@ mod tests {
         assert!((elevation - std::f64::consts::FRAC_PI_6).abs() < 1e-12);
         assert!(matches!(
             Lighting::default().render().direction,
-            LightDirection::View { .. }
+            LightDirection::Model { .. }
         ));
     }
 }

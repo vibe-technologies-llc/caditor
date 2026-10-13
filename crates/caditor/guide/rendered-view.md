@@ -14,8 +14,8 @@ not a change to the model. Choose it from View › Display style like the other
   presets (Steel and Aluminium brushed metal, Brass and Copper polished metal, PLA and ABS satin
   and so on), else Satin.
 
-A hovered or selected face is drawn in its highlight colour with the ordinary shading, so the
-selection always reads. Bodies of a failed or outdated feature keep their warning tint. While a
+A hovered or selected face is drawn in its highlight colour, lit like the rest, so the selection
+always reads (in high contrast with the ordinary shading, keeping its tested colours). Bodies of a failed or outdated feature keep their warning tint. While a
 sketch is edited, and while a face analysis or reflection is shown, the view uses the ordinary
 shading.
 
@@ -24,9 +24,9 @@ shading.
 {command:view.lighting} opens the Lighting panel, whose settings are kept in your preferences
 (also under Preferences › Appearance › Rendered view):
 
-- **Light follows** the view, so the sun turns round the model with you and the side you look at
-  stays lit as you orbit, from any height, top views included; or the model, so the sun stays put
-  above it with Z up.
+- **Light follows** the model, as at first, so the sun stays put above it with Z up and shadows
+  stay where they fall as you orbit; or the view, so the sun turns round the model with you and
+  the side you look at stays lit from any height, top views included.
 - **Turned** and **Height** place the sun: turned from behind you (or from X toward Y when it
   follows the model), and how high above the horizon, which is always the model's (Z up).
 - **Sun strength** and **Colour temperature**: warm light is around 2700 K, daylight around

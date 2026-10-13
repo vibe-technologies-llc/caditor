@@ -162,8 +162,8 @@ fn the_rendered_style_lights_the_scene_and_finishes_every_face_with_the_material
 }
 
 #[test]
-fn a_body_without_finish_or_known_material_renders_satin_and_a_selected_face_keeps_its_plain_look()
-{
+fn a_body_without_finish_or_known_material_renders_satin_and_a_selected_face_stays_rendered_in_its_highlight()
+ {
     let mut harness = Harness::new();
     let (_, top) = extruded_plate(&mut harness);
     harness.select([]);
@@ -177,10 +177,8 @@ fn a_body_without_finish_or_known_material_renders_satin_and_a_selected_face_kee
     let selected = styles_of(&mut harness);
 
     assert!(rendered.iter().all(|face| face.finish == Some(satin)));
-    assert_eq!(
-        selected.iter().filter(|face| face.finish.is_none()).count(),
-        1
-    );
+    assert!(selected.iter().all(|face| face.finish == Some(satin)));
+    assert_ne!(selected, rendered);
 }
 
 #[test]

@@ -2155,7 +2155,7 @@ impl<'a> Builder<'a> {
         face: &BodyFace,
         pickable: Pickable,
     ) -> Option<SurfaceFinish> {
-        match self.highlight.is_lit(pickable) {
+        match self.highlight.is_lit(pickable) && !looks.lit_when_highlighted {
             true => None,
             false => looks.finish(face),
         }
@@ -3212,6 +3212,7 @@ struct FaceLooks {
     opacities: BTreeMap<FaceKey, f32>,
     finish: Option<SurfaceFinish>,
     finishes: BTreeMap<FaceKey, SurfaceFinish>,
+    lit_when_highlighted: bool,
 }
 
 impl FaceLooks {
@@ -3256,8 +3257,10 @@ fn face_looks(
         Finishes::Rendered => Some(body_appearance::rendered_finish(appearance)),
     }
     .map(body_appearance::surface);
+    let lit_when_highlighted = finishes == Finishes::Rendered && palette.shows_finishes;
     let plain = FaceLooks {
         finish,
+        lit_when_highlighted,
         ..FaceLooks::default()
     };
     if appearance.faces.is_empty() {
@@ -3275,6 +3278,7 @@ fn face_looks(
     };
     FaceLooks {
         finish,
+        lit_when_highlighted,
         finishes: looked()
             .filter(|_| finishes != Finishes::Hidden)
             .filter_map(|(key, look)| Some((key, body_appearance::surface(look.finish?))))

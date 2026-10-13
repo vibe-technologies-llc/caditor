@@ -187,7 +187,8 @@ paths:
   and metalness, times the sun and its shadow; the procedural `sky` (blue above, a sunlit ground's
   neutral below) as split-sum ambient (`sky_irradiance(normal)`, `sky_reflection(reflected,
   roughness)` with Karis' analytic environment BRDF) times `environment`; one bounce of sunlight; then exposure, Khronos PBR Neutral tone
-  mapping and `to_srgb`. Faces without a finish (hovered, selected) keep `lit`. Section caps of a
+  mapping and `to_srgb`. Faces without a finish (the app's hovered and selected faces in high
+  contrast) keep `lit`. Section caps of a
   finished face are rendered without shadow or bounce, so the reflective pipelines need no group 2.
 - `LightDirection::View` turns with the camera's heading about Z (`behind_the_viewer`: the eye's
   side levelled, else the far side of the view's up when looking straight down), its height taken
