@@ -6,7 +6,7 @@ change.
 
 - **Restore** brings a version back as an ordinary change: Undo returns to what you had, and the
   next save keeps it as a version too.
-- **Preview** shows what a version holds without changing the model: a picture of its bodies, how
+- **Preview** shows what a version holds without changing the model: a picture of its bodies and reference images, how
   many features and bodies it has, any feature that fails in it, and how it differs from the
   model now (features not in the model now, added since or changed since, and parameters changed
   since). It is read and recomputed in the background; **Cancel** stops it, and **Restore this
