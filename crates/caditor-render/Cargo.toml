@@ -23,5 +23,5 @@ wgpu.workspace = true
 caditor-windows.workspace = true
 
 [dev-dependencies]
-naga = { workspace = true, features = ["wgsl-in"] }
+naga = { workspace = true, features = ["wgsl-in", "glsl-out"] }
 tempfile.workspace = true

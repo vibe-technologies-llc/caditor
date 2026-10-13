@@ -28,7 +28,8 @@ paths:
   unconditional, since `cfg` there tests the host: `build.rs` checks `CARGO_CFG_TARGET_OS`.
 - `skrifa` (`std` only, through its `raw` re-export of `read-fonts`) reads outlines, the `wght` axis and
   GPOS kerning for SVG text in `caditor-file`; it is the copy epaint builds, so no second font parser
-  is compiled. `ttf-parser` is left only through winit's `sctk-adwaita`, which is why `deny.toml`
+  is compiled. Its version follows epaint's rather than the latest release (`cargo deny` refuses the
+  second copy a newer one would add). `ttf-parser` is left only through winit's `sctk-adwaita`, which is why `deny.toml`
   ignores its unmaintained advisory; nothing of ours uses it.
 - Reference pictures are decoded by `image` (no default features; `bmp`, `gif`, `jpeg` through the
   pure-Rust `zune-jpeg`, `png`, `qoi`, `tga`, `tiff`, `webp` through `image-webp`) and `jxl-oxide`
