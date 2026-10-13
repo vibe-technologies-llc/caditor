@@ -80,7 +80,7 @@ struct Look {
     scale: f32,
 }
 
-const LOOKS: [Look; 13] = [
+const LOOKS: [Look; 14] = [
     Look {
         name: "dark",
         theme: "dark",
@@ -112,6 +112,13 @@ const LOOKS: [Look; 13] = [
     Look {
         name: "dark-200",
         theme: "dark",
+        view: "theme",
+        high_contrast: false,
+        scale: 2.0,
+    },
+    Look {
+        name: "light-200",
+        theme: "light",
         view: "theme",
         high_contrast: false,
         scale: 2.0,
@@ -545,6 +552,14 @@ fn screenshots() {
         if let Some(sketch) = sketch {
             model.edit(sketch);
             shoot(&mut model, &gpu, &out, "sketch", look);
+            for group in ["Draw", "Modify", "Constrain"] {
+                model.click_button(&sketch_toolbar::group_menu_name(group));
+                model.frame();
+                let scene = format!("sketch-menu-{}", group.to_lowercase());
+                shoot(&mut model, &gpu, &out, &scene, look);
+                model.key(Key::Escape, Modifiers::NONE);
+                model.frame();
+            }
             run_from_palette(&mut model, "slice the bodies at the sketch plane");
             model.frame();
             model.frame();

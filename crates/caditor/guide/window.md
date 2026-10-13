@@ -15,10 +15,16 @@ its button would. Escape or a click elsewhere closes the menu, and with the keyb
 move through it and Enter runs the one highlighted. The Analyse group holds Measure, Check
 interference, the face analyses, the curvature comb, isocurves, the section view and the centres
 of mass, and its menu marks the ones that are open. While a sketch is edited a second ribbon holds
-the sketch tools, with its own Undo and Redo. A small arrow or triangle in a button's corner opens a menu of
-more tools or ways to draw; hover it to see what the menu holds. When the window is short for the
-interface size, the ribbons show their tools as icons alone, named on hover, so the view keeps its
-room, and each group's menu opens from a small arrow in the corner of its last tool. Tools without a button are in the menus and in {command:palette}.
+the sketch tools in History, Select, Draw, Modify, Constrain and Dimension, with its own Undo and
+Redo. Its groups open menus the same way: every drawing tool and every way to draw a shape, every
+modify tool and sketch edit, every constraint, the dimension tools and constraining
+automatically, with the tool in use and the current way of each shape marked. A small arrow or
+triangle in a button's corner opens a menu of more tools or ways to draw; hover it to see what the
+menu holds. When the window is short for the interface size, the ribbons show their tools as icons
+alone, named on hover, so the view keeps its room, and each group's menu opens from a small arrow
+or triangle in the corner of one of its tools (its last on the main ribbon; on the sketch ribbon
+Redo, Select, Line, Delete, the last constraint and Disable). Tools without a button are in the
+menus and in {command:palette}.
 
 ## The model panel
 

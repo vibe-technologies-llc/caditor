@@ -347,27 +347,52 @@ paths:
   Interference); compact through `toolbar::tool_button`. While a plane is being chosen for a new
   sketch, New sketch shows selected and clicking it stops choosing (as Escape does), so the ribbon
   keeps its height.
-- Every main-ribbon group opens a menu of all its commands (`Group::sections`, paragraphs split by
-  separators), buttonless ones included (Thread, the primitives, Offset face, Split face, Copy body,
-  Mirror faces, Split, Mates, Scale model, the face analyses, the comb, isocurves, Add a section
-  plane, centres of mass). Analyse is where the analysis and inspection commands live: Measure,
+- Every captioned group of both ribbons opens a menu of all its commands, buttonless ones included,
+  through one implementation in `ribbon.rs`: `ribbon::menu_group` draws the group with its trigger,
+  `ribbon::group_menu` shows the menu and `ribbon::menu_sections` its paragraphs split by separators.
+  The trigger is the group's caption while captions show (`widgets::group_title`: the caption and a
+  caret, a strip as wide as the group, drawn in the caption's place by `ribbon::captioned_by`), else
+  a corner mark over one tool the group names (`ribbon::GroupTools::host`): the caret
+  (`widgets::corner_menu_button`) on a full button, the notch (`compact_corner_menu_button`) on a
+  compact one. The title with its caret (`widgets::group_title_width`) counts in the group's natural
+  width like the caption alone did; that widens only a group narrower than it (the sketch ribbon's
+  History column), so the main ribbon's widths and every layout's packing stay as
+  they were (`the_ribbons_settle_on_one_layout_at_every_interface_size`, `interface_fit`,
+  `large_interface`). Both triggers are buttons whose screen-reader name is the menu's and open an
+  egui `Popup` of `PopupKind::Menu` through `widgets::fitted_menu`, so Escape or a click outside
+  closes it and it scrolls when taller than the room. Group menus hold no submenus: scrolling one
+  with the wheel would pass a submenu's button under the pointer, open it and send the wheel to it.
+  Entries are `menu_bar::MenuEntries` from the last frame's offers, keymap and `ToggleStates`
+  (disabled with the reason on hover, bound keys, checkmarks through `MenuEntries::marked`, Undo and
+  Redo named for the step and Repeat for the command through `MenuEntries::history_item`); opening
+  it by click, Enter or Space focuses the first available entry. A chosen command closes the menu
+  and is returned by `toolbar::show` or `sketch_toolbar::show`; `app::show` runs it next frame
+  through `Workspace::deferred_commands` as the context menu's are, so the same `Command` path as
+  the button, palette and keys decides what happens (`ui_tests/group_menus.rs`).
+- The main ribbon's menus are named "<group> commands" (`Group::menu_name`) and listed by
+  `Group::sections` (Thread, the primitives, Offset face, Split face, Copy body, Mirror faces,
+  Split, Mates, Scale model, the face analyses, the comb, isocurves, Add a section plane, centres of
+  mass without buttons); their trigger's host is the whole row of tools, so the corner sits over the
+  last tool. `ToolbarContext::analysing`, `combing`, `isocurving` and the measure and interference
+  flags mark the open panels. Analyse is where the analysis and inspection commands live: Measure,
   Check interference, the six face analyses, comb, isocurves, section view and centres of mass; no
   command of another group belongs to it, and it keeps two buttons because the ribbon already fills
   a 1400-point window, so another button would wrap it into two rows and move the view of every
-  test. The menu opens from the group's caption while captions show (`widgets::group_title`: the
-  caption and a caret, a strip as wide as the group, which `ribbon::captioned_by` draws in the
-  caption's place), else from the group's corner menu (`widgets::corner_menu_button`, the compact
-  notch on a compact ribbon) over its last tool, so neither adds width and the one-row, wrapped and
-  compact layouts pack as before. Both triggers are buttons named "<group> commands"
-  (`Group::menu_name`) and open an egui `Popup` of `PopupKind::Menu` through `widgets::fitted_menu`,
-  so Escape or a click outside closes it and it scrolls at 200%. Entries are
-  `menu_bar::MenuEntries` from the last frame's offers, keymap and `ToggleStates` (disabled with the
-  reason on hover, bound keys, checkmarks; `ToolbarContext::analysing`, `combing`, `isocurving` and
-  the measure and interference flags mark the open panels, `MenuEntries::marked`); opening it by
-  click, Enter or Space focuses the first available entry. A chosen command closes the menu and is
-  returned by `toolbar::show`; `app::show` runs it next frame through `Workspace::deferred_commands`
-  as the context menu's are, so the same `Command` path as the button, palette and keys decides what
-  happens (`ui_tests/group_menus.rs`).
+  test.
+- The sketch ribbon's menus are named "Sketch <group> commands" (`sketch_toolbar::group_menu_name`,
+  apart from the main ribbon's History and Modify) and listed by `sketch_toolbar::menu_sections`:
+  History (Undo, Redo, Repeat, Undo history; Cancel sketch), Select (the Select tool; Select all,
+  what is still free, the open ends, the redundant constraints), Draw (every drawing tool and Spur
+  gear; each shape's ways, one paragraph a shape; the drawing aids; typed dimensions, drawing
+  symmetrically, slicing the bodies), Modify (Construction and every modify and projecting tool;
+  Offset's and Blend curve's ways; Split, Break, Respace; Move, Rotate, Scale; Copy, Cut, Paste,
+  Delete; Intersect the whole body), Constrain (every geometric constraint, Curvature included; Add
+  the relations the drawing shows, Check the sketch for flaws) and Dimension (Smart dimension and
+  every dimension; Disable, Dimension fully from a datum point; Scale the whole sketch on its first
+  dimension). The active tool, Construction while drawing construction and each shape's current way
+  (`ShapeModes::of`) are marked; choosing the active tool again is dropped, so the menu never steps
+  its way. Corner hosts: Redo, Select, Line (`DRAW_MENU_HOST`, the last Draw button without a corner
+  menu of its own), Delete, the last constraint button and Disable.
 - While a sketch is edited the sketch ribbon (`sketch_toolbar.rs`) sits under it on `accent_surface`
   with an accent line along its top: a header without a caption (sketch badge, "Editing <name>"
   truncating with the full name on hover, the sketch's counts as `count_pill`s at the right and its
@@ -375,7 +400,7 @@ paths:
   widest status so constraining never moves the groups or the view; `app-sketching.md`, Status
   pills), then History (compact Undo over Redo, named for the step as the main ribbon's are, sending
   `Action::Undo` and `Redo` without invoking the commands the main ribbon invokes), Select, Draw,
-  Modify, Constrain and Dimension. Compact (`Bar::compact`, at 200% in the screenshot window) the
+  Modify, Constrain and Dimension, each with its group menu. Compact (`Bar::compact`, at 200% in the screenshot window) the
   header drops its badge, Select and the Draw buttons go icon-only and Draw folds into
   `COMPACT_DRAW_ROWS` rows, so the bar packs into two rows; every button keeps its accessible name.
   Finish sketch is a primary button at the right of the first row, `CONTROL_HEIGHT` tall and
