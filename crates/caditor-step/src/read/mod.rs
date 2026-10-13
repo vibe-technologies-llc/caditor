@@ -457,7 +457,7 @@ fn read_placed<T>(
                 if !faceted {
                     repaired += healed;
                 }
-                if snapped.faces > 0 {
+                if snapped.faces() > 0 {
                     snapped_bodies.push((name.clone(), snapped, units.precision));
                 }
                 if let Some(bending) = bent.filter(|bending| bending.faces > 0) {
@@ -723,10 +723,15 @@ fn bent_note(name: &str, bending: Bending, precision: Option<f64>) -> String {
 }
 
 fn snapped_note(name: &str, snapping: Snapping, precision: Option<f64>) -> String {
-    let (faces, neighbours) = if snapping.faces == 1 {
-        ("1 flat face was".to_owned(), "its")
+    let kind = match (snapping.flat, snapping.curved) {
+        (_, 0) => "flat ",
+        (0, _) => "curved ",
+        _ => "",
+    };
+    let (faces, neighbours) = if snapping.faces() == 1 {
+        (format!("1 {kind}face was"), "its")
     } else {
-        (format!("{} flat faces were", snapping.faces), "their")
+        (format!("{} {kind}faces were", snapping.faces()), "their")
     };
     let within = precision.map_or_else(String::new, |precision| {
         format!(", within the file's precision of {} mm", short(precision))

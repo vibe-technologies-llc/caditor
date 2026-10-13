@@ -2550,3 +2550,252 @@ fn every_file_of_a_corpus_is_read_and_reported() {
         }
     }
 }
+
+fn s_curved_block() -> caditor_kernel::Solid {
+    use caditor_geometry::{Plane, Point2};
+    use caditor_kernel::ProfileCurve;
+
+    let curves = [
+        ProfileCurve::line(1, Point2::new(0.0, 0.0), Point2::new(10.0, 0.0)),
+        ProfileCurve::line(2, Point2::new(10.0, 0.0), Point2::new(10.0, 6.0)),
+        ProfileCurve::arc(
+            3,
+            Point2::new(6.0, 6.0),
+            Point2::new(10.0, 6.0),
+            Point2::new(6.0, 10.0),
+        ),
+        ProfileCurve::arc(
+            4,
+            Point2::new(6.0, 12.0),
+            Point2::new(4.0, 12.0),
+            Point2::new(6.0, 10.0),
+        ),
+        ProfileCurve::line(5, Point2::new(4.0, 12.0), Point2::new(0.0, 12.0)),
+        ProfileCurve::line(6, Point2::new(0.0, 12.0), Point2::new(0.0, 0.0)),
+    ];
+    fixtures::swept(Plane::XY, &curves, 10.0)
+}
+
+fn filleted_shaft() -> caditor_kernel::Solid {
+    use caditor_geometry::{Plane, Point2, Vector2};
+    use caditor_kernel::{AngularExtent, Axis2, Profile, ProfileCurve, Selection, revolve};
+
+    let curves = [
+        ProfileCurve::line(1, Point2::new(0.0, 0.0), Point2::new(20.0, 0.0)),
+        ProfileCurve::line(2, Point2::new(20.0, 0.0), Point2::new(20.0, 4.0)),
+        ProfileCurve::line(3, Point2::new(20.0, 4.0), Point2::new(9.0, 4.0)),
+        ProfileCurve::arc(
+            4,
+            Point2::new(9.0, 6.0),
+            Point2::new(7.0, 6.0),
+            Point2::new(9.0, 4.0),
+        ),
+        ProfileCurve::line(5, Point2::new(7.0, 6.0), Point2::new(7.0, 20.0)),
+        ProfileCurve::line(6, Point2::new(7.0, 20.0), Point2::new(0.0, 20.0)),
+        ProfileCurve::line(7, Point2::new(0.0, 20.0), Point2::new(0.0, 0.0)),
+    ];
+    let profile = Profile::new(&curves).unwrap();
+    let regions = profile.select(&Selection::EvenDepth).unwrap();
+    let axis = Axis2::new(Point2::ZERO, Vector2::Y).unwrap();
+    revolve(&Plane::XZ, &regions, axis, AngularExtent::full(), 1).unwrap()
+}
+
+fn with_surface_placed(text: &str, surface: [&str; 2], shift: [f64; 3]) -> String {
+    let line = text
+        .lines()
+        .find(|line| surface.iter().all(|part| line.contains(part)))
+        .unwrap_or_else(|| panic!("{surface:?}"));
+    let placement = arguments(text, line.split_once('=').unwrap().0)[1];
+    let at = arguments(text, placement);
+    let mut origin = coordinates(text, at[1]);
+    for (coordinate, by) in origin.iter_mut().zip(shift) {
+        *coordinate += by;
+    }
+    let moved = line.replacen(&format!("{placement},"), "#90001,", 1);
+    text.replacen(line, &moved, 1).replacen(
+        "ENDSEC;\nEND-ISO",
+        &format!(
+            "#90000=CARTESIAN_POINT('',({:?},{:?},{:?}));\n\
+             #90001=AXIS2_PLACEMENT_3D('',#90000,{},{});\nENDSEC;\nEND-ISO",
+            origin[0], origin[1], origin[2], at[2], at[3]
+        ),
+        1,
+    )
+}
+
+#[test]
+fn a_cylinder_just_off_the_cylinder_it_is_tangent_to_is_moved_onto_it_and_imports_exact() {
+    let gap = 3e-6;
+    let solid = s_curved_block();
+    let text = written("Cam", &solid);
+    let off = with_surface_placed(
+        &text,
+        ["=CYLINDRICAL_SURFACE('',", ",2.0);"],
+        [0.0, gap, 0.0],
+    );
+    let declared = off.replacen("LENGTH_MEASURE(1.E-6)", "LENGTH_MEASURE(1.E-2)", 1);
+
+    let plain = read_step(&off).unwrap_err().to_string();
+    let model = sample(&declared);
+    let read = &model.solids[0].solid;
+    let small = read
+        .faces()
+        .find_map(|(_, face)| match face.surface() {
+            caditor_kernel::Surface::Cylinder(cylinder) if cylinder.radius() < 3.0 => {
+                Some(*cylinder)
+            }
+            _ => None,
+        })
+        .unwrap();
+
+    assert!(declared.contains("=CYLINDRICAL_SURFACE('',#90001,2.0);"));
+    assert!(plain.contains("could not be rebuilt"), "{plain}");
+    assert_eq!(model.solids.len(), 1);
+    assert_eq!(
+        model.notes,
+        [
+            "In “Cam”, 1 curved face was moved by up to 0.000003 mm to meet its neighbours \
+          exactly, within the file's precision of 0.01 mm."
+        ]
+    );
+    assert!((small.radius() - 2.0).abs() < 1e-9, "{small:?}");
+    assert!(
+        small
+            .frame()
+            .origin()
+            .truncate()
+            .distance(caditor_geometry::Point2::new(6.0, 12.0))
+            < 1e-9,
+        "{small:?}"
+    );
+    assert_eq!(read.faces().count(), solid.faces().count());
+    assert_volume(read, fixtures::volume(&solid));
+}
+
+#[test]
+fn a_fillet_whose_axis_is_a_hair_off_the_shaft_s_is_moved_onto_it_and_imports_exact() {
+    let gap = 2e-6;
+    let solid = filleted_shaft();
+    let text = written("Shaft", &solid);
+    let off = with_surface_placed(&text, ["=TOROIDAL_SURFACE('',", ""], [gap, 0.0, 0.0]);
+    let declared = off.replacen("LENGTH_MEASURE(1.E-6)", "LENGTH_MEASURE(1.E-2)", 1);
+
+    let plain = read_step(&off).unwrap_err().to_string();
+    let model = sample(&declared);
+    let read = &model.solids[0].solid;
+
+    assert!(declared.contains("=TOROIDAL_SURFACE('',#90001,"));
+    assert_eq!(round_axes(read), [0.0; 3]);
+    assert!(plain.contains("could not be rebuilt"), "{plain}");
+    assert_eq!(model.solids.len(), 1);
+    assert_eq!(
+        model.notes,
+        [
+            "In “Shaft”, 1 curved face was moved by up to 0.000002 mm to meet its neighbours \
+          exactly, within the file's precision of 0.01 mm."
+        ]
+    );
+    assert_eq!(read.faces().count(), solid.faces().count());
+    assert_volume(read, fixtures::volume(&solid));
+}
+
+fn round_axes(solid: &caditor_kernel::Solid) -> Vec<f64> {
+    solid
+        .faces()
+        .filter_map(|(_, face)| match face.surface() {
+            caditor_kernel::Surface::Cylinder(cylinder) => Some(*cylinder.frame()),
+            caditor_kernel::Surface::Torus(torus) => Some(*torus.frame()),
+            _ => None,
+        })
+        .map(|frame| {
+            let off_axis = frame.origin().truncate().length();
+            if off_axis < 1e-9 { 0.0 } else { off_axis }
+        })
+        .collect()
+}
+
+fn with_point_moved(text: &str, point: &str, shift: [f64; 3]) -> String {
+    let line = text
+        .lines()
+        .find(|line| line.starts_with(&format!("{point}=CARTESIAN_POINT(")))
+        .unwrap();
+    let mut at = coordinates(text, point);
+    for (coordinate, by) in at.iter_mut().zip(shift) {
+        *coordinate += by;
+    }
+    text.replacen(
+        line,
+        &format!(
+            "{point}=CARTESIAN_POINT('',({:?},{:?},{:?}));",
+            at[0], at[1], at[2]
+        ),
+        1,
+    )
+}
+
+#[test]
+fn a_shaft_written_a_hair_off_its_fillet_is_moved_onto_it_and_its_seam_follows() {
+    let gap = 2e-6;
+    let solid = filleted_shaft();
+    let text = written("Shaft", &solid);
+    let id_of = |line: &str| line.split_once('=').unwrap().0.to_owned();
+    let shaft = text
+        .lines()
+        .find(|line| line.contains("=CYLINDRICAL_SURFACE('',") && line.ends_with(",7.0);"))
+        .unwrap();
+    let placement = arguments(&text, &id_of(shaft))[1].to_owned();
+    let shaft_origin = arguments(&text, &placement)[1].to_owned();
+    let seam = text
+        .lines()
+        .find(|line| {
+            line.contains("=LINE('',") && {
+                let start = coordinates(&text, arguments(&text, &id_of(line))[1]);
+                start[0] == 7.0 && start[2] == 6.0
+            }
+        })
+        .unwrap();
+    let seam_start = arguments(&text, &id_of(seam))[1].to_owned();
+    let top_corner = text
+        .lines()
+        .find(|line| line.contains("=CARTESIAN_POINT('',(7.0,") && line.ends_with(",20.0));"))
+        .map(id_of)
+        .unwrap();
+    let shift = [gap, 0.0, 0.0];
+    let moved_seam = seam.replacen(&format!("{seam_start},"), "#90000,", 1);
+    let off = with_point_moved(
+        &with_point_moved(&text, &shaft_origin, shift),
+        &top_corner,
+        shift,
+    )
+    .replacen(seam, &moved_seam, 1)
+    .replacen(
+        "ENDSEC;
+END-ISO",
+        &format!(
+            "#90000=CARTESIAN_POINT('',({:?},0.0,6.0));
+ENDSEC;
+END-ISO",
+            7.0 + gap
+        ),
+        1,
+    );
+    let declared = off.replacen("LENGTH_MEASURE(1.E-6)", "LENGTH_MEASURE(1.E-2)", 1);
+
+    let plain = read_step(&off).unwrap_err().to_string();
+    let model = sample(&declared);
+    let read = &model.solids[0].solid;
+
+    assert!(declared.contains(&moved_seam));
+    assert!(plain.contains("could not be rebuilt"), "{plain}");
+    assert_eq!(model.solids.len(), 1);
+    assert_eq!(
+        model.notes,
+        [
+            "In “Shaft”, 1 curved face was moved by up to 0.000002 mm to meet its neighbours \
+          exactly, within the file's precision of 0.01 mm."
+        ]
+    );
+    assert_eq!(round_axes(read), [0.0; 3]);
+    assert_eq!(read.faces().count(), solid.faces().count());
+    assert_volume(read, fixtures::volume(&solid));
+}
