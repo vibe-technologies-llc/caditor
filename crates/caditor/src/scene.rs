@@ -970,6 +970,8 @@ pub fn build_keeping(
     } = *sources;
     let palette = contrast.palette(canvas);
     let editing = context.sketch;
+    let rendered = Finishes::of(style, palette, editing.is_none(), &aids) == Finishes::Rendered;
+    let bare = rendered && !context.choosing_plane && context.solid.is_none();
     let model = model_bounds(sources);
     let reference_size = reference_size(model);
     let edited = editing
@@ -1031,6 +1033,7 @@ pub fn build_keeping(
                 );
             }
         }
+        None if bare => {}
         None => {
             for plane in PrincipalPlane::ALL {
                 if context.choosing_plane
@@ -1086,7 +1089,9 @@ pub fn build_keeping(
     let palette_key = std::ptr::from_ref(palette).addr();
     let mut previous_shapes = std::mem::take(&mut shapes.sketches);
     let mut previous_sketches = std::mem::take(&mut parts.sketches);
-    for (feature, presence) in drawn_sketches(document, editing, context.projecting) {
+    for (feature, presence) in
+        drawn_sketches(document, editing, context.projecting).filter(|_| !bare)
+    {
         let Some(drawn) = shapes.of(&mut previous_shapes, sources, feature) else {
             continue;
         };
@@ -1244,8 +1249,7 @@ pub fn build_keeping(
         .iter()
         .map(|(feature, _)| (*feature, context.selecting, Layer::Front))
         .chain(
-            context
-                .picks_shown_regions()
+            (context.picks_shown_regions() && !bare)
                 .then(|| drawn_sketches(document, editing, context.projecting))
                 .into_iter()
                 .flatten()
@@ -1301,7 +1305,7 @@ pub fn build_keeping(
             batches: iter::once(Arc::new(builder.scene))
                 .chain(builder.part_batches)
                 .collect(),
-            grid: Some(Grid {
+            grid: (!bare).then_some(Grid {
                 plane: grid_plane,
                 color: palette.grid,
             }),
@@ -1322,7 +1326,7 @@ pub fn build_keeping(
                 .bounds(evaluation, feature, sketch_points_bounds)
                 .unwrap_or_else(|| empty_sketch_bounds(displayed.plane())),
         }),
-        rendered: Finishes::of(style, palette, editing.is_none(), &aids) == Finishes::Rendered,
+        rendered,
         reference_size,
     }
 }

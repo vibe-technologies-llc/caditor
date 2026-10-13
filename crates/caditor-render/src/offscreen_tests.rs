@@ -5409,7 +5409,7 @@ fn light_bounced_off_a_red_wall_tints_the_white_floor_beside_it() {
     };
     let bounced = rendered_pixels(&scene_with(2.0), &view, &spots).unwrap();
 
-    assert!(warmth(plain[0]).abs() < 8, "{plain:?}");
+    assert!(warmth(plain[0]).abs() < 15, "{plain:?}");
     assert!(
         warmth(bounced[0]) > warmth(plain[0]) + 10,
         "{plain:?} {bounced:?}"
@@ -5499,5 +5499,52 @@ fn ambient_occlusion_darkens_the_floor_in_an_inside_corner_and_leaves_open_floor
     assert!(
         brightness(occluded[1]).abs_diff(brightness(open[1])) < 12,
         "{open:?} {occluded:?}"
+    );
+}
+
+#[test]
+fn the_rendered_view_draws_a_blue_sky_and_the_ground_catches_a_body_s_shadow() {
+    let cube = Arc::new(box_mesh(10.0));
+    let grey = Color::from_rgb8(180, 180, 180);
+    let resting = RigidTransform::translation(Vector3::new(0.0, 0.0, 10.0));
+    let view = oblique_view(160.0);
+    let shadow = view.project(Point3::new(-20.0, 0.0, 0.0)).unwrap();
+    let scene_with = |shadows: bool| Scene {
+        meshes: vec![finished_mesh(&cube, grey, MATTE, resting)],
+        lighting: Some(crate::Lighting {
+            shadows,
+            environment: 1.0,
+            ..lit_by(0.0, std::f64::consts::FRAC_PI_4)
+        }),
+        ..Scene::default()
+    };
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let shot = |scene: &Scene| {
+        let mut renderer = viewport_renderer(&device, 4);
+        render_with(
+            &mut renderer,
+            &device,
+            &queue,
+            &full_frame(&view, scene, shadow),
+        )
+    };
+
+    let lit = shot(&scene_with(true));
+    let unshadowed = shot(&scene_with(false));
+    let top = pixel(&lit, DVec2::new(5.0, 2.0));
+    let bottom = pixel(&lit, DVec2::new(5.0, f64::from(SIZE) - 3.0));
+
+    assert!(top[2] > top[0] + 60, "{top:?}");
+    assert!(
+        brightness(bottom) > brightness(top) + 150,
+        "{top:?} {bottom:?}"
+    );
+    assert!(
+        brightness(pixel(&lit, shadow)) + 60 < brightness(pixel(&unshadowed, shadow)),
+        "{:?} {:?}",
+        pixel(&lit, shadow),
+        pixel(&unshadowed, shadow)
     );
 }

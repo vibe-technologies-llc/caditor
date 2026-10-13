@@ -1121,6 +1121,16 @@ impl ViewportState {
             .set_transition_scale(navigation.transitions.scale());
     }
 
+    #[cfg(test)]
+    pub fn look_toward(&mut self, direction: Vector3) {
+        let destination = self.camera.destination();
+        if let Some(viewpoint) =
+            Viewpoint::looking_from(direction, destination.target, destination.distance)
+        {
+            self.camera = self.fresh_camera(viewpoint);
+        }
+    }
+
     fn fresh_camera(&self, viewpoint: Viewpoint) -> Camera {
         let mut camera = Camera::new(viewpoint);
         camera.set_projection(self.navigation.projection);

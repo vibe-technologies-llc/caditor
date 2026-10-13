@@ -262,7 +262,7 @@ impl View {
         self.field_of_view_y.to_degrees()
     }
 
-    fn tan_half_fov_y(&self) -> f64 {
+    pub(crate) fn tan_half_fov_y(&self) -> f64 {
         (self.field_of_view_y * 0.5).tan()
     }
 

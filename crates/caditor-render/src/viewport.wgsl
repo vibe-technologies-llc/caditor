@@ -15,6 +15,8 @@ struct View {
     sun_colour: vec4<f32>,
     exposure_shadow: vec4<f32>,
     bounce: vec4<f32>,
+    ground: vec4<f32>,
+    sky_view: vec4<f32>,
     shadow_matrix: mat4x4<f32>,
     relative_from_light: mat4x4<f32>,
     occlusion: vec4<f32>,
@@ -1268,6 +1270,70 @@ fn bounced(relative: vec3<f32>, normal: vec3<f32>, pixel: vec2<f32>) -> vec3<f32
     return gathered * view.bounce.w * view.bounce.x * view.sun_colour.rgb * view.sun.w;
 }
 
+const SKY_ZENITH: vec3<f32> = vec3<f32>(0.1, 0.24, 0.6);
+const SKY_HORIZON: vec3<f32> = vec3<f32>(0.62, 0.72, 0.86);
+const SKY_GROUND: vec3<f32> = vec3<f32>(0.34, 0.33, 0.32);
+const SKY_ABOVE: vec3<f32> = vec3<f32>(0.4, 0.52, 0.78);
+const SKY_BELOW: vec3<f32> = vec3<f32>(0.33, 0.32, 0.31);
+const BACKDROP_TOP: vec3<f32> = vec3<f32>(0.06, 0.17, 0.46);
+const BACKDROP_BOTTOM: vec3<f32> = vec3<f32>(0.62, 0.74, 0.9);
+const GROUND_SHADOW: f32 = 0.5;
+const GROUND_FADE_FROM: f32 = 1.2;
+const GROUND_FADE_TO: f32 = 3.5;
+
+fn sky(direction: vec3<f32>) -> vec3<f32> {
+    let up = direction.z;
+    if up >= 0.0 {
+        return mix(SKY_HORIZON, SKY_ZENITH, pow(up, 0.6));
+    }
+    return mix(SKY_HORIZON * 0.85, SKY_GROUND, smoothstep(0.0, 0.25, -up));
+}
+
+fn sky_irradiance(normal: vec3<f32>) -> vec3<f32> {
+    return mix(SKY_BELOW, SKY_ABOVE, smoothstep(-1.0, 1.0, normal.z));
+}
+
+fn sky_reflection(reflected: vec3<f32>, roughness: f32) -> vec3<f32> {
+    return mix(sky(reflected), sky_irradiance(reflected), roughness);
+}
+
+fn finished_colour(light: vec3<f32>) -> vec3<f32> {
+    return to_srgb(pbr_neutral(light * view.exposure_shadow.x));
+}
+
+@vertex
+fn vs_sky(@builtin(vertex_index) index: u32) -> Varyings {
+    let corner = vec2<f32>(f32((index << 1u) & 2u), f32(index & 2u)) * 2.0 - vec2<f32>(1.0);
+    var out = empty_varyings();
+    out.position = vec4<f32>(corner, 0.0, 1.0);
+    out.local = (corner - view.pick_transform.zw) / view.pick_transform.xy;
+    return out;
+}
+
+@fragment
+fn fs_sky(in: Varyings) -> @location(0) vec4<f32> {
+    var ray = view.forward_near.xyz;
+    if !is_orthographic() {
+        ray = normalize(
+            view.forward_near.xyz
+                + view.camera_right.xyz * in.local.x * view.sky_view.x
+                + view.camera_up.xyz * in.local.y * view.sky_view.y,
+        );
+    }
+    let height = smoothstep(-1.0, 1.0, in.local.y);
+    let backdrop = mix(BACKDROP_BOTTOM, BACKDROP_TOP, height * height);
+    var shade = 1.0;
+    let below = view.ground.x;
+    if view.ground.y > 0.0 && view.sun.z > 0.0 && ray.z < -1e-4 && below < 0.0 {
+        let hit = ray * (below / ray.z);
+        let spread = length(hit.xy - view.ground.zw) / max(view.ground.y, 1e-6);
+        let fade = smoothstep(GROUND_FADE_FROM, GROUND_FADE_TO, spread);
+        let shadowed = 1.0 - sunlit(hit, vec3<f32>(0.0, 0.0, 1.0));
+        shade = 1.0 - GROUND_SHADOW * shadowed * (1.0 - fade);
+    }
+    return vec4<f32>(to_srgb(pbr_neutral(backdrop) * shade), 1.0);
+}
+
 fn rendered(color: vec4<f32>, normal: vec3<f32>, eye: vec3<f32>, finish: u32, received: Received) -> vec4<f32> {
     let metalness = finish_metalness(finish);
     let roughness = finish_roughness(finish);
@@ -1290,14 +1356,13 @@ fn rendered(color: vec4<f32>, normal: vec3<f32>, eye: vec3<f32>, finish: u32, re
     let reflected = environment_brdf(reflectance, roughness, n_dot_v);
     let diffuse_share = (vec3<f32>(1.0) - reflected) * (1.0 - metalness) * base;
     let occlusion = received.occlusion;
-    let ambient_diffuse = diffuse_share * studio(normal, 1.0) * occlusion;
-    let ambient_specular = reflected * studio(reflect(-eye, normal), roughness)
+    let ambient_diffuse = diffuse_share * sky_irradiance(normal) * occlusion;
+    let ambient_specular = reflected * sky_reflection(reflect(-eye, normal), roughness)
         * specular_occlusion(occlusion, n_dot_v, roughness);
     let ambient = (ambient_diffuse + ambient_specular) * view.sun_colour.w;
     let indirect = diffuse_share * received.bounce * occlusion / PI;
 
-    let exposed = (direct + ambient + indirect) * view.exposure_shadow.x;
-    return vec4<f32>(to_srgb(pbr_neutral(exposed)), color.a);
+    return vec4<f32>(finished_colour(direct + ambient + indirect), color.a);
 }
 
 fn lit(color: vec4<f32>, normal: vec3<f32>, eye: vec3<f32>) -> vec4<f32> {

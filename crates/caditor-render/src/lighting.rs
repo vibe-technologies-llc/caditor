@@ -21,6 +21,9 @@ const SHADOW_DEPTH_BIAS: wgpu::DepthBiasState = wgpu::DepthBiasState {
     clamp: 0.0,
 };
 const FARTHEST_SHADOW_DEPTH: f32 = 1.0;
+const LEVEL_HEADING: f64 = 1e-6;
+const LONGEST_GROUND_SHADOW: f64 = 3.0;
+const LOWEST_SUN_FOR_GROUND_SHADOWS: f64 = 0.05;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Lighting {
@@ -50,12 +53,12 @@ impl LightDirection {
     pub fn toward_light(self, view: &View) -> Vector3 {
         match self {
             Self::View { azimuth, elevation } => {
-                let viewpoint = view.viewpoint();
+                let behind = behind_the_viewer(view);
+                let right = Vector3::Z.cross(behind);
                 let level = elevation.cos();
-                (-viewpoint.forward() * azimuth.cos() * level
-                    + viewpoint.right() * azimuth.sin() * level
-                    + viewpoint.up() * elevation.sin())
-                .normalize_or(-viewpoint.forward())
+                ((behind * azimuth.cos() + right * azimuth.sin()) * level
+                    + Vector3::Z * elevation.sin())
+                .normalize_or(Vector3::Z)
             }
             Self::Model { azimuth, elevation } => {
                 let level = elevation.cos();
@@ -67,6 +70,71 @@ impl LightDirection {
                 .normalize_or(Vector3::Z)
             }
         }
+    }
+}
+
+fn behind_the_viewer(view: &View) -> Vector3 {
+    let viewpoint = view.viewpoint();
+    let level = |direction: Vector3| Vector3::new(direction.x, direction.y, 0.0);
+    let back = level(-viewpoint.forward());
+    let back = if back.length() > LEVEL_HEADING {
+        back
+    } else {
+        level(-viewpoint.up())
+    };
+    back.normalize_or(Vector3::NEG_Y)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Ground {
+    height: f64,
+    centre: Point3,
+    radius: f64,
+}
+
+impl Ground {
+    pub(crate) fn under(casters: &[[Point3; 8]]) -> Option<Self> {
+        let mut low = Vector3::splat(f64::INFINITY);
+        let mut high = Vector3::splat(f64::NEG_INFINITY);
+        for corner in casters.iter().flatten() {
+            low = low.min(*corner);
+            high = high.max(*corner);
+        }
+        let radius = (high - low).length() * 0.5;
+        (low.is_finite() && high.is_finite() && radius > 0.0).then(|| Self {
+            height: low.z,
+            centre: (low + high) * 0.5,
+            radius,
+        })
+    }
+
+    pub(crate) fn shadows_of(
+        self,
+        toward_light: Vector3,
+        casters: &[[Point3; 8]],
+    ) -> Vec<[Point3; 8]> {
+        if toward_light.z < LOWEST_SUN_FOR_GROUND_SHADOWS {
+            return Vec::new();
+        }
+        let longest = self.radius * LONGEST_GROUND_SHADOW;
+        casters
+            .iter()
+            .map(|corners| {
+                corners.map(|corner| {
+                    let reach = ((corner.z - self.height) / toward_light.z).min(longest);
+                    corner - toward_light * reach
+                })
+            })
+            .collect()
+    }
+
+    fn uniform(self, eye: Point3) -> [f32; 4] {
+        [
+            (self.height - eye.z) as f32,
+            self.radius as f32,
+            (self.centre.x - eye.x) as f32,
+            (self.centre.y - eye.y) as f32,
+        ]
     }
 }
 
@@ -138,6 +206,8 @@ pub(crate) struct LightUniform {
     colour: [f32; 4],
     exposure_shadow: [f32; 4],
     bounce: [f32; 4],
+    ground: [f32; 4],
+    sky_view: [f32; 4],
     shadow_matrix: Mat4,
     relative_from_light: Mat4,
 }
@@ -148,15 +218,18 @@ impl LightUniform {
         colour: [0.0; 4],
         exposure_shadow: [0.0; 4],
         bounce: [0.0; 4],
+        ground: [0.0; 4],
+        sky_view: [0.0; 4],
         shadow_matrix: Mat4::ZERO,
         relative_from_light: Mat4::ZERO,
     };
 
     pub(crate) fn of(
-        lighting: &Lighting,
+        (lighting, view): (&Lighting, &View),
         toward_light: Vector3,
-        frame: Option<LightFrame>,
+        (frame, ground): (Option<LightFrame>, Option<Ground>),
     ) -> Self {
+        let tan_y = view.tan_half_fov_y();
         let shadow = frame.filter(|_| lighting.shadows);
         let bounce = finite_at_least_zero(lighting.bounce);
         let toward = toward_light.as_vec3();
@@ -179,9 +252,15 @@ impl LightUniform {
                 Some(frame) => bounce_uniform(bounce, frame.side),
                 None => [0.0; 4],
             },
+            ground: ground.map_or([0.0; 4], |ground| ground.uniform(view.eye())),
+            sky_view: [(tan_y * view.aspect()) as f32, tan_y as f32, 0.0, 0.0],
             shadow_matrix: frame.map_or(Mat4::ZERO, |frame| frame.matrix),
             relative_from_light: frame.map_or(Mat4::ZERO, |frame| frame.relative_from_light),
         }
+    }
+
+    pub(crate) fn lit(&self) -> bool {
+        self.exposure_shadow[0] > 0.0
     }
 
     pub(crate) fn needs_light_pass(&self) -> bool {
@@ -194,6 +273,8 @@ impl LightUniform {
             .floats(&self.colour)
             .floats(&self.exposure_shadow)
             .floats(&self.bounce)
+            .floats(&self.ground)
+            .floats(&self.sky_view)
             .mat4(self.shadow_matrix)
             .mat4(self.relative_from_light);
     }
@@ -512,28 +593,37 @@ mod tests {
     }
 
     #[test]
-    fn a_light_at_no_turn_and_no_height_in_the_view_frame_shines_from_the_eye() {
+    fn a_light_following_the_view_turns_with_its_heading_and_rises_from_the_world_horizon() {
         let view = view();
+        let level = |direction: Vector3| Vector3::new(direction.x, direction.y, 0.0).normalize();
+        let light = |azimuth: f64, elevation: f64| {
+            LightDirection::View { azimuth, elevation }.toward_light(&view)
+        };
+
+        let behind = light(0.0, 0.0);
+        let overhead = light(0.3, std::f64::consts::FRAC_PI_2);
+        let right = light(std::f64::consts::FRAC_PI_2, 0.0);
+
+        assert!(behind.distance(level(-view.forward())) < 1e-12);
+        assert!(overhead.distance(Vector3::Z) < 1e-12);
+        assert!(right.distance(level(view.viewpoint().right())) < 1e-12);
+    }
+
+    #[test]
+    fn looking_straight_down_a_light_following_the_view_still_lights_the_near_faces() {
+        let viewpoint = Viewpoint::looking_from(Vector3::Z, Point3::ZERO, 100.0)
+            .expect("the direction is not zero");
+        let view = View::new(viewpoint, 800.0, 600.0);
+        let near_side = Vector3::new(-view.viewpoint().up().x, -view.viewpoint().up().y, 0.0);
+
         let toward = LightDirection::View {
             azimuth: 0.0,
-            elevation: 0.0,
+            elevation: 40f64.to_radians(),
         }
         .toward_light(&view);
-        assert!(toward.distance(-view.forward()) < 1e-12);
 
-        let overhead = LightDirection::View {
-            azimuth: 0.3,
-            elevation: std::f64::consts::FRAC_PI_2,
-        }
-        .toward_light(&view);
-        assert!(overhead.distance(view.viewpoint().up()) < 1e-12);
-
-        let right = LightDirection::View {
-            azimuth: std::f64::consts::FRAC_PI_2,
-            elevation: 0.0,
-        }
-        .toward_light(&view);
-        assert!(right.distance(view.viewpoint().right()) < 1e-12);
+        assert!(toward.dot(near_side) > 0.5, "{toward}");
+        assert!(toward.z > 0.5, "{toward}");
     }
 
     #[test]

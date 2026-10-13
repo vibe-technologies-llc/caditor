@@ -234,11 +234,10 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   `BOUNCE_REACH` of the light frame and comes from surfaces the sun sees. Ambient occlusion damps
   it in creases but only from what the view shows; a short occlusion test against the light
   pass's depth map per bounce sample would stop the leak.
-- [low · medium] The rendered view has no floor: shadows fall only on bodies, so a part seems to
-  float. A shadow-catching ground at the lowest point of the shown bodies, drawn only in the
-  rendered style, would anchor it.
-- [low · medium] The rendered view's environment is the procedural studio; a user cannot load an
-  HDR image as the surroundings and light, nor give a material texture, bump or clear-coat maps.
+- [low · medium] The rendered view's surroundings are a procedural sky and a shadow-catching
+  ground; a user cannot load an HDR image as the backdrop and light, choose a backdrop or ground,
+  nor give a material texture, bump or clear-coat maps, and the ground bounces no light or occlusion
+  onto the bodies.
 - [medium · hard] No MCP server: an AI assistant (Claude Code, Claude Desktop or any Model Context
   Protocol client) cannot read or build a model, so "a bracket 80 mm wide with two M6 holes" or
   "why does Fillet 3 fail" has to be done by hand. Start headless: `caditor mcp <file>` speaks MCP

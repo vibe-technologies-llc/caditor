@@ -24,25 +24,34 @@ shading.
 {command:view.lighting} opens the Lighting panel, whose settings are kept in your preferences
 (also under Preferences › Appearance › Rendered view):
 
-- **Light follows** the view, so the side you look at stays lit as you orbit, or the model, so
-  the sun stays put above it with Z up.
-- **Turned** and **Height** place the sun: turned from straight behind you (or from X toward Y
-  when it follows the model), and how high above the horizon.
+- **Light follows** the view, so the sun turns round the model with you and the side you look at
+  stays lit as you orbit, from any height, top views included; or the model, so the sun stays put
+  above it with Z up.
+- **Turned** and **Height** place the sun: turned from behind you (or from X toward Y when it
+  follows the model), and how high above the horizon, which is always the model's (Z up).
 - **Sun strength** and **Colour temperature**: warm light is around 2700 K, daylight around
   5600 K, an overcast sky 7500 K and above.
-- **Studio light** is the light reaching the bodies from the surrounding studio, sky above and
-  floor below, which fills shadows and gives metals something to reflect. At 0 only the sun
-  lights the model.
+- **Sky light** is the light reaching the bodies from the blue sky above and the sunlit ground
+  below, which fills shadows and gives metals something to reflect. At 0 only the sun lights the
+  model.
 - **Bounced light** is sunlight thrown back by nearby lit surfaces, so a red part next to a white
   one tints it. It reaches only a short way and does not see what lies between, so treat it as a
   hint of colour, not an exact result.
-- **Ambient occlusion** darkens the studio and bounced light where surfaces crowd in: inside
+- **Ambient occlusion** darkens the sky and bounced light where surfaces crowd in: inside
   corners, holes, the gap under a part. It is worked out from what the view shows (ground-truth
   ambient occlusion), so it only sees surfaces on screen; 0 turns it off, above 1 deepens it.
 - **Exposure** brightens or darkens the whole picture in stops.
 - **Cast shadows**: bodies shade what lies behind them from the sun.
 
 {command:view.reset_lighting} puts every setting back as it was at first.
+
+## Sky and ground
+
+Behind the model the Rendered view shows a blue sky, deeper at the top of the view and paler
+below, and leaves out the grid, sketch curves, datums and the principal planes, axes and origin,
+so only the bodies show. They come back while a sketch is edited, a feature is open or a plane is
+being chosen. The bodies stand on an unseen ground at their lowest point, which shows only the
+shadow the sun casts on it, fading away from the model.
 
 Bright light rolls off smoothly rather than clipping to white, keeping a material's colour
 recognisable. [Exporting](exporting) an image while the Rendered style is shown draws it with the

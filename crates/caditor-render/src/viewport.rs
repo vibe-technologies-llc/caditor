@@ -11,7 +11,7 @@ use crate::{
     gpu::{self, Bytes, GrowableBuffer, Pack, QuadIndices, Records, Wake},
     image::{self, Background, ChannelOrder, ImageRequest, Tile},
     kept::{KeptView, Shown, ViewCopy},
-    lighting::{LightFrame, LightPass, LightPassReady, LightUniform, shadow_pipeline},
+    lighting::{Ground, LightFrame, LightPass, LightPassReady, LightUniform, shadow_pipeline},
     lines::{LINE_POINT_SLOTS, LINE_POINT_STRIDE, LineStrips, line_instances},
     mesh::{MESH_VERTEX_STRIDE, MeshCache, MeshPool, StyleLayout, UploadBudget, pack_color},
     occlusion::{
@@ -51,7 +51,7 @@ const MARKER_BYTES: usize = 28;
 const MARKER_STRIDE: u64 = MARKER_BYTES as u64;
 const FILL_VERTEX_BYTES: usize = 16;
 const FILL_VERTEX_STRIDE: u64 = FILL_VERTEX_BYTES as u64;
-const VIEW_UNIFORM_SIZE: u64 = 656;
+const VIEW_UNIFORM_SIZE: u64 = 688;
 const HATCH_SPACING_POINTS: f64 = 8.0;
 const REANCHOR_DISTANCES: f64 = 4.0;
 const ANCHOR_ERROR_PIXELS: f64 = 0.02;
@@ -250,6 +250,7 @@ struct Pipelines {
     pictures_behind: wgpu::RenderPipeline,
     pictures_in_front: wgpu::RenderPipeline,
     shadows: wgpu::RenderPipeline,
+    sky: wgpu::RenderPipeline,
     surfaces: wgpu::RenderPipeline,
     occlusion: wgpu::RenderPipeline,
     occlusion_blur: wgpu::RenderPipeline,
@@ -280,6 +281,7 @@ pub struct ImagePlan {
     section: Vec<SectionPlane>,
     light: LightUniform,
     occluded: OcclusionUniform,
+    sky: bool,
     targets: ImageTargets,
 }
 
@@ -1471,7 +1473,7 @@ impl ViewportRenderer {
             pass.set_scissor_rect(scissor.0, scissor.1, scissor.2, scissor.3);
             self.draw_scene(
                 &mut pass,
-                viewport.scene.grid.is_some(),
+                (viewport.scene.grid.is_some(), true),
                 &ClipWindow::new(
                     viewport.view,
                     WHOLE_VIEW,
@@ -1618,6 +1620,7 @@ impl ViewportRenderer {
             section: request.scene.section.clone(),
             light: self.light,
             occluded: self.occluded.read_from(MOST_PIXELS),
+            sky: request.background == Background::Viewport,
             targets,
         })
     }
@@ -1693,7 +1696,7 @@ impl ViewportRenderer {
         pass.set_scissor_rect(0, 0, tile.width, tile.height);
         self.draw_scene(
             &mut pass,
-            plan.grid,
+            (plan.grid, plan.sky),
             &ClipWindow::new(&plan.view, transform, plan.pixels_per_point),
         );
         drop(pass);
@@ -1748,10 +1751,19 @@ impl ViewportRenderer {
         });
     }
 
-    fn draw_scene(&self, pass: &mut wgpu::RenderPass<'_>, grid: bool, window: &ClipWindow) {
+    fn draw_scene(
+        &self,
+        pass: &mut wgpu::RenderPass<'_>,
+        (grid, sky): (bool, bool),
+        window: &ClipWindow,
+    ) {
         pass.set_bind_group(0, &self.view_uniform.bind_group, &[]);
         pass.set_bind_group(2, self.light_pass.bind_group(), &[]);
         pass.set_bind_group(3, self.occlusion.bind_group(), &[]);
+        if sky && self.light.lit() {
+            pass.set_pipeline(&self.pipelines.sky);
+            pass.draw(0..3, 0..1);
+        }
         let pipelines = &self.pipelines;
         let (meshes, flat, reflective) = if self.sectioned {
             (
@@ -2047,13 +2059,22 @@ impl ViewportRenderer {
             true => self.light_pass.ensure(device),
             false => LightPassReady::Refused,
         };
+        let casters: Vec<[Point3; 8]> = self.meshes.placed_corners().collect();
+        let ground = Ground::under(&casters);
         let frame = match ready {
             LightPassReady::Ready => {
-                LightFrame::fitted(toward_light, view.eye(), self.meshes.placed_corners())
+                let shadows = ground
+                    .map(|ground| ground.shadows_of(toward_light, &casters))
+                    .unwrap_or_default();
+                LightFrame::fitted(
+                    toward_light,
+                    view.eye(),
+                    casters.iter().chain(&shadows).copied(),
+                )
             }
             LightPassReady::Refused | LightPassReady::NewlyRefused => None,
         };
-        self.light = LightUniform::of(lighting, toward_light, frame);
+        self.light = LightUniform::of((lighting, view), toward_light, (frame, ground));
         matches!(ready, LightPassReady::NewlyRefused)
     }
 
@@ -2064,20 +2085,20 @@ impl ViewportRenderer {
         view: &View,
         size: Option<(u32, u32)>,
     ) -> bool {
-        let strength = scene
-            .lighting
-            .as_ref()
-            .map_or(0.0, |lighting| lighting.occlusion);
+        let Some(lighting) = &scene.lighting else {
+            self.occluded = OcclusionUniform::NONE;
+            return false;
+        };
+        let strength = lighting.occlusion;
         let ready = match size.filter(|_| strength > 0.0) {
             Some(size) => self.occlusion.ensure(device, size),
             None => OcclusionReady::Refused,
         };
-        self.occluded = match ready {
-            OcclusionReady::Ready => {
-                OcclusionUniform::of(strength, view, self.meshes.placed_corners())
-            }
-            OcclusionReady::Refused | OcclusionReady::NewlyRefused => OcclusionUniform::NONE,
+        let applied = match ready {
+            OcclusionReady::Ready => strength,
+            OcclusionReady::Refused | OcclusionReady::NewlyRefused => 0.0,
         };
+        self.occluded = OcclusionUniform::of(applied, view, self.meshes.placed_corners());
         matches!(ready, OcclusionReady::NewlyRefused)
     }
 
@@ -2400,6 +2421,8 @@ impl Pipelines {
                 Some(&layouts.occlusion.shading),
             ],
         );
+        let sky_pipeline_layout =
+            pipeline_layout("sky", &[Some(layouts.view), None, Some(layouts.shadow)]);
         let occlusion_pipeline_layout = pipeline_layout(
             "occlusion",
             &[Some(layouts.view), Some(&layouts.occlusion.surfaces)],
@@ -2670,6 +2693,22 @@ impl Pipelines {
             pictures_behind: picture("pictures behind", wgpu::CompareFunction::GreaterEqual),
             pictures_in_front: picture("pictures in front", wgpu::CompareFunction::Always),
             shadows: shadow_pipeline(device, &module, &mesh_pipeline_layout, &meshes),
+            sky: build_pipeline(
+                device,
+                &PipelineSpec {
+                    label: "sky",
+                    layout: &sky_pipeline_layout,
+                    module: &module,
+                    vertex: "vs_sky",
+                    buffers: &[],
+                    fragment: "fs_sky",
+                    targets: &color_target,
+                    depth_write: false,
+                    depth_compare: wgpu::CompareFunction::Always,
+                    bias: wgpu::DepthBiasState::default(),
+                    sample_count,
+                },
+            ),
             surfaces: surfaces_pipeline(
                 device,
                 (&module, &mesh_pipeline_layout),

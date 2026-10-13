@@ -226,7 +226,7 @@ impl Section {
                 "shadows",
                 "bounced light",
                 "indirect",
-                "studio",
+                "sky",
                 "exposure",
                 "colour temperature",
             ],

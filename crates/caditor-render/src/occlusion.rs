@@ -42,9 +42,7 @@ impl OcclusionUniform {
             high = high.max(corner);
         }
         let reach = (high - low).length() * REACH_OF_SCENE;
-        if !(strength.is_finite() && strength > 0.0 && reach.is_finite() && reach > 0.0) {
-            return Self::NONE;
-        }
+        let occludes = strength.is_finite() && strength > 0.0 && reach.is_finite() && reach > 0.0;
         let pixel_size = match view.projection() {
             Projection::Perspective => view.units_per_pixel_at(1.0),
             Projection::Orthographic => view.units_per_pixel_at(view.viewpoint().distance),
@@ -53,7 +51,10 @@ impl OcclusionUniform {
         let right = viewpoint.right().as_vec3();
         let up = viewpoint.up().as_vec3();
         Self {
-            occlusion: [strength, reach as f32, pixel_size as f32, 0.0],
+            occlusion: match occludes {
+                true => [strength, reach as f32, pixel_size as f32, 0.0],
+                false => [0.0; 4],
+            },
             frame: [0.0, 0.0, MOST_PIXELS as f32, 0.0],
             right: [right.x, right.y, right.z, 0.0],
             up: [up.x, up.y, up.z, 0.0],
@@ -468,7 +469,10 @@ mod tests {
         assert!(uniform.occludes());
         assert!((reach - 100.0 * 3f64.sqrt() * REACH_OF_SCENE).abs() < 1e-3);
         assert!((f64::from(uniform.occlusion[2]) - view.units_per_pixel_at(1.0)).abs() < 1e-9);
-        assert!(!OcclusionUniform::of(0.0, &view, corners()).occludes());
+        let off = OcclusionUniform::of(0.0, &view, corners());
+
+        assert!(!off.occludes());
+        assert_eq!(off.right, uniform.right);
         assert!(!OcclusionUniform::of(1.0, &view, std::iter::empty()).occludes());
         assert_eq!(uniform.read_from(96).frame[0], 96.0);
     }

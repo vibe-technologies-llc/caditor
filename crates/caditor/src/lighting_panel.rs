@@ -18,7 +18,7 @@ pub const TITLE: &str = "Lighting";
 pub const CLOSE: &str = "Close the lighting";
 pub const ABOUT: &str = "The Rendered style lights bodies by their colour, finish and material \
                          with one sun, the shadows it casts, light it bounces off nearby bodies \
-                         and a studio around them, darker where surfaces crowd in. It never \
+                         and a blue sky around them, darker where surfaces crowd in. It never \
                          changes the model.";
 pub const OTHER_STYLE: &str = "These settings show only in the Rendered style.";
 pub const SHOW_RENDERED: &str = "Show the Rendered style";
@@ -28,7 +28,7 @@ pub const AZIMUTH: &str = "Turned";
 pub const ELEVATION: &str = "Height";
 pub const STRENGTH: &str = "Sun strength";
 pub const TEMPERATURE: &str = "Colour temperature";
-pub const ENVIRONMENT: &str = "Studio light";
+pub const ENVIRONMENT: &str = "Sky light";
 pub const BOUNCE: &str = "Bounced light";
 pub const OCCLUSION: &str = "Ambient occlusion";
 pub const EXPOSURE: &str = "Exposure";

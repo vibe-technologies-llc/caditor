@@ -1103,6 +1103,25 @@ fn rendered_scene(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
         .set_style(crate::display_style::DisplayStyle::Rendered);
     model.still();
     shoot(model, gpu, out, "rendered", look);
+    for (name, direction) in [
+        (
+            "rendered-from-above",
+            caditor_geometry::Vector3::new(0.25, -0.35, 1.0),
+        ),
+        (
+            "rendered-turned",
+            caditor_geometry::Vector3::new(-0.7, -0.4, 0.45),
+        ),
+    ] {
+        model.workspace.viewport.look_toward(direction);
+        model.still();
+        shoot(model, gpu, out, name, look);
+    }
+    model
+        .workspace
+        .viewport
+        .look_toward(caditor_geometry::Vector3::new(1.0, -1.0, 1.0));
+    model.still();
     let bodies: Vec<FeatureId> = model
         .document()
         .features()

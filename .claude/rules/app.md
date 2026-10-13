@@ -536,6 +536,9 @@ paths:
   case), else `RENDERED_DEFAULT` (Satin). The finish mode joins `KeptLooks`. Hovered and selected
   faces keep no finish, so the renderer draws them with the ordinary shading and their palette
   colours hold in high contrast; failed and outdated bodies keep their tint unfinished.
+- While rendered with no sketch edited, no feature open and no plane being chosen (`bare` in
+  `scene::build_keeping`), the scene leaves out the grid, the principal planes, axes and origin,
+  datums, sketch curves and regions, so only bodies show against the sky (`render.md`).
 - `Scene::lighting` (`render.md`) is not part of the scene key: `ViewportState::set_lighting`
   hands `SceneCache::set_lighting` the Lighting preference every frame, which sets it on the built
   scene in place when it is `rendered` (no rebuild, no new pick), so moving a slider costs a
@@ -544,7 +547,7 @@ paths:
 - The light is a preference (`lighting::Lighting`, keys `rendering.*`, `app-files.md`), not
   document content: frame (`LightFrame`, the view or the model), turn and height in degrees, sun
   strength, colour temperature (a blackbody fit normalised to unit luminance, `light_colour`),
-  studio light, bounced light, ambient occlusion, exposure in stops and shadows, each read
+  sky light, bounced light, ambient occlusion, exposure in stops and shadows, each read
   clamped. Light the
   rendered view (`Command::Lighting`, View › Display style) toggles `LightingTool` in the
   `Workspace`; while open, `lighting_panel.rs` draws a right-hand panel of `lighting_panel::rows`

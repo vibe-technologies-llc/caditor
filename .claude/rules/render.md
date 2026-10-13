@@ -184,11 +184,26 @@ paths:
   the exposure scale, zero without lighting, so every pixel of a scene without lighting is as
   before). `rendered` is Cook-Torrance: GGX, height-correlated Smith visibility, Schlick Fresnel
   with F0 mixed from 4% to the colour by metalness, Lambert diffuse weighted by one less Fresnel
-  and metalness, times the sun and its shadow; the `studio` environment as split-sum ambient
-  (`studio(normal, 1)` irradiance, `studio(reflected, roughness)` with Karis' analytic environment
-  BRDF) times `environment`; one bounce of sunlight; then exposure, Khronos PBR Neutral tone
+  and metalness, times the sun and its shadow; the procedural `sky` (blue above, a sunlit ground's
+  neutral below) as split-sum ambient (`sky_irradiance(normal)`, `sky_reflection(reflected,
+  roughness)` with Karis' analytic environment BRDF) times `environment`; one bounce of sunlight; then exposure, Khronos PBR Neutral tone
   mapping and `to_srgb`. Faces without a finish (hovered, selected) keep `lit`. Section caps of a
   finished face are rendered without shadow or bounce, so the reflective pipelines need no group 2.
+- `LightDirection::View` turns with the camera's heading about Z (`behind_the_viewer`: the eye's
+  side levelled, else the far side of the view's up when looking straight down), its height taken
+  from the world horizon, never the camera's, so a view from above keeps the faces toward the
+  viewer lit. `Model` is fixed with Z up.
+- With lighting, every frame of the 3D view (and image tiles on the viewport background, not
+  transparent ones) starts with the sky pass (`vs_sky`, `fs_sky`, layout `[view, -, light]`, no
+  depth): a backdrop graded in screen space from `BACKDROP_TOP` to `BACKDROP_BOTTOM` (the
+  tile's place in the whole image from the inverse tile transform), tone mapped, darkened where an
+  unseen ground at the opaque meshes' lowest point (`Ground::under`, uniform `ground`: height and
+  centre relative to the eye, radius) lies in the sun's shadow (`GROUND_SHADOW`, fading from
+  `GROUND_FADE_FROM` to `GROUND_FADE_TO` radii). The light frame is fitted over the casters and
+  their shadows on that ground (`Ground::shadows_of`, at most `LONGEST_GROUND_SHADOW` radii long,
+  none with the sun under `LOWEST_SUN_FOR_GROUND_SHADOWS`). Per-pixel sky rays use `sky_view`
+  (tangents of the half field of view) and the camera vectors, which the occlusion uniform carries
+  whenever lighting is on.
 - The light pass (`LightPass`, `LightFrame`): when lighting has shadows or bounce, one depth pass
   from the sun (`vs_shadow`, `fs_shadow`, `shadow_pipeline`, layout `[view, mesh]`) draws every mesh
   of `Scene::meshes` (translucent ones receive but do not cast; faces of no alpha and geometry cut
@@ -219,7 +234,7 @@ paths:
   (texel offset into the map, the pixel cap), `camera_right` and `camera_up` carry it. `rendered`
   reads the map at the fragment's pixel (group 3) only where the stored surface lies at the
   fragment's depth (`OCCLUSION_DEPTH_MATCH`; translucent faces and caps get none) and multiplies
-  the studio diffuse and bounce by it and the studio reflection by Lagarde's specular occlusion;
+  the sky diffuse and bounce by it and the sky reflection by Lagarde's specular occlusion;
   the sun is shadowed, not occluded. An image tile draws its occlusion over the tile widened by
   `MOST_PIXELS` each side (`margined_tile_transform`, a view uniform of its own) and reads it
   offset by that margin, so tiles meet without seams.
