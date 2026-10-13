@@ -270,6 +270,7 @@ pub enum Command {
     UseSelectedAxis,
     ExtrudeUpToSelected,
     ClearChosenRegions,
+    SelectAllRegions,
     StartAtSelected,
     MirrorAcrossSelected,
     MirrorSelectedFaces,
@@ -834,6 +835,7 @@ plain_commands! {
     UseSelectedAxis,
     ExtrudeUpToSelected,
     ClearChosenRegions,
+    SelectAllRegions,
     StartAtSelected,
     MirrorAcrossSelected,
     MirrorSelectedFaces,
@@ -1161,6 +1163,7 @@ impl Command {
             Self::UseSelectedAxis => "model.use_selected_axis",
             Self::ExtrudeUpToSelected => "model.extrude_up_to_selected",
             Self::ClearChosenRegions => "model.clear_chosen_regions",
+            Self::SelectAllRegions => "model.select_all_regions",
             Self::StartAtSelected => "model.start_at_selected",
             Self::MirrorAcrossSelected => "model.mirror_across_selected",
             Self::MirrorSelectedFaces => "model.mirror_selected_faces",
@@ -1430,6 +1433,7 @@ impl Command {
             Self::UseSelectedAxis => "Revolve about selected axis",
             Self::ExtrudeUpToSelected => "Extrude up to selected face or plane",
             Self::ClearChosenRegions => "Clear the chosen regions",
+            Self::SelectAllRegions => "Select all regions of the sketch",
             Self::StartAtSelected => "Start extrusion or revolution at selected face or plane",
             Self::MirrorAcrossSelected => "Mirror across selected face or plane",
             Self::MirrorSelectedFaces => "Mirror the selected faces",
@@ -1751,6 +1755,7 @@ impl Command {
             | Self::UseSelectedAxis
             | Self::ExtrudeUpToSelected
             | Self::ClearChosenRegions
+            | Self::SelectAllRegions
             | Self::StartAtSelected
             | Self::MirrorAcrossSelected
             | Self::MirrorSelectedFaces
@@ -1973,6 +1978,7 @@ impl Command {
             Self::ClearChosenRegions => vec![alt_shift(Key::R)],
             Self::TogglePrincipal => vec![plain(Key::P)],
             Self::VersionHistory
+            | Self::SelectAllRegions
             | Self::CoordinateSystem
             | Self::InsertImage
             | Self::ScaleModel

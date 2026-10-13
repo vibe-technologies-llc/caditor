@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     cmp::Ordering,
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
@@ -138,7 +139,7 @@ impl MeasuredItem {
 fn body_name(document: &Document, body: FeatureId) -> String {
     document
         .body_name(body)
-        .map_or_else(|| feature_name(document, body), str::to_owned)
+        .map_or_else(|| feature_name(document, body), Cow::into_owned)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -712,8 +713,7 @@ impl<'a> Measuring<'a> {
         };
         let name = body_name(document, *body);
         let appearance = document
-            .feature(*body)
-            .map(|feature| &feature.appearance)
+            .body_appearance(*body)
             .ok_or_else(|| self.resolver.inputs.missing_body(*body))?;
         match appearance.mass_grams(volume, self.resolver.inputs.parameters) {
             Some(Ok(grams)) => Ok(grams),

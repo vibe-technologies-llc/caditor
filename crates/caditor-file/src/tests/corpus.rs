@@ -6,18 +6,18 @@ use std::{
 };
 
 use caditor_document::{
-    AxisMate, AxisReference, AxisSide, AxisTurn, BlendKind, BodyAppearance, BodyOperation,
+    AxisMate, AxisReference, AxisSide, AxisTurn, Blend, BlendKind, BodyAppearance, BodyOperation,
     BodyPlacement, ChamferForm, Combine, CombineOperation, CopyOrientation, CurvePattern,
     CurveSpacing, Datum, DatumAxis, DatumFrame, DatumPlane, DatumPoint, EdgeGroup, Extrude,
-    ExtrudeEnd, ExtrudeExtent, FaceColour, FaceTangent, FaceThickness, FinePitch, Finish, Hole,
-    HoleBottom, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle,
+    ExtrudeEnd, ExtrudeExtent, FaceColour, FaceTangent, FaceThickness, Feature, FinePitch, Finish,
+    Hole, HoleBottom, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle,
     Import, Mate, MatePair, MetricSize, Mirror, ModelProperties, Move, OffsetFace, Outline,
-    ParameterOwner, ParameterValues, Pattern, PatternKind, Pipe, PlaneRotation, PlaneThrough,
-    PointBy, PointReference, PointsPattern, PrincipalAxis, PrincipalGeometry, ProjectionSource,
-    RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rgb, Scale, Shell, ShellSide,
-    SketchFeature, SolidFeature, SolidStart, Split, SplitAlong, SplitCarry, SplitFace, Sweep,
-    SweepPath, TappedThread, ThreadFamily, ThreadForm, ThreadHand, TurnCentre, Wall,
-    point_instance,
+    ParameterOwner, ParameterValues, Pattern, PatternKind, PieceKey, PieceLooks, Pieces, Pipe,
+    PlaneRotation, PlaneThrough, PointBy, PointReference, PointsPattern, PrincipalAxis,
+    PrincipalGeometry, ProjectionSource, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent,
+    Rgb, Scale, Shell, ShellSide, SketchFeature, SolidFeature, SolidStart, Split, SplitAlong,
+    SplitCarry, SplitFace, Sweep, SweepPath, TappedThread, ThreadFamily, ThreadForm, ThreadHand,
+    TurnCentre, Wall, point_instance,
 };
 use caditor_kernel::{
     EdgeName, EdgeReference, FaceName, FaceOrigin, FaceReference, PipeShape, Solid,
@@ -50,7 +50,7 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 29] = [
+const KEPT: [(&str, &str); 31] = [
     (
         "journal-1/by-reference.journal",
         "fe98725da8d9df46b19d7cede1474bcfb92bbda00d4de9c890e5bca5d0f2899f",
@@ -66,6 +66,10 @@ const KEPT: [(&str, &str); 29] = [
     (
         "journal-1/reference-images.journal",
         "817180e04d6aa6752c2000efc746d716fc67646baeb6f5b6f772d6537c2fdeb5",
+    ),
+    (
+        "journal-1/separate-pieces.journal",
+        "9878be6506ba65ce5af74de2f72f137ab88a29a868596a2d9dbc8966f06d1afe",
     ),
     (
         "journal-1/sliced.journal",
@@ -138,6 +142,10 @@ const KEPT: [(&str, &str); 29] = [
     (
         "model-1/reference-images.caditor",
         "d7e693bdc1a275426b2507a33a627d7108a9e0753c9976ae82f24ca4e816d0b4",
+    ),
+    (
+        "model-1/separate-pieces.caditor",
+        "624f5fbd3edf58847ef20022d29608d450a4ff1bd4136cca9f5c0939ddbdd915",
     ),
     (
         "model-1/shell-walls.caditor",
@@ -701,6 +709,10 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
         (model("path-sweeps"), saved(&path_sweeps(), "Path sweeps")),
         (model("pipes"), saved(&pipes(), "Pipes")),
         (
+            model("separate-pieces"),
+            saved(&separate_pieces(), "Separate pieces"),
+        ),
+        (
             model("point-targets"),
             saved(&point_targets(), "Point targets"),
         ),
@@ -731,6 +743,7 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
         ),
         (journal("every-edit"), every_edit_journal()),
         (journal("by-reference"), seed_journal_by_reference(0)),
+        (journal("separate-pieces"), separate_pieces_journal()),
         (journal("rebased"), seed_journal_by_reference(12)),
         (journal("sliced"), with_slices_of(SLICE, every_edit_journal)),
         (journal("reference-images"), reference_image_journal()),
@@ -802,6 +815,130 @@ fn spline_pieces() -> Document {
     transaction.add_feature("Trimmed spline", FeatureKind::from(drawn));
     document.apply(transaction.finish()).unwrap();
     document
+}
+
+fn blocks_sketch() -> (Sketch, [EntityId; 3]) {
+    let mut drawn = Sketch::new(Plane::XY);
+    let mut first_lines = [EntityId::from_raw(0); 3];
+    for (index, x) in [0.0, 20.0, 40.0].into_iter().enumerate() {
+        let corners = [
+            Point2::new(x, 0.0),
+            Point2::new(x + 10.0, 0.0),
+            Point2::new(x + 10.0, 10.0),
+            Point2::new(x, 10.0),
+        ];
+        for side in 0..4 {
+            let line = drawn.add_line(corners[side], corners[(side + 1) % 4]);
+            if side == 0
+                && let Some(first) = first_lines.get_mut(index)
+            {
+                *first = line;
+            }
+        }
+    }
+    (drawn, first_lines)
+}
+
+fn blocks(sketch: FeatureId) -> FeatureKind {
+    FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+        sketch,
+        regions: RegionChoice::All,
+        extent: ExtrudeExtent::one_side(Expression::parse_stored("5 mm").unwrap(), false),
+        operation: BodyOperation::NewBody,
+        start: None,
+        other_bodies: Vec::new(),
+        taper: None,
+        wall: None,
+        direction: None,
+    }))
+}
+
+fn piece_key(line: EntityId) -> PieceKey {
+    PieceKey::of_entity(line).unwrap()
+}
+
+pub(super) fn separate_pieces() -> Document {
+    let (drawn, lines) = blocks_sketch();
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Separate pieces");
+    let sketch = transaction.add_feature("Blocks sketch", FeatureKind::from(drawn));
+    let mut extruded = Feature::new(FeatureId::from_raw(0), "Blocks".to_owned(), blocks(sketch));
+    extruded.pieces = Pieces::BodyEach;
+    extruded.piece_looks = PieceLooks::default()
+        .with_appearance(
+            piece_key(lines[0]),
+            BodyAppearance {
+                colour: Some(Rgb {
+                    red: 200,
+                    green: 40,
+                    blue: 40,
+                }),
+                name: Some("Left block".to_owned()),
+                ..BodyAppearance::default()
+            },
+        )
+        .with_hidden(piece_key(lines[2]));
+    let extruded = transaction.add_copied_feature(extruded);
+    transaction.add_feature(
+        "Rounded middle",
+        FeatureKind::Blend(Blend {
+            kind: BlendKind::Fillet,
+            body: extruded.piece(piece_key(lines[1])).unwrap(),
+            groups: Vec::new(),
+            edges: vec![edge(9)],
+            size: Expression::parse_stored("1 mm").unwrap(),
+            form: ChamferForm::Equal,
+            flipped: false,
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
+fn separate_pieces_journal() -> Vec<u8> {
+    let (drawn, lines) = blocks_sketch();
+    let mut base = Document::default();
+    let mut transaction = base.transaction("Blocks");
+    let sketch = transaction.add_feature("Blocks sketch", FeatureKind::from(drawn));
+    let extruded = transaction.add_feature("Blocks", blocks(sketch));
+    base.apply(transaction.finish()).unwrap();
+    let middle = extruded.piece(piece_key(lines[1])).unwrap();
+    let mut session = Session {
+        editor: Editor::new(base.clone()),
+        entries: Vec::new(),
+    };
+    session.apply(Transaction::single(
+        "A body each",
+        Edit::SetFeaturePieces {
+            id: extruded,
+            pieces: Pieces::BodyEach,
+        },
+    ));
+    session.apply(Transaction::new(
+        "Looks",
+        vec![
+            Edit::SetBodyAppearance {
+                id: middle,
+                appearance: BodyAppearance {
+                    name: Some("Middle block".to_owned()),
+                    ..BodyAppearance::default()
+                },
+            },
+            Edit::SetFeatureHidden {
+                id: extruded.piece(piece_key(lines[2])).unwrap(),
+                hidden: true,
+            },
+        ],
+    ));
+    let model = save_bytes(&base, None, at(1_700_000_000), Some("Blocks")).unwrap();
+    let on_disk = decode(&model).unwrap().digest.unwrap();
+    let head = JournalHead {
+        file: Some(Path::new("/models/blocks.caditor")),
+        on_disk: Some(&on_disk),
+        loaded_with_problems: false,
+        folded: 0,
+    };
+    encode_journal(&head, &base, &session.entries).unwrap()
 }
 
 fn sketches() -> Document {

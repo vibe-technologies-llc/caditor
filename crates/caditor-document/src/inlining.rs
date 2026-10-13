@@ -1,6 +1,7 @@
 use caditor_expression::{Expression, ParameterId};
 
 use crate::{
+    body_appearance::BodyAppearance,
     configurations::{Configurations, ConfiguredValue, Setting},
     document::{Document, FeatureKind, Parameter},
     edit::{Edit, EditError, Transaction},
@@ -67,6 +68,21 @@ impl Document {
                     id: feature.id(),
                     appearance,
                 });
+            }
+            for (key, look) in feature.piece_looks.appearances() {
+                let (Some(density), Some(piece)) = (&look.density, feature.id().piece(key)) else {
+                    continue;
+                };
+                if density.uses(id) {
+                    let appearance = BodyAppearance {
+                        density: Some(inline(density, &feature.name)?),
+                        ..look.clone()
+                    };
+                    edits.push(Edit::SetBodyAppearance {
+                        id: piece,
+                        appearance,
+                    });
+                }
             }
         }
         edits.extend(self.inlined_in_configurations(parameter)?);

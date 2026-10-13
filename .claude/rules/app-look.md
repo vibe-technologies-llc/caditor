@@ -718,6 +718,12 @@ paths:
   feature that made each; a body a Combine or Remove consumed is not listed. A click or tab chooses
   that feature (Ctrl+click toggles and Shift+click extends over the listed bodies, through
   `feature_tree::choose_among`) and the eye hides or shows it like the feature's own.
+  A separating feature lists each piece as a row of its own (`Document::body_name`: its own name,
+  else "<feature> (<curve>)"), whose eye toggles only that piece (`visibility::toggle_body`, which
+  also shows the feature when it was hidden) and whose card edits only its look; choosing a piece row
+  chooses that body for the body commands (`body_selection::tree_bodies` keeps piece ids). Hide
+  selection hides a picked piece alone and Show everything shows hidden pieces too; Hide others
+  keeps a piece's whole feature shown.
   Right-clicking a row offers Rename body… (the card below with its Body name field focused), Select
   the whole body (its faces in the view, through `PanelState::selected_in_tree`) and Remove body,
   which adds a `Remove` feature at the bar with a notice saying how to bring the body back; the same

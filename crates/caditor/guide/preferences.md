@@ -18,7 +18,10 @@ match, for example `zoom`, `grid` or `view cube`. Choosing a tab clears the sear
   recovery, or a file named on the [command line](command-line), comes first. **Show the start
   card on empty models** brings back the [start card](start) after Don't show this again.
 - **New models**: the [template](templates) a new model starts from.
-- **Feature tree**: what double-clicking a feature does, edit it (as Enter does) or rename it.
+- **Feature tree**: what double-clicking a feature does, edit it (as Enter does) or rename it, and
+  **New bodies from separate pieces**: whether a new extrusion, revolve or sweep of shapes that do
+  not touch makes **One body** of them all (as before) or **A body each**; each feature can still
+  be switched in its panel's Separate pieces row.
 - **Keyboard**: the shortcut editor; see [working from the keyboard](keyboard).
 - **Tips**: show tips in the view, and bring back dismissed ones.
 - **Saving on Windows**, on Windows only: shows again the reminder about

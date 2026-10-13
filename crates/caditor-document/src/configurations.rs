@@ -325,9 +325,10 @@ impl Document {
                 .feature(id)
                 .map(|feature| Setting::Suppressed(feature.suppressed)),
             ConfiguredValue::Colour(id) => self
-                .feature(id)
+                .body_maker(id)
                 .filter(|feature| feature.makes_body())
-                .map(|feature| Setting::Colour(feature.appearance.colour)),
+                .and_then(|_| self.body_appearance(id))
+                .map(|appearance| Setting::Colour(appearance.colour)),
         }
     }
 
@@ -423,8 +424,10 @@ impl Document {
                 Ok(Edit::SetFeatureSuppressed { id, suppressed })
             }
             (ConfiguredValue::Colour(id), Setting::Colour(colour)) => {
-                let feature = self.feature(id).ok_or(EditError::MissingFeature)?;
-                let mut appearance = feature.appearance.clone();
+                let mut appearance = self
+                    .body_appearance(id)
+                    .ok_or(EditError::MissingFeature)?
+                    .into_owned();
                 appearance.colour = colour;
                 Ok(Edit::SetBodyAppearance { id, appearance })
             }

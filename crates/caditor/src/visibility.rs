@@ -258,6 +258,26 @@ pub fn toggle(feature: &Feature) -> Result<Transaction, String> {
     ))
 }
 
+pub fn toggle_body(document: &Document, body: FeatureId) -> Result<Transaction, String> {
+    if !body.is_piece() {
+        return document
+            .feature(body)
+            .ok_or_else(|| NOT_HIDEABLE.to_owned())
+            .and_then(toggle);
+    }
+    let maker = document
+        .body_maker(body)
+        .ok_or_else(|| NOT_HIDEABLE.to_owned())?;
+    let name = document.body_name(body).unwrap_or_default();
+    let hidden = document.body_hidden(body);
+    let verb = if hidden { "Show" } else { "Hide" };
+    let mut edits = vec![set_hidden(body, !hidden)];
+    if hidden && maker.hidden {
+        edits.push(set_hidden(maker.id(), false));
+    }
+    Ok(Transaction::new(format!("{verb} {name}"), edits))
+}
+
 pub fn hideable_rows(document: &Document, rows: &[FeatureId]) -> Vec<FeatureId> {
     let wanted: BTreeSet<FeatureId> = rows
         .iter()
@@ -418,6 +438,11 @@ pub fn hide_selection(
         .chain(hideable_rows(document, rows))
         .filter(|owner| Some(*owner) != edited)
         .collect();
+    let pieces: Vec<FeatureId> = owners
+        .iter()
+        .copied()
+        .filter(|owner| owner.is_piece() && !document.body_hidden(*owner))
+        .collect();
     let hiding: Vec<&Feature> = owners
         .into_iter()
         .filter_map(|id| document.feature(id))
@@ -428,9 +453,12 @@ pub fn hide_selection(
         .filter_map(principal)
         .filter(|geometry| is_principal_shown(document, *geometry))
         .collect();
-    let label = match (hiding.as_slice(), principal.len()) {
+    let label = match (hiding.as_slice(), principal.len() + pieces.len()) {
         ([], 0) => return Err(NOTHING_TO_HIDE.to_owned()),
         ([only], 0) => format!("Hide {}", only.name),
+        ([], 1) if let [piece] = pieces.as_slice() => {
+            format!("Hide {}", document.body_name(*piece).unwrap_or_default())
+        }
         ([], 1) => format!(
             "Hide {}",
             principal.first().map_or("", |geometry| geometry.name())
@@ -443,6 +471,7 @@ pub fn hide_selection(
         hiding
             .iter()
             .map(|feature| set_hidden(feature.id(), true))
+            .chain(pieces.into_iter().map(|piece| set_hidden(piece, true)))
             .chain(
                 principal
                     .into_iter()
@@ -462,6 +491,7 @@ pub fn hide_others(
     let kept_features: BTreeSet<FeatureId> = selection
         .iter()
         .filter_map(owner)
+        .map(FeatureId::maker)
         .chain(hideable_rows(document, rows))
         .collect();
     let kept_principal: BTreeSet<PrincipalGeometry> =
@@ -516,10 +546,19 @@ pub fn hide_others(
 }
 
 pub fn show_all(document: &Document) -> Result<Transaction, String> {
+    let hidden_pieces = document.features().flat_map(|feature| {
+        feature
+            .piece_looks
+            .hidden()
+            .filter_map(|key| feature.id().piece(key))
+            .map(|piece| set_hidden(piece, false))
+            .collect::<Vec<_>>()
+    });
     let edits: Vec<Edit> = document
         .features()
         .filter(|feature| feature.hidden)
         .map(|feature| set_hidden(feature.id(), false))
+        .chain(hidden_pieces)
         .chain(
             document
                 .hidden_principal()

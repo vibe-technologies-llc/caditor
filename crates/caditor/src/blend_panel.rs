@@ -227,7 +227,12 @@ fn group_row(
 ) -> String {
     let all_of = |what: &str| format!("All edges of {what}");
     match resolution {
-        GroupResolution::Body => all_of(document.body_name(blend.body).unwrap_or("the body")),
+        GroupResolution::Body => all_of(
+            document
+                .body_name(blend.body)
+                .as_deref()
+                .unwrap_or("the body"),
+        ),
         GroupResolution::Face(Resolution::One(face)) => {
             all_of(&bodies::describe_face_id(document, input, *face))
         }

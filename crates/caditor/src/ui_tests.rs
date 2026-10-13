@@ -136,6 +136,7 @@ mod selection_filters;
 mod selection_readouts;
 mod selection_sets;
 mod selection_targets;
+mod separate_pieces;
 mod shaped_sweeps;
 mod shell_and_offset;
 mod shell_walls;

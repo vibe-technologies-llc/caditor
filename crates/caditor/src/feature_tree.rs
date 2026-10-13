@@ -192,6 +192,10 @@ fn rows(
             selection,
             edited: editing.feature() == Some(id) || editing.solid() == Some(id),
             opened: editing.opened().filter(|opened| opened.feature == id),
+            taking_regions: editing
+                .solid()
+                .and_then(|open| document.feature(open))
+                .filter(|open| open.kind.solid().is_some()),
             selected: chosen.contains(&id) || state.reads_selected(id),
             rolled_back: index >= bar,
             grouped: group.is_some(),
@@ -404,6 +408,7 @@ struct Row<'a> {
     selection: &'a Selection,
     edited: bool,
     opened: Option<Opened>,
+    taking_regions: Option<&'a Feature>,
     selected: bool,
     rolled_back: bool,
     grouped: bool,
@@ -1479,6 +1484,22 @@ fn context_menu(
                 actions.push(Action::Editing(EditingCommand::CancelSolid));
                 ui.close();
             }
+        }
+        ui.separator();
+    }
+    if let Some(open) = row.taking_regions
+        && feature.kind.sketch().is_some()
+    {
+        let taking = solid_tools::take_sketch_regions(model, open, feature.id());
+        let title = format!("Take all regions of {} for {}", feature.name, open.name);
+        if menu_entry(
+            ui,
+            icons::command(Command::SelectAllRegions),
+            &title,
+            &taking,
+        ) && let Ok(transaction) = taking
+        {
+            actions.push(Action::Apply(transaction));
         }
         ui.separator();
     }
@@ -2565,7 +2586,7 @@ fn feature_commands(
         actions.push(Action::Apply(transaction));
     }
     let target = chosen.open.or(current);
-    let changes: [(Command, FeatureChange<'_>); 19] = [
+    let changes: [(Command, FeatureChange<'_>); 20] = [
         (Command::PlaceSketch, &|feature| {
             place_change(model, selection, feature)
         }),
@@ -2577,6 +2598,9 @@ fn feature_commands(
         }),
         (Command::ClearChosenRegions, &|feature| {
             solid_tools::clear_regions(model, feature)
+        }),
+        (Command::SelectAllRegions, &|feature| {
+            solid_tools::select_all_regions(model, feature)
         }),
         (Command::StartAtSelected, &|feature| {
             start_at_change(model, selection, feature)

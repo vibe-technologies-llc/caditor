@@ -64,10 +64,9 @@ pub struct Mark {
 }
 
 fn body_name(document: &Document, body: FeatureId) -> String {
-    document.feature(body).map_or_else(
-        || "A deleted body".to_owned(),
-        |feature| feature.name.clone(),
-    )
+    document
+        .body_label(body)
+        .unwrap_or_else(|| "A deleted body".to_owned())
 }
 
 fn pair_name(document: &Document, pair: Pair) -> String {

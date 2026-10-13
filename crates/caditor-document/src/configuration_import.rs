@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::{borrow::Cow, collections::BTreeMap};
 
 use caditor_expression::{Expression, ParseError};
 
@@ -245,11 +245,14 @@ impl Prepared {
 impl Document {
     pub fn configuration_column_header(&self, value: ConfiguredValue) -> Option<String> {
         let name = match value {
-            ConfiguredValue::Parameter(id) => self.parameter_name(id)?,
-            ConfiguredValue::Suppressed(id) => self.feature(id)?.name.as_str(),
+            ConfiguredValue::Parameter(id) => Cow::Borrowed(self.parameter_name(id)?),
+            ConfiguredValue::Suppressed(id) => Cow::Borrowed(self.feature(id)?.name.as_str()),
             ConfiguredValue::Colour(id) => self.body_name(id)?,
         };
-        Some(ImportedColumn::header_of(ColumnKind::of_value(value), name))
+        Some(ImportedColumn::header_of(
+            ColumnKind::of_value(value),
+            &name,
+        ))
     }
 
     pub fn configuration_cell_text(
@@ -353,7 +356,7 @@ impl Document {
                 let bodies: Vec<_> = self
                     .features()
                     .filter(|feature| feature.makes_body())
-                    .filter(|feature| self.body_name(feature.id()) == Some(name))
+                    .filter(|feature| self.body_name(feature.id()).as_deref() == Some(name))
                     .collect();
                 match bodies.as_slice() {
                     [body] => Ok(ConfiguredValue::Colour(body.id())),

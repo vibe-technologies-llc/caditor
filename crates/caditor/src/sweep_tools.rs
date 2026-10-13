@@ -1,6 +1,6 @@
 use caditor_document::{
-    BodyOperation, Document, Edit, Evaluation, FeatureId, FeatureKind, RegionChoice, SolidFeature,
-    SolidResult, Sweep, SweepPath, Transaction, profile_curve,
+    BodyOperation, Document, Edit, Evaluation, FeatureId, FeatureKind, Pieces, RegionChoice,
+    SolidFeature, SolidResult, Sweep, SweepPath, Transaction, profile_curve,
 };
 use caditor_kernel::{EdgeName, EdgeNaming, EdgeReference};
 use caditor_sketch::EntityId;
@@ -218,6 +218,7 @@ pub fn create(
     document: &Document,
     evaluation: &Evaluation,
     start: &SweepStart,
+    pieces: Pieces,
 ) -> Result<(Transaction, FeatureId), &'static str> {
     let path = captured(evaluation, &start.path)?;
     let name = editing::next_feature_name(document, TITLE);
@@ -232,6 +233,12 @@ pub fn create(
     };
     let mut transaction = document.transaction(format!("Create {name}"));
     let feature = transaction.add_feature(name, FeatureKind::Solid(SolidFeature::Sweep(sweep)));
+    if pieces == Pieces::BodyEach {
+        transaction.edit(Edit::SetFeaturePieces {
+            id: feature,
+            pieces,
+        });
+    }
     if visibility::is_shown(document, start.profile.sketch) {
         transaction.edit(Edit::SetFeatureHidden {
             id: start.profile.sketch,
@@ -242,7 +249,12 @@ pub fn create(
 }
 
 pub fn create_actions(model: &Model, start: &SweepStart) -> Vec<Action> {
-    match create(model.document(), model.evaluation(), start) {
+    match create(
+        model.document(),
+        model.evaluation(),
+        start,
+        model.new_body_pieces(),
+    ) {
         Ok((transaction, feature)) => {
             let mut actions = vec![
                 Action::Apply(transaction),

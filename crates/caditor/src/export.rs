@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     collections::BTreeSet,
     ffi::OsString,
     panic::{self, AssertUnwindSafe},
@@ -270,20 +271,19 @@ impl ExportSource {
     pub fn of(document: &Document, evaluation: &Evaluation, body: FeatureId) -> Option<Self> {
         let result = evaluation.body_result(body)?;
         result.solid()?;
-        let feature = document.feature(body);
+        let feature = document.body_maker(body);
+        let appearance = document.body_appearance(body);
         Some(Self {
             name: document
                 .body_name(body)
-                .map_or_else(|| "a body".to_owned(), str::to_owned),
+                .map_or_else(|| "a body".to_owned(), Cow::into_owned),
             result: Arc::clone(result),
-            look: feature.and_then(|feature| OwnedLook::of(&feature.appearance)),
+            look: appearance.as_deref().and_then(OwnedLook::of),
             group: feature.and_then(|feature| feature.group.clone()),
-            faces: match (feature, result.solid()) {
-                (Some(feature), Some(shown)) => face_looks(
-                    &feature.appearance,
-                    &shown.solid,
-                    &document.face_splits(body),
-                ),
+            faces: match (appearance.as_deref(), result.solid()) {
+                (Some(appearance), Some(shown)) => {
+                    face_looks(appearance, &shown.solid, &document.face_splits(body))
+                }
                 _ => Vec::new(),
             },
             threads: placed_threads(document, evaluation)

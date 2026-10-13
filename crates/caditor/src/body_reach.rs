@@ -30,7 +30,7 @@ pub fn reached_body(
     parameters: &ParameterValues,
     solid: &SolidFeature,
 ) -> Option<FeatureId> {
-    let standing = document.bodies_standing();
+    let standing = document.bodies_standing_in(evaluation);
     if standing.is_empty() {
         return None;
     }

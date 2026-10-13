@@ -5,13 +5,13 @@ use egui::KeyboardShortcut;
 
 #[cfg(test)]
 pub use self::dialog::{
-    AUTOMATIC_GRID, CLEAR_SEARCH, CUSTOM_GRID, GRID_SELECTOR, SEARCH_FIELD, SHOW_START_CARD,
-    accent_name, custom_grid_name, reset_name, theme_card_id, view_name,
+    AUTOMATIC_GRID, CLEAR_SEARCH, CUSTOM_GRID, GRID_SELECTOR, NEW_BODIES_CAPTION, SEARCH_FIELD,
+    SHOW_START_CARD, accent_name, custom_grid_name, reset_name, theme_card_id, view_name,
 };
 pub use self::{
     choices::{
-        Choice, DoubleClick, FieldOfView, OrbitAround, RecentListed, Startup, TooltipDelay,
-        Transitions, ZoomToward,
+        Choice, DoubleClick, FieldOfView, NewBodies, OrbitAround, RecentListed, Startup,
+        TooltipDelay, Transitions, ZoomToward,
     },
     dialog::{PreferencesView, Shown, change, choice, dialog, section},
     sections::Section,
@@ -70,6 +70,7 @@ const MODEL_DIMENSIONS_KEY: &str = "model.dimensions";
 pub const STARTUP_KEY: &str = "files.startup";
 pub const RECENT_LISTED_KEY: &str = "files.recent_listed";
 const DOUBLE_CLICK_KEY: &str = "tree.double_click";
+const NEW_BODIES_KEY: &str = "modelling.new_bodies";
 const PALETTE_RECENT_KEY: &str = "palette.recent";
 const RECENT_COLOURS_KEY: &str = "body.recent_colours";
 pub const RECENT_COLOURS_LIMIT: usize = 6;
@@ -467,6 +468,7 @@ pub struct Preferences {
     pub startup: Startup,
     pub recent_listed: RecentListed,
     pub double_click: DoubleClick,
+    pub new_bodies: NewBodies,
     pub graphics: Graphics,
     pub onboarding: Onboarding,
     pub keymap: Keymap,
@@ -517,6 +519,7 @@ pub enum PreferenceChange {
     Startup(Startup),
     RecentListed(RecentListed),
     DoubleClick(DoubleClick),
+    NewBodies(NewBodies),
     DefaultTemplate(Option<String>),
     Vsync(bool),
     FrameLimit(FrameLimit),
@@ -708,6 +711,7 @@ impl Preferences {
             startup: Startup::read(&raw, STARTUP_KEY),
             recent_listed: RecentListed::read(&raw, RECENT_LISTED_KEY),
             double_click: DoubleClick::read(&raw, DOUBLE_CLICK_KEY),
+            new_bodies: NewBodies::read(&raw, NEW_BODIES_KEY),
             graphics: Graphics::from_settings(&raw),
             onboarding: Onboarding::from_settings(&raw),
             keymap: Keymap::from_settings(&raw),
@@ -750,6 +754,7 @@ impl Preferences {
         settings.set_text(STARTUP_KEY, self.startup.key());
         settings.set_text(RECENT_LISTED_KEY, self.recent_listed.key());
         settings.set_text(DOUBLE_CLICK_KEY, self.double_click.key());
+        settings.set_text(NEW_BODIES_KEY, self.new_bodies.key());
         self.graphics.write(&mut settings);
         self.keymap.write(&self.loaded_keymap, &mut settings);
         self.onboarding.write(&mut settings);
@@ -829,6 +834,7 @@ impl Preferences {
             PreferenceChange::Startup(startup) => self.startup = startup,
             PreferenceChange::RecentListed(listed) => self.recent_listed = listed,
             PreferenceChange::DoubleClick(double_click) => self.double_click = double_click,
+            PreferenceChange::NewBodies(new_bodies) => self.new_bodies = new_bodies,
             PreferenceChange::DefaultTemplate(name) => self.default_template = name,
             PreferenceChange::Vsync(vsync) => self.graphics.vsync = vsync,
             PreferenceChange::FrameLimit(limit) => self.graphics.frame_limit = limit,
@@ -1226,6 +1232,7 @@ mod tests {
             STARTUP_KEY,
             RECENT_LISTED_KEY,
             DOUBLE_CLICK_KEY,
+            NEW_BODIES_KEY,
         ] {
             odd.set_text(key, "from a newer caditor");
         }
@@ -1242,6 +1249,7 @@ mod tests {
             assert_eq!(read.startup, Startup::EmptyModel);
             assert_eq!(read.recent_listed, RecentListed::Ten);
             assert_eq!(read.double_click, DoubleClick::Edit);
+            assert_eq!(read.new_bodies, NewBodies::OneBody);
         }
 
         let mut preferences = Preferences::default();
@@ -1267,6 +1275,7 @@ mod tests {
             PreferenceChange::Startup(Startup::LastModel),
             PreferenceChange::RecentListed(RecentListed::Five),
             PreferenceChange::DoubleClick(DoubleClick::Rename),
+            PreferenceChange::NewBodies(NewBodies::BodyEach),
         ] {
             preferences.apply(change);
         }
@@ -1283,6 +1292,7 @@ mod tests {
         assert_eq!(read.startup, preferences.startup);
         assert_eq!(read.recent_listed, preferences.recent_listed);
         assert_eq!(read.double_click, preferences.double_click);
+        assert_eq!(read.new_bodies, NewBodies::BodyEach);
 
         for tab in PreferencesTab::ALL {
             preferences.apply(PreferenceChange::Defaults(tab));
@@ -1291,6 +1301,7 @@ mod tests {
         assert_eq!(preferences.view_details, defaults.view_details);
         assert_eq!(preferences.sketching, defaults.sketching);
         assert_eq!(preferences.double_click, defaults.double_click);
+        assert_eq!(preferences.new_bodies, defaults.new_bodies);
     }
 
     #[test]

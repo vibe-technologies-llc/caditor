@@ -1,21 +1,23 @@
 use std::path::Path;
 
 use caditor_file::{RecentFiles, Settings};
+use caditor_geometry::{Plane, Point2};
+use caditor_sketch::Sketch;
 use egui::{Event, Id, Key, Modifiers, PointerButton, Pos2, accesskit::Role, vec2};
 use tempfile::TempDir;
 
 use super::{
-    CAMERA_SETTLE, Harness, canonical, edit_base_sketch, extruded_plate, sample_document,
-    scroll_in_view, viewport_centre,
+    CAMERA_SETTLE, Harness, canonical, edit_base_sketch, extruded_plate, rectangle,
+    sample_document, scroll_in_view, viewport_centre,
 };
 use crate::{
     app::Workspace,
     model::Action,
     onboarding::Onboarding,
     preferences::{
-        self, Choice, DoubleClick, FieldOfView, OrbitAround, PreferenceChange, Preferences,
-        PreferencesCommand, PreferencesTab, RecentListed, Section, Startup, TooltipDelay,
-        Transitions, ZoomToward,
+        self, Choice, DoubleClick, FieldOfView, NewBodies, OrbitAround, PreferenceChange,
+        Preferences, PreferencesCommand, PreferencesTab, RecentListed, Section, Startup,
+        TooltipDelay, Transitions, ZoomToward,
     },
     view_aids::EdgeWeight,
 };
@@ -407,4 +409,47 @@ fn a_section_resets_alone_and_its_reset_can_be_undone() {
         harness.workspace.preferences.navigation.field_of_view,
         FieldOfView::Narrow
     );
+}
+
+#[test]
+fn the_new_bodies_preference_makes_a_new_extrusion_a_body_each_and_is_remembered() {
+    let dir = TempDir::new().unwrap();
+    let mut preferences = Preferences::default();
+    preferences.onboarding = Onboarding::finished();
+    let mut harness = Harness::starting(
+        Some(dir.path()),
+        caditor_document::Document::default(),
+        Workspace::with_preferences(preferences),
+    );
+    open_tab(&mut harness, PreferencesTab::General);
+    let offered = harness.shows(preferences::NEW_BODIES_CAPTION);
+    harness.click(NewBodies::BodyEach.label());
+    close_preferences(&mut harness);
+
+    let mut sketch = Sketch::new(Plane::XY);
+    for x in [0.0, 20.0, 40.0] {
+        rectangle(
+            &mut sketch,
+            Point2::new(x, 0.0),
+            Point2::new(x + 10.0, 10.0),
+        );
+    }
+    harness.add_sketch(sketch);
+    harness.select([]);
+    harness.click_tool("Extrude");
+    harness.settle();
+    let extrude = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the extrusion is open");
+    let pieces = harness.document().feature(extrude).unwrap().pieces;
+    let made = harness.model.evaluation().pieces_made_by(extrude).len();
+    wait_until_stored(&mut harness, dir.path(), |stored| {
+        stored.new_bodies == NewBodies::BodyEach
+    });
+
+    assert!(offered);
+    assert_eq!(pieces, caditor_document::Pieces::BodyEach);
+    assert_eq!(made, 3);
 }

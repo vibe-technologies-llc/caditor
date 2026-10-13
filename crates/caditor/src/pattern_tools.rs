@@ -163,8 +163,12 @@ pub enum Reference {
     Second,
 }
 
-fn last_body(document: &Document) -> Option<FeatureId> {
-    document.bodies_standing().last().copied()
+fn last_body(model: &Model) -> Option<FeatureId> {
+    model
+        .document()
+        .bodies_standing_in(model.evaluation())
+        .last()
+        .copied()
 }
 
 pub fn source(
@@ -177,7 +181,7 @@ pub fn source(
     let (body, repeated) = match repeatable(document, rows) {
         Some(repeating) => repeating,
         None if selection.is_empty() && tree.is_empty() => {
-            (last_body(document).ok_or(NO_BODY)?, Vec::new())
+            (last_body(model).ok_or(NO_BODY)?, Vec::new())
         }
         None => (
             move_tools::chosen_body(model, selection, tree, NO_BODY_SELECTED)?,

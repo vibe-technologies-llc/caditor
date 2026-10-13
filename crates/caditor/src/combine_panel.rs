@@ -120,19 +120,16 @@ fn body_row(
     widgets::caption(ui, role.caption());
     let current = role.current(combine);
     let taken = role.taken(combine);
-    let selected = feature_fields::combo_text(
-        ui,
-        feature_fields::feature_name(document, current),
-        NOT_A_BODY,
-    );
+    let current_name = document.body_label(current);
+    let selected = feature_fields::combo_text(ui, current_name.as_deref(), NOT_A_BODY);
     let chosen = feature_fields::combo(ui, Id::new((role.salt(), id)), selected, || {
         document
-            .bodies_before(id)
+            .bodies_before_in(id, model.evaluation())
             .into_iter()
             .filter(|body| !taken.contains(body))
             .filter_map(|body| {
                 Some(Choice {
-                    label: feature_fields::feature_name(document, body)?.to_owned(),
+                    label: document.body_label(body)?,
                     selected: body == current,
                     change: change(model, id, role.with(combine, body))
                         .map(|transaction| feature_fields::applied(&feature.name, Ok(transaction))),
@@ -200,7 +197,7 @@ fn more_tool_rows(
         }
     }
     let candidates: Vec<FeatureId> = document
-        .bodies_before(id)
+        .bodies_before_in(id, model.evaluation())
         .into_iter()
         .filter(|body| combine.body != *body && !combine.tools().any(|tool| tool == *body))
         .collect();
@@ -223,7 +220,7 @@ fn more_tool_rows(
                     let mut extended = combine.clone();
                     extended.more_tools.push(*body);
                     Some(Choice {
-                        label: feature_fields::feature_name(document, *body)?.to_owned(),
+                        label: document.body_label(*body)?,
                         selected: false,
                         change: change(model, id, extended).map(|transaction| {
                             feature_fields::applied(&feature.name, Ok(transaction))

@@ -462,30 +462,33 @@ impl Parts {
         &mut self,
         previous: &mut BTreeMap<FeatureId, KeptLooks>,
         (document, evaluation): (&Document, &Evaluation),
-        feature: &Feature,
+        (body, appearance): (FeatureId, &BodyAppearance),
         palette: &ScenePalette,
     ) -> SameLooks {
-        if feature.appearance.faces.is_empty() {
-            return SameLooks(Arc::new(face_looks(document, evaluation, feature, palette)));
+        if appearance.faces.is_empty() {
+            return SameLooks(Arc::new(face_looks(
+                document, evaluation, body, appearance, palette,
+            )));
         }
-        let body = feature.id();
         let result = evaluation
             .body_result(body)
             .map(|result| Shared(Arc::clone(result)));
         let palette_key = std::ptr::from_ref(palette).addr();
         let kept = match previous.remove(&body) {
             Some(kept)
-                if kept.appearance == feature.appearance
+                if kept.appearance == *appearance
                     && kept.result == result
                     && kept.palette == palette_key =>
             {
                 kept
             }
             Some(_) | None => KeptLooks {
-                appearance: feature.appearance.clone(),
+                appearance: appearance.clone(),
                 result,
                 palette: palette_key,
-                looks: SameLooks(Arc::new(face_looks(document, evaluation, feature, palette))),
+                looks: SameLooks(Arc::new(face_looks(
+                    document, evaluation, body, appearance, palette,
+                ))),
             },
         };
         let looks = kept.looks.clone();
@@ -1113,15 +1116,13 @@ pub fn build_keeping(
     let moved = bodies.moved();
     let mut split_preview = None;
     let healths = Healths::of(document, evaluation);
-    let shown: BTreeMap<FeatureId, &Feature> = document
-        .features()
-        .filter(|feature| !feature.hidden)
-        .map(|feature| (feature.id(), feature))
-        .collect();
     let mut previous = std::mem::take(&mut parts.bodies);
     let mut previous_looks = std::mem::take(&mut parts.looks);
     for (body, mesh) in bodies.iter() {
-        let Some(&feature) = shown.get(&body) else {
+        if document.body_hidden(body) {
+            continue;
+        }
+        let Some(appearance) = document.body_appearance(body) else {
             continue;
         };
         match open_view {
@@ -1144,22 +1145,19 @@ pub fn build_keeping(
         let health = healths.of_body(body);
         let color = match editing {
             Some(_) => None,
-            None => Some(health_color(palette, feature, health)),
+            None => Some(health_color(palette, &appearance, health)),
         };
-        let opacity = feature
-            .appearance
-            .opacity
-            .map(|percent| f32::from(percent) / 100.0);
+        let opacity = appearance.opacity.map(|percent| f32::from(percent) / 100.0);
         let ghosted = matches!(open_view, Some((open, OpenView::Ghost)) if open.body == body);
         let opacity = match previewed.contains(&body) && !ghosted {
             true => Some(opacity.map_or(PREVIEW_ALPHA, |opacity| opacity.min(PREVIEW_ALPHA))),
             false => opacity,
         };
         let faces = match color {
-            Some(color) if color == palette.body(painted_by(feature)) => parts.face_looks(
+            Some(color) if color == palette.body(painted_by(&appearance)) => parts.face_looks(
                 &mut previous_looks,
                 (document, evaluation),
-                feature,
+                (body, &appearance),
                 palette,
             ),
             Some(_) | None => SameLooks(Arc::default()),
@@ -3207,11 +3205,10 @@ impl FaceLooks {
 fn face_looks(
     document: &Document,
     evaluation: &Evaluation,
-    feature: &Feature,
+    body: FeatureId,
+    appearance: &BodyAppearance,
     palette: &ScenePalette,
 ) -> FaceLooks {
-    let body = feature.id();
-    let appearance = &feature.appearance;
     let finish = appearance
         .finish
         .filter(|_| palette.shows_finishes)
@@ -3254,13 +3251,13 @@ fn face_looks(
     }
 }
 
-fn painted_by(feature: &Feature) -> Color {
-    feature.appearance.colour.map_or(BODY, |colour| {
+fn painted_by(appearance: &BodyAppearance) -> Color {
+    appearance.colour.map_or(BODY, |colour| {
         Color::from_rgb8(colour.red, colour.green, colour.blue)
     })
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Health {
     Sound,
     Outdated,
@@ -3307,13 +3304,18 @@ impl Healths {
     }
 
     fn of_body(&self, body: FeatureId) -> Health {
-        self.0.get(&body).copied().unwrap_or(Health::Sound)
+        let own = self.0.get(&body).copied().unwrap_or(Health::Sound);
+        let made = match body.is_piece() {
+            true => self.0.get(&body.maker()).copied().unwrap_or(Health::Sound),
+            false => Health::Sound,
+        };
+        own.max(made)
     }
 }
 
-fn health_color(palette: &ScenePalette, feature: &Feature, health: Health) -> Color {
+fn health_color(palette: &ScenePalette, appearance: &BodyAppearance, health: Health) -> Color {
     palette.body(match health {
-        Health::Sound => painted_by(feature),
+        Health::Sound => painted_by(appearance),
         Health::Outdated => palette.outdated_body,
         Health::Failed => palette.failed_body,
     })
@@ -3326,7 +3328,9 @@ fn body_color(
     body: FeatureId,
 ) -> Color {
     palette.body(match body_health(document, evaluation, body) {
-        Health::Sound => document.feature(body).map_or(BODY, painted_by),
+        Health::Sound => document
+            .body_appearance(body)
+            .map_or(BODY, |appearance| painted_by(&appearance)),
         Health::Outdated => palette.outdated_body,
         Health::Failed => palette.failed_body,
     })
@@ -3506,14 +3510,9 @@ fn model_bounds(sources: &Sources<'_>) -> Option<Aabb> {
         .filter(|feature| !feature.hidden)
         .filter_map(|feature| sketches.bounds(evaluation, feature, sketch_points_bounds))
         .reduce(Aabb::union);
-    let shown: BTreeSet<FeatureId> = document
-        .features()
-        .filter(|feature| !feature.hidden)
-        .map(Feature::id)
-        .collect();
     let shown_bodies = bodies
         .iter()
-        .filter(|(body, _)| shown.contains(body))
+        .filter(|(body, _)| document.body_maker(*body).is_some() && !document.body_hidden(*body))
         .filter_map(|(_, mesh)| mesh.bounds())
         .reduce(Aabb::union);
     let images = document

@@ -18,14 +18,15 @@ use caditor_document::{
     MAX_MATERIAL_NAME_CHARS, MAX_PATTERN_INSTANCES, MAX_SAVED_VIEWS, MAX_VIEW_NAME_CHARS,
     MIN_OPACITY_PERCENT, Mate, MatePair, MeasuredItem, Measurement, MetricSize, Mirror,
     ModelProperties, ModelProperty, Move, NamedView, OPAQUE_PERCENT, ORIGINAL_INSTANCE, Of,
-    OffsetFace, Parameter, ParameterOwner, Pattern, PatternKind, Pipe, PlaneReference,
-    PlaneRotation, PlaneThrough, PointBy, PointMate, PointReference, PointTarget, PointsPattern,
-    Primitive, PrimitiveAnchor, PrimitiveShape, PrincipalAxis, PrincipalGeometry, PrincipalPlane,
-    ProjectionSource, Reading, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rgb,
-    RollbackBar, SavedView, SavedViews, Scale, Shell, ShellSide, SketchAttachment, SketchFeature,
-    SolidFeature, SolidStart, Split, SplitAlong, SplitCarry, SplitFace, StepText, Sweep, SweepPath,
-    TappedThread, Thread, ThreadFamily, ThreadForm, ThreadHand, ThreadLength, ThreadSide,
-    ThreadSize, Transaction, TurnCentre, Wall, group_name, material_name, view_name,
+    OffsetFace, Parameter, ParameterOwner, Pattern, PatternKind, PieceKey, PieceLooks, Pieces,
+    Pipe, PlaneReference, PlaneRotation, PlaneThrough, PointBy, PointMate, PointReference,
+    PointTarget, PointsPattern, Primitive, PrimitiveAnchor, PrimitiveShape, PrincipalAxis,
+    PrincipalGeometry, PrincipalPlane, ProjectionSource, Reading, RegionChoice, Remove, Revolve,
+    RevolveAxis, RevolveExtent, Rgb, RollbackBar, SavedView, SavedViews, Scale, Shell, ShellSide,
+    SketchAttachment, SketchFeature, SolidFeature, SolidStart, Split, SplitAlong, SplitCarry,
+    SplitFace, StepText, Sweep, SweepPath, TappedThread, Thread, ThreadFamily, ThreadForm,
+    ThreadHand, ThreadLength, ThreadSide, ThreadSize, Transaction, TurnCentre, Wall, group_name,
+    material_name, view_name,
 };
 use caditor_expression::{BinaryOperator, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Rotation3, Vector2, Vector3};
@@ -167,8 +168,31 @@ pub(crate) struct FeatureRecord {
     pub appearance: Option<Lenient<AppearanceRecord>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub piece_looks: Vec<Lenient<PieceLookRecord>>,
     #[serde(flatten)]
     pub kind: FeatureKindRecord,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct PieceLookRecord {
+    pub piece: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub appearance: Option<Lenient<AppearanceRecord>>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hidden: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct SeparatePiecesRecord {
+    pub feature: FeatureKindRecord,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum PiecesRecord {
+    OneBody,
+    BodyEach,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -282,6 +306,7 @@ pub(crate) enum FeatureKindRecord {
     Sweep(Box<SweepRecord>),
     ReferenceImage(Box<ReferenceImageRecord>),
     Pipe(Box<PipeRecord>),
+    SeparatePieces(Box<SeparatePiecesRecord>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -822,9 +847,9 @@ pub(crate) struct RevolveOneSideRecord {
     pub side: AxisSideRecord,
 }
 
-pub(crate) const FEATURE_FIELDS: [&str; 3] = ["hidden", "appearance", "group"];
+pub(crate) const FEATURE_FIELDS: [&str; 4] = ["hidden", "appearance", "group", "piece_looks"];
 
-pub(crate) const FEATURE_KINDS: [&str; 78] = [
+pub(crate) const FEATURE_KINDS: [&str; 79] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -902,6 +927,7 @@ pub(crate) const FEATURE_KINDS: [&str; 78] = [
     "split_face_wrapped",
     "blend_groups",
     "sweep",
+    "separate_pieces",
     "reference_image",
 ];
 
@@ -2091,6 +2117,10 @@ pub(crate) enum EditRecord {
         id: u64,
         appearance: AppearanceRecord,
     },
+    SetFeaturePieces {
+        id: u64,
+        pieces: PiecesRecord,
+    },
     SetRollbackBar {
         before: Option<u64>,
     },
@@ -2327,6 +2357,10 @@ impl WrittenTexts {
 }
 
 fn feature_record_sharing(feature: &Feature, shares: Option<String>) -> FeatureRecord {
+    let kind = match &feature.kind {
+        FeatureKind::Import(import) => import_record(import, shares),
+        kind => feature_kind_record(kind),
+    };
     FeatureRecord {
         id: feature.id().raw(),
         name: feature.name.clone(),
@@ -2334,10 +2368,80 @@ fn feature_record_sharing(feature: &Feature, shares: Option<String>) -> FeatureR
         appearance: (!feature.appearance.is_default())
             .then(|| Lenient::Read(appearance_record(&feature.appearance.clone().settled()))),
         group: feature.group.clone(),
-        kind: match &feature.kind {
-            FeatureKind::Import(import) => import_record(import, shares),
-            kind => feature_kind_record(kind),
+        piece_looks: piece_look_records(&feature.piece_looks),
+        kind: match feature.pieces {
+            Pieces::OneBody => kind,
+            Pieces::BodyEach => {
+                FeatureKindRecord::SeparatePieces(Box::new(SeparatePiecesRecord { feature: kind }))
+            }
         },
+    }
+}
+
+fn piece_look_records(looks: &PieceLooks) -> Vec<Lenient<PieceLookRecord>> {
+    let mut records: BTreeMap<u32, PieceLookRecord> = looks
+        .appearances()
+        .map(|(key, appearance)| {
+            (
+                key.raw(),
+                PieceLookRecord {
+                    piece: key.raw(),
+                    appearance: Some(Lenient::Read(appearance_record(
+                        &appearance.clone().settled(),
+                    ))),
+                    hidden: false,
+                },
+            )
+        })
+        .collect();
+    for key in looks.hidden() {
+        records
+            .entry(key.raw())
+            .or_insert(PieceLookRecord {
+                piece: key.raw(),
+                appearance: None,
+                hidden: false,
+            })
+            .hidden = true;
+    }
+    records.into_values().map(Lenient::Read).collect()
+}
+
+fn restore_piece_looks(
+    records: &[Lenient<PieceLookRecord>],
+    name: &str,
+    issues: &mut Vec<String>,
+) -> PieceLooks {
+    let mut looks = PieceLooks::default();
+    for record in records {
+        let Lenient::Read(record) = record else {
+            issues.push(format!(
+                "The look of a piece of “{name}” could not be read, so it shows like the rest."
+            ));
+            continue;
+        };
+        let key = PieceKey::from_raw(record.piece);
+        if let Some(appearance) = &record.appearance {
+            looks = looks.with_appearance(key, restore_appearance(appearance, name, issues));
+        }
+        if record.hidden {
+            looks = looks.with_hidden(key);
+        }
+    }
+    looks
+}
+
+fn pieces_record(pieces: Pieces) -> PiecesRecord {
+    match pieces {
+        Pieces::OneBody => PiecesRecord::OneBody,
+        Pieces::BodyEach => PiecesRecord::BodyEach,
+    }
+}
+
+fn restore_pieces(record: PiecesRecord) -> Pieces {
+    match record {
+        PiecesRecord::OneBody => Pieces::OneBody,
+        PiecesRecord::BodyEach => Pieces::BodyEach,
     }
 }
 
@@ -4676,6 +4780,10 @@ fn edit_record(edit: &Edit) -> EditRecord {
             id: id.raw(),
             appearance: appearance_record(&appearance.clone().settled()),
         },
+        Edit::SetFeaturePieces { id, pieces } => EditRecord::SetFeaturePieces {
+            id: id.raw(),
+            pieces: pieces_record(*pieces),
+        },
         Edit::SetRollbackBar { bar } => EditRecord::SetRollbackBar {
             before: match bar {
                 RollbackBar::AtEnd => None,
@@ -4708,6 +4816,7 @@ fn edit_record(edit: &Edit) -> EditRecord {
                 hidden: false,
                 appearance: None,
                 group: None,
+                piece_looks: Vec::new(),
                 kind: feature_kind_record(kind),
             },
         },
@@ -4925,6 +5034,10 @@ fn restore_edit(record: EditRecord, texts: &mut ImportTexts) -> Option<Edit> {
                 appearance,
             }
         }
+        EditRecord::SetFeaturePieces { id, pieces } => Edit::SetFeaturePieces {
+            id: FeatureId::from_raw(id),
+            pieces: restore_pieces(pieces),
+        },
         EditRecord::SetRollbackBar { before } => Edit::SetRollbackBar {
             bar: restore_rollback(before),
         },
@@ -5085,12 +5198,18 @@ pub(crate) fn restore_feature_sharing(
     } else {
         record.name.clone()
     };
-    let kind = restore_kind(&record.kind, &name, texts, issues);
+    let (kind, pieces) = match &record.kind {
+        FeatureKindRecord::SeparatePieces(separate) => (&separate.feature, Pieces::BodyEach),
+        kind => (kind, Pieces::OneBody),
+    };
+    let kind = restore_kind(kind, &name, texts, issues);
     let mut feature = Feature::new(FeatureId::from_raw(record.id), name, kind);
     feature.hidden = record.hidden;
+    feature.pieces = pieces;
     if let Some(appearance) = &record.appearance {
         feature.appearance = restore_appearance(appearance, &feature.name, issues);
     }
+    feature.piece_looks = restore_piece_looks(&record.piece_looks, &feature.name, issues);
     feature.group = record
         .group
         .as_deref()
@@ -5117,6 +5236,13 @@ fn restore_kind(
     issues: &mut Vec<String>,
 ) -> FeatureKind {
     match record {
+        FeatureKindRecord::SeparatePieces(separate) => {
+            issues.push(format!(
+                "“{name}” was marked twice to make a body of each separate piece, so the inner \
+                 mark was left out."
+            ));
+            restore_kind(&separate.feature, name, texts, issues)
+        }
         FeatureKindRecord::CutSeveral(several) => {
             let mut kind = restore_kind(&several.feature, name, texts, issues);
             match &mut kind {

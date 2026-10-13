@@ -42,7 +42,7 @@ use crate::{
     shared::SharedBuffer,
     surface::{Surface, Torus},
     tessellation::{self, DisplayMesh, Mesh, MeshedSolid, TessellationError},
-    tolerance::{MeshQuality, SamplingTolerance},
+    tolerance::{LINEAR_RESOLUTION, MeshQuality, SamplingTolerance},
 };
 
 macro_rules! typed_index {
@@ -639,6 +639,42 @@ impl Solid {
         })
     }
 
+    pub fn lumps(&self) -> Result<Vec<Self>, TessellationError> {
+        if self.shells.len() <= 1 {
+            return Ok(vec![self.clone()]);
+        }
+        let voids = self.void_shells()?;
+        let shell_box = |id: ShellId| {
+            self.keeping_shells(&BTreeSet::from([id]))
+                .and_then(|shell| shell.outline_box())
+        };
+        let mut lumps: BTreeMap<ShellId, (Option<Aabb>, BTreeSet<ShellId>)> = self
+            .shells()
+            .map(|(id, _)| id)
+            .filter(|id| !voids.contains(id))
+            .map(|id| (id, (shell_box(id), BTreeSet::from([id]))))
+            .collect();
+        for void in voids {
+            let held_by = shell_box(void).and_then(|inner| {
+                lumps
+                    .iter()
+                    .filter_map(|(id, (outer, _))| Some((*id, (*outer)?)))
+                    .filter(|(_, outer)| encloses(outer, &inner))
+                    .min_by(|(_, a), (_, b)| a.diagonal().total_cmp(&b.diagonal()))
+                    .map(|(id, _)| id)
+            });
+            let holder = held_by.or_else(|| lumps.keys().next().copied());
+            if let Some((_, shells)) = holder.and_then(|holder| lumps.get_mut(&holder)) {
+                shells.insert(void);
+            }
+        }
+        Ok(lumps
+            .values()
+            .map(|(_, shells)| self.keeping_shells(shells))
+            .collect::<Option<Vec<Self>>>()
+            .unwrap_or_else(|| vec![self.clone()]))
+    }
+
     pub(crate) fn renamed(
         mut self,
         rename: impl Fn(FaceName, Option<FaceOrigin>) -> (FaceName, Option<FaceOrigin>),
@@ -898,4 +934,16 @@ pub(crate) fn doubly_curved(surface: &Surface) -> bool {
         surface,
         Surface::Sphere(_) | Surface::Torus(_) | Surface::Revolution(_) | Surface::BSpline(_)
     )
+}
+
+fn encloses(outer: &Aabb, inner: &Aabb) -> bool {
+    let (outer_min, outer_max) = (outer.min(), outer.max());
+    let (inner_min, inner_max) = (inner.min(), inner.max());
+    let margin = LINEAR_RESOLUTION;
+    outer_min.x <= inner_min.x + margin
+        && outer_min.y <= inner_min.y + margin
+        && outer_min.z <= inner_min.z + margin
+        && inner_max.x <= outer_max.x + margin
+        && inner_max.y <= outer_max.y + margin
+        && inner_max.z <= outer_max.z + margin
 }

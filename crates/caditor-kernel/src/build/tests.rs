@@ -316,6 +316,20 @@ fn separate_regions_become_separate_lumps() {
 }
 
 #[test]
+fn separate_lumps_come_apart_into_solids_of_their_own() {
+    let mut curves = rectangle(1, (0.0, 0.0), (2.0, 2.0));
+    curves.extend(rectangle(5, (5.0, 0.0), (8.0, 1.0)));
+    let solid = extrude(&Plane::XY, &regions(&curves), one_side(1.0), FEATURE).unwrap();
+
+    let lumps = solid.lumps().unwrap();
+    let faces: Vec<usize> = lumps.iter().map(|lump| lump.faces().count()).collect();
+
+    assert_eq!(faces, [6, 6]);
+    assert!(lumps.iter().all(|lump| lump.shells().count() == 1));
+    assert!(lumps.iter().all(|lump| lump.validate().is_ok()));
+}
+
+#[test]
 fn hundreds_of_regions_sharing_their_x_become_as_many_lumps() {
     let curves: Vec<ProfileCurve> = (0..300_u32)
         .flat_map(|row| {

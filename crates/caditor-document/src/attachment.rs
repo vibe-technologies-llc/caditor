@@ -221,11 +221,7 @@ pub(crate) fn attached_plane(
     match attachment {
         SketchAttachment::Face(face) => face_attached_plane(feature, face, inputs),
         SketchAttachment::Datum(datum) => {
-            let name = inputs
-                .document
-                .feature(*datum)
-                .map(|datum| datum.name.clone())
-                .unwrap_or_default();
+            let name = inputs.document.body_label(*datum).unwrap_or_default();
             match inputs.features.get(datum).map(AsRef::as_ref) {
                 Some(FeatureResult::Datum(DatumResult::Plane(plane))) => Ok(*plane),
                 _ => Err(Failure::Error(Box::new(FeatureError {
@@ -238,11 +234,7 @@ pub(crate) fn attached_plane(
             }
         }
         SketchAttachment::Frame { frame, plane } => {
-            let name = inputs
-                .document
-                .feature(*frame)
-                .map(|frame| frame.name.clone())
-                .unwrap_or_default();
+            let name = inputs.document.body_label(*frame).unwrap_or_default();
             match inputs.features.get(frame).map(AsRef::as_ref) {
                 Some(FeatureResult::Datum(DatumResult::Frame(placed))) => {
                     plane.in_frame(placed).ok_or_else(|| {
@@ -279,8 +271,7 @@ fn face_attached_plane(
 ) -> Result<Plane, Failure> {
     let body_name = inputs
         .document
-        .feature(attachment.body)
-        .map(|body| body.name.clone())
+        .body_label(attachment.body)
         .unwrap_or_default();
     let Some(solid) = inputs.body(attachment.body) else {
         return Err(inputs.missing_body(attachment.body));

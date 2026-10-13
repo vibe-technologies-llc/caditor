@@ -24,7 +24,8 @@ paths:
   dependencies, so a changed reading recomputes its users and a failed or suppressed measurement
   fails them through `missing_upstream`.
 - `Recompute` walks the features in tree order and reuses a cached result when the feature's content
-  (`same_content`: a sketch's ID counter and a name do not count), the values of the parameters it
+  (`same_content` of the kind, and the feature's `pieces`: a sketch's ID counter and a name do not
+  count), the values of the parameters it
   uses (`Key::of` fingerprints the overlaid parameters) and its upstream results are unchanged.
   Upstream counts as unchanged when it is the same `Arc` or equal in what dependents read (a
   sketch's plane and entities, a datum's result, a solid's body and geometry), so an edit leaving
@@ -105,6 +106,9 @@ paths:
   (`is_stale`), drawn tinted and still exported; one whose creating feature is suppressed or rolled
   back has no state, so the model shows as of the bar.
 - `body_seen_by` gives the state a given feature used, where a revolve's model axis is drawn.
+- A feature making a body of each piece stands each piece under its piece's body ID
+  (`document.md`, Separate pieces); a piece whose feature failed stays a stale body by the same
+  rule, judged by its making feature.
 
 ## Display data
 

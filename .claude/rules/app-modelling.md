@@ -289,7 +289,10 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
     and touches to the later body in the tree; a check that fails or times out counts as a touch.
     Deciding before the feature exists keeps creation one undoable step and the preview in its final
     colour from the first frame.
-  - The panel's Body list is `Document::bodies_before`. `SketchEditing` holds at most one open solid
+  - The panel's Body list is `Document::bodies_before_in` (every body standing before it in the
+    evaluation, a separating feature's pieces in place of its own id; every body list and
+    last-body fallback in a panel or tool reads the `_in` forms, and body labels come from
+    `Document::body_label`). `SketchEditing` holds at most one open solid
     feature, never with an edited sketch; `editing::Context` carries both to the scene and
     availability checks.
 - With regions selected (`Pickable::SketchRegion`, `app-sketching.md`), a new extrusion or revolve
@@ -303,7 +306,21 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   them; `Pickable::Region` clicks add or leave out, turning `RegionChoice::All` into explicit keys.
   `Command::ClearChosenRegions` (Alt+Shift+R, the panel's Clear, palette; `solid_tools::clear_regions`,
   on the open feature else the tree's row) chooses none in one undoable change; the feature then waits
-  for regions (`MissingInput::Regions`). Double-clicking a face opens the feature that made it.
+  for regions (`MissingInput::Regions`). `Command::SelectAllRegions` (no default key, the panel's
+  Select all beside the chosen count, palette; `solid_tools::select_all_regions`, same targets, a wall
+  or a feature already taking all refused in words) takes every region as one undoable change by
+  setting `RegionChoice::All`, the document's whole-sketch choice, so a closed region drawn later is
+  taken too and holes stay holes. While a solid feature is open, a sketch row's context menu offers
+  Take all regions of that sketch (`solid_tools::take_sketch_regions`: the same sketch selects all,
+  another switches the feature to it with every region, as the panel's Sketch list does through
+  `solid_panel::with_sketch`). Shift+click on a region adds as before. Double-clicking a face opens the
+  feature that made it.
+- Under Result, a new body offers Separate pieces (`solid_panel::SEPARATE_PIECES`, One body or A body
+  each, `Pieces::words`; `solid_tools::pieces_change`, one `Edit::SetFeaturePieces` checked first, so
+  `PiecesInUse` is offered disabled with its reason). New extrusions and revolves
+  (`solid_tools::create`, from `Starts::pieces`) and sweeps (`sweep_tools::create`) start with
+  `Model::new_body_pieces`, the New bodies from separate pieces preference (`app-files.md`), adding the
+  edit to the creating transaction when it is A body each.
 - Each extrusion side has an end kind; one that cannot apply is offered disabled with the reason on
   hover. Up to face takes the selected face or plane captured where the extrusion sits in the tree
   (`solid_panel::selected_target`, through `datum_tools::plane_reference`), or one selected curved face

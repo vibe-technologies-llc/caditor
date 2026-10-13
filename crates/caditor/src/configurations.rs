@@ -78,7 +78,7 @@ pub fn value_name(document: &Document, value: ConfiguredValue) -> String {
         ),
         ConfiguredValue::Colour(id) => format!(
             "{} colour",
-            document.body_name(id).unwrap_or(DELETED_FEATURE)
+            document.body_name(id).as_deref().unwrap_or(DELETED_FEATURE)
         ),
     }
 }

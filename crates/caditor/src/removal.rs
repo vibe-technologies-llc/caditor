@@ -15,7 +15,7 @@ pub const DESCRIPTION: &str =
 const NOT_A_BODY: &str = "A body that is no longer there";
 
 pub fn create(document: &Document, body: FeatureId) -> Option<(Transaction, String)> {
-    let removed = document.body_name(body)?.to_owned();
+    let removed = document.body_name(body)?.into_owned();
     let name = editing::next_feature_name(document, TITLE);
     let mut transaction = document.transaction(format!("Remove {removed}"));
     transaction.add_feature(name.clone(), FeatureKind::Remove(Remove { body }));
@@ -72,18 +72,15 @@ pub fn show(
     widgets::properties(ui, ("remove-properties", id), |ui| {
         feature_fields::description_row(ui, DESCRIPTION);
         widgets::caption(ui, "Body");
-        let selected = feature_fields::combo_text(
-            ui,
-            feature_fields::feature_name(document, remove.body),
-            NOT_A_BODY,
-        );
+        let current = document.body_label(remove.body);
+        let selected = feature_fields::combo_text(ui, current.as_deref(), NOT_A_BODY);
         let chosen = feature_fields::combo(ui, Id::new(("remove-body", id)), selected, || {
             document
-                .bodies_before(id)
+                .bodies_before_in(id, model.evaluation())
                 .into_iter()
                 .filter_map(|body| {
                     Some(Choice {
-                        label: feature_fields::feature_name(document, body)?.to_owned(),
+                        label: document.body_label(body)?,
                         selected: body == remove.body,
                         change: change(model, id, Remove { body }).map(|transaction| {
                             feature_fields::applied(&feature.name, Ok(transaction))

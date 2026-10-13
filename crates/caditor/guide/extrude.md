@@ -14,8 +14,14 @@ body, or cuts them into one.
   some of its regions, only the remaining ones are taken, so each part of a sketch can be
   extruded on its own with its own taper and distance.
 
-In the open panel, click regions in the view to add or leave them out, and
-{command:model.clear_chosen_regions} starts from none.
+In the open panel, click regions in the view to add or leave them out (Shift adds without
+leaving the others out), {command:model.clear_chosen_regions} starts from none and
+{command:model.select_all_regions}, or **Select all** beside the count of chosen regions, takes
+every closed region of the sketch at once. Taking them all is the panel's **All closed**: a
+closed region drawn in the sketch later is taken too, while a region inside another (a hole) stays
+a hole. While the panel is open, right-clicking another sketch in the feature tree offers **Take
+all regions of** it, which switches the extrusion to that sketch with every region; choosing a
+sketch from the panel's **Sketch** list does the same.
 
 ## Extent
 
@@ -65,6 +71,18 @@ edge, sketch line or axis you select, measuring the distance along it.
 ## Result
 
 - **New body**, **Add** to a body, **Remove from body** (a cut) or **Intersect with body**.
+- **Separate pieces**, offered for a new body: **One body** keeps shapes that do not touch as one
+  body of several pieces; **A body each** makes every separate piece a body of its own, listed
+  under Bodies, each shown, hidden, coloured, renamed and used by later features on its own. The
+  [preferences](preferences) say which a new extrusion starts with. Draw several shapes, take all
+  their regions and extrude with A body each to get one body per shape.
+- A body made this way is named after the extrusion and the sketch curve that drew it, such as
+  "Extrude 1 (Line 5)", until you rename it, and keeps following that curve: moving the shapes or
+  drawing new ones never hands a later fillet or cut to another piece, and a new shape becomes a
+  new body. Pieces that grow together into one keep the body of the one whose curve was drawn
+  first. A piece whose curves are deleted is gone, and the features using it fail saying so,
+  with the fix to draw it again or choose another body. While later features use the bodies, the
+  setting cannot go back to one body.
 - A new extrusion adds to the body it reaches, overlapping or touching it, else makes a new body;
   reaching several, it adds to the one it overlaps most. With faces of a body selected along with
   the sketch, it adds to that body.

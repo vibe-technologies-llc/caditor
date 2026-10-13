@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use caditor_document::{
     BlendKind, ChamferForm, Document, Edit, ExtrudeEnd, ExtrudeExtent, FeatureKind, HoleDepth,
-    ParameterValues, PatternKind, SolidFeature, Transaction,
+    ParameterValues, PatternKind, Pieces, SolidFeature, Transaction,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_file::Settings;
@@ -115,6 +115,7 @@ impl LastValues {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Starts {
     unit: LengthUnit,
+    pieces: Pieces,
     expressions: BTreeMap<Remembered, Expression>,
     forms: BTreeMap<Remembered, String>,
 }
@@ -123,18 +124,26 @@ impl Starts {
     pub fn defaults(unit: LengthUnit) -> Self {
         Self {
             unit,
+            pieces: Pieces::OneBody,
             expressions: BTreeMap::new(),
             forms: BTreeMap::new(),
         }
     }
 
     pub fn of(model: &Model) -> Self {
-        Self::resolving(
-            model.last_values(),
-            model.document(),
-            model.parameters(),
-            model.units(),
-        )
+        Self {
+            pieces: model.new_body_pieces(),
+            ..Self::resolving(
+                model.last_values(),
+                model.document(),
+                model.parameters(),
+                model.units(),
+            )
+        }
+    }
+
+    pub fn pieces(&self) -> Pieces {
+        self.pieces
     }
 
     pub fn resolving(

@@ -4,7 +4,7 @@ use caditor_kernel::{BooleanError, BooleanOperation, Solid, boolean};
 
 use crate::{
     document::{Document, Feature, FeatureId},
-    recompute::{CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
+    recompute::{CancelToken, Evaluation, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
     solid::SolidResult,
     trouble::{self, boolean_trouble},
 };
@@ -80,11 +80,7 @@ struct Context<'a> {
 
 impl Context<'_> {
     fn name(&self, id: FeatureId) -> String {
-        self.inputs
-            .document
-            .feature(id)
-            .map(|feature| feature.name.clone())
-            .unwrap_or_default()
+        self.inputs.document.body_label(id).unwrap_or_default()
     }
 
     fn error(&self, reason: String, remedy: String) -> Failure {
@@ -210,15 +206,32 @@ impl Document {
         self.bodies_at(self.bar_index())
     }
 
+    pub fn bodies_before_in(&self, feature: FeatureId, evaluation: &Evaluation) -> Vec<FeatureId> {
+        let end = self.feature_index(feature).unwrap_or(0);
+        self.bodies_made(end, Some(evaluation))
+    }
+
+    pub fn bodies_standing_in(&self, evaluation: &Evaluation) -> Vec<FeatureId> {
+        self.bodies_made(self.bar_index(), Some(evaluation))
+    }
+
     fn bodies_at(&self, end: usize) -> Vec<FeatureId> {
+        self.bodies_made(end, None)
+    }
+
+    fn bodies_made(&self, end: usize, evaluation: Option<&Evaluation>) -> Vec<FeatureId> {
         let mut bodies: Vec<FeatureId> = Vec::new();
         for earlier in self
             .features()
             .take(end)
             .filter(|earlier| !earlier.suppressed)
         {
-            if earlier.makes_body() {
-                bodies.push(earlier.id());
+            match evaluation {
+                Some(evaluation) if earlier.separates_pieces() => {
+                    bodies.extend(evaluation.pieces_made_by(earlier.id()));
+                }
+                _ if earlier.makes_body() => bodies.push(earlier.id()),
+                _ => {}
             }
             for consumed in earlier.kind.consumed_bodies() {
                 bodies.retain(|body| *body != consumed);

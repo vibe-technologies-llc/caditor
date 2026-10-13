@@ -510,7 +510,6 @@ fn later_geometry(document: &Document, sketch: FeatureId) -> String {
 
 fn feature_name(document: &Document, feature: FeatureId) -> String {
     document
-        .feature(feature)
-        .map(|feature| feature.name.clone())
+        .body_label(feature)
         .unwrap_or_else(|| "That feature".to_owned())
 }

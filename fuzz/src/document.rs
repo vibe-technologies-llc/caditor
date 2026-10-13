@@ -59,6 +59,7 @@ impl Generator {
             | Edit::SetFeatureSuppressed { .. }
             | Edit::SetFeatureGroup { .. }
             | Edit::SetBodyAppearance { .. }
+            | Edit::SetFeaturePieces { .. }
             | Edit::SetRollbackBar { .. }
             | Edit::SetPrincipalHidden { .. }
             | Edit::SetFeatureKind { .. } => Self::Tree,

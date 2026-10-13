@@ -1003,3 +1003,48 @@ fn a_boxed_surface_counts_towards_the_bytes_a_face_owns() {
     assert_eq!(plane.boxed_size(), 0);
     assert_eq!(spline.boxed_size(), size_of::<BSplineSurface>());
 }
+
+#[test]
+fn a_hollow_lump_keeps_its_void_when_the_lumps_are_taken_apart() {
+    let mut fixture = Fixture::new();
+    fixtures::add_cuboid(
+        &mut fixture,
+        Point3::ZERO,
+        Point3::splat(10.0),
+        Tweak::default(),
+    );
+    fixture.next_shell();
+    fixtures::add_cuboid(
+        &mut fixture,
+        Point3::splat(4.0),
+        Point3::splat(6.0),
+        Tweak {
+            inverted: true,
+            ..Tweak::default()
+        },
+    );
+    fixture.next_shell();
+    fixtures::add_cuboid(
+        &mut fixture,
+        Point3::new(20.0, 0.0, 0.0),
+        Point3::new(23.0, 3.0, 3.0),
+        Tweak::default(),
+    );
+    let solid = fixture.build();
+
+    let lumps = solid.lumps().unwrap();
+    let shells: Vec<usize> = lumps.iter().map(|lump| lump.shells().count()).collect();
+
+    assert_eq!(solid.shells().count(), 3);
+    assert_eq!(shells, [2, 1]);
+    assert!(lumps.iter().all(|lump| lump.validate().is_ok()));
+}
+
+#[test]
+fn a_solid_of_one_shell_is_its_own_lump() {
+    let solid = fixtures::cuboid(Vector3::splat(2.0));
+
+    let lumps = solid.lumps().unwrap();
+
+    assert_eq!(lumps, [solid]);
+}

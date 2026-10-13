@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use caditor_document::{Feature, FeatureId};
 use egui::{Id, Label, RichText, Ui, collapsing_header::CollapsingState, vec2};
 
@@ -38,7 +40,7 @@ pub fn show(
         .evaluation()
         .bodies()
         .map(|(body, _)| body)
-        .filter(|body| document.feature(*body).is_some())
+        .filter(|body| document.body_maker(*body).is_some())
         .collect();
     if state
         .painting
@@ -132,12 +134,14 @@ fn item(
     actions: &mut Vec<Action>,
     (body, listed): (FeatureId, &[FeatureId]),
 ) -> Option<f32> {
-    let feature = model.document().feature(body)?;
-    let name = model.document().body_name(body).unwrap_or(&feature.name);
+    let document = model.document();
+    let feature = document.body_maker(body)?;
+    let name = document.body_name(body)?;
+    let name = name.as_ref();
     let painting = state.painting.filter(|painting| painting.body == body);
-    let shown = !feature.hidden;
+    let shown = !document.body_hidden(body);
     let muted = appearance::tokens(ui).text_muted;
-    let toggle = visibility::toggle(feature);
+    let toggle = visibility::toggle_body(document, body);
     let look = Look {
         selected: state.reads_body_selected(body),
         open: false,
@@ -207,7 +211,7 @@ fn item(
                 model,
                 selection,
                 actions,
-                feature,
+                body,
                 (painting.focus_pending, painting.naming),
             )
         })
@@ -311,6 +315,7 @@ fn chosen_body(
         .feature()
         .or(context.editing.solid())
         .and_then(|id| document.feature(id))
+        .filter(|feature| !feature.separates_pieces())
         .and_then(Feature::body)
         .filter(|body| document.feature(*body).is_some_and(Feature::makes_body))
         .ok_or(NO_BODY_CHOSEN)
@@ -326,7 +331,7 @@ pub fn commands(
     let detail = body
         .ok()
         .and_then(|body| context.model.document().body_name(body))
-        .map(str::to_owned);
+        .map(Cow::into_owned);
     if commands.invoke_detailed(Command::BodyAppearance, detail.clone(), &body)
         && let Ok(body) = body
     {

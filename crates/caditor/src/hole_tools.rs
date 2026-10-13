@@ -249,7 +249,12 @@ pub fn source(
         .and_then(|attachment| attachment.body());
     let body = attached
         .or(swept.body)
-        .or_else(|| document.bodies_standing().last().copied())
+        .or_else(|| {
+            document
+                .bodies_standing_in(model.evaluation())
+                .last()
+                .copied()
+        })
         .ok_or(NO_BODY)?;
     Ok(HoleSource { sketch, body })
 }

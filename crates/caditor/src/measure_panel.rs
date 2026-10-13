@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::{borrow::Cow, collections::BTreeSet};
 
 use caditor_document::{DensityError, FeatureId, MeasuredItem, Reading, displayed_frame};
 use caditor_expression::format_number;
@@ -244,7 +244,7 @@ pub fn readout_cards(readout: &Readout, unit: impl Into<Units>) -> Vec<Card> {
 }
 
 pub struct Substance<'a> {
-    pub material: Option<&'a str>,
+    pub material: Option<Cow<'a, str>>,
     pub density: Option<Result<f64, DensityError>>,
 }
 
@@ -268,7 +268,7 @@ fn mass_rows(
     volume: f64,
     approximate: bool,
 ) -> (Vec<Row>, Option<String>) {
-    let material = substance.material.map(|material| Row {
+    let material = substance.material.as_deref().map(|material| Row {
         label: "Material".to_owned(),
         text: material.to_owned(),
     });
@@ -607,20 +607,21 @@ pub fn mass_cards(
         context
             .model
             .document()
-            .feature(body)
-            .map_or(Substance::UNKNOWN, |feature| Substance {
-                material: feature.appearance.material.as_deref(),
-                density: feature.appearance.density_value(parameters),
+            .body_appearance(body)
+            .map_or(Substance::UNKNOWN, |appearance| Substance {
+                material: appearance.material.clone().map(Cow::Owned),
+                density: appearance.density_value(parameters),
             })
     };
     let (cards, offers) = bodies
         .iter()
         .take(MAX_MASS_CARDS)
         .map(|body| {
-            let name = context.model.document().feature(*body).map_or_else(
-                || "A deleted body".to_owned(),
-                |feature| feature.name.clone(),
-            );
+            let name = context
+                .model
+                .document()
+                .body_label(*body)
+                .unwrap_or_else(|| "A deleted body".to_owned());
             let mesh = context.bodies.get(*body);
             let mass = mesh.and_then(BodyMesh::mass);
             let stopped = mesh.is_some_and(BodyMesh::mass_stopped);
@@ -1276,7 +1277,7 @@ mod tests {
             size: Some([20.0; 3]),
         };
         let steel = Substance {
-            material: Some("Steel"),
+            material: Some(Cow::Borrowed("Steel")),
             density: Some(Ok(7.85)),
         };
         let wrong = Substance {
