@@ -587,6 +587,7 @@ impl FeatureKind {
                         .filter_map(PointReference::sketch_entity),
                 )
                 .collect(),
+            Self::Coil(coil) => coil.axis.sketch_entity().into_iter().collect(),
             Self::Pattern(pattern) => pattern.sketch_entities(),
             Self::Measurement(measurement) => measurement.sketch_entities(),
             Self::Sketch(sketch) => sketch.projected_entities().collect(),

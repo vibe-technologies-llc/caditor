@@ -315,3 +315,14 @@ fn deleting_a_sketch_entity_a_measurement_reads_is_undone_under_the_same_number(
 
     assert!(scene.document.same_content(&before));
 }
+
+#[test]
+fn a_coil_round_a_missing_sketch_line_reserves_its_number() {
+    assert_never_reused(|scene| {
+        FeatureKind::Coil(Coil::new(
+            axis_reference(scene),
+            Expression::number(20.0),
+            Expression::number(2.0),
+        ))
+    });
+}

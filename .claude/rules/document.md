@@ -383,8 +383,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   file, a fuzzed insert): an `AddSketchEntity` under one is refused (`EntityNumberNamed`), so the
   inverse of every addition, a removal, applies. Every other outside reference to a sketch entity
   (`FeatureKind::named_entities`: those curves plus the sketch points and lines named by datums,
-  measurements, mates, moves, patterns including a points pattern's skipped copies, a split face's
-  carry, a revolve's or extrusion's model axis, and the projection sources of other sketches) may
+  measurements, mates, moves, coils, patterns including a points pattern's skipped copies, a split
+  face's carry, a revolve's or extrusion's model axis, and the projection sources of other sketches) may
   name a number the sketch lacks the same way, but removing the entity stays allowed (the user fails
   with a reason until the deletion is undone), so its re-adding is not refused; instead inserts and
   kind changes raise the named sketch's ID counter past every such number, so a newly drawn entity
