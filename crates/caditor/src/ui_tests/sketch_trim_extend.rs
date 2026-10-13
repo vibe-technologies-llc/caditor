@@ -163,13 +163,11 @@ fn trim_and_extend_act_on_the_keyboard_highlight() {
     assert!(near(start, Point2::new(10.0, 0.0)) && near(end, Point2::new(30.0, 0.0)));
     harness.settle();
 
+    harness.point_at(Point2::new(10.0, 45.0));
+    assert!(harness.shows(&format!("Delete {spline_label}, which nothing crosses")));
     harness.click_at(Point2::new(10.0, 45.0));
-    assert_eq!(
-        harness.model.notice().unwrap().text,
-        format!(
-            "Trim: {spline_label} cannot be trimmed; only lines, circles, arcs and ellipses can."
-        )
-    );
+    assert!(harness.sketch(feature).entity(spline).is_none());
+    harness.settle();
 
     run_from_palette(&mut harness, "extend a line");
     assert_eq!(harness.tool(), Some(Tool::Extend));
@@ -291,6 +289,95 @@ fn trim_cuts_a_line_where_a_collinear_line_overlaps_it() {
     let joints = constraints_of_kind(sketch, "Coincident");
     assert!(joints.contains(&Constraint::Coincident(near_end, other_start)));
     assert!(joints.contains(&Constraint::Coincident(far_start, other_end)));
+
+    harness.settle();
+    harness.key(Key::Z, Modifiers::COMMAND);
+    harness.frame();
+    assert!(harness.sketch(feature).same_content(&before));
+}
+
+fn wave_and_post(post_x: f64) -> (Sketch, EntityId, EntityId) {
+    let mut sketch = Sketch::new(Plane::XY);
+    let spline = sketch.add_spline(&[
+        Point2::new(10.0, 60.0),
+        Point2::new(30.0, 90.0),
+        Point2::new(50.0, 30.0),
+        Point2::new(70.0, 60.0),
+    ]);
+    let post = sketch.add_line(Point2::new(post_x, 10.0), Point2::new(post_x, 110.0));
+    (sketch, spline, post)
+}
+
+fn spline_ends(sketch: &Sketch, spline: EntityId) -> (EntityId, EntityId) {
+    sketch
+        .entity(spline)
+        .and_then(caditor_sketch::Entity::spline_ends)
+        .unwrap()
+}
+
+#[test]
+fn trim_cuts_a_spline_back_to_the_line_crossing_it_keeping_its_shape_and_undoes() {
+    let mut harness = Harness::new();
+    let (sketch, spline, post) = wave_and_post(40.0);
+    let [spline_label, post_label] = [spline, post].map(|id| sketch.entity_label(id));
+    let whole = sketch.spline(spline).unwrap();
+    let aim = whole.point_at(0.9);
+    let kept = whole.point_at(0.2);
+    let feature = edit_free_sketch(&mut harness, sketch);
+    let before = harness.sketch(feature).clone();
+
+    harness.use_tool(Key::K);
+    harness.point_at(aim);
+    assert!(harness.shows(&format!("Trim {spline_label} back to {post_label}")));
+    harness.click_at(aim);
+
+    let sketch = harness.sketch(feature);
+    let (start, end) = spline_ends(sketch, spline);
+    assert!(near(sketch.point(start).unwrap(), Point2::new(10.0, 60.0)));
+    assert!((sketch.point(end).unwrap().x - 40.0).abs() < 1e-6);
+    assert!(constraints_of_kind(sketch, "Coincident").contains(&Constraint::Coincident(end, post)));
+    let trimmed = sketch.spline(spline).unwrap();
+    assert!(near(sketch.closest_on_curve(spline, kept).unwrap(), kept));
+    assert!(trimmed.point_at(1.0).x < 40.0 + 1e-6);
+    assert_eq!(
+        harness.model.undo_label(),
+        Some(format!("Trim {spline_label}").as_str())
+    );
+
+    harness.settle();
+    harness.key(Key::Z, Modifiers::COMMAND);
+    harness.frame();
+    assert!(harness.sketch(feature).same_content(&before));
+}
+
+#[test]
+fn extend_carries_a_spline_end_along_its_curve_to_the_line_in_its_way_and_undoes() {
+    let mut harness = Harness::new();
+    let (sketch, spline, wall) = wave_and_post(75.0);
+    let [spline_label, wall_label] = [spline, wall].map(|id| sketch.entity_label(id));
+    let whole = sketch.spline(spline).unwrap();
+    let middle = whole.point_at(0.5);
+    let aim = whole.point_at(0.95);
+    let feature = edit_free_sketch(&mut harness, sketch);
+    let before = harness.sketch(feature).clone();
+
+    harness.use_tool(Key::J);
+    harness.point_at(aim);
+    assert!(harness.shows(&format!("Extend {spline_label} to {wall_label}")));
+    harness.click_at(aim);
+
+    let sketch = harness.sketch(feature);
+    let (_, end) = spline_ends(sketch, spline);
+    assert!((sketch.point(end).unwrap().x - 75.0).abs() < 1e-6);
+    assert!(constraints_of_kind(sketch, "Coincident").contains(&Constraint::Coincident(end, wall)));
+    assert!(near(
+        sketch.closest_on_curve(spline, middle).unwrap(),
+        middle
+    ));
+    assert_eq!(
+        harness.model.undo_label(),
+        Some(format!("Extend {spline_label}").as_str())
+    );
 
     harness.settle();
     harness.key(Key::Z, Modifiers::COMMAND);

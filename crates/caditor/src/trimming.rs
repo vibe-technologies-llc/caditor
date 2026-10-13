@@ -14,10 +14,12 @@ use crate::{
 };
 
 const CARRIER_TOLERANCE: f64 = 1e-7;
-const NOTHING_TO_TRIM: &str = "The sketch has no line, circle or arc to trim";
-const NOTHING_TO_EXTEND: &str = "The sketch has no line, arc or elliptical arc to extend";
+const NOTHING_TO_TRIM: &str = "The sketch has no curve to trim";
+const NOTHING_TO_EXTEND: &str =
+    "The sketch has no line, arc, elliptical arc or open spline to extend";
 pub const TRIM_PROMPT: &str = "Click a piece of a curve to trim it away, or drag across pieces";
-pub const EXTEND_PROMPT: &str = "Click near the end of a line, arc or elliptical arc to extend it";
+pub const EXTEND_PROMPT: &str =
+    "Click near the end of a line, arc, elliptical arc or spline to extend it";
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Outcome {
@@ -149,11 +151,9 @@ impl Trimming {
         let Some((_, tool)) = self.context else {
             return Err(NOTHING_TO_TRIM);
         };
-        let offered = sketch.entities().any(|(_, entity)| match entity {
-            Entity::Line { .. } | Entity::Arc { .. } | Entity::EllipticalArc { .. } => true,
-            Entity::Circle { .. } | Entity::Ellipse { .. } => tool == Tool::Trim,
-            Entity::Point(_) | Entity::Spline { .. } => false,
-        });
+        let offered = sketch
+            .entities()
+            .any(|(_, entity)| is_trimmable(entity) && (tool == Tool::Trim || has_ends(entity)));
         match (offered, tool) {
             (true, _) => Ok(()),
             (false, Tool::Extend) => Err(NOTHING_TO_EXTEND),
@@ -356,39 +356,33 @@ fn same_outcome(a: &Outcome, b: &Outcome) -> bool {
 }
 
 fn is_trimmable(entity: &Entity) -> bool {
-    matches!(
-        entity,
-        Entity::Line { .. }
-            | Entity::Circle { .. }
-            | Entity::Arc { .. }
-            | Entity::Ellipse { .. }
-            | Entity::EllipticalArc { .. }
-    )
+    !matches!(entity, Entity::Point(_))
+}
+
+fn has_ends(entity: &Entity) -> bool {
+    !ends_of(entity).is_empty()
+}
+
+fn ends_of(entity: &Entity) -> Vec<EntityId> {
+    match *entity {
+        Entity::Line { start, end }
+        | Entity::Arc { start, end, .. }
+        | Entity::EllipticalArc { start, end, .. } => vec![start, end],
+        Entity::Spline { .. } => entity
+            .spline_ends()
+            .map(|(start, end)| vec![start, end])
+            .unwrap_or_default(),
+        Entity::Point(_) | Entity::Circle { .. } | Entity::Ellipse { .. } => Vec::new(),
+    }
 }
 
 fn targets(sketch: &Sketch, tool: Tool) -> Vec<Aim> {
     let curves = sketch.entities().filter(|(_, entity)| is_trimmable(entity));
     match tool {
         Tool::Extend => curves
-            .filter(|(_, entity)| {
-                matches!(
-                    entity,
-                    Entity::Line { .. }
-                        | Entity::Circle { .. }
-                        | Entity::Arc { .. }
-                        | Entity::EllipticalArc { .. }
-                )
-            })
             .flat_map(|(curve, entity)| {
-                let centres = match entity {
-                    Entity::Arc { .. } => 1,
-                    Entity::EllipticalArc { .. } => 2,
-                    _ => 0,
-                };
-                entity
-                    .points()
+                ends_of(entity)
                     .into_iter()
-                    .skip(centres)
                     .filter_map(move |end| Some((curve, sketch.point(end)?)))
             })
             .map(|(curve, near)| Aim::of(sketch, tool, curve, near))

@@ -293,6 +293,10 @@ fn circle_circle(
 }
 
 fn closest_on_spline(spline: &BSpline, to: Point2) -> Point2 {
+    spline.point_at(closest_spline_parameter(spline, to))
+}
+
+pub(crate) fn closest_spline_parameter(spline: &BSpline, to: Point2) -> f64 {
     let samples = spline_samples(spline);
     let step = 1.0 / samples as f64;
     let rough = (0..samples)
@@ -330,9 +334,9 @@ fn closest_on_spline(spline: &BSpline, to: Point2) -> Point2 {
     }
     let (refined, first) = (spline.point_at(parameter), spline.point_at(rough));
     if refined.distance(to) <= first.distance(to) {
-        refined
+        parameter
     } else {
-        first
+        rough
     }
 }
 

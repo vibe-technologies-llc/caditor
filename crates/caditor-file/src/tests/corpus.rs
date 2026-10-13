@@ -50,7 +50,7 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 23] = [
+const KEPT: [(&str, &str); 24] = [
     (
         "journal-1/by-reference.journal",
         "fe98725da8d9df46b19d7cede1474bcfb92bbda00d4de9c890e5bca5d0f2899f",
@@ -130,6 +130,10 @@ const KEPT: [(&str, &str); 23] = [
     (
         "model-1/sliced.caditor",
         "4d56af94bbefdc7ca4d04154800c5ee3b009a13b6083696abbaf7c5c728ead87",
+    ),
+    (
+        "model-1/spline-pieces.caditor",
+        "d6b13fe6a8e0771a6d16da0077d3c92e4831b9ce1c312fb0420539f3fa3d6b3b",
     ),
     (
         "model-1/starts.caditor",
@@ -663,6 +667,10 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
     let mut files = vec![
         (model("sketches"), saved(&sketches(), "Sketches")),
         (model("pieces"), saved(&pieces(), "Pieces")),
+        (
+            model("spline-pieces"),
+            saved(&spline_pieces(), "Spline pieces"),
+        ),
         (model("extents"), saved(&extents_model().0, "Extents")),
         (model("starts"), saved(&starts_model().0, "Starts")),
         (model("sweeps"), saved(&sweeps(), "Sweeps")),
@@ -734,6 +742,30 @@ fn pieces() -> Document {
     let mut document = Document::default();
     let mut transaction = document.transaction("Pieces");
     transaction.add_feature("Trimmed", FeatureKind::from(drawn));
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
+fn spline_pieces() -> Document {
+    let mut drawn = Sketch::new(Plane::XY);
+    let wave = [
+        Point2::new(100.0, 100.0),
+        Point2::new(110.0, 115.0),
+        Point2::new(120.0, 90.0),
+        Point2::new(130.0, 112.0),
+        Point2::new(140.0, 86.0),
+        Point2::new(150.0, 108.0),
+        Point2::new(160.0, 100.0),
+    ];
+    let spline = drawn.add_spline(&wave);
+    for x in [113.0, 147.0] {
+        drawn.add_line(Point2::new(x, 60.0), Point2::new(x, 140.0));
+    }
+    drawn.trim(spline, Point2::new(101.0, 101.0)).unwrap();
+    drawn.trim(spline, Point2::new(159.0, 101.0)).unwrap();
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Spline pieces");
+    transaction.add_feature("Trimmed spline", FeatureKind::from(drawn));
     document.apply(transaction.finish()).unwrap();
     document
 }

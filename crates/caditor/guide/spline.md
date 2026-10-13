@@ -33,5 +33,5 @@ A spline drawn by control points shows its control polygon dashed while its sket
 {command:view.toggle_control_polygons} hides or shows it. A spline through fit points shows none,
 since the fit points are its handles.
 
-Splines cut other curves when trimming, but cannot themselves be trimmed or extended. For a curve
-shaped by a single value, see [Conic](conic).
+Splines cut other curves and can be trimmed and extended themselves, keeping their shape; see
+[Trim and extend](trim-and-extend). For a curve shaped by a single value, see [Conic](conic).
