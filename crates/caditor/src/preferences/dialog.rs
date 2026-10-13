@@ -1,11 +1,10 @@
 use caditor_document::Rgb;
-use caditor_render::ProjectionMode;
-use egui::{Id, Label, Ui};
+use egui::{Id, Label, TextEdit, TextStyle, TextWrapMode, Ui, WidgetText};
 
 use super::{
-    Accent, Appearance, GridColour, InputMode, MAX_SPEED, MIN_SPEED, PreferenceChange, Preferences,
-    PreferencesCommand, PreferencesTab, Restored, Theme, TitleBar, ViewChoice,
-    projection_description, projection_label,
+    Accent, Appearance, Choice, DoubleClick, GridColour, PreferenceChange, Preferences,
+    PreferencesCommand, PreferencesTab, RecentListed, Restored, Restoring, Section, Startup, Theme,
+    TitleBar, TooltipDelay, ViewChoice, motion,
 };
 use crate::{
     appearance::{self, MAX_SCALE, MIN_SCALE, SCALE_STEP, SPACE_M, SPACE_S},
@@ -19,7 +18,8 @@ use crate::{
     scene_palette::{self, Canvas, Contrast},
     themes::{Look, UserThemes},
     units::{AngleUnit, LengthUnit},
-    widgets::{self, DialogBody, DialogWidth, Tab, ThemeSample, Tone},
+    view_aids::EdgeWeight,
+    widgets::{self, DialogBody, DialogWidth, SectionAction, Tab, ThemeSample, Tone},
 };
 
 const EMPTY_MODEL: &str = "An empty model";
@@ -27,10 +27,10 @@ const HEIGHT_CHANGE: f32 = 0.5;
 const CONFIRM_KEY: &str = "preferences-confirm-defaults";
 const TALLEST_KEY: &str = "preferences-tallest-body";
 const RESTORE_DEFAULTS: &str = "Restore defaults";
-const PRINCIPAL_WHEN_NEEDED: &str = "Show principal planes only when needed";
-const PRINCIPAL_WHEN_NEEDED_HOVER: &str = "Once the model has a body, the principal planes, axes \
-     and origin show only while you choose a plane, axis or point; showing them yourself keeps \
-     them shown";
+const RESET_KEY: &str = "preferences-reset-section";
+pub const SEARCH_FIELD: &str = "preferences-search";
+pub const SEARCH_HINT: &str = "Search settings";
+pub const CLEAR_SEARCH: &str = "Clear the search";
 
 pub struct PreferencesView<'a> {
     pub tab: PreferencesTab,
@@ -39,6 +39,16 @@ pub struct PreferencesView<'a> {
     pub switch_keys: bool,
     pub restored: Option<&'a Restored>,
     pub themes: &'a UserThemes,
+    pub search: &'a str,
+}
+
+pub struct Shown<'a> {
+    pub preferences: &'a Preferences,
+    pub query: &'a str,
+}
+
+pub fn reset_name(section: Section) -> String {
+    format!("Reset {} to its defaults", section.title())
 }
 
 pub fn dialog(
@@ -61,13 +71,19 @@ pub fn dialog(
             command = Some(PreferencesCommand::Tab(chosen));
             ui.data_mut(|data| data.remove::<PreferencesTab>(confirm));
         }
+        if let Some(search) = search_field(ui, view.search) {
+            command = Some(search);
+        }
+        let searching = !view.search.trim().is_empty();
         body(ui, preferences, view, tab, &mut command);
-        if view.restored.and_then(Restored::tab) == Some(tab)
-            && dialog_parts::undo_note(
-                ui,
-                "This tab is back to its defaults.",
-                "Put back the settings this tab had before",
-            )
+        if let Some(section) = take_reset(ui) {
+            command = Some(PreferencesCommand::Change(
+                PreferenceChange::SectionDefaults(section),
+            ));
+        }
+        if let Some(restoring) = view.restored.and_then(Restored::restoring)
+            && (searching || restoring.tab() == tab)
+            && undo_restoring(ui, restoring)
         {
             command = Some(PreferencesCommand::Undo);
         }
@@ -118,6 +134,42 @@ pub fn dialog(
     command
 }
 
+fn undo_restoring(ui: &mut Ui, restoring: Restoring) -> bool {
+    match restoring {
+        Restoring::Tab(_) => dialog_parts::undo_note(
+            ui,
+            "This tab is back to its defaults.",
+            "Put back the settings this tab had before",
+        ),
+        Restoring::Section(section) => dialog_parts::undo_note(
+            ui,
+            &format!("{} is back to its defaults.", section.title()),
+            "Put back the settings this section had before",
+        ),
+    }
+}
+
+fn search_field(ui: &mut Ui, search: &str) -> Option<PreferencesCommand> {
+    let mut text = search.to_owned();
+    let edited = ui
+        .horizontal(|ui| {
+            let muted = appearance::tokens(ui).text_muted;
+            widgets::icon_label(ui, icons::SEARCH, muted);
+            widgets::text_field(ui, |ui| {
+                ui.add(
+                    TextEdit::singleline(&mut text)
+                        .id(Id::new(SEARCH_FIELD))
+                        .hint_text(SEARCH_HINT)
+                        .desired_width(f32::INFINITY),
+                )
+            })
+            .changed()
+        })
+        .inner;
+    ui.add_space(SPACE_S);
+    edited.then_some(PreferencesCommand::Search(text))
+}
+
 fn body(
     ui: &mut Ui,
     preferences: &Preferences,
@@ -129,16 +181,17 @@ fn body(
     let tallest = ui
         .data(|data| data.get_temp::<f32>(tallest_id))
         .unwrap_or_default();
+    let query = view.search.trim();
     let height = DialogBody::default()
         .id_salt(("preferences", tab.label()))
         .min_height(tallest)
         .show(ui, |ui| {
-            ui.scope(|ui| match tab {
-                PreferencesTab::General => general(ui, preferences, view.templates, command),
-                PreferencesTab::Appearance => appearance(ui, preferences, view.themes, command),
-                PreferencesTab::Navigation => navigation(ui, preferences, command),
-                PreferencesTab::Graphics => {
-                    graphics::tab(ui, &preferences.graphics, view.hardware, command);
+            ui.scope(|ui| {
+                let shown = Shown { preferences, query };
+                if query.is_empty() {
+                    tab_body(ui, &shown, view, tab, command);
+                } else {
+                    search_results(ui, &shown, view, command);
                 }
             })
             .response
@@ -151,23 +204,142 @@ fn body(
     }
 }
 
+fn tab_body(
+    ui: &mut Ui,
+    shown: &Shown<'_>,
+    view: &PreferencesView<'_>,
+    tab: PreferencesTab,
+    command: &mut Option<PreferencesCommand>,
+) {
+    match tab {
+        PreferencesTab::General => general(ui, shown, view.templates, command),
+        PreferencesTab::Appearance => appearance(ui, shown, view.themes, command),
+        PreferencesTab::Navigation => motion::navigation(ui, shown, command),
+        PreferencesTab::Sketching => motion::sketching(ui, shown, command),
+        PreferencesTab::Graphics => graphics::tab(ui, shown, view.hardware, command),
+    }
+}
+
+fn search_results(
+    ui: &mut Ui,
+    shown: &Shown<'_>,
+    view: &PreferencesView<'_>,
+    command: &mut Option<PreferencesCommand>,
+) {
+    let mut any = false;
+    for tab in PreferencesTab::ALL {
+        let matching = Section::of_tab(tab)
+            .into_iter()
+            .filter(|section| section.matches(shown.query))
+            .any(|section| section != Section::SavingOnWindows || defender::ON_WINDOWS);
+        if !matching {
+            continue;
+        }
+        any = true;
+        ui.add_space(SPACE_M);
+        ui.label(widgets::strong(tab.label()));
+        tab_body(ui, shown, view, tab, command);
+    }
+    if !any {
+        ui.add_space(SPACE_M);
+        let text = format!("No setting matches \u{201c}{}\u{201d}.", shown.query);
+        let cleared = widgets::empty_state(ui, icons::SEARCH, &text, |ui| {
+            ui.add(widgets::button(CLEAR_SEARCH)).clicked()
+        });
+        if cleared {
+            *command = Some(PreferencesCommand::Search(String::new()));
+        }
+    }
+}
+
 pub fn section(
     ui: &mut Ui,
-    title: &str,
-    id: &str,
+    shown: &Shown<'_>,
+    section: Section,
     note: Option<String>,
     rows: impl FnOnce(&mut Ui),
 ) {
-    ui.add_space(SPACE_M);
-    widgets::section(ui, &format!("preferences-{id}"), title, None, None, |ui| {
-        widgets::card(ui, |ui| {
-            widgets::properties(ui, id, rows);
-            if let Some(note) = note {
-                ui.add_space(SPACE_S);
-                ui.add(Label::new(widgets::muted(note, ui)).wrap());
-            }
-        });
+    section_card(ui, shown, section, |ui| {
+        widgets::properties(ui, section.id(), rows);
+        if let Some(note) = note {
+            ui.add_space(SPACE_S);
+            ui.add(Label::new(widgets::muted(note, ui)).wrap());
+        }
     });
+}
+
+fn section_card(ui: &mut Ui, shown: &Shown<'_>, section: Section, content: impl FnOnce(&mut Ui)) {
+    if !section.matches(shown.query) {
+        return;
+    }
+    ui.add_space(SPACE_M);
+    let reset = reset_name(section);
+    let action = (section.is_resettable() && !section.is_default(shown.preferences)).then_some(
+        SectionAction {
+            glyph: icons::RESET_SECTION,
+            hover: &reset,
+        },
+    );
+    let id = format!("preferences-{}", section.id());
+    let acted = widgets::section(ui, &id, section.title(), None, action, |ui| {
+        widgets::card(ui, content);
+    });
+    if acted {
+        ui.data_mut(|data| data.insert_temp(Id::new(RESET_KEY), section));
+    }
+}
+
+fn take_reset(ui: &Ui) -> Option<Section> {
+    let id = Id::new(RESET_KEY);
+    let section = ui.data(|data| data.get_temp::<Section>(id));
+    if section.is_some() {
+        ui.data_mut(|data| data.remove::<Section>(id));
+    }
+    section
+}
+
+pub fn pick<T: Choice>(ui: &mut Ui, current: T) -> Option<T> {
+    let options: Vec<(T, &str, &str)> = T::ALL
+        .iter()
+        .map(|option| (*option, option.label(), option.description()))
+        .collect();
+    choice(ui, &options, current)
+}
+
+pub fn toggle(
+    ui: &mut Ui,
+    on: bool,
+    label: &str,
+    hover: &str,
+    make: fn(bool) -> PreferenceChange,
+    command: &mut Option<PreferencesCommand>,
+) {
+    let mut checked = on;
+    let toggled = ui
+        .scope(|ui| {
+            if fits_on_one_line(ui, label) {
+                ui.style_mut().wrap_mode = Some(TextWrapMode::Extend);
+            }
+            widgets::checkbox(ui, &mut checked, label)
+                .on_hover_text(hover)
+                .changed()
+        })
+        .inner;
+    if toggled {
+        change(command, make(checked));
+    }
+}
+
+fn fits_on_one_line(ui: &Ui, label: &str) -> bool {
+    let text = WidgetText::from(label).into_galley(
+        ui,
+        Some(TextWrapMode::Extend),
+        f32::INFINITY,
+        TextStyle::Button,
+    );
+    let spacing = ui.spacing();
+    let room = ui.clip_rect().right() - ui.cursor().left();
+    text.size().x + spacing.icon_width + spacing.icon_spacing <= room
 }
 
 pub fn change(command: &mut Option<PreferencesCommand>, change: PreferenceChange) {
@@ -192,48 +364,59 @@ pub fn choice<T: Copy + PartialEq>(
         .map(|(value, _, _)| *value)
 }
 
-fn speed_slider(
-    ui: &mut Ui,
-    current: f64,
-    make: fn(f64) -> PreferenceChange,
-    command: &mut Option<PreferencesCommand>,
-) {
-    let mut speed = current;
-    let response = widgets::slider(
-        ui,
-        egui::Slider::new(&mut speed, MIN_SPEED..=MAX_SPEED).logarithmic(true),
-    );
-    widgets::tie_to_caption(ui, &response);
-    let settled = response.drag_stopped() || !response.dragged();
-    if settled && (response.changed() || response.drag_stopped()) {
-        change(command, make(speed));
-    } else if response.changed() {
-        *command = Some(PreferencesCommand::Preview(make(speed)));
-    }
-}
-
 fn general(
     ui: &mut Ui,
-    preferences: &Preferences,
+    shown: &Shown<'_>,
     templates: &Templates,
     command: &mut Option<PreferencesCommand>,
 ) {
-    units(ui, preferences, command);
-    new_models(ui, preferences, templates, command);
-    keyboard(ui, command);
-    tips(ui, preferences, command);
+    units(ui, shown, command);
+    starting(ui, shown, command);
+    new_models(ui, shown, templates, command);
+    feature_tree(ui, shown, command);
+    keyboard(ui, shown, command);
+    tips(ui, shown, command);
     if defender::ON_WINDOWS {
-        saving_on_windows(ui, command);
+        saving_on_windows(ui, shown, command);
     }
 }
 
-fn saving_on_windows(ui: &mut Ui, command: &mut Option<PreferencesCommand>) {
+fn starting(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesCommand>) {
+    let preferences = shown.preferences;
+    let note = "A model whose unsaved work caditor kept is offered for recovery first, and a file \
+                named on the command line opens instead of the last model.";
+    section(ui, shown, Section::Files, Some(note.to_owned()), |ui| {
+        widgets::property(ui, "At startup, open", |ui| {
+            if let Some(startup) = pick::<Startup>(ui, preferences.startup) {
+                change(command, PreferenceChange::Startup(startup));
+            }
+        });
+        widgets::property(ui, "Recent files listed", |ui| {
+            if let Some(listed) = pick::<RecentListed>(ui, preferences.recent_listed) {
+                change(command, PreferenceChange::RecentListed(listed));
+            }
+        });
+    });
+}
+
+fn feature_tree(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesCommand>) {
+    let preferences = shown.preferences;
+    section(ui, shown, Section::FeatureTree, None, |ui| {
+        widgets::property(ui, "Double-clicking a feature", |ui| {
+            if let Some(double_click) = pick::<DoubleClick>(ui, preferences.double_click) {
+                change(command, PreferenceChange::DoubleClick(double_click));
+            }
+        });
+    });
+}
+
+fn saving_on_windows(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesCommand>) {
     let note = "Excluding your models' folder from Microsoft Defender's scanning makes saving \
                 faster; the reminder explains what that trades away.";
     section(
         ui,
-        "Saving on Windows",
-        "saving-on-windows",
+        shown,
+        Section::SavingOnWindows,
         Some(note.to_owned()),
         |ui| {
             widgets::property(ui, "Microsoft Defender", |ui| {
@@ -250,7 +433,8 @@ fn saving_on_windows(ui: &mut Ui, command: &mut Option<PreferencesCommand>) {
     );
 }
 
-fn units(ui: &mut Ui, preferences: &Preferences, command: &mut Option<PreferencesCommand>) {
+fn units(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesCommand>) {
+    let preferences = shown.preferences;
     let unit = preferences.unit.label().to_lowercase();
     let angle = preferences.angle.label().to_lowercase();
     let note = format!(
@@ -272,7 +456,7 @@ fn units(ui: &mut Ui, preferences: &Preferences, command: &mut Option<Preference
             unit.symbol()
         )
     });
-    section(ui, "Units", "units", Some(note), |ui| {
+    section(ui, shown, Section::Units, Some(note), |ui| {
         widgets::property(ui, "Length", |ui| {
             let options: Vec<(LengthUnit, &str, &str)> = LengthUnit::ALL
                 .iter()
@@ -298,10 +482,11 @@ fn units(ui: &mut Ui, preferences: &Preferences, command: &mut Option<Preference
 
 fn new_models(
     ui: &mut Ui,
-    preferences: &Preferences,
+    shown: &Shown<'_>,
     templates: &Templates,
     command: &mut Option<PreferencesCommand>,
 ) {
+    let preferences = shown.preferences;
     let current = preferences.default_template.as_deref();
     let missing = current.is_some_and(|name| !templates.lists(name));
     let note = match templates.folder() {
@@ -315,7 +500,7 @@ fn new_models(
                  models start empty."
             .to_owned(),
     };
-    section(ui, "New models", "new-models", Some(note), |ui| {
+    section(ui, shown, Section::NewModels, Some(note), |ui| {
         widgets::property(ui, "Start from", |ui| {
             let selected: egui::WidgetText = match current {
                 None => EMPTY_MODEL.into(),
@@ -357,9 +542,9 @@ fn new_models(
     });
 }
 
-fn keyboard(ui: &mut Ui, command: &mut Option<PreferencesCommand>) {
+fn keyboard(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesCommand>) {
     let note = "Search commands finds every command by name, whether or not it has a shortcut.";
-    section(ui, "Keyboard", "keyboard", Some(note.to_owned()), |ui| {
+    section(ui, shown, Section::Keyboard, Some(note.to_owned()), |ui| {
         widgets::property(ui, "Shortcuts", |ui| {
             let button = widgets::small_button(
                 ui,
@@ -377,13 +562,13 @@ fn keyboard(ui: &mut Ui, command: &mut Option<PreferencesCommand>) {
     });
 }
 
-fn tips(ui: &mut Ui, preferences: &Preferences, command: &mut Option<PreferencesCommand>) {
-    let onboarding = &preferences.onboarding;
-    section(ui, "Tips", "tips", None, |ui| {
+fn tips(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesCommand>) {
+    let onboarding = &shown.preferences.onboarding;
+    section(ui, shown, Section::Tips, None, |ui| {
         widgets::property(ui, "Getting started", |ui| {
-            let mut shown = onboarding.hints;
-            if widgets::checkbox(ui, &mut shown, "Show tips in the view").changed() {
-                change(command, PreferenceChange::ShowHints(shown));
+            let mut on = onboarding.hints;
+            if widgets::checkbox(ui, &mut on, "Show tips in the view").changed() {
+                change(command, PreferenceChange::ShowHints(on));
             }
         });
         ui.label("");
@@ -403,7 +588,6 @@ fn tips(ui: &mut Ui, preferences: &Preferences, command: &mut Option<Preferences
 }
 
 pub const RELOAD_THEMES: &str = "Reload themes";
-pub const THEMES_SECTION: &str = "Theme";
 pub const AUTOMATIC_GRID: &str = "Grid: automatic";
 pub const CUSTOM_GRID: &str = "Custom grid colour";
 pub const GRID_SELECTOR: &str = "preferences-grid-colour";
@@ -657,21 +841,19 @@ fn grid_swatches(
 
 fn appearance(
     ui: &mut Ui,
-    preferences: &Preferences,
+    shown: &Shown<'_>,
     themes: &UserThemes,
     command: &mut Option<PreferencesCommand>,
 ) {
+    let preferences = shown.preferences;
     let current = &preferences.appearance;
-    ui.add_space(SPACE_M);
-    widgets::section(ui, "preferences-theme", THEMES_SECTION, None, None, |ui| {
-        widgets::card(ui, |ui| {
-            theme_cards(ui, current, themes, command);
-            themes_folder(ui, themes, command);
-        });
+    section_card(ui, shown, Section::Theme, |ui| {
+        theme_cards(ui, current, themes, command);
+        themes_folder(ui, themes, command);
     });
     let note = "The accent colours buttons, selections and links. High contrast replaces the \
                 theme's colours with stronger ones of the same lightness.";
-    section(ui, "Colours", "colours", Some(note.to_owned()), |ui| {
+    section(ui, shown, Section::Colours, Some(note.to_owned()), |ui| {
         widgets::property(ui, "Accent", |ui| {
             accent_swatches(ui, current, themes, command);
         });
@@ -691,7 +873,7 @@ fn appearance(
             }
         });
     });
-    section(ui, "Interface", "interface", None, |ui| {
+    section(ui, shown, Section::Interface, None, |ui| {
         widgets::property(ui, "Size", |ui| {
             let smaller = Command::SmallerInterface.title();
             let larger = Command::LargerInterface.title();
@@ -712,72 +894,56 @@ fn appearance(
                 change(command, PreferenceChange::TitleBar(bar));
             }
         });
+        widgets::property(ui, "Hover help", |ui| {
+            if let Some(delay) = pick::<TooltipDelay>(ui, preferences.tooltip_delay) {
+                change(command, PreferenceChange::TooltipDelay(delay));
+            }
+        });
     });
+    in_the_view(ui, shown, command);
 }
 
-fn navigation(ui: &mut Ui, preferences: &Preferences, command: &mut Option<PreferencesCommand>) {
-    let navigation = preferences.navigation;
-    let toggle = preferences
-        .keymap
-        .hint(Command::ToggleProjection)
-        .map_or_else(|| Command::ToggleProjection.title(), str::to_owned);
-    let note = format!("{toggle} switches between perspective and orthographic in the view.");
-    section(ui, "View", "navigation-view", Some(note), |ui| {
-        widgets::property(ui, "Projection", |ui| {
-            let options = ProjectionMode::ALL.map(|projection| {
-                (
-                    projection,
-                    projection_label(projection),
-                    projection_description(projection),
-                )
-            });
-            if let Some(projection) = choice(ui, &options, navigation.projection) {
-                change(command, PreferenceChange::Projection(projection));
+fn in_the_view(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesCommand>) {
+    let details = shown.preferences.view_details;
+    let note = "Hiding the view cube keeps its commands: the standard views, Fit view and the \
+                Isometric view stay in the View menu, the palette and on their keys.";
+    section(ui, shown, Section::InTheView, Some(note.to_owned()), |ui| {
+        widgets::property(ui, "Edges", |ui| {
+            if let Some(weight) = pick::<EdgeWeight>(ui, details.edges.weight) {
+                change(command, PreferenceChange::EdgeWeight(weight));
             }
+        });
+        widgets::property(ui, "Outlines", |ui| {
+            toggle(
+                ui,
+                !details.edges.outlines_hidden,
+                "Outline curved faces",
+                "Draw the edge of round faces as seen from the view, such as the sides of a \
+                 cylinder, in the edge colour",
+                PreferenceChange::Outlines,
+                command,
+            );
+        });
+        widgets::property(ui, "View cube", |ui| {
+            toggle(
+                ui,
+                details.view_cube,
+                "Show the view cube",
+                "The cube at the top right with Fit all and the Isometric view button under it",
+                PreferenceChange::ViewCube,
+                command,
+            );
         });
         widgets::property(ui, "Principal planes", |ui| {
-            let mut when_needed = preferences.principal.when_needed();
-            if widgets::checkbox(ui, &mut when_needed, PRINCIPAL_WHEN_NEEDED)
-                .on_hover_text(PRINCIPAL_WHEN_NEEDED_HOVER)
-                .changed()
-            {
-                change(command, PreferenceChange::PrincipalWhenNeeded(when_needed));
-            }
-        });
-    });
-    section(ui, "Input", "navigation-input", None, |ui| {
-        widgets::property(ui, "Input mode", |ui| {
-            let options = InputMode::ALL.map(|mode| (mode, mode.label(), mode.description()));
-            if let Some(mode) = choice(ui, &options, navigation.input_mode) {
-                change(command, PreferenceChange::InputMode(mode));
-            }
-        });
-        ui.label("");
-        ui.add(Label::new(widgets::muted(navigation.input_mode.description(), ui)).wrap());
-        ui.end_row();
-    });
-    section(ui, "Movement", "navigation", None, |ui| {
-        widgets::property(ui, "Orbit speed", |ui| {
-            speed_slider(
+            toggle(
                 ui,
-                navigation.orbit_speed,
-                PreferenceChange::OrbitSpeed,
+                details.principal_when_needed,
+                "Show principal planes only when needed",
+                "Once the model has a body, the principal planes, axes and origin show only while \
+                 you choose a plane, axis or point; showing them yourself keeps them shown",
+                PreferenceChange::PrincipalWhenNeeded,
                 command,
             );
-        });
-        widgets::property(ui, "Zoom speed", |ui| {
-            speed_slider(
-                ui,
-                navigation.zoom_speed,
-                PreferenceChange::ZoomSpeed,
-                command,
-            );
-        });
-        widgets::property(ui, "Scrolling", |ui| {
-            let mut invert = navigation.invert_zoom;
-            if widgets::checkbox(ui, &mut invert, "Scroll up to zoom out").changed() {
-                change(command, PreferenceChange::InvertZoom(invert));
-            }
         });
     });
 }

@@ -6,7 +6,10 @@ use std::{
 use caditor_geometry::{Aabb, Plane, Point3, Ray, Rotation3, Vector3};
 use glam::{DMat3, DMat4, DVec2, DVec3, DVec4, dcamera::rh::proj::directx};
 
-const FIELD_OF_VIEW_Y: f64 = 30.0 * PI / 180.0;
+pub const DEFAULT_FIELD_OF_VIEW_DEGREES: f64 = 30.0;
+const FIELD_OF_VIEW_Y: f64 = DEFAULT_FIELD_OF_VIEW_DEGREES * PI / 180.0;
+const NARROWEST_FIELD_OF_VIEW_DEGREES: f64 = 10.0;
+const WIDEST_FIELD_OF_VIEW_DEGREES: f64 = 90.0;
 const NEAR_PLANE_FRACTION: f64 = 1e-3;
 const ORBIT_RADIANS_PER_VIEWPORT_HEIGHT: f64 = PI;
 const MIN_DISTANCE: f64 = 1e-4;
@@ -221,6 +224,7 @@ pub struct View {
     size: DVec2,
     projection: Projection,
     scene_reach: f64,
+    field_of_view_y: f64,
 }
 
 impl View {
@@ -230,12 +234,36 @@ impl View {
             size: DVec2::new(width.max(1.0), height.max(1.0)),
             projection: Projection::Perspective,
             scene_reach: 0.0,
+            field_of_view_y: FIELD_OF_VIEW_Y,
         }
     }
 
     #[must_use]
     pub fn with_projection(self, projection: Projection) -> Self {
         Self { projection, ..self }
+    }
+
+    #[must_use]
+    pub fn with_field_of_view(self, degrees: f64) -> Self {
+        Self {
+            field_of_view_y: field_of_view_radians(degrees),
+            ..self
+        }
+    }
+
+    fn with_field_of_view_radians(self, field_of_view_y: f64) -> Self {
+        Self {
+            field_of_view_y,
+            ..self
+        }
+    }
+
+    pub fn field_of_view_degrees(&self) -> f64 {
+        self.field_of_view_y.to_degrees()
+    }
+
+    fn tan_half_fov_y(&self) -> f64 {
+        (self.field_of_view_y * 0.5).tan()
     }
 
     #[must_use]
@@ -301,8 +329,8 @@ impl View {
 
     fn half_height_at(&self, depth: f64) -> f64 {
         match self.projection {
-            Projection::Perspective => depth * tan_half_fov_y(),
-            Projection::Orthographic => self.viewpoint.distance * tan_half_fov_y(),
+            Projection::Perspective => depth * self.tan_half_fov_y(),
+            Projection::Orthographic => self.viewpoint.distance * self.tan_half_fov_y(),
         }
     }
 
@@ -341,8 +369,8 @@ impl View {
             Projection::Perspective => {
                 let ndc = self.ndc_of(pixel);
                 let direction = DVec3::new(
-                    ndc.x * tan_half_fov_y() * self.aspect(),
-                    ndc.y * tan_half_fov_y(),
+                    ndc.x * self.tan_half_fov_y() * self.aspect(),
+                    ndc.y * self.tan_half_fov_y(),
                     -1.0,
                 );
                 Ray::new(self.eye(), self.viewpoint.orientation * direction)
@@ -391,7 +419,7 @@ impl View {
     pub fn plane_projection(&self, plane: &Plane, pixels_per_unit: f64) -> PlaneProjection {
         let inverse = self.viewpoint.orientation.inverse();
         let scale = self.size * 0.5 / pixels_per_unit;
-        let half_height = tan_half_fov_y();
+        let half_height = self.tan_half_fov_y();
         PlaneProjection {
             origin: inverse * (plane.origin() - self.eye()),
             x_axis: inverse * plane.x_axis(),
@@ -415,7 +443,7 @@ impl View {
     pub fn rotation_projection(&self) -> DMat4 {
         let projection = match self.projection {
             Projection::Perspective => directx::perspective_infinite_reverse(
-                FIELD_OF_VIEW_Y,
+                self.field_of_view_y,
                 self.aspect(),
                 self.near_plane(),
             ),
@@ -451,7 +479,7 @@ impl View {
 
     fn fitting_distance(&self, bounds: Aabb, radius: f64) -> f64 {
         let to_view = self.viewpoint.orientation.inverse();
-        let tan_y = tan_half_fov_y();
+        let tan_y = self.tan_half_fov_y();
         let tan_x = tan_y * self.aspect();
         let center = bounds.center();
         let corners = bounds.corners().map(|corner| to_view * (corner - center));
@@ -529,8 +557,16 @@ impl PlaneProjection {
     }
 }
 
-fn tan_half_fov_y() -> f64 {
-    (FIELD_OF_VIEW_Y * 0.5).tan()
+fn field_of_view_radians(degrees: f64) -> f64 {
+    if degrees.is_finite() {
+        let degrees = degrees.clamp(
+            NARROWEST_FIELD_OF_VIEW_DEGREES,
+            WIDEST_FIELD_OF_VIEW_DEGREES,
+        );
+        degrees * PI / 180.0
+    } else {
+        FIELD_OF_VIEW_Y
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -568,6 +604,8 @@ pub struct Camera {
     viewpoint: Viewpoint,
     transition: Option<Transition>,
     projection: ProjectionMode,
+    field_of_view_y: f64,
+    transition_scale: f64,
 }
 
 impl Camera {
@@ -576,6 +614,8 @@ impl Camera {
             viewpoint,
             transition: None,
             projection: ProjectionMode::Perspective,
+            field_of_view_y: FIELD_OF_VIEW_Y,
+            transition_scale: 1.0,
         }
     }
 
@@ -585,6 +625,28 @@ impl Camera {
 
     pub fn set_projection(&mut self, projection: ProjectionMode) {
         self.projection = projection;
+    }
+
+    pub fn set_field_of_view(&mut self, degrees: f64) {
+        self.field_of_view_y = field_of_view_radians(degrees);
+    }
+
+    pub fn set_transition_scale(&mut self, scale: f64) {
+        self.transition_scale = if scale.is_finite() {
+            scale.max(0.0)
+        } else {
+            1.0
+        };
+        if self.transition_scale == 0.0
+            && let Some(transition) = self.transition.take()
+        {
+            self.viewpoint = transition.to;
+        }
+    }
+
+    pub fn jump_to(&mut self, viewpoint: Viewpoint) {
+        self.transition = None;
+        self.viewpoint = viewpoint;
     }
 
     pub fn viewpoint(&self) -> Viewpoint {
@@ -605,7 +667,9 @@ impl Camera {
     }
 
     pub fn view_from(&self, viewpoint: Viewpoint, width: f64, height: f64) -> View {
-        View::new(viewpoint, width, height).with_projection(self.projection.resolved(&viewpoint))
+        View::new(viewpoint, width, height)
+            .with_projection(self.projection.resolved(&viewpoint))
+            .with_field_of_view_radians(self.field_of_view_y)
     }
 
     pub fn is_animating(&self) -> bool {
@@ -621,6 +685,10 @@ impl Camera {
     }
 
     fn start_transition(&mut self, to: Viewpoint, easing: Easing) {
+        if self.transition_scale == 0.0 {
+            self.jump_to(to);
+            return;
+        }
         self.transition = Some(Transition {
             from: self.viewpoint,
             to,
@@ -634,8 +702,8 @@ impl Camera {
             return;
         };
         transition.elapsed += elapsed;
-        let progress =
-            transition.elapsed.as_secs_f64() / transition.easing.duration().as_secs_f64();
+        let duration = transition.easing.duration().as_secs_f64() * self.transition_scale;
+        let progress = transition.elapsed.as_secs_f64() / duration;
         if progress >= 1.0 {
             self.viewpoint = transition.to;
             self.transition = None;
@@ -999,6 +1067,58 @@ mod tests {
         camera.advance(TRANSITION_DURATION / 4);
         camera.pan(DVec2::new(1.0, 0.0), 1.0);
         assert!(!camera.is_animating());
+    }
+
+    #[test]
+    fn a_transition_scale_stretches_view_changes_and_none_lands_at_once() {
+        let start = isometric();
+        let end = Viewpoint::looking_from(Vector3::Z, Point3::new(100.0, 0.0, 0.0), 40.0).unwrap();
+        let mut slow = Camera::new(start);
+        let mut instant = Camera::new(start);
+
+        slow.set_transition_scale(2.0);
+        instant.set_transition_scale(0.0);
+        slow.animate_to(end);
+        instant.animate_to(end);
+        slow.advance(TRANSITION_DURATION);
+
+        assert!(slow.is_animating());
+        assert!(!instant.is_animating());
+        assert_eq!(instant.viewpoint(), end);
+
+        slow.advance(TRANSITION_DURATION);
+        assert!(!slow.is_animating());
+
+        slow.animate_to(start);
+        slow.set_transition_scale(0.0);
+        assert!(!slow.is_animating());
+        assert_eq!(slow.viewpoint(), start);
+    }
+
+    #[test]
+    fn a_wider_field_of_view_shows_more_and_fits_from_closer() {
+        let bounds = Aabb::from_point(Point3::ZERO).expanded(5.0);
+        let mut camera = Camera::new(isometric());
+        let standard = camera.view(WIDTH, HEIGHT);
+        let mut chosen_standard = Camera::new(isometric());
+        chosen_standard.set_field_of_view(DEFAULT_FIELD_OF_VIEW_DEGREES);
+        chosen_standard.set_transition_scale(1.0);
+        assert_eq!(chosen_standard, camera);
+        assert_eq!(standard, View::new(isometric(), WIDTH, HEIGHT));
+
+        camera.set_field_of_view(60.0);
+        let wide = camera.view(WIDTH, HEIGHT);
+        camera.set_field_of_view(f64::NAN);
+        let fallen_back = camera.view(WIDTH, HEIGHT);
+        camera.set_field_of_view(500.0);
+        let clamped = camera.view(WIDTH, HEIGHT);
+
+        assert!((standard.field_of_view_degrees() - DEFAULT_FIELD_OF_VIEW_DEGREES).abs() < 1e-9);
+        assert!((wide.field_of_view_degrees() - 60.0).abs() < 1e-9);
+        assert!(wide.units_per_pixel_at(10.0) > standard.units_per_pixel_at(10.0));
+        assert!(wide.fitted(bounds).distance < standard.fitted(bounds).distance);
+        assert!((fallen_back.field_of_view_degrees() - DEFAULT_FIELD_OF_VIEW_DEGREES).abs() < 1e-9);
+        assert!((clamped.field_of_view_degrees() - WIDEST_FIELD_OF_VIEW_DEGREES).abs() < 1e-9);
     }
 
     #[test]

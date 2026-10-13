@@ -33,7 +33,7 @@ use crate::{
     pattern_panel,
     pattern_tools::{self, Reference},
     pipe_panel,
-    preferences::PreferencesCommand,
+    preferences::{DoubleClick, PreferencesCommand},
     primitive_panel, principal_tree,
     reference_picking::{Picking, Slot},
     removal, reversing, scale_panel,
@@ -895,7 +895,10 @@ fn respond(
         state.choose_only(id);
         name.scroll_to_me(Some(Align::Center));
     }
-    if name.double_clicked() || (name.has_focus() && enter) {
+    let renames = name.double_clicked() && state.double_click == DoubleClick::Rename;
+    if renames {
+        start_renaming(state, row.feature);
+    } else if name.double_clicked() || (name.has_focus() && enter) {
         open_feature(ui, document, actions, row, collapsing);
     }
     name.context_menu(|ui| {

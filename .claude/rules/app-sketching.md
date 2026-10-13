@@ -74,8 +74,10 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   (`EditingCommand::SwitchBack`) undoes the batch's steps and restores the closed sketch's
   `Entered` or feature's `Opened`. A feature closed for another feature says nothing.
 - Entering faces the camera to the plane, fits it, dims other features (unpickable) and keeps only
-  that sketch selected. `Command::LookAtSketch` (Alt+Shift+V) returns to the facing view, and turns
-  it a quarter turn when already facing.
+  that sketch selected; with Preferences › Sketching › Opening a sketch off
+  (`Sketching::look_at_on_entering`, handed over by `ViewportState::set_sketching`) the view stays
+  where it is. `Command::LookAtSketch` (Alt+Shift+V) returns to the facing view, and turns it a
+  quarter turn when already facing.
 - The edited sketch, its origin and axes and the drawing preview go on `Layer::Front`
   (`render.md`), so a body never hides or z-fights with them.
 - Slice the bodies at the sketch plane (`SectionCommand::SliceSketch`, session-only in
@@ -85,8 +87,10 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
 - Clicks and primary drags select with Select; a drawing tool (`Tool::draws`) draws and the modify
   tools (`Tool::modifies`) act on what is under the pointer. Escape backs out one step in the order
   of `ViewportState::escape`, ignoring key repeats (`pressed_without_repeat`), so a held Escape never
-  walks on to finishing the sketch. The Select and Finish tooltips (`SELECT_KEY`, `FINISH_KEYS`) say
-  when Escape reaches them.
+  walks on to finishing the sketch. Its last step, finishing the sketch, is taken only while
+  `Sketching::escape_finishes` (Preferences › Sketching › Escape, on by default); off, Escape stops
+  at clearing the selection and the Select prompt names only the Finish keys. The Select and Finish
+  tooltips (`SELECT_KEY`, `FINISH_KEYS`) say when Escape reaches them.
 
 ## Dragging, box selection and selection commands
 
@@ -184,7 +188,7 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   point draws a tangent arc. `Drawing::readout` shows the size so far below the snap label.
 - Ctrl places the point exactly under the pointer: no snapping, no guides (`Drawing::place_freely`),
   and no tangent arc start. Snapping off (`Command::ToggleSnapping`, session-only in
-  `ViewportState::snapping`) equals holding Ctrl always, except Alt still snaps; the prompt then says
+  `ViewportState::snapping`, starting as Preferences › Sketching says, `StartingToggles`) equals holding Ctrl always, except Alt still snaps; the prompt then says
   "Snapping off" before the Alt hint. Ctrl wins over Alt (AltGr arrives as Ctrl+Alt on Windows). The
   pointer is on the sketch only within `MAX_LENGTH` of the origin, so an edge-on view cannot place a
   point at an enormous distance.
@@ -499,7 +503,7 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   `CURVE_TOLERANCE` of its infinite carrier snaps to it (`Target::Extension`, a `Coincident` on the
   line, which the solver treats as infinite); directions and tracks join it as they do a curve.
 - Snap to the grid (`Command::ToggleGridSnapping`, off by default, session-only in
-  `ViewportState::grid_snapping`) places a point no target, direction or track took on the nearest
+  `ViewportState::grid_snapping`, starting as Preferences say) places a point no target, direction or track took on the nearest
   crossing of the grid's current level (`ViewportState::snap_grid_spacing`, handed to
   `Drawing::snap_to_grid`) within `POINT_TOLERANCE`; the point stays free, labelled "On the grid"
   (`Snap::Grid`). The grid draws three levels, 1, 10 and 100 times `grid_minor_spacing`, each
@@ -766,8 +770,8 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   places are generated lazily from the middle out, at most `MAX_GLYPH_SHIFTS` each way, so zooming in
   never makes a frame walk a line's full length. An entity shows at most `MAX_STACKED` glyphs: past
   that the last slot is a "+N" mark whose hover lists the rest and whose click selects the first.
-  Show or hide constraint glyphs (Alt+G, `ViewportState::glyphs_shown`) hides them all, dimensions
-  staying. Labels use `canvas::body` on the canvas backdrop, glyph letters `canvas::emphasis`.
+  Show or hide constraint glyphs (Alt+G, `ViewportState::glyphs_shown`, shown at start unless
+  Preferences › Sketching says otherwise) hides them all, dimensions staying. Labels use `canvas::body` on the canvas backdrop, glyph letters `canvas::emphasis`.
 - Labels show the expression in the document's naming, followed by its value when not a literal;
   conflicting and redundant constraints take the error and warning colours. Label texts are cached per
   sketch (`annotations::LabelTexts`), their measured sizes by text across revisions (`SizesKey`, at
@@ -807,7 +811,7 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
 ## Dimensions on the model
 
 - Show or hide dimensions on the model (`Command::ToggleDimensions`) is a session-only view toggle
-  (`ViewportState::dimensions_shown`, off at first). While on and no sketch is edited,
+  (`ViewportState::dimensions_shown`, off at first unless Preferences › Sketching turns it on). While on and no sketch is edited,
   `ViewportState::annotate` hands `model_dimensions::ModelDimensions` the view and the subjects: the
   feature of the highlighted or hovered item (`viewport::feature_of`), the rows chosen or hovered in
   the tree, then the features of the first `SUBJECT_ITEMS_READ` selected items, at most `MAX_SUBJECTS`

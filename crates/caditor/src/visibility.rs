@@ -91,27 +91,6 @@ pub fn is_principal_shown(document: &Document, geometry: PrincipalGeometry) -> b
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum PrincipalPreference {
-    #[default]
-    WhenNeeded,
-    AsChosen,
-}
-
-impl PrincipalPreference {
-    pub fn from_flag(when_needed: bool) -> Self {
-        if when_needed {
-            Self::WhenNeeded
-        } else {
-            Self::AsChosen
-        }
-    }
-
-    pub fn when_needed(self) -> bool {
-        self == Self::WhenNeeded
-    }
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct KeptShown(u8);
 
 impl KeptShown {
@@ -180,12 +159,8 @@ pub fn principal_needed(document: &Document, needs: &Needs<'_>) -> bool {
             .is_some_and(|picking| picking.slot.takes_principal_geometry())
 }
 
-pub fn tucked_away(
-    document: &Document,
-    preference: PrincipalPreference,
-    needs: &Needs<'_>,
-) -> bool {
-    preference.when_needed() && has_body(document) && !principal_needed(document, needs)
+pub fn tucked_away(document: &Document, when_needed: bool, needs: &Needs<'_>) -> bool {
+    when_needed && has_body(document) && !principal_needed(document, needs)
 }
 
 fn listing_key() -> Id {
