@@ -399,7 +399,12 @@ Sketch entities:
   when the head is not the one the session loaded or saved, and for a damaged file, a newer-version
   file or one holding a must-understand chunk (a save keeps a `.damaged` copy for those).
 - Retention (`binary/retention.rs`), on each save adding a version: the newest stay, older thin by
-  age tiers; unlisted and kept always stay, a kept version holds its tier slot, and only the size
+  age tiers, both set by the save's `Retention` preset (`SaveOptions::retention`, carried by the
+  storage worker's `SaveRequest`; `binary::encode_keeping`): `Standard` (10 newest, then hourly,
+  daily, weekly, monthly), `More` (25, then every quarter hour, four hours, day, week) or `Fewer`
+  (5, then every six hours, week, month, year). Standard is the policy every earlier build used,
+  byte for byte (`a_retention_preset_keeps_more_or_fewer_versions_and_standard_writes_what_it_always_did`);
+  a preset changes only which versions the next save drops, never the format; unlisted and kept always stay, a kept version holds its tier slot, and only the size
   limit can still drop a kept version, oldest first. A delta whose newer neighbour was dropped is
   recompressed against the newest kept version before it (stored whole when a dropped version was
   whole); one that cannot be decoded is copied as it was. When a delta could not be decoded for

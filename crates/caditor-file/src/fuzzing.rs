@@ -3,7 +3,7 @@ use std::time::{Duration, SystemTime};
 use caditor_document::Document;
 
 use crate::{
-    binary::{self, History},
+    binary::{self, History, Retention},
     journal::{JournalEntry, JournalHead, Logged, Mirror, decode_journal, encode_journal, replay},
     load::{LoadError, Loaded},
     recent::RecentFiles,
@@ -24,7 +24,8 @@ pub fn save_over(
     seconds: u64,
 ) -> Result<Vec<u8>, impl std::error::Error> {
     let now = SystemTime::UNIX_EPOCH + Duration::from_secs(seconds);
-    binary::encode_over(document, previous, now, None).map(|encoded| encoded.bytes)
+    binary::encode_keeping(document, previous, (now, Retention::Standard), None)
+        .map(|encoded| encoded.bytes)
 }
 
 pub fn load_version(bytes: &[u8], index: usize) -> Result<Loaded, LoadError> {

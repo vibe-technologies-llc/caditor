@@ -14,7 +14,7 @@ use caditor_document::Document;
 use parking_lot::{Condvar, Mutex};
 
 use crate::{
-    binary::FileDigest,
+    binary::{FileDigest, Retention},
     journal::{JournalEntry, JournalHead, Logged, Mirror, encode_entry, encode_journal},
     lock::{holds, install, locked_elsewhere, remove_held, remove_unheld},
     os, paths,
@@ -64,6 +64,7 @@ pub struct SaveRequest {
     pub keep_original: bool,
     pub label: Option<String>,
     pub replace_outside_changes: bool,
+    pub retention: Retention,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -534,6 +535,7 @@ impl Worker {
                 .on_disk
                 .as_ref()
                 .filter(|_| !request.replace_outside_changes),
+            retention: request.retention,
         };
         let report = match save::save_with(&request.document, &request.path, &options) {
             Ok(saved) => {

@@ -1,3 +1,4 @@
+use caditor_file::Retention;
 use caditor_geometry::Point3;
 use egui::{Id, Key, Modifiers};
 use tempfile::TempDir;
@@ -128,4 +129,48 @@ fn the_view_cube_takes_any_size_and_corner_with_the_overlays_clear_of_it_and_is_
     });
     let again = reopened(dir.path());
     assert_eq!(again.workspace.preferences.view_details.cube, chosen);
+}
+
+const SAVES: u32 = 10;
+
+fn versions_after_saves(retention: Retention) -> (usize, Retention) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("plate.caditor");
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    open_tab(&mut harness, PreferencesTab::General);
+    harness.draft_into_field(Id::new(preferences::SEARCH_FIELD), "old versions");
+    harness.click(retention.label());
+    close_preferences(&mut harness);
+
+    harness.answer_dialog(Some(path.clone()));
+    harness.key(Key::S, Modifiers::COMMAND | Modifiers::SHIFT);
+    harness.wait_until("the model is saved", |harness| {
+        harness.model.path().is_some() && !harness.model.is_saving()
+    });
+    for step in 1..=SAVES {
+        harness.edit_width(&format!("{} mm", 40 + step));
+        harness.key(Key::S, Modifiers::COMMAND);
+        harness.wait_until("the change is saved", |harness| {
+            !harness.model.is_dirty() && !harness.model.is_saving()
+        });
+    }
+    let versions = caditor_file::history(&path).unwrap().versions.len();
+
+    wait_until_stored(&mut harness, dir.path(), |stored| {
+        stored.retention == retention
+    });
+    (
+        versions,
+        reopened(dir.path()).workspace.preferences.retention,
+    )
+}
+
+#[test]
+fn the_version_history_preference_keeps_more_or_fewer_old_versions_and_is_remembered() {
+    let (standard, _) = versions_after_saves(Retention::Standard);
+    let (fewer, remembered) = versions_after_saves(Retention::Fewer);
+
+    assert_eq!(standard, SAVES as usize);
+    assert!((5..standard).contains(&fewer), "{fewer} of {standard}");
+    assert_eq!(remembered, Retention::Fewer);
 }

@@ -236,10 +236,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   setting (winit reports none; View changes › No motion does it by hand), turning off the
   constraints drawing infers kind by kind (snapping is all or nothing), and export choices
   remembered across restarts (kept for the session).
-- [low · hard] Version history thinning (`binary/retention.rs`) has one fixed policy; presets that
-  keep more or fewer versions would have to travel from Preferences through the model's storage
-  worker to every save. The recovery journal and atomic saving stay without a setting
-  (`reliability.md`).
 - [low · medium] A copy from another model keeps none of its references outside the copied set. A
   sketch's section projection of a copied body is still left out, its edge being named by the
   sketch's own cut (`section.rs`), and a corner picked on a body outside the copy is not followed

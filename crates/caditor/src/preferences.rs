@@ -1,5 +1,5 @@
 use caditor_document::Rgb;
-use caditor_file::{Settings, SettingsError};
+use caditor_file::{Retention, Settings, SettingsError};
 use caditor_render::{AdapterPreference, Msaa, ProjectionMode, Shading};
 use egui::KeyboardShortcut;
 
@@ -75,6 +75,7 @@ const MODEL_DIMENSIONS_KEY: &str = "model.dimensions";
 pub const STARTUP_KEY: &str = "files.startup";
 pub const RECENT_LISTED_KEY: &str = "files.recent_listed";
 const DOUBLE_CLICK_KEY: &str = "tree.double_click";
+const RETENTION_KEY: &str = "files.version_retention";
 const PALETTE_RECENT_KEY: &str = "palette.recent";
 const RECENT_COLOURS_KEY: &str = "body.recent_colours";
 pub const RECENT_COLOURS_LIMIT: usize = 6;
@@ -185,7 +186,8 @@ impl PreferencesTab {
             Self::General => {
                 "Go back to millimetres and degrees with automatic decimal places and trailing \
                  zeros shown, to starting with an empty model, ten recent files, new \
-                 models starting empty and double-click editing a feature. Only this tab \
+                 models starting empty, double-click editing a feature and the standard version \
+                 history. Only this tab \
                  changes; shortcuts are reset in the shortcut editor"
             }
             Self::Appearance => {
@@ -474,6 +476,7 @@ pub struct Preferences {
     pub startup: Startup,
     pub recent_listed: RecentListed,
     pub double_click: DoubleClick,
+    pub retention: Retention,
     pub graphics: Graphics,
     pub onboarding: Onboarding,
     pub keymap: Keymap,
@@ -528,6 +531,7 @@ pub enum PreferenceChange {
     Startup(Startup),
     RecentListed(RecentListed),
     DoubleClick(DoubleClick),
+    Retention(Retention),
     DefaultTemplate(Option<String>),
     Vsync(bool),
     FrameLimit(FrameLimit),
@@ -723,6 +727,7 @@ impl Preferences {
             startup: Startup::read(&raw, STARTUP_KEY),
             recent_listed: RecentListed::read(&raw, RECENT_LISTED_KEY),
             double_click: DoubleClick::read(&raw, DOUBLE_CLICK_KEY),
+            retention: Retention::read(&raw, RETENTION_KEY),
             graphics: Graphics::from_settings(&raw),
             onboarding: Onboarding::from_settings(&raw),
             keymap: Keymap::from_settings(&raw),
@@ -768,6 +773,7 @@ impl Preferences {
         settings.set_text(STARTUP_KEY, self.startup.key());
         settings.set_text(RECENT_LISTED_KEY, self.recent_listed.key());
         settings.set_text(DOUBLE_CLICK_KEY, self.double_click.key());
+        settings.set_text(RETENTION_KEY, self.retention.key());
         self.graphics.write(&mut settings);
         self.keymap.write(&self.loaded_keymap, &mut settings);
         self.onboarding.write(&mut settings);
@@ -849,6 +855,7 @@ impl Preferences {
             PreferenceChange::Startup(startup) => self.startup = startup,
             PreferenceChange::RecentListed(listed) => self.recent_listed = listed,
             PreferenceChange::DoubleClick(double_click) => self.double_click = double_click,
+            PreferenceChange::Retention(retention) => self.retention = retention,
             PreferenceChange::DefaultTemplate(name) => self.default_template = name,
             PreferenceChange::Vsync(vsync) => self.graphics.vsync = vsync,
             PreferenceChange::FrameLimit(limit) => self.graphics.frame_limit = limit,

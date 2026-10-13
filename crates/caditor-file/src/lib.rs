@@ -29,7 +29,7 @@ mod themes;
 mod untrusted;
 
 pub use crate::{
-    binary::{FileDigest, History, MAX_MODEL_RECORDS, SavedState, Version},
+    binary::{FileDigest, History, MAX_MODEL_RECORDS, Retention, SavedState, Version},
     clipboard::{
         CLIPBOARD_HEADER, CLIPBOARD_VERSION, ClipboardError, ClipboardKind, CopiedFeatures,
         MAX_CLIPBOARD_TEXT, PastedGeometry, clipboard_kind, features_clipboard_text,

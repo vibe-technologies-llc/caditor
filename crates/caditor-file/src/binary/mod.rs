@@ -15,10 +15,11 @@ use xxhash_rust::xxh3::Xxh3;
 pub(crate) use self::model::save_bytes;
 pub(crate) use self::model::{
     EncodeError, Encoded, FreshVersion, KeepError, NotReadBack, Shared, decode, decode_cancellable,
-    encode, encode_over, head_digest, history, load_version, reads_back, with_version_kept,
+    encode, encode_keeping, head_digest, history, load_version, reads_back, with_version_kept,
 };
-pub use self::model::{
-    FileDigest, History, MAX_DECOMPRESSED as MAX_MODEL_RECORDS, SavedState, Version,
+pub use self::{
+    model::{FileDigest, History, MAX_DECOMPRESSED as MAX_MODEL_RECORDS, SavedState, Version},
+    retention::Retention,
 };
 
 pub(crate) type Magic = [u8; 8];

@@ -1,4 +1,4 @@
-use caditor_file::Settings;
+use caditor_file::{Retention, Settings};
 use caditor_render::DEFAULT_FIELD_OF_VIEW_DEGREES;
 
 use crate::{
@@ -387,6 +387,43 @@ impl Choice for DoubleClick {
     }
 }
 
+impl Choice for Retention {
+    const ALL: &'static [Self] = &Retention::ALL;
+
+    fn key(self) -> &'static str {
+        match self {
+            Self::More => "more",
+            Self::Standard => "standard",
+            Self::Fewer => "fewer",
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::More => "More",
+            Self::Standard => "Standard",
+            Self::Fewer => "Fewer",
+        }
+    }
+
+    fn description(self) -> &'static str {
+        match self {
+            Self::More => {
+                "The last 25 saves, then one every quarter of an hour for two days, every four \
+                 hours for three months, daily for two years and weekly after that"
+            }
+            Self::Standard => {
+                "The last 10 saves, then one an hour for a day, a day for a month, a week for a \
+                 year and a month after that"
+            }
+            Self::Fewer => {
+                "The last 5 saves, then one every six hours for a day, a week for a month, a \
+                 month for a year and a year after that, for smaller files"
+            }
+        }
+    }
+}
+
 impl Choice for CubeSize {
     const ALL: &'static [Self] = &[Self::Small, Self::Standard, Self::Large];
 
@@ -568,6 +605,7 @@ mod tests {
         keys_are_distinct_and_read_back::<Decimals>();
         keys_are_distinct_and_read_back::<CubeSize>();
         keys_are_distinct_and_read_back::<Corner>();
+        keys_are_distinct_and_read_back::<Retention>();
         keys_are_distinct_and_read_back::<TrailingZeros>();
     }
 

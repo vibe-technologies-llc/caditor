@@ -14,7 +14,7 @@ use caditor_document::{
 };
 use caditor_file::{
     Closing, FileDigest, Flusher, Handover, JournalEntry, JournalFailure, KeepRequest, Recovered,
-    Report, SaveRequest, Start, Storage, StorageConfig,
+    Report, Retention, SaveRequest, Start, Storage, StorageConfig,
 };
 use caditor_geometry::{Aabb, Plane, RigidTransform};
 use caditor_kernel::MeshQuality;
@@ -245,6 +245,7 @@ pub struct Model {
     length_unit: LengthUnit,
     angle_unit: AngleUnit,
     number_format: NumberFormat,
+    retention: Retention,
     recent_colours: Vec<Rgb>,
     last_values: LastValues,
     mesh_quality: MeshQuality,
@@ -299,6 +300,7 @@ impl Model {
             length_unit: LengthUnit::default(),
             angle_unit: AngleUnit::default(),
             number_format: NumberFormat::default(),
+            retention: Retention::default(),
             recent_colours: Vec::new(),
             last_values: LastValues::default(),
             mesh_quality: MeshQuality::default(),
@@ -357,6 +359,10 @@ impl Model {
 
     pub fn set_number_format(&mut self, format: NumberFormat) {
         self.number_format = format;
+    }
+
+    pub fn set_retention(&mut self, retention: Retention) {
+        self.retention = retention;
     }
 
     pub fn set_angle_unit(&mut self, unit: AngleUnit) {
@@ -1493,6 +1499,7 @@ impl Model {
             document: document.clone(),
             keep_original: self.keep_original && self.path.as_ref() == Some(&path),
             label: self.editor.undo_label().map(str::to_owned),
+            retention: self.retention,
             path,
             replace_outside_changes,
         };

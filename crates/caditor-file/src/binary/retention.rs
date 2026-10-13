@@ -1,6 +1,9 @@
 use std::collections::BTreeSet;
 
 const ALWAYS_KEPT: usize = 10;
+const MORE_ALWAYS_KEPT: usize = 25;
+const FEWER_ALWAYS_KEPT: usize = 5;
+const QUARTER_HOUR: u64 = 900;
 const HOUR: u64 = 3_600;
 const DAY: u64 = 24 * HOUR;
 const WEEK: u64 = 7 * DAY;
@@ -11,6 +14,44 @@ struct Tier {
     younger_than: u64,
     spacing: u64,
 }
+
+const MORE_TIERS: [Tier; 4] = [
+    Tier {
+        younger_than: 2 * DAY,
+        spacing: QUARTER_HOUR,
+    },
+    Tier {
+        younger_than: 3 * MONTH,
+        spacing: 4 * HOUR,
+    },
+    Tier {
+        younger_than: 2 * YEAR,
+        spacing: DAY,
+    },
+    Tier {
+        younger_than: u64::MAX,
+        spacing: WEEK,
+    },
+];
+
+const FEWER_TIERS: [Tier; 4] = [
+    Tier {
+        younger_than: DAY,
+        spacing: 6 * HOUR,
+    },
+    Tier {
+        younger_than: MONTH,
+        spacing: WEEK,
+    },
+    Tier {
+        younger_than: YEAR,
+        spacing: MONTH,
+    },
+    Tier {
+        younger_than: u64::MAX,
+        spacing: YEAR,
+    },
+];
 
 const TIERS: [Tier; 4] = [
     Tier {
@@ -31,13 +72,42 @@ const TIERS: [Tier; 4] = [
     },
 ];
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Retention {
+    More,
+    #[default]
+    Standard,
+    Fewer,
+}
+
+impl Retention {
+    pub const ALL: [Self; 3] = [Self::More, Self::Standard, Self::Fewer];
+
+    fn always_kept(self) -> usize {
+        match self {
+            Self::More => MORE_ALWAYS_KEPT,
+            Self::Standard => ALWAYS_KEPT,
+            Self::Fewer => FEWER_ALWAYS_KEPT,
+        }
+    }
+
+    fn tiers(self) -> &'static [Tier] {
+        match self {
+            Self::More => &MORE_TIERS,
+            Self::Standard => &TIERS,
+            Self::Fewer => &FEWER_TIERS,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Candidate {
     pub saved_at: Option<u64>,
     pub kept: bool,
 }
 
-pub(super) fn retained(candidates: &[Candidate], now: u64) -> Vec<bool> {
+pub(super) fn retained(candidates: &[Candidate], now: u64, retention: Retention) -> Vec<bool> {
+    let always_kept = retention.always_kept();
     let mut occupied = BTreeSet::new();
     let mut listed = 0_usize;
     candidates
@@ -48,13 +118,14 @@ pub(super) fn retained(candidates: &[Candidate], now: u64) -> Vec<bool> {
             };
             listed += 1;
             let age = now.saturating_sub(saved);
-            let slot = TIERS
+            let slot = retention
+                .tiers()
                 .iter()
                 .enumerate()
                 .find(|(_, tier)| age < tier.younger_than)
                 .map(|(index, tier)| (index, saved / tier.spacing));
             let first_in_slot = slot.is_none_or(|slot| occupied.insert(slot));
-            listed <= ALWAYS_KEPT || candidate.kept || first_in_slot
+            listed <= always_kept || candidate.kept || first_in_slot
         })
         .collect()
 }
@@ -76,7 +147,11 @@ mod tests {
     }
 
     fn kept(saved_at: &[Option<u64>]) -> usize {
-        retained(&plain(saved_at), NOW)
+        kept_with(saved_at, Retention::Standard)
+    }
+
+    fn kept_with(saved_at: &[Option<u64>], retention: Retention) -> usize {
+        retained(&plain(saved_at), NOW, retention)
             .into_iter()
             .filter(|kept| *kept)
             .count()
@@ -89,7 +164,10 @@ mod tests {
 
         let mut more = within_a_minute.clone();
         more.extend((10..30).map(|second| Some(NOW - second)));
-        assert_eq!(retained(&plain(&more), NOW)[..10], [true; 10]);
+        assert_eq!(
+            retained(&plain(&more), NOW, Retention::Standard)[..10],
+            [true; 10]
+        );
         assert_eq!(kept(&more), 10);
     }
 
@@ -112,7 +190,7 @@ mod tests {
             "{kept_count}"
         );
 
-        let decisions = retained(&plain(&hourly_for_two_years), NOW);
+        let decisions = retained(&plain(&hourly_for_two_years), NOW, Retention::Standard);
         let oldest_kept = decisions.iter().rposition(|kept| *kept).unwrap();
         assert!(oldest_kept + 31 * 24 >= hourly_for_two_years.len());
     }
@@ -122,7 +200,7 @@ mod tests {
         let saved_at: Vec<Option<u64>> = (0..12)
             .map(|step| Some(NOW - 2 * HOUR - step * 60))
             .collect();
-        let decisions = retained(&plain(&saved_at), NOW);
+        let decisions = retained(&plain(&saved_at), NOW, Retention::Standard);
         assert_eq!(decisions.iter().filter(|kept| **kept).count(), 10);
         assert!(decisions[..10].iter().all(|kept| *kept));
     }
@@ -132,7 +210,7 @@ mod tests {
         let mut saved_at: Vec<Option<u64>> = (0..10).map(|step| Some(NOW - step)).collect();
         saved_at.extend([None, Some(NOW + YEAR), None, Some(NOW + YEAR + 1)]);
         assert_eq!(
-            retained(&plain(&saved_at), NOW)[10..],
+            retained(&plain(&saved_at), NOW, Retention::Standard)[10..],
             [true, true, true, false]
         );
     }
@@ -152,10 +230,10 @@ mod tests {
             })
             .collect();
 
-        let decisions = retained(&candidates, NOW);
+        let decisions = retained(&candidates, NOW, Retention::Standard);
 
         assert!(marked.iter().all(|position| decisions[*position]));
-        let unmarked = retained(&plain(&hourly_for_two_years), NOW);
+        let unmarked = retained(&plain(&hourly_for_two_years), NOW, Retention::Standard);
         let extra = decisions.iter().filter(|kept| **kept).count()
             - unmarked.iter().filter(|kept| **kept).count();
         assert!(extra <= marked.len(), "{extra}");
@@ -167,15 +245,54 @@ mod tests {
         let in_one_day = [Some(NOW - 3 * DAY - HOUR), Some(NOW - 3 * DAY - 2 * HOUR)];
         let saved_at: Vec<Option<u64>> = newest.into_iter().chain(in_one_day).collect();
 
-        let unmarked = retained(&plain(&saved_at), NOW);
+        let unmarked = retained(&plain(&saved_at), NOW, Retention::Standard);
         assert_eq!(unmarked[10..], [true, false]);
 
         let mut older_marked = plain(&saved_at);
         older_marked[11].kept = true;
-        assert_eq!(retained(&older_marked, NOW)[10..], [true, true]);
+        assert_eq!(
+            retained(&older_marked, NOW, Retention::Standard)[10..],
+            [true, true]
+        );
 
         let mut newer_marked = plain(&saved_at);
         newer_marked[10].kept = true;
-        assert_eq!(retained(&newer_marked, NOW)[10..], [true, false]);
+        assert_eq!(
+            retained(&newer_marked, NOW, Retention::Standard)[10..],
+            [true, false]
+        );
+    }
+
+    #[test]
+    fn more_keeps_more_and_fewer_keeps_fewer_versions_of_the_same_history() {
+        let every_ten_minutes_for_a_year: Vec<Option<u64>> = (0..6 * 24 * 365)
+            .map(|step| Some(NOW - step * 600))
+            .collect();
+
+        let more = kept_with(&every_ten_minutes_for_a_year, Retention::More);
+        let standard = kept_with(&every_ten_minutes_for_a_year, Retention::Standard);
+        let fewer = kept_with(&every_ten_minutes_for_a_year, Retention::Fewer);
+
+        assert!(more > 2 * standard, "{more} {standard}");
+        assert!(fewer * 2 < standard, "{fewer} {standard}");
+
+        let newest: Vec<Option<u64>> = (0..40).map(|second| Some(NOW - second)).collect();
+        assert_eq!(kept_with(&newest, Retention::More), MORE_ALWAYS_KEPT);
+        assert_eq!(kept_with(&newest, Retention::Standard), ALWAYS_KEPT);
+        assert_eq!(kept_with(&newest, Retention::Fewer), FEWER_ALWAYS_KEPT);
+    }
+
+    #[test]
+    fn every_preset_keeps_marked_and_unlisted_versions() {
+        let mut candidates = plain(&[None; 3]);
+        candidates.extend((0..40_u64).map(|step| Candidate {
+            saved_at: Some(NOW - step),
+            kept: step == 39,
+        }));
+        for retention in Retention::ALL {
+            let decisions = retained(&candidates, NOW, retention);
+            assert!(decisions[..3].iter().all(|kept| *kept), "{retention:?}");
+            assert_eq!(decisions.last(), Some(&true), "{retention:?}");
+        }
     }
 }

@@ -429,8 +429,10 @@ paths:
   `sketch.grid_snapping`, `sketch.typed_dimensions` and `model.dimensions`
   (`StartingToggles`, set on the viewport at startup and again when one of them changes, the
   toggles staying session state), `files.startup` (`empty`, `last`), `files.recent_listed` (`3`,
-  `5`, `10`) and `tree.double_click` (`edit`, `rename`). Recovery's journal and atomic saving have
-  no setting (`reliability.md`).
+  `5`, `10`), `tree.double_click` (`edit`, `rename`) and `files.version_retention` (`more`,
+  `standard`, `fewer`: `caditor_file::Retention`, a `Choice`, in General › Version history, handed
+  to the model by `apply_preferences` and sent with every `SaveRequest`, `file-format.md`).
+  Recovery's journal and atomic saving have no setting (`reliability.md`).
 - `Files` reads `files.startup` and `files.recent_listed` from every `Settings` it is handed, as it
   does the default template. `Files::recent` lists only the newest `RecentListed::count` (the menu,
   the welcome and the palette's recent slots); the stored list keeps `RECENT_LIMIT`. With The last

@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use super::{
     CHUNK_HEADER_LENGTH, Chunk, ChunkKind, Codec, EARLIER_BUILD_MODEL_MAGIC, MODEL_MAGIC,
     PackError, Piece, UnpackError, damaged, parse, push_packed, push_packed_after, push_padding,
-    retention::{self, retained},
+    retention::{self, Retention, retained},
     salvage, start_file,
     value::{self, ValueError, push_varint, read_varint},
 };
@@ -630,7 +630,13 @@ fn split_snapshot(snapshot: &[u8]) -> Option<Vec<&[u8]>> {
 }
 
 pub(crate) fn encode(document: &Document) -> Result<Vec<u8>, EncodeError> {
-    Ok(encode_over(document, None, SystemTime::now(), None)?.bytes)
+    Ok(encode_keeping(
+        document,
+        None,
+        (SystemTime::now(), Retention::Standard),
+        None,
+    )?
+    .bytes)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -842,10 +848,20 @@ pub(crate) fn save_bytes(
     Ok(encode_over(document, previous, now, label)?.bytes)
 }
 
+#[cfg(test)]
 pub(crate) fn encode_over(
     document: &Document,
     previous: Option<&[u8]>,
     now: SystemTime,
+    label: Option<&str>,
+) -> Result<Encoded, EncodeError> {
+    encode_keeping(document, previous, (now, Retention::Standard), label)
+}
+
+pub(crate) fn encode_keeping(
+    document: &Document,
+    previous: Option<&[u8]>,
+    (now, retention): (SystemTime, Retention),
     label: Option<&str>,
 ) -> Result<Encoded, EncodeError> {
     let prior = previous.and_then(Parsed::of);
@@ -895,7 +911,7 @@ pub(crate) fn encode_over(
             prior_head,
             !unchanged,
             snapshot,
-            now,
+            (now, retention),
             cut,
         )?;
         let excess = versions.len().saturating_sub(room);
@@ -1021,7 +1037,7 @@ fn thinned<'p, 'a>(
     prior: Option<&'p Parsed<'a>>,
     prior_head: Option<(&'p StateRecord, &'p [u8])>,
     adds_version: bool,
-    now: SystemTime,
+    (now, retention): (SystemTime, Retention),
     cut: usize,
 ) -> (Vec<(Candidate<'p, 'a>, bool)>, usize) {
     let stored = prior.map_or(&[][..], |prior| prior.versions.as_slice());
@@ -1051,7 +1067,7 @@ fn thinned<'p, 'a>(
     let mut keep = if adds_version {
         let for_retention: Vec<retention::Candidate> =
             candidates.iter().map(Candidate::for_retention).collect();
-        retained(&for_retention, seconds_since_epoch(now))
+        retained(&for_retention, seconds_since_epoch(now), retention)
     } else {
         vec![true; candidates.len()]
     };
@@ -1221,11 +1237,11 @@ fn write_versions<'a>(
     prior_head: Option<(&StateRecord, &[u8])>,
     adds_version: bool,
     snapshot: &[u8],
-    now: SystemTime,
+    when: (SystemTime, Retention),
     cut: usize,
 ) -> Result<Written, EncodeError> {
     let stored = prior.map_or(&[][..], |prior| prior.versions.as_slice());
-    let (mut candidates, cut_listed) = thinned(prior, prior_head, adds_version, now, cut);
+    let (mut candidates, cut_listed) = thinned(prior, prior_head, adds_version, when, cut);
     let mut written = Written {
         kept: Vec::new(),
         cut_listed,

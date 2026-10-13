@@ -24,5 +24,11 @@ for the last day, one a day for the last month, one a week for the last year and
 before that. Kept versions stay in every case; only a file grown past its size limit drops the
 oldest ones.
 
+[Preferences](preferences) › General › Version history keeps **More** (the 25 newest, then one
+every quarter of an hour for two days, every four hours for three months, a day for two years and
+a week before that) or **Fewer** (the 5 newest, then one every six hours for a day, a week for a
+month, a month for a year and a year before that) instead. The choice applies from the next save;
+versions already thinned out do not come back.
+
 Versions are only kept once the model is saved to a file. A version that cannot be read is marked
 Damaged, with the reason on hover.

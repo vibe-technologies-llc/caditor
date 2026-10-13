@@ -1,4 +1,5 @@
 use caditor_document::Rgb;
+use caditor_file::Retention;
 use egui::{Id, Label, TextEdit, TextStyle, TextWrapMode, Ui, WidgetText};
 
 use super::{
@@ -395,6 +396,7 @@ fn general(
     starting(ui, shown, command);
     new_models(ui, shown, templates, command);
     feature_tree(ui, shown, command);
+    version_history(ui, shown, command);
     keyboard(ui, shown, command);
     tips(ui, shown, command);
     if defender::ON_WINDOWS {
@@ -429,6 +431,26 @@ fn feature_tree(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<Preferences
             }
         });
     });
+}
+
+fn version_history(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesCommand>) {
+    let preferences = shown.preferences;
+    let note = "Each save keeps the model it replaces as an earlier version inside the file, and \
+                older versions thin out with age. Versions you keep in File › Version history \
+                stay whatever you choose here. Unsaved work is always kept for recovery.";
+    section(
+        ui,
+        shown,
+        Section::VersionHistory,
+        Some(note.to_owned()),
+        |ui| {
+            widgets::property(ui, "Old versions", |ui| {
+                if let Some(retention) = pick::<Retention>(ui, preferences.retention) {
+                    change(command, PreferenceChange::Retention(retention));
+                }
+            });
+        },
+    );
 }
 
 fn saving_on_windows(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesCommand>) {

@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     model::{
-        FreshVersion, NotReadBack, decode, encode_over, history, load_version, reads_back,
-        save_bytes,
+        FreshVersion, NotReadBack, decode, encode_keeping, encode_over, history, load_version,
+        reads_back, save_bytes,
     },
     testing::{
         as_written_by_an_earlier_build, corrupt_chunk, decompressing_at_most, files_of_at_most,
@@ -1248,4 +1248,46 @@ fn fields_of_a_version_record_this_version_does_not_know_survive_marking() {
     assert_eq!(infos[1]["kept"], true);
     assert!(infos[0].get("pinned_by").is_none());
     check_listed_versions(&marked.bytes, &documents);
+}
+
+const FIVE_MINUTES: u64 = 300;
+const SAVES_IN_A_DAY: u32 = 288;
+
+fn a_day_of_saves(save: impl Fn(&Document, &[u8], SystemTime) -> Vec<u8>) -> (Document, Vec<u8>) {
+    let mut document = with_width(10);
+    let mut bytes = save_bytes(&document, None, at(1_000), None).unwrap();
+    for step in 1..=SAVES_IN_A_DAY {
+        document = edited(&document, 10 + step);
+        let time = at(1_000 + u64::from(step) * FIVE_MINUTES);
+        bytes = save(&document, &bytes, time);
+    }
+    (document, bytes)
+}
+
+fn versions_kept_by(retention: Retention) -> (usize, Vec<u8>) {
+    let (document, bytes) = a_day_of_saves(|document, previous, time| {
+        encode_keeping(document, Some(previous), (time, retention), None)
+            .unwrap()
+            .bytes
+    });
+    assert_eq!(decode(&bytes).unwrap().document, document);
+    (history(&bytes).versions.len(), bytes)
+}
+
+#[test]
+fn a_retention_preset_keeps_more_or_fewer_versions_and_standard_writes_what_it_always_did() {
+    let (more, _) = versions_kept_by(Retention::More);
+    let (standard, kept_as_standard) = versions_kept_by(Retention::Standard);
+    let (fewer, _) = versions_kept_by(Retention::Fewer);
+
+    assert!(
+        more > standard && standard > fewer,
+        "{more} {standard} {fewer}"
+    );
+    assert!(fewer >= 5, "{fewer}");
+
+    let (_, as_before) = a_day_of_saves(|document, previous, time| {
+        save_bytes(document, Some(previous), time, None).unwrap()
+    });
+    assert_eq!(as_before, kept_as_standard);
 }

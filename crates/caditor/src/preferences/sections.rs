@@ -7,6 +7,7 @@ pub enum Section {
     Files,
     NewModels,
     FeatureTree,
+    VersionHistory,
     Keyboard,
     Tips,
     SavingOnWindows,
@@ -25,12 +26,13 @@ pub enum Section {
 }
 
 impl Section {
-    pub const ALL: [Self; 20] = [
+    pub const ALL: [Self; 21] = [
         Self::Units,
         Self::Numbers,
         Self::Files,
         Self::NewModels,
         Self::FeatureTree,
+        Self::VersionHistory,
         Self::Keyboard,
         Self::Tips,
         Self::SavingOnWindows,
@@ -55,6 +57,7 @@ impl Section {
             | Self::Files
             | Self::NewModels
             | Self::FeatureTree
+            | Self::VersionHistory
             | Self::Keyboard
             | Self::Tips
             | Self::SavingOnWindows => PreferencesTab::General,
@@ -76,6 +79,7 @@ impl Section {
             Self::Files => "files",
             Self::NewModels => "new-models",
             Self::FeatureTree => "feature-tree",
+            Self::VersionHistory => "version-history",
             Self::Keyboard => "keyboard",
             Self::Tips => "tips",
             Self::SavingOnWindows => "saving-on-windows",
@@ -101,6 +105,7 @@ impl Section {
             Self::Files => "Starting and recent files",
             Self::NewModels => "New models",
             Self::FeatureTree => "Feature tree",
+            Self::VersionHistory => "Version history",
             Self::Keyboard => "Keyboard",
             Self::Tips => "Tips",
             Self::SavingOnWindows => "Saving on Windows",
@@ -141,6 +146,14 @@ impl Section {
             Self::Files => &["at startup", "open the last model", "recent files", "start"],
             Self::NewModels => &["start from", "template", "new model"],
             Self::FeatureTree => &["double-click", "rename", "edit"],
+            Self::VersionHistory => &[
+                "versions",
+                "old versions",
+                "retention",
+                "thinning",
+                "file size",
+                "saving",
+            ],
             Self::Keyboard => &["shortcuts", "keys", "keymap"],
             Self::Tips => &["getting started", "show tips", "hints"],
             Self::SavingOnWindows => &["microsoft defender", "saving"],
@@ -255,6 +268,7 @@ impl Section {
             }
             Self::NewModels => to.default_template.clone_from(&from.default_template),
             Self::FeatureTree => to.double_click = from.double_click,
+            Self::VersionHistory => to.retention = from.retention,
             Self::Keyboard | Self::Tips | Self::SavingOnWindows => {}
             Self::Theme => to.appearance.theme = from.appearance.theme.clone(),
             Self::Colours => {

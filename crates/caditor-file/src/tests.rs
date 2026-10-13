@@ -834,6 +834,7 @@ fn save_request(ticket: u64, document: &Document, path: &Path, replace: bool) ->
         keep_original: false,
         label: None,
         replace_outside_changes: replace,
+        retention: Retention::Standard,
     }
 }
 
@@ -1047,6 +1048,7 @@ fn saving_moves_the_journal_next_to_the_file_and_closing_removes_it() {
             keep_original: false,
             label: None,
             replace_outside_changes: false,
+            retention: Retention::Standard,
         })
         .unwrap();
     let report = wait_for_report(&storage);
@@ -5913,6 +5915,7 @@ fn saving_over_a_model_open_in_another_window_is_refused() {
             keep_original: false,
             label: None,
             replace_outside_changes: false,
+            retention: Retention::Standard,
         })
         .unwrap();
     let Report::SaveFailed { error, .. } = wait_for_report(&storage) else {
@@ -6182,6 +6185,7 @@ fn an_undo_reaching_past_the_journal_snapshot_is_journaled_whole() {
             keep_original: false,
             label: None,
             replace_outside_changes: false,
+            retention: Retention::Standard,
         })
         .unwrap();
     undo_and_redo(&storage, &mut editor);

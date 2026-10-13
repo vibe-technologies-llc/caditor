@@ -25,6 +25,9 @@ match, for example `zoom`, `grid` or `view cube`. Choosing a tab clears the sear
   recovery, or a file named on the [command line](command-line), comes first.
 - **New models**: the [template](templates) a new model starts from.
 - **Feature tree**: what double-clicking a feature does, edit it (as Enter does) or rename it.
+- **Version history**: how many earlier versions a save keeps inside the file, more, standard or
+  fewer; see [version history](version-history). Versions you keep always stay, and unsaved work
+  is always kept for recovery.
 - **Keyboard**: the shortcut editor; see [working from the keyboard](keyboard).
 - **Tips**: show tips in the view, and bring back dismissed ones.
 - **Saving on Windows**, on Windows only: shows again the reminder about
