@@ -25,6 +25,7 @@ const CLOSURE_FACE: u8 = 0x0b;
 const THREAD_FACE: u8 = 0x0c;
 const SWEPT_FACE: u8 = 0x0d;
 const PATH_BEND: u8 = 0x0e;
+const COIL_FACE: u8 = 0x0f;
 const EDGE_BETWEEN: u8 = 0x10;
 const EDGE_BETWEEN_AT: u8 = 0x11;
 const SEAM_EDGE: u8 = 0x12;
@@ -147,6 +148,13 @@ impl FaceName {
 
     pub fn thread(feature: u64, part: u64) -> Self {
         let mut digest = Digest::new(THREAD_FACE);
+        digest.u64(feature);
+        digest.u64(part);
+        Self(digest.finish())
+    }
+
+    pub fn coil(feature: u64, part: u64) -> Self {
+        let mut digest = Digest::new(COIL_FACE);
         digest.u64(feature);
         digest.u64(part);
         Self(digest.finish())

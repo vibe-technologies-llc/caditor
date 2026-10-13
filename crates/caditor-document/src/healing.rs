@@ -206,6 +206,7 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
             }
         }
         FeatureKind::Pipe(pipe) => visit_path(&mut pipe.path, visitor),
+        FeatureKind::Coil(coil) => visit_axis(&mut coil.axis, "axis it winds around", visitor),
         FeatureKind::Shell(shell) => {
             let count = shell.open.len();
             for (index, face) in shell.open.iter_mut().enumerate() {

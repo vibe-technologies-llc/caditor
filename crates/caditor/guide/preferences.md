@@ -114,6 +114,12 @@ See [moving around the view](navigation).
 - **Editing a sketch**: whether opening a sketch turns the view to face it, and whether Escape
   finishes the sketch once there is nothing left to cancel. Off, Escape still cancels shapes,
   tools and the selection, and Finish sketch finishes.
+- **Constraints drawing infers**: which kinds a point placed while drawing may be held to, each
+  with its own box: horizontal, vertical, parallel, perpendicular and tangent lines; coincident
+  with a point, on a curve, at a midpoint, at the centre of an outline, at an intersection and at a
+  quadrant or axis end; and in line with a point the pointer passed over. All start on. An unticked
+  kind is neither offered while drawing nor made a constraint; the constraint tools still add it by
+  hand. See [snapping](snapping).
 - **On when caditor starts**: constraint glyphs, snapping, snapping to the grid, keeping typed
   values as dimensions, and dimensions shown on the model. Each can still be turned on or off
   while you work; changing one here changes it now too. See [snapping](snapping) and

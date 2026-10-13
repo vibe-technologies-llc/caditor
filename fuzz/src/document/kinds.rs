@@ -6,7 +6,7 @@ use std::{
 
 use caditor_document::{
     AngleMate, AngleSides, AxisMate, AxisSide, AxisTurn, Between, Blend, BlendKind, BodyOperation,
-    BodyPlacement, Calibration, ChamferForm, CircularPattern, Combine, CombineOperation,
+    BodyPlacement, Calibration, ChamferForm, Coil, CoilLength, CoilSizing, CoilTurning, CircularPattern, Combine, CombineOperation,
     CopyOrientation, CurvePattern, CurveSpacing, CurveStation, Datum, DatumAxis, DatumFrame,
     DatumPlane, DatumPoint, EdgeGroup, Extrude, ExtrudeEnd, ExtrudeExtent, FaceAxisMate, FaceMate,
     FaceOnRound, FacePair, FaceTangent, FaceThickness, FeatureId, FeatureKind, FinePitch, Hole,
@@ -23,7 +23,7 @@ use caditor_document::{
 use caditor_expression::Expression;
 use caditor_geometry::{Plane, Point2};
 use caditor_kernel::{
-    LinearExtent, PipeShape, Profile, ProfileCurve, RegionReference, Selection, Solid,
+    CoilPlacement, CoilShape, LinearExtent, PipeShape, Profile, ProfileCurve, RegionReference, Selection, Solid,
     SweepOrientation, WallSide, extrude, interruptible,
 };
 use caditor_sketch::EntityId;
@@ -59,6 +59,7 @@ pub enum Family {
     SplitFace,
     Primitive,
     Pipe,
+    Coil,
     Combine,
     Move,
     Mate,
@@ -76,7 +77,7 @@ pub enum Family {
 }
 
 impl Family {
-    pub const ALL: [Self; 22] = [
+    pub const ALL: [Self; 23] = [
         Self::Sketch,
         Self::Solid,
         Self::Blend,
@@ -85,6 +86,7 @@ impl Family {
         Self::SplitFace,
         Self::Primitive,
         Self::Pipe,
+        Self::Coil,
         Self::Combine,
         Self::Move,
         Self::Mate,
@@ -111,6 +113,7 @@ impl Family {
             FeatureKind::SplitFace(_) => Self::SplitFace,
             FeatureKind::Primitive(_) => Self::Primitive,
             FeatureKind::Pipe(_) => Self::Pipe,
+            FeatureKind::Coil(_) => Self::Coil,
             FeatureKind::Combine(_) => Self::Combine,
             FeatureKind::Move(_) => Self::Move,
             FeatureKind::Mate(_) => Self::Mate,
@@ -188,6 +191,31 @@ pub fn feature_kind(
                 None
             },
             bend: scene.distance(input)?,
+            operation: operation(input, scene)?,
+        }),
+        Family::Coil => FeatureKind::Coil(Coil {
+            axis: scene.axis(input)?,
+            reversed: input.arbitrary()?,
+            diameter: scene.distance(input)?,
+            length: match *input.choose(&CoilSizing::ALL)? {
+                CoilSizing::TurnsAndPitch => CoilLength::TurnsAndPitch {
+                    turns: scene.count(input)?,
+                    pitch: scene.distance(input)?,
+                },
+                CoilSizing::HeightAndTurns => CoilLength::HeightAndTurns {
+                    height: scene.distance(input)?,
+                    turns: scene.count(input)?,
+                },
+                CoilSizing::HeightAndPitch => CoilLength::HeightAndPitch {
+                    height: scene.distance(input)?,
+                    pitch: scene.distance(input)?,
+                },
+            },
+            shape: *input.choose(&CoilShape::ALL)?,
+            size: scene.distance(input)?,
+            placement: *input.choose(&CoilPlacement::ALL)?,
+            taper: scene.turn(input)?,
+            turning: *input.choose(&CoilTurning::ALL)?,
             operation: operation(input, scene)?,
         }),
         Family::Combine => FeatureKind::Combine(Combine {

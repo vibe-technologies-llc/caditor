@@ -379,7 +379,8 @@ paths:
   a result with an older ticket is dropped. Failures are in words (`PreviewFailure`,
   `PictureFailure`) and the rest of the card still shows.
 - The picture is drawn like the 3MF thumbnail: the prepared `Snapshot` (initial viewpoint fitted to
-  the bodies, no grid or highlights) waits until the session draws it at `PICTURE_SIZE` with
+  the bodies, no grid or highlights, the version's reference images decoded on the `preview` thread
+  by `ImageTextures::decoded_for` and handed to `snapshot::take_unless`) waits until the session draws it at `PICTURE_SIZE` with
   `Renderer::render_image`, in the scene palette of the canvas in use when Preview was pressed
   (carried by `HistoryCommand::Preview` to `version_preview::prepare`; `Files::preview_picture`,
   `preview_rendered`; a busy renderer leaves it waiting). Bands are read on a `preview` thread into
@@ -463,7 +464,12 @@ paths:
   `sketch.escape_finishes`, the starting states `sketch.glyphs`, `sketch.snapping`,
   `sketch.grid_snapping`, `sketch.typed_dimensions` and `model.dimensions`
   (`StartingToggles`, set on the viewport at startup and again when one of them changes, the
-  toggles staying session state), `files.startup` (`empty`, `last`), `files.recent_listed` (`3`,
+  toggles staying session state), one flag per kind of constraint drawing infers
+  (`sketch.infer.horizontal`, `vertical`, `parallel`, `perpendicular`, `tangent`, `coincident`,
+  `on_curve`, `midpoint`, `centre`, `intersection`, `quadrant`, `tracks`: `Inference`,
+  `Sketching::inferred`, each on unless stored off, so a file without them and a kind added later
+  start on; Preferences › Sketching › Constraints drawing infers, a resettable section handed to the
+  viewport every frame, `app-sketching.md`), `files.startup` (`empty`, `last`), `files.recent_listed` (`3`,
   `5`, `10`), `tree.double_click` (`edit`, `rename`), `modelling.new_bodies` (`one_body`,
   `body_each`: `NewBodies`, shown in the Feature tree section as New bodies from separate pieces,
   handed to `Model::set_new_body_pieces` by `apply_preferences`; whether a new extrusion, revolve or

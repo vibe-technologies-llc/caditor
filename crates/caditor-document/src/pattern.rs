@@ -106,10 +106,11 @@ pub fn repeatable_on(kind: &FeatureKind) -> Option<FeatureId> {
     if let Some(hole) = kind.hole() {
         return Some(hole.body);
     }
-    let operation = match (kind.primitive(), kind.pipe()) {
-        (Some(primitive), _) => primitive.operation,
-        (None, Some(pipe)) => pipe.operation,
-        (None, None) => kind.solid()?.operation(),
+    let operation = match (kind.primitive(), kind.pipe(), kind.coil()) {
+        (Some(primitive), _, _) => primitive.operation,
+        (None, Some(pipe), _) => pipe.operation,
+        (None, None, Some(coil)) => coil.operation,
+        (None, None, None) => kind.solid()?.operation(),
     };
     match operation {
         BodyOperation::Add(body) | BodyOperation::Remove(body) => Some(body),
@@ -373,6 +374,25 @@ impl Pattern {
                     .map(PointReference::origin_features)
                     .unwrap_or_default(),
             )
+            .collect()
+    }
+
+    pub fn sketch_entities(&self) -> Vec<(FeatureId, EntityId)> {
+        let skipped = match &self.kind {
+            PatternKind::Points(points) => Some(points.sketch),
+            PatternKind::Linear { .. } | PatternKind::Circular(_) | PatternKind::Curve(_) => None,
+        };
+        let skipped_points = skipped.into_iter().flat_map(|sketch| {
+            self.skipped
+                .iter()
+                .filter_map(|instance| instance_point(*instance))
+                .map(move |point| (sketch, point))
+        });
+        self.axes()
+            .into_iter()
+            .filter_map(AxisReference::sketch_entity)
+            .chain(self.kind.base().and_then(PointReference::sketch_entity))
+            .chain(skipped_points)
             .collect()
     }
 

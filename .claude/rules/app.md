@@ -88,8 +88,9 @@ paths:
   drawing must feed that key. Image export draws the model's pictures, as do the window's 3MF thumbnail
   (`ViewportState::thumbnail`, from `Model::pictures`) and the headless PNG and 3MF thumbnail,
   which have no model and decode the document's pictures at once (`snapshot::take`,
-  `ImageTextures::decoded_for`; one that cannot be decoded is left out with a logged warning); the
-  version preview leaves them out. The hovered `Pickable`s (with the faces and edges chosen modifying rows made) and
+  `ImageTextures::decoded_for`; one that cannot be decoded is left out with a logged warning), and
+  the version preview, whose `preview` thread decodes the version's own pictures the same way and
+  hands them to `snapshot::take_unless`. The hovered `Pickable`s (with the faces and edges chosen modifying rows made) and
   chosen rows (with the bodies of rows that made no face, `viewport::LitRows`) in `Highlight` are
   sorted and deduplicated, since items look themselves up by binary search.
 - Each shown body is a `BodyPart` the cache keeps (`scene::Parts`): mesh instances, silhouette,

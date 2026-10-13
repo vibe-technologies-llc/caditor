@@ -4,7 +4,7 @@ use caditor_document::{
 };
 use caditor_expression::Expression;
 
-use crate::{field, model::Notice, solid_tools};
+use crate::{coil_tools, field, model::Notice, solid_tools};
 
 pub const NOTHING_TO_REVERSE: &str = "Only an extrusion, revolve, hole, primitive, pattern, mate \
                                       or split has a direction to reverse";
@@ -58,6 +58,7 @@ pub fn reversed(feature: &Feature) -> Result<FeatureKind, String> {
             feature,
             "follows its path from the profile, so it has no direction to reverse",
         )),
+        FeatureKind::Coil(coil) => Ok(FeatureKind::Coil(coil_tools::reversed(coil))),
         FeatureKind::Pipe(_) => Err(refusal(
             feature,
             "follows its path, so it has no direction to reverse",

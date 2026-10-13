@@ -3,7 +3,8 @@
 {command:model.pipe} runs a ready-made section along a path: tubing, a handrail, a cable run, a
 frame of square tube, a groove of a triangular cutter. Unlike a [Sweep](sweep) it needs no
 profile sketch, only the path and a few sizes. It is in the Solid group's menu of the ribbon, the
-Model menu, the command palette and the right-click menu of selected sketch curves.
+Model menu, the command palette and the right-click menu of selected sketch curves. A spring or a
+helical groove winds around an axis instead: that is a [Coil](coil).
 
 The path is a chain of curves of a sketch (lines, arcs, splines, ellipses, construction lines too)
 or of edges of a body, joined end to end without forks, open or closed. Select its curves or edges,

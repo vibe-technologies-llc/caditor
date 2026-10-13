@@ -558,6 +558,11 @@ impl Rescaler {
                     self.length(length, name)?;
                 }
             }
+            FeatureKind::Coil(coil) => {
+                for length in coil.lengths_mut() {
+                    self.length(length, name)?;
+                }
+            }
             FeatureKind::Blend(blend) => {
                 self.length(&mut blend.size, name)?;
                 if let ChamferForm::TwoDistances { second } = &mut blend.form {
@@ -1211,6 +1216,7 @@ fn anchored(kind: &mut FeatureKind) -> Vec<Anchored<'_>> {
             ImagePlane::Reference(plane) => vec![Anchored::Plane(plane)],
             ImagePlane::Sketch(_) => Vec::new(),
         },
+        FeatureKind::Coil(coil) => vec![Anchored::Axis(&mut coil.axis)],
         FeatureKind::Move(movement) => match &mut movement.about {
             TurnCentre::Axis(turn) => vec![Anchored::Axis(&mut turn.axis)],
             TurnCentre::Origin | TurnCentre::Body => Vec::new(),

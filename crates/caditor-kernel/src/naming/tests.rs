@@ -95,6 +95,10 @@ fn digests_of_fixed_generators_never_change() {
         FaceName::swept(7, &rectangle_piece(), 11, 1).digest(),
         0x5e48_b033_2b79_eb94_11d9_357e_3ca8_36b7
     );
+    assert_eq!(
+        FaceName::coil(7, 10).digest(),
+        0x7bb4_d301_6776_e7f5_39ad_4cca_b04f_fd7b
+    );
     assert_eq!(path_bend(11, 12), 0x9023_9e87_6905_9e50_633d_f209_ba34_cc36);
     let region = Profile::new(&rectangle(1, (0.0, 0.0), (4.0, 3.0))).unwrap();
     assert_eq!(
