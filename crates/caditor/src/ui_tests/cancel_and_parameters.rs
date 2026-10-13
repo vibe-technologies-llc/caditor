@@ -134,6 +134,54 @@ fn cancelling_an_opened_feature_undoes_its_changes_and_its_named_value_but_keeps
 }
 
 #[test]
+fn typing_a_plain_value_over_a_named_one_unnames_it_and_drops_the_unused_parameter() {
+    let mut harness = Harness::new();
+    let (extrude, _) = extruded_plate(&mut harness);
+
+    harness.perform(Action::Editing(EditingCommand::OpenSolid(extrude)));
+    harness.frame();
+    harness.type_into_field(distance_field(extrude), "depth = 12 mm");
+    harness.settle();
+    let named = distance_text(&harness, extrude);
+    harness.type_into_field(distance_field(extrude), "14 mm");
+    harness.settle();
+
+    assert_eq!(named, "depth");
+    assert_eq!(distance_text(&harness, extrude), "14 mm");
+    assert!(harness.document().parameter_named("depth").is_none());
+
+    harness.perform(Action::Undo);
+    harness.settle();
+
+    assert_eq!(distance_text(&harness, extrude), "depth");
+    assert!(harness.document().parameter_named("depth").is_some());
+}
+
+#[test]
+fn cancelling_an_opened_feature_works_after_its_named_value_was_replaced_by_a_number() {
+    let mut harness = Harness::new();
+    let (extrude, _) = extruded_plate(&mut harness);
+    let original = distance_text(&harness, extrude);
+    let before = harness.model.undo_label().map(str::to_owned);
+
+    harness.perform(Action::Editing(EditingCommand::OpenSolid(extrude)));
+    harness.frame();
+    harness.type_into_field(distance_field(extrude), "depth = 12 mm");
+    harness.settle();
+    harness.type_into_field(distance_field(extrude), "14 mm");
+    harness.settle();
+    let offered = offer(&harness, Command::CancelFeature).availability;
+    run_from_palette(&mut harness, "Cancel the changes");
+    harness.settle();
+
+    assert!(offered.is_ok());
+    assert!(harness.document().parameter_named("depth").is_none());
+    assert_eq!(distance_text(&harness, extrude), original);
+    assert_eq!(harness.workspace.editing.solid(), None);
+    assert_eq!(harness.model.undo_label().map(str::to_owned), before);
+}
+
+#[test]
 fn cancelling_with_nothing_changed_only_closes_the_feature() {
     let mut harness = Harness::new();
     let (extrude, _) = extruded_plate(&mut harness);
