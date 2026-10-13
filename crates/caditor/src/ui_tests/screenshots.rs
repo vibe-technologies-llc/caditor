@@ -763,6 +763,9 @@ fn canvas_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
         model.frame();
         model.key(Key::Escape, Modifiers::NONE);
         model.frame();
+        if model.editing().is_none() {
+            model.edit(sketch);
+        }
         model.use_tool(Key::G);
         model.workspace.viewport.show_more_keys(true);
         model.frame();
