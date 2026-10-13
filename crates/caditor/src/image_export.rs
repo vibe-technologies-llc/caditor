@@ -36,6 +36,25 @@ const DEFAULT_CUSTOM: SurfaceSize = SurfaceSize {
 const LEFT_OUT: &str = "The image shows the model as the view does now, without highlights, the \
                         grid, labels or the view cube.";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ImageChoices {
+    pub size: SizeChoice,
+    pub custom: SurfaceSize,
+    pub scale: ImageScale,
+    pub background: Background,
+}
+
+impl Default for ImageChoices {
+    fn default() -> Self {
+        Self {
+            size: SizeChoice::default(),
+            custom: DEFAULT_CUSTOM,
+            scale: ImageScale::default(),
+            background: Background::default(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum SizeChoice {
     #[default]
@@ -155,6 +174,23 @@ impl ImageExporter {
 
     pub fn folder(&self) -> Option<PathBuf> {
         self.folder.clone()
+    }
+
+    pub fn choices(&self) -> ImageChoices {
+        ImageChoices {
+            size: self.size,
+            custom: self.custom,
+            scale: self.scale,
+            background: self.background,
+        }
+    }
+
+    pub fn restore(&mut self, choices: ImageChoices, folder: Option<PathBuf>) {
+        self.size = choices.size;
+        self.custom = choices.custom;
+        self.scale = choices.scale;
+        self.background = choices.background;
+        self.folder = folder;
     }
 
     pub fn perform(&mut self, command: ImageCommand) {

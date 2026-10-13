@@ -35,8 +35,8 @@ pub const FACE_HINT: &str = "Save the outlines and holes of the selected flat fa
                              cutting";
 pub const NOT_A_FACE: &str = "Select one or more flat faces of bodies to export their outlines";
 const CURVED: &str = "A selected face is curved; only flat faces export as drawings";
-const DEFAULT_SHEET_WIDTH: f64 = 600.0;
-const DEFAULT_SPACING: f64 = 5.0;
+pub const DEFAULT_SHEET_WIDTH: f64 = 600.0;
+pub const DEFAULT_SPACING: f64 = 5.0;
 const NOT_A_WIDTH: &str = "Enter a sheet width greater than zero";
 const NOT_A_SPACING: &str = "Enter a spacing of zero or more";
 
@@ -114,12 +114,31 @@ pub enum DrawingCommand {
 pub struct DrawingExporter {
     open: bool,
     source: Option<DrawingSource>,
-    layout: Layout,
-    sheet_width: f64,
-    spacing: f64,
-    turns: bool,
-    annotations: bool,
+    choices: DrawingChoices,
     faces: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DrawingChoices {
+    pub format: SketchFormat,
+    pub layout: Layout,
+    pub sheet_width: f64,
+    pub spacing: f64,
+    pub turns: bool,
+    pub annotations: bool,
+}
+
+impl Default for DrawingChoices {
+    fn default() -> Self {
+        Self {
+            format: SketchFormat::default(),
+            layout: Layout::default(),
+            sheet_width: DEFAULT_SHEET_WIDTH,
+            spacing: DEFAULT_SPACING,
+            turns: true,
+            annotations: false,
+        }
+    }
 }
 
 impl Default for DrawingExporter {
@@ -127,17 +146,25 @@ impl Default for DrawingExporter {
         Self {
             open: false,
             source: None,
-            layout: Layout::default(),
-            sheet_width: DEFAULT_SHEET_WIDTH,
-            spacing: DEFAULT_SPACING,
-            turns: true,
-            annotations: false,
+            choices: DrawingChoices::default(),
             faces: true,
         }
     }
 }
 
 impl DrawingExporter {
+    pub fn choices(&self) -> DrawingChoices {
+        self.choices
+    }
+
+    pub fn restore(&mut self, choices: DrawingChoices) {
+        self.choices = choices;
+    }
+
+    pub fn chose_format(&mut self, format: SketchFormat) {
+        self.choices.format = format;
+    }
+
     pub fn is_open(&self) -> bool {
         self.open
     }
@@ -160,11 +187,11 @@ impl DrawingExporter {
     pub fn perform(&mut self, command: DrawingCommand) {
         match command {
             DrawingCommand::Hide => self.hide(),
-            DrawingCommand::Layout(layout) => self.layout = layout,
-            DrawingCommand::SheetWidth(width) => self.sheet_width = width,
-            DrawingCommand::Spacing(spacing) => self.spacing = spacing,
-            DrawingCommand::Turns(turns) => self.turns = turns,
-            DrawingCommand::Annotations(annotations) => self.annotations = annotations,
+            DrawingCommand::Layout(layout) => self.choices.layout = layout,
+            DrawingCommand::SheetWidth(width) => self.choices.sheet_width = width,
+            DrawingCommand::Spacing(spacing) => self.choices.spacing = spacing,
+            DrawingCommand::Turns(turns) => self.choices.turns = turns,
+            DrawingCommand::Annotations(annotations) => self.choices.annotations = annotations,
             DrawingCommand::Faces(faces) => self.faces = faces,
             DrawingCommand::Choose => {}
         }
@@ -189,13 +216,14 @@ impl DrawingExporter {
     }
 
     pub fn sheet(&self, construction: Construction) -> DrawingSheet {
-        let layout = match self.layout {
+        let choices = self.choices;
+        let layout = match choices.layout {
             Layout::SideBySide => None,
-            Layout::Nested => Nesting::new(self.sheet_width, self.spacing, self.turns),
+            Layout::Nested => Nesting::new(choices.sheet_width, choices.spacing, choices.turns),
         };
         DrawingSheet {
             layout: layout.map_or(SheetLayout::SideBySide, SheetLayout::Nested),
-            annotations: if self.annotations {
+            annotations: if self.choices.annotations {
                 Annotations::Included
             } else {
                 Annotations::LeftOut
@@ -556,10 +584,10 @@ pub fn dialog(
                     "Parts packed close together on a sheet of the width you set, to save material",
                 ),
             ];
-            if let Some(layout) = preferences::choice(ui, &layouts, exporter.layout) {
+            if let Some(layout) = preferences::choice(ui, &layouts, exporter.choices.layout) {
                 command = Some(FileCommand::DrawingExport(DrawingCommand::Layout(layout)));
             }
-            if exporter.layout == Layout::Nested {
+            if exporter.choices.layout == Layout::Nested {
                 ui.add_space(SPACE_S);
                 sheet_fields(ui, model, exporter, &mut command);
             }
@@ -583,7 +611,7 @@ pub fn dialog(
                     command = Some(FileCommand::DrawingExport(DrawingCommand::Faces(included)));
                 }
             }
-            let mut annotations = exporter.annotations;
+            let mut annotations = exporter.choices.annotations;
             let hint = if sketches_shown {
                 "Write each sketch's dimensions, in millimetres and degrees, on a Dimensions layer, and \
              each sketch's name below it on a Labels layer"
@@ -617,7 +645,7 @@ pub fn dialog(
             }
             ui.add_space(SPACE_M);
             ui.label(widgets::muted(
-                summary(exporter.layout, sketches, faces),
+                summary(exporter.choices.layout, sketches, faces),
                 ui,
             ));
         });
@@ -669,13 +697,13 @@ fn sheet_fields(
         let lengths = [
             (
                 "Sheet width",
-                exporter.sheet_width,
+                exporter.choices.sheet_width,
                 DrawingCommand::SheetWidth as fn(f64) -> DrawingCommand,
                 parse_width as fn(&Model, &str) -> Result<f64, String>,
             ),
             (
                 "Spacing",
-                exporter.spacing,
+                exporter.choices.spacing,
                 DrawingCommand::Spacing,
                 parse_spacing,
             ),
@@ -702,7 +730,7 @@ fn sheet_fields(
             widgets::error_row(ui, error);
         }
     });
-    let mut turns = exporter.turns;
+    let mut turns = exporter.choices.turns;
     if widgets::checkbox(ui, &mut turns, "Turn parts where that packs them closer")
         .on_hover_text(
             "Try each part in quarter turns, and at the angle in 15° steps that boxes it smallest, \

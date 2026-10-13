@@ -387,6 +387,44 @@ impl Choice for DoubleClick {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ExportMemory {
+    #[default]
+    Remembered,
+    SessionOnly,
+}
+
+impl Choice for ExportMemory {
+    const ALL: &'static [Self] = &[Self::Remembered, Self::SessionOnly];
+
+    fn key(self) -> &'static str {
+        match self {
+            Self::Remembered => "always",
+            Self::SessionOnly => "session",
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Remembered => "Between sessions",
+            Self::SessionOnly => "Until caditor closes",
+        }
+    }
+
+    fn description(self) -> &'static str {
+        match self {
+            Self::Remembered => {
+                "Export dialogs open with the format, options and folder last used, even after \
+                 caditor was closed"
+            }
+            Self::SessionOnly => {
+                "Export dialogs remember their choices only while caditor runs, and nothing is \
+                 kept in the preferences file"
+            }
+        }
+    }
+}
+
 impl Choice for Retention {
     const ALL: &'static [Self] = &Retention::ALL;
 
@@ -606,6 +644,7 @@ mod tests {
         keys_are_distinct_and_read_back::<CubeSize>();
         keys_are_distinct_and_read_back::<Corner>();
         keys_are_distinct_and_read_back::<Retention>();
+        keys_are_distinct_and_read_back::<ExportMemory>();
         keys_are_distinct_and_read_back::<TrailingZeros>();
     }
 

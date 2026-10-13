@@ -1,5 +1,7 @@
+use std::path::PathBuf;
+
 use caditor_document::Rgb;
-use caditor_file::Retention;
+use caditor_file::{ExportFormat, Retention, Settings};
 use caditor_geometry::Point3;
 use egui::{Id, Key, Modifiers};
 use tempfile::TempDir;
@@ -7,15 +9,19 @@ use tempfile::TempDir;
 use super::{
     Harness, extruded_plate, open_combo,
     preference_groups::{close_preferences, open_tab, reopened, wait_until_stored},
-    vertex_at,
+    sample_document, vertex_at,
 };
 use crate::{
-    app,
+    app::{self, Workspace},
     body_appearance::DEFAULT_COLOUR,
     canvas, colour_selector,
     export::OwnedLook,
     model::Action,
-    preferences::{self, BodyColour, Choice, PreferenceChange, PreferencesCommand, PreferencesTab},
+    onboarding::Onboarding,
+    preferences::{
+        self, BodyColour, Choice, ExportMemory, PreferenceChange, Preferences, PreferencesCommand,
+        PreferencesTab,
+    },
     units::{Decimals, NumberFormat, TrailingZeros},
     view_cube::{Corner, CubePlacement, CubeSize},
 };
@@ -256,4 +262,68 @@ fn a_chosen_body_colour_draws_bodies_without_their_own_refuses_an_unseen_one_and
         BodyColour::Custom(steel)
     );
     assert_eq!(drawn_body(&mut again), drawn(steel));
+}
+
+fn export_plate(harness: &mut Harness, to: PathBuf, format: Option<&str>) {
+    harness.key(Key::E, Modifiers::COMMAND);
+    harness.frame();
+    harness.show_new_windows();
+    if let Some(format) = format {
+        harness.click(format);
+    }
+    harness.answer_dialog(Some(to));
+    harness.click("Export…");
+    harness.wait_until("the export is written", |harness| {
+        harness
+            .model
+            .notice()
+            .is_some_and(|notice| notice.text.starts_with("Exported 1 body"))
+    });
+}
+
+#[test]
+fn export_choices_and_folders_are_remembered_across_restarts_unless_kept_for_the_session() {
+    let dir = TempDir::new().unwrap();
+    let out = dir.path().join("out");
+    std::fs::create_dir_all(&out).unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    extruded_plate(&mut harness);
+    export_plate(&mut harness, out.join("plate"), Some("OBJ"));
+    assert!(out.join("plate.obj").exists());
+
+    wait_until_stored(&mut harness, dir.path(), |stored| {
+        stored.exports.model.format == ExportFormat::Obj
+            && stored.exports.folders.model.as_deref() == Some(out.as_path())
+    });
+
+    let settings = Settings::load(&dir.path().join("config"));
+    let mut preferences = Preferences::from_settings(settings.clone());
+    preferences.onboarding = Onboarding::finished();
+    let mut again = Harness::starting_with(
+        Some(dir.path()),
+        sample_document().unwrap(),
+        Workspace::with_preferences(preferences),
+        |files| files.settings_loaded(settings),
+    );
+    extruded_plate(&mut again);
+    let elsewhere = dir.path().join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    export_plate(&mut again, elsewhere.join("again"), None);
+
+    assert!(elsewhere.join("again.obj").exists());
+    assert_eq!(
+        again.dialogs.asked_in.lock().last().cloned().flatten(),
+        Some(out.clone())
+    );
+
+    again.perform(Action::Preferences(PreferencesCommand::Change(
+        PreferenceChange::ExportMemory(ExportMemory::SessionOnly),
+    )));
+    wait_until_stored(&mut again, dir.path(), |stored| {
+        stored.export_memory == ExportMemory::SessionOnly && stored.exports.is_empty()
+    });
+    assert_eq!(
+        Settings::load(&dir.path().join("config")).keys_under("export.folder"),
+        Vec::<String>::new()
+    );
 }

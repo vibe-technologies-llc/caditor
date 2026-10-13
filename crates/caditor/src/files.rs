@@ -39,6 +39,7 @@ use self::{
         show_report,
     },
     parameters::{ParameterImportDraft, ParametersCommand},
+    remembered::{ExportFolders, RememberedExports},
     templates::Templates,
 };
 use crate::{
@@ -63,7 +64,7 @@ use crate::{
     model::{Action, FileEvent, Model, Notice, RecomputeStatus, WakerFactory, display_name},
     onboarding,
     portal::{self, DialogError, FileRequest, Filter, Mode},
-    preferences::{self, Choice, PreferencesCommand, RecentListed, Startup},
+    preferences::{self, Choice, ExportMemory, PreferencesCommand, RecentListed, Startup},
     samples::Sample,
     scene_palette::Canvas,
     sketch_placement::FaceChoice,
@@ -76,6 +77,7 @@ use crate::{
 pub mod configurations;
 mod dialogs;
 pub mod parameters;
+pub mod remembered;
 pub mod templates;
 mod themes;
 
@@ -1049,6 +1051,7 @@ pub struct Files {
     saved_folder: Option<PathBuf>,
     folders: BTreeMap<Folder, PathBuf>,
     last_export: Option<LastExport>,
+    exports_to_remember: Option<RememberedExports>,
     missing_recent: BTreeSet<PathBuf>,
     own_threads_running: Arc<AtomicUsize>,
 }
@@ -1108,6 +1111,7 @@ impl Files {
             saved_folder: None,
             folders: BTreeMap::new(),
             last_export: None,
+            exports_to_remember: None,
             missing_recent: BTreeSet::new(),
             own_threads_running: Arc::default(),
         }
@@ -2826,6 +2830,9 @@ impl Files {
         {
             self.folders.insert(folder, parent.to_path_buf());
         }
+        if let Some(path) = &path {
+            self.note_export(purpose, path);
+        }
         match (purpose, path) {
             (Purpose::Open, Some(path)) => self.open(path, since, model),
             (Purpose::SaveAs, Some(path)) => self.save_as(path, since.session, model),
@@ -2961,7 +2968,12 @@ impl Files {
             Purpose::Drawing => {
                 let source = self.drawing.source();
                 let title = source.map_or("Export drawing", DrawingSource::title);
-                let file_name = drawing_export::source_file_name(model, source);
+                let named = drawing_export::source_file_name(model, source);
+                let extension = self.drawing.choices().format.extension();
+                let file_name = Path::new(&named)
+                    .with_extension(extension)
+                    .to_string_lossy()
+                    .into_owned();
                 self.dialogs
                     .pick_drawing_path(title, directory, file_name, respond);
             }
@@ -3228,7 +3240,64 @@ impl Files {
     pub fn settings_loaded(&mut self, settings: Settings) {
         self.read_default_template(&settings);
         self.read_habits(&settings);
+        if ExportMemory::read(&settings, remembered::REMEMBER_KEY) == ExportMemory::Remembered {
+            self.restore_exports(&RememberedExports::from_settings(&settings));
+        }
         self.stored_settings = Some(settings);
+    }
+
+    fn restore_exports(&mut self, remembered: &RememberedExports) {
+        self.exporter.restore(remembered.model);
+        self.drawing.restore(remembered.drawing);
+        self.drawing_construction = remembered.construction;
+        self.image
+            .restore(remembered.image, remembered.folders.image.clone());
+        for (folder, path) in [
+            (Folder::Export, &remembered.folders.model),
+            (Folder::Drawing, &remembered.folders.drawing),
+        ] {
+            if let Some(path) = path {
+                self.folders.insert(folder, path.clone());
+            }
+        }
+    }
+
+    fn exports_now(&self) -> RememberedExports {
+        RememberedExports {
+            model: ExportChoices {
+                every_configuration: false,
+                ..self.exporter.choices()
+            },
+            drawing: self.drawing.choices(),
+            construction: self.drawing_construction,
+            image: self.image.choices(),
+            folders: ExportFolders {
+                model: self.folders.get(&Folder::Export).cloned(),
+                drawing: self.folders.get(&Folder::Drawing).cloned(),
+                image: self.image.folder(),
+            },
+        }
+    }
+
+    pub fn take_exports_to_remember(&mut self) -> Option<RememberedExports> {
+        self.exports_to_remember.take()
+    }
+
+    fn note_export(&mut self, purpose: Purpose, path: &Path) {
+        let mut exports = match purpose {
+            Purpose::Export(_) | Purpose::Drawing | Purpose::Image => self.exports_now(),
+            _ => return,
+        };
+        match purpose {
+            Purpose::Drawing => {
+                let format = SketchFormat::of(path).unwrap_or_default();
+                self.drawing.chose_format(format);
+                exports.drawing.format = format;
+            }
+            Purpose::Image => exports.folders.image = path.parent().map(Path::to_path_buf),
+            _ => {}
+        }
+        self.exports_to_remember = Some(exports);
     }
 
     fn read_habits(&mut self, settings: &Settings) {

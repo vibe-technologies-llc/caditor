@@ -16,7 +16,10 @@ printing. It asks before replacing only when the file was changed by something e
 every configuration, when one of their files was. It is offered until another model is opened.
 
 Each kind of file dialog (opening, importing, exporting models, drawings, parameters) starts in the
-folder it was last used with while caditor runs.
+folder it was last used with while caditor runs. The export dialogs also keep their format, options
+and folder after caditor is closed: the next export of a model, a drawing or an image starts as the
+last one ended. [Preferences](preferences) › General › Exports can keep them only while caditor
+runs, or forget them.
 
 A model with modelled [threads](thread) offers **Threads**: **Modelled** (the default) cuts them
 into the exported bodies, recomputing them in the background while they are shown as cosmetic;

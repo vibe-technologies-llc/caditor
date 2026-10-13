@@ -102,7 +102,8 @@ paths:
   over that file.
 - Each dialog purpose remembers the folder last picked for the app session (`Folder`: open, import,
   export, drawing, parameter and configuration files; the image export keeps its own), else the model's folder, else
-  the most recent file's. Save as and templates keep their own.
+  the most recent file's. Save as and templates keep their own. The export folders outlast the
+  session as the remembered export choices say (Export memory below).
 - Revert to the saved version (`Command::RevertToSaved`) applies `Document::transaction_to` the last
   saved document (`Model::saved_version`) as one undoable change; unavailable with the reason when
   never saved, unchanged, or the saved document is unknown after a recovery.
@@ -209,19 +210,39 @@ paths:
   by side (default, a single sketch keeping its coordinates) or nested on a sheet (width 600 mm and
   spacing 5 mm, units and expressions; turns on: quarter turns and the 15° step boxing a part
   smallest); Dimensions and names (off by default); for sketches the construction choice. Choices
-  last for the session. Export… picks a `.dxf` or `.svg` path (`Purpose::Drawing`, `.dxf` appended to
-  any other); the dialog stays open behind the picker and a refused replacement. The files worker
+  (`DrawingChoices`, with the format last picked, which names the file the dialog proposes) last
+  for the session and are remembered as below. Export… picks a `.dxf` or `.svg` path
+  (`Purpose::Drawing`, `.dxf` appended to any other); the dialog stays open behind the picker and a refused replacement. The files worker
   writes a clone of each displayed sketch, or each face found again by key in the shown body's result
   (an `Arc`), named after the feature or face. Notices count what was written, what was left out or
   kept, polylines and parts wider than the sheet (`drawing_export.rs`).
 - Keep construction geometry in drawings (`Command::KeepDrawingConstruction`, File menu, palette, the
-  dialog's checkbox) writes construction curves on their own dashed layer; kept in `Files` for the
-  session, not saved.
+  dialog's checkbox) writes construction curves on their own dashed layer; kept in `Files` and
+  remembered with the drawing choices.
 
 ## Image export
 
-- Choices (size, scale, background) last for the session. A side beyond `MAX_IMAGE_SIDE` disables
-  Export with the reason on hover.
+- Choices (`ImageChoices`: size, scale, background) last for the session and are remembered as
+  below. A side beyond `MAX_IMAGE_SIDE` disables Export with the reason on hover.
+
+## Export memory
+
+- Export choices outlast a restart through the preferences file (`files/remembered.rs`,
+  `RememberedExports`: the model export's format, resolution, STL encoding and threads, never Every
+  configuration; the drawing's `DrawingChoices` and construction choice; the image's
+  `ImageChoices`; and the folder each kind last exported to), under `export.*` keys written only
+  where they differ from the defaults and read leniently (an unknown value, a size or sheet out of
+  range is the default).
+- Each pick of a model, drawing or image export path (`Files::picked` through `note_export`)
+  snapshots the choices into `Files::take_exports_to_remember`; `app::perform` hands it to the
+  workspace as `PreferencesCommand::RememberExports`, which stores it when it changed and
+  `Preferences::export_memory` (`export.remember`: `always` by default, or `session`) allows.
+  `Files::settings_loaded` restores it at startup only (`restore_exports`), never from later
+  settings, so a preference change mid-dialog never resets the dialog.
+- Preferences › General › Exports holds the choice (`ExportMemory`, reset with its section) and
+  Forget remembered choices (`PreferenceChange::ForgetExports`), which clears what is stored and
+  leaves this session's dialogs alone; Until caditor closes clears it too. Restore defaults on
+  General keeps what is remembered.
 - The image is the scene drawn again at the image's size (`ViewportState::image`) with the camera,
   graphics settings and section planes in use (`app.md`), in the scene palette of the 3D view's
   canvas, without hover, selection, keyboard highlights, grid, drawing preview or egui overlays. A

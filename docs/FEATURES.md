@@ -231,10 +231,8 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 ## Application
 
 - [low · medium] Preferences still lack settings other CAD programs offer: following the
-  system's reduce-motion
-  setting (winit reports none; View changes › No motion does it by hand), turning off the
-  constraints drawing infers kind by kind (snapping is all or nothing), and export choices
-  remembered across restarts (kept for the session).
+  system's reduce-motion setting (winit reports none; View changes › No motion does it by hand)
+  and turning off the constraints drawing infers kind by kind (snapping is all or nothing).
 - [low · medium] A copy from another model keeps none of its references outside the copied set. A
   sketch's section projection of a copied body is still left out, its edge being named by the
   sketch's own cut (`section.rs`), and a corner picked on a body outside the copy is not followed

@@ -3,9 +3,9 @@ use caditor_file::Retention;
 use egui::{Id, Label, TextEdit, TextStyle, TextWrapMode, Ui, WidgetText};
 
 use super::{
-    Accent, Appearance, BodyColour, Choice, DoubleClick, GridColour, PreferenceChange, Preferences,
-    PreferencesCommand, PreferencesTab, RecentListed, Restored, Restoring, Section, Startup, Theme,
-    TitleBar, TooltipDelay, ViewChoice, motion,
+    Accent, Appearance, BodyColour, Choice, DoubleClick, ExportMemory, GridColour,
+    PreferenceChange, Preferences, PreferencesCommand, PreferencesTab, RecentListed, Restored,
+    Restoring, Section, Startup, Theme, TitleBar, TooltipDelay, ViewChoice, motion,
 };
 use crate::{
     appearance::{self, MAX_SCALE, MIN_SCALE, SCALE_STEP, SPACE_M, SPACE_S},
@@ -397,6 +397,7 @@ fn general(
     new_models(ui, shown, templates, command);
     feature_tree(ui, shown, command);
     version_history(ui, shown, command);
+    exports(ui, shown, command);
     keyboard(ui, shown, command);
     tips(ui, shown, command);
     if defender::ON_WINDOWS {
@@ -451,6 +452,38 @@ fn version_history(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<Preferen
             });
         },
     );
+}
+
+pub const FORGET_EXPORTS: &str = "Forget remembered choices";
+
+fn exports(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesCommand>) {
+    let preferences = shown.preferences;
+    let note = "Each export dialog keeps the format, options and folder you last exported with: \
+                the model formats and their mesh and thread options, the drawing format, layout \
+                and sheet, and the image size, scale and background.";
+    section(ui, shown, Section::Exports, Some(note.to_owned()), |ui| {
+        widgets::property(ui, "Export choices", |ui| {
+            if let Some(memory) = pick::<ExportMemory>(ui, preferences.export_memory) {
+                change(command, PreferenceChange::ExportMemory(memory));
+            }
+        });
+        ui.label("");
+        let forget = ui
+            .add_enabled(
+                !preferences.exports.is_empty(),
+                widgets::button(FORGET_EXPORTS),
+            )
+            .on_hover_text(
+                "Start the next session's export dialogs from caditor's defaults; this session \
+                 keeps its choices",
+            )
+            .on_disabled_hover_text("No export choice is remembered")
+            .clicked();
+        if forget {
+            change(command, PreferenceChange::ForgetExports);
+        }
+        ui.end_row();
+    });
 }
 
 fn saving_on_windows(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesCommand>) {

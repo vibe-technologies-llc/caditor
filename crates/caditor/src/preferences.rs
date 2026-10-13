@@ -11,8 +11,8 @@ pub use self::dialog::{
 };
 pub use self::{
     choices::{
-        Choice, DoubleClick, FieldOfView, OrbitAround, RecentListed, Startup, TooltipDelay,
-        Transitions, ZoomToward,
+        Choice, DoubleClick, ExportMemory, FieldOfView, OrbitAround, RecentListed, Startup,
+        TooltipDelay, Transitions, ZoomToward,
     },
     dialog::{PreferencesView, Shown, change, choice, dialog, section},
     sections::Section,
@@ -22,7 +22,10 @@ use crate::{
     appearance::{self},
     body_appearance::SWATCHES,
     commands::{Command, Keymap},
-    files::templates::{self},
+    files::{
+        remembered::{self, RememberedExports},
+        templates::{self},
+    },
     graphics::{CurveQuality, FrameLimit, Graphics},
     icons,
     last_values::{LastValues, Remembered},
@@ -188,8 +191,8 @@ impl PreferencesTab {
             Self::General => {
                 "Go back to millimetres and degrees with automatic decimal places and trailing \
                  zeros shown, to starting with an empty model, ten recent files, new \
-                 models starting empty, double-click editing a feature and the standard version \
-                 history. Only this tab \
+                 models starting empty, double-click editing a feature, the standard version \
+                 history and export choices remembered between sessions. Only this tab \
                  changes; shortcuts are reset in the shortcut editor"
             }
             Self::Appearance => {
@@ -480,6 +483,8 @@ pub struct Preferences {
     pub recent_listed: RecentListed,
     pub double_click: DoubleClick,
     pub retention: Retention,
+    pub export_memory: ExportMemory,
+    pub exports: RememberedExports,
     pub graphics: Graphics,
     pub onboarding: Onboarding,
     pub keymap: Keymap,
@@ -536,6 +541,8 @@ pub enum PreferenceChange {
     RecentListed(RecentListed),
     DoubleClick(DoubleClick),
     Retention(Retention),
+    ExportMemory(ExportMemory),
+    ForgetExports,
     DefaultTemplate(Option<String>),
     Vsync(bool),
     FrameLimit(FrameLimit),
@@ -590,6 +597,7 @@ pub enum PreferencesCommand {
     Preview(PreferenceChange),
     RememberRecent(Vec<Command>),
     RememberLast(Vec<(Remembered, String)>),
+    RememberExports(RememberedExports),
     Search(String),
     Undo,
 }
@@ -736,6 +744,11 @@ impl Preferences {
             recent_listed: RecentListed::read(&raw, RECENT_LISTED_KEY),
             double_click: DoubleClick::read(&raw, DOUBLE_CLICK_KEY),
             retention: Retention::read(&raw, RETENTION_KEY),
+            export_memory: ExportMemory::read(&raw, remembered::REMEMBER_KEY),
+            exports: match ExportMemory::read(&raw, remembered::REMEMBER_KEY) {
+                ExportMemory::Remembered => RememberedExports::from_settings(&raw),
+                ExportMemory::SessionOnly => RememberedExports::default(),
+            },
             graphics: Graphics::from_settings(&raw),
             onboarding: Onboarding::from_settings(&raw),
             keymap: Keymap::from_settings(&raw),
@@ -783,6 +796,8 @@ impl Preferences {
         settings.set_text(RECENT_LISTED_KEY, self.recent_listed.key());
         settings.set_text(DOUBLE_CLICK_KEY, self.double_click.key());
         settings.set_text(RETENTION_KEY, self.retention.key());
+        settings.set_text(remembered::REMEMBER_KEY, self.export_memory.key());
+        self.exports.write(&mut settings);
         self.graphics.write(&mut settings);
         self.keymap.write(&self.loaded_keymap, &mut settings);
         self.onboarding.write(&mut settings);
@@ -866,6 +881,13 @@ impl Preferences {
             PreferenceChange::RecentListed(listed) => self.recent_listed = listed,
             PreferenceChange::DoubleClick(double_click) => self.double_click = double_click,
             PreferenceChange::Retention(retention) => self.retention = retention,
+            PreferenceChange::ExportMemory(memory) => {
+                self.export_memory = memory;
+                if memory == ExportMemory::SessionOnly {
+                    self.exports = RememberedExports::default();
+                }
+            }
+            PreferenceChange::ForgetExports => self.exports = RememberedExports::default(),
             PreferenceChange::DefaultTemplate(name) => self.default_template = name,
             PreferenceChange::Vsync(vsync) => self.graphics.vsync = vsync,
             PreferenceChange::FrameLimit(limit) => self.graphics.frame_limit = limit,

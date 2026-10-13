@@ -67,8 +67,8 @@ use crate::{
     panels::{self, PanelState},
     parameter_table,
     preferences::{
-        self, Appearance, PreferenceChange, Preferences, PreferencesCommand, PreferencesTab,
-        PreferencesView, Restored, StartingToggles, TitleBar, TooltipDelay,
+        self, Appearance, ExportMemory, PreferenceChange, Preferences, PreferencesCommand,
+        PreferencesTab, PreferencesView, Restored, StartingToggles, TitleBar, TooltipDelay,
     },
     queued::{self, Rerun},
     reference_picking::{self, Slot},
@@ -457,6 +457,15 @@ impl Workspace {
                 if changed {
                     model.set_last_values(&self.preferences.last_values);
                     files.store_settings(self.preferences.settings());
+                }
+            }
+            PreferencesCommand::RememberExports(exports) => {
+                let preferences = &mut self.preferences;
+                if preferences.export_memory == ExportMemory::Remembered
+                    && preferences.exports != exports
+                {
+                    preferences.exports = exports;
+                    files.store_settings(preferences.settings());
                 }
             }
             PreferencesCommand::RememberRecent(recent) => {
@@ -1478,6 +1487,9 @@ pub fn perform(
             }
             other => model.perform(other),
         }
+    }
+    if let Some(exports) = files.take_exports_to_remember() {
+        workspace.preferences_command(PreferencesCommand::RememberExports(exports), model, files);
     }
     let rerun = run_due(model, workspace);
     workspace.editing.sync(model);

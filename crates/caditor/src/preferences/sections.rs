@@ -1,4 +1,4 @@
-use super::{Preferences, PreferencesTab};
+use super::{ExportMemory, Preferences, PreferencesTab};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Section {
@@ -8,6 +8,7 @@ pub enum Section {
     NewModels,
     FeatureTree,
     VersionHistory,
+    Exports,
     Keyboard,
     Tips,
     SavingOnWindows,
@@ -26,13 +27,14 @@ pub enum Section {
 }
 
 impl Section {
-    pub const ALL: [Self; 21] = [
+    pub const ALL: [Self; 22] = [
         Self::Units,
         Self::Numbers,
         Self::Files,
         Self::NewModels,
         Self::FeatureTree,
         Self::VersionHistory,
+        Self::Exports,
         Self::Keyboard,
         Self::Tips,
         Self::SavingOnWindows,
@@ -58,6 +60,7 @@ impl Section {
             | Self::NewModels
             | Self::FeatureTree
             | Self::VersionHistory
+            | Self::Exports
             | Self::Keyboard
             | Self::Tips
             | Self::SavingOnWindows => PreferencesTab::General,
@@ -80,6 +83,7 @@ impl Section {
             Self::NewModels => "new-models",
             Self::FeatureTree => "feature-tree",
             Self::VersionHistory => "version-history",
+            Self::Exports => "exports",
             Self::Keyboard => "keyboard",
             Self::Tips => "tips",
             Self::SavingOnWindows => "saving-on-windows",
@@ -106,6 +110,7 @@ impl Section {
             Self::NewModels => "New models",
             Self::FeatureTree => "Feature tree",
             Self::VersionHistory => "Version history",
+            Self::Exports => "Exports",
             Self::Keyboard => "Keyboard",
             Self::Tips => "Tips",
             Self::SavingOnWindows => "Saving on Windows",
@@ -153,6 +158,10 @@ impl Section {
                 "thinning",
                 "file size",
                 "saving",
+            ],
+            Self::Exports => &[
+                "export", "remember", "folder", "format", "stl", "3mf", "step", "dxf", "svg",
+                "image",
             ],
             Self::Keyboard => &["shortcuts", "keys", "keymap"],
             Self::Tips => &["getting started", "show tips", "hints"],
@@ -278,6 +287,12 @@ impl Section {
             Self::NewModels => to.default_template.clone_from(&from.default_template),
             Self::FeatureTree => to.double_click = from.double_click,
             Self::VersionHistory => to.retention = from.retention,
+            Self::Exports => {
+                to.export_memory = from.export_memory;
+                if to.export_memory == ExportMemory::SessionOnly {
+                    to.exports.clone_from(&from.exports);
+                }
+            }
             Self::Keyboard | Self::Tips | Self::SavingOnWindows => {}
             Self::Theme => to.appearance.theme = from.appearance.theme.clone(),
             Self::Colours => {

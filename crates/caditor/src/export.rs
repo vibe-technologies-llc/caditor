@@ -90,7 +90,7 @@ impl ExportReport {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ExportChoices {
     pub format: ExportFormat,
     pub resolution: MeshResolution,

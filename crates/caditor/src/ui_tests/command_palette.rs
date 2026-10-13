@@ -9,7 +9,7 @@ use crate::{
     model::{Action, Notice, RecomputeStatus},
     palette::{Choice, State},
     panels::Focus,
-    preferences::{PreferenceChange, PreferencesCommand},
+    preferences::{self, PreferenceChange, PreferencesCommand},
     toggles::ToggleStates,
 };
 
@@ -78,6 +78,7 @@ fn a_shortcut_recorded_in_the_editor_runs_its_command_and_is_remembered() {
     harness.key(Key::Comma, Modifiers::COMMAND);
     harness.show_new_windows();
     harness.frame();
+    harness.draft_into_field(egui::Id::new(preferences::SEARCH_FIELD), "shortcuts");
     harness.click("Keyboard shortcuts…");
     assert!(harness.shows("Keyboard shortcuts"));
     harness.type_text("undo");
