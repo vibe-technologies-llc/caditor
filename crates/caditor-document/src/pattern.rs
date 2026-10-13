@@ -378,21 +378,10 @@ impl Pattern {
     }
 
     pub fn sketch_entities(&self) -> Vec<(FeatureId, EntityId)> {
-        let skipped = match &self.kind {
-            PatternKind::Points(points) => Some(points.sketch),
-            PatternKind::Linear { .. } | PatternKind::Circular(_) | PatternKind::Curve(_) => None,
-        };
-        let skipped_points = skipped.into_iter().flat_map(|sketch| {
-            self.skipped
-                .iter()
-                .filter_map(|instance| instance_point(*instance))
-                .map(move |point| (sketch, point))
-        });
         self.axes()
             .into_iter()
             .filter_map(AxisReference::sketch_entity)
             .chain(self.kind.base().and_then(PointReference::sketch_entity))
-            .chain(skipped_points)
             .collect()
     }
 

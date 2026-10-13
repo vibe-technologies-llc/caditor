@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use caditor_expression::Expression;
 use caditor_geometry::{Plane, Point2};
@@ -228,21 +228,6 @@ fn a_circular_pattern_about_a_missing_sketch_axis_reserves_its_number() {
                 reversed: false,
             }),
         ))
-    });
-}
-
-#[test]
-fn a_point_pattern_skipping_a_missing_sketch_point_reserves_its_number() {
-    assert_never_reused(|scene| {
-        let mut pattern = Pattern::new(
-            scene.body,
-            PatternKind::Points(PointsPattern {
-                sketch: scene.marks,
-                base: PointReference::Origin,
-            }),
-        );
-        pattern.skipped = BTreeSet::from([point_instance(MISSING).unwrap()]);
-        FeatureKind::from(pattern)
     });
 }
 
