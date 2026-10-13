@@ -2053,7 +2053,7 @@ impl<'a> Builder<'a> {
         let (analyses, analysis) = self.analysis?;
         match analyses.of(&mesh.mesh, analysis) {
             Outcome::Ready(analysed) => Some(analysed),
-            Outcome::Working | Outcome::Failed => None,
+            Outcome::Working | Outcome::Stopped | Outcome::Failed => None,
         }
     }
 

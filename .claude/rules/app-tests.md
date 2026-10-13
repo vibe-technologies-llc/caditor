@@ -52,6 +52,11 @@ paths:
 - A paste finding its picks runs on the recompute worker: `Model::finish_pasting` waits for it and
   applies it, `Model::hold_pastes` holds its result back so a test can see it running or cancel it
   (`ui_tests/paste_picks.rs`).
+- A `bodies::Hold` keeps background work waiting, at its kernel interrupt, until released, so a
+  test can see it running and cancel it: `Model::hold_body_work` holds the body pool's conversions
+  or mass properties (`Holds`; `settle` never returns while one is held and pending), and
+  `Analyses::hold_on_a_thread` (through `ViewportState::analyses_mut`) sends every face analysis
+  to its thread and holds it there.
 - `Model::stop_storage_worker` stops the model's storage worker on command (`Storage::stop`,
   `caditor-file`'s `test-support` feature), leaving its journal in place; `ui_tests/storage_worker.rs`
   covers a failed record, a poll finding the worker gone, a save that cannot be sent and quitting.

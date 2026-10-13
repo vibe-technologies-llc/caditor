@@ -221,10 +221,14 @@ paths:
     when the caller passes `cancel(hover)`; `show` returns whether Cancel was clicked. `wrapping`
     lets it wrap in a panel or dialog; the status bar keeps it on one line. Every wait in the
     interface uses it (recompute, files, export, paste, tidy, isocurves, interference, analysis,
-    measuring, previews), so a wait without Cancel is a worker with no cancel token
-    (`docs/PERFORMANCE.md`). A cancelled tidy, isocurve or interference worker remembers the basis
-    it was stopped on (`Tidying::stop`, `IsocurveTool::stop`, `Interference::stop`) and does not
-    restart until the inputs change or the user asks again, saying so in an info callout.
+    mass properties, bodies being prepared for display, measuring, previews), so a wait without
+    Cancel is a worker with no cancel token (`docs/PERFORMANCE.md`). A cancelled tidy, isocurve or
+    interference worker remembers the basis it was stopped on (`Tidying::stop`,
+    `IsocurveTool::stop`, `Interference::stop`) and does not restart until the inputs change or the
+    user asks again, saying so in an info callout. Cancelled face analysis, mass properties and
+    body preparing keep what they stopped as stopped (`Analyses::stop`, `BodyMesh::stop_mass`,
+    `BodyMeshing::stop`) until the user asks again with the button beside the info callout or pill
+    that says so (Analyse again, Work them out, Show the rest).
   - One focus ring: `paint_focus_ring` in the panels' focus colour, `paint_focus_ring_in` with a
     colour and radius of the caller's; the 3D view's controls and the view cube pass the chrome's
     `focus`, which the canvas tests hold over the backdrop.

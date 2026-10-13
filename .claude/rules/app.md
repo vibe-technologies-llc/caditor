@@ -217,7 +217,14 @@ paths:
   import is drawn in a few batches. `BodyMeshes` takes each batch, keeping the previous mesh until
   then, and walks the bodies only when the evaluation (`Model::evaluation_generation`) or the
   converted meshes (`BodyMeshing::conversions`) changed (`BodyMeshes::update_when_changed`). While
-  bodies are pending the status bar says how many are shown (`Model::bodies_preparing`).
+  bodies are pending the status bar says how many are shown (`Model::bodies_preparing`), with a
+  Cancel (`Action::StopPreparingBodies`, `BodyMeshing::stop`): the queued conversions are dropped,
+  the one in flight stops at the kernel interrupt its task runs under (the pool's `stops` counter
+  moved past the task's), what arrived is shown and the rest stay `stopped`, never requested
+  again and not pending, so fitting and offers go on. The status bar then shows "Showing N of M
+  bodies" as an info pill with Show the rest (`Model::bodies_stopped`,
+  `Action::PrepareStoppedBodies`, `BodyMeshing::resume`). A body stopped keeps its previous mesh
+  if it had one (`Converted::Pending`); a new result for it is converted as usual.
 - A face is `Pickable::Face` with a `FaceKey` (`FaceName` plus occurrence among same-named faces),
   an edge `Pickable::Edge` with its `EdgeName`, a vertex `Pickable::Vertex` with a `VertexKey`,
   found through the result's `NameIndex` and described in words from the `FaceOrigin`, never by
@@ -232,7 +239,12 @@ paths:
   centre-of-mass aid leaves the body out and a face's area falls back to its mesh triangles (≈);
   each arrival bumps `Model::masses_measured`, which offers, Measure and (with the aid on) the scene
   key (`Revisions::masses`) watch. A face the kernel could not integrate takes the mesh's triangles
-  and the body is marked approximate (`MassAccuracy::Mesh`).
+  and the body is marked approximate (`MassAccuracy::Mesh`). Each slot measures under a kernel
+  interrupt reading its own `stopped` flag; Measure's mass section shows the bodies still working
+  out as a progress with a count and Cancel, which stops every listed body's slot
+  (`BodyMesh::stop_mass`): a queued one is skipped, the one in flight returns at the next interrupt
+  check and nothing is stored, so its card says it was stopped and an info callout counts them with
+  Work them out (`BodyMesh::resume_mass`, which lets the next asking queue it again).
 - A body is drawn in its appearance colour, else `body_appearance::DEFAULT_COLOUR`; a failed or
   outdated feature on it tints it. In high contrast every body and face colour passes through
   `ScenePalette::body` (`app-look.md`). While a sketch is edited, bodies are dimmed and not
@@ -406,6 +418,12 @@ paths:
   face's pick id registered once so hover, selection and picking read as before. Up to
   `INLINE_TRIANGLES` the work is done in the frame; a larger mesh on a thread that wakes the app and
   bumps `Analyses::finished` (watched by `Revisions::analysed`), the body drawn plain meanwhile.
+  The thread runs under a kernel interrupt checked per triangle by the classifier (a failing
+  `divide`); the panel's progress has a Cancel (`Analyses::stop`) that moves the `stops` counter
+  past every running entry's `run` and marks them `Stopped`, so those bodies stay plain and a late
+  result is dropped. An info callout says so with Analyse again (`Analyses::resume`, dropping the
+  stopped entries so the next frame starts them anew); a changed setting is a new analysis and
+  starts too.
   The cache is keyed by mesh address, one entry per mesh, so a lookup is O(log B); entries of gone
   meshes are dropped at each `prepare`, all of them when no analysis is shown (`prepare(None, ..)`).
   The panel and the app share one `shown_meshes` a frame (`AnalysisContext::shown`).

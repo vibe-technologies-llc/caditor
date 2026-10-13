@@ -197,3 +197,60 @@ fn the_bodies_group_lists_every_body_and_hides_or_selects_one() {
     harness.settle();
     assert!(!hidden(&harness, peg));
 }
+
+#[test]
+fn preparing_bodies_for_display_can_be_cancelled_leaving_the_rest_hidden_until_shown() {
+    use caditor_geometry::Point2;
+
+    use super::block_into;
+    use crate::{
+        bodies::{Hold, Holds},
+        status_bar,
+    };
+
+    let mut harness = Harness::new();
+    let holds = Holds {
+        converts: Hold::holding(),
+        ..Holds::default()
+    };
+    harness.model.hold_body_work(&holds);
+    let mut transaction = harness.document().transaction("Add two blocks");
+    block_into(
+        &mut transaction,
+        "Left",
+        [Point2::new(0.0, 0.0), Point2::new(10.0, 10.0)],
+        "5 mm",
+    );
+    block_into(
+        &mut transaction,
+        "Right",
+        [Point2::new(20.0, 0.0), Point2::new(30.0, 10.0)],
+        "5 mm",
+    );
+    harness.perform(Action::Apply(transaction.finish()));
+    let preparing = format!("{}…", status_bar::showing_bodies_text(0, 2));
+    harness.wait_until("the bodies are being prepared", |harness| {
+        harness.shows(&preparing)
+    });
+
+    harness.hover("Cancel");
+    let explained = harness.shows_containing("stay hidden until Show the rest");
+    harness.click("Cancel");
+    harness.frame();
+    harness.frame();
+
+    assert!(explained);
+    assert!(!harness.model.bodies_pending());
+    assert_eq!(harness.model.bodies_stopped(), Some((0, 2)));
+    assert!(harness.shows(&status_bar::showing_bodies_text(0, 2)));
+    assert!(!harness.shows(&preparing));
+    assert_eq!(harness.workspace.viewport.bodies().iter().count(), 0);
+
+    holds.converts.release();
+    harness.click(status_bar::SHOW_THE_REST);
+    harness.settle();
+
+    assert_eq!(harness.model.bodies_stopped(), None);
+    assert!(!harness.shows(status_bar::SHOW_THE_REST));
+    assert_eq!(harness.workspace.viewport.bodies().iter().count(), 2);
+}

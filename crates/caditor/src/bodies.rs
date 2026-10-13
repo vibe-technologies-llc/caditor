@@ -6,7 +6,7 @@ use std::{
     slice,
     sync::{
         Arc, OnceLock, Weak,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc::{self, Receiver, Sender},
     },
     thread,
@@ -21,7 +21,8 @@ pub use caditor_document::{describe_origin, origin_feature};
 use caditor_geometry::{Aabb, Point3, RigidTransform};
 use caditor_kernel::{
     EdgeId, EdgeName, EdgeReference, FaceId, FaceName, FaceOrigin, FaceReference, FaceTriangles,
-    MassProperties, Mesh, Solid, SolidMass, VertexId, VertexName, extent, mass_properties,
+    Interrupted, MassProperties, MeasureError, Mesh, Solid, SolidMass, VertexId, VertexName,
+    check_interrupt, extent, interruptible, mass_properties,
 };
 use caditor_render::{MeshFace, MeshPoint, MeshSource, ShadedMesh};
 use parking_lot::{Condvar, Mutex};
@@ -160,11 +161,14 @@ pub struct BodyMass {
 }
 
 impl BodyMass {
-    pub fn of(solid: &Solid, mesh: &Mesh) -> Self {
-        Self::with_face_areas(solid, mesh).0
+    pub fn of(solid: &Solid, mesh: &Mesh) -> Result<Self, Interrupted> {
+        Self::with_face_areas(solid, mesh).map(|(mass, _)| mass)
     }
 
-    fn with_face_areas(solid: &Solid, mesh: &Mesh) -> (Self, BTreeMap<FaceId, f64>) {
+    fn with_face_areas(
+        solid: &Solid,
+        mesh: &Mesh,
+    ) -> Result<(Self, BTreeMap<FaceId, f64>), Interrupted> {
         let within = |meshed: &dyn Fn(FaceId) -> bool| MassAccuracy::Mesh {
             chord: mesh.chord(),
             volume_within: mesh.mass_properties_where(meshed).area * mesh.chord(),
@@ -184,6 +188,7 @@ impl BodyMass {
                 let accuracy = within(&|face| meshed.contains(&face));
                 (properties, accuracy, face_areas)
             }
+            Err(MeasureError::Cancelled(interrupted)) => return Err(interrupted),
             Err(error) => {
                 log::warn!("mass properties are taken from the display mesh: {error}");
                 (mesh.mass_properties(), within(&|_| true), BTreeMap::new())
@@ -191,6 +196,7 @@ impl BodyMass {
         };
         let bounds = match extent(solid) {
             Ok(Some(bounds)) => Some(bounds),
+            Err(MeasureError::Cancelled(interrupted)) => return Err(interrupted),
             Ok(None) | Err(_) => {
                 if accuracy == MassAccuracy::Exact {
                     accuracy = within(&|_| false);
@@ -207,7 +213,7 @@ impl BodyMass {
             accuracy,
             size,
         };
-        (mass, face_areas)
+        Ok((mass, face_areas))
     }
 }
 
@@ -218,15 +224,17 @@ pub struct MassReading {
 }
 
 impl MassReading {
-    fn of(source: &FeatureResult) -> Option<Self> {
-        let body = source.solid()?;
-        let (mass, areas) = BodyMass::with_face_areas(&body.solid, body.mesh()?);
+    fn of(source: &FeatureResult) -> Result<Option<Self>, Interrupted> {
+        let Some((body, mesh)) = source.solid().and_then(|body| Some((body, body.mesh()?))) else {
+            return Ok(None);
+        };
+        let (mass, areas) = BodyMass::with_face_areas(&body.solid, mesh)?;
         let keys: BTreeMap<FaceId, FaceKey> = face_keys(&body.solid).into_iter().collect();
         let face_areas = areas
             .into_iter()
             .filter_map(|(face, area)| Some((*keys.get(&face)?, area)))
             .collect();
-        Some(Self { mass, face_areas })
+        Ok(Some(Self { mass, face_areas }))
     }
 }
 
@@ -234,6 +242,7 @@ struct MassSlot {
     source: Arc<FeatureResult>,
     reading: OnceLock<Option<MassReading>>,
     asked: AtomicBool,
+    stopped: Arc<AtomicBool>,
     pool: Weak<Pool>,
 }
 
@@ -264,12 +273,52 @@ impl MassSlot {
     }
 
     fn measure(&self) {
-        let reading = panic::catch_unwind(AssertUnwindSafe(|| MassReading::of(&self.source)))
-            .unwrap_or_else(|_| {
+        if self.reading.get().is_some() {
+            return;
+        }
+        let stopped = Arc::clone(&self.stopped);
+        #[cfg(test)]
+        let hold = self
+            .pool
+            .upgrade()
+            .map(|pool| pool.holds.lock().measures.clone())
+            .unwrap_or_default();
+        let measured = interruptible(Arc::new(move || stopped.load(Ordering::Acquire)), || {
+            panic::catch_unwind(AssertUnwindSafe(|| {
+                #[cfg(test)]
+                hold.wait()?;
+                MassReading::of(&self.source)
+            }))
+        });
+        let reading = match measured {
+            Ok(Ok(reading)) => reading,
+            Ok(Err(Interrupted)) => return,
+            Err(_) => {
                 log::error!("working out a body's mass properties panicked");
                 None
-            });
+            }
+        };
         let _ = self.reading.set(reading);
+    }
+
+    fn is_stopped(&self) -> bool {
+        self.reading.get().is_none() && self.stopped.load(Ordering::Acquire)
+    }
+
+    fn is_pending(&self) -> bool {
+        self.reading.get().is_none() && !self.stopped.load(Ordering::Acquire)
+    }
+
+    fn stop(&self) {
+        if self.reading.get().is_none() {
+            self.stopped.store(true, Ordering::Release);
+        }
+    }
+
+    fn resume(&self) {
+        if self.stopped.swap(false, Ordering::AcqRel) {
+            self.asked.store(false, Ordering::Release);
+        }
     }
 }
 
@@ -356,6 +405,7 @@ impl BodyMesh {
                 source: Arc::clone(source),
                 reading: OnceLock::new(),
                 asked: AtomicBool::new(false),
+                stopped: Arc::default(),
                 pool,
             }),
         }
@@ -363,6 +413,22 @@ impl BodyMesh {
 
     pub fn mass(&self) -> Option<&BodyMass> {
         self.mass.reading().map(|reading| &reading.mass)
+    }
+
+    pub fn mass_pending(&self) -> bool {
+        self.mass.is_pending()
+    }
+
+    pub fn mass_stopped(&self) -> bool {
+        self.mass.is_stopped()
+    }
+
+    pub fn stop_mass(&self) {
+        self.mass.stop();
+    }
+
+    pub fn resume_mass(&self) {
+        self.mass.resume();
     }
 
     pub fn source(&self) -> &Arc<FeatureResult> {
@@ -887,6 +953,36 @@ enum Task {
     Measure(Arc<MassSlot>),
 }
 
+#[cfg(test)]
+#[derive(Debug, Clone, Default)]
+pub struct Hold(Arc<AtomicBool>);
+
+#[cfg(test)]
+impl Hold {
+    pub fn holding() -> Self {
+        Self(Arc::new(AtomicBool::new(true)))
+    }
+
+    pub fn release(&self) {
+        self.0.store(false, Ordering::Release);
+    }
+
+    pub fn wait(&self) -> Result<(), Interrupted> {
+        while self.0.load(Ordering::Acquire) {
+            check_interrupt()?;
+            thread::sleep(Duration::from_millis(1));
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone, Default)]
+pub struct Holds {
+    pub converts: Hold,
+    pub measures: Hold,
+}
+
 enum Done {
     Converted(Conversion),
     Measured,
@@ -894,7 +990,7 @@ enum Done {
 
 #[derive(Default)]
 struct Tasks {
-    converts: VecDeque<Arc<FeatureResult>>,
+    converts: VecDeque<(Arc<FeatureResult>, u64)>,
     measures: VecDeque<Arc<MassSlot>>,
     measuring: usize,
     idle: usize,
@@ -907,12 +1003,17 @@ impl Tasks {
         self.converts.len() + self.measures.len()
     }
 
-    fn take(&mut self) -> Option<Task> {
+    fn take(&mut self) -> Option<Taken> {
         self.converts
             .pop_front()
-            .map(Task::Convert)
-            .or_else(|| self.measures.pop_front().map(Task::Measure))
+            .map(|(source, run)| Taken::Convert(source, run))
+            .or_else(|| self.measures.pop_front().map(Taken::Measure))
     }
+}
+
+enum Taken {
+    Convert(Arc<FeatureResult>, u64),
+    Measure(Arc<MassSlot>),
 }
 
 struct Pool {
@@ -921,6 +1022,9 @@ struct Pool {
     limit: usize,
     done: Sender<Done>,
     wake: Mutex<Waker>,
+    stops: AtomicU64,
+    #[cfg(test)]
+    holds: Mutex<Holds>,
 }
 
 impl Pool {
@@ -931,7 +1035,10 @@ impl Pool {
         }
         let measure = matches!(task, Task::Measure(_));
         match task {
-            Task::Convert(source) => tasks.converts.push_back(source),
+            Task::Convert(source) => {
+                let run = self.stops.load(Ordering::Acquire);
+                tasks.converts.push_back((source, run));
+            }
             Task::Measure(slot) => {
                 tasks.measures.push_back(slot);
                 tasks.measuring += 1;
@@ -982,8 +1089,11 @@ impl Pool {
                 }
             };
             let done = match task {
-                Task::Convert(source) => Done::Converted(convert(source, Arc::downgrade(self))),
-                Task::Measure(slot) => {
+                Taken::Convert(source, run) => match self.convert(source, run) {
+                    Some(conversion) => Done::Converted(conversion),
+                    None => continue,
+                },
+                Taken::Measure(slot) => {
                     slot.measure();
                     Done::Measured
                 }
@@ -993,6 +1103,27 @@ impl Pool {
             }
             (*self.wake.lock())();
         }
+    }
+
+    fn convert(self: &Arc<Self>, source: Arc<FeatureResult>, run: u64) -> Option<Conversion> {
+        let pool = Arc::downgrade(self);
+        let stopped = Arc::new(move || {
+            pool.upgrade()
+                .is_none_or(|pool| pool.stops.load(Ordering::Acquire) != run)
+        });
+        #[cfg(test)]
+        let hold = self.holds.lock().converts.clone();
+        interruptible(stopped, || {
+            #[cfg(test)]
+            hold.wait().ok()?;
+            check_interrupt().ok()?;
+            Some(convert(source, Arc::downgrade(self)))
+        })
+    }
+
+    fn stop_converting(&self) {
+        self.stops.fetch_add(1, Ordering::AcqRel);
+        self.tasks.lock().converts.clear();
     }
 
     fn close(&self) {
@@ -1020,6 +1151,9 @@ impl Converter {
                 limit,
                 done,
                 wake: Mutex::new(wake),
+                stops: AtomicU64::new(0),
+                #[cfg(test)]
+                holds: Mutex::default(),
             }),
             done: received,
         }
@@ -1050,11 +1184,14 @@ fn address(source: &Arc<FeatureResult>) -> usize {
 pub struct BodyMeshing {
     converter: Option<Converter>,
     pending: BTreeMap<usize, Arc<FeatureResult>>,
+    stopped: BTreeMap<usize, Arc<FeatureResult>>,
     held: BTreeMap<usize, Conversion>,
     converted: BTreeMap<usize, Conversion>,
     shown_at: Option<Instant>,
     measured: u64,
     conversions: u64,
+    #[cfg(test)]
+    holds: Holds,
 }
 
 impl BodyMeshing {
@@ -1075,7 +1212,42 @@ impl BodyMeshing {
 
     pub fn preparing(&self) -> Option<(usize, usize)> {
         let waiting = self.pending.len() + self.held.len();
-        (waiting > 0).then(|| (self.converted.len(), self.converted.len() + waiting))
+        (waiting > 0).then(|| {
+            let shown = self.converted.len();
+            (shown, shown + waiting + self.stopped.len())
+        })
+    }
+
+    pub fn stopped(&self) -> Option<(usize, usize)> {
+        let shown = self.converted.len();
+        (!self.stopped.is_empty() && self.preparing().is_none())
+            .then(|| (shown, shown + self.stopped.len()))
+    }
+
+    pub fn stop(&mut self) {
+        if let Some(converter) = &self.converter {
+            converter.pool.stop_converting();
+        }
+        self.stopped.append(&mut self.pending);
+        if !self.held.is_empty() {
+            self.converted.append(&mut self.held);
+            self.conversions = self.conversions.wrapping_add(1);
+        }
+    }
+
+    pub fn resume(&mut self, wake: impl Fn() -> Waker) {
+        let stopped = std::mem::take(&mut self.stopped);
+        for source in stopped.values() {
+            self.request(source, &wake);
+        }
+    }
+
+    #[cfg(test)]
+    pub fn hold(&mut self, holds: &Holds) {
+        self.holds = holds.clone();
+        if let Some(converter) = &self.converter {
+            *converter.pool.holds.lock() = holds.clone();
+        }
     }
 
     pub fn masses_measured(&self) -> u64 {
@@ -1097,12 +1269,20 @@ impl BodyMeshing {
         let meshed = source.solid().is_some_and(|solid| solid.mesh().is_some());
         let at = address(source);
         let known = self.pending.contains_key(&at)
+            || self.stopped.contains_key(&at)
             || self.held.contains_key(&at)
             || self.converted.contains_key(&at);
         if !meshed || known {
             return;
         }
-        let converter = self.converter.get_or_insert_with(|| Converter::new(wake()));
+        #[cfg(test)]
+        let holds = &self.holds;
+        let converter = self.converter.get_or_insert_with(|| {
+            let converter = Converter::new(wake());
+            #[cfg(test)]
+            converter.pool.holds.lock().clone_from(holds);
+            converter
+        });
         if converter.pool.push(Task::Convert(Arc::clone(source))) {
             self.pending.insert(at, Arc::clone(source));
         } else {
@@ -1123,7 +1303,7 @@ impl BodyMeshing {
             match done {
                 Done::Converted(conversion) => {
                     let at = address(&conversion.source);
-                    if self.pending.remove(&at).is_some() {
+                    if self.pending.remove(&at).is_some() || self.stopped.remove(&at).is_some() {
                         self.held.insert(at, conversion);
                     }
                 }
@@ -1150,6 +1330,7 @@ impl BodyMeshing {
 
     pub fn retain(&mut self, keep: impl Fn(&Arc<FeatureResult>) -> bool) {
         self.pending.retain(|_, pending| keep(pending));
+        self.stopped.retain(|_, stopped| keep(stopped));
         self.held.retain(|_, conversion| keep(&conversion.source));
         let before = self.converted.len();
         self.converted

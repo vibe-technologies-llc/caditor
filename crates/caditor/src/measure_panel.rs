@@ -44,6 +44,12 @@ const MASS_SECTION: &str = "measure-mass";
 const STALE_OPACITY: f32 = 0.5;
 const DIRECTION_STEP: f64 = 1e-4;
 const WORKING_OUT_MASS: &str = "Working out this body's mass properties.";
+const STOPPED_MASS: &str = "Stopped before this body's mass properties were worked out.";
+pub const WORKING_OUT_MASSES: &str = "Working out mass properties…";
+const STOP_MASSES_HOVER: &str =
+    "Stop working out mass properties; bodies not done yet are listed without them";
+pub const WORK_OUT_MASSES: &str = "Work them out";
+const WORK_OUT_MASSES_HOVER: &str = "Work out the mass properties that were stopped";
 const NO_DENSITY: &str = "No density set";
 const GRAMS_PER_KILOGRAM: f64 = 1000.0;
 const GRAMS_PER_CUBIC_MILLIMETRE: f64 = 1e-3;
@@ -336,17 +342,22 @@ fn inertia_rows(
 }
 
 fn mass_card(
-    name: String,
+    (name, stopped): (String, bool),
     mass: Option<&BodyMass>,
     unit: LengthUnit,
     substance: &Substance<'_>,
     relative: Relative,
 ) -> Card {
     let Some(mass) = mass else {
+        let note = if stopped {
+            (Tone::Info, STOPPED_MASS.to_owned())
+        } else {
+            (Tone::Neutral, WORKING_OUT_MASS.to_owned())
+        };
         return Card {
             title: name,
             rows: Vec::new(),
-            notes: vec![(Tone::Neutral, WORKING_OUT_MASS.to_owned())],
+            notes: vec![note],
         };
     };
     let (approximate, notes) = match mass.accuracy {
@@ -543,6 +554,9 @@ pub struct Masses {
     pub everything: bool,
     pub bodies: usize,
     offers: Vec<Vec<RowOffer>>,
+    pending: usize,
+    stopped: usize,
+    listed: Vec<FeatureId>,
 }
 
 fn mass_offers(
@@ -604,9 +618,11 @@ pub fn mass_cards(
                 || "A deleted body".to_owned(),
                 |feature| feature.name.clone(),
             );
-            let mass = context.bodies.get(*body).and_then(BodyMesh::mass);
+            let mesh = context.bodies.get(*body);
+            let mass = mesh.and_then(BodyMesh::mass);
+            let stopped = mesh.is_some_and(BodyMesh::mass_stopped);
             let substance = substance_of(*body);
-            let card = mass_card(name, mass, unit, &substance, relative);
+            let card = mass_card((name, stopped), mass, unit, &substance, relative);
             let grams = mass
                 .zip(substance.density.as_ref())
                 .and_then(|(mass, density)| {
@@ -628,13 +644,47 @@ pub fn mass_cards(
                 .map(|mass| (mass, substance_of(*body)))
         })
         .collect();
+    let meshes = || bodies.iter().filter_map(|body| context.bodies.get(*body));
+    let pending = meshes().filter(|mesh| mesh.mass_pending()).count();
+    let stopped = meshes().filter(|mesh| mesh.mass_stopped()).count();
     Masses {
         cards,
         total: parts.and_then(|parts| total_card(&parts, unit, relative)),
         everything,
         bodies: count,
         offers,
+        pending,
+        stopped,
+        listed: bodies,
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MassWork {
+    Stop,
+    Resume,
+}
+
+fn steer_masses(context: &MeasureContext<'_>, masses: &Masses, work: MassWork) {
+    for mesh in masses
+        .listed
+        .iter()
+        .filter_map(|body| context.bodies.get(*body))
+    {
+        match work {
+            MassWork::Stop => mesh.stop_mass(),
+            MassWork::Resume => mesh.resume_mass(),
+        }
+    }
+}
+
+pub fn stopped_masses_text(stopped: usize) -> String {
+    let bodies = if stopped == 1 {
+        "1 body is".to_owned()
+    } else {
+        format!("{stopped} bodies are")
+    };
+    format!("Stopped working out mass properties; {bodies} without them.")
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -682,6 +732,7 @@ pub fn show(
     let frame = tool.relative_to.filter(|_| relative.is_ok());
     let masses = mass_cards(context, relative.clone().unwrap_or(Relative::WORLD), frame);
     let mut chosen = None;
+    let mut mass_work = None;
     let mut relative_to = tool.relative_to;
     let header_actions = |ui: &mut Ui| {
         let everything_text = cards
@@ -721,10 +772,15 @@ pub fn show(
                     chosen = readings(ui, readout, cards, frame);
                 });
             }
-            chosen = mass_section(ui, &masses).or(chosen.take());
+            let (mass_choice, work) = mass_section(ui, &masses);
+            chosen = mass_choice.or(chosen.take());
+            mass_work = work;
         });
     });
     tool.relative_to = relative_to;
+    if let Some(work) = mass_work {
+        steer_masses(context, &masses, work);
+    }
     if panel.closed {
         tool.toggle();
     }
@@ -865,8 +921,9 @@ fn readings(
     chosen
 }
 
-fn mass_section(ui: &mut Ui, masses: &Masses) -> Option<RowChoice> {
+fn mass_section(ui: &mut Ui, masses: &Masses) -> (Option<RowChoice>, Option<MassWork>) {
     let mut chosen = None;
+    let mut work = None;
     widgets::section(
         ui,
         MASS_SECTION,
@@ -876,6 +933,34 @@ fn mass_section(ui: &mut Ui, masses: &Masses) -> Option<RowChoice> {
         |ui| {
             if masses.everything && !masses.cards.is_empty() {
                 ui.label(widgets::muted(ALL_BODIES, ui));
+            }
+            let done = masses
+                .bodies
+                .saturating_sub(masses.pending + masses.stopped);
+            if masses.pending > 0
+                && widgets::progress(WORKING_OUT_MASSES)
+                    .count(done, masses.bodies)
+                    .wrapping()
+                    .cancel(STOP_MASSES_HOVER)
+                    .show(ui)
+            {
+                work = Some(MassWork::Stop);
+            }
+            if masses.stopped > 0 {
+                widgets::callout(ui, Tone::Info, |ui| {
+                    ui.add(
+                        Label::new(stopped_masses_text(masses.stopped))
+                            .wrap_mode(TextWrapMode::Wrap),
+                    );
+                    if ui
+                        .add(widgets::button(WORK_OUT_MASSES))
+                        .on_hover_text(WORK_OUT_MASSES_HOVER)
+                        .clicked()
+                    {
+                        work = Some(MassWork::Resume);
+                    }
+                });
+                ui.add_space(SPACE_S);
             }
             if masses.cards.is_empty() {
                 ui.label(widgets::muted("There are no bodies yet.", ui));
@@ -898,7 +983,7 @@ fn mass_section(ui: &mut Ui, masses: &Masses) -> Option<RowChoice> {
             }
         },
     );
-    chosen
+    (chosen, work)
 }
 
 pub fn show_card(ui: &mut Ui, id: (&str, usize), card: &Card) {
@@ -1091,14 +1176,14 @@ mod tests {
         };
 
         let card = mass_card(
-            "Extrude 1".to_owned(),
+            ("Extrude 1".to_owned(), false),
             Some(&mass),
             LengthUnit::Millimetre,
             &Substance::UNKNOWN,
             Relative::WORLD,
         );
         let waiting = mass_card(
-            "Extrude 2".to_owned(),
+            ("Extrude 2".to_owned(), false),
             None,
             LengthUnit::Millimetre,
             &Substance::UNKNOWN,
@@ -1182,14 +1267,14 @@ mod tests {
         };
 
         let card = mass_card(
-            "Block".to_owned(),
+            ("Block".to_owned(), false),
             Some(&mass),
             LengthUnit::Millimetre,
             &steel,
             Relative::WORLD,
         );
         let refused = mass_card(
-            "Block".to_owned(),
+            ("Block".to_owned(), false),
             Some(&mass),
             LengthUnit::Millimetre,
             &wrong,

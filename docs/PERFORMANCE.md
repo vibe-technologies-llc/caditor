@@ -71,13 +71,12 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   of every drawn sketch to choose the faceting (`scene::drawn_faceting`). Hovered and selected
   entities drawn as a small batch over the kept one would limit a hover to what it lights, once
   lines of equal depth drawn twice are settled.
-- [medium · medium] Long work without a way to stop it shows `widgets::progress` with no Cancel,
-  because its worker has no cancel or interrupt token: face analysis on a large body
-  (`analysis.rs`'s thread), the mass properties Measure asks for (`Model::masses_pending`), the
-  meshing behind "Showing N of M bodies" (`bodies.rs`'s pool) and the upload to the graphics card.
-  Saving, the file dialog wait and the closing waits are not cancellable by design. A token the
-  kernel's `interruptible` already honours, as isocurves and interference use, would give the first
-  three a Cancel.
+- [low · medium] The upload to the graphics card (the status bar's "Loading to the graphics card",
+  `Renderer::is_uploading`) shows `widgets::progress` with no Cancel: it is spread over frames
+  under `MESH_UPLOAD_BYTES_PER_FRAME` in `caditor-render`, which has no way to leave the meshes not
+  yet uploaded out of the scene and take them up again later, as `BodyMeshing::stop` and `resume`
+  do for the meshing before it. Saving, the file dialog wait and the closing waits are not
+  cancellable by design.
 - [medium · hard] A still frame of a large assembly is bound by its draws: on the VZ330 (3,894
   bodies, 15.6 million triangles, 4.8 million edge segments, fitted at 1920×1080, 4x, RX 9070 XT)
   a frame turning a little takes about 22 ms on the GPU (9 without edges, 4 with faces alone,

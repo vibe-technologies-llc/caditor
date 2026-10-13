@@ -320,7 +320,10 @@ impl ShadedMesh {
         self.curved
     }
 
-    pub fn divide(&self, classify: impl Fn([Corner; 3]) -> u8) -> Division {
+    pub fn divide<E>(
+        &self,
+        classify: impl Fn([Corner; 3]) -> Result<u8, E>,
+    ) -> Result<Division, E> {
         let mut pieces: Vec<Piece> = Vec::new();
         let mut piece_of: BTreeMap<(u32, u8), u32> = BTreeMap::new();
         let mut vertices: Vec<GpuVertex> = Vec::new();
@@ -333,7 +336,7 @@ impl ShadedMesh {
             let class = classify([a, b, c].map(|vertex| Corner {
                 position: vertex.position,
                 normal: vertex.normal,
-            }));
+            }))?;
             let source = a.face;
             let piece = match piece_of.get(&(source, class)) {
                 Some(piece) => *piece,
@@ -371,7 +374,7 @@ impl ShadedMesh {
                 indices.push(placed);
             }
         }
-        Division {
+        Ok(Division {
             mesh: Self {
                 origin: self.origin,
                 bounds: self.bounds,
@@ -381,7 +384,7 @@ impl ShadedMesh {
                 closed: self.closed,
             },
             pieces,
-        }
+        })
     }
 }
 
@@ -1555,7 +1558,9 @@ mod tests {
             triangles: vec![[0, 1, 2], [3, 4, 5]],
         }]);
 
-        let division = mesh.divide(|corners| u8::from(corners[0].normal.x > 0.0));
+        let division = mesh
+            .divide(|corners| Ok::<_, ()>(u8::from(corners[0].normal.x > 0.0)))
+            .unwrap();
 
         assert_eq!(mesh.triangle_count(), 2);
         assert_eq!(division.mesh.face_count(), 2);
