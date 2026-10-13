@@ -10,8 +10,8 @@ built to `OUT`, in the format its extension names: `.step` or `.stp`, `.stl`, `.
 `.glb` or `.png`. MODEL may also be a STEP file.
 
 - `--resolution coarse`, `standard` or `fine` sets the mesh quality of STL and 3MF.
-- `--size 1920x1080` sets the size of a PNG, which is drawn like an exported image and needs a
-  graphics adapter.
+- `--size 1920x1080` sets the size of a PNG, which is drawn like an exported image, with the
+  model's [reference images](reference-images), and needs a graphics adapter.
 - `--configuration NAME` exports the model in that [configuration](configurations) instead of
   the active one; the model file is not changed.
 - `--all-configurations` writes every configuration to a file of its own beside `OUT`, named as

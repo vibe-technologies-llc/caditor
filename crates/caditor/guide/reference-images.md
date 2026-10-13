@@ -29,6 +29,26 @@ between the points**. The picture is scaled so the two points lie that far apart
 value, the distance accepts units and expressions, so a [parameter](parameters) can drive it.
 **Calibrate again** picks two new points, and **Size by width** goes back to a width.
 
+While you calibrate, the first point you click stays marked, and once the pointer is over the
+picture a line follows it from that point with its length at the picture's present size, so you
+can see how far off the scale is before you type the real distance.
+
+## Moving, turning and sizing it in the view
+
+With the picture's row open, three handles stand on it in the view:
+
+- The square in its middle moves it on its plane. Drags step to round values and snap to corners,
+  edge middles and round centres under the pointer; hold Ctrl to move freely.
+- The knob on the stem above its top edge turns it about its middle, in steps of 5 degrees, or
+  freely with Ctrl held.
+- The square on its corner sizes it about its middle, keeping its shape. A picture sized by
+  calibration keeps its two points, and its distance scales with it.
+
+Each drag is one change you can undo, and sets the same fields as the panel: Position X and Y,
+Angle, and Width or Distance between the points. A field that follows a [parameter](parameters)
+cannot be dragged; the handle says which parameter drives it. Hover a handle and type to set its
+value exactly, such as an angle over the knob.
+
 ## How it shows
 
 - **Opacity** lets the sketch and the bodies show through the picture.

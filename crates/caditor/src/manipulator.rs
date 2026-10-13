@@ -9,6 +9,7 @@ use crate::{
     field::{self, Expected},
     handle_snap::{Guide, Snap},
     hole_handles::{self, HoleDrag, HoleHandles},
+    image_handles::{self, ImageDrag, ImageHandles},
     model::Model,
     move_manipulator::{self, Handle, HandleSegment, MoveDrag, MoveHandles},
     place_handles::{self, PlaceDrag, PlaceHandles},
@@ -112,6 +113,7 @@ pub enum Manipulator {
     Holes(HoleHandles, Option<ValueHandles>),
     Value(ValueHandles),
     Revolve(TurnHandles, Option<ValueHandles>),
+    Image(ImageHandles),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -121,6 +123,7 @@ enum Primary<'a> {
     Place(&'a PlaceHandles),
     Holes(&'a HoleHandles),
     Revolve(&'a TurnHandles),
+    Image(&'a ImageHandles),
 }
 
 impl Manipulator {
@@ -133,6 +136,9 @@ impl Manipulator {
         let feature = open?;
         if let Some(handles) = MoveHandles::of(model, open, view, pixels_per_point) {
             return Some(Self::Move(handles));
+        }
+        if let Some(handles) = ImageHandles::of(model, feature, view, pixels_per_point) {
+            return Some(Self::Image(handles));
         }
         let values = ValueHandles::of(model, feature, view, pixels_per_point);
         let clear_of = |taken: &[HandleSegment]| {
@@ -162,6 +168,7 @@ impl Manipulator {
             Self::Holes(handles, values) => (Some(Primary::Holes(handles)), values.as_ref()),
             Self::Value(values) => (None, Some(values)),
             Self::Revolve(handles, values) => (Some(Primary::Revolve(handles)), values.as_ref()),
+            Self::Image(handles) => (Some(Primary::Image(handles)), None),
         }
     }
 
@@ -173,6 +180,7 @@ impl Manipulator {
             Self::Holes(handles, _) => handles.feature,
             Self::Value(handles) => handles.feature,
             Self::Revolve(handles, _) => handles.feature,
+            Self::Image(handles) => handles.feature,
         }
     }
 
@@ -184,6 +192,7 @@ impl Manipulator {
             (Some(Primary::Place(handles)), _) => handles.step(),
             (Some(Primary::Holes(handles)), _) => handles.step(),
             (Some(Primary::Revolve(handles)), _) => handles.step(),
+            (Some(Primary::Image(handles)), _) => handles.step(),
             (None, Some(values)) => values.step(),
             (None, None) => 1.0,
         }
@@ -199,6 +208,7 @@ impl Manipulator {
                 Primary::Place(handles) => handles.hit(view, cursor, pixels_per_point),
                 Primary::Holes(handles) => handles.hit(view, cursor, pixels_per_point),
                 Primary::Revolve(handles) => handles.hit(view, cursor, pixels_per_point),
+                Primary::Image(handles) => handles.hit(view, cursor, pixels_per_point),
             })
     }
 
@@ -214,6 +224,7 @@ impl Manipulator {
             Primary::Place(handles) => handles.grip(handle, along),
             Primary::Holes(handles) => handles.grip(handle, along),
             Primary::Revolve(handles) => handles.grip_at(handle, along),
+            Primary::Image(handles) => handles.grip(handle, along),
         }
     }
 
@@ -226,7 +237,7 @@ impl Manipulator {
         match primary? {
             Primary::Reach(handles) => handles.foot(handle),
             Primary::Revolve(handles) => handles.foot(handle),
-            Primary::Move(_) | Primary::Place(_) | Primary::Holes(_) => None,
+            Primary::Move(_) | Primary::Place(_) | Primary::Holes(_) | Primary::Image(_) => None,
         }
     }
 
@@ -241,6 +252,7 @@ impl Manipulator {
             Primary::Place(handles) => handles.driven(model, handle),
             Primary::Holes(handles) => handles.driven(model, handle),
             Primary::Revolve(handles) => handles.driven(model, handle),
+            Primary::Image(handles) => handles.driven(model, handle),
         }
     }
 
@@ -284,6 +296,7 @@ impl Manipulator {
                 let (label, rules) = handles.typing(grip)?;
                 (label, Dimension::LENGTH, rules)
             }
+            (Handle::Image(grip), Some(Primary::Image(handles))) => handles.typing(grip),
             (_, Some(Primary::Move(_))) => {
                 let (label, dimension, count) = move_manipulator::typing(handle)?;
                 (label, dimension, vec![Rule::Any; count])
@@ -378,6 +391,7 @@ impl Typing {
             }
             Handle::Place(grip) => place_handles::typed(model, feature, grip, &values),
             Handle::Hole(grip) => hole_handles::typed(model, feature, grip, &values),
+            Handle::Image(grip) => image_handles::typed(model, feature, grip, &values),
             Handle::Along(_) | Handle::Across(_) | Handle::Turn(_) | Handle::TurnAbout => {
                 move_manipulator::typed(model, feature, self.handle, &values)
             }
@@ -403,6 +417,7 @@ impl Drawn {
             Some(Primary::Place(handles)) => handles.add_to(batch, palette, highlighted),
             Some(Primary::Holes(handles)) => handles.add_to(batch, palette, highlighted),
             Some(Primary::Revolve(handles)) => handles.add_to(batch, palette, highlighted),
+            Some(Primary::Image(handles)) => handles.add_to(batch, palette, highlighted),
             None => {}
         }
         if let Some(values) = values {
@@ -419,6 +434,7 @@ enum Drag {
     Hole(HoleDrag),
     Value(Box<ValueDrag>),
     Revolve(TurnDrag),
+    Image(ImageDrag),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -458,6 +474,9 @@ impl Manipulating {
             (Some(Primary::Revolve(handles)), Handle::Revolve(end)) => {
                 Drag::Revolve(TurnDrag::begin(model, handles, end, ray)?)
             }
+            (Some(Primary::Image(handles)), Handle::Image(grip)) => {
+                Drag::Image(ImageDrag::begin(model, handles, grip, ray)?)
+            }
             _ => return None,
         };
         Some(Self {
@@ -472,7 +491,7 @@ impl Manipulating {
             Drag::Move(drag) => drag.guide(),
             Drag::Reach(drag) => drag.guide(),
             Drag::Value(drag) => drag.guide(),
-            Drag::Place(_) | Drag::Hole(_) | Drag::Revolve(_) => Guide::Points,
+            Drag::Place(_) | Drag::Hole(_) | Drag::Revolve(_) | Drag::Image(_) => Guide::Points,
         }
     }
 
@@ -484,6 +503,7 @@ impl Manipulating {
             Drag::Hole(drag) => drag.follow(ray, free, snap),
             Drag::Value(drag) => drag.follow(ray, free, snap),
             Drag::Revolve(drag) => drag.follow(ray, free, snap),
+            Drag::Image(drag) => drag.follow(ray, free, snap),
         }
     }
 
@@ -495,6 +515,7 @@ impl Manipulating {
             Drag::Hole(drag) => drag.has_moved(),
             Drag::Value(drag) => drag.has_moved(),
             Drag::Revolve(drag) => drag.has_moved(),
+            Drag::Image(drag) => drag.has_moved(),
         }
     }
 
@@ -506,6 +527,7 @@ impl Manipulating {
             Drag::Hole(drag) => drag.transaction(model, self.feature),
             Drag::Value(drag) => drag.transaction(model, self.feature),
             Drag::Revolve(drag) => drag.transaction(model, self.feature),
+            Drag::Image(drag) => drag.transaction(model, self.feature),
         }
     }
 
@@ -517,6 +539,7 @@ impl Manipulating {
             Drag::Hole(drag) => drag.readout(units),
             Drag::Value(drag) => drag.readout(units),
             Drag::Revolve(drag) => drag.readout(units),
+            Drag::Image(drag) => drag.readout(units),
         }
     }
 }

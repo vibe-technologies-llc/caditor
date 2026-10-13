@@ -42,7 +42,8 @@ use crate::{
     feature_tree,
     gearing::GearSettings,
     handle_snap::{self, Guide, Snap},
-    hole_placement, hole_tools, image_tools,
+    hole_placement, hole_tools,
+    image_tools::{self, CalibrationGuide},
     interference_panel::{Mark, MarkKind},
     isocurves::IsocurveDrawing,
     look_at::{self, LookTarget},
@@ -382,6 +383,7 @@ pub struct ViewportState {
     fit_when_computed: bool,
     scene_bounds: Option<Aabb>,
     measured: Option<(MeasuredLine, String)>,
+    calibration: Option<CalibrationGuide>,
     problems: Vec<Problem>,
     kept: Vec<measurement_tools::Shown>,
     interference: Vec<Mark>,
@@ -659,6 +661,7 @@ impl ViewportState {
             fit_when_computed: false,
             scene_bounds: None,
             measured: None,
+            calibration: None,
             problems: Vec::new(),
             kept: Vec::new(),
             interference: Vec::new(),
@@ -1458,6 +1461,11 @@ impl ViewportState {
             .set_grid(self.grid.map(scene_palette::grid_colour));
         self.problems = problems(model);
         self.kept = measurement_tools::shown(model);
+        let pointer_ray = self
+            .cursor
+            .zip(view.as_ref())
+            .and_then(|(cursor, view)| view.ray_through(cursor));
+        self.calibration = image_tools::calibration_guide(model, editing, pointer_ray);
         self.scenes.show(Overlay {
             contrast: self.contrast,
             canvas: self.canvas,
@@ -1470,6 +1478,7 @@ impl ViewportState {
                 self.body_preview(editing),
             ],
             measured: self.measured.as_ref().map(|(line, _)| [line.from, line.to]),
+            calibration: self.calibration.clone(),
             problems: self.problems.iter().map(|problem| problem.place).collect(),
             kept: self.kept.iter().filter_map(|kept| kept.line).collect(),
             interference: self.interference.clone(),
@@ -1660,6 +1669,7 @@ impl ViewportState {
             &meshes,
             size,
             Canvas::default(),
+            Some(model.pictures()),
         );
         ImageView {
             view: snapshot.view,
@@ -1732,6 +1742,11 @@ impl ViewportState {
     pub fn screen_position(&self, plane: Plane, point: Point2) -> Option<egui::Pos2> {
         let pixel = self.view()?.project(plane.to_world(point))? / f64::from(self.pixels_per_point);
         Some(self.rect?.min + egui::Vec2::new(pixel.x as f32, pixel.y as f32))
+    }
+
+    #[cfg(test)]
+    pub fn calibration(&self) -> Option<&CalibrationGuide> {
+        self.calibration.as_ref()
     }
 
     #[cfg(test)]
@@ -5210,6 +5225,26 @@ impl ViewportState {
                     canvas::chrome(painter.ctx()).measure,
                 );
                 canvas::announce(ui, shown, "measure", label, None);
+            }
+        }
+        if let Some(guide) = &self.calibration
+            && let Some(to) = guide.to
+            && let Some(label) = &guide.label
+            && let Some(view) = self.view()
+            && let Some(pixel) = view.project(guide.from.midpoint(to))
+        {
+            let position =
+                rect.min + egui::Vec2::new(pixel.x as f32, pixel.y as f32) / self.pixels_per_point;
+            if rect.contains(position) {
+                let shown = canvas::label(
+                    painter,
+                    position + vec2(0.0, -MEASURE_LABEL_LIFT),
+                    Align2::CENTER_BOTTOM,
+                    label,
+                    canvas::body(),
+                    canvas::chrome(painter.ctx()).measure,
+                );
+                canvas::announce(ui, shown, "calibration", label, None);
             }
         }
         if let Some(view) = self.view() {

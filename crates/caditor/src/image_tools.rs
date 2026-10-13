@@ -5,7 +5,7 @@ use caditor_document::{
     FeatureResult, ImagePlane, ImageSize, ImageSpot, Picture, PlacedImage, PlaneReference,
     PrincipalPlane, ReferenceImage, Transaction,
 };
-use caditor_geometry::{Point2, Ray};
+use caditor_geometry::{Point2, Point3, Ray};
 
 use crate::{
     datum_tools,
@@ -13,6 +13,7 @@ use crate::{
     field,
     model::{Action, Model, Notice},
     primitive_tools,
+    reference_picking::Slot,
     selection::{Pickable, Selection},
     solid_tools,
 };
@@ -280,4 +281,32 @@ pub fn calibration_prompt(editing_first: bool) -> &'static str {
     } else {
         "Click a first point on the picture, at one end of a length you know"
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CalibrationGuide {
+    pub from: Point3,
+    pub to: Option<Point3>,
+    pub label: Option<String>,
+}
+
+pub fn calibration_guide(
+    model: &Model,
+    editing: &SketchEditing,
+    ray: Option<Ray>,
+) -> Option<CalibrationGuide> {
+    let picking = editing
+        .picking()
+        .filter(|picking| picking.slot == Slot::ImageCalibration)?;
+    let first = editing.calibration_from()?;
+    let evaluation = model
+        .draft_evaluation_of(picking.feature)
+        .unwrap_or_else(|| model.evaluation());
+    let placed = placed(evaluation, picking.feature)?;
+    let from = placed.point_at(first);
+    let to = ray
+        .and_then(|ray| spot_under(&placed, ray).ok())
+        .map(|spot| placed.point_at(spot));
+    let label = to.map(|to| model.units().length.measured_length((to - from).length()));
+    Some(CalibrationGuide { from, to, label })
 }

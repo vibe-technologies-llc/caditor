@@ -19,6 +19,7 @@ pub const CALIBRATE: &str = "Calibrate by two points";
 pub const CALIBRATE_AGAIN: &str = "Calibrate again";
 pub const USE_WIDTH: &str = "Size by width";
 pub const WIDTH: &str = "Width";
+pub const ANGLE: &str = "Angle";
 pub const DISTANCE: &str = "Distance between the points";
 pub const FLIP: &str = "Flip left to right";
 pub const LOCKED: &str = "Locked, so clicks pass through to sketching";
@@ -196,7 +197,7 @@ impl Panel<'_> {
         let image = self.image.clone();
         self.value_row(
             ui,
-            "Angle",
+            ANGLE,
             ("turn", &self.image.turn),
             (Dimension::ANGLE, Rule::Any),
             move |turn| ReferenceImage {

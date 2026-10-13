@@ -14,6 +14,7 @@ use crate::{
     display_style::DisplayStyle,
     editing::Context,
     faceting::FacetLevel,
+    image_textures::ImageTextures,
     model::Waker,
     saved_views,
     scene::{self, Highlight, SketchShapes, Sources},
@@ -42,13 +43,16 @@ pub enum Unmeshed {
 }
 
 pub fn take(document: &Document, evaluation: &Evaluation, size: SurfaceSize) -> Result<Snapshot> {
-    Ok(take_unless(
+    let pictures = ImageTextures::decoded_for(document);
+    let meshes = meshed(evaluation, &CancelToken::never())?;
+    Ok(of_bodies(
         document,
         evaluation,
+        &meshes,
         size,
         Canvas::default(),
-        &CancelToken::never(),
-    )?)
+        Some(&pictures),
+    ))
 }
 
 pub fn take_unless(
@@ -59,7 +63,7 @@ pub fn take_unless(
     cancel: &CancelToken,
 ) -> Result<Snapshot, Unmeshed> {
     let meshes = meshed(evaluation, cancel)?;
-    Ok(of_bodies(document, evaluation, &meshes, size, canvas))
+    Ok(of_bodies(document, evaluation, &meshes, size, canvas, None))
 }
 
 pub fn of_bodies(
@@ -68,6 +72,7 @@ pub fn of_bodies(
     meshes: &BodyMeshes,
     size: SurfaceSize,
     canvas: Canvas,
+    pictures: Option<&ImageTextures>,
 ) -> Snapshot {
     let sketches = DisplayedSketches::default();
     let sources = Sources {
@@ -81,7 +86,7 @@ pub fn of_bodies(
         contrast: Contrast::default(),
         canvas,
         draft: None,
-        pictures: None,
+        pictures,
     };
     let (width, height) = (f64::from(size.width), f64::from(size.height));
 
@@ -169,7 +174,7 @@ mod tests {
         };
 
         for canvas in Canvas::ALL {
-            let snapshot = of_bodies(&document, &evaluation, &meshes, size, canvas);
+            let snapshot = of_bodies(&document, &evaluation, &meshes, size, canvas, None);
             let origin = Contrast::Standard.palette(canvas).origin;
             let other = Contrast::Standard
                 .palette(if canvas.is_dark() {

@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use caditor_document::{FeatureId, FeatureKind, ImageSize, ImageSpot, ReferenceImage};
-use caditor_geometry::Point2;
+use caditor_geometry::{Point2, Point3};
 use egui::{Id, Key, Modifiers, Pos2};
 use tempfile::TempDir;
 
@@ -34,7 +34,7 @@ pub(super) fn write_drawing_photo(path: &Path) {
     writer.write_image_data(&pixels).unwrap();
 }
 
-fn write_photo(path: &Path) {
+pub(super) fn write_photo(path: &Path) {
     let file = std::fs::File::create(path).unwrap();
     let mut encoder = png::Encoder::new(file, PICTURE_WIDTH, PICTURE_HEIGHT);
     encoder.set_color(png::ColorType::Rgba);
@@ -49,14 +49,14 @@ fn write_photo(path: &Path) {
     writer.write_image_data(&pixels).unwrap();
 }
 
-fn image_of(harness: &Harness, feature: FeatureId) -> ReferenceImage {
+pub(super) fn image_of(harness: &Harness, feature: FeatureId) -> ReferenceImage {
     match &harness.document().feature(feature).unwrap().kind {
         FeatureKind::ReferenceImage(image) => image.as_ref().clone(),
         _ => panic!("not a reference image"),
     }
 }
 
-fn spot_on_screen(harness: &Harness, feature: FeatureId, spot: ImageSpot) -> Pos2 {
+pub(super) fn spot_on_screen(harness: &Harness, feature: FeatureId, spot: ImageSpot) -> Pos2 {
     let placed = image_tools::placed(harness.model.evaluation(), feature).unwrap();
     let plane = placed.plane().unwrap();
     let local = plane.to_local(placed.point_at(spot));
@@ -67,7 +67,7 @@ fn spot_on_screen(harness: &Harness, feature: FeatureId, spot: ImageSpot) -> Pos
         .expect("the spot is in view")
 }
 
-fn insert(harness: &mut Harness, path: &Path) -> FeatureId {
+pub(super) fn insert(harness: &mut Harness, path: &Path) -> FeatureId {
     harness.select([]);
     harness.answer_dialog(Some(path.to_path_buf()));
     run_from_palette(harness, "Insert reference image");
@@ -287,4 +287,118 @@ fn a_picture_inserted_while_sketching_lies_on_the_sketch_and_drawing_goes_on_ove
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
     assert_eq!(entities_of_kind(harness.sketch(sketch), "Line").len(), 1);
+}
+
+fn marked_at(harness: &mut Harness, point: Point3) -> bool {
+    harness.built().scene.batches.iter().any(|batch| {
+        batch
+            .markers
+            .iter()
+            .any(|marker| (marker.position - point).length() < 1e-6 && marker.diameter > 12.0)
+    })
+}
+
+fn banded_from(harness: &mut Harness, start: Point3) -> Option<Point3> {
+    harness
+        .built()
+        .scene
+        .batches
+        .iter()
+        .flat_map(|batch| batch.lines.iter())
+        .find(|line| (line.start - start).length() < 1e-6 && line.color == calibration_colour())
+        .map(|line| line.end)
+}
+
+fn calibration_colour() -> caditor_render::Color {
+    crate::scene_palette::Contrast::Standard
+        .palette(crate::scene_palette::Canvas::default())
+        .measured
+}
+
+#[test]
+fn calibrating_marks_the_first_point_and_a_band_with_its_length_follows_the_pointer_until_the_second()
+ {
+    let dir = TempDir::new().unwrap();
+    let photo = dir.path().join("photo.png");
+    write_photo(&photo);
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    let image = insert(&mut harness, &photo);
+    let placed = image_tools::placed(harness.model.evaluation(), image).unwrap();
+    let from = ImageSpot::new(0.25, 0.5);
+    let to = ImageSpot::new(0.75, 0.5);
+    let start = placed.point_at(from);
+
+    harness.click(image_panel::CALIBRATE);
+    harness.frame();
+    assert!(harness.workspace.viewport.calibration().is_none());
+    assert!(!marked_at(&mut harness, start));
+    assert!(banded_from(&mut harness, start).is_none());
+
+    harness.click_screen(spot_on_screen(&harness, image, from));
+    harness.frame();
+    let guide = harness.workspace.viewport.calibration().cloned().unwrap();
+    assert!((guide.from - start).length() < 1.0);
+    let start = guide.from;
+    assert!(marked_at(&mut harness, start));
+
+    let ahead = spot_on_screen(&harness, image, to);
+    harness.events.push(egui::Event::PointerMoved(ahead));
+    harness.frame();
+    harness.frame();
+    let guide = harness.workspace.viewport.calibration().cloned().unwrap();
+    let end = guide.to.unwrap();
+    let label = guide.label.clone().unwrap();
+    assert!((end - placed.point_at(to)).length() < 1.0, "{end:?}");
+    assert_eq!(
+        label,
+        harness
+            .model
+            .units()
+            .length
+            .measured_length((end - start).length())
+    );
+    assert!((end - start).length() > 49.0);
+    assert!(harness.shows(&label));
+    let banded = banded_from(&mut harness, start).unwrap();
+    assert!((banded - end).length() < 1e-6);
+
+    let beside = harness.workspace.viewport.rect().unwrap().min + egui::vec2(4.0, 4.0);
+    harness.events.push(egui::Event::PointerMoved(beside));
+    harness.frame();
+    harness.frame();
+    let guide = harness.workspace.viewport.calibration().cloned().unwrap();
+    assert!(guide.to.is_none() && guide.label.is_none());
+    assert!(banded_from(&mut harness, start).is_none());
+    assert!(marked_at(&mut harness, start));
+
+    harness.click_screen(ahead);
+    harness.frame();
+    harness.settle();
+    assert!(harness.workspace.viewport.calibration().is_none());
+    assert!(!marked_at(&mut harness, start));
+    assert!(image_of(&harness, image).size.calibration().is_some());
+}
+
+#[test]
+fn the_thumbnail_of_an_exported_model_holds_its_pictures() {
+    let dir = TempDir::new().unwrap();
+    let photo = dir.path().join("photo.png");
+    write_photo(&photo);
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    let image = insert(&mut harness, &photo);
+    let size = caditor_render::SurfaceSize {
+        width: 256,
+        height: 160,
+    };
+
+    let thumbnail = harness
+        .workspace
+        .viewport
+        .thumbnail(&harness.model, &[], size);
+
+    assert_eq!(thumbnail.scene.pictures.len(), 1);
+    let drawn = &thumbnail.scene.pictures[0];
+    let placed = image_tools::placed(harness.model.evaluation(), image).unwrap();
+    assert_eq!(drawn.corners, placed.corners());
+    assert!((drawn.alpha - 0.6).abs() < 1e-6);
 }

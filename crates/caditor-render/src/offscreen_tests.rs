@@ -3516,6 +3516,58 @@ fn offscreen_renderer() -> Option<crate::OffscreenRenderer> {
 }
 
 #[test]
+fn a_window_less_renderer_draws_a_scene_s_pictures_behind_bodies_or_in_front_of_them() {
+    let Some(mut renderer) = offscreen_renderer() else {
+        return;
+    };
+    let size = SurfaceSize {
+        width: 300,
+        height: 180,
+    };
+    let scene_with = |picture: ScenePicture| Scene {
+        meshes: vec![MeshInstance {
+            mesh: Arc::new(box_mesh(10.0)),
+            faces: vec![
+                FaceStyle {
+                    color: Color::from_rgb8(40, 200, 40),
+                    pick: None,
+                    finish: None,
+                };
+                6
+            ]
+            .into(),
+            placement: None,
+        }],
+        pictures: vec![picture],
+        ..Scene::default()
+    };
+    let view = looking_down(150.0, f64::from(size.width), f64::from(size.height));
+    let on_the_box = view.project(Point3::new(0.0, 0.0, 10.0)).unwrap();
+    let beside_the_box = view.project(Point3::new(20.0, -20.0, 0.0)).unwrap();
+    let mut drawn = |in_front: bool| {
+        renderer
+            .render(&ImageRequest {
+                size,
+                view: &view,
+                scene: &scene_with(blue_picture(0.0, in_front, None)),
+                pixels_per_point: 1.0,
+                background: Background::Viewport,
+            })
+            .unwrap()
+            .into_image()
+            .unwrap()
+    };
+
+    let behind = drawn(false);
+    let over = drawn(true);
+
+    assert!(is_blue(image_pixel(&behind, beside_the_box)));
+    assert!(!is_blue(image_pixel(&behind, on_the_box)));
+    assert!(is_blue(image_pixel(&over, beside_the_box)));
+    assert!(is_blue(image_pixel(&over, on_the_box)));
+}
+
+#[test]
 fn lines_in_an_exported_image_widen_with_its_pixels_per_point() {
     let Some((device, queue)) = gpu() else {
         return;

@@ -78,6 +78,7 @@ mod hole_tools;
 mod icon_font;
 mod icons;
 mod image_export;
+mod image_handles;
 mod image_panel;
 mod image_textures;
 mod image_tools;
