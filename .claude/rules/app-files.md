@@ -463,7 +463,12 @@ paths:
   `sketch.escape_finishes`, the starting states `sketch.glyphs`, `sketch.snapping`,
   `sketch.grid_snapping`, `sketch.typed_dimensions` and `model.dimensions`
   (`StartingToggles`, set on the viewport at startup and again when one of them changes, the
-  toggles staying session state), `files.startup` (`empty`, `last`), `files.recent_listed` (`3`,
+  toggles staying session state), one flag per kind of constraint drawing infers
+  (`sketch.infer.horizontal`, `vertical`, `parallel`, `perpendicular`, `tangent`, `coincident`,
+  `on_curve`, `midpoint`, `centre`, `intersection`, `quadrant`, `tracks`: `Inference`,
+  `Sketching::inferred`, each on unless stored off, so a file without them and a kind added later
+  start on; Preferences › Sketching › Constraints drawing infers, a resettable section handed to the
+  viewport every frame, `app-sketching.md`), `files.startup` (`empty`, `last`), `files.recent_listed` (`3`,
   `5`, `10`), `tree.double_click` (`edit`, `rename`), `modelling.new_bodies` (`one_body`,
   `body_each`: `NewBodies`, shown in the Feature tree section as New bodies from separate pieces,
   handed to `Model::set_new_body_pieces` by `apply_preferences`; whether a new extrusion, revolve or

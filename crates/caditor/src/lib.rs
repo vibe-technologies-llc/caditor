@@ -87,6 +87,7 @@ mod image_tools;
 mod import;
 mod import_options;
 mod import_panel;
+mod inference;
 mod interference;
 mod interference_panel;
 mod isocurve_panel;
