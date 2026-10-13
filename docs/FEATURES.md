@@ -279,13 +279,8 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   the user's approval of each client, a status pill naming the connected client with a Disconnect,
   its changes landing in the user's undo history interleaved with their own, and its tool calls
   queued like `queued.rs` actions while the model recomputes, never blocking the UI thread.
-- [low · easy] The version preview (history card) draws bodies only: a model's reference images
-  are left out of its picture, though image export, the window's 3MF thumbnail and the headless
-  PNG and 3MF thumbnail now show them. `version_preview::prepare` would hand `snapshot::take_unless`
-  the pictures decoded on its own thread (`ImageTextures::decoded_for`), under its cancel token.
-- [low · medium] Preferences still lack settings other CAD programs offer: following the
-  system's reduce-motion setting (winit reports none; View changes › No motion does it by hand)
-  and turning off the constraints drawing infers kind by kind (snapping is all or nothing).
+- [low · medium] Preferences still lack following the system's reduce-motion setting (winit
+  reports none; View changes › No motion does it by hand).
 - [low · medium] A copy from another model keeps none of its references outside the copied set. A
   sketch's section projection of a copied body is still left out, its edge being named by the
   sketch's own cut (`section.rs`), and a corner picked on a body outside the copy is not followed

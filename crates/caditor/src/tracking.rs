@@ -3,6 +3,7 @@ use caditor_sketch::{Constraint, Entity, EntityId, Sketch};
 
 use crate::{
     body_snap::BodySnaps,
+    inference::Inferences,
     snap::{
         self, Accept, AxisEnd, Held, Hold, Lookup, NOT_KEPT_THERE, ON_THE_GRID, Pointer, Screen,
         Snapped, Target,
@@ -537,6 +538,7 @@ pub fn land(
             extended: acquired.lines(),
             ignored,
             bodies,
+            inferred: Inferences::default(),
         };
         return land_held(sketch, screen, pointer, lookup, hold);
     }
@@ -562,12 +564,12 @@ fn onto_body(
     match landing {
         Some(landing) if landing.target.is_some_and(Target::is_point_like) => Some(landing),
         Some(landing) => bodies
-            .point(screen, pointer, Accept::Anything)
+            .point(screen, pointer, Accept::Anything, Inferences::default())
             .map(on_body)
             .or(Some(landing)),
         None => bodies
-            .point(screen, pointer, Accept::Anything)
-            .or_else(|| bodies.edge(screen, pointer, Accept::Anything))
+            .point(screen, pointer, Accept::Anything, Inferences::default())
+            .or_else(|| bodies.edge(screen, pointer, Accept::Anything, Inferences::default()))
             .map(on_body),
     }
 }

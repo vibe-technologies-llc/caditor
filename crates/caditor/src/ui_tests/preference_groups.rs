@@ -7,7 +7,7 @@ use egui::{Event, Id, Key, Modifiers, PointerButton, Pos2, accesskit::Role, vec2
 use tempfile::TempDir;
 
 use super::{
-    CAMERA_SETTLE, Harness, canonical, edit_base_sketch, extruded_plate, rectangle,
+    CAMERA_SETTLE, Harness, Wheel, canonical, edit_base_sketch, extruded_plate, rectangle,
     sample_document, scroll_in_view, viewport_centre,
 };
 use crate::{
@@ -225,6 +225,8 @@ fn sketching_preferences_keep_the_view_keep_the_sketch_on_escape_set_the_toggles
     harness.click("Finishes the sketch when nothing is left to cancel");
     harness.click("Show constraint glyphs");
     harness.click("Snap to the grid");
+    let over = harness.position_of("Show constraint glyphs");
+    harness.wheel_until_shown(over, "Show dimensions on the model", Wheel::Down);
     harness.click("Show dimensions on the model");
     close_preferences(&mut harness);
 

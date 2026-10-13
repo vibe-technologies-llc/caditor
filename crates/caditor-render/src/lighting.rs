@@ -9,6 +9,7 @@ use crate::{
 pub const SHADOW_MAP_SIDE: u32 = 2048;
 const SHADOW_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 const BOUNCE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
+const LIT_DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R32Uint;
 const BOUNCE_REACH: f64 = 0.12;
 const NEAREST_BOUNCE_SHARE: f64 = 0.01;
 const BOUNCE_SAMPLES: f64 = 24.0;
@@ -322,6 +323,7 @@ struct LightTargets {
     depth: wgpu::TextureView,
     albedo: wgpu::TextureView,
     normals: wgpu::TextureView,
+    lit_depth: wgpu::TextureView,
 }
 
 impl LightTargets {
@@ -330,6 +332,7 @@ impl LightTargets {
             depth: light_texture(device, "shadow map", side, SHADOW_FORMAT),
             albedo: light_texture(device, "lit albedo", side, BOUNCE_FORMAT),
             normals: light_texture(device, "lit normals", side, BOUNCE_FORMAT),
+            lit_depth: light_texture(device, "lit depth", side, LIT_DEPTH_FORMAT),
         }
     }
 }
@@ -361,8 +364,9 @@ impl LightPass {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Comparison),
                     count: None,
                 },
-                bounce_entry(2),
-                bounce_entry(3),
+                bounce_entry(2, wgpu::TextureSampleType::Float { filterable: false }),
+                bounce_entry(3, wgpu::TextureSampleType::Float { filterable: false }),
+                bounce_entry(4, wgpu::TextureSampleType::Uint),
             ],
         });
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -457,6 +461,7 @@ impl LightPass {
             color_attachments: &[
                 cleared(&made.targets.albedo),
                 cleared(&made.targets.normals),
+                cleared(&made.targets.lit_depth),
             ],
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                 view: &made.targets.depth,
@@ -471,12 +476,12 @@ impl LightPass {
     }
 }
 
-fn bounce_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
+fn bounce_entry(binding: u32, sample_type: wgpu::TextureSampleType) -> wgpu::BindGroupLayoutEntry {
     wgpu::BindGroupLayoutEntry {
         binding,
         visibility: wgpu::ShaderStages::FRAGMENT,
         ty: wgpu::BindingType::Texture {
-            sample_type: wgpu::TextureSampleType::Float { filterable: false },
+            sample_type,
             view_dimension: wgpu::TextureViewDimension::D2,
             multisampled: false,
         },
@@ -534,6 +539,10 @@ fn bind_group(
                 binding: 3,
                 resource: wgpu::BindingResource::TextureView(&targets.normals),
             },
+            wgpu::BindGroupEntry {
+                binding: 4,
+                resource: wgpu::BindingResource::TextureView(&targets.lit_depth),
+            },
         ],
     })
 }
@@ -569,6 +578,7 @@ pub(crate) fn shadow_pipeline(
             targets: &[
                 Some(wgpu::ColorTargetState::from(BOUNCE_FORMAT)),
                 Some(wgpu::ColorTargetState::from(BOUNCE_FORMAT)),
+                Some(wgpu::ColorTargetState::from(LIT_DEPTH_FORMAT)),
             ],
         }),
         multiview_mask: None,

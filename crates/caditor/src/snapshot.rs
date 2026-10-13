@@ -60,10 +60,18 @@ pub fn take_unless(
     evaluation: &Evaluation,
     size: SurfaceSize,
     canvas: Canvas,
+    pictures: &ImageTextures,
     cancel: &CancelToken,
 ) -> Result<Snapshot, Unmeshed> {
     let meshes = meshed(evaluation, cancel)?;
-    Ok(of_bodies(document, evaluation, &meshes, size, canvas, None))
+    Ok(of_bodies(
+        document,
+        evaluation,
+        &meshes,
+        size,
+        canvas,
+        Some(pictures),
+    ))
 }
 
 pub fn of_bodies(

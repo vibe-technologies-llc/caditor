@@ -22,6 +22,7 @@ use crate::{
     appearance,
     history::{self, HistoryCommand},
     image_export::ReadPixels,
+    image_textures::ImageTextures,
     scene_palette::Canvas,
     snapshot::{self, Snapshot, Unmeshed},
     widgets::{self, Tone},
@@ -290,7 +291,16 @@ pub fn prepare(
         Ok(None)
     } else {
         progress.set(Stage::Meshing);
-        match snapshot::take_unless(&loaded.document, &evaluation, PICTURE_SIZE, canvas, cancel) {
+        let pictures = ImageTextures::decoded_for(&loaded.document);
+        let taken = snapshot::take_unless(
+            &loaded.document,
+            &evaluation,
+            PICTURE_SIZE,
+            canvas,
+            &pictures,
+            cancel,
+        );
+        match taken {
             Ok(snapshot) => Ok(Some(snapshot)),
             Err(Unmeshed::Cancelled) => return Err(PreviewFailure::Cancelled),
             Err(unmeshed) => Err(PictureFailure::Unmeshed(unmeshed)),
@@ -594,7 +604,10 @@ fn texture(ui: &Ui, image: &Arc<ColorImage>, ticket: u64) -> TextureHandle {
 
 #[cfg(test)]
 mod tests {
-    use caditor_document::{Edit, Transaction};
+    use caditor_document::{
+        Edit, FeatureKind, ImagePlane, ImageSize, PlaneReference, PrincipalPlane, ReferenceImage,
+        Transaction,
+    };
 
     use super::*;
     use crate::samples::Sample;
@@ -724,5 +737,62 @@ mod tests {
             ),
             Err(PreviewFailure::Unreadable(LoadError::VersionUnavailable))
         ));
+    }
+
+    #[test]
+    fn the_picture_of_a_version_holds_the_reference_images_of_the_model() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let pictures_in_scene = |name: &str, document: &Document| {
+            let path = dir.path().join(name);
+            caditor_file::save(document, &path, false).unwrap();
+            caditor_file::save(&with_width(document, "70 mm"), &path, false).unwrap();
+            let prepared = prepare(
+                &path,
+                0,
+                Canvas::default(),
+                &Progress::default(),
+                &CancelToken::never(),
+            )
+            .unwrap();
+            prepared.picture.unwrap().unwrap().scene.pictures.len()
+        };
+
+        let plain = plate();
+        let mut pictured = plate();
+        let mut transaction = pictured.transaction("Insert picture");
+        let zero = transaction.parse("0 mm").unwrap();
+        let turn = transaction.parse("0 deg").unwrap();
+        let width = transaction.parse("400 mm").unwrap();
+        transaction.add_feature(
+            "Picture",
+            FeatureKind::ReferenceImage(Box::new(ReferenceImage {
+                picture: magenta_picture(),
+                plane: ImagePlane::Reference(PlaneReference::Principal(PrincipalPlane::Xy)),
+                at: [zero.clone(), zero],
+                turn,
+                flipped: false,
+                size: ImageSize::Width(width),
+                opacity: 100,
+                in_front: true,
+                locked: false,
+            })),
+        );
+        pictured.apply(transaction.finish()).unwrap();
+
+        assert_eq!(pictures_in_scene("plain.caditor", &plain), 0);
+        assert_eq!(pictures_in_scene("pictured.caditor", &pictured), 1);
+    }
+
+    fn magenta_picture() -> Arc<caditor_document::Picture> {
+        let mut bytes = Vec::new();
+        let mut encoder = png::Encoder::new(&mut bytes, 2, 2);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header().unwrap();
+        writer
+            .write_image_data(&[255, 0, 255, 255].repeat(4))
+            .unwrap();
+        writer.finish().unwrap();
+        caditor_file::read_picture(bytes).unwrap().picture
     }
 }

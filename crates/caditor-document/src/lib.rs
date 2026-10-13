@@ -269,6 +269,8 @@ mod modelled_thread_tests;
 #[cfg(test)]
 mod movement_tests;
 #[cfg(test)]
+mod named_entity_tests;
+#[cfg(test)]
 mod offset_face_tests;
 #[cfg(test)]
 mod parallel_tests;
