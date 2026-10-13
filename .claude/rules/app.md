@@ -544,7 +544,8 @@ paths:
 - The light is a preference (`lighting::Lighting`, keys `rendering.*`, `app-files.md`), not
   document content: frame (`LightFrame`, the view or the model), turn and height in degrees, sun
   strength, colour temperature (a blackbody fit normalised to unit luminance, `light_colour`),
-  studio light, bounced light, exposure in stops and shadows, each read clamped. Light the
+  studio light, bounced light, ambient occlusion, exposure in stops and shadows, each read
+  clamped. Light the
   rendered view (`Command::Lighting`, View › Display style) toggles `LightingTool` in the
   `Workspace`; while open, `lighting_panel.rs` draws a right-hand panel of `lighting_panel::rows`
   (the same rows Preferences › Appearance › Rendered view draws), sliders previewing while dragged

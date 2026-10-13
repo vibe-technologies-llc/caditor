@@ -31,6 +31,7 @@ pub struct Lighting {
     pub exposure: f32,
     pub shadows: bool,
     pub bounce: f32,
+    pub occlusion: f32,
 }
 
 impl Lighting {

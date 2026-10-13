@@ -10,6 +10,7 @@ mod lighting;
 mod lines;
 mod machine;
 mod mesh;
+mod occlusion;
 mod offscreen;
 #[cfg(test)]
 mod offscreen_tests;
@@ -105,6 +106,10 @@ pub enum RenderFault {
         "The graphics device refused the memory for the rendered view's shadows and bounced light, so it is drawn without them. Close other programs that use the graphics card."
     )]
     LightRefused,
+    #[error(
+        "The graphics device refused the memory for the rendered view's ambient occlusion, so it is drawn without it. Make the window smaller or close other programs that use the graphics card."
+    )]
+    OcclusionRefused,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -661,6 +666,9 @@ impl Renderer {
         }
         if faults.light {
             self.faults.push(RenderFault::LightRefused);
+        }
+        if faults.occlusion {
+            self.faults.push(RenderFault::OcclusionRefused);
         }
         if faults.picking {
             self.faults.push(RenderFault::PickingRefused);

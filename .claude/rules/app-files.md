@@ -471,7 +471,8 @@ paths:
   `standard`, `fewer`: `caditor_file::Retention`, a `Choice`, in General › Version history, handed
   to the model by `apply_preferences` and sent with every `SaveRequest`, `file-format.md`), and
   the rendered view's light (`rendering.light_follows` `view` or `model`, `rendering.azimuth`,
-  `elevation`, `strength`, `temperature`, `environment`, `bounce`, `exposure`, `shadows`; numbers
+  `elevation`, `strength`, `temperature`, `environment`, `bounce`, `occlusion`, `exposure`,
+  `shadows`; numbers
   read clamped, `lighting::Lighting`, Appearance › Rendered view, `app.md`).
   Recovery's journal and atomic saving have no setting (`reliability.md`).
 - `Files` reads `files.startup` and `files.recent_listed` from every `Settings` it is handed, as it

@@ -5249,6 +5249,7 @@ fn lit_by(azimuth: f64, elevation: f64) -> crate::Lighting {
         exposure: 0.0,
         shadows: false,
         bounce: 0.0,
+        occlusion: 0.0,
     }
 }
 
@@ -5462,4 +5463,41 @@ fn a_metal_renders_apart_from_a_dielectric_of_its_colour_and_exposure_brightens_
             "{dielectric:?} {brighter:?}"
         );
     }
+}
+
+#[test]
+fn ambient_occlusion_darkens_the_floor_in_an_inside_corner_and_leaves_open_floor_alone() {
+    let floor = Arc::new(quad_mesh(0.0, 60.0));
+    let cube = Arc::new(box_mesh(15.0));
+    let white = Color::from_rgb8(220, 220, 220);
+    let standing = RigidTransform::translation(Vector3::new(-15.0, 15.0, 15.0));
+    let view = oblique_view(200.0);
+    let spots = [Point3::new(1.5, 1.0, 0.0), Point3::new(40.0, -40.0, 0.0)];
+    let scene_with = |occlusion: f32| Scene {
+        meshes: vec![
+            finished_mesh(&floor, white, MATTE, None),
+            finished_mesh(&cube, white, MATTE, standing),
+        ],
+        lighting: Some(crate::Lighting {
+            strength: 0.0,
+            environment: 1.0,
+            occlusion,
+            ..lit_by(0.0, std::f64::consts::FRAC_PI_2)
+        }),
+        ..Scene::default()
+    };
+
+    let Some(open) = rendered_pixels(&scene_with(0.0), &view, &spots) else {
+        return;
+    };
+    let occluded = rendered_pixels(&scene_with(1.0), &view, &spots).unwrap();
+
+    assert!(
+        brightness(occluded[0]) + 30 < brightness(open[0]),
+        "{open:?} {occluded:?}"
+    );
+    assert!(
+        brightness(occluded[1]).abs_diff(brightness(open[1])) < 12,
+        "{open:?} {occluded:?}"
+    );
 }

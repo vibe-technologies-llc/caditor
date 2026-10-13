@@ -18,7 +18,8 @@ pub const TITLE: &str = "Lighting";
 pub const CLOSE: &str = "Close the lighting";
 pub const ABOUT: &str = "The Rendered style lights bodies by their colour, finish and material \
                          with one sun, the shadows it casts, light it bounces off nearby bodies \
-                         and a studio around them. It never changes the model.";
+                         and a studio around them, darker where surfaces crowd in. It never \
+                         changes the model.";
 pub const OTHER_STYLE: &str = "These settings show only in the Rendered style.";
 pub const SHOW_RENDERED: &str = "Show the Rendered style";
 pub const RESET: &str = "Reset lighting";
@@ -29,6 +30,7 @@ pub const STRENGTH: &str = "Sun strength";
 pub const TEMPERATURE: &str = "Colour temperature";
 pub const ENVIRONMENT: &str = "Studio light";
 pub const BOUNCE: &str = "Bounced light";
+pub const OCCLUSION: &str = "Ambient occlusion";
 pub const EXPOSURE: &str = "Exposure";
 pub const SHADOWS: &str = "Cast shadows";
 const SHADOWS_HOVER: &str = "Bodies shade what lies behind them from the sun";
@@ -102,7 +104,7 @@ pub fn rows(ui: &mut Ui, lighting: Lighting, command: &mut Option<PreferencesCom
             );
         }
     });
-    let settings: [Setting; 7] = [
+    let settings: [Setting; 8] = [
         Setting {
             caption: AZIMUTH,
             range: lighting::AZIMUTH,
@@ -144,6 +146,13 @@ pub fn rows(ui: &mut Ui, lighting: Lighting, command: &mut Option<PreferencesCom
             suffix: "",
             decimals: 2,
             value: |lighting| &mut lighting.bounce,
+        },
+        Setting {
+            caption: OCCLUSION,
+            range: lighting::OCCLUSION,
+            suffix: "",
+            decimals: 2,
+            value: |lighting| &mut lighting.occlusion,
         },
         Setting {
             caption: EXPOSURE,

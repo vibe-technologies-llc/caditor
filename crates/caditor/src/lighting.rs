@@ -14,6 +14,7 @@ const ENVIRONMENT_KEY: &str = "rendering.environment";
 const BOUNCE_KEY: &str = "rendering.bounce";
 const EXPOSURE_KEY: &str = "rendering.exposure";
 const SHADOWS_KEY: &str = "rendering.shadows";
+const OCCLUSION_KEY: &str = "rendering.occlusion";
 pub const AZIMUTH: RangeInclusive<f64> = -180.0..=180.0;
 pub const ELEVATION: RangeInclusive<f64> = 0.0..=90.0;
 pub const STRENGTH: RangeInclusive<f64> = 0.0..=10.0;
@@ -21,6 +22,7 @@ pub const TEMPERATURE: RangeInclusive<f64> = 1800.0..=12000.0;
 pub const ENVIRONMENT: RangeInclusive<f64> = 0.0..=2.0;
 pub const BOUNCE: RangeInclusive<f64> = 0.0..=3.0;
 pub const EXPOSURE: RangeInclusive<f64> = -4.0..=4.0;
+pub const OCCLUSION: RangeInclusive<f64> = 0.0..=2.0;
 const LUMINANCE: [f64; 3] = [0.2126, 0.7152, 0.0722];
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -68,6 +70,7 @@ pub struct Lighting {
     pub temperature: f64,
     pub environment: f64,
     pub bounce: f64,
+    pub occlusion: f64,
     pub exposure: f64,
     pub shadows: bool,
 }
@@ -82,6 +85,7 @@ impl Default for Lighting {
             temperature: 5600.0,
             environment: 1.0,
             bounce: 1.0,
+            occlusion: 1.0,
             exposure: 0.0,
             shadows: true,
         }
@@ -103,6 +107,7 @@ impl Lighting {
             temperature: number(TEMPERATURE_KEY, TEMPERATURE, defaults.temperature),
             environment: number(ENVIRONMENT_KEY, ENVIRONMENT, defaults.environment),
             bounce: number(BOUNCE_KEY, BOUNCE, defaults.bounce),
+            occlusion: number(OCCLUSION_KEY, OCCLUSION, defaults.occlusion),
             exposure: number(EXPOSURE_KEY, EXPOSURE, defaults.exposure),
             shadows: raw.flag(SHADOWS_KEY).unwrap_or(defaults.shadows),
         }
@@ -116,6 +121,7 @@ impl Lighting {
         settings.set_number(TEMPERATURE_KEY, self.temperature);
         settings.set_number(ENVIRONMENT_KEY, self.environment);
         settings.set_number(BOUNCE_KEY, self.bounce);
+        settings.set_number(OCCLUSION_KEY, self.occlusion);
         settings.set_number(EXPOSURE_KEY, self.exposure);
         settings.set_flag(SHADOWS_KEY, self.shadows);
     }
@@ -134,6 +140,7 @@ impl Lighting {
             exposure: self.exposure as f32,
             shadows: self.shadows,
             bounce: self.bounce as f32,
+            occlusion: self.occlusion as f32,
         }
     }
 
@@ -205,6 +212,7 @@ mod tests {
             temperature: 3200.0,
             environment: 1.25,
             bounce: 0.0,
+            occlusion: 0.5,
             exposure: -1.5,
             shadows: false,
         };

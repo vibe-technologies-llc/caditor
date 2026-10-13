@@ -117,6 +117,10 @@ pub fn tiles(size: SurfaceSize, side: u32) -> Vec<Tile> {
 }
 
 pub fn tile_transform(tile: Tile, size: SurfaceSize) -> [f32; 4] {
+    margined_tile_transform(tile, size, 0)
+}
+
+pub fn margined_tile_transform(tile: Tile, size: SurfaceSize, margin: u32) -> [f32; 4] {
     let full = [f64::from(size.width), f64::from(size.height)];
     let center = [
         f64::from(tile.x) + f64::from(tile.width) / 2.0,
@@ -126,9 +130,10 @@ pub fn tile_transform(tile: Tile, size: SurfaceSize) -> [f32; 4] {
         center[0] / full[0] * 2.0 - 1.0,
         1.0 - center[1] / full[1] * 2.0,
     ];
+    let margined = |side: u32| f64::from(side) + 2.0 * f64::from(margin);
     let scale = [
-        full[0] / f64::from(tile.width),
-        full[1] / f64::from(tile.height),
+        full[0] / margined(tile.width),
+        full[1] / margined(tile.height),
     ];
     [
         scale[0] as f32,

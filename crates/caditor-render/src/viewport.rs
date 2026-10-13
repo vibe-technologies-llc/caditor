@@ -14,6 +14,10 @@ use crate::{
     lighting::{LightFrame, LightPass, LightPassReady, LightUniform, shadow_pipeline},
     lines::{LINE_POINT_SLOTS, LINE_POINT_STRIDE, LineStrips, line_instances},
     mesh::{MESH_VERTEX_STRIDE, MeshCache, MeshPool, StyleLayout, UploadBudget, pack_color},
+    occlusion::{
+        MOST_PIXELS, Occlusion, OcclusionLayouts, OcclusionPasses, OcclusionReady,
+        OcclusionUniform, PassArea, screen_pipeline, surfaces_pipeline,
+    },
     picking::{self, PickPrepared, PickTargets, PickWindow, Picking},
     pictures::PictureCache,
     scene::{
@@ -47,7 +51,7 @@ const MARKER_BYTES: usize = 28;
 const MARKER_STRIDE: u64 = MARKER_BYTES as u64;
 const FILL_VERTEX_BYTES: usize = 16;
 const FILL_VERTEX_STRIDE: u64 = FILL_VERTEX_BYTES as u64;
-const VIEW_UNIFORM_SIZE: u64 = 592;
+const VIEW_UNIFORM_SIZE: u64 = 656;
 const HATCH_SPACING_POINTS: f64 = 8.0;
 const REANCHOR_DISTANCES: f64 = 4.0;
 const ANCHOR_ERROR_PIXELS: f64 = 0.02;
@@ -246,6 +250,9 @@ struct Pipelines {
     pictures_behind: wgpu::RenderPipeline,
     pictures_in_front: wgpu::RenderPipeline,
     shadows: wgpu::RenderPipeline,
+    surfaces: wgpu::RenderPipeline,
+    occlusion: wgpu::RenderPipeline,
+    occlusion_blur: wgpu::RenderPipeline,
     pick: PickPipelines,
 }
 
@@ -272,6 +279,7 @@ pub struct ImagePlan {
     reflection: Reflection,
     section: Vec<SectionPlane>,
     light: LightUniform,
+    occluded: OcclusionUniform,
     targets: ImageTargets,
 }
 
@@ -480,11 +488,17 @@ pub struct Faults {
     pub batches: u32,
     pub picking: bool,
     pub light: bool,
+    pub occlusion: bool,
 }
 
 impl Faults {
     pub fn any(self) -> bool {
-        self.targets || self.meshes > 0 || self.batches > 0 || self.picking || self.light
+        self.targets
+            || self.meshes > 0
+            || self.batches > 0
+            || self.picking
+            || self.light
+            || self.occlusion
     }
 }
 
@@ -1142,6 +1156,9 @@ pub struct ViewportRenderer {
     sectioned: bool,
     light_pass: LightPass,
     light: LightUniform,
+    occlusion: Occlusion,
+    occluded: OcclusionUniform,
+    occlusion_view_uniform: Uniform,
     background: wgpu::Color,
 }
 
@@ -1172,6 +1189,7 @@ impl ViewportRenderer {
         let silhouettes = SilhouetteCache::new(device);
         let pictures = PictureCache::new(device);
         let light_pass = LightPass::new(device);
+        let occlusion = Occlusion::new(device);
         let layouts = Layouts {
             view: &view_layout,
             grid: &grid_layout,
@@ -1180,6 +1198,7 @@ impl ViewportRenderer {
             silhouette: silhouettes.layout(),
             picture: pictures.layout(),
             shadow: light_pass.layout(),
+            occlusion: occlusion.layouts(),
         };
 
         Self {
@@ -1190,6 +1209,12 @@ impl ViewportRenderer {
             set_aside: Vec::new(),
             view_uniform: Uniform::new(device, &view_layout, "view", VIEW_UNIFORM_SIZE),
             pick_view_uniform: Uniform::new(device, &view_layout, "pick view", VIEW_UNIFORM_SIZE),
+            occlusion_view_uniform: Uniform::new(
+                device,
+                &view_layout,
+                "occlusion view",
+                VIEW_UNIFORM_SIZE,
+            ),
             grid_uniform: Uniform::new(device, &grid_layout, "grid", GRID_UNIFORM_SIZE),
             quad_indices: QuadIndices::new(device),
             view_layout,
@@ -1221,6 +1246,8 @@ impl ViewportRenderer {
             sectioned: false,
             light_pass,
             light: LightUniform::NONE,
+            occlusion,
+            occluded: OcclusionUniform::NONE,
             background: BACKGROUND,
         }
     }
@@ -1256,6 +1283,7 @@ impl ViewportRenderer {
                 silhouette: self.silhouettes.layout(),
                 picture: self.pictures.layout(),
                 shadow: self.light_pass.layout(),
+                occlusion: self.occlusion.layouts(),
             };
             Pipelines::new(
                 device,
@@ -1336,10 +1364,14 @@ impl ViewportRenderer {
         let refused_targets = self.ensure_targets(device, size);
         let viewport =
             viewport.filter(|viewport| viewport.rect.width >= 1.0 && viewport.rect.height >= 1.0);
+        let occlusion_size = self
+            .targets
+            .as_ref()
+            .map(|targets| (targets.size.width, targets.size.height));
         let prepared = match viewport {
             Some(viewport) => {
                 let budget = UploadBudget::of(self.mesh_upload_bytes);
-                self.upload(device, queue, viewport, budget)
+                self.upload(device, queue, viewport, (budget, occlusion_size))
             }
             None => Prepared::default(),
         };
@@ -1362,8 +1394,20 @@ impl ViewportRenderer {
         });
         let fresh = prepared.changed || !targets.kept.holding.holds(shown);
         if fresh {
-            if drawn.is_some() {
+            if let Some(viewport) = drawn {
                 self.draw_light_pass(encoder);
+                let area = scissor_rect(viewport.rect, surface.width, surface.height).map(
+                    |(left, top, across, down)| PassArea {
+                        viewport: [
+                            viewport.rect.x,
+                            viewport.rect.y,
+                            viewport.rect.width,
+                            viewport.rect.height,
+                        ],
+                        scissor: [left, top, across, down],
+                    },
+                );
+                self.draw_occlusion(encoder, &self.view_uniform.bind_group, area);
             }
             self.draw_view(encoder, targets, drawn, surface);
         }
@@ -1502,6 +1546,14 @@ impl ViewportRenderer {
             sectioned: false,
             light_pass: self.light_pass.sibling(device),
             light: LightUniform::NONE,
+            occlusion: self.occlusion.sibling(device),
+            occluded: OcclusionUniform::NONE,
+            occlusion_view_uniform: Uniform::new(
+                device,
+                &self.view_layout,
+                "occlusion view",
+                VIEW_UNIFORM_SIZE,
+            ),
             background: self.background,
         }
     }
@@ -1527,8 +1579,15 @@ impl ViewportRenderer {
             pick_at: None,
             pixels_per_point: request.pixels_per_point,
         };
+        let margined = |side: u32| tile_side.min(side) + 2 * MOST_PIXELS;
+        let occlusion_size = (margined(size.width), margined(size.height));
         if self
-            .upload(device, queue, &frame, UploadBudget::UNLIMITED)
+            .upload(
+                device,
+                queue,
+                &frame,
+                (UploadBudget::UNLIMITED, Some(occlusion_size)),
+            )
             .faults
             .any()
         {
@@ -1558,6 +1617,7 @@ impl ViewportRenderer {
             reflection: request.scene.reflection,
             section: request.scene.section.clone(),
             light: self.light,
+            occluded: self.occluded.read_from(MOST_PIXELS),
             targets,
         })
     }
@@ -1571,22 +1631,63 @@ impl ViewportRenderer {
         readback: &wgpu::Buffer,
     ) {
         let transform = image::tile_transform(tile, plan.size);
+        let anchored = AnchoredView {
+            view: &plan.view,
+            anchor: plan.anchor,
+        };
+        let shading = (
+            self.shading,
+            plan.reflection,
+            &plan.section[..],
+            &plan.light,
+            &plan.occluded,
+        );
         view_uniform(
             &mut self.staging,
-            &AnchoredView {
-                view: &plan.view,
-                anchor: plan.anchor,
-            },
+            &anchored,
             plan.pixels_per_point,
-            (self.shading, plan.reflection, &plan.section, &plan.light),
+            shading,
             (transform, Strokes::Finished),
         );
         self.view_uniform.write(queue, &self.staging);
+        if plan.occluded.occludes() {
+            let margined = image::margined_tile_transform(tile, plan.size, MOST_PIXELS);
+            view_uniform(
+                &mut self.staging,
+                &anchored,
+                plan.pixels_per_point,
+                shading,
+                (margined, Strokes::Finished),
+            );
+            self.occlusion_view_uniform.write(queue, &self.staging);
+        }
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("image tile"),
         });
         self.draw_light_pass(&mut encoder);
+        if plan.occluded.occludes() {
+            let margin = MOST_PIXELS as f32;
+            let area = PassArea {
+                viewport: [
+                    0.0,
+                    0.0,
+                    tile.width as f32 + 2.0 * margin,
+                    tile.height as f32 + 2.0 * margin,
+                ],
+                scissor: [
+                    0,
+                    0,
+                    tile.width + 2 * MOST_PIXELS,
+                    tile.height + 2 * MOST_PIXELS,
+                ],
+            };
+            self.draw_occlusion(
+                &mut encoder,
+                &self.occlusion_view_uniform.bind_group,
+                Some(area),
+            );
+        }
         let mut pass = plan.targets.begin_pass(&mut encoder, plan.clear);
         pass.set_viewport(0.0, 0.0, tile.width as f32, tile.height as f32, 0.0, 1.0);
         pass.set_scissor_rect(0, 0, tile.width, tile.height);
@@ -1627,9 +1728,30 @@ impl ViewportRenderer {
         self.meshes.draw_all(&mut pass, &self.pipelines.shadows);
     }
 
+    fn draw_occlusion(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        view: &wgpu::BindGroup,
+        area: Option<PassArea>,
+    ) {
+        if !self.occluded.occludes() {
+            return;
+        }
+        let passes = OcclusionPasses {
+            view,
+            occlusion: &self.pipelines.occlusion,
+            blur: &self.pipelines.occlusion_blur,
+            area,
+        };
+        self.occlusion.draw(encoder, &passes, |pass| {
+            self.meshes.draw_all(pass, &self.pipelines.surfaces);
+        });
+    }
+
     fn draw_scene(&self, pass: &mut wgpu::RenderPass<'_>, grid: bool, window: &ClipWindow) {
         pass.set_bind_group(0, &self.view_uniform.bind_group, &[]);
         pass.set_bind_group(2, self.light_pass.bind_group(), &[]);
+        pass.set_bind_group(3, self.occlusion.bind_group(), &[]);
         let pipelines = &self.pipelines;
         let (meshes, flat, reflective) = if self.sectioned {
             (
@@ -1802,7 +1924,7 @@ impl ViewportRenderer {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         viewport: &ViewportFrame<'_>,
-        mut budget: UploadBudget,
+        (mut budget, occlusion_size): (UploadBudget, Option<(u32, u32)>),
     ) -> Prepared {
         let mut faults = Faults::default();
         let view = viewport.view;
@@ -1858,11 +1980,18 @@ impl ViewportRenderer {
         .any(MeshCache::changed)
             || self.silhouettes.changed();
         faults.light = self.light_scene(device, scene, view);
+        faults.occlusion = self.occlude_scene(device, scene, view, occlusion_size);
         view_uniform(
             &mut self.staging,
             &anchored,
             pixels_per_point,
-            (self.shading, scene.reflection, &scene.section, &self.light),
+            (
+                self.shading,
+                scene.reflection,
+                &scene.section,
+                &self.light,
+                &self.occluded,
+            ),
             (WHOLE_VIEW, Strokes::Finished),
         );
         changed |= self.view_uniform.write(queue, &self.staging);
@@ -1884,7 +2013,13 @@ impl ViewportRenderer {
                 &mut self.staging,
                 &anchored,
                 pixels_per_point,
-                (self.shading, scene.reflection, &scene.section, &self.light),
+                (
+                    self.shading,
+                    scene.reflection,
+                    &scene.section,
+                    &self.light,
+                    &self.occluded,
+                ),
                 (transform, Strokes::Bare),
             );
             self.pick_view_uniform.write(queue, &self.staging);
@@ -1920,6 +2055,30 @@ impl ViewportRenderer {
         };
         self.light = LightUniform::of(lighting, toward_light, frame);
         matches!(ready, LightPassReady::NewlyRefused)
+    }
+
+    fn occlude_scene(
+        &mut self,
+        device: &wgpu::Device,
+        scene: &Scene,
+        view: &View,
+        size: Option<(u32, u32)>,
+    ) -> bool {
+        let strength = scene
+            .lighting
+            .as_ref()
+            .map_or(0.0, |lighting| lighting.occlusion);
+        let ready = match size.filter(|_| strength > 0.0) {
+            Some(size) => self.occlusion.ensure(device, size),
+            None => OcclusionReady::Refused,
+        };
+        self.occluded = match ready {
+            OcclusionReady::Ready => {
+                OcclusionUniform::of(strength, view, self.meshes.placed_corners())
+            }
+            OcclusionReady::Refused | OcclusionReady::NewlyRefused => OcclusionUniform::NONE,
+        };
+        matches!(ready, OcclusionReady::NewlyRefused)
     }
 
     fn anchor_for(&mut self, view: &View) -> Point3 {
@@ -2204,6 +2363,7 @@ struct Layouts<'a> {
     silhouette: &'a wgpu::BindGroupLayout,
     picture: &'a wgpu::BindGroupLayout,
     shadow: &'a wgpu::BindGroupLayout,
+    occlusion: &'a OcclusionLayouts,
 }
 
 impl Pipelines {
@@ -2233,7 +2393,20 @@ impl Pipelines {
             pipeline_layout("mesh", &[Some(layouts.view), Some(layouts.mesh)]);
         let lit_mesh_pipeline_layout = pipeline_layout(
             "lit mesh",
-            &[Some(layouts.view), Some(layouts.mesh), Some(layouts.shadow)],
+            &[
+                Some(layouts.view),
+                Some(layouts.mesh),
+                Some(layouts.shadow),
+                Some(&layouts.occlusion.shading),
+            ],
+        );
+        let occlusion_pipeline_layout = pipeline_layout(
+            "occlusion",
+            &[Some(layouts.view), Some(&layouts.occlusion.surfaces)],
+        );
+        let occlusion_blur_pipeline_layout = pipeline_layout(
+            "occlusion blur",
+            &[Some(layouts.view), Some(&layouts.occlusion.raw)],
         );
         let silhouette_pipeline_layout = pipeline_layout(
             "silhouette",
@@ -2497,6 +2670,24 @@ impl Pipelines {
             pictures_behind: picture("pictures behind", wgpu::CompareFunction::GreaterEqual),
             pictures_in_front: picture("pictures in front", wgpu::CompareFunction::Always),
             shadows: shadow_pipeline(device, &module, &mesh_pipeline_layout, &meshes),
+            surfaces: surfaces_pipeline(
+                device,
+                (&module, &mesh_pipeline_layout),
+                &meshes,
+                FACE_DEPTH_BIAS,
+            ),
+            occlusion: screen_pipeline(
+                device,
+                (&module, &occlusion_pipeline_layout),
+                "ambient occlusion",
+                "fs_occlusion",
+            ),
+            occlusion_blur: screen_pipeline(
+                device,
+                (&module, &occlusion_blur_pipeline_layout),
+                "ambient occlusion blur",
+                "fs_occlusion_blur",
+            ),
             pick: reused_picking.cloned().unwrap_or_else(|| PickPipelines {
                 lines: pick_pipeline(
                     "pick lines",
@@ -2731,7 +2922,13 @@ fn view_uniform(
     bytes: &mut Bytes,
     anchored: &AnchoredView<'_>,
     pixels_per_point: f32,
-    (shading, reflection, section, light): (Shading, Reflection, &[SectionPlane], &LightUniform),
+    (shading, reflection, section, light, occluded): (
+        Shading,
+        Reflection,
+        &[SectionPlane],
+        &LightUniform,
+        &OcclusionUniform,
+    ),
     (transform, strokes): ([f32; 4], Strokes),
 ) {
     let [across, along] = reflection.uniform();
@@ -2755,6 +2952,7 @@ fn view_uniform(
         .floats(&along);
     section_uniform(bytes, view, pixels_per_point, section);
     light.write(bytes);
+    occluded.write(bytes);
 }
 
 fn section_uniform(

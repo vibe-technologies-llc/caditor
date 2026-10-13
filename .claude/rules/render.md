@@ -205,6 +205,24 @@ paths:
   test (it can leak through thin walls). The targets are made lazily inside `gpu::scoped`; a
   refusal draws without shadows and bounce and reports `RenderFault::LightRefused` once. Image
   siblings make their own.
+- Ambient occlusion (`occlusion.rs`, `Lighting::occlusion` above zero) is GTAO over what the view
+  shows. Before the scene pass, three single-sampled passes over targets the size of the scene
+  targets (`Occlusion`, made lazily in `gpu::scoped`, a refusal reporting
+  `RenderFault::OcclusionRefused` once): `fs_surface` writes each opaque mesh's eye-relative
+  position (three f32 bits) and normal (`pack4x8snorm`) into an `Rgba32Uint` target with its own
+  depth (no float target, for GL); `fs_occlusion` (a full-screen triangle, `vs_screen`) integrates
+  the cosine-weighted visible arc of `OCCLUSION_SLICES` slices of `OCCLUSION_STEPS` steps each way,
+  horizons taken from those positions within a world reach of `REACH_OF_SCENE` of the opaque
+  meshes' box (falloff over its last `OCCLUSION_FALLOFF`), at most `MOST_PIXELS` away on screen,
+  spun per pixel by interleaved gradient noise; `fs_occlusion_blur` averages 4×4 neighbours of
+  like depth and normal into an `R8Unorm` map. The uniform's `occlusion`, `occlusion_frame`
+  (texel offset into the map, the pixel cap), `camera_right` and `camera_up` carry it. `rendered`
+  reads the map at the fragment's pixel (group 3) only where the stored surface lies at the
+  fragment's depth (`OCCLUSION_DEPTH_MATCH`; translucent faces and caps get none) and multiplies
+  the studio diffuse and bounce by it and the studio reflection by Lagarde's specular occlusion;
+  the sun is shadowed, not occluded. An image tile draws its occlusion over the tile widened by
+  `MOST_PIXELS` each side (`margined_tile_transform`, a view uniform of its own) and reads it
+  offset by that margin, so tiles meet without seams.
 - The multisample resolve averages in linear light where views allow it: a renderer told so
   (`set_linear_resolve`, from `gpu::resolves_linearly`, the adapter's `VIEW_FORMATS`) gives its
   multisampled colour target and the kept view an sRGB view each, stores the scene pass instead of

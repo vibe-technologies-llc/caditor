@@ -17,6 +17,10 @@ struct View {
     bounce: vec4<f32>,
     shadow_matrix: mat4x4<f32>,
     relative_from_light: mat4x4<f32>,
+    occlusion: vec4<f32>,
+    occlusion_frame: vec4<f32>,
+    camera_right: vec4<f32>,
+    camera_up: vec4<f32>,
 }
 
 struct Grid {
@@ -58,6 +62,10 @@ struct MeshPlacement {
 @group(2) @binding(1) var shadow_sampler: sampler_comparison;
 @group(2) @binding(2) var lit_albedo: texture_2d<f32>;
 @group(2) @binding(3) var lit_normals: texture_2d<f32>;
+@group(3) @binding(0) var occlusion_map: texture_2d<f32>;
+@group(3) @binding(1) var occlusion_surfaces: texture_2d<u32>;
+@group(1) @binding(8) var surface_texels: texture_2d<u32>;
+@group(1) @binding(9) var raw_occlusion: texture_2d<f32>;
 
 const CULLED: vec4<f32> = vec4<f32>(0.0, 0.0, 2.0, 1.0);
 const ORTHOGRAPHIC_DEPTH_BIAS: f32 = 0.03;
@@ -884,7 +892,8 @@ fn shade(in: Varyings) -> vec4<f32> {
         if uses_rendered_shading() {
             let sun_seen = sunlit(in.relative, normal);
             let bounce = bounced(in.relative, normal, in.position.xy);
-            return rendered(in.color, normal, eye, finish, Received(sun_seen, bounce));
+            let occluded = occlusion_at(in.position.xy, in.relative);
+            return rendered(in.color, normal, eye, finish, Received(sun_seen, bounce, occluded));
         }
         return finished(in.color, normal, eye, finish);
     }
@@ -1050,6 +1059,170 @@ fn pbr_neutral(color: vec3<f32>) -> vec3<f32> {
 struct Received {
     sun_seen: f32,
     bounce: vec3<f32>,
+    occlusion: f32,
+}
+
+const OCCLUSION_SLICES: i32 = 2;
+const OCCLUSION_STEPS: i32 = 6;
+const OCCLUSION_FALLOFF: f32 = 0.615;
+const OCCLUSION_DEPTH_MATCH: f32 = 0.02;
+const OCCLUSION_BLUR_DEPTH: f32 = 0.05;
+const OCCLUSION_BLUR_NORMAL: f32 = 0.8;
+const HALF_PI: f32 = 1.5707963;
+
+struct Surface {
+    found: bool,
+    position: vec3<f32>,
+    normal: vec3<f32>,
+}
+
+fn surface_in(surfaces: texture_2d<u32>, texel: vec2<i32>) -> Surface {
+    let size = vec2<i32>(textureDimensions(surfaces));
+    if any(texel < vec2<i32>(0)) || any(texel >= size) {
+        return Surface(false, vec3<f32>(0.0), vec3<f32>(0.0));
+    }
+    let raw = textureLoad(surfaces, texel, 0);
+    return Surface(raw.w != 0u, bitcast<vec3<f32>>(raw.xyz), unpack4x8snorm(raw.w).xyz);
+}
+
+fn occludes() -> bool {
+    return view.occlusion.x > 0.0;
+}
+
+fn occlusion_at(pixel: vec2<f32>, relative: vec3<f32>) -> f32 {
+    if !occludes() {
+        return 1.0;
+    }
+    let texel = vec2<i32>(pixel + view.occlusion_frame.xy);
+    let surface = surface_in(occlusion_surfaces, texel);
+    let depth = view_depth(relative);
+    if !surface.found || abs(view_depth(surface.position) - depth) > abs(depth) * OCCLUSION_DEPTH_MATCH {
+        return 1.0;
+    }
+    return textureLoad(occlusion_map, texel, 0).r;
+}
+
+fn specular_occlusion(occlusion: f32, n_dot_v: f32, roughness: f32) -> f32 {
+    return clamp(pow(n_dot_v + occlusion, exp2(-16.0 * roughness - 1.0)) - 1.0 + occlusion, 0.0, 1.0);
+}
+
+fn horizon_toward(texel: vec2<i32>, position: vec3<f32>, eye: vec3<f32>, lowest: f32) -> f32 {
+    let sample = surface_in(surface_texels, texel);
+    if !sample.found {
+        return lowest;
+    }
+    let between = sample.position - position;
+    let length_between = length(between);
+    if length_between <= 1e-6 {
+        return lowest;
+    }
+    let reach = view.occlusion.y;
+    let falloff_range = OCCLUSION_FALLOFF * reach;
+    let weight = clamp((reach - length_between) / falloff_range, 0.0, 1.0);
+    return mix(lowest, dot(between / length_between, eye), weight);
+}
+
+fn bayer(pixel: vec2<u32>) -> f32 {
+    var pattern = array<f32, 16>(
+        0.0, 8.0, 2.0, 10.0,
+        12.0, 4.0, 14.0, 6.0,
+        3.0, 11.0, 1.0, 9.0,
+        15.0, 7.0, 13.0, 5.0,
+    );
+    let cell = (pixel.y % 4u) * 4u + pixel.x % 4u;
+    return (pattern[cell] + 0.5) / 16.0;
+}
+
+@vertex
+fn vs_screen(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {
+    let corner = vec2<f32>(f32((index << 1u) & 2u), f32(index & 2u));
+    return vec4<f32>(corner * 2.0 - vec2<f32>(1.0), 0.0, 1.0);
+}
+
+@fragment
+fn fs_surface(in: Varyings) -> @location(0) vec4<u32> {
+    if in.color.a <= 0.0 || is_cut(in) {
+        discard;
+    }
+    let normal = facing_normal(in, toward_eye(in.relative));
+    return vec4<u32>(bitcast<vec3<u32>>(in.relative), pack4x8snorm(vec4<f32>(normal, 1.0)));
+}
+
+@fragment
+fn fs_occlusion(@builtin(position) at: vec4<f32>) -> @location(0) vec4<f32> {
+    let texel = vec2<i32>(at.xy);
+    let centre = surface_in(surface_texels, texel);
+    if !centre.found {
+        return vec4<f32>(1.0);
+    }
+    let position = centre.position;
+    let normal = normalize(centre.normal);
+    let eye = toward_eye(position);
+    let depth = max(view_depth(position), 1e-6);
+    let pixel_size = select(view.occlusion.z * depth, view.occlusion.z, is_orthographic());
+    let pixels = min(view.occlusion.y / max(pixel_size, 1e-12), view.occlusion_frame.z);
+    if pixels < 1.0 {
+        return vec4<f32>(1.0);
+    }
+    let noise = bayer(vec2<u32>(at.xy));
+    var visibility = 0.0;
+    for (var slice = 0; slice < OCCLUSION_SLICES; slice++) {
+        let angle = (f32(slice) + noise) / f32(OCCLUSION_SLICES) * PI;
+        let across = vec2<f32>(cos(angle), sin(angle));
+        let along = view.camera_right.xyz * across.x - view.camera_up.xyz * across.y;
+        let square = along - dot(along, eye) * eye;
+        let axis = normalize(cross(square, eye));
+        let projected = normal - axis * dot(normal, axis);
+        let projected_length = length(projected);
+        let cos_n = clamp(dot(projected, eye) / max(projected_length, 1e-6), -1.0, 1.0);
+        let n = sign(dot(square, projected)) * acos(cos_n);
+        let lowest_ahead = cos(n + HALF_PI);
+        let lowest_behind = cos(n - HALF_PI);
+        var ahead = lowest_ahead;
+        var behind = lowest_behind;
+        for (var step = 0; step < OCCLUSION_STEPS; step++) {
+            let share = (f32(step) + fract(noise + f32(step) * 0.618034)) / f32(OCCLUSION_STEPS);
+            let offset = across * max(share * share * pixels, f32(step) + 1.0);
+            let reach = vec2<i32>(round(offset));
+            ahead = max(ahead, horizon_toward(texel + reach, position, eye, lowest_ahead));
+            behind = max(behind, horizon_toward(texel - reach, position, eye, lowest_behind));
+        }
+        let low = n + max(-acos(clamp(behind, -1.0, 1.0)) - n, -HALF_PI);
+        let high = n + min(acos(clamp(ahead, -1.0, 1.0)) - n, HALF_PI);
+        let arc = -cos(2.0 * low - n) + cos_n + 2.0 * low * sin(n)
+            - cos(2.0 * high - n) + cos_n + 2.0 * high * sin(n);
+        visibility += projected_length * 0.25 * arc;
+    }
+    visibility = clamp(visibility / f32(OCCLUSION_SLICES), 0.0, 1.0);
+    let occlusion = clamp(1.0 - view.occlusion.x * (1.0 - visibility), 0.0, 1.0);
+    return vec4<f32>(occlusion, 0.0, 0.0, 1.0);
+}
+
+@fragment
+fn fs_occlusion_blur(@builtin(position) at: vec4<f32>) -> @location(0) vec4<f32> {
+    let texel = vec2<i32>(at.xy);
+    let centre = surface_in(surface_texels, texel);
+    if !centre.found {
+        return vec4<f32>(1.0);
+    }
+    let depth = view_depth(centre.position);
+    let size = vec2<i32>(textureDimensions(raw_occlusion));
+    var total = 0.0;
+    var weight = 0.0;
+    for (var x = -2; x <= 1; x++) {
+        for (var y = -2; y <= 1; y++) {
+            let at_texel = texel + vec2<i32>(x, y);
+            let neighbour = surface_in(surface_texels, at_texel);
+            let alike = neighbour.found
+                && abs(view_depth(neighbour.position) - depth) <= abs(depth) * OCCLUSION_BLUR_DEPTH
+                && dot(neighbour.normal, centre.normal) >= OCCLUSION_BLUR_NORMAL;
+            if alike && all(at_texel < size) {
+                total += textureLoad(raw_occlusion, at_texel, 0).r;
+                weight += 1.0;
+            }
+        }
+    }
+    return vec4<f32>(select(1.0, total / weight, weight > 0.0), 0.0, 0.0, 1.0);
 }
 
 fn bounces() -> bool {
@@ -1116,10 +1289,12 @@ fn rendered(color: vec4<f32>, normal: vec3<f32>, eye: vec3<f32>, finish: u32, re
 
     let reflected = environment_brdf(reflectance, roughness, n_dot_v);
     let diffuse_share = (vec3<f32>(1.0) - reflected) * (1.0 - metalness) * base;
-    let ambient_diffuse = diffuse_share * studio(normal, 1.0);
-    let ambient_specular = reflected * studio(reflect(-eye, normal), roughness);
+    let occlusion = received.occlusion;
+    let ambient_diffuse = diffuse_share * studio(normal, 1.0) * occlusion;
+    let ambient_specular = reflected * studio(reflect(-eye, normal), roughness)
+        * specular_occlusion(occlusion, n_dot_v, roughness);
     let ambient = (ambient_diffuse + ambient_specular) * view.sun_colour.w;
-    let indirect = diffuse_share * received.bounce / PI;
+    let indirect = diffuse_share * received.bounce * occlusion / PI;
 
     let exposed = (direct + ambient + indirect) * view.exposure_shadow.x;
     return vec4<f32>(to_srgb(pbr_neutral(exposed)), color.a);
@@ -1224,7 +1399,7 @@ fn cap_color(in: Varyings, section: Sectioned) -> vec4<f32> {
     let finish = in.sectioned >> FINISH_SHIFT;
     let capped = vec4<f32>(in.color.rgb * CAP_SHADE, 1.0);
     if uses_rendered_shading() && (finish & FINISH_PRESENT) != 0u {
-        return hatched(rendered(capped, normal, eye, finish, Received(1.0, vec3<f32>(0.0))).rgb, section);
+        return hatched(rendered(capped, normal, eye, finish, Received(1.0, vec3<f32>(0.0), 1.0)).rgb, section);
     }
     let filled = lit(capped, normal, eye);
     return hatched(filled.rgb, section);

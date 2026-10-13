@@ -231,10 +231,9 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 - [low · medium] The rendered view's bounced light (`render.md`, the light pass) gathers from a
   reflective shadow map without a visibility test, so it leaks through thin walls, reaches only
-  `BOUNCE_REACH` of the light frame and comes from surfaces the sun sees; there is no ambient
-  occlusion, so creases and inside corners take the full studio light. Screen-space ambient
-  occlusion over a resolved depth target, or a short occlusion test against the light pass's depth
-  map per bounce sample, would darken both.
+  `BOUNCE_REACH` of the light frame and comes from surfaces the sun sees. Ambient occlusion damps
+  it in creases but only from what the view shows; a short occlusion test against the light
+  pass's depth map per bounce sample would stop the leak.
 - [low · medium] The rendered view has no floor: shadows fall only on bodies, so a part seems to
   float. A shadow-catching ground at the lowest point of the shown bodies, drawn only in the
   rendered style, would anchor it.
