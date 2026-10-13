@@ -33,8 +33,7 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [medium · hard] Shell: no spline, extrusion or revolution faces, as walls or openings (the kernel
   has no fitted offset surface); a curved face (cylinder, cone, sphere, torus) opens only on the
   body's outside where sharp edges part it from the closed faces, since a smooth or void opening
-  needs the opening prism only flat faces give; a face's own thickness has no drag arrow in the
-  view (only its panel field).
+  needs the opening prism only flat faces give.
 - [medium · hard] Sweep and loft: a sweep carries a sketch's regions along a chain of sketch
   curves or model edges, square to the path or parallel to the profile, but takes no guide rail,
   taper or twist (so a closed path out of one plane, which brings the profile back turned, is
@@ -73,8 +72,7 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   closing it needs a freeform patch, a ring face or a surface fitted across it.
 - [low · medium] A pipe's bend radius rounds only corners between two straight lines: a sharp corner
   where an arc, spline or edge curve meets another curve still fails asking for a fillet in the
-  path's sketch, and a pipe has no arrows in the view for its size and bend radius (panel fields
-  only).
+  path's sketch.
 - [low · medium] A body of each separate piece is keyed by the lowest sketch curve that drew it, so
   deleting and redrawing that one curve of a shape makes its piece a new body; a configuration
   file's colour column cannot name a piece (`plan_configuration_import` finds bodies by making

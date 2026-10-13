@@ -11,7 +11,7 @@ use std::f64::consts::PI;
 use caditor_geometry::{Aabb2, Plane, Point2, Point3, RigidTransform, Vector2, Vector3};
 use thiserror::Error;
 
-pub use self::pipe::{PipeError, PipeSection, PipeShape, pipe};
+pub use self::pipe::{PipeCorner, PipeError, PipeSection, PipeShape, PipeStand, pipe, pipe_stand};
 use self::{
     path::{Chain, Leg},
     stations::{FIT_TOLERANCE, Stations, rotating, rotation_minimising, sliding_surface},

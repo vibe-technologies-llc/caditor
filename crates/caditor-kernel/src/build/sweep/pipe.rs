@@ -364,6 +364,61 @@ fn section_tolerance(regions: &[Region]) -> f64 {
         })
 }
 
+fn path_reach(path: &[PathSegment]) -> f64 {
+    path.iter()
+        .map(|segment| segment.curve().bounding_box(segment.range()).diagonal())
+        .fold(0.0, f64::max)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PipeCorner {
+    pub point: Point3,
+    pub incoming: Vector3,
+    pub outgoing: Vector3,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PipeStand {
+    pub section: Plane,
+    pub corner: Option<PipeCorner>,
+}
+
+fn first_corner(chain: &Chain) -> Option<PipeCorner> {
+    let legs = &chain.legs;
+    let count = legs.len();
+    let joints = if chain.closed && count > 1 {
+        count
+    } else {
+        count.saturating_sub(1)
+    };
+    (0..joints).find_map(|index| {
+        let leg = legs.get(index)?;
+        let after = legs.get((index + 1) % count)?;
+        if !is_line(leg) || !is_line(after) {
+            return None;
+        }
+        let incoming = leg.end_tangent()?;
+        let outgoing = after.start_tangent()?;
+        let turn = incoming.angle_between(outgoing);
+        (turn > SMOOTH_TURN && turn <= MOST_MITRE_TURN).then(|| PipeCorner {
+            point: leg.end_point(),
+            incoming,
+            outgoing,
+        })
+    })
+}
+
+pub fn pipe_stand(path: &[PathSegment], bend: f64, up: Vector3) -> Result<PipeStand, PipeError> {
+    let tolerance = (path_reach(path) * RELATIVE_TOLERANCE).max(LINEAR_RESOLUTION);
+    let chain = path::ordered(path, tolerance)?;
+    let rounded = rounded(&chain, bend).or_else(|_| rounded(&chain, 0.0))?;
+    let start = rounded.segments.first().ok_or(PathSweepError::NoPath)?;
+    Ok(PipeStand {
+        section: section_plane(start, up)?,
+        corner: first_corner(&chain),
+    })
+}
+
 pub fn pipe(
     path: &[PathSegment],
     section: &PipeSection,
@@ -375,11 +430,7 @@ pub fn pipe(
         return Err(PipeError::InvalidBend);
     }
     let regions = section.regions()?;
-    let reach = path
-        .iter()
-        .map(|segment| segment.curve().bounding_box(segment.range()).diagonal())
-        .fold(0.0, f64::max);
-    let tolerance = section_tolerance(&regions).max(reach * RELATIVE_TOLERANCE);
+    let tolerance = section_tolerance(&regions).max(path_reach(path) * RELATIVE_TOLERANCE);
     let chain = path::ordered(path, tolerance)?;
     let rounded = rounded(&chain, bend)?;
     let start = rounded.segments.first().ok_or(PathSweepError::NoPath)?;

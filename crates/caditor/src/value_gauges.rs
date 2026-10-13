@@ -3,13 +3,16 @@ use caditor_document::{
     Evaluation, Extrude, ExtrudeEnd, ExtrudeExtent, FeatureId, FeatureKind, Hole, HoleDepth,
     HoleShape, HoleSizing, HoleStep, HoleStyle, LinearDirection, LinearSpacing, MAX_CONE_ANGLE,
     MAX_PATTERN_INSTANCES, MAX_PRISM_SIDES, MIN_PRISM_SIDES, OffsetFace, Pattern, PatternKind,
-    PatternPath, Primitive, PrimitiveAnchor, PrimitiveShape, ReachedEnd, ReachedSide, Shell,
-    ShellSide, SizeRule, SolidFeature, SolidStart, Wall, capitalized, circle_sizes, displayed_axis,
-    displayed_plane, face_plane, hole_centres, hole_thread,
+    PatternPath, Pipe, Primitive, PrimitiveAnchor, PrimitiveShape, ReachedEnd, ReachedSide,
+    Resolution, Shell, ShellSide, SizeRule, SolidFeature, SolidStart, Wall, capitalized,
+    circle_sizes, displayed_axis, displayed_plane, face_plane, hole_centres, hole_thread,
+    pipe_size_name, pipe_stand,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
-use caditor_kernel::{EdgeId, FaceId, MAX_TAPER_DEGREES, Solid, WallSide, measured_face};
+use caditor_kernel::{
+    EdgeId, FaceId, MAX_TAPER_DEGREES, PipeShape, Solid, WallSide, measured_face,
+};
 use caditor_sketch::Entity;
 
 use crate::{
@@ -18,7 +21,7 @@ use crate::{
     handle_snap, hole_panel, hole_tools,
     model::Model,
     move_manipulator::{ARROW_POINTS, Reach, step_for},
-    pattern_panel, pattern_tools, reach_handles, scene, solid_panel,
+    pattern_panel, pattern_tools, pipe_panel, reach_handles, scene, shell_panel, solid_panel,
     turn_handles::{STEP_DEGREES, Swing},
     units::Units,
 };
@@ -29,6 +32,7 @@ const HALF_TURN_DEGREES: f64 = 180.0;
 const SMALLEST_OPENING: f64 = 1e-3;
 const SMALLEST_RADIUS: f64 = 1e-6;
 const OFF_THE_LINE: f64 = 1e-9;
+const TRIANGLE_WALL_SHARE: f64 = 2.0 / 1.732_050_807_568_877_2;
 pub const HOLE_DEPTH: &str = "Depth";
 pub const HOLE_DIAMETER: &str = "Diameter";
 pub const OFFSET_DISTANCE: &str = "Distance";
@@ -97,7 +101,11 @@ pub enum Measured {
     BlendSecond,
     BlendAngle,
     ShellThickness,
+    ShellFaceThickness(usize),
     WallThickness,
+    PipeSize,
+    PipeWall,
+    PipeBend,
     Taper,
     EndOffset(Reach),
     PrimitiveSize(usize),
@@ -119,6 +127,13 @@ fn reached_side(reach: Reach) -> ReachedSide {
 
 fn zero() -> Expression {
     Expression::number(0.0)
+}
+
+fn pipe_mut(kind: &mut FeatureKind) -> Option<&mut Pipe> {
+    match kind {
+        FeatureKind::Pipe(pipe) => Some(pipe),
+        _ => None,
+    }
 }
 
 fn extrude_mut(kind: &mut FeatureKind) -> Option<&mut Extrude> {
@@ -213,7 +228,11 @@ impl Measured {
             | Self::BlendSize
             | Self::BlendSecond
             | Self::ShellThickness
+            | Self::ShellFaceThickness(_)
             | Self::WallThickness
+            | Self::PipeSize
+            | Self::PipeWall
+            | Self::PipeBend
             | Self::EndOffset(_)
             | Self::PrimitiveSize(_)
             | Self::PatternSpacing(_)
@@ -235,7 +254,11 @@ impl Measured {
             | Self::BlendSize
             | Self::BlendSecond
             | Self::ShellThickness
-            | Self::WallThickness => Rule::AboveZero,
+            | Self::ShellFaceThickness(_)
+            | Self::WallThickness
+            | Self::PipeSize
+            | Self::PipeWall => Rule::AboveZero,
+            Self::PipeBend => Rule::ZeroOrMore,
             Self::CountersinkAngle => Rule::ConeAngle,
             Self::BlendAngle => Rule::ChamferAngle,
             Self::OffsetDistance
@@ -280,7 +303,13 @@ impl Measured {
             Self::PlaneOffset => PLANE_OFFSET,
             Self::PlaneAngle => PLANE_ANGLE,
             Self::ShellThickness => SHELL_THICKNESS,
+            Self::ShellFaceThickness(index) => {
+                return Some(shell_panel::own_thickness_caption(index));
+            }
             Self::WallThickness => solid_panel::WALL_THICKNESS,
+            Self::PipeSize => return Some(capitalized(pipe_size_name(kind.pipe()?.shape))),
+            Self::PipeWall => pipe_panel::WALL_THICKNESS,
+            Self::PipeBend => pipe_panel::BEND_RADIUS,
             Self::Taper => solid_panel::TAPER,
             Self::EndOffset(reach) => solid_panel::end_offset_caption(reach),
             Self::CircularAngle => pattern_panel::TOTAL_ANGLE,
@@ -329,7 +358,18 @@ impl Measured {
             Self::PlaneOffset => "Drag to change the plane's offset",
             Self::PlaneAngle => "Drag to turn the plane about its axis",
             Self::ShellThickness => "Drag to change the shell's thickness",
+            Self::ShellFaceThickness(index) => {
+                return format!("Drag to change the thickness of face {}", index + 1);
+            }
             Self::WallThickness => "Drag to change the wall's thickness",
+            Self::PipeSize => match kind.pipe() {
+                Some(pipe) => {
+                    return format!("Drag to change the pipe's {}", pipe_size_name(pipe.shape));
+                }
+                None => "Drag to change the pipe's size",
+            },
+            Self::PipeWall => "Drag to change the pipe's wall thickness",
+            Self::PipeBend => "Drag to change the pipe's bend radius",
             Self::Taper => "Drag to change the extrusion's taper",
             Self::EndOffset(_) => "Drag to change how far the end goes past the face",
             Self::CircularAngle => "Drag to change the pattern's total angle",
@@ -483,7 +523,16 @@ impl Measured {
                 FeatureKind::Shell(Shell { thickness, .. }) => Some(thickness),
                 _ => None,
             },
+            Self::ShellFaceThickness(index) => match kind {
+                FeatureKind::Shell(Shell { faces, .. }) => {
+                    Some(&mut faces.get_mut(index)?.thickness)
+                }
+                _ => None,
+            },
             Self::WallThickness => Some(&mut wall_mut(kind)?.thickness),
+            Self::PipeSize => Some(&mut pipe_mut(kind)?.size),
+            Self::PipeWall => pipe_mut(kind)?.wall.as_mut(),
+            Self::PipeBend => Some(&mut pipe_mut(kind)?.bend),
             Self::Taper => Some(
                 extrude_mut(kind)?
                     .taper
@@ -561,7 +610,11 @@ impl Measured {
             | Self::BlendSecond
             | Self::BlendAngle
             | Self::ShellThickness
+            | Self::ShellFaceThickness(_)
             | Self::WallThickness
+            | Self::PipeSize
+            | Self::PipeWall
+            | Self::PipeBend
             | Self::PrimitiveSize(_)
             | Self::PrismSides
             | Self::PatternSpacing(_)
@@ -596,7 +649,11 @@ impl Measured {
             | Self::BlendSize
             | Self::BlendSecond
             | Self::ShellThickness
+            | Self::ShellFaceThickness(_)
             | Self::WallThickness
+            | Self::PipeSize
+            | Self::PipeWall
+            | Self::PipeBend
             | Self::EndOffset(_)
             | Self::PrimitiveSize(_)
             | Self::PatternSpacing(_)
@@ -619,9 +676,13 @@ impl Measured {
             | Self::BlendSize
             | Self::BlendSecond
             | Self::ShellThickness
+            | Self::ShellFaceThickness(_)
             | Self::WallThickness
+            | Self::PipeSize
+            | Self::PipeWall
             | Self::PatternSpacing(_)
             | Self::CurveSpacing => value.max(step),
+            Self::PipeBend => value.max(0.0),
             Self::BlendAngle => value.clamp(step, HALF_TURN_DEGREES - step),
             Self::PrimitiveSize(index) => {
                 let may_vanish = matches!(
@@ -734,7 +795,12 @@ impl Builder<'_> {
                     .collect()
             }
             FeatureKind::Blend(blend) => self.blend(blend),
-            FeatureKind::Shell(shell) => self.shell(shell).into_iter().collect(),
+            FeatureKind::Shell(shell) => {
+                let mut gauges: Vec<Gauge> = self.shell(shell).into_iter().collect();
+                gauges.extend(self.shell_faces(shell));
+                gauges
+            }
+            FeatureKind::Pipe(pipe) => self.pipe(pipe),
             FeatureKind::Solid(SolidFeature::Extrude(extrude)) => {
                 let wall = extrude
                     .wall
@@ -1212,6 +1278,74 @@ impl Builder<'_> {
         ))
     }
 
+    fn shell_faces(&self, shell: &Shell) -> Vec<Gauge> {
+        let Some(source) = handle_snap::before(self.model, self.feature) else {
+            return Vec::new();
+        };
+        let solid = &source.solid;
+        let (direction_sign, scale) = match shell.side {
+            ShellSide::Inside => (-1.0, 1.0),
+            ShellSide::Outside => (1.0, 1.0),
+            ShellSide::BothSides => (1.0, 0.5),
+        };
+        shell
+            .wall_resolutions(solid)
+            .iter()
+            .zip(&shell.faces)
+            .enumerate()
+            .filter_map(|(index, (resolution, own))| {
+                let Resolution::One(face) = resolution else {
+                    return None;
+                };
+                let value = self.length(&own.thickness)?;
+                let (at, outward) = face_stand(solid, *face)?;
+                Some(Gauge::line(
+                    Measured::ShellFaceThickness(index),
+                    (at, outward * direction_sign),
+                    scale,
+                    value,
+                ))
+            })
+            .collect()
+    }
+
+    fn pipe(&self, pipe: &Pipe) -> Vec<Gauge> {
+        let document = self.model.document();
+        let Some(feature) = document.feature(self.feature) else {
+            return Vec::new();
+        };
+        let (Some(size), Some(bend)) = (self.length(&pipe.size), self.length(&pipe.bend)) else {
+            return Vec::new();
+        };
+        let Some(stand) = pipe_stand(document, self.model.evaluation(), feature, pipe, bend) else {
+            return Vec::new();
+        };
+        let section = stand.section;
+        let across = section.x_axis();
+        let (outer, share) = match pipe.shape {
+            PipeShape::Round | PipeShape::Square => (0.5, 1.0),
+            PipeShape::Triangle => (1.0 / 3.0, TRIANGLE_WALL_SHARE),
+        };
+        let mut gauges = vec![Gauge::line(
+            Measured::PipeSize,
+            (section.origin(), across),
+            outer,
+            size,
+        )];
+        if let Some(wall) = pipe.wall.as_ref().and_then(|wall| self.length(wall)) {
+            let rim = section.origin() + across * (size * outer);
+            gauges.push(Gauge::line(Measured::PipeWall, (rim, -across), share, wall));
+        }
+        gauges.extend(stand.corner.and_then(|corner| {
+            let bisector = (corner.outgoing - corner.incoming).try_normalize()?;
+            let turn = corner.incoming.angle_between(corner.outgoing);
+            let scale = 1.0 / (turn / 2.0).cos() - 1.0;
+            (scale.is_finite() && scale > SMALLEST_OPENING)
+                .then(|| Gauge::line(Measured::PipeBend, (corner.point, bisector), scale, bend))
+        }));
+        gauges
+    }
+
     fn wall(&self, sketch: FeatureId, start: Option<&SolidStart>, wall: &Wall) -> Option<Gauge> {
         let value = self.length(&wall.thickness)?;
         let document = self.model.document();
@@ -1651,6 +1785,18 @@ impl HoleTop {
             ),
         }
     }
+}
+
+fn face_stand(solid: &Solid, face: FaceId) -> Option<(Point3, Vector3)> {
+    if let Some(plane) = face_plane(solid, face) {
+        let middle = hole_tools::middle_of(solid, face, &plane)?;
+        return Some((plane.to_world(middle), plane.normal()));
+    }
+    let outer = solid.face(face)?.outer_loop()?;
+    let first = *solid.face_loop(outer)?.coedges().first()?;
+    let edge = solid.edge(solid.coedge(first)?.edge())?;
+    let at = edge.curve().point(edge.interval().middle());
+    Some((at, outward(solid, face, at)?))
 }
 
 fn outward(solid: &Solid, face: FaceId, point: Point3) -> Option<Vector3> {

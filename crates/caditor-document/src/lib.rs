@@ -154,7 +154,10 @@ pub use crate::{
         sniff_picture,
     },
     pieces::{Resolution, Unresolved},
-    pipe::{PIPE_SHAPE, Pipe, shape_name as pipe_shape_name, size_name as pipe_size_name},
+    pipe::{
+        PIPE_SHAPE, Pipe, shape_name as pipe_shape_name, size_name as pipe_size_name,
+        stand as pipe_stand,
+    },
     primitive::{
         Cap, MAX_PRISM_SIDES, MIN_PRISM_SIDES, Primitive, PrimitiveAnchor, PrimitiveKind,
         PrimitiveShape, SizeRule,
