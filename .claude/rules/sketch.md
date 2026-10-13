@@ -211,12 +211,17 @@ relative to the extent.
     tolerance). Neighbours across a dropped run re-meet without the original corner (`bridge`):
     sharp where their carriers cross; two lines running on in one direction along one line merge
     into one line (`Junction::Merge`, a `Stretch` made as the first's offset, so no joint is left
-    free to slide); two lines running back against each other whose offsets have passed or reached
-    each other (a notch's walls) close too. A dropped curve gets no offset and no constraint, the
-    outline adding no freedom. Refused, naming the first curve dropped (`Collapses` for an arc,
-    `UsedUp` otherwise): a dropped curve at an open chain's end, fewer than two curves left, or
-    neighbours that cannot re-meet (lines side by side, arcs whose carriers miss). A notch dropped
-    stays closed when later edits widen it, as a vanished arc does.
+    free to slide); two lines running on in one direction side by side get a step (`Made::Step`,
+    `Chain::step`), a line square to both at the distance beyond the corner where the outer one's
+    original leaves the dropped run (its end, or the inner one's start when the outer comes after),
+    so the step is the sharp corner's mitre a line corner gets; it is held `Perpendicular` to that
+    original and at the `Distance` from that corner point, joined sharp, adding no freedom; two
+    lines running back against each other whose offsets have passed or reached each other (a
+    notch's walls) close too. A dropped curve gets no offset and no constraint, the outline adding
+    no freedom. Refused, naming the first curve dropped (`Collapses` for an arc, `UsedUp`
+    otherwise): a dropped curve at an open chain's end, fewer than two curves left, or neighbours
+    that cannot re-meet (arcs whose carriers miss). A notch dropped stays closed when later edits
+    widen it, as a vanished arc does.
   - `offset` holds the distance with the typed expression on the first curve and after every sharp
     corner; after a smooth joint or round corner it follows from the `Tangent` there, so a line only
     gets `Parallel` and an arc nothing. A closed chain's closing `Coincident` is added last, so the

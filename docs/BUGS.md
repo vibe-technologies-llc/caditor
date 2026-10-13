@@ -114,15 +114,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   the users of an ID, since loading and `transaction_to` insert every feature.
 
 
-## Sketching
-
-- [low · medium] An offset that closes a notch between edges running the same way at different
-  heights (a 30×20 outline whose top steps down to 19 mm at a 2 mm wide notch, offset outward
-  1.5 mm) is refused as `UsedUp` on the notch floor: across a dropped run `bridge` (`offset.rs`)
-  re-meets lines that cross and merges lines along one line, but two parallel lines side by side
-  need a piece joining them (a line square to both through the higher edge's offset end, or the
-  round about its corner) that the outline does not make.
-
 ## Sketch solver
 
 - [medium · hard] A conflict through a chain of more than about 1,050 lines with its far end fixed

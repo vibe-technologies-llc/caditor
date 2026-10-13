@@ -1130,7 +1130,7 @@ fn outline_through(corners: &[(f64, f64)]) -> Polygon {
         .add_constraint(Constraint::Distance {
             from: origin_corner,
             to: right_corner,
-            value: mm(corners[1].x),
+            value: mm(corners[0].distance(corners[1])),
         })
         .unwrap();
     let (bottom, top) = ends(&sketch, sides[1]);
@@ -1138,7 +1138,7 @@ fn outline_through(corners: &[(f64, f64)]) -> Polygon {
         .add_constraint(Constraint::Distance {
             from: bottom,
             to: top,
-            value: mm(corners[2].y),
+            value: mm(corners[1].distance(corners[2])),
         })
         .unwrap();
     Polygon {
@@ -1435,4 +1435,243 @@ fn a_round_bottomed_notch_closes_once_its_bottom_vanishes_and_its_walls_pass_eac
     let solved = solve(&sketch);
     assert_clean(&solved);
     assert_eq!(solved.solution.degrees_of_freedom(), freedom);
+}
+
+struct Stepped {
+    sketch: Sketch,
+    sides: Vec<EntityId>,
+    copies: Vec<EntityId>,
+    freedom: usize,
+}
+
+fn offset_stepped(corners: &[(f64, f64)], toward: (f64, f64)) -> Stepped {
+    let Polygon {
+        mut sketch, sides, ..
+    } = outline_through(corners);
+    let freedom = solve(&sketch).solution.degrees_of_freedom();
+    let side = sketch
+        .offset_chain(&sides)
+        .unwrap()
+        .side_of(Point2::new(toward.0, toward.1));
+
+    let copies = sketch.offset(&sides, side, 1.5, mm(1.5)).unwrap();
+
+    Stepped {
+        sketch,
+        sides,
+        copies,
+        freedom,
+    }
+}
+
+fn assert_step_held(stepped: &Stepped, step: EntityId, corner: Point2, square_to: EntityId) {
+    let Stepped {
+        sketch, freedom, ..
+    } = stepped;
+    let solved = solve(sketch);
+    let (start, end) = line_at(&solved.geometry, step);
+    let (from, to) = line_at(&solved.geometry, square_to);
+
+    assert_clean(&solved);
+    assert_eq!(solved.solution.degrees_of_freedom(), *freedom);
+    assert!((end - start).dot(to - from).abs() < EXACT);
+    assert!((distance_to_line(&solved.geometry, corner, step) - 1.5).abs() < EXACT);
+    assert_eq!(count_of(sketch, "Distance"), 2 + 6);
+    assert_eq!(count_of(sketch, "Perpendicular"), 1);
+}
+
+#[test]
+fn a_closing_notch_between_edges_at_different_heights_steps_down_square_beside_the_higher_corner() {
+    let corners = [
+        (0.0, 0.0),
+        (30.0, 0.0),
+        (30.0, 20.0),
+        (16.0, 20.0),
+        (16.0, 18.0),
+        (14.0, 18.0),
+        (14.0, 19.0),
+        (0.0, 19.0),
+    ];
+    let drawn = outline_through(&corners);
+
+    let stepped = offset_stepped(&corners, (15.0, 30.0));
+    let Stepped {
+        sketch,
+        sides,
+        copies,
+        ..
+    } = &stepped;
+    let closed = &sides[3..=5];
+
+    assert_eq!(copies.len(), 6);
+    assert_corners(
+        &corner_positions(sketch, copies),
+        &[
+            (-1.5, -1.5),
+            (31.5, -1.5),
+            (31.5, 21.5),
+            (14.5, 21.5),
+            (14.5, 20.5),
+            (-1.5, 20.5),
+        ],
+    );
+    assert_eq!(
+        constraints_on(sketch, closed),
+        constraints_on(&drawn.sketch, closed)
+    );
+    assert_step_held(&stepped, copies[3], Point2::new(16.0, 20.0), sides[2]);
+
+    let mut moved = stepped.sketch.clone();
+    let (_, corner) = ends(&moved, sides[2]);
+    moved
+        .add_constraint(Constraint::HorizontalDistance {
+            from: EntityId::ORIGIN,
+            to: corner,
+            value: mm(20.0),
+        })
+        .unwrap();
+    let followed = solve(&moved).geometry;
+    let (top, bottom) = line_at(&followed, copies[3]);
+
+    assert!(top.distance(Point2::new(18.5, 21.5)) < EXACT, "{top}");
+    assert!(bottom.distance(Point2::new(18.5, 20.5)) < EXACT, "{bottom}");
+}
+
+#[test]
+fn a_mirrored_notch_steps_up_square_beside_the_higher_corner_either_way_round() {
+    let mirrored = [
+        (0.0, 0.0),
+        (30.0, 0.0),
+        (30.0, 19.0),
+        (16.0, 19.0),
+        (16.0, 18.0),
+        (14.0, 18.0),
+        (14.0, 20.0),
+        (0.0, 20.0),
+    ];
+    let expected = [
+        (-1.5, -1.5),
+        (31.5, -1.5),
+        (31.5, 20.5),
+        (15.5, 20.5),
+        (15.5, 21.5),
+        (-1.5, 21.5),
+    ];
+
+    let stepped = offset_stepped(&mirrored, (15.0, 30.0));
+
+    assert_eq!(stepped.copies.len(), 6);
+    assert_corners(
+        &corner_positions(&stepped.sketch, &stepped.copies),
+        &expected,
+    );
+    assert_step_held(
+        &stepped,
+        stepped.copies[3],
+        Point2::new(14.0, 20.0),
+        stepped.sides[6],
+    );
+
+    let clockwise: Vec<(f64, f64)> = mirrored
+        .iter()
+        .rev()
+        .copied()
+        .cycle()
+        .skip(7)
+        .take(8)
+        .collect();
+    let stepped = offset_stepped(&clockwise, (15.0, 30.0));
+    let step = stepped
+        .copies
+        .iter()
+        .copied()
+        .find(|copy| {
+            let (start, end) = line_at(&stepped.sketch, *copy);
+            (start.x - 15.5).abs() < EXACT && (end.x - 15.5).abs() < EXACT
+        })
+        .unwrap();
+    let ends: Vec<Point2> = stepped
+        .copies
+        .iter()
+        .flat_map(|copy| {
+            let (start, end) = line_at(&stepped.sketch, *copy);
+            [start, end]
+        })
+        .collect();
+
+    assert_eq!(stepped.copies.len(), 6);
+    assert!(expected.iter().all(|(x, y)| {
+        ends.iter()
+            .any(|end| end.distance(Point2::new(*x, *y)) < EXACT)
+    }));
+    assert_step_held(&stepped, step, Point2::new(14.0, 20.0), stepped.sides[1]);
+}
+
+#[test]
+fn an_inward_offset_closing_a_tab_between_edges_at_different_heights_steps_beside_its_corner() {
+    let stepped = offset_stepped(
+        &[
+            (0.0, 0.0),
+            (30.0, 0.0),
+            (30.0, 20.0),
+            (16.0, 20.0),
+            (16.0, 22.0),
+            (14.0, 22.0),
+            (14.0, 21.0),
+            (0.0, 21.0),
+        ],
+        (15.0, 10.0),
+    );
+
+    assert_eq!(stepped.copies.len(), 6);
+    assert_corners(
+        &corner_positions(&stepped.sketch, &stepped.copies),
+        &[
+            (1.5, 1.5),
+            (28.5, 1.5),
+            (28.5, 18.5),
+            (14.5, 18.5),
+            (14.5, 19.5),
+            (1.5, 19.5),
+        ],
+    );
+    assert_step_held(
+        &stepped,
+        stepped.copies[3],
+        Point2::new(16.0, 20.0),
+        stepped.sides[2],
+    );
+
+    let stepped = offset_stepped(
+        &[
+            (0.0, 0.0),
+            (30.0, 0.0),
+            (30.0, 21.0),
+            (16.0, 21.0),
+            (16.0, 22.0),
+            (14.0, 22.0),
+            (14.0, 20.0),
+            (0.0, 20.0),
+        ],
+        (15.0, 10.0),
+    );
+
+    assert_eq!(stepped.copies.len(), 6);
+    assert_corners(
+        &corner_positions(&stepped.sketch, &stepped.copies),
+        &[
+            (1.5, 1.5),
+            (28.5, 1.5),
+            (28.5, 19.5),
+            (15.5, 19.5),
+            (15.5, 18.5),
+            (1.5, 18.5),
+        ],
+    );
+    assert_step_held(
+        &stepped,
+        stepped.copies[3],
+        Point2::new(14.0, 20.0),
+        stepped.sides[6],
+    );
 }

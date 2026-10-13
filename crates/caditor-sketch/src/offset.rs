@@ -449,6 +449,33 @@ enum Made {
     Offset(usize),
     Corner(usize),
     Cap(ChainEnd),
+    Step(Step),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Step {
+    before: usize,
+    after: usize,
+    outer: Neighbour,
+}
+
+impl Step {
+    fn corner(self, elements: &[Element]) -> Option<(EntityId, &Element)> {
+        match self.outer {
+            Neighbour::Before => elements
+                .get(self.before)
+                .map(|element| (element.end, element)),
+            Neighbour::After => elements
+                .get(self.after)
+                .map(|element| (element.start, element)),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Neighbour {
+    Before,
+    After,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -755,7 +782,7 @@ impl Chain {
             let junction = if (index + 1) % count == next {
                 self.join(&mut courses, index, next, by, tolerance)?
             } else {
-                match bridge(whole, &mut courses, index, next, by, tolerance) {
+                match self.bridge(whole, &mut courses, index, next, by, tolerance) {
                     Bridge::Meets(junction) => junction,
                     Bridge::Closes => return Ok(Settled::Closes(vec![index, next])),
                     Bridge::Apart => return Err(self.first_refusal(losses)),
@@ -797,6 +824,14 @@ impl Chain {
                         course: corner,
                     });
                     joints.push(Joint::Tangent);
+                }
+                Some(Junction::Step(step, course)) => {
+                    joints.push(Joint::Sharp);
+                    parts.push(Part {
+                        made: Made::Step(step),
+                        course,
+                    });
+                    joints.push(Joint::Sharp);
                 }
                 Some(Junction::Meet(joint)) => joints.push(joint),
                 Some(Junction::Merge) | None => {}
@@ -982,12 +1017,101 @@ impl Chain {
         meet_at(courses, index, next, crossing);
         Ok(Junction::Meet(Joint::Sharp))
     }
+
+    fn bridge(
+        &self,
+        whole: &[Course],
+        courses: &mut [Course],
+        index: usize,
+        next: usize,
+        by: f64,
+        tolerance: f64,
+    ) -> Bridge {
+        let (Some(before), Some(after)) = (whole.get(index).copied(), whole.get(next).copied())
+        else {
+            return Bridge::Apart;
+        };
+        if !(before.is_line() && after.is_line()) {
+            return match meeting_point(&before, &after, tolerance) {
+                Some(crossing) => {
+                    meet_at(courses, index, next, crossing);
+                    Bridge::Meets(Junction::Meet(Joint::Sharp))
+                }
+                None => Bridge::Apart,
+            };
+        }
+        let leaving = before.end_tangent();
+        let entering = after.start_tangent();
+        let turn = leaving.perp_dot(entering);
+        let across = after.start() - before.start();
+        if turn.abs() > SMOOTH_ANGLE {
+            let crossing = before.start() + leaving * (across.perp_dot(entering) / turn);
+            meet_at(courses, index, next, crossing);
+            return Bridge::Meets(Junction::Meet(Joint::Sharp));
+        }
+        let moved_toward = leaving.perp() * by.signum();
+        if leaving.dot(entering) > 0.0 {
+            if leaving.perp_dot(across).abs() <= tolerance {
+                return Bridge::Meets(Junction::Merge);
+            }
+            let outer = if across.dot(moved_toward) < 0.0 {
+                Neighbour::Before
+            } else {
+                Neighbour::After
+            };
+            return self.step(courses, (index, next), (before, after), outer, by.abs());
+        }
+        if across.dot(moved_toward) <= tolerance {
+            Bridge::Closes
+        } else {
+            Bridge::Apart
+        }
+    }
+
+    fn step(
+        &self,
+        courses: &mut [Course],
+        (index, next): (usize, usize),
+        (before, after): (Course, Course),
+        outer: Neighbour,
+        distance: f64,
+    ) -> Bridge {
+        let along = before.end_tangent();
+        let step = Step {
+            before: index,
+            after: next,
+            outer,
+        };
+        let Some((_, element)) = step.corner(&self.elements) else {
+            return Bridge::Apart;
+        };
+        let through = match outer {
+            Neighbour::Before => element.course.end() + along * distance,
+            Neighbour::After => element.course.start() - along * distance,
+        };
+        let foot = |on: Course| on.start() + along * (through - on.start()).dot(along);
+        let (top, bottom) = (foot(before), foot(after));
+        if let Some(course) = courses.get_mut(index) {
+            *course = course.with_end(top);
+        }
+        if let Some(course) = courses.get_mut(next) {
+            *course = course.with_start(bottom);
+        }
+        Bridge::Meets(Junction::Step(
+            step,
+            Course::Line {
+                start: top,
+                end: bottom,
+            },
+        ))
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Junction {
     Meet(Joint),
     Round(Course),
+    Step(Step, Course),
     Merge,
 }
 
@@ -1029,50 +1153,6 @@ fn meet_at(courses: &mut [Course], index: usize, next: usize, point: Point2) {
     }
     if let Some(course) = courses.get_mut(next) {
         *course = course.with_start(point);
-    }
-}
-
-fn bridge(
-    whole: &[Course],
-    courses: &mut [Course],
-    index: usize,
-    next: usize,
-    by: f64,
-    tolerance: f64,
-) -> Bridge {
-    let (Some(before), Some(after)) = (whole.get(index).copied(), whole.get(next).copied()) else {
-        return Bridge::Apart;
-    };
-    if !(before.is_line() && after.is_line()) {
-        return match meeting_point(&before, &after, tolerance) {
-            Some(crossing) => {
-                meet_at(courses, index, next, crossing);
-                Bridge::Meets(Junction::Meet(Joint::Sharp))
-            }
-            None => Bridge::Apart,
-        };
-    }
-    let leaving = before.end_tangent();
-    let entering = after.start_tangent();
-    let turn = leaving.perp_dot(entering);
-    let across = after.start() - before.start();
-    if turn.abs() > SMOOTH_ANGLE {
-        let crossing = before.start() + leaving * (across.perp_dot(entering) / turn);
-        meet_at(courses, index, next, crossing);
-        return Bridge::Meets(Junction::Meet(Joint::Sharp));
-    }
-    if leaving.dot(entering) > 0.0 {
-        return if leaving.perp_dot(across).abs() <= tolerance {
-            Bridge::Meets(Junction::Merge)
-        } else {
-            Bridge::Apart
-        };
-    }
-    let moved_toward = leaving.perp() * by.signum();
-    if across.dot(moved_toward) <= tolerance {
-        Bridge::Closes
-    } else {
-        Bridge::Apart
     }
 }
 
@@ -1491,6 +1571,16 @@ impl Sketch {
                 self.add_constraint(Constraint::Coincident(point, piece.curve))?;
                 self.add_constraint(Constraint::Perpendicular(piece.curve, element.curve))?;
             }
+            if let Made::Step(step) = part.made
+                && let Some((corner, element)) = step.corner(&chain.elements)
+            {
+                self.add_constraint(Constraint::Perpendicular(piece.curve, element.curve))?;
+                self.add_constraint(Constraint::Distance {
+                    from: corner,
+                    to: piece.curve,
+                    value: value.clone(),
+                })?;
+            }
         }
         let count = made.len();
         let closing = outline.closed.then(|| count.saturating_sub(1));
@@ -1532,6 +1622,13 @@ impl Sketch {
                     point.map(|(point, _)| point),
                     point.is_some_and(|(_, element)| self.is_construction(element.curve)),
                 )
+            }
+            Made::Step(step) => {
+                let construction = [step.before, step.after]
+                    .into_iter()
+                    .filter_map(|index| chain.elements.get(index))
+                    .all(|element| self.is_construction(element.curve));
+                (None, construction)
             }
         };
         let piece = match part.course {
