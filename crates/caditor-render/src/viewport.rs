@@ -11,6 +11,7 @@ use crate::{
     gpu::{self, Bytes, GrowableBuffer, Pack, QuadIndices, Records, Wake},
     image::{self, Background, ChannelOrder, ImageRequest, Tile},
     kept::{KeptView, Shown, ViewCopy},
+    lighting::{LightFrame, LightPass, LightPassReady, LightUniform, shadow_pipeline},
     lines::{LINE_POINT_SLOTS, LINE_POINT_STRIDE, LineStrips, line_instances},
     mesh::{MESH_VERTEX_STRIDE, MeshCache, MeshPool, StyleLayout, UploadBudget, pack_color},
     picking::{self, PickPrepared, PickTargets, PickWindow, Picking},
@@ -46,7 +47,7 @@ const MARKER_BYTES: usize = 28;
 const MARKER_STRIDE: u64 = MARKER_BYTES as u64;
 const FILL_VERTEX_BYTES: usize = 16;
 const FILL_VERTEX_STRIDE: u64 = FILL_VERTEX_BYTES as u64;
-const VIEW_UNIFORM_SIZE: u64 = 400;
+const VIEW_UNIFORM_SIZE: u64 = 592;
 const HATCH_SPACING_POINTS: f64 = 8.0;
 const REANCHOR_DISTANCES: f64 = 4.0;
 const ANCHOR_ERROR_PIXELS: f64 = 0.02;
@@ -244,6 +245,7 @@ struct Pipelines {
     grid: wgpu::RenderPipeline,
     pictures_behind: wgpu::RenderPipeline,
     pictures_in_front: wgpu::RenderPipeline,
+    shadows: wgpu::RenderPipeline,
     pick: PickPipelines,
 }
 
@@ -269,6 +271,7 @@ pub struct ImagePlan {
     grid: bool,
     reflection: Reflection,
     section: Vec<SectionPlane>,
+    light: LightUniform,
     targets: ImageTargets,
 }
 
@@ -476,11 +479,12 @@ pub struct Faults {
     pub meshes: u32,
     pub batches: u32,
     pub picking: bool,
+    pub light: bool,
 }
 
 impl Faults {
     pub fn any(self) -> bool {
-        self.targets || self.meshes > 0 || self.batches > 0 || self.picking
+        self.targets || self.meshes > 0 || self.batches > 0 || self.picking || self.light
     }
 }
 
@@ -1136,6 +1140,8 @@ pub struct ViewportRenderer {
     pick_refused: bool,
     pick_window: Option<ClipWindow>,
     sectioned: bool,
+    light_pass: LightPass,
+    light: LightUniform,
     background: wgpu::Color,
 }
 
@@ -1165,6 +1171,7 @@ impl ViewportRenderer {
         let meshes = MeshCache::new(device);
         let silhouettes = SilhouetteCache::new(device);
         let pictures = PictureCache::new(device);
+        let light_pass = LightPass::new(device);
         let layouts = Layouts {
             view: &view_layout,
             grid: &grid_layout,
@@ -1172,6 +1179,7 @@ impl ViewportRenderer {
             mesh: meshes.layout(),
             silhouette: silhouettes.layout(),
             picture: pictures.layout(),
+            shadow: light_pass.layout(),
         };
 
         Self {
@@ -1211,6 +1219,8 @@ impl ViewportRenderer {
             pick_refused: false,
             pick_window: None,
             sectioned: false,
+            light_pass,
+            light: LightUniform::NONE,
             background: BACKGROUND,
         }
     }
@@ -1245,6 +1255,7 @@ impl ViewportRenderer {
                 mesh: self.meshes.layout(),
                 silhouette: self.silhouettes.layout(),
                 picture: self.pictures.layout(),
+                shadow: self.light_pass.layout(),
             };
             Pipelines::new(
                 device,
@@ -1351,6 +1362,9 @@ impl ViewportRenderer {
         });
         let fresh = prepared.changed || !targets.kept.holding.holds(shown);
         if fresh {
+            if drawn.is_some() {
+                self.draw_light_pass(encoder);
+            }
             self.draw_view(encoder, targets, drawn, surface);
         }
         self.copy.draw(encoder, &targets.kept, surface.view);
@@ -1486,6 +1500,8 @@ impl ViewportRenderer {
             pick_refused: false,
             pick_window: None,
             sectioned: false,
+            light_pass: self.light_pass.sibling(device),
+            light: LightUniform::NONE,
             background: self.background,
         }
     }
@@ -1541,6 +1557,7 @@ impl ViewportRenderer {
             grid: request.scene.grid.is_some(),
             reflection: request.scene.reflection,
             section: request.scene.section.clone(),
+            light: self.light,
             targets,
         })
     }
@@ -1561,7 +1578,7 @@ impl ViewportRenderer {
                 anchor: plan.anchor,
             },
             plan.pixels_per_point,
-            (self.shading, plan.reflection, &plan.section),
+            (self.shading, plan.reflection, &plan.section, &plan.light),
             (transform, Strokes::Finished),
         );
         self.view_uniform.write(queue, &self.staging);
@@ -1569,6 +1586,7 @@ impl ViewportRenderer {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("image tile"),
         });
+        self.draw_light_pass(&mut encoder);
         let mut pass = plan.targets.begin_pass(&mut encoder, plan.clear);
         pass.set_viewport(0.0, 0.0, tile.width as f32, tile.height as f32, 0.0, 1.0);
         pass.set_scissor_rect(0, 0, tile.width, tile.height);
@@ -1598,8 +1616,20 @@ impl ViewportRenderer {
         queue.submit([encoder.finish()]);
     }
 
+    fn draw_light_pass(&self, encoder: &mut wgpu::CommandEncoder) {
+        if !self.light.needs_light_pass() {
+            return;
+        }
+        let Some(mut pass) = self.light_pass.begin_pass(encoder) else {
+            return;
+        };
+        pass.set_bind_group(0, &self.view_uniform.bind_group, &[]);
+        self.meshes.draw_all(&mut pass, &self.pipelines.shadows);
+    }
+
     fn draw_scene(&self, pass: &mut wgpu::RenderPass<'_>, grid: bool, window: &ClipWindow) {
         pass.set_bind_group(0, &self.view_uniform.bind_group, &[]);
+        pass.set_bind_group(2, self.light_pass.bind_group(), &[]);
         let pipelines = &self.pipelines;
         let (meshes, flat, reflective) = if self.sectioned {
             (
@@ -1784,37 +1814,7 @@ impl ViewportRenderer {
 
         let pixels_per_point = valid_scale(viewport.pixels_per_point);
         self.sectioned = !scene.section.is_empty();
-        view_uniform(
-            &mut self.staging,
-            &anchored,
-            pixels_per_point,
-            (self.shading, scene.reflection, &scene.section),
-            (WHOLE_VIEW, Strokes::Finished),
-        );
-        let mut changed = self.view_uniform.write(queue, &self.staging);
-        let prepared = viewport.pick_at.map(|cursor| {
-            (
-                cursor,
-                self.picking
-                    .prepare(device, PickWindow::for_scale(pixels_per_point)),
-            )
-        });
-        let refused = matches!(prepared, Some((_, PickPrepared::Refused)));
-        faults.picking = refused && !self.pick_refused;
-        self.pick_refused = refused;
-        self.pick_window = None;
-        if let Some((cursor, PickPrepared::Ready(window))) = prepared {
-            let transform = picking::pick_transform(cursor, view.size(), window);
-            self.pick_window = Some(ClipWindow::new(view, transform, pixels_per_point));
-            view_uniform(
-                &mut self.staging,
-                &anchored,
-                pixels_per_point,
-                (self.shading, scene.reflection, &scene.section),
-                (transform, Strokes::Bare),
-            );
-            self.pick_view_uniform.write(queue, &self.staging);
-        }
+        let mut changed = false;
         if let Some(grid) = &scene.grid {
             grid_uniform(&mut self.staging, grid, view);
             changed |= self.grid_uniform.write(queue, &self.staging);
@@ -1857,6 +1857,38 @@ impl ViewportRenderer {
         .into_iter()
         .any(MeshCache::changed)
             || self.silhouettes.changed();
+        faults.light = self.light_scene(device, scene, view);
+        view_uniform(
+            &mut self.staging,
+            &anchored,
+            pixels_per_point,
+            (self.shading, scene.reflection, &scene.section, &self.light),
+            (WHOLE_VIEW, Strokes::Finished),
+        );
+        changed |= self.view_uniform.write(queue, &self.staging);
+        let prepared = viewport.pick_at.map(|cursor| {
+            (
+                cursor,
+                self.picking
+                    .prepare(device, PickWindow::for_scale(pixels_per_point)),
+            )
+        });
+        let refused = matches!(prepared, Some((_, PickPrepared::Refused)));
+        faults.picking = refused && !self.pick_refused;
+        self.pick_refused = refused;
+        self.pick_window = None;
+        if let Some((cursor, PickPrepared::Ready(window))) = prepared {
+            let transform = picking::pick_transform(cursor, view.size(), window);
+            self.pick_window = Some(ClipWindow::new(view, transform, pixels_per_point));
+            view_uniform(
+                &mut self.staging,
+                &anchored,
+                pixels_per_point,
+                (self.shading, scene.reflection, &scene.section, &self.light),
+                (transform, Strokes::Bare),
+            );
+            self.pick_view_uniform.write(queue, &self.staging);
+        }
         let (batches_changed, refused_batches) =
             self.upload_batches(device, queue, &scene.batches, (anchor, batch_budget));
         faults.batches = refused_batches;
@@ -1868,6 +1900,26 @@ impl ViewportRenderer {
             faults,
             changed: changed || batches_changed || reordered,
         }
+    }
+
+    fn light_scene(&mut self, device: &wgpu::Device, scene: &Scene, view: &View) -> bool {
+        let Some(lighting) = &scene.lighting else {
+            self.light = LightUniform::NONE;
+            return false;
+        };
+        let toward_light = lighting.direction.toward_light(view);
+        let ready = match lighting.needs_light_pass() {
+            true => self.light_pass.ensure(device),
+            false => LightPassReady::Refused,
+        };
+        let frame = match ready {
+            LightPassReady::Ready => {
+                LightFrame::fitted(toward_light, view.eye(), self.meshes.placed_corners())
+            }
+            LightPassReady::Refused | LightPassReady::NewlyRefused => None,
+        };
+        self.light = LightUniform::of(lighting, toward_light, frame);
+        matches!(ready, LightPassReady::NewlyRefused)
     }
 
     fn anchor_for(&mut self, view: &View) -> Point3 {
@@ -2151,6 +2203,7 @@ struct Layouts<'a> {
     mesh: &'a wgpu::BindGroupLayout,
     silhouette: &'a wgpu::BindGroupLayout,
     picture: &'a wgpu::BindGroupLayout,
+    shadow: &'a wgpu::BindGroupLayout,
 }
 
 impl Pipelines {
@@ -2178,6 +2231,10 @@ impl Pipelines {
             pipeline_layout("grid", &[Some(layouts.view), Some(layouts.grid)]);
         let mesh_pipeline_layout =
             pipeline_layout("mesh", &[Some(layouts.view), Some(layouts.mesh)]);
+        let lit_mesh_pipeline_layout = pipeline_layout(
+            "lit mesh",
+            &[Some(layouts.view), Some(layouts.mesh), Some(layouts.shadow)],
+        );
         let silhouette_pipeline_layout = pipeline_layout(
             "silhouette",
             &[Some(layouts.view), Some(layouts.silhouette)],
@@ -2307,7 +2364,7 @@ impl Pipelines {
         Self {
             meshes: color(
                 "meshes",
-                &mesh_pipeline_layout,
+                &lit_mesh_pipeline_layout,
                 "vs_mesh",
                 &meshes,
                 "fs_mesh",
@@ -2315,7 +2372,7 @@ impl Pipelines {
             ),
             sectioned_meshes: color(
                 "sectioned meshes",
-                &mesh_pipeline_layout,
+                &lit_mesh_pipeline_layout,
                 "vs_mesh",
                 &meshes,
                 "fs_mesh_sectioned",
@@ -2339,7 +2396,7 @@ impl Pipelines {
             ),
             translucent_meshes: color(
                 "translucent meshes",
-                &mesh_pipeline_layout,
+                &lit_mesh_pipeline_layout,
                 "vs_mesh",
                 &meshes,
                 "fs_mesh",
@@ -2349,7 +2406,7 @@ impl Pipelines {
                 device,
                 &PipelineSpec {
                     label: "overlay meshes",
-                    layout: &mesh_pipeline_layout,
+                    layout: &lit_mesh_pipeline_layout,
                     module: &module,
                     vertex: "vs_mesh",
                     buffers: &meshes,
@@ -2439,6 +2496,7 @@ impl Pipelines {
             ),
             pictures_behind: picture("pictures behind", wgpu::CompareFunction::GreaterEqual),
             pictures_in_front: picture("pictures in front", wgpu::CompareFunction::Always),
+            shadows: shadow_pipeline(device, &module, &mesh_pipeline_layout, &meshes),
             pick: reused_picking.cloned().unwrap_or_else(|| PickPipelines {
                 lines: pick_pipeline(
                     "pick lines",
@@ -2673,7 +2731,7 @@ fn view_uniform(
     bytes: &mut Bytes,
     anchored: &AnchoredView<'_>,
     pixels_per_point: f32,
-    (shading, reflection, section): (Shading, Reflection, &[SectionPlane]),
+    (shading, reflection, section, light): (Shading, Reflection, &[SectionPlane], &LightUniform),
     (transform, strokes): ([f32; 4], Strokes),
 ) {
     let [across, along] = reflection.uniform();
@@ -2696,6 +2754,7 @@ fn view_uniform(
         .floats(&across)
         .floats(&along);
     section_uniform(bytes, view, pixels_per_point, section);
+    light.write(bytes);
 }
 
 fn section_uniform(

@@ -16,6 +16,7 @@ pub enum Page {
     Window,
     Navigation,
     Display,
+    RenderedView,
     Selection,
     Keyboard,
     Undo,
@@ -94,6 +95,7 @@ all_variants!(
     Window,
     Navigation,
     Display,
+    RenderedView,
     Selection,
     Keyboard,
     Undo,
@@ -218,6 +220,7 @@ impl Page {
             Self::Window => "window",
             Self::Navigation => "navigation",
             Self::Display => "display",
+            Self::RenderedView => "rendered-view",
             Self::Selection => "selection",
             Self::Keyboard => "keyboard",
             Self::Undo => "undo",
@@ -302,6 +305,7 @@ impl Page {
             Self::Window => include_str!("../guide/window.md"),
             Self::Navigation => include_str!("../guide/navigation.md"),
             Self::Display => include_str!("../guide/display.md"),
+            Self::RenderedView => include_str!("../guide/rendered-view.md"),
             Self::Selection => include_str!("../guide/selection.md"),
             Self::Keyboard => include_str!("../guide/keyboard.md"),
             Self::Undo => include_str!("../guide/undo.md"),
@@ -382,6 +386,7 @@ impl Page {
             | Self::Window
             | Self::Navigation
             | Self::Display
+            | Self::RenderedView
             | Self::Selection
             | Self::Keyboard
             | Self::Undo => Chapter::Basics,
@@ -535,6 +540,7 @@ impl Page {
             SidePanel::Isocurves => Self::Isocurves,
             SidePanel::Section => Self::SectionView,
             SidePanel::Tidying => Self::AutomaticConstraints,
+            SidePanel::Lighting => Self::RenderedView,
         }
     }
 
@@ -556,6 +562,7 @@ pub enum SidePanel {
     Isocurves,
     Section,
     Tidying,
+    Lighting,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -2,7 +2,7 @@ use std::{collections::BTreeSet, sync::Arc};
 
 use caditor_document::FeatureId;
 use caditor_geometry::{Plane, Point3};
-use caditor_render::{Batch, Color, SectionPlane, View};
+use caditor_render::{Batch, Color, Lighting, SectionPlane, View};
 use caditor_sketch::Faceting;
 
 use crate::{
@@ -132,6 +132,7 @@ pub struct SceneCache {
     overlay_batch: Option<Arc<Batch>>,
     highlightable: Option<Highlightable>,
     section: Vec<SectionPlane>,
+    lighting: Option<Lighting>,
     grid: Option<Color>,
     palette_grid: Option<Color>,
     generation: u64,
@@ -151,6 +152,7 @@ impl Default for SceneCache {
             overlay_batch: None,
             highlightable: None,
             section: Vec::new(),
+            lighting: None,
             grid: None,
             palette_grid: None,
             generation: 0,
@@ -198,6 +200,7 @@ impl SceneCache {
         self.base_batches = built.scene.batches.len();
         built.scene.batches.extend(self.overlay_batch.clone());
         built.scene.section.clone_from(&self.section);
+        built.scene.lighting = self.lighting.filter(|_| built.rendered);
         self.palette_grid = built.scene.grid.as_ref().map(|grid| grid.color);
         self.built = Some(built);
         self.colour_grid();
@@ -231,6 +234,20 @@ impl SceneCache {
             built.scene.section.clone_from(&self.section);
             built.generation = self.generation;
         }
+    }
+
+    pub fn set_lighting(&mut self, lighting: Option<Lighting>) {
+        if lighting == self.lighting {
+            return;
+        }
+        self.lighting = lighting;
+        if let Some(built) = &mut self.built {
+            built.scene.lighting = self.lighting.filter(|_| built.rendered);
+        }
+    }
+
+    pub fn lighting(&self) -> Option<Lighting> {
+        self.lighting
     }
 
     pub fn set_grid(&mut self, grid: Option<Color>) {

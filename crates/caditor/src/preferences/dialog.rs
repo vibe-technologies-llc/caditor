@@ -15,7 +15,7 @@ use crate::{
     defender, dialog_parts,
     files::templates::{self, Templates},
     graphics::{self, Hardware},
-    icons,
+    icons, lighting_panel,
     scene_palette::{self, Canvas, Contrast},
     themes::{Look, UserThemes},
     units::{AngleUnit, Decimals, LengthUnit, TrailingZeros, Units},
@@ -1123,6 +1123,21 @@ fn appearance(
         });
     });
     in_the_view(ui, shown, command);
+    rendered_view(ui, shown, command);
+}
+
+fn rendered_view(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesCommand>) {
+    let note = "These light the Rendered display style, which View › Display style chooses; \
+                Light the rendered view opens them beside the 3D view.";
+    section(
+        ui,
+        shown,
+        Section::RenderedView,
+        Some(note.to_owned()),
+        |ui| {
+            lighting_panel::rows(ui, shown.preferences.lighting, command);
+        },
+    );
 }
 
 fn in_the_view(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesCommand>) {

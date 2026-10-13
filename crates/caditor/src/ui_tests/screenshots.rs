@@ -455,6 +455,7 @@ fn screenshots() {
             .viewport
             .set_style(crate::display_style::DisplayStyle::ShadedWithHiddenEdges);
         shoot(&mut model, &gpu, &out, "hidden-edges", look);
+        rendered_scene(&mut model, &gpu, &out, look);
         model
             .workspace
             .viewport
@@ -1093,6 +1094,63 @@ fn reference_image_scene(harness: &mut Harness, dir: &Path, gpu: &Gpu, out: &Pat
     harness.frame();
     let _ = sketch;
     shoot(harness, gpu, out, "reference-image-traced", look);
+}
+
+fn rendered_scene(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
+    model
+        .workspace
+        .viewport
+        .set_style(crate::display_style::DisplayStyle::Rendered);
+    model.still();
+    shoot(model, gpu, out, "rendered", look);
+    let bodies: Vec<FeatureId> = model
+        .document()
+        .features()
+        .filter(|feature| feature.makes_body())
+        .map(|feature| feature.id())
+        .collect();
+    for (body, material) in bodies.iter().zip(["Brass", "PLA"]) {
+        model.perform(Action::Apply(caditor_document::Transaction::single(
+            "Choose a material",
+            caditor_document::Edit::SetBodyAppearance {
+                id: *body,
+                appearance: caditor_document::BodyAppearance {
+                    material: Some(material.to_owned()),
+                    colour: crate::body_appearance::material_named(material)
+                        .and_then(|preset| preset.colour),
+                    ..Default::default()
+                },
+            },
+        )));
+    }
+    model.settle();
+    model.workspace.lighting.open = true;
+    model.still();
+    shoot(model, gpu, out, "rendered-brass", look);
+    for _ in bodies.iter().take(2) {
+        model.perform(Action::Undo);
+    }
+    model.settle();
+    let low = crate::lighting::Lighting {
+        frame: crate::lighting::LightFrame::Model,
+        azimuth: 30.0,
+        elevation: 20.0,
+        temperature: 3200.0,
+        ..crate::lighting::Lighting::default()
+    };
+    model.perform(Action::Preferences(
+        crate::preferences::PreferencesCommand::Change(
+            crate::preferences::PreferenceChange::Lighting(low),
+        ),
+    ));
+    model.still();
+    shoot(model, gpu, out, "rendered-low-sun", look);
+    model.workspace.lighting.open = false;
+    model.perform(Action::Preferences(
+        crate::preferences::PreferencesCommand::Change(
+            crate::preferences::PreferenceChange::Lighting(crate::lighting::Lighting::default()),
+        ),
+    ));
 }
 
 fn shoot_open(harness: &mut Harness, gpu: &Gpu, out: &Path, scene: &str, look: Look) {

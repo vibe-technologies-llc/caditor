@@ -11,6 +11,12 @@ struct View {
     section: vec4<f32>,
     section_planes: array<vec4<f32>, 6>,
     section_hatches: array<vec4<f32>, 6>,
+    sun: vec4<f32>,
+    sun_colour: vec4<f32>,
+    exposure_shadow: vec4<f32>,
+    bounce: vec4<f32>,
+    shadow_matrix: mat4x4<f32>,
+    relative_from_light: mat4x4<f32>,
 }
 
 struct Grid {
@@ -48,6 +54,10 @@ struct MeshPlacement {
 @group(1) @binding(5) var picture_texture: texture_2d<f32>;
 @group(1) @binding(6) var picture_sampler: sampler;
 @group(1) @binding(7) var<uniform> picture: Picture;
+@group(2) @binding(0) var shadow_map: texture_depth_2d;
+@group(2) @binding(1) var shadow_sampler: sampler_comparison;
+@group(2) @binding(2) var lit_albedo: texture_2d<f32>;
+@group(2) @binding(3) var lit_normals: texture_2d<f32>;
 
 const CULLED: vec4<f32> = vec4<f32>(0.0, 0.0, 2.0, 1.0);
 const ORTHOGRAPHIC_DEPTH_BIAS: f32 = 0.03;
@@ -604,6 +614,51 @@ fn vs_mesh(vertex: MeshVertex) -> Varyings {
     return out;
 }
 
+@vertex
+fn vs_shadow(vertex: MeshVertex) -> Varyings {
+    let relative = turned(vertex.position) + from_anchor(mesh.offset.xyz);
+    let face = min(vertex.face, max(mesh.faces_columns.x, 1u) - 1u);
+    let columns = max(mesh.faces_columns.y, 1u);
+    let style = textureLoad(face_styles, vec2<u32>(face % columns, face / columns), 0);
+
+    var out = empty_varyings();
+    out.position = view.shadow_matrix * vec4<f32>(relative, 1.0);
+    out.color = unpack_color(style.x);
+    if out.color.a <= 0.0 {
+        out.position = CULLED;
+    }
+    out.relative = relative;
+    out.normal = turned(unfolded(vertex.normal));
+    out.sectioned = SECTIONED | (style.z << FINISH_SHIFT);
+    return out;
+}
+
+struct LitTexel {
+    @location(0) albedo: vec4<f32>,
+    @location(1) normal: vec4<f32>,
+}
+
+@fragment
+fn fs_shadow(in: Varyings) -> LitTexel {
+    if is_cut(in) {
+        discard;
+    }
+    let toward_light = view.sun.xyz;
+    var normal = in.normal;
+    if dot(normal, normal) < 1e-12 {
+        normal = toward_light;
+    }
+    normal = normalize(normal);
+    if dot(normal, toward_light) < 0.0 {
+        normal = -normal;
+    }
+    let finish = in.sectioned >> FINISH_SHIFT;
+    let metalness = select(0.0, finish_metalness(finish), (finish & FINISH_PRESENT) != 0u);
+    let albedo = to_srgb(to_linear(in.color.rgb) * (1.0 - metalness));
+    let facing = clamp(dot(normal, toward_light), 0.0, 1.0);
+    return LitTexel(vec4<f32>(albedo, facing), vec4<f32>(normal * 0.5 + 0.5, 1.0));
+}
+
 struct SilhouetteStyle {
     offset_width: vec4<f32>,
     color: vec4<f32>,
@@ -826,6 +881,11 @@ fn shade(in: Varyings) -> vec4<f32> {
     let normal = facing_normal(in, eye);
     let finish = in.sectioned >> FINISH_SHIFT;
     if (finish & FINISH_PRESENT) != 0u {
+        if uses_rendered_shading() {
+            let sun_seen = sunlit(in.relative, normal);
+            let bounce = bounced(in.relative, normal, in.position.xy);
+            return rendered(in.color, normal, eye, finish, Received(sun_seen, bounce));
+        }
         return finished(in.color, normal, eye, finish);
     }
     return lit(in.color, normal, eye);
@@ -907,6 +967,162 @@ fn finished(color: vec4<f32>, normal: vec3<f32>, eye: vec3<f32>, finish: u32) ->
     }
     light += studio(reflect(-eye, normal), roughness) * mirrored * ENVIRONMENT_STRENGTH;
     return vec4<f32>(to_srgb(light), color.a);
+}
+
+const SHADOW_TAPS: i32 = 1;
+const BOUNCE_SAMPLES: i32 = 24;
+const GOLDEN_ANGLE: f32 = 2.39996323;
+const SHADOW_DEPTH_BIAS: f32 = 0.0005;
+const ENVIRONMENT_BRDF_LOW: vec4<f32> = vec4<f32>(-1.0, -0.0275, -0.572, 0.022);
+const ENVIRONMENT_BRDF_HIGH: vec4<f32> = vec4<f32>(1.0, 0.0425, 1.04, -0.04);
+const NEUTRAL_START: f32 = 0.76;
+const NEUTRAL_DESATURATION: f32 = 0.15;
+
+fn uses_rendered_shading() -> bool {
+    return view.exposure_shadow.x > 0.0;
+}
+
+fn casts_shadows() -> bool {
+    return view.exposure_shadow.y > 0.5;
+}
+
+fn sunlit(relative: vec3<f32>, normal: vec3<f32>) -> f32 {
+    if !casts_shadows() {
+        return 1.0;
+    }
+    let toward_light = view.sun.xyz;
+    let slant = 1.0 - clamp(dot(normal, toward_light), 0.0, 1.0);
+    let offset = normal * view.exposure_shadow.w * (0.5 + slant);
+    let light = view.shadow_matrix * vec4<f32>(relative + offset, 1.0);
+    let texel = vec2<f32>(light.x * 0.5 + 0.5, 0.5 - light.y * 0.5);
+    if any(texel < vec2<f32>(0.0)) || any(texel > vec2<f32>(1.0)) || light.z > 1.0 || light.z < 0.0 {
+        return 1.0;
+    }
+    let step = view.exposure_shadow.z;
+    let reference = light.z - SHADOW_DEPTH_BIAS;
+    var seen = 0.0;
+    var taps = 0.0;
+    for (var x = -SHADOW_TAPS; x <= SHADOW_TAPS; x++) {
+        for (var y = -SHADOW_TAPS; y <= SHADOW_TAPS; y++) {
+            let at = texel + vec2<f32>(f32(x), f32(y)) * step;
+            seen += textureSampleCompareLevel(shadow_map, shadow_sampler, at, reference);
+            taps += 1.0;
+        }
+    }
+    return seen / taps;
+}
+
+fn visibility_term(n_dot_v: f32, n_dot_l: f32, alpha: f32) -> f32 {
+    let squared = alpha * alpha;
+    let from_view = n_dot_l * sqrt(n_dot_v * n_dot_v * (1.0 - squared) + squared);
+    let from_light = n_dot_v * sqrt(n_dot_l * n_dot_l * (1.0 - squared) + squared);
+    return 0.5 / max(from_view + from_light, 1e-5);
+}
+
+fn distribution_term(n_dot_h: f32, alpha: f32) -> f32 {
+    let squared = alpha * alpha;
+    let spread = n_dot_h * n_dot_h * (squared - 1.0) + 1.0;
+    return squared / (PI * spread * spread);
+}
+
+fn environment_brdf(reflectance: vec3<f32>, roughness: f32, n_dot_v: f32) -> vec3<f32> {
+    let fit = roughness * ENVIRONMENT_BRDF_LOW + ENVIRONMENT_BRDF_HIGH;
+    let falloff = min(fit.x * fit.x, exp2(-9.28 * n_dot_v)) * fit.x + fit.y;
+    let scale_bias = vec2<f32>(-1.04, 1.04) * falloff + fit.zw;
+    return reflectance * scale_bias.x + vec3<f32>(scale_bias.y);
+}
+
+fn pbr_neutral(color: vec3<f32>) -> vec3<f32> {
+    let least = min(color.r, min(color.g, color.b));
+    let offset = select(0.04, least - 6.25 * least * least, least < 0.08);
+    let shifted = color - vec3<f32>(offset);
+    let peak = max(shifted.r, max(shifted.g, shifted.b));
+    if peak < NEUTRAL_START {
+        return shifted;
+    }
+    let span = 1.0 - NEUTRAL_START;
+    let compressed = 1.0 - span * span / (peak + span - NEUTRAL_START);
+    let scaled = shifted * (compressed / peak);
+    let desaturation = 1.0 - 1.0 / (NEUTRAL_DESATURATION * (peak - compressed) + 1.0);
+    return mix(scaled, vec3<f32>(compressed), desaturation);
+}
+
+struct Received {
+    sun_seen: f32,
+    bounce: vec3<f32>,
+}
+
+fn bounces() -> bool {
+    return view.bounce.x > 0.0;
+}
+
+fn spin_at(pixel: vec2<f32>) -> f32 {
+    return fract(52.9829189 * fract(dot(pixel, vec2<f32>(0.06711056, 0.00583715)))) * TAU;
+}
+
+fn bounced(relative: vec3<f32>, normal: vec3<f32>, pixel: vec2<f32>) -> vec3<f32> {
+    if !bounces() {
+        return vec3<f32>(0.0);
+    }
+    let light = view.shadow_matrix * vec4<f32>(relative, 1.0);
+    let centre = vec2<f32>(light.x * 0.5 + 0.5, 0.5 - light.y * 0.5);
+    let size = vec2<f32>(textureDimensions(lit_albedo));
+    let last = vec2<i32>(size) - vec2<i32>(1);
+    let spin = spin_at(pixel);
+    var gathered = vec3<f32>(0.0);
+    for (var index = 0; index < BOUNCE_SAMPLES; index++) {
+        let share = (f32(index) + 0.5) / f32(BOUNCE_SAMPLES);
+        let angle = f32(index) * GOLDEN_ANGLE + spin;
+        let at = centre + vec2<f32>(cos(angle), sin(angle)) * view.bounce.y * sqrt(share);
+        if any(at < vec2<f32>(0.0)) || any(at >= vec2<f32>(1.0)) {
+            continue;
+        }
+        let texel = clamp(vec2<i32>(at * size), vec2<i32>(0), last);
+        let albedo = textureLoad(lit_albedo, texel, 0);
+        if albedo.a <= 0.0 {
+            continue;
+        }
+        let depth = textureLoad(shadow_map, texel, 0);
+        let placed = view.relative_from_light * vec4<f32>(at.x * 2.0 - 1.0, 1.0 - at.y * 2.0, depth, 1.0);
+        let source = placed.xyz / placed.w;
+        let source_normal = textureLoad(lit_normals, texel, 0).xyz * 2.0 - 1.0;
+        let between = relative - source;
+        let squared = max(dot(between, between), view.bounce.z);
+        let leaving = max(dot(source_normal, between), 0.0);
+        let arriving = max(dot(normal, -between), 0.0);
+        gathered += to_linear(albedo.rgb) * albedo.a * leaving * arriving / (squared * squared);
+    }
+    return gathered * view.bounce.w * view.bounce.x * view.sun_colour.rgb * view.sun.w;
+}
+
+fn rendered(color: vec4<f32>, normal: vec3<f32>, eye: vec3<f32>, finish: u32, received: Received) -> vec4<f32> {
+    let metalness = finish_metalness(finish);
+    let roughness = finish_roughness(finish);
+    let alpha = roughness * roughness;
+    let base = to_linear(color.rgb);
+    let reflectance = mix(vec3<f32>(DIELECTRIC_REFLECTANCE), base, metalness);
+    let toward_light = view.sun.xyz;
+    let n_dot_l = clamp(dot(normal, toward_light), 0.0, 1.0);
+    let n_dot_v = clamp(dot(normal, eye), 1e-4, 1.0);
+
+    let halfway = normalize(toward_light + eye);
+    let n_dot_h = clamp(dot(normal, halfway), 0.0, 1.0);
+    let v_dot_h = clamp(dot(eye, halfway), 0.0, 1.0);
+    let fresnel = schlick(reflectance, v_dot_h);
+    let specular = fresnel * distribution_term(n_dot_h, alpha) * visibility_term(n_dot_v, n_dot_l, alpha);
+    let diffuse = (vec3<f32>(1.0) - fresnel) * (1.0 - metalness) * base / PI;
+    let sunlight = view.sun_colour.rgb * view.sun.w * n_dot_l * received.sun_seen;
+    let direct = (diffuse + specular) * sunlight;
+
+    let reflected = environment_brdf(reflectance, roughness, n_dot_v);
+    let diffuse_share = (vec3<f32>(1.0) - reflected) * (1.0 - metalness) * base;
+    let ambient_diffuse = diffuse_share * studio(normal, 1.0);
+    let ambient_specular = reflected * studio(reflect(-eye, normal), roughness);
+    let ambient = (ambient_diffuse + ambient_specular) * view.sun_colour.w;
+    let indirect = diffuse_share * received.bounce / PI;
+
+    let exposed = (direct + ambient + indirect) * view.exposure_shadow.x;
+    return vec4<f32>(to_srgb(pbr_neutral(exposed)), color.a);
 }
 
 fn lit(color: vec4<f32>, normal: vec3<f32>, eye: vec3<f32>) -> vec4<f32> {
@@ -1005,7 +1221,12 @@ fn cap_color(in: Varyings, section: Sectioned) -> vec4<f32> {
     if dot(normal, eye) < 0.0 {
         normal = -normal;
     }
-    let filled = lit(vec4<f32>(in.color.rgb * CAP_SHADE, 1.0), normal, eye);
+    let finish = in.sectioned >> FINISH_SHIFT;
+    let capped = vec4<f32>(in.color.rgb * CAP_SHADE, 1.0);
+    if uses_rendered_shading() && (finish & FINISH_PRESENT) != 0u {
+        return hatched(rendered(capped, normal, eye, finish, Received(1.0, vec3<f32>(0.0))).rgb, section);
+    }
+    let filled = lit(capped, normal, eye);
     return hatched(filled.rgb, section);
 }
 

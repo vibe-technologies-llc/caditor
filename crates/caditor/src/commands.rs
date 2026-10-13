@@ -200,6 +200,8 @@ pub enum Command {
     ShowAll,
     TogglePrincipal,
     ShowPrincipalWhenNeeded,
+    Lighting,
+    ResetLighting,
     ToggleSketches,
     ToggleDatums,
     ToggleBodies,
@@ -717,6 +719,8 @@ plain_commands! {
     ShowAll,
     TogglePrincipal,
     ShowPrincipalWhenNeeded,
+    Lighting,
+    ResetLighting,
     ToggleSketches,
     ToggleDatums,
     ToggleBodies,
@@ -1089,6 +1093,8 @@ impl Command {
             Self::ShowAll => "view.show_all",
             Self::TogglePrincipal => "view.toggle_principal",
             Self::ShowPrincipalWhenNeeded => "view.principal_when_needed",
+            Self::Lighting => "view.lighting",
+            Self::ResetLighting => "view.reset_lighting",
             Self::ToggleSketches => "view.toggle_sketches",
             Self::ToggleDatums => "view.toggle_datums",
             Self::ToggleBodies => "view.toggle_bodies",
@@ -1363,6 +1369,8 @@ impl Command {
             Self::ShowAll => "Show everything",
             Self::TogglePrincipal => "Hide or show principal planes, axes and origin",
             Self::ShowPrincipalWhenNeeded => "Show principal planes only when needed",
+            Self::Lighting => "Light the rendered view",
+            Self::ResetLighting => "Reset the rendered view's lighting",
             Self::ToggleSketches => "Hide or show every sketch",
             Self::ToggleDatums => "Hide or show every datum",
             Self::ToggleBodies => "Hide or show every body",
@@ -1560,6 +1568,23 @@ impl Command {
             Self::FinishShape => &["stop", "end", "done"],
             Self::ChainArc => &["arc", "tangent", "segment", "chain"],
             Self::ShowPrincipalWhenNeeded => &["hide planes", "reference planes", "automatically"],
+            Self::Lighting | Self::ResetLighting => &[
+                "sun",
+                "light direction",
+                "shadows",
+                "bounce",
+                "indirect",
+                "exposure",
+                "render",
+            ],
+            Self::Style(DisplayStyle::Rendered) => &[
+                "render",
+                "preview",
+                "realistic",
+                "pbr",
+                "materials",
+                "shadows",
+            ],
             _ => &[],
         }
     }
@@ -1664,6 +1689,8 @@ impl Command {
             | Self::ShowAll
             | Self::TogglePrincipal
             | Self::ShowPrincipalWhenNeeded
+            | Self::Lighting
+            | Self::ResetLighting
             | Self::ToggleSketches
             | Self::ToggleDatums
             | Self::ToggleBodies
@@ -2065,6 +2092,8 @@ impl Command {
             | Self::ToggleControlPolygons
             | Self::ToggleCosmeticThreads
             | Self::ShowPrincipalWhenNeeded
+            | Self::Lighting
+            | Self::ResetLighting
             | Self::MinimizeWindow
             | Self::MaximizeWindow
             | Self::SaveView

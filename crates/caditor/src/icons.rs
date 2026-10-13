@@ -8,6 +8,7 @@ use crate::{
     analysis::AnalysisCommand,
     body_snap::BodyItem,
     commands::{CameraMove, Command},
+    display_style::DisplayStyle,
     editing::Tool,
     icon_font,
     section::SectionCommand,
@@ -26,6 +27,7 @@ pub const EDIT: &str = phosphor::PENCIL_SIMPLE;
 pub const DONE: &str = phosphor::CHECK;
 pub const RELOAD: &str = phosphor::ARROW_CLOCKWISE;
 pub const RESET_SECTION: &str = phosphor::ARROW_COUNTER_CLOCKWISE;
+pub const LIGHTING: &str = phosphor::SUN;
 pub const MORE: &str = phosphor::DOTS_THREE;
 pub const DELETE: &str = phosphor::TRASH;
 pub const REMOVE_BODY: &str = phosphor::CUBE_FOCUS;
@@ -270,6 +272,8 @@ pub fn command(command: Command) -> &'static str {
         Command::NormalInterface => phosphor::TEXT_AA,
         Command::View(_) => phosphor::CUBE_FOCUS,
         Command::Filter(_) => phosphor::FUNNEL,
+        Command::Style(DisplayStyle::Rendered) | Command::Lighting => LIGHTING,
+        Command::ResetLighting => RESET_SECTION,
         Command::Style(_) => phosphor::CUBE_TRANSPARENT,
         Command::Camera(camera) => camera_move(camera),
         Command::HighlightNext => phosphor::ARROW_RIGHT,

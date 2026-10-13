@@ -119,6 +119,7 @@ fn scene() -> Scene {
         reflective_meshes: Vec::new(),
         silhouettes: Vec::new(),
         reflection: Reflection::default(),
+        lighting: None,
         section: Vec::new(),
         grid: None,
         pictures: Vec::new(),
@@ -1115,6 +1116,7 @@ fn the_front_layer_draws_and_picks_over_faces_in_front_of_it() {
         reflective_meshes: Vec::new(),
         silhouettes: Vec::new(),
         reflection: Reflection::default(),
+        lighting: None,
         section: Vec::new(),
         grid: None,
         pictures: Vec::new(),
@@ -5231,4 +5233,233 @@ fn a_run_over_shared_polylines_draws_and_picks_as_the_lines_it_stands_for() {
     assert_eq!(drawn_run.pick, drawn_lines.pick);
     assert!(!drawn_run.pick.hits.is_empty());
     assert!(pixel(&drawn_run, corner)[1] > 128);
+}
+
+const MATTE: crate::SurfaceFinish = crate::SurfaceFinish {
+    metalness: 0.0,
+    roughness: 0.8,
+};
+
+fn lit_by(azimuth: f64, elevation: f64) -> crate::Lighting {
+    crate::Lighting {
+        direction: crate::LightDirection::Model { azimuth, elevation },
+        colour: [1.0; 3],
+        strength: 3.0,
+        environment: 0.0,
+        exposure: 0.0,
+        shadows: false,
+        bounce: 0.0,
+    }
+}
+
+fn finished_mesh(
+    mesh: &Arc<ShadedMesh>,
+    color: Color,
+    finish: crate::SurfaceFinish,
+    placement: Option<RigidTransform>,
+) -> MeshInstance {
+    MeshInstance {
+        mesh: Arc::clone(mesh),
+        faces: (0..mesh.face_count())
+            .map(|_| FaceStyle {
+                color,
+                pick: None,
+                finish: Some(finish),
+            })
+            .collect(),
+        placement,
+    }
+}
+
+fn rendered_pixels(scene: &Scene, view: &View, at: &[Point3]) -> Option<Vec<[u8; 4]>> {
+    let (device, queue) = gpu()?;
+    let mut renderer = viewport_renderer(&device, 4);
+    let spots: Vec<DVec2> = at
+        .iter()
+        .map(|point| view.project(*point).unwrap())
+        .collect();
+    let rendered = render_with(
+        &mut renderer,
+        &device,
+        &queue,
+        &full_frame(view, scene, spots[0]),
+    );
+    Some(spots.iter().map(|spot| pixel(&rendered, *spot)).collect())
+}
+
+fn oblique_view(distance: f64) -> View {
+    let viewpoint =
+        Viewpoint::looking_from(Vector3::new(0.8, -1.0, 0.9), Point3::ZERO, distance).unwrap();
+    View::new(viewpoint, f64::from(SIZE), f64::from(SIZE))
+}
+
+#[test]
+fn rendered_lighting_lights_faces_toward_the_light_and_the_environment_fills_those_turned_away() {
+    let cube = Arc::new(box_mesh(20.0));
+    let grey = Color::from_rgb8(180, 180, 180);
+    let view = oblique_view(150.0);
+    let faces = [
+        Point3::new(0.0, 0.0, 20.0),
+        Point3::new(0.0, -20.0, 0.0),
+        Point3::new(20.0, 0.0, 0.0),
+    ];
+    let scene_lit = |lighting: crate::Lighting| Scene {
+        meshes: vec![finished_mesh(&cube, grey, MATTE, None)],
+        lighting: Some(lighting),
+        ..Scene::default()
+    };
+
+    let Some(overhead) = rendered_pixels(
+        &scene_lit(lit_by(0.0, std::f64::consts::FRAC_PI_2)),
+        &view,
+        &faces,
+    ) else {
+        return;
+    };
+    let surrounded = rendered_pixels(
+        &scene_lit(crate::Lighting {
+            environment: 1.0,
+            ..lit_by(0.0, std::f64::consts::FRAC_PI_2)
+        }),
+        &view,
+        &faces,
+    )
+    .unwrap();
+
+    assert!(brightness(overhead[0]) > 400, "{overhead:?}");
+    assert!(brightness(overhead[1]) < 20, "{overhead:?}");
+    assert!(brightness(overhead[2]) < 20, "{overhead:?}");
+    assert!(
+        brightness(surrounded[1]) > brightness(overhead[1]) + 60,
+        "{surrounded:?}"
+    );
+    assert!(
+        brightness(surrounded[0]) >= brightness(overhead[0]),
+        "{surrounded:?}"
+    );
+}
+
+#[test]
+fn a_body_in_the_lights_path_shadows_the_floor_behind_it_only_while_shadows_are_on() {
+    let floor = Arc::new(quad_mesh(0.0, 60.0));
+    let cube = Arc::new(box_mesh(10.0));
+    let white = Color::from_rgb8(220, 220, 220);
+    let raised = RigidTransform::translation(Vector3::new(0.0, 0.0, 20.0));
+    let view = oblique_view(220.0);
+    let spots = [Point3::new(-20.0, 0.0, 0.0), Point3::new(30.0, 0.0, 0.0)];
+    let scene_with = |shadows: bool| Scene {
+        meshes: vec![
+            finished_mesh(&floor, white, MATTE, None),
+            finished_mesh(&cube, white, MATTE, raised),
+        ],
+        lighting: Some(crate::Lighting {
+            shadows,
+            environment: 0.2,
+            ..lit_by(0.0, std::f64::consts::FRAC_PI_4)
+        }),
+        ..Scene::default()
+    };
+
+    let Some(shadowed) = rendered_pixels(&scene_with(true), &view, &spots) else {
+        return;
+    };
+    let unshadowed = rendered_pixels(&scene_with(false), &view, &spots).unwrap();
+
+    assert!(
+        brightness(shadowed[0]) + 150 < brightness(shadowed[1]),
+        "{shadowed:?}"
+    );
+    assert!(
+        brightness(unshadowed[0]).abs_diff(brightness(unshadowed[1])) < 30,
+        "{unshadowed:?}"
+    );
+    assert!(
+        brightness(shadowed[1]).abs_diff(brightness(unshadowed[1])) < 10,
+        "{shadowed:?} {unshadowed:?}"
+    );
+}
+
+#[test]
+fn light_bounced_off_a_red_wall_tints_the_white_floor_beside_it() {
+    let floor = Arc::new(quad_mesh(0.0, 60.0));
+    let cube = Arc::new(box_mesh(10.0));
+    let white = Color::from_rgb8(220, 220, 220);
+    let red = Color::from_rgb8(220, 30, 30);
+    let wall = RigidTransform::translation(Vector3::new(-20.0, 0.0, 10.0));
+    let view = oblique_view(220.0);
+    let spots = [Point3::new(-6.0, -2.0, 0.0)];
+    let scene_with = |bounce: f32| Scene {
+        meshes: vec![
+            finished_mesh(&floor, white, MATTE, None),
+            finished_mesh(&cube, red, MATTE, wall),
+        ],
+        lighting: Some(crate::Lighting {
+            shadows: true,
+            bounce,
+            environment: 0.2,
+            ..lit_by(0.0, std::f64::consts::FRAC_PI_4)
+        }),
+        ..Scene::default()
+    };
+    let warmth = |[red, _, blue, _]: [u8; 4]| i32::from(red) - i32::from(blue);
+
+    let Some(plain) = rendered_pixels(&scene_with(0.0), &view, &spots) else {
+        return;
+    };
+    let bounced = rendered_pixels(&scene_with(2.0), &view, &spots).unwrap();
+
+    assert!(warmth(plain[0]).abs() < 8, "{plain:?}");
+    assert!(
+        warmth(bounced[0]) > warmth(plain[0]) + 10,
+        "{plain:?} {bounced:?}"
+    );
+    assert!(
+        brightness(bounced[0]) > brightness(plain[0]),
+        "{plain:?} {bounced:?}"
+    );
+}
+
+#[test]
+fn a_metal_renders_apart_from_a_dielectric_of_its_colour_and_exposure_brightens_both() {
+    let cube = Arc::new(box_mesh(20.0));
+    let steel = Color::from_rgb8(150, 155, 160);
+    let view = oblique_view(150.0);
+    let faces = [
+        Point3::new(0.0, 0.0, 20.0),
+        Point3::new(0.0, -20.0, 0.0),
+        Point3::new(20.0, 0.0, 0.0),
+    ];
+    let metal = crate::SurfaceFinish {
+        metalness: 1.0,
+        roughness: 0.3,
+    };
+    let scene_of = |finish: crate::SurfaceFinish, exposure: f32| Scene {
+        meshes: vec![finished_mesh(&cube, steel, finish, None)],
+        lighting: Some(crate::Lighting {
+            environment: 1.0,
+            exposure,
+            ..lit_by(-0.6, 0.8)
+        }),
+        ..Scene::default()
+    };
+
+    let Some(dielectric) = rendered_pixels(&scene_of(MATTE, 0.0), &view, &faces) else {
+        return;
+    };
+    let metallic = rendered_pixels(&scene_of(metal, 0.0), &view, &faces).unwrap();
+    let brighter = rendered_pixels(&scene_of(MATTE, 1.0), &view, &faces).unwrap();
+
+    assert!(
+        dielectric
+            .iter()
+            .zip(&metallic)
+            .any(|(plain, metal)| brightness(*plain).abs_diff(brightness(*metal)) > 40),
+        "{dielectric:?} {metallic:?}"
+    );
+    for (before, after) in dielectric.iter().zip(&brighter) {
+        assert!(
+            brightness(*after) > brightness(*before),
+            "{dielectric:?} {brighter:?}"
+        );
+    }
 }

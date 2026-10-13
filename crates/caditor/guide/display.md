@@ -11,6 +11,8 @@ View › Display style chooses how bodies are drawn:
 - **Hidden lines removed**: flat white faces with edges over them, like a drawing.
 - **X-ray**: see-through faces with edges on top. Choosing it again turns it off and returns to the
   style it replaced.
+- **Rendered**: bodies lit by a sun with shadows and bounced light, showing their colour, finish
+  and material; see [Rendered view](rendered-view).
 
 The style is kept while caditor runs and also shapes exported images.
 

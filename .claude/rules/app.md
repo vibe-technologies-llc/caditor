@@ -35,6 +35,8 @@ paths:
   - "crates/caditor/src/isocurve_panel.rs"
   - "crates/caditor/src/section.rs"
   - "crates/caditor/src/section_panel.rs"
+  - "crates/caditor/src/lighting.rs"
+  - "crates/caditor/src/lighting_panel.rs"
   - "crates/caditor/src/analysis.rs"
   - "crates/caditor/src/analysis_panel.rs"
   - "crates/caditor/src/reach.rs"
@@ -523,6 +525,31 @@ paths:
   again. Picking, paint selection and box selection (the `seen` closure of `select_in_model` treats a
   cut point as unseen) reach only what is shown, so Measure does too. An exported image keeps the
   section (`ViewportState::image`); thumbnails and the headless PNG have none.
+
+## Rendered view
+
+- `DisplayStyle::Rendered` (`app-input.md`) is a preview of materials. Outside sketch editing and
+  without a face analysis or reflection (`scene::Finishes::of` gives `Rendered`,
+  `BuiltScene::rendered`), every face not hovered or selected carries a finish whatever
+  `ScenePalette::shows_finishes` says: its own, else the body's, else its material preset's
+  (`body_appearance::rendered_finish`, `material_named` matching `MATERIALS` by name ignoring
+  case), else `RENDERED_DEFAULT` (Satin). The finish mode joins `KeptLooks`. Hovered and selected
+  faces keep no finish, so the renderer draws them with the ordinary shading and their palette
+  colours hold in high contrast; failed and outdated bodies keep their tint unfinished.
+- `Scene::lighting` (`render.md`) is not part of the scene key: `ViewportState::set_lighting`
+  hands `SceneCache::set_lighting` the Lighting preference every frame, which sets it on the built
+  scene in place when it is `rendered` (no rebuild, no new pick), so moving a slider costs a
+  uniform write. Image export sets it the same way, so an exported image matches the view;
+  thumbnails, version previews and the headless PNG keep the default style.
+- The light is a preference (`lighting::Lighting`, keys `rendering.*`, `app-files.md`), not
+  document content: frame (`LightFrame`, the view or the model), turn and height in degrees, sun
+  strength, colour temperature (a blackbody fit normalised to unit luminance, `light_colour`),
+  studio light, bounced light, exposure in stops and shadows, each read clamped. Light the
+  rendered view (`Command::Lighting`, View › Display style) toggles `LightingTool` in the
+  `Workspace`; while open, `lighting_panel.rs` draws a right-hand panel of `lighting_panel::rows`
+  (the same rows Preferences › Appearance › Rendered view draws), sliders previewing while dragged
+  and changing on release, an info callout with Show the Rendered style when another style is
+  shown, and Reset lighting (`Command::ResetLighting`).
 
 ## Samples
 

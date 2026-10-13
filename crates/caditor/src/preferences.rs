@@ -14,7 +14,7 @@ pub use self::{
         Choice, DoubleClick, ExportMemory, FieldOfView, NewBodies, OrbitAround, RecentListed,
         Startup, TooltipDelay, Transitions, ZoomToward,
     },
-    dialog::{PreferencesView, Shown, change, choice, dialog, section},
+    dialog::{PreferencesView, Shown, change, choice, dialog, pick, section},
     sections::Section,
 };
 pub use crate::themes::{Accent, Appearance, BodyColour, GridColour, Theme, ViewChoice};
@@ -30,6 +30,7 @@ use crate::{
     icons,
     last_values::{LastValues, Remembered},
     layout::{PanelLayout, WindowPlacement},
+    lighting::Lighting,
     model::Notice,
     onboarding::{Hint, Onboarding},
     palette,
@@ -201,9 +202,9 @@ impl PreferencesTab {
                 "Go back to the system theme with its own accent, 3D view and body colour, at \
                  normal size and \
                  contrast with caditor's title bar, standard hover help, standard edges with \
-                 outlines, the view cube shown at its standard size at the top right and principal \
-                 planes shown only when needed. Only \
-                 this tab changes"
+                 outlines, the view cube shown at its standard size at the top right, principal \
+                 planes shown only when needed and the rendered view's first lighting. Only this \
+                 tab changes"
             }
             Self::Navigation => {
                 "Go back to perspective with the standard field of view and view changes, normal \
@@ -492,6 +493,7 @@ pub struct Preferences {
     pub exports: RememberedExports,
     pub new_bodies: NewBodies,
     pub graphics: Graphics,
+    pub lighting: Lighting,
     pub onboarding: Onboarding,
     pub keymap: Keymap,
     pub window: WindowPlacement,
@@ -558,6 +560,7 @@ pub enum PreferenceChange {
     Shading(Shading),
     CurveQuality(CurveQuality),
     Adapter(AdapterPreference),
+    Lighting(Lighting),
     Bind(Command, KeyboardShortcut),
     Unbind(Command, KeyboardShortcut),
     ResetShortcut(Command),
@@ -760,6 +763,7 @@ impl Preferences {
             },
             new_bodies: NewBodies::read(&raw, NEW_BODIES_KEY),
             graphics: Graphics::from_settings(&raw),
+            lighting: Lighting::from_settings(&raw),
             onboarding: Onboarding::from_settings(&raw),
             keymap: Keymap::from_settings(&raw),
             window: WindowPlacement::from_settings(&raw),
@@ -810,6 +814,7 @@ impl Preferences {
         self.exports.write(&mut settings);
         settings.set_text(NEW_BODIES_KEY, self.new_bodies.key());
         self.graphics.write(&mut settings);
+        self.lighting.write(&mut settings);
         self.keymap.write(&self.loaded_keymap, &mut settings);
         self.onboarding.write(&mut settings);
         self.window.write(&mut settings);
@@ -910,6 +915,7 @@ impl Preferences {
             PreferenceChange::Shading(shading) => self.graphics.shading = shading,
             PreferenceChange::Adapter(adapter) => self.graphics.adapter = adapter,
             PreferenceChange::CurveQuality(curves) => self.graphics.curves = curves,
+            PreferenceChange::Lighting(lighting) => self.lighting = lighting,
             PreferenceChange::Bind(command, shortcut) => self.keymap.bind(command, shortcut),
             PreferenceChange::Unbind(command, shortcut) => self.keymap.unbind(command, shortcut),
             PreferenceChange::ResetShortcut(command) => self.keymap.reset(command),

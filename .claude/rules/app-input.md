@@ -461,7 +461,9 @@ paths:
   scene), shaded without edges (edges drawn with no alpha, so they stay pickable), wireframe (no
   faces in the scene, so none is drawn or picked), hidden lines removed (faces in
   `Scene::flat_meshes`, unlit in `ScenePalette::drawing_face`, still pickable and hiding what lies
-  behind) or X-ray (faces in `Scene::translucent_meshes` at `XRAY_FACE_ALPHA`, unpickable). Every
+  behind), X-ray (faces in `Scene::translucent_meshes` at `XRAY_FACE_ALPHA`, unpickable) or
+  rendered (faces as shaded without edges, every face finished and the scene lit by the Lighting
+  preference, `app.md`). Every
   style that draws edges also gives each body a `Silhouette` in the edge colour and width (dashed for
   a troubled body, dimmed for background bodies), so the outline of curved faces is drawn as the
   view turns (`render.md`); with hidden edges dashed a coloured body's silhouette is

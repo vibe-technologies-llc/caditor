@@ -232,6 +232,28 @@ pub fn surface(finish: Finish) -> SurfaceFinish {
     }
 }
 
+pub const RENDERED_DEFAULT: Finish = Finish::Satin;
+
+pub fn material_named(name: &str) -> Option<&'static Material> {
+    let name = name.trim();
+    MATERIALS
+        .iter()
+        .find(|material| material.name.eq_ignore_ascii_case(name))
+}
+
+pub fn rendered_finish(appearance: &BodyAppearance) -> Finish {
+    appearance
+        .finish
+        .or_else(|| {
+            appearance
+                .material
+                .as_deref()
+                .and_then(material_named)
+                .map(|material| material.finish)
+        })
+        .unwrap_or(RENDERED_DEFAULT)
+}
+
 pub fn finish_name(finish: Option<Finish>) -> &'static str {
     finish.map_or(NO_FINISH, Finish::name)
 }

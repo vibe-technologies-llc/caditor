@@ -177,6 +177,34 @@ paths:
   weighted by a roughness-aware Fresnel). Reflectance is 4% for a dielectric and the colour times
   `METAL_REFLECTANCE_GAIN` for a metal. Section caps, flat, reflective and pick shaders ignore the
   finish; translucent meshes, drawn with `fs_mesh`, take it.
+- `Scene::lighting` (`lighting.rs`, `Lighting`: a `LightDirection` in the view's or the model's
+  frame, colour, strength, environment, exposure in stops, shadows, bounce) switches faces carrying
+  a finish to `rendered` (uniform fields `sun`, `sun_colour`, `exposure_shadow`, `bounce`,
+  `shadow_matrix`, `relative_from_light`, after the section planes; `uses_rendered_shading` reads
+  the exposure scale, zero without lighting, so every pixel of a scene without lighting is as
+  before). `rendered` is Cook-Torrance: GGX, height-correlated Smith visibility, Schlick Fresnel
+  with F0 mixed from 4% to the colour by metalness, Lambert diffuse weighted by one less Fresnel
+  and metalness, times the sun and its shadow; the `studio` environment as split-sum ambient
+  (`studio(normal, 1)` irradiance, `studio(reflected, roughness)` with Karis' analytic environment
+  BRDF) times `environment`; one bounce of sunlight; then exposure, Khronos PBR Neutral tone
+  mapping and `to_srgb`. Faces without a finish (hovered, selected) keep `lit`. Section caps of a
+  finished face are rendered without shadow or bounce, so the reflective pipelines need no group 2.
+- The light pass (`LightPass`, `LightFrame`): when lighting has shadows or bounce, one depth pass
+  from the sun (`vs_shadow`, `fs_shadow`, `shadow_pipeline`, layout `[view, mesh]`) draws every mesh
+  of `Scene::meshes` (translucent ones receive but do not cast; faces of no alpha and geometry cut
+  away by a section cast nothing) into a `SHADOW_MAP_SIDE` depth map plus two `Rgba8Unorm` targets,
+  the lit diffuse albedo with the sun's cosine and the normal: a reflective shadow map. It is
+  encoded before the scene pass whenever the kept view is drawn, and before each image tile.
+  `LightFrame::fitted` fits an orthographic light frame to the placed corners of the meshes
+  (`MeshCache::placed_corners`, f64, eye-relative), so it rides in the view uniform with its
+  inverse. The colour mesh pipelines running `fs_mesh` (meshes, sectioned, translucent, overlay)
+  bind the maps as group 2 (`LightPass::bind_group`, 1×1 stand-ins until made). Shadows are 3×3
+  PCF on a comparison sampler with a normal offset; bounced light (`bounced`) gathers
+  `BOUNCE_SAMPLES` texels on a spun golden-angle disc of `BOUNCE_REACH` of the frame around the
+  receiver, each a lit patch's radiance over distance squared with both cosines, with no visibility
+  test (it can leak through thin walls). The targets are made lazily inside `gpu::scoped`; a
+  refusal draws without shadows and bounce and reports `RenderFault::LightRefused` once. Image
+  siblings make their own.
 - The multisample resolve averages in linear light where views allow it: a renderer told so
   (`set_linear_resolve`, from `gpu::resolves_linearly`, the adapter's `VIEW_FORMATS`) gives its
   multisampled colour target and the kept view an sRGB view each, stores the scene pass instead of

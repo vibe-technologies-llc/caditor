@@ -348,6 +348,7 @@ pub struct BuiltScene {
     pub everything: Aabb,
     pub model: Option<Aabb>,
     pub edited: Option<EditedSketch>,
+    pub rendered: bool,
     reference_size: f64,
 }
 
@@ -434,6 +435,7 @@ struct KeptLooks {
     appearance: BodyAppearance,
     result: Option<Shared<FeatureResult>>,
     palette: usize,
+    finishes: Finishes,
     default: Color,
     looks: SameLooks,
 }
@@ -459,9 +461,17 @@ impl Parts {
         previous: &mut BTreeMap<FeatureId, KeptLooks>,
         (document, evaluation): (&Document, &Evaluation),
         (body, appearance, default): (FeatureId, &BodyAppearance, Color),
-        palette: &ScenePalette,
+        (palette, finishes): (&ScenePalette, Finishes),
     ) -> SameLooks {
-        let made = || face_looks(document, evaluation, body, (appearance, default), palette);
+        let made = || {
+            face_looks(
+                document,
+                evaluation,
+                body,
+                (appearance, default),
+                (palette, finishes),
+            )
+        };
         if appearance.faces.is_empty() {
             return SameLooks(Arc::new(made()));
         }
@@ -474,6 +484,7 @@ impl Parts {
                 if kept.appearance == *appearance
                     && kept.result == result
                     && kept.palette == palette_key
+                    && kept.finishes == finishes
                     && kept.default == default =>
             {
                 kept
@@ -482,6 +493,7 @@ impl Parts {
                 appearance: appearance.clone(),
                 result,
                 palette: palette_key,
+                finishes,
                 default,
                 looks: SameLooks(Arc::new(made())),
             },
@@ -1114,6 +1126,7 @@ pub fn build_keeping(
     let healths = Healths::of(document, evaluation);
     let mut previous = std::mem::take(&mut parts.bodies);
     let mut previous_looks = std::mem::take(&mut parts.looks);
+    let finishes = Finishes::of(builder.style, palette, editing.is_none(), &aids);
     for (body, mesh) in bodies.iter() {
         if document.body_hidden(body) {
             continue;
@@ -1155,7 +1168,7 @@ pub fn build_keeping(
                     &mut previous_looks,
                     (document, evaluation),
                     (body, &appearance, builder.body),
-                    palette,
+                    (palette, finishes),
                 ),
             Some(_) | None => SameLooks(Arc::default()),
         };
@@ -1283,6 +1296,7 @@ pub fn build_keeping(
             reflective_meshes: builder.reflective_meshes,
             silhouettes: builder.silhouettes,
             reflection: aids.reflection.unwrap_or_default(),
+            lighting: None,
             section: Vec::new(),
             batches: iter::once(Arc::new(builder.scene))
                 .chain(builder.part_batches)
@@ -1308,6 +1322,7 @@ pub fn build_keeping(
                 .bounds(evaluation, feature, sketch_points_bounds)
                 .unwrap_or_else(|| empty_sketch_bounds(displayed.plane())),
         }),
+        rendered: Finishes::of(style, palette, editing.is_none(), &aids) == Finishes::Rendered,
         reference_size,
     }
 }
@@ -3201,17 +3216,42 @@ impl FaceLooks {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Finishes {
+    Hidden,
+    Own,
+    Rendered,
+}
+
+impl Finishes {
+    fn of(
+        style: DisplayStyle,
+        palette: &ScenePalette,
+        outside_sketch: bool,
+        aids: &ViewAids,
+    ) -> Self {
+        let plain_view = outside_sketch && aids.analysis.is_none() && aids.reflection.is_none();
+        match (style.is_rendered() && plain_view, palette.shows_finishes) {
+            (true, _) => Self::Rendered,
+            (false, true) => Self::Own,
+            (false, false) => Self::Hidden,
+        }
+    }
+}
+
 fn face_looks(
     document: &Document,
     evaluation: &Evaluation,
     body: FeatureId,
     (appearance, default): (&BodyAppearance, Color),
-    palette: &ScenePalette,
+    (palette, finishes): (&ScenePalette, Finishes),
 ) -> FaceLooks {
-    let finish = appearance
-        .finish
-        .filter(|_| palette.shows_finishes)
-        .map(body_appearance::surface);
+    let finish = match finishes {
+        Finishes::Hidden => None,
+        Finishes::Own => appearance.finish,
+        Finishes::Rendered => Some(body_appearance::rendered_finish(appearance)),
+    }
+    .map(body_appearance::surface);
     let plain = FaceLooks {
         finish,
         ..FaceLooks::default()
@@ -3232,7 +3272,7 @@ fn face_looks(
     FaceLooks {
         finish,
         finishes: looked()
-            .filter(|_| palette.shows_finishes)
+            .filter(|_| finishes != Finishes::Hidden)
             .filter_map(|(key, look)| Some((key, body_appearance::surface(look.finish?))))
             .collect(),
         colours: looked()

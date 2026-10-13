@@ -16,6 +16,7 @@ pub enum Section {
     Colours,
     Interface,
     InTheView,
+    RenderedView,
     NavigationView,
     Input,
     Movement,
@@ -27,7 +28,7 @@ pub enum Section {
 }
 
 impl Section {
-    pub const ALL: [Self; 22] = [
+    pub const ALL: [Self; 23] = [
         Self::Units,
         Self::Numbers,
         Self::Files,
@@ -42,6 +43,7 @@ impl Section {
         Self::Colours,
         Self::Interface,
         Self::InTheView,
+        Self::RenderedView,
         Self::NavigationView,
         Self::Input,
         Self::Movement,
@@ -64,9 +66,11 @@ impl Section {
             | Self::Keyboard
             | Self::Tips
             | Self::SavingOnWindows => PreferencesTab::General,
-            Self::Theme | Self::Colours | Self::Interface | Self::InTheView => {
-                PreferencesTab::Appearance
-            }
+            Self::Theme
+            | Self::Colours
+            | Self::Interface
+            | Self::InTheView
+            | Self::RenderedView => PreferencesTab::Appearance,
             Self::NavigationView | Self::Input | Self::Movement => PreferencesTab::Navigation,
             Self::SketchEditing | Self::SketchStart => PreferencesTab::Sketching,
             Self::GraphicsDisplay | Self::GraphicsQuality | Self::GraphicsAdapter => {
@@ -91,6 +95,7 @@ impl Section {
             Self::Colours => "colours",
             Self::Interface => "interface",
             Self::InTheView => "in-the-view",
+            Self::RenderedView => "rendered-view",
             Self::NavigationView => "navigation-view",
             Self::Input => "navigation-input",
             Self::Movement => "navigation",
@@ -118,6 +123,7 @@ impl Section {
             Self::Colours => "Colours",
             Self::Interface => "Interface",
             Self::InTheView => "In the 3D view",
+            Self::RenderedView => "Rendered view",
             Self::NavigationView => "View",
             Self::Input => "Input",
             Self::Movement => "Movement",
@@ -210,6 +216,19 @@ impl Section {
                 "principal planes",
                 "axes",
                 "origin",
+            ],
+            Self::RenderedView => &[
+                "rendered",
+                "render",
+                "lighting",
+                "sun",
+                "light direction",
+                "shadows",
+                "bounced light",
+                "indirect",
+                "studio",
+                "exposure",
+                "colour temperature",
             ],
             Self::NavigationView => &[
                 "projection",
@@ -329,6 +348,7 @@ impl Section {
                 to.tooltip_delay = from.tooltip_delay;
             }
             Self::InTheView => to.view_details = from.view_details,
+            Self::RenderedView => to.lighting = from.lighting,
             Self::NavigationView => {
                 to.navigation.projection = from.navigation.projection;
                 to.navigation.field_of_view = from.navigation.field_of_view;

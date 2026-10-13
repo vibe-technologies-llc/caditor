@@ -1408,6 +1408,29 @@ impl MeshCache {
         true
     }
 
+    pub(crate) fn placed_corners(&self) -> impl Iterator<Item = [Point3; 8]> + '_ {
+        self.meshes.iter().filter_map(|mesh| mesh.corners)
+    }
+
+    pub(crate) fn draw_all(
+        &self,
+        pass: &mut wgpu::RenderPass<'_>,
+        pipeline: &wgpu::RenderPipeline,
+    ) {
+        if self.meshes.is_empty() {
+            return;
+        }
+        pass.set_pipeline(pipeline);
+        for mesh in &self.meshes {
+            pass.set_bind_group(1, &mesh.bind_group, &[]);
+            for part in mesh.parts.iter() {
+                pass.set_vertex_buffer(0, part.vertices.slice(..));
+                pass.set_index_buffer(part.indices.slice(..), wgpu::IndexFormat::Uint32);
+                pass.draw_indexed(0..part.index_count, 0, 0..1);
+            }
+        }
+    }
+
     pub fn draw(
         &self,
         pass: &mut wgpu::RenderPass<'_>,

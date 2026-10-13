@@ -52,6 +52,8 @@ use crate::{
         self, LogicalSize, MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH, MonitorArea, PanelLayout, Position,
         WindowPlacement,
     },
+    lighting::Lighting,
+    lighting_panel::{self, LightingTool},
     logo,
     measure::MeasureTool,
     measure_panel::{self, MeasureContext},
@@ -184,6 +186,7 @@ pub struct Workspace {
     pub analysis: AnalysisTool,
     pub comb: CombTool,
     pub isocurves: IsocurveTool,
+    pub lighting: LightingTool,
     pub tidying: Tidying,
     pub section: SectionTool,
     pub guide: Guide,
@@ -249,6 +252,7 @@ impl Workspace {
             analysis: AnalysisTool::default(),
             comb: CombTool::default(),
             isocurves: IsocurveTool::default(),
+            lighting: LightingTool::default(),
             tidying: Tidying::default(),
             section: SectionTool::default(),
             guide: Guide::default(),
@@ -601,6 +605,7 @@ pub fn show(
         analysis,
         comb,
         isocurves,
+        lighting,
         tidying,
         section,
         guide,
@@ -711,6 +716,14 @@ pub fn show(
     if commands.available(Command::Analysis(AnalysisCommand::Isocurves)) {
         isocurves.toggle();
     }
+    if commands.available(Command::Lighting) {
+        lighting.toggle();
+    }
+    if commands.available(Command::ResetLighting) {
+        actions.push(Action::Preferences(PreferencesCommand::Change(
+            PreferenceChange::Lighting(Lighting::default()),
+        )));
+    }
     section_commands(model, viewport, section, &mut commands);
     viewport.arc_on_tangent_arc_key(editing, &mut commands);
     let sketch_bar = sketch_toolbar::BarContext {
@@ -745,6 +758,7 @@ pub fn show(
             analysis,
             comb,
             isocurves,
+            lighting,
             section,
             tidying,
         },
@@ -785,6 +799,7 @@ pub fn show(
         + usize::from(analysis.open)
         + usize::from(comb.open)
         + usize::from(isocurves.open)
+        + usize::from(lighting.open)
         + usize::from(tidying.feature().is_some())
         + usize::from(gearing_open(editing))
         + usize::from(section.open)
@@ -913,6 +928,15 @@ pub fn show(
         None
     };
     viewport.set_isocurves(lines);
+    if lighting.open {
+        let asked =
+            lighting_panel::show(ui, preferences.lighting, viewport.style(), room, lighting);
+        if let Some(command) = asked.command {
+            actions.push(Action::Preferences(command));
+        }
+        deferred_commands.extend(asked.run);
+    }
+    viewport.set_lighting(preferences.lighting.render());
     let tidied = tidy_panel::show(ui, model, tidying, viewport.selection(), room);
     actions.extend(tidied.actions);
     if let Some(feature) = editing.feature().filter(|_| gearing_open(editing)) {
@@ -1238,6 +1262,7 @@ struct GuideBasis<'a> {
     analysis: &'a AnalysisTool,
     comb: &'a CombTool,
     isocurves: &'a IsocurveTool,
+    lighting: &'a LightingTool,
     section: &'a SectionTool,
     tidying: &'a Tidying,
 }
@@ -1262,6 +1287,7 @@ fn guide_commands(
         ),
         (basis.comb.open, SidePanel::Comb),
         (basis.isocurves.open, SidePanel::Isocurves),
+        (basis.lighting.open, SidePanel::Lighting),
         (basis.section.open, SidePanel::Section),
         (basis.interference.open, SidePanel::Interference),
         (basis.measure.open, SidePanel::Measure),

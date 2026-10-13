@@ -91,6 +91,8 @@ mod isocurve_panel;
 mod isocurves;
 mod last_values;
 mod layout;
+mod lighting;
+mod lighting_panel;
 mod logging;
 mod logo;
 mod look_at;

@@ -6,6 +6,7 @@ mod culling;
 mod gpu;
 mod image;
 mod kept;
+mod lighting;
 mod lines;
 mod machine;
 mod mesh;
@@ -37,6 +38,7 @@ pub use crate::{
     },
     gpu::Wake,
     image::{Background, ImageBands, ImageError, ImageRequest, MAX_IMAGE_SIDE},
+    lighting::{LightDirection, Lighting},
     machine::Machine,
     mesh::{
         Corner, Division, FaceStyle, MeshFace, MeshInstance, MeshPoint, MeshSource, Piece,
@@ -99,6 +101,10 @@ pub enum RenderFault {
         "The graphics device refused the memory used to tell what is under the cursor, so hovering and selecting in the 3D view may not work."
     )]
     PickingRefused,
+    #[error(
+        "The graphics device refused the memory for the rendered view's shadows and bounced light, so it is drawn without them. Close other programs that use the graphics card."
+    )]
+    LightRefused,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -652,6 +658,9 @@ impl Renderer {
                 meshes: faults.meshes,
                 batches: faults.batches,
             });
+        }
+        if faults.light {
+            self.faults.push(RenderFault::LightRefused);
         }
         if faults.picking {
             self.faults.push(RenderFault::PickingRefused);

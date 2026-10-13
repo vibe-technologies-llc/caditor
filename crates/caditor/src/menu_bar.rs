@@ -790,6 +790,8 @@ impl Menus<'_> {
                     for style in DisplayStyle::ALL {
                         self.choice(ui, Command::Style(style));
                     }
+                    ui.separator();
+                    self.item(ui, Command::Lighting);
                 },
             );
             ui.separator();
