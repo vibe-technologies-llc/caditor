@@ -14,7 +14,8 @@ use caditor_geometry::{Aabb, Plane, Point2, Point3, Ray, RigidTransform};
 use caditor_kernel::{EdgeName, RegionKey, RegionMesh, RegionReference, resolve_regions};
 use caditor_render::{
     Batch, Color, FaceStyle, Fill, Grid, Layer, Line, Marker, MeshInstance, PickHit, PickId,
-    PickResult, Reflection, Scene, ShadedMesh, Silhouette, Stroke, SurfaceFinish,
+    PickResult, PolylineRun, Reflection, RunPolyline, Scene, ShadedMesh, Silhouette, Stroke,
+    StrokeKind, SurfaceFinish,
 };
 use caditor_sketch::{
     Constraint, ConstraintId, Entity, EntityId, EntityState, Faceting, Reference, Sketch,
@@ -1971,6 +1972,7 @@ impl<'a> Builder<'a> {
             };
             self.silhouettes.push(silhouette);
         }
+        let mut polylines = Vec::with_capacity(mesh.edges.len());
         for edge in &mesh.edges {
             let pickable = Pickable::Edge {
                 body,
@@ -2001,9 +2003,23 @@ impl<'a> Builder<'a> {
                 dashed,
                 dashed_where_hidden: shows_hidden_edges,
             };
-            self.scene
-                .lines
-                .extend(edge_lines(mesh.points(edge).segments(), &placed, drawn));
+            if let Ok(polyline) = u32::try_from(edge.polyline()) {
+                polylines.push(RunPolyline {
+                    polyline,
+                    color,
+                    width,
+                    pick,
+                    stroke: drawn.kind(),
+                });
+            }
+        }
+        if !polylines.is_empty() {
+            self.scene.runs.push(PolylineRun {
+                source: mesh.polylines(),
+                placement,
+                layer: Layer::Model,
+                polylines,
+            });
         }
         if color.is_none() && !pickable_edges {
             return;
@@ -2821,6 +2837,16 @@ struct EdgeStroke {
     dashed_where_hidden: bool,
 }
 
+impl EdgeStroke {
+    fn kind(&self) -> StrokeKind {
+        match (self.dashed_where_hidden, self.dashed) {
+            (true, seen_dashed) => StrokeKind::DashedWhereHidden { seen_dashed },
+            (false, true) => StrokeKind::Dashed,
+            (false, false) => StrokeKind::Solid,
+        }
+    }
+}
+
 fn edge_lines<'a>(
     segments: impl Iterator<Item = (Point3, Point3)> + 'a,
     placed: &'a impl Fn(Point3) -> Point3,
@@ -2828,16 +2854,7 @@ fn edge_lines<'a>(
 ) -> impl Iterator<Item = Line> + 'a {
     let mut along = 0.0;
     segments.map(move |(start, end)| {
-        let line_stroke = match (stroke.dashed_where_hidden, stroke.dashed) {
-            (true, seen_dashed) => Stroke::DashedWhereHidden {
-                along: along as f32,
-                seen_dashed,
-            },
-            (false, true) => Stroke::Dashed {
-                along: along as f32,
-            },
-            (false, false) => Stroke::Solid,
-        };
+        let line_stroke = stroke.kind().at(along as f32);
         along += start.distance(end);
         Line {
             start: placed(start),

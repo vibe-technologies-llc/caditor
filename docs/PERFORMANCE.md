@@ -104,11 +104,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   since brought a `Face` to 192 bytes (`Surface` 96, sized by cones and tori); an `Edge` is 160
   (`Curve` 96, its variants 48 to 88 bytes, nothing worth boxing). Sharing geometry between copies
   (names and placement over one solid) would save most of the rest but reaches every kernel reader.
-- [low · medium] The kernel mesh keeps an f64 normal per vertex (`MeshVertex`, 32 bytes, about
-  400 MiB on the VZ330) that every consumer turns into f32, and the scene draws body edges as one
-  88-byte `Line` per segment (two f64 ends, colour, width, pick, stroke; about 450 MiB), while the
-  kernel holds the same polylines as u32 indices. A body's edges as one styled run over the
-  kernel's polylines would cut the latter by an order of magnitude.
 
 ## Sketch solver
 

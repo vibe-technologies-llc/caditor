@@ -4,6 +4,7 @@ mod face;
 mod gaps;
 mod insertion;
 mod mass;
+mod normal;
 mod parallel;
 mod patch;
 mod pieces;
@@ -16,12 +17,13 @@ use std::{
     ops::Range,
 };
 
-use caditor_geometry::{Point3, Vector3};
+use caditor_geometry::Point3;
 use thiserror::Error;
 
 pub(crate) use self::mass::{Moments, TriangleIndex};
 pub use self::{
     mass::{MassProperties, SecondMoment},
+    normal::MeshNormal,
     reuse::{DisplayMesh, MeshedSolid},
 };
 use self::{
@@ -63,7 +65,7 @@ pub enum TessellationError {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MeshVertex {
     pub position: u32,
-    pub normal: Vector3,
+    pub normal: MeshNormal,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

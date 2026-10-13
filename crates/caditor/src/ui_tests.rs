@@ -2534,6 +2534,5 @@ fn thread_lines(harness: &mut Harness) -> Vec<caditor_render::Line> {
         .scene
         .lines()
         .filter(|line| line.color == thread)
-        .cloned()
         .collect()
 }

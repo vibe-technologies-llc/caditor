@@ -10,7 +10,7 @@ use crate::{
     sense::Sense,
     surface::Surface,
     tessellation::{
-        EdgeSampling, POLL_EVERY, TessellationError, constrained,
+        EdgeSampling, MeshNormal, POLL_EVERY, TessellationError, constrained,
         density::{Density, density},
         insertion::scatter,
         patch::{FacePatch, PatchPosition, PatchShape, PatchVertex},
@@ -667,7 +667,13 @@ impl FaceTriangulation {
         };
         let corner = patch.push_vertex(PatchVertex {
             position,
-            normal: vertex_normal(surface, point.uv, sense, &self.points, triangle),
+            normal: MeshNormal::new(vertex_normal(
+                surface,
+                point.uv,
+                sense,
+                &self.points,
+                triangle,
+            )),
         })?;
         if let Some(entry) = corners.get_mut(index) {
             *entry = Some(corner);

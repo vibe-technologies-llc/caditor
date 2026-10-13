@@ -1,6 +1,6 @@
-use caditor_geometry::{Point3, Vector3};
+use caditor_geometry::Point3;
 
-use crate::tessellation::TessellationError;
+use crate::tessellation::{MeshNormal, TessellationError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PatchPosition {
@@ -11,7 +11,7 @@ pub(crate) enum PatchPosition {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct PatchVertex {
     pub position: PatchPosition,
-    pub normal: Vector3,
+    pub normal: MeshNormal,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

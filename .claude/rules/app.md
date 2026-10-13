@@ -210,8 +210,11 @@ paths:
   holding the result's `Arc` is the `MeshSource` (`render.md`;
   `a_body_mesh_reads_the_kernel_mesh_rather_than_holding_a_copy_of_it`) and a `BodyEdge` is its name
   plus the index of the kernel mesh's polyline, read through the `Arc` by `BodyMesh::points`
-  (`body_edges_read_their_points_from_the_kernel_mesh`). A panic leaves that body meshless; without
-  a worker it runs on the UI thread.
+  (`body_edges_read_their_points_from_the_kernel_mesh`). The scene draws a body's edges as one
+  `PolylineRun` over the same `DisplayedMesh` (`BodyMesh::polylines`, one `Arc` per body mesh, so
+  the part's batch compares equal while its look holds) with a style per edge, never a `Line` per
+  segment (`a_bodys_edges_are_one_styled_run_over_its_mesh_polylines_not_a_line_per_segment`). A
+  panic leaves that body meshless; without a worker it runs on the UI thread.
 - Arrivals are held and shown together: the first at once, then all that arrived whenever
   `SHOWN_TOGETHER_FOR` has passed since the last showing or nothing is left to convert, so a large
   import is drawn in a few batches. `BodyMeshes` takes each batch, keeping the previous mesh until

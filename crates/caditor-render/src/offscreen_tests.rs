@@ -16,9 +16,10 @@ use crate::{
     gpu::{self, DeviceLoss, GrowableBuffer, Records},
     image::{self, Background, Image, ImageGpu, ImageRequest},
     mesh::{FaceStyle, MeshFace, MeshInstance, MeshPoint, ShadedMesh},
+    runs::{PolylineRun, PolylineSource, RunPolyline},
     scene::{
         Batch, Color, CutFace, Fill, Grid, Layer, Line, Marker, PickId, PickResult, Reflection,
-        Scene, SectionPlane, Stroke, ViewportRect,
+        Scene, SectionPlane, Stroke, StrokeKind, ViewportRect,
     },
     settings::{Msaa, Shading},
     silhouette::Silhouette,
@@ -147,6 +148,7 @@ fn scene() -> Scene {
                 layer: Layer::Model,
                 pick: PickId::from_index(2),
             }],
+            runs: Vec::new(),
         })],
     }
 }
@@ -1131,6 +1133,7 @@ fn the_front_layer_draws_and_picks_over_faces_in_front_of_it() {
                 pick: PickId::from_index(1),
             }],
             fills: vec![square_fill(-5.0, 10.0, Layer::Front, 2)],
+            runs: Vec::new(),
         })],
     };
     let viewpoint = Viewpoint::looking_from(Vector3::Z, Point3::ZERO, 150.0).unwrap();
@@ -3595,6 +3598,7 @@ fn large_scene() -> Scene {
             lines,
             markers,
             fills,
+            runs: Vec::new(),
         })],
         ..Scene::default()
     }
@@ -4154,7 +4158,7 @@ fn only_a_changed_batch_is_uploaded_again_and_a_dropped_one_stops_drawing() {
     };
     let view = looking_down(100.0, f64::from(SIZE), f64::from(SIZE));
     let base = Arc::new(Batch {
-        lines: line_and_marker().lines().cloned().collect(),
+        lines: line_and_marker().lines().collect(),
         ..Batch::default()
     });
     let marker = |x: f64| {
@@ -5017,4 +5021,75 @@ fn a_metal_finish_shades_its_faces_as_metal_while_faces_without_one_shade_as_bef
         assert_eq!(plain_pick.hits[0].id, metal_pick.hits[0].id);
         assert_eq!(metal_pick.hits[0].id, PickId::from_index(14).unwrap());
     }
+}
+
+struct Outline(Vec<Point3>);
+
+impl PolylineSource for Outline {
+    fn polyline(&self, index: usize) -> &[u32] {
+        const POLYLINES: [&[u32]; 2] = [&[0, 1, 2], &[2, 3, 0]];
+        POLYLINES.get(index).copied().unwrap_or_default()
+    }
+
+    fn point(&self, index: u32) -> Option<Point3> {
+        self.0.get(index as usize).copied()
+    }
+}
+
+#[test]
+fn a_run_over_shared_polylines_draws_and_picks_as_the_lines_it_stands_for() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let viewpoint = Viewpoint::looking_from(Vector3::Z, Point3::ZERO, 100.0).unwrap();
+    let view = View::new(viewpoint, f64::from(SIZE), f64::from(SIZE));
+    let run = PolylineRun {
+        source: Arc::new(Outline(vec![
+            Point3::new(-25.0, -20.0, 0.0),
+            Point3::new(15.0, -20.0, 0.0),
+            Point3::new(15.0, 20.0, 0.0),
+            Point3::new(-25.0, 20.0, 0.0),
+        ])),
+        placement: RigidTransform::translation(Vector3::new(5.0, 0.0, 0.0)),
+        layer: Layer::Model,
+        polylines: vec![
+            RunPolyline {
+                polyline: 0,
+                color: LINE_COLOR,
+                width: 3.0,
+                pick: PickId::from_index(0),
+                stroke: StrokeKind::Solid,
+            },
+            RunPolyline {
+                polyline: 1,
+                color: Color::from_rgb8(20, 250, 20),
+                width: 5.0,
+                pick: PickId::from_index(1),
+                stroke: StrokeKind::Dashed,
+            },
+        ],
+    };
+    let lines: Vec<Line> = run.lines().collect();
+    let of = |batch: Batch| Scene {
+        batches: vec![Arc::new(batch)],
+        ..Scene::default()
+    };
+    let from_run = of(Batch {
+        runs: vec![run],
+        ..Batch::default()
+    });
+    let from_lines = of(Batch {
+        lines,
+        ..Batch::default()
+    });
+    let corner = view.project(Point3::new(20.0, 20.0, 0.0)).unwrap();
+
+    let drawn_run = render(&device, &queue, &view, &from_run, corner);
+    let drawn_lines = render(&device, &queue, &view, &from_lines, corner);
+
+    assert_eq!(from_run.lines().count(), 4);
+    assert!(drawn_run.pixels == drawn_lines.pixels);
+    assert_eq!(drawn_run.pick, drawn_lines.pick);
+    assert!(!drawn_run.pick.hits.is_empty());
+    assert!(pixel(&drawn_run, corner)[1] > 128);
 }

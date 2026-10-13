@@ -6620,9 +6620,8 @@ mod tests {
             let pick = self.picks.id_of(pickable);
             self.base
                 .iter()
-                .flat_map(|batch| batch.lines.iter())
+                .flat_map(|batch| batch.all_lines())
                 .filter(|line| line.pick.is_some() && line.pick == pick)
-                .cloned()
                 .collect()
         }
     }
@@ -6747,8 +6746,7 @@ mod tests {
             .iter()
             .find(|batch| {
                 batch
-                    .lines
-                    .iter()
+                    .all_lines()
                     .any(|line| line.pick.is_some() && line.pick == pick)
             })
             .cloned()
@@ -6839,8 +6837,8 @@ mod tests {
             entered.scene.batches[1..]
                 .iter()
                 .any(|earlier| Arc::ptr_eq(earlier, batch))
-                && !batch.lines.is_empty()
-                && batch.lines.iter().all(|line| line.pick.is_none())
+                && batch.line_count() > 0
+                && batch.all_lines().all(|line| line.pick.is_none())
         }));
     }
 
@@ -7964,16 +7962,19 @@ pub mod timing {
         let mut segments = [0usize; 5];
         let mut batches = [0usize; 5];
         for batch in &scene.batches {
-            let shown = batch.lines.iter().filter(|line| line.color.alpha > 0.0);
+            let shown: Vec<caditor_render::Line> = batch
+                .all_lines()
+                .filter(|line| line.color.alpha > 0.0)
+                .collect();
             let Some(bounds) =
-                Aabb::from_points(shown.clone().flat_map(|line| [line.start, line.end]))
+                Aabb::from_points(shown.iter().flat_map(|line| [line.start, line.end]))
             else {
                 continue;
             };
             let depth = view.view_depth(bounds.center()).max(view.near_plane());
             let pixels = bounds.max().distance(bounds.min()) / view.units_per_pixel_at(depth);
             let bucket = sizes.iter().position(|size| pixels < *size).unwrap_or(4);
-            segments[bucket] += shown.count();
+            segments[bucket] += shown.len();
             batches[bucket] += 1;
         }
         eprintln!(

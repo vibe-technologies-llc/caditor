@@ -1,4 +1,4 @@
-use std::{ops::Range, sync::Arc};
+use std::{borrow::Cow, ops::Range, sync::Arc};
 
 use ahash::{AHashMap, AHashSet};
 use caditor_geometry::{Aabb, Plane, Point2, Point3, Vector3};
@@ -593,14 +593,15 @@ impl GpuBatch {
             styles,
         } = uploaded;
         let largest_side = device.limits().max_texture_dimension_2d;
-        let strips = LineStrips::of(&batch.lines, largest_side);
-        self.bounds = BatchBounds::of(batch);
+        let lines = batch_lines(batch);
+        let strips = LineStrips::of(&lines, largest_side);
+        self.bounds = BatchBounds::of(batch, &lines);
         let coarser = coarser_lines(&strips, self.bounds.map_or(0.0, |bounds| bounds.size));
         let coarser_strips: Vec<(f64, LineStrips<'_>)> = coarser
             .iter()
             .map(|(share, lines)| (*share, LineStrips::of(lines, largest_side)))
             .collect();
-        let full_points = if batch.lines.is_empty() {
+        let full_points = if lines.is_empty() {
             0
         } else {
             strips.point_count()
@@ -845,11 +846,18 @@ impl GpuBatch {
             .iter()
             .map(|fill| u64::from(fill_vertex_count(fill)))
             .sum();
-        (batch.lines.len() as u64)
+        (batch.line_count() as u64)
             .saturating_mul(LINE_POINT_STRIDE)
             .saturating_add((batch.markers.len() as u64).saturating_mul(MARKER_STRIDE))
             .saturating_add(fill_vertices.saturating_mul(FILL_VERTEX_STRIDE))
             .max(1)
+    }
+}
+
+fn batch_lines(batch: &Batch) -> Cow<'_, [Line]> {
+    match batch.runs.is_empty() {
+        true => Cow::Borrowed(&batch.lines),
+        false => Cow::Owned(batch.all_lines().collect()),
     }
 }
 
@@ -1000,9 +1008,8 @@ impl BatchBounds {
         }
     }
 
-    fn of(batch: &Batch) -> Option<Self> {
-        let points = batch
-            .lines
+    fn of(batch: &Batch, lines: &[Line]) -> Option<Self> {
+        let points = lines
             .iter()
             .flat_map(|line| [line.start, line.end])
             .chain(batch.markers.iter().map(|marker| marker.position))
@@ -1013,11 +1020,7 @@ impl BatchBounds {
                     .flat_map(|fill| fill.triangles.iter().flatten().copied()),
             );
         let bounds = Aabb::from_points(points)?;
-        let widest_line = batch
-            .lines
-            .iter()
-            .map(|line| line.width)
-            .fold(0.0_f32, f32::max);
+        let widest_line = lines.iter().map(|line| line.width).fold(0.0_f32, f32::max);
         let widest_marker = batch
             .markers
             .iter()
@@ -1929,7 +1932,7 @@ impl ViewportRenderer {
             if let Some(error) = error {
                 log::warn!(
                     "the graphics device refused a batch of {} lines, {} markers and {} fills, so it is not drawn: {error}",
-                    batch.lines.len(),
+                    batch.line_count(),
                     batch.markers.len(),
                     batch.fills.len()
                 );
@@ -2880,7 +2883,7 @@ mod tests {
             ..Batch::default()
         };
         let seen = |batch: &Batch| {
-            BatchBounds::of(batch)
+            BatchBounds::of(batch, &batch_lines(batch))
                 .is_some_and(|bounds| window.sees_reaching(&bounds.corners, bounds.reach_points))
         };
 
@@ -2895,7 +2898,7 @@ mod tests {
             ],
             ..Batch::default()
         }));
-        assert_eq!(BatchBounds::of(&Batch::default()), None);
+        assert_eq!(BatchBounds::of(&Batch::default(), &[]), None);
     }
 
     #[test]

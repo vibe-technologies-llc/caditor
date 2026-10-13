@@ -167,7 +167,7 @@ pub fn mesh_volume(mesh: &Mesh) -> f64 {
             let (from, to) = (corners[from], corners[to]);
             let chord =
                 mesh.positions()[to.position as usize] - mesh.positions()[from.position as usize];
-            chord.dot(to.normal - from.normal) / 8.0
+            chord.dot(to.normal.vector() - from.normal.vector()) / 8.0
         };
         total += flat + area * (sag(0, 1) + sag(1, 2) + sag(2, 0)) / 3.0;
     }
