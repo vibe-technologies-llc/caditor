@@ -71,6 +71,7 @@ mod drawing_import;
 mod exporting;
 mod extrude_from_selection;
 mod extrusion_basics;
+mod extrusion_detection;
 mod face_tools;
 mod far_cuts;
 mod feature_handles;

@@ -15,7 +15,7 @@ use crate::{
     bodies::{self, FaceKey},
     body_reach, body_selection,
     editing::{self, EditingCommand, SketchEditing},
-    field,
+    extrusion_detection, field,
     last_values::{Remembered, Starts},
     model::{Action, Model, Notice},
     projecting, scene,
@@ -636,54 +636,69 @@ pub fn create(
     sweep: Sweep,
     source: SweepSource,
     starts: &Starts,
-) -> (Transaction, FeatureId) {
+) -> (Transaction, FeatureId, Option<String>) {
     let unit = starts.unit();
     let name = editing::next_feature_name(document, sweep.label());
     let wall = match source.regions {
         RegionChoice::All => open_profile_wall(document, source.sketch, unit),
         RegionChoice::Chosen(_) => None,
     };
-    let cut_body = match (sweep, face_body(document, source.sketch)) {
-        (Sweep::Extrude, Some(body)) if source.body.is_none_or(|selected| selected == body) => {
-            Some(body)
-        }
-        (Sweep::Extrude | Sweep::Revolve, _) => None,
+    let standing_on = match sweep {
+        Sweep::Extrude => face_body(document, source.sketch),
+        Sweep::Revolve => None,
     };
+    let mut told = None;
     let solid = match sweep {
-        Sweep::Extrude => SolidFeature::Extrude(Extrude {
-            sketch: source.sketch,
-            regions: source.regions.clone(),
-            extent: ExtrudeExtent::one_side(
-                starts.length(Remembered::ExtrudeDistance, DEFAULT_DISTANCE),
-                cut_body.is_some(),
-            ),
-            operation: BodyOperation::NewBody,
-            start: None,
-            other_bodies: Vec::new(),
-            taper: None,
-            wall,
-            direction: None,
-        }),
-        Sweep::Revolve => SolidFeature::Revolve(Revolve {
-            sketch: source.sketch,
-            regions: source.regions.clone(),
-            axis: source
-                .axis
-                .unwrap_or(RevolveAxis::Sketch(EntityId::VERTICAL_AXIS)),
-            extent: RevolveExtent::Full,
-            operation: BodyOperation::NewBody,
-            start: None,
-            other_bodies: Vec::new(),
-            side: None,
-            wall,
-        }),
+        Sweep::Extrude => {
+            let template = Extrude {
+                sketch: source.sketch,
+                regions: source.regions.clone(),
+                extent: ExtrudeExtent::one_side(
+                    starts.length(Remembered::ExtrudeDistance, DEFAULT_DISTANCE),
+                    false,
+                ),
+                operation: BodyOperation::NewBody,
+                start: None,
+                other_bodies: Vec::new(),
+                taper: None,
+                wall,
+                direction: None,
+            };
+            let detected = extrusion_detection::extrusion(
+                document,
+                reach,
+                &template,
+                standing_on,
+                source.body,
+            );
+            told = detected.told;
+            SolidFeature::Extrude(Extrude {
+                extent: detected.extent,
+                operation: detected.operation,
+                ..template
+            })
+        }
+        Sweep::Revolve => {
+            let solid = SolidFeature::Revolve(Revolve {
+                sketch: source.sketch,
+                regions: source.regions.clone(),
+                axis: source
+                    .axis
+                    .unwrap_or(RevolveAxis::Sketch(EntityId::VERTICAL_AXIS)),
+                extent: RevolveExtent::Full,
+                operation: BodyOperation::NewBody,
+                start: None,
+                other_bodies: Vec::new(),
+                side: None,
+                wall,
+            });
+            let operation = match source.body {
+                Some(selected) => BodyOperation::Add(selected),
+                None => default_operation(document, reach, &solid),
+            };
+            with_operation(&solid, operation)
+        }
     };
-    let operation = match (cut_body, source.body) {
-        (Some(body), _) => BodyOperation::Remove(body),
-        (None, Some(selected)) => BodyOperation::Add(selected),
-        (None, None) => default_operation(document, reach, &solid),
-    };
-    let solid = with_operation(&solid, operation);
     let mut transaction = document.transaction(format!("Create {name}"));
     let feature = transaction.add_feature(name, FeatureKind::Solid(solid));
     if starts.pieces() == Pieces::BodyEach {
@@ -698,7 +713,7 @@ pub fn create(
             hidden: true,
         });
     }
-    (transaction.finish(), feature)
+    (transaction.finish(), feature, told)
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -731,11 +746,14 @@ pub fn create_actions(
     source: SweepSource,
     starts: &Starts,
 ) -> Vec<Action> {
-    let (transaction, feature) = create(model.document(), Reach::of(model), sweep, source, starts);
-    vec![
+    let (transaction, feature, told) =
+        create(model.document(), Reach::of(model), sweep, source, starts);
+    let mut actions = vec![
         Action::Apply(transaction),
         Action::Editing(EditingCommand::OpenSolid(feature)),
-    ]
+    ];
+    actions.extend(told.map(|words| Action::Inform(Notice::info(words))));
+    actions
 }
 
 pub fn edit(document: &Document, feature: FeatureId, solid: SolidFeature) -> Option<Transaction> {
@@ -1107,7 +1125,7 @@ mod tests {
             regions: RegionChoice::All,
             body: None,
         };
-        let (transaction, feature) = create(
+        let (transaction, feature, _) = create(
             document,
             reach,
             sweep,
@@ -1217,6 +1235,98 @@ mod tests {
         assert_eq!(right_made, BodyOperation::NewBody);
         assert_eq!(mostly_right, BodyOperation::Add(right));
         assert_eq!(mostly_left, BodyOperation::Add(left));
+    }
+
+    fn extruded_toward(
+        document: &mut Document,
+        sketch: FeatureId,
+        body: Option<FeatureId>,
+    ) -> FeatureId {
+        let evaluation = evaluated(document);
+        let parameters = ParameterValues::evaluate(document);
+        let reach = Reach {
+            evaluation: &evaluation,
+            parameters: &parameters,
+        };
+        let source = SweepSource {
+            sketch,
+            axis: None,
+            regions: RegionChoice::All,
+            body,
+        };
+        let (transaction, feature, _) = create(
+            document,
+            reach,
+            Sweep::Extrude,
+            source,
+            &Starts::defaults(LengthUnit::Millimetre),
+        );
+        document.apply(transaction).unwrap();
+        feature
+    }
+
+    fn is_reversed(document: &Document, feature: FeatureId) -> bool {
+        match document
+            .feature(feature)
+            .and_then(|feature| feature.kind.solid())
+        {
+            Some(SolidFeature::Extrude(extrude)) => matches!(
+                extrude.extent,
+                ExtrudeExtent::OneSide { reversed: true, .. }
+            ),
+            _ => panic!("expected an extrusion"),
+        }
+    }
+
+    fn at_height(document: &mut Document, name: &str, height: f64) -> FeatureId {
+        sketched(
+            document,
+            name,
+            rectangle(
+                Plane::from_frame(Point3::new(0.0, 0.0, height), Vector3::Z, Vector3::X).unwrap(),
+                Point2::new(2.0, 2.0),
+                Point2::new(8.0, 8.0),
+            ),
+        )
+    }
+
+    #[test]
+    fn an_extrusion_pointing_away_from_a_body_it_would_reach_the_other_way_turns_toward_it() {
+        let mut document = Document::default();
+        let base = block(&mut document, "Base", Point2::ZERO, Point2::new(20.0, 20.0));
+        let above = at_height(&mut document, "Above", 15.0);
+        let far = at_height(&mut document, "Far", 40.0);
+
+        let turned = extruded_toward(&mut document, above, None);
+        let apart = extruded_toward(&mut document, far, None);
+
+        let mut other = Document::default();
+        let target = block(&mut other, "Base", Point2::ZERO, Point2::new(20.0, 20.0));
+        let chosen = at_height(&mut other, "Chosen", 15.0);
+        let asked_for = extruded_toward(&mut other, chosen, Some(target));
+
+        assert_eq!(operation(&document, turned), BodyOperation::Add(base));
+        assert!(is_reversed(&document, turned));
+        assert_eq!(operation(&document, apart), BodyOperation::NewBody);
+        assert!(!is_reversed(&document, apart));
+        assert_eq!(operation(&other, asked_for), BodyOperation::Add(target));
+        assert!(is_reversed(&other, asked_for));
+    }
+
+    #[test]
+    fn an_extrusion_reaching_a_body_forward_is_never_turned() {
+        let mut document = Document::default();
+        let base = block(&mut document, "Base", Point2::ZERO, Point2::new(20.0, 20.0));
+        let on_top = at_height(&mut document, "On top", 10.0);
+        let inside = at_height(&mut document, "Inside", 5.0);
+
+        let stacked = extruded_toward(&mut document, on_top, None);
+        let overlapping = extruded_toward(&mut document, inside, None);
+
+        assert_eq!(operation(&document, stacked), BodyOperation::Add(base));
+        assert!(!is_reversed(&document, stacked));
+        assert_eq!(operation(&document, overlapping), BodyOperation::Add(base));
+        assert!(!is_reversed(&document, overlapping));
     }
 
     #[test]

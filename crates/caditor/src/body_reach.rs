@@ -30,25 +30,126 @@ pub fn reached_body(
     parameters: &ParameterValues,
     solid: &SolidFeature,
 ) -> Option<FeatureId> {
-    let standing = document.bodies_standing_in(evaluation);
-    if standing.is_empty() {
-        return None;
-    }
+    let deadline = Instant::now() + REACH_BUDGET;
+    reaches(document, evaluation, parameters, solid, deadline)?
+        .most()
+        .map(|reached| reached.body)
+}
+
+pub fn reaches(
+    document: &Document,
+    evaluation: &Evaluation,
+    parameters: &ParameterValues,
+    solid: &SolidFeature,
+    deadline: Instant,
+) -> Option<Reaches> {
     let sketch = solved_sketch(document, evaluation, solid.sketch())?;
     let swept = Swept::of(evaluation, parameters, solid, sketch)?;
     let reach = swept.bounds(sketch)?;
-    let near: Vec<Standing<'_>> = standing
+    let shown: Vec<Standing<'_>> = document
+        .bodies_standing_in(evaluation)
         .into_iter()
         .filter(|body| visibility::is_shown(document, *body))
         .filter_map(|body| Standing::of(evaluation, body))
+        .collect();
+    let examined: Vec<FeatureId> = shown.iter().map(|body| body.body).collect();
+    let near: Vec<Standing<'_>> = shown
+        .into_iter()
         .filter(|body| boxes_meet(&body.bounds, &reach))
         .collect();
+    let length = swept.length();
     if near.is_empty() {
-        return None;
+        return Some(Reaches {
+            examined,
+            reached: Vec::new(),
+            length,
+        });
     }
-    let deadline = Instant::now() + REACH_BUDGET;
     let interrupt: Interrupt = Arc::new(move || Instant::now() >= deadline);
-    interruptible(interrupt, || swept.most_reached(sketch, solid, &near))
+    let reached = interruptible(interrupt, || swept.contacts(sketch, solid, &near))?;
+    Some(Reaches {
+        examined,
+        reached,
+        length,
+    })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Touch {
+    Overlap { volume: f64 },
+    Contact,
+    Unsure,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Reached {
+    pub body: FeatureId,
+    pub touch: Touch,
+    pub depth: Option<f64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Verdict {
+    Overlaps(Reached),
+    Misses,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Reaches {
+    examined: Vec<FeatureId>,
+    reached: Vec<Reached>,
+    length: Option<f64>,
+}
+
+impl Reaches {
+    pub fn reaching(&self, target: Option<FeatureId>) -> Option<&Reached> {
+        match target {
+            Some(body) => self.reached.iter().find(|reached| reached.body == body),
+            None => self.most(),
+        }
+    }
+
+    pub fn verdict(&self, body: FeatureId) -> Verdict {
+        if !self.examined.contains(&body) {
+            return Verdict::Unknown;
+        }
+        match self.reached.iter().find(|reached| reached.body == body) {
+            Some(reached) => match reached.touch {
+                Touch::Overlap { .. } => Verdict::Overlaps(*reached),
+                Touch::Unsure => Verdict::Unknown,
+                Touch::Contact => Verdict::Misses,
+            },
+            None => Verdict::Misses,
+        }
+    }
+
+    pub fn clears(&self, reached: &Reached) -> bool {
+        match (reached.depth, self.length) {
+            (Some(depth), Some(length)) => depth + BOX_SLACK < length,
+            _ => false,
+        }
+    }
+
+    fn most(&self) -> Option<&Reached> {
+        let largest = self
+            .reached
+            .iter()
+            .fold(None, |most: Option<(&Reached, f64)>, reached| {
+                let volume = match reached.touch {
+                    Touch::Overlap { volume } => volume,
+                    Touch::Contact | Touch::Unsure => return most,
+                };
+                match most {
+                    Some((_, largest)) if largest > volume * (1.0 + SAME_VOLUME) => most,
+                    Some(_) | None => Some((reached, volume)),
+                }
+            });
+        match largest {
+            Some((reached, _)) => Some(reached),
+            None => self.reached.last(),
+        }
+    }
 }
 
 struct Standing<'a> {
@@ -66,11 +167,6 @@ impl<'a> Standing<'a> {
             bounds: result.bounding_box()?,
         })
     }
-}
-
-enum Contact {
-    Overlapping(Solid),
-    Touching,
 }
 
 fn solved_sketch<'a>(
@@ -231,46 +327,64 @@ impl Swept {
         }
     }
 
-    fn most_reached(
+    fn contacts(
         &self,
         sketch: &Sketch,
         solid: &SolidFeature,
         near: &[Standing<'_>],
-    ) -> Option<FeatureId> {
+    ) -> Option<Vec<Reached>> {
         let tool = self.tool(sketch, solid)?;
-        let contacts: Vec<(FeatureId, Contact)> = near
+        let touches: Vec<(&Standing<'_>, Result<Solid, Touch>)> = near
             .iter()
-            .filter_map(|body| {
-                let contact = match interference(&tool, body.solid) {
-                    Ok(Interference::Apart) => return None,
-                    Ok(Interference::Overlapping(overlap)) => Contact::Overlapping(overlap),
-                    Ok(Interference::Touching(_)) | Err(_) => Contact::Touching,
-                };
-                Some((body.body, contact))
+            .filter_map(|body| match interference(&tool, body.solid) {
+                Ok(Interference::Apart) => None,
+                Ok(Interference::Overlapping(overlap)) => Some((body, Ok(overlap))),
+                Ok(Interference::Touching(_)) => Some((body, Err(Touch::Contact))),
+                Err(_) => Some((body, Err(Touch::Unsure))),
             })
             .collect();
-        let overlaps: Vec<(FeatureId, &Solid)> = contacts
+        let several = touches
             .iter()
-            .filter_map(|(body, contact)| match contact {
-                Contact::Overlapping(overlap) => Some((*body, overlap)),
-                Contact::Touching => None,
-            })
-            .collect();
-        match overlaps.as_slice() {
-            [] => contacts.last().map(|(body, _)| *body),
-            [(body, _)] => Some(*body),
-            [_, _, ..] => overlaps
-                .iter()
-                .map(|(body, overlap)| (*body, overlap_volume(overlap)))
-                .fold(
-                    None,
-                    |most: Option<(FeatureId, f64)>, (body, volume)| match most {
-                        Some((_, largest)) if largest > volume * (1.0 + SAME_VOLUME) => most,
-                        Some(_) | None => Some((body, volume)),
+            .filter(|(_, overlap)| overlap.is_ok())
+            .count()
+            > 1;
+        let reached = touches
+            .into_iter()
+            .map(|(body, overlap)| Reached {
+                body: body.body,
+                touch: match overlap {
+                    Ok(overlap) if several => Touch::Overlap {
+                        volume: overlap_volume(&overlap),
                     },
-                )
-                .map(|(body, _)| body),
+                    Ok(_) => Touch::Overlap { volume: 0.0 },
+                    Err(touch) => touch,
+                },
+                depth: self.depth_of(&body.bounds),
+            })
+            .collect();
+        Some(reached)
+    }
+
+    fn length(&self) -> Option<f64> {
+        match self.motion {
+            Motion::Along { start, end } => Some(end - start),
+            Motion::About(_) => None,
         }
+    }
+
+    fn depth_of(&self, bounds: &Aabb) -> Option<f64> {
+        let Motion::Along { start, end } = self.motion else {
+            return None;
+        };
+        let direction = match end > -start {
+            true => self.plane.normal(),
+            false => -self.plane.normal(),
+        };
+        bounds
+            .corners()
+            .into_iter()
+            .map(|corner| (corner - self.plane.origin()).dot(direction))
+            .reduce(f64::max)
     }
 }
 

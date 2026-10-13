@@ -2,6 +2,7 @@
 paths:
   - "crates/caditor/src/solid_tools.rs"
   - "crates/caditor/src/body_reach.rs"
+  - "crates/caditor/src/extrusion_detection.rs"
   - "crates/caditor/src/solid_panel.rs"
   - "crates/caditor/src/sweep_tools.rs"
   - "crates/caditor/src/pipe_tools.rs"
@@ -275,11 +276,27 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   holding no sketch is refused (`NOTHING_TO_EXTRUDE`, `NOTHING_TO_REVOLVE`). The revolve axis is the
   line, sketch axis, principal axis, datum axis, straight edge or round face picked last; the panel's
   axis picker refuses several.
-- A new feature adds to the body whose faces are selected with its sketch (`SweepSource::body`); an
-  extrusion of a sketch on a face of a body still standing (`solid_tools::face_body`) instead cuts that
-  body, reversed into it, unless faces of another body are selected. Otherwise it adds to the body it
-  reaches, else makes a new body (`solid_tools::default_operation`, `body_reach::reached_body`).
-  - Reaching is decided once, at creation, on the UI thread from the evaluation shown: only shown
+- A new extrusion's operation, direction and end are detected together (`extrusion_detection::extrusion`,
+  from `solid_tools::create`), a revolve's operation alone (`solid_tools::default_operation`,
+  `body_reach::reached_body`). An extrusion adds to the body whose faces are selected with its sketch
+  (`SweepSource::body`); one of a sketch on a face of a body still standing (`solid_tools::face_body`)
+  instead cuts that body, reversed into it, unless faces of another body are selected. Otherwise it
+  adds to the body it reaches, else makes a new body. Three signals refine that, each deciding only
+  from what the kernel judged and leaving the plain default when it could not (a hidden or
+  unmeshed body, an unsupported sweep, a failed or timed-out check, `Verdict::Unknown`):
+  - Direction: with the forward sweep reaching no body (or not the selected one) and the reversed
+    sweep reaching one, the extrusion turns toward it (`reversed`) and adds to it, and a notice says
+    so. A forward sweep touching or overlapping a body is never turned.
+  - A cut that would remove nothing: when the sweep into the face's body is judged to miss it
+    (`Verdict::Misses`: apart, or only touching), as with a profile drawn off the face, the
+    extrusion does not cut; it takes the outward direction and a notice says the sketch lies off the
+    body.
+  - A cut that clears the body: when the body's box ends before the distance does
+    (`Reaches::clears`, measured along the sweep from the sketch plane with `BOX_SLACK`), the end is
+    Through all instead of a distance, since the cut passes the body however thick it is made.
+    A distance that only just reaches the far side keeps being a distance.
+  - Reaching is decided once, at creation, on the UI thread from the evaluation shown (one
+    `REACH_BUDGET` for all the sweeps one extrusion tries, `body_reach::reaches` taking the deadline): only shown
     bodies standing at the bar (`Document::bodies_standing`, so never one a Combine consumed) whose
     `SolidResult::bounding_box` meets a bound of the sweep (outline widened by a wall's thickness and a
     slack, swept by the distance or turned about the axis) are looked at, so with nothing near no

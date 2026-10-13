@@ -86,7 +86,11 @@ edge, sketch line or axis you select, measuring the distance along it.
 - A new extrusion adds to the body it reaches, overlapping or touching it, else makes a new body;
   reaching several, it adds to the one it overlaps most. With faces of a body selected along with
   the sketch, it adds to that body.
-- A sketch on a face of a body cuts into that body by default.
+- A sketch on a face of a body cuts into that body by default, unless the shape was drawn off the
+  body (a notice says so, and the extrusion makes a new body instead). A cut whose default distance
+  more than clears the body starts as **Through all**.
+- A new extrusion that would run away from a body but would reach it the other way points toward it
+  and adds to it, and a notice says so. One that already reaches a body is never turned.
 - **Fill**: Solid fills the regions; **Thin wall** makes a wall of the sketch's curves with a
   thickness, inside, outside or centred. A sketch of open curves starts as a thin wall.
 

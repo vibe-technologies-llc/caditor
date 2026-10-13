@@ -49,6 +49,7 @@ mod drawing_export;
 mod drop_target;
 mod editing;
 mod export;
+mod extrusion_detection;
 mod faceting;
 mod feature_clipboard;
 mod feature_fields;
