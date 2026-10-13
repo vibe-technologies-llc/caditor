@@ -52,7 +52,9 @@ fn preferences_change_units_and_navigation_and_are_remembered() {
     assert!(!harness.workspace.preferences_open);
 
     harness.wait_until("the preferences are saved", |_| {
-        caditor_file::Settings::load(&dir.path().join("config")).text("units.length") == Some("cm")
+        let saved =
+            Preferences::from_settings(caditor_file::Settings::load(&dir.path().join("config")));
+        saved.unit == LengthUnit::Centimetre && saved.navigation.invert_zoom
     });
     let stored =
         Preferences::from_settings(caditor_file::Settings::load(&dir.path().join("config")));

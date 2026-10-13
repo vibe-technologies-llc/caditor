@@ -167,7 +167,7 @@ jobs:
             solve::tests::thousands_of_independent_rectangles_solve_in_a_fraction_of_a_second \
             solve::tests::thousands_of_rectangles_resized_by_one_parameter_solve_in_a_fraction_of_a_second \
             solve::tests::offsetting_a_closed_dimensioned_chain_solves_in_milliseconds \
-            solve::diagnosis_tests::a_conflict_across_hundreds_of_entities_is_named_within_seconds \
+            solve::diagnosis_tests::a_conflict_across_hundreds_of_entities_is_named_within_its_work_bound \
             solve::diagnosis_tests::a_conflict_through_a_chain_of_three_hundred_lines_is_named_within_the_budget
 
       - name: Time a large STEP import from reading to every body shown
