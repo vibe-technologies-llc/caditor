@@ -23,7 +23,9 @@ the walls end flush with them.
 at the shell's, or gives it the shell's thickness again (a click made while the model is still
 recomputing waits and applies once it is ready); press Escape when done. Each face then
 has its own field, which takes units, expressions and parameters like the thickness, and a button
-to remove it. An opened face has no wall, so it cannot take a thickness of its own.
+to remove it. It also has its own arrow standing on the face, pointing the way the wall grows,
+that drags the face's thickness as the main arrow drags the shell's. An opened face has no wall, so
+it cannot take a thickness of its own.
 
 Flat faces open, and so do round faces (cylinders, cones, spheres and tori) on the outside of the
 body that meet the faces left closed at sharp edges. Faces swept from splines or curves can be

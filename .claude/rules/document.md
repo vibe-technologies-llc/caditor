@@ -512,6 +512,9 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   of the pipe must be more than zero."); all three are its expressions (parameters, inlining, model
   scale). It calls kernel `pipe` and joins, cuts or intersects like a primitive
   (`primitive::combined`, keeping its tool as `joins` or `cuts`, so `repeatable_on` takes it).
+- `pipe::stand` (exported as `pipe_stand`) resolves the path from an `Evaluation` the way the
+  recompute does (the path sketch's result, the path body as the pipe sees it) and asks kernel
+  `pipe_stand` for the start section's plane and first corner, for the app's value arrows.
 - The path's sketch is in `reference_sketches` and `features()`, its body in `bodies_used`, its
   edges' origins among `origin_features`; healing visits its edges (`healing::visit_path`), a path
   curve cannot be removed (`EntityInUse`) and no path waits (`MissingInput::Path`).

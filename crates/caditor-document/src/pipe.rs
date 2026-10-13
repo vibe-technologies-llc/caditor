@@ -1,12 +1,17 @@
-use std::collections::BTreeSet;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 use caditor_expression::{Expression, ParameterId};
-use caditor_kernel::{PathSweepError, PipeError, PipeSection, PipeShape, pipe};
+use caditor_kernel::{
+    PathSweepError, PipeError, PipeSection, PipeShape, PipeStand, pipe, pipe_stand,
+};
 
 use crate::{
-    document::{Feature, FeatureId},
+    document::{Document, Feature, FeatureId},
     primitive::{Context, combined},
-    recompute::{CancelToken, Failure, FeatureResult, FixTarget, Inputs},
+    recompute::{CancelToken, Evaluation, Failure, FeatureResult, FixTarget, Inputs},
     solid::BodyOperation,
     sweep::{Path, SweepPath, failed, path_failure, path_of},
 };
@@ -113,6 +118,39 @@ impl Pipe {
                 .map(Expression::heap_size)
                 .sum::<usize>()
     }
+}
+
+pub fn stand(
+    document: &Document,
+    evaluation: &Evaluation,
+    feature: &Feature,
+    definition: &Pipe,
+    bend: f64,
+) -> Option<PipeStand> {
+    let features: BTreeMap<FeatureId, Arc<FeatureResult>> = definition
+        .path
+        .sketch()
+        .and_then(|sketch| Some((sketch, evaluation.feature(sketch)?.result.clone()?)))
+        .into_iter()
+        .collect();
+    let bodies: BTreeMap<FeatureId, (FeatureId, Arc<FeatureResult>)> = definition
+        .path
+        .body()
+        .and_then(|body| {
+            let state = evaluation.body_state_seen_by(feature.id(), body)?;
+            Some((body, (feature.id(), Arc::clone(state))))
+        })
+        .into_iter()
+        .collect();
+    let inputs = Inputs {
+        document,
+        parameters: &evaluation.parameters,
+        features: &features,
+        bodies: &bodies,
+        previous: None,
+    };
+    let path = path_of(feature, &inputs, &definition.path).ok()?;
+    pipe_stand(&path.segments, bend, path.up).ok()
 }
 
 fn failure(feature: &Feature, path: &Path, shape: PipeShape, error: &PipeError) -> Failure {

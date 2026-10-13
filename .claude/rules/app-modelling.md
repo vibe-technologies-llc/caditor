@@ -431,8 +431,11 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   segmented), the size captioned by `pipe_size_name` (Diameter, Width, Side length), Wall (Solid,
   Hollow; Hollow sets `DEFAULT_WALL` and shows Wall thickness), Bend radius (zero or more) and the
   shared Result and Body rows (`feature_fields::body_operation_rows`, which the primitive panel
-  uses too). Fields are keyed `("pipe-field", feature, "size" | "wall" | "bend")`. It has no arrows
-  and Reverse direction refuses it.
+  uses too). Fields are keyed `("pipe-field", feature, "size" | "wall" | "bend")`. Reverse direction
+  refuses it. Its value arrows (Value handles) stand at the pipe's start section and first corner,
+  placed from `caditor_document::pipe_stand` (the path as the pipe walks it, through the kernel's
+  `pipe_stand`: the section plane and the first corner between two straight lines, whether or not
+  the bend rounds it), so they also stand when the pipe itself fails.
 
 ## Fillets, chamfers and shells
 
@@ -689,8 +692,20 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
     meets the other face (`Corner::cut_length`, the swing's radius being that point's distance from
     the first foot, or an arm of `ARROW_POINTS` when the cut misses). Distances run along the faces' tangent lines at the
     edge's middle, which lie on a plane face and only touch a curved one.
-  - A shell's and a thin wall's Thickness; an extrusion's Taper (shown with no taper too, zero clearing
-    it) and an end Up to face's or Up to next's Past the face (an Up to next end stands on the first
+  - A pipe's size, Wall thickness and Bend radius (`Measured::PipeSize`, `PipeWall`, `PipeBend`), on
+    the start section's axis across the path (`stand.section.x_axis()`): the size from the middle to
+    the outer rim (a round or square section's half, a triangle's third, where its right side meets
+    that axis), the wall pointing inward from the outer rim (a triangle's wall slanting, so scaled by
+    `2/sqrt(3)`), left out for a solid pipe; the bend radius at the middle of the first rounded
+    corner, along the bisector from the corner (`1/cos(turn/2) - 1` of the radius, as a fillet's
+    size), left out for a pipe without a corner between two lines. A bend radius of zero stands at the
+    corner and can be dragged out.
+  - A shell's and a thin wall's Thickness; a shell's Own thickness of each face given one
+    (`Measured::ShellFaceThickness(index)`, captioned `shell_panel::own_thickness_caption`), standing
+    on the face (the middle of a flat face, `hole_tools::middle_of`; the middle of a curved face's
+    first edge) along its outward normal, inward for Inside walls and outward for Outside and Both
+    sides (half the thickness for the latter), left out for a face that matches several or none; an
+    extrusion's Taper (shown with no taper too, zero clearing it) and an end Up to face's or Up to next's Past the face (an Up to next end stands on the first
     face's plane the recompute recorded, `ReachedEnd::level_over`; none when that face is slanted or
     curved).
   - A primitive's sizes (`primitive_arrows`, the mapping worked out from the footprint and anchor),
