@@ -114,6 +114,7 @@ impl Document {
         if after.apply(transaction.clone()).is_err() {
             return transaction;
         }
+        pending.retain(|id| after.parameter(*id).is_some());
         let (label, mut edits) = transaction.into_parts();
         let mut refused = BTreeSet::new();
         loop {

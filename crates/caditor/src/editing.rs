@@ -1,6 +1,9 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, collections::BTreeSet};
 
-use caditor_document::{Document, Edit, FeatureId, FeatureKind, Transaction, UndoMark};
+use caditor_document::{
+    Document, Edit, FeatureId, FeatureKind, ParameterOwner, Transaction, UndoMark,
+};
+use caditor_expression::ParameterId;
 use caditor_sketch::Sketch;
 
 use crate::{
@@ -912,9 +915,10 @@ fn changes_since(
         .ok_or_else(|| CancelRefusal::HistoryChanged {
             feature: name.clone(),
         })?;
+    let owned = parameters_of(document, &steps, feature);
     if let Some(step) = steps
         .iter()
-        .find(|step| !(added && adds(step, feature) || changes_only(document, step, feature)))
+        .find(|step| !(added && adds(step, feature) || changes_only(step, feature, &owned)))
     {
         return Err(Some(CancelRefusal::ChangedElsewhere {
             feature: name,
@@ -960,7 +964,7 @@ fn adds(step: &Transaction, feature: FeatureId) -> bool {
         .any(|edit| matches!(edit, Edit::RemoveFeature { id } if *id == feature))
 }
 
-fn changes_only(document: &Document, step: &Transaction, feature: FeatureId) -> bool {
+fn changes_only(step: &Transaction, feature: FeatureId, owned: &BTreeSet<ParameterId>) -> bool {
     let touched = step.touched();
     let elsewhere = touched.rollback
         || touched.principal
@@ -970,32 +974,35 @@ fn changes_only(document: &Document, step: &Transaction, feature: FeatureId) -> 
         || touched.configurations;
     !elsewhere
         && touched.features.iter().all(|id| *id == feature)
-        && touched
-            .parameters
-            .iter()
-            .all(|id| owned_by(document, step, *id, feature))
+        && touched.parameters.iter().all(|id| owned.contains(id))
 }
 
-fn owned_by(
+fn parameters_of(
     document: &Document,
-    step: &Transaction,
-    parameter: caditor_expression::ParameterId,
+    steps: &[&Transaction],
     feature: FeatureId,
-) -> bool {
-    let owns = |owner: Option<&caditor_document::ParameterOwner>| {
-        owner.is_some_and(|owner| owner.feature() == feature)
-    };
-    owns(
-        document
-            .parameter(parameter)
-            .and_then(|parameter| parameter.owner.as_ref()),
-    ) || step.edits().iter().any(|edit| match edit {
-        Edit::InsertParameter {
-            parameter: kept, ..
-        } => kept.id() == parameter && owns(kept.owner.as_ref()),
-        Edit::SetParameterOwner { id, owner } => *id == parameter && owns(owner.as_ref()),
-        _ => false,
-    })
+) -> BTreeSet<ParameterId> {
+    let owns =
+        |owner: Option<&ParameterOwner>| owner.is_some_and(|owner| owner.feature() == feature);
+    let touched = steps.iter().flat_map(|step| step.touched().parameters);
+    let live = touched.filter(|id| {
+        owns(
+            document
+                .parameter(*id)
+                .and_then(|parameter| parameter.owner.as_ref()),
+        )
+    });
+    let given = steps
+        .iter()
+        .flat_map(|step| step.edits())
+        .filter_map(|edit| match edit {
+            Edit::InsertParameter { parameter, .. } if owns(parameter.owner.as_ref()) => {
+                Some(parameter.id())
+            }
+            Edit::SetParameterOwner { id, owner } if owns(owner.as_ref()) => Some(*id),
+            _ => None,
+        });
+    live.chain(given).collect()
 }
 
 pub fn edited_sketch(document: &Document, feature: FeatureId) -> Option<&Sketch> {

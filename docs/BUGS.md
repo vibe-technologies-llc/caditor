@@ -56,23 +56,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Modelling
 
-- [medium · easy] Typing a plain value over a feature's named value (`depth = 12 mm`, then `14 mm`),
-  which `app-modelling.md` says unnames it, is refused and nothing changes: the field shows "That
-  parameter no longer exists". Reproduced on an extrusion's Distance through the UI harness; the
-  blend, hole and primitive panels build their change the same way. `solid_tools::edit`,
-  `blend_tools::edit`, `hole_tools::edit` and `primitive_tools::edit` pass the change through
-  `Document::carrying_owners`, which already releases a named value the new kind no longer holds
-  and appends the `RemoveParameter` of one nothing else uses. `NamedField::transaction`
-  (`field.rs`) then calls `Document::releasing` on that result for the same parameter:
-  `releasing` takes the id into `pending` before applying the transaction, finds it unused, its
-  second `RemoveParameter` is refused, so it stays pending and ends as an
-  `Edit::SetParameterOwner` for a parameter that is already gone, which `field::checked` refuses
-  as `UnknownParameter`. The `releasing` test in `model_parameter_tests.rs` hands it a bare
-  `SetFeatureKind`, so it passes. A value another expression still uses is not affected, and sketch
-  dimensions do not go through `carrying_owners` (not run). Keeping in `pending` only the ids the
-  applied transaction left in the document, or leaving the field's release out where the panel's
-  change has done it, closes it; a UI test should name a value, type a plain number and expect the
-  number in the field and the parameter gone.
 - [medium · medium] Reported by the user: a Remove extrusion typed far past the body (100000 mm, to
   cut through without measuring) does not cut, so the exact depth must be found. Not reproduced:
   in `caditor-document`, a box, a cylinder, a thin block and a filleted block cut by rectangles
@@ -122,22 +105,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   splitting and the rounding's retraced edges do not yet follow. Tapering the other way works down
   to corners a little larger than the fillet, and corners no larger than it are refused as
   `TooLarge`.
-- [low · easy] Cancel feature and Cancel sketch are refused once a named value made during the
-  session has been unnamed or dropped: "Name depth", made while Extrude 1 was open, changed more
-  than Extrude 1, and the session stays applied. Reproduced through the UI harness by naming an
-  extrusion's distance and then applying the change `solid_tools::edit` builds for a plain
-  distance; the same holds for a mode switch that drops the value, and for a sketch dimension
-  named and then typed over with a plain number (not run). `changes_since` in `editing.rs` judges
-  each undo step alone (`changes_only`, `owned_by`) and accepts a parameter only while the live
-  document still gives it to the feature, or when that very step inserts or reassigns it to the
-  feature. The inverse of a naming is a bare `RemoveParameter { id }` that carries no owner, so
-  once a later step has removed the parameter, `owned_by` is false for the earlier step even
-  though the later step's own inverse (an `InsertParameter` owned by the feature) shows whose it
-  was. Judging the steps since the mark together, taking a parameter as the feature's when any of
-  them inserts it with the feature as owner or sets that owner, fixes it without letting Cancel
-  take a parameter another feature owns. A UI test should name a value, replace it with a number,
-  cancel and find the feature as it was opened (`ui_tests/cancel_and_parameters.rs` cancels only
-  while the name is still on the feature).
 - [low · medium] A model file whose feature uses one stored after it (only a damaged or hand-made
   file; caditor never saves one) loads with the user above what it uses, since loading appends
   features and an insert checks only the inserted feature's own references. Undoing a deletion or
