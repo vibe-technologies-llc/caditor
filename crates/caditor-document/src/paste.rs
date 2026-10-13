@@ -626,6 +626,10 @@ impl FeatureKind {
                 pipe.operation = renamed_operation(pipe.operation, rename);
                 pipe.path = pipe.path.with_features_renamed(&rename);
             }
+            Self::Coil(coil) => {
+                coil.operation = renamed_operation(coil.operation, rename);
+                rename_axis(&mut coil.axis, rename);
+            }
             Self::Combine(combine) => {
                 combine.body = rename(combine.body);
                 combine.tool = rename(combine.tool);

@@ -22,6 +22,8 @@ mod canvas;
 mod canvas_guidance;
 mod cli;
 mod clipboard;
+mod coil_panel;
+mod coil_tools;
 mod colour_selector;
 mod comb;
 mod comb_panel;

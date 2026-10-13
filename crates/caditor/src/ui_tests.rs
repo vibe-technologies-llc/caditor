@@ -55,6 +55,7 @@ mod cancel_and_parameters;
 mod canvas_guidance;
 mod canvas_overlays;
 mod click_picks;
+mod coils;
 mod combine;
 mod command_palette;
 mod completion;

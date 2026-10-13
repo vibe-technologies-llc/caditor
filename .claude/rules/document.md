@@ -538,6 +538,30 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 - Faces are worded "<pipe> outside" and "<pipe> inside" (`pipe::side_name`: entities past the
   section's `PipeShape::curves` are the inner outline), caps as a sweep's.
 
+### Coil (`coil.rs`)
+
+- `Coil { axis, reversed, diameter, length, shape, size, placement, taper, turning, operation }`
+  winds a section of the kernel's `CoilShape` (round of a section diameter, square of a section
+  width) around an `AxisReference` resolved like a move's (`Resolver::axis`; its body, datum,
+  frame and sketch count as used, its origins among `origin_features`, healing visits it as "axis
+  it winds around"), from the axis's point along its direction (against it when `reversed`), the
+  frame's x axis from `Plane::new`. `length` is a `CoilLength` holding two of height, pitch and
+  turns (`TurnsAndPitch`, `HeightAndTurns`, `HeightAndPitch`; `CoilSizing` names which), the
+  third derived (`coil::span`); turns are a plain number from `LEAST_COIL_TURNS` to
+  `MAX_COIL_TURNS`, lengths above zero (`primitive::Context`). `placement` is the kernel's
+  `CoilPlacement` against the diameter, `taper` an angle below `MAX_COIL_TAPER_DEGREES` either way,
+  `turning` `CoilTurning` (`CounterClockwise` is the kernel's right hand). Every value is an
+  expression (parameters, inlining; model scale scales the lengths, not turns or taper,
+  `Coil::lengths_mut`); the principal axis it may wind round is anchored for model scale.
+- It calls kernel `coil` and joins, cuts or intersects like a primitive (`primitive::combined`,
+  keeping its tool as `joins` or `cuts`, so `repeatable_on` takes it). Kernel refusals become
+  sentences: turns that would touch (with the least pitch and a remedy naming pitch, height, turns
+  and section), the section reaching the axis (from a taper drawing it in, or the diameter and
+  position), too few or many turns, too far from the origin; the rest are logged and worded as
+  sizes it cannot be built with.
+- Faces are worded "<coil> start" and "end", a round section's sides "<coil> surface" and a
+  square's "inside", "outside", "top" and "underside" (`coil::part_name`).
+
 ### Blend and shell (`blend.rs`, `shell.rs`)
 
 - A `Blend` is a fillet or chamfer of `size`. A chamfer's `form` is `Equal`,
@@ -976,7 +1000,7 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   Boxed in `FeatureKind`. It changes its body but is not `modifies_body` (the app shows the
   patterned body while open).
 - With `repeated` features (`Pattern::repeating`; `repeatable_on`: an extrusion, revolve,
-  primitive or pipe adding to or removing from a body, or a hole) it repeats their tools instead: for each,
+  primitive, pipe or coil adding to or removing from a body, or a hole) it repeats their tools instead: for each,
   in tree order, the tools kept in its result (`SolidResult::cuts` of a removal or hole, `joins` of
   an addition) are placed at every copy and unioned without the original (kernel `pattern_copies`),
   then cut from or joined to the body as it stands. The repeated features are in `features()` and a

@@ -8,6 +8,7 @@ paths:
   - "crates/caditor-kernel/src/enclose/**"
   - "crates/caditor-kernel/src/box_tree.rs"
   - "crates/caditor-kernel/src/thread/**"
+  - "crates/caditor-kernel/src/coil/**"
 ---
 
 # Builders (`build/`)
@@ -580,3 +581,39 @@ paths:
   12 mm deep about 0.35 s (`thread/tests.rs` prints the times); volumes agree with the analytic
   groove volume within 1e-4. Measuring a threaded body's mass exactly (`mass_properties`) does not
   converge on the flanks and falls back to the mesh after a long search (roadmap).
+
+# Coils (`coil/`)
+
+- `coil(CoilSpec, feature)` winds a section around an axis: valid or a `CoilError`. A `CoilSpec`
+  holds the frame (origin on the axis where the coil starts, normal along it, x axis where the
+  angle is zero), the radius, `CoilShape` (`Round` of a diameter, `Square` of a width), the size,
+  `CoilPlacement` (`Inside`, `Centred`, `Outside`: the section's middle at the radius less, at or
+  plus half the size), the pitch, the turns, a taper angle (radius growing by `tan(taper)` per unit
+  of rise; positive widens) and the kernel's `Handedness` (`Right` turns counter-clockwise about
+  the frame normal). The section lies in the meridian plane and rests on the frame's plane at the
+  start (its middle half a size above it), so the body spans the height plus the size.
+- The solid is built directly as a `Plan` (`faces.rs`), the groove's construction generalised:
+  pieces of at most one turn (`ceil(turns)` equal pieces, `SPANS_PER_TURN` spans each per turn), the
+  section four pieces (a square's sides, a circle's quarters as rational quadratic arcs). Each side
+  face is the exact tensor product of the helix's rational quadratic net (`helix_knots`, shared
+  with threads) and the section piece's net: control point `(i, j)` lies at the helix angle of
+  column `i`, its radial distance the column's stretch times the section point's radius plus the
+  taper's radial growth there, its height the column's rise plus the section point's height, with
+  weight `w_i v_j`. So every helix edge and every section edge at a piece boundary is exactly a
+  boundary row or column of its faces (straight pcurves). Without a taper a square's upright sides
+  are exact `Cylinder`s with fitted pcurves, as the groove's root and far face are. Caps are
+  meridian planes. With a taper the radial part of a column is a conical spiral approximated the
+  way the helix's rise is (exact at span ends and middles).
+- Faces are `FaceName::coil(feature, part)` with `FaceOrigin::Side { feature, entity: part }`:
+  `COIL_PARTS.side(turn, piece)` is `piece + 1 + 8 * turn` (`CoilFace::of_entity`: `Bottom`,
+  `Outside`, `Top`, `Inside` from the section's bottom round counter-clockwise in the meridian
+  plane; a round section's quarters start at its lowest point), the start and end caps 5 and 6.
+- Refusals before building: non-finite values, no radius, size or pitch, fewer than
+  `LEAST_COIL_TURNS` or more than `MAX_COIL_TURNS` turns, a taper at or past
+  `MAX_COIL_TAPER_DEGREES`, a reach past `MAX_SIZE`, the section reaching the axis at either end
+  (`ReachesAxis`), and turns closer than the section plus `LEAST_GAP` of it (`TurnsOverlap` with
+  the least pitch: a square's turns apart axially or radially, a round's by the distance between
+  their centres), so the shell never touches itself.
+- `CoilSpec::volume` is the analytic volume (section area times the centroid's travel round the
+  axis, the mean radius with a taper); `coil/tests.rs` holds tessellated volumes to it within 1e-3,
+  a groove cut into a shaft to the half disc's, and names, hands and refusals.

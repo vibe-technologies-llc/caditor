@@ -106,10 +106,11 @@ pub fn repeatable_on(kind: &FeatureKind) -> Option<FeatureId> {
     if let Some(hole) = kind.hole() {
         return Some(hole.body);
     }
-    let operation = match (kind.primitive(), kind.pipe()) {
-        (Some(primitive), _) => primitive.operation,
-        (None, Some(pipe)) => pipe.operation,
-        (None, None) => kind.solid()?.operation(),
+    let operation = match (kind.primitive(), kind.pipe(), kind.coil()) {
+        (Some(primitive), _, _) => primitive.operation,
+        (None, Some(pipe), _) => pipe.operation,
+        (None, None, Some(coil)) => coil.operation,
+        (None, None, None) => kind.solid()?.operation(),
     };
     match operation {
         BodyOperation::Add(body) | BodyOperation::Remove(body) => Some(body),

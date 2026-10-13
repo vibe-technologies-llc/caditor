@@ -4,6 +4,7 @@ mod box_tree;
 mod bspline;
 mod build;
 mod checks;
+mod coil;
 mod coordinates;
 mod curve;
 mod curve2;
@@ -50,6 +51,10 @@ pub use crate::{
         ReachError, StopError, Stopped, SweepError, SweepOrientation, WrapError, extrude,
         extrude_along, extrude_tapered, heights, heights_along, next_face, pipe, pipe_stand,
         revolve, stop_at_body, sweep, wrap_chain, wrap_regions,
+    },
+    coil::{
+        COIL_PARTS, CoilError, CoilFace, CoilParts, CoilPlacement, CoilShape, CoilSpec,
+        LEAST_COIL_TURNS, MAX_COIL_TAPER_DEGREES, MAX_COIL_TURNS, coil,
     },
     coordinates::Coordinates,
     curve::{

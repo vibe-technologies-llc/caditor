@@ -18,7 +18,7 @@ use crate::{
     appearance::{self, ICON_SIZE, SPACE_L, SPACE_M, SPACE_S},
     blend_panel,
     blend_tools::{self, FormChoice},
-    bodies_tree, combine_panel,
+    bodies_tree, coil_panel, combine_panel,
     commands::{Command, CommandFrame},
     completion, datum_panel,
     drawing_export::{self, DrawingSource},
@@ -309,6 +309,7 @@ pub fn kind_words(kind: &FeatureKind) -> &'static [&'static str] {
         FeatureKind::Solid(SolidFeature::Revolve(_)) => &["revolve", "revolution"],
         FeatureKind::Solid(SolidFeature::Sweep(_)) => &["sweep", "pipe"],
         FeatureKind::Pipe(_) => &["pipe", "tube", "tubing", "handrail", "cable", "sweep"],
+        FeatureKind::Coil(_) => &["coil", "spring", "helix", "spiral", "winding"],
         FeatureKind::Blend(blend) => match blend.kind {
             BlendKind::Fillet => &["fillet", "round"],
             BlendKind::Chamfer => &["chamfer", "bevel"],
@@ -1094,6 +1095,10 @@ fn body(
             pipe_panel::show(ui, model, row.selection, actions, feature, pipe);
             body_display(ui, model, feature);
         }
+        FeatureKind::Coil(coil) => {
+            coil_panel::show(ui, model, row.selection, actions, feature, coil);
+            body_display(ui, model, feature);
+        }
         FeatureKind::Combine(combine) => {
             combine_panel::show(ui, model, actions, feature, combine);
             body_display(ui, model, feature);
@@ -1203,6 +1208,7 @@ fn kind_color(tokens: &appearance::Tokens, row: &Row<'_>) -> Color32 {
         | FeatureKind::SplitFace(_)
         | FeatureKind::Primitive(_)
         | FeatureKind::Pipe(_)
+        | FeatureKind::Coil(_)
         | FeatureKind::Combine(_)
         | FeatureKind::Move(_)
         | FeatureKind::Mate(_)
@@ -1331,6 +1337,7 @@ fn edit_command(feature: &Feature, edited: bool) -> Option<EditingCommand> {
             | FeatureKind::SplitFace(_)
             | FeatureKind::Primitive(_)
             | FeatureKind::Pipe(_)
+            | FeatureKind::Coil(_)
             | FeatureKind::Combine(_)
             | FeatureKind::Move(_)
             | FeatureKind::Mate(_)
@@ -1354,6 +1361,7 @@ fn edit_command(feature: &Feature, edited: bool) -> Option<EditingCommand> {
             | FeatureKind::SplitFace(_)
             | FeatureKind::Primitive(_)
             | FeatureKind::Pipe(_)
+            | FeatureKind::Coil(_)
             | FeatureKind::Combine(_)
             | FeatureKind::Move(_)
             | FeatureKind::Mate(_)

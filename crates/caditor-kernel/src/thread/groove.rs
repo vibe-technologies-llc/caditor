@@ -130,7 +130,7 @@ impl Sweep<'_> {
         let (points, weights) = self.control_net(corner, piece);
         Ok(Curve::BSpline(BSpline::rational(
             2,
-            knots(piece.spans),
+            helix_knots(piece.spans),
             points,
             weights,
         )?))
@@ -145,7 +145,7 @@ impl Sweep<'_> {
         Ok(Surface::from(BSplineSurface::new(
             2,
             1,
-            knots(piece.spans),
+            helix_knots(piece.spans),
             vec![0.0, 0.0, 1.0, 1.0],
             columns,
             points,
@@ -172,7 +172,7 @@ impl Sweep<'_> {
     }
 }
 
-fn knots(spans: usize) -> Vec<f64> {
+pub(crate) fn helix_knots(spans: usize) -> Vec<f64> {
     let mut knots = vec![0.0; 3];
     for span in 1..spans {
         knots.extend([span as f64; 2]);

@@ -3,6 +3,7 @@ use caditor_sketch::EntityId;
 
 use crate::{
     attachment::FaceAttachment,
+    coil,
     document::{Document, FeatureId},
     hole::Hole,
     pattern::PatternKind,
@@ -72,6 +73,9 @@ fn describe_made(document: &Document, origin: FaceOrigin) -> String {
         }
         FaceOrigin::EndCap { .. } if let Some(primitive) = feature.kind.primitive() => {
             format!("{name} {}", primitive.shape.cap_name(Cap::End))
+        }
+        FaceOrigin::Side { entity, .. } if let Some(coil) = feature.kind.coil() => {
+            format!("{name} {}", coil::part_name(coil.shape, entity))
         }
         FaceOrigin::Side { entity, .. } if let Some(pipe) = feature.kind.pipe() => {
             format!("{name} {}", pipe::side_name(pipe.shape, entity))
