@@ -4,6 +4,8 @@ paths:
   - "crates/caditor/src/body_reach.rs"
   - "crates/caditor/src/solid_panel.rs"
   - "crates/caditor/src/sweep_tools.rs"
+  - "crates/caditor/src/pipe_tools.rs"
+  - "crates/caditor/src/pipe_panel.rs"
   - "crates/caditor/src/blend_tools.rs"
   - "crates/caditor/src/blend_panel.rs"
   - "crates/caditor/src/shell_tools.rs"
@@ -69,10 +71,10 @@ paths:
 # Modelling tools in the app
 
 Tools without a ribbon button (it stays one row) live in the Model menu and the palette: Offset face,
-Split face, the primitives, Thread, Copy body, Split body, Mate body, Mirror faces, Curve and Point
+Split face, the primitives, Pipe, Thread, Copy body, Split body, Mate body, Mirror faces, Curve and Point
 pattern, Coordinate system, Scale model and Configurations. Sweep has a button in the Solid group
 and a Model menu row, and is in the right-click menu of selected sketch curves
-(`view_menu::SKETCH_TOOLS`). Panel rows, keys and wordings are in the
+(`view_menu::SKETCH_TOOLS`), as Pipe is. Panel rows, keys and wordings are in the
 `*_panel.rs` files; this file holds the behaviour behind them.
 
 ## Preview while open
@@ -409,6 +411,25 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   (`Evaluation::body_result_seen_by`, else as shown).
 - It has no arrows or values; Reverse direction refuses it (it follows its path from the profile)
   and `body_reach` decides nothing for it.
+
+## Pipe
+
+- `Command::Pipe` (Alt+Shift+I, `pipe_tools.rs`, `Offers::pipe`; Solid group menu, Model menu,
+  palette, `view_menu::SKETCH_TOOLS`) makes a `Pipe` of `DEFAULT_SIZE` round, solid, with a
+  `DEFAULT_BEND` radius, and opens it. `pipe_tools::source` takes the selected path curves of one
+  sketch (`sweep_tools::is_path_curve`) or edges of one body in pick order, refusing a mix, two
+  sketches or two bodies in words (`sweep_tools::SEVERAL_SKETCHES`, `CURVES_AND_EDGES`,
+  `PATH_EDGES_OF_SEVERAL_BODIES`); along edges it adds to their body, else it is a new body. With
+  nothing selected it opens choosing its path (`Slot::SweepPath`) and waits (`MissingInput::Path`).
+- The path is chosen and toggled as a sweep's (`sweep_tools::selected_path`, `toggled_path` with no
+  profile sketch to leave out; `reference_picking::change` routes `Slot::SweepPath` of a `Pipe` to
+  `pipe_tools::path_change`).
+- Panel (`pipe_panel.rs`): Path as a sweep's, Section (`PipeShape` Round, Square, Triangle,
+  segmented), the size captioned by `pipe_size_name` (Diameter, Width, Side length), Wall (Solid,
+  Hollow; Hollow sets `DEFAULT_WALL` and shows Wall thickness), Bend radius (zero or more) and the
+  shared Result and Body rows (`feature_fields::body_operation_rows`, which the primitive panel
+  uses too). Fields are keyed `("pipe-field", feature, "size" | "wall" | "bend")`. It has no arrows
+  and Reverse direction refuses it.
 
 ## Fillets, chamfers and shells
 

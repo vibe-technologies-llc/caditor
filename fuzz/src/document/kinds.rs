@@ -12,7 +12,7 @@ use caditor_document::{
     FaceTangent, FaceThickness, FeatureId, FeatureKind, FinePitch, Hole, HoleBottom, HoleDepth,
     HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle, Import, LinearDirection,
     LinearSpacing, Mate, MatePair, MeasuredItem, Measurement, MetricSize, Mirror, Move, Of,
-    OffsetFace, Pattern, PatternKind, PlaneRotation, PlaneThrough, PointBy, PointMate, PointTarget,
+    OffsetFace, Pattern, PatternKind, Pipe, PlaneRotation, PlaneThrough, PointBy, PointMate, PointTarget,
     PointsPattern, Primitive, PrimitiveAnchor, PrimitiveShape, PrincipalPlane, Reading,
     RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Scale, Shell, ShellSide,
     SketchAttachment, SketchFeature, SolidFeature, SolidStart, Split, SplitAlong, SplitCarry,
@@ -22,7 +22,8 @@ use caditor_document::{
 use caditor_expression::Expression;
 use caditor_geometry::{Plane, Point2};
 use caditor_kernel::{
-    LinearExtent, Profile, ProfileCurve, RegionReference, Selection, Solid, SweepOrientation,
+    LinearExtent, PipeShape, Profile, ProfileCurve, RegionReference, Selection, Solid,
+    SweepOrientation,
     WallSide, extrude, interruptible,
 };
 use caditor_sketch::EntityId;
@@ -55,6 +56,7 @@ pub enum Family {
     OffsetFace,
     SplitFace,
     Primitive,
+    Pipe,
     Combine,
     Move,
     Mate,
@@ -71,7 +73,7 @@ pub enum Family {
 }
 
 impl Family {
-    pub const ALL: [Self; 20] = [
+    pub const ALL: [Self; 21] = [
         Self::Sketch,
         Self::Solid,
         Self::Blend,
@@ -79,6 +81,7 @@ impl Family {
         Self::OffsetFace,
         Self::SplitFace,
         Self::Primitive,
+        Self::Pipe,
         Self::Combine,
         Self::Move,
         Self::Mate,
@@ -103,6 +106,7 @@ impl Family {
             FeatureKind::OffsetFace(_) => Self::OffsetFace,
             FeatureKind::SplitFace(_) => Self::SplitFace,
             FeatureKind::Primitive(_) => Self::Primitive,
+            FeatureKind::Pipe(_) => Self::Pipe,
             FeatureKind::Combine(_) => Self::Combine,
             FeatureKind::Move(_) => Self::Move,
             FeatureKind::Mate(_) => Self::Mate,
@@ -169,6 +173,18 @@ pub fn feature_kind(
             })
         }
         Family::Primitive => FeatureKind::Primitive(primitive(input, scene)?),
+        Family::Pipe => FeatureKind::Pipe(Pipe {
+            path: sweep_path(input, scene)?,
+            shape: *input.choose(&PipeShape::ALL)?,
+            size: scene.distance(input)?,
+            wall: if input.arbitrary()? {
+                Some(scene.distance(input)?)
+            } else {
+                None
+            },
+            bend: scene.distance(input)?,
+            operation: operation(input, scene)?,
+        }),
         Family::Combine => FeatureKind::Combine(Combine {
             body: scene.body(input)?,
             tool: scene.body(input)?,

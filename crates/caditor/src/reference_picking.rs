@@ -13,7 +13,7 @@ use crate::{
     model::{Action, Model, Notice},
     move_tools,
     pattern_tools::{self, Reference},
-    primitive_tools, scale_tools,
+    pipe_tools, primitive_tools, scale_tools,
     selection::{Pickable, Selection},
     shell_tools, sketch_pattern_tools, solid_panel, split_face_tools, split_tools, sweep_tools,
     thread_tools,
@@ -213,7 +213,7 @@ pub fn prompt(model: &Model, picking: Picking) -> String {
         }
         Slot::ThreadFace => "Click the round face of a bore, shaft or boss to thread".to_owned(),
         Slot::SweepPath => {
-            "Click the curves of a sketch or the edges of a body to sweep along, again to leave \
+            "Click the curves of a sketch or the edges of a body to follow, again to leave \
              one out; press Escape when the path is complete"
                 .to_owned()
         }
@@ -308,6 +308,9 @@ pub fn change(
         }
         (Slot::SweepPath, FeatureKind::Solid(SolidFeature::Sweep(sweep))) => {
             sweep_tools::path_change(model, selection, feature, sweep)
+        }
+        (Slot::SweepPath, FeatureKind::Pipe(pipe)) => {
+            pipe_tools::path_change(model, selection, feature, pipe)
         }
         (Slot::ExtrudeDirection, FeatureKind::Solid(SolidFeature::Extrude(extrude))) => {
             solid_panel::direction_change(model, selection, feature, extrude)

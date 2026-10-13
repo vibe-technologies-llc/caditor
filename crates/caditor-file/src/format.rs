@@ -18,9 +18,9 @@ use caditor_document::{
     MAX_MATERIAL_NAME_CHARS, MAX_PATTERN_INSTANCES, MAX_SAVED_VIEWS, MAX_VIEW_NAME_CHARS,
     MIN_OPACITY_PERCENT, Mate, MatePair, MeasuredItem, Measurement, MetricSize, Mirror,
     ModelProperties, ModelProperty, Move, NamedView, OPAQUE_PERCENT, ORIGINAL_INSTANCE, Of,
-    OffsetFace, Parameter, ParameterOwner, Pattern, PatternKind, PlaneReference, PlaneRotation,
-    PlaneThrough, PointBy, PointMate, PointReference, PointTarget, PointsPattern, Primitive,
-    PrimitiveAnchor, PrimitiveShape, PrincipalAxis, PrincipalGeometry, PrincipalPlane,
+    OffsetFace, Parameter, ParameterOwner, Pattern, PatternKind, Pipe, PlaneReference,
+    PlaneRotation, PlaneThrough, PointBy, PointMate, PointReference, PointTarget, PointsPattern,
+    Primitive, PrimitiveAnchor, PrimitiveShape, PrincipalAxis, PrincipalGeometry, PrincipalPlane,
     ProjectionSource, Reading, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rgb,
     RollbackBar, SavedView, SavedViews, Scale, Shell, ShellSide, SketchAttachment, SketchFeature,
     SolidFeature, SolidStart, Split, SplitAlong, SplitCarry, SplitFace, StepText, Sweep, SweepPath,
@@ -31,7 +31,7 @@ use caditor_expression::{BinaryOperator, Expression, ParameterId, Quantity, Unit
 use caditor_geometry::{Plane, Point2, Point3, Rotation3, Vector2, Vector3};
 use caditor_kernel::{
     BoundaryPiece, EdgeName, EdgeReference, FaceCopy, FaceName, FaceOrigin, FaceReference,
-    RegionKey, RegionReference, Side, Solid, SweepOrientation, VertexName, WallSide,
+    PipeShape, RegionKey, RegionReference, Side, Solid, SweepOrientation, VertexName, WallSide,
 };
 use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, FitSpacing, Sketch, SplineKind};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwned};
@@ -273,6 +273,26 @@ pub(crate) enum FeatureKindRecord {
     SplitFaceWrapped(Box<SplitFaceWrappedRecord>),
     BlendGroups(Box<BlendGroupsRecord>),
     Sweep(Box<SweepRecord>),
+    Pipe(Box<PipeRecord>),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct PipeRecord {
+    pub path: Lenient<SweepPathRecord>,
+    pub shape: PipeShapeRecord,
+    pub size: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wall: Option<String>,
+    pub bend: String,
+    pub operation: OperationRecord,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum PipeShapeRecord {
+    Round,
+    Square,
+    Triangle,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2765,6 +2785,7 @@ fn kind_record(kind: &FeatureKind) -> FeatureKindRecord {
             }
         }
         FeatureKind::Mirror(mirror) => mirror_record(mirror),
+        FeatureKind::Pipe(pipe) => pipe_record(pipe),
         FeatureKind::Primitive(primitive) => {
             FeatureKindRecord::Primitive(Box::new(primitive_record(primitive)))
         }
@@ -3040,8 +3061,8 @@ fn revolve_from_record(revolve: &Revolve, start: &SolidStart) -> FeatureKindReco
     })
 }
 
-fn sweep_record(sweep: &Sweep) -> FeatureKindRecord {
-    let path = match &sweep.path {
+fn sweep_path_record(path: &SweepPath) -> SweepPathRecord {
+    match path {
         SweepPath::Unchosen => SweepPathRecord::Unchosen,
         SweepPath::Curves { sketch, curves } => SweepPathRecord::Curves {
             sketch: sketch.raw(),
@@ -3054,12 +3075,15 @@ fn sweep_record(sweep: &Sweep) -> FeatureKindRecord {
                 .map(|edge| Lenient::Read(edge_record(edge)))
                 .collect(),
         },
-    };
+    }
+}
+
+fn sweep_record(sweep: &Sweep) -> FeatureKindRecord {
     FeatureKindRecord::Sweep(Box::new(SweepRecord {
         sketch: sweep.sketch.raw(),
         regions: regions_record(&sweep.regions),
         region_references: region_references_record(&sweep.regions),
-        path: Lenient::Read(path),
+        path: Lenient::Read(sweep_path_record(&sweep.path)),
         orientation: match sweep.orientation {
             SweepOrientation::Square => SweepOrientationRecord::Square,
             SweepOrientation::Parallel => SweepOrientationRecord::Parallel,
@@ -3068,8 +3092,46 @@ fn sweep_record(sweep: &Sweep) -> FeatureKindRecord {
     }))
 }
 
-fn restore_sweep(record: &SweepRecord, feature: &str, issues: &mut Vec<String>) -> Sweep {
-    let path = match &record.path {
+fn pipe_record(pipe: &Pipe) -> FeatureKindRecord {
+    let text = Expression::to_stored_text;
+    FeatureKindRecord::Pipe(Box::new(PipeRecord {
+        path: Lenient::Read(sweep_path_record(&pipe.path)),
+        shape: match pipe.shape {
+            PipeShape::Round => PipeShapeRecord::Round,
+            PipeShape::Square => PipeShapeRecord::Square,
+            PipeShape::Triangle => PipeShapeRecord::Triangle,
+        },
+        size: text(&pipe.size),
+        wall: pipe.wall.as_ref().map(text),
+        bend: text(&pipe.bend),
+        operation: operation_record(pipe.operation),
+    }))
+}
+
+fn restore_pipe(record: &PipeRecord, feature: &str, issues: &mut Vec<String>) -> Pipe {
+    Pipe {
+        path: restore_sweep_path(&record.path, feature, issues),
+        shape: match record.shape {
+            PipeShapeRecord::Round => PipeShape::Round,
+            PipeShapeRecord::Square => PipeShape::Square,
+            PipeShapeRecord::Triangle => PipeShape::Triangle,
+        },
+        size: restore_value(&record.size, "size", "10 mm", feature, issues),
+        wall: record
+            .wall
+            .as_ref()
+            .map(|wall| restore_value(wall, "wall thickness", "1 mm", feature, issues)),
+        bend: restore_value(&record.bend, "bend radius", "0 mm", feature, issues),
+        operation: restore_operation(record.operation),
+    }
+}
+
+fn restore_sweep_path(
+    record: &Lenient<SweepPathRecord>,
+    feature: &str,
+    issues: &mut Vec<String>,
+) -> SweepPath {
+    match record {
         Lenient::Read(SweepPathRecord::Unchosen) => SweepPath::Unchosen,
         Lenient::Read(SweepPathRecord::Curves { sketch, curves }) => SweepPath::Curves {
             sketch: FeatureId::from_raw(*sketch),
@@ -3100,11 +3162,14 @@ fn restore_sweep(record: &SweepRecord, feature: &str, issues: &mut Vec<String>) 
             ));
             SweepPath::Unchosen
         }
-    };
+    }
+}
+
+fn restore_sweep(record: &SweepRecord, feature: &str, issues: &mut Vec<String>) -> Sweep {
     Sweep {
         sketch: FeatureId::from_raw(record.sketch),
         regions: restore_regions(&record.regions, &record.region_references, feature, issues),
-        path,
+        path: restore_sweep_path(&record.path, feature, issues),
         orientation: match record.orientation {
             SweepOrientationRecord::Square => SweepOrientation::Square,
             SweepOrientationRecord::Parallel => SweepOrientation::Parallel,
@@ -5573,6 +5638,7 @@ fn restore_kind(
         FeatureKindRecord::PointMate(record) => {
             FeatureKind::Mate(restore_point_mate(record, name, issues))
         }
+        FeatureKindRecord::Pipe(record) => FeatureKind::Pipe(restore_pipe(record, name, issues)),
         FeatureKindRecord::Primitive(record) => {
             FeatureKind::Primitive(restore_primitive(record, name, issues))
         }

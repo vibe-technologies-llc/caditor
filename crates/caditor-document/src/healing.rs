@@ -199,6 +199,7 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
         FeatureKind::Primitive(primitive) => {
             visit_plane(&mut primitive.plane, "the face it stands on", visitor);
         }
+        FeatureKind::Pipe(pipe) => visit_path(&mut pipe.path, visitor),
         FeatureKind::Shell(shell) => {
             let count = shell.open.len();
             for (index, face) in shell.open.iter_mut().enumerate() {
@@ -587,17 +588,21 @@ fn visit_solid(solid: &mut SolidFeature, visitor: &mut impl ReferenceVisitor) {
         }
         SolidFeature::Sweep(sweep) => {
             visitor.regions(sweep.sketch, &mut sweep.regions);
-            if let SweepPath::Edges { body, edges } = &mut sweep.path {
-                let count = edges.len();
-                visitor.edges(*body, edges, &|index| {
-                    if count == 1 {
-                        "the edge of its path".to_owned()
-                    } else {
-                        format!("edge {} of {count} of its path", index + 1)
-                    }
-                });
-            }
+            visit_path(&mut sweep.path, visitor);
         }
+    }
+}
+
+fn visit_path(path: &mut SweepPath, visitor: &mut impl ReferenceVisitor) {
+    if let SweepPath::Edges { body, edges } = path {
+        let count = edges.len();
+        visitor.edges(*body, edges, &|index| {
+            if count == 1 {
+                "the edge of its path".to_owned()
+            } else {
+                format!("edge {} of {count} of its path", index + 1)
+            }
+        });
     }
 }
 

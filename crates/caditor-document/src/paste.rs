@@ -580,6 +580,10 @@ impl FeatureKind {
                 primitive.operation = renamed_operation(primitive.operation, rename);
                 rename_plane(&mut primitive.plane, rename);
             }
+            Self::Pipe(pipe) => {
+                pipe.operation = renamed_operation(pipe.operation, rename);
+                pipe.path = pipe.path.with_features_renamed(&rename);
+            }
             Self::Combine(combine) => {
                 combine.body = rename(combine.body);
                 combine.tool = rename(combine.tool);

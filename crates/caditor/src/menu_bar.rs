@@ -860,6 +860,7 @@ impl Menus<'_> {
                     Command::Extrude,
                     Command::Revolve,
                     Command::Sweep,
+                    Command::Pipe,
                     Command::Hole,
                     Command::Thread,
                 ],

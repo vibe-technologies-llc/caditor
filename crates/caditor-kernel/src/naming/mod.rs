@@ -24,6 +24,7 @@ const SPLIT_FACE: u8 = 0x0a;
 const CLOSURE_FACE: u8 = 0x0b;
 const THREAD_FACE: u8 = 0x0c;
 const SWEPT_FACE: u8 = 0x0d;
+const PATH_BEND: u8 = 0x0e;
 const EDGE_BETWEEN: u8 = 0x10;
 const EDGE_BETWEEN_AT: u8 = 0x11;
 const SEAM_EDGE: u8 = 0x12;
@@ -166,6 +167,13 @@ impl FaceName {
         digest.u128(region.digest());
         Self(digest.finish())
     }
+}
+
+pub(crate) fn path_bend(before: u128, after: u128) -> u128 {
+    let mut digest = Digest::new(PATH_BEND);
+    digest.u128(before);
+    digest.u128(after);
+    digest.finish()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
