@@ -164,8 +164,11 @@ paths:
   edges of a failed or outdated body (`scene::body_health`), outside sketch editing.
 - Key hints (`canvas::Hints`) lay out a `canvas::HintList` (`app-input.md`, Guidance in the 3D
   view) as key caps (alternatives joined by " or ") beside a muted action, plain for a note, on a
-  bordered panel; a folded list ends in the More keys chip, a control-coloured bordered chip with
-  the focus ring. Each key, "or" and action is its own text, so tests use `shows_hint`.
+  bordered panel filled with the chrome's opaque `panel` colour on every canvas and contrast, never
+  the translucent label backdrop, so a dimension label beneath cannot show through
+  (`the_key_hint_panel_is_opaque_on_every_canvas_so_no_label_shows_through`); a folded list ends in
+  the More keys chip, a bordered chip resting on that panel colour (control-coloured when hovered or
+  pressed, with the focus ring). Each key, "or" and action is its own text, so tests use `shows_hint`.
 - Overlay text keeps clear of the view cube: a failure or interference label covering the cube or
   its buttons moves left of them (`viewport::clear_of`); the prompt and its hints centre in the band
   left of `view_cube::area`, its key hints left out when they would reach the bottom strip of triad
@@ -512,8 +515,17 @@ paths:
 
 ### Parameters
 
-- The parameter table's name and expression fields share the panel's width beside a fixed value
-  column (`VALUE_WIDTH`), since wider content widens the panel the next frame. Hovering a value shows
+- The parameter table's name and expression fields share the panel's width beside a value column
+  that is as wide as its widest value and icons up to `VALUE_WIDTH`, since wider content widens the
+  panel the next frame. `Content::measure` lays out every name, expression and value once per
+  frame (all parameters, not only the filtered ones, so a filter never moves a column) and
+  `FieldWidths::fitting` gives the name its longest name's width whenever that exceeds its
+  `NAME_SHARE`, capped at `LONGEST_NAME_SHARE` of the room and so that the expression keeps its
+  widest text down to `LEAST_EXPRESSION_WIDTH`. A name longer than that ends in an ellipsis painted
+  over the field's end (`ellipsize_clipped_name`) with its full text on hover, until the field is
+  edited
+  (`parameter_names_of_normal_length_show_whole_from_75_to_200_percent`,
+  `a_parameter_name_longer_than_its_column_ends_in_an_ellipsis_and_shows_whole_on_hover`). Hovering a value shows
   it in full and what uses it (`used_by`, only for the hovered row, since
   `Document::parameter_users` scans every feature). Whether a row is in use comes from
   `Document::used_parameters`, one scan cached per model revision (`ParameterUses`; it counts a

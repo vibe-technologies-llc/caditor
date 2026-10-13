@@ -4,7 +4,10 @@ use caditor_document::{
     Document, Edit, MAX_PARAMETER_NOTE_CHARS, Parameter, ParameterOwner, ParameterUser, Transaction,
 };
 use caditor_expression::{Expression, ParameterId, check_name};
-use egui::{Grid, Id, Label, Rect, TextEdit, Ui, Vec2, vec2};
+use egui::{
+    Align2, Grid, Id, Label, Rect, RichText, TextEdit, TextStyle, TextWrapMode, Ui, Vec2,
+    WidgetText, vec2,
+};
 
 use crate::{
     appearance::{self, CONTROL_HEIGHT, SPACE_M, SPACE_S, SPACE_XS},
@@ -30,8 +33,12 @@ const VALUE_WIDTH: f32 = 64.0;
 const FIELD_MARGIN: f32 = SPACE_M;
 const SLACK: f32 = SPACE_XS;
 const NAME_SHARE: f32 = 0.5;
+const LONGEST_NAME_SHARE: f32 = 0.6;
 const MIN_NAME_WIDTH: f32 = 48.0;
+const MIN_VALUE_WIDTH: f32 = 32.0;
+const ELLIPSIS: &str = "…";
 const MIN_EXPRESSION_WIDTH: f32 = 64.0;
+const LEAST_EXPRESSION_WIDTH: f32 = 40.0;
 const MAX_NAMED_USERS: usize = 4;
 const MAX_LISTED_USERS: usize = 12;
 pub const USED_BY: &str = "Used by";
@@ -70,7 +77,11 @@ pub fn show(ui: &mut Ui, model: &Model, state: &mut PanelState, actions: &mut Ve
         return;
     }
     let query = filter_field(ui, state, document.parameters().len());
-    let widths = FieldWidths::fitting(ui.available_width(), CONTROL_HEIGHT);
+    let widths = FieldWidths::fitting(
+        ui.available_width(),
+        CONTROL_HEIGHT,
+        Content::measure(ui, model, state),
+    );
     let (named, own): (Vec<&Parameter>, Vec<&Parameter>) = document
         .parameters()
         .iter()
@@ -326,6 +337,59 @@ fn go_to_owner(state: &mut PanelState, owner: &ParameterOwner) {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+struct Content {
+    longest_name: f32,
+    widest_expression: f32,
+    widest_value: f32,
+}
+
+impl Content {
+    fn measure(ui: &Ui, model: &Model, state: &mut PanelState) -> Self {
+        let document = model.document();
+        let units = model.units();
+        let slot = text_width(ui, widgets::icon(icons::UNUSED)) + ui.spacing().item_spacing.x;
+        let used = state.parameter_uses.of(model);
+        let mut content = Self {
+            longest_name: 0.0,
+            widest_expression: 0.0,
+            widest_value: 0.0,
+        };
+        for parameter in document.parameters() {
+            let id = parameter.id();
+            let name = text_width(ui, RichText::new(&parameter.name));
+            let icons = f32::from(u8::from(!used.contains(&id)))
+                + f32::from(u8::from(!parameter.note.is_empty()));
+            let value = match model.parameters().get(id) {
+                Some(Ok(value)) => text_width(ui, RichText::new(units.show(*value))),
+                _ => slot,
+            };
+            let expression = text_width(
+                ui,
+                RichText::new(document.expression_text(&parameter.expression)),
+            );
+            content.longest_name = content.longest_name.max(name + field::text_inset());
+            content.widest_expression = content
+                .widest_expression
+                .max(expression + field::text_inset());
+            content.widest_value = content.widest_value.max(value + icons * slot);
+        }
+        content
+    }
+}
+
+fn text_width(ui: &Ui, text: RichText) -> f32 {
+    WidgetText::from(text)
+        .into_galley(
+            ui,
+            Some(TextWrapMode::Extend),
+            f32::INFINITY,
+            TextStyle::Body,
+        )
+        .size()
+        .x
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
 struct FieldWidths {
     name: f32,
     expression: f32,
@@ -333,15 +397,55 @@ struct FieldWidths {
 }
 
 impl FieldWidths {
-    fn fitting(available: f32, delete: f32) -> Self {
+    fn fitting(available: f32, delete: f32, content: Content) -> Self {
+        let value = content.widest_value.clamp(MIN_VALUE_WIDTH, VALUE_WIDTH);
         let gaps = (COLUMNS - 1) as f32 * SPACING.x;
-        let fields = available - VALUE_WIDTH - delete - gaps - 2.0 * FIELD_MARGIN - SLACK;
+        let fields = available - value - delete - gaps - 2.0 * FIELD_MARGIN - SLACK;
+        let expression_floor = content
+            .widest_expression
+            .clamp(LEAST_EXPRESSION_WIDTH, MIN_EXPRESSION_WIDTH);
+        let cap = (fields * LONGEST_NAME_SHARE)
+            .min(fields - expression_floor)
+            .max(fields * NAME_SHARE);
+        let name = content
+            .longest_name
+            .max(fields * NAME_SHARE)
+            .min(cap)
+            .max(MIN_NAME_WIDTH);
         Self {
-            name: (fields * NAME_SHARE).max(MIN_NAME_WIDTH),
-            expression: (fields * (1.0 - NAME_SHARE)).max(MIN_EXPRESSION_WIDTH),
-            value: VALUE_WIDTH,
+            name,
+            expression: (fields - name).max(expression_floor),
+            value,
         }
     }
+}
+
+fn ellipsize_clipped_name(ui: &Ui, response: &egui::Response, name: &str) -> bool {
+    if ui.memory(|memory| memory.has_focus(response.id)) {
+        return false;
+    }
+    let inner = response.rect.width() - field::text_margins();
+    if text_width(ui, RichText::new(name)) <= inner {
+        return false;
+    }
+    let ellipsis = text_width(ui, RichText::new(ELLIPSIS));
+    let covered = Rect::from_min_max(
+        egui::pos2(
+            response.rect.right() - ellipsis - field::text_inset() / 2.0,
+            response.rect.top() + 1.0,
+        ),
+        response.rect.right_bottom() - vec2(1.0, 1.0),
+    );
+    let painter = ui.painter();
+    painter.rect_filled(covered, 0.0, ui.visuals().extreme_bg_color);
+    painter.text(
+        covered.right_center() - vec2(field::text_inset() / 2.0, 0.0),
+        Align2::RIGHT_CENTER,
+        ELLIPSIS,
+        TextStyle::Body.resolve(ui.style()),
+        ui.visuals().text_color(),
+    );
+    true
 }
 
 pub fn add(model: &Model, state: &mut PanelState, actions: &mut Vec<Action>) {
@@ -441,6 +545,9 @@ fn row(
             )
         },
     );
+    if ellipsize_clipped_name(ui, &name.response, &parameter.name) {
+        name.response.clone().on_hover_text(&parameter.name);
+    }
     state.focus_reached(name_focus, name.response.has_focus());
     state.focus_reached(value_focus, expression.response.has_focus());
     if name.response.has_focus() || expression.response.has_focus() {
