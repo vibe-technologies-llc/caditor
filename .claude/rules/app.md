@@ -123,7 +123,10 @@ paths:
   and 3MF thumbnail in the dark one (`snapshot::of_bodies` takes the canvas).
 - Every scene colour and line weight comes from the `ScenePalette` of the viewport's `Contrast`
   (`scene_palette.rs`, set from the High contrast preference each frame), never a constant in
-  `scene.rs`. Colours shared with canvas labels (hover, selection, snap, measure, problems) stay
+  `scene.rs`. Body edges and outlines take the palette's `body_edge_width` times the Edges
+  preference (`EdgeWeight::factor`, `Builder::edge_width`), and the Outlines preference leaves the
+  silhouettes out; both ride in `ViewAids::edges` (`EdgeLook`), so they join the scene key and each
+  body part's `BodyLook`. Colours shared with canvas labels (hover, selection, snap, measure, problems) stay
   `canvas` colours in both palettes.
 
 ## Sketch faceting

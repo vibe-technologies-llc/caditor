@@ -7,15 +7,16 @@ Navigation:
 
 - **caditor**: right-drag orbits, middle-drag pans and the wheel zooms.
 - **Laptop**: two fingers orbit, Alt and two fingers pan, pinching zooms.
-- **Fusion 360**, **FreeCAD** and **Blender** copy those programs' mouse buttons; right-drag
-  still orbits in each.
+- **Fusion 360**, **FreeCAD**, **Blender** and **SolidWorks** copy those programs' mouse
+  buttons; right-drag still orbits in each.
 
 A right-click that does not move opens the view's [context menu](selection) instead of turning
 the view. The bottom right corner of the view shows the buttons of the mode you chose. Zooming goes toward
 the pointer. Orbit and zoom speeds and the zoom direction are in Preferences too; the zoom
-direction also turns round Blender's Ctrl+middle-drag zoom. Orbiting turns about the point under
-the pointer when the drag began, else the view's centre; a small ring marks that point while the
-view turns and fades just after.
+direction also turns round the Blender and SolidWorks zoom drags. Orbiting turns about the point
+under the pointer when the drag began, else the view's centre; a small ring marks that point while
+the view turns and fades just after. Preferences can make zooming keep the view's centre still,
+orbiting always turn about the view's centre, and either orbit direction turn the other way.
 
 Double-click the middle button to fit the view, as {command:view.fit} does. This works in every
 input mode, since none of them uses the middle button's double-click for anything else.
@@ -53,7 +54,8 @@ the standard views, its keys. Drag the cube to orbit the view about its centre. 
 focus like a button: the arrow keys then step to the neighbouring view.
 
 Under the cube, Fit all frames everything (Fit selection when something is selected), and the
-house button beside it goes to the Isometric view.
+house button beside it goes to the Isometric view. Preferences › Appearance can hide the cube and
+both buttons; their commands and keys still work.
 
 ## Projection and saved views
 

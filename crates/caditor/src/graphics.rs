@@ -7,7 +7,7 @@ use egui::{Label, Ui};
 
 use crate::{
     icons,
-    preferences::{self, PreferenceChange, PreferencesCommand},
+    preferences::{self, PreferenceChange, PreferencesCommand, Section, Shown},
     widgets::{self, Segment, Tone},
 };
 
@@ -426,21 +426,22 @@ impl FramePacer {
 
 pub fn tab(
     ui: &mut Ui,
-    graphics: &Graphics,
+    shown: &Shown<'_>,
     hardware: &Hardware,
     command: &mut Option<PreferencesCommand>,
 ) {
-    display(ui, graphics, hardware, command);
-    quality(ui, graphics, hardware, command);
-    adapter(ui, graphics, hardware, command);
+    display(ui, shown, hardware, command);
+    quality(ui, shown, hardware, command);
+    adapter(ui, shown, hardware, command);
 }
 
 fn display(
     ui: &mut Ui,
-    graphics: &Graphics,
+    shown: &Shown<'_>,
     hardware: &Hardware,
     command: &mut Option<PreferencesCommand>,
 ) {
+    let graphics = &shown.preferences.graphics;
     let note = "caditor draws only when something changes; these apply while the view moves or \
                 animates.";
     let vsync_optional = hardware
@@ -449,8 +450,8 @@ fn display(
         .is_none_or(|adapter| adapter.vsync_optional);
     preferences::section(
         ui,
-        "Display",
-        "graphics-display",
+        shown,
+        Section::GraphicsDisplay,
         Some(note.to_owned()),
         |ui| {
             widgets::property(ui, "Vsync", |ui| {
@@ -498,15 +499,16 @@ fn display(
 
 fn quality(
     ui: &mut Ui,
-    graphics: &Graphics,
+    shown: &Shown<'_>,
     hardware: &Hardware,
     command: &mut Option<PreferencesCommand>,
 ) {
+    let graphics = &shown.preferences.graphics;
     let adapter = hardware.adapter.as_ref();
     let fallback = adapter
         .filter(|adapter| adapter.msaa != graphics.msaa)
         .map(|adapter| adapter.msaa);
-    preferences::section(ui, "Quality", "graphics-quality", None, |ui| {
+    preferences::section(ui, shown, Section::GraphicsQuality, None, |ui| {
         widgets::property(ui, "Anti-aliasing", |ui| {
             let hovers = Msaa::ALL.map(msaa_hover);
             let refusals = Msaa::ALL.map(|msaa| {
@@ -561,16 +563,17 @@ fn quality(
 
 fn adapter(
     ui: &mut Ui,
-    graphics: &Graphics,
+    shown: &Shown<'_>,
     hardware: &Hardware,
     command: &mut Option<PreferencesCommand>,
 ) {
+    let graphics = &shown.preferences.graphics;
     let note = "Include these details when reporting a drawing problem. Choosing another adapter \
                 switches the drawing to it at once; WGPU_POWER_PREF, when set, still decides.";
     preferences::section(
         ui,
-        "Graphics adapter",
-        "graphics-adapter",
+        shown,
+        Section::GraphicsAdapter,
         Some(note.to_owned()),
         |ui| {
             widgets::property(ui, "Prefer", |ui| {

@@ -371,13 +371,29 @@ paths:
 
 ## Preferences and units
 
-- Preferences is a dialog of `PreferencesTab`s (`widgets::tabs`), drawn by
-  `preferences/dialog.rs` (`preferences.rs` holds the settings and their keys); the tab shown is
-  `Workspace::preferences_tab`, kept for the session, not saved. Ctrl+Tab and Ctrl+Page Down switch
-  tabs unless the shortcut editor is open. The body is as tall as the tallest tab shown so far,
-  capped by the room the dialog leaves it (`widgets::DialogBody::min_height`), with the tabs above
-  and the undo note, confirmation and footer below staying in view. Choices of two to four options are `widgets::segmented` with
-  hover text on every option (`preferences::choice`).
+- Preferences is a dialog of `PreferencesTab`s (General, Appearance, Navigation, Sketching,
+  Graphics; `widgets::tabs`), drawn by `preferences/dialog.rs` (General and Appearance) and
+  `preferences/motion.rs` (Navigation and Sketching), with Graphics in `graphics::tab`;
+  `preferences.rs` holds the settings and their keys, `preferences/choices.rs` the choices read
+  from text (`Choice`: `ALL`, `key`, `label`, `description`, `read` falling back to the default for
+  a missing or unknown key). The tab shown is `Workspace::preferences_tab`, kept for the session,
+  not saved. Ctrl+Tab and Ctrl+Page Down switch tabs unless the shortcut editor is open. The body
+  is as tall as the tallest tab shown so far, capped by the room the dialog leaves it
+  (`widgets::DialogBody::min_height`), with the tabs and search field above and the undo note,
+  confirmation and footer below staying in view. Choices of two to four options are
+  `widgets::segmented` with hover text on every option (`preferences::choice`, `pick` for a
+  `Choice`), on and off settings `preferences::toggle`, which keeps a label that fits beside its
+  box unwrapped (`fits_on_one_line`): a wrapping egui checkbox in a property grid makes its row
+  taller than it draws.
+- Every block of settings is a `preferences::Section` (`preferences/sections.rs`: tab, id, title,
+  the words a search matches, and `copy`, which moves exactly its settings from one `Preferences`
+  to another), drawn through `preferences::section` as a `widgets::section` holding a card. The
+  search field under the tabs (`SEARCH_FIELD`, `Workspace::preferences_search`, cleared by a tab
+  change or closing) shows, from every tab in turn under the tab's name, the sections whose title
+  or words hold every term typed (`Section::matches`), else an empty state with Clear the search.
+  A resettable section that differs from its defaults (`Section::is_default`) has a reset action in
+  its header (`reset_name`, `icons::RESET_SECTION`), sending `PreferenceChange::SectionDefaults`
+  at once; Keyboard, Tips and Saving on Windows have none.
 - The input mode is a `Navigation` preference (`navigation.input_mode`); the Navigate tip and
   Preferences hover texts describe it (`InputMode::navigation_tip`), the canvas key hint names its
   buttons (`InputMode::navigation_hint`).
@@ -392,10 +408,33 @@ paths:
   at once by opening a new device when what it resolves to differs; Auto says what it chose and why,
   `graphics::auto_summary`) and Copy details for bug reports. Defaults are in code; the renderer side
   is in `render.md`.
-- Restore defaults resets only the open tab (`PreferenceChange::Defaults`; General leaves shortcuts
-  and tips alone). It asks first with a callout repeating what it restores, then offers Undo, which
-  `Workspace::restored` backs (`Preferences::restoring`, `Preferences::undo`) until the tab changes,
-  another preference changes or the dialog closes. The shortcut editor's reset works the same way.
+- Restore defaults resets only the open tab (`PreferenceChange::Defaults`: its resettable sections,
+  `Section::restored_with`; General leaves shortcuts and tips alone). It asks first with a callout
+  repeating what it restores, then offers Undo, which `Workspace::restored` backs
+  (`Restored::Defaults` with a `Restoring` tab or section, `Preferences::restoring`,
+  `Preferences::undo`) until the tab changes, another preference changes or the dialog closes. A
+  section's reset offers the same Undo without asking first. The shortcut editor's reset works the
+  same way.
+- Keys added with the settings a broad user base expects, each read leniently (a missing, unknown
+  or mistyped value is today's behaviour) and each wired end to end: `navigation.zoom_toward`
+  (`pointer`, `centre`), `navigation.orbit_around` (`pointer`, `centre`),
+  `navigation.invert_orbit_x` and `_y`, `navigation.transitions` (`off`, `quick`, `standard`,
+  `slow`: `Transitions::scale` of the camera's transitions), `navigation.field_of_view`
+  (`narrow`, `standard`, `wide`: 20°, 30°, 45°), `appearance.tooltip_delay` (`at_once`,
+  `standard`, `later`, applied over the installed styles by `app::apply_appearance`),
+  `view.edges` (`thin`, `standard`, `thick`), `view.outlines`, `view.view_cube`, `sketch.look_at`,
+  `sketch.escape_finishes`, the starting states `sketch.glyphs`, `sketch.snapping`,
+  `sketch.grid_snapping`, `sketch.typed_dimensions` and `model.dimensions`
+  (`StartingToggles`, set on the viewport at startup and again when one of them changes, the
+  toggles staying session state), `files.startup` (`empty`, `last`), `files.recent_listed` (`3`,
+  `5`, `10`) and `tree.double_click` (`edit`, `rename`). Recovery's journal and atomic saving have
+  no setting (`reliability.md`).
+- `Files` reads `files.startup` and `files.recent_listed` from every `Settings` it is handed, as it
+  does the default template. `Files::recent` lists only the newest `RecentListed::count` (the menu,
+  the welcome and the palette's recent slots); the stored list keeps `RECENT_LIMIT`. With The last
+  model, `Files::start` without a file to open marks the newest recent model to open, and
+  `Event::Started` opens it (`open_last_model`) only while the model is untitled and unchanged,
+  nothing is opening and no recovery was offered.
 - Changes apply at once and save on the files worker (a slider on release,
   `PreferencesCommand::Preview` until then). The palette's Recent commands are kept the same way
   (`palette.recent`, `app-input.md`) but are no preference: Restore defaults leaves them alone.
@@ -416,7 +455,10 @@ paths:
   value; read through `Model::last_values`).
 - `Workspace` owns the `Preferences`; `Model` carries the length unit; `app::apply_preferences` hands
   the model its share at startup and after every change, and the session passes graphics settings to
-  the renderer after each frame's actions (`Renderer::set_graphics`).
+  the renderer after each frame's actions (`Renderer::set_graphics`). `Workspace::follow_preferences`
+  hands the viewport its share after every change and undo (`ViewportState::set_navigation`,
+  `set_view_details`, `set_sketching`, and `start_with` when a starting state changed); `app::show`
+  hands `PanelState::double_click` over each frame.
 - Units are for display and input only; models stay unit-explicit. `Preferences::unit` is the
   `LengthUnit`, `Preferences::angle` an `AngleUnit` (degrees or radians, `units.angle`);
   `Model::units()` pairs them as `Units`, which derefs to the length unit. A plain number typed for a

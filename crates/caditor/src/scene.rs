@@ -34,7 +34,7 @@ use crate::{
     interference_panel::{Mark, MarkKind},
     scene_palette::{Canvas, Contrast, Highlights, PointFill, ScenePalette, SketchState},
     selection::{self, Axis, Pickable, PrincipalPlane, Selection, SelectionFilter},
-    view_aids::ViewAids,
+    view_aids::{EdgeLook, ViewAids},
     visibility,
 };
 
@@ -544,6 +544,7 @@ struct BodyLook {
     style: DisplayStyle,
     palette: usize,
     reflective: bool,
+    edges: EdgeLook,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -979,6 +980,7 @@ pub fn build_keeping(
         analysis: aids.analysis.map(|analysis| (analyses, analysis)),
         reflection: aids.reflection,
         control_polygons: !aids.control_polygons_hidden,
+        edges: aids.edges,
     };
 
     match &edited {
@@ -1144,6 +1146,7 @@ pub fn build_keeping(
             style: builder.style,
             palette: palette_key,
             reflective: builder.reflection.is_some(),
+            edges: builder.edges,
         };
         let lit = lit_parts.of_part(highlight, PartKey::Body(body));
         let part = match previous.remove(&body) {
@@ -1465,6 +1468,7 @@ struct Builder<'a> {
     analysis: Option<(&'a Analyses, FaceAnalysis)>,
     reflection: Option<Reflection>,
     control_polygons: bool,
+    edges: EdgeLook,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1493,6 +1497,7 @@ impl<'a> Builder<'a> {
             analysis: self.analysis,
             reflection: self.reflection,
             control_polygons: self.control_polygons,
+            edges: self.edges,
         }
     }
 
@@ -1953,10 +1958,10 @@ impl<'a> Builder<'a> {
         } else {
             self.palette.body_edge.with_alpha(0.0)
         };
-        let edge_width = self.palette.body_edge_width;
+        let edge_width = self.edge_width();
         let pickable_edges = pickable;
         let shows_hidden_edges = style.shows_hidden_edges() && color.is_some();
-        if style.shows_edges() {
+        if style.shows_edges() && !self.edges.outlines_hidden {
             let silhouette_color = match color {
                 Some(_) => self.palette.body_edge,
                 None => self.palette.background_body_edge,
@@ -2038,11 +2043,18 @@ impl<'a> Builder<'a> {
         }
     }
 
+    fn edge_width(&self) -> f32 {
+        self.palette.body_edge_width * self.edges.weight.factor()
+    }
+
     fn plain_silhouette(&mut self, mesh: &Arc<ShadedMesh>) {
+        if self.edges.outlines_hidden {
+            return;
+        }
         self.silhouettes.push(Silhouette {
             mesh: Arc::clone(mesh),
             color: self.palette.body_edge,
-            width: self.palette.body_edge_width,
+            width: self.edge_width(),
             dashed: false,
             dashed_where_hidden: false,
             placement: None,
@@ -2149,12 +2161,13 @@ impl<'a> Builder<'a> {
             .into(),
             placement: None,
         });
+        let width = self.edge_width();
         for edge in &cut.edges {
             let segments = cut.points(edge).segments().map(|(start, end)| Line {
                 start,
                 end,
                 color: self.palette.cut_preview_edge,
-                width: self.palette.body_edge_width,
+                width,
                 layer: Layer::Front,
                 pick: None,
                 stroke: Stroke::Solid,
@@ -2209,6 +2222,7 @@ impl<'a> Builder<'a> {
             placement: None,
         });
         self.plain_silhouette(&mesh.mesh);
+        let width = self.edge_width();
         for edge in &mesh.edges {
             self.scene
                 .lines
@@ -2216,7 +2230,7 @@ impl<'a> Builder<'a> {
                     start,
                     end,
                     color: self.palette.body_edge,
-                    width: self.palette.body_edge_width,
+                    width,
                     layer: Layer::Model,
                     pick: None,
                     stroke: Stroke::Solid,
@@ -2235,6 +2249,7 @@ impl<'a> Builder<'a> {
 
     fn split_edges(&mut self, open: &BodyBefore, result: &BodyMesh) {
         let before: BTreeSet<EdgeName> = open.before.edges.iter().map(|edge| edge.name).collect();
+        let width = self.edge_width() + CHOSEN_EDGE_EXTRA_WIDTH;
         for edge in result
             .edges
             .iter()
@@ -2244,7 +2259,7 @@ impl<'a> Builder<'a> {
                 start,
                 end,
                 color: self.palette.lines.selected,
-                width: self.palette.body_edge_width + CHOSEN_EDGE_EXTRA_WIDTH,
+                width,
                 layer: Layer::Model,
                 pick: None,
                 stroke: Stroke::Solid,
@@ -2407,16 +2422,15 @@ impl<'a> Builder<'a> {
                     } else {
                         base
                     };
-                    let width = self.palette.body_edge_width
-                        + extra
-                        + self.emphasis(pickable) * HIGHLIGHT_EXTRA_WIDTH;
+                    let width =
+                        self.edge_width() + extra + self.emphasis(pickable) * HIGHLIGHT_EXTRA_WIDTH;
                     (
                         color,
                         width,
                         self.picks.register(pickable, PickPriority::Curve),
                     )
                 }
-                None => (self.palette.body_edge, self.palette.body_edge_width, None),
+                None => (self.palette.body_edge, self.edge_width(), None),
             };
             let segments = open
                 .before

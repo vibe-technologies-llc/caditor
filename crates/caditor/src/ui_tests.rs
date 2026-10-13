@@ -111,6 +111,7 @@ mod pattern_grid;
 mod patterns;
 mod pick_list;
 mod plane_selectors;
+mod preference_groups;
 mod preferences;
 mod primitive_creation;
 mod primitive_feet;

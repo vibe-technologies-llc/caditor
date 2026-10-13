@@ -75,7 +75,9 @@ paths:
   20 (a guide page's title); radii `SMALL_RADIUS` (key caps), `WIDGET_RADIUS`, `CARD_RADIUS`,
   `WINDOW_RADIUS`; `CONTROL_HEIGHT`, `CONTROL_MIN_WIDTH`, `BORDER_WIDTH`, `FOCUS_WIDTH` and
   `FOCUS_GAP`. The egui `Style` is built from named values only (`ITEM_SPACING`, `BUTTON_PADDING`,
-  `TOOLTIP_WIDTH`, `MENU_WIDTH`, `COMBO_WIDTH`, …).
+  `TOOLTIP_WIDTH`, `MENU_WIDTH`, `COMBO_WIDTH`, …). `TOOLTIP_DELAY` is the Standard hover help
+  delay; `app::apply_appearance` replaces it in every installed style with the Hover help
+  preference (`TooltipDelay::seconds`) whenever the styles or the preference change.
 - `app::apply_appearance` resolves the preference (`themes::Appearance::resolve`) into `Skins`, one
   per egui theme (Follow the system fills dark and light; a named theme both, and sets egui's
   preference to its lightness), installs the styles and publishes the skins in egui temp data
@@ -175,7 +177,10 @@ paths:
   keys step to the neighbouring target. A primary drag orbits like a right-drag
   (`CubeAction::Orbit`). Fit all (Fit selection when something is selected) under it is a canvas
   control (`canvas::button`) and left of it `canvas::icon_button` "Isometric view" goes to
-  Isometric as Alt+0 does; `view_cube::area` covers both.
+  Isometric as Alt+0 does; `view_cube::area` covers both. Preferences › Appearance › In the 3D
+  view can hide the cube with both buttons (`ViewDetails::view_cube`,
+  `ViewportState::view_cube_shown`), leaving their commands; the overlays then keep clear of an
+  empty corner (`ViewportState::cube_area`). The axis triad stays.
 
 ## Widgets
 
@@ -600,7 +605,9 @@ paths:
   (`feature_tree::choose_among`, resolved after layout); the chevron alone shows the details. A
   double-click, Enter, the edit button or the menu's Edit opens the feature (a sketch for editing,
   another feature as its panel, an imported body by showing its details); a suppressed or
-  rolled-back one leaves a notice with the reason instead.
+  rolled-back one leaves a notice with the reason instead. With Preferences › General › Feature
+  tree set to rename (`PanelState::double_click`, `DoubleClick::Rename`) a double-click on the
+  name starts renaming instead, Enter and the rest still opening.
 - Rename (F2) and Move up or down act on the primary row, else the open feature
   (`feature_tree::current_feature`); Suppress, Hide or show feature and Delete act on every chosen
   row; Delete selection deletes them outside sketch editing. The row menu's Hide or Show

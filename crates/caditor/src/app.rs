@@ -68,7 +68,7 @@ use crate::{
     parameter_table,
     preferences::{
         self, Appearance, PreferenceChange, Preferences, PreferencesCommand, PreferencesTab,
-        PreferencesView, Restored, TitleBar,
+        PreferencesView, Restored, StartingToggles, TitleBar, TooltipDelay,
     },
     queued::{self, Rerun},
     reference_picking::{self, Slot},
@@ -162,6 +162,7 @@ pub struct Workspace {
     pub preferences: Preferences,
     pub preferences_open: bool,
     pub preferences_tab: PreferencesTab,
+    pub preferences_search: String,
     pub hardware: Hardware,
     pub palette: Palette,
     pub shortcut_editor: Option<ShortcutEditor>,
@@ -192,6 +193,7 @@ pub struct Workspace {
     usable_look: Option<(Look, bool)>,
     theme_noticed: Option<(Theme, u64)>,
     applied_title_bar: Option<TitleBar>,
+    applied_tooltip_delay: Option<TooltipDelay>,
     keyboard_was_taken: bool,
     deferred_commands: Vec<Command>,
     repetition: Repetition,
@@ -213,6 +215,9 @@ impl Workspace {
         let welcome_open = !preferences.onboarding.welcomed;
         let mut viewport = ViewportState::new();
         viewport.set_navigation(preferences.navigation);
+        viewport.set_view_details(preferences.view_details);
+        viewport.set_sketching(preferences.sketching);
+        viewport.start_with(preferences.sketching.at_start);
         let palette = Palette::with_recent(preferences.palette_recent.clone());
         Self {
             viewport,
@@ -221,6 +226,7 @@ impl Workspace {
             preferences,
             preferences_open: false,
             preferences_tab: PreferencesTab::default(),
+            preferences_search: String::new(),
             hardware: Hardware::default(),
             palette,
             shortcut_editor: None,
@@ -251,6 +257,7 @@ impl Workspace {
             usable_look: None,
             theme_noticed: None,
             applied_title_bar: None,
+            applied_tooltip_delay: None,
             keyboard_was_taken: false,
             deferred_commands: Vec::new(),
             repetition: Repetition::default(),
@@ -292,6 +299,7 @@ impl Workspace {
         self.defender_asked = false;
         self.applied_appearance = None;
         self.applied_title_bar = None;
+        self.applied_tooltip_delay = None;
         self.keyboard_was_taken = false;
         self.deferred_commands.clear();
         self.awaiting_paste = None;
@@ -318,9 +326,21 @@ impl Workspace {
     }
 
     fn preview_preference(&mut self, change: PreferenceChange, model: &mut Model) {
+        let before = self.preferences.sketching.at_start;
         self.preferences.apply(change);
+        self.follow_preferences(model, before);
+    }
+
+    fn follow_preferences(&mut self, model: &mut Model, started_with: StartingToggles) {
         apply_preferences(model, &self.preferences);
         self.viewport.set_navigation(self.preferences.navigation);
+        self.viewport
+            .set_view_details(self.preferences.view_details);
+        self.viewport.set_sketching(self.preferences.sketching);
+        if self.preferences.sketching.at_start != started_with {
+            self.viewport
+                .start_with(self.preferences.sketching.at_start);
+        }
     }
 
     fn preferences_command(
@@ -339,6 +359,7 @@ impl Workspace {
             PreferencesCommand::Hide => {
                 self.preferences_open = false;
                 self.restored = None;
+                self.preferences_search.clear();
             }
             PreferencesCommand::ShowShortcuts => {
                 self.shortcut_editor
@@ -411,7 +432,9 @@ impl Workspace {
             PreferencesCommand::Tab(tab) => {
                 self.preferences_tab = tab;
                 self.restored = None;
+                self.preferences_search.clear();
             }
+            PreferencesCommand::Search(text) => self.preferences_search = text,
             PreferencesCommand::Change(change) => {
                 self.restored = self.preferences.restoring(&change);
                 self.preview_preference(change, model);
@@ -419,9 +442,9 @@ impl Workspace {
             }
             PreferencesCommand::Undo => {
                 if let Some(restored) = self.restored.take() {
+                    let before = self.preferences.sketching.at_start;
                     self.preferences.undo(restored);
-                    apply_preferences(model, &self.preferences);
-                    self.viewport.set_navigation(self.preferences.navigation);
+                    self.follow_preferences(model, before);
                     files.store_settings(self.preferences.settings());
                 }
             }
@@ -541,6 +564,7 @@ pub fn show(
         preferences,
         preferences_open,
         preferences_tab,
+        preferences_search,
         hardware,
         palette,
         shortcut_editor,
@@ -574,6 +598,7 @@ pub fn show(
         ..
     } = workspace;
     panels.forget_missing(model.document(), model.revision());
+    panels.double_click = preferences.double_click;
     let chosen_rows = panels.chosen();
     let tree_bodies = body_selection::tree_bodies(model.document(), &chosen_rows);
     let offers = selection_offers.refresh(
@@ -992,6 +1017,7 @@ pub fn show(
             switch_keys: shortcut_editor.is_none(),
             restored: restored.as_ref(),
             themes: files.themes(),
+            search: preferences_search,
         };
         if *preferences_open
             && let Some(command) = preferences::dialog(ui.ctx(), preferences, &view)
@@ -1328,10 +1354,16 @@ fn apply_appearance(
         ctx.set_zoom_factor(wanted.0.scale);
         workspace.applied_appearance = Some(wanted);
     }
+    let delay = workspace.preferences.tooltip_delay;
+    let delayed = changed || workspace.applied_tooltip_delay != Some(delay);
+    if delayed {
+        ctx.all_styles_mut(|style| style.interaction.tooltip_delay = delay.seconds());
+        workspace.applied_tooltip_delay = Some(delay);
+    }
     let skin = appearance::skin(ctx);
     canvas::set_canvas(ctx, skin.canvas);
     canvas::set_grid(ctx, skin.grid);
-    if changed {
+    if delayed {
         Applied::Changed
     } else {
         Applied::Unchanged
