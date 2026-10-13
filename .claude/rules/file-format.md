@@ -190,6 +190,12 @@ Extrusions and revolves:
 - `pipe`: `path` as a sweep's (unreadable loads as unchosen), `shape` (`round`, `square`,
   `triangle`), `size` (unreadable 10 mm), `wall` only when hollow (unreadable 1 mm), `bend`
   (unreadable 0 mm) and `operation`. The corpus holds it in `pipes.caditor`.
+- `coil`: `axis` (an axis reference; unreadable loads as the Z axis), `reversed` when set,
+  `diameter` (unreadable 20 mm), `length` (`turns_and_pitch`, `height_and_turns` or
+  `height_and_pitch` with its two texts; unreadable turns 5, pitch 5 mm, height 25 mm), `shape`
+  (`round`, `square`), `size` (unreadable 2 mm), `placement` (`inside`, `centred`, `outside`),
+  `taper` (unreadable 0 deg), `turning` (`counter_clockwise`, `clockwise`) and `operation`. The
+  corpus holds it in `coils.caditor`.
 - `rib`: `sketch`, `body`, `thickness` (unreadable 2 mm, reported), `side` (`one_side`,
   `other_side`, `symmetric`), `direction` (`parallel`, `square`) and `reversed` only when set. The
   corpus holds it in `ribs.caditor`.

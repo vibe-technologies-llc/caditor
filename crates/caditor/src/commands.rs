@@ -128,6 +128,7 @@ pub enum Command {
     Revolve,
     Sweep,
     Pipe,
+    Coil,
     Rib,
     Hole,
     NewBox,
@@ -325,6 +326,7 @@ impl Command {
                 | Self::Revolve
                 | Self::Sweep
                 | Self::Pipe
+                | Self::Coil
                 | Self::Rib
                 | Self::Hole
                 | Self::NewBox
@@ -738,6 +740,7 @@ plain_commands! {
     Revolve,
     Sweep,
     Pipe,
+    Coil,
     Rib,
     Hole,
     NewBox,
@@ -1020,6 +1023,7 @@ impl Command {
             Self::Revolve => "model.revolve",
             Self::Sweep => "model.sweep",
             Self::Pipe => "model.pipe",
+            Self::Coil => "model.coil",
             Self::Rib => "model.rib",
             Self::Hole => "model.hole",
             Self::NewBox => "model.box",
@@ -1300,6 +1304,7 @@ impl Command {
             Self::Revolve => "Revolve",
             Self::Sweep => "Sweep",
             Self::Pipe => "Pipe",
+            Self::Coil => "Coil",
             Self::Rib => "Rib",
             Self::Hole => "Hole",
             Self::NewBox => "Box",
@@ -1536,6 +1541,7 @@ impl Command {
             Self::Revolve => &["lathe", "turn", "spin"],
             Self::Sweep => &["pipe", "tube", "rail", "follow a path"],
             Self::Pipe => &["tube", "tubing", "handrail", "cable", "wire", "rod", "bend"],
+            Self::Coil => &["spring", "helix", "spiral", "screw", "winding", "wire"],
             Self::Rib => &["web", "stiffener", "gusset", "brace", "strengthen", "wall"],
             Self::Fillet => &["round", "blend"],
             Self::Chamfer => &["bevel"],
@@ -1725,6 +1731,7 @@ impl Command {
             | Self::Revolve
             | Self::Sweep
             | Self::Pipe
+            | Self::Coil
             | Self::Rib
             | Self::Hole
             | Self::NewBox
@@ -2163,7 +2170,8 @@ impl Command {
             | Self::NewWedge
             | Self::NewPrism
             | Self::CurvePattern
-            | Self::PointPattern => Vec::new(),
+            | Self::PointPattern
+            | Self::Coil => Vec::new(),
         }
     }
 

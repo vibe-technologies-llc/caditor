@@ -3,6 +3,7 @@ use caditor_sketch::EntityId;
 use egui::{Context, Id};
 
 use crate::{
+    coil_tools,
     datum_panel::{self, FramePart},
     datum_tools,
     editing::EditingCommand,
@@ -50,6 +51,7 @@ pub enum Slot {
     DatumRotation,
     MoveAxis,
     PrimitivePlace,
+    CoilAxis,
     MateMoving(MatePart),
     MateTarget(MatePart),
     FrameOrigin,
@@ -93,6 +95,7 @@ impl Slot {
             | Self::DatumRotation
             | Self::MoveAxis
             | Self::PrimitivePlace
+            | Self::CoilAxis
             | Self::MateTarget(_)
             | Self::FrameOrigin
             | Self::FrameAxis
@@ -197,6 +200,10 @@ pub fn prompt(model: &Model, picking: Picking) -> String {
         }
         Slot::ExtrudeTarget(_) => "Click a face or plane to extrude up to".to_owned(),
         Slot::HoleTarget => "Click a flat face or plane to drill up to".to_owned(),
+        Slot::CoilAxis => format!(
+            "Click {AXIS} or a sketch line to wind the coil around, or press Escape to leave it \
+             where it is"
+        ),
         Slot::HolePlace => {
             "Click a flat face where the hole goes, or press Escape to leave it where it is"
                 .to_owned()
@@ -426,6 +433,9 @@ pub fn change(
         }
         (Slot::MoveAxis, FeatureKind::Move(movement)) => {
             move_tools::axis_change(model, selection, feature, movement)
+        }
+        (Slot::CoilAxis, FeatureKind::Coil(coil)) => {
+            coil_tools::axis_change(model, selection, feature, coil)
         }
         (Slot::PrimitivePlace, FeatureKind::Primitive(primitive)) => {
             primitive_tools::place_change(model, selection, feature, primitive)

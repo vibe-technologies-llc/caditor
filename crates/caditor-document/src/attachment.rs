@@ -170,6 +170,12 @@ impl SketchFeature {
             .filter_map(ProjectionSource::sketch)
     }
 
+    pub fn projected_entities(&self) -> impl Iterator<Item = (FeatureId, EntityId)> + '_ {
+        self.projections
+            .values()
+            .filter_map(ProjectionSource::sketch_entity)
+    }
+
     pub fn projected_planes(&self) -> impl Iterator<Item = FeatureId> + '_ {
         self.projections
             .values()

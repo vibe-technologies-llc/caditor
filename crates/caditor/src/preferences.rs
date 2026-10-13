@@ -28,6 +28,7 @@ use crate::{
     },
     graphics::{CurveQuality, FrameLimit, Graphics},
     icons,
+    inference::{Inference, Inferences},
     last_values::{LastValues, Remembered},
     layout::{PanelLayout, WindowPlacement},
     lighting::Lighting,
@@ -441,6 +442,7 @@ pub struct Sketching {
     pub look_at_on_entering: bool,
     pub escape_finishes: bool,
     pub at_start: StartingToggles,
+    pub inferred: Inferences,
 }
 
 impl Default for Sketching {
@@ -449,6 +451,7 @@ impl Default for Sketching {
             look_at_on_entering: true,
             escape_finishes: true,
             at_start: StartingToggles::default(),
+            inferred: Inferences::default(),
         }
     }
 }
@@ -546,6 +549,7 @@ pub enum PreferenceChange {
     StartWithGridSnapping(bool),
     StartWithTypedDimensions(bool),
     StartWithModelDimensions(bool),
+    Infer(Inference, bool),
     Startup(Startup),
     RecentListed(RecentListed),
     DoubleClick(DoubleClick),
@@ -896,6 +900,7 @@ impl Preferences {
             PreferenceChange::StartWithModelDimensions(on) => {
                 self.sketching.at_start.model_dimensions = on;
             }
+            PreferenceChange::Infer(kind, on) => self.sketching.inferred.set(kind, on),
             PreferenceChange::Startup(startup) => self.startup = startup,
             PreferenceChange::RecentListed(listed) => self.recent_listed = listed,
             PreferenceChange::DoubleClick(double_click) => self.double_click = double_click,
@@ -1013,6 +1018,14 @@ impl ViewDetails {
 }
 
 impl Sketching {
+    fn inferences_from(raw: &Settings) -> Inferences {
+        let mut inferred = Inferences::default();
+        for kind in Inference::ALL {
+            inferred.set(kind, raw.flag(kind.key()).unwrap_or(true));
+        }
+        inferred
+    }
+
     fn from_settings(raw: &Settings) -> Self {
         let defaults = Self::default();
         let flag = |key: &str, default: bool| raw.flag(key).unwrap_or(default);
@@ -1026,6 +1039,7 @@ impl Sketching {
                 typed_dimensions: flag(TYPED_DIMENSIONS_KEY, defaults.at_start.typed_dimensions),
                 model_dimensions: flag(MODEL_DIMENSIONS_KEY, defaults.at_start.model_dimensions),
             },
+            inferred: Self::inferences_from(raw),
         }
     }
 
@@ -1037,6 +1051,9 @@ impl Sketching {
         settings.set_flag(GRID_SNAPPING_KEY, self.at_start.grid_snapping);
         settings.set_flag(TYPED_DIMENSIONS_KEY, self.at_start.typed_dimensions);
         settings.set_flag(MODEL_DIMENSIONS_KEY, self.at_start.model_dimensions);
+        for kind in Inference::ALL {
+            settings.set_flag(kind.key(), self.inferred.allows(kind));
+        }
     }
 }
 
@@ -1382,6 +1399,40 @@ mod tests {
         assert_eq!(preferences.sketching, defaults.sketching);
         assert_eq!(preferences.double_click, defaults.double_click);
         assert_eq!(preferences.new_bodies, defaults.new_bodies);
+    }
+
+    #[test]
+    fn inferred_constraint_kinds_default_on_are_saved_one_by_one_and_come_back() {
+        let defaults = Preferences::default();
+        let missing = Preferences::from_settings(Settings::default());
+
+        assert!(
+            Inference::ALL
+                .into_iter()
+                .all(|kind| missing.sketching.inferred.allows(kind))
+        );
+        assert_eq!(missing.sketching, defaults.sketching);
+
+        let mut preferences = Preferences::default();
+        preferences.apply(PreferenceChange::Infer(Inference::Horizontal, false));
+        preferences.apply(PreferenceChange::Infer(Inference::Midpoint, false));
+        let settings = preferences.settings();
+        let read = Preferences::from_settings(settings.clone());
+
+        assert_eq!(settings.flag(Inference::Horizontal.key()), Some(false));
+        assert_eq!(settings.flag(Inference::Vertical.key()), Some(true));
+        assert_eq!(read.sketching, preferences.sketching);
+        for kind in Inference::ALL {
+            assert_eq!(
+                read.sketching.inferred.allows(kind),
+                !matches!(kind, Inference::Horizontal | Inference::Midpoint),
+                "{kind:?}"
+            );
+        }
+
+        preferences.apply(PreferenceChange::SectionDefaults(Section::SketchInference));
+
+        assert_eq!(preferences.sketching, defaults.sketching);
     }
 
     #[test]

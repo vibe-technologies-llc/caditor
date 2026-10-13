@@ -6,7 +6,10 @@ use caditor_sketch::{
     Sketch,
 };
 
-use crate::body_snap::{BodySnaps, BodyTarget};
+use crate::{
+    body_snap::{BodySnaps, BodyTarget},
+    inference::Inferences,
+};
 
 pub const POINT_TOLERANCE: f64 = 8.0;
 pub const CURVE_TOLERANCE: f64 = 6.0;
@@ -402,8 +405,33 @@ pub fn resolve(
     extended: &[EntityId],
     ignored: &[EntityId],
 ) -> Option<Snapped> {
+    let lookup = Lookup {
+        pending,
+        accept,
+        extended,
+        ignored,
+        bodies: None,
+        inferred: Inferences::default(),
+    };
+    resolve_inferring(sketch, screen, pointer, lookup)
+}
+
+pub fn resolve_inferring(
+    sketch: &Sketch,
+    screen: &impl Screen,
+    pointer: Pointer,
+    lookup: Lookup,
+) -> Option<Snapped> {
+    let Lookup {
+        pending,
+        accept,
+        extended,
+        ignored,
+        inferred,
+        ..
+    } = lookup;
     let nearest = |candidates: Vec<Snapped>, tolerance: f64| {
-        nearest_within(candidates, screen, pointer, ignored, tolerance)
+        nearest_within(candidates, screen, pointer, ignored, inferred, tolerance)
             .map(|(_, candidate)| candidate)
     };
     let near_curves = LazyCell::new(|| curves(sketch, pointer.sketch));
@@ -443,6 +471,7 @@ pub struct Lookup<'a> {
     pub extended: &'a [EntityId],
     pub ignored: &'a [EntityId],
     pub bodies: Option<&'a BodySnaps>,
+    pub inferred: Inferences,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -466,8 +495,15 @@ pub fn held(
     let crossing = grid.and_then(|spacing| grid_crossing(spacing, screen, pointer));
     let pull = |widest: f64| crossing.map_or(widest, |(offset, _)| widest.min(offset));
     let nearest = |candidates: Vec<Snapped>, tolerance: f64| {
-        nearest_within(candidates, screen, pointer, lookup.ignored, tolerance)
-            .map(|(_, candidate)| candidate)
+        nearest_within(
+            candidates,
+            screen,
+            pointer,
+            lookup.ignored,
+            lookup.inferred,
+            tolerance,
+        )
+        .map(|(_, candidate)| candidate)
     };
     let mut point_like = pending_snaps(lookup.pending);
     point_like.extend(accepted_points(sketch, lookup.accept));
@@ -491,14 +527,24 @@ pub fn held(
     };
     let on_curve = || nearest(curve_like, pull(HELD_CURVE_PULL)).map(on_grid);
     let body_point = || {
-        lookup
-            .bodies?
-            .point_within(screen, pointer, lookup.accept, pull(HELD_POINT_PULL))
+        lookup.bodies?.point_within(
+            screen,
+            pointer,
+            lookup.accept,
+            lookup.inferred,
+            pull(HELD_POINT_PULL),
+        )
     };
     let body_edge = || {
         lookup
             .bodies?
-            .edge_within(screen, pointer, lookup.accept, pull(HELD_CURVE_PULL))
+            .edge_within(
+                screen,
+                pointer,
+                lookup.accept,
+                lookup.inferred,
+                pull(HELD_CURVE_PULL),
+            )
             .map(on_grid)
     };
     nearest(point_like, pull(HELD_POINT_PULL))
@@ -582,10 +628,12 @@ fn nearest_within(
     screen: &impl Screen,
     pointer: Pointer,
     ignored: &[EntityId],
+    inferred: Inferences,
     tolerance: f64,
 ) -> Option<(f64, Snapped)> {
     candidates
         .into_iter()
+        .filter(|candidate| inferred.allows_target(candidate.target))
         .filter(|candidate| !candidate.target.touches(ignored))
         .filter_map(|candidate| {
             let offset = screen
@@ -1619,6 +1667,7 @@ pub mod tests {
     use caditor_geometry::Plane;
 
     use super::*;
+    use crate::inference::Inference;
 
     pub struct Scaled(pub f64);
 
@@ -1658,6 +1707,7 @@ pub mod tests {
             extended: &[],
             ignored: &[],
             bodies: None,
+            inferred: Inferences::default(),
         };
         held(sketch, &Scaled(10.0), pointer_at(at), lookup, grid)
     }
@@ -1783,6 +1833,51 @@ pub mod tests {
             &[],
         );
         assert_eq!(on_circle, None);
+    }
+
+    #[test]
+    fn a_kind_turned_off_is_never_a_snap_target_and_the_next_one_takes_over() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let line = sketch.add_line(Point2::new(10.0, 10.0), Point2::new(30.0, 10.0));
+        let ends = sketch.line_endpoints(line).unwrap();
+        let near_middle = Point2::new(20.4, 10.6);
+        let near_end = Point2::new(ends.0.x + 0.3, ends.0.y + 0.2);
+        let resolving = |inferred: Inferences, at: Point2| {
+            let lookup = Lookup {
+                pending: &[],
+                accept: Accept::Anything,
+                extended: &[],
+                ignored: &[],
+                bodies: None,
+                inferred,
+            };
+            resolve_inferring(&sketch, &Scaled(10.0), pointer_at(at), lookup)
+                .map(|snapped| snapped.target)
+        };
+        let mut without_middles = Inferences::default();
+        without_middles.set(Inference::Midpoint, false);
+        let mut without_points = Inferences::default();
+        without_points.set(Inference::Coincident, false);
+        let mut without_either = without_points;
+        without_either.set(Inference::OnCurve, false);
+
+        assert_eq!(
+            resolving(Inferences::default(), near_middle),
+            Some(Target::Midpoint(line))
+        );
+        assert_eq!(
+            resolving(without_middles, near_middle),
+            Some(Target::Curve(line))
+        );
+        assert!(matches!(
+            resolving(Inferences::default(), near_end),
+            Some(Target::Point(_))
+        ));
+        assert_eq!(
+            resolving(without_points, near_end),
+            Some(Target::Curve(line))
+        );
+        assert_eq!(resolving(without_either, near_end), None);
     }
 
     #[test]

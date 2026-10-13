@@ -52,5 +52,12 @@ ring for along or square to a line, and a triangle round a dot for the centre of
   and to nothing finer: the faint lines between are left out until you zoom in far enough to
   draw them in full. Alt steps along the same grid.
 
+- Preferences › Sketching › Constraints drawing infers turns off single kinds while snapping stays
+  on: horizontal, vertical, parallel, perpendicular, tangent, coincident with a point, on a curve,
+  at a midpoint, at the centre of an outline, at an intersection, at a quadrant or axis end, and
+  the tracks from points you passed over. A kind that is off is neither offered nor kept as a
+  constraint while drawing, and the pointer snaps to whatever else is near. Dragging still snaps to
+  everything.
+
 Dragging geometry with Select snaps the same way, bodies included, with Alt too: a point dragged
 onto a body's corner or edge projects it and stays on it, in the same undoable change.

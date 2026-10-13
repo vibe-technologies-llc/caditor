@@ -14,9 +14,10 @@ use crate::{
     blend::Blend,
     body_appearance::BodyAppearance,
     body_pieces::{PieceKey, PieceLooks, Pieces},
+    coil::Coil,
     combine::Combine,
     configurations::{ConfigurationId, Configurations},
-    datum::{Datum, PlaneReference, PrincipalGeometry},
+    datum::{AxisReference, Datum, PlaneReference, PointReference, PrincipalGeometry},
     edit::{Edit, Transaction},
     feature_list::FeatureList,
     hole::Hole,
@@ -144,6 +145,7 @@ pub enum FeatureKind {
     SplitFace(SplitFace),
     Primitive(Primitive),
     Pipe(Pipe),
+    Coil(Coil),
     Rib(Rib),
     Combine(Combine),
     Move(Move),
@@ -206,6 +208,7 @@ impl FeatureKind {
             Self::SplitFace(split) => split.heap_size(),
             Self::Primitive(primitive) => primitive.heap_size(),
             Self::Pipe(pipe) => pipe.heap_size(),
+            Self::Coil(coil) => coil.heap_size(),
             Self::Rib(rib) => rib.heap_size(),
             Self::Combine(combine) => size_of_val(combine.more_tools.as_slice()),
             Self::Move(movement) => movement.heap_size(),
@@ -241,6 +244,7 @@ impl FeatureKind {
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
+            | Self::Coil(_)
             | Self::Rib(_)
             | Self::Combine(_)
             | Self::Move(_)
@@ -269,6 +273,7 @@ impl FeatureKind {
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
+            | Self::Coil(_)
             | Self::Rib(_)
             | Self::Combine(_)
             | Self::Move(_)
@@ -297,6 +302,7 @@ impl FeatureKind {
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
+            | Self::Coil(_)
             | Self::Rib(_)
             | Self::Combine(_)
             | Self::Move(_)
@@ -325,6 +331,7 @@ impl FeatureKind {
             Self::SplitFace(split) => Some(split.body),
             Self::Primitive(primitive) => primitive.operation.target(),
             Self::Pipe(pipe) => pipe.operation.target(),
+            Self::Coil(coil) => coil.operation.target(),
             Self::Rib(rib) => Some(rib.body),
             Self::Combine(combine) => Some(combine.body),
             Self::Move(movement) => Some(movement.body),
@@ -364,6 +371,7 @@ impl FeatureKind {
             }
             Self::Primitive(primitive) => used.extend(primitive.plane.body()),
             Self::Pipe(pipe) => used.extend(pipe.path.body()),
+            Self::Coil(coil) => used.extend(coil.axis.body()),
             Self::Rib(_) => {}
             Self::Sketch(sketch) => used.extend(sketch.projected_bodies()),
             Self::Hole(hole) => used.extend(hole.end_body()),
@@ -404,6 +412,7 @@ impl FeatureKind {
             | Self::Shell(_)
             | Self::OffsetFace(_)
             | Self::Pipe(_)
+            | Self::Coil(_)
             | Self::Rib(_)
             | Self::Combine(_)
             | Self::Move(_)
@@ -431,6 +440,7 @@ impl FeatureKind {
             Self::Mate(mate) => mate.axis_datums(),
             Self::SplitFace(split) => split.direction_datum().into_iter().collect(),
             Self::Sketch(sketch) => sketch.projected_axes().collect(),
+            Self::Coil(coil) => coil.axis.datum().into_iter().collect(),
             Self::Blend(_)
             | Self::Shell(_)
             | Self::OffsetFace(_)
@@ -482,6 +492,7 @@ impl FeatureKind {
             Self::Import(import) => import.placement.frame.into_iter().collect(),
             Self::Hole(hole) => hole.end_frame().into_iter().collect(),
             Self::Measurement(measurement) => measurement.frames(),
+            Self::Coil(coil) => coil.axis.frame().into_iter().collect(),
             Self::Blend(_)
             | Self::Shell(_)
             | Self::OffsetFace(_)
@@ -513,6 +524,7 @@ impl FeatureKind {
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
+            | Self::Coil(_)
             | Self::Rib(_)
             | Self::Combine(_)
             | Self::Move(_)
@@ -548,6 +560,68 @@ impl FeatureKind {
         self.named_curves().contains(&(sketch, curve))
     }
 
+    pub fn named_entities(&self) -> Vec<(FeatureId, EntityId)> {
+        let references = match self {
+            Self::Solid(solid) => solid
+                .model_axis()
+                .and_then(AxisReference::sketch_entity)
+                .into_iter()
+                .collect(),
+            Self::Move(movement) => movement
+                .about
+                .axis()
+                .and_then(AxisReference::sketch_entity)
+                .into_iter()
+                .collect(),
+            Self::SplitFace(split) => split
+                .direction()
+                .and_then(AxisReference::sketch_entity)
+                .into_iter()
+                .collect(),
+            Self::Mate(mate) => mate
+                .axis_references()
+                .into_iter()
+                .filter_map(AxisReference::sketch_entity)
+                .chain(
+                    mate.points()
+                        .into_iter()
+                        .filter_map(PointReference::sketch_entity),
+                )
+                .collect(),
+            Self::Datum(datum) => datum
+                .axes()
+                .into_iter()
+                .filter_map(AxisReference::sketch_entity)
+                .chain(
+                    datum
+                        .points()
+                        .into_iter()
+                        .filter_map(PointReference::sketch_entity),
+                )
+                .collect(),
+            Self::Coil(coil) => coil.axis.sketch_entity().into_iter().collect(),
+            Self::Pattern(pattern) => pattern.sketch_entities(),
+            Self::Measurement(measurement) => measurement.sketch_entities(),
+            Self::Sketch(sketch) => sketch.projected_entities().collect(),
+            Self::Pipe(_)
+            | Self::Rib(_)
+            | Self::Blend(_)
+            | Self::Shell(_)
+            | Self::OffsetFace(_)
+            | Self::Primitive(_)
+            | Self::Combine(_)
+            | Self::Mirror(_)
+            | Self::Split(_)
+            | Self::Scale(_)
+            | Self::Hole(_)
+            | Self::Import(_)
+            | Self::Remove(_)
+            | Self::Thread(_)
+            | Self::ReferenceImage(_) => Vec::new(),
+        };
+        self.named_curves().into_iter().chain(references).collect()
+    }
+
     pub fn reference_sketches(&self) -> BTreeSet<FeatureId> {
         match self {
             Self::Measurement(measurement) => measurement.sketches(),
@@ -568,6 +642,7 @@ impl FeatureKind {
                 .chain(split.direction_sketch())
                 .collect(),
             Self::Pipe(pipe) => pipe.path.sketch().into_iter().collect(),
+            Self::Coil(coil) => coil.axis.sketch().into_iter().collect(),
             Self::Rib(rib) => BTreeSet::from([rib.sketch]),
             Self::Sketch(_)
             | Self::Blend(_)
@@ -597,6 +672,7 @@ impl FeatureKind {
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
+            | Self::Coil(_)
             | Self::Rib(_)
             | Self::Move(_)
             | Self::Mate(_)
@@ -640,6 +716,7 @@ impl FeatureKind {
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
+            | Self::Coil(_)
             | Self::Rib(_)
             | Self::Combine(_)
             | Self::Move(_)
@@ -668,6 +745,7 @@ impl FeatureKind {
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
+            | Self::Coil(_)
             | Self::Rib(_)
             | Self::Combine(_)
             | Self::Move(_)
@@ -696,6 +774,7 @@ impl FeatureKind {
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
+            | Self::Coil(_)
             | Self::Rib(_)
             | Self::Combine(_)
             | Self::Move(_)
@@ -724,6 +803,7 @@ impl FeatureKind {
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
+            | Self::Coil(_)
             | Self::Rib(_)
             | Self::Thread(_)
             | Self::Combine(_)
@@ -749,6 +829,13 @@ impl FeatureKind {
         }
     }
 
+    pub fn coil(&self) -> Option<&Coil> {
+        match self {
+            Self::Coil(coil) => Some(coil),
+            _ => None,
+        }
+    }
+
     pub fn rib(&self) -> Option<&Rib> {
         match self {
             Self::Rib(rib) => Some(rib),
@@ -767,6 +854,7 @@ impl FeatureKind {
         match self {
             Self::Primitive(primitive) => Some(primitive),
             Self::Pipe(_)
+            | Self::Coil(_)
             | Self::Rib(_)
             | Self::Sketch(_)
             | Self::Solid(_)
@@ -797,6 +885,7 @@ impl FeatureKind {
             Self::Sketch(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
+            | Self::Coil(_)
             | Self::Rib(_)
             | Self::Solid(_)
             | Self::Blend(_)
@@ -837,6 +926,7 @@ impl FeatureKind {
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
+            | Self::Coil(_)
             | Self::Rib(_)
             | Self::Combine(_)
             | Self::Move(_)
@@ -866,6 +956,7 @@ impl FeatureKind {
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
+            | Self::Coil(_)
             | Self::Rib(_)
             | Self::Combine(_)
             | Self::Mirror(_)
@@ -893,6 +984,7 @@ impl FeatureKind {
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
+            | Self::Coil(_)
             | Self::Rib(_)
             | Self::Combine(_)
             | Self::Move(_)
@@ -922,6 +1014,7 @@ impl FeatureKind {
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
+            | Self::Coil(_)
             | Self::Rib(_)
             | Self::Combine(_)
             | Self::Move(_)
@@ -949,6 +1042,7 @@ impl FeatureKind {
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
+            | Self::Coil(_)
             | Self::Rib(_)
             | Self::Combine(_)
             | Self::Move(_)
@@ -977,6 +1071,7 @@ impl FeatureKind {
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
+            | Self::Coil(_)
             | Self::Rib(_)
             | Self::Combine(_)
             | Self::Move(_)
@@ -1005,6 +1100,7 @@ impl FeatureKind {
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
+            | Self::Coil(_)
             | Self::Rib(_)
             | Self::Move(_)
             | Self::Mate(_)
@@ -1033,6 +1129,7 @@ impl FeatureKind {
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
+            | Self::Coil(_)
             | Self::Rib(_)
             | Self::Combine(_)
             | Self::Move(_)
@@ -1061,6 +1158,7 @@ impl FeatureKind {
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
+            | Self::Coil(_)
             | Self::Rib(_)
             | Self::Combine(_)
             | Self::Move(_)
@@ -1089,6 +1187,7 @@ impl FeatureKind {
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
+            | Self::Coil(_)
             | Self::Rib(_)
             | Self::Combine(_)
             | Self::Move(_)
@@ -1115,6 +1214,7 @@ impl FeatureKind {
             Self::OffsetFace(offset) => offset.parameters(),
             Self::Primitive(primitive) => primitive.parameters(),
             Self::Pipe(pipe) => pipe.parameters(),
+            Self::Coil(coil) => coil.parameters(),
             Self::Rib(rib) => rib.parameters(),
             Self::Combine(_) => BTreeSet::new(),
             Self::Move(movement) => movement.parameters(),
@@ -1140,6 +1240,7 @@ impl FeatureKind {
             Self::OffsetFace(offset) => offset.uses_parameter(parameter),
             Self::Primitive(primitive) => primitive.uses_parameter(parameter),
             Self::Pipe(pipe) => pipe.uses_parameter(parameter),
+            Self::Coil(coil) => coil.uses_parameter(parameter),
             Self::Rib(rib) => rib.uses_parameter(parameter),
             Self::Combine(_) => false,
             Self::Move(movement) => movement.uses_parameter(parameter),
@@ -1180,6 +1281,7 @@ impl FeatureKind {
             Self::SplitFace(split) => split.features(),
             Self::Primitive(primitive) => primitive.features(),
             Self::Pipe(pipe) => pipe.features(),
+            Self::Coil(coil) => coil.features(),
             Self::Rib(rib) => rib.features(),
             Self::Combine(combine) => combine.features(),
             Self::Move(movement) => movement.features(),
@@ -1226,6 +1328,7 @@ impl FeatureKind {
             Self::SplitFace(split) => split.origin_features(),
             Self::Primitive(primitive) => primitive.origin_features(),
             Self::Pipe(pipe) => pipe.origin_features(),
+            Self::Coil(coil) => coil.origin_features(),
             Self::Rib(_) => BTreeSet::new(),
             Self::Move(movement) => movement.origin_features(),
             Self::Mate(mate) => mate.origin_features(),
@@ -1353,6 +1456,7 @@ impl Feature {
                 Some(primitive.operation.target().unwrap_or(self.id))
             }
             FeatureKind::Pipe(pipe) => Some(pipe.operation.target().unwrap_or(self.id)),
+            FeatureKind::Coil(coil) => Some(coil.operation.target().unwrap_or(self.id)),
             FeatureKind::Rib(rib) => Some(rib.body),
             FeatureKind::Combine(combine) => Some(combine.body),
             FeatureKind::Move(movement) if movement.copy => Some(self.id),
@@ -1403,6 +1507,7 @@ impl Feature {
             FeatureKind::Import(_) | FeatureKind::Split(_) => true,
             FeatureKind::Primitive(primitive) => primitive.operation == BodyOperation::NewBody,
             FeatureKind::Pipe(pipe) => pipe.operation == BodyOperation::NewBody,
+            FeatureKind::Coil(coil) => coil.operation == BodyOperation::NewBody,
             FeatureKind::Move(movement) => movement.copy,
             FeatureKind::Mate(_)
             | FeatureKind::Rib(_)

@@ -7,21 +7,22 @@ use std::{
 
 use caditor_document::{
     AxisMate, AxisReference, AxisSide, AxisTurn, Blend, BlendKind, BodyAppearance, BodyOperation,
-    BodyPlacement, ChamferForm, Combine, CombineOperation, CopyOrientation, CurvePattern,
-    CurveSpacing, Datum, DatumAxis, DatumFrame, DatumPlane, DatumPoint, EdgeGroup, Extrude,
-    ExtrudeEnd, ExtrudeExtent, FaceColour, FaceTangent, FaceThickness, Feature, FinePitch, Finish,
-    Hole, HoleBottom, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle,
-    Import, Mate, MatePair, MetricSize, Mirror, ModelProperties, Move, OffsetFace, Outline,
-    ParameterOwner, ParameterValues, Pattern, PatternKind, PieceKey, PieceLooks, Pieces, Pipe,
-    PlaneRotation, PlaneThrough, PointBy, PointReference, PointsPattern, PrincipalAxis,
-    PrincipalGeometry, ProjectionSource, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent,
-    Rgb, Rib, RibDirection, RibSide, Scale, Shell, ShellSide, SketchFeature, SolidFeature,
-    SolidStart, Split, SplitAlong, SplitCarry, SplitFace, Sweep, SweepPath, TappedThread,
-    ThreadFamily, ThreadForm, ThreadHand, TurnCentre, Wall, point_instance,
+    BodyPlacement, ChamferForm, Coil, CoilLength, CoilTurning, Combine, CombineOperation,
+    CopyOrientation, CurvePattern, CurveSpacing, Datum, DatumAxis, DatumFrame, DatumPlane,
+    DatumPoint, EdgeGroup, Extrude, ExtrudeEnd, ExtrudeExtent, FaceColour, FaceTangent,
+    FaceThickness, Feature, FinePitch, Finish, Hole, HoleBottom, HoleDepth, HoleFit, HoleShape,
+    HoleSizing, HoleStandard, HoleStep, HoleStyle, Import, Mate, MatePair, MetricSize, Mirror,
+    ModelProperties, Move, OffsetFace, Outline, ParameterOwner, ParameterValues, Pattern,
+    PatternKind, PieceKey, PieceLooks, Pieces, Pipe, PlaneRotation, PlaneThrough, PointBy,
+    PointReference, PointsPattern, PrincipalAxis, PrincipalGeometry, ProjectionSource,
+    RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rgb, Rib, RibDirection, RibSide,
+    Scale, Shell, ShellSide, SketchFeature, SolidFeature, SolidStart, Split, SplitAlong,
+    SplitCarry, SplitFace, Sweep, SweepPath, TappedThread, ThreadFamily, ThreadForm, ThreadHand,
+    TurnCentre, Wall, point_instance,
 };
 use caditor_kernel::{
-    EdgeName, EdgeReference, FaceName, FaceOrigin, FaceReference, PipeShape, Solid,
-    SweepOrientation, VertexName, WallSide,
+    CoilPlacement, CoilShape, EdgeName, EdgeReference, FaceName, FaceOrigin, FaceReference,
+    PipeShape, Solid, SweepOrientation, VertexName, WallSide,
 };
 use serde::{
     Deserializer,
@@ -50,7 +51,7 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 32] = [
+const KEPT: [(&str, &str); 33] = [
     (
         "journal-1/by-reference.journal",
         "fe98725da8d9df46b19d7cede1474bcfb92bbda00d4de9c890e5bca5d0f2899f",
@@ -78,6 +79,10 @@ const KEPT: [(&str, &str); 32] = [
     (
         "model-1/bodies.caditor",
         "8e65cdd34444ca11d831fa7ae40b30d81c3de5e3386608a59b33fbe6e7a7f9c9",
+    ),
+    (
+        "model-1/coils.caditor",
+        "6e89dee38fd62faccef05a808eaf08d11d309bcabfa5d5423fb6fc73c80a94be",
     ),
     (
         "model-1/datums.caditor",
@@ -713,6 +718,7 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
         (model("path-sweeps"), saved(&path_sweeps(), "Path sweeps")),
         (model("pipes"), saved(&pipes(), "Pipes")),
         (model("ribs"), saved(&ribs(), "Ribs")),
+        (model("coils"), saved(&coils(), "Coils")),
         (
             model("separate-pieces"),
             saved(&separate_pieces(), "Separate pieces"),
@@ -1301,6 +1307,64 @@ fn pipes() -> Document {
     transaction.add_feature(
         "Unchosen pipe",
         FeatureKind::Pipe(Pipe::new(SweepPath::Unchosen, parse("4 mm"), parse("6 mm"))),
+    );
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
+fn coils() -> Document {
+    let (mut document, base, _) = solid_model();
+    let outline = named(&document, "Outline");
+    let parse = |text: &str| Expression::parse_stored(text).unwrap();
+    let mut transaction = document.transaction("Coils");
+    transaction.add_feature(
+        "Spring",
+        FeatureKind::Coil(Coil::new(
+            AxisReference::Principal(PrincipalAxis::Z),
+            parse("20 mm"),
+            parse("2 mm"),
+        )),
+    );
+    transaction.add_feature(
+        "Square groove",
+        FeatureKind::Coil(Coil {
+            reversed: true,
+            length: CoilLength::HeightAndTurns {
+                height: parse("12 mm"),
+                turns: parse("3"),
+            },
+            shape: CoilShape::Square,
+            placement: CoilPlacement::Inside,
+            operation: BodyOperation::Remove(base),
+            ..Coil::new(
+                AxisReference::Edge {
+                    body: base,
+                    edge: Box::new(edge(0xc011)),
+                },
+                parse("6 mm"),
+                parse("1 mm"),
+            )
+        }),
+    );
+    transaction.add_feature(
+        "Tapered spring",
+        FeatureKind::Coil(Coil {
+            length: CoilLength::HeightAndPitch {
+                height: parse("30 mm"),
+                pitch: parse("4 mm"),
+            },
+            placement: CoilPlacement::Outside,
+            taper: parse("8 deg"),
+            turning: CoilTurning::Clockwise,
+            ..Coil::new(
+                AxisReference::Sketch {
+                    sketch: outline,
+                    entity: EntityId::from_raw(1),
+                },
+                parse("15 mm"),
+                parse("1.5 mm"),
+            )
+        }),
     );
     document.apply(transaction.finish()).unwrap();
     document

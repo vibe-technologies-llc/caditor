@@ -91,6 +91,13 @@ impl ProjectionSource {
         }
     }
 
+    pub fn sketch_entity(&self) -> Option<(FeatureId, EntityId)> {
+        match self {
+            Self::SketchEntity { sketch, entity } => Some((*sketch, *entity)),
+            _ => None,
+        }
+    }
+
     pub fn plane_datum(&self) -> Option<FeatureId> {
         match self {
             Self::DatumPlane { datum, .. } => Some(*datum),

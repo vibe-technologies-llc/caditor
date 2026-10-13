@@ -197,6 +197,7 @@ pub fn command(command: Command) -> &'static str {
         Command::Revolve => REVOLVE,
         Command::Sweep => SWEEP,
         Command::Pipe => PIPE,
+        Command::Coil => COIL,
         Command::Rib => RIB,
         Command::Fillet => blend(BlendKind::Fillet),
         Command::Chamfer => blend(BlendKind::Chamfer),
@@ -389,6 +390,7 @@ const EXTRUDE: &str = icon_font::EXTRUDE;
 const REVOLVE: &str = icon_font::REVOLVE;
 const SWEEP: &str = phosphor::PIPE;
 const PIPE: &str = phosphor::PIPE_WRENCH;
+const COIL: &str = phosphor::SPIRAL;
 const RIB: &str = phosphor::COLUMNS;
 const SHELL: &str = icon_font::SHELL;
 const COMBINE: &str = phosphor::UNITE;
@@ -551,6 +553,7 @@ pub fn feature(kind: &FeatureKind) -> &'static str {
         FeatureKind::Solid(SolidFeature::Revolve(_)) => REVOLVE,
         FeatureKind::Solid(SolidFeature::Sweep(_)) => SWEEP,
         FeatureKind::Pipe(_) => PIPE,
+        FeatureKind::Coil(_) => COIL,
         FeatureKind::Rib(_) => RIB,
         FeatureKind::Blend(blend) => self::blend(blend.kind),
         FeatureKind::Shell(_) => SHELL,

@@ -6,25 +6,26 @@ use std::{
 
 use caditor_document::{
     AngleMate, AngleSides, AxisMate, AxisSide, AxisTurn, Between, Blend, BlendKind, BodyOperation,
-    BodyPlacement, Calibration, ChamferForm, CircularPattern, Combine, CombineOperation,
-    CopyOrientation, CurvePattern, CurveSpacing, CurveStation, Datum, DatumAxis, DatumFrame,
-    DatumPlane, DatumPoint, EdgeGroup, Extrude, ExtrudeEnd, ExtrudeExtent, FaceAxisMate, FaceMate,
-    FaceOnRound, FacePair, FaceTangent, FaceThickness, FeatureId, FeatureKind, FinePitch, Hole,
-    HoleBottom, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle,
-    ImagePlane, ImageSize, ImageSpot, Import, LinearDirection, LinearSpacing, Mate, MatePair,
-    MeasuredItem, Measurement, MetricSize, Mirror, Move, Of, OffsetFace, Pattern, PatternKind,
-    Picture, Pipe, PixelSize, PlaneRotation, PlaneThrough, PointBy, PointMate, PointTarget,
-    PointsPattern, Primitive, PrimitiveAnchor, PrimitiveShape, PrincipalPlane, Reading,
-    ReferenceImage, RegionChoice, Remove, Revolve, Rib, RibDirection, RibSide, RevolveAxis, RevolveExtent, Scale, Shell,
-    ShellSide, SketchAttachment, SketchFeature, SolidFeature, SolidStart, Split, SplitAlong,
-    SplitCarry, SplitFace, StepText, Sweep, SweepPath, TappedThread, Thread, ThreadFamily,
-    ThreadForm, ThreadHand, ThreadLength, ThreadSide, TurnCentre, Wall, sketch_regions,
+    BodyPlacement, Calibration, ChamferForm, CircularPattern, Coil, CoilLength, CoilSizing,
+    CoilTurning, Combine, CombineOperation, CopyOrientation, CurvePattern, CurveSpacing,
+    CurveStation, Datum, DatumAxis, DatumFrame, DatumPlane, DatumPoint, EdgeGroup, Extrude,
+    ExtrudeEnd, ExtrudeExtent, FaceAxisMate, FaceMate, FaceOnRound, FacePair, FaceTangent,
+    FaceThickness, FeatureId, FeatureKind, FinePitch, Hole, HoleBottom, HoleDepth, HoleFit,
+    HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle, ImagePlane, ImageSize, ImageSpot,
+    Import, LinearDirection, LinearSpacing, Mate, MatePair, MeasuredItem, Measurement, MetricSize,
+    Mirror, Move, Of, OffsetFace, Pattern, PatternKind, Picture, Pipe, PixelSize, PlaneRotation,
+    PlaneThrough, PointBy, PointMate, PointTarget, PointsPattern, Primitive, PrimitiveAnchor,
+    PrimitiveShape, PrincipalPlane, Reading, ReferenceImage, RegionChoice, Remove, Revolve,
+    RevolveAxis, RevolveExtent, Rib, RibDirection, RibSide, Scale, Shell, ShellSide,
+    SketchAttachment, SketchFeature, SolidFeature, SolidStart, Split, SplitAlong, SplitCarry,
+    SplitFace, StepText, Sweep, SweepPath, TappedThread, Thread, ThreadFamily, ThreadForm,
+    ThreadHand, ThreadLength, ThreadSide, TurnCentre, Wall, sketch_regions,
 };
 use caditor_expression::Expression;
 use caditor_geometry::{Plane, Point2};
 use caditor_kernel::{
-    LinearExtent, PipeShape, Profile, ProfileCurve, RegionReference, Selection, Solid,
-    SweepOrientation, WallSide, extrude, interruptible,
+    CoilPlacement, CoilShape, LinearExtent, PipeShape, Profile, ProfileCurve, RegionReference,
+    Selection, Solid, SweepOrientation, WallSide, extrude, interruptible,
 };
 use caditor_sketch::EntityId;
 use caditor_step::{StepBody, write_step};
@@ -61,6 +62,7 @@ pub enum Family {
     SplitFace,
     Primitive,
     Pipe,
+    Coil,
     Rib,
     Combine,
     Move,
@@ -79,7 +81,7 @@ pub enum Family {
 }
 
 impl Family {
-    pub const ALL: [Self; 23] = [
+    pub const ALL: [Self; 24] = [
         Self::Sketch,
         Self::Solid,
         Self::Blend,
@@ -88,6 +90,7 @@ impl Family {
         Self::SplitFace,
         Self::Primitive,
         Self::Pipe,
+        Self::Coil,
         Self::Rib,
         Self::Combine,
         Self::Move,
@@ -115,6 +118,7 @@ impl Family {
             FeatureKind::SplitFace(_) => Self::SplitFace,
             FeatureKind::Primitive(_) => Self::Primitive,
             FeatureKind::Pipe(_) => Self::Pipe,
+            FeatureKind::Coil(_) => Self::Coil,
             FeatureKind::Rib(_) => Self::Rib,
             FeatureKind::Combine(_) => Self::Combine,
             FeatureKind::Move(_) => Self::Move,
@@ -193,6 +197,31 @@ pub fn feature_kind(
                 None
             },
             bend: scene.distance(input)?,
+            operation: operation(input, scene)?,
+        }),
+        Family::Coil => FeatureKind::Coil(Coil {
+            axis: scene.axis(input)?,
+            reversed: input.arbitrary()?,
+            diameter: scene.distance(input)?,
+            length: match *input.choose(&CoilSizing::ALL)? {
+                CoilSizing::TurnsAndPitch => CoilLength::TurnsAndPitch {
+                    turns: scene.count(input)?,
+                    pitch: scene.distance(input)?,
+                },
+                CoilSizing::HeightAndTurns => CoilLength::HeightAndTurns {
+                    height: scene.distance(input)?,
+                    turns: scene.count(input)?,
+                },
+                CoilSizing::HeightAndPitch => CoilLength::HeightAndPitch {
+                    height: scene.distance(input)?,
+                    pitch: scene.distance(input)?,
+                },
+            },
+            shape: *input.choose(&CoilShape::ALL)?,
+            size: scene.distance(input)?,
+            placement: *input.choose(&CoilPlacement::ALL)?,
+            taper: scene.turn(input)?,
+            turning: *input.choose(&CoilTurning::ALL)?,
             operation: operation(input, scene)?,
         }),
         Family::Rib => FeatureKind::Rib(Rib {

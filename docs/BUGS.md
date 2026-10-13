@@ -115,12 +115,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   splitting and the rounding's retraced edges do not yet follow. Tapering the other way works down
   to corners a little larger than the fillet, and corners no larger than it are refused as
   `TooLarge`.
-- [low · medium] A datum point or axis, a measurement or a projection can name a sketch entity
-  number the sketch does not have (only a damaged or hand-made file, or the fuzzer), and a later
-  drawn entity may then take that number and become what it names. Revolve axes and sweep and
-  pipe paths are guarded (`FeatureKind::named_curves` raises the sketch's counter past them and
-  `EntityNumberNamed` refuses adding under one); extending that list to every outside reference to
-  a sketch entity would close it.
 
 ## Sketch solver
 

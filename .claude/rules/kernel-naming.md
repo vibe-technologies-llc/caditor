@@ -44,7 +44,8 @@ paths:
   path's opening point, else 0), so a face is named by what made it, never by its place on the path.
   A pipe's bend between two lines is a path segment keyed `path_bend` of their keys (tag
   `PATH_BEND`), so its faces keep their names when the bend radius or the lines change.
-- A thread groove face is `FaceName::thread` of the feature and its part (`kernel-operations.md`).
+- A thread groove face is `FaceName::thread` of the feature and its part (`kernel-operations.md`),
+  a coil face `FaceName::coil` of the feature and its part (tag `COIL_FACE`).
   A closing face of `enclose_faces` is `FaceName::closure` of the feature and the sorted, deduped
   names of its edges.
 - Boolean fragments of a split face keep its name and origin; pieces keep their edge's name and new

@@ -16,6 +16,7 @@ use crate::{
     body_snap::{BodyPart, BodySnaps, BodyTarget},
     canvas::{HintList, KeyHint, Rank},
     editing::{self, ActiveSketch, Tool},
+    inference::{Inference, Inferences},
     model::Model,
     projecting,
     shape_modes::{
@@ -781,6 +782,7 @@ pub struct Drawing {
     free: bool,
     grid: Option<f64>,
     hold: Option<Hold>,
+    inferred: Inferences,
     acquired: Acquired,
     outlines: ShownOutlines,
     extension_guide: Option<[Point2; 2]>,
@@ -1199,6 +1201,10 @@ impl Drawing {
         self.hold = hold;
     }
 
+    pub fn infer(&mut self, inferred: Inferences) {
+        self.inferred = inferred;
+    }
+
     fn unsnapped(&self, screen: &impl Screen, pointer: Pointer) -> Placement {
         self.grid
             .and_then(|spacing| snap::grid_crossing(spacing, screen, pointer))
@@ -1223,6 +1229,7 @@ impl Drawing {
             extended: self.acquired.lines(),
             ignored: &[],
             bodies: self.offers_bodies(shape).then_some(&*self.bodies),
+            inferred: self.inferred,
         };
         match snap::held(sketch, screen, pointer, lookup, hold.grid) {
             Some(Held::Target(snapped)) => Placement::snapped(snapped),
@@ -1244,7 +1251,7 @@ impl Drawing {
             .position;
         let offset = crossing - from;
         let tolerance = HELD_TOLERANCE * (1.0 + from.abs().max_element());
-        if offset.length() < DEGENERATE_LENGTH {
+        let direction = if offset.length() < DEGENERATE_LENGTH {
             None
         } else if offset.y.abs() <= tolerance {
             Some(Direction::Horizontal)
@@ -1252,7 +1259,8 @@ impl Drawing {
             Some(Direction::Vertical)
         } else {
             None
-        }
+        };
+        direction.filter(|direction| self.inferred.allows_direction(*direction))
     }
 
     pub fn hover(&mut self, sketch: &Sketch, screen: &impl Screen, pointer: Option<Pointer>) {
@@ -2831,27 +2839,29 @@ impl Drawing {
         }
         let pending = self.pending(shape);
         let accept = self.accept(shape);
-        let resolved = snap::resolve(
-            sketch,
-            screen,
-            pointer,
-            &pending,
+        let lookup = Lookup {
+            pending: &pending,
             accept,
-            self.acquired.lines(),
-            &[],
-        );
+            extended: self.acquired.lines(),
+            ignored: &[],
+            bodies: None,
+            inferred: self.inferred,
+        };
+        let resolved = snap::resolve_inferring(sketch, screen, pointer, lookup);
         let offers_bodies = self.offers_bodies(shape);
         let resolved = match resolved {
             Some(resolved) if resolved.target.is_point_like() || !offers_bodies => Some(resolved),
             None if !offers_bodies => None,
             resolved => self
                 .bodies
-                .point(screen, pointer, accept)
+                .point(screen, pointer, accept, self.inferred)
                 .or(resolved)
-                .or_else(|| self.bodies.edge(screen, pointer, accept)),
+                .or_else(|| self.bodies.edge(screen, pointer, accept, self.inferred)),
         };
         let touching = match (shape, self.placed.as_slice()) {
-            (Shape::Line, &[start]) => snap::tangents_from(sketch, screen, pointer, start.position),
+            (Shape::Line, &[start]) if self.inferred.allows(Inference::Tangent) => {
+                snap::tangents_from(sketch, screen, pointer, start.position)
+            }
             _ => None,
         };
         let snapped = match (resolved, touching) {
@@ -2860,7 +2870,7 @@ impl Drawing {
             (resolved, _) => resolved,
         };
         let tracks = match accept {
-            Accept::Anything => {
+            Accept::Anything if self.inferred.allows(Inference::Tracks) => {
                 let own: Vec<Target> = self
                     .placed
                     .iter()
@@ -2869,7 +2879,7 @@ impl Drawing {
                     .collect();
                 tracking::nearby(sketch, screen, pointer, &self.acquired, &[], &own)
             }
-            Accept::Points | Accept::OnCircle { .. } => Tracks::default(),
+            Accept::Anything | Accept::Points | Accept::OnCircle { .. } => Tracks::default(),
         };
         let tracked_on = |snapped: Snapped| {
             tracking::on_curve(
@@ -2888,19 +2898,14 @@ impl Drawing {
                 .unwrap_or_else(|| self.unsnapped(screen, pointer))
         };
         if let Some(from) = self.levelled_from(shape) {
+            let level = level_and_upright(self.inferred);
             return match snapped {
-                Some(snapped) => aligned_on(
-                    sketch,
-                    screen,
-                    pointer,
-                    from.position,
-                    snapped,
-                    &LEVEL_AND_UPRIGHT,
-                )
-                .or_else(|| tracked_on(snapped))
-                .unwrap_or(Placement::snapped(snapped)),
-                None => align(from.position, screen, pointer, &LEVEL_AND_UPRIGHT)
-                    .unwrap_or_else(tracked_alone),
+                Some(snapped) => {
+                    aligned_on(sketch, screen, pointer, from.position, snapped, &level)
+                        .or_else(|| tracked_on(snapped))
+                        .unwrap_or(Placement::snapped(snapped))
+                }
+                None => align(from.position, screen, pointer, &level).unwrap_or_else(tracked_alone),
             };
         }
         let Some(start) = self.aligned_from(shape) else {
@@ -2918,7 +2923,13 @@ impl Drawing {
         } else {
             None
         };
-        let guides = guides(sketch, screen, pointer, start.position, continued, rounded);
+        let guides = guides(
+            sketch,
+            screen,
+            pointer,
+            (start.position, continued, rounded),
+            self.inferred,
+        );
         match snapped {
             Some(snapped) => aligned_on(sketch, screen, pointer, start.position, snapped, &guides)
                 .or_else(|| tracked_on(snapped))
@@ -3045,9 +3056,8 @@ fn guides(
     sketch: &Sketch,
     screen: &impl Screen,
     pointer: Pointer,
-    start: Point2,
-    continued: Option<EntityId>,
-    rounded: Option<(EntityId, Point2)>,
+    (start, continued, rounded): (Point2, Option<EntityId>, Option<(EntityId, Point2)>),
+    inferred: Inferences,
 ) -> Vec<Guide> {
     let start_on_screen = screen.to_screen(start);
     let mut nearby: Vec<NearbyLine> = sketch
@@ -3102,6 +3112,14 @@ fn guides(
         .into_iter()
         .chain(tangent)
         .chain(referenced)
+        .filter(|guide| inferred.allows_direction(guide.direction))
+        .collect()
+}
+
+fn level_and_upright(inferred: Inferences) -> Vec<Guide> {
+    LEVEL_AND_UPRIGHT
+        .into_iter()
+        .filter(|guide| inferred.allows_direction(guide.direction))
         .collect()
 }
 
@@ -4164,6 +4182,35 @@ mod tests {
         assert_eq!(free.position, Point2::new(31.0, 14.0));
         assert_eq!(free.snap, Snap::Free);
         assert_eq!(drawing.snap_label(&sketch), None);
+    }
+
+    #[test]
+    fn a_direction_turned_off_is_not_offered_but_the_others_still_are() {
+        let mut sketch = Sketch::new(caditor_geometry::Plane::XY);
+        let slanted = sketch.add_line(Point2::new(20.0, 20.0), Point2::new(50.0, 40.0));
+        let start = Point2::new(60.0, 10.0);
+        let mut drawing = drawing_a_line(&sketch, Placement::free(start));
+        let mut without_horizontal = Inferences::default();
+        without_horizontal.set(Inference::Horizontal, false);
+        drawing.infer(without_horizontal);
+
+        let nearly_level = hovered_at(&mut drawing, &sketch, Point2::new(90.0, 10.4)).unwrap();
+        assert_eq!(nearly_level.snap, Snap::Free);
+        assert_eq!(nearly_level.position, Point2::new(90.0, 10.4));
+        assert_eq!(drawing.snap_label(&sketch), None);
+
+        let upright = hovered_at(&mut drawing, &sketch, Point2::new(60.3, 40.0)).unwrap();
+        assert_eq!(upright.snap, Snap::Aligned(Direction::Vertical));
+
+        let parallel = hovered_at(&mut drawing, &sketch, Point2::new(90.0, 30.3)).unwrap();
+        assert_eq!(parallel.snap, Snap::Aligned(Direction::Parallel(slanted)));
+
+        let mut without_parallel = Inferences::default();
+        without_parallel.set(Inference::Parallel, false);
+        drawing.infer(without_parallel);
+
+        let unparallel = hovered_at(&mut drawing, &sketch, Point2::new(90.0, 30.3)).unwrap();
+        assert_eq!(unparallel.snap, Snap::Free);
     }
 
     fn crosses(a: Vector2, b: Vector2) -> f64 {

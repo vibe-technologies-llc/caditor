@@ -364,6 +364,10 @@ impl<'a> Context<'a> {
         self.resolver.feature
     }
 
+    pub(crate) fn resolver(&self) -> &Resolver<'a> {
+        &self.resolver
+    }
+
     pub(crate) fn error(&self, reason: String, remedy: String) -> Failure {
         Failure::Error(Box::new(FeatureError {
             reason,
@@ -378,7 +382,7 @@ impl<'a> Context<'a> {
         self.value_as(expression, what, Dimension::LENGTH)
     }
 
-    fn value_as(
+    pub(crate) fn value_as(
         &self,
         expression: &Expression,
         what: &str,
@@ -387,6 +391,8 @@ impl<'a> Context<'a> {
         let parameters = self.resolver.inputs.parameters;
         let example = if dimension == Dimension::LENGTH {
             "a length, such as 10 mm"
+        } else if dimension == Dimension::ANGLE {
+            "an angle, such as 5 deg"
         } else {
             "a plain number, such as 6"
         };

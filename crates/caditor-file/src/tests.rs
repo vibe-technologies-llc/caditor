@@ -4494,6 +4494,70 @@ fn ribs_are_saved_and_loaded_as_a_record_of_their_own() {
     );
 }
 
+fn coil_model() -> (Document, FeatureId) {
+    use caditor_document::{
+        AxisReference, BodyOperation, Coil, CoilLength, CoilTurning, PrincipalAxis,
+    };
+    use caditor_kernel::{CoilPlacement, CoilShape};
+    let (mut document, base, _) = solid_model();
+    let parse = |text: &str| Expression::parse_stored(text).unwrap();
+    let mut transaction = document.transaction("Coils");
+    let coil = transaction.add_feature(
+        "Coil 1",
+        FeatureKind::Coil(Coil {
+            reversed: true,
+            length: CoilLength::HeightAndPitch {
+                height: parse("12 mm"),
+                pitch: parse("3 mm"),
+            },
+            shape: CoilShape::Square,
+            placement: CoilPlacement::Outside,
+            taper: parse("5 deg"),
+            turning: CoilTurning::Clockwise,
+            operation: BodyOperation::Add(base),
+            ..Coil::new(
+                AxisReference::Principal(PrincipalAxis::Y),
+                parse("20 mm"),
+                parse("2 mm"),
+            )
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    (document, coil)
+}
+
+#[test]
+fn coils_are_saved_and_loaded_as_a_record_of_their_own() {
+    let (document, _) = coil_model();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+
+    assert!(text.contains("\"coil\":{"), "{text}");
+    assert!(text.contains("\"height_and_pitch\":{"), "{text}");
+    assert!(text.contains("\"turning\":\"clockwise\""), "{text}");
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+}
+
+#[test]
+fn an_unreadable_pitch_of_a_coil_loads_as_five_millimetres_and_is_reported() {
+    let (document, coil) = coil_model();
+    let text = encode(&document)
+        .unwrap()
+        .replacen("\"pitch\":\"3 mm\"", "\"pitch\":\"3 (\"", 1);
+
+    let loaded = decode_text(&text);
+    let restored = loaded.document.feature(coil).unwrap().kind.coil().unwrap();
+
+    assert_eq!(loaded.issues.len(), 1, "{:?}", loaded.issues);
+    assert!(loaded.issues[0].contains("pitch"), "{:?}", loaded.issues);
+    assert_eq!(
+        restored.length.pitch(),
+        Some(&Expression::parse_stored("5 mm").unwrap())
+    );
+}
+
 fn primitive_model() -> (Document, FeatureId, FeatureId) {
     use caditor_document::{BodyOperation, Primitive, PrimitiveAnchor, PrimitiveShape};
     use caditor_kernel::{FaceName, FaceOrigin, FaceReference};

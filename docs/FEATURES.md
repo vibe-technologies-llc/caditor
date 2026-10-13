@@ -42,11 +42,13 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   or faces (a point may end it), open or closed back to the first, with optional rails or a
   centreline and tangent or curvature-continuous conditions at its ends; it needs a kernel
   operation of its own (the sweep's fitted stations, `build/sweep/stations.rs`, are a start).
-- [medium · hard] No helix or spiral curve: springs and coils cannot be modelled. The sweep takes
-  only sketch curves and model edges as its path, so a helix needs a curve of its own the path can
-  name (a datum curve, or a curve of a 3D sketch, Sketching). A coil feature would be the ready
-  tool for springs: revolutions or height and pitch, a round or square section, inside or outside
-  the axis, and a taper angle.
+- [medium · hard] No helix or spiral curve to follow: the sweep takes only sketch curves and model
+  edges as its path, so a profile of one's own (a triangle, a closed-end spring's ground ends) cannot
+  run along a helix, and a flat spiral (a clock spring) has no tool at all. A helix needs a curve of
+  its own the path can name (a datum curve, or a curve of a 3D sketch, Sketching). Coil covers
+  round and square sections in a plane through the axis; its panel has no value arrows to drag its
+  diameter, pitch or section yet, and its turns cannot touch (a closed coil needs a pitch a hair
+  larger than the wire).
 - [medium · hard] Patterns stop short of what other modellers repeat: a curve pattern follows only
   the curves of one sketch, never a chain of model edges (a 3D path, the copies then turning with
   its tangent and normal), and a pattern repeats features or whole bodies but never chosen faces.
@@ -279,9 +281,8 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   the user's approval of each client, a status pill naming the connected client with a Disconnect,
   its changes landing in the user's undo history interleaved with their own, and its tool calls
   queued like `queued.rs` actions while the model recomputes, never blocking the UI thread.
-- [low · medium] Preferences still lack settings other CAD programs offer: following the
-  system's reduce-motion setting (winit reports none; View changes › No motion does it by hand)
-  and turning off the constraints drawing infers kind by kind (snapping is all or nothing).
+- [low · medium] Preferences still lack following the system's reduce-motion setting (winit
+  reports none; View changes › No motion does it by hand).
 - [low · medium] A copy from another model keeps none of its references outside the copied set. A
   sketch's section projection of a copied body is still left out, its edge being named by the
   sketch's own cut (`section.rs`), and a corner picked on a body outside the copy is not followed
