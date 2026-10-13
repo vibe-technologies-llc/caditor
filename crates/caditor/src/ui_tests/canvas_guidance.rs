@@ -1,10 +1,14 @@
 use caditor_geometry::Point2;
-use egui::{Event, Key, Modifiers, PointerButton, accesskit::Role};
+use egui::{Color32, Event, Key, Modifiers, PointerButton, Rect, Shape, accesskit::Role};
 
-use super::{Harness, viewport_centre};
+use super::{Harness, Painted, set_high_contrast, viewport_centre};
 use crate::{
     canvas::{FEWER_KEYS, MORE_KEYS, more_keys_words},
     drawing::Refusal,
+    model::Action,
+    preferences::{PreferenceChange, PreferencesCommand},
+    scene_palette::Canvas,
+    themes::ViewChoice,
     viewport::SELECT_PROMPT,
 };
 
@@ -128,4 +132,58 @@ fn orbiting_marks_its_pivot_until_shortly_after_the_drag() {
     }
 
     assert_eq!(harness.workspace.viewport.orbit_mark(), None);
+}
+
+fn fills_behind(shape: &Shape, text: Rect, fills: &mut Vec<Color32>) {
+    match shape {
+        Shape::Rect(rect) if rect.rect.contains_rect(text) && rect.fill != Color32::TRANSPARENT => {
+            fills.push(rect.fill);
+        }
+        Shape::Vec(shapes) => {
+            for shape in shapes {
+                fills_behind(shape, text, fills);
+            }
+        }
+        _ => {}
+    }
+}
+
+#[test]
+fn the_key_hint_panel_is_opaque_on_every_canvas_so_no_label_shows_through() {
+    let mut harness = Harness::new();
+    harness.painted = Some(Painted {
+        shapes: Vec::new(),
+        pixels_per_point: 1.0,
+    });
+    harness.draw_on_new_sketch();
+    harness.use_tool(Key::G);
+    harness.expand_keys();
+
+    for high_contrast in [false, true] {
+        set_high_contrast(&mut harness, high_contrast);
+        for canvas in Canvas::ALL {
+            harness.perform(Action::Preferences(PreferencesCommand::Change(
+                PreferenceChange::View(ViewChoice::Canvas(canvas)),
+            )));
+            harness.frame();
+            harness.frame();
+
+            let text = harness
+                .texts
+                .iter()
+                .find(|(shown, _)| shown == FEWER_KEYS)
+                .map(|(_, rect)| *rect)
+                .expect("the fewer keys chip is shown");
+            let mut fills = Vec::new();
+            for clipped in harness.painted.iter().flat_map(|painted| &painted.shapes) {
+                fills_behind(&clipped.shape, text, &mut fills);
+            }
+
+            assert!(fills.len() >= 2, "{canvas:?} {high_contrast}: {fills:?}");
+            assert!(
+                fills.iter().all(|fill| fill.a() == 255),
+                "{canvas:?} high contrast {high_contrast}: {fills:?}"
+            );
+        }
+    }
 }
