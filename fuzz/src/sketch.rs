@@ -64,7 +64,7 @@ fn shape(input: &mut Unstructured, sketch: &mut Sketch) -> Result<Option<EntityI
             let points = (0..count)
                 .map(|_| point_id(input, sketch))
                 .collect::<Result<Vec<_>>>()?;
-            let kind = match input.int_in_range(0u8..=2)? {
+            let kind = match input.int_in_range(0u8..=3)? {
                 0 => SplineKind::Control {
                     closed: input.arbitrary()?,
                 },
@@ -76,8 +76,12 @@ fn shape(input: &mut Unstructured, sketch: &mut Sketch) -> Result<Option<EntityI
                         FitSpacing::Even
                     },
                 },
-                _ => SplineKind::Conic {
+                2 => SplineKind::Conic {
                     rho: input.arbitrary()?,
+                },
+                _ => SplineKind::Piece {
+                    lead: input.arbitrary()?,
+                    trail: input.arbitrary()?,
                 },
             };
             insert(sketch, Entity::Spline { points, kind })

@@ -72,6 +72,11 @@ paths:
   (`sketch::spline_through`), so drawing, intersections, profiles and exports ignore the kind.
   - A closed spline is periodic (`Entity::spline_ends` is none: no open ends, joins nothing at an
     end) and needs three points (`TooFewClosedPoints`).
+  - A piece (`SplineKind::Piece { lead, trail }`, named "Spline") is an open cubic control spline
+    whose inner spans are uniform and whose first and last spans are `lead` and `trail` times as
+    long (`curve::piece_knots`): what trim and extend leave of a control spline, so the curve keeps
+    its shape exactly. At least `MIN_PIECE_POINTS` (`TooFewPiecePoints`), spans finite and above
+    zero (`InvalidEndSpans`); `same_form` compares the spans, which nothing solves.
   - A conic has exactly three points (`ConicPoints`) and rho within `MIN_RHO..=MAX_RHO`
     (`InvalidRho`): a rational quadratic with middle weight `rho / (1 - rho)`, passing the point
     rho of the way from the chord's middle to the apex (below 0.5 ellipse, 0.5 parabola, above
@@ -177,8 +182,32 @@ relative to the extent.
 - Trim and extend (`trim.rs`): cutters are every other curve (construction and splines included)
   and the two reference axes as infinite lines (`Cutter::Axis`; the origin and lone points are not
   cutters); targets are every curve but those, axes never trimmed or extended (`Reference`). A
-  crossing at a curve's own end is a joint, not a cut. Splines cannot themselves be trimmed or
-  extended.
+  crossing at a curve's own end is a joint, not a cut.
+  - Splines (`trim/spline.rs`) are cut where `Cutter::spline_cut_positions` finds crossings, by the
+    parameter of the drawn `BSpline` (`Course::Spline`, period 1 when closed). A kept stretch is cut
+    out exactly by blossoming (`Knotted::between`: the knots inside it, clamped at its ends, each
+    control point the blossom of the polynomial piece under it at its knot window); a control
+    point whose window and position are unchanged keeps its point and ID, every other is a new
+    point and the old ones no curve uses go with their constraints. An open control spline or piece
+    becomes a plain control spline when the stretch lies within one span or both its end spans
+    are whole, else a `Piece`; a closed
+    one is unrolled over two turns (`Knotted::periodic`) and opens into one; a conic stays a conic
+    (normalised middle weight gives the new rho; its `Rho` dimension is dropped). A fit-point
+    spline cannot hold an exact piece, so its piece is a fit spline of the same spacing through the
+    cut and the fit points inside the stretch (a point within the tolerance of a cut gives way to
+    it), its shape near the cut shifting slightly. `NoPiece` refuses a stretch with no such spline.
+  - On a trimmed spline `Equal` and `Rho` are dropped; a `Coincident` point or `Distance` (where it
+    measures on the spline) stays on the piece it lies on, moves to the far piece or is dropped
+    with a removed stretch; `Tangent` and `Curvature` joined at a removed end are dropped, joined
+    at the far end move to the far piece. The far piece of a split gets no constraint to the near
+    one (no constraint holds two splines on one curve).
+  - Extend carries a spline's end along its own continuation (`reach_along_spline`): the last
+    polynomial piece run on past the end (a conic's own conic), searched for crossings in windows
+    doubling from the end span's width (`MAX_DOUBLINGS`), stopping where the continuation turns a
+    quarter turn from the end's direction, leaves `REACH_MARGIN` times the sketch's extent or
+    passes infinity. A control spline or piece takes the longer end span (`Piece`, exact), a conic
+    a new apex and rho, a fit spline keeps every point, its old end becoming a fit point. A closed
+    spline is `Closed`.
   - A line cut by a collinear line, or a circle or arc by an arc on the same circle, is cut at the
     ends of the overlap: the cutter's ends inside the target (`overlap_ends`, same tolerance); the
     overlap's own crossings are not looked for. A whole circle on a circle, or a cutter whose ends

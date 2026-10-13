@@ -321,8 +321,11 @@ Sketch entities:
 - `spline` (`control_points`) is an open control spline. Other kinds are their own records:
   `closed_spline`, `fit_spline` and `closed_fit_spline` (`fit_points`, evenly spaced),
   `centripetal_fit_spline` and `closed_centripetal_fit_spline` (`FitSpacing::Centripetal`), `conic`
-  (`start`, `apex`, `end`, `rho`; an out-of-range rho is refused like any bad entity). A conic's
-  rho dimension is a `rho` constraint (`conic`, `value`), falling back to the drawn rho.
+  (`start`, `apex`, `end`, `rho`; an out-of-range rho is refused like any bad entity),
+  `spline_piece` (`control_points`, `lead`, `trail`; what trim and extend leave of a control spline,
+  refused with fewer than five points or end spans not above zero; `spline-pieces.caditor` in the
+  corpus). A conic's rho dimension is a `rho` constraint (`conic`, `value`), falling back to the
+  drawn rho.
 - `ellipse` (`center`, `major`, `minor_radius`), `elliptical_arc` (plus `start`, `end`). Radii are
   `major_radius` and `minor_radius` constraints (`ellipse`, `value`, falling back to the drawn
   radius); `on_minor_axis` (`point`, `ellipse`). Naming an unknown kind skips the flags (`id`,

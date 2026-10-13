@@ -400,7 +400,7 @@ fn sketch_items(model: &Model, feature: FeatureId) -> Vec<Item> {
                         SplineKind::Fit { .. } => {
                             format!("{}{ends}", count(points.len(), "fit point", "fit points"))
                         }
-                        SplineKind::Control { .. } => format!(
+                        SplineKind::Control { .. } | SplineKind::Piece { .. } => format!(
                             "{}{ends}",
                             count(points.len(), "control point", "control points")
                         ),

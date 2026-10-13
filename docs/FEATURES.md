@@ -143,10 +143,11 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   and a glyph) rather than a construction point left in the sketch. An odd outline with arcs has
   no centre at all. A drag snaps only its handle (the moving point
   nearest the press), not whichever moving point comes near a target.
-- [medium · hard] Splines cannot be trimmed or extended (`TrimError::Spline`). Offset takes
-  one chain at a time, leaves the free ends of an open chain sliding along their curves and cannot
-  offset splines; a sketch fillet cannot round a spline and drops equal lengths and midpoints of the
-  lines it shortens, as trim does.
+- [medium · hard] Offset takes one chain at a time, leaves the free ends of an open chain sliding
+  along their curves and cannot offset splines; a sketch fillet cannot round a spline and drops
+  equal lengths and midpoints of the lines it shortens, as trim does. A trimmed fit-point spline is
+  refitted through its remaining points rather than kept exactly (its knots follow its points, so
+  no fit spline holds the piece), and a spline cannot be split or broken at a point.
 - [medium · hard] Sketches lie on one plane, so a sweep path or rail that bends in space (a cable
   run, a handle) cannot be drawn; only a chain of model edges gives the sweep one. A 3D sketch of
   lines, arcs and splines, with points placed by typed coordinates in space or moved off the

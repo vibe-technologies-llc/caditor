@@ -315,9 +315,9 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
 - `trimming.rs` and `modifying.rs` (a facade over `offsetting.rs`, `mirroring.rs`, `patterning.rs`,
   `filleting.rs`) hold the tools' UI state; geometry and constraint rules are the sketch's
   (`sketch.md`). Each frame the tool aims through the displayed sketch, previews the result and puts
-  its words, or why not, where hover descriptions go. Trim and Extend aim at splines too, so can be
-  refused in words. Ellipses and elliptical arcs are Trim's targets (`trimming::is_trimmable`); Extend
-  takes elliptical arc ends and refuses whole ellipses. The axes and collinear or co-circular overlaps
+  its words, or why not, where hover descriptions go. Every curve is Trim's target
+  (`trimming::is_trimmable`); Extend takes the ends of lines, arcs, elliptical arcs and open splines
+  (`trimming::ends_of`) and refuses whole ellipses and closed splines in words. The axes and collinear or co-circular overlaps
   cut and bound curves like any curve (`sketch.md`): the words name them and the preview highlights
   the overlapping curve; the axes themselves are never aimed at.
 - A click acts at once, without a GPU pick: one transaction built by `reshape_sketch` from a working

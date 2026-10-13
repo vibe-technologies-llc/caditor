@@ -193,6 +193,7 @@ pub(crate) enum Role {
 
 pub const MIN_RHO: f64 = 0.01;
 pub const MAX_RHO: f64 = 0.99;
+pub const MIN_PIECE_POINTS: usize = 5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FitSpacing {
@@ -205,6 +206,7 @@ pub enum SplineKind {
     Control { closed: bool },
     Fit { closed: bool, spacing: FitSpacing },
     Conic { rho: f64 },
+    Piece { lead: f64, trail: f64 },
 }
 
 impl SplineKind {
@@ -220,7 +222,7 @@ impl SplineKind {
     pub fn is_closed(self) -> bool {
         match self {
             Self::Control { closed } | Self::Fit { closed, .. } => closed,
-            Self::Conic { .. } => false,
+            Self::Conic { .. } | Self::Piece { .. } => false,
         }
     }
 
@@ -231,7 +233,7 @@ impl SplineKind {
                 closed: false,
                 spacing,
             },
-            Self::Conic { .. } => self,
+            Self::Conic { .. } | Self::Piece { .. } => self,
         }
     }
 
@@ -262,12 +264,13 @@ impl SplineKind {
             Self::Control { closed: true }
             | Self::Fit { closed: true, .. }
             | Self::Conic { .. } => 3,
+            Self::Piece { .. } => MIN_PIECE_POINTS,
         }
     }
 
     pub fn name(self) -> &'static str {
         match self {
-            Self::Control { closed: false } => "Spline",
+            Self::Control { closed: false } | Self::Piece { .. } => "Spline",
             Self::Control { closed: true } => "Closed spline",
             Self::Fit { closed: false, .. } => "Fit-point spline",
             Self::Fit { closed: true, .. } => "Closed fit-point spline",
@@ -277,5 +280,9 @@ impl SplineKind {
 
     pub fn rho_is_valid(rho: f64) -> bool {
         (MIN_RHO..=MAX_RHO).contains(&rho)
+    }
+
+    pub fn end_span_is_valid(span: f64) -> bool {
+        span.is_finite() && span > 0.0
     }
 }

@@ -587,7 +587,7 @@ fn an_ellipse_crossing_another_is_cut_where_they_cross() {
 }
 
 #[test]
-fn splines_cut_other_curves_but_cannot_be_trimmed() {
+fn a_line_is_trimmed_back_to_a_spline_crossing_it() {
     let mut sketch = Sketch::new(Plane::XY);
     let spline = sketch.add_spline(&[
         Point2::new(10.0, -10.0),
@@ -596,10 +596,6 @@ fn splines_cut_other_curves_but_cannot_be_trimmed() {
     ]);
     let line = sketch.add_line(Point2::ZERO, Point2::new(30.0, 0.0));
 
-    assert!(matches!(
-        sketch.trim(spline, Point2::new(11.0, 0.0)),
-        Err(TrimError::NotTrimmable { .. })
-    ));
     assert_eq!(
         sketch.trim(line, Point2::new(25.0, 0.0)),
         Ok(Trimmed::Shortened)

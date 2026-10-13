@@ -9,7 +9,7 @@ use caditor_geometry::{Plane, Point2, Vector2};
 use crate::{
     constraint::{Constraint, DimensionError},
     curve::{ArcGeometry, BSpline, EllipseGeometry, Faceting},
-    entity::{Entity, FitSpacing, Role, SplineKind},
+    entity::{Entity, FitSpacing, MIN_PIECE_POINTS, Role, SplineKind},
     id::{ConstraintId, EntityId, FIRST_UNSTORABLE_ID, Reference},
     solve::{
         arc_joint, curve_pair_gap, ellipse_gap, joined_at_end, not_joined, spline_gap,
@@ -49,6 +49,7 @@ pub(crate) fn spline_through(positions: &[Point2], kind: SplineKind) -> Option<B
         }
         (SplineKind::Conic { rho }, &[start, apex, end]) => BSpline::conic(start, apex, end, rho),
         (SplineKind::Conic { .. }, _) => None,
+        (SplineKind::Piece { lead, trail }, _) => BSpline::piece(positions.to_vec(), lead, trail),
     }
 }
 
@@ -92,6 +93,10 @@ pub enum SketchError {
     TooFewClosedPoints,
     #[error("a conic needs exactly its start, apex and end")]
     ConicPoints,
+    #[error("a piece of a spline needs at least five control points")]
+    TooFewPiecePoints,
+    #[error("the end spans of a piece of a spline must be finite and longer than nothing")]
+    InvalidEndSpans,
     #[error("it uses {label} twice")]
     SameEntity { entity: EntityId, label: String },
     #[error("it needs {needed}, but {found} is not one")]
@@ -369,7 +374,9 @@ impl Sketch {
             .map(|point| self.point(*point))
             .collect::<Option<Vec<_>>>()?;
         match *kind {
-            SplineKind::Control { closed: false } | SplineKind::Conic { .. } => Some(positions),
+            SplineKind::Control { closed: false }
+            | SplineKind::Conic { .. }
+            | SplineKind::Piece { .. } => Some(positions),
             SplineKind::Control { closed: true } => {
                 Some(positions.iter().chain(positions.first()).copied().collect())
             }
@@ -540,7 +547,9 @@ impl Sketch {
             Constraint::MinorRadius { ellipse, .. } => self.ellipse(ellipse)?.minor_radius,
             Constraint::Rho { conic, .. } => match self.entity(conic)?.spline_kind()? {
                 SplineKind::Conic { rho } => rho,
-                SplineKind::Control { .. } | SplineKind::Fit { .. } => return None,
+                SplineKind::Control { .. } | SplineKind::Fit { .. } | SplineKind::Piece { .. } => {
+                    return None;
+                }
             },
             Constraint::Coincident(..)
             | Constraint::Horizontal(_)
@@ -1542,6 +1551,18 @@ impl Sketch {
                 kind: SplineKind::Conic { .. },
             } if points.len() != 3 => {
                 return Err(SketchError::ConicPoints);
+            }
+            Entity::Spline {
+                ref points,
+                kind: SplineKind::Piece { .. },
+            } if points.len() < MIN_PIECE_POINTS => {
+                return Err(SketchError::TooFewPiecePoints);
+            }
+            Entity::Spline {
+                kind: SplineKind::Piece { lead, trail },
+                ..
+            } if !(SplineKind::end_span_is_valid(lead) && SplineKind::end_span_is_valid(trail)) => {
+                return Err(SketchError::InvalidEndSpans);
             }
             Entity::Spline { ref points, kind } if points.len() < kind.fewest_points() => {
                 return Err(SketchError::TooFewClosedPoints);

@@ -153,6 +153,7 @@ enum SplineForm {
     Fit(FitSpacing),
     ClosedFit(FitSpacing),
     Conic,
+    Piece,
 }
 
 impl SplineForm {
@@ -169,6 +170,7 @@ impl SplineForm {
                 spacing,
             } => Self::ClosedFit(spacing),
             SplineKind::Conic { .. } => Self::Conic,
+            SplineKind::Piece { .. } => Self::Piece,
         }
     }
 }

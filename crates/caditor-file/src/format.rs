@@ -1701,6 +1701,11 @@ pub(crate) enum EntityKindRecord {
         end: u64,
         rho: f64,
     },
+    SplinePiece {
+        control_points: Vec<u64>,
+        lead: f64,
+        trail: f64,
+    },
     Ellipse {
         center: u64,
         major: u64,
@@ -1717,7 +1722,7 @@ pub(crate) enum EntityKindRecord {
 
 const DEFAULT_THREAD_DIAMETER: f64 = 8.0;
 
-const ENTITY_KINDS: [&str; 13] = [
+const ENTITY_KINDS: [&str; 14] = [
     "point",
     "line",
     "circle",
@@ -1729,6 +1734,7 @@ const ENTITY_KINDS: [&str; 13] = [
     "centripetal_fit_spline",
     "closed_centripetal_fit_spline",
     "conic",
+    "spline_piece",
     "ellipse",
     "elliptical_arc",
 ];
@@ -4238,6 +4244,11 @@ fn entity_kind_record(entity: &Entity) -> EntityKindRecord {
                 },
                 (SplineKind::Conic { .. }, _) => EntityKindRecord::Spline {
                     control_points: raw,
+                },
+                (SplineKind::Piece { lead, trail }, _) => EntityKindRecord::SplinePiece {
+                    control_points: raw,
+                    lead,
+                    trail,
                 },
             }
         }
@@ -7945,6 +7956,17 @@ fn restore_entity(record: &EntityKindRecord) -> Entity {
         } => Entity::Spline {
             points: vec![entity(*start), entity(*apex), entity(*end)],
             kind: SplineKind::Conic { rho: *rho },
+        },
+        EntityKindRecord::SplinePiece {
+            control_points,
+            lead,
+            trail,
+        } => Entity::Spline {
+            points: control_points.iter().copied().map(entity).collect(),
+            kind: SplineKind::Piece {
+                lead: *lead,
+                trail: *trail,
+            },
         },
         EntityKindRecord::Ellipse {
             center,

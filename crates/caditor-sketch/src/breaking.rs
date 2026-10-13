@@ -102,6 +102,12 @@ impl Sketch {
 
     fn break_at_crossings(&mut self, curve: EntityId) -> Result<Vec<EntityId>, BreakError> {
         let label = || self.entity_label(curve);
+        if let Some(Entity::Spline { .. }) = self.entity(curve) {
+            return Err(BreakError::NotLineOrArc {
+                entity: curve,
+                label: label(),
+            });
+        }
         let cuts = match self.open_cuts(curve) {
             Ok(Some(cuts)) => cuts,
             Ok(None) => {
@@ -139,7 +145,7 @@ impl Sketch {
         match error {
             TrimError::NoSuchCurve(entity) => BreakError::NoSuchCurve(entity),
             TrimError::NotACurve { entity, .. } => BreakError::NotACurve { entity, label },
-            TrimError::NotTrimmable { entity, .. } => BreakError::NotLineOrArc { entity, label },
+            TrimError::NoPiece { entity, .. } => BreakError::NotLineOrArc { entity, label },
             TrimError::NoLength { entity, .. } => BreakError::NoLength { entity, label },
             TrimError::Reference { entity, .. } => BreakError::Reference { entity, label },
             TrimError::Projected { entity, .. } => BreakError::Projected { entity, label },
