@@ -4,7 +4,7 @@ use caditor_document::{
     capitalized, describe_axis,
 };
 use caditor_expression::{Dimension, Expression};
-use caditor_kernel::MAX_TAPER_DEGREES;
+use caditor_kernel::{LEAST_COIL_TURNS, MAX_COIL_TAPER_DEGREES, MAX_COIL_TURNS, MAX_TAPER_DEGREES};
 use egui::{Id, Label, RichText, TextWrapMode, Ui, WidgetText};
 
 use crate::{
@@ -61,6 +61,8 @@ pub enum Rule {
     ChamferAngle,
     Taper,
     MateAngle,
+    CoilTurns,
+    CoilTaper,
 }
 
 impl Rule {
@@ -117,6 +119,19 @@ impl Rule {
                 ));
             }
             Self::MateAngle => None,
+            Self::CoilTurns if !(LEAST_COIL_TURNS..=MAX_COIL_TURNS).contains(&value) => {
+                return Err(format!(
+                    "Enter a number of turns from {LEAST_COIL_TURNS} to {MAX_COIL_TURNS}"
+                ));
+            }
+            Self::CoilTurns => None,
+            Self::CoilTaper if value.abs() >= MAX_COIL_TAPER_DEGREES => {
+                return Err(format!(
+                    "Enter an angle between -{MAX_COIL_TAPER_DEGREES}° and \
+                     {MAX_COIL_TAPER_DEGREES}°; a positive taper widens the coil as it rises"
+                ));
+            }
+            Self::CoilTaper => None,
         };
         refusal.map_or(Ok(()), |refusal| Err(refusal.to_owned()))
     }

@@ -81,6 +81,15 @@ impl MeasuredItem {
         }
     }
 
+    pub fn sketch_entity(&self) -> Option<(FeatureId, EntityId)> {
+        match self {
+            Self::Point(point) => point.sketch_entity(),
+            Self::Axis(axis) => axis.sketch_entity(),
+            Self::Sketch { sketch, entity } => Some((*sketch, *entity)),
+            Self::Plane(_) | Self::Edge { .. } | Self::Face { .. } | Self::Body(_) => None,
+        }
+    }
+
     pub fn frame(&self) -> Option<FeatureId> {
         match self {
             Self::Point(point) => point.frame(),
@@ -332,6 +341,14 @@ impl Measurement {
             .items()
             .into_iter()
             .filter_map(MeasuredItem::sketch)
+            .collect()
+    }
+
+    pub fn sketch_entities(&self) -> Vec<(FeatureId, EntityId)> {
+        self.reading
+            .items()
+            .into_iter()
+            .filter_map(MeasuredItem::sketch_entity)
             .collect()
     }
 

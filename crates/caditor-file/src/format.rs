@@ -8,32 +8,32 @@ use std::{
 
 use caditor_document::{
     AngleMate, AngleSides, AxisMate, AxisReference, AxisSide, AxisTurn, Between, Blend, BlendKind,
-    BodyAppearance, BodyOperation, BodyPlacement, ChamferForm, CircularPattern, Combine,
-    CombineOperation, ConfigurationId, CopyOrientation, CurvePattern, CurveSpacing, CurveStation,
-    Datum, DatumAxis, DatumFrame, DatumPlane, DatumPoint, Document, EdgeGroup, Edit, Extrude,
-    ExtrudeEnd, ExtrudeExtent, FaceAttachment, FaceAxisMate, FaceColour, FaceMate, FaceOnRound,
-    FacePair, FaceTangent, FaceThickness, Feature, FeatureId, FeatureKind, Finish, HOME_VIEW_NAME,
-    Hole, HoleBottom, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle,
-    Import, LinearDirection, LinearSpacing, Loft, LoftSection, MAX_BODY_NAME_CHARS,
-    MAX_GROUP_NAME_CHARS, MAX_MATERIAL_NAME_CHARS, MAX_PATTERN_INSTANCES, MAX_SAVED_VIEWS,
-    MAX_VIEW_NAME_CHARS, MIN_OPACITY_PERCENT, Mate, MatePair, MeasuredItem, Measurement,
-    MetricSize, Mirror, ModelProperties, ModelProperty, Move, NamedView, OPAQUE_PERCENT,
-    ORIGINAL_INSTANCE, Of, OffsetFace, Parameter, ParameterOwner, Pattern, PatternKind, PieceKey,
-    PieceLooks, Pieces, Pipe, PlaneReference, PlaneRotation, PlaneThrough, PointBy, PointMate,
-    PointReference, PointTarget, PointsPattern, Primitive, PrimitiveAnchor, PrimitiveShape,
-    PrincipalAxis, PrincipalGeometry, PrincipalPlane, ProjectionSource, Reading, RegionChoice,
-    Remove, Revolve, RevolveAxis, RevolveExtent, Rgb, RollbackBar, SavedView, SavedViews, Scale,
-    Shell, ShellSide, SketchAttachment, SketchFeature, SolidFeature, SolidStart, Split, SplitAlong,
-    SplitCarry, SplitFace, StepText, Sweep, SweepPath, TappedThread, Thread, ThreadFamily,
-    ThreadForm, ThreadHand, ThreadLength, ThreadSide, ThreadSize, Transaction, TurnCentre, Wall,
-    group_name, material_name, view_name,
+    BodyAppearance, BodyOperation, BodyPlacement, ChamferForm, CircularPattern, Coil, CoilLength,
+    CoilTurning, Combine, CombineOperation, ConfigurationId, CopyOrientation, CurvePattern,
+    CurveSpacing, CurveStation, Datum, DatumAxis, DatumFrame, DatumPlane, DatumPoint, Document,
+    EdgeGroup, Edit, Extrude, ExtrudeEnd, ExtrudeExtent, FaceAttachment, FaceAxisMate, FaceColour,
+    FaceMate, FaceOnRound, FacePair, FaceTangent, FaceThickness, Feature, FeatureId, FeatureKind,
+    Finish, HOME_VIEW_NAME, Hole, HoleBottom, HoleDepth, HoleFit, HoleShape, HoleSizing,
+    HoleStandard, HoleStep, HoleStyle, Import, LinearDirection, LinearSpacing, Loft, LoftSection,
+    MAX_BODY_NAME_CHARS, MAX_GROUP_NAME_CHARS, MAX_MATERIAL_NAME_CHARS, MAX_PATTERN_INSTANCES,
+    MAX_SAVED_VIEWS, MAX_VIEW_NAME_CHARS, MIN_OPACITY_PERCENT, Mate, MatePair, MeasuredItem,
+    Measurement, MetricSize, Mirror, ModelProperties, ModelProperty, Move, NamedView,
+    OPAQUE_PERCENT, ORIGINAL_INSTANCE, Of, OffsetFace, Parameter, ParameterOwner, Pattern,
+    PatternKind, PieceKey, PieceLooks, Pieces, Pipe, PlaneReference, PlaneRotation, PlaneThrough,
+    PointBy, PointMate, PointReference, PointTarget, PointsPattern, Primitive, PrimitiveAnchor,
+    PrimitiveShape, PrincipalAxis, PrincipalGeometry, PrincipalPlane, ProjectionSource, Reading,
+    RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rgb, RollbackBar, SavedView,
+    SavedViews, Scale, Shell, ShellSide, SketchAttachment, SketchFeature, SolidFeature, SolidStart,
+    Split, SplitAlong, SplitCarry, SplitFace, StepText, Sweep, SweepPath, TappedThread, Thread,
+    ThreadFamily, ThreadForm, ThreadHand, ThreadLength, ThreadSide, ThreadSize, Transaction,
+    TurnCentre, Wall, group_name, material_name, view_name,
 };
 use caditor_expression::{BinaryOperator, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Rotation3, Vector2, Vector3};
 use caditor_kernel::{
-    BoundaryPiece, EdgeName, EdgeReference, FaceCopy, FaceName, FaceOrigin, FaceReference,
-    LoftSkin, PipeShape, RegionKey, RegionReference, Side, Solid, SweepOrientation, VertexName,
-    WallSide,
+    BoundaryPiece, CoilPlacement, CoilShape, EdgeName, EdgeReference, FaceCopy, FaceName,
+    FaceOrigin, FaceReference, LoftSkin, PipeShape, RegionKey, RegionReference, Side, Solid,
+    SweepOrientation, VertexName, WallSide,
 };
 use caditor_sketch::{
     Constraint, ConstraintId, EllipseEnd, Entity, EntityId, FitSpacing,
@@ -308,6 +308,7 @@ pub(crate) enum FeatureKindRecord {
     ReferenceImage(Box<ReferenceImageRecord>),
     Pipe(Box<PipeRecord>),
     SeparatePieces(Box<SeparatePiecesRecord>),
+    Coil(Box<CoilRecord>),
     Loft(Box<LoftRecord>),
 }
 
@@ -334,6 +335,51 @@ pub(crate) struct LoftProfileRecord {
 pub(crate) enum LoftSkinRecord {
     Smooth,
     Ruled,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct CoilRecord {
+    pub axis: Lenient<AxisReferenceRecord>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub reversed: bool,
+    pub diameter: String,
+    pub length: CoilLengthRecord,
+    pub shape: CoilShapeRecord,
+    pub size: String,
+    pub placement: CoilPlacementRecord,
+    pub taper: String,
+    pub turning: CoilTurningRecord,
+    pub operation: OperationRecord,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum CoilLengthRecord {
+    TurnsAndPitch { turns: String, pitch: String },
+    HeightAndTurns { height: String, turns: String },
+    HeightAndPitch { height: String, pitch: String },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum CoilShapeRecord {
+    Round,
+    Square,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum CoilPlacementRecord {
+    Inside,
+    Centred,
+    Outside,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum CoilTurningRecord {
+    CounterClockwise,
+    Clockwise,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -3075,6 +3121,7 @@ fn kind_record(kind: &FeatureKind) -> FeatureKindRecord {
         }
         FeatureKind::Mirror(mirror) => mirror_record(mirror),
         FeatureKind::Pipe(pipe) => pipe_record(pipe),
+        FeatureKind::Coil(coil) => coil_record(coil),
         FeatureKind::Loft(loft) => loft_record(loft),
         FeatureKind::Primitive(primitive) => {
             FeatureKindRecord::Primitive(Box::new(primitive_record(primitive)))
@@ -3396,6 +3443,100 @@ fn pipe_record(pipe: &Pipe) -> FeatureKindRecord {
         bend: text(&pipe.bend),
         operation: operation_record(pipe.operation),
     }))
+}
+
+fn coil_record(coil: &Coil) -> FeatureKindRecord {
+    let text = Expression::to_stored_text;
+    FeatureKindRecord::Coil(Box::new(CoilRecord {
+        axis: Lenient::Read(axis_record(&coil.axis)),
+        reversed: coil.reversed,
+        diameter: text(&coil.diameter),
+        length: match &coil.length {
+            CoilLength::TurnsAndPitch { turns, pitch } => CoilLengthRecord::TurnsAndPitch {
+                turns: text(turns),
+                pitch: text(pitch),
+            },
+            CoilLength::HeightAndTurns { height, turns } => CoilLengthRecord::HeightAndTurns {
+                height: text(height),
+                turns: text(turns),
+            },
+            CoilLength::HeightAndPitch { height, pitch } => CoilLengthRecord::HeightAndPitch {
+                height: text(height),
+                pitch: text(pitch),
+            },
+        },
+        shape: match coil.shape {
+            CoilShape::Round => CoilShapeRecord::Round,
+            CoilShape::Square => CoilShapeRecord::Square,
+        },
+        size: text(&coil.size),
+        placement: match coil.placement {
+            CoilPlacement::Inside => CoilPlacementRecord::Inside,
+            CoilPlacement::Centred => CoilPlacementRecord::Centred,
+            CoilPlacement::Outside => CoilPlacementRecord::Outside,
+        },
+        taper: text(&coil.taper),
+        turning: match coil.turning {
+            CoilTurning::CounterClockwise => CoilTurningRecord::CounterClockwise,
+            CoilTurning::Clockwise => CoilTurningRecord::Clockwise,
+        },
+        operation: operation_record(coil.operation),
+    }))
+}
+
+fn restore_coil(record: &CoilRecord, feature: &str, issues: &mut Vec<String>) -> Coil {
+    let mut value = |text: &str, what: &str, fallback: &str| {
+        restore_value(text, what, fallback, feature, issues)
+    };
+    let length = match &record.length {
+        CoilLengthRecord::TurnsAndPitch { turns, pitch } => CoilLength::TurnsAndPitch {
+            turns: value(turns, "turns", "5"),
+            pitch: value(pitch, "pitch", "5 mm"),
+        },
+        CoilLengthRecord::HeightAndTurns { height, turns } => CoilLength::HeightAndTurns {
+            height: value(height, "height", "25 mm"),
+            turns: value(turns, "turns", "5"),
+        },
+        CoilLengthRecord::HeightAndPitch { height, pitch } => CoilLength::HeightAndPitch {
+            height: value(height, "height", "25 mm"),
+            pitch: value(pitch, "pitch", "5 mm"),
+        },
+    };
+    let diameter = value(&record.diameter, "diameter", "20 mm");
+    let size = value(&record.size, "section size", "2 mm");
+    let taper = value(&record.taper, "taper angle", "0 deg");
+    let axis = match &record.axis {
+        Lenient::Read(axis) => restore_axis(axis),
+        Lenient::Unreadable(_) => None,
+    }
+    .unwrap_or_else(|| {
+        issues.push(format!(
+            "The axis “{feature}” winds around could not be read, so it is the Z axis."
+        ));
+        AxisReference::Principal(PrincipalAxis::Z)
+    });
+    Coil {
+        axis,
+        reversed: record.reversed,
+        diameter,
+        length,
+        shape: match record.shape {
+            CoilShapeRecord::Round => CoilShape::Round,
+            CoilShapeRecord::Square => CoilShape::Square,
+        },
+        size,
+        placement: match record.placement {
+            CoilPlacementRecord::Inside => CoilPlacement::Inside,
+            CoilPlacementRecord::Centred => CoilPlacement::Centred,
+            CoilPlacementRecord::Outside => CoilPlacement::Outside,
+        },
+        taper,
+        turning: match record.turning {
+            CoilTurningRecord::CounterClockwise => CoilTurning::CounterClockwise,
+            CoilTurningRecord::Clockwise => CoilTurning::Clockwise,
+        },
+        operation: restore_operation(record.operation),
+    }
 }
 
 fn loft_record(loft: &Loft) -> FeatureKindRecord {
@@ -6125,6 +6266,7 @@ fn restore_kind(
             FeatureKind::Mate(restore_point_mate(record, name, issues))
         }
         FeatureKindRecord::Pipe(record) => FeatureKind::Pipe(restore_pipe(record, name, issues)),
+        FeatureKindRecord::Coil(record) => FeatureKind::Coil(restore_coil(record, name, issues)),
         FeatureKindRecord::Loft(record) => FeatureKind::Loft(restore_loft(record, name, issues)),
         FeatureKindRecord::Primitive(record) => {
             FeatureKind::Primitive(restore_primitive(record, name, issues))

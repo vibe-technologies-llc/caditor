@@ -55,6 +55,7 @@ pub enum Page {
     Sweep,
     Pipe,
     Loft,
+    Coil,
     Hole,
     Thread,
     FilletAndChamfer,
@@ -135,6 +136,7 @@ all_variants!(
     Sweep,
     Pipe,
     Loft,
+    Coil,
     Hole,
     Thread,
     FilletAndChamfer,
@@ -261,6 +263,7 @@ impl Page {
             Self::Sweep => "sweep",
             Self::Pipe => "pipe",
             Self::Loft => "loft",
+            Self::Coil => "coil",
             Self::Hole => "hole",
             Self::Thread => "thread",
             Self::FilletAndChamfer => "fillet-and-chamfer",
@@ -347,6 +350,7 @@ impl Page {
             Self::Sweep => include_str!("../guide/sweep.md"),
             Self::Pipe => include_str!("../guide/pipe.md"),
             Self::Loft => include_str!("../guide/loft.md"),
+            Self::Coil => include_str!("../guide/coil.md"),
             Self::Hole => include_str!("../guide/hole.md"),
             Self::Thread => include_str!("../guide/thread.md"),
             Self::FilletAndChamfer => include_str!("../guide/fillet-and-chamfer.md"),
@@ -427,6 +431,7 @@ impl Page {
             | Self::Sweep
             | Self::Pipe
             | Self::Loft
+            | Self::Coil
             | Self::Hole
             | Self::Thread
             | Self::FilletAndChamfer
@@ -497,6 +502,7 @@ impl Page {
             FeatureKind::Solid(SolidFeature::Sweep(_)) => Self::Sweep,
             FeatureKind::Pipe(_) => Self::Pipe,
             FeatureKind::Loft(_) => Self::Loft,
+            FeatureKind::Coil(_) => Self::Coil,
             FeatureKind::Blend(_) => Self::FilletAndChamfer,
             FeatureKind::Shell(_) => Self::Shell,
             FeatureKind::OffsetFace(_) => Self::OffsetFace,

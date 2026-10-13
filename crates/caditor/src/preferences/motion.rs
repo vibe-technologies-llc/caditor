@@ -7,7 +7,7 @@ use super::{
     dialog::{Shown, change, choice, pick, section, toggle},
     projection_description, projection_label,
 };
-use crate::{commands::Command, widgets};
+use crate::{commands::Command, inference::Inference, widgets};
 
 fn speed_slider(
     ui: &mut Ui,
@@ -163,6 +163,38 @@ pub fn sketching(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<Preference
             );
         });
     });
+    let inference_note = "What a point placed while drawing may be held to. Off, that kind is \
+                          neither offered nor made a constraint; the constraint tools still add \
+                          it by hand."
+        .to_owned();
+    section(
+        ui,
+        shown,
+        Section::SketchInference,
+        Some(inference_note),
+        |ui| {
+            for (caption, kinds) in [
+                ("Directions", Inference::DIRECTIONS.as_slice()),
+                ("Targets", Inference::TARGETS.as_slice()),
+                ("Tracks", [Inference::Tracks].as_slice()),
+            ] {
+                widgets::property(ui, caption, |ui| {
+                    ui.vertical(|ui| {
+                        for kind in kinds {
+                            toggle(
+                                ui,
+                                sketching.inferred.allows(*kind),
+                                kind.label(),
+                                kind.description(),
+                                |on| PreferenceChange::Infer(*kind, on),
+                                command,
+                            );
+                        }
+                    });
+                });
+            }
+        },
+    );
     let at_start = sketching.at_start;
     let note = "Each of these can still be turned on or off while you work, from the View or \
                 Sketch menu and the palette; changing one here also changes it now.";

@@ -9,6 +9,8 @@ paths:
   - "crates/caditor/src/pipe_panel.rs"
   - "crates/caditor/src/loft_tools.rs"
   - "crates/caditor/src/loft_panel.rs"
+  - "crates/caditor/src/coil_tools.rs"
+  - "crates/caditor/src/coil_panel.rs"
   - "crates/caditor/src/blend_tools.rs"
   - "crates/caditor/src/blend_panel.rs"
   - "crates/caditor/src/shell_tools.rs"
@@ -78,8 +80,8 @@ paths:
 # Modelling tools in the app
 
 Tools without a ribbon button (it stays one row) live in the Model menu and the palette: Offset face,
-Split face, the primitives, Pipe, Loft, Thread, Copy body, Split body, Mate body, Mirror faces, Curve and Point
-pattern, Coordinate system, Scale model and Configurations. Sweep has a button in the Solid group
+Split face, the primitives, Pipe, Loft, Coil, Thread, Copy body, Split body, Mate body, Mirror faces,
+Curve and Point pattern, Coordinate system, Scale model and Configurations. Sweep has a button in the Solid group
 and a Model menu row, and is in the right-click menu of selected sketch curves
 (`view_menu::SKETCH_TOOLS`), as Pipe and Loft are. Panel rows, keys and wordings are in the
 `*_panel.rs` files; this file holds the behaviour behind them.
@@ -503,6 +505,25 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   view), Ends at (Its last profile, or the point, `describe_point`, with Use selected, Choose in the
   view and the cross), Sides (`segmented` Smooth, Ruled) and the shared Result and Body rows
   (`feature_fields::body_operation_rows`). Reverse direction refuses it. It has no arrows or values.
+## Coil
+
+- `Command::Coil` (no default key, `coil_tools.rs`, `Offers::coil`; Solid group menu, Model menu,
+  palette) makes a `Coil` of `DEFAULT_DIAMETER` and a round `DEFAULT_SECTION` wire, five turns at a
+  pitch of 5 mm, centred, counter-clockwise, as a new body, and opens it. `coil_tools::source`
+  takes the one axis the selection names (`datum_tools::only_axis`: principal, datum or coordinate
+  system axis, straight edge, round face or sketch line; several refused); with none it winds round
+  Z and starts choosing its axis (`Slot::CoilAxis`, prompt saying Escape leaves it there), as a
+  primitive chooses its place.
+- Panel (`coil_panel.rs`): a description, Axis (`feature_fields::axis_row`, the model axes listed,
+  Use selected and Choose in the view through `coil_tools::axis_change`) with Reverse direction,
+  Sized by (Turns and pitch, Height and turns, Height and pitch; `coil_tools::sized_by` keeps the
+  typed expressions both choices share and writes the new one from `evaluated_span`, rounded to a
+  millionth) and its two fields, Diameter, Section (Round, Square) and its size captioned by
+  `coil_size_name`, Position (Inside, Centred, Outside), Taper (`Rule::CoilTaper`), Turning
+  (Counter-clockwise, Clockwise) and the shared Result and Body rows. Fields are keyed
+  `("coil-field", feature, "diameter" | "size" | "taper" | "turns" | "pitch" | "height")`, turns
+  under `Rule::CoilTurns`. Reverse direction (`reversing.rs`) flips `reversed`. It has no value
+  arrows yet (`docs/FEATURES.md`).
 
 ## Fillets, chamfers and shells
 

@@ -633,6 +633,10 @@ impl FeatureKind {
                     rename_point(end, rename);
                 }
             }
+            Self::Coil(coil) => {
+                coil.operation = renamed_operation(coil.operation, rename);
+                rename_axis(&mut coil.axis, rename);
+            }
             Self::Combine(combine) => {
                 combine.body = rename(combine.body);
                 combine.tool = rename(combine.tool);

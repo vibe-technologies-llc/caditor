@@ -333,7 +333,7 @@ pub fn toggle(
     on: bool,
     label: &str,
     hover: &str,
-    make: fn(bool) -> PreferenceChange,
+    make: impl FnOnce(bool) -> PreferenceChange,
     command: &mut Option<PreferencesCommand>,
 ) {
     let mut checked = on;

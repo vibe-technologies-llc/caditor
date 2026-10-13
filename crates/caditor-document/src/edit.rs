@@ -1093,6 +1093,7 @@ impl Document {
             | (FeatureKind::Primitive(_), FeatureKind::Primitive(_))
             | (FeatureKind::Pipe(_), FeatureKind::Pipe(_))
             | (FeatureKind::Loft(_), FeatureKind::Loft(_))
+            | (FeatureKind::Coil(_), FeatureKind::Coil(_))
             | (FeatureKind::Thread(_), FeatureKind::Thread(_))
             | (FeatureKind::Combine(_), FeatureKind::Combine(_))
             | (FeatureKind::Move(_), FeatureKind::Move(_))
@@ -1451,7 +1452,7 @@ impl Document {
             .max()
             .unwrap_or(0);
         self.next_feature_id = self.next_feature_id.max(beyond);
-        self.reserve_named_curves(kind);
+        self.reserve_named_entities(kind);
     }
 
     fn remove_feature(&mut self, id: FeatureId) -> Result<Edit, EditError> {

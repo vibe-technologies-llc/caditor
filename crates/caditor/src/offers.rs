@@ -2,6 +2,7 @@ use caditor_document::{AxisReference, Datum, DatumAxis, FeatureId};
 
 use crate::{
     blend_tools::{self, EdgeSource},
+    coil_tools::{self, CoilStart},
     combine_tools::{self, BodyPair},
     datum_tools,
     editing::SketchEditing,
@@ -61,6 +62,7 @@ pub struct Offers {
     pub sweep: Result<SweepStart, &'static str>,
     pub pipe: Result<PipeStart, &'static str>,
     pub loft: Result<LoftStart, &'static str>,
+    pub coil: Result<CoilStart, &'static str>,
     pub shell: Result<FaceSource, &'static str>,
     pub offset_face: Result<FaceSource, &'static str>,
     pub split_face: Result<SplitFaceSource, &'static str>,
@@ -117,6 +119,7 @@ impl Offers {
             sweep: sweep_tools::source(model, selection, editing),
             pipe: pipe_tools::source(model, selection),
             loft: loft_tools::source(model, selection),
+            coil: coil_tools::source(model, selection),
             sketch_target: sketch_placement::sketch_target(model, selection),
             pattern: pattern_tools::source(model, selection, tree, rows),
             curve_pattern: sketch_pattern_tools::source(

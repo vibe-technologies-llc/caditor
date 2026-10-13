@@ -45,6 +45,7 @@ use crate::{
     handle_snap::{self, Guide, Snap},
     hole_placement, hole_tools,
     image_tools::{self, CalibrationGuide},
+    inference::Inferences,
     interference_panel::{Mark, MarkKind},
     isocurves::IsocurveDrawing,
     look_at::{self, LookTarget},
@@ -1945,11 +1946,18 @@ impl ViewportState {
         }
         let snapped = self
             .body_snaps
-            .point(screen, pointer, Accept::Points)
+            .point(screen, pointer, Accept::Points, Inferences::default())
             .or_else(|| {
                 on_sketch
                     .is_none()
-                    .then(|| self.body_snaps.edge(screen, pointer, Accept::Anything))
+                    .then(|| {
+                        self.body_snaps.edge(
+                            screen,
+                            pointer,
+                            Accept::Anything,
+                            Inferences::default(),
+                        )
+                    })
                     .flatten()
             })?;
         let Target::Body(target) = snapped.target else {
@@ -2774,6 +2782,7 @@ impl ViewportState {
         self.drawing
             .snap_to_grid(self.snap_grid_spacing().filter(|_| self.grid_snapping));
         self.drawing.hold_snap(self.hold());
+        self.drawing.infer(self.sketching.inferred);
         let scrub_from = self
             .cursor
             .filter(|_| self.scrubbing)
@@ -6075,6 +6084,9 @@ fn feature_prompt(kind: Option<&FeatureKind>) -> (&'static str, Clicks) {
         Some(FeatureKind::Loft(_)) => in_panel(
             "Choose the profiles in order, where it ends and how its sides run in the panel",
         ),
+        Some(FeatureKind::Coil(_)) => {
+            in_panel("Choose the axis, the turns and the section in the panel")
+        }
         Some(FeatureKind::Thread(_)) => {
             in_panel("Choose the face to thread, its size and its length in the panel")
         }

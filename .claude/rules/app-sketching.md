@@ -13,6 +13,7 @@ paths:
   - "crates/caditor/src/shapes.rs"
   - "crates/caditor/src/shape_modes.rs"
   - "crates/caditor/src/snap.rs"
+  - "crates/caditor/src/inference.rs"
   - "crates/caditor/src/body_snap.rs"
   - "crates/caditor/src/body_picks.rs"
   - "crates/caditor/src/tracking.rs"
@@ -502,6 +503,21 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   horizontal or vertical track, both hold. An acquired line extends past its ends: after curves, the pointer within
   `CURVE_TOLERANCE` of its infinite carrier snaps to it (`Target::Extension`, a `Coincident` on the
   line, which the solver treats as infinite); directions and tracks join it as they do a curve.
+- Each kind of constraint drawing infers can be turned off in Preferences › Sketching
+  (`inference.rs`: `Inference`, a set `Inferences` that is on for every kind unless stored off;
+  `Sketching::inferred`, set on the `Drawing` every frame, `Drawing::infer`). A kind is the
+  direction guides horizontal, vertical, parallel, perpendicular and tangent
+  (`Inferences::allows_direction`; tangent also covers a line end touching a round), the targets a
+  point snaps to (`Inferences::allows_target`: coincident for a point and a body corner, on a curve
+  for curves, axes, extensions and body edges, midpoint, centre for an outline's centre and a round
+  edge's centre, intersection, quadrant with ellipse axis ends) and the tracks. A disabled kind is
+  filtered where candidates are chosen, never afterwards, so the next candidate takes over
+  (`snap::nearest_within`, `BodyPart::takes`, `drawing::guides`, `level_and_upright`, the tangent
+  touch and the tracks in `Drawing::place`, `level_on_grid`); the preview, the label and the
+  constraints committed all read the one placement, so they agree. A shape's own structure (a
+  chain's joins, a rectangle's level sides, a typed value, Alt's held snap beyond these filters) is
+  not an inference. Drags and grabs infer everything (`Inferences::default` in `tracking::land`),
+  and the dimension-from-datum and Constrain automatically panels are unaffected.
 - Snap to the grid (`Command::ToggleGridSnapping`, off by default, session-only in
   `ViewportState::grid_snapping`, starting as Preferences say) places a point no target, direction or track took on the nearest
   crossing of the grid's current level (`ViewportState::snap_grid_spacing`, handed to

@@ -22,7 +22,7 @@ use crate::{
     attachment, blend,
     body_appearance::BodyAppearance,
     body_pieces::PieceKey,
-    combine,
+    coil, combine,
     datum::{self, DatumResult},
     document::{Document, Feature, FeatureId, FeatureKind, list_names},
     healing::{self, Healing},
@@ -1905,6 +1905,7 @@ impl Evaluator for ModelEvaluator {
             }
             FeatureKind::Pipe(definition) => pipe::evaluate(feature, definition, inputs, cancel),
             FeatureKind::Loft(definition) => loft::evaluate(feature, definition, inputs, cancel),
+            FeatureKind::Coil(definition) => coil::evaluate(feature, definition, inputs, cancel),
             FeatureKind::Thread(definition) => {
                 thread::evaluate(feature, definition, inputs, cancel)
             }

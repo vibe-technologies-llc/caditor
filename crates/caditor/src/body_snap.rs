@@ -9,6 +9,7 @@ use caditor_kernel::{Edge, EdgeName, VertexName};
 
 use crate::{
     bodies,
+    inference::Inferences,
     model::Model,
     projecting,
     snap::{self, Accept, Pointer, Screen, Snapped, Target},
@@ -32,7 +33,11 @@ impl BodyPart {
         !matches!(self, Self::Edge)
     }
 
-    fn takes(self, accept: Accept) -> bool {
+    fn takes(self, accept: Accept, inferred: Inferences) -> bool {
+        inferred.allows_part(self) && self.accepted(accept)
+    }
+
+    fn accepted(self, accept: Accept) -> bool {
         match accept {
             Accept::Anything => true,
             Accept::Points => matches!(self, Self::Corner | Self::Centre),
@@ -376,8 +381,14 @@ impl BodySnaps {
         }
     }
 
-    pub fn point(&self, screen: &impl Screen, pointer: Pointer, accept: Accept) -> Option<Snapped> {
-        self.point_within(screen, pointer, accept, snap::POINT_TOLERANCE)
+    pub fn point(
+        &self,
+        screen: &impl Screen,
+        pointer: Pointer,
+        accept: Accept,
+        inferred: Inferences,
+    ) -> Option<Snapped> {
+        self.point_within(screen, pointer, accept, inferred, snap::POINT_TOLERANCE)
     }
 
     pub fn point_within(
@@ -385,12 +396,13 @@ impl BodySnaps {
         screen: &impl Screen,
         pointer: Pointer,
         accept: Accept,
+        inferred: Inferences,
         tolerance: f64,
     ) -> Option<Snapped> {
         nearest(
             self.points
                 .iter()
-                .filter(|point| point.part.takes(accept))
+                .filter(|point| point.part.takes(accept, inferred))
                 .map(|point| (point.position, point.source, point.part)),
             screen,
             pointer,
@@ -399,8 +411,14 @@ impl BodySnaps {
         .map(|(position, source, part)| self.snapped(position, source, part))
     }
 
-    pub fn edge(&self, screen: &impl Screen, pointer: Pointer, accept: Accept) -> Option<Snapped> {
-        self.edge_within(screen, pointer, accept, snap::CURVE_TOLERANCE)
+    pub fn edge(
+        &self,
+        screen: &impl Screen,
+        pointer: Pointer,
+        accept: Accept,
+        inferred: Inferences,
+    ) -> Option<Snapped> {
+        self.edge_within(screen, pointer, accept, inferred, snap::CURVE_TOLERANCE)
     }
 
     pub fn edge_within(
@@ -408,9 +426,10 @@ impl BodySnaps {
         screen: &impl Screen,
         pointer: Pointer,
         accept: Accept,
+        inferred: Inferences,
         tolerance: f64,
     ) -> Option<Snapped> {
-        if !BodyPart::Edge.takes(accept) {
+        if !BodyPart::Edge.takes(accept, inferred) {
             return None;
         }
         nearest(

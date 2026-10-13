@@ -1050,6 +1050,7 @@ fn opened_solid(document: &Document, feature: FeatureId) -> bool {
             | FeatureKind::Primitive(_)
             | FeatureKind::Pipe(_)
             | FeatureKind::Loft(_)
+            | FeatureKind::Coil(_)
             | FeatureKind::Combine(_)
             | FeatureKind::Move(_)
             | FeatureKind::Mate(_)

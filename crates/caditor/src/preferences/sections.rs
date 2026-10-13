@@ -21,6 +21,7 @@ pub enum Section {
     Input,
     Movement,
     SketchEditing,
+    SketchInference,
     SketchStart,
     GraphicsDisplay,
     GraphicsQuality,
@@ -28,7 +29,7 @@ pub enum Section {
 }
 
 impl Section {
-    pub const ALL: [Self; 23] = [
+    pub const ALL: [Self; 24] = [
         Self::Units,
         Self::Numbers,
         Self::Files,
@@ -48,6 +49,7 @@ impl Section {
         Self::Input,
         Self::Movement,
         Self::SketchEditing,
+        Self::SketchInference,
         Self::SketchStart,
         Self::GraphicsDisplay,
         Self::GraphicsQuality,
@@ -72,7 +74,9 @@ impl Section {
             | Self::InTheView
             | Self::RenderedView => PreferencesTab::Appearance,
             Self::NavigationView | Self::Input | Self::Movement => PreferencesTab::Navigation,
-            Self::SketchEditing | Self::SketchStart => PreferencesTab::Sketching,
+            Self::SketchEditing | Self::SketchInference | Self::SketchStart => {
+                PreferencesTab::Sketching
+            }
             Self::GraphicsDisplay | Self::GraphicsQuality | Self::GraphicsAdapter => {
                 PreferencesTab::Graphics
             }
@@ -100,6 +104,7 @@ impl Section {
             Self::Input => "navigation-input",
             Self::Movement => "navigation",
             Self::SketchEditing => "sketch-editing",
+            Self::SketchInference => "sketch-inference",
             Self::SketchStart => "sketch-start",
             Self::GraphicsDisplay => "graphics-display",
             Self::GraphicsQuality => "graphics-quality",
@@ -128,6 +133,7 @@ impl Section {
             Self::Input => "Input",
             Self::Movement => "Movement",
             Self::SketchEditing => "Editing a sketch",
+            Self::SketchInference => "Constraints drawing infers",
             Self::SketchStart => "On when caditor starts",
             Self::GraphicsDisplay => "Display",
             Self::GraphicsQuality => "Quality",
@@ -259,6 +265,21 @@ impl Section {
                 "rotate",
             ],
             Self::SketchEditing => &["look at the sketch", "escape", "finish"],
+            Self::SketchInference => &[
+                "infer",
+                "inference",
+                "snapping",
+                "horizontal",
+                "vertical",
+                "parallel",
+                "perpendicular",
+                "tangent",
+                "coincident",
+                "midpoint",
+                "intersection",
+                "quadrant",
+                "tracks",
+            ],
             Self::SketchStart => &[
                 "constraint glyphs",
                 "snapping",
@@ -368,6 +389,7 @@ impl Section {
                 to.sketching.look_at_on_entering = from.sketching.look_at_on_entering;
                 to.sketching.escape_finishes = from.sketching.escape_finishes;
             }
+            Self::SketchInference => to.sketching.inferred = from.sketching.inferred,
             Self::SketchStart => to.sketching.at_start = from.sketching.at_start,
             Self::GraphicsDisplay => {
                 to.graphics.vsync = from.graphics.vsync;

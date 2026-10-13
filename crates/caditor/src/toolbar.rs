@@ -3,7 +3,7 @@ use egui::{Id, Response, Ui, Vec2};
 
 use crate::{
     analysis::{AnalysisCommand, Kind},
-    blend_panel, blend_tools, combine_tools,
+    blend_panel, blend_tools, coil_tools, combine_tools,
     commands::{Command, CommandFrame, Offer},
     datum_tools,
     editing::{EditingCommand, SketchEditing},
@@ -129,6 +129,7 @@ impl Group {
                     Command::Sweep,
                     Command::Pipe,
                     Command::Loft,
+                    Command::Coil,
                     Command::Hole,
                     Command::Thread,
                 ],
@@ -321,6 +322,7 @@ fn group_buttons(
             sweep_button(ui, model, context, commands, actions);
             pipe_offer(model, context, commands, actions);
             loft_offer(model, context, commands, actions);
+            coil_offer(model, context, commands, actions);
             hole_button(ui, model, context, commands, actions);
             primitive_offers(model, context, commands, actions);
             thread_offer(model, context, commands, actions);
@@ -588,6 +590,20 @@ fn hole_button(
         && let Ok(source) = source
     {
         actions.extend(hole_tools::create_actions(model, source));
+    }
+}
+
+fn coil_offer(
+    model: &Model,
+    context: &ToolbarContext<'_>,
+    commands: &mut CommandFrame<'_>,
+    actions: &mut Vec<Action>,
+) {
+    let source = &context.offers.coil;
+    if commands.invoke(Command::Coil, source)
+        && let Ok(source) = source
+    {
+        actions.extend(coil_tools::create_actions(model, source));
     }
 }
 

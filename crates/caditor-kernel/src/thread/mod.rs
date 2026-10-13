@@ -7,6 +7,7 @@ use std::f64::consts::TAU;
 use caditor_geometry::{Plane, Point2, Vector2};
 use thiserror::Error;
 
+pub(crate) use self::groove::helix_knots;
 pub use self::groove::{GROOVE_PARTS, SPANS_PER_TURN};
 use crate::{
     boolean::{BooleanError, BooleanOperation, boolean},
@@ -38,7 +39,7 @@ pub enum Handedness {
 }
 
 impl Handedness {
-    fn sign(self) -> f64 {
+    pub(crate) fn sign(self) -> f64 {
         match self {
             Self::Right => 1.0,
             Self::Left => -1.0,

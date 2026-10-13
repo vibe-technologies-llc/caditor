@@ -64,6 +64,7 @@ struct MeshPlacement {
 @group(2) @binding(1) var shadow_sampler: sampler_comparison;
 @group(2) @binding(2) var lit_albedo: texture_2d<f32>;
 @group(2) @binding(3) var lit_normals: texture_2d<f32>;
+@group(2) @binding(4) var lit_depth: texture_2d<u32>;
 @group(3) @binding(0) var occlusion_map: texture_2d<f32>;
 @group(3) @binding(1) var occlusion_surfaces: texture_2d<u32>;
 @group(1) @binding(8) var surface_texels: texture_2d<u32>;
@@ -646,6 +647,7 @@ fn vs_shadow(vertex: MeshVertex) -> Varyings {
 struct LitTexel {
     @location(0) albedo: vec4<f32>,
     @location(1) normal: vec4<f32>,
+    @location(2) depth: u32,
 }
 
 @fragment
@@ -666,7 +668,7 @@ fn fs_shadow(in: Varyings) -> LitTexel {
     let metalness = select(0.0, finish_metalness(finish), (finish & FINISH_PRESENT) != 0u);
     let albedo = to_srgb(to_linear(in.color.rgb) * (1.0 - metalness));
     let facing = clamp(dot(normal, toward_light), 0.0, 1.0);
-    return LitTexel(vec4<f32>(albedo, facing), vec4<f32>(normal * 0.5 + 0.5, 1.0));
+    return LitTexel(vec4<f32>(albedo, facing), vec4<f32>(normal * 0.5 + 0.5, 1.0), bitcast<u32>(in.position.z));
 }
 
 struct SilhouetteStyle {
@@ -1078,13 +1080,25 @@ struct Surface {
     normal: vec3<f32>,
 }
 
+fn packed_snorm(values: vec4<f32>) -> u32 {
+    let scaled = vec4<i32>(floor(clamp(values, vec4<f32>(-1.0), vec4<f32>(1.0)) * 127.0 + 0.5));
+    let bytes = bitcast<vec4<u32>>(scaled) & vec4<u32>(255u);
+    return bytes.x | (bytes.y << 8u) | (bytes.z << 16u) | (bytes.w << 24u);
+}
+
+fn unpacked_snorm(packed: u32) -> vec4<f32> {
+    let raised = vec4<u32>(packed << 24u, packed << 16u, packed << 8u, packed);
+    let signed = bitcast<vec4<i32>>(raised) >> vec4<u32>(24u);
+    return max(vec4<f32>(signed) / 127.0, vec4<f32>(-1.0));
+}
+
 fn surface_in(surfaces: texture_2d<u32>, texel: vec2<i32>) -> Surface {
     let size = vec2<i32>(textureDimensions(surfaces));
     if any(texel < vec2<i32>(0)) || any(texel >= size) {
         return Surface(false, vec3<f32>(0.0), vec3<f32>(0.0));
     }
     let raw = textureLoad(surfaces, texel, 0);
-    return Surface(raw.w != 0u, bitcast<vec3<f32>>(raw.xyz), unpack4x8snorm(raw.w).xyz);
+    return Surface(raw.w != 0u, bitcast<vec3<f32>>(raw.xyz), unpacked_snorm(raw.w).xyz);
 }
 
 fn occludes() -> bool {
@@ -1147,7 +1161,7 @@ fn fs_surface(in: Varyings) -> @location(0) vec4<u32> {
         discard;
     }
     let normal = facing_normal(in, toward_eye(in.relative));
-    return vec4<u32>(bitcast<vec3<u32>>(in.relative), pack4x8snorm(vec4<f32>(normal, 1.0)));
+    return vec4<u32>(bitcast<vec3<u32>>(in.relative), packed_snorm(vec4<f32>(normal, 1.0)));
 }
 
 @fragment
@@ -1257,7 +1271,7 @@ fn bounced(relative: vec3<f32>, normal: vec3<f32>, pixel: vec2<f32>) -> vec3<f32
         if albedo.a <= 0.0 {
             continue;
         }
-        let depth = textureLoad(shadow_map, texel, 0);
+        let depth = bitcast<f32>(textureLoad(lit_depth, texel, 0).r);
         let placed = view.relative_from_light * vec4<f32>(at.x * 2.0 - 1.0, 1.0 - at.y * 2.0, depth, 1.0);
         let source = placed.xyz / placed.w;
         let source_normal = textureLoad(lit_normals, texel, 0).xyz * 2.0 - 1.0;

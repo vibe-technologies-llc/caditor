@@ -2,6 +2,7 @@ mod attachment;
 mod blend;
 mod body_appearance;
 mod body_pieces;
+mod coil;
 mod combine;
 mod configuration_import;
 mod configurations;
@@ -79,6 +80,11 @@ pub use crate::{
         OPACITY_STEPS, OPAQUE_PERCENT, Rgb, density_of, material_name, nearest_opacity_step,
     },
     body_pieces::{PieceKey, PieceLooks, Pieces},
+    coil::{
+        COIL_SHAPE, Coil, CoilLength, CoilSizing, CoilSpan, CoilTurning, DEFAULT_PITCH,
+        DEFAULT_TURNS, part_name as coil_part_name, placement_name as coil_placement_name,
+        shape_name as coil_shape_name, size_name as coil_size_name,
+    },
     combine::{Combine, CombineOperation},
     configuration_import::{
         CellChange, CellProblem, ColumnKind, ColumnOutcome, ColumnRefusal, ConfigurationImport,
@@ -225,6 +231,8 @@ mod body_appearance_tests;
 #[cfg(test)]
 mod body_pieces_tests;
 #[cfg(test)]
+mod coil_tests;
+#[cfg(test)]
 mod combine_tests;
 #[cfg(test)]
 mod configuration_import_tests;
@@ -264,6 +272,8 @@ mod model_scale_tests;
 mod modelled_thread_tests;
 #[cfg(test)]
 mod movement_tests;
+#[cfg(test)]
+mod named_entity_tests;
 #[cfg(test)]
 mod offset_face_tests;
 #[cfg(test)]
