@@ -17,7 +17,9 @@ use crate::{
 pub const NAME: &str = "View cube";
 pub const HOME_NAME: &str = "Isometric view";
 
-const CUBE_SIZE: f32 = 104.0;
+const SMALL_CUBE: f32 = 80.0;
+const STANDARD_CUBE: f32 = 104.0;
+const LARGE_CUBE: f32 = 136.0;
 const MARGIN: f32 = canvas::MARGIN;
 const PROJECTION_SCALE: f32 = 0.29;
 const INNER_CELL_EXTENT: f64 = 0.55;
@@ -151,39 +153,131 @@ impl Projector {
     }
 }
 
-fn cube_rect(viewport: Rect) -> Rect {
-    Rect::from_min_size(
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum CubeSize {
+    Small,
+    #[default]
+    Standard,
+    Large,
+}
+
+impl CubeSize {
+    pub fn side(self) -> f32 {
+        match self {
+            Self::Small => SMALL_CUBE,
+            Self::Standard => STANDARD_CUBE,
+            Self::Large => LARGE_CUBE,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Corner {
+    TopLeft,
+    #[default]
+    TopRight,
+    BottomLeft,
+    BottomRight,
+}
+
+impl Corner {
+    pub const ALL: [Self; 4] = [
+        Self::TopLeft,
+        Self::TopRight,
+        Self::BottomLeft,
+        Self::BottomRight,
+    ];
+
+    pub fn is_top(self) -> bool {
+        matches!(self, Self::TopLeft | Self::TopRight)
+    }
+
+    pub fn is_left(self) -> bool {
+        matches!(self, Self::TopLeft | Self::BottomLeft)
+    }
+
+    pub fn point(self, viewport: Rect) -> Pos2 {
+        let inner = viewport.shrink(MARGIN);
         pos2(
-            viewport.right() - MARGIN - CUBE_SIZE,
-            viewport.top() + MARGIN,
-        ),
-        vec2(CUBE_SIZE, CUBE_SIZE),
-    )
+            if self.is_left() {
+                inner.left()
+            } else {
+                inner.right()
+            },
+            if self.is_top() {
+                inner.top()
+            } else {
+                inner.bottom()
+            },
+        )
+    }
 }
 
-fn fit_rect(viewport: Rect) -> Rect {
-    let cube = cube_rect(viewport);
-    Rect::from_min_size(
-        pos2(cube.left(), cube.bottom() + FIT_BUTTON_GAP),
-        vec2(CUBE_SIZE, canvas::BUTTON_HEIGHT),
-    )
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CubePlacement {
+    pub size: CubeSize,
+    pub corner: Corner,
 }
 
-fn home_rect(viewport: Rect) -> Rect {
-    let fit = fit_rect(viewport);
-    Rect::from_min_size(
-        pos2(
-            fit.left() - FIT_BUTTON_GAP - canvas::BUTTON_HEIGHT,
-            fit.top(),
-        ),
-        Vec2::splat(canvas::BUTTON_HEIGHT),
-    )
+impl CubePlacement {
+    fn side(self) -> f32 {
+        self.size.side()
+    }
+
+    fn fit_width(self) -> f32 {
+        self.side().max(STANDARD_CUBE)
+    }
+
+    fn column(self, viewport: Rect, width: f32) -> f32 {
+        let corner = self.corner.point(viewport);
+        if self.corner.is_left() {
+            corner.x
+        } else {
+            corner.x - width
+        }
+    }
+
+    fn cube_rect(self, viewport: Rect) -> Rect {
+        let side = self.side();
+        let controls = canvas::BUTTON_HEIGHT + FIT_BUTTON_GAP;
+        let corner = self.corner.point(viewport);
+        let top = if self.corner.is_top() {
+            corner.y
+        } else {
+            corner.y - side - controls
+        };
+        Rect::from_min_size(pos2(self.column(viewport, side), top), vec2(side, side))
+    }
+
+    fn fit_rect(self, viewport: Rect) -> Rect {
+        let cube = self.cube_rect(viewport);
+        let width = self.fit_width();
+        Rect::from_min_size(
+            pos2(self.column(viewport, width), cube.bottom() + FIT_BUTTON_GAP),
+            vec2(width, canvas::BUTTON_HEIGHT),
+        )
+    }
+
+    fn home_rect(self, viewport: Rect) -> Rect {
+        let fit = self.fit_rect(viewport);
+        let left = if self.corner.is_left() {
+            fit.right() + FIT_BUTTON_GAP
+        } else {
+            fit.left() - FIT_BUTTON_GAP - canvas::BUTTON_HEIGHT
+        };
+        Rect::from_min_size(pos2(left, fit.top()), Vec2::splat(canvas::BUTTON_HEIGHT))
+    }
+
+    pub fn area(self, viewport: Rect) -> Rect {
+        self.cube_rect(viewport)
+            .union(self.fit_rect(viewport))
+            .union(self.home_rect(viewport))
+    }
 }
 
+#[cfg(test)]
 pub fn area(viewport: Rect) -> Rect {
-    cube_rect(viewport)
-        .union(fit_rect(viewport))
-        .union(home_rect(viewport))
+    CubePlacement::default().area(viewport)
 }
 
 pub fn view_name(direction: Vector3) -> String {
@@ -213,18 +307,18 @@ pub fn view_name(direction: Vector3) -> String {
 
 pub fn show(
     ui: &mut Ui,
-    viewport: Rect,
+    (viewport, placement): (Rect, CubePlacement),
     orientation: Rotation3,
     texts: &CubeTexts<'_>,
 ) -> Option<CubeAction> {
-    let rect = cube_rect(viewport);
+    let rect = placement.cube_rect(viewport);
     let id = ui.id().with("view cube");
     let response = ui.interact(rect, id, Sense::click_and_drag());
     let orbiting = response.dragged_by(PointerButton::Primary);
     let projector = Projector {
         to_view: orientation.inverse(),
         center: rect.center(),
-        scale: CUBE_SIZE * PROJECTION_SCALE,
+        scale: placement.side() * PROJECTION_SCALE,
     };
     let cells = visible_cells(&projector);
     let hovered = response
@@ -322,7 +416,7 @@ pub fn show(
 
     let fit = canvas::button(
         ui,
-        fit_rect(viewport),
+        placement.fit_rect(viewport),
         ui.id().with("fit view"),
         icons::command(Command::FitView),
         texts.fit_label,
@@ -330,7 +424,7 @@ pub fn show(
     .on_hover_text(texts.fit_hover);
     let home = canvas::icon_button(
         ui,
-        home_rect(viewport),
+        placement.home_rect(viewport),
         ui.id().with("home view"),
         icons::HOME_VIEW,
         HOME_NAME,
@@ -390,12 +484,12 @@ fn neighbour(projector: &Projector, current: Vector3, step: Vec2) -> Option<Vect
 pub const TRIAD_WIDTH: f32 =
     MARGIN + TRIAD_OFFSET + TRIAD_LENGTH * TRIAD_LABEL_REACH + TRIAD_LABEL_ROOM;
 
-pub fn show_axis_triad(ui: &Ui, viewport: Rect, orientation: Rotation3, palette: &ScenePalette) {
+pub fn show_axis_triad(ui: &Ui, bottom_left: Pos2, orientation: Rotation3, palette: &ScenePalette) {
     let projector = Projector {
         to_view: orientation.inverse(),
         center: pos2(
-            viewport.left() + MARGIN + TRIAD_OFFSET,
-            viewport.bottom() - MARGIN - TRIAD_OFFSET,
+            bottom_left.x + MARGIN + TRIAD_OFFSET,
+            bottom_left.y - MARGIN - TRIAD_OFFSET,
         ),
         scale: TRIAD_LENGTH,
     };
@@ -498,7 +592,14 @@ mod tests {
                     screen_rect: Some(viewport),
                     ..RawInput::default()
                 },
-                |ui| show_axis_triad(ui, viewport, orientation, contrast.palette(canvas)),
+                |ui| {
+                    show_axis_triad(
+                        ui,
+                        viewport.left_bottom(),
+                        orientation,
+                        contrast.palette(canvas),
+                    )
+                },
             );
             output.textures_delta.clear();
             shapes = output
@@ -603,14 +704,60 @@ mod tests {
     #[test]
     fn the_fit_button_sits_under_the_cube_inside_its_area() {
         let viewport = Rect::from_min_size(pos2(0.0, 0.0), vec2(800.0, 600.0));
+        let placement = CubePlacement::default();
         let area = area(viewport);
-        assert!(area.contains_rect(cube_rect(viewport)));
-        assert!(area.contains_rect(fit_rect(viewport)));
-        assert!(fit_rect(viewport).top() > cube_rect(viewport).bottom());
-        assert_eq!(fit_rect(viewport).height(), canvas::BUTTON_HEIGHT);
-        assert!(area.contains_rect(home_rect(viewport)));
-        assert!(home_rect(viewport).right() < fit_rect(viewport).left());
-        assert_eq!(home_rect(viewport).top(), fit_rect(viewport).top());
+        let cube = placement.cube_rect(viewport);
+        let fit = placement.fit_rect(viewport);
+        let home = placement.home_rect(viewport);
+
+        assert_eq!(placement.area(viewport), area);
+        assert_eq!(cube.right_top(), pos2(800.0 - MARGIN, MARGIN));
+        assert_eq!(cube.width(), STANDARD_CUBE);
+        assert!(area.contains_rect(cube));
+        assert!(area.contains_rect(fit));
+        assert!(fit.top() > cube.bottom());
+        assert_eq!(fit.height(), canvas::BUTTON_HEIGHT);
+        assert!(area.contains_rect(home));
+        assert!(home.right() < fit.left());
+        assert_eq!(home.top(), fit.top());
+    }
+
+    #[test]
+    fn every_size_and_corner_keeps_the_cube_and_its_buttons_inside_the_view_in_its_corner() {
+        let viewport = Rect::from_min_size(pos2(0.0, 0.0), vec2(800.0, 600.0));
+        for size in [CubeSize::Small, CubeSize::Standard, CubeSize::Large] {
+            for corner in Corner::ALL {
+                let placement = CubePlacement { size, corner };
+                let area = placement.area(viewport);
+                let cube = placement.cube_rect(viewport);
+                let fit = placement.fit_rect(viewport);
+                let home = placement.home_rect(viewport);
+                let at = corner.point(viewport);
+
+                assert!(
+                    viewport.shrink(MARGIN - 0.01).contains_rect(area),
+                    "{placement:?}"
+                );
+                assert_eq!(cube.width(), size.side());
+                assert!(
+                    fit.top() > cube.bottom() && !fit.intersects(home),
+                    "{placement:?}"
+                );
+                assert!(fit.width() >= STANDARD_CUBE);
+                assert!(
+                    (area.left() - at.x).abs() < 0.01 || (area.right() - at.x).abs() < 0.01,
+                    "{placement:?} leaves its corner"
+                );
+                assert!(
+                    (area.top() - at.y).abs() < 0.01 || (area.bottom() - at.y).abs() < 0.01,
+                    "{placement:?} leaves its corner"
+                );
+                assert_eq!(corner.is_left(), area.center().x < viewport.center().x);
+                assert_eq!(corner.is_top(), area.center().y < viewport.center().y);
+            }
+        }
+        assert!(CubeSize::Small.side() < CubeSize::Standard.side());
+        assert!(CubeSize::Standard.side() < CubeSize::Large.side());
     }
 
     #[test]

@@ -55,7 +55,9 @@ match, for example `zoom`, `grid` or `view cube`. Choosing a tab clears the sear
   system's, and how soon hover help appears: at once, after about a third of a second, or after a
   second. See [accessibility](accessibility).
 - **In the 3D view**: thin, standard or thick body edges, whether the outlines of round faces are
-  drawn, and whether the view cube with Fit all and the Isometric view button is shown.
+  drawn, and whether the view cube with Fit all and the Isometric view button is shown, how large
+  it is (small, standard or large) and which corner of the view it sits in. In a bottom corner the
+  axes or the mouse hints move aside to make room for it.
 
 ## Your own themes
 

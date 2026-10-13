@@ -422,7 +422,9 @@ paths:
   `slow`: `Transitions::scale` of the camera's transitions), `navigation.field_of_view`
   (`narrow`, `standard`, `wide`: 20°, 30°, 45°), `appearance.tooltip_delay` (`at_once`,
   `standard`, `later`, applied over the installed styles by `app::apply_appearance`),
-  `view.edges` (`thin`, `standard`, `thick`), `view.outlines`, `view.view_cube`, `sketch.look_at`,
+  `view.edges` (`thin`, `standard`, `thick`), `view.outlines`, `view.view_cube`,
+  `view.view_cube_size` (`small`, `standard`, `large`), `view.view_cube_corner` (`top_left`,
+  `top_right`, `bottom_left`, `bottom_right`), `sketch.look_at`,
   `sketch.escape_finishes`, the starting states `sketch.glyphs`, `sketch.snapping`,
   `sketch.grid_snapping`, `sketch.typed_dimensions` and `model.dimensions`
   (`StartingToggles`, set on the viewport at startup and again when one of them changes, the

@@ -166,22 +166,31 @@ paths:
   view) as key caps (alternatives joined by " or ") beside a muted action, plain for a note, on a
   bordered panel; a folded list ends in the More keys chip, a control-coloured bordered chip with
   the focus ring. Each key, "or" and action is its own text, so tests use `shows_hint`.
-- Overlay text keeps clear of the view cube: a failure or interference label covering the cube or
-  its buttons moves left of them (`viewport::clear_of`); the prompt and its hints centre in the band
-  left of `view_cube::area`, its key hints left out when they would reach the bottom strip of triad
-  and readouts (`view_cube::TRIAD_WIDTH`); labels beside the pointer, the grid spacing label (a
+- Overlay text keeps clear of the view cube wherever it sits (`ViewportState::cube_area`, the
+  `CubePlacement`'s area): a failure or interference label covering the cube or its buttons moves
+  to the side of them away from the view's edge (`viewport::clear_of`); the prompt and its hints
+  centre in the band beside a top cube, or across the top under a bottom one (`top_band`), its key
+  hints left out when they would reach the bottom strip of triad and readouts (at least
+  `view_cube::TRIAD_WIDTH`, the cube's height when it sits at the bottom); the axis triad and
+  readouts start right of a bottom-left cube and the navigation hints end left of a bottom-right one
+  (`bottom_strip_left`, `bottom_strip_right`); labels beside the pointer, the grid spacing label (a
   screen-reader `Label`), cursor readout and navigation hints avoid each other as `app-input.md`
-  says.
+  says (`the_view_cube_takes_any_size_and_corner_with_the_overlays_clear_of_it_and_is_remembered`
+  checks every size and corner).
 - The view cube is one focusable button named after the hovered target, else the nearest view, with
   that name as tooltip followed by the bound keys of a standard view's direction
   (`CubeTexts::view_keys`; Isometric only while the model keeps no redefined Isometric view); arrow
   keys step to the neighbouring target. A primary drag orbits like a right-drag
   (`CubeAction::Orbit`). Fit all (Fit selection when something is selected) under it is a canvas
   control (`canvas::button`) and left of it `canvas::icon_button` "Isometric view" goes to
-  Isometric as Alt+0 does; `view_cube::area` covers both. Preferences › Appearance › In the 3D
-  view can hide the cube with both buttons (`ViewDetails::view_cube`,
-  `ViewportState::view_cube_shown`), leaving their commands; the overlays then keep clear of an
-  empty corner (`ViewportState::cube_area`). The axis triad stays.
+  Isometric as Alt+0 does (right of it in a left corner); `CubePlacement::area` covers both.
+  Preferences › Appearance › In the 3D view can hide the cube with both buttons
+  (`ViewDetails::view_cube`, `ViewportState::view_cube_shown`), leaving their commands; the
+  overlays then keep clear of an empty corner (`ViewportState::cube_area`). The axis triad stays.
+  The same section sizes it (`view.view_cube_size`: `CubeSize` small 80, standard 104, large 136
+  points; Fit all keeps the standard width) and puts it in any corner (`view.view_cube_corner`:
+  `Corner`), both in `ViewDetails::cube`, read leniently; the default is the standard size at the
+  top right, laid out exactly as before.
 
 ## Widgets
 

@@ -31,6 +31,7 @@ use crate::{
     palette,
     units::{AngleUnit, Decimals, LengthUnit, NumberFormat, TrailingZeros},
     view_aids::{EdgeLook, EdgeWeight},
+    view_cube::{Corner, CubePlacement, CubeSize},
 };
 
 pub const MIN_SPEED: f64 = 0.25;
@@ -62,6 +63,8 @@ const FIELD_OF_VIEW_KEY: &str = "navigation.field_of_view";
 const EDGE_WEIGHT_KEY: &str = "view.edges";
 const OUTLINES_KEY: &str = "view.outlines";
 const VIEW_CUBE_KEY: &str = "view.view_cube";
+const VIEW_CUBE_SIZE_KEY: &str = "view.view_cube_size";
+const VIEW_CUBE_CORNER_KEY: &str = "view.view_cube_corner";
 const LOOK_AT_SKETCH_KEY: &str = "sketch.look_at";
 const ESCAPE_FINISHES_KEY: &str = "sketch.escape_finishes";
 const GLYPHS_KEY: &str = "sketch.glyphs";
@@ -188,7 +191,8 @@ impl PreferencesTab {
             Self::Appearance => {
                 "Go back to the system theme with its own accent and 3D view, at normal size and \
                  contrast with caditor's title bar, standard hover help, standard edges with \
-                 outlines and the view cube shown. Only this tab changes"
+                 outlines and the view cube shown at its standard size at the top right. Only \
+                 this tab changes"
             }
             Self::Navigation => {
                 "Go back to perspective with the standard field of view and view changes, normal \
@@ -405,6 +409,7 @@ impl Default for Navigation {
 pub struct ViewDetails {
     pub edges: EdgeLook,
     pub view_cube: bool,
+    pub cube: CubePlacement,
 }
 
 impl Default for ViewDetails {
@@ -412,6 +417,7 @@ impl Default for ViewDetails {
         Self {
             edges: EdgeLook::default(),
             view_cube: true,
+            cube: CubePlacement::default(),
         }
     }
 }
@@ -510,6 +516,8 @@ pub enum PreferenceChange {
     EdgeWeight(EdgeWeight),
     Outlines(bool),
     ViewCube(bool),
+    ViewCubeSize(CubeSize),
+    ViewCubeCorner(Corner),
     LookAtSketch(bool),
     EscapeFinishesSketch(bool),
     StartWithGlyphs(bool),
@@ -823,6 +831,8 @@ impl Preferences {
             PreferenceChange::EdgeWeight(weight) => self.view_details.edges.weight = weight,
             PreferenceChange::Outlines(shown) => self.view_details.edges.outlines_hidden = !shown,
             PreferenceChange::ViewCube(shown) => self.view_details.view_cube = shown,
+            PreferenceChange::ViewCubeSize(size) => self.view_details.cube.size = size,
+            PreferenceChange::ViewCubeCorner(corner) => self.view_details.cube.corner = corner,
             PreferenceChange::LookAtSketch(on) => self.sketching.look_at_on_entering = on,
             PreferenceChange::EscapeFinishesSketch(on) => self.sketching.escape_finishes = on,
             PreferenceChange::StartWithGlyphs(on) => self.sketching.at_start.glyphs = on,
@@ -923,6 +933,10 @@ impl ViewDetails {
                 outlines_hidden: !raw.flag(OUTLINES_KEY).unwrap_or(true),
             },
             view_cube: raw.flag(VIEW_CUBE_KEY).unwrap_or(true),
+            cube: CubePlacement {
+                size: CubeSize::read(raw, VIEW_CUBE_SIZE_KEY),
+                corner: Corner::read(raw, VIEW_CUBE_CORNER_KEY),
+            },
         }
     }
 
@@ -930,6 +944,8 @@ impl ViewDetails {
         settings.set_text(EDGE_WEIGHT_KEY, self.edges.weight.key());
         settings.set_flag(OUTLINES_KEY, !self.edges.outlines_hidden);
         settings.set_flag(VIEW_CUBE_KEY, self.view_cube);
+        settings.set_text(VIEW_CUBE_SIZE_KEY, self.cube.size.key());
+        settings.set_text(VIEW_CUBE_CORNER_KEY, self.cube.corner.key());
     }
 }
 

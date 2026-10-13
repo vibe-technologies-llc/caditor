@@ -5,6 +5,7 @@ use crate::{
     appearance::TOOLTIP_DELAY,
     units::{Decimals, TrailingZeros},
     view_aids::EdgeWeight,
+    view_cube::{Corner, CubeSize},
 };
 
 pub trait Choice: Copy + PartialEq + Default + 'static {
@@ -386,6 +387,73 @@ impl Choice for DoubleClick {
     }
 }
 
+impl Choice for CubeSize {
+    const ALL: &'static [Self] = &[Self::Small, Self::Standard, Self::Large];
+
+    fn key(self) -> &'static str {
+        match self {
+            Self::Small => "small",
+            Self::Standard => "standard",
+            Self::Large => "large",
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Small => "Small",
+            Self::Standard => "Standard",
+            Self::Large => "Large",
+        }
+    }
+
+    fn description(self) -> &'static str {
+        match self {
+            Self::Small => "A smaller view cube, leaving more of the view to the model",
+            Self::Standard => "The view cube at its usual size",
+            Self::Large => "A larger view cube, with bigger faces to click",
+        }
+    }
+}
+
+impl Choice for Corner {
+    const ALL: &'static [Self] = &Corner::ALL;
+
+    fn key(self) -> &'static str {
+        match self {
+            Self::TopLeft => "top_left",
+            Self::TopRight => "top_right",
+            Self::BottomLeft => "bottom_left",
+            Self::BottomRight => "bottom_right",
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::TopLeft => "Top left",
+            Self::TopRight => "Top right",
+            Self::BottomLeft => "Bottom left",
+            Self::BottomRight => "Bottom right",
+        }
+    }
+
+    fn description(self) -> &'static str {
+        match self {
+            Self::TopLeft => "The view cube, Fit all and the Isometric view in the top left corner",
+            Self::TopRight => {
+                "The view cube, Fit all and the Isometric view in the top right corner"
+            }
+            Self::BottomLeft => {
+                "The view cube, Fit all and the Isometric view in the bottom left corner; the \
+                 axes move beside them"
+            }
+            Self::BottomRight => {
+                "The view cube, Fit all and the Isometric view in the bottom right corner; the \
+                 mouse hints move beside them"
+            }
+        }
+    }
+}
+
 impl Choice for Decimals {
     const ALL: &'static [Self] = &[
         Self::Automatic,
@@ -498,6 +566,8 @@ mod tests {
         keys_are_distinct_and_read_back::<RecentListed>();
         keys_are_distinct_and_read_back::<DoubleClick>();
         keys_are_distinct_and_read_back::<Decimals>();
+        keys_are_distinct_and_read_back::<CubeSize>();
+        keys_are_distinct_and_read_back::<Corner>();
         keys_are_distinct_and_read_back::<TrailingZeros>();
     }
 

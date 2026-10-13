@@ -160,6 +160,8 @@ impl Section {
                 "outlines",
                 "silhouettes",
                 "view cube",
+                "corner",
+                "size",
             ],
             Self::NavigationView => &[
                 "projection",

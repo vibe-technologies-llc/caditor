@@ -86,7 +86,7 @@ use crate::{
     trimming::{self, Trimming},
     typed_point::{self, Typed, TypedPoint},
     view_aids::ViewAids,
-    view_cube::{self, CubeAction, CubeTexts},
+    view_cube::{self, Corner, CubeAction, CubePlacement, CubeTexts},
     view_history::{Gesture, ViewHistory},
     view_menu::{self, Held, Place, ViewMenu},
     visibility,
@@ -347,6 +347,7 @@ pub struct ViewportState {
     navigation: Navigation,
     sketching: Sketching,
     view_cube_shown: bool,
+    cube_placement: CubePlacement,
     keyboard_highlight: Option<Pickable>,
     pick_list: Option<PickList>,
     list_hold: bool,
@@ -557,6 +558,12 @@ fn clear_of(label: Rect, keep_out: Rect, view: Rect) -> Rect {
     if !label.intersects(keep_out) {
         return label;
     }
+    if keep_out.center().x < view.center().x {
+        let shift = keep_out.right() + canvas::MARGIN - label.left();
+        let moved = label.translate(vec2(shift, 0.0));
+        let past_right = (moved.right() - view.right()).max(0.0);
+        return moved.translate(vec2(-past_right, 0.0));
+    }
     let shift = keep_out.left() - canvas::MARGIN - label.right();
     let moved = label.translate(vec2(shift, 0.0));
     let past_left = (view.left() - moved.left()).max(0.0);
@@ -624,6 +631,7 @@ impl ViewportState {
             navigation: Navigation::default(),
             sketching: Sketching::default(),
             view_cube_shown: true,
+            cube_placement: CubePlacement::default(),
             keyboard_highlight: None,
             pick_list: None,
             list_hold: false,
@@ -1107,6 +1115,7 @@ impl ViewportState {
     pub fn set_view_details(&mut self, details: ViewDetails) {
         self.aids.edges = details.edges;
         self.view_cube_shown = details.view_cube;
+        self.cube_placement = details.cube;
     }
 
     pub fn set_sketching(&mut self, sketching: Sketching) {
@@ -1126,12 +1135,25 @@ impl ViewportState {
 
     fn cube_area(&self, rect: Rect) -> Rect {
         if self.view_cube_shown {
-            view_cube::area(rect)
+            self.cube_placement.area(rect)
         } else {
-            Rect::from_min_size(
-                pos2(rect.right() - canvas::MARGIN, rect.top() + canvas::MARGIN),
-                Vec2::ZERO,
-            )
+            Rect::from_min_size(self.cube_placement.corner.point(rect), Vec2::ZERO)
+        }
+    }
+
+    fn bottom_strip_left(&self, rect: Rect) -> f32 {
+        if self.view_cube_shown && self.cube_placement.corner == Corner::BottomLeft {
+            self.cube_area(rect).right()
+        } else {
+            rect.left()
+        }
+    }
+
+    fn bottom_strip_right(&self, rect: Rect) -> f32 {
+        if self.view_cube_shown && self.cube_placement.corner == Corner::BottomRight {
+            self.cube_area(rect).left()
+        } else {
+            rect.right()
         }
     }
 
@@ -5163,7 +5185,7 @@ impl ViewportState {
             view_keys: &view_keys,
         };
         let acted = if self.view_cube_shown {
-            view_cube::show(ui, rect, orientation, &texts)
+            view_cube::show(ui, (rect, self.cube_placement), orientation, &texts)
         } else {
             None
         };
@@ -5181,7 +5203,12 @@ impl ViewportState {
             Some(CubeAction::Home) => self.look_from(StandardView::Isometric, home),
             None => {}
         }
-        view_cube::show_axis_triad(ui, rect, orientation, self.contrast.palette(self.canvas));
+        view_cube::show_axis_triad(
+            ui,
+            pos2(self.bottom_strip_left(rect), rect.bottom()),
+            orientation,
+            self.contrast.palette(self.canvas),
+        );
 
         let painter = ui.painter();
         match &self.primary {
@@ -5254,6 +5281,11 @@ impl ViewportState {
         }
         let cube = self.cube_area(rect);
         let band = top_band(rect, cube);
+        let bottom_reserved = if cube.center().y > rect.center().y {
+            view_cube::TRIAD_WIDTH.max(rect.bottom() - cube.top())
+        } else {
+            view_cube::TRIAD_WIDTH
+        };
         let mut taken: Vec<Rect> = vec![cube];
         let prompt = self
             .prompt(model, editing, key_hints)
@@ -5262,7 +5294,7 @@ impl ViewportState {
                     ui,
                     rect,
                     band,
-                    view_cube::TRIAD_WIDTH,
+                    bottom_reserved,
                     &canvas_guidance::Prompt {
                         text: &text,
                         keys: &keys,
@@ -5279,7 +5311,7 @@ impl ViewportState {
             taken.push(self.paint_keyboard_description(ui, key_hints, band, prompt, &described));
         }
         let painter = ui.painter();
-        let readout_left = rect.left() + view_cube::TRIAD_WIDTH;
+        let readout_left = self.bottom_strip_left(rect) + view_cube::TRIAD_WIDTH;
         let bottom_left = pos2(readout_left, rect.bottom() - canvas::MARGIN);
         let grid_text = self
             .scenes
@@ -5350,13 +5382,14 @@ impl ViewportState {
         } else {
             grid_right
         };
+        let hints_right = self.bottom_strip_right(rect) - canvas::MARGIN;
         let hints = canvas::Hints::new(
             painter,
             &key_hints.navigation,
-            rect.right() - canvas::MARGIN - hints_left,
+            hints_right - hints_left,
             Align::Max,
         );
-        let anchor = rect.right_bottom() - vec2(canvas::MARGIN, canvas::MARGIN);
+        let anchor = pos2(hints_right, rect.bottom() - canvas::MARGIN);
         let placed = Align2::RIGHT_BOTTOM.anchor_size(anchor, hints.size());
         if placed.left() >= hints_left
             && let Some(placed) = canvas_guidance::first_clear(&[placed], &taken, rect)
@@ -5854,8 +5887,15 @@ fn pressed_without_repeat(input: &egui::InputState, pressed: Key) -> bool {
 }
 
 fn top_band(rect: Rect, cube: Rect) -> Rect {
-    let right = cube.left() - canvas::MARGIN;
-    let left = rect.left() + canvas::MARGIN;
+    let mut left = rect.left() + canvas::MARGIN;
+    let mut right = rect.right() - canvas::MARGIN;
+    if cube.center().y <= rect.center().y {
+        if cube.center().x < rect.center().x {
+            left = cube.right() + canvas::MARGIN;
+        } else {
+            right = cube.left() - canvas::MARGIN;
+        }
+    }
     Rect::from_min_max(
         pos2(left, rect.top() + canvas::MARGIN),
         pos2(right.max(left), rect.bottom()),

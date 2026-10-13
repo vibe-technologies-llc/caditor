@@ -19,6 +19,7 @@ use crate::{
     themes::{Look, UserThemes},
     units::{AngleUnit, Decimals, LengthUnit, TrailingZeros, Units},
     view_aids::EdgeWeight,
+    view_cube::{Corner, CubeSize},
     widgets::{self, DialogBody, DialogWidth, SectionAction, Tab, ThemeSample, Tone},
 };
 
@@ -985,10 +986,21 @@ fn in_the_view(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesC
                 ui,
                 details.view_cube,
                 "Show the view cube",
-                "The cube at the top right with Fit all and the Isometric view button under it",
+                "The cube in a corner of the 3D view with Fit all and the Isometric view button \
+                 under it",
                 PreferenceChange::ViewCube,
                 command,
             );
+        });
+        widgets::property(ui, "View cube size", |ui| {
+            if let Some(size) = pick::<CubeSize>(ui, details.cube.size) {
+                change(command, PreferenceChange::ViewCubeSize(size));
+            }
+        });
+        widgets::property(ui, "View cube corner", |ui| {
+            if let Some(corner) = pick::<Corner>(ui, details.cube.corner) {
+                change(command, PreferenceChange::ViewCubeCorner(corner));
+            }
         });
     });
 }
