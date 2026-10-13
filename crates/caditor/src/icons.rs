@@ -204,6 +204,7 @@ pub fn command(command: Command) -> &'static str {
         Command::Chamfer => blend(BlendKind::Chamfer),
         Command::Shell => SHELL,
         Command::OffsetFace => OFFSET_FACE,
+        Command::DeleteFace => DELETE_FACE,
         Command::SplitFace => SPLIT_FACE,
         Command::NewBox => primitive(PrimitiveKind::Box),
         Command::NewCylinder => primitive(PrimitiveKind::Cylinder),
@@ -401,6 +402,7 @@ const MIRROR: &str = phosphor::FLIP_HORIZONTAL;
 const SPLIT: &str = phosphor::SQUARE_SPLIT_HORIZONTAL;
 const MATE: &str = phosphor::MAGNET;
 const OFFSET_FACE: &str = phosphor::ARROWS_OUT_LINE_VERTICAL;
+const DELETE_FACE: &str = phosphor::ERASER;
 const SPLIT_FACE: &str = phosphor::SQUARE_SPLIT_VERTICAL;
 const THREAD: &str = phosphor::SPIRAL;
 const SCALE: &str = phosphor::RESIZE;
@@ -561,6 +563,7 @@ pub fn feature(kind: &FeatureKind) -> &'static str {
         FeatureKind::Blend(blend) => self::blend(blend.kind),
         FeatureKind::Shell(_) => SHELL,
         FeatureKind::OffsetFace(_) => OFFSET_FACE,
+        FeatureKind::DeleteFace(_) => DELETE_FACE,
         FeatureKind::SplitFace(_) => SPLIT_FACE,
         FeatureKind::Primitive(primitive) => self::primitive(primitive.shape.kind()),
         FeatureKind::Thread(_) => THREAD,

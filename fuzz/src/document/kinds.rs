@@ -8,8 +8,8 @@ use caditor_document::{
     AngleMate, AngleSides, AxisMate, AxisSide, AxisTurn, Between, Blend, BlendKind, BodyOperation,
     BodyPlacement, Calibration, ChamferForm, CircularPattern, Coil, CoilLength, CoilSizing,
     CoilTurning, Combine, CombineOperation, CopyOrientation, CurvePattern, CurveSpacing,
-    CurveStation, Datum, DatumAxis, DatumFrame, DatumPlane, DatumPoint, EdgeGroup, Extrude,
-    ExtrudeEnd, ExtrudeExtent, FaceAxisMate, FaceMate, FaceOnRound, FacePair, FaceTangent,
+    CurveStation, Datum, DatumAxis, DatumFrame, DatumPlane, DatumPoint, DeleteFace, EdgeGroup,
+    Extrude, ExtrudeEnd, ExtrudeExtent, FaceAxisMate, FaceMate, FaceOnRound, FacePair, FaceTangent,
     FaceThickness, FeatureId, FeatureKind, FinePitch, Hole, HoleBottom, HoleDepth, HoleFit,
     HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle, ImagePlane, ImageSize, ImageSpot,
     Import, LinearDirection, LinearSpacing, Loft, LoftSection, Mate, MatePair, MeasuredItem, Measurement, MetricSize,
@@ -80,10 +80,11 @@ pub enum Family {
     Thread,
     Measurement,
     ReferenceImage,
+    DeleteFace,
 }
 
 impl Family {
-    pub const ALL: [Self; 25] = [
+    pub const ALL: [Self; 26] = [
         Self::Sketch,
         Self::Solid,
         Self::Blend,
@@ -109,6 +110,7 @@ impl Family {
         Self::Thread,
         Self::Measurement,
         Self::ReferenceImage,
+        Self::DeleteFace,
     ];
 
     pub fn of(kind: &FeatureKind) -> Self {
@@ -118,6 +120,7 @@ impl Family {
             FeatureKind::Blend(_) => Self::Blend,
             FeatureKind::Shell(_) => Self::Shell,
             FeatureKind::OffsetFace(_) => Self::OffsetFace,
+            FeatureKind::DeleteFace(_) => Self::DeleteFace,
             FeatureKind::SplitFace(_) => Self::SplitFace,
             FeatureKind::Primitive(_) => Self::Primitive,
             FeatureKind::Pipe(_) => Self::Pipe,
@@ -175,6 +178,13 @@ pub fn feature_kind(
                 faces: scene.faces(input, body)?,
                 distance: scene.distance(input)?,
                 tangent: input.arbitrary()?,
+            })
+        }
+        Family::DeleteFace => {
+            let body = scene.body(input)?;
+            FeatureKind::DeleteFace(DeleteFace {
+                body,
+                faces: scene.faces(input, body)?,
             })
         }
         Family::SplitFace => {

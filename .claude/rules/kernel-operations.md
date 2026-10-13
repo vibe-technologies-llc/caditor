@@ -568,6 +568,39 @@ paths:
   edge is `UnsupportedEdge`; moving the whole tangent chain (`tangent_faces`) keeps every tangency
   (radii grow by the distance).
 
+# Delete faces (`shell/delete.rs`)
+
+- `delete_faces(solid, faces)` removes faces and closes the gap by extending the faces around them:
+  valid or a `DeleteError` (`NothingToDelete`, `MissingFace`, `Everything`, `CannotClose` naming the
+  chosen face whose gap stays open, `Vanishes` for a kept face the closing swallows, `Invalid`,
+  `Crosses`, `Cancelled`). Errors name faces of the input solid. The chosen faces are taken apart
+  into components joined across their shared edges, each closed one of two ways:
+  - A cap: every loop of a kept face touching the component borders only the component and is not
+    that face's outer loop (a through or blind hole with its floor, a pocket, a boss with its top, a
+    void shell). The component's faces and those loops are left out of a copy of the solid
+    (`Capped::removed`, settled pcurves, names and origins kept), so the face the hole was cut into
+    or the boss stood on closes over it.
+  - A band (anything else, each face of one loop): the shell's inner solid at offset zero
+    (`Offsets::still`, reach the diagonal of the deleted faces' edges) with each deleted face a
+    forced collapse (`inner::healed_solid`, `Collapses::deleting`): its `across` edges vanish,
+    merging their ends into vertices solved on the kept faces around them, and its two sides close
+    into one edge between the faces beyond them (the shell's bands and ridges). A deleted face is
+    never held to lie inside the closing as a shrinking face is (`Collapses::closes_over` skips it),
+    since the gap may close outward (a convex fillet) or inward (a concave one).
+- Which edges vanish is chosen per face (`candidates`): pairs of non-adjacent edges of its loop
+  whose two sides lie beyond kept faces other than itself that are not parallel planes, the
+  shortest across first (a fillet's or chamfer's ends), then every edge (a corner patch closing to a
+  point, a chamfer's triangle or a fillet's sphere, whatever lies beyond). Combinations are tried in order, at most `MAX_TRIALS`, the first
+  that builds without a kept face vanishing wins; when several faces fail together each is tried
+  alone to name the culprit. Kept faces keep their names and origins (`Naming::Kept`), edges their
+  names, new edges `between` their faces; `find_crossing` then refuses faces crossing.
+- So a fillet or chamfer goes back to its sharp edge (a rim of fillets or mitred chamfers at once,
+  every blend of a fully rounded or bevelled box with its corner patches),
+  a hole's rim chamfer or round goes leaving the hole, a torus rim fillet of a drum goes, and a
+  pocket's floor fillets go. One face of a tangent chain whose ends meet other blends, a face whose
+  neighbours run parallel (a box's top), a hole's wall without its floor and a boss's side without
+  its top are `CannotClose`.
+
 # Threads (`thread/`)
 
 - `thread(solid, ThreadSpec, feature)` cuts a modelled helical thread into a shaft or bore and

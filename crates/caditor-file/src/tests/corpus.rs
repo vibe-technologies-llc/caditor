@@ -9,7 +9,7 @@ use caditor_document::{
     AxisMate, AxisReference, AxisSide, AxisTurn, Blend, BlendKind, BodyAppearance, BodyOperation,
     BodyPlacement, ChamferForm, Coil, CoilLength, CoilTurning, Combine, CombineOperation,
     CopyOrientation, CurvePattern, CurveSpacing, Datum, DatumAxis, DatumFrame, DatumPlane,
-    DatumPoint, EdgeGroup, Extrude, ExtrudeEnd, ExtrudeExtent, FaceColour, FaceTangent,
+    DatumPoint, DeleteFace, EdgeGroup, Extrude, ExtrudeEnd, ExtrudeExtent, FaceColour, FaceTangent,
     FaceThickness, Feature, FinePitch, Finish, Hole, HoleBottom, HoleDepth, HoleFit, HoleShape,
     HoleSizing, HoleStandard, HoleStep, HoleStyle, Import, Loft, LoftSection, Mate, MatePair,
     MetricSize, Mirror, ModelProperties, Move, OffsetFace, Outline, ParameterOwner,
@@ -52,7 +52,7 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 34] = [
+const KEPT: [(&str, &str); 35] = [
     (
         "journal-1/by-reference.journal",
         "fe98725da8d9df46b19d7cede1474bcfb92bbda00d4de9c890e5bca5d0f2899f",
@@ -88,6 +88,10 @@ const KEPT: [(&str, &str); 34] = [
     (
         "model-1/datums.caditor",
         "eccdc03a0f9999a951b010f295fb893e67f3b7d97174d58770ddfb15cf06d54e",
+    ),
+    (
+        "model-1/deleted-faces.caditor",
+        "859ae366d6abd4248f22417a2073e3c387a458bae7bc41805e35dfea7b4849c6",
     ),
     (
         "model-1/document.caditor",
@@ -739,6 +743,10 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
             saved(&modelled_threads(), "Modelled threads"),
         ),
         (model("faces"), saved(&faces(), "Faces")),
+        (
+            model("deleted-faces"),
+            saved(&deleted_faces(), "Deleted faces"),
+        ),
         (model("shell-walls"), saved(&shell_walls(), "Shell walls")),
         (model("datums"), saved(&datums(), "Datums")),
         (model("bodies"), saved(&bodies(), "Bodies")),
@@ -1860,6 +1868,21 @@ fn faces() -> Document {
     for (name, kind) in kinds {
         transaction.add_feature(name, kind);
     }
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
+fn deleted_faces() -> Document {
+    let (mut document, _, _) = blended_model();
+    let base = named(&document, "Base");
+    let mut transaction = document.transaction("Delete face");
+    transaction.add_feature(
+        "Delete face",
+        FeatureKind::DeleteFace(DeleteFace {
+            body: base,
+            faces: vec![end_cap(0xbeef), end_cap(0xcafe)],
+        }),
+    );
     document.apply(transaction.finish()).unwrap();
     document
 }

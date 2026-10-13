@@ -40,6 +40,8 @@ pub mod crash;
 mod datum_panel;
 mod datum_tools;
 mod defender;
+mod delete_face_panel;
+mod delete_face_tools;
 mod dialog_parts;
 mod dimensioning;
 mod display;

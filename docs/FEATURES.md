@@ -7,10 +7,12 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Modelling
 
-- [high · hard] Bodies cannot be edited directly beyond offsetting faces: no moving, deleting or
-  replacing a face and no deleting a fillet or chamfer by its faces. An imported STEP body has
-  no feature history, so today it can only be cut, joined, filleted or shelled; a wall too thick, a
-  hole in the wrong place or a fillet to remove means remodelling it from scratch. Direct edits
+- [high · hard] Bodies cannot be edited directly beyond offsetting and deleting faces: no moving,
+  tilting or replacing a face, so a hole in the wrong place or a wall at the wrong angle on an
+  imported STEP body (which has no feature history) still means remodelling it. Delete face closes a
+  gap only from the faces around it: not a face whose sides lie beyond parallel faces (a step's
+  riser), one face of a tangent chain whose ends meet other blends (the chain must go whole), a face with several loops that are not whole loops of the faces around it (a hole
+  breaking out through a side), nor a gap that only faces further away could close. Direct edits
   become features of their own, named from the faces they move, so they stay parametric and
   undoable.
 - [medium · hard] Offset face moves planes, cylinders, cones, spheres and tori only: a spline,

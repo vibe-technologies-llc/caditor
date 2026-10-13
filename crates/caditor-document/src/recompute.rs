@@ -24,6 +24,7 @@ use crate::{
     body_pieces::PieceKey,
     coil, combine,
     datum::{self, DatumResult},
+    delete_face,
     document::{Document, Feature, FeatureId, FeatureKind, list_names},
     healing::{self, Healing},
     history::ResultHistory,
@@ -96,6 +97,7 @@ pub enum MissingInput {
     Regions { sketch: FeatureId },
     Edges { body: FeatureId },
     FacesToMove { body: FeatureId },
+    FacesToDelete { body: FeatureId },
     FacesToSplit { body: FeatureId },
 }
 
@@ -107,7 +109,9 @@ impl MissingInput {
             Self::Profiles => "Waiting for profiles",
             Self::Regions { .. } => "Waiting for regions",
             Self::Edges { .. } => "Waiting for edges",
-            Self::FacesToMove { .. } | Self::FacesToSplit { .. } => "Waiting for faces",
+            Self::FacesToMove { .. } | Self::FacesToDelete { .. } | Self::FacesToSplit { .. } => {
+                "Waiting for faces"
+            }
         }
     }
 
@@ -137,6 +141,9 @@ impl MissingInput {
             }
             Self::FacesToMove { body } => {
                 format!("Choose the faces of the body of {} to move.", name(body))
+            }
+            Self::FacesToDelete { body } => {
+                format!("Choose the faces of the body of {} to delete.", name(body))
             }
             Self::FacesToSplit { body } => {
                 format!("Choose the faces of the body of {} to split.", name(body))
@@ -1898,6 +1905,9 @@ impl Evaluator for ModelEvaluator {
             FeatureKind::Shell(definition) => shell::evaluate(feature, definition, inputs, cancel),
             FeatureKind::OffsetFace(definition) => {
                 offset_face::evaluate(feature, definition, inputs, cancel)
+            }
+            FeatureKind::DeleteFace(definition) => {
+                delete_face::evaluate(feature, definition, inputs, cancel)
             }
             FeatureKind::Hole(definition) => hole::evaluate(feature, definition, inputs, cancel),
             FeatureKind::Primitive(definition) => {

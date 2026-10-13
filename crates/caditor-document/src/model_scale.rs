@@ -721,6 +721,7 @@ impl Rescaler {
             | FeatureKind::Mirror(_)
             | FeatureKind::Split(_)
             | FeatureKind::SplitFace(_)
+            | FeatureKind::DeleteFace(_)
             | FeatureKind::Remove(_)
             | FeatureKind::Measurement(_) => {}
         }
@@ -1256,6 +1257,7 @@ fn anchored(kind: &mut FeatureKind) -> Vec<Anchored<'_>> {
         | FeatureKind::Blend(_)
         | FeatureKind::Shell(_)
         | FeatureKind::OffsetFace(_)
+        | FeatureKind::DeleteFace(_)
         | FeatureKind::Combine(_)
         | FeatureKind::Scale(_)
         | FeatureKind::Import(_)

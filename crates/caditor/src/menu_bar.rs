@@ -44,6 +44,7 @@ const MODEL_SHAPING: [&[Command]; 1] = [&[
     Command::Chamfer,
     Command::Shell,
     Command::OffsetFace,
+    Command::DeleteFace,
     Command::SplitFace,
     Command::Combine,
 ]];

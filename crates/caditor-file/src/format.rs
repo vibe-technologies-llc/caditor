@@ -10,23 +10,24 @@ use caditor_document::{
     AngleMate, AngleSides, AxisMate, AxisReference, AxisSide, AxisTurn, Between, Blend, BlendKind,
     BodyAppearance, BodyOperation, BodyPlacement, ChamferForm, CircularPattern, Coil, CoilLength,
     CoilTurning, Combine, CombineOperation, ConfigurationId, CopyOrientation, CurvePattern,
-    CurveSpacing, CurveStation, Datum, DatumAxis, DatumFrame, DatumPlane, DatumPoint, Document,
-    EdgeGroup, Edit, Extrude, ExtrudeEnd, ExtrudeExtent, FaceAttachment, FaceAxisMate, FaceColour,
-    FaceMate, FaceOnRound, FacePair, FaceTangent, FaceThickness, Feature, FeatureId, FeatureKind,
-    Finish, HOME_VIEW_NAME, Hole, HoleBottom, HoleDepth, HoleFit, HoleShape, HoleSizing,
-    HoleStandard, HoleStep, HoleStyle, Import, LinearDirection, LinearSpacing, Loft, LoftSection,
-    MAX_BODY_NAME_CHARS, MAX_GROUP_NAME_CHARS, MAX_MATERIAL_NAME_CHARS, MAX_PATTERN_INSTANCES,
-    MAX_SAVED_VIEWS, MAX_VIEW_NAME_CHARS, MIN_OPACITY_PERCENT, Mate, MatePair, MeasuredItem,
-    Measurement, MetricSize, Mirror, ModelProperties, ModelProperty, Move, NamedView,
-    OPAQUE_PERCENT, ORIGINAL_INSTANCE, Of, OffsetFace, Parameter, ParameterOwner, Pattern,
-    PatternKind, PieceKey, PieceLooks, Pieces, Pipe, PlaneReference, PlaneRotation, PlaneThrough,
-    PointBy, PointMate, PointReference, PointTarget, PointsPattern, Primitive, PrimitiveAnchor,
-    PrimitiveShape, PrincipalAxis, PrincipalGeometry, PrincipalPlane, ProjectionSource, Reading,
-    RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rgb, Rib, RibDirection, RibSide,
-    RollbackBar, SavedView, SavedViews, Scale, Shell, ShellSide, SketchAttachment, SketchFeature,
-    SolidFeature, SolidStart, Split, SplitAlong, SplitCarry, SplitFace, StepText, Sweep, SweepPath,
-    TappedThread, Thread, ThreadFamily, ThreadForm, ThreadHand, ThreadLength, ThreadSide,
-    ThreadSize, Transaction, TurnCentre, Wall, group_name, material_name, view_name,
+    CurveSpacing, CurveStation, Datum, DatumAxis, DatumFrame, DatumPlane, DatumPoint, DeleteFace,
+    Document, EdgeGroup, Edit, Extrude, ExtrudeEnd, ExtrudeExtent, FaceAttachment, FaceAxisMate,
+    FaceColour, FaceMate, FaceOnRound, FacePair, FaceTangent, FaceThickness, Feature, FeatureId,
+    FeatureKind, Finish, HOME_VIEW_NAME, Hole, HoleBottom, HoleDepth, HoleFit, HoleShape,
+    HoleSizing, HoleStandard, HoleStep, HoleStyle, Import, LinearDirection, LinearSpacing, Loft,
+    LoftSection, MAX_BODY_NAME_CHARS, MAX_GROUP_NAME_CHARS, MAX_MATERIAL_NAME_CHARS,
+    MAX_PATTERN_INSTANCES, MAX_SAVED_VIEWS, MAX_VIEW_NAME_CHARS, MIN_OPACITY_PERCENT, Mate,
+    MatePair, MeasuredItem, Measurement, MetricSize, Mirror, ModelProperties, ModelProperty, Move,
+    NamedView, OPAQUE_PERCENT, ORIGINAL_INSTANCE, Of, OffsetFace, Parameter, ParameterOwner,
+    Pattern, PatternKind, PieceKey, PieceLooks, Pieces, Pipe, PlaneReference, PlaneRotation,
+    PlaneThrough, PointBy, PointMate, PointReference, PointTarget, PointsPattern, Primitive,
+    PrimitiveAnchor, PrimitiveShape, PrincipalAxis, PrincipalGeometry, PrincipalPlane,
+    ProjectionSource, Reading, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rgb, Rib,
+    RibDirection, RibSide, RollbackBar, SavedView, SavedViews, Scale, Shell, ShellSide,
+    SketchAttachment, SketchFeature, SolidFeature, SolidStart, Split, SplitAlong, SplitCarry,
+    SplitFace, StepText, Sweep, SweepPath, TappedThread, Thread, ThreadFamily, ThreadForm,
+    ThreadHand, ThreadLength, ThreadSide, ThreadSize, Transaction, TurnCentre, Wall, group_name,
+    material_name, view_name,
 };
 use caditor_expression::{BinaryOperator, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Rotation3, Vector2, Vector3};
@@ -311,6 +312,7 @@ pub(crate) enum FeatureKindRecord {
     Coil(Box<CoilRecord>),
     Rib(Box<RibRecord>),
     Loft(Box<LoftRecord>),
+    DeleteFace(Box<DeleteFaceRecord>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -814,6 +816,12 @@ pub(crate) struct OffsetFaceRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct DeleteFaceRecord {
+    pub body: u64,
+    pub faces: Vec<Lenient<FaceRecord>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct DrillPointHoleRecord {
     pub feature: FeatureKindRecord,
     pub angle: String,
@@ -949,7 +957,7 @@ pub(crate) struct RevolveOneSideRecord {
 
 pub(crate) const FEATURE_FIELDS: [&str; 4] = ["hidden", "appearance", "group", "piece_looks"];
 
-pub(crate) const FEATURE_KINDS: [&str; 79] = [
+pub(crate) const FEATURE_KINDS: [&str; 80] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -1029,6 +1037,7 @@ pub(crate) const FEATURE_KINDS: [&str; 79] = [
     "sweep",
     "separate_pieces",
     "reference_image",
+    "delete_face",
 ];
 
 #[derive(Debug, Clone)]
@@ -3096,6 +3105,16 @@ fn kind_record(kind: &FeatureKind) -> FeatureKindRecord {
                     .map(|face| Lenient::Read(face_record(face)))
                     .collect(),
                 tangent: offset.tangent,
+            }))
+        }
+        FeatureKind::DeleteFace(delete) => {
+            FeatureKindRecord::DeleteFace(Box::new(DeleteFaceRecord {
+                body: delete.body.raw(),
+                faces: delete
+                    .faces
+                    .iter()
+                    .map(|face| Lenient::Read(face_record(face)))
+                    .collect(),
             }))
         }
         FeatureKind::Remove(remove) => FeatureKindRecord::Remove(RemoveRecord {
@@ -6256,6 +6275,9 @@ fn restore_kind(
         FeatureKindRecord::OffsetFace(record) => {
             FeatureKind::OffsetFace(restore_offset_face(record, name, issues))
         }
+        FeatureKindRecord::DeleteFace(record) => {
+            FeatureKind::DeleteFace(restore_delete_face(record, name, issues))
+        }
         FeatureKindRecord::Sweep(record) => {
             FeatureKind::Solid(SolidFeature::Sweep(restore_sweep(record, name, issues)))
         }
@@ -8012,6 +8034,32 @@ fn restore_offset_face(
         faces,
         distance,
         tangent: record.tangent,
+    }
+}
+
+fn restore_delete_face(
+    record: &DeleteFaceRecord,
+    feature: &str,
+    issues: &mut Vec<String>,
+) -> DeleteFace {
+    let faces: Vec<FaceReference> = record
+        .faces
+        .iter()
+        .filter_map(|face| match face {
+            Lenient::Read(face) => {
+                restore_face(&face.face, face.origin, face.copy, &face.neighbours)
+            }
+            Lenient::Unreadable(_) => None,
+        })
+        .collect();
+    if faces.len() < record.faces.len() {
+        issues.push(format!(
+            "Some faces deleted by “{feature}” could not be read and were left on the body."
+        ));
+    }
+    DeleteFace {
+        body: FeatureId::from_raw(record.body),
+        faces,
     }
 }
 

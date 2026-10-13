@@ -677,6 +677,15 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   Kernel refusals become sentences (`OffsetError`: a vanishing face, crossing faces, a neighbour it
   cannot follow, a corner where faces cannot meet).
 
+### Delete face (`delete_face.rs`)
+
+- `DeleteFace { body, faces }` resolves its `FaceReference`s in the body's state before it (lost or
+  tied fails, no face waits as `MissingInput::FacesToDelete`) and removes them, the faces around
+  closing the gap (kernel `delete_faces`). It modifies its body (`modifies_body`), keeps the state
+  before it and every name the kernel keeps; it has no expressions. Kernel refusals become sentences
+  naming the face (`DeleteError`: neighbours that cannot close the gap, with what to choose too; a
+  face that would vanish; faces that would cross; a result that would not stay valid).
+
 ### Primitive (`primitive.rs`)
 
 - `Primitive { shape, plane, at, anchor, reversed, operation }` makes a box, cylinder, sphere,

@@ -65,6 +65,7 @@ mod coordinate_systems;
 mod curve_pattern_handles;
 mod custom_colours;
 mod datums;
+mod delete_face;
 mod dialogs;
 mod dimension_labels;
 mod display_styles;

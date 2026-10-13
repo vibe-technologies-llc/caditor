@@ -1,4 +1,7 @@
 mod collapse;
+mod delete;
+#[cfg(test)]
+mod delete_tests;
 mod edge;
 mod inner;
 mod offset;
@@ -38,6 +41,7 @@ const SMOOTH_TOLERANCE: f64 = 1e-6;
 const NAMED_WALL_FACES: usize = 4;
 const LEANING: f64 = 1e-6;
 
+pub use delete::{DeleteError, delete_faces};
 pub use offset::{OffsetError, offset_faces};
 pub use walls::{ShellSide, Walls};
 
@@ -170,6 +174,14 @@ impl<'a> Offsets<'a> {
             solid,
             reach: inward.abs(),
             distances: faces.iter().map(|face| (*face, inward)).collect(),
+        }
+    }
+
+    fn still(solid: &'a Solid, reach: f64) -> Self {
+        Self {
+            solid,
+            reach,
+            distances: BTreeMap::new(),
         }
     }
 

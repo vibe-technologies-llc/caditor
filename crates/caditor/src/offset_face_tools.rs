@@ -22,6 +22,14 @@ pub const TITLE: &str = "Offset face";
 const CHOOSE_FACES: &str = "Select the faces of a body to move";
 
 pub fn selected_faces(model: &Model, selection: &Selection) -> Result<FaceSource, &'static str> {
+    faces_of_one_body(model, selection, CHOOSE_FACES)
+}
+
+pub fn faces_of_one_body(
+    model: &Model,
+    selection: &Selection,
+    choose_faces: &'static str,
+) -> Result<FaceSource, &'static str> {
     let mut body = None;
     let mut faces = Vec::new();
     let mut left_out = Vec::new();
@@ -36,8 +44,8 @@ pub fn selected_faces(model: &Model, selection: &Selection) -> Result<FaceSource
             left_out.push(pickable);
         }
     }
-    let body = body.ok_or(CHOOSE_FACES)?;
-    bodies::shown(model.evaluation(), body).ok_or(CHOOSE_FACES)?;
+    let body = body.ok_or(choose_faces)?;
+    bodies::shown(model.evaluation(), body).ok_or(choose_faces)?;
     Ok(FaceSource {
         body,
         faces,

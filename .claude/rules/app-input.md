@@ -45,7 +45,8 @@ paths:
   keyboard-highlight hints never fold.
 - Prompts (`canvas_guidance::show_prompt`): an open feature's says what a click does
   (`viewport::feature_prompt`, "Click edges to fillet…") with `Esc: done` only where clicks act
-  (blend, shell, offset and split faces, extrude, revolve and sweep regions, pattern copies),
+  (blend, shell, offset, delete and split faces, extrude, revolve and sweep regions, pattern
+  copies),
   else where in its panel to look, per datum and pattern kind; Select in an edited sketch has
   `SELECT_PROMPT` with Esc finishing or clearing.
 - An empty model (no feature, nothing open, no plane being chosen, no drag) shows the start card
