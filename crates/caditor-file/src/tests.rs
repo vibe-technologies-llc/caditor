@@ -2567,6 +2567,59 @@ fn solid_model() -> (Document, FeatureId, FeatureId) {
 }
 
 #[test]
+fn a_hand_made_file_storing_users_above_what_they_use_loads_in_use_order_and_undoes_deletions() {
+    use caditor_document::{RevolveExtent, SolidFeature};
+
+    let (document, base, turned) = solid_model();
+    let mut lines = lines_of(&document);
+    let outline = lines
+        .iter()
+        .position(|line| line.contains("\"name\":\"Outline\""))
+        .unwrap();
+    let moved = lines.remove(outline);
+    lines.push(moved);
+
+    let loaded = decode_lines(&lines);
+    let mut editor = Editor::new(loaded.document.clone());
+
+    let deletion = editor.document().deletion(&[base], "Delete");
+    editor.apply(deletion).unwrap();
+    let undo_deletion = editor.undo();
+    let FeatureKind::Solid(SolidFeature::Revolve(mut revolve)) =
+        editor.document().feature(turned).unwrap().kind.clone()
+    else {
+        panic!("Turned is a revolve");
+    };
+    revolve.extent = RevolveExtent::OneSide {
+        angle: editor.document().parse("45 deg").unwrap(),
+        reversed: false,
+    };
+    let changed = FeatureKind::Solid(SolidFeature::Revolve(revolve));
+    editor
+        .apply(Transaction::single(
+            "Edit",
+            Edit::SetFeatureKind {
+                id: turned,
+                kind: changed,
+            },
+        ))
+        .unwrap();
+    let undo_change = editor.undo();
+
+    assert_eq!(loaded.document, document);
+    assert_eq!(
+        loaded.issues,
+        [
+            "“Base” was stored above “Outline”, which it uses, so it now comes after it.",
+            "“Turned” was stored above “Outline”, which it uses, so it now comes after it.",
+        ]
+    );
+    assert!(undo_deletion.is_ok());
+    assert!(undo_change.is_ok());
+    assert_eq!(editor.document(), &document);
+}
+
+#[test]
 fn solid_features_are_saved_and_loaded() {
     let (document, _, _) = solid_model();
     let text = encode(&document).unwrap();

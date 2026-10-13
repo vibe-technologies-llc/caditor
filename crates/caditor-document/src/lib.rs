@@ -60,6 +60,7 @@ mod thread_standard;
 mod tolerance;
 mod tree;
 mod trouble;
+mod use_order;
 mod values;
 mod views;
 mod worker;
@@ -186,6 +187,7 @@ pub use crate::{
         ThreadClass, ThreadDesignation, ThreadFamily, ThreadHand, ThreadSide, ThreadSize,
     },
     tolerance::along_plane,
+    use_order::{Lowered, UseOrder},
     values::{ParameterError, ParameterValues},
     views::{
         HOME_VIEW_NAME, MAX_SAVED_VIEWS, MAX_VIEW_NAME_CHARS, NamedView, SavedView, SavedViews,
@@ -292,6 +294,8 @@ mod taper_tests;
 mod thread_tests;
 #[cfg(test)]
 mod tree_tests;
+#[cfg(test)]
+mod use_order_tests;
 #[cfg(test)]
 mod views_tests;
 #[cfg(test)]

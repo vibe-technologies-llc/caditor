@@ -399,7 +399,7 @@ pub(crate) fn assemble(parts: Parts, issues: &mut Vec<String>) -> Document {
         },
     );
 
-    let features = with_unique_names(features, issues);
+    let features = in_use_order(&document, with_unique_names(features, issues), issues);
     apply_each(
         &mut document,
         &features,
@@ -640,6 +640,21 @@ fn with_unique_names(features: Vec<Feature>, issues: &mut Vec<String>) -> Vec<Ar
         unique.push(Arc::new(feature));
     }
     unique
+}
+
+fn in_use_order(
+    document: &Document,
+    features: Vec<Arc<Feature>>,
+    issues: &mut Vec<String>,
+) -> Vec<Arc<Feature>> {
+    let ordered = document.in_use_order(features);
+    issues.extend(ordered.lowered.iter().map(|lowered| {
+        format!(
+            "“{}” was stored above “{}”, which it uses, so it now comes after it.",
+            lowered.name, lowered.below
+        )
+    }));
+    ordered.features
 }
 
 fn without_cycles(

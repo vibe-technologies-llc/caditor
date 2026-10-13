@@ -17,6 +17,7 @@ struct Index {
     positions: BTreeMap<FeatureId, usize>,
     by_body: OnceLock<Arc<BTreeMap<FeatureId, Vec<FeatureId>>>>,
     by_name: OnceLock<Arc<BTreeMap<String, Vec<FeatureId>>>>,
+    by_use: OnceLock<Arc<BTreeMap<FeatureId, Vec<FeatureId>>>>,
 }
 
 impl PartialEq for FeatureList {
@@ -58,10 +59,19 @@ impl FeatureList {
             .is_some_and(|holders| holders.iter().any(|holder| *holder != id))
     }
 
+    pub fn users_of(&self, used: FeatureId) -> &[FeatureId] {
+        self.index
+            .by_use
+            .get_or_init(|| Arc::new(grouped_by_use(&self.items)))
+            .get(&used)
+            .map_or(&[], Vec::as_slice)
+    }
+
     pub fn get_mut_by_id(&mut self, id: FeatureId) -> Option<&mut Arc<Feature>> {
         let index = self.position(id)?;
         self.index.by_body = OnceLock::new();
         self.index.by_name = OnceLock::new();
+        self.index.by_use = OnceLock::new();
         self.items.get_mut(index)
     }
 
@@ -72,6 +82,12 @@ impl FeatureList {
                 .entry(feature.name.clone())
                 .or_default()
                 .push(feature.id());
+        }
+        if let Some(uses) = self.index.by_use.get_mut() {
+            let uses = Arc::make_mut(uses);
+            for used in features_used(&feature) {
+                uses.entry(used).or_default().push(feature.id());
+            }
         }
         self.items.insert(index, feature);
         self.reindex(index, self.items.len());
@@ -89,6 +105,17 @@ impl FeatureList {
                 holders.retain(|holder| *holder != feature.id());
                 if holders.is_empty() {
                     names.remove(&feature.name);
+                }
+            }
+        }
+        if let Some(uses) = self.index.by_use.get_mut() {
+            let uses = Arc::make_mut(uses);
+            for used in features_used(&feature) {
+                if let Some(users) = uses.get_mut(&used) {
+                    users.retain(|user| *user != feature.id());
+                    if users.is_empty() {
+                        uses.remove(&used);
+                    }
                 }
             }
         }
@@ -118,6 +145,25 @@ fn grouped_by_body(items: &[Arc<Feature>]) -> BTreeMap<FeatureId, Vec<FeatureId>
     for feature in items {
         if let Some(body) = feature.body() {
             grouped.entry(body).or_default().push(feature.id());
+        }
+    }
+    grouped
+}
+
+fn features_used(feature: &Feature) -> impl Iterator<Item = FeatureId> {
+    let id = feature.id();
+    feature
+        .kind
+        .features()
+        .into_iter()
+        .filter(move |used| *used != id)
+}
+
+fn grouped_by_use(items: &[Arc<Feature>]) -> BTreeMap<FeatureId, Vec<FeatureId>> {
+    let mut grouped: BTreeMap<FeatureId, Vec<FeatureId>> = BTreeMap::new();
+    for feature in items {
+        for used in features_used(feature) {
+            grouped.entry(used).or_default().push(feature.id());
         }
     }
     grouped
@@ -242,6 +288,39 @@ mod tests {
         assert_eq!(changed, (vec![3], vec![1, 2]));
         assert!(removed.is_empty());
         assert!(on_body(&list, 9).is_empty());
+    }
+
+    fn users_of(list: &FeatureList, used: u64) -> Vec<u64> {
+        list.users_of(FeatureId::from_raw(used))
+            .iter()
+            .map(|id| id.raw())
+            .collect()
+    }
+
+    #[test]
+    fn the_users_of_a_feature_follow_inserts_removals_and_changed_kinds() {
+        let mut list = FeatureList::default();
+
+        list.insert(0, removal(1, 7));
+        let asked_first = users_of(&list, 7);
+        list.insert(1, removal(2, 7));
+        list.insert(2, removal(3, 8));
+        let inserted = (users_of(&list, 7), users_of(&list, 8));
+
+        list.remove(0);
+        let removed = users_of(&list, 7);
+
+        if let Some(feature) = list.get_mut_by_id(FeatureId::from_raw(3)) {
+            Arc::make_mut(feature).kind = FeatureKind::Remove(Remove {
+                body: FeatureId::from_raw(7),
+            });
+        }
+        let changed = (users_of(&list, 7), users_of(&list, 8));
+
+        assert_eq!(asked_first, [1]);
+        assert_eq!(inserted, (vec![1, 2], vec![3]));
+        assert_eq!(removed, [2]);
+        assert_eq!(changed, (vec![2, 3], vec![]));
     }
 
     #[test]
