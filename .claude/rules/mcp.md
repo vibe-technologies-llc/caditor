@@ -59,14 +59,14 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   and waits for its report. Closing discards the journal only when the model is saved; otherwise
   it stays for the window to recover.
 
-## Tools (`tools.rs`, `reading.rs`, `writing.rs`, `features.rs`, `tree_edits.rs`, `edges.rs`, `files.rs`)
+## Tools (`tools.rs`, `reading.rs`, `writing.rs`, `sketching.rs`, `features.rs`, `tree_edits.rs`, `edges.rs`, `files.rs`)
 
 - `Tool` lists every tool (`all_variants!`); `Tool::decode` turns arguments into a typed `Call`
   through `serde` (`deny_unknown_fields`), and `Call::run` does it. Errors are `ToolError` and the
   per-area enums (`ReferenceError`, `SketchingError`, `ModellingError`, `FileError`,
-  `RenderError`, `ChangeError`, `PlaceError`, `FeatureError`, `MeasuringError`, `TreeError`), sent as a tool result with `isError` and the message as a
-  sentence; the app's own refusals (field parsing, attachment, constraint conflicts) keep their
-  words.
+  `RenderError`, `ChangeError`, `PlaceError`, `FeatureError`, `MeasuringError`, `TreeError`),
+  sent as a tool result with `isError` and the message as a sentence; the app's own refusals
+  (field parsing, attachment, constraint conflicts) keep their words.
 - References are by stable identity only (`references.rs`): features and bodies by id or name,
   sketch entities by id or `origin`, `horizontal_axis`, `vertical_axis`, faces by a key of their
   `FaceName` digest and occurrence (`face_key_text`), edges by their `EdgeName` digest
@@ -100,12 +100,23 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   `Document::suppression`, `Document::move_row` before or after another feature (its
   `check_moves` refusal is the answer) and `Document::deletion`, which refuses while
   `dependents_of` finds users unless `dependents` says `delete` or `keep`, as the delete dialog asks.
- with `state_of`'s words, parameters, bodies with `exact_mass` and
+- Sketching beyond the first slice lives in `sketching.rs`: `add_sketch_geometry` also draws arcs
+  (about a centre, or through three points), slots, arc slots, regular polygons (by vertex or by
+  the middle of the first side), fit or control splines and ellipses, each with the joints,
+  tangents, equal arcs and construction circle the app's `Draft` recipes in `drawing.rs` add (a
+  slot's top line is held level or upright when its centres line up), from the `shapes.rs`
+  geometry; `add_sketch` takes a datum plane (`datum`) or a plane of a coordinate system (`frame`
+  with `plane`) through `DatumTarget`, as New sketch on a selected datum does; `remove_sketch_items`
+  removes constraints and entities (`Transaction::remove_sketch_items` expands an entity to its
+  users, and the answer lists everything gone); `edit_sketch_constraint` changes a dimension through
+  `field::dimension_transaction` (the dimension field's parsing, units and parameters) and turns a
+  constraint on or off, both after settling the sketch. Their failures are `SketchToolError`.
+- Reads: the feature tree with `state_of`'s words, parameters, bodies with `exact_mass` and
   `extent` under the kernel interrupt (`interruptible`), faces (at most `MOST_FACES`), edges with
-  `edge_measure`'s kind and length (at most `MOST_EDGES`), the distance and angle between two points,
-  faces or edges by the kernel's `distance` and `angle`, a sketch
-  with `SketchSummary`, and a picture through `snapshot::looking_from` and `png_bytes`, sized
-  `SMALLEST_SIDE` to `LARGEST_SIDE`.
+  `edge_measure`'s kind and length (at most `MOST_EDGES`), the distance and angle between two
+  points, faces or edges by the kernel's `distance` and `angle`, a sketch with `SketchSummary`,
+  and a picture through `snapshot::looking_from` and `png_bytes`, sized `SMALLEST_SIDE` to
+  `LARGEST_SIDE`.
 - Files: `save` writes the model's own file; `export` writes `headless::deliver`'s formats only
   into the model's folder, the `--folder` folders and folders below them (`files::allowed`:
   canonical parent, no link as the target). Nothing reaches the network.
@@ -126,3 +137,5 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   `mcp/feature_tests.rs` checks each feature tool by the volumes it leaves (fillets, shells,
   revolves, primitives, mirrors, patterns, combines, moves), the edge listing and measurements, the
   tree edits with undo, and the refusals.
+  `mcp/sketching_tests.rs` covers each sketching tool, extruding what the shapes draw to check
+  their regions, and sketches on a datum plane and a coordinate system of a saved model.

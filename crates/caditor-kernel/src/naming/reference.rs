@@ -428,7 +428,7 @@ pub fn vertex_names(solid: &Solid) -> BTreeMap<VertexId, VertexName> {
         .collect()
 }
 
-fn faces_around_vertices(solid: &Solid) -> BTreeMap<VertexId, BTreeSet<FaceName>> {
+pub fn faces_around_vertices(solid: &Solid) -> BTreeMap<VertexId, BTreeSet<FaceName>> {
     let mut around: BTreeMap<VertexId, BTreeSet<FaceName>> = BTreeMap::new();
     for (id, edge) in solid.edges() {
         let names: Vec<FaceName> = edge_faces(solid, id)

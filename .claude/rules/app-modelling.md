@@ -526,8 +526,9 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   `coil_size_name`, Position (Inside, Centred, Outside), Taper (`Rule::CoilTaper`), Turning
   (Counter-clockwise, Clockwise) and the shared Result and Body rows. Fields are keyed
   `("coil-field", feature, "diameter" | "size" | "taper" | "turns" | "pitch" | "height")`, turns
-  under `Rule::CoilTurns`. Reverse direction (`reversing.rs`) flips `reversed`. It has no value
-  arrows yet (`docs/FEATURES.md`).
+  under `Rule::CoilTurns`. Reverse direction (`reversing.rs`) flips `reversed`. Its value arrows are
+  `Measured::CoilDiameter`, `CoilSection`, `CoilPitch` and `CoilHeight` (`value_gauges.rs`, listed
+  there).
 ## Rib
 
 - `Command::Rib` (no default key; `rib_tools.rs`, `Offers::rib`; Solid group menu, Model menu,
@@ -546,7 +547,8 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   Thickness (keyed `("rib-field", feature, "thickness")`), Side (One side, Other side, Symmetric,
   each hover saying which side for the direction) and a reverse checkbox worded for the direction
   (`REVERSE_FILL`, `REVERSE_DIRECTION`). It is not `modifies_body`, so the view shows the ribbed
-  body while it is open. Reverse direction flips `reversed`. It has no value arrows.
+  body while it is open. Reverse direction flips `reversed`. Its value arrow is
+  `Measured::RibThickness` (`value_gauges.rs`, listed there).
 
 ## Fillets, chamfers and shells
 
@@ -820,6 +822,20 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
     corner, along the bisector from the corner (`1/cos(turn/2) - 1` of the radius, as a fillet's
     size), left out for a pipe without a corner between two lines. A bend radius of zero stands at the
     corner and can be dragged out.
+  - A coil's Diameter, Section, Pitch and Height (`Measured::CoilDiameter`, `CoilSection`,
+    `CoilPitch`, `CoilHeight`), standing on the frame `Coil::frame` makes of the displayed axis
+    (`displayed_axis`) and the wire's centre line at each angle (`Builder::coil`: radius from
+    `Position`, plus the taper's slope): the diameter along the frame's x axis from the origin, at
+    half speed; the section upward from the wire's top at a half turn (or the end of a shorter
+    coil), at half speed; the pitch upward from the wire one turn up; the height upward from the
+    wire at the coil's end. The pitch is left out when the coil is sized by height and turns, the
+    height unless it is sized by it; like any arrow one pointing along the view is not shown, and
+    the section's caption follows its shape (`coil_size_name`).
+  - A rib's Thickness (`Measured::RibThickness`), standing on the first chain of the rib's sketch
+    (`caditor_document::rib_stand`): for a rib parallel to its sketch on the first curve (a quarter
+    of the way along) across the sketch, along or against its normal for One side and Other side,
+    at half speed for Symmetric; for a web at the start of the chain along the way the curves are
+    thickened (left of the walk from the first end for One side, right for Other side).
   - A shell's and a thin wall's Thickness; a shell's Own thickness of each face given one
     (`Measured::ShellFaceThickness(index)`, captioned `shell_panel::own_thickness_caption`), standing
     on the face (the middle of a flat face, `hole_tools::middle_of`; the middle of a curved face's
@@ -1054,9 +1070,11 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
 
 ## Patterns
 
-- With rows chosen in the tree that are all extrusions, revolves, holes or primitives adding to or
-  removing from one body (`pattern_tools::repeatable`, from the tree's raw rows, which the offers carry
-  beside its bodies), Linear and Circular pattern repeat those features instead of the body, with a
+- With rows chosen in the tree that are all extrusions, revolves, holes, primitives, fillets or
+  chamfers on one body (`repeatable_on`) and not only fillets and chamfers (`pattern_tools::repeatable`,
+  from the tree's raw rows, which the offers carry beside its bodies; blends alone have nothing to
+  follow, so they repeat the body), Linear and Circular pattern repeat those features instead of the
+  body, with a
   default spacing of twice their tools' extent along the direction. The Repeats rows list them (the
   last Stop repeating leaves the whole body repeated), and Repeat the chosen features takes the rows
   chosen now (Ctrl+click while the pattern is open).

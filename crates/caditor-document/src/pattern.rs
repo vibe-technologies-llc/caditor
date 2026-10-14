@@ -9,12 +9,14 @@ use caditor_kernel::{
 use caditor_sketch::{EntityId, Sketch};
 
 use crate::{
+    blend::BlendRecipe,
     datum::{AxisReference, PointReference, Resolver, feature_name},
     document::{Feature, FeatureId, FeatureKind},
     pattern_path::{CurvePath, PathError, Station, curve_path},
     recompute::{
         CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs, MissingInput,
     },
+    repeat_blend::{self, CopiedNames, CopyWords},
     solid::{BodyOperation, SolidResult},
     tolerance, trouble,
     values::ParameterValues,
@@ -105,6 +107,9 @@ pub struct Pattern {
 pub fn repeatable_on(kind: &FeatureKind) -> Option<FeatureId> {
     if let Some(hole) = kind.hole() {
         return Some(hole.body);
+    }
+    if let Some(blend) = kind.blend() {
+        return Some(blend.body);
     }
     let operation = if let Some(primitive) = kind.primitive() {
         primitive.operation
@@ -826,6 +831,14 @@ pub(crate) struct Seed<'a> {
     pub tools: Vec<&'a Solid>,
 }
 
+pub(crate) enum Repeated<'a> {
+    Tools(Seed<'a>),
+    Blend {
+        name: String,
+        recipe: &'a BlendRecipe,
+    },
+}
+
 pub(crate) struct SeedWords {
     pub feature: &'static str,
     pub repeats: &'static str,
@@ -857,7 +870,7 @@ pub(crate) fn seed<'a>(
     seed: FeatureId,
     body: FeatureId,
     words: &SeedWords,
-) -> Result<Seed<'a>, Failure> {
+) -> Result<Repeated<'a>, Failure> {
     let SeedWords {
         feature,
         repeats,
@@ -883,6 +896,9 @@ pub(crate) fn seed<'a>(
             &format!("Leave it out of the {feature}, or {verb} the body it changes."),
         ));
     }
+    if let Some(recipe) = result.blended() {
+        return Ok(Repeated::Blend { name, recipe });
+    }
     let (operation, parts) = match (result.cuts(), result.joins()) {
         ([], []) => {
             return Err(seed_error(
@@ -901,11 +917,11 @@ pub(crate) fn seed<'a>(
         .filter_map(|part| part.solid())
         .map(|part| &part.solid)
         .collect();
-    Ok(Seed {
+    Ok(Repeated::Tools(Seed {
         name,
         operation,
         tools,
-    })
+    }))
 }
 
 impl Context<'_> {
@@ -920,8 +936,26 @@ impl Context<'_> {
         let raw = self.resolver.feature.id().raw();
         let mut body = solid.clone();
         let mut cuts = Vec::new();
+        let mut names = CopiedNames::new(self.resolver.feature.id());
+        let instances: Vec<Instance> = copies.iter().map(|copy| copy.index).collect();
         for &feature in &definition.repeated {
-            let seed = seed(inputs, feature, definition.body, &PATTERN_WORDS)?;
+            let seed = match seed(inputs, feature, definition.body, &PATTERN_WORDS)? {
+                Repeated::Tools(seed) => seed,
+                Repeated::Blend { name, recipe } => {
+                    let copy_words = |instance: Instance| definition.instance_words(instance);
+                    let words = CopyWords {
+                        feature: self.resolver.feature.id(),
+                        blend: &name,
+                        seed: &PATTERN_WORDS,
+                        copy: &copy_words,
+                        clear: "Change the spacing or the angle so",
+                    };
+                    body = names
+                        .blend(body, recipe, &instances, cancel)
+                        .map_err(|error| repeat_blend::failure(&error, recipe, &words))?;
+                    continue;
+                }
+            };
             let subject = Context {
                 resolver: Resolver {
                     feature: self.resolver.feature,
@@ -947,6 +981,7 @@ impl Context<'_> {
                     cuts.push(placed);
                 }
             }
+            names.copying_tools_of(feature);
         }
         Ok(SolidResult::new(definition.body, body).cutting(cuts))
     }

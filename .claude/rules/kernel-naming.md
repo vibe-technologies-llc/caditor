@@ -52,6 +52,9 @@ paths:
   a coil face `FaceName::coil` of the feature and its part (tag `COIL_FACE`).
   A closing face of `enclose_faces` is `FaceName::closure` of the feature and the sorted, deduped
   names of its edges.
+- A blend repeated on a pattern's copy (`blend_copy`) names its faces as a blend of the pattern's
+  id and the copy's edge, with origin `Copy` of the pattern and the blend's feature
+  (`kernel-operations.md`).
 - Boolean fragments of a split face keep its name and origin; pieces keep their edge's name and new
   edges are `between` their two faces, before the plan disambiguates duplicates. A pattern renames
   a copy's faces, then its edges from those faces.

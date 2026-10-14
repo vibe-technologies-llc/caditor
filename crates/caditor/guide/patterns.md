@@ -12,6 +12,12 @@ A new linear or circular pattern starts from the count last used on one, kept be
 - Select a face, edge or vertex of the body, or choose it in the tree, to repeat the whole body.
 - Choose extrusions, revolves, holes or primitives in the tree to repeat only those features on
   their body, such as a row of holes.
+- Choose fillets and chamfers with them to round or bevel each copy the same way: a filleted boss
+  repeated with its fillet gives every copy its fillet, a raised count too. The blend follows the
+  edges of the features repeated with it (edges of the body around them, such as where a boss
+  stands on a plate, included); a fillet or chamfer chosen without the feature whose edges it
+  blends fails and says so, and so does a copy whose edges meet the body differently from the
+  original's.
 
 Select an axis, straight edge, round face or sketch line with it to set the direction or axis. A
 linear pattern otherwise runs along the X axis. A circular pattern never picks an axis for you: with

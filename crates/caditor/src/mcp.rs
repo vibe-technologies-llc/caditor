@@ -9,6 +9,7 @@ mod references;
 mod resources;
 mod server;
 mod session;
+mod sketching;
 pub mod tools;
 mod tree_edits;
 mod writing;
@@ -17,6 +18,8 @@ mod writing;
 mod end_to_end_tests;
 #[cfg(test)]
 mod feature_tests;
+#[cfg(test)]
+mod sketching_tests;
 #[cfg(test)]
 mod tests;
 

@@ -22,6 +22,7 @@ use crate::{
         reading::{feature_brief, plane, problems},
         references::{self, EntityName, Named, body_label},
         session::{Change, Performed, Session, Work},
+        sketching,
         tools::{Answer, ToolError},
     },
     sketch_placement::{self, FaceChoice},
@@ -57,6 +58,8 @@ pub struct NewSketch {
     pub plane: Option<PlaneName>,
     pub body: Option<Named>,
     pub face: Option<String>,
+    pub datum: Option<Named>,
+    pub frame: Option<Named>,
     pub name: Option<String>,
 }
 
@@ -92,6 +95,12 @@ pub enum Item {
         center: [f64; 2],
         radius: f64,
     },
+    Arc(sketching::ArcShape),
+    Slot(sketching::SlotShape),
+    ArcSlot(sketching::ArcSlotShape),
+    Polygon(sketching::PolygonShape),
+    Spline(sketching::SplineShape),
+    Ellipse(sketching::EllipseShape),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -343,7 +352,11 @@ fn report(
     Ok(Answer::of(details))
 }
 
-fn settled(transaction: &mut TransactionBuilder<'_>, evaluation: &Evaluation, sketch: FeatureId) {
+pub(super) fn settled(
+    transaction: &mut TransactionBuilder<'_>,
+    evaluation: &Evaluation,
+    sketch: FeatureId,
+) {
     if let Some(result) = up_to_date_result(evaluation, sketch) {
         transaction.settle_sketch(sketch, &result.geometry);
     }
@@ -414,6 +427,9 @@ pub fn add_sketch(
     work: &Work<'_>,
     asked: NewSketch,
 ) -> Result<Answer, ToolError> {
+    if asked.datum.is_some() || asked.frame.is_some() {
+        return sketching::add_sketch_on_datum(session, work, asked);
+    }
     let (feature, transaction) = match (asked.plane, asked.body, asked.face) {
         (Some(_), _, Some(_)) => return Err(SketchingError::BothPlaces.into()),
         (None, _, None) => return Err(SketchingError::NoPlace.into()),
@@ -459,6 +475,15 @@ pub fn add_sketch(
             (feature, transaction.finish())
         }
     };
+    sketch_added(session, work, transaction, feature)
+}
+
+pub(super) fn sketch_added(
+    session: &mut Session,
+    work: &Work<'_>,
+    transaction: Transaction,
+    feature: FeatureId,
+) -> Result<Answer, ToolError> {
     let answer = apply(session, work, transaction, Map::new())?;
     let mut data = answer.data;
     if let Some(added) = session.document().feature(feature) {
@@ -476,7 +501,7 @@ pub fn add_sketch(
     Ok(Answer::of(data))
 }
 
-fn coordinate(value: f64) -> Result<f64, SketchingError> {
+pub(super) fn coordinate(value: f64) -> Result<f64, SketchingError> {
     if value.is_finite() && value.abs() <= MAX_SIZE {
         Ok(value)
     } else {
@@ -484,28 +509,28 @@ fn coordinate(value: f64) -> Result<f64, SketchingError> {
     }
 }
 
-fn point(at: [f64; 2]) -> Result<Point2, SketchingError> {
+pub(super) fn point(at: [f64; 2]) -> Result<Point2, SketchingError> {
     let [x, y] = at;
     Ok(Point2::new(coordinate(x)?, coordinate(y)?))
 }
 
-fn ids(ids: &[EntityId]) -> Value {
+pub(super) fn ids(ids: &[EntityId]) -> Value {
     Value::Array(ids.iter().map(|id| json!(id.raw())).collect())
 }
 
-struct Pen<'t, 'd> {
-    transaction: &'t mut TransactionBuilder<'d>,
-    sketch: FeatureId,
-    construction: bool,
+pub(super) struct Pen<'t, 'd> {
+    pub(super) transaction: &'t mut TransactionBuilder<'d>,
+    pub(super) sketch: FeatureId,
+    pub(super) construction: bool,
 }
 
 impl Pen<'_, '_> {
-    fn point(&mut self, at: Point2) -> EntityId {
+    pub(super) fn point(&mut self, at: Point2) -> EntityId {
         self.transaction
             .add_sketch_entity(self.sketch, Entity::Point(at))
     }
 
-    fn line(&mut self, start: EntityId, end: EntityId) -> EntityId {
+    pub(super) fn line(&mut self, start: EntityId, end: EntityId) -> EntityId {
         self.transaction.add_sketch_entity_as(
             self.sketch,
             Entity::Line { start, end },
@@ -513,13 +538,19 @@ impl Pen<'_, '_> {
         )
     }
 
-    fn constrain(&mut self, constraint: Constraint) -> ConstraintId {
+    pub(super) fn constrain(&mut self, constraint: Constraint) -> ConstraintId {
         self.transaction
             .add_sketch_constraint(self.sketch, constraint)
     }
 
-    fn draw(&mut self, item: &Item) -> Result<Value, SketchingError> {
+    fn draw(&mut self, item: &Item) -> Result<Value, ToolError> {
         Ok(match item {
+            Item::Arc(shape) => shape.draw(self)?,
+            Item::Slot(shape) => shape.draw(self)?,
+            Item::ArcSlot(shape) => shape.draw(self)?,
+            Item::Polygon(shape) => shape.draw(self)?,
+            Item::Spline(shape) => shape.draw(self)?,
+            Item::Ellipse(shape) => shape.draw(self)?,
             Item::Point { at } => {
                 let id = self.point(point(*at)?);
                 json!({ "kind": "point", "id": id.raw() })
@@ -527,7 +558,7 @@ impl Pen<'_, '_> {
             Item::Line { from, to } => {
                 let (from, to) = (point(*from)?, point(*to)?);
                 if from == to {
-                    return Err(SketchingError::ZeroLine);
+                    return Err(SketchingError::ZeroLine.into());
                 }
                 let start = self.point(from);
                 let end = self.point(to);
@@ -536,7 +567,7 @@ impl Pen<'_, '_> {
             }
             Item::Polyline { points, closed } => {
                 if points.len() < 2 {
-                    return Err(SketchingError::ShortPolyline);
+                    return Err(SketchingError::ShortPolyline.into());
                 }
                 let placed: Vec<Point2> = points
                     .iter()
@@ -560,7 +591,7 @@ impl Pen<'_, '_> {
             Item::Rectangle { corner, opposite } => {
                 let (corner, opposite) = (point(*corner)?, point(*opposite)?);
                 if corner.x == opposite.x || corner.y == opposite.y {
-                    return Err(SketchingError::FlatRectangle);
+                    return Err(SketchingError::FlatRectangle.into());
                 }
                 let (low, high) = (corner.min(opposite), corner.max(opposite));
                 let corners = [
@@ -593,7 +624,7 @@ impl Pen<'_, '_> {
             }
             Item::Circle { center, radius } => {
                 if !radius.is_finite() || *radius <= 0.0 || *radius > MAX_SIZE {
-                    return Err(SketchingError::Radius(*radius));
+                    return Err(SketchingError::Radius(*radius).into());
                 }
                 let centre = self.point(point(*center)?);
                 let circle = self.transaction.add_sketch_entity_as(

@@ -53,14 +53,14 @@ impl DatumTarget {
         }
     }
 
-    fn attachment(self) -> SketchAttachment {
+    pub fn attachment(self) -> SketchAttachment {
         match self {
             Self::Plane(datum) => SketchAttachment::Datum(datum),
             Self::Frame { frame, plane } => SketchAttachment::Frame { frame, plane },
         }
     }
 
-    fn plane(self, evaluation: &Evaluation) -> Option<Plane> {
+    pub fn plane(self, evaluation: &Evaluation) -> Option<Plane> {
         match self {
             Self::Plane(datum) => datum_tools::result(evaluation, datum)?.plane(),
             Self::Frame { frame, plane } => plane.in_frame(&displayed_frame(evaluation, frame)?),

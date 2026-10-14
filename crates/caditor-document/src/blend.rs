@@ -1,9 +1,9 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use caditor_expression::{Dimension, EvalError, Expression, ParameterId};
 use caditor_kernel::{
-    BlendError, BlendShape, EdgeId, EdgeReference, FaceId, FaceOrigin, FaceReference, Solid,
-    VertexId, blend,
+    BlendError, BlendShape, EdgeId, EdgeNaming, EdgeReference, FaceId, FaceName, FaceOrigin,
+    FaceReference, Solid, VertexId, blend, faces_around_vertices,
 };
 
 use crate::{
@@ -138,6 +138,54 @@ fn blendable(solid: &Solid, edges: impl Iterator<Item = EdgeId>) -> Vec<EdgeId> 
     edges
         .filter(|edge| !is_seam(solid, *edge) && seen.insert(*edge))
         .collect()
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BlendedEdge {
+    pub reference: EdgeReference,
+    pub ends: [BTreeMap<FaceName, Option<FaceOrigin>>; 2],
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BlendRecipe {
+    pub feature: FeatureId,
+    pub shape: BlendShape,
+    pub edges: Vec<BlendedEdge>,
+}
+
+impl BlendRecipe {
+    fn of(feature: FeatureId, shape: BlendShape, solid: &Solid, edges: &[EdgeId]) -> Self {
+        let naming = EdgeNaming::new(solid);
+        let around = faces_around_vertices(solid);
+        let origins: BTreeMap<FaceName, Option<FaceOrigin>> = solid
+            .faces()
+            .map(|(_, face)| (face.name(), face.origin()))
+            .collect();
+        let faces_at = |vertex: VertexId| {
+            around
+                .get(&vertex)
+                .into_iter()
+                .flatten()
+                .map(|name| (*name, origins.get(name).copied().flatten()))
+                .collect()
+        };
+        let edges = edges
+            .iter()
+            .filter_map(|edge| {
+                let reference = EdgeReference::capture_in(&naming, *edge)?;
+                let definition = solid.edge(*edge)?;
+                Some(BlendedEdge {
+                    reference,
+                    ends: [faces_at(definition.start()), faces_at(definition.end())],
+                })
+            })
+            .collect();
+        Self {
+            feature,
+            shape,
+            edges,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -593,10 +641,10 @@ pub(crate) fn evaluate(
     }
     let result = blend(solid, &edges, shape, feature.id().raw())
         .map_err(|error| context.failure(solid, &error))?;
-    Ok(FeatureResult::Solid(SolidResult::new(
-        definition.body,
-        result,
-    )))
+    let recipe = BlendRecipe::of(feature.id(), shape, solid, &edges);
+    Ok(FeatureResult::Solid(
+        SolidResult::new(definition.body, result).blending(recipe),
+    ))
 }
 
 fn partly_followed(context: &Context<'_>, count: usize) -> Failure {

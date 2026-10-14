@@ -198,7 +198,11 @@ fn open_elbow_pipe(harness: &mut Harness) -> FeatureId {
     harness.workspace.editing.solid().expect("the pipe is open")
 }
 
-fn undone_and_redone(harness: &mut Harness, label: &str, value: impl Fn(&Harness) -> f64) {
+pub(super) fn undone_and_redone(
+    harness: &mut Harness,
+    label: &str,
+    value: impl Fn(&Harness) -> f64,
+) {
     let changed = value(harness);
 
     harness.key(Key::Z, Modifiers::COMMAND);

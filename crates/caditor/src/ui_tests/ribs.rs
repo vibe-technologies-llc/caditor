@@ -8,8 +8,13 @@ use caditor_kernel::{FaceReference, Surface};
 use caditor_sketch::Sketch;
 use egui::{Id, Key, Modifiers};
 
-use super::{Harness, choose, rectangle, run_from_palette};
-use crate::{model::Action, rib_panel, selection::Pickable};
+use super::{
+    CAMERA_SETTLE, Harness, choose, drag_value_arrow, length_value, pipes::undone_and_redone,
+    rectangle, run_from_palette,
+};
+use crate::{
+    model::Action, move_manipulator::Handle, rib_panel, selection::Pickable, value_gauges::Measured,
+};
 
 const BOX_VOLUME: f64 = 100.0 * 60.0 * 40.0 - 90.0 * 50.0 * 35.0;
 const WEB_AREA: f64 = 50.0 * 35.0;
@@ -136,4 +141,74 @@ fn rib_from_the_palette_follows_the_selected_line_and_turns_into_a_web_from_its_
     harness.settle();
     assert_eq!(rib_of(&harness, rib).thickness, length("2 mm"));
     assert!(near(harness.body_volume(body), BOX_VOLUME + 2.0 * WEB_AREA));
+}
+
+fn open_web(harness: &mut Harness) -> (FeatureId, FeatureId) {
+    let body = open_box(harness);
+    let plane = Plane::new(Point3::new(0.0, 0.0, 40.0), Vector3::Z).unwrap();
+    let mut drawn = Sketch::new(plane);
+    let line = drawn.add_line(Point2::new(50.0, 15.0), Point2::new(50.0, 45.0));
+    let sketch = harness.add_sketch(drawn);
+    harness.select([Pickable::SketchEntity {
+        feature: sketch,
+        entity: line,
+    }]);
+    run_from_palette(harness, "rib");
+    harness.settle();
+    choose(harness, "Parallel to sketch", "Square to sketch");
+    harness.select([]);
+    run_from_palette(harness, "Fit view");
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    (
+        harness.workspace.editing.solid().expect("the rib is open"),
+        body,
+    )
+}
+
+#[test]
+fn dragging_a_web_s_thickness_arrow_changes_its_thickness_in_one_undoable_change() {
+    let mut harness = Harness::new();
+    let (rib, body) = open_web(&mut harness);
+    let thickness = |harness: &Harness| length_value(harness, &rib_of(harness, rib).thickness);
+    let before = thickness(&harness);
+
+    let step = drag_value_arrow(&mut harness, Measured::RibThickness, 3.0);
+    let after = thickness(&harness);
+
+    assert_eq!(before, 2.0);
+    assert_eq!(harness.model.undo_label(), Some("Edit Rib 1"));
+    assert!(
+        (after - before - 6.0).abs() <= 2.0 * step,
+        "{before} to {after} with steps of {step}"
+    );
+    assert!(near(
+        harness.body_volume(body),
+        BOX_VOLUME + after * WEB_AREA
+    ));
+    undone_and_redone(&mut harness, "the thickness drag", thickness);
+
+    harness.type_into_field(Id::new(("rib-field", rib, "thickness")), "6 mm");
+    harness.settle();
+    assert_eq!(thickness(&harness), 6.0);
+}
+
+#[test]
+fn a_rib_parallel_to_its_sketch_has_a_thickness_arrow_across_the_sketch() {
+    let mut harness = Harness::new();
+    let (rib, _) = open_web(&mut harness);
+
+    choose(&mut harness, "Square to sketch", "Parallel to sketch");
+    harness.select([]);
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+
+    assert_eq!(rib_of(&harness, rib).direction, RibDirection::Parallel);
+    assert!(
+        harness
+            .workspace
+            .viewport
+            .handle_position(Handle::Value(Measured::RibThickness), 0.0)
+            .is_some()
+    );
 }

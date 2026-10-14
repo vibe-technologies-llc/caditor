@@ -1,27 +1,30 @@
+use std::f64::consts::{PI, TAU};
+
 use caditor_document::{
-    Blend, BlendKind, ChamferForm, CircularPattern, CurvePattern, CurveSpacing, Datum, DatumPlane,
-    Evaluation, Extrude, ExtrudeEnd, ExtrudeExtent, FeatureId, FeatureKind, Hole, HoleDepth,
-    HoleShape, HoleSizing, HoleStep, HoleStyle, LinearDirection, LinearSpacing, MAX_CONE_ANGLE,
-    MAX_PATTERN_INSTANCES, MAX_PRISM_SIDES, MIN_PRISM_SIDES, OffsetFace, Pattern, PatternKind,
-    PatternPath, Pipe, Primitive, PrimitiveAnchor, PrimitiveShape, ReachedEnd, ReachedSide,
-    Resolution, Shell, ShellSide, SizeRule, SolidFeature, SolidStart, Wall, capitalized,
-    circle_sizes, displayed_axis, displayed_plane, face_plane, hole_centres, hole_thread,
-    pipe_size_name, pipe_stand,
+    Blend, BlendKind, ChamferForm, CircularPattern, Coil, CoilLength, CurvePattern, CurveSpacing,
+    Datum, DatumPlane, Evaluation, Extrude, ExtrudeEnd, ExtrudeExtent, FeatureId, FeatureKind,
+    Hole, HoleDepth, HoleShape, HoleSizing, HoleStep, HoleStyle, LinearDirection, LinearSpacing,
+    MAX_CONE_ANGLE, MAX_PATTERN_INSTANCES, MAX_PRISM_SIDES, MIN_PRISM_SIDES, OffsetFace, Pattern,
+    PatternKind, PatternPath, Pipe, Primitive, PrimitiveAnchor, PrimitiveShape, ReachedEnd,
+    ReachedSide, Resolution, Rib, Shell, ShellSide, SizeRule, SolidFeature, SolidStart, Wall,
+    capitalized, circle_sizes, coil_size_name, displayed_axis, displayed_plane, face_plane,
+    hole_centres, hole_thread, pipe_size_name, pipe_stand, rib_stand,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
 use caditor_kernel::{
-    EdgeId, FaceId, MAX_TAPER_DEGREES, PipeShape, Solid, WallSide, measured_face,
+    CoilPlacement, EdgeId, FaceId, MAX_TAPER_DEGREES, PipeShape, Solid, WallSide, measured_face,
 };
 use caditor_sketch::Entity;
 
 use crate::{
-    blend_panel, bodies,
+    blend_panel, bodies, coil_panel,
     feature_fields::Rule,
     handle_snap, hole_panel, hole_tools,
     model::Model,
     move_manipulator::{ARROW_POINTS, Reach, step_for},
-    pattern_panel, pattern_tools, pipe_panel, reach_handles, scene, shell_panel, solid_panel,
+    pattern_panel, pattern_tools, pipe_panel, reach_handles, rib_panel, scene, shell_panel,
+    solid_panel,
     turn_handles::{STEP_DEGREES, Swing},
     units::Units,
 };
@@ -115,6 +118,11 @@ pub enum Measured {
     CircularCount,
     CurveSpacing,
     CurveCount,
+    CoilDiameter,
+    CoilSection,
+    CoilPitch,
+    CoilHeight,
+    RibThickness,
 }
 
 fn reached_side(reach: Reach) -> ReachedSide {
@@ -196,6 +204,13 @@ fn curve_mut(kind: &mut FeatureKind) -> Option<&mut CurvePattern> {
     }
 }
 
+fn coil_mut(kind: &mut FeatureKind) -> Option<&mut Coil> {
+    match kind {
+        FeatureKind::Coil(coil) => Some(coil),
+        _ => None,
+    }
+}
+
 fn circular_mut(kind: &mut FeatureKind) -> Option<&mut CircularPattern> {
     match pattern_kind_mut(kind)? {
         PatternKind::Circular(circular) => Some(circular),
@@ -236,7 +251,12 @@ impl Measured {
             | Self::EndOffset(_)
             | Self::PrimitiveSize(_)
             | Self::PatternSpacing(_)
-            | Self::CurveSpacing => Amount::Length,
+            | Self::CurveSpacing
+            | Self::CoilDiameter
+            | Self::CoilSection
+            | Self::CoilPitch
+            | Self::CoilHeight
+            | Self::RibThickness => Amount::Length,
         }
     }
 
@@ -257,7 +277,12 @@ impl Measured {
             | Self::ShellFaceThickness(_)
             | Self::WallThickness
             | Self::PipeSize
-            | Self::PipeWall => Rule::AboveZero,
+            | Self::PipeWall
+            | Self::CoilDiameter
+            | Self::CoilSection
+            | Self::CoilPitch
+            | Self::CoilHeight
+            | Self::RibThickness => Rule::AboveZero,
             Self::PipeBend => Rule::ZeroOrMore,
             Self::CountersinkAngle => Rule::ConeAngle,
             Self::BlendAngle => Rule::ChamferAngle,
@@ -315,6 +340,11 @@ impl Measured {
             Self::CircularAngle => pattern_panel::TOTAL_ANGLE,
             Self::CircularCount | Self::CurveCount => pattern_panel::FIRST.count,
             Self::CurveSpacing => pattern_panel::FIRST.spacing,
+            Self::CoilDiameter => coil_panel::DIAMETER,
+            Self::CoilSection => return Some(capitalized(coil_size_name(kind.coil()?.shape))),
+            Self::CoilPitch => coil_panel::PITCH,
+            Self::CoilHeight => coil_panel::HEIGHT,
+            Self::RibThickness => rib_panel::THICKNESS,
             Self::BlendSize => blend_panel::size_caption(kind.blend()?),
             Self::BlendSecond => blend_panel::SECOND_DISTANCE,
             Self::BlendAngle => blend_panel::CHAMFER_ANGLE,
@@ -381,6 +411,16 @@ impl Measured {
                 }
                 None => "Drag to change the pattern's spacing",
             },
+            Self::CoilDiameter => "Drag to change the coil's diameter",
+            Self::CoilSection => match kind.coil() {
+                Some(coil) => {
+                    return format!("Drag to change the coil's {}", coil_size_name(coil.shape));
+                }
+                None => "Drag to change the coil's section",
+            },
+            Self::CoilPitch => "Drag to change the coil's pitch",
+            Self::CoilHeight => "Drag to change the coil's height",
+            Self::RibThickness => "Drag to change the rib's thickness",
             Self::BlendSecond => "Drag to change the chamfer's second distance",
             Self::BlendAngle => "Drag to change the chamfer's angle",
             Self::BlendSize => match kind.blend() {
@@ -559,6 +599,22 @@ impl Measured {
             Self::CircularCount => Some(&mut circular_mut(kind)?.count),
             Self::CurveSpacing => Some(&mut curve_mut(kind)?.spacing),
             Self::CurveCount => Some(&mut curve_mut(kind)?.count),
+            Self::CoilDiameter => Some(&mut coil_mut(kind)?.diameter),
+            Self::CoilSection => Some(&mut coil_mut(kind)?.size),
+            Self::CoilPitch => match &mut coil_mut(kind)?.length {
+                CoilLength::TurnsAndPitch { pitch, .. }
+                | CoilLength::HeightAndPitch { pitch, .. } => Some(pitch),
+                CoilLength::HeightAndTurns { .. } => None,
+            },
+            Self::CoilHeight => match &mut coil_mut(kind)?.length {
+                CoilLength::HeightAndTurns { height, .. }
+                | CoilLength::HeightAndPitch { height, .. } => Some(height),
+                CoilLength::TurnsAndPitch { .. } => None,
+            },
+            Self::RibThickness => match kind {
+                FeatureKind::Rib(rib) => Some(&mut rib.thickness),
+                _ => None,
+            },
         }
     }
 
@@ -621,7 +677,12 @@ impl Measured {
             | Self::CircularAngle
             | Self::CircularCount
             | Self::CurveSpacing
-            | Self::CurveCount => {}
+            | Self::CurveCount
+            | Self::CoilDiameter
+            | Self::CoilSection
+            | Self::CoilPitch
+            | Self::CoilHeight
+            | Self::RibThickness => {}
         }
     }
 
@@ -657,7 +718,12 @@ impl Measured {
             | Self::EndOffset(_)
             | Self::PrimitiveSize(_)
             | Self::PatternSpacing(_)
-            | Self::CurveSpacing => step_for(per_point),
+            | Self::CurveSpacing
+            | Self::CoilDiameter
+            | Self::CoilSection
+            | Self::CoilPitch
+            | Self::CoilHeight
+            | Self::RibThickness => step_for(per_point),
         }
     }
 
@@ -681,7 +747,12 @@ impl Measured {
             | Self::PipeSize
             | Self::PipeWall
             | Self::PatternSpacing(_)
-            | Self::CurveSpacing => value.max(step),
+            | Self::CurveSpacing
+            | Self::CoilDiameter
+            | Self::CoilSection
+            | Self::CoilPitch
+            | Self::CoilHeight
+            | Self::RibThickness => value.max(step),
             Self::PipeBend => value.max(0.0),
             Self::BlendAngle => value.clamp(step, HALF_TURN_DEGREES - step),
             Self::PrimitiveSize(index) => {
@@ -819,6 +890,8 @@ impl Builder<'_> {
                 .collect(),
             FeatureKind::Primitive(primitive) => self.primitive(primitive),
             FeatureKind::Pattern(pattern) => self.pattern(pattern),
+            FeatureKind::Coil(coil) => self.coil(coil),
+            FeatureKind::Rib(rib) => self.rib(rib).into_iter().collect(),
             _ => Vec::new(),
         }
     }
@@ -1307,6 +1380,97 @@ impl Builder<'_> {
                 ))
             })
             .collect()
+    }
+
+    fn rib(&self, rib: &Rib) -> Option<Gauge> {
+        let value = self.length(&rib.thickness)?;
+        let stand = rib_stand(self.model.evaluation(), rib)?;
+        Some(Gauge::line(
+            Measured::RibThickness,
+            (stand.base, stand.direction),
+            stand.share,
+            value,
+        ))
+    }
+
+    fn coil_span(&self, length: &CoilLength) -> Option<(f64, f64)> {
+        let (pitch, turns) = match length {
+            CoilLength::TurnsAndPitch { turns, pitch } => (self.length(pitch)?, self.count(turns)?),
+            CoilLength::HeightAndTurns { height, turns } => {
+                let turns = self.count(turns)?;
+                (self.length(height)? / turns, turns)
+            }
+            CoilLength::HeightAndPitch { height, pitch } => {
+                let pitch = self.length(pitch)?;
+                (pitch, self.length(height)? / pitch)
+            }
+        };
+        (pitch.is_finite() && pitch > 0.0 && turns.is_finite() && turns > 0.0)
+            .then_some((pitch, turns))
+    }
+
+    fn coil(&self, coil: &Coil) -> Vec<Gauge> {
+        let (Some(diameter), Some(size), Some(taper)) = (
+            self.length(&coil.diameter),
+            self.length(&coil.size),
+            self.angle(&coil.taper),
+        ) else {
+            return Vec::new();
+        };
+        let Some((pitch, turns)) = self.coil_span(&coil.length) else {
+            return Vec::new();
+        };
+        let Some(frame) = displayed_axis(self.model.evaluation(), self.feature, &coil.axis)
+            .and_then(|axis| coil.frame(axis))
+        else {
+            return Vec::new();
+        };
+        let radius = diameter / 2.0;
+        let centre = match coil.placement {
+            CoilPlacement::Inside => radius - size / 2.0,
+            CoilPlacement::Centred => radius,
+            CoilPlacement::Outside => radius + size / 2.0,
+        };
+        let slope = pitch * taper.to_radians().tan() / TAU;
+        let sense = coil.turning.sign();
+        let sweep = TAU * turns;
+        let wire_at = |angle: f64| {
+            let around = frame.x_axis() * angle.cos() + frame.y_axis() * (sense * angle.sin());
+            frame.origin() + around * (centre + slope * angle)
+        };
+        let rise = |angle: f64| frame.normal() * (pitch * angle / TAU);
+        let half_turn = PI.min(sweep);
+        let mut gauges = vec![
+            Gauge::line(
+                Measured::CoilDiameter,
+                (frame.origin(), frame.x_axis()),
+                0.5,
+                diameter,
+            ),
+            Gauge::line(
+                Measured::CoilSection,
+                (wire_at(half_turn) + rise(half_turn), frame.normal()),
+                0.5,
+                size,
+            ),
+        ];
+        if coil.length.pitch().is_some() {
+            gauges.push(Gauge::line(
+                Measured::CoilPitch,
+                (wire_at(TAU), frame.normal()),
+                1.0,
+                pitch,
+            ));
+        }
+        if coil.length.height().is_some() {
+            gauges.push(Gauge::line(
+                Measured::CoilHeight,
+                (wire_at(sweep), frame.normal()),
+                1.0,
+                pitch * turns,
+            ));
+        }
+        gauges
     }
 
     fn pipe(&self, pipe: &Pipe) -> Vec<Gauge> {

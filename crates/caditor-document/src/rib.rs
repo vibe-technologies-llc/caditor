@@ -10,8 +10,8 @@ use crate::{
     primitive::Context,
     recompute::{CancelToken, Evaluation, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
     rib_tool::{
-        RibDirection, RibError, RibInput, RibSide, chains, facing_body, is_run, rib_tools,
-        run_curve,
+        RibDirection, RibError, RibInput, RibSide, ThicknessStand, chains, facing_body, is_run,
+        rib_tools, run_curve, thickness_stand,
     },
     solid::{SolidResult, profile_curves},
     sweep::capital,
@@ -393,6 +393,21 @@ pub fn facing(evaluation: &Evaluation, definition: &Rib, at: Option<FeatureId>) 
         &sketch.plane(),
         &profile_curves(sketch),
         body,
+        definition.direction,
+    )
+}
+
+pub fn rib_stand(evaluation: &Evaluation, definition: &Rib) -> Option<ThicknessStand> {
+    let sketch = &evaluation
+        .feature(definition.sketch)?
+        .result
+        .as_ref()?
+        .sketch()?
+        .geometry;
+    thickness_stand(
+        &sketch.plane(),
+        &profile_curves(sketch),
+        definition.side,
         definition.direction,
     )
 }

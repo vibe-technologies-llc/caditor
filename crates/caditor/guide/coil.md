@@ -41,7 +41,14 @@ the axis there, so a spring stands on that plane rather than reaching below it.
   it.
 
 Every size takes units and expressions, so a spring can follow parameters such as `wire_d` and
-`coils`. Reverse direction is also the palette's Reverse the direction on the open coil.
+`coils`.
+
+While the coil is open, arrows in the view drag its sizes: one along the base for the diameter, one
+on top of the wire half way round the first turn for the section, one above the start of the wire
+for the pitch (when the coil is sized by a pitch) and one at the end of the wire for the height
+(when it is sized by a height). Each drag is one undoable change and follows the same steps and
+snapping as other arrows; Ctrl drags freely, and typing a number while holding or hovering an arrow
+sets the value as the panel field would, parameters included. Reverse direction is also the palette's Reverse the direction on the open coil.
 
 ## Limits
 

@@ -204,6 +204,43 @@ fn in_plane(plane: &Plane, direction: Vector2) -> Vector3 {
     plane.x_axis() * direction.x + plane.y_axis() * direction.y
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ThicknessStand {
+    pub base: Point3,
+    pub direction: Vector3,
+    pub share: f64,
+}
+
+pub(crate) fn thickness_stand(
+    plane: &Plane,
+    curves: &[ProfileCurve],
+    side: RibSide,
+    direction: RibDirection,
+) -> Option<ThicknessStand> {
+    let chains = chains(curves).ok()?;
+    let chain = chains.first()?;
+    let (base, toward) = match direction {
+        RibDirection::Parallel => {
+            let sample = samples(&chain.curves).into_iter().next()?;
+            (plane.to_world(sample.point), plane.normal())
+        }
+        RibDirection::Square => (
+            plane.to_world(chain.start.point),
+            in_plane(plane, walk_left(&chain.start)),
+        ),
+    };
+    let (direction, share) = match side {
+        RibSide::OneSide => (toward, 1.0),
+        RibSide::OtherSide => (-toward, 1.0),
+        RibSide::Symmetric => (toward, 0.5),
+    };
+    Some(ThicknessStand {
+        base,
+        direction,
+        share,
+    })
+}
+
 struct Sample {
     point: Point2,
     left: Vector2,

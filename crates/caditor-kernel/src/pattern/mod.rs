@@ -5,10 +5,11 @@ use caditor_geometry::Similarity;
 use thiserror::Error;
 
 use crate::{
+    blend::{BlendError, BlendShape, blend},
     boolean::{BooleanError, BooleanOperation, boolean},
     interrupt::{self, Interrupted},
     naming::{FaceCopy, FaceName},
-    topology::{Solid, TransformError},
+    topology::{EdgeId, Solid, TransformError},
 };
 
 const ORIGINAL: [u32; 2] = [0, 0];
@@ -76,6 +77,23 @@ pub fn pattern_copies(
         parts = joined_in_pairs(parts)?;
     }
     Ok(parts.pop().map(|part| part.solid))
+}
+
+pub fn blend_copy(
+    solid: &Solid,
+    edges: &[EdgeId],
+    shape: BlendShape,
+    copy: FaceCopy,
+    feature: u64,
+) -> Result<Solid, BlendError> {
+    let blended = blend(solid, edges, shape, copy.pattern)?;
+    Ok(blended.with_face_origins(|origin| {
+        if origin.copy().is_none() && origin.feature() == copy.pattern {
+            origin.with_features(&|_| feature).copied(copy)
+        } else {
+            origin
+        }
+    }))
 }
 
 fn placed(solid: &Solid, copy: &PatternCopy, feature: u64) -> Result<Solid, PatternError> {
