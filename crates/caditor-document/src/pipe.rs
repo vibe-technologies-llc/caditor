@@ -169,10 +169,10 @@ fn failure(feature: &Feature, path: &Path, shape: PipeShape, error: &PipeError) 
         PipeError::BendTooLong { segments } => failed(
             format!(
                 "Rounding the corner between {}{owner} to the bend radius needs more than the \
-                 length of the lines there.",
+                 length of the curves there.",
                 path.labels(segments)
             ),
-            "Make the bend radius smaller, or lengthen the lines at the corner.".to_owned(),
+            "Make the bend radius smaller, or lengthen the curves at the corner.".to_owned(),
             own,
         ),
         PipeError::BendTooTight { segments } => failed(
@@ -190,6 +190,16 @@ fn failure(feature: &Feature, path: &Path, shape: PipeShape, error: &PipeError) 
                 path.labels(segments)
             ),
             "Open the corner up, lengthen the lines at it, or give the pipe a bend radius."
+                .to_owned(),
+            own,
+        ),
+        PipeError::Path(PathSweepError::Corner { segments }) => failed(
+            format!(
+                "The path turns a sharp corner between {}{owner}, which {name} cannot follow \
+                 without a bend.",
+                path.labels(segments)
+            ),
+            "Give the pipe a bend radius, or round the corner with a fillet in the path's sketch."
                 .to_owned(),
             own,
         ),

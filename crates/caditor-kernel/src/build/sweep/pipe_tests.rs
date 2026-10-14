@@ -3,14 +3,15 @@ use std::{
     f64::consts::{FRAC_PI_2, PI},
 };
 
-use caditor_geometry::{Point3, Vector3};
+use caditor_geometry::{Plane, Point3, Vector3};
 
 use super::*;
 use crate::{
-    curve::{Curve, Line},
+    curve::{Circle, Curve, Line},
     interval::Interval,
     measure::{extent, mass_properties_tessellating},
     naming::FaceName,
+    surface::Surface,
     tolerance::SamplingTolerance,
     topology::Solid,
 };
@@ -21,6 +22,15 @@ fn line(key: u128, from: Point3, to: Point3) -> PathSegment {
     PathSegment::new(
         Curve::Line(Line::through(from, to).unwrap()),
         Interval::new(0.0, from.distance(to)).unwrap(),
+        key,
+    )
+}
+
+fn arc(key: u128, centre: Point3, x_axis: Vector3, radius: f64, sweep: f64) -> PathSegment {
+    let frame = Plane::from_frame(centre, -Vector3::Z, x_axis).unwrap();
+    PathSegment::new(
+        Curve::Circle(Circle::new(frame, radius).unwrap()),
+        Interval::new(0.0, sweep).unwrap(),
         key,
     )
 }
@@ -49,6 +59,13 @@ fn assert_close(name: &str, found: f64, expected: f64, relative: f64) {
 
 fn names(solid: &Solid) -> BTreeSet<FaceName> {
     solid.faces().map(|(_, face)| face.name()).collect()
+}
+
+fn tori(solid: &Solid) -> usize {
+    solid
+        .faces()
+        .filter(|(_, face)| matches!(face.surface(), Surface::Torus(_)))
+        .count()
 }
 
 fn elbow() -> [PathSegment; 2] {
@@ -245,4 +262,131 @@ fn a_straight_path_has_no_corner_in_its_stand() {
     let stand = pipe_stand(&path, 5.0, Vector3::Z).unwrap();
 
     assert_eq!(stand.corner, None);
+}
+
+fn line_into_arc() -> [PathSegment; 2] {
+    [
+        line(10, Point3::ZERO, Point3::new(20.0, 0.0, 0.0)),
+        arc(
+            11,
+            Point3::new(30.0, 0.0, 0.0),
+            -Vector3::X,
+            10.0,
+            FRAC_PI_2,
+        ),
+    ]
+}
+
+#[test]
+fn a_bend_radius_rounds_a_sharp_corner_between_a_line_and_an_arc() {
+    let (bend, arc_radius): (f64, f64) = (4.0, 10.0);
+    let reach = ((arc_radius + bend).powi(2) - bend * bend).sqrt();
+    let touch = bend.atan2(reach);
+    let centreline = (30.0 - reach) + bend * (FRAC_PI_2 - touch) + arc_radius * (FRAC_PI_2 - touch);
+
+    let rounded = pipe(
+        &line_into_arc(),
+        &round(2.0, None),
+        bend,
+        Vector3::Z,
+        FEATURE,
+    )
+    .unwrap();
+    let sharp = pipe(
+        &line_into_arc(),
+        &round(2.0, None),
+        0.0,
+        Vector3::Z,
+        FEATURE,
+    );
+
+    assert_eq!(rounded.validate(), Ok(()));
+    assert_close("rounded", volume(&rounded), PI * centreline, 1e-3);
+    assert_eq!(tori(&rounded), 2);
+    assert_eq!(names(&rounded).len(), rounded.faces().count());
+    assert_eq!(
+        sharp.unwrap_err(),
+        PipeError::Path(PathSweepError::Corner { segments: [0, 1] })
+    );
+}
+
+#[test]
+fn a_bend_radius_rounds_the_point_where_two_arcs_meet() {
+    let (bend, arc_radius): (f64, f64) = (3.0, 10.0);
+    let sweep = 0.6f64.acos();
+    let path = [
+        arc(
+            10,
+            Point3::new(6.0, -8.0, 0.0),
+            -Vector3::X,
+            arc_radius,
+            sweep,
+        ),
+        arc(
+            11,
+            Point3::new(-6.0, -8.0, 0.0),
+            Vector3::new(0.6, 0.8, 0.0),
+            arc_radius,
+            sweep,
+        ),
+    ];
+    let rise = ((arc_radius - bend).powi(2) - 36.0).sqrt();
+    let centreline = 2.0 * arc_radius * rise.atan2(6.0) + 2.0 * bend * 6f64.atan2(rise);
+
+    let rounded = pipe(&path, &round(2.0, Some(0.5)), bend, Vector3::Z, FEATURE).unwrap();
+
+    assert_eq!(rounded.validate(), Ok(()));
+    assert_close(
+        "rounded",
+        volume(&rounded),
+        PI * (1.0 - 0.25) * centreline,
+        1e-3,
+    );
+    assert_eq!(tori(&rounded), 6);
+}
+
+#[test]
+fn a_corner_out_of_one_plane_is_rounded_by_a_smooth_blend() {
+    let path = [
+        line(10, Point3::new(-20.0, 0.0, 0.0), Point3::ZERO),
+        PathSegment::new(
+            Curve::Circle(
+                Circle::new(
+                    Plane::from_frame(Point3::new(0.0, 0.0, 10.0), Vector3::X, -Vector3::Z)
+                        .unwrap(),
+                    10.0,
+                )
+                .unwrap(),
+            ),
+            Interval::new(0.0, FRAC_PI_2).unwrap(),
+            11,
+        ),
+    ];
+    let (bend, area) = (4.0, PI);
+    let cut = bend * (FRAC_PI_2 / 2.0).tan();
+    let whole = 20.0 + 10.0 * FRAC_PI_2;
+
+    let rounded = pipe(&path, &round(2.0, None), bend, Vector3::Z, FEATURE).unwrap();
+    let found = volume(&rounded);
+
+    assert_eq!(rounded.validate(), Ok(()));
+    assert_eq!(tori(&rounded), 1);
+    assert!(found < area * whole, "{found}");
+    assert!(found > area * (whole - 2.0 * cut), "{found}");
+}
+
+#[test]
+fn a_bend_too_large_for_the_curves_at_a_corner_is_refused_naming_them() {
+    let too_long = pipe(
+        &line_into_arc(),
+        &round(2.0, None),
+        60.0,
+        Vector3::Z,
+        FEATURE,
+    );
+
+    assert_eq!(
+        too_long.unwrap_err(),
+        PipeError::BendTooLong { segments: [0, 1] }
+    );
 }

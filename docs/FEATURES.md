@@ -75,9 +75,9 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   it: an opening on an extrusion, revolution or spline face, one running all the way around a
   round face (a collar or a groove), or one spanning several curved faces is refused, since
   closing it needs a freeform patch, a ring face or a surface fitted across it.
-- [low · medium] A pipe's bend radius rounds only corners between two straight lines: a sharp corner
-  where an arc, spline or edge curve meets another curve still fails asking for a fillet in the
-  path's sketch.
+- [low · medium] A pipe's bend radius arrow stands only at a corner between two straight lines
+  (`PipeStand::corner`, a gauge linear in the radius): a path whose sharp corners all touch an arc,
+  spline or edge curve is bent but has no arrow to drag its bend radius.
 - [low · medium] A body of each separate piece is keyed by the lowest sketch curve that drew it, so
   deleting and redrawing that one curve of a shape makes its piece a new body; a configuration
   file's colour column cannot name a piece (`plan_configuration_import` finds bodies by making

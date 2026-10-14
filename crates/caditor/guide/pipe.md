@@ -23,9 +23,10 @@ until it has one, its row in the tree says "Waiting for a path" rather than fail
 - **Wall**: **Solid** fills the section; **Hollow** leaves a wall of the **Wall thickness** round an
   empty middle, as a tube. The wall must be thinner than half the diameter or width, or a third of
   the triangle's height.
-- **Bend radius** rounds every sharp corner between two straight lines of the path into a bend of
-  that radius, measured to the middle of the pipe, as a pipe bender would. Zero leaves the corners
-  sharp: both sides then meet on the plane halving the corner, as mitred tube does.
+- **Bend radius** rounds every sharp corner of the path into a bend of that radius, measured to the
+  middle of the pipe, as a pipe bender would: between straight lines, and also where a line, arc,
+  spline or edge meets another curve. Zero leaves the corners sharp: between two straight lines
+  both sides then meet on the plane halving the corner, as mitred tube does.
 - **Result**: **New body**, **Add to body**, **Remove from body** or **Intersect with body**, and
   the **Body** it changes. Removing makes a channel or groove of the section. A pipe follows one
   path without gaps, so it is always one piece and has no Separate pieces setting.
@@ -42,12 +43,15 @@ parameters included.
 
 ## Corners and limits
 
-- Arcs and splines of the path are followed smoothly. Only corners between two straight lines are
-  bent round; a sharp corner where an arc or spline meets another curve fails, saying to round it
-  with a fillet in the path's sketch.
+- Arcs and splines of the path are followed smoothly. Where the curves at a corner lie in one
+  plane, as curves of a sketch do, the bend is a true arc touching both, the pipe there a section
+  of a ring; where they turn out of a plane (edges of a curved body), the bend is a smooth curve
+  of about that radius.
+- With a bend radius of zero, a sharp corner where an arc or spline meets another curve fails,
+  saying to give the pipe a bend radius or round the corner with a fillet in the path's sketch.
 - A bend radius smaller than the section reaches out from the middle, or one needing more than the
-  length of the lines at a corner, fails naming the lines and saying what to change. When two
-  corners use up a whole line between them, the bends meet directly.
+  length of the curves at a corner, fails naming the curves and saying what to change. When two
+  corners use up a whole curve between them, the bends meet directly.
 - A pipe running into itself fails; so does a closed path out of one plane that would bring the
   section back turned.
 

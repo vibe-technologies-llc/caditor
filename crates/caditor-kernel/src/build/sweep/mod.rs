@@ -1,3 +1,4 @@
+mod bend;
 mod path;
 mod pipe;
 #[cfg(test)]

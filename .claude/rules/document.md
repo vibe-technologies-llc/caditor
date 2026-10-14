@@ -528,7 +528,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   (round of a diameter, square of a width, equilateral triangle of a side length) along a
   `SweepPath` chosen and resolved as a sweep's (`sweep::path_of`, shared, which also gives the
   path's `up`: the path sketch's normal, else Z), solid or hollow with `wall` (a thickness), its
-  corners between straight lines bent to the `bend` radius (zero leaves them mitred). Size and wall
+  sharp corners between any two path curves bent to the `bend` radius (zero leaves corners between
+  lines mitred and fails any other). Size and wall
   are lengths above zero, the bend zero or more (`primitive::Context`, shared, worded "The diameter
   of the pipe must be more than zero."); all three are its expressions (parameters, inlining, model
   scale). It calls kernel `pipe` and joins, cuts or intersects like a primitive
@@ -540,8 +541,10 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   edges' origins among `origin_features`; healing visits its edges (`healing::visit_path`), a path
   curve cannot be removed (`EntityInUse`) and no path waits (`MissingInput::Path`).
 - Failures: a wall too thick names the limit (half the diameter or width, a third of the triangle's
-  height); a bend too tight for the section or one needing more than the lines at a corner names the
-  two path curves, fixed on the pipe; a corner too sharp to turn; the rest per `PathSweepError` in
+  height); a bend too tight for the section or one needing more than the curves at a corner names
+  the two path curves, fixed on the pipe; a corner too sharp to turn; a sharp corner touching an
+  arc, spline or edge curve with no bend radius, fixed on the pipe by giving it one; the rest per
+  `PathSweepError` in
   `sweep::path_failure` (shared wording for any path follower: branches, gaps, a curve too short, a
   sharp corner where an arc meets another curve, a bend of the path too tight, running into itself).
 - Faces are worded "<pipe> outside" and "<pipe> inside" (`pipe::side_name`: entities past the
