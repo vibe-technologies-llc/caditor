@@ -20,8 +20,10 @@
   With the pointer on a handle, type a value (or x, y for the square) and press Enter. Its panel's
   **Placed on** row moves it too: **Choose in the view** and click where the hole goes on any flat
   face, or type its **Position X** and **Position Y** on the face. A position typed with
-  [parameters](parameters), such as `width / 2`, keeps following them; such a hole is then moved
-  from its fields only, and a plain number typed there lets go of the expression.
+  [parameters](parameters), such as `width / 2`, keeps following them, and a plain number typed there lets go of the expression. Dragging the
+  handle of a hole whose position is just one [parameter](parameters) on each axis (`spot`, not
+  `spot * 2`) changes that parameter, and the hover names it; a position built from several
+  parameters is moved from its fields only.
 - **Place by** ties the hole to the model: **From an edge** measures it from a straight edge, a
   line of another sketch, a datum axis or the X, Y or Z axis (select it first, or choose it in the
   view) with a **Distance** you can type, and a second one across the first fixes it, so a hole
@@ -33,13 +35,14 @@
   **Distance** (it stops a step short of the edge, and a distance named or driven by a
   [parameter](parameters) keeps its name or says what drives it), one arrow for each edge. A hole
   measured from just one edge has a second arrow pointing along that edge: drag it to slide the
-  hole along the edge, keeping its distance, in one change (it takes no typed value).
+  hole along the edge, keeping its distance, in one change; with the pointer on it, type a length
+  (`10 mm`, `2 * shift`, negative to go the other way) to slide the hole that far.
 - **Add another hole** under **Placed on** drills more holes of the same size and depth: click
   each spot on the face, or highlight the face with the keyboard to put one where there is most
   room, and press Escape when done. Each hole is listed with its own position or edges and can
   be removed. A hole of several points has a square on each free point: drag it to move just that
-  hole, or type its x, y with the pointer on it; a point whose position follows a parameter does
-  not drag and says which parameter drives it. **Edit the sketch** under **Sketch** opens the
+  hole, or type its x, y with the pointer on it; a point whose position is built from several parameters
+  does not drag and says which ones drive it. **Edit the sketch** under **Sketch** opens the
   hidden sketch holding the points.
 - With one curved face selected (the round wall of a cylinder, a cone or a sphere), it drills
   square into the face and asks you to click where the hole goes. Drag the square or an arrow at
