@@ -846,7 +846,7 @@ pub fn constrain(
     Ok(Answer::of(data))
 }
 
-fn operation_words(document: &Document, operation: BodyOperation) -> String {
+pub(super) fn operation_words(document: &Document, operation: BodyOperation) -> String {
     match operation {
         BodyOperation::NewBody => "makes a new body".to_owned(),
         BodyOperation::Add(body) => format!("adds to {}", body_label(document, body)),
@@ -994,7 +994,7 @@ pub fn extrude(
     Ok(with_feature(session, answer, added))
 }
 
-fn with_feature(session: &Session, answer: Answer, feature: FeatureId) -> Answer {
+pub(super) fn with_feature(session: &Session, answer: Answer, feature: FeatureId) -> Answer {
     let mut data = answer.data;
     if let Some(added) = session.document().feature(feature) {
         data.insert("feature".to_owned(), feature_brief(added));

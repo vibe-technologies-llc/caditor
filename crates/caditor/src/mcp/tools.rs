@@ -3,11 +3,16 @@ use serde_json::{Map, Value, json};
 
 use crate::{
     mcp::{
+        edges::{self, MeasuringError},
+        feature_schemas,
+        features::{self, FeatureError},
         files::{self, FileError},
+        places::PlaceError,
         reading::{self, RenderError},
         references::ReferenceError,
         session::{Cancelled, ChangeError, Session, Work},
         sketching::{self, SketchToolError},
+        tree_edits::{self, TreeError},
         writing::{self, ModellingError, SketchingError},
     },
     variants::all_variants,
@@ -34,6 +39,25 @@ pub enum Tool {
     Redo,
     Save,
     Export,
+    ListEdges,
+    Measure,
+    AddRevolve,
+    AddFillet,
+    AddChamfer,
+    AddShell,
+    AddOffsetFace,
+    AddPrimitive,
+    AddMirror,
+    AddLinearPattern,
+    AddCircularPattern,
+    AddCombine,
+    AddMove,
+    AddDatumPlane,
+    AddDatumAxis,
+    RenameFeature,
+    SuppressFeatures,
+    MoveFeature,
+    DeleteFeatures,
 }
 
 all_variants!(
@@ -55,7 +79,26 @@ all_variants!(
     Undo,
     Redo,
     Save,
-    Export
+    Export,
+    ListEdges,
+    Measure,
+    AddRevolve,
+    AddFillet,
+    AddChamfer,
+    AddShell,
+    AddOffsetFace,
+    AddPrimitive,
+    AddMirror,
+    AddLinearPattern,
+    AddCircularPattern,
+    AddCombine,
+    AddMove,
+    AddDatumPlane,
+    AddDatumAxis,
+    RenameFeature,
+    SuppressFeatures,
+    MoveFeature,
+    DeleteFeatures
 );
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -107,6 +150,14 @@ pub enum ToolError {
     Render(#[from] RenderError),
     #[error(transparent)]
     Cancelled(#[from] Cancelled),
+    #[error(transparent)]
+    Place(#[from] PlaceError),
+    #[error(transparent)]
+    Feature(#[from] FeatureError),
+    #[error(transparent)]
+    Measuring(#[from] MeasuringError),
+    #[error(transparent)]
+    Tree(#[from] TreeError),
 }
 
 impl Tool {
@@ -135,6 +186,25 @@ impl Tool {
             Self::Redo => "redo",
             Self::Save => "save",
             Self::Export => "export",
+            Self::ListEdges => "list_edges",
+            Self::Measure => "measure",
+            Self::AddRevolve => "add_revolve",
+            Self::AddFillet => "add_fillet",
+            Self::AddChamfer => "add_chamfer",
+            Self::AddShell => "add_shell",
+            Self::AddOffsetFace => "add_offset_face",
+            Self::AddPrimitive => "add_primitive",
+            Self::AddMirror => "add_mirror",
+            Self::AddLinearPattern => "add_linear_pattern",
+            Self::AddCircularPattern => "add_circular_pattern",
+            Self::AddCombine => "add_combine",
+            Self::AddMove => "add_move",
+            Self::AddDatumPlane => "add_datum_plane",
+            Self::AddDatumAxis => "add_datum_axis",
+            Self::RenameFeature => "rename_feature",
+            Self::SuppressFeatures => "suppress_features",
+            Self::MoveFeature => "move_feature",
+            Self::DeleteFeatures => "delete_features",
         }
     }
 
@@ -159,6 +229,25 @@ impl Tool {
             Self::Redo => "Redo",
             Self::Save => "Save",
             Self::Export => "Export",
+            Self::ListEdges => "Edges of a body",
+            Self::Measure => "Measure",
+            Self::AddRevolve => "Revolve",
+            Self::AddFillet => "Fillet",
+            Self::AddChamfer => "Chamfer",
+            Self::AddShell => "Shell",
+            Self::AddOffsetFace => "Offset face",
+            Self::AddPrimitive => "Primitive",
+            Self::AddMirror => "Mirror",
+            Self::AddLinearPattern => "Linear pattern",
+            Self::AddCircularPattern => "Circular pattern",
+            Self::AddCombine => "Combine",
+            Self::AddMove => "Move body",
+            Self::AddDatumPlane => "Datum plane",
+            Self::AddDatumAxis => "Datum axis",
+            Self::RenameFeature => "Rename a feature",
+            Self::SuppressFeatures => "Suppress features",
+            Self::MoveFeature => "Reorder a feature",
+            Self::DeleteFeatures => "Delete features",
         }
     }
 
@@ -259,6 +348,61 @@ impl Tool {
                  .step or .stp, .stl, .3mf, .obj, .glb, or .png (a picture, which needs a \
                  graphics adapter). A relative path is taken from the model's folder."
             }
+            Self::ListEdges => {
+                "Lists the edges of one body with a stable key (pass it to add_fillet, add_chamfer, measure or as an axis), a description in words naming the faces it lies between, its kind (line, circle, arc, ellipse, curve), its length and a line's ends or a round edge's centre and radius."
+            }
+            Self::Measure => {
+                "Measures the shortest distance between two things, each a point, a face or an edge of a body, with the closest points on each, and the angle between them when they have one (two planes, two lines, a line and a plane)."
+            }
+            Self::AddRevolve => {
+                "Revolves every closed region of a sketch about an axis: a line of the sketch, its horizontal or vertical axis, or a model axis. A full turn unless an angle is given. With no operation it decides like the app: it adds to the body it reaches or makes a new body. One undo step."
+            }
+            Self::AddFillet => {
+                "Rounds edges of a body: edge keys from list_edges, every edge around faces from list_faces, or every edge of the body. One undo step; a radius too large for the edges fails the feature with the reason."
+            }
+            Self::AddChamfer => {
+                "Bevels edges of a body, chosen as add_fillet chooses them, by one distance, two distances or a distance and an angle. One undo step."
+            }
+            Self::AddShell => {
+                "Hollows a body out to a wall thickness, leaving the given faces open. One undo step."
+            }
+            Self::AddOffsetFace => {
+                "Moves faces of a body along their normals by a distance, the faces around them following, so a body grows or shrinks there. One undo step."
+            }
+            Self::AddPrimitive => {
+                "Adds a box, cylinder, sphere, torus, cone, wedge or prism on a plane or a flat face, sized by expressions. On a face it adds to that body unless an operation says otherwise; elsewhere it makes a new body. One undo step."
+            }
+            Self::AddMirror => {
+                "Mirrors a body, or holes, cuts and bosses of one body, across a plane: a principal plane, a flat face or a datum plane. One undo step."
+            }
+            Self::AddLinearPattern => {
+                "Repeats a body, or holes, cuts and bosses of one body, in a row along an axis, and optionally along a second axis as a grid. One undo step."
+            }
+            Self::AddCircularPattern => {
+                "Repeats a body, or holes, cuts and bosses of one body, around an axis, spread evenly over a full turn or a given angle. One undo step."
+            }
+            Self::AddCombine => {
+                "Joins bodies to a body, cuts them from it or keeps only what they share. One undo step."
+            }
+            Self::AddMove => {
+                "Moves or turns a body, or a copy of it, by offsets along X, Y and Z and turns about its own centre or about an axis. One undo step."
+            }
+            Self::AddDatumPlane => {
+                "Adds a datum plane offset from a plane or flat face and optionally turned about an axis, for sketches, mirrors and primitives to use. One undo step."
+            }
+            Self::AddDatumAxis => {
+                "Adds a datum axis along an edge, round face, sketch line or principal axis, or where two planes meet. One undo step."
+            }
+            Self::RenameFeature => "Renames a feature. One undo step.",
+            Self::SuppressFeatures => {
+                "Suppresses features, leaving them out when the model is computed, or brings them back with suppressed false. One undo step."
+            }
+            Self::MoveFeature => {
+                "Moves a feature before or after another in the tree; refused when it would come before what it uses or after what uses it. One undo step."
+            }
+            Self::DeleteFeatures => {
+                "Deletes features. When other features use them, dependents says whether those go too or stay, failing; without it the call is refused naming them. One undo step."
+            }
         }
     }
 
@@ -270,17 +414,36 @@ impl Tool {
             | Self::ListBodies
             | Self::ListFaces
             | Self::GetSketch
-            | Self::RenderView => Effect::Reads,
+            | Self::RenderView
+            | Self::ListEdges
+            | Self::Measure => Effect::Reads,
             Self::AddSketch
             | Self::AddSketchGeometry
             | Self::AddSketchConstraints
             | Self::AddExtrusion
-            | Self::AddHole => Effect::Adds,
+            | Self::AddHole
+            | Self::AddRevolve
+            | Self::AddFillet
+            | Self::AddChamfer
+            | Self::AddShell
+            | Self::AddOffsetFace
+            | Self::AddPrimitive
+            | Self::AddMirror
+            | Self::AddLinearPattern
+            | Self::AddCircularPattern
+            | Self::AddCombine
+            | Self::AddMove
+            | Self::AddDatumPlane
+            | Self::AddDatumAxis => Effect::Adds,
             Self::SetParameter
             | Self::RemoveSketchItems
             | Self::EditSketchConstraint
             | Self::Undo
-            | Self::Redo => Effect::Changes,
+            | Self::Redo
+            | Self::RenameFeature
+            | Self::SuppressFeatures
+            | Self::MoveFeature
+            | Self::DeleteFeatures => Effect::Changes,
             Self::Save | Self::Export => Effect::Writes,
         }
     }
@@ -447,6 +610,25 @@ impl Tool {
                 }),
                 &["file"],
             ),
+            Self::ListEdges => feature_schemas::list_edges(),
+            Self::Measure => feature_schemas::measure(),
+            Self::AddRevolve => feature_schemas::revolve(),
+            Self::AddFillet => feature_schemas::fillet(),
+            Self::AddChamfer => feature_schemas::chamfer(),
+            Self::AddShell => feature_schemas::shell(),
+            Self::AddOffsetFace => feature_schemas::offset_face(),
+            Self::AddPrimitive => feature_schemas::primitive(),
+            Self::AddMirror => feature_schemas::mirror(),
+            Self::AddLinearPattern => feature_schemas::linear_pattern(),
+            Self::AddCircularPattern => feature_schemas::circular_pattern(),
+            Self::AddCombine => feature_schemas::combine(),
+            Self::AddMove => feature_schemas::move_body(),
+            Self::AddDatumPlane => feature_schemas::datum_plane(),
+            Self::AddDatumAxis => feature_schemas::datum_axis(),
+            Self::RenameFeature => feature_schemas::rename_feature(),
+            Self::SuppressFeatures => feature_schemas::suppress_features(),
+            Self::MoveFeature => feature_schemas::move_feature(),
+            Self::DeleteFeatures => feature_schemas::delete_features(),
         }
     }
 
@@ -492,6 +674,25 @@ impl Tool {
             Self::Redo => Call::Redo(self.arguments(arguments)?),
             Self::Save => Call::Save(self.arguments(arguments)?),
             Self::Export => Call::Export(self.arguments(arguments)?),
+            Self::ListEdges => Call::ListEdges(self.arguments(arguments)?),
+            Self::Measure => Call::Measure(self.arguments(arguments)?),
+            Self::AddRevolve => Call::AddRevolve(self.arguments(arguments)?),
+            Self::AddFillet => Call::AddFillet(self.arguments(arguments)?),
+            Self::AddChamfer => Call::AddChamfer(self.arguments(arguments)?),
+            Self::AddShell => Call::AddShell(self.arguments(arguments)?),
+            Self::AddOffsetFace => Call::AddOffsetFace(self.arguments(arguments)?),
+            Self::AddPrimitive => Call::AddPrimitive(self.arguments(arguments)?),
+            Self::AddMirror => Call::AddMirror(self.arguments(arguments)?),
+            Self::AddLinearPattern => Call::AddLinearPattern(self.arguments(arguments)?),
+            Self::AddCircularPattern => Call::AddCircularPattern(self.arguments(arguments)?),
+            Self::AddCombine => Call::AddCombine(self.arguments(arguments)?),
+            Self::AddMove => Call::AddMove(self.arguments(arguments)?),
+            Self::AddDatumPlane => Call::AddDatumPlane(self.arguments(arguments)?),
+            Self::AddDatumAxis => Call::AddDatumAxis(self.arguments(arguments)?),
+            Self::RenameFeature => Call::RenameFeature(self.arguments(arguments)?),
+            Self::SuppressFeatures => Call::SuppressFeatures(self.arguments(arguments)?),
+            Self::MoveFeature => Call::MoveFeature(self.arguments(arguments)?),
+            Self::DeleteFeatures => Call::DeleteFeatures(self.arguments(arguments)?),
         })
     }
 
@@ -523,6 +724,25 @@ pub enum Call {
     Redo(reading::Nothing),
     Save(reading::Nothing),
     Export(files::Exporting),
+    ListEdges(reading::OfBody),
+    Measure(edges::Between),
+    AddRevolve(features::Revolution),
+    AddFillet(features::Filleting),
+    AddChamfer(features::Chamfering),
+    AddShell(features::Shelling),
+    AddOffsetFace(features::FaceOffset),
+    AddPrimitive(features::NewPrimitive),
+    AddMirror(features::Mirroring),
+    AddLinearPattern(features::LinearPatterning),
+    AddCircularPattern(features::CircularPatterning),
+    AddCombine(features::Combining),
+    AddMove(features::Moving),
+    AddDatumPlane(features::DatumPlaning),
+    AddDatumAxis(features::DatumAxising),
+    RenameFeature(tree_edits::Renaming),
+    SuppressFeatures(tree_edits::Suppressing),
+    MoveFeature(tree_edits::Reordering),
+    DeleteFeatures(tree_edits::Deleting),
 }
 
 impl Call {
@@ -549,11 +769,34 @@ impl Call {
             Self::Redo(_) => writing::redo(session, work),
             Self::Save(_) => files::save(session).map(Answer::of),
             Self::Export(exporting) => files::export(session, work, &exporting).map(Answer::of),
+            Self::ListEdges(of) => edges::edges(session, work, &of).map(Answer::of),
+            Self::Measure(between) => edges::measure(session, work, &between).map(Answer::of),
+            Self::AddRevolve(revolution) => features::revolve(session, work, revolution),
+            Self::AddFillet(filleting) => features::fillet(session, work, filleting),
+            Self::AddChamfer(chamfering) => features::chamfer(session, work, chamfering),
+            Self::AddShell(shelling) => features::shell(session, work, shelling),
+            Self::AddOffsetFace(offset) => features::offset_face(session, work, offset),
+            Self::AddPrimitive(primitive) => features::primitive(session, work, primitive),
+            Self::AddMirror(mirroring) => features::mirror(session, work, mirroring),
+            Self::AddLinearPattern(patterning) => {
+                features::linear_pattern(session, work, patterning)
+            }
+            Self::AddCircularPattern(patterning) => {
+                features::circular_pattern(session, work, patterning)
+            }
+            Self::AddCombine(combining) => features::combine(session, work, combining),
+            Self::AddMove(moving) => features::move_body(session, work, moving),
+            Self::AddDatumPlane(planing) => features::datum_plane(session, work, planing),
+            Self::AddDatumAxis(axising) => features::datum_axis(session, work, axising),
+            Self::RenameFeature(renaming) => tree_edits::rename(session, work, renaming),
+            Self::SuppressFeatures(suppressing) => tree_edits::suppress(session, work, suppressing),
+            Self::MoveFeature(reordering) => tree_edits::reorder(session, work, reordering),
+            Self::DeleteFeatures(deleting) => tree_edits::delete(session, work, deleting),
         }
     }
 }
 
-fn object(properties: Value, required: &[&str]) -> Value {
+pub(super) fn object(properties: Value, required: &[&str]) -> Value {
     json!({
         "type": "object",
         "properties": properties,
@@ -562,7 +805,7 @@ fn object(properties: Value, required: &[&str]) -> Value {
     })
 }
 
-fn reference(description: &str) -> Value {
+pub(super) fn reference(description: &str) -> Value {
     json!({ "type": ["integer", "string"], "description": description })
 }
 

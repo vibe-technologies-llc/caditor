@@ -1,5 +1,9 @@
+mod edges;
+mod feature_schemas;
+mod features;
 mod files;
 pub mod json_rpc;
+mod places;
 mod reading;
 mod references;
 mod resources;
@@ -7,10 +11,13 @@ mod server;
 mod session;
 mod sketching;
 pub mod tools;
+mod tree_edits;
 mod writing;
 
 #[cfg(test)]
 mod end_to_end_tests;
+#[cfg(test)]
+mod feature_tests;
 #[cfg(test)]
 mod sketching_tests;
 #[cfg(test)]

@@ -59,17 +59,23 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   and waits for its report. Closing discards the journal only when the model is saved; otherwise
   it stays for the window to recover.
 
-## Tools (`tools.rs`, `reading.rs`, `writing.rs`, `files.rs`)
+## Tools (`tools.rs`, `reading.rs`, `writing.rs`, `sketching.rs`, `features.rs`, `tree_edits.rs`, `edges.rs`, `files.rs`)
 
 - `Tool` lists every tool (`all_variants!`); `Tool::decode` turns arguments into a typed `Call`
   through `serde` (`deny_unknown_fields`), and `Call::run` does it. Errors are `ToolError` and the
   per-area enums (`ReferenceError`, `SketchingError`, `ModellingError`, `FileError`,
-  `RenderError`, `ChangeError`), sent as a tool result with `isError` and the message as a
-  sentence; the app's own refusals (field parsing, attachment, constraint conflicts) keep their
-  words.
+  `RenderError`, `ChangeError`, `PlaceError`, `FeatureError`, `MeasuringError`, `TreeError`),
+  sent as a tool result with `isError` and the message as a sentence; the app's own refusals
+  (field parsing, attachment, constraint conflicts) keep their words.
 - References are by stable identity only (`references.rs`): features and bodies by id or name,
   sketch entities by id or `origin`, `horizontal_axis`, `vertical_axis`, faces by a key of their
-  `FaceName` digest and occurrence (`face_key_text`), resolved on the body as it stands now.
+  `FaceName` digest and occurrence (`face_key_text`), edges by their `EdgeName` digest
+  (`places::edge_key_text`), resolved on the body as it stands now. `places.rs` turns a plane
+  (`XY`/`XZ`/`YZ`, `{body, face}` through `attachment_in`, `{datum}`) or an axis (`X`/`Y`/`Z`,
+  `{body, edge}`, `{body, face}`, `{sketch, line}`, `{datum}`) into a `PlaneReference` or
+  `AxisReference` as the app's pickers capture them: an edge or face captured on the shown body,
+  resolved on the body's state at the bar (`body_state_in`) and captured there; a datum only when it
+  stands above the bar. These are serde untagged enums of `deny_unknown_fields` structs.
 - Every write is one transaction, one undo step, built with the app's own pieces: sketches as New
   sketch makes them (`sketch_placement::attachment_in` on a face), geometry and constraints after
   settling the sketch to its last result as sketch tools do, constraints tried first with
@@ -79,6 +85,21 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   `field::parse_expression` in millimetres and degrees. A write answers with its change's label
   and every failing feature with the tree's reason and remedy, marked `new` when the change made it
   fail.
+- Feature writes (`features.rs`) build the feature the app's tool would and add it as one
+  `Create …` transaction, named as the tool names it (`editing::next_feature_name`): a revolve
+  (`RevolveAxis::Sketch` or `Model`, full turn without an angle, `solid_tools::default_operation`
+  without an operation), fillets and chamfers (`EdgeReference::capture_in` per edge key,
+  `EdgeGroup::Face` per face key, `EdgeGroup::Body` for `all_edges`), shell, offset face,
+  primitives (`primitive_tools::default_shape` with the given sizes, at a face's middle
+  `hole_tools::middle_of` and adding to that body by default), mirror and linear or circular
+  pattern of a body or of repeatable features (`pattern_tools::repeatable`), combine, move and
+  datum planes and axes. Values are `Amount`s, a number of millimetres or degrees or an expression,
+  parsed by `field::parse_expression`; offsets, moves and turns may be negative. The kernel's
+  refusals arrive as the new feature failing, in the tree's words.
+- Tree edits (`tree_edits.rs`) use the tree's own transactions: `Edit::RenameFeature`,
+  `Document::suppression`, `Document::move_row` before or after another feature (its
+  `check_moves` refusal is the answer) and `Document::deletion`, which refuses while
+  `dependents_of` finds users unless `dependents` says `delete` or `keep`, as the delete dialog asks.
 - Sketching beyond the first slice lives in `sketching.rs`: `add_sketch_geometry` also draws arcs
   (about a centre, or through three points), slots, arc slots, regular polygons (by vertex or by
   the middle of the first side), fit or control splines and ellipses, each with the joints,
@@ -91,9 +112,11 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   `field::dimension_transaction` (the dimension field's parsing, units and parameters) and turns a
   constraint on or off, both after settling the sketch. Their failures are `SketchToolError`.
 - Reads: the feature tree with `state_of`'s words, parameters, bodies with `exact_mass` and
-  `extent` under the kernel interrupt (`interruptible`), faces (at most `MOST_FACES`), a sketch
-  with `SketchSummary`, and a picture through `snapshot::looking_from` and `png_bytes`, sized
-  `SMALLEST_SIDE` to `LARGEST_SIDE`.
+  `extent` under the kernel interrupt (`interruptible`), faces (at most `MOST_FACES`), edges with
+  `edge_measure`'s kind and length (at most `MOST_EDGES`), the distance and angle between two
+  points, faces or edges by the kernel's `distance` and `angle`, a sketch with `SketchSummary`,
+  and a picture through `snapshot::looking_from` and `png_bytes`, sized `SMALLEST_SIDE` to
+  `LARGEST_SIDE`.
 - Files: `save` writes the model's own file; `export` writes `headless::deliver`'s formats only
   into the model's folder, the `--folder` folders and folders below them (`files::allowed`:
   canonical parent, no link as the target). Nothing reaches the network.
@@ -111,5 +134,8 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   notification until the cancel is registered (`Gate`), so it never races.
   `mcp/end_to_end_tests.rs` builds a plate with a pocket and two holes by tool calls alone and
   checks its volume, undo, redo, a parameter change, save, export and the saved file.
+  `mcp/feature_tests.rs` checks each feature tool by the volumes it leaves (fillets, shells,
+  revolves, primitives, mirrors, patterns, combines, moves), the edge listing and measurements, the
+  tree edits with undo, and the refusals.
   `mcp/sketching_tests.rs` covers each sketching tool, extruding what the shapes draw to check
   their regions, and sketches on a datum plane and a coordinate system of a saved model.

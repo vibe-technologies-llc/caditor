@@ -240,22 +240,25 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   ground; a user cannot load an HDR image as the backdrop and light, choose a backdrop or ground,
   nor give a material texture, bump or clear-coat maps, and the ground bounces no light or occlusion
   onto the bodies.
-- [medium · hard] The MCP server (`caditor mcp`, `mcp.md`) builds only a first slice of the model:
-  an assistant can read the tree, parameters, bodies, faces and sketches, draw a picture, set
-  parameters, sketch points, lines, polylines, rectangles, circles, arcs, slots, polygons, splines
-  and ellipses with constraints and dimensions (adding, removing and editing them) on a principal
-  plane, datum plane, coordinate system or flat face, extrude, drill plain holes, undo, redo, save
-  and export. What remains, through the same `Session` layer:
-  - A write tool per remaining feature kind (revolve, sweep, pipe, fillet and chamfer, shell,
-    offset and split face, primitives, combine, move, mirror, split, mate, scale, patterns, datums,
-    threads), each with arguments mirroring its panel, and edit, rename, suppress, reorder and
-    delete of existing features. Extrusions lack taper, start offsets, two sides, up-to ends,
-    regions and thin walls; holes lack styles, standard sizes, threads and up-to ends.
+- [medium · hard] The MCP server (`caditor mcp`, `mcp.md`) builds only part of the model: an
+  assistant can read the tree, parameters, bodies, faces, edges and sketches, measure between
+  points, faces and edges, draw a picture, set parameters, sketch points, lines, polylines,
+  rectangles, circles, arcs, slots, polygons, splines and ellipses with constraints and dimensions
+  (adding, removing and editing them) on a principal plane, datum plane, coordinate system or flat
+  face, extrude, revolve, drill plain holes, fillet, chamfer, shell, offset faces, add primitives,
+  mirror, pattern in a row, grid or circle, combine and move bodies, add datum planes and axes,
+  rename, suppress, reorder and delete features, undo, redo, save and export. What remains,
+  through the same `Session` layer:
+  - A write tool per remaining feature kind (sweep, pipe, loft, coil, rib, split and delete face,
+    split, mate, scale, curve and point patterns, datum points, the other datum plane and axis
+    constructions, coordinate systems, threads), and editing an existing feature's values.
+    Extrusions lack taper, start offsets, two sides, up-to ends, regions and thin walls; revolves
+    lack two sides, up-to ends, regions and thin walls; holes lack styles, standard sizes, threads
+    and up-to ends; shells lack per-face thickness, mirrors take no faces and patterns skip no
+    copies.
   - Sketching: elliptical arcs, conic splines, polygons on a side, tangent arcs, and projections
     of body edges; the other sketch tools of the app (trim, extend, offset, mirror, patterns,
     fillet) and moving or resizing existing entities.
-  - Edges named by `EdgeName` with a description (needed for fillets), an edge's kind and size,
-    and measurements between two references.
   - Import, and saving under another name, within the allowed folders.
 - [medium · hard · blocked by: the in-app assistant connection decision (`DECISIONS.md`)] An
   assistant cannot work on the model open in the window: the headless server owns its own
