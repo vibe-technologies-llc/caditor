@@ -59,12 +59,13 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   and waits for its report. Closing discards the journal only when the model is saved; otherwise
   it stays for the window to recover.
 
-## Tools (`tools.rs`, `reading.rs`, `writing.rs`, `sketching.rs`, `features.rs`, `tree_edits.rs`, `edges.rs`, `files.rs`)
+## Tools (`tools.rs`, `reading.rs`, `writing.rs`, `sketching.rs`, `features.rs`, `solids.rs`, `sweeps.rs`, `reshaping.rs`, `edits.rs`, `tree_edits.rs`, `edges.rs`, `files.rs`)
 
 - `Tool` lists every tool (`all_variants!`); `Tool::decode` turns arguments into a typed `Call`
   through `serde` (`deny_unknown_fields`), and `Call::run` does it. Errors are `ToolError` and the
   per-area enums (`ReferenceError`, `SketchingError`, `ModellingError`, `FileError`,
-  `RenderError`, `ChangeError`, `PlaceError`, `FeatureError`, `MeasuringError`, `TreeError`),
+  `RenderError`, `ChangeError`, `PlaceError`, `FeatureError`, `MeasuringError`, `TreeError`,
+  `SweepToolError`, `ReshapeError`, `FeatureEditError`),
   sent as a tool result with `isError` and the message as a sentence; the app's own refusals
   (field parsing, attachment, constraint conflicts) keep their words.
 - References are by stable identity only (`references.rs`): features and bodies by id or name,
@@ -85,17 +86,42 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   `field::parse_expression` in millimetres and degrees. A write answers with its change's label
   and every failing feature with the tree's reason and remedy, marked `new` when the change made it
   fail.
-- Feature writes (`features.rs`) build the feature the app's tool would and add it as one
-  `Create …` transaction, named as the tool names it (`editing::next_feature_name`): a revolve
-  (`RevolveAxis::Sketch` or `Model`, full turn without an angle, `solid_tools::default_operation`
-  without an operation), fillets and chamfers (`EdgeReference::capture_in` per edge key,
+- Feature writes build the feature the app's tool would (each `*_built` function returns a
+  `Built`: kind, default title, asked name, sketches to hide, answer details) and `features::added`
+  adds it as one `Create …` transaction, named as the tool names it
+  (`editing::next_feature_name`): a revolve (`RevolveAxis::Sketch` or `Model`, full turn without an
+  angle, `TwoSides` with `second_angle`, `solid_tools::default_operation` without an operation),
+  fillets and chamfers (`EdgeReference::capture_in` per edge key,
   `EdgeGroup::Face` per face key, `EdgeGroup::Body` for `all_edges`), shell, offset face,
   primitives (`primitive_tools::default_shape` with the given sizes, at a face's middle
   `hole_tools::middle_of` and adding to that body by default), mirror and linear or circular
-  pattern of a body or of repeatable features (`pattern_tools::repeatable`), combine, move and
-  datum planes and axes. Values are `Amount`s, a number of millimetres or degrees or an expression,
-  parsed by `field::parse_expression`; offsets, moves and turns may be negative. The kernel's
-  refusals arrive as the new feature failing, in the tree's words.
+  pattern of a body or of repeatable features (`pattern_tools::repeatable`, `skipped` copies as
+  `Instance`s, the original refused), combine, move and datum planes and axes. Values are
+  `Amount`s, a number of millimetres or degrees or an expression, parsed by
+  `field::parse_expression`; offsets, moves and turns may be negative. The kernel's refusals arrive
+  as the new feature failing, in the tree's words.
+- `solids.rs` holds extrusions and holes. An extrusion's end is one of a distance, `through_all` or
+  `up_to` (`"next"` or a plane, `ExtrudeEnd::UpToNext`/`UpToFace`, with `end_offset`), and it takes
+  `second_distance` (`TwoSides`), `start_offset` (`SolidStart::Distance`), `taper` and `thin_wall`
+  with `wall_side` (`Wall`, centred by default). A hole takes the same ends, a `style` with head
+  sizes, a `standard` metric size and `fit` through `hole_tools::with_standard` (a diameter clears
+  the standard), and a tapped standard's `thread_form`, `thread_hand` and `thread_depth`.
+- `sweeps.rs` adds sweeps, pipes (path as `{sketch, curves}` checked by
+  `sweep_tools::is_path_curve`, `{body, edges}` or `{helix}`, a `SweepPath`), lofts through whole
+  sketches (hidden as the tool hides them), coils (two of turns, pitch and height as a
+  `CoilLength`), ribs (square to a face's sketch, facing the body by `rib_tools::facing_body`) and
+  threads (the face's `Bore` picks the nearest size and default class, named
+  `thread_tools::unique_name`); `reshaping.rs` adds split face, delete face, split (along a plane,
+  `{sketch}` or `{tool}` body) and scale, each with the app tool's defaults.
+- `edit_feature` (`edits.rs`) edits a feature with the arguments of the tool adding its kind
+  (`edits::tool_for`; sketches, curve and point patterns, other datums, mates, imports and helices
+  are refused in words). The arguments are decoded with that tool's struct, whose fields are all
+  optional so an edit gives only what changes: the same `*_built` function runs with the feature's
+  kind as its base, keeping every part not given (references too, so a fillet's edges need not be
+  named again), and a missing required argument is `FeatureError::Missing` only when adding. The
+  change is the app's own `edit` transaction for the kind (`SetFeatureKind`, carrying parameter
+  owners where the app does), labelled `Edit <name>`, plus `Edit::RenameFeature` for a new
+  `name`, one undo step.
 - Tree edits (`tree_edits.rs`) use the tree's own transactions: `Edit::RenameFeature`,
   `Document::suppression`, `Document::move_row` before or after another feature (its
   `check_moves` refusal is the answer) and `Document::deletion`, which refuses while
@@ -139,3 +165,7 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   tree edits with undo, and the refusals.
   `mcp/sketching_tests.rs` covers each sketching tool, extruding what the shapes draw to check
   their regions, and sketches on a datum plane and a coordinate system of a saved model.
+  `mcp/edit_tests.rs` edits primitives, extrusions, patterns, revolves, fillets and holes by
+  volume, with undo, renaming and refusals, and checks extrusion ends, walls, offsets and tapers
+  and hole standards, heads and threads. `mcp/sweep_tests.rs` checks pipes, sweeps, lofts, coils,
+  threads, scales, splits, split faces and deleted faces by volumes, body and face counts.

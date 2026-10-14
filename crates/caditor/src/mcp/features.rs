@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{collections::BTreeSet, fmt};
 
 use caditor_document::{
     AxisTurn, Blend, BlendKind, BodyOperation, ChamferForm, CircularPattern, Combine,
@@ -10,7 +10,7 @@ use caditor_document::{
 use caditor_expression::{Dimension, Expression};
 use caditor_geometry::Point2;
 use caditor_kernel::{EdgeNaming, EdgeReference, FaceReference};
-use caditor_sketch::EntityId;
+use caditor_sketch::{EntityId, Sketch};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
@@ -58,13 +58,12 @@ pub enum RevolveAxisChoice {
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Revolution {
-    pub sketch: Named,
+    pub sketch: Option<Named>,
     pub axis: Option<RevolveAxisChoice>,
     pub angle: Option<Amount>,
-    #[serde(default)]
-    pub symmetric: bool,
-    #[serde(default)]
-    pub reversed: bool,
+    pub second_angle: Option<Amount>,
+    pub symmetric: Option<bool>,
+    pub reversed: Option<bool>,
     pub operation: Option<OperationName>,
     pub body: Option<Named>,
     pub name: Option<String>,
@@ -73,32 +72,25 @@ pub struct Revolution {
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Filleting {
-    pub body: Named,
-    #[serde(default)]
-    pub edges: Vec<String>,
-    #[serde(default)]
-    pub faces: Vec<String>,
-    #[serde(default)]
-    pub all_edges: bool,
-    pub radius: Amount,
+    pub body: Option<Named>,
+    pub edges: Option<Vec<String>>,
+    pub faces: Option<Vec<String>>,
+    pub all_edges: Option<bool>,
+    pub radius: Option<Amount>,
     pub name: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Chamfering {
-    pub body: Named,
-    #[serde(default)]
-    pub edges: Vec<String>,
-    #[serde(default)]
-    pub faces: Vec<String>,
-    #[serde(default)]
-    pub all_edges: bool,
-    pub distance: Amount,
+    pub body: Option<Named>,
+    pub edges: Option<Vec<String>>,
+    pub faces: Option<Vec<String>>,
+    pub all_edges: Option<bool>,
+    pub distance: Option<Amount>,
     pub second_distance: Option<Amount>,
     pub angle: Option<Amount>,
-    #[serde(default)]
-    pub flipped: bool,
+    pub flipped: Option<bool>,
     pub name: Option<String>,
 }
 
@@ -110,13 +102,22 @@ pub enum SideName {
     BothSides,
 }
 
+impl SideName {
+    fn side(self) -> ShellSide {
+        match self {
+            Self::Inside => ShellSide::Inside,
+            Self::Outside => ShellSide::Outside,
+            Self::BothSides => ShellSide::BothSides,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Shelling {
-    pub body: Named,
-    #[serde(default)]
-    pub open_faces: Vec<String>,
-    pub thickness: Amount,
+    pub body: Option<Named>,
+    pub open_faces: Option<Vec<String>>,
+    pub thickness: Option<Amount>,
     pub side: Option<SideName>,
     pub name: Option<String>,
 }
@@ -124,11 +125,10 @@ pub struct Shelling {
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FaceOffset {
-    pub body: Named,
-    pub faces: Vec<String>,
-    pub distance: Amount,
-    #[serde(default)]
-    pub tangent: bool,
+    pub body: Option<Named>,
+    pub faces: Option<Vec<String>>,
+    pub distance: Option<Amount>,
+    pub tangent: Option<bool>,
     pub name: Option<String>,
 }
 
@@ -156,17 +156,17 @@ impl PrimitiveName {
             Self::Prism => PrimitiveKind::Prism,
         }
     }
+}
 
-    fn sizes(self) -> &'static [&'static str] {
-        match self {
-            Self::Box => &["length", "width", "height"],
-            Self::Cylinder => &["diameter", "height"],
-            Self::Sphere => &["diameter"],
-            Self::Torus => &["diameter", "tube"],
-            Self::Cone => &["bottom", "top", "height"],
-            Self::Wedge => &["length", "width", "height", "top_length"],
-            Self::Prism => &["sides", "diameter", "height"],
-        }
+fn sizes_of(kind: PrimitiveKind) -> &'static [&'static str] {
+    match kind {
+        PrimitiveKind::Box => &["length", "width", "height"],
+        PrimitiveKind::Cylinder => &["diameter", "height"],
+        PrimitiveKind::Sphere => &["diameter"],
+        PrimitiveKind::Torus => &["diameter", "tube"],
+        PrimitiveKind::Cone => &["bottom", "top", "height"],
+        PrimitiveKind::Wedge => &["length", "width", "height", "top_length"],
+        PrimitiveKind::Prism => &["sides", "diameter", "height"],
     }
 }
 
@@ -181,7 +181,7 @@ pub enum AnchorName {
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NewPrimitive {
-    pub kind: PrimitiveName,
+    pub kind: Option<PrimitiveName>,
     pub length: Option<Amount>,
     pub width: Option<Amount>,
     pub height: Option<Amount>,
@@ -194,8 +194,7 @@ pub struct NewPrimitive {
     pub plane: Option<PlaneChoice>,
     pub at: Option<[Amount; 2]>,
     pub anchor: Option<AnchorName>,
-    #[serde(default)]
-    pub reversed: bool,
+    pub reversed: Option<bool>,
     pub operation: Option<OperationName>,
     pub body: Option<Named>,
     pub name: Option<String>,
@@ -224,39 +223,41 @@ impl NewPrimitive {
 #[serde(deny_unknown_fields)]
 pub struct Mirroring {
     pub body: Option<Named>,
-    #[serde(default)]
-    pub features: Vec<Named>,
-    pub plane: PlaneChoice,
+    pub features: Option<Vec<Named>>,
+    pub plane: Option<PlaneChoice>,
     pub keep_original: Option<bool>,
     pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(untagged)]
+pub enum CopyName {
+    InRow(u32),
+    InGrid([u32; 2]),
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Direction {
-    pub axis: AxisChoice,
-    pub count: Amount,
-    pub spacing: Amount,
-    #[serde(default)]
-    pub total: bool,
-    #[serde(default)]
-    pub reversed: bool,
+    pub axis: Option<AxisChoice>,
+    pub count: Option<Amount>,
+    pub spacing: Option<Amount>,
+    pub total: Option<bool>,
+    pub reversed: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LinearPatterning {
     pub body: Option<Named>,
-    #[serde(default)]
-    pub features: Vec<Named>,
-    pub axis: AxisChoice,
-    pub count: Amount,
-    pub spacing: Amount,
-    #[serde(default)]
-    pub total: bool,
-    #[serde(default)]
-    pub reversed: bool,
+    pub features: Option<Vec<Named>>,
+    pub axis: Option<AxisChoice>,
+    pub count: Option<Amount>,
+    pub spacing: Option<Amount>,
+    pub total: Option<bool>,
+    pub reversed: Option<bool>,
     pub second: Option<Direction>,
+    pub skipped: Option<Vec<CopyName>>,
     pub name: Option<String>,
 }
 
@@ -264,13 +265,12 @@ pub struct LinearPatterning {
 #[serde(deny_unknown_fields)]
 pub struct CircularPatterning {
     pub body: Option<Named>,
-    #[serde(default)]
-    pub features: Vec<Named>,
-    pub axis: AxisChoice,
-    pub count: Amount,
+    pub features: Option<Vec<Named>>,
+    pub axis: Option<AxisChoice>,
+    pub count: Option<Amount>,
     pub angle: Option<Amount>,
-    #[serde(default)]
-    pub reversed: bool,
+    pub reversed: Option<bool>,
+    pub skipped: Option<Vec<u32>>,
     pub name: Option<String>,
 }
 
@@ -285,31 +285,29 @@ pub enum CombineName {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Combining {
-    pub body: Named,
-    pub tools: Vec<Named>,
-    pub operation: CombineName,
-    #[serde(default)]
-    pub keep_tools: bool,
+    pub body: Option<Named>,
+    pub tools: Option<Vec<Named>>,
+    pub operation: Option<CombineName>,
+    pub keep_tools: Option<bool>,
     pub name: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Moving {
-    pub body: Named,
+    pub body: Option<Named>,
     pub offset: Option<[Amount; 3]>,
     pub turn: Option<[Amount; 3]>,
     pub turn_axis: Option<AxisChoice>,
     pub turn_angle: Option<Amount>,
-    #[serde(default)]
-    pub copy: bool,
+    pub copy: Option<bool>,
     pub name: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DatumPlaning {
-    pub base: PlaneChoice,
+    pub base: Option<PlaneChoice>,
     pub offset: Option<Amount>,
     pub turn_axis: Option<AxisChoice>,
     pub turn_angle: Option<Amount>,
@@ -326,6 +324,8 @@ pub struct DatumAxising {
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum FeatureError {
+    #[error("give {field}")]
+    Missing { field: &'static str },
     #[error(
         "say which edges to {verb}: edge keys from list_edges, face keys from list_faces (every \
          edge around those faces) or all_edges"
@@ -364,9 +364,56 @@ pub enum FeatureError {
     NoDatumAxis,
     #[error("give along or planes for a datum axis, not both")]
     TwoDatumAxes,
+    #[error("{second} goes with {first}, which sets the first side")]
+    SecondWithoutFirst {
+        second: &'static str,
+        first: &'static str,
+    },
+    #[error("a symmetric {feature} spreads one {size} evenly, so it takes no {second}")]
+    SymmetricTwoSides {
+        feature: &'static str,
+        size: &'static str,
+        second: &'static str,
+    },
+    #[error("the original stays; skipped names copies from 1 on (or [column, row] in a grid)")]
+    SkippedOriginal,
 }
 
-fn amount(
+pub struct Built {
+    pub kind: FeatureKind,
+    pub title: &'static str,
+    pub name: Option<String>,
+    pub hide: Vec<FeatureId>,
+    pub details: Map<String, Value>,
+}
+
+impl Built {
+    pub(super) fn new(kind: FeatureKind, title: &'static str, name: Option<String>) -> Self {
+        Self {
+            kind,
+            title,
+            name,
+            hide: Vec::new(),
+            details: Map::new(),
+        }
+    }
+
+    pub(super) fn hiding(mut self, sketch: FeatureId) -> Self {
+        self.hide.push(sketch);
+        self
+    }
+
+    pub(super) fn telling(mut self, key: &str, value: Value) -> Self {
+        self.details.insert(key.to_owned(), value);
+        self
+    }
+}
+
+pub(super) fn needed<T>(value: Option<T>, field: &'static str) -> Result<T, ToolError> {
+    value.ok_or_else(|| FeatureError::Missing { field }.into())
+}
+
+pub(super) fn amount(
     session: &Session,
     field_name: &'static str,
     given: &Amount,
@@ -391,7 +438,7 @@ fn amount(
     })
 }
 
-fn length(
+pub(super) fn length(
     session: &Session,
     field_name: &'static str,
     given: &Amount,
@@ -399,7 +446,7 @@ fn length(
     amount(session, field_name, given, Dimension::LENGTH, true)
 }
 
-fn signed_length(
+pub(super) fn signed_length(
     session: &Session,
     field_name: &'static str,
     given: &Amount,
@@ -407,7 +454,7 @@ fn signed_length(
     amount(session, field_name, given, Dimension::LENGTH, false)
 }
 
-fn turn(
+pub(super) fn turn(
     session: &Session,
     field_name: &'static str,
     given: &Amount,
@@ -415,7 +462,7 @@ fn turn(
     amount(session, field_name, given, Dimension::ANGLE, false)
 }
 
-fn count(
+pub(super) fn count(
     session: &Session,
     field_name: &'static str,
     given: &Amount,
@@ -423,32 +470,68 @@ fn count(
     amount(session, field_name, given, Dimension::NONE, true)
 }
 
-fn feature_name(document: &Document, asked: Option<String>, title: &str) -> String {
-    asked.unwrap_or_else(|| editing::next_feature_name(document, title))
+pub(super) fn parsed(
+    session: &Session,
+    given: Option<&Amount>,
+    parse: impl Fn(&Session, &Amount) -> Result<Expression, ToolError>,
+) -> Result<Option<Expression>, ToolError> {
+    given.map(|given| parse(session, given)).transpose()
 }
 
-fn added(
+pub(super) fn body_of(
+    session: &Session,
+    asked: Option<&Named>,
+    kept: Option<FeatureId>,
+) -> Result<FeatureId, ToolError> {
+    match asked {
+        Some(named) => Ok(references::body(
+            session.document(),
+            session.evaluation(),
+            named,
+        )?),
+        None => needed(kept, "body"),
+    }
+}
+
+pub(super) fn sketch_of<'d>(
+    document: &'d Document,
+    asked: Option<&Named>,
+    kept: Option<FeatureId>,
+) -> Result<(FeatureId, &'d str, &'d Sketch), ToolError> {
+    let named = match (asked, kept) {
+        (Some(named), _) => named.clone(),
+        (None, Some(kept)) => Named::Id(kept.raw()),
+        (None, None) => return Err(FeatureError::Missing { field: "sketch" }.into()),
+    };
+    let (feature, sketch) = references::sketch(document, &named)?;
+    Ok((feature.id(), feature.name.as_str(), sketch))
+}
+
+pub(super) fn added(
     session: &mut Session,
     work: &Work<'_>,
-    (name, kind): (String, FeatureKind),
-    hide: Option<FeatureId>,
-    details: Map<String, Value>,
+    built: Built,
 ) -> Result<Answer, ToolError> {
     let document = session.document();
+    let name = built
+        .name
+        .unwrap_or_else(|| editing::next_feature_name(document, built.title));
     let mut transaction = document.transaction(format!("Create {name}"));
-    let feature = transaction.add_feature(name, kind);
-    if let Some(sketch) = hide.filter(|sketch| visibility::is_shown(document, *sketch)) {
-        transaction.edit(Edit::SetFeatureHidden {
-            id: sketch,
-            hidden: true,
-        });
+    let feature = transaction.add_feature(name, built.kind);
+    for sketch in built.hide {
+        if visibility::is_shown(document, sketch) {
+            transaction.edit(Edit::SetFeatureHidden {
+                id: sketch,
+                hidden: true,
+            });
+        }
     }
     let transaction = transaction.finish();
-    let answer = apply(session, work, transaction, details)?;
+    let answer = apply(session, work, transaction, built.details)?;
     Ok(with_feature(session, answer, feature))
 }
 
-fn chosen_operation(
+pub(super) fn chosen_operation(
     document: &Document,
     name: OperationName,
     target: Option<FeatureId>,
@@ -469,13 +552,192 @@ fn chosen_operation(
     }
 }
 
-fn operation_details(document: &Document, operation: BodyOperation) -> Map<String, Value> {
-    let mut details = Map::new();
-    details.insert(
-        "operation".to_owned(),
-        json!(operation_words(document, operation)),
-    );
-    details
+pub(super) fn operation_asked(
+    session: &Session,
+    asked: (Option<OperationName>, Option<&Named>),
+    kept: Option<BodyOperation>,
+) -> Result<Option<BodyOperation>, ToolError> {
+    let document = session.document();
+    let chosen = asked
+        .1
+        .map(|body| references::body(document, session.evaluation(), body))
+        .transpose()?;
+    Ok(match (asked.0, chosen) {
+        (Some(name), chosen) => Some(chosen_operation(
+            document,
+            name,
+            chosen.or_else(|| kept.and_then(BodyOperation::target)),
+        )?),
+        (None, Some(body)) => Some(match kept {
+            Some(BodyOperation::Remove(_)) => BodyOperation::Remove(body),
+            Some(BodyOperation::Intersect(_)) => BodyOperation::Intersect(body),
+            Some(BodyOperation::Add(_) | BodyOperation::NewBody) | None => BodyOperation::Add(body),
+        }),
+        (None, None) => kept,
+    })
+}
+
+fn operation_details(document: &Document, operation: BodyOperation) -> Value {
+    json!(operation_words(document, operation))
+}
+
+struct RevolveSides {
+    angle: Option<Expression>,
+    second: Option<Expression>,
+    symmetric: bool,
+    reversed: bool,
+}
+
+impl RevolveSides {
+    fn of(extent: &RevolveExtent) -> Self {
+        let (angle, second, symmetric, reversed) = match extent {
+            RevolveExtent::Full => (None, None, false, false),
+            RevolveExtent::OneSide { angle, reversed } => {
+                (Some(angle.clone()), None, false, *reversed)
+            }
+            RevolveExtent::Symmetric { angle } => (Some(angle.clone()), None, true, false),
+            RevolveExtent::TwoSides { forward, backward } => {
+                (Some(forward.clone()), Some(backward.clone()), false, false)
+            }
+            RevolveExtent::UpTo { reversed, .. } => (None, None, false, *reversed),
+        };
+        Self {
+            angle,
+            second,
+            symmetric,
+            reversed,
+        }
+    }
+
+    fn extent(self) -> Result<RevolveExtent, FeatureError> {
+        match (self.angle, self.second, self.symmetric) {
+            (_, Some(_), true) => Err(FeatureError::SymmetricTwoSides {
+                feature: "revolve",
+                size: "angle",
+                second: "second_angle",
+            }),
+            (None, Some(_), false) => Err(FeatureError::SecondWithoutFirst {
+                second: "second_angle",
+                first: "angle",
+            }),
+            (None, None, _) => Ok(RevolveExtent::Full),
+            (Some(angle), None, true) => Ok(RevolveExtent::Symmetric { angle }),
+            (Some(angle), None, false) => Ok(RevolveExtent::OneSide {
+                angle,
+                reversed: self.reversed,
+            }),
+            (Some(forward), Some(backward), false) => {
+                Ok(RevolveExtent::TwoSides { forward, backward })
+            }
+        }
+    }
+}
+
+pub fn revolve_built(
+    session: &mut Session,
+    work: &Work<'_>,
+    asked: Revolution,
+    base: Option<&Revolve>,
+) -> Result<Built, ToolError> {
+    let angle = parsed(session, asked.angle.as_ref(), |session, angle| {
+        turn(session, "angle", angle)
+    })?;
+    let second = parsed(session, asked.second_angle.as_ref(), |session, angle| {
+        turn(session, "second_angle", angle)
+    })?;
+    session.evaluate(work)?;
+    let values = session.parameters();
+    let document = session.document();
+    let evaluation = session.evaluation();
+    let (sketch, sketch_name, definition) = sketch_of(
+        document,
+        asked.sketch.as_ref(),
+        base.map(|base| base.sketch),
+    )?;
+    let axis = match (&asked.axis, base) {
+        (None, Some(base)) => base.axis.clone(),
+        (None, None) => RevolveAxis::Sketch(EntityId::VERTICAL_AXIS),
+        (Some(RevolveAxisChoice::Line(line)), _) => {
+            RevolveAxis::Sketch(references::entity(sketch_name, definition, line)?)
+        }
+        (Some(RevolveAxisChoice::Model(choice)), _) => {
+            RevolveAxis::Model(places::axis(document, evaluation, choice)?)
+        }
+    };
+    let changes_extent = angle.is_some()
+        || second.is_some()
+        || asked.symmetric.is_some()
+        || asked.reversed.is_some();
+    let extent = match base {
+        Some(base) if !changes_extent => base.extent.clone(),
+        _ => {
+            let kept = base.map_or(
+                RevolveSides {
+                    angle: None,
+                    second: None,
+                    symmetric: false,
+                    reversed: false,
+                },
+                |base| RevolveSides::of(&base.extent),
+            );
+            let symmetric = asked.symmetric.unwrap_or(kept.symmetric);
+            RevolveSides {
+                angle: angle.or(kept.angle),
+                second: second.or(kept.second.filter(|_| !symmetric)),
+                symmetric,
+                reversed: asked.reversed.unwrap_or(kept.reversed),
+            }
+            .extent()?
+        }
+    };
+    let regions = match base {
+        Some(base) if base.sketch == sketch => base.regions.clone(),
+        Some(_) | None => caditor_document::RegionChoice::All,
+    };
+    let revolve = match base {
+        Some(base) => Revolve {
+            sketch,
+            regions,
+            axis,
+            extent,
+            ..base.clone()
+        },
+        None => Revolve {
+            sketch,
+            regions,
+            axis,
+            extent,
+            operation: BodyOperation::NewBody,
+            start: None,
+            other_bodies: Vec::new(),
+            side: None,
+            wall: None,
+        },
+    };
+    let asked_operation = operation_asked(
+        session,
+        (asked.operation, asked.body.as_ref()),
+        base.map(|base| base.operation),
+    )?;
+    let solid = SolidFeature::Revolve(revolve);
+    let operation = asked_operation.unwrap_or_else(|| {
+        solid_tools::default_operation(
+            document,
+            Reach {
+                evaluation,
+                parameters: &values,
+            },
+            &solid,
+        )
+    });
+    let solid = solid_tools::with_operation(&solid, operation);
+    Ok(Built::new(
+        FeatureKind::Solid(solid),
+        solid_tools::Sweep::Revolve.label(),
+        asked.name,
+    )
+    .hiding(sketch)
+    .telling("operation", operation_details(document, operation)))
 }
 
 pub fn revolve(
@@ -483,145 +745,145 @@ pub fn revolve(
     work: &Work<'_>,
     asked: Revolution,
 ) -> Result<Answer, ToolError> {
-    let angle = asked
-        .angle
-        .as_ref()
-        .map(|angle| turn(session, "angle", angle))
-        .transpose()?;
-    session.evaluate(work)?;
-    let values = session.parameters();
-    let document = session.document();
-    let evaluation = session.evaluation();
-    let (feature, sketch) = references::sketch(document, &asked.sketch)?;
-    let axis = match &asked.axis {
-        None => RevolveAxis::Sketch(EntityId::VERTICAL_AXIS),
-        Some(RevolveAxisChoice::Line(line)) => {
-            RevolveAxis::Sketch(references::entity(&feature.name, sketch, line)?)
-        }
-        Some(RevolveAxisChoice::Model(choice)) => {
-            RevolveAxis::Model(places::axis(document, evaluation, choice)?)
-        }
-    };
-    let extent = match (angle, asked.symmetric) {
-        (None, _) => RevolveExtent::Full,
-        (Some(angle), true) => RevolveExtent::Symmetric { angle },
-        (Some(angle), false) => RevolveExtent::OneSide {
-            angle,
-            reversed: asked.reversed,
-        },
-    };
-    let solid = SolidFeature::Revolve(Revolve {
-        sketch: feature.id(),
-        regions: caditor_document::RegionChoice::All,
-        axis,
-        extent,
-        operation: BodyOperation::NewBody,
-        start: None,
-        other_bodies: Vec::new(),
-        side: None,
-        wall: None,
-    });
-    let chosen = asked
-        .body
-        .as_ref()
-        .map(|body| references::body(document, evaluation, body))
-        .transpose()?;
-    let operation = match asked.operation {
-        Some(name) => chosen_operation(document, name, chosen)?,
-        None => match chosen {
-            Some(body) => BodyOperation::Add(body),
-            None => solid_tools::default_operation(
-                document,
-                Reach {
-                    evaluation,
-                    parameters: &values,
-                },
-                &solid,
-            ),
-        },
-    };
-    let solid = solid_tools::with_operation(&solid, operation);
-    let name = feature_name(document, asked.name, solid_tools::Sweep::Revolve.label());
-    let details = operation_details(document, operation);
-    let sketch = feature.id();
-    added(
-        session,
-        work,
-        (name, FeatureKind::Solid(solid)),
-        Some(sketch),
-        details,
-    )
+    let built = revolve_built(session, work, asked, None)?;
+    added(session, work, built)
 }
 
 struct EdgeChoice<'a> {
-    body: &'a Named,
-    edges: &'a [String],
-    faces: &'a [String],
-    all_edges: bool,
+    body: Option<&'a Named>,
+    edges: Option<&'a [String]>,
+    faces: Option<&'a [String]>,
+    all_edges: Option<bool>,
+}
+
+impl EdgeChoice<'_> {
+    fn is_given(&self) -> bool {
+        self.edges.is_some() || self.faces.is_some() || self.all_edges.is_some()
+    }
+}
+
+struct BlendSize {
+    field: &'static str,
+    size: Option<Expression>,
+    form: Option<ChamferForm>,
+    flipped: Option<bool>,
+}
+
+fn captured_edges(
+    session: &Session,
+    body: FeatureId,
+    choice: &EdgeChoice<'_>,
+    verb: &'static str,
+) -> Result<(Vec<EdgeReference>, Vec<EdgeGroup>), ToolError> {
+    let edge_keys = choice.edges.unwrap_or_default();
+    let face_keys = choice.faces.unwrap_or_default();
+    let all_edges = choice.all_edges.unwrap_or(false);
+    if all_edges && !(edge_keys.is_empty() && face_keys.is_empty()) {
+        return Err(FeatureError::AllEdgesAndMore.into());
+    }
+    if !all_edges && edge_keys.is_empty() && face_keys.is_empty() {
+        return Err(FeatureError::NoEdges { verb }.into());
+    }
+    let edges = edge_references(session, body, edge_keys)?;
+    let mut groups: Vec<EdgeGroup> = face_references(session, body, face_keys)?
+        .into_iter()
+        .map(EdgeGroup::Face)
+        .collect();
+    if all_edges {
+        groups.push(EdgeGroup::Body);
+    }
+    Ok((edges, groups))
+}
+
+pub(super) fn edge_references(
+    session: &Session,
+    body: FeatureId,
+    keys: &[String],
+) -> Result<Vec<EdgeReference>, ToolError> {
+    let document = session.document();
+    let evaluation = session.evaluation();
+    keys.iter()
+        .map(|key| {
+            let (_, edge, shown) = places::edge(document, evaluation, body, key)?;
+            let naming = EdgeNaming::new(&shown.solid);
+            EdgeReference::capture_in(&naming, edge).ok_or_else(|| {
+                places::PlaceError::NoEdge {
+                    body: body_label(document, body),
+                    edge: key.clone(),
+                }
+                .into()
+            })
+        })
+        .collect()
 }
 
 fn blend(
     session: &mut Session,
     work: &Work<'_>,
     kind: BlendKind,
-    choice: EdgeChoice<'_>,
-    (size, form, flipped): (Expression, ChamferForm, bool),
-    name: Option<String>,
-) -> Result<Answer, ToolError> {
+    (choice, size): (EdgeChoice<'_>, BlendSize),
+    (name, base): (Option<String>, Option<&Blend>),
+) -> Result<Built, ToolError> {
     let verb = kind.noun();
-    if choice.all_edges && !(choice.edges.is_empty() && choice.faces.is_empty()) {
-        return Err(FeatureError::AllEdgesAndMore.into());
-    }
-    if !choice.all_edges && choice.edges.is_empty() && choice.faces.is_empty() {
+    if base.is_none() && !choice.is_given() {
         return Err(FeatureError::NoEdges { verb }.into());
     }
     session.evaluate(work)?;
-    let document = session.document();
-    let evaluation = session.evaluation();
-    let body = references::body(document, evaluation, choice.body)?;
-    let mut edges = Vec::with_capacity(choice.edges.len());
-    for key in choice.edges {
-        let (_, edge, shown) = places::edge(document, evaluation, body, key)?;
-        let naming = EdgeNaming::new(&shown.solid);
-        let reference =
-            EdgeReference::capture_in(&naming, edge).ok_or_else(|| places::PlaceError::NoEdge {
-                body: body_label(document, body),
-                edge: key.clone(),
-            })?;
-        edges.push(reference);
-    }
-    let mut groups = Vec::with_capacity(choice.faces.len());
-    for key in choice.faces {
-        let (_, face, shown) = references::face(document, evaluation, body, key)?;
-        let reference = FaceReference::capture(&shown.solid, face).ok_or_else(|| {
-            references::ReferenceError::NoFace {
-                body: body_label(document, body),
-                face: key.clone(),
-            }
-        })?;
-        groups.push(EdgeGroup::Face(reference));
-    }
-    if choice.all_edges {
-        groups.push(EdgeGroup::Body);
-    }
-    let mut details = Map::new();
-    details.insert("body".to_owned(), json!(body_label(document, body)));
-    let name = feature_name(document, name, kind.title());
+    let body = body_of(session, choice.body, base.map(|base| base.body))?;
+    let (edges, groups) = match base {
+        Some(base) if !choice.is_given() => (base.edges.clone(), base.groups.clone()),
+        Some(_) | None => captured_edges(session, body, &choice, verb)?,
+    };
     let blend = Blend {
         kind,
         body,
         edges,
         groups,
-        size,
-        form,
-        flipped,
+        size: needed(
+            size.size.or_else(|| base.map(|base| base.size.clone())),
+            size.field,
+        )?,
+        form: size
+            .form
+            .or_else(|| base.map(|base| base.form.clone()))
+            .unwrap_or(ChamferForm::Equal),
+        flipped: size
+            .flipped
+            .or_else(|| base.map(|base| base.flipped))
+            .unwrap_or(false),
     };
-    added(
+    let label = body_label(session.document(), body);
+    Ok(Built::new(FeatureKind::Blend(blend), kind.title(), name).telling("body", json!(label)))
+}
+
+pub fn fillet_built(
+    session: &mut Session,
+    work: &Work<'_>,
+    asked: Filleting,
+    base: Option<&Blend>,
+) -> Result<Built, ToolError> {
+    let radius = parsed(session, asked.radius.as_ref(), |session, radius| {
+        length(session, "radius", radius)
+    })?;
+    blend(
         session,
         work,
-        (name, FeatureKind::Blend(blend)),
-        None,
-        details,
+        BlendKind::Fillet,
+        (
+            EdgeChoice {
+                body: asked.body.as_ref(),
+                edges: asked.edges.as_deref(),
+                faces: asked.faces.as_deref(),
+                all_edges: asked.all_edges,
+            },
+            BlendSize {
+                field: "radius",
+                size: radius,
+                form: None,
+                flipped: None,
+            },
+        ),
+        (asked.name, base),
     )
 }
 
@@ -630,19 +892,48 @@ pub fn fillet(
     work: &Work<'_>,
     asked: Filleting,
 ) -> Result<Answer, ToolError> {
-    let radius = length(session, "radius", &asked.radius)?;
+    let built = fillet_built(session, work, asked, None)?;
+    added(session, work, built)
+}
+
+pub fn chamfer_built(
+    session: &mut Session,
+    work: &Work<'_>,
+    asked: Chamfering,
+    base: Option<&Blend>,
+) -> Result<Built, ToolError> {
+    let distance = parsed(session, asked.distance.as_ref(), |session, distance| {
+        length(session, "distance", distance)
+    })?;
+    let form = match (&asked.second_distance, &asked.angle) {
+        (Some(_), Some(_)) => return Err(FeatureError::TwoChamferForms.into()),
+        (Some(second), None) => Some(ChamferForm::TwoDistances {
+            second: length(session, "second_distance", second)?,
+        }),
+        (None, Some(angle)) => Some(ChamferForm::DistanceAngle {
+            angle: amount(session, "angle", angle, Dimension::ANGLE, true)?,
+        }),
+        (None, None) => None,
+    };
     blend(
         session,
         work,
-        BlendKind::Fillet,
-        EdgeChoice {
-            body: &asked.body,
-            edges: &asked.edges,
-            faces: &asked.faces,
-            all_edges: asked.all_edges,
-        },
-        (radius, ChamferForm::Equal, false),
-        asked.name,
+        BlendKind::Chamfer,
+        (
+            EdgeChoice {
+                body: asked.body.as_ref(),
+                edges: asked.edges.as_deref(),
+                faces: asked.faces.as_deref(),
+                all_edges: asked.all_edges,
+            },
+            BlendSize {
+                field: "distance",
+                size: distance,
+                form,
+                flipped: asked.flipped,
+            },
+        ),
+        (asked.name, base),
     )
 }
 
@@ -651,33 +942,11 @@ pub fn chamfer(
     work: &Work<'_>,
     asked: Chamfering,
 ) -> Result<Answer, ToolError> {
-    let distance = length(session, "distance", &asked.distance)?;
-    let form = match (&asked.second_distance, &asked.angle) {
-        (Some(_), Some(_)) => return Err(FeatureError::TwoChamferForms.into()),
-        (Some(second), None) => ChamferForm::TwoDistances {
-            second: length(session, "second_distance", second)?,
-        },
-        (None, Some(angle)) => ChamferForm::DistanceAngle {
-            angle: amount(session, "angle", angle, Dimension::ANGLE, true)?,
-        },
-        (None, None) => ChamferForm::Equal,
-    };
-    blend(
-        session,
-        work,
-        BlendKind::Chamfer,
-        EdgeChoice {
-            body: &asked.body,
-            edges: &asked.edges,
-            faces: &asked.faces,
-            all_edges: asked.all_edges,
-        },
-        (distance, form, asked.flipped),
-        asked.name,
-    )
+    let built = chamfer_built(session, work, asked, None)?;
+    added(session, work, built)
 }
 
-fn face_references(
+pub(super) fn face_references(
     session: &Session,
     body: FeatureId,
     keys: &[String],
@@ -698,36 +967,87 @@ fn face_references(
         .collect()
 }
 
-pub fn shell(session: &mut Session, work: &Work<'_>, asked: Shelling) -> Result<Answer, ToolError> {
-    let thickness = length(session, "thickness", &asked.thickness)?;
+pub fn shell_built(
+    session: &mut Session,
+    work: &Work<'_>,
+    asked: Shelling,
+    base: Option<&Shell>,
+) -> Result<Built, ToolError> {
+    let thickness = parsed(session, asked.thickness.as_ref(), |session, thickness| {
+        length(session, "thickness", thickness)
+    })?;
     session.evaluate(work)?;
-    let body = references::body(session.document(), session.evaluation(), &asked.body)?;
-    let open = face_references(session, body, &asked.open_faces)?;
-    let side = match asked.side {
-        None | Some(SideName::Inside) => ShellSide::Inside,
-        Some(SideName::Outside) => ShellSide::Outside,
-        Some(SideName::BothSides) => ShellSide::BothSides,
+    let body = body_of(session, asked.body.as_ref(), base.map(|base| base.body))?;
+    let open = match (&asked.open_faces, base) {
+        (Some(keys), _) => face_references(session, body, keys)?,
+        (None, Some(base)) => base.open.clone(),
+        (None, None) => Vec::new(),
     };
-    let document = session.document();
-    let mut details = Map::new();
-    details.insert("body".to_owned(), json!(body_label(document, body)));
-    let name = feature_name(document, asked.name, shell_tools::TITLE);
-    added(
-        session,
-        work,
-        (
-            name,
-            FeatureKind::Shell(Shell {
-                body,
-                open,
-                thickness,
-                side,
-                faces: Vec::new(),
-            }),
-        ),
-        None,
-        details,
+    let shell = Shell {
+        body,
+        open,
+        thickness: needed(
+            thickness.or_else(|| base.map(|base| base.thickness.clone())),
+            "thickness",
+        )?,
+        side: asked
+            .side
+            .map(SideName::side)
+            .or_else(|| base.map(|base| base.side))
+            .unwrap_or(ShellSide::Inside),
+        faces: base.map(|base| base.faces.clone()).unwrap_or_default(),
+    };
+    let label = body_label(session.document(), body);
+    Ok(
+        Built::new(FeatureKind::Shell(shell), shell_tools::TITLE, asked.name)
+            .telling("body", json!(label)),
     )
+}
+
+pub fn shell(session: &mut Session, work: &Work<'_>, asked: Shelling) -> Result<Answer, ToolError> {
+    let built = shell_built(session, work, asked, None)?;
+    added(session, work, built)
+}
+
+pub fn offset_face_built(
+    session: &mut Session,
+    work: &Work<'_>,
+    asked: FaceOffset,
+    base: Option<&OffsetFace>,
+) -> Result<Built, ToolError> {
+    if asked.faces.as_ref().is_some_and(Vec::is_empty) || (asked.faces.is_none() && base.is_none())
+    {
+        return Err(FeatureError::NoFacesToOffset.into());
+    }
+    let distance = parsed(session, asked.distance.as_ref(), |session, distance| {
+        signed_length(session, "distance", distance)
+    })?;
+    session.evaluate(work)?;
+    let body = body_of(session, asked.body.as_ref(), base.map(|base| base.body))?;
+    let faces = match (&asked.faces, base) {
+        (Some(keys), _) => face_references(session, body, keys)?,
+        (None, Some(base)) => base.faces.clone(),
+        (None, None) => Vec::new(),
+    };
+    let offset = OffsetFace {
+        body,
+        faces,
+        distance: needed(
+            distance.or_else(|| base.map(|base| base.distance.clone())),
+            "distance",
+        )?,
+        tangent: asked
+            .tangent
+            .or_else(|| base.map(|base| base.tangent))
+            .unwrap_or(false),
+    };
+    let label = body_label(session.document(), body);
+    Ok(Built::new(
+        FeatureKind::OffsetFace(offset),
+        offset_face_tools::TITLE,
+        asked.name,
+    )
+    .telling("body", json!(label)))
 }
 
 pub fn offset_face(
@@ -735,42 +1055,26 @@ pub fn offset_face(
     work: &Work<'_>,
     asked: FaceOffset,
 ) -> Result<Answer, ToolError> {
-    if asked.faces.is_empty() {
-        return Err(FeatureError::NoFacesToOffset.into());
-    }
-    let distance = signed_length(session, "distance", &asked.distance)?;
-    session.evaluate(work)?;
-    let body = references::body(session.document(), session.evaluation(), &asked.body)?;
-    let faces = face_references(session, body, &asked.faces)?;
-    let document = session.document();
-    let mut details = Map::new();
-    details.insert("body".to_owned(), json!(body_label(document, body)));
-    let name = feature_name(document, asked.name, offset_face_tools::TITLE);
-    added(
-        session,
-        work,
-        (
-            name,
-            FeatureKind::OffsetFace(OffsetFace {
-                body,
-                faces,
-                distance,
-                tangent: asked.tangent,
-            }),
-        ),
-        None,
-        details,
-    )
+    let built = offset_face_built(session, work, asked, None)?;
+    added(session, work, built)
 }
 
-pub fn primitive(
+pub fn primitive_built(
     session: &mut Session,
     work: &Work<'_>,
     asked: NewPrimitive,
-) -> Result<Answer, ToolError> {
-    let kind = asked.kind.kind();
-    let mut shape = primitive_tools::default_shape(kind, LengthUnit::Millimetre);
-    let names = asked.kind.sizes();
+    base: Option<&Primitive>,
+) -> Result<Built, ToolError> {
+    let kind = match (asked.kind, base) {
+        (Some(name), _) => name.kind(),
+        (None, Some(base)) => base.shape.kind(),
+        (None, None) => return Err(FeatureError::Missing { field: "kind" }.into()),
+    };
+    let mut shape = match base {
+        Some(base) if base.shape.kind() == kind => base.shape.clone(),
+        Some(_) | None => primitive_tools::default_shape(kind, LengthUnit::Millimetre),
+    };
+    let names = sizes_of(kind);
     for (size, given) in asked.given_sizes() {
         let Some(position) = names.iter().position(|name| *name == size) else {
             return Err(FeatureError::SizeNotTaken {
@@ -780,13 +1084,13 @@ pub fn primitive(
             }
             .into());
         };
-        let parsed = if size == "sides" {
+        let value = if size == "sides" {
             count(session, size, given)?
         } else {
             length(session, size, given)?
         };
         if let Some(slot) = shape.sizes_mut().into_iter().nth(position) {
-            *slot = parsed;
+            *slot = value;
         }
     }
     let at = match &asked.at {
@@ -799,63 +1103,93 @@ pub fn primitive(
     session.evaluate(work)?;
     let document = session.document();
     let evaluation = session.evaluation();
-    let (plane, face_body, middle) = match &asked.plane {
-        None => (
+    let (plane, middle) = match (&asked.plane, base) {
+        (None, Some(base)) => (base.plane.clone(), None),
+        (None, None) => (
             PlaneReference::Principal(caditor_document::PrincipalPlane::Xy),
-            None,
-            None,
+            Some(Point2::ZERO),
         ),
-        Some(PlaneChoice::Face(on)) => {
+        (Some(PlaneChoice::Face(on)), _) => {
             let placed = places::on_face(document, evaluation, on)?;
-            (placed.reference, Some(placed.body), placed.middle)
+            (
+                placed.reference,
+                Some(placed.middle.unwrap_or(Point2::ZERO)),
+            )
         }
-        Some(choice) => (places::plane(document, evaluation, choice)?, None, None),
+        (Some(choice), _) => (
+            places::plane(document, evaluation, choice)?,
+            Some(Point2::ZERO),
+        ),
     };
-    let at = at.unwrap_or_else(|| {
-        let spot = middle.unwrap_or(Point2::ZERO);
+    let face_body = plane.body();
+    let middle_at = |spot: Point2| {
         [
             LengthUnit::Millimetre.measured(spot.x),
             LengthUnit::Millimetre.measured(spot.y),
         ]
-    });
+    };
+    let at = match (at, middle, base) {
+        (Some(at), _, _) => at,
+        (None, Some(spot), _) => middle_at(spot),
+        (None, None, Some(base)) => base.at.clone(),
+        (None, None, None) => middle_at(Point2::ZERO),
+    };
     let chosen = asked
         .body
         .as_ref()
         .map(|body| references::body(document, evaluation, body))
         .transpose()?;
-    let operation = match asked.operation {
-        Some(name) => chosen_operation(document, name, chosen.or(face_body))?,
-        None => chosen
-            .or(face_body)
-            .map_or(BodyOperation::NewBody, BodyOperation::Add),
+    let kept = base.map(|base| base.operation);
+    let operation = match (asked.operation, chosen, kept) {
+        (Some(name), chosen, kept) => chosen_operation(
+            document,
+            name,
+            chosen
+                .or(face_body)
+                .or_else(|| kept.and_then(BodyOperation::target)),
+        )?,
+        (None, Some(body), _) => BodyOperation::Add(body),
+        (None, None, Some(kept)) => kept,
+        (None, None, None) => face_body.map_or(BodyOperation::NewBody, BodyOperation::Add),
     };
     let cutting_into_its_face = face_body.is_some()
         && matches!(
             operation,
             BodyOperation::Remove(_) | BodyOperation::Intersect(_)
         );
+    let reversed = match (asked.reversed, base) {
+        (Some(reversed), _) => reversed != cutting_into_its_face,
+        (None, Some(base)) => base.reversed,
+        (None, None) => cutting_into_its_face,
+    };
+    let anchor = match (asked.anchor, base) {
+        (Some(AnchorName::Corner), _) => PrimitiveAnchor::Corner,
+        (Some(AnchorName::BaseCentre), _) => PrimitiveAnchor::BaseCentre,
+        (Some(AnchorName::Centre), _) => PrimitiveAnchor::Centre,
+        (None, Some(base)) if base.shape.kind() == kind => base.anchor,
+        (None, Some(_) | None) => primitive_tools::default_anchor(kind),
+    };
     let primitive = Primitive {
         shape,
         plane,
         at,
-        anchor: match asked.anchor {
-            Some(AnchorName::Corner) => PrimitiveAnchor::Corner,
-            Some(AnchorName::BaseCentre) => PrimitiveAnchor::BaseCentre,
-            Some(AnchorName::Centre) => PrimitiveAnchor::Centre,
-            None => primitive_tools::default_anchor(kind),
-        },
-        reversed: asked.reversed != cutting_into_its_face,
+        anchor,
+        reversed,
         operation,
     };
-    let details = operation_details(document, operation);
-    let name = feature_name(document, asked.name, kind.name());
-    added(
-        session,
-        work,
-        (name, FeatureKind::Primitive(primitive)),
-        None,
-        details,
+    Ok(
+        Built::new(FeatureKind::Primitive(primitive), kind.name(), asked.name)
+            .telling("operation", operation_details(document, operation)),
     )
+}
+
+pub fn primitive(
+    session: &mut Session,
+    work: &Work<'_>,
+    asked: NewPrimitive,
+) -> Result<Answer, ToolError> {
+    let built = primitive_built(session, work, asked, None)?;
+    added(session, work, built)
 }
 
 fn subject(
@@ -896,29 +1230,51 @@ fn subject(
     }
 }
 
-fn subject_details(
-    document: &Document,
-    body: FeatureId,
-    repeated: &[FeatureId],
-) -> Map<String, Value> {
-    let mut details = Map::new();
-    details.insert(
-        "repeats".to_owned(),
-        json!(pattern_tools::subject(document, body, repeated)),
-    );
-    details
+fn kept_subject(
+    session: &Session,
+    (body, features): (Option<&Named>, Option<&[Named]>),
+    kept: Option<(FeatureId, &[FeatureId])>,
+    verb: &'static str,
+) -> Result<(FeatureId, Vec<FeatureId>), ToolError> {
+    match (body, features, kept) {
+        (None, None, Some((body, repeated))) => Ok((body, repeated.to_vec())),
+        (body, features, _) => subject(session, body, features.unwrap_or_default(), verb),
+    }
 }
 
-pub fn mirror(
+fn subject_details(document: &Document, body: FeatureId, repeated: &[FeatureId]) -> Value {
+    json!(pattern_tools::subject(document, body, repeated))
+}
+
+pub fn mirror_built(
     session: &mut Session,
     work: &Work<'_>,
     asked: Mirroring,
-) -> Result<Answer, ToolError> {
+    base: Option<&Mirror>,
+) -> Result<Built, ToolError> {
     session.evaluate(work)?;
-    let (body, mirrored) = subject(session, asked.body.as_ref(), &asked.features, "mirror")?;
+    let (body, mirrored) = kept_subject(
+        session,
+        (asked.body.as_ref(), asked.features.as_deref()),
+        base.map(|base| (base.body, base.mirrored.as_slice())),
+        "mirror",
+    )?;
     let document = session.document();
-    let plane = places::plane(document, session.evaluation(), &asked.plane)?;
-    let mut mirror = Mirror::new(body, plane).mirroring(mirrored.clone());
+    let plane = match &asked.plane {
+        Some(choice) => places::plane(document, session.evaluation(), choice)?,
+        None => needed(base.map(|base| base.plane.clone()), "plane")?,
+    };
+    let mut mirror = match base {
+        Some(base) if base.body == body && base.mirrored == mirrored => Mirror {
+            plane,
+            ..base.clone()
+        },
+        Some(base) => Mirror {
+            keep_original: base.keep_original,
+            ..Mirror::new(body, plane).mirroring(mirrored.clone())
+        },
+        None => Mirror::new(body, plane).mirroring(mirrored.clone()),
+    };
     if let Some(keep) = asked.keep_original {
         mirror.keep_original = keep;
     }
@@ -927,55 +1283,143 @@ pub fn mirror(
     } else {
         mirror_tools::FEATURES_TITLE
     };
-    let details = subject_details(document, body, &mirrored);
-    let name = feature_name(document, asked.name, title);
-    added(
-        session,
-        work,
-        (name, FeatureKind::Mirror(mirror)),
-        None,
-        details,
-    )
+    let repeats = subject_details(document, body, &mirrored);
+    Ok(Built::new(FeatureKind::Mirror(mirror), title, asked.name).telling("repeats", repeats))
 }
+
+pub fn mirror(
+    session: &mut Session,
+    work: &Work<'_>,
+    asked: Mirroring,
+) -> Result<Answer, ToolError> {
+    let built = mirror_built(session, work, asked, None)?;
+    added(session, work, built)
+}
+
+struct DirectionWords {
+    axis: &'static str,
+    count: &'static str,
+    spacing: &'static str,
+}
+
+const FIRST_DIRECTION: DirectionWords = DirectionWords {
+    axis: "axis",
+    count: "count",
+    spacing: "spacing",
+};
+
+const SECOND_DIRECTION: DirectionWords = DirectionWords {
+    axis: "second.axis",
+    count: "second.count",
+    spacing: "second.spacing",
+};
 
 fn direction(
     session: &Session,
-    axis: &AxisChoice,
-    (count_given, spacing, total, reversed): (&Amount, &Amount, bool, bool),
+    asked: &Direction,
+    base: Option<&LinearDirection>,
+    words: &DirectionWords,
 ) -> Result<LinearDirection, ToolError> {
+    let axis = match &asked.axis {
+        Some(choice) => places::axis(session.document(), session.evaluation(), choice)?,
+        None => needed(base.map(|base| base.axis.clone()), words.axis)?,
+    };
+    let copies = match &asked.count {
+        Some(given) => count(session, words.count, given)?,
+        None => needed(base.map(|base| base.count.clone()), words.count)?,
+    };
+    let spacing = match &asked.spacing {
+        Some(given) => length(session, words.spacing, given)?,
+        None => needed(base.map(|base| base.spacing.clone()), words.spacing)?,
+    };
+    let measured = match asked.total {
+        Some(true) => LinearSpacing::Total,
+        Some(false) => LinearSpacing::BetweenCopies,
+        None => base.map_or(LinearSpacing::BetweenCopies, |base| base.measured),
+    };
     Ok(LinearDirection {
-        axis: places::axis(session.document(), session.evaluation(), axis)?,
-        count: count(session, "count", count_given)?,
-        spacing: length(session, "spacing", spacing)?,
-        measured: if total {
-            LinearSpacing::Total
-        } else {
-            LinearSpacing::BetweenCopies
-        },
-        reversed,
+        axis,
+        count: copies,
+        spacing,
+        measured,
+        reversed: asked
+            .reversed
+            .or_else(|| base.map(|base| base.reversed))
+            .unwrap_or(false),
     })
 }
 
-fn pattern(
+fn skipped_copies(
+    asked: Option<&[CopyName]>,
+    base: Option<&Pattern>,
+) -> Result<BTreeSet<[u32; 2]>, ToolError> {
+    let Some(asked) = asked else {
+        return Ok(base.map(|base| base.skipped.clone()).unwrap_or_default());
+    };
+    asked
+        .iter()
+        .map(|copy| match *copy {
+            CopyName::InRow(0) | CopyName::InGrid([0, 0]) => {
+                Err(FeatureError::SkippedOriginal.into())
+            }
+            CopyName::InRow(index) => Ok([index, 0]),
+            CopyName::InGrid(instance) => Ok(instance),
+        })
+        .collect()
+}
+
+fn pattern_built(
+    session: &Session,
+    (body, repeated): (FeatureId, Vec<FeatureId>),
+    (kind, skipped): (PatternKind, BTreeSet<[u32; 2]>),
+    (name, title): (Option<String>, &'static str),
+) -> Built {
+    let repeats = subject_details(session.document(), body, &repeated);
+    let mut pattern = Pattern::new(body, kind).repeating(repeated);
+    pattern.skipped = skipped;
+    Built::new(FeatureKind::from(pattern), title, name).telling("repeats", repeats)
+}
+
+pub fn linear_pattern_built(
     session: &mut Session,
     work: &Work<'_>,
-    (body, repeated): (FeatureId, Vec<FeatureId>),
-    kind: PatternKind,
-    (name, title): (Option<String>, &str),
-) -> Result<Answer, ToolError> {
-    let document = session.document();
-    let details = subject_details(document, body, &repeated);
-    let name = feature_name(document, name, title);
-    added(
+    asked: LinearPatterning,
+    base: Option<&Pattern>,
+) -> Result<Built, ToolError> {
+    session.evaluate(work)?;
+    let chosen = kept_subject(
         session,
-        work,
-        (
-            name,
-            FeatureKind::from(Pattern::new(body, kind).repeating(repeated)),
-        ),
-        None,
-        details,
-    )
+        (asked.body.as_ref(), asked.features.as_deref()),
+        base.map(|base| (base.body, base.repeated.as_slice())),
+        "repeat",
+    )?;
+    let (base_first, base_second) = match base.map(|base| &base.kind) {
+        Some(PatternKind::Linear { first, second }) => (Some(first), second.as_ref()),
+        Some(_) | None => (None, None),
+    };
+    let first = direction(
+        session,
+        &Direction {
+            axis: asked.axis.clone(),
+            count: asked.count.clone(),
+            spacing: asked.spacing.clone(),
+            total: asked.total,
+            reversed: asked.reversed,
+        },
+        base_first,
+        &FIRST_DIRECTION,
+    )?;
+    let second = match &asked.second {
+        Some(second) => Some(direction(session, second, base_second, &SECOND_DIRECTION)?),
+        None => base_second.cloned(),
+    };
+    let skipped = skipped_copies(asked.skipped.as_deref(), base)?;
+    Ok(pattern_built(
+        session,
+        chosen,
+        (PatternKind::Linear { first, second }, skipped),
+        (asked.name, pattern_tools::LINEAR_TITLE),
+    ))
 }
 
 pub fn linear_pattern(
@@ -983,36 +1427,64 @@ pub fn linear_pattern(
     work: &Work<'_>,
     asked: LinearPatterning,
 ) -> Result<Answer, ToolError> {
+    let built = linear_pattern_built(session, work, asked, None)?;
+    added(session, work, built)
+}
+
+pub fn circular_pattern_built(
+    session: &mut Session,
+    work: &Work<'_>,
+    asked: CircularPatterning,
+    base: Option<&Pattern>,
+) -> Result<Built, ToolError> {
     session.evaluate(work)?;
-    let chosen = subject(session, asked.body.as_ref(), &asked.features, "repeat")?;
-    let first = direction(
+    let chosen = kept_subject(
         session,
-        &asked.axis,
-        (&asked.count, &asked.spacing, asked.total, asked.reversed),
+        (asked.body.as_ref(), asked.features.as_deref()),
+        base.map(|base| (base.body, base.repeated.as_slice())),
+        "repeat",
     )?;
-    let second = asked
-        .second
+    let kept = match base.map(|base| &base.kind) {
+        Some(PatternKind::Circular(circular)) => Some(circular),
+        Some(_) | None => None,
+    };
+    let axis = match &asked.axis {
+        Some(choice) => Some(places::axis(
+            session.document(),
+            session.evaluation(),
+            choice,
+        )?),
+        None => needed(kept.map(|kept| kept.axis.clone()), "axis")?,
+    };
+    let angle = match (&asked.angle, kept) {
+        (Some(angle), _) => amount(session, "angle", angle, Dimension::ANGLE, true)?,
+        (None, Some(kept)) => kept.angle.clone(),
+        (None, None) => solid_tools::degrees(FULL_TURN_DEGREES),
+    };
+    let copies = match &asked.count {
+        Some(given) => count(session, "count", given)?,
+        None => needed(kept.map(|kept| kept.count.clone()), "count")?,
+    };
+    let kind = PatternKind::Circular(CircularPattern {
+        axis,
+        count: copies,
+        angle,
+        reversed: asked
+            .reversed
+            .or_else(|| kept.map(|kept| kept.reversed))
+            .unwrap_or(false),
+    });
+    let in_row: Option<Vec<CopyName>> = asked
+        .skipped
         .as_ref()
-        .map(|second| {
-            direction(
-                session,
-                &second.axis,
-                (
-                    &second.count,
-                    &second.spacing,
-                    second.total,
-                    second.reversed,
-                ),
-            )
-        })
-        .transpose()?;
-    pattern(
+        .map(|copies| copies.iter().copied().map(CopyName::InRow).collect());
+    let skipped = skipped_copies(in_row.as_deref(), base)?;
+    Ok(pattern_built(
         session,
-        work,
         chosen,
-        PatternKind::Linear { first, second },
-        (asked.name, pattern_tools::LINEAR_TITLE),
-    )
+        (kind, skipped),
+        (asked.name, pattern_tools::CIRCULAR_TITLE),
+    ))
 }
 
 pub fn circular_pattern(
@@ -1020,49 +1492,41 @@ pub fn circular_pattern(
     work: &Work<'_>,
     asked: CircularPatterning,
 ) -> Result<Answer, ToolError> {
-    session.evaluate(work)?;
-    let chosen = subject(session, asked.body.as_ref(), &asked.features, "repeat")?;
-    let axis = places::axis(session.document(), session.evaluation(), &asked.axis)?;
-    let angle = match &asked.angle {
-        Some(angle) => amount(session, "angle", angle, Dimension::ANGLE, true)?,
-        None => solid_tools::degrees(FULL_TURN_DEGREES),
-    };
-    let kind = PatternKind::Circular(CircularPattern {
-        axis: Some(axis),
-        count: count(session, "count", &asked.count)?,
-        angle,
-        reversed: asked.reversed,
-    });
-    pattern(
-        session,
-        work,
-        chosen,
-        kind,
-        (asked.name, pattern_tools::CIRCULAR_TITLE),
-    )
+    let built = circular_pattern_built(session, work, asked, None)?;
+    added(session, work, built)
 }
 
-pub fn combine(
+pub fn combine_built(
     session: &mut Session,
     work: &Work<'_>,
     asked: Combining,
-) -> Result<Answer, ToolError> {
+    base: Option<&Combine>,
+) -> Result<Built, ToolError> {
     session.evaluate(work)?;
+    let body = body_of(session, asked.body.as_ref(), base.map(|base| base.body))?;
     let document = session.document();
     let evaluation = session.evaluation();
-    let body = references::body(document, evaluation, &asked.body)?;
-    let mut tools = Vec::with_capacity(asked.tools.len());
-    for named in &asked.tools {
-        let tool = references::body(document, evaluation, named)?;
-        if tool == body {
-            return Err(FeatureError::CombinedWithItself {
-                body: body_label(document, body),
+    let mut tools = Vec::new();
+    match (&asked.tools, base) {
+        (Some(named), _) => {
+            for named in named {
+                let tool = references::body(document, evaluation, named)?;
+                if !tools.contains(&tool) {
+                    tools.push(tool);
+                }
             }
-            .into());
         }
-        if !tools.contains(&tool) {
-            tools.push(tool);
+        (None, Some(base)) => {
+            tools.push(base.tool);
+            tools.extend(base.more_tools.iter().copied());
         }
+        (None, None) => return Err(FeatureError::Missing { field: "tools" }.into()),
+    }
+    if tools.contains(&body) {
+        return Err(FeatureError::CombinedWithItself {
+            body: body_label(document, body),
+        }
+        .into());
     }
     let Some((&tool, more_tools)) = tools.split_first() else {
         return Err(FeatureError::NoTools {
@@ -1070,24 +1534,124 @@ pub fn combine(
         }
         .into());
     };
-    let operation = match asked.operation {
-        CombineName::Join => CombineOperation::Join,
-        CombineName::Cut => CombineOperation::Cut,
-        CombineName::Intersect => CombineOperation::Intersect,
+    let operation = match (asked.operation, base) {
+        (Some(CombineName::Join), _) => CombineOperation::Join,
+        (Some(CombineName::Cut), _) => CombineOperation::Cut,
+        (Some(CombineName::Intersect), _) => CombineOperation::Intersect,
+        (None, Some(base)) => base.operation,
+        (None, None) => return Err(FeatureError::Missing { field: "operation" }.into()),
     };
-    let mut combine = Combine::new(body, tool, operation);
+    let mut combine = match base {
+        Some(base) => Combine {
+            body,
+            tool,
+            operation,
+            ..base.clone()
+        },
+        None => Combine::new(body, tool, operation),
+    };
     combine.more_tools = more_tools.to_vec();
-    combine.keep_tool = asked.keep_tools;
-    let mut details = Map::new();
-    details.insert("body".to_owned(), json!(body_label(document, body)));
-    let name = feature_name(document, asked.name, combine_tools::TITLE);
-    added(
-        session,
-        work,
-        (name, FeatureKind::Combine(combine)),
-        None,
-        details,
+    if let Some(keep) = asked.keep_tools {
+        combine.keep_tool = keep;
+    }
+    Ok(Built::new(
+        FeatureKind::Combine(combine),
+        combine_tools::TITLE,
+        asked.name,
     )
+    .telling("body", json!(body_label(document, body))))
+}
+
+pub fn combine(
+    session: &mut Session,
+    work: &Work<'_>,
+    asked: Combining,
+) -> Result<Answer, ToolError> {
+    let built = combine_built(session, work, asked, None)?;
+    added(session, work, built)
+}
+
+fn triple(
+    session: &Session,
+    field_name: &'static str,
+    given: Option<&[Amount; 3]>,
+    parse: fn(&Session, &'static str, &Amount) -> Result<Expression, ToolError>,
+) -> Result<Option<[Expression; 3]>, ToolError> {
+    match given {
+        Some([x, y, z]) => Ok(Some([
+            parse(session, field_name, x)?,
+            parse(session, field_name, y)?,
+            parse(session, field_name, z)?,
+        ])),
+        None => Ok(None),
+    }
+}
+
+pub fn move_built(
+    session: &mut Session,
+    work: &Work<'_>,
+    asked: Moving,
+    base: Option<&Move>,
+) -> Result<Built, ToolError> {
+    let zero_length = || LengthUnit::Millimetre.default_length(0.0);
+    let zero_turn = || solid_tools::degrees(0.0);
+    let offset = triple(session, "offset", asked.offset.as_ref(), signed_length)?;
+    let turned = triple(session, "turn", asked.turn.as_ref(), turn)?;
+    let turns_about_axis = asked.turn_axis.is_some() || asked.turn_angle.is_some();
+    if turned.is_some() && turns_about_axis {
+        return Err(FeatureError::TwoTurns.into());
+    }
+    let angle = parsed(session, asked.turn_angle.as_ref(), |session, angle| {
+        turn(session, "turn_angle", angle)
+    })?;
+    session.evaluate(work)?;
+    let body = body_of(session, asked.body.as_ref(), base.map(|base| base.body))?;
+    let document = session.document();
+    let kept_axis = match base.map(|base| &base.about) {
+        Some(TurnCentre::Axis(axis)) => Some(axis.as_ref()),
+        Some(_) | None => None,
+    };
+    let zero_turns = || [zero_turn(), zero_turn(), zero_turn()];
+    let (turned, about) = match (turned, turns_about_axis, base) {
+        (Some(turned), _, _) => (turned, TurnCentre::Body),
+        (None, true, _) => {
+            let axis = match &asked.turn_axis {
+                Some(choice) => Some(places::axis(document, session.evaluation(), choice)?),
+                None => kept_axis.map(|kept| kept.axis.clone()),
+            };
+            let angle = angle.or_else(|| kept_axis.map(|kept| kept.angle.clone()));
+            let (Some(axis), Some(angle)) = (axis, angle) else {
+                return Err(FeatureError::HalfAnAxisTurn.into());
+            };
+            (
+                zero_turns(),
+                TurnCentre::Axis(Box::new(AxisTurn { axis, angle })),
+            )
+        }
+        (None, false, Some(base)) => (base.turn.clone(), base.about.clone()),
+        (None, false, None) => (zero_turns(), TurnCentre::Body),
+    };
+    let copy = asked
+        .copy
+        .or_else(|| base.map(|base| base.copy))
+        .unwrap_or(false);
+    let movement = Move {
+        body,
+        offset: offset
+            .or_else(|| base.map(|base| base.offset.clone()))
+            .unwrap_or_else(|| [zero_length(), zero_length(), zero_length()]),
+        turn: turned,
+        copy,
+        about,
+        frame: base.and_then(|base| base.frame),
+    };
+    let title = if copy {
+        move_tools::COPY_NAME
+    } else {
+        move_tools::TITLE
+    };
+    Ok(Built::new(FeatureKind::Move(movement), title, asked.name)
+        .telling("body", json!(body_label(document, body))))
 }
 
 pub fn move_body(
@@ -1095,80 +1659,59 @@ pub fn move_body(
     work: &Work<'_>,
     asked: Moving,
 ) -> Result<Answer, ToolError> {
-    let zero_length = || LengthUnit::Millimetre.default_length(0.0);
-    let zero_turn = || solid_tools::degrees(0.0);
-    let offset = match &asked.offset {
-        Some([x, y, z]) => [
-            signed_length(session, "offset", x)?,
-            signed_length(session, "offset", y)?,
-            signed_length(session, "offset", z)?,
-        ],
-        None => [zero_length(), zero_length(), zero_length()],
-    };
-    let turned = match &asked.turn {
-        Some([x, y, z]) => [
-            turn(session, "turn", x)?,
-            turn(session, "turn", y)?,
-            turn(session, "turn", z)?,
-        ],
-        None => [zero_turn(), zero_turn(), zero_turn()],
-    };
-    let axis_angle = match (&asked.turn_axis, &asked.turn_angle) {
-        (Some(_), None) | (None, Some(_)) => return Err(FeatureError::HalfAnAxisTurn.into()),
-        (Some(_), Some(_)) if asked.turn.is_some() => return Err(FeatureError::TwoTurns.into()),
-        (Some(axis), Some(angle)) => Some((axis, turn(session, "turn_angle", angle)?)),
-        (None, None) => None,
-    };
+    let built = move_built(session, work, asked, None)?;
+    added(session, work, built)
+}
+
+fn datum_built(datum: Datum, name: Option<String>) -> Built {
+    let title = datum.title();
+    Built::new(FeatureKind::Datum(datum), title, name)
+}
+
+pub fn datum_plane_built(
+    session: &mut Session,
+    work: &Work<'_>,
+    asked: DatumPlaning,
+    base: Option<&DatumPlane>,
+) -> Result<Built, ToolError> {
+    let offset = parsed(session, asked.offset.as_ref(), |session, offset| {
+        signed_length(session, "offset", offset)
+    })?;
+    let angle = parsed(session, asked.turn_angle.as_ref(), |session, angle| {
+        turn(session, "turn_angle", angle)
+    })?;
     session.evaluate(work)?;
     let document = session.document();
     let evaluation = session.evaluation();
-    let body = references::body(document, evaluation, &asked.body)?;
-    let about = match axis_angle {
-        Some((axis, angle)) => TurnCentre::Axis(Box::new(AxisTurn {
-            axis: places::axis(document, evaluation, axis)?,
-            angle,
-        })),
-        None => TurnCentre::Body,
+    let plane = match &asked.base {
+        Some(choice) => places::plane(document, evaluation, choice)?,
+        None => needed(base.map(|base| base.base.clone()), "base")?,
     };
-    let movement = Move {
-        body,
-        offset,
-        turn: turned,
-        copy: asked.copy,
-        about,
-        frame: None,
-    };
-    let title = if asked.copy {
-        move_tools::COPY_NAME
+    let kept = base.and_then(|base| base.rotation.as_ref());
+    let rotation = if asked.turn_axis.is_some() || angle.is_some() {
+        let axis = match &asked.turn_axis {
+            Some(choice) => Some(places::axis(document, evaluation, choice)?),
+            None => kept.map(|kept| kept.axis.clone()),
+        };
+        let angle = angle.or_else(|| kept.map(|kept| kept.angle.clone()));
+        let (Some(axis), Some(angle)) = (axis, angle) else {
+            return Err(FeatureError::HalfAnAxisTurn.into());
+        };
+        Some(PlaneRotation { axis, angle })
     } else {
-        move_tools::TITLE
+        kept.cloned()
     };
-    let mut details = Map::new();
-    details.insert("body".to_owned(), json!(body_label(document, body)));
-    let name = feature_name(document, asked.name, title);
-    added(
-        session,
-        work,
-        (name, FeatureKind::Move(movement)),
-        None,
-        details,
-    )
-}
-
-fn datum_added(
-    session: &mut Session,
-    work: &Work<'_>,
-    datum: Datum,
-    name: Option<String>,
-) -> Result<Answer, ToolError> {
-    let name = feature_name(session.document(), name, datum.title());
-    added(
-        session,
-        work,
-        (name, FeatureKind::Datum(datum)),
-        None,
-        Map::new(),
-    )
+    let offset = offset
+        .or_else(|| base.map(|base| base.offset.clone()))
+        .unwrap_or_else(|| LengthUnit::Millimetre.default_length(0.0));
+    Ok(datum_built(
+        Datum::Plane(DatumPlane {
+            base: plane,
+            rotation,
+            offset,
+        }),
+        asked.name,
+    ))
 }
 
 pub fn datum_plane(
@@ -1176,37 +1719,30 @@ pub fn datum_plane(
     work: &Work<'_>,
     asked: DatumPlaning,
 ) -> Result<Answer, ToolError> {
-    let offset = match &asked.offset {
-        Some(offset) => signed_length(session, "offset", offset)?,
-        None => LengthUnit::Millimetre.default_length(0.0),
-    };
-    let angle = asked
-        .turn_angle
-        .as_ref()
-        .map(|angle| turn(session, "turn_angle", angle))
-        .transpose()?;
+    let built = datum_plane_built(session, work, asked, None)?;
+    added(session, work, built)
+}
+
+pub fn datum_axis_built(
+    session: &mut Session,
+    work: &Work<'_>,
+    asked: DatumAxising,
+    base: Option<&DatumAxis>,
+) -> Result<Built, ToolError> {
     session.evaluate(work)?;
     let document = session.document();
     let evaluation = session.evaluation();
-    let base = places::plane(document, evaluation, &asked.base)?;
-    let rotation = match (&asked.turn_axis, angle) {
-        (Some(axis), Some(angle)) => Some(PlaneRotation {
-            axis: places::axis(document, evaluation, axis)?,
-            angle,
-        }),
-        (None, None) => None,
-        (Some(_), None) | (None, Some(_)) => return Err(FeatureError::HalfAnAxisTurn.into()),
+    let axis = match (&asked.along, &asked.planes, base) {
+        (Some(_), Some(_), _) => return Err(FeatureError::TwoDatumAxes.into()),
+        (None, None, Some(base)) => base.clone(),
+        (None, None, None) => return Err(FeatureError::NoDatumAxis.into()),
+        (Some(along), None, _) => DatumAxis::Along(places::axis(document, evaluation, along)?),
+        (None, Some([first, second]), _) => DatumAxis::Intersection(
+            places::plane(document, evaluation, first)?,
+            places::plane(document, evaluation, second)?,
+        ),
     };
-    datum_added(
-        session,
-        work,
-        Datum::Plane(DatumPlane {
-            base,
-            rotation,
-            offset,
-        }),
-        asked.name,
-    )
+    Ok(datum_built(Datum::Axis(axis), asked.name))
 }
 
 pub fn datum_axis(
@@ -1214,17 +1750,6 @@ pub fn datum_axis(
     work: &Work<'_>,
     asked: DatumAxising,
 ) -> Result<Answer, ToolError> {
-    session.evaluate(work)?;
-    let document = session.document();
-    let evaluation = session.evaluation();
-    let axis = match (&asked.along, &asked.planes) {
-        (Some(_), Some(_)) => return Err(FeatureError::TwoDatumAxes.into()),
-        (None, None) => return Err(FeatureError::NoDatumAxis.into()),
-        (Some(along), None) => DatumAxis::Along(places::axis(document, evaluation, along)?),
-        (None, Some([first, second])) => DatumAxis::Intersection(
-            places::plane(document, evaluation, first)?,
-            places::plane(document, evaluation, second)?,
-        ),
-    };
-    datum_added(session, work, Datum::Axis(axis), asked.name)
+    let built = datum_axis_built(session, work, asked, None)?;
+    added(session, work, built)
 }

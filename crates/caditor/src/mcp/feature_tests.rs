@@ -7,29 +7,29 @@ use super::tests::{Client, opening};
 
 const TOLERANCE: f64 = 1e-6;
 
-fn number(value: &Value) -> f64 {
+pub(super) fn number(value: &Value) -> f64 {
     value
         .as_f64()
         .unwrap_or_else(|| panic!("{value} is not a number"))
 }
 
-fn close(found: f64, wanted: f64) -> bool {
+pub(super) fn close(found: f64, wanted: f64) -> bool {
     (found - wanted).abs() <= TOLERANCE * wanted.abs().max(1.0)
 }
 
-fn started(folder: &TempDir) -> Client {
+pub(super) fn started(folder: &TempDir) -> Client {
     let mut client = Client::start(opening(folder.path().join("features.caditor")));
     client.initialize("2025-06-18");
     client
 }
 
-fn added(client: &mut Client, tool: &str, arguments: Value) -> Value {
+pub(super) fn added(client: &mut Client, tool: &str, arguments: Value) -> Value {
     let answer = client.tool(tool, arguments);
     assert_eq!(answer["failing"], json!([]), "{tool}: {answer}");
     answer["feature"]["id"].clone()
 }
 
-fn total_volume(client: &mut Client) -> f64 {
+pub(super) fn total_volume(client: &mut Client) -> f64 {
     let bodies = client.tool("list_bodies", json!({}));
     bodies["bodies"]
         .as_array()
@@ -39,12 +39,12 @@ fn total_volume(client: &mut Client) -> f64 {
         .sum()
 }
 
-fn body_count(client: &mut Client) -> usize {
+pub(super) fn body_count(client: &mut Client) -> usize {
     let bodies = client.tool("list_bodies", json!({}));
     bodies["bodies"].as_array().unwrap().len()
 }
 
-fn box_of(client: &mut Client, size: [f64; 3], at: [f64; 2], name: &str) -> Value {
+pub(super) fn box_of(client: &mut Client, size: [f64; 3], at: [f64; 2], name: &str) -> Value {
     let [length, width, height] = size;
     added(
         client,
@@ -63,7 +63,7 @@ fn box_of(client: &mut Client, size: [f64; 3], at: [f64; 2], name: &str) -> Valu
     )
 }
 
-fn face_where(client: &mut Client, body: &Value, normal: [f64; 3]) -> String {
+pub(super) fn face_where(client: &mut Client, body: &Value, normal: [f64; 3]) -> String {
     let faces = client.tool("list_faces", json!({ "body": body }));
     let found = faces["faces"]
         .as_array()

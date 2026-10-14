@@ -1,9 +1,8 @@
 use std::{collections::BTreeSet, time::Instant};
 
 use caditor_document::{
-    BodyOperation, Document, Edit, Evaluation, Extrude, ExtrudeEnd, ExtrudeExtent, FeatureId,
-    FeatureKind, HoleDepth, PrincipalPlane, RegionChoice, SketchFeature, SolidFeature, Transaction,
-    TransactionBuilder, hole_centres,
+    BodyOperation, Document, Edit, Evaluation, FeatureId, FeatureKind, PrincipalPlane,
+    SketchFeature, Transaction, TransactionBuilder,
 };
 use caditor_expression::{Dimension, Expression, check_name};
 use caditor_geometry::Point2;
@@ -14,10 +13,8 @@ use serde_json::{Map, Value, json};
 
 use crate::{
     constraint_trial::{self, ConstraintTrial, PATIENCE},
-    editing, extrusion_detection,
+    editing,
     field::{self, Expected},
-    hole_tools,
-    last_values::Starts,
     mcp::{
         reading::{feature_brief, plane, problems},
         references::{self, EntityName, Named, body_label},
@@ -27,13 +24,10 @@ use crate::{
     },
     sketch_placement::{self, FaceChoice},
     sketch_status::up_to_date_result,
-    solid_tools::{self, Reach, Sweep},
-    units::{LengthUnit, Units},
-    visibility,
+    units::Units,
 };
 
 pub const MOST_ITEMS: usize = 200;
-const THROUGH_ALL: [&str; 3] = ["through all", "through_all", "through"];
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -198,33 +192,6 @@ pub enum OperationName {
     Intersect,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Extrusion {
-    pub sketch: Named,
-    pub distance: Option<String>,
-    #[serde(default)]
-    pub through_all: bool,
-    #[serde(default)]
-    pub symmetric: bool,
-    pub operation: Option<OperationName>,
-    pub body: Option<Named>,
-    pub reversed: Option<bool>,
-    pub name: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Drilling {
-    pub sketch: Named,
-    pub diameter: String,
-    pub depth: String,
-    pub body: Option<Named>,
-    #[serde(default)]
-    pub reversed: bool,
-    pub name: Option<String>,
-}
-
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum SketchingError {
     #[error("say where the sketch goes: a plane (XY, XZ or YZ), or a body and one of its faces")]
@@ -257,14 +224,37 @@ pub enum SketchingError {
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ModellingError {
-    #[error("give the extrusion a distance, or through_all for a cut")]
+    #[error("give the extrusion a distance, or through_all for a cut, or up_to")]
     NoDistance,
-    #[error("give the extrusion a distance or through_all, not both")]
-    DistanceAndThroughAll,
+    #[error("give one end: a distance, through_all or up_to, not more")]
+    TwoEnds,
     #[error("through_all is for an extrusion that removes or intersects; give a distance")]
     ThroughAllAdds,
-    #[error("a symmetric extrusion takes a distance, not through_all")]
+    #[error("a symmetric extrusion takes a distance, not through_all or up_to")]
     SymmetricThroughAll,
+    #[error("end_offset goes with an end up_to the next face or a plane")]
+    OffsetWithoutUpTo,
+    #[error("wall_side goes with thin_wall, the wall's thickness")]
+    SideWithoutWall,
+    #[error("give the hole a diameter, or a standard size such as \"M6\"")]
+    NoDiameter,
+    #[error("give the hole a depth (an expression or \"through all\") or up_to")]
+    NoDepth,
+    #[error("give a diameter or a standard size, not both")]
+    DiameterAndStandard,
+    #[error("there is no standard size “{name}”; the sizes are {sizes}")]
+    UnknownStandard { name: String, sizes: String },
+    #[error("fit goes with a standard size, such as standard \"M6\"")]
+    FitWithoutStandard,
+    #[error("{size} goes with a {style} hole; give style {style}")]
+    HeadWithoutStyle {
+        size: &'static str,
+        style: &'static str,
+    },
+    #[error(
+        "thread_form, thread_hand and thread_depth go with a tapped hole: fit tapped or tapped_fine"
+    )]
+    NotTapped,
     #[error("{operation} needs the body it changes, and the model has none yet; give body")]
     NoTarget { operation: &'static str },
     #[error(
@@ -857,201 +847,12 @@ pub(super) fn operation_words(document: &Document, operation: BodyOperation) -> 
     }
 }
 
-pub fn extrude(
-    session: &mut Session,
-    work: &Work<'_>,
-    asked: Extrusion,
-) -> Result<Answer, ToolError> {
-    let cuts = matches!(
-        asked.operation,
-        Some(OperationName::Remove | OperationName::Intersect)
-    );
-    let end = match (&asked.distance, asked.through_all) {
-        (Some(_), true) => return Err(ModellingError::DistanceAndThroughAll.into()),
-        (None, false) => return Err(ModellingError::NoDistance.into()),
-        (None, true) if asked.symmetric => {
-            return Err(ModellingError::SymmetricThroughAll.into());
-        }
-        (None, true) if asked.operation.is_some() && !cuts => {
-            return Err(ModellingError::ThroughAllAdds.into());
-        }
-        (None, true) => ExtrudeEnd::ThroughAll,
-        (Some(distance), false) => {
-            ExtrudeEnd::Distance(value(session, "distance", distance, Dimension::LENGTH)?)
-        }
-    };
-    session.evaluate(work)?;
-    let values = session.parameters();
-    let document = session.document();
-    let evaluation = session.evaluation();
-    let (feature, _) = references::sketch(document, &asked.sketch)?;
-    let sketch = feature.id();
-    let chosen = asked
-        .body
-        .as_ref()
-        .map(|body| references::body(document, evaluation, body))
-        .transpose()?;
-    let standing_on = solid_tools::face_body(document, sketch);
-    let extent = match (asked.symmetric, end) {
-        (true, ExtrudeEnd::Distance(distance)) => ExtrudeExtent::Symmetric { distance },
-        (_, end) => ExtrudeExtent::OneSide {
-            end,
-            reversed: false,
-        },
-    };
-    let template = Extrude {
-        sketch,
-        regions: RegionChoice::All,
-        extent,
-        operation: BodyOperation::NewBody,
-        start: None,
-        other_bodies: Vec::new(),
-        taper: None,
-        wall: None,
-        direction: None,
-    };
-    let (solid, told) = match asked.operation {
-        None => {
-            let detected = extrusion_detection::extrusion(
-                document,
-                Reach {
-                    evaluation,
-                    parameters: &values,
-                },
-                &template,
-                standing_on,
-                chosen,
-            );
-            let solid = Extrude {
-                extent: detected.extent,
-                operation: detected.operation,
-                ..template
-            };
-            (solid, detected.told)
-        }
-        Some(name) => {
-            let target = chosen
-                .or(standing_on)
-                .or_else(|| document.bodies_standing().last().copied());
-            let operation = match (name, target) {
-                (OperationName::NewBody, _) => BodyOperation::NewBody,
-                (OperationName::Add, Some(body)) => BodyOperation::Add(body),
-                (OperationName::Remove, Some(body)) => BodyOperation::Remove(body),
-                (OperationName::Intersect, Some(body)) => BodyOperation::Intersect(body),
-                (OperationName::Add, None) => {
-                    return Err(ModellingError::NoTarget { operation: "add" }.into());
-                }
-                (OperationName::Remove, None) => {
-                    return Err(ModellingError::NoTarget {
-                        operation: "remove",
-                    }
-                    .into());
-                }
-                (OperationName::Intersect, None) => {
-                    return Err(ModellingError::NoTarget {
-                        operation: "intersect",
-                    }
-                    .into());
-                }
-            };
-            let into_its_face = cuts && target.is_some() && target == standing_on;
-            let reversed = asked.reversed.unwrap_or(into_its_face);
-            let mut solid = Extrude {
-                operation,
-                ..template
-            };
-            if let ExtrudeExtent::OneSide {
-                reversed: turned, ..
-            } = &mut solid.extent
-            {
-                *turned = reversed;
-            }
-            (solid, None)
-        }
-    };
-    let name = asked
-        .name
-        .unwrap_or_else(|| editing::next_feature_name(document, Sweep::Extrude.label()));
-    let operation = solid.operation;
-    let mut transaction = document.transaction(format!("Create {name}"));
-    let added = transaction.add_feature(name, FeatureKind::Solid(SolidFeature::Extrude(solid)));
-    if visibility::is_shown(document, sketch) {
-        transaction.edit(Edit::SetFeatureHidden {
-            id: sketch,
-            hidden: true,
-        });
-    }
-    let mut details = Map::new();
-    details.insert(
-        "operation".to_owned(),
-        json!(operation_words(document, operation)),
-    );
-    if let Some(told) = told {
-        details.insert("note".to_owned(), json!(told));
-    }
-    let transaction = transaction.finish();
-    let answer = apply(session, work, transaction, details)?;
-    Ok(with_feature(session, answer, added))
-}
-
 pub(super) fn with_feature(session: &Session, answer: Answer, feature: FeatureId) -> Answer {
     let mut data = answer.data;
     if let Some(added) = session.document().feature(feature) {
         data.insert("feature".to_owned(), feature_brief(added));
     }
     Answer::of(data)
-}
-
-pub fn drill(session: &mut Session, work: &Work<'_>, asked: Drilling) -> Result<Answer, ToolError> {
-    let diameter = value(session, "diameter", &asked.diameter, Dimension::LENGTH)?;
-    let through = THROUGH_ALL
-        .iter()
-        .any(|words| asked.depth.trim().eq_ignore_ascii_case(words));
-    let depth = if through {
-        HoleDepth::ThroughAll
-    } else {
-        HoleDepth::Blind(value(session, "depth", &asked.depth, Dimension::LENGTH)?)
-    };
-    session.evaluate(work)?;
-    let document = session.document();
-    let evaluation = session.evaluation();
-    let (feature, definition) = references::sketch(document, &asked.sketch)?;
-    let sketch = feature.id();
-    if hole_centres(definition).is_empty() {
-        return Err(ModellingError::NothingToDrill {
-            sketch: feature.name.clone(),
-        }
-        .into());
-    }
-    let body = match &asked.body {
-        Some(body) => references::body(document, evaluation, body)?,
-        None => solid_tools::face_body(document, sketch)
-            .or_else(|| document.bodies_standing().last().copied())
-            .ok_or(ModellingError::NoBodyToDrill)?,
-    };
-    let mut kind = hole_tools::new_hole(sketch, body, &Starts::defaults(LengthUnit::Millimetre));
-    if let FeatureKind::Hole(hole) = &mut kind {
-        hole.diameter = diameter;
-        hole.depth = depth;
-        hole.reversed = asked.reversed;
-    }
-    let name = asked
-        .name
-        .unwrap_or_else(|| editing::next_feature_name(document, hole_tools::TITLE));
-    let mut transaction = document.transaction(format!("Create {name}"));
-    let added = transaction.add_feature(name, kind);
-    if visibility::is_shown(document, sketch) {
-        transaction.edit(Edit::SetFeatureHidden {
-            id: sketch,
-            hidden: true,
-        });
-    }
-    let mut details = Map::new();
-    details.insert("holes".to_owned(), json!(hole_centres(definition).len()));
-    details.insert("body".to_owned(), json!(body_label(document, body)));
-    let transaction = transaction.finish();
-    let answer = apply(session, work, transaction, details)?;
-    Ok(with_feature(session, answer, added))
 }
 
 pub fn undo(session: &mut Session, work: &Work<'_>) -> Result<Answer, ToolError> {

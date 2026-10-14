@@ -2,23 +2,23 @@ use serde_json::{Value, json};
 
 use crate::mcp::tools::{object, reference};
 
-fn amount(description: &str) -> Value {
+pub(super) fn amount(description: &str) -> Value {
     json!({ "type": ["string", "number"], "description": description })
 }
 
-fn keys(description: &str) -> Value {
+pub(super) fn keys(description: &str) -> Value {
     json!({ "type": "array", "items": { "type": "string" }, "description": description })
 }
 
-fn features(description: &str) -> Value {
+pub(super) fn features(description: &str) -> Value {
     json!({ "type": "array", "items": { "type": ["integer", "string"] }, "description": description })
 }
 
-fn name() -> Value {
+pub(super) fn name() -> Value {
     json!({ "type": "string", "description": "The new feature's name; by default the tool's own" })
 }
 
-fn on_face() -> Value {
+pub(super) fn on_face() -> Value {
     json!({
         "type": "object",
         "properties": {
@@ -99,7 +99,7 @@ fn spot() -> Value {
     })
 }
 
-fn operation() -> Value {
+pub(super) fn operation() -> Value {
     json!({
         "type": "string",
         "enum": ["new_body", "add", "remove", "intersect"],
@@ -137,6 +137,7 @@ pub fn revolve() -> Value {
                 "anyOf": [{ "type": ["integer", "string"] }, axis()]
             },
             "angle": amount("How far it turns, such as \"90 deg\"; a full turn when left out"),
+            "second_angle": amount("How far it also turns the other way from the sketch"),
             "symmetric": { "type": "boolean", "description": "Half the angle each way from the sketch" },
             "reversed": { "type": "boolean", "description": "Turn the other way" },
             "operation": operation(),
@@ -295,6 +296,19 @@ pub fn linear_pattern() -> Value {
             &["axis", "count", "spacing"],
         ),
     );
+    properties.insert(
+        "skipped".to_owned(),
+        json!({
+            "type": "array",
+            "items": {
+                "anyOf": [
+                    { "type": "integer", "minimum": 1 },
+                    { "type": "array", "items": { "type": "integer", "minimum": 0 }, "minItems": 2, "maxItems": 2 }
+                ]
+            },
+            "description": "Copies left out: n for the nth copy along the row (the original is 0), [column, row] in a grid"
+        }),
+    );
     properties.insert("name".to_owned(), name());
     object(Value::Object(properties), &["axis", "count", "spacing"])
 }
@@ -308,6 +322,11 @@ pub fn circular_pattern() -> Value {
             "count": amount("How many, the original included"),
             "angle": amount("The angle they spread over; a full turn by default"),
             "reversed": { "type": "boolean" },
+            "skipped": {
+                "type": "array",
+                "items": { "type": "integer", "minimum": 1 },
+                "description": "Copies left out, counted from the original as 0"
+            },
             "name": name()
         }),
         &["axis", "count"],
