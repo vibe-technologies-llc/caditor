@@ -35,8 +35,9 @@ shading.
   below, which fills shadows and gives metals something to reflect. At 0 only the sun lights the
   model.
 - **Bounced light** is sunlight thrown back by nearby lit surfaces, so a red part next to a white
-  one tints it. It reaches only a short way and does not see what lies between, so treat it as a
-  hint of colour, not an exact result.
+  one tints it. A wall the sun lights stops the light bounced through it, but it reaches only a
+  short way and comes only from surfaces the sun sees, so treat it as a hint of colour, not an
+  exact result.
 - **Ambient occlusion** darkens the sky and bounced light where surfaces crowd in: inside
   corners, holes, the gap under a part. It is worked out from what the view shows (ground-truth
   ambient occlusion), so it only sees surfaces on screen; 0 turns it off, above 1 deepens it.

@@ -229,8 +229,14 @@ paths:
   bind the maps as group 2 (`LightPass::bind_group`, 1×1 stand-ins until made). Shadows are 3×3
   PCF on a comparison sampler with a normal offset; bounced light (`bounced`) gathers
   `BOUNCE_SAMPLES` texels on a spun golden-angle disc of `BOUNCE_REACH` of the frame around the
-  receiver, each a lit patch's radiance over distance squared with both cosines, with no visibility
-  test (it can leak through thin walls). The targets are made lazily inside `gpu::scoped`; a
+  receiver, each a lit patch's radiance over distance squared with both cosines. A sample facing
+  the receiver is tested for visibility (`bounce_blocked`): the segment between the two, each end
+  lifted along its normal by the shadow normal offset, is marched in light space at
+  `BOUNCE_BLOCK_STEPS` points against `lit_depth` (texels holding 0 are empty), and a point behind
+  the stored surface by more than `BOUNCE_BLOCK_LIFTS` lifts and less than the segment's length
+  drops the sample. The upper bound tells a wall crossed from a shadow travelled through: a
+  caster farther above than the segment is long shades the path without standing in it. Only
+  surfaces the sun lights block, so an unlit wall still leaks. The targets are made lazily inside `gpu::scoped`; a
   refusal draws without shadows and bounce and reports `RenderFault::LightRefused` once. Image
   siblings make their own.
 - Ambient occlusion (`occlusion.rs`, `Lighting::occlusion` above zero) is GTAO over what the view
