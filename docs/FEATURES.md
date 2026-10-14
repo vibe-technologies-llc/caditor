@@ -245,16 +245,18 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   onto the bodies.
 - [medium · hard] The MCP server (`caditor mcp`, `mcp.md`) builds only a first slice of the model:
   an assistant can read the tree, parameters, bodies, faces and sketches, draw a picture, set
-  parameters, sketch points, lines, polylines, rectangles and circles with constraints and
-  dimensions on a principal plane or flat face, extrude, drill plain holes, undo, redo, save and
-  export. What remains, through the same `Session` layer:
+  parameters, sketch points, lines, polylines, rectangles, circles, arcs, slots, polygons, splines
+  and ellipses with constraints and dimensions (adding, removing and editing them) on a principal
+  plane, datum plane, coordinate system or flat face, extrude, drill plain holes, undo, redo, save
+  and export. What remains, through the same `Session` layer:
   - A write tool per remaining feature kind (revolve, sweep, pipe, fillet and chamfer, shell,
     offset and split face, primitives, combine, move, mirror, split, mate, scale, patterns, datums,
     threads), each with arguments mirroring its panel, and edit, rename, suppress, reorder and
     delete of existing features. Extrusions lack taper, start offsets, two sides, up-to ends,
     regions and thin walls; holes lack styles, standard sizes, threads and up-to ends.
-  - Sketching: arcs, slots, polygons, splines, ellipses, projections and sketches on datum planes
-    and coordinate systems; removing or editing constraints and changing a dimension's value.
+  - Sketching: elliptical arcs, conic splines, polygons on a side, tangent arcs, and projections
+    of body edges; the other sketch tools of the app (trim, extend, offset, mirror, patterns,
+    fillet) and moving or resizing existing entities.
   - Edges named by `EdgeName` with a description (needed for fillets), an edge's kind and size,
     and measurements between two references.
   - Import, and saving under another name, within the allowed folders.

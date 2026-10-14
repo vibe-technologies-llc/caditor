@@ -29,9 +29,10 @@ first, so two programs never change one model at once.
   them.
 - Draw a picture of the model from a standard view, as the command line's `--export` of a `.png`
   does, to look at what it made. This needs a graphics adapter.
-- Add a [sketch](sketches) on a principal plane or a flat face, draw points, lines, polylines,
-  rectangles and circles in it, and add [constraints](constraints) and
-  [dimensions](dimensions).
+- Add a [sketch](sketches) on a principal plane, a flat face, a datum plane or a plane of a
+  coordinate system, draw points, lines, polylines, rectangles, circles, arcs, slots, polygons,
+  splines and ellipses in it, add [constraints](constraints) and [dimensions](dimensions), and
+  later remove them, turn them off or on, or change a dimension's value.
 - Add an [extrusion](extrude), which decides whether to add, cut or start a new body as the
   Extrude tool does unless told, and a [hole](hole) at every free point of a sketch.
 - [Undo and redo](undo), save and export.
