@@ -549,7 +549,23 @@ impl Document {
     }
 
     pub(super) fn reserve_named_entities(&mut self, kind: &FeatureKind) {
-        for (sketch, curve) in kind.named_entities() {
+        self.reserve_entities(kind.named_entities());
+    }
+
+    pub(crate) fn reserve_skipped_points(&mut self) {
+        let skipped: Vec<(FeatureId, EntityId)> = self
+            .features()
+            .filter_map(|feature| match &feature.kind {
+                FeatureKind::Pattern(pattern) => Some(pattern.skipped_points()),
+                _ => None,
+            })
+            .flatten()
+            .collect();
+        self.reserve_entities(skipped);
+    }
+
+    fn reserve_entities(&mut self, entities: impl IntoIterator<Item = (FeatureId, EntityId)>) {
+        for (sketch, curve) in entities {
             let beyond = curve.raw().saturating_add(1);
             let behind = self
                 .feature(sketch)

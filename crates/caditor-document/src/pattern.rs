@@ -390,6 +390,18 @@ impl Pattern {
             .collect()
     }
 
+    pub fn skipped_points(&self) -> Vec<(FeatureId, EntityId)> {
+        let PatternKind::Points(points) = &self.kind else {
+            return Vec::new();
+        };
+        self.skipped
+            .iter()
+            .filter(|instance| **instance != ORIGINAL_INSTANCE)
+            .filter_map(|instance| instance_point(*instance))
+            .map(|point| (points.sketch, point))
+            .collect()
+    }
+
     pub fn sketches(&self) -> BTreeSet<FeatureId> {
         self.axes()
             .into_iter()
