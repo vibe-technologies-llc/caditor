@@ -1793,6 +1793,14 @@ impl ViewportState {
     }
 
     #[cfg(test)]
+    pub fn grab_highlight(&self, sketch: &Sketch) -> Vec<EntityId> {
+        match &self.primary {
+            Some(PrimaryDrag::Grab(grab)) => grab.snap_entities(sketch),
+            _ => Vec::new(),
+        }
+    }
+
+    #[cfg(test)]
     pub fn keyboard_highlight(&self) -> Option<Pickable> {
         self.keyboard_highlight
     }

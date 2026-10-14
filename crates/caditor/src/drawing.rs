@@ -26,7 +26,7 @@ use crate::{
     sketch_tools,
     snap::{self, Accept, Held, Hold, Lookup, ON_THE_GRID, Pointer, Screen, Snapped, Target},
     symmetric_drawing,
-    tracking::{self, Acquired, Tracked, Tracks},
+    tracking::{self, Acquired, ShownOutlines, Tracked, Tracks},
     typed_point::{Measured, Placed, TypedDimension},
     units::Units,
 };
@@ -794,84 +794,6 @@ pub struct Drawing {
     about: Option<EntityId>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
-struct ShownOutlines(Vec<(EntityId, Vec<EntityId>)>);
-
-impl ShownOutlines {
-    fn keep(&mut self, sketch: &Sketch, hover: Option<Placement>) {
-        let wanted = hover.map_or([None; 4], |hover| {
-            [
-                hover.snap.target(),
-                hover.tracks.level.map(|track| track.anchor),
-                hover.tracks.upright.map(|track| track.anchor),
-                hover.tracks.slanted.map(|track| track.anchor),
-            ]
-            .map(|target| target.and_then(outline_of))
-        });
-        self.0
-            .retain(|(outline, _)| wanted.contains(&Some(*outline)));
-        for outline in wanted.into_iter().flatten() {
-            if !self.0.iter().any(|(kept, _)| *kept == outline) {
-                let pieces =
-                    snap::outline_through(sketch, outline).unwrap_or_else(|| vec![outline]);
-                self.0.push((outline, pieces));
-            }
-        }
-    }
-
-    fn keep_none(&mut self) {
-        self.0.clear();
-    }
-
-    fn add_pieces(&self, outline: EntityId, shown: &mut Vec<EntityId>) {
-        match self.0.iter().find(|(kept, _)| *kept == outline) {
-            Some((_, pieces)) => shown.extend_from_slice(pieces),
-            None => shown.push(outline),
-        }
-    }
-
-    fn show(&self, target: Target, shown: &mut Vec<EntityId>) {
-        match target {
-            Target::Centre {
-                outline,
-                corners: (first, second),
-            } => {
-                self.add_pieces(outline, shown);
-                shown.extend([first, second]);
-            }
-            Target::Centroid(outline) => self.add_pieces(outline, shown),
-            Target::Pending(_)
-            | Target::Point(_)
-            | Target::Curve(_)
-            | Target::Extension(_)
-            | Target::Midpoint(_)
-            | Target::Quadrant { .. }
-            | Target::AxisEnd { .. }
-            | Target::Tangent(_)
-            | Target::Intersection(..)
-            | Target::Body(_) => {
-                shown.extend(target.entity().into_iter().chain(target.second_entity()))
-            }
-        }
-    }
-}
-
-fn outline_of(target: Target) -> Option<EntityId> {
-    match target {
-        Target::Centre { outline, .. } | Target::Centroid(outline) => Some(outline),
-        Target::Pending(_)
-        | Target::Point(_)
-        | Target::Curve(_)
-        | Target::Extension(_)
-        | Target::Midpoint(_)
-        | Target::Quadrant { .. }
-        | Target::AxisEnd { .. }
-        | Target::Tangent(_)
-        | Target::Intersection(..)
-        | Target::Body(_) => None,
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Lock {
     Direction(Vector2),
@@ -1293,7 +1215,16 @@ impl Drawing {
         {
             self.acquired.note(sketch, target, hover.position);
         }
-        self.outlines.keep(sketch, self.hover);
+        self.outlines.keep(
+            sketch,
+            self.hover.into_iter().flat_map(|hover| {
+                hover
+                    .snap
+                    .target()
+                    .into_iter()
+                    .chain(hover.tracks.anchors())
+            }),
+        );
         if self.choosing_arc_end()
             && let (Some(sweep), Some(hover)) = (&mut self.sweep, self.hover)
         {

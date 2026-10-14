@@ -2,11 +2,11 @@ use caditor_document::FeatureId;
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Plane, Point2, Vector2};
 use caditor_sketch::{Constraint, EllipseEnd, Entity, EntityId, PointTarget, Quadrant, Sketch};
-use egui::{Key, Modifiers};
+use egui::{Event, Key, Modifiers, PointerButton};
 
 use super::{
     Harness, constraints_of_kind, drag_in_sketch, edit_free_sketch, entities_of_kind, line_ends,
-    near,
+    near, rectangle, release_drag, sketch_entity,
 };
 use crate::{editing::Tool, selection::Pickable};
 
@@ -476,4 +476,59 @@ fn hovering_the_centre_of_a_rectangle_highlights_all_of_it_and_the_corners_holdi
             .count(),
         2
     );
+}
+
+#[test]
+fn dragging_a_point_to_the_centre_of_a_rectangle_highlights_all_of_it_and_the_corners_holding_the_point()
+ {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    rectangle(
+        &mut sketch,
+        Point2::new(10.0, 10.0),
+        Point2::new(50.0, 30.0),
+    );
+    let lone = sketch.add_point(Point2::new(80.0, 60.0));
+    let feature = edit_free_sketch(&mut harness, sketch);
+    let sides = entities_of_kind(harness.sketch(feature), "Line");
+    let corners: Vec<EntityId> = entities_of_kind(harness.sketch(feature), "Point")
+        .into_iter()
+        .filter(|point| *point != lone)
+        .collect();
+
+    let grabbed = harness.hover_pickable(
+        Plane::XY,
+        Point2::new(80.0, 60.0),
+        sketch_entity(feature, lone),
+    );
+    harness.events.push(Event::PointerButton {
+        pos: grabbed,
+        button: PointerButton::Primary,
+        pressed: true,
+        modifiers: Modifiers::NONE,
+    });
+    harness.frame();
+    for step in 1..=4 {
+        let target = harness.on_screen(Point2::new(30.2, 20.1));
+        let position = grabbed + (target - grabbed) * (step as f32 / 4.0);
+        harness.events.push(Event::PointerMoved(position));
+        harness.frame();
+    }
+    let highlighted = harness
+        .workspace
+        .viewport
+        .grab_highlight(&harness.shown(feature));
+    let at = harness.on_screen(Point2::new(30.2, 20.1));
+    release_drag(&mut harness, at);
+
+    assert_eq!(sides.len(), 4);
+    assert!(sides.iter().all(|side| highlighted.contains(side)));
+    assert_eq!(
+        highlighted
+            .iter()
+            .filter(|entity| corners.contains(entity))
+            .count(),
+        2
+    );
+    assert!(!highlighted.contains(&lone));
 }

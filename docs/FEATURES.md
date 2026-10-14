@@ -167,9 +167,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   corners and the boundaries of faces, but not the outline of a body seen square to the sketch
   plane: the silhouette lines of a cylinder lying along the plane or the circle of a sphere cannot
   be brought in, so a sketch following a body's outline is drawn by hand.
-- [low · medium] A centre snap's grab highlight while dragging marks the piece the outline search
-  started from and the two corners its constraint holds, not the whole outline the drawing tools
-  highlight (`sketch_drag.rs`).
 
 ## STEP import and export
 

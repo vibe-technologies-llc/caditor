@@ -483,6 +483,75 @@ fn anchor_words(sketch: &Sketch, anchor: Target) -> String {
     }
 }
 
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ShownOutlines(Vec<(EntityId, Vec<EntityId>)>);
+
+impl ShownOutlines {
+    pub fn keep(&mut self, sketch: &Sketch, targets: impl IntoIterator<Item = Target>) {
+        let wanted: Vec<EntityId> = targets.into_iter().filter_map(outline_of).collect();
+        self.0.retain(|(outline, _)| wanted.contains(outline));
+        for outline in wanted {
+            if !self.0.iter().any(|(kept, _)| *kept == outline) {
+                let pieces =
+                    snap::outline_through(sketch, outline).unwrap_or_else(|| vec![outline]);
+                self.0.push((outline, pieces));
+            }
+        }
+    }
+
+    pub fn keep_none(&mut self) {
+        self.0.clear();
+    }
+
+    fn add_pieces(&self, outline: EntityId, shown: &mut Vec<EntityId>) {
+        match self.0.iter().find(|(kept, _)| *kept == outline) {
+            Some((_, pieces)) => shown.extend_from_slice(pieces),
+            None => shown.push(outline),
+        }
+    }
+
+    pub fn show(&self, target: Target, shown: &mut Vec<EntityId>) {
+        match target {
+            Target::Centre {
+                outline,
+                corners: (first, second),
+            } => {
+                self.add_pieces(outline, shown);
+                shown.extend([first, second]);
+            }
+            Target::Centroid(outline) => self.add_pieces(outline, shown),
+            Target::Pending(_)
+            | Target::Point(_)
+            | Target::Curve(_)
+            | Target::Extension(_)
+            | Target::Midpoint(_)
+            | Target::Quadrant { .. }
+            | Target::AxisEnd { .. }
+            | Target::Tangent(_)
+            | Target::Intersection(..)
+            | Target::Body(_) => {
+                shown.extend(target.entity().into_iter().chain(target.second_entity()))
+            }
+        }
+    }
+}
+
+fn outline_of(target: Target) -> Option<EntityId> {
+    match target {
+        Target::Centre { outline, .. } | Target::Centroid(outline) => Some(outline),
+        Target::Pending(_)
+        | Target::Point(_)
+        | Target::Curve(_)
+        | Target::Extension(_)
+        | Target::Midpoint(_)
+        | Target::Quadrant { .. }
+        | Target::AxisEnd { .. }
+        | Target::Tangent(_)
+        | Target::Intersection(..)
+        | Target::Body(_) => None,
+    }
+}
+
 const ON_LINE_TOLERANCE: f64 = 1e-9;
 const LEVEL_TOLERANCE: f64 = 1e-6;
 
