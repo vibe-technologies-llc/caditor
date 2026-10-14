@@ -370,14 +370,20 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   triangle's sides picks its incircle or an excircle). With two chosen the typed-point field
   ("Radius") draws the circle of that radius nearest the pointer. One "Draw tangent circle"
   transaction.
-- Spur gear (`Tool::Gear`, `gearing.rs`; Polygon's corner menu) draws an involute gear outline
-  (`sketch.md`, Spur gears). While active, the Spur gear panel (`gear_panel.rs`, a right-hand panel
-  closing back to Select) holds Module, Teeth, Pressure angle, Profile shift, Root fillet and Bore as
-  text fields (`patterning::quantity`: units and expressions with parameters), kept in `Modifying`
-  (`GearSettings`) while caditor runs, and lists the derived diameters or the refusal. The pointer
-  previews the gear on the point under it (origin included) or where it is; a click draws it there;
-  Enter or the panel's primary button draws at the one selected point, else the origin; Space or Enter
-  on a highlighted point draws there. One "Draw spur gear" transaction.
+- Spur gear (`Tool::Gear`, `gearing.rs`; Polygon's corner menu) draws an involute gear outline, a
+  pair of meshing gears or a roller chain sprocket (`sketch.md`, Spur gears). While active, the Spur
+  gear panel (`gear_panel.rs`, a right-hand panel closing back to Select) opens with a segmented
+  control for the `GearKind` (Single gear, Gear pair, Sprocket) and holds that kind's fields
+  (`GearKind::fields`): Module, Teeth, Pressure angle, Profile shift, Root fillet and Bore for a gear,
+  with Meshing teeth and Meshing bore for a pair, and a Chain combo (`ChainSize::ALL`) with Teeth and
+  Bore for a sprocket (teeth from `MIN_SPROCKET_TEETH`). They are text fields
+  (`patterning::quantity`: units and expressions with parameters), kept in `Modifying`
+  (`GearSettings`, which evaluates the shown fields into a `Part`) while caditor runs, and the panel
+  lists the derived diameters or the refusal. The pointer previews the wheels (`Wheel`) on the point
+  under it (origin included) or where it is, a pair's second gear to the right of the first; a click
+  draws them there; Enter or the panel's primary button draws at the one selected point, else the
+  origin; Space or Enter on a highlighted point draws there. One "Draw spur gear", "Draw gear pair" or
+  "Draw sprocket" transaction (`Part::transaction`).
 - Blend curve (`Tool::BlendCurve`, `blend_curving.rs`; Alt+Shift+B, Offset's corner menu) joins two
   curve ends with a spline (`sketch.md`, Blend curves). It takes the end of a line, arc or spline
   (projected included) nearest the pointer on the curve under it, or a selected point ending exactly

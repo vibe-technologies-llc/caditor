@@ -306,7 +306,7 @@ impl Modifying {
             State::Fillet(filleting) => filleting.hover(sketch, version, screen, pointer),
             State::Tangent(tangent) => tangent.hover(sketch, screen, pointer),
             State::Blend(blend) => blend.hover(sketch, screen, pointer),
-            State::Gear(gearing) => gearing.hover(sketch, screen, pointer, self.gear.gear()),
+            State::Gear(gearing) => gearing.hover(sketch, screen, pointer, self.gear.part()),
             State::Idle => {}
         }
     }
@@ -358,7 +358,7 @@ impl Modifying {
             State::Fillet(filleting) => filleting.label(sketch, unit),
             State::Tangent(tangent) => tangent.label(sketch, unit),
             State::Blend(blend) => blend.label(sketch),
-            State::Gear(gearing) => gearing.label(sketch, unit, self.gear.gear()),
+            State::Gear(gearing) => gearing.label(sketch, unit, self.gear.part()),
             State::Idle => None,
         }
     }
@@ -456,7 +456,7 @@ impl Modifying {
             State::Fillet(filleting) => filleting.click(model, feature),
             State::Tangent(tangent) => tangent.click(model, feature),
             State::Blend(blend) => blend.click(model, feature),
-            State::Gear(gearing) => gearing.click(model, feature, self.gear.gear()),
+            State::Gear(gearing) => gearing.click(model, feature, self.gear.part()),
             State::Idle => Outcome::Nothing,
         }
     }
@@ -501,7 +501,7 @@ impl Modifying {
             State::Fillet(filleting) => filleting.activate(model, feature),
             State::Tangent(tangent) => tangent.activate(model, feature),
             State::Blend(blend) => blend.activate(model, feature),
-            State::Gear(gearing) => gearing.finish(model, feature, self.gear.gear()),
+            State::Gear(gearing) => gearing.finish(model, feature, self.gear.part()),
             State::Idle => Outcome::Nothing,
         }
     }
@@ -561,7 +561,7 @@ impl Modifying {
             State::Fillet(filleting) => filleting.activate(model, feature),
             State::Tangent(tangent) => tangent.activate(model, feature),
             State::Blend(blend) => blend.activate(model, feature),
-            State::Gear(gearing) => gearing.activate(model, feature, self.gear.gear()),
+            State::Gear(gearing) => gearing.activate(model, feature, self.gear.part()),
             State::Offset(_) | State::Idle => Outcome::Nothing,
         }
     }
