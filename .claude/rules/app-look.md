@@ -286,8 +286,9 @@ paths:
     `BodyMeshing::stop`) until the user asks again with the button beside the info callout or pill
     that says so (Analyse again, Work them out, Show the rest). Each of these Cancels, and each of
     those resuming buttons (Check again included), is also a command (`Command::CancelAnalysis`,
-    `CancelMassProperties`, `CancelPreparingBodies`, `CancelIsocurves`, `CancelInterference`;
-    `AnalyseAgain`, `WorkOutMassProperties`, `ShowRestOfBodies`, `CheckInterferenceAgain`), invoked
+    `CancelMassProperties`, `CancelPreparingBodies`, `CancelUploading`, `CancelIsocurves`,
+    `CancelInterference`; `AnalyseAgain`, `WorkOutMassProperties`, `ShowRestOfBodies`,
+    `ContinueUploading`, `CheckInterferenceAgain`), invoked
     by the panel or status bar that draws the wait, so the button and the command share one path
     (`app-input.md`).
   - One focus ring: `paint_focus_ring` in the panels' focus colour, `paint_focus_ring_in` with a
@@ -489,9 +490,14 @@ paths:
 - While the renderer is still uploading (`Renderer::is_uploading`, set each frame on
   `ViewportState::set_uploading` before the interface runs), the status bar's file
   activity ends with a `widgets::progress` of `upload_badge::TEXT` (`StatusContext::uploading`),
-  the only place it is shown. The spinner shows only in frames the
-  uploads already ask for, so the last upload frame is followed by one with neither and no repaint
-  request (`ui_tests/upload_indicator.rs`).
+  the only place it is shown, with a Cancel (`Action::StopUploading`). The spinner shows only in
+  frames the uploads already ask for, so the last upload frame is followed by one with neither and
+  no repaint request. Cancelled, the bodies not on the graphics card yet stay hidden and the same
+  place shows an info pill `upload_badge::STOPPED` (`StatusContext::upload_stopped`, from
+  `Renderer::is_upload_stopped`) with Continue loading (`Action::ResumeUploading`), both also
+  commands (below); `ViewportState::request_upload` holds the `UploadRequest` that `app.rs` hands
+  the renderer after `perform` (`ui_tests/upload_indicator.rs`). Saving, the file dialog wait and
+  the closing waits are not cancellable by design.
 - The status bar (`status_bar.rs`) runs recompute | file activity | notice, then right-aligned
   selection | its size or pair reading | selection filter (while not Everything) | unit | interface
   size (while not 100%); the filter, unit and interface size are `small_button`s with an icon.

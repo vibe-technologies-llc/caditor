@@ -485,6 +485,10 @@ fn draws_and_picks_a_line_over_a_fill() {
 }
 
 fn box_mesh(half: f64) -> ShadedMesh {
+    cuboid_mesh(Vector3::splat(half))
+}
+
+fn cuboid_mesh(half: Vector3) -> ShadedMesh {
     let face = |normal: Vector3| {
         let (u, v) = normal.any_orthonormal_pair();
         let corner = |a: f64, b: f64| MeshPoint {
@@ -5422,6 +5426,54 @@ fn light_bounced_off_a_red_wall_tints_the_white_floor_beside_it() {
 }
 
 #[test]
+fn a_thin_wall_between_a_red_wall_and_the_floor_stops_the_light_it_would_bounce_there() {
+    let floor = Arc::new(quad_mesh(0.0, 60.0));
+    let cube = Arc::new(box_mesh(10.0));
+    let panel = Arc::new(cuboid_mesh(Vector3::new(0.25, 30.0, 3.0)));
+    let white = Color::from_rgb8(220, 220, 220);
+    let red = Color::from_rgb8(220, 30, 30);
+    let dark = Color::from_rgb8(20, 20, 20);
+    let wall = RigidTransform::translation(Vector3::new(-20.0, 0.0, 10.0));
+    let between = RigidTransform::translation(Vector3::new(-8.0, 0.0, 3.0));
+    let view = oblique_view(220.0);
+    let spots = [Point3::new(-6.0, -2.0, 0.0)];
+    let scene_with = |bounce: f32, thin_wall: bool| Scene {
+        meshes: [
+            Some(finished_mesh(&floor, white, MATTE, None)),
+            Some(finished_mesh(&cube, red, MATTE, wall)),
+            thin_wall.then(|| finished_mesh(&panel, dark, MATTE, between)),
+        ]
+        .into_iter()
+        .flatten()
+        .collect(),
+        lighting: Some(crate::Lighting {
+            shadows: true,
+            bounce,
+            environment: 0.2,
+            ..lit_by(0.0, std::f64::consts::FRAC_PI_3)
+        }),
+        ..Scene::default()
+    };
+    let warmth = |[red, _, blue, _]: [u8; 4]| i32::from(red) - i32::from(blue);
+    let tint = |thin_wall: bool| {
+        let plain = rendered_pixels(&scene_with(0.0, thin_wall), &view, &spots)?;
+        let bounced = rendered_pixels(&scene_with(4.0, thin_wall), &view, &spots)?;
+        Some((warmth(bounced[0]) - warmth(plain[0]), plain, bounced))
+    };
+
+    let Some((open, open_plain, open_bounced)) = tint(false) else {
+        return;
+    };
+    let (walled, walled_plain, walled_bounced) = tint(true).unwrap();
+
+    assert!(open > 10, "{open_plain:?} {open_bounced:?}");
+    assert!(
+        walled * 2 < open,
+        "{open_plain:?} {open_bounced:?} {walled_plain:?} {walled_bounced:?}"
+    );
+}
+
+#[test]
 fn a_metal_renders_apart_from_a_dielectric_of_its_colour_and_exposure_brightens_both() {
     let cube = Arc::new(box_mesh(20.0));
     let steel = Color::from_rgb8(150, 155, 160);
@@ -5632,4 +5684,157 @@ fn the_hidden_inside_of_a_closed_body_never_shows_along_its_far_silhouette() {
         .count();
 
     assert_eq!(showing_through, 0);
+}
+
+#[test]
+fn stopping_the_upload_leaves_batches_not_yet_uploaded_out_until_it_resumes() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let view = looking_down(100.0, f64::from(SIZE), f64::from(SIZE));
+    let scene = Scene {
+        batches: [-20.0, -10.0, 0.0].map(marker_batch).into(),
+        ..Scene::default()
+    };
+    let point = view.project(Point3::new(0.0, 20.0, 0.0)).unwrap();
+    let mut renderer = viewport_renderer(&device, 1);
+    renderer.set_mesh_upload_bytes(1);
+    let frame = |renderer: &mut ViewportRenderer| {
+        render_with(renderer, &device, &queue, &full_frame(&view, &scene, point));
+        (
+            renderer.uploaded().len(),
+            renderer.is_uploading(),
+            renderer.is_upload_stopped(),
+        )
+    };
+
+    let started = frame(&mut renderer);
+    renderer.stop_uploading();
+    let stopped = [
+        frame(&mut renderer),
+        frame(&mut renderer),
+        frame(&mut renderer),
+    ];
+    let passes = renderer.work().view_passes;
+    frame(&mut renderer);
+    frame(&mut renderer);
+    let passes_after_still_frames = renderer.work().view_passes;
+    renderer.resume_uploading();
+    let resumed = [frame(&mut renderer), frame(&mut renderer)];
+    let finished = frame(&mut renderer);
+
+    assert_eq!(started, (1, true, false));
+    assert_eq!(stopped, [(1, false, true); 3]);
+    assert_eq!(passes_after_still_frames, passes);
+    assert_eq!(resumed, [(2, true, false), (3, false, false)]);
+    assert_eq!(finished, (3, false, false));
+}
+
+#[test]
+fn stopping_the_upload_after_the_last_mesh_has_gone_up_leaves_nothing_out() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let green = Color::from_rgb8(40, 200, 40);
+    let scene = Scene {
+        meshes: vec![styled_box(green, 10)],
+        ..Scene::default()
+    };
+    let view = looking_down(150.0, f64::from(SIZE), f64::from(SIZE));
+    let on_top = view.project(Point3::new(0.0, 10.0, 20.0)).unwrap();
+    let mut renderer = viewport_renderer(&device, 4);
+    render_with(
+        &mut renderer,
+        &device,
+        &queue,
+        &full_frame(&view, &scene, on_top),
+    );
+
+    renderer.stop_uploading();
+    let rendered = render_with(
+        &mut renderer,
+        &device,
+        &queue,
+        &full_frame(&view, &scene, on_top),
+    );
+
+    assert!(!renderer.is_uploading());
+    assert!(!renderer.is_upload_stopped());
+    assert!(greenest(pixel(&rendered, on_top)));
+}
+
+#[test]
+fn stopping_the_upload_leaves_meshes_and_silhouettes_not_yet_uploaded_out_until_it_resumes() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let green = Color::from_rgb8(40, 200, 40);
+    let apart = |x: f64, pick: usize| MeshInstance {
+        mesh: Arc::new(cylinder(10.0, 20.0, 24)),
+        faces: vec![FaceStyle {
+            color: green,
+            pick: PickId::from_index(pick),
+            finish: None,
+        }]
+        .into(),
+        placement: RigidTransform::translation(Vector3::new(x, 0.0, 0.0)),
+    };
+    let meshes = vec![apart(-40.0, 10), apart(40.0, 20)];
+    let scene = Scene {
+        silhouettes: silhouettes_of(&meshes),
+        meshes,
+        ..Scene::default()
+    };
+    let view = looking_down(400.0, f64::from(SIZE), f64::from(SIZE));
+    let centres = [-40.0, 40.0].map(|x| view.project(Point3::new(x, 0.0, 10.0)).unwrap());
+    let mut renderer = viewport_renderer(&device, 4);
+    renderer.set_mesh_upload_bytes(200);
+    let frame = |renderer: &mut ViewportRenderer| {
+        let rendered = render_with(
+            renderer,
+            &device,
+            &queue,
+            &full_frame(&view, &scene, centres[0]),
+        );
+        let drawn = centres.map(|at| greenest(pixel(&rendered, at)));
+        (drawn, renderer.silhouette_triangles())
+    };
+
+    let mut frames = 1;
+    let mut state = frame(&mut renderer);
+    while state.0 != [true, false] {
+        frames += 1;
+        assert!(frames < 60, "{state:?}");
+        state = frame(&mut renderer);
+    }
+    renderer.stop_uploading();
+    let stopped = [
+        frame(&mut renderer),
+        frame(&mut renderer),
+        frame(&mut renderer),
+    ];
+    let left_out = (renderer.is_uploading(), renderer.is_upload_stopped());
+    renderer.resume_uploading();
+    let mut resumed = frame(&mut renderer);
+    while renderer.is_uploading() {
+        frames += 1;
+        assert!(frames < 120);
+        resumed = frame(&mut renderer);
+    }
+
+    assert!(stopped.iter().all(|(drawn, _)| *drawn == [true, false]));
+    assert!(
+        stopped
+            .iter()
+            .all(|(_, triangles)| *triangles == stopped[0].1)
+    );
+    assert_eq!(left_out, (false, true));
+    assert_eq!(resumed.0, [true, true]);
+    assert_eq!(resumed.1, 96);
+    assert!(resumed.1 > stopped[0].1);
+    assert!(!renderer.is_upload_stopped());
+}
+
+fn greenest([red, green, blue, _]: [u8; 4]) -> bool {
+    green > red * 2 && green > blue * 2
 }

@@ -11,6 +11,7 @@ use crate::{
 pub(crate) const RESULTS_KEPT_PER_FEATURE: usize = 4;
 pub(crate) const EARLIER_RESULTS_BUDGET: usize = 256 * 1024 * 1024;
 const SKETCH_ENTITY_BYTES: usize = 160;
+const HELIX_TURN_BYTES: usize = 1_600;
 
 #[derive(Debug, Clone)]
 struct Kept {
@@ -291,5 +292,6 @@ fn owned_bytes(result: &FeatureResult) -> usize {
         FeatureResult::Thread(thread) => size_of_val(thread) + thread.designation.len(),
         FeatureResult::Measurement(measurement) => size_of_val(measurement),
         FeatureResult::Image(image) => size_of_val(image),
+        FeatureResult::Helix(helix) => size_of_val(helix) + helix.turns.len() * HELIX_TURN_BYTES,
     }
 }

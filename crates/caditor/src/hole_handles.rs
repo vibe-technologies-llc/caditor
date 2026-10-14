@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use caditor_document::{Document, Edit, FeatureId, Hole, Transaction};
-use caditor_expression::Expression;
+use caditor_expression::{Expression, ParameterId};
 use caditor_geometry::{Plane, Point2, Point3, Ray, Vector2, Vector3};
 use caditor_render::{Batch, View};
 use caditor_sketch::{ConstraintId, Entity, EntityId, Sketch};
@@ -12,7 +12,7 @@ use crate::{
     handle_snap::Snap,
     hole_on_curve,
     hole_panel::EDGE_DISTANCE,
-    hole_placement::{self, Anchor, Held as HeldEdge, Placement},
+    hole_placement::{self, Anchor, Held as HeldEdge, PlacedHole, Placement},
     hole_tools,
     manipulator::Held,
     model::Model,
@@ -42,6 +42,7 @@ struct Stand {
     at: Point2,
     per_point: f64,
     away: Option<Away>,
+    driving: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -111,14 +112,29 @@ fn along_words(
     point: EntityId,
 ) -> Option<String> {
     let placed = placement.hole(point)?;
-    if placed.along.iter().all(Option::is_none) {
+    if placed.along.iter().all(Option::is_none)
+        || hole_placement::drivers(document, placed).is_some()
+    {
         return None;
     }
-    let names: Vec<String> = placed
-        .along
-        .iter()
-        .flatten()
-        .flat_map(|along| along.value.parameters())
+    let names = parameter_names(
+        document,
+        placed
+            .along
+            .iter()
+            .flatten()
+            .flat_map(|along| along.value.parameters()),
+    );
+    Some(if names.is_empty() {
+        format!("Hole {number} is held by a dimension from the origin; change it in the sketch")
+    } else {
+        format!("Hole {number}'s position follows {names}; change {names} in Parameters")
+    })
+}
+
+fn parameter_names(document: &Document, ids: impl IntoIterator<Item = ParameterId>) -> String {
+    let names: Vec<String> = ids
+        .into_iter()
         .map(|id| {
             document.parameter(id).map_or_else(
                 || "a deleted parameter".to_owned(),
@@ -126,12 +142,15 @@ fn along_words(
             )
         })
         .collect();
-    let names = feature_tree::in_words(&names);
-    Some(if names.is_empty() {
-        format!("Hole {number} is held by a dimension from the origin; change it in the sketch")
-    } else {
-        format!("Hole {number}'s position follows {names}; change {names} in Parameters")
-    })
+    feature_tree::in_words(&names)
+}
+
+fn driving_names(document: &Document, placed: &PlacedHole) -> Vec<String> {
+    hole_placement::drivers(document, placed)
+        .into_iter()
+        .flatten()
+        .filter_map(|id| document.parameter(id).map(|used| used.name.clone()))
+        .collect()
 }
 
 impl Stand {
@@ -194,6 +213,7 @@ impl HoleHandles {
                     at,
                     per_point,
                     away: None,
+                    driving: driving_names(document, placed),
                 }),
                 Anchor::Edges(edges) => {
                     if let [only] = edges.as_slice()
@@ -208,6 +228,7 @@ impl HoleHandles {
                                 direction,
                                 distance: 0.0,
                             }),
+                            driving: Vec::new(),
                         });
                     }
                     for distance in edges {
@@ -218,6 +239,7 @@ impl HoleHandles {
                                 at,
                                 per_point,
                                 away: Some(away),
+                                driving: Vec::new(),
                             });
                         }
                     }
@@ -316,7 +338,13 @@ impl HoleHandles {
         };
         let noun = self.noun(stand.number);
         match grip {
-            HoleGrip::Square(_) => format!("Drag to move {noun} on its face"),
+            HoleGrip::Square(_) if stand.driving.is_empty() => {
+                format!("Drag to move {noun} on its face")
+            }
+            HoleGrip::Square(_) => {
+                let names = feature_tree::in_words(&stand.driving);
+                format!("Drag to move {noun} on its face by changing {names}")
+            }
             HoleGrip::Distance(_) => format!("Drag to change {noun}'s distance from its edge"),
             HoleGrip::Along(_) => format!("Drag to slide {noun} along its edge"),
         }
@@ -328,7 +356,7 @@ impl HoleHandles {
         match grip {
             HoleGrip::Square(_) => Some((format!("{x}, {y}"), vec![Rule::Any; 2])),
             HoleGrip::Distance(_) => Some((EDGE_DISTANCE.to_owned(), vec![Rule::ZeroOrMore])),
-            HoleGrip::Along(_) => None,
+            HoleGrip::Along(_) => Some((ALONG_EDGE.to_owned(), vec![Rule::Any])),
         }
     }
 
@@ -425,6 +453,10 @@ impl HoleDrag {
         match self.grip {
             HoleGrip::Square(point) => {
                 let (from, at) = (self.slide.from(), self.slide.at());
+                let placement = hole_placement::read(document, hole)?;
+                if placement.hole(point)?.along.iter().any(Option::is_some) {
+                    return hole_placement::dragged(model, feature, hole, point, from, at).ok();
+                }
                 let (x, y) = (unit.measured(at.x), unit.measured(at.y));
                 let typed = [
                     (from.x != at.x).then_some(&x),
@@ -499,6 +531,30 @@ pub fn typed(
             let value = values.first()?.clone();
             hole_placement::distance_change(document, feature, hole, constraint, value).ok()
         }
-        HoleGrip::Along(_) => None,
+        HoleGrip::Along(point) => {
+            let length = model
+                .parameters()
+                .evaluate_expression(values.first()?)
+                .ok()?
+                .value;
+            let (at, direction) = sliding(model, hole, point)?;
+            hole_placement::slid(model, feature, hole, point, at + direction * length).ok()
+        }
     }
+}
+
+fn sliding(model: &Model, hole: &Hole, point: EntityId) -> Option<(Point2, Vector2)> {
+    let placement = hole_placement::read(model.document(), hole)?;
+    let placed = placement.hole(point)?;
+    let Anchor::Edges(edges) = &placed.anchor else {
+        return None;
+    };
+    let [only] = edges.as_slice() else {
+        return None;
+    };
+    let solved = hole_placement::solved_in(model.evaluation(), hole.sketch)?;
+    Some((
+        hole_placement::solved_point(model, hole.sketch, placed),
+        running(solved, &only.held)?,
+    ))
 }

@@ -301,7 +301,7 @@ fn rounded(chain: &Chain, radius: f64) -> Result<Rounded, PipeError> {
             *left == leg.range || leg.curve.is_longer_than(*left, LINEAR_RESOLUTION)
         });
         if let Some(left) = left {
-            segments.push(PathSegment::new(leg.curve.clone(), left, leg.key));
+            segments.push(leg.segment_over(left));
             sources.push(Source::Segment(leg.segment));
         }
         if let Some(Bend {

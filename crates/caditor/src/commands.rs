@@ -163,6 +163,7 @@ pub enum Command {
     DatumAxis,
     DatumPoint,
     CoordinateSystem,
+    Helix,
     InsertImage,
     ScaleModel,
     Configurations,
@@ -249,6 +250,8 @@ pub enum Command {
     WorkOutMassProperties,
     CancelPreparingBodies,
     ShowRestOfBodies,
+    CancelUploading,
+    ContinueUploading,
     CancelIsocurves,
     CancelInterference,
     CheckInterferenceAgain,
@@ -363,6 +366,7 @@ impl Command {
                 | Self::DatumAxis
                 | Self::DatumPoint
                 | Self::CoordinateSystem
+                | Self::Helix
                 | Self::Construction
                 | Self::SplitCurve
                 | Self::BreakCurves
@@ -779,6 +783,7 @@ plain_commands! {
     DatumAxis,
     DatumPoint,
     CoordinateSystem,
+    Helix,
     InsertImage,
     ScaleModel,
     Configurations,
@@ -824,6 +829,8 @@ plain_commands! {
     WorkOutMassProperties,
     CancelPreparingBodies,
     ShowRestOfBodies,
+    CancelUploading,
+    ContinueUploading,
     CancelIsocurves,
     CancelInterference,
     CheckInterferenceAgain,
@@ -1064,6 +1071,7 @@ impl Command {
             Self::DatumAxis => "model.axis",
             Self::DatumPoint => "model.point",
             Self::CoordinateSystem => "model.coordinate_system",
+            Self::Helix => "model.helix",
             Self::InsertImage => "model.insert_reference_image",
             Self::ScaleModel => "model.scale_model",
             Self::Configurations => "model.configurations",
@@ -1158,6 +1166,8 @@ impl Command {
             Self::WorkOutMassProperties => "view.work_out_mass_properties",
             Self::CancelPreparingBodies => "view.cancel_preparing_bodies",
             Self::ShowRestOfBodies => "view.show_rest_of_bodies",
+            Self::CancelUploading => "view.cancel_uploading",
+            Self::ContinueUploading => "view.continue_uploading",
             Self::CancelIsocurves => "view.cancel_isocurves",
             Self::CancelInterference => "view.cancel_interference",
             Self::CheckInterferenceAgain => "view.check_interference_again",
@@ -1347,6 +1357,7 @@ impl Command {
             Self::DatumAxis => "Datum axis",
             Self::DatumPoint => "Datum point",
             Self::CoordinateSystem => "Coordinate system",
+            Self::Helix => "Helix",
             Self::InsertImage => "Insert reference image…",
             Self::ScaleModel => "Scale model…",
             Self::Configurations => "Configurations…",
@@ -1434,6 +1445,8 @@ impl Command {
             Self::WorkOutMassProperties => "Work out the stopped mass properties",
             Self::CancelPreparingBodies => "Cancel preparing bodies for display",
             Self::ShowRestOfBodies => "Show the rest of the bodies",
+            Self::CancelUploading => "Cancel loading to the graphics card",
+            Self::ContinueUploading => "Continue loading to the graphics card",
             Self::CancelIsocurves => "Cancel the isocurves",
             Self::CancelInterference => "Cancel the interference check",
             Self::CheckInterferenceAgain => "Check interference again",
@@ -1538,11 +1551,13 @@ impl Command {
             Self::CancelAnalysis
             | Self::CancelMassProperties
             | Self::CancelPreparingBodies
+            | Self::CancelUploading
             | Self::CancelIsocurves
             | Self::CancelInterference => &["stop", "abort", "background work"],
             Self::AnalyseAgain
             | Self::WorkOutMassProperties
             | Self::ShowRestOfBodies
+            | Self::ContinueUploading
             | Self::CheckInterferenceAgain => &["resume", "continue", "background work"],
             Self::Measure => &["distance", "ruler", "length", "angle", "area", "volume"],
             Self::Interference => &["collision", "clash", "overlap"],
@@ -1553,6 +1568,9 @@ impl Command {
             Self::Pipe => &["tube", "tubing", "handrail", "cable", "wire", "rod", "bend"],
             Self::Loft => &["blend", "skin", "transition", "through sections", "morph"],
             Self::Coil => &["spring", "helix", "spiral", "screw", "winding", "wire"],
+            Self::Helix => &[
+                "spiral", "thread", "screw", "spring", "curve", "path", "coil",
+            ],
             Self::Rib => &["web", "stiffener", "gusset", "brace", "strengthen", "wall"],
             Self::Fillet => &["round", "blend"],
             Self::Chamfer => &["bevel"],
@@ -1697,6 +1715,8 @@ impl Command {
             | Self::WorkOutMassProperties
             | Self::CancelPreparingBodies
             | Self::ShowRestOfBodies
+            | Self::CancelUploading
+            | Self::ContinueUploading
             | Self::CancelIsocurves
             | Self::CancelInterference
             | Self::CheckInterferenceAgain
@@ -1788,6 +1808,7 @@ impl Command {
             | Self::DatumAxis
             | Self::DatumPoint
             | Self::CoordinateSystem
+            | Self::Helix
             | Self::InsertImage
             | Self::ScaleModel
             | Self::Configurations
@@ -2105,6 +2126,8 @@ impl Command {
             | Self::WorkOutMassProperties
             | Self::CancelPreparingBodies
             | Self::ShowRestOfBodies
+            | Self::CancelUploading
+            | Self::ContinueUploading
             | Self::CancelIsocurves
             | Self::CancelInterference
             | Self::CheckInterferenceAgain
@@ -2194,7 +2217,8 @@ impl Command {
             | Self::NewPrism
             | Self::CurvePattern
             | Self::PointPattern
-            | Self::Coil => Vec::new(),
+            | Self::Coil
+            | Self::Helix => Vec::new(),
         }
     }
 

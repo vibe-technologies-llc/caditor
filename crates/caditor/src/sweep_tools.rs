@@ -9,7 +9,7 @@ use crate::{
     bodies, body_selection,
     commands::Command,
     editing::{self, EditingCommand, SketchEditing},
-    field,
+    field, helix_tools,
     model::{Action, Model},
     queued,
     reference_picking::{Picking, Slot},
@@ -27,12 +27,15 @@ pub const PATH_EDGES_OF_SEVERAL_BODIES: &str =
     "Edges of several bodies are selected; select the edges of the path on one body only";
 pub const CURVES_AND_EDGES: &str = "Both sketch curves and body edges are selected for the path; \
                                 select one or the other";
-const NOT_A_PATH: &str = "Click a curve of a sketch other than the profile's, or an edge of a body";
+const NOT_A_PATH: &str =
+    "Click a curve of a sketch other than the profile's, an edge of a body or a helix";
 pub const SEVERAL_SKETCHES: &str =
     "Curves of more than one sketch are selected; select the curves of one sketch to follow";
-const NOT_A_CURVE_OR_EDGE: &str = "Click a curve of a sketch or an edge of a body";
+const NOT_A_CURVE_OR_EDGE: &str = "Click a curve of a sketch, an edge of a body or a helix";
 const NO_BODY_SHAPE: &str = queued::BODY_SHAPE;
 pub const ALREADY_FOLLOWED: &str = "It already follows the selected path";
+pub const HELIX_AND_OTHERS: &str = "A helix and curves or edges are selected for the path; select \
+                                    one helix, or the curves or edges";
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum PathPick {
@@ -44,6 +47,9 @@ pub enum PathPick {
     Edges {
         body: FeatureId,
         edges: Vec<EdgeName>,
+    },
+    Helix {
+        helix: FeatureId,
     },
 }
 
@@ -58,6 +64,29 @@ pub fn is_path_curve(document: &Document, sketch: FeatureId, entity: EntityId) -
         && editing::edited_sketch(document, sketch)
             .and_then(|definition| profile_curve(definition, entity))
             .is_some()
+}
+
+pub fn selected_helices(document: &Document, selection: &Selection) -> Vec<FeatureId> {
+    selection
+        .in_pick_order()
+        .into_iter()
+        .filter_map(|pickable| match pickable {
+            Pickable::Datum(feature) if helix_tools::is_helix(document, feature) => Some(feature),
+            _ => None,
+        })
+        .collect()
+}
+
+pub fn helix_path(
+    document: &Document,
+    selection: &Selection,
+    other_path: bool,
+) -> Result<Option<FeatureId>, &'static str> {
+    match (selected_helices(document, selection).as_slice(), other_path) {
+        ([], _) => Ok(None),
+        ([_], true) | ([_, _, ..], _) => Err(HELIX_AND_OTHERS),
+        ([helix], false) => Ok(Some(*helix)),
+    }
 }
 
 fn has_regions(evaluation: &Evaluation, sketch: FeatureId) -> bool {
@@ -125,8 +154,13 @@ pub fn source(
         .copied()
         .filter(|sketch| Some(*sketch) != chosen_profile)
         .collect();
+    let helix = helix_path(
+        document,
+        selection,
+        !path_sketches.is_empty() || !edges.is_empty(),
+    )?;
     let path = match (path_sketches.as_slice(), edges.first()) {
-        ([], None) => PathPick::Unchosen,
+        ([], None) => helix.map_or(PathPick::Unchosen, |helix| PathPick::Helix { helix }),
         ([_, ..], Some(_)) => return Err(CURVES_AND_EDGES),
         ([_, _, ..], None) => return Err(SEVERAL_PATH_SKETCHES),
         ([sketch], None) => PathPick::Curves {
@@ -155,14 +189,14 @@ pub fn source(
     };
     let path_sketch = match &path {
         PathPick::Curves { sketch, .. } => Some(*sketch),
-        PathPick::Unchosen | PathPick::Edges { .. } => None,
+        PathPick::Unchosen | PathPick::Edges { .. } | PathPick::Helix { .. } => None,
     };
     let sketch = chosen_profile
         .or_else(|| guessed_profile(document, evaluation, path_sketch))
         .ok_or(NOTHING_TO_SWEEP)?;
     let path_body = match &path {
         PathPick::Edges { body, .. } => Some(*body),
-        PathPick::Unchosen | PathPick::Curves { .. } => None,
+        PathPick::Unchosen | PathPick::Curves { .. } | PathPick::Helix { .. } => None,
     };
     let body = path_body.or_else(|| match body_selection::bodies_in(selection).as_slice() {
         [only] => Some(*only),
@@ -211,6 +245,7 @@ pub fn captured(evaluation: &Evaluation, path: &PathPick) -> Result<SweepPath, &
                 edges: captured_edges(shown, edges)?,
             }
         }
+        PathPick::Helix { helix } => SweepPath::Helix { helix: *helix },
     })
 }
 
@@ -310,6 +345,9 @@ pub fn selected_path(
             Pickable::Edge { body, edge } => edges.push((body, edge)),
             _ => {}
         }
+    }
+    if let Some(helix) = helix_path(document, selection, !curves.is_empty() || !edges.is_empty())? {
+        return Ok(SweepPath::Helix { helix });
     }
     match (curves.first(), edges.first()) {
         (None, None) => Err(match profile {
@@ -470,5 +508,6 @@ pub fn path_words(document: &Document, path: &SweepPath) -> String {
         SweepPath::Edges { body, edges } => {
             format!("{} of {}", count(edges.len(), "edge", "edges"), name(*body))
         }
+        SweepPath::Helix { helix } => name(*helix),
     }
 }

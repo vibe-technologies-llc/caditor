@@ -42,8 +42,10 @@ pub fn source(model: &Model, selection: &Selection) -> Result<PipeStart, &'stati
             _ => {}
         }
     }
+    let helix =
+        sweep_tools::helix_path(document, selection, !curves.is_empty() || !edges.is_empty())?;
     let path = match (curves.first(), edges.first()) {
-        (None, None) => PathPick::Unchosen,
+        (None, None) => helix.map_or(PathPick::Unchosen, |helix| PathPick::Helix { helix }),
         (Some(_), Some(_)) => return Err(sweep_tools::CURVES_AND_EDGES),
         (Some((sketch, _)), None) => {
             if curves.iter().any(|(other, _)| other != sketch) {

@@ -39,8 +39,11 @@ everything; see [moving around the view](navigation) and [display styles](displa
 the bottom while you learn; [Preferences](preferences) brings dismissed ones back.
 
 While the graphics card is still taking in bodies, a large model or a body you just changed shows
-up late. A small "Loading to the graphics card" note under the view cube and a spinner in the
-status bar say that more is coming, and both go as soon as the last body is in.
+up late. A "Loading to the graphics card" note with a spinner in the status bar says that more is
+coming, and goes as soon as the last body is in. Its **Cancel** stops the loading: the bodies not
+loaded yet stay hidden, the bar says "Loading to the graphics card stopped" in blue, and
+**Continue loading** brings them in. {command:view.cancel_uploading} and
+{command:view.continue_uploading} do the same from the search.
 
 ## Side panels
 
@@ -59,8 +62,8 @@ beside it. While a large model's bodies are prepared for display it says "Showin
 with a Cancel; cancelled, the bodies not shown yet stay hidden, the count stays in blue and
 **Show the rest** brings them in. {command:view.cancel_preparing_bodies} and
 {command:view.show_rest_of_bodies} do the same from the search. Every Cancel for work in the
-background that is not a recompute, a file or a paste (preparing bodies, face analysis, mass
-properties, isocurves and interference) is also a command in the View menu's Background work, offered
+background that is not a recompute, a file or a paste (preparing bodies, loading them to the
+graphics card, face analysis, mass properties, isocurves and interference) is also a command in the View menu's Background work, offered
 while that work runs, and the command that picks it up again is offered once it was stopped. Escape
 is not bound to them, as it already closes or cancels what is open. On the right: what is selected, its size or the distance between two selected items, the
 [selection filter](selection) while one is on (click it to select anything again), the length unit

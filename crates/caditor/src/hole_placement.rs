@@ -4,7 +4,7 @@ use caditor_document::{
     Document, Edit, Evaluation, FeatureId, FeatureKind, FeatureResult, Hole, Outline,
     ProjectionSource, SketchFeature, Transaction, capitalized, describe_edge, face_plane,
 };
-use caditor_expression::Expression;
+use caditor_expression::{Expression, ParameterId};
 use caditor_geometry::{Point2, Ray};
 use caditor_kernel::{ANGULAR_RESOLUTION, EdgeName, LINEAR_RESOLUTION};
 use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch};
@@ -46,6 +46,8 @@ const NOT_ROUND: &str =
 const ALREADY_CONCENTRIC: &str = "The hole is already centred on that";
 const NOT_FREE: &str = "That hole is placed by edges; change its distances or remove them to \
                         move it";
+const DRIVEN: &str = "The hole's position follows parameters through more than one expression \
+                       or one parameter twice; change them in Parameters";
 const NOT_SLIDING: &str = "That hole slides along an edge only while it is measured from exactly \
                            one edge";
 const LAST_HOLE: &str = "A hole keeps at least one point; delete the hole to remove it";
@@ -78,6 +80,52 @@ impl PlacedHole {
     fn along_constraints(&self) -> impl Iterator<Item = ConstraintId> + '_ {
         self.along.iter().flatten().map(|along| along.constraint)
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Driver {
+    pub parameter: ParameterId,
+    pub negated: bool,
+}
+
+pub fn driver(document: &Document, expression: &Expression) -> Option<Driver> {
+    let mut negated = false;
+    let mut current = expression;
+    let mut seen = BTreeSet::new();
+    loop {
+        match current {
+            Expression::Negate(inner) => {
+                negated = !negated;
+                current = inner;
+            }
+            Expression::Parameter(id) => {
+                if !seen.insert(*id) {
+                    return None;
+                }
+                let parameter = document.parameter(*id)?;
+                if parameter.expression.parameters().is_empty() {
+                    return Some(Driver {
+                        parameter: *id,
+                        negated,
+                    });
+                }
+                current = &parameter.expression;
+            }
+            _ => return None,
+        }
+    }
+}
+
+pub fn drivers(document: &Document, placed: &PlacedHole) -> Option<Vec<ParameterId>> {
+    let mut found = Vec::new();
+    for along in placed.along.iter().flatten() {
+        let driven = driver(document, &along.value)?.parameter;
+        if found.contains(&driven) {
+            return None;
+        }
+        found.push(driven);
+    }
+    Some(found)
 }
 
 pub fn signed(magnitude: &Expression, negative: bool) -> Expression {
@@ -699,6 +747,58 @@ pub fn slid(
             },
         ),
     )
+}
+
+pub fn dragged(
+    model: &Model,
+    feature: FeatureId,
+    hole: &Hole,
+    point: EntityId,
+    from: Point2,
+    to: Point2,
+) -> Result<Transaction, String> {
+    let document = model.document();
+    let unit = model.units().length;
+    let Target { name, placed, .. } = target(document, feature, hole, point)?;
+    if placed.anchor != Anchor::Free {
+        return Err(NOT_FREE.to_owned());
+    }
+    drivers(document, &placed).ok_or(DRIVEN)?;
+    let mut at = solved_point(model, hole.sketch, &placed);
+    let mut transaction = document.transaction(format!("Move {name}"));
+    for (axis, held) in placed.along.iter().enumerate() {
+        let (was, now) = if axis == 0 {
+            (from.x, to.x)
+        } else {
+            (from.y, to.y)
+        };
+        if was == now {
+            continue;
+        }
+        if axis == 0 {
+            at.x = now;
+        } else {
+            at.y = now;
+        }
+        if let Some(held) = held {
+            let driver = driver(document, &held.value).ok_or(DRIVEN)?;
+            let magnitude = now.abs();
+            transaction.edit(Edit::SetParameterExpression {
+                id: driver.parameter,
+                expression: unit.measured(if driver.negated {
+                    -magnitude
+                } else {
+                    magnitude
+                }),
+            });
+        }
+    }
+    transaction.edit(Edit::SetSketchEntity {
+        feature: hole.sketch,
+        id: point,
+        entity: Entity::Point(at),
+    });
+    field::checked(document, transaction.finish())
 }
 
 pub fn positioned(

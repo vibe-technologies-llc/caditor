@@ -9,7 +9,7 @@ use crate::{
     editing::{EditingCommand, SketchEditing},
     feature_tree::count,
     files::FileCommand,
-    hole_tools, icons,
+    helix_tools, hole_tools, icons,
     last_values::Starts,
     loft_tools, mate_tools,
     menu_bar::MenuEntries,
@@ -177,6 +177,7 @@ impl Group {
                     Command::DatumAxis,
                     Command::DatumPoint,
                     Command::CoordinateSystem,
+                    Command::Helix,
                 ],
                 &[Command::InsertImage],
             ],
@@ -345,6 +346,7 @@ fn group_buttons(
         Group::Reference => {
             datum_buttons(ui, model, context, commands, actions);
             coordinate_system_offer(model, context, commands, actions);
+            helix_offer(model, context, commands, actions);
             image_offer(context, commands, actions);
         }
         Group::Analyse => {
@@ -594,6 +596,20 @@ fn hole_button(
         && let Ok(source) = source
     {
         actions.extend(hole_tools::create_actions(model, source));
+    }
+}
+
+fn helix_offer(
+    model: &Model,
+    context: &ToolbarContext<'_>,
+    commands: &mut CommandFrame<'_>,
+    actions: &mut Vec<Action>,
+) {
+    let source = &context.offers.helix;
+    if commands.invoke(Command::Helix, source)
+        && let Ok(source) = source
+    {
+        actions.extend(helix_tools::create_actions(model, source));
     }
 }
 

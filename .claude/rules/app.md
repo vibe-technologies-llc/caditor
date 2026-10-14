@@ -200,7 +200,9 @@ paths:
   (`Renderer::is_pick_answered`); an exported image's tiles advance on the wake its writer sends
   per buffer. While the renderer uploads meshes (`Renderer::is_uploading`) a frame follows each
   frame (`app-look.md`), and the frame that sees the uploads finish asks for a pick again
-  (`ViewportState::pick_again`). Every request goes through `Session::request_redraw`, never
+  (`ViewportState::pick_again`). The status bar's Cancel of that upload and its Continue loading
+  reach the renderer as an `UploadRequest` taken after `perform` (`Renderer::stop_uploading`,
+  `resume_uploading`; `app-look.md`). Every request goes through `Session::request_redraw`, never
   straight to the window. Animated widgets (`widgets::spinner`) and progress readouts repaint on a
   timer (`request_repaint_after`), never every frame; the text caret does not blink.
 - `FramePacer` (`graphics.rs`) holds requests to the frame limit: the chosen rate's interval, or for

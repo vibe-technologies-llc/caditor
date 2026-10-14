@@ -1,5 +1,6 @@
 use caditor_document::FeatureId;
 use caditor_geometry::Point3;
+use caditor_sketch::EntityId;
 use egui::{Event, Id, Key, Modifiers};
 
 use super::{
@@ -124,21 +125,74 @@ fn each_free_point_of_a_hole_of_several_points_has_a_square_that_moves_only_that
     assert!(placed_holes(&harness, hole)[1].1.distance(second.1) < 1e-9);
 }
 
-#[test]
-fn a_square_on_a_point_held_by_a_parameter_does_not_drag_and_says_why() {
-    let mut harness = Harness::new();
-    let (_, hole, _) = open_two_holes(&mut harness);
+fn open_holes_with_second_at(harness: &mut Harness, expression: &str) -> (FeatureId, EntityId) {
+    let (_, hole, _) = open_two_holes(harness);
     let mut transaction = harness.document().transaction("Add spot");
     let spot = transaction.parse("12 mm").unwrap();
     transaction.add_parameter("spot", spot);
     harness.perform(Action::Apply(transaction.finish()));
-    let (placed, _) = placed_holes(&harness, hole).remove(1);
-    harness.type_into_field(Id::new(("hole-position", hole, placed.point, 0)), "spot");
+    let (placed, _) = placed_holes(harness, hole).remove(1);
+    harness.type_into_field(
+        Id::new(("hole-position", hole, placed.point, 0)),
+        expression,
+    );
     harness.settle();
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
+    (hole, placed.point)
+}
+
+fn spot(harness: &Harness) -> f64 {
+    harness
+        .model
+        .parameters()
+        .value(harness.parameter("spot"))
+        .unwrap()
+        .value
+}
+
+#[test]
+fn a_square_on_a_point_held_by_one_parameter_drags_by_editing_it() {
+    let mut harness = Harness::new();
+    let (hole, point) = open_holes_with_second_at(&mut harness, "spot");
     let before = placed_holes(&harness, hole)[1].1;
-    let square = Handle::Hole(HoleGrip::Square(placed.point));
+    let square = Handle::Hole(HoleGrip::Square(point));
+
+    hover(&mut harness, square);
+
+    assert!(harness.shows("Drag to move hole 2 on its face by changing spot"));
+
+    let step = drag_handle(&mut harness, square, 6.0);
+    let after = placed_holes(&harness, hole)[1].1;
+
+    assert_eq!(harness.model.undo_label(), Some("Move Hole 1"));
+    assert!((spot(&harness) - 18.0).abs() <= step, "{}", spot(&harness));
+    assert!((after.x - spot(&harness)).abs() < 1e-6, "{after:?}");
+    assert!((after.y - before.y).abs() <= step);
+    assert_eq!(
+        harness.document().expression_text(
+            &placed_holes(&harness, hole)[1].0.along[0]
+                .as_ref()
+                .unwrap()
+                .value
+        ),
+        "spot"
+    );
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+
+    harness.perform(Action::Undo);
+    harness.settle();
+
+    assert_eq!(spot(&harness), 12.0);
+    assert!(placed_holes(&harness, hole)[1].1.distance(before) < 1e-9);
+}
+
+#[test]
+fn a_square_on_a_point_held_by_an_expression_does_not_drag_and_says_why() {
+    let mut harness = Harness::new();
+    let (hole, point) = open_holes_with_second_at(&mut harness, "spot * 2");
+    let before = placed_holes(&harness, hole)[1].1;
+    let square = Handle::Hole(HoleGrip::Square(point));
 
     hover(&mut harness, square);
 
@@ -147,6 +201,7 @@ fn a_square_on_a_point_held_by_a_parameter_does_not_drag_and_says_why() {
     drag_handle(&mut harness, square, 6.0);
 
     assert_eq!(placed_holes(&harness, hole)[1].1, before);
+    assert_eq!(spot(&harness), 12.0);
 }
 
 #[test]
@@ -335,17 +390,54 @@ fn a_hole_measured_from_two_edges_has_no_arrow_along_an_edge() {
 }
 
 #[test]
-fn a_hole_sliding_along_its_edge_takes_no_typed_value() {
+fn a_length_typed_over_the_sliding_arrow_slides_the_hole_along_its_edge_in_one_change() {
     let mut harness = Harness::new();
     let (_, hole) = open_measured_hole(&mut harness, &[FRONT]);
     let point = placed_holes(&harness, hole)[0].0.point;
     let before = placed_holes(&harness, hole)[0].1;
 
     hover(&mut harness, Handle::Hole(HoleGrip::Along(point)));
-    harness.type_text("30");
+    harness.type_text("1 cm");
     harness.key(Key::Enter, Modifiers::NONE);
     harness.frame();
     harness.settle();
+    let after = placed_holes(&harness, hole)[0].1;
 
-    assert_eq!(placed_holes(&harness, hole)[0].1, before);
+    assert_eq!(harness.model.undo_label(), Some("Move Hole 1"));
+    assert!(((after.x - before.x).abs() - 10.0).abs() < 1e-6);
+    assert!((after.y - before.y).abs() < 1e-6);
+    assert_eq!(distance_text(&harness, hole, 0), "20 mm");
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+
+    harness.perform(Action::Undo);
+    harness.settle();
+
+    assert!(placed_holes(&harness, hole)[0].1.distance(before) < 1e-9);
+}
+
+#[test]
+fn a_length_typed_over_the_sliding_arrow_may_be_an_expression() {
+    let mut harness = Harness::new();
+    let (_, hole) = open_measured_hole(&mut harness, &[FRONT]);
+    let point = placed_holes(&harness, hole)[0].0.point;
+    let before = placed_holes(&harness, hole)[0].1;
+    let mut transaction = harness.document().transaction("Add shift");
+    let shift = transaction.parse("4 mm").unwrap();
+    transaction.add_parameter("shift", shift);
+    harness.perform(Action::Apply(transaction.finish()));
+    harness.settle();
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+
+    hover(&mut harness, Handle::Hole(HoleGrip::Along(point)));
+    harness.type_text("2 * shift");
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.frame();
+    harness.settle();
+    let after = placed_holes(&harness, hole)[0].1;
+
+    assert!(
+        ((after.x - before.x).abs() - 8.0).abs() < 1e-6,
+        "{before:?} to {after:?}"
+    );
 }

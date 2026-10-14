@@ -27,6 +27,7 @@ use crate::{
     delete_face,
     document::{Document, Feature, FeatureId, FeatureKind, list_names},
     healing::{self, Healing},
+    helix::{self, HelixResult},
     history::ResultHistory,
     hole, import, loft,
     lookahead::Lookahead,
@@ -274,6 +275,7 @@ pub enum FeatureResult {
     Thread(ThreadResult),
     Measurement(MeasurementResult),
     Image(PlacedImage),
+    Helix(HelixResult),
 }
 
 impl FeatureResult {
@@ -287,6 +289,7 @@ impl FeatureResult {
             (Self::Thread(own), Self::Thread(theirs)) => own == theirs,
             (Self::Measurement(own), Self::Measurement(theirs)) => own.value == theirs.value,
             (Self::Image(own), Self::Image(theirs)) => own == theirs,
+            (Self::Helix(own), Self::Helix(theirs)) => own == theirs,
             _ => false,
         }
     }
@@ -298,7 +301,8 @@ impl FeatureResult {
             | Self::Datum(_)
             | Self::Thread(_)
             | Self::Measurement(_)
-            | Self::Image(_) => None,
+            | Self::Image(_)
+            | Self::Helix(_) => None,
         }
     }
 
@@ -309,7 +313,8 @@ impl FeatureResult {
             | Self::Datum(_)
             | Self::Thread(_)
             | Self::Measurement(_)
-            | Self::Image(_) => None,
+            | Self::Image(_)
+            | Self::Helix(_) => None,
         }
     }
 
@@ -320,7 +325,8 @@ impl FeatureResult {
             | Self::Solid(_)
             | Self::Thread(_)
             | Self::Measurement(_)
-            | Self::Image(_) => None,
+            | Self::Image(_)
+            | Self::Helix(_) => None,
         }
     }
 
@@ -331,7 +337,8 @@ impl FeatureResult {
             | Self::Solid(_)
             | Self::Datum(_)
             | Self::Measurement(_)
-            | Self::Image(_) => None,
+            | Self::Image(_)
+            | Self::Helix(_) => None,
         }
     }
 
@@ -342,7 +349,15 @@ impl FeatureResult {
             | Self::Solid(_)
             | Self::Datum(_)
             | Self::Thread(_)
-            | Self::Image(_) => None,
+            | Self::Image(_)
+            | Self::Helix(_) => None,
+        }
+    }
+
+    pub fn helix(&self) -> Option<&HelixResult> {
+        match self {
+            Self::Helix(helix) => Some(helix),
+            _ => None,
         }
     }
 
@@ -1916,6 +1931,7 @@ impl Evaluator for ModelEvaluator {
             FeatureKind::Pipe(definition) => pipe::evaluate(feature, definition, inputs, cancel),
             FeatureKind::Loft(definition) => loft::evaluate(feature, definition, inputs, cancel),
             FeatureKind::Coil(definition) => coil::evaluate(feature, definition, inputs, cancel),
+            FeatureKind::Helix(definition) => helix::evaluate(feature, definition, inputs, cancel),
             FeatureKind::Rib(definition) => rib::evaluate(feature, definition, inputs, cancel),
             FeatureKind::Thread(definition) => {
                 thread::evaluate(feature, definition, inputs, cancel)

@@ -269,6 +269,7 @@ fn values_of(parameters: &ParameterValues, kind: &FeatureKind) -> Vec<Found> {
         | FeatureKind::Pipe(_)
         | FeatureKind::Loft(_)
         | FeatureKind::Coil(_)
+        | FeatureKind::Helix(_)
         | FeatureKind::Rib(_)
         | FeatureKind::DeleteFace(_) => Vec::new(),
         FeatureKind::Blend(blend) => blend_values(blend),

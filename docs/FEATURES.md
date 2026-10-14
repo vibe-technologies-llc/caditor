@@ -44,12 +44,13 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   profiles without holes in order, smooth or ruled, and may end at a point, but takes no faces of
   bodies as profiles, no guide rails or centreline, no tangent or curvature-continuous conditions
   at its ends, and cannot close back to its first profile.
-- [medium · hard] No helix or spiral curve to follow: the sweep takes only sketch curves and model
-  edges as its path, so a profile of one's own (a triangle, a closed-end spring's ground ends) cannot
-  run along a helix, and a flat spiral (a clock spring) has no tool at all. A helix needs a curve of
-  its own the path can name (a datum curve, or a curve of a 3D sketch, Sketching). Coil covers
-  round and square sections in a plane through the axis, and its turns cannot touch (a closed coil
-  needs a pitch a hair larger than the wire).
+- [medium · hard] No flat spiral or varying helix: Helix gives a sweep or pipe a helix of one
+  pitch (tapered or not) to follow, but a flat spiral (a clock spring) has no tool at all, and a
+  helix cannot change its pitch along the way, so a closed-end spring's closed and ground ends
+  cannot be swept. A helix starts where its frame's X axis points (toward X, toward Y about the X
+  axis), with no start angle or point to choose. The Helix panel has no value arrows to drag its
+  diameter or pitch yet, and turns cannot touch (a closed coil, or a profile as tall as the pitch
+  swept along a helix, needs a pitch a hair larger).
 - [medium · hard] Patterns stop short of what other modellers repeat: a curve pattern follows only
   the curves of one sketch, never a chain of model edges (a 3D path, the copies then turning with
   its tangent and normal), and a pattern repeats features or whole bodies but never chosen faces.
@@ -67,9 +68,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   the face, and a curve pattern's arrow (`value_gauges.rs`) slides along the curve's tangent while
   it is dragged, rejoining the curve when the copies are placed again. Each would be a `Track`
   that follows a curve.
-- [low · medium] A hole's placement handles (`hole_handles.rs`) have no drag for a point whose
-  position follows parameters (its hover names what drives it), and no typed length for the arrow
-  sliding a point along its one edge.
 - [low · medium] Mirror faces closes an opening only in one plane or on one elementary face beside
   it: an opening on an extrusion, revolution or spline face, one running all the way around a
   round face (a collar or a groove), or one spanning several curved faces is refused, since
@@ -228,10 +226,10 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 ## Application
 
 - [low · medium] The rendered view's bounced light (`render.md`, the light pass) gathers from a
-  reflective shadow map without a visibility test, so it leaks through thin walls, reaches only
-  `BOUNCE_REACH` of the light frame and comes from surfaces the sun sees. Ambient occlusion damps
-  it in creases but only from what the view shows; a short occlusion test against the light
-  pass's depth map per bounce sample would stop the leak.
+  reflective shadow map, so it reaches only `BOUNCE_REACH` of the light frame, comes only from
+  surfaces the sun sees, and its visibility test (`bounce_blocked`) sees only those surfaces: a
+  wall the sun does not light (fully in shadow, or edge-on to it) still lets bounced light
+  through.
 - [low · medium] The rendered view's surroundings are a procedural sky and a shadow-catching
   ground; a user cannot load an HDR image as the backdrop and light, choose a backdrop or ground,
   nor give a material texture, bump or clear-coat maps, and the ground bounces no light or occlusion

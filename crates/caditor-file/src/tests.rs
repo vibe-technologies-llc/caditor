@@ -10308,3 +10308,87 @@ fn positions_and_body_volumes_and_masses_are_saved_and_loaded() {
     );
     assert_eq!(unreadable_axis.issues.len(), 1);
 }
+
+fn helix_model() -> (Document, FeatureId, FeatureId) {
+    use caditor_document::{
+        AxisReference, CoilLength, CoilTurning, Helix, Pipe, PrincipalAxis, SolidFeature, Sweep,
+        SweepPath,
+    };
+    let (mut document, base, _) = solid_model();
+    let outline = document
+        .features()
+        .find(|feature| feature.name == "Outline")
+        .unwrap()
+        .id();
+    let parse = |text: &str| Expression::parse_stored(text).unwrap();
+    let mut transaction = document.transaction("Helices");
+    let helix = transaction.add_feature(
+        "Helix 1",
+        FeatureKind::Helix(Helix {
+            reversed: true,
+            length: CoilLength::HeightAndPitch {
+                height: parse("12 mm"),
+                pitch: parse("3 mm"),
+            },
+            taper: parse("5 deg"),
+            turning: CoilTurning::Clockwise,
+            ..Helix::new(AxisReference::Principal(PrincipalAxis::Y), parse("20 mm"))
+        }),
+    );
+    let sweep = transaction.add_feature(
+        "Thread",
+        FeatureKind::Solid(SolidFeature::Sweep(Sweep {
+            other_bodies: vec![base],
+            ..Sweep::new(outline, SweepPath::Helix { helix })
+        })),
+    );
+    transaction.add_feature(
+        "Wire",
+        FeatureKind::Pipe(Pipe::new(
+            SweepPath::Helix { helix },
+            parse("2 mm"),
+            parse("0 mm"),
+        )),
+    );
+    document.apply(transaction.finish()).unwrap();
+    (document, helix, sweep)
+}
+
+#[test]
+fn helices_and_sweeps_along_them_are_saved_and_loaded_as_records_of_their_own() {
+    let (document, _, _) = helix_model();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+
+    assert!(text.contains("\"helix\":{"), "{text}");
+    assert!(text.contains("\"along_helix\":{"), "{text}");
+    assert!(
+        text.contains("\"bodies\":[1],\"feature\":{\"along_helix\""),
+        "{text}"
+    );
+    assert!(text.contains("\"height_and_pitch\":{"), "{text}");
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+}
+
+#[test]
+fn an_unreadable_taper_of_a_helix_loads_as_none_and_is_reported() {
+    let (document, helix, _) = helix_model();
+    let text = encode(&document)
+        .unwrap()
+        .replacen("\"taper\":\"5 deg\"", "\"taper\":\"5 (\"", 1);
+
+    let loaded = decode_text(&text);
+    let restored = loaded
+        .document
+        .feature(helix)
+        .unwrap()
+        .kind
+        .helix()
+        .unwrap();
+
+    assert_eq!(loaded.issues.len(), 1, "{:?}", loaded.issues);
+    assert!(loaded.issues[0].contains("taper"), "{:?}", loaded.issues);
+    assert_eq!(restored.taper, Expression::parse_stored("0 deg").unwrap());
+}

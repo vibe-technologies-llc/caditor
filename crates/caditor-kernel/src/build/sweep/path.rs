@@ -1,6 +1,6 @@
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
 
-use super::{PathSegment, PathSweepError};
+use super::{PathSegment, PathSweepError, WindingAxis};
 use crate::{
     bspline::BSpline,
     build::revolve::arc_spline,
@@ -22,6 +22,7 @@ pub(super) struct Leg {
     pub(super) key: u128,
     pub(super) part: u8,
     pub(super) segment: usize,
+    pub(super) winding: Option<WindingAxis>,
 }
 
 impl Leg {
@@ -45,6 +46,15 @@ impl Leg {
         self.tangent(self.range.end())
     }
 
+    pub(super) fn segment_over(&self, range: Interval) -> PathSegment {
+        PathSegment {
+            curve: self.curve.clone(),
+            range,
+            key: self.key,
+            winding: self.winding,
+        }
+    }
+
     #[must_use]
     fn reversed(&self) -> Self {
         Self {
@@ -53,6 +63,7 @@ impl Leg {
             key: self.key,
             part: self.part,
             segment: self.segment,
+            winding: self.winding,
         }
     }
 
@@ -261,6 +272,7 @@ fn walk(segments: &[PathSegment], ends: &Ends) -> Result<Vec<Leg>, PathSweepErro
             key: segment.key,
             part: 0,
             segment: index,
+            winding: segment.winding,
         };
         if *from == node {
             legs.push(leg);

@@ -545,19 +545,37 @@ struct GpuPart {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct UploadBudget(u64);
+pub struct UploadBudget {
+    bytes: u64,
+    stopped: bool,
+}
 
 impl UploadBudget {
-    pub const UNLIMITED: Self = Self(u64::MAX);
+    pub const UNLIMITED: Self = Self {
+        bytes: u64::MAX,
+        stopped: false,
+    };
+
+    pub const STOPPED: Self = Self {
+        bytes: 0,
+        stopped: true,
+    };
 
     pub fn of(bytes: u64) -> Self {
-        Self(bytes)
+        Self {
+            bytes,
+            stopped: false,
+        }
+    }
+
+    pub(crate) fn is_stopped(&self) -> bool {
+        self.stopped
     }
 
     pub(crate) fn grant(&mut self, wanted: usize, stride: u64) -> usize {
-        let affordable = usize::try_from(self.0 / stride).unwrap_or(usize::MAX);
+        let affordable = usize::try_from(self.bytes / stride).unwrap_or(usize::MAX);
         let granted = wanted.min(affordable);
-        self.0 = self.0.saturating_sub(granted as u64 * stride);
+        self.bytes = self.bytes.saturating_sub(granted as u64 * stride);
         granted
     }
 }
@@ -735,6 +753,7 @@ struct PoolEntry {
 enum Parts {
     Ready(Arc<[GpuPart]>),
     Uploading,
+    Stopped,
     Refused,
     NewlyRefused,
 }
@@ -745,6 +764,7 @@ pub struct MeshPool {
     asked: usize,
     uploading: bool,
     uploading_now: bool,
+    left_out: usize,
 }
 
 impl Default for MeshPool {
@@ -755,6 +775,7 @@ impl Default for MeshPool {
             asked: 0,
             uploading: false,
             uploading_now: false,
+            left_out: 0,
         }
     }
 }
@@ -786,6 +807,10 @@ impl MeshPool {
 
     pub fn is_uploading(&self) -> bool {
         self.uploading
+    }
+
+    pub fn left_out(&self) -> usize {
+        self.left_out
     }
 
     fn keep(&mut self, mesh: &Arc<ShadedMesh>, parts: &Arc<[GpuPart]>) {
@@ -825,6 +850,9 @@ impl MeshPool {
         match &entry.state {
             Pooled::Ready(parts) => return Parts::Ready(Arc::clone(parts)),
             Pooled::Refused => return Parts::Refused,
+            Pooled::Unstarted | Pooled::Uploading(_) if budget.is_stopped() => {
+                return Parts::Stopped;
+            }
             Pooled::Unstarted | Pooled::Uploading(_) => {}
         }
         let started = std::mem::replace(&mut entry.state, Pooled::Refused);
@@ -857,11 +885,22 @@ impl MeshPool {
         parts
     }
 
-    pub fn sweep(&mut self) {
+    pub fn sweep(&mut self, stopped: bool) {
+        let frame = self.frame;
         if self.asked < self.entries.len() {
-            let frame = self.frame;
             self.entries.retain(|_, entry| entry.asked == frame);
         }
+        self.left_out = match stopped {
+            true => self
+                .entries
+                .values()
+                .filter(|entry| {
+                    entry.asked == frame
+                        && matches!(entry.state, Pooled::Unstarted | Pooled::Uploading(_))
+                })
+                .count(),
+            false => 0,
+        };
         self.frame += 1;
         self.asked = 0;
         self.uploading = std::mem::take(&mut self.uploading_now);
@@ -1336,7 +1375,7 @@ impl MeshCache {
                 Some(ready) => Source::Reused(Box::new(ready)),
                 None => match pool.parts(device, queue, &instance.mesh, budget) {
                     Parts::Ready(parts) => Source::Uploaded(parts),
-                    Parts::Uploading => {
+                    Parts::Uploading | Parts::Stopped => {
                         self.uploading = true;
                         continue;
                     }

@@ -21,6 +21,7 @@ use crate::{
     delete_face::DeleteFace,
     edit::{Edit, Transaction},
     feature_list::FeatureList,
+    helix::Helix,
     hole::Hole,
     import::Import,
     loft::Loft,
@@ -150,6 +151,7 @@ pub enum FeatureKind {
     Pipe(Pipe),
     Loft(Loft),
     Coil(Coil),
+    Helix(Helix),
     Rib(Rib),
     Combine(Combine),
     Move(Move),
@@ -215,6 +217,7 @@ impl FeatureKind {
             Self::Pipe(pipe) => pipe.heap_size(),
             Self::Loft(loft) => loft.heap_size(),
             Self::Coil(coil) => coil.heap_size(),
+            Self::Helix(helix) => helix.heap_size(),
             Self::Rib(rib) => rib.heap_size(),
             Self::Combine(combine) => size_of_val(combine.more_tools.as_slice()),
             Self::Move(movement) => movement.heap_size(),
@@ -253,6 +256,7 @@ impl FeatureKind {
             | Self::Pipe(_)
             | Self::Loft(_)
             | Self::Coil(_)
+            | Self::Helix(_)
             | Self::Rib(_)
             | Self::Combine(_)
             | Self::Move(_)
@@ -284,6 +288,7 @@ impl FeatureKind {
             | Self::Pipe(_)
             | Self::Loft(_)
             | Self::Coil(_)
+            | Self::Helix(_)
             | Self::Rib(_)
             | Self::Combine(_)
             | Self::Move(_)
@@ -315,6 +320,7 @@ impl FeatureKind {
             | Self::Pipe(_)
             | Self::Loft(_)
             | Self::Coil(_)
+            | Self::Helix(_)
             | Self::Rib(_)
             | Self::Combine(_)
             | Self::Move(_)
@@ -357,9 +363,11 @@ impl FeatureKind {
             Self::Pattern(pattern) => Some(pattern.body),
             Self::Remove(remove) => Some(remove.body),
             Self::Thread(thread) => Some(thread.body),
-            Self::Datum(_) | Self::Import(_) | Self::Measurement(_) | Self::ReferenceImage(_) => {
-                None
-            }
+            Self::Datum(_)
+            | Self::Helix(_)
+            | Self::Import(_)
+            | Self::Measurement(_)
+            | Self::ReferenceImage(_) => None,
         }
     }
 
@@ -387,6 +395,7 @@ impl FeatureKind {
             Self::Pipe(pipe) => used.extend(pipe.path.body()),
             Self::Loft(loft) => used.extend(loft.end.as_ref().and_then(PointReference::body)),
             Self::Coil(coil) => used.extend(coil.axis.body()),
+            Self::Helix(helix) => used.extend(helix.axis.body()),
             Self::Rib(_) => {}
             Self::Sketch(sketch) => used.extend(sketch.projected_bodies()),
             Self::Hole(hole) => used.extend(hole.end_body()),
@@ -431,6 +440,7 @@ impl FeatureKind {
             | Self::Pipe(_)
             | Self::Loft(_)
             | Self::Coil(_)
+            | Self::Helix(_)
             | Self::Rib(_)
             | Self::Combine(_)
             | Self::Move(_)
@@ -459,6 +469,7 @@ impl FeatureKind {
             Self::SplitFace(split) => split.direction_datum().into_iter().collect(),
             Self::Sketch(sketch) => sketch.projected_axes().collect(),
             Self::Coil(coil) => coil.axis.datum().into_iter().collect(),
+            Self::Helix(helix) => helix.axis.datum().into_iter().collect(),
             Self::Blend(_)
             | Self::Shell(_)
             | Self::OffsetFace(_)
@@ -513,6 +524,7 @@ impl FeatureKind {
             Self::Hole(hole) => hole.end_frame().into_iter().collect(),
             Self::Measurement(measurement) => measurement.frames(),
             Self::Coil(coil) => coil.axis.frame().into_iter().collect(),
+            Self::Helix(helix) => helix.axis.frame().into_iter().collect(),
             Self::Blend(_)
             | Self::Shell(_)
             | Self::OffsetFace(_)
@@ -559,6 +571,7 @@ impl FeatureKind {
             | Self::Primitive(_)
             | Self::Pipe(_)
             | Self::Coil(_)
+            | Self::Helix(_)
             | Self::Rib(_)
             | Self::Combine(_)
             | Self::Move(_)
@@ -634,6 +647,7 @@ impl FeatureKind {
                 )
                 .collect(),
             Self::Coil(coil) => coil.axis.sketch_entity().into_iter().collect(),
+            Self::Helix(helix) => helix.axis.sketch_entity().into_iter().collect(),
             Self::Loft(loft) => loft
                 .end
                 .as_ref()
@@ -685,6 +699,7 @@ impl FeatureKind {
             Self::Pipe(pipe) => pipe.path.sketch().into_iter().collect(),
             Self::Loft(loft) => loft.reference_sketches(),
             Self::Coil(coil) => coil.axis.sketch().into_iter().collect(),
+            Self::Helix(helix) => helix.axis.sketch().into_iter().collect(),
             Self::Rib(rib) => BTreeSet::from([rib.sketch]),
             Self::Sketch(_)
             | Self::Blend(_)
@@ -718,6 +733,7 @@ impl FeatureKind {
             | Self::Pipe(_)
             | Self::Loft(_)
             | Self::Coil(_)
+            | Self::Helix(_)
             | Self::Rib(_)
             | Self::Move(_)
             | Self::Mate(_)
@@ -765,6 +781,7 @@ impl FeatureKind {
             | Self::Pipe(_)
             | Self::Loft(_)
             | Self::Coil(_)
+            | Self::Helix(_)
             | Self::Rib(_)
             | Self::Combine(_)
             | Self::Move(_)
@@ -796,6 +813,7 @@ impl FeatureKind {
             | Self::Pipe(_)
             | Self::Loft(_)
             | Self::Coil(_)
+            | Self::Helix(_)
             | Self::Rib(_)
             | Self::Combine(_)
             | Self::Move(_)
@@ -827,6 +845,7 @@ impl FeatureKind {
             | Self::Pipe(_)
             | Self::Loft(_)
             | Self::Coil(_)
+            | Self::Helix(_)
             | Self::Rib(_)
             | Self::Combine(_)
             | Self::Move(_)
@@ -866,6 +885,13 @@ impl FeatureKind {
         }
     }
 
+    pub fn helix(&self) -> Option<&Helix> {
+        match self {
+            Self::Helix(helix) => Some(helix),
+            _ => None,
+        }
+    }
+
     pub fn coil(&self) -> Option<&Coil> {
         match self {
             Self::Coil(coil) => Some(coil),
@@ -900,6 +926,7 @@ impl FeatureKind {
             Self::Pipe(_)
             | Self::Loft(_)
             | Self::Coil(_)
+            | Self::Helix(_)
             | Self::Rib(_)
             | Self::Sketch(_)
             | Self::Solid(_)
@@ -933,6 +960,7 @@ impl FeatureKind {
             | Self::Pipe(_)
             | Self::Loft(_)
             | Self::Coil(_)
+            | Self::Helix(_)
             | Self::Rib(_)
             | Self::Solid(_)
             | Self::Blend(_)
@@ -977,6 +1005,7 @@ impl FeatureKind {
             | Self::Pipe(_)
             | Self::Loft(_)
             | Self::Coil(_)
+            | Self::Helix(_)
             | Self::Rib(_)
             | Self::Combine(_)
             | Self::Move(_)
@@ -1009,6 +1038,7 @@ impl FeatureKind {
             | Self::Pipe(_)
             | Self::Loft(_)
             | Self::Coil(_)
+            | Self::Helix(_)
             | Self::Rib(_)
             | Self::Combine(_)
             | Self::Mirror(_)
@@ -1039,6 +1069,7 @@ impl FeatureKind {
             | Self::Pipe(_)
             | Self::Loft(_)
             | Self::Coil(_)
+            | Self::Helix(_)
             | Self::Rib(_)
             | Self::Combine(_)
             | Self::Move(_)
@@ -1071,6 +1102,7 @@ impl FeatureKind {
             | Self::Pipe(_)
             | Self::Loft(_)
             | Self::Coil(_)
+            | Self::Helix(_)
             | Self::Rib(_)
             | Self::Combine(_)
             | Self::Move(_)
@@ -1101,6 +1133,7 @@ impl FeatureKind {
             | Self::Pipe(_)
             | Self::Loft(_)
             | Self::Coil(_)
+            | Self::Helix(_)
             | Self::Rib(_)
             | Self::Combine(_)
             | Self::Move(_)
@@ -1132,6 +1165,7 @@ impl FeatureKind {
             | Self::Pipe(_)
             | Self::Loft(_)
             | Self::Coil(_)
+            | Self::Helix(_)
             | Self::Rib(_)
             | Self::Combine(_)
             | Self::Move(_)
@@ -1163,6 +1197,7 @@ impl FeatureKind {
             | Self::Pipe(_)
             | Self::Loft(_)
             | Self::Coil(_)
+            | Self::Helix(_)
             | Self::Rib(_)
             | Self::Move(_)
             | Self::Mate(_)
@@ -1194,6 +1229,7 @@ impl FeatureKind {
             | Self::Pipe(_)
             | Self::Loft(_)
             | Self::Coil(_)
+            | Self::Helix(_)
             | Self::Rib(_)
             | Self::Combine(_)
             | Self::Move(_)
@@ -1225,6 +1261,7 @@ impl FeatureKind {
             | Self::Pipe(_)
             | Self::Loft(_)
             | Self::Coil(_)
+            | Self::Helix(_)
             | Self::Rib(_)
             | Self::Combine(_)
             | Self::Move(_)
@@ -1256,6 +1293,7 @@ impl FeatureKind {
             | Self::Pipe(_)
             | Self::Loft(_)
             | Self::Coil(_)
+            | Self::Helix(_)
             | Self::Rib(_)
             | Self::Combine(_)
             | Self::Move(_)
@@ -1285,6 +1323,7 @@ impl FeatureKind {
             Self::Pipe(pipe) => pipe.parameters(),
             Self::Loft(_) => BTreeSet::new(),
             Self::Coil(coil) => coil.parameters(),
+            Self::Helix(helix) => helix.parameters(),
             Self::Rib(rib) => rib.parameters(),
             Self::Combine(_) => BTreeSet::new(),
             Self::Move(movement) => movement.parameters(),
@@ -1313,6 +1352,7 @@ impl FeatureKind {
             Self::Pipe(pipe) => pipe.uses_parameter(parameter),
             Self::Loft(_) => false,
             Self::Coil(coil) => coil.uses_parameter(parameter),
+            Self::Helix(helix) => helix.uses_parameter(parameter),
             Self::Rib(rib) => rib.uses_parameter(parameter),
             Self::Combine(_) => false,
             Self::Move(movement) => movement.uses_parameter(parameter),
@@ -1356,6 +1396,7 @@ impl FeatureKind {
             Self::Pipe(pipe) => pipe.features(),
             Self::Loft(loft) => loft.features(),
             Self::Coil(coil) => coil.features(),
+            Self::Helix(helix) => helix.features(),
             Self::Rib(rib) => rib.features(),
             Self::Combine(combine) => combine.features(),
             Self::Move(movement) => movement.features(),
@@ -1405,6 +1446,7 @@ impl FeatureKind {
             Self::Pipe(pipe) => pipe.origin_features(),
             Self::Loft(loft) => loft.origin_features(),
             Self::Coil(coil) => coil.origin_features(),
+            Self::Helix(helix) => helix.origin_features(),
             Self::Rib(_) => BTreeSet::new(),
             Self::Move(movement) => movement.origin_features(),
             Self::Mate(mate) => mate.origin_features(),
@@ -1550,6 +1592,7 @@ impl Feature {
             FeatureKind::Thread(thread) if thread.is_modelled() => Some(thread.body),
             FeatureKind::Sketch(_)
             | FeatureKind::Datum(_)
+            | FeatureKind::Helix(_)
             | FeatureKind::Thread(_)
             | FeatureKind::Measurement(_)
             | FeatureKind::ReferenceImage(_) => None,
@@ -1602,6 +1645,7 @@ impl Feature {
             | FeatureKind::Hole(_)
             | FeatureKind::Pattern(_)
             | FeatureKind::Datum(_)
+            | FeatureKind::Helix(_)
             | FeatureKind::Remove(_)
             | FeatureKind::Thread(_)
             | FeatureKind::Measurement(_)

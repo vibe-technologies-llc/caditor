@@ -67,6 +67,7 @@ const MODEL_DATUMS: [&[Command]; 2] = [
         Command::DatumAxis,
         Command::DatumPoint,
         Command::CoordinateSystem,
+        Command::Helix,
     ],
     &[Command::InsertImage],
 ];
@@ -126,6 +127,7 @@ const MODEL_PARAMETERS: [&[Command]; 1] = [&[
 const VIEW_BACKGROUND_WORK: [&[Command]; 2] = [
     &[
         Command::CancelPreparingBodies,
+        Command::CancelUploading,
         Command::CancelAnalysis,
         Command::CancelMassProperties,
         Command::CancelIsocurves,
@@ -133,6 +135,7 @@ const VIEW_BACKGROUND_WORK: [&[Command]; 2] = [
     ],
     &[
         Command::ShowRestOfBodies,
+        Command::ContinueUploading,
         Command::AnalyseAgain,
         Command::WorkOutMassProperties,
         Command::CheckInterferenceAgain,

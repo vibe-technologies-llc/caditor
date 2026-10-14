@@ -273,6 +273,8 @@ pub struct SilhouetteCache {
     refused: ByMesh<Arc<ShadedMesh>>,
     staging: Bytes,
     order: DrawnOrder,
+    stopped: bool,
+    left_out: usize,
 }
 
 impl SilhouetteCache {
@@ -300,6 +302,8 @@ impl SilhouetteCache {
             refused: ByMesh::default(),
             staging: Bytes::default(),
             order: DrawnOrder::default(),
+            stopped: false,
+            left_out: 0,
         }
     }
 
@@ -322,11 +326,17 @@ impl SilhouetteCache {
             refused: ByMesh::default(),
             staging: Bytes::default(),
             order: DrawnOrder::default(),
+            stopped: false,
+            left_out: 0,
         }
     }
 
     pub fn is_uploading(&self) -> bool {
-        !self.uploads.is_empty()
+        !self.stopped && !self.uploads.is_empty()
+    }
+
+    pub fn left_out(&self) -> usize {
+        self.left_out
     }
 
     pub fn changed(&self) -> bool {
@@ -344,6 +354,8 @@ impl SilhouetteCache {
         self.previous.refill(&mut self.silhouettes);
         self.started.refill(&mut self.uploads);
         self.refused.refill(&mut self.rejected);
+        self.stopped = budget.is_stopped();
+        self.left_out = 0;
         let mut newly_rejected = 0;
         let mut rewritten = false;
         for silhouette in silhouettes
@@ -362,6 +374,11 @@ impl SilhouetteCache {
                 continue;
             }
             let started = self.started.take(&silhouette.mesh);
+            if self.stopped && reused.is_none() {
+                self.left_out += 1;
+                self.uploads.extend(started);
+                continue;
+            }
             let staging = &mut self.staging;
             let layout = &self.layout;
             let (prepared, error) = gpu::scoped(device, || {
@@ -398,7 +415,7 @@ impl SilhouetteCache {
         }
         self.started.clear();
         self.refused.clear();
-        if self.is_uploading() {
+        if !self.uploads.is_empty() || self.left_out > 0 {
             rewritten |= self.keep_previous(device, queue, anchor);
         }
         self.previous.clear();

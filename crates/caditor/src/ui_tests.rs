@@ -85,6 +85,7 @@ mod files_and_history;
 mod frame_costs;
 mod group_menus;
 mod handle_drags;
+mod helices;
 mod hole_feet;
 mod hole_highlights;
 mod hole_place_handles;

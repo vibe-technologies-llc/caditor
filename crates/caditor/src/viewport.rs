@@ -89,6 +89,7 @@ use crate::{
     system_motion, toggles,
     trimming::{self, Trimming},
     typed_point::{self, Typed, TypedPoint},
+    upload_badge::UploadRequest,
     view_aids::{DefaultBody, ViewAids},
     view_cube::{self, Corner, CubeAction, CubePlacement, CubeTexts},
     view_history::{Gesture, ViewHistory},
@@ -386,6 +387,8 @@ pub struct ViewportState {
     kept: Vec<measurement_tools::Shown>,
     interference: Vec<Mark>,
     uploading: bool,
+    upload_stopped: bool,
+    upload_request: Option<UploadRequest>,
     comb: Option<Arc<CombDrawing>>,
     isocurves: Option<Arc<IsocurveDrawing>>,
     framed_place: Option<Point3>,
@@ -674,6 +677,8 @@ impl ViewportState {
             kept: Vec::new(),
             interference: Vec::new(),
             uploading: false,
+            upload_stopped: false,
+            upload_request: None,
             comb: None,
             isocurves: None,
             framed_place: None,
@@ -819,6 +824,22 @@ impl ViewportState {
 
     pub fn is_uploading(&self) -> bool {
         self.uploading
+    }
+
+    pub fn set_upload_stopped(&mut self, stopped: bool) {
+        self.upload_stopped = stopped;
+    }
+
+    pub fn is_upload_stopped(&self) -> bool {
+        self.upload_stopped
+    }
+
+    pub fn request_upload(&mut self, request: UploadRequest) {
+        self.upload_request = Some(request);
+    }
+
+    pub fn take_upload_request(&mut self) -> Option<UploadRequest> {
+        self.upload_request.take()
     }
 
     pub fn set_section(&mut self, section: Vec<SectionPlane>) {
@@ -6107,6 +6128,9 @@ fn feature_prompt(kind: Option<&FeatureKind>) -> (&'static str, Clicks) {
         ),
         Some(FeatureKind::Coil(_)) => {
             in_panel("Choose the axis, the turns and the section in the panel")
+        }
+        Some(FeatureKind::Helix(_)) => {
+            in_panel("Choose the axis, the diameter and the turns in the panel")
         }
         Some(FeatureKind::Rib(_)) => in_panel(
             "Choose the sketch, the body, which way it runs and its thickness in the panel",

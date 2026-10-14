@@ -7,13 +7,15 @@ use caditor_geometry::{Plane, Point3, Vector3};
 
 use super::*;
 use crate::{
+    Handedness, HelixSpec,
     bspline::BSpline,
+    coil::helix,
     curve::{Circle, Curve, Line},
     interval::Interval,
     measure::mass_properties_tessellating,
     naming::FaceName,
     profile::{Profile, ProfileCurve, Region, Selection},
-    test_support::{circle, rectangle},
+    test_support::{circle, line as line_curve, rectangle},
     tolerance::SamplingTolerance,
     topology::Solid,
 };
@@ -546,5 +548,151 @@ fn a_spline_sweep_can_be_cancelled_anywhere() {
             )
         },
         |error| matches!(error, PathSweepError::Cancelled(_)),
+    );
+}
+
+fn helix_path(pitch: f64, turns: f64, taper: f64, hand: Handedness) -> Vec<PathSegment> {
+    let spec = HelixSpec {
+        frame: Plane::with_x_axis(Point3::ZERO, Vector3::Z, Vector3::X).unwrap(),
+        radius: 10.0,
+        pitch,
+        turns,
+        taper,
+        hand,
+    };
+    helix(&spec)
+        .unwrap()
+        .iter()
+        .enumerate()
+        .map(|(turn, piece)| piece.path_segment(20 + turn as u128))
+        .collect()
+}
+
+fn meshed_volume(solid: &Solid) -> f64 {
+    let tolerance = SamplingTolerance::new(1e-3, 0.02).unwrap();
+    solid
+        .tessellate(&tolerance)
+        .unwrap()
+        .mass_properties()
+        .volume
+}
+
+fn thread_triangle() -> Vec<ProfileCurve> {
+    vec![
+        line_curve(1, (11.0, -1.0), (11.0, 1.0)),
+        line_curve(2, (11.0, 1.0), (9.0, 0.0)),
+        line_curve(3, (9.0, 0.0), (11.0, -1.0)),
+    ]
+}
+
+fn extreme(
+    solid: &Solid,
+    measure: impl Fn(Point3) -> f64,
+    start: f64,
+    pick: fn(f64, f64) -> f64,
+) -> f64 {
+    solid
+        .vertices()
+        .map(|(_, vertex)| measure(vertex.point()))
+        .fold(start, pick)
+}
+
+#[test]
+fn a_triangle_winds_along_a_helix_keeping_its_place_about_the_axis() {
+    let right = helix_path(3.0, 2.0, 0.0, Handedness::Right);
+    let left = helix_path(3.0, 1.5, 0.0, Handedness::Left);
+    let centroid = 31.0 / 3.0;
+
+    let wound = swept(
+        &upright(),
+        &thread_triangle(),
+        &right,
+        SweepOrientation::Square,
+    )
+    .unwrap();
+    let backwards = swept(
+        &upright(),
+        &thread_triangle(),
+        &left,
+        SweepOrientation::Square,
+    )
+    .unwrap();
+
+    assert_eq!(wound.validate(), Ok(()));
+    assert_eq!(backwards.validate(), Ok(()));
+    assert_close(
+        "right",
+        meshed_volume(&wound),
+        2.0 * TAU * 2.0 * centroid,
+        1e-3,
+    );
+    assert_close(
+        "left",
+        meshed_volume(&backwards),
+        2.0 * TAU * 1.5 * centroid,
+        1e-3,
+    );
+    assert_eq!(wound.faces().count(), 3 * 2 + 2);
+    assert_named_apart("right", &wound);
+
+    let top = extreme(&wound, |point| point.z, f64::MIN, f64::max);
+    let inner = extreme(
+        &wound,
+        |point| point.truncate().length(),
+        f64::MAX,
+        f64::min,
+    );
+
+    assert!((top - 7.0).abs() < 1e-6, "{top}");
+    assert!((inner - 9.0).abs() < 1e-6, "{inner}");
+}
+
+#[test]
+fn a_tapered_helix_carries_the_triangle_outward_as_it_rises() {
+    let taper = 5.0_f64.to_radians();
+    let path = helix_path(3.0, 1.25, taper, Handedness::Right);
+    let centroid = 31.0 / 3.0 + 0.5 * taper.tan() * 3.75;
+
+    let wound = swept(
+        &upright(),
+        &thread_triangle(),
+        &path,
+        SweepOrientation::Square,
+    )
+    .unwrap();
+
+    assert_eq!(wound.validate(), Ok(()));
+    assert_close(
+        "tapered",
+        meshed_volume(&wound),
+        2.0 * TAU * 1.25 * centroid,
+        2e-3,
+    );
+}
+
+#[test]
+fn turns_of_a_helix_too_close_for_the_profile_are_refused() {
+    let path = helix_path(1.5, 2.0, 0.0, Handedness::Right);
+
+    let crowded = swept(
+        &upright(),
+        &thread_triangle(),
+        &path,
+        SweepOrientation::Square,
+    );
+
+    assert_eq!(crowded.err(), Some(PathSweepError::CrossesItself));
+}
+
+#[test]
+fn a_profile_across_the_helix_axis_is_refused() {
+    let path = helix_path(3.0, 1.0, 0.0, Handedness::Right);
+    let across = rectangle(1, (-1.0, -1.0), (11.0, 1.0));
+
+    let folded = swept(&upright(), &across, &path, SweepOrientation::Square);
+
+    assert!(
+        matches!(folded, Err(PathSweepError::ProfileTooLarge { .. })),
+        "{folded:?}"
     );
 }

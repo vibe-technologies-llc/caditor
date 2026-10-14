@@ -1134,6 +1134,8 @@ pub struct ViewportRenderer {
     quad_indices: QuadIndices,
     batches: Vec<GpuBatch>,
     batches_waiting: usize,
+    batches_left_out: usize,
+    upload_stopped: bool,
     anchor: Option<Point3>,
     fill_order: FillOrder,
     #[cfg(test)]
@@ -1224,6 +1226,8 @@ impl ViewportRenderer {
             styles_layout,
             batches: Vec::new(),
             batches_waiting: 0,
+            batches_left_out: 0,
+            upload_stopped: false,
             anchor: None,
             fill_order: FillOrder::default(),
             #[cfg(test)]
@@ -1326,6 +1330,22 @@ impl ViewportRenderer {
         self.mesh_pool.is_uploading() || self.silhouettes.is_uploading() || self.batches_waiting > 0
     }
 
+    pub fn stop_uploading(&mut self) {
+        self.upload_stopped = true;
+    }
+
+    pub fn resume_uploading(&mut self) {
+        self.upload_stopped = false;
+    }
+
+    pub fn is_upload_stopped(&self) -> bool {
+        self.upload_stopped && self.left_out_of_upload() > 0
+    }
+
+    fn left_out_of_upload(&self) -> usize {
+        self.mesh_pool.left_out() + self.silhouettes.left_out() + self.batches_left_out
+    }
+
     #[cfg(test)]
     pub fn set_mesh_upload_bytes(&mut self, bytes: u64) {
         self.mesh_upload_bytes = bytes;
@@ -1372,8 +1392,13 @@ impl ViewportRenderer {
             .map(|targets| (targets.size.width, targets.size.height));
         let prepared = match viewport {
             Some(viewport) => {
-                let budget = UploadBudget::of(self.mesh_upload_bytes);
-                self.upload(device, queue, viewport, (budget, occlusion_size))
+                let budget = match self.upload_stopped {
+                    true => UploadBudget::STOPPED,
+                    false => UploadBudget::of(self.mesh_upload_bytes),
+                };
+                let prepared = self.upload(device, queue, viewport, (budget, occlusion_size));
+                self.upload_stopped &= self.left_out_of_upload() > 0;
+                prepared
             }
             None => Prepared::default(),
         };
@@ -1524,6 +1549,8 @@ impl ViewportRenderer {
             quad_indices: self.quad_indices.clone(),
             batches: Vec::new(),
             batches_waiting: 0,
+            batches_left_out: 0,
+            upload_stopped: false,
             anchor: None,
             fill_order: FillOrder::default(),
             #[cfg(test)]
@@ -1975,7 +2002,7 @@ impl ViewportRenderer {
             anchor,
             &mut budget,
         ));
-        self.mesh_pool.sweep();
+        self.mesh_pool.sweep(budget.is_stopped());
         let pictures = self
             .pictures
             .prepare(device, queue, &scene.pictures, anchor);
@@ -2137,6 +2164,8 @@ impl ViewportRenderer {
         {
             budget = UploadBudget::UNLIMITED;
         }
+        let stopped = budget.is_stopped();
+        let before = (stopped || self.batches_left_out > 0).then(|| self.shown_keys());
         let wanted: AHashSet<usize> = batches.iter().map(batch_key).collect();
         let mut kept: AHashMap<usize, GpuBatch> = AHashMap::new();
         let mut spare: Vec<GpuBatch> = Vec::new();
@@ -2154,9 +2183,14 @@ impl ViewportRenderer {
         let mut refused = 0;
         let mut uploaded_any = false;
         self.batches_waiting = 0;
+        self.batches_left_out = 0;
         for batch in batches {
             if let Some(gpu) = kept.remove(&batch_key(batch)) {
                 self.batches.push(gpu);
+                continue;
+            }
+            if stopped {
+                self.batches_left_out += 1;
                 continue;
             }
             let affordable = budget.grant(1, GpuBatch::upload_bytes(batch)) == 1;
@@ -2198,7 +2232,18 @@ impl ViewportRenderer {
                 self.work.uploads += 1;
             }
         }
-        (true, refused)
+        let changed = match before {
+            Some(before) => uploaded_any || before != self.shown_keys(),
+            None => true,
+        };
+        (changed, refused)
+    }
+
+    fn shown_keys(&self) -> Vec<Option<usize>> {
+        self.batches
+            .iter()
+            .map(|gpu| gpu.shown.as_ref().map(batch_key))
+            .collect()
     }
 
     fn order_fills(&mut self, facing: Facing, changed: bool) -> bool {

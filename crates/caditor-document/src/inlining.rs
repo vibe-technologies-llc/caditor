@@ -172,6 +172,7 @@ pub(crate) fn expressions_mut(kind: &mut FeatureKind) -> Vec<&mut Expression> {
         FeatureKind::Pipe(pipe) => pipe.expressions_mut(),
         FeatureKind::Loft(_) => Vec::new(),
         FeatureKind::Coil(coil) => coil.expressions_mut(),
+        FeatureKind::Helix(helix) => helix.expressions_mut(),
         FeatureKind::Rib(rib) => rib.expressions_mut(),
         FeatureKind::Thread(thread) => thread.expressions_mut(),
         FeatureKind::Move(movement) => movement.expressions_mut().collect(),

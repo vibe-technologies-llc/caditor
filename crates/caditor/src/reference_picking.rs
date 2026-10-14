@@ -7,7 +7,7 @@ use crate::{
     datum_panel::{self, FramePart},
     datum_tools,
     editing::EditingCommand,
-    hole_panel, hole_placement, hole_tools, image_tools, loft_tools,
+    helix_tools, hole_panel, hole_placement, hole_tools, image_tools, loft_tools,
     mate_tools::{self, MatePart},
     measurement_tools::{self, MeasuredPart},
     mirror_tools,
@@ -52,6 +52,7 @@ pub enum Slot {
     MoveAxis,
     PrimitivePlace,
     CoilAxis,
+    HelixAxis,
     MateMoving(MatePart),
     MateTarget(MatePart),
     FrameOrigin,
@@ -98,6 +99,7 @@ impl Slot {
             | Self::MoveAxis
             | Self::PrimitivePlace
             | Self::CoilAxis
+            | Self::HelixAxis
             | Self::MateTarget(_)
             | Self::FrameOrigin
             | Self::FrameAxis
@@ -208,6 +210,10 @@ pub fn prompt(model: &Model, picking: Picking) -> String {
             "Click {AXIS} or a sketch line to wind the coil around, or press Escape to leave it \
              where it is"
         ),
+        Slot::HelixAxis => format!(
+            "Click {AXIS} or a sketch line to wind the helix around, or press Escape to leave it \
+             where it is"
+        ),
         Slot::HolePlace => {
             "Click a flat face where the hole goes, or press Escape to leave it where it is"
                 .to_owned()
@@ -269,8 +275,8 @@ pub fn prompt(model: &Model, picking: Picking) -> String {
         }
         Slot::ThreadFace => "Click the round face of a bore, shaft or boss to thread".to_owned(),
         Slot::SweepPath => {
-            "Click the curves of a sketch or the edges of a body to follow, again to leave \
-             one out; press Escape when the path is complete"
+            "Click the curves of a sketch, the edges of a body or a helix to follow, again to \
+             leave one out; press Escape when the path is complete"
                 .to_owned()
         }
         Slot::LoftProfiles => {
@@ -456,6 +462,9 @@ pub fn change(
         }
         (Slot::CoilAxis, FeatureKind::Coil(coil)) => {
             coil_tools::axis_change(model, selection, feature, coil)
+        }
+        (Slot::HelixAxis, FeatureKind::Helix(helix)) => {
+            helix_tools::axis_change(model, selection, feature, helix)
         }
         (Slot::PrimitivePlace, FeatureKind::Primitive(primitive)) => {
             primitive_tools::place_change(model, selection, feature, primitive)
