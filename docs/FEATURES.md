@@ -226,10 +226,10 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 ## Application
 
 - [low · medium] The rendered view's bounced light (`render.md`, the light pass) gathers from a
-  reflective shadow map without a visibility test, so it leaks through thin walls, reaches only
-  `BOUNCE_REACH` of the light frame and comes from surfaces the sun sees. Ambient occlusion damps
-  it in creases but only from what the view shows; a short occlusion test against the light
-  pass's depth map per bounce sample would stop the leak.
+  reflective shadow map, so it reaches only `BOUNCE_REACH` of the light frame, comes only from
+  surfaces the sun sees, and its visibility test (`bounce_blocked`) sees only those surfaces: a
+  wall the sun does not light (fully in shadow, or edge-on to it) still lets bounced light
+  through.
 - [low · medium] The rendered view's surroundings are a procedural sky and a shadow-catching
   ground; a user cannot load an HDR image as the backdrop and light, choose a backdrop or ground,
   nor give a material texture, bump or clear-coat maps, and the ground bounces no light or occlusion

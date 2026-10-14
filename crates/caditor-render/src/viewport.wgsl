@@ -984,6 +984,8 @@ fn finished(color: vec4<f32>, normal: vec3<f32>, eye: vec3<f32>, finish: u32) ->
 
 const SHADOW_TAPS: i32 = 1;
 const BOUNCE_SAMPLES: i32 = 24;
+const BOUNCE_BLOCK_STEPS: i32 = 4;
+const BOUNCE_BLOCK_LIFTS: f32 = 2.0;
 const GOLDEN_ANGLE: f32 = 2.39996323;
 const SHADOW_DEPTH_BIAS: f32 = 0.0005;
 const ENVIRONMENT_BRDF_LOW: vec4<f32> = vec4<f32>(-1.0, -0.0275, -0.572, 0.022);
@@ -1249,12 +1251,46 @@ fn spin_at(pixel: vec2<f32>) -> f32 {
     return fract(52.9829189 * fract(dot(pixel, vec2<f32>(0.06711056, 0.00583715)))) * TAU;
 }
 
+struct BounceRay {
+    start: vec3<f32>,
+    lift: f32,
+    depth_span: f32,
+}
+
+fn light_point(relative: vec3<f32>) -> vec3<f32> {
+    let light = view.shadow_matrix * vec4<f32>(relative, 1.0);
+    return vec3<f32>(light.x * 0.5 + 0.5, 0.5 - light.y * 0.5, light.z);
+}
+
+fn bounce_blocked(ray: BounceRay, source: vec3<f32>, source_normal: vec3<f32>, reach: f32) -> bool {
+    let to = light_point(source + source_normal * ray.lift);
+    let size = vec2<f32>(textureDimensions(lit_depth));
+    let last = vec2<i32>(size) - vec2<i32>(1);
+    let nearest_behind = ray.lift * BOUNCE_BLOCK_LIFTS;
+    for (var step = 0; step < BOUNCE_BLOCK_STEPS; step++) {
+        let along = mix(ray.start, to, (f32(step) + 0.5) / f32(BOUNCE_BLOCK_STEPS));
+        if any(along.xy < vec2<f32>(0.0)) || any(along.xy >= vec2<f32>(1.0)) {
+            continue;
+        }
+        let stored = textureLoad(lit_depth, clamp(vec2<i32>(along.xy * size), vec2<i32>(0), last), 0).r;
+        if stored == 0u {
+            continue;
+        }
+        let behind = (along.z - bitcast<f32>(stored)) * ray.depth_span;
+        if behind > nearest_behind && behind < reach {
+            return true;
+        }
+    }
+    return false;
+}
+
 fn bounced(relative: vec3<f32>, normal: vec3<f32>, pixel: vec2<f32>) -> vec3<f32> {
     if !bounces() {
         return vec3<f32>(0.0);
     }
-    let light = view.shadow_matrix * vec4<f32>(relative, 1.0);
-    let centre = vec2<f32>(light.x * 0.5 + 0.5, 0.5 - light.y * 0.5);
+    let centre = light_point(relative).xy;
+    let lift = view.exposure_shadow.w;
+    let ray = BounceRay(light_point(relative + normal * lift), lift, length(view.relative_from_light[2].xyz));
     let size = vec2<f32>(textureDimensions(lit_albedo));
     let last = vec2<i32>(size) - vec2<i32>(1);
     let spin = spin_at(pixel);
@@ -1276,9 +1312,12 @@ fn bounced(relative: vec3<f32>, normal: vec3<f32>, pixel: vec2<f32>) -> vec3<f32
         let source = placed.xyz / placed.w;
         let source_normal = textureLoad(lit_normals, texel, 0).xyz * 2.0 - 1.0;
         let between = relative - source;
-        let squared = max(dot(between, between), view.bounce.z);
         let leaving = max(dot(source_normal, between), 0.0);
         let arriving = max(dot(normal, -between), 0.0);
+        if leaving * arriving <= 0.0 || bounce_blocked(ray, source, source_normal, length(between)) {
+            continue;
+        }
+        let squared = max(dot(between, between), view.bounce.z);
         gathered += to_linear(albedo.rgb) * albedo.a * leaving * arriving / (squared * squared);
     }
     return gathered * view.bounce.w * view.bounce.x * view.sun_colour.rgb * view.sun.w;
