@@ -95,6 +95,9 @@ pub enum Item {
     Polygon(sketching::PolygonShape),
     Spline(sketching::SplineShape),
     Ellipse(sketching::EllipseShape),
+    EllipticalArc(sketching::EllipticalArcShape),
+    Conic(sketching::ConicShape),
+    TangentArc(sketching::TangentArcShape),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -511,6 +514,8 @@ pub(super) fn ids(ids: &[EntityId]) -> Value {
 pub(super) struct Pen<'t, 'd> {
     pub(super) transaction: &'t mut TransactionBuilder<'d>,
     pub(super) sketch: FeatureId,
+    pub(super) sketch_name: &'t str,
+    pub(super) shown: &'t Sketch,
     pub(super) construction: bool,
 }
 
@@ -541,6 +546,9 @@ impl Pen<'_, '_> {
             Item::Polygon(shape) => shape.draw(self)?,
             Item::Spline(shape) => shape.draw(self)?,
             Item::Ellipse(shape) => shape.draw(self)?,
+            Item::EllipticalArc(shape) => shape.draw(self)?,
+            Item::Conic(shape) => shape.draw(self)?,
+            Item::TangentArc(shape) => shape.draw(self)?,
             Item::Point { at } => {
                 let id = self.point(point(*at)?);
                 json!({ "kind": "point", "id": id.raw() })
@@ -640,13 +648,17 @@ pub fn draw(session: &mut Session, work: &Work<'_>, asked: Drawing) -> Result<An
     }
     session.evaluate(work)?;
     let document = session.document();
-    let (feature, _) = references::sketch(document, &asked.sketch)?;
+    let (feature, definition) = references::sketch(document, &asked.sketch)?;
     let sketch = feature.id();
+    let shown = up_to_date_result(session.evaluation(), sketch)
+        .map_or(definition, |result| &result.geometry);
     let mut transaction = document.transaction(format!("Draw in {}", feature.name));
     settled(&mut transaction, session.evaluation(), sketch);
     let mut pen = Pen {
         transaction: &mut transaction,
         sketch,
+        sketch_name: &feature.name,
+        shown,
         construction: asked.construction,
     };
     let drawn: Vec<Value> = asked

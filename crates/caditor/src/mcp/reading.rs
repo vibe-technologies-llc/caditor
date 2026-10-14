@@ -10,7 +10,7 @@ use caditor_render::{
     Background, GraphicsSettings, ImageError, ImageRequest, OffscreenRenderer,
     RenderError as AdapterError, SurfaceSize, Viewpoint,
 };
-use caditor_sketch::{Entity, Sketch};
+use caditor_sketch::{Entity, Sketch, SplineKind};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
@@ -611,18 +611,44 @@ fn entities(sketch: &Sketch) -> Vec<Value> {
                     entry.insert("start".to_owned(), entity_name(*start));
                     entry.insert("end".to_owned(), entity_name(*end));
                 }
-                Entity::Spline { points, .. } => {
+                Entity::Spline { points, kind } => {
                     entry.insert("kind".to_owned(), json!("spline"));
                     let points: Vec<Value> = points.iter().map(|id| entity_name(*id)).collect();
                     entry.insert("points".to_owned(), Value::Array(points));
+                    let form = match kind {
+                        SplineKind::Control { .. } => "control",
+                        SplineKind::Fit { .. } => "fit",
+                        SplineKind::Conic { .. } => "conic",
+                        SplineKind::Piece { .. } => "piece",
+                    };
+                    entry.insert("form".to_owned(), json!(form));
+                    if let SplineKind::Conic { rho } = kind {
+                        entry.insert("rho".to_owned(), rounded(*rho));
+                    }
                 }
-                Entity::Ellipse { center, .. } => {
+                Entity::Ellipse {
+                    center,
+                    major,
+                    minor_radius,
+                } => {
                     entry.insert("kind".to_owned(), json!("ellipse"));
                     entry.insert("center".to_owned(), entity_name(*center));
+                    entry.insert("major".to_owned(), entity_name(*major));
+                    entry.insert("minor_radius".to_owned(), rounded(*minor_radius));
                 }
-                Entity::EllipticalArc { center, .. } => {
+                Entity::EllipticalArc {
+                    center,
+                    major,
+                    minor_radius,
+                    start,
+                    end,
+                } => {
                     entry.insert("kind".to_owned(), json!("elliptical arc"));
                     entry.insert("center".to_owned(), entity_name(*center));
+                    entry.insert("major".to_owned(), entity_name(*major));
+                    entry.insert("minor_radius".to_owned(), rounded(*minor_radius));
+                    entry.insert("start".to_owned(), entity_name(*start));
+                    entry.insert("end".to_owned(), entity_name(*end));
                 }
             }
             if sketch.is_construction(id) {

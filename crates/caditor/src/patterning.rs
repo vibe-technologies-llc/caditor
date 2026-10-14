@@ -532,14 +532,14 @@ pub(crate) fn degrees(model: &Model, text: &str) -> Result<Dimensioned, String> 
     })
 }
 
-fn turned(angle: f64) -> Dimensioned {
+pub(crate) fn turned(angle: f64) -> Dimensioned {
     Dimensioned {
         expression: Expression::measure(angle, Unit::Degree),
         value: angle,
     }
 }
 
-fn square_to(first: &Dimensioned) -> Dimensioned {
+pub(crate) fn square_to(first: &Dimensioned) -> Dimensioned {
     let value = first.value + QUARTER_TURN_DEGREES;
     if first.expression.is_literal() {
         return turned(value);

@@ -13,6 +13,8 @@ use crate::{
         references::ReferenceError,
         reshaping::{self, ReshapeError},
         session::{Cancelled, ChangeError, Session, Work},
+        sketch_edits::{self, SketchEditError},
+        sketch_schemas,
         sketching::{self, SketchToolError},
         solids, sweep_schemas,
         sweeps::{self, SweepToolError},
@@ -37,6 +39,7 @@ pub enum Tool {
     AddSketchConstraints,
     RemoveSketchItems,
     EditSketchConstraint,
+    ModifySketch,
     AddExtrusion,
     AddHole,
     Undo,
@@ -89,6 +92,7 @@ all_variants!(
     AddSketchConstraints,
     RemoveSketchItems,
     EditSketchConstraint,
+    ModifySketch,
     AddExtrusion,
     AddHole,
     Undo,
@@ -169,6 +173,8 @@ pub enum ToolError {
     #[error(transparent)]
     SketchTools(#[from] SketchToolError),
     #[error(transparent)]
+    SketchEdits(#[from] SketchEditError),
+    #[error(transparent)]
     Modelling(#[from] ModellingError),
     #[error(transparent)]
     Files(#[from] FileError),
@@ -212,6 +218,7 @@ impl Tool {
             Self::AddSketchConstraints => "add_sketch_constraints",
             Self::RemoveSketchItems => "remove_sketch_items",
             Self::EditSketchConstraint => "edit_sketch_constraint",
+            Self::ModifySketch => "modify_sketch",
             Self::AddExtrusion => "add_extrusion",
             Self::AddHole => "add_hole",
             Self::Undo => "undo",
@@ -266,6 +273,7 @@ impl Tool {
             Self::AddSketchConstraints => "Constrain a sketch",
             Self::RemoveSketchItems => "Remove from a sketch",
             Self::EditSketchConstraint => "Edit a constraint",
+            Self::ModifySketch => "Change sketch geometry",
             Self::AddExtrusion => "Extrude",
             Self::AddHole => "Hole",
             Self::Undo => "Undo",
@@ -353,8 +361,10 @@ impl Tool {
                  the sketch's plane: sketch x and y map to its x_axis and y_axis from its origin."
             }
             Self::AddSketchGeometry => {
-                "Draws points, lines, polylines, rectangles, circles, arcs, slots, arc slots, \
-                 polygons, splines and ellipses into a sketch, in sketch coordinates (mm). A \
+                "Draws points, lines, polylines, rectangles, circles, arcs, tangent arcs, slots, \
+                 arc slots, polygons, splines, conics, ellipses and elliptical arcs into a \
+                 sketch, in sketch coordinates (mm). A tangent arc continues a line, arc or \
+                 spline already in the sketch from the point ending it. A \
                  rectangle is four joined lines held horizontal and vertical; a polyline's lines \
                  share their corner points; a slot, arc slot and polygon come joined, tangent and \
                  equal as the app's tools make them (a polygon's corners lie on a construction \
@@ -373,6 +383,15 @@ impl Tool {
                  from a sketch. Removing an entity removes the curves built on a point and the \
                  constraints using it; the answer lists everything removed. The sketch's origin \
                  and axes stay. One undo step."
+            }
+            Self::ModifySketch => {
+                "Changes a sketch's geometry as the app's sketch tools do, one operation a call: \
+                 trim pieces back to the curves crossing them, extend an end to the next curve, \
+                 offset a chain, mirror about a line, repeat in rows or around a point, round or \
+                 cut corners, move, rotate or scale entities (solved like a drag, so \
+                 constraints hold), or project edges and faces of a body into the sketch, \
+                 following the body. Lengths and angles are expressions with units and \
+                 parameters. Returns the entities added and removed. One undo step."
             }
             Self::EditSketchConstraint => {
                 "Changes a dimension's value (an expression with units and parameters, such as \
@@ -533,6 +552,7 @@ impl Tool {
             Self::SetParameter
             | Self::RemoveSketchItems
             | Self::EditSketchConstraint
+            | Self::ModifySketch
             | Self::Undo
             | Self::Redo
             | Self::RenameFeature
@@ -603,26 +623,29 @@ impl Tool {
                         "items": {
                             "type": "object",
                             "properties": {
-                                "kind": { "type": "string", "enum": ["point", "line", "polyline", "rectangle", "circle", "arc", "slot", "arc_slot", "polygon", "spline", "ellipse"] },
+                                "kind": { "type": "string", "enum": ["point", "line", "polyline", "rectangle", "circle", "arc", "tangent_arc", "slot", "arc_slot", "polygon", "spline", "conic", "ellipse", "elliptical_arc"] },
                                 "at": point("point: where it is"),
-                                "from": point("line: its start; slot: the first end's centre; arc_slot: where the centre line starts"),
-                                "to": point("line: its end; slot: the second end's centre; arc_slot: where the centre line ends, counter-clockwise from from"),
+                                "from": point("line: its start; slot: the first end's centre; arc_slot: where the centre line starts; polygon: one end of a side, instead of center"),
+                                "to": point("line: its end; slot: the second end's centre; arc_slot: where the centre line ends, counter-clockwise from from; polygon: the side's other end, the polygon lying to the left of from to to; tangent_arc: where it ends"),
+                                "from_point": entity(),
                                 "points": { "type": "array", "items": point("A corner"), "description": "polyline: its corners in order; spline: its points in order" },
                                 "closed": { "type": "boolean", "description": "polyline: join the last corner to the first; spline: close it into a loop (three points at least)" },
                                 "corner": point("rectangle: one corner; polygon: a vertex, which fixes its size and turn"),
                                 "opposite": point("rectangle: the opposite corner"),
-                                "center": point("circle, arc, arc_slot, polygon, ellipse: the centre"),
+                                "center": point("circle, arc, arc_slot, polygon, ellipse, elliptical_arc: the centre"),
                                 "radius": { "type": "number", "exclusiveMinimum": 0 },
-                                "start": point("arc: where it starts"),
-                                "end": point("arc: where it ends; with center only its direction from the centre counts"),
+                                "start": point("arc: where it starts; elliptical_arc: its direction from the centre sets the start; conic: where it starts"),
+                                "end": point("arc: where it ends; with center only its direction from the centre counts, as for elliptical_arc; conic: where it ends"),
+                                "apex": point("conic: where the tangents at its ends meet"),
+                                "rho": { "type": "number", "minimum": 0.01, "maximum": 0.99, "description": "conic: its fullness, 0.5 (a parabola) by default; lower is flatter (an ellipse), higher sharper (a hyperbola)" },
                                 "through": point("arc: a point it passes through, instead of center"),
-                                "clockwise": { "type": "boolean", "description": "arc with center: run clockwise from start to end instead of counter-clockwise" },
+                                "clockwise": { "type": "boolean", "description": "arc with center, elliptical_arc: run clockwise from start to end instead of counter-clockwise" },
                                 "width": { "type": "number", "exclusiveMinimum": 0, "description": "slot, arc_slot: the full width across" },
                                 "sides": { "type": "integer", "minimum": 3, "maximum": 64, "description": "polygon: the number of sides, 6 by default" },
                                 "side_middle": point("polygon: the middle of its first side, instead of corner"),
                                 "form": { "type": "string", "enum": ["fit", "control"], "description": "spline: through its points (fit, the default) or shaped by them as control points" },
-                                "major_end": point("ellipse: the end of its major axis"),
-                                "minor_radius": { "type": "number", "exclusiveMinimum": 0, "description": "ellipse: half its width across the minor axis" }
+                                "major_end": point("ellipse, elliptical_arc: the end of its major axis"),
+                                "minor_radius": { "type": "number", "exclusiveMinimum": 0, "description": "ellipse, elliptical_arc: half its width across the minor axis" }
                             },
                             "required": ["kind"]
                         }
@@ -664,6 +687,7 @@ impl Tool {
                 }),
                 &["sketch"],
             ),
+            Self::ModifySketch => sketch_schemas::modify_sketch(),
             Self::EditSketchConstraint => object(
                 json!({
                     "sketch": reference("The sketch, by feature id or name"),
@@ -753,6 +777,7 @@ impl Tool {
             Self::AddSketchConstraints => Call::AddSketchConstraints(self.arguments(arguments)?),
             Self::RemoveSketchItems => Call::RemoveSketchItems(self.arguments(arguments)?),
             Self::EditSketchConstraint => Call::EditSketchConstraint(self.arguments(arguments)?),
+            Self::ModifySketch => Call::ModifySketch(self.arguments(arguments)?),
             Self::AddExtrusion => Call::AddExtrusion(self.arguments(arguments)?),
             Self::AddHole => Call::AddHole(self.arguments(arguments)?),
             Self::Undo => Call::Undo(self.arguments(arguments)?),
@@ -814,6 +839,7 @@ pub enum Call {
     AddSketchConstraints(writing::Constraining),
     RemoveSketchItems(sketching::Removing),
     EditSketchConstraint(sketching::ConstraintEdit),
+    ModifySketch(sketch_edits::Modification),
     AddExtrusion(solids::Extrusion),
     AddHole(solids::Drilling),
     Undo(reading::Nothing),
@@ -870,6 +896,7 @@ impl Call {
             }
             Self::RemoveSketchItems(removing) => sketching::remove(session, work, removing),
             Self::EditSketchConstraint(edit) => sketching::edit_constraint(session, work, edit),
+            Self::ModifySketch(modification) => sketch_edits::modify(session, work, modification),
             Self::AddExtrusion(extrusion) => solids::extrude(session, work, extrusion),
             Self::AddHole(drilling) => solids::drill(session, work, drilling),
             Self::Undo(_) => writing::undo(session, work),
@@ -927,7 +954,7 @@ pub(super) fn reference(description: &str) -> Value {
     json!({ "type": ["integer", "string"], "description": description })
 }
 
-fn point(description: &str) -> Value {
+pub(super) fn point(description: &str) -> Value {
     json!({
         "type": "array",
         "items": { "type": "number" },
@@ -937,7 +964,7 @@ fn point(description: &str) -> Value {
     })
 }
 
-fn entity() -> Value {
+pub(super) fn entity() -> Value {
     json!({
         "type": ["integer", "string"],
         "description": "An entity id, or origin, horizontal_axis or vertical_axis"

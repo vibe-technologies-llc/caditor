@@ -59,13 +59,13 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   and waits for its report. Closing discards the journal only when the model is saved; otherwise
   it stays for the window to recover.
 
-## Tools (`tools.rs`, `reading.rs`, `writing.rs`, `sketching.rs`, `features.rs`, `solids.rs`, `sweeps.rs`, `reshaping.rs`, `edits.rs`, `tree_edits.rs`, `edges.rs`, `files.rs`)
+## Tools (`tools.rs`, `reading.rs`, `writing.rs`, `sketching.rs`, `sketch_edits.rs`, `sketch_moves.rs`, `features.rs`, `solids.rs`, `sweeps.rs`, `reshaping.rs`, `edits.rs`, `tree_edits.rs`, `edges.rs`, `files.rs`)
 
 - `Tool` lists every tool (`all_variants!`); `Tool::decode` turns arguments into a typed `Call`
   through `serde` (`deny_unknown_fields`), and `Call::run` does it. Errors are `ToolError` and the
   per-area enums (`ReferenceError`, `SketchingError`, `ModellingError`, `FileError`,
   `RenderError`, `ChangeError`, `PlaceError`, `FeatureError`, `MeasuringError`, `TreeError`,
-  `SweepToolError`, `ReshapeError`, `FeatureEditError`),
+  `SweepToolError`, `ReshapeError`, `FeatureEditError`, `SketchEditError`),
   sent as a tool result with `isError` and the message as a sentence; the app's own refusals
   (field parsing, attachment, constraint conflicts) keep their words.
 - References are by stable identity only (`references.rs`): features and bodies by id or name,
@@ -127,21 +127,46 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   `check_moves` refusal is the answer) and `Document::deletion`, which refuses while
   `dependents_of` finds users unless `dependents` says `delete` or `keep`, as the delete dialog asks.
 - Sketching beyond the first slice lives in `sketching.rs`: `add_sketch_geometry` also draws arcs
-  (about a centre, or through three points), slots, arc slots, regular polygons (by vertex or by
-  the middle of the first side), fit or control splines and ellipses, each with the joints,
-  tangents, equal arcs and construction circle the app's `Draft` recipes in `drawing.rs` add (a
-  slot's top line is held level or upright when its centres line up), from the `shapes.rs`
-  geometry; `add_sketch` takes a datum plane (`datum`) or a plane of a coordinate system (`frame`
-  with `plane`) through `DatumTarget`, as New sketch on a selected datum does; `remove_sketch_items`
+  (about a centre, or through three points), slots, arc slots, regular polygons (by vertex, by
+  the middle of the first side, or on a side from `from` to `to`, `shapes::polygon_on_side`), fit
+  or control splines, conics (start, apex, end and `rho`, a `SplineKind::Conic`), ellipses and
+  elliptical arcs (start and end taken toward their positions, `shapes::toward_on_ellipse`), each
+  with the joints, tangents, equal arcs and construction circle the app's `Draft` recipes in
+  `drawing.rs` add (a slot's top line is held level or upright when its centres line up), from the
+  `shapes.rs` geometry; a tangent arc leaves a point ending a line, arc or spline of the sketch as
+  shown (`drawing::continuing`, so not one drawn in the same call), joined to it by `Coincident`
+  and `Tangent` (`shapes::tangent_from`), which is why `Pen` carries the shown sketch;
+  `add_sketch` takes a datum plane (`datum`) or a plane of a coordinate system (`frame` with
+  `plane`) through `DatumTarget`, as New sketch on a selected datum does; `remove_sketch_items`
   removes constraints and entities (`Transaction::remove_sketch_items` expands an entity to its
-  users, and the answer lists everything gone); `edit_sketch_constraint` changes a dimension through
-  `field::dimension_transaction` (the dimension field's parsing, units and parameters) and turns a
-  constraint on or off, both after settling the sketch. Their failures are `SketchToolError`.
+  users, and the answer lists everything gone); `edit_sketch_constraint` changes a dimension
+  through `field::dimension_transaction` (the dimension field's parsing, units and parameters) and
+  turns a constraint on or off, both after settling the sketch. Their failures are
+  `SketchToolError`.
+- `modify_sketch` (`sketch_edits.rs`, `sketch_moves.rs`) is one tool for the sketch tools that
+  change geometry, an `operation`-tagged `Modification` whose variants each name the sketch, so the
+  registry holds one entry. Each plans one transaction on a working copy (the definition with the
+  shown positions, as `trimming::working`) through `reshape_sketch`, settled first, with the
+  sketch crate's operations and the app tools' labels: trim (pieces found again by their middle on
+  whichever curve carries them, `trimming::carrier`, as a trim path), extend (by the end point or a
+  position by it), offset (a chain, `whole_chain` as a click takes it, side by `toward` or the
+  default, a negative distance the other side, `both_sides` with round or flat caps), mirror,
+  rectangular and circular patterns (`patterning::turned`, `square_to`), fillet and chamfer of
+  corners named by their point or a pair of curves (`ChamferSize`). Move, rotate and scale build
+  the app's `sketch_drag::Moving` or `Transforming` drags (an `about` point overrides the pivot)
+  and solve them from the shown sketch with `solve_geometry_from`, committed as `settle_sketch`:
+  constraints hold as in a drag, the answer says whether every point `reached` its target, and a
+  change the constraints hold entirely is refused. Project adds `projecting::edge_projection` and
+  `face_projections` of a body's edges and faces in its state seen by the sketch
+  (`body_result_seen_by`), leaving out what the sketch already projects. Lengths and angles are
+  `Dimensioned` from `field::parse_expression` (a plain angle in degrees), kept as expressions where
+  the operation keeps one. The answer lists the entities added and removed and the sketch status.
 - Reads: the feature tree with `state_of`'s words, parameters, bodies with `exact_mass` and
   `extent` under the kernel interrupt (`interruptible`), faces (at most `MOST_FACES`), edges with
   `edge_measure`'s kind and length (at most `MOST_EDGES`), the distance and angle between two
-  points, faces or edges by the kernel's `distance` and `angle`, a sketch with `SketchSummary`,
-  and a picture through `snapshot::looking_from` and `png_bytes`, sized `SMALLEST_SIDE` to
+  points, faces or edges by the kernel's `distance` and `angle`, a sketch with `SketchSummary`
+  (a spline with its form and a conic's rho, an ellipse or elliptical arc with its major end and
+  minor radius), and a picture through `snapshot::looking_from` and `png_bytes`, sized `SMALLEST_SIDE` to
   `LARGEST_SIDE`.
 - Files: `save` writes the model's own file; `export` writes `headless::deliver`'s formats only
   into the model's folder, the `--folder` folders and folders below them (`files::allowed`:
@@ -165,6 +190,9 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   tree edits with undo, and the refusals.
   `mcp/sketching_tests.rs` covers each sketching tool, extruding what the shapes draw to check
   their regions, and sketches on a datum plane and a coordinate system of a saved model.
+  `mcp/sketch_edit_tests.rs` checks elliptical arcs, conics, tangent arcs and polygons on a side,
+  and each `modify_sketch` operation by positions, counts and extruded areas, with undo,
+  constraints holding a move, projections following an edited body, and the refusals.
   `mcp/edit_tests.rs` edits primitives, extrusions, patterns, revolves, fillets and holes by
   volume, with undo, renaming and refusals, and checks extrusion ends, walls, offsets and tapers
   and hole standards, heads and threads. `mcp/sweep_tests.rs` checks pipes, sweeps, lofts, coils,

@@ -416,7 +416,7 @@ pub fn curve_under(
         .map(|(_, curve, on)| (curve, on))
 }
 
-fn carrier(sketch: &Sketch, preferred: EntityId, point: Point2) -> Option<EntityId> {
+pub(crate) fn carrier(sketch: &Sketch, preferred: EntityId, point: Point2) -> Option<EntityId> {
     let tolerance = CARRIER_TOLERANCE * point.x.abs().max(point.y.abs()).max(1.0);
     let carries = |curve: EntityId| {
         sketch

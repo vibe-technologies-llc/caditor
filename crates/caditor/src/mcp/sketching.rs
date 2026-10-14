@@ -3,13 +3,15 @@ use std::collections::BTreeSet;
 use caditor_document::{Datum, FeatureId, FeatureKind, PrincipalPlane, SketchFeature};
 use caditor_geometry::Point2;
 use caditor_kernel::MAX_SIZE;
-use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch, SplineKind};
+use caditor_sketch::{
+    Constraint, ConstraintId, Entity, EntityId, MAX_RHO, MIN_RHO, Sketch, SplineKind,
+};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use crate::{
     datum_tools,
-    drawing::arc_ends,
+    drawing::{arc_ends, continuing},
     editing,
     field::{self, DimensionTarget},
     mcp::{
@@ -19,8 +21,9 @@ use crate::{
         writing::{self, MOST_ITEMS, NewSketch, Pen, PlaneName, SketchingError, point},
     },
     shapes::{
-        ArcSlot, DEFAULT_SIDES, DEGENERATE_LENGTH, MAX_SIDES, MIN_SIDES, Slot,
-        polygon_around_side_middle, polygon_corners, through_three,
+        ArcSlot, DEFAULT_SIDES, DEGENERATE_LENGTH, MAX_SIDES, MIN_SIDES, Slot, ellipse_through,
+        polygon_around_side_middle, polygon_corners, polygon_on_side, tangent_from, through_three,
+        toward_on_ellipse,
     },
     sketch_placement::DatumTarget,
     sketch_status::{SketchSummary, up_to_date_result},
@@ -52,10 +55,12 @@ pub enum SketchToolError {
     #[error("a polygon has {MIN_SIDES} to {MAX_SIDES} sides, not {0}")]
     Sides(usize),
     #[error(
-        "give a polygon either corner (a vertex) or side_middle (the middle of its first side), not both and not neither"
+        "give a polygon one of corner (a vertex) or side_middle (the middle of its first side), each with center, or from and to (the ends of one side) without center"
     )]
     PolygonMode,
-    #[error("a polygon needs its corner or side middle away from its centre")]
+    #[error(
+        "a polygon needs its corner or side middle away from its centre, and a side's ends apart"
+    )]
     DegeneratePolygon,
     #[error(
         "a {form} spline needs at least {needed} points, and a call holds at most {MOST_ITEMS}"
@@ -65,6 +70,24 @@ pub enum SketchToolError {
         "an ellipse needs a major end away from its centre and a minor radius that is a finite number above zero within a kilometre, not {0}"
     )]
     DegenerateEllipse(f64),
+    #[error(
+        "an elliptical arc's start and end must point away from its centre in different directions"
+    )]
+    EllipticalArcEnds,
+    #[error("a conic needs its end away from its start")]
+    ConicEnds,
+    #[error("a conic's apex must lie off the line through its start and end")]
+    ConicApex,
+    #[error("a conic's rho is a number from {MIN_RHO} to {MAX_RHO}, not {0}")]
+    Rho(f64),
+    #[error(
+        "{point} in {sketch} does not end a line, arc or spline, so a tangent arc has no direction to leave it in"
+    )]
+    NoTangentStart { sketch: String, point: EntityName },
+    #[error(
+        "a tangent arc needs its end away from its start and off the line it continues; draw a line there instead"
+    )]
+    TangentArcEnd,
     #[error(
         "a frame is a coordinate system; give plane (XY, XZ or YZ) to choose which of its planes the sketch lies on"
     )]
@@ -120,9 +143,11 @@ pub struct ArcSlotShape {
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PolygonShape {
-    pub center: [f64; 2],
+    pub center: Option<[f64; 2]>,
     pub corner: Option<[f64; 2]>,
     pub side_middle: Option<[f64; 2]>,
+    pub from: Option<[f64; 2]>,
+    pub to: Option<[f64; 2]>,
     pub sides: Option<usize>,
 }
 
@@ -150,6 +175,34 @@ pub struct EllipseShape {
     pub minor_radius: f64,
 }
 
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EllipticalArcShape {
+    pub center: [f64; 2],
+    pub major_end: [f64; 2],
+    pub minor_radius: f64,
+    pub start: [f64; 2],
+    pub end: [f64; 2],
+    #[serde(default)]
+    pub clockwise: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ConicShape {
+    pub start: [f64; 2],
+    pub end: [f64; 2],
+    pub apex: [f64; 2],
+    pub rho: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TangentArcShape {
+    pub from_point: EntityName,
+    pub to: [f64; 2],
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Removing {
@@ -175,6 +228,8 @@ struct Drawn {
     start: EntityId,
     end: EntityId,
 }
+
+const DEFAULT_RHO: f64 = 0.5;
 
 fn sized(value: f64) -> bool {
     value.is_finite() && value > DEGENERATE_LENGTH && value <= MAX_SIZE
@@ -373,18 +428,33 @@ impl PolygonShape {
         if !(MIN_SIDES..=MAX_SIDES).contains(&sides) {
             return Err(SketchToolError::Sides(sides).into());
         }
-        let center = point(self.center)?;
-        let (corners, middle) = match (self.corner, self.side_middle) {
-            (Some(corner), None) => {
+        if self.from.is_some() != self.to.is_some() {
+            return Err(SketchToolError::PolygonMode.into());
+        }
+        let (center, corners, middle) = match (
+            self.center,
+            self.corner,
+            self.side_middle,
+            self.from.zip(self.to),
+        ) {
+            (Some(center), Some(corner), None, None) => {
+                let center = point(center)?;
                 let corner = point(corner)?;
-                (polygon_corners(center, corner, sides), None)
+                (center, polygon_corners(center, corner, sides), None)
             }
-            (None, Some(middle)) => {
+            (Some(center), None, Some(middle), None) => {
+                let center = point(center)?;
                 let middle = point(middle)?;
                 (
+                    center,
                     polygon_around_side_middle(center, middle, sides),
                     Some(middle),
                 )
+            }
+            (None, None, None, Some((from, to))) => {
+                let (center, corners) = polygon_on_side(point(from)?, point(to)?, sides)
+                    .ok_or(SketchToolError::DegeneratePolygon)?;
+                (center, corners, None)
             }
             _ => return Err(SketchToolError::PolygonMode.into()),
         };
@@ -510,6 +580,117 @@ impl EllipseShape {
             "id": ellipse.raw(),
             "center": centre.raw(),
             "major": major.raw()
+        }))
+    }
+}
+
+impl EllipticalArcShape {
+    pub(super) fn draw(&self, pen: &mut Pen<'_, '_>) -> Result<Value, ToolError> {
+        let center = point(self.center)?;
+        let major_end = point(self.major_end)?;
+        let degenerate = SketchToolError::DegenerateEllipse(self.minor_radius);
+        if !sized(self.minor_radius) || !sized(center.distance(major_end)) {
+            return Err(degenerate.into());
+        }
+        let across = (major_end - center)
+            .try_normalize()
+            .map(|along| center + along.perp() * self.minor_radius)
+            .ok_or_else(|| degenerate.clone())?;
+        let ellipse = ellipse_through(center, major_end, across).ok_or(degenerate)?;
+        let start = toward_on_ellipse(&ellipse, point(self.start)?)
+            .ok_or(SketchToolError::EllipticalArcEnds)?;
+        let end = toward_on_ellipse(&ellipse, point(self.end)?)
+            .filter(|end| end.distance(start) >= DEGENERATE_LENGTH)
+            .ok_or(SketchToolError::EllipticalArcEnds)?;
+
+        let (first, last) = arc_ends(!self.clockwise, start, end);
+        let centre = pen.point(center);
+        let major = pen.point(major_end);
+        let start = pen.point(first);
+        let end = pen.point(last);
+        let arc = pen.curve(Entity::EllipticalArc {
+            center: centre,
+            major,
+            minor_radius: self.minor_radius,
+            start,
+            end,
+        });
+        Ok(json!({
+            "kind": "elliptical_arc",
+            "id": arc.raw(),
+            "center": centre.raw(),
+            "major": major.raw(),
+            "start": start.raw(),
+            "end": end.raw()
+        }))
+    }
+}
+
+impl ConicShape {
+    pub(super) fn draw(&self, pen: &mut Pen<'_, '_>) -> Result<Value, ToolError> {
+        let start = point(self.start)?;
+        let end = point(self.end)?;
+        let apex = point(self.apex)?;
+        let rho = self.rho.unwrap_or(DEFAULT_RHO);
+        let chord = end - start;
+        if !(MIN_RHO..=MAX_RHO).contains(&rho) {
+            return Err(SketchToolError::Rho(rho).into());
+        }
+        if chord.length() < DEGENERATE_LENGTH {
+            return Err(SketchToolError::ConicEnds.into());
+        }
+        if chord.perp_dot(apex - start).abs() <= DEGENERATE_LENGTH * chord.length().max(1.0) {
+            return Err(SketchToolError::ConicApex.into());
+        }
+
+        let points = vec![pen.point(start), pen.point(apex), pen.point(end)];
+        let conic = pen.curve(Entity::Spline {
+            points: points.clone(),
+            kind: SplineKind::Conic { rho },
+        });
+        Ok(json!({
+            "kind": "conic",
+            "id": conic.raw(),
+            "points": writing::ids(&points),
+            "rho": rho
+        }))
+    }
+}
+
+impl TangentArcShape {
+    pub(super) fn draw(&self, pen: &mut Pen<'_, '_>) -> Result<Value, ToolError> {
+        let from = references::entity(pen.sketch_name, pen.shown, &self.from_point)?;
+        let no_start = || SketchToolError::NoTangentStart {
+            sketch: pen.sketch_name.to_owned(),
+            point: self.from_point.clone(),
+        };
+        let tangent = continuing(pen.shown, from).ok_or_else(no_start)?;
+        let start = pen.shown.point(from).ok_or_else(no_start)?;
+        let end = point(self.to)?;
+        if start.distance(end) < DEGENERATE_LENGTH {
+            return Err(SketchToolError::TangentArcEnd.into());
+        }
+        let circular =
+            tangent_from(start, tangent.direction, end).ok_or(SketchToolError::TangentArcEnd)?;
+
+        let center = pen.point(circular.center);
+        let first = pen.point(start);
+        let last = pen.point(end);
+        let (arc_start, arc_end) = arc_ends(circular.counter_clockwise, first, last);
+        let arc = pen.curve(Entity::Arc {
+            center,
+            start: arc_start,
+            end: arc_end,
+        });
+        pen.constrain(Constraint::Coincident(first, from));
+        pen.constrain(Constraint::Tangent(tangent.curve, arc));
+        Ok(json!({
+            "kind": "tangent_arc",
+            "id": arc.raw(),
+            "center": center.raw(),
+            "start": first.raw(),
+            "end": last.raw(),
+            "tangent_to": tangent.curve.raw()
         }))
     }
 }

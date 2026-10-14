@@ -11,6 +11,9 @@ mod reshaping;
 mod resources;
 mod server;
 mod session;
+mod sketch_edits;
+mod sketch_moves;
+mod sketch_schemas;
 mod sketching;
 mod solids;
 mod sweep_schemas;
@@ -25,6 +28,8 @@ mod edit_tests;
 mod end_to_end_tests;
 #[cfg(test)]
 mod feature_tests;
+#[cfg(test)]
+mod sketch_edit_tests;
 #[cfg(test)]
 mod sketching_tests;
 #[cfg(test)]

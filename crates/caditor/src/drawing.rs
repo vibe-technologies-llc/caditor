@@ -440,9 +440,9 @@ enum Arcing {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-struct Tangent {
-    curve: EntityId,
-    direction: Vector2,
+pub(crate) struct Tangent {
+    pub(crate) curve: EntityId,
+    pub(crate) direction: Vector2,
 }
 
 const SCRUB_POINTS_PER_SIDE: f64 = 24.0;
@@ -3154,7 +3154,7 @@ fn held(start: Point2, end: Point2, guides: &[Guide]) -> Option<Direction> {
         .map(|guide| guide.direction)
 }
 
-fn continuing(sketch: &Sketch, point: EntityId) -> Option<Tangent> {
+pub(crate) fn continuing(sketch: &Sketch, point: EntityId) -> Option<Tangent> {
     let at = |id: EntityId| sketch.point(id);
     sketch
         .entities()

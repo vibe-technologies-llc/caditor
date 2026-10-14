@@ -231,12 +231,15 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [medium · hard] The MCP server (`caditor mcp`, `mcp.md`) builds only part of the model: an
   assistant can read the tree, parameters, bodies, faces, edges and sketches, measure between
   points, faces and edges, draw a picture, set parameters, sketch points, lines, polylines,
-  rectangles, circles, arcs, slots, polygons, splines and ellipses with constraints and dimensions
-  (adding, removing and editing them) on a principal plane, datum plane, coordinate system or flat
-  face, extrude, revolve, drill holes, fillet, chamfer, shell, offset faces, add primitives,
-  mirror, pattern in a row, grid or circle, combine and move bodies, add datum planes and axes,
-  sweep, pipe, loft, coil, rib, thread, split and delete faces, split and scale bodies, edit any
-  of those features, rename, suppress, reorder and delete features, undo, redo, save and export.
+  rectangles, circles, arcs and tangent arcs, slots, polygons, splines, conics, ellipses and
+  elliptical arcs with constraints and dimensions (adding, removing and editing them) on a
+  principal plane, datum plane, coordinate system or flat face, trim, extend, offset, mirror,
+  pattern, fillet, chamfer, move, rotate and scale sketch geometry, project body edges and faces
+  into a sketch, extrude, revolve, drill holes, fillet, chamfer, shell, offset faces, add
+  primitives, mirror, pattern in a row, grid or circle, combine and move bodies, add datum planes
+  and axes, sweep, pipe, loft, coil, rib, thread, split and delete faces, split and scale bodies,
+  edit any of those features, rename, suppress, reorder and delete features, undo, redo, save and
+  export.
   What remains, through the same `Session` layer:
   - A write and edit tool per remaining feature kind (mate, curve and point patterns, datum
     points, the other datum plane and axis constructions, coordinate systems, helices).
@@ -246,9 +249,10 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
     shells lack per-face thickness, mirrors take no faces, lofts take no single regions or end
     point, and split faces neither carry nor wrap curves. Faces and edges named in an edit are
     found on the body as it stands now, so an edge a fillet rounded away cannot be named again.
-  - Sketching: elliptical arcs, conic splines, polygons on a side, tangent arcs, and projections
-    of body edges; the other sketch tools of the app (trim, extend, offset, mirror, patterns,
-    fillet) and moving or resizing existing entities.
+  - Sketching: projecting corners, other sketches' curves, axes, datums and the origin, and
+    Intersect; split, break, construction toggling, copy and paste, blend curves, tangent circles,
+    gears and spline respacing; a tangent arc continuing a curve drawn in the same call; a
+    conic's rho held by a parameter.
   - Import, and saving under another name, within the allowed folders.
 - [medium · hard · blocked by: the in-app assistant connection decision (`DECISIONS.md`)] An
   assistant cannot work on the model open in the window: the headless server owns its own

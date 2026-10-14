@@ -33,9 +33,17 @@ first, so two programs never change one model at once.
 - Draw a picture of the model from a standard view, as the command line's `--export` of a `.png`
   does, to look at what it made. This needs a graphics adapter.
 - Add a [sketch](sketches) on a principal plane, a flat face, a datum plane or a plane of a
-  coordinate system, draw points, lines, polylines, rectangles, circles, arcs, slots, polygons,
-  splines and ellipses in it, add [constraints](constraints) and [dimensions](dimensions), and
-  later remove them, turn them off or on, or change a dimension's value.
+  coordinate system, draw points, lines, polylines, rectangles, circles, [arcs](arcs) (tangent
+  arcs too), slots, [polygons](polygon) (on a side as well), [splines](spline),
+  [conics](conic), ellipses and elliptical arcs in it, add [constraints](constraints) and
+  [dimensions](dimensions), and later remove them, turn them off or on, or change a dimension's
+  value.
+- Change a sketch's geometry with the sketch tools: [trim and extend](trim-and-extend),
+  [offset](offset), [mirror](sketch-mirror), repeat in rows or around a point as the
+  [sketch patterns](sketch-patterns) do, round or cut corners with
+  [Sketch fillet](sketch-fillet), and move, rotate or scale entities, which the sketch's
+  constraints hold as a drag does. It can also [project](project-and-intersect) edges and faces
+  of a body into a sketch, following the body as it changes.
 - Add an [extrusion](extrude) or a [revolve](revolve), which decide whether to add, cut or start
   a new body as their tools do unless told. An extrusion can run up to the next face or a plane,
   go both ways from the sketch, start off its plane, taper and make a thin wall; a revolve can turn
