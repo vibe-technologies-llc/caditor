@@ -13,8 +13,14 @@ pub fn own_dialogs(window: NonZeroIsize) {
     }
 }
 
-pub fn animations_enabled() -> Result<bool, SettingError> {
-    caditor_windows::client_area_animations().map_err(SettingError::Windows)
+pub fn reduces_motion() -> Result<bool, SettingError> {
+    caditor_windows::client_area_animations()
+        .map(|enabled| !enabled)
+        .map_err(SettingError::Windows)
+}
+
+pub fn watch_motion(_changed: impl FnMut(bool)) -> Result<(), SettingError> {
+    Err(SettingError::NoChangeSignal)
 }
 
 pub fn choose(request: &FileRequest) -> Result<Option<PathBuf>, DialogError> {

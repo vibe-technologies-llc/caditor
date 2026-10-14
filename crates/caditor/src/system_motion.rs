@@ -25,19 +25,27 @@ pub fn watch() {
     WATCHING.call_once(|| {
         let started = thread::Builder::new()
             .name("system motion".to_owned())
-            .spawn(poll);
+            .spawn(follow);
         if let Err(error) = started {
             log::warn!("could not watch the system's animation setting ({error})");
         }
     });
 }
 
+fn follow() {
+    match portal::watch_motion(|reduced| REDUCED.store(reduced, Ordering::Relaxed)) {
+        Ok(()) => log::debug!("the desktop stopped announcing animation setting changes"),
+        Err(error) => log::debug!("the system's animation setting cannot be watched ({error})"),
+    }
+    poll();
+}
+
 fn poll() {
     let mut failing = false;
     loop {
-        match portal::animations_enabled() {
-            Ok(enabled) => {
-                REDUCED.store(!enabled, Ordering::Relaxed);
+        match portal::reduces_motion() {
+            Ok(reduced) => {
+                REDUCED.store(reduced, Ordering::Relaxed);
                 failing = false;
             }
             Err(error) => {

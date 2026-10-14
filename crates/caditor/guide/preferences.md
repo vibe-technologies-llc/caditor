@@ -103,8 +103,10 @@ the one you had and says why.
   less or more perspective; and how view changes move: following the system, standard, quick, slow
   or with no motion at all, so standard views, fitting and opening a sketch jump straight to the
   new view. Following the system glides at the standard speed, and jumps instead while the
-  desktop's animation setting is off (GNOME's Enable Animations, Windows' Animation effects); a
-  desktop that does not say keeps the glide.
+  desktop asks for less motion (the reduced motion setting of desktops that offer one, GNOME's
+  Enable Animations, KDE Plasma's animation speed set to instant, Windows' Animation effects),
+  and notices a change in the desktop's settings straight away; a desktop that does not say keeps
+  the glide.
 - **Input**: the mouse input mode: caditor, Laptop, Fusion 360, FreeCAD, Blender or SolidWorks.
 - **Movement**: orbit and zoom speeds, the zoom direction, whether zooming goes toward the pointer
   or keeps the view's centre still, whether orbiting turns about the point under the pointer or

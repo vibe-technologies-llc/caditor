@@ -487,11 +487,18 @@ paths:
   speed, or none while the desktop turns animations off. `system_motion.rs` keeps the answer in an
   atomic that `ViewportState::advance` hands the camera each frame, so the UI thread only reads a
   flag; a thread of its own (`system_motion::watch`, started when the preference is first applied
-  as Follow the system, never in tests) asks `portal::animations_enabled` every `POLL` and treats
-  a failure as animations on, logging it once. On Unix that is the XDG desktop portal's Settings
-  `ReadOne` of `org.gnome.desktop.interface` `enable-animations` over `zbus` (desktops without the
-  key answer an error, so motion stays on), on Windows `caditor_windows::client_area_animations`
-  (`windows.md`). No Wayland or X11 protocol carries the setting, and winit reports none. View
+  as Follow the system, never in tests) runs `portal::watch_motion`, which stores the answer once
+  and again on each change, and falls back to asking `portal::reduces_motion` every `POLL` (a
+  failure counts as animations on, logged once) only when the subscription cannot be made or ends.
+  On Unix that is the XDG desktop portal's Settings over `zbus`: `ReadOne` of three keys, each
+  missing one simply not counting, and the `SettingChanged` signal, whose changes to one of those
+  three keys (`MotionKey`) trigger a re-read. Any key asking for less motion reduces it:
+  `org.freedesktop.appearance` `reduced-motion` equal to 1 (0 is no preference, so it never
+  overrides the others), `org.gnome.desktop.interface` `enable-animations` false, and
+  `org.kde.kdeglobals.KDE` `AnimationDurationFactor` of 0 or less (Plasma's portal gives it as
+  text or a number; both are read). On Windows it is `caditor_windows::client_area_animations`
+  (`windows.md`), polled, as Windows sends no signal. No Wayland or X11 protocol carries the
+  setting, and winit reports none. View
   changes › No motion stays available for a fixed choice.
 - `Files` reads `files.startup` and `files.recent_listed` from every `Settings` it is handed, as it
   does the default template. `Files::recent` lists only the newest `RecentListed::count` (the menu,

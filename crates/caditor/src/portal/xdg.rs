@@ -28,8 +28,7 @@ const FILE_CHOOSER: &str = "org.freedesktop.portal.FileChooser";
 const REQUEST: &str = "org.freedesktop.portal.Request";
 const SETTINGS: &str = "org.freedesktop.portal.Settings";
 const READ_ONE: &str = "ReadOne";
-const ANIMATION_NAMESPACE: &str = "org.gnome.desktop.interface";
-const ANIMATION_KEY: &str = "enable-animations";
+const SETTING_CHANGED: &str = "SettingChanged";
 const REQUEST_PATH: &str = "/org/freedesktop/portal/desktop/request";
 const RESPONSE: &str = "Response";
 const SUCCESS: u32 = 0;
@@ -103,14 +102,106 @@ fn either_case(extension: &str) -> String {
         .collect()
 }
 
-pub fn animations_enabled() -> Result<bool, SettingError> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MotionKey {
+    ReducedMotion,
+    GnomeAnimations,
+    KdeAnimationFactor,
+}
+
+impl MotionKey {
+    const ALL: [Self; 3] = [
+        Self::ReducedMotion,
+        Self::GnomeAnimations,
+        Self::KdeAnimationFactor,
+    ];
+
+    fn setting(self) -> (&'static str, &'static str) {
+        match self {
+            Self::ReducedMotion => ("org.freedesktop.appearance", "reduced-motion"),
+            Self::GnomeAnimations => ("org.gnome.desktop.interface", "enable-animations"),
+            Self::KdeAnimationFactor => ("org.kde.kdeglobals.KDE", "AnimationDurationFactor"),
+        }
+    }
+
+    fn named(namespace: &str, key: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|candidate| candidate.setting() == (namespace, key))
+    }
+
+    fn asks_to_reduce(self, value: &Value) -> Option<bool> {
+        let value = unwrapped(value);
+        match self {
+            Self::ReducedMotion => Some(matches!(value, Value::U32(1))),
+            Self::GnomeAnimations => match value {
+                Value::Bool(enabled) => Some(!enabled),
+                _ => None,
+            },
+            Self::KdeAnimationFactor => number(value).map(|factor| factor <= 0.0),
+        }
+    }
+}
+
+fn unwrapped<'a, 'v>(value: &'a Value<'v>) -> &'a Value<'v> {
+    match value {
+        Value::Value(inner) => unwrapped(inner),
+        value => value,
+    }
+}
+
+fn number(value: &Value) -> Option<f64> {
+    match value {
+        Value::U8(number) => Some(f64::from(*number)),
+        Value::I16(number) => Some(f64::from(*number)),
+        Value::U16(number) => Some(f64::from(*number)),
+        Value::I32(number) => Some(f64::from(*number)),
+        Value::U32(number) => Some(f64::from(*number)),
+        Value::F64(number) => Some(*number),
+        Value::Str(text) => text.as_str().trim().parse().ok(),
+        _ => None,
+    }
+}
+
+fn any_asks_to_reduce(asks: impl IntoIterator<Item = Option<bool>>) -> bool {
+    asks.into_iter().flatten().any(|reduce| reduce)
+}
+
+fn settings_proxy(connection: &Connection) -> Result<Proxy<'static>, SettingError> {
+    Proxy::new(connection, DESKTOP, DESKTOP_PATH, SETTINGS).map_err(SettingError::Unavailable)
+}
+
+fn read_reduces_motion(settings: &Proxy) -> bool {
+    any_asks_to_reduce(MotionKey::ALL.map(|key| {
+        let (namespace, name) = key.setting();
+        let value: OwnedValue = settings.call(READ_ONE, &(namespace, name)).ok()?;
+        key.asks_to_reduce(&value)
+    }))
+}
+
+pub fn reduces_motion() -> Result<bool, SettingError> {
     let connection = Connection::session().map_err(SettingError::NoSessionBus)?;
-    let settings = Proxy::new(&connection, DESKTOP, DESKTOP_PATH, SETTINGS)
+    Ok(read_reduces_motion(&settings_proxy(&connection)?))
+}
+
+pub fn watch_motion(mut changed: impl FnMut(bool)) -> Result<(), SettingError> {
+    let connection = Connection::session().map_err(SettingError::NoSessionBus)?;
+    let settings = settings_proxy(&connection)?;
+    let signals = settings
+        .receive_signal(SETTING_CHANGED)
         .map_err(SettingError::Unavailable)?;
-    let value: OwnedValue = settings
-        .call(READ_ONE, &(ANIMATION_NAMESPACE, ANIMATION_KEY))
-        .map_err(SettingError::Unavailable)?;
-    bool::try_from(value).map_err(SettingError::NotYesOrNo)
+
+    changed(read_reduces_motion(&settings));
+    for message in signals {
+        let concerns_motion = message
+            .body()
+            .deserialize::<(String, String, OwnedValue)>()
+            .is_ok_and(|(namespace, key, _)| MotionKey::named(&namespace, &key).is_some());
+        if concerns_motion {
+            changed(read_reduces_motion(&settings));
+        }
+    }
+    Ok(())
 }
 
 pub fn choose(request: &FileRequest) -> Result<Option<PathBuf>, DialogError> {
@@ -319,6 +410,74 @@ fn zenity_start(directory: Option<&Path>, file_name: Option<&str>) -> Option<Pat
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_portal_key_asks_to_reduce_only_for_one() {
+        let key = MotionKey::ReducedMotion;
+
+        assert_eq!(key.asks_to_reduce(&Value::from(1_u32)), Some(true));
+        assert_eq!(key.asks_to_reduce(&Value::from(0_u32)), Some(false));
+        assert_eq!(key.asks_to_reduce(&Value::from(7_u32)), Some(false));
+    }
+
+    #[test]
+    fn gnome_asks_to_reduce_when_animations_are_off() {
+        let key = MotionKey::GnomeAnimations;
+
+        assert_eq!(key.asks_to_reduce(&Value::from(false)), Some(true));
+        assert_eq!(key.asks_to_reduce(&Value::from(true)), Some(false));
+        assert_eq!(key.asks_to_reduce(&Value::from("true")), None);
+    }
+
+    #[test]
+    fn plasma_asks_to_reduce_at_factor_zero_as_a_number_or_text() {
+        let key = MotionKey::KdeAnimationFactor;
+
+        assert_eq!(key.asks_to_reduce(&Value::from(0.0_f64)), Some(true));
+        assert_eq!(key.asks_to_reduce(&Value::from("0")), Some(true));
+        assert_eq!(key.asks_to_reduce(&Value::from(" 0.0 ")), Some(true));
+        assert_eq!(key.asks_to_reduce(&Value::from(0.5_f64)), Some(false));
+        assert_eq!(key.asks_to_reduce(&Value::from("2")), Some(false));
+        assert_eq!(key.asks_to_reduce(&Value::from("fast")), None);
+    }
+
+    #[test]
+    fn a_value_wrapped_in_a_variant_is_read_through() {
+        let wrapped = Value::Value(Box::new(Value::from(false)));
+
+        assert_eq!(
+            MotionKey::GnomeAnimations.asks_to_reduce(&wrapped),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn any_key_asking_to_reduce_wins_and_missing_keys_do_not_count() {
+        assert!(any_asks_to_reduce([Some(false), None, Some(true)]));
+        assert!(any_asks_to_reduce([None, Some(true), None]));
+        assert!(!any_asks_to_reduce([Some(false), Some(false), None]));
+        assert!(!any_asks_to_reduce([None, None, None]));
+    }
+
+    #[test]
+    fn only_the_three_motion_settings_are_followed_in_a_change() {
+        assert_eq!(
+            MotionKey::named("org.freedesktop.appearance", "reduced-motion"),
+            Some(MotionKey::ReducedMotion)
+        );
+        assert_eq!(
+            MotionKey::named("org.gnome.desktop.interface", "enable-animations"),
+            Some(MotionKey::GnomeAnimations)
+        );
+        assert_eq!(
+            MotionKey::named("org.kde.kdeglobals.KDE", "AnimationDurationFactor"),
+            Some(MotionKey::KdeAnimationFactor)
+        );
+        assert_eq!(
+            MotionKey::named("org.freedesktop.appearance", "color-scheme"),
+            None
+        );
+    }
 
     #[test]
     fn file_uris_become_paths_with_their_escapes_decoded() {

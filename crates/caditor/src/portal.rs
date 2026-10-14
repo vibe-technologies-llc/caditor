@@ -6,9 +6,9 @@ mod windows;
 mod xdg;
 
 #[cfg(windows)]
-pub use self::windows::{animations_enabled, choose, own_dialogs};
+pub use self::windows::{choose, own_dialogs, reduces_motion, watch_motion};
 #[cfg(unix)]
-pub use self::xdg::{ParentWindow, animations_enabled, choose, own_dialogs};
+pub use self::xdg::{ParentWindow, choose, own_dialogs, reduces_motion, watch_motion};
 
 const TRY_AGAIN: &str = " Try again, or choose a file on this computer.";
 const ANY_EXTENSION: &str = "*";
@@ -50,14 +50,14 @@ pub enum SettingError {
     #[error("there is no desktop session bus to ask for settings ({0})")]
     NoSessionBus(zbus::Error),
     #[cfg(unix)]
-    #[error("the desktop portal does not give the desktop's animation setting ({0})")]
+    #[error("the desktop portal does not give the desktop's animation settings ({0})")]
     Unavailable(zbus::Error),
-    #[cfg(unix)]
-    #[error("the desktop portal's animation setting is not a yes or no ({0})")]
-    NotYesOrNo(zbus::zvariant::Error),
     #[cfg(windows)]
     #[error("Windows did not say whether it animates windows ({0})")]
     Windows(io::Error),
+    #[cfg(windows)]
+    #[error("Windows sends no signal when it changes its animation setting")]
+    NoChangeSignal,
 }
 
 impl DialogError {
