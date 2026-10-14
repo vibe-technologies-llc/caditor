@@ -10,22 +10,22 @@ use caditor_document::{
     CoilTurning, Combine, CombineOperation, CopyOrientation, CurvePattern, CurveSpacing,
     CurveStation, Datum, DatumAxis, DatumFrame, DatumPlane, DatumPoint, DeleteFace, EdgeGroup,
     Extrude, ExtrudeEnd, ExtrudeExtent, FaceAxisMate, FaceMate, FaceOnRound, FacePair, FaceTangent,
-    FaceThickness, FeatureId, FeatureKind, FinePitch, Hole, HoleBottom, HoleDepth, HoleFit,
+    FaceThickness, FeatureId, FeatureKind, FinePitch, Helix, Hole, HoleBottom, HoleDepth, HoleFit,
     HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle, ImagePlane, ImageSize, ImageSpot,
-    Import, LinearDirection, LinearSpacing, Loft, LoftSection, Mate, MatePair, MeasuredItem, Measurement, MetricSize,
-    Mirror, Move, Of, OffsetFace, Pattern, PatternKind, Picture, Pipe, PixelSize, PlaneRotation,
-    PlaneThrough, PointBy, PointMate, PointTarget, PointsPattern, Primitive, PrimitiveAnchor,
-    PrimitiveShape, PrincipalPlane, Reading, ReferenceImage, RegionChoice, Remove, Revolve,
-    RevolveAxis, RevolveExtent, Rib, RibDirection, RibSide, Scale, Shell, ShellSide,
-    SketchAttachment, SketchFeature, SolidFeature, SolidStart, Split, SplitAlong, SplitCarry,
-    SplitFace, StepText, Sweep, SweepPath, TappedThread, Thread, ThreadFamily, ThreadForm,
-    ThreadHand, ThreadLength, ThreadSide, TurnCentre, Wall, sketch_regions,
+    Import, LinearDirection, LinearSpacing, Loft, LoftSection, Mate, MatePair, MeasuredItem,
+    Measurement, MetricSize, Mirror, Move, Of, OffsetFace, Pattern, PatternKind, Picture, Pipe,
+    PixelSize, PlaneRotation, PlaneThrough, PointBy, PointMate, PointTarget, PointsPattern,
+    Primitive, PrimitiveAnchor, PrimitiveShape, PrincipalPlane, Reading, ReferenceImage,
+    RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rib, RibDirection, RibSide, Scale,
+    Shell, ShellSide, SketchAttachment, SketchFeature, SolidFeature, SolidStart, Split, SplitAlong,
+    SplitCarry, SplitFace, StepText, Sweep, SweepPath, TappedThread, Thread, ThreadFamily,
+    ThreadForm, ThreadHand, ThreadLength, ThreadSide, TurnCentre, Wall, sketch_regions,
 };
 use caditor_expression::Expression;
 use caditor_geometry::{Plane, Point2};
 use caditor_kernel::{
-    CoilPlacement, CoilShape, LinearExtent, LoftSkin, PipeShape, Profile, ProfileCurve, RegionReference,
-    Selection, Solid, SweepOrientation, WallSide, extrude, interruptible,
+    CoilPlacement, CoilShape, LinearExtent, LoftSkin, PipeShape, Profile, ProfileCurve,
+    RegionReference, Selection, Solid, SweepOrientation, WallSide, extrude, interruptible,
 };
 use caditor_sketch::EntityId;
 use caditor_step::{StepBody, write_step};
@@ -65,6 +65,7 @@ pub enum Family {
     Pipe,
     Loft,
     Coil,
+    Helix,
     Rib,
     Combine,
     Move,
@@ -84,7 +85,7 @@ pub enum Family {
 }
 
 impl Family {
-    pub const ALL: [Self; 26] = [
+    pub const ALL: [Self; 27] = [
         Self::Sketch,
         Self::Solid,
         Self::Blend,
@@ -95,6 +96,7 @@ impl Family {
         Self::Pipe,
         Self::Loft,
         Self::Coil,
+        Self::Helix,
         Self::Rib,
         Self::Combine,
         Self::Move,
@@ -126,6 +128,7 @@ impl Family {
             FeatureKind::Pipe(_) => Self::Pipe,
             FeatureKind::Loft(_) => Self::Loft,
             FeatureKind::Coil(_) => Self::Coil,
+            FeatureKind::Helix(_) => Self::Helix,
             FeatureKind::Rib(_) => Self::Rib,
             FeatureKind::Combine(_) => Self::Combine,
             FeatureKind::Move(_) => Self::Move,
@@ -218,26 +221,21 @@ pub fn feature_kind(
             axis: scene.axis(input)?,
             reversed: input.arbitrary()?,
             diameter: scene.distance(input)?,
-            length: match *input.choose(&CoilSizing::ALL)? {
-                CoilSizing::TurnsAndPitch => CoilLength::TurnsAndPitch {
-                    turns: scene.count(input)?,
-                    pitch: scene.distance(input)?,
-                },
-                CoilSizing::HeightAndTurns => CoilLength::HeightAndTurns {
-                    height: scene.distance(input)?,
-                    turns: scene.count(input)?,
-                },
-                CoilSizing::HeightAndPitch => CoilLength::HeightAndPitch {
-                    height: scene.distance(input)?,
-                    pitch: scene.distance(input)?,
-                },
-            },
+            length: coil_length(input, scene)?,
             shape: *input.choose(&CoilShape::ALL)?,
             size: scene.distance(input)?,
             placement: *input.choose(&CoilPlacement::ALL)?,
             taper: scene.turn(input)?,
             turning: *input.choose(&CoilTurning::ALL)?,
             operation: operation(input, scene)?,
+        }),
+        Family::Helix => FeatureKind::Helix(Helix {
+            axis: scene.axis(input)?,
+            reversed: input.arbitrary()?,
+            diameter: scene.distance(input)?,
+            length: coil_length(input, scene)?,
+            taper: scene.turn(input)?,
+            turning: *input.choose(&CoilTurning::ALL)?,
         }),
         Family::Rib => FeatureKind::Rib(Rib {
             sketch: scene.sketch(input)?,
@@ -476,8 +474,25 @@ fn wall(input: &mut Unstructured, scene: &Scene) -> Result<Option<Box<Wall>>> {
     })
 }
 
+fn coil_length(input: &mut Unstructured, scene: &Scene) -> Result<CoilLength> {
+    Ok(match *input.choose(&CoilSizing::ALL)? {
+        CoilSizing::TurnsAndPitch => CoilLength::TurnsAndPitch {
+            turns: scene.count(input)?,
+            pitch: scene.distance(input)?,
+        },
+        CoilSizing::HeightAndTurns => CoilLength::HeightAndTurns {
+            height: scene.distance(input)?,
+            turns: scene.count(input)?,
+        },
+        CoilSizing::HeightAndPitch => CoilLength::HeightAndPitch {
+            height: scene.distance(input)?,
+            pitch: scene.distance(input)?,
+        },
+    })
+}
+
 fn sweep_path(input: &mut Unstructured, scene: &Scene) -> Result<SweepPath> {
-    Ok(match input.int_in_range(0u8..=2)? {
+    Ok(match input.int_in_range(0u8..=3)? {
         0 => SweepPath::Unchosen,
         1 => match scene.existing_sketch(input)? {
             Some(path) => {
@@ -497,13 +512,16 @@ fn sweep_path(input: &mut Unstructured, scene: &Scene) -> Result<SweepPath> {
             }
             None => SweepPath::Unchosen,
         },
-        _ => {
+        2 => {
             let body = scene.body(input)?;
             SweepPath::Edges {
                 body,
                 edges: scene.edges(input, body)?,
             }
         }
+        _ => SweepPath::Helix {
+            helix: scene.feature(input)?,
+        },
     })
 }
 

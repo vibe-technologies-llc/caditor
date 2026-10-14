@@ -563,6 +563,11 @@ impl Rescaler {
                     self.length(length, name)?;
                 }
             }
+            FeatureKind::Helix(helix) => {
+                for length in helix.lengths_mut() {
+                    self.length(length, name)?;
+                }
+            }
             FeatureKind::Rib(rib) => self.length(&mut rib.thickness, name)?,
             FeatureKind::Blend(blend) => {
                 self.length(&mut blend.size, name)?;
@@ -1219,6 +1224,7 @@ fn anchored(kind: &mut FeatureKind) -> Vec<Anchored<'_>> {
             ImagePlane::Sketch(_) => Vec::new(),
         },
         FeatureKind::Coil(coil) => vec![Anchored::Axis(&mut coil.axis)],
+        FeatureKind::Helix(helix) => vec![Anchored::Axis(&mut helix.axis)],
         FeatureKind::Move(movement) => match &mut movement.about {
             TurnCentre::Axis(turn) => vec![Anchored::Axis(&mut turn.axis)],
             TurnCentre::Origin | TurnCentre::Body => Vec::new(),

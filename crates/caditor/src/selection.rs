@@ -17,6 +17,7 @@ use crate::{
     datum_tools,
     editing::Context,
     feature_values::ValueSlot,
+    helix_tools,
     variants::all_variants,
     visibility,
 };
@@ -509,6 +510,11 @@ impl Pickable {
                 context.solid == Some(feature)
                     && bodies::input(evaluation, feature)
                         .is_some_and(|solid| bodies::find_edge(solid, edge).is_some())
+            }
+            Self::Datum(feature) if helix_tools::is_helix(document, feature) => {
+                editing.is_none()
+                    && (context.solid == Some(feature) || visibility::is_shown(document, feature))
+                    && helix_tools::is_built(evaluation, feature)
             }
             Self::Datum(feature) => {
                 (editing.is_none() || context.projecting)

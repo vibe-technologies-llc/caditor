@@ -95,7 +95,16 @@ paths:
   plane's normal. Ellipses become rational splines and intersection curves interpolated ones. The
   profile is carried by a placement starting where it is drawn: `Square` keeps its angle to the path
   (rotation-minimising), `Parallel` only translates it; the path must leave the plane by
-  `LEAST_RISE` (`StartsAlongProfile`).
+  `LEAST_RISE` (`StartsAlongProfile`). A segment may wind about an axis
+  (`PathSegment::winding_about`, a `WindingAxis`; a helix's turns do): kept square, its leg carries
+  the profile by the screw motion along it (`stations::winding`: turned about the axis by the
+  angle the path point has gone round, unwrapped step by step, then moved so the path's start lands
+  on the path point), so a profile keeps its place against the axis (a Frenet frame, which a
+  rotation-minimising one would drift from by a turn's worth of torsion), and consecutive legs
+  winding about the same axis join without a corner check. Such a leg is fitted like a spline and
+  checked for folding from consecutive stations (`fold_check`: every profile sample must advance
+  along the profile's normal by `FOLD_MARGIN` of the path's step, else `ProfileTooLarge`, a profile
+  reaching the axis); turns too close for the profile are `CrossesItself`.
 - Each path segment (a leg) is a ring of side faces, one per profile piece; joints are sections of
   the profile shared by the legs either side; an open path has extrude's start and end caps and
   their names. A line leg is an extrusion along it (`side_surface`); a square arc whose placed
@@ -681,6 +690,11 @@ paths:
   (`ReachesAxis`), and turns closer than the section plus `LEAST_GAP` of it (`TurnsOverlap` with
   the least pitch: a square's turns apart axially or radially, a round's by the distance between
   their centres), so the shell never touches itself.
+- `helix(HelixSpec)` (`coil/helix.rs`) gives the curve a coil's section point at the radius would
+  follow: one `HelixTurn` per coil piece (at most one turn each), the coil's rational quadratic
+  net (`faces::Motion::helix`, shared through `Winding`) over its `SPANS_PER_TURN` spans, the taper
+  carried as the coil's; `HelixTurn::path_segment` keys it and winds it about the spec's axis.
+  Refusals as a coil's for the values it shares, a taper drawing it into the axis `ReachesAxis`.
 - `CoilSpec::volume` is the analytic volume (section area times the centroid's travel round the
   axis, the mean radius with a taper); `coil/tests.rs` holds tessellated volumes to it within 1e-3,
   a groove cut into a shaft to the half disc's, and names, hands and refusals.

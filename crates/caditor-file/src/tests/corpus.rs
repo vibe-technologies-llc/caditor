@@ -10,9 +10,9 @@ use caditor_document::{
     BodyPlacement, ChamferForm, Coil, CoilLength, CoilTurning, Combine, CombineOperation,
     CopyOrientation, CurvePattern, CurveSpacing, Datum, DatumAxis, DatumFrame, DatumPlane,
     DatumPoint, DeleteFace, EdgeGroup, Extrude, ExtrudeEnd, ExtrudeExtent, FaceColour, FaceTangent,
-    FaceThickness, Feature, FinePitch, Finish, Hole, HoleBottom, HoleDepth, HoleFit, HoleShape,
-    HoleSizing, HoleStandard, HoleStep, HoleStyle, Import, Loft, LoftSection, Mate, MatePair,
-    MetricSize, Mirror, ModelProperties, Move, OffsetFace, Outline, ParameterOwner,
+    FaceThickness, Feature, FinePitch, Finish, Helix, Hole, HoleBottom, HoleDepth, HoleFit,
+    HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle, Import, Loft, LoftSection, Mate,
+    MatePair, MetricSize, Mirror, ModelProperties, Move, OffsetFace, Outline, ParameterOwner,
     ParameterValues, Pattern, PatternKind, PieceKey, PieceLooks, Pieces, Pipe, PlaneRotation,
     PlaneThrough, PointBy, PointReference, PointsPattern, PrincipalAxis, PrincipalGeometry,
     ProjectionSource, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rgb, Rib,
@@ -52,7 +52,7 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 35] = [
+const KEPT: [(&str, &str); 36] = [
     (
         "journal-1/by-reference.journal",
         "fe98725da8d9df46b19d7cede1474bcfb92bbda00d4de9c890e5bca5d0f2899f",
@@ -104,6 +104,10 @@ const KEPT: [(&str, &str); 35] = [
     (
         "model-1/faces.caditor",
         "37c964744927f008ee9f4c449e6ac47935ae79f7f64aac3138bbe00b2b0a7831",
+    ),
+    (
+        "model-1/helices.caditor",
+        "2d1bcb33f8ca6c8bf457cffddf2a4d0d434917beb2645bc3c7e0bedc04181ced",
     ),
     (
         "model-1/holes.caditor",
@@ -728,6 +732,7 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
         (model("pipes"), saved(&pipes(), "Pipes")),
         (model("ribs"), saved(&ribs(), "Ribs")),
         (model("coils"), saved(&coils(), "Coils")),
+        (model("helices"), saved(&helices(), "Helices")),
         (model("lofts"), saved(&lofts(), "Lofts")),
         (
             model("separate-pieces"),
@@ -1379,6 +1384,57 @@ fn coils() -> Document {
                 parse("1.5 mm"),
             )
         }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
+fn helices() -> Document {
+    let (mut document, base, _) = solid_model();
+    let outline = named(&document, "Outline");
+    let parse = |text: &str| Expression::parse_stored(text).unwrap();
+    let mut transaction = document.transaction("Helices");
+    let helix = transaction.add_feature(
+        "Helix",
+        FeatureKind::Helix(Helix::new(
+            AxisReference::Principal(PrincipalAxis::Z),
+            parse("20 mm"),
+        )),
+    );
+    transaction.add_feature(
+        "Tapered helix",
+        FeatureKind::Helix(Helix {
+            reversed: true,
+            length: CoilLength::HeightAndPitch {
+                height: parse("30 mm"),
+                pitch: parse("4 mm"),
+            },
+            taper: parse("8 deg"),
+            turning: CoilTurning::Clockwise,
+            ..Helix::new(
+                AxisReference::Sketch {
+                    sketch: outline,
+                    entity: EntityId::from_raw(1),
+                },
+                parse("15 mm"),
+            )
+        }),
+    );
+    transaction.add_feature(
+        "Thread",
+        FeatureKind::Solid(SolidFeature::Sweep(Sweep {
+            operation: BodyOperation::Remove(base),
+            other_bodies: vec![base],
+            ..Sweep::new(outline, SweepPath::Helix { helix })
+        })),
+    );
+    transaction.add_feature(
+        "Wire",
+        FeatureKind::Pipe(Pipe::new(
+            SweepPath::Helix { helix },
+            parse("2 mm"),
+            parse("0 mm"),
+        )),
     );
     document.apply(transaction.finish()).unwrap();
     document

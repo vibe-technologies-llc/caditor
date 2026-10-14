@@ -149,7 +149,7 @@ pub fn with_turning(coil: &Coil, turning: CoilTurning) -> Coil {
     }
 }
 
-pub fn evaluated_span(model: &Model, coil: &Coil) -> Option<CoilSpan> {
+pub fn evaluated_span(model: &Model, length: &CoilLength) -> Option<CoilSpan> {
     let parameters = &model.evaluation().parameters;
     let value = |expression: Option<&Expression>, dimension: Dimension| {
         expression?
@@ -157,11 +157,9 @@ pub fn evaluated_span(model: &Model, coil: &Coil) -> Option<CoilSpan> {
             .ok()
             .filter(|value| value.is_finite() && *value > 0.0)
     };
-    let length = Dimension::LENGTH;
-    let number = Dimension::NONE;
-    let height = value(coil.length.height(), length);
-    let pitch = value(coil.length.pitch(), length);
-    let turns = value(coil.length.turns(), number);
+    let height = value(length.height(), Dimension::LENGTH);
+    let pitch = value(length.pitch(), Dimension::LENGTH);
+    let turns = value(length.turns(), Dimension::NONE);
     match (height, pitch, turns) {
         (Some(height), Some(pitch), _) => Some(CoilSpan {
             height,
@@ -192,36 +190,39 @@ fn rounded(span: CoilSpan) -> CoilSpan {
 }
 
 pub fn sized_by(model: &Model, coil: &Coil, sizing: CoilSizing) -> Coil {
-    let span = evaluated_span(model, coil).unwrap_or(CoilSpan {
+    Coil {
+        length: sized_length(model, &coil.length, sizing),
+        ..coil.clone()
+    }
+}
+
+pub fn sized_length(model: &Model, length: &CoilLength, sizing: CoilSizing) -> CoilLength {
+    let span = evaluated_span(model, length).unwrap_or(CoilSpan {
         height: DEFAULT_TURNS * DEFAULT_PITCH,
         pitch: DEFAULT_PITCH,
         turns: DEFAULT_TURNS,
     });
     let kept = |expression: Option<&Expression>| expression.cloned();
     let fresh = CoilLength::of(sizing, rounded(span));
-    let length = match (sizing, &fresh) {
+    match (sizing, &fresh) {
         (CoilSizing::TurnsAndPitch, CoilLength::TurnsAndPitch { turns, pitch }) => {
             CoilLength::TurnsAndPitch {
-                turns: kept(coil.length.turns()).unwrap_or_else(|| turns.clone()),
-                pitch: kept(coil.length.pitch()).unwrap_or_else(|| pitch.clone()),
+                turns: kept(length.turns()).unwrap_or_else(|| turns.clone()),
+                pitch: kept(length.pitch()).unwrap_or_else(|| pitch.clone()),
             }
         }
         (CoilSizing::HeightAndTurns, CoilLength::HeightAndTurns { height, turns }) => {
             CoilLength::HeightAndTurns {
-                height: kept(coil.length.height()).unwrap_or_else(|| height.clone()),
-                turns: kept(coil.length.turns()).unwrap_or_else(|| turns.clone()),
+                height: kept(length.height()).unwrap_or_else(|| height.clone()),
+                turns: kept(length.turns()).unwrap_or_else(|| turns.clone()),
             }
         }
         (CoilSizing::HeightAndPitch, CoilLength::HeightAndPitch { height, pitch }) => {
             CoilLength::HeightAndPitch {
-                height: kept(coil.length.height()).unwrap_or_else(|| height.clone()),
-                pitch: kept(coil.length.pitch()).unwrap_or_else(|| pitch.clone()),
+                height: kept(length.height()).unwrap_or_else(|| height.clone()),
+                pitch: kept(length.pitch()).unwrap_or_else(|| pitch.clone()),
             }
         }
         _ => fresh,
-    };
-    Coil {
-        length,
-        ..coil.clone()
     }
 }

@@ -75,6 +75,8 @@ mod guide;
 mod guide_panel;
 mod handle_snap;
 mod headless;
+mod helix_panel;
+mod helix_tools;
 mod history;
 mod hole_handles;
 mod hole_on_curve;

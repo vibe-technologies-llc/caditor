@@ -364,6 +364,10 @@ impl<'a> Context<'a> {
         self.resolver.feature
     }
 
+    pub(crate) fn shape(&self) -> &'static str {
+        self.shape
+    }
+
     pub(crate) fn resolver(&self) -> &Resolver<'a> {
         &self.resolver
     }

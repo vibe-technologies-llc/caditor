@@ -101,8 +101,7 @@ impl Pipe {
         self.operation
             .target()
             .into_iter()
-            .chain(self.path.sketch())
-            .chain(self.path.body())
+            .chain(self.path.features())
             .collect()
     }
 
@@ -130,8 +129,9 @@ pub fn stand(
     let features: BTreeMap<FeatureId, Arc<FeatureResult>> = definition
         .path
         .sketch()
-        .and_then(|sketch| Some((sketch, evaluation.feature(sketch)?.result.clone()?)))
         .into_iter()
+        .chain(definition.path.helix())
+        .filter_map(|source| Some((source, evaluation.feature(source)?.result.clone()?)))
         .collect();
     let bodies: BTreeMap<FeatureId, (FeatureId, Arc<FeatureResult>)> = definition
         .path

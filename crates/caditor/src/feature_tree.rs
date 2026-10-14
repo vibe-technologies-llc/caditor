@@ -26,8 +26,8 @@ use crate::{
     feature_clipboard, feature_fields, feature_groups,
     field::{self, DimensionTarget},
     files::FileCommand,
-    fonts, hole_panel, icons, image_panel, import_panel, loft_panel, manipulator, mate_panel,
-    measurement_panel, mirror_panel, mirror_tools,
+    fonts, helix_panel, hole_panel, icons, image_panel, import_panel, loft_panel, manipulator,
+    mate_panel, measurement_panel, mirror_panel, mirror_tools,
     model::{Action, Model, Notice},
     move_panel, move_tools, offset_face_panel,
     panels::{Focus, PanelState, Renaming},
@@ -311,6 +311,7 @@ pub fn kind_words(kind: &FeatureKind) -> &'static [&'static str] {
         FeatureKind::Pipe(_) => &["pipe", "tube", "tubing", "handrail", "cable", "sweep"],
         FeatureKind::Loft(_) => &["loft", "blend", "skin", "transition"],
         FeatureKind::Coil(_) => &["coil", "spring", "helix", "spiral", "winding"],
+        FeatureKind::Helix(_) => &["helix", "spiral", "curve", "thread path"],
         FeatureKind::Rib(_) => &["rib", "web", "stiffener", "gusset", "brace"],
         FeatureKind::Blend(blend) => match blend.kind {
             BlendKind::Fillet => &["fillet", "round"],
@@ -1176,6 +1177,9 @@ fn body(
         FeatureKind::Datum(datum) => {
             datum_panel::show(ui, model, row.selection, actions, feature, datum);
         }
+        FeatureKind::Helix(helix) => {
+            helix_panel::show(ui, model, row.selection, actions, feature, helix);
+        }
         FeatureKind::Import(import) => {
             ui.horizontal(|ui| {
                 let muted = appearance::tokens(ui).text_muted;
@@ -1224,6 +1228,7 @@ fn kind_color(tokens: &appearance::Tokens, row: &Row<'_>) -> Color32 {
     match row.feature.kind {
         FeatureKind::Sketch(_) => tokens.accent_text,
         FeatureKind::Datum(_)
+        | FeatureKind::Helix(_)
         | FeatureKind::Thread(_)
         | FeatureKind::Measurement(_)
         | FeatureKind::ReferenceImage(_) => tokens.text_muted,
@@ -1379,6 +1384,7 @@ fn edit_command(feature: &Feature, edited: bool) -> Option<EditingCommand> {
             | FeatureKind::Hole(_)
             | FeatureKind::Pattern(_)
             | FeatureKind::Datum(_)
+            | FeatureKind::Helix(_)
             | FeatureKind::Remove(_)
             | FeatureKind::Thread(_)
             | FeatureKind::Measurement(_)
@@ -1406,6 +1412,7 @@ fn edit_command(feature: &Feature, edited: bool) -> Option<EditingCommand> {
             | FeatureKind::Hole(_)
             | FeatureKind::Pattern(_)
             | FeatureKind::Datum(_)
+            | FeatureKind::Helix(_)
             | FeatureKind::Remove(_)
             | FeatureKind::Thread(_)
             | FeatureKind::Measurement(_)

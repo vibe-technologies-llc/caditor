@@ -29,39 +29,56 @@ pub enum SweepPath {
         body: FeatureId,
         edges: Vec<EdgeReference>,
     },
+    Helix {
+        helix: FeatureId,
+    },
 }
 
 impl SweepPath {
     pub fn sketch(&self) -> Option<FeatureId> {
         match self {
             Self::Curves { sketch, .. } => Some(*sketch),
-            Self::Unchosen | Self::Edges { .. } => None,
+            Self::Unchosen | Self::Edges { .. } | Self::Helix { .. } => None,
         }
     }
 
     pub fn body(&self) -> Option<FeatureId> {
         match self {
             Self::Edges { body, .. } => Some(*body),
-            Self::Unchosen | Self::Curves { .. } => None,
+            Self::Unchosen | Self::Curves { .. } | Self::Helix { .. } => None,
+        }
+    }
+
+    pub fn helix(&self) -> Option<FeatureId> {
+        match self {
+            Self::Helix { helix } => Some(*helix),
+            Self::Unchosen | Self::Curves { .. } | Self::Edges { .. } => None,
         }
     }
 
     pub fn curves(&self) -> &[EntityId] {
         match self {
             Self::Curves { curves, .. } => curves,
-            Self::Unchosen | Self::Edges { .. } => &[],
+            Self::Unchosen | Self::Edges { .. } | Self::Helix { .. } => &[],
         }
     }
 
     pub fn edges(&self) -> &[EdgeReference] {
         match self {
             Self::Edges { edges, .. } => edges,
-            Self::Unchosen | Self::Curves { .. } => &[],
+            Self::Unchosen | Self::Curves { .. } | Self::Helix { .. } => &[],
         }
     }
 
+    pub fn features(&self) -> impl Iterator<Item = FeatureId> {
+        self.sketch()
+            .into_iter()
+            .chain(self.body())
+            .chain(self.helix())
+    }
+
     pub fn len(&self) -> usize {
-        self.curves().len() + self.edges().len()
+        self.curves().len() + self.edges().len() + usize::from(self.helix().is_some())
     }
 
     pub fn is_empty(&self) -> bool {
@@ -91,6 +108,9 @@ impl SweepPath {
             Self::Edges { body, edges } => Self::Edges {
                 body: rename(*body),
                 edges: edges.clone(),
+            },
+            Self::Helix { helix } => Self::Helix {
+                helix: rename(*helix),
             },
         }
     }
@@ -257,6 +277,33 @@ fn edge_path(
     })
 }
 
+fn helix_path(inputs: &Inputs<'_>, helix: FeatureId) -> Result<Path, Failure> {
+    let helix_name = feature_name(inputs, helix);
+    let Some(FeatureResult::Helix(result)) = inputs.features.get(&helix).map(AsRef::as_ref) else {
+        return Err(failed(
+            format!("It needs {helix_name} as its path, which is not available."),
+            format!("Fix {helix_name} first, or choose another path."),
+            FixTarget::Feature(helix),
+        ));
+    };
+    let segments = result
+        .turns
+        .iter()
+        .zip(1_u128..)
+        .map(|(turn, key)| turn.path_segment(key))
+        .collect();
+    let labels = (1..=result.turns.len())
+        .map(|turn| format!("turn {turn}"))
+        .collect();
+    Ok(Path {
+        segments,
+        labels,
+        fix: FixTarget::Feature(helix),
+        owner: format!(" of {helix_name}"),
+        up: result.frame.normal(),
+    })
+}
+
 pub(crate) fn path_of(
     feature: &Feature,
     inputs: &Inputs<'_>,
@@ -266,6 +313,7 @@ pub(crate) fn path_of(
         SweepPath::Unchosen => return Err(no_path()),
         SweepPath::Curves { sketch, curves } => curve_path(feature, inputs, *sketch, curves)?,
         SweepPath::Edges { body, edges } => edge_path(feature, inputs, *body, edges)?,
+        SweepPath::Helix { helix } => helix_path(inputs, *helix)?,
     };
     if built.segments.is_empty() {
         return Err(no_path());

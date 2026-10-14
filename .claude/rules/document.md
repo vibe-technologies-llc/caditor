@@ -507,12 +507,15 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   carries the chosen regions along a `SweepPath`: `Curves { sketch, curves }` of another sketch
   (lifted to its solved plane through `profile_curve`, each keyed by its entity id), `Edges { body,
   edges }` (`EdgeReference`s resolved with `EdgeNaming` in the body as it stands at the sweep, each
-  keyed by its edge name's digest), or `Unchosen`. It shares `solid::evaluate` with extrusion and
+  keyed by its edge name's digest), `Helix { helix }` (the turns of a `Helix` feature's result, each
+  a kernel `HelixTurn::path_segment` keyed by its turn from 1 and winding about the helix's axis,
+  labelled "turn N" of the helix), or `Unchosen`. It shares `solid::evaluate` with extrusion and
   revolve (regions, body operation, other bodies cut, boolean wording) and calls kernel `sweep`
   with the kernel's `SweepOrientation`; it has no expressions, start, taper or wall.
 - The path's sketch is in `reference_sketches` and `features()`, its body in `bodies_used`, its
-  edges' origins among `origin_features`, and healing visits its edges. A curve of the path cannot
-  be removed (`EntityInUse`, as a revolve's axis line); a path sketch deleted fails the sweep.
+  helix in `features()` (`SweepPath::features`), its edges' origins among `origin_features`, and
+  healing visits its edges. A curve of the path cannot be removed (`EntityInUse`, as a revolve's
+  axis line); a path sketch or helix deleted, or a helix that is not built, fails the sweep.
 - Failures are sentences per `PathSweepError` (`sweep::failure`), naming path curves by label and
   sketch ("Line 3 of Path") or edges by their faces (no path waits instead,
   `MissingInput::Path`): a branching or separate path; a sharp corner (remedy: a fillet in the path's sketch, Parallel, or straight lines so it is mitred); a
@@ -592,6 +595,18 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   sizes it cannot be built with.
 - Faces are worded "<coil> start" and "end", a round section's sides "<coil> surface" and a
   square's "inside", "outside", "top" and "underside" (`coil::part_name`).
+### Helix (`helix.rs`)
+
+- `Helix { axis, reversed, diameter, length, taper, turning }` is a curve feature: the axis, sizing
+  (`CoilLength`, `coil::span`), taper (`coil::taper`) and turning are a coil's, resolved, counted,
+  healed ("axis it winds around"), pasted, inlined and anchored for model scale the same way
+  (`Helix::lengths_mut` scales the diameter and lengths), with the frame from `Helix::frame` (x axis
+  from `Plane::new`, so it starts toward X, toward Y about the X axis). It calls kernel `helix` and
+  gives `FeatureResult::Helix` (`HelixResult`: the frame and one `HelixTurn` per piece of at most a
+  turn; dependents compare it whole). It makes no body (`Feature::body` none, not `makes_body`) and
+  can be hidden. Refusals are sentences: a taper drawing it into its axis, too few or many turns, a
+  taper too steep, too far from the origin; the rest are logged and worded as sizes it cannot be
+  built with. A sweep or pipe follows it (`SweepPath::Helix`).
 ### Rib (`rib.rs`, `rib_tool.rs`)
 
 - `Rib { sketch, body, thickness, side, direction, reversed }` joins thin walls along the

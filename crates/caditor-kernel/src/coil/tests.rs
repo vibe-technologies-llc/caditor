@@ -211,3 +211,60 @@ fn refusals_name_what_is_wrong() {
         Err(CoilError::TooFewTurns { turns: 0.01 })
     );
 }
+
+fn helix_spec(turns: f64, taper: f64) -> HelixSpec {
+    HelixSpec {
+        frame: upright(),
+        radius: 10.0,
+        pitch: 4.0,
+        turns,
+        taper,
+        hand: Handedness::Right,
+    }
+}
+
+#[test]
+fn a_helix_is_one_curve_a_turn_on_its_cylinder_rising_a_pitch_each_turn() {
+    let turns = helix(&helix_spec(2.5, 0.0)).unwrap();
+
+    assert_eq!(turns.len(), 3);
+    for (index, turn) in turns.iter().enumerate() {
+        let range = turn.range();
+        for step in 0..=40 {
+            let point = turn.curve().point(range.at(f64::from(step) / 40.0));
+            let along = (index as f64 + f64::from(step) / 40.0) * 2.5 / 3.0;
+            let angle = point.y.atan2(point.x).rem_euclid(2.0 * PI);
+            let expected = 4.0 * (along.floor() + angle / (2.0 * PI));
+
+            assert!((point.truncate().length() - 10.0).abs() < 1e-9, "{point}");
+            assert!(
+                (point.z - expected).abs() < 1e-3 || (point.z - expected - 4.0).abs() < 1e-3,
+                "{point} against {expected}"
+            );
+        }
+    }
+    let end = turns
+        .last()
+        .map(|turn| turn.curve().point(turn.range().end()));
+    assert!(end.is_some_and(|end| (end.z - 10.0).abs() < 1e-9 && (end.x + 10.0).abs() < 1e-9));
+}
+
+#[test]
+fn a_helix_drawn_in_to_its_axis_or_out_of_range_is_refused() {
+    let steep = helix_spec(2.0, -60.0_f64.to_radians());
+    let flat = HelixSpec {
+        pitch: 0.0,
+        ..helix_spec(2.0, 0.0)
+    };
+
+    assert_eq!(helix(&steep), Err(HelixError::ReachesAxis));
+    assert_eq!(helix(&flat), Err(HelixError::NoPitch));
+    assert_eq!(
+        helix(&helix_spec(0.01, 0.0)),
+        Err(HelixError::TooFewTurns { turns: 0.01 })
+    );
+    assert_eq!(
+        helix(&helix_spec(2.0, 85.0_f64.to_radians())),
+        Err(HelixError::TaperTooSteep)
+    );
+}
