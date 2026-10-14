@@ -79,6 +79,17 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   `field::parse_expression` in millimetres and degrees. A write answers with its change's label
   and every failing feature with the tree's reason and remedy, marked `new` when the change made it
   fail.
+- Sketching beyond the first slice lives in `sketching.rs`: `add_sketch_geometry` also draws arcs
+  (about a centre, or through three points), slots, arc slots, regular polygons (by vertex or by
+  the middle of the first side), fit or control splines and ellipses, each with the joints,
+  tangents, equal arcs and construction circle the app's `Draft` recipes in `drawing.rs` add (a
+  slot's top line is held level or upright when its centres line up), from the `shapes.rs`
+  geometry; `add_sketch` takes a datum plane (`datum`) or a plane of a coordinate system (`frame`
+  with `plane`) through `DatumTarget`, as New sketch on a selected datum does; `remove_sketch_items`
+  removes constraints and entities (`Transaction::remove_sketch_items` expands an entity to its
+  users, and the answer lists everything gone); `edit_sketch_constraint` changes a dimension through
+  `field::dimension_transaction` (the dimension field's parsing, units and parameters) and turns a
+  constraint on or off, both after settling the sketch. Their failures are `SketchToolError`.
 - Reads: the feature tree with `state_of`'s words, parameters, bodies with `exact_mass` and
   `extent` under the kernel interrupt (`interruptible`), faces (at most `MOST_FACES`), a sketch
   with `SketchSummary`, and a picture through `snapshot::looking_from` and `png_bytes`, sized
@@ -100,3 +111,5 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   notification until the cancel is registered (`Gate`), so it never races.
   `mcp/end_to_end_tests.rs` builds a plate with a pocket and two holes by tool calls alone and
   checks its volume, undo, redo, a parameter change, save, export and the saved file.
+  `mcp/sketching_tests.rs` covers each sketching tool, extruding what the shapes draw to check
+  their regions, and sketches on a datum plane and a coordinate system of a saved model.

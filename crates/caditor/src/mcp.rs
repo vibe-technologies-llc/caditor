@@ -5,11 +5,14 @@ mod references;
 mod resources;
 mod server;
 mod session;
+mod sketching;
 pub mod tools;
 mod writing;
 
 #[cfg(test)]
 mod end_to_end_tests;
+#[cfg(test)]
+mod sketching_tests;
 #[cfg(test)]
 mod tests;
 
