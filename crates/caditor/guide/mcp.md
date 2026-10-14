@@ -37,14 +37,26 @@ first, so two programs never change one model at once.
   splines and ellipses in it, add [constraints](constraints) and [dimensions](dimensions), and
   later remove them, turn them off or on, or change a dimension's value.
 - Add an [extrusion](extrude) or a [revolve](revolve), which decide whether to add, cut or start
-  a new body as their tools do unless told, and a [hole](hole) at every free point of a sketch.
+  a new body as their tools do unless told. An extrusion can run up to the next face or a plane,
+  go both ways from the sketch, start off its plane, taper and make a thin wall; a revolve can turn
+  both ways.
+- Drill a [hole](hole) at every free point of a sketch, plain, counterbored or countersunk, sized
+  by a diameter or a metric screw size with a clearance, tapped or insert fit, its tapped thread
+  modelled or cosmetic.
+- [Sweep](sweep) a sketch along a path and run a [pipe](pipe) along one (sketch curves, body edges
+  or a [helix](helix)), [loft](loft) through sketches, wind a [coil](coil), add a [rib](rib) and
+  [thread](thread) a round face.
+- [Split faces](split-face), [delete faces](delete-face), [split](split) a body along a plane, a
+  sketch or another body, and [scale](scale) a body.
 - Round or bevel edges with a [fillet or chamfer](fillet-and-chamfer), hollow a body with a
   [shell](shell), move faces with [Offset face](offset-face), and add a box, cylinder, sphere,
   torus, cone, wedge or prism as the [primitives](primitives) do, on a plane, a flat face or a
   datum plane.
 - [Mirror](mirror) and [pattern](patterns) a body, or holes, cuts and bosses of one body, in a
-  row, a grid or around an axis; [combine](combine) bodies and [move or copy](move-and-copy) them;
-  add [datum](datums) planes and axes.
+  row, a grid or around an axis, leaving chosen copies out; [combine](combine) bodies and
+  [move or copy](move-and-copy) them; add [datum](datums) planes and axes.
+- Change any of those features afterwards, as its card in the app does: the assistant gives only
+  what changes, such as a fillet's radius or a pattern's count, and the rest stays as it was.
 - Rename, suppress, reorder and delete features in the [feature tree](feature-tree). Deleting a
   feature others use needs the assistant to say whether they go too or stay, failing.
 - [Undo and redo](undo), save and export.

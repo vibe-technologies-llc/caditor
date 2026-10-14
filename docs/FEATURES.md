@@ -239,17 +239,19 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   points, faces and edges, draw a picture, set parameters, sketch points, lines, polylines,
   rectangles, circles, arcs, slots, polygons, splines and ellipses with constraints and dimensions
   (adding, removing and editing them) on a principal plane, datum plane, coordinate system or flat
-  face, extrude, revolve, drill plain holes, fillet, chamfer, shell, offset faces, add primitives,
+  face, extrude, revolve, drill holes, fillet, chamfer, shell, offset faces, add primitives,
   mirror, pattern in a row, grid or circle, combine and move bodies, add datum planes and axes,
-  rename, suppress, reorder and delete features, undo, redo, save and export. What remains,
-  through the same `Session` layer:
-  - A write tool per remaining feature kind (sweep, pipe, loft, coil, rib, split and delete face,
-    split, mate, scale, curve and point patterns, datum points, the other datum plane and axis
-    constructions, coordinate systems, threads), and editing an existing feature's values.
-    Extrusions lack taper, start offsets, two sides, up-to ends, regions and thin walls; revolves
-    lack two sides, up-to ends, regions and thin walls; holes lack styles, standard sizes, threads
-    and up-to ends; shells lack per-face thickness, mirrors take no faces and patterns skip no
-    copies.
+  sweep, pipe, loft, coil, rib, thread, split and delete faces, split and scale bodies, edit any
+  of those features, rename, suppress, reorder and delete features, undo, redo, save and export.
+  What remains, through the same `Session` layer:
+  - A write and edit tool per remaining feature kind (mate, curve and point patterns, datum
+    points, the other datum plane and axis constructions, coordinate systems, helices).
+    Extrusions lack regions, an end up to a curved surface, a second side other than a distance,
+    a direction other than square, and taking a thin wall off again; revolves lack up-to ends,
+    regions and thin walls; holes lack stepped styles, slots, drill points and sizing by circles;
+    shells lack per-face thickness, mirrors take no faces, lofts take no single regions or end
+    point, and split faces neither carry nor wrap curves. Faces and edges named in an edit are
+    found on the body as it stands now, so an edge a fillet rounded away cannot be named again.
   - Sketching: elliptical arcs, conic splines, polygons on a side, tangent arcs, and projections
     of body edges; the other sketch tools of the app (trim, extend, offset, mirror, patterns,
     fillet) and moving or resizing existing entities.

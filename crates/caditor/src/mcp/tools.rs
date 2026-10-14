@@ -4,14 +4,18 @@ use serde_json::{Map, Value, json};
 use crate::{
     mcp::{
         edges::{self, MeasuringError},
+        edits::{self, FeatureEditError},
         feature_schemas,
         features::{self, FeatureError},
         files::{self, FileError},
         places::PlaceError,
         reading::{self, RenderError},
         references::ReferenceError,
+        reshaping::{self, ReshapeError},
         session::{Cancelled, ChangeError, Session, Work},
         sketching::{self, SketchToolError},
+        solids, sweep_schemas,
+        sweeps::{self, SweepToolError},
         tree_edits::{self, TreeError},
         writing::{self, ModellingError, SketchingError},
     },
@@ -54,6 +58,17 @@ pub enum Tool {
     AddMove,
     AddDatumPlane,
     AddDatumAxis,
+    AddSweep,
+    AddPipe,
+    AddLoft,
+    AddCoil,
+    AddRib,
+    AddThread,
+    AddSplitFace,
+    AddDeleteFace,
+    AddSplit,
+    AddScale,
+    EditFeature,
     RenameFeature,
     SuppressFeatures,
     MoveFeature,
@@ -95,6 +110,17 @@ all_variants!(
     AddMove,
     AddDatumPlane,
     AddDatumAxis,
+    AddSweep,
+    AddPipe,
+    AddLoft,
+    AddCoil,
+    AddRib,
+    AddThread,
+    AddSplitFace,
+    AddDeleteFace,
+    AddSplit,
+    AddScale,
+    EditFeature,
     RenameFeature,
     SuppressFeatures,
     MoveFeature,
@@ -158,6 +184,12 @@ pub enum ToolError {
     Measuring(#[from] MeasuringError),
     #[error(transparent)]
     Tree(#[from] TreeError),
+    #[error(transparent)]
+    Sweeps(#[from] SweepToolError),
+    #[error(transparent)]
+    Reshaping(#[from] ReshapeError),
+    #[error(transparent)]
+    Editing(#[from] FeatureEditError),
 }
 
 impl Tool {
@@ -201,6 +233,17 @@ impl Tool {
             Self::AddMove => "add_move",
             Self::AddDatumPlane => "add_datum_plane",
             Self::AddDatumAxis => "add_datum_axis",
+            Self::AddSweep => "add_sweep",
+            Self::AddPipe => "add_pipe",
+            Self::AddLoft => "add_loft",
+            Self::AddCoil => "add_coil",
+            Self::AddRib => "add_rib",
+            Self::AddThread => "add_thread",
+            Self::AddSplitFace => "add_split_face",
+            Self::AddDeleteFace => "add_delete_face",
+            Self::AddSplit => "add_split",
+            Self::AddScale => "add_scale",
+            Self::EditFeature => "edit_feature",
             Self::RenameFeature => "rename_feature",
             Self::SuppressFeatures => "suppress_features",
             Self::MoveFeature => "move_feature",
@@ -244,6 +287,17 @@ impl Tool {
             Self::AddMove => "Move body",
             Self::AddDatumPlane => "Datum plane",
             Self::AddDatumAxis => "Datum axis",
+            Self::AddSweep => "Sweep",
+            Self::AddPipe => "Pipe",
+            Self::AddLoft => "Loft",
+            Self::AddCoil => "Coil",
+            Self::AddRib => "Rib",
+            Self::AddThread => "Thread",
+            Self::AddSplitFace => "Split face",
+            Self::AddDeleteFace => "Delete face",
+            Self::AddSplit => "Split body",
+            Self::AddScale => "Scale body",
+            Self::EditFeature => "Edit a feature",
             Self::RenameFeature => "Rename a feature",
             Self::SuppressFeatures => "Suppress features",
             Self::MoveFeature => "Reorder a feature",
@@ -393,6 +447,37 @@ impl Tool {
             Self::AddDatumAxis => {
                 "Adds a datum axis along an edge, round face, sketch line or principal axis, or where two planes meet. One undo step."
             }
+            Self::AddSweep => {
+                "Sweeps every closed region of a sketch along a path: lines, arcs and curves of another sketch, edges of a body, or a helix. With no operation it adds to the body it reaches or makes a new body. One undo step."
+            }
+            Self::AddPipe => {
+                "Runs a round, square or triangular section of a size along a path (sketch curves, body edges or a helix), bending sharp corners by a bend radius, solid or hollow with a wall. One undo step."
+            }
+            Self::AddLoft => {
+                "Lofts a solid through the closed regions of two or more sketches, in order, smoothly or ruled. One undo step."
+            }
+            Self::AddCoil => {
+                "Winds a round or square section along a helix about an axis, sized by its diameter and two of turns, pitch and height, optionally tapered. One undo step."
+            }
+            Self::AddRib => {
+                "Thickens an open line or arc chain of a sketch into a rib or web joining a body, grown until it meets the body. One undo step."
+            }
+            Self::AddThread => {
+                "Threads a round face of a body (a bore, shaft or boss) to a standard size, modelled or cosmetic, over its whole length or a length. One undo step."
+            }
+            Self::AddSplitFace => {
+                "Splits faces of a body along a plane, a sketch's curves or another body, so each piece can be picked on its own. One undo step."
+            }
+            Self::AddDeleteFace => {
+                "Deletes faces of a body and heals the gap the surrounding faces leave. One undo step."
+            }
+            Self::AddSplit => {
+                "Splits a body in two along a plane, a sketch's curves or another body; flipped swaps which side is kept first. One undo step."
+            }
+            Self::AddScale => "Scales a body by a factor about a centre point. One undo step.",
+            Self::EditFeature => {
+                "Changes an existing feature, as one undo step, with the arguments of the tool that adds its kind (add_extrusion for an extrusion, add_fillet for a fillet, and so on): what is given replaces that part, the rest stays as it is, and name renames it. Sketches change through the sketch tools."
+            }
             Self::RenameFeature => "Renames a feature. One undo step.",
             Self::SuppressFeatures => {
                 "Suppresses features, leaving them out when the model is computed, or brings them back with suppressed false. One undo step."
@@ -434,7 +519,17 @@ impl Tool {
             | Self::AddCombine
             | Self::AddMove
             | Self::AddDatumPlane
-            | Self::AddDatumAxis => Effect::Adds,
+            | Self::AddDatumAxis
+            | Self::AddSweep
+            | Self::AddPipe
+            | Self::AddLoft
+            | Self::AddCoil
+            | Self::AddRib
+            | Self::AddThread
+            | Self::AddSplitFace
+            | Self::AddDeleteFace
+            | Self::AddSplit
+            | Self::AddScale => Effect::Adds,
             Self::SetParameter
             | Self::RemoveSketchItems
             | Self::EditSketchConstraint
@@ -443,7 +538,8 @@ impl Tool {
             | Self::RenameFeature
             | Self::SuppressFeatures
             | Self::MoveFeature
-            | Self::DeleteFeatures => Effect::Changes,
+            | Self::DeleteFeatures
+            | Self::EditFeature => Effect::Changes,
             Self::Save | Self::Export => Effect::Writes,
         }
     }
@@ -577,30 +673,8 @@ impl Tool {
                 }),
                 &["sketch", "constraint"],
             ),
-            Self::AddExtrusion => object(
-                json!({
-                    "sketch": reference("The sketch whose regions are extruded"),
-                    "distance": { "type": "string", "description": "How far, as an expression; not with through_all" },
-                    "through_all": { "type": "boolean", "description": "Cut through the whole body" },
-                    "symmetric": { "type": "boolean", "description": "Half the distance each way from the sketch plane" },
-                    "operation": { "type": "string", "enum": ["new_body", "add", "remove", "intersect"] },
-                    "body": reference("With add, remove or intersect: the body changed"),
-                    "reversed": { "type": "boolean", "description": "With an operation: extrude against the sketch plane's normal" },
-                    "name": { "type": "string" }
-                }),
-                &["sketch"],
-            ),
-            Self::AddHole => object(
-                json!({
-                    "sketch": reference("The sketch holding the hole centres as free points or circles"),
-                    "diameter": { "type": "string", "description": "An expression such as \"6 mm\"" },
-                    "depth": { "type": "string", "description": "An expression, or \"through all\"" },
-                    "body": reference("The body drilled; by default the one the sketch lies on"),
-                    "reversed": { "type": "boolean", "description": "Drill along the sketch plane's normal instead of against it" },
-                    "name": { "type": "string" }
-                }),
-                &["sketch", "diameter", "depth"],
-            ),
+            Self::AddExtrusion => sweep_schemas::extrusion(),
+            Self::AddHole => sweep_schemas::hole(),
             Self::Export => object(
                 json!({
                     "file": { "type": "string", "description": "The file to write, in the model's folder or an allowed one" },
@@ -625,6 +699,17 @@ impl Tool {
             Self::AddMove => feature_schemas::move_body(),
             Self::AddDatumPlane => feature_schemas::datum_plane(),
             Self::AddDatumAxis => feature_schemas::datum_axis(),
+            Self::AddSweep => sweep_schemas::sweep(),
+            Self::AddPipe => sweep_schemas::pipe(),
+            Self::AddLoft => sweep_schemas::loft(),
+            Self::AddCoil => sweep_schemas::coil(),
+            Self::AddRib => sweep_schemas::rib(),
+            Self::AddThread => sweep_schemas::thread(),
+            Self::AddSplitFace => sweep_schemas::split_face(),
+            Self::AddDeleteFace => sweep_schemas::delete_face(),
+            Self::AddSplit => sweep_schemas::split(),
+            Self::AddScale => sweep_schemas::scale(),
+            Self::EditFeature => sweep_schemas::edit_feature(),
             Self::RenameFeature => feature_schemas::rename_feature(),
             Self::SuppressFeatures => feature_schemas::suppress_features(),
             Self::MoveFeature => feature_schemas::move_feature(),
@@ -689,6 +774,17 @@ impl Tool {
             Self::AddMove => Call::AddMove(self.arguments(arguments)?),
             Self::AddDatumPlane => Call::AddDatumPlane(self.arguments(arguments)?),
             Self::AddDatumAxis => Call::AddDatumAxis(self.arguments(arguments)?),
+            Self::AddSweep => Call::AddSweep(self.arguments(arguments)?),
+            Self::AddPipe => Call::AddPipe(self.arguments(arguments)?),
+            Self::AddLoft => Call::AddLoft(self.arguments(arguments)?),
+            Self::AddCoil => Call::AddCoil(self.arguments(arguments)?),
+            Self::AddRib => Call::AddRib(self.arguments(arguments)?),
+            Self::AddThread => Call::AddThread(self.arguments(arguments)?),
+            Self::AddSplitFace => Call::AddSplitFace(self.arguments(arguments)?),
+            Self::AddDeleteFace => Call::AddDeleteFace(self.arguments(arguments)?),
+            Self::AddSplit => Call::AddSplit(self.arguments(arguments)?),
+            Self::AddScale => Call::AddScale(self.arguments(arguments)?),
+            Self::EditFeature => Call::EditFeature(self.arguments(arguments)?),
             Self::RenameFeature => Call::RenameFeature(self.arguments(arguments)?),
             Self::SuppressFeatures => Call::SuppressFeatures(self.arguments(arguments)?),
             Self::MoveFeature => Call::MoveFeature(self.arguments(arguments)?),
@@ -718,8 +814,8 @@ pub enum Call {
     AddSketchConstraints(writing::Constraining),
     RemoveSketchItems(sketching::Removing),
     EditSketchConstraint(sketching::ConstraintEdit),
-    AddExtrusion(writing::Extrusion),
-    AddHole(writing::Drilling),
+    AddExtrusion(solids::Extrusion),
+    AddHole(solids::Drilling),
     Undo(reading::Nothing),
     Redo(reading::Nothing),
     Save(reading::Nothing),
@@ -739,6 +835,17 @@ pub enum Call {
     AddMove(features::Moving),
     AddDatumPlane(features::DatumPlaning),
     AddDatumAxis(features::DatumAxising),
+    AddSweep(sweeps::Sweeping),
+    AddPipe(sweeps::Piping),
+    AddLoft(sweeps::Lofting),
+    AddCoil(sweeps::Coiling),
+    AddRib(sweeps::Ribbing),
+    AddThread(sweeps::Threading),
+    AddSplitFace(reshaping::FaceSplitting),
+    AddDeleteFace(reshaping::FaceDeleting),
+    AddSplit(reshaping::Splitting),
+    AddScale(reshaping::Scaling),
+    EditFeature(edits::Editing),
     RenameFeature(tree_edits::Renaming),
     SuppressFeatures(tree_edits::Suppressing),
     MoveFeature(tree_edits::Reordering),
@@ -763,8 +870,8 @@ impl Call {
             }
             Self::RemoveSketchItems(removing) => sketching::remove(session, work, removing),
             Self::EditSketchConstraint(edit) => sketching::edit_constraint(session, work, edit),
-            Self::AddExtrusion(extrusion) => writing::extrude(session, work, extrusion),
-            Self::AddHole(drilling) => writing::drill(session, work, drilling),
+            Self::AddExtrusion(extrusion) => solids::extrude(session, work, extrusion),
+            Self::AddHole(drilling) => solids::drill(session, work, drilling),
             Self::Undo(_) => writing::undo(session, work),
             Self::Redo(_) => writing::redo(session, work),
             Self::Save(_) => files::save(session).map(Answer::of),
@@ -788,6 +895,17 @@ impl Call {
             Self::AddMove(moving) => features::move_body(session, work, moving),
             Self::AddDatumPlane(planing) => features::datum_plane(session, work, planing),
             Self::AddDatumAxis(axising) => features::datum_axis(session, work, axising),
+            Self::AddSweep(sweeping) => sweeps::sweep(session, work, sweeping),
+            Self::AddPipe(piping) => sweeps::pipe(session, work, piping),
+            Self::AddLoft(lofting) => sweeps::loft(session, work, lofting),
+            Self::AddCoil(coiling) => sweeps::coil(session, work, coiling),
+            Self::AddRib(ribbing) => sweeps::rib(session, work, ribbing),
+            Self::AddThread(threading) => sweeps::thread(session, work, threading),
+            Self::AddSplitFace(splitting) => reshaping::split_face(session, work, splitting),
+            Self::AddDeleteFace(deleting) => reshaping::delete_face(session, work, deleting),
+            Self::AddSplit(splitting) => reshaping::split(session, work, splitting),
+            Self::AddScale(scaling) => reshaping::scale(session, work, scaling),
+            Self::EditFeature(editing) => edits::edit(session, work, editing),
             Self::RenameFeature(renaming) => tree_edits::rename(session, work, renaming),
             Self::SuppressFeatures(suppressing) => tree_edits::suppress(session, work, suppressing),
             Self::MoveFeature(reordering) => tree_edits::reorder(session, work, reordering),

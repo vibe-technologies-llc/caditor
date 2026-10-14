@@ -180,7 +180,6 @@ pub fn plane(
 
 pub struct FacePlace {
     pub reference: PlaneReference,
-    pub body: FeatureId,
     pub middle: Option<Point2>,
 }
 
@@ -203,7 +202,6 @@ pub fn on_face(
     })?;
     Ok(FacePlace {
         reference: PlaneReference::Face(attachment),
-        body,
         middle: hole_tools::middle_of(&shown.solid, face, &frame),
     })
 }

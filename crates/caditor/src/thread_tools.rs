@@ -53,7 +53,7 @@ pub fn selected_face(model: &Model, selection: &Selection) -> Result<ThreadSourc
     Ok(ThreadSource { body, face })
 }
 
-fn unique_name(document: &Document, base: &str) -> String {
+pub fn unique_name(document: &Document, base: &str) -> String {
     let taken = |name: &str| document.features().any(|feature| feature.name == name);
     if !taken(base) {
         return base.to_owned();
