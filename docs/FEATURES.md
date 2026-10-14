@@ -136,9 +136,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   dragged. Keeping it parametric needs a gear stored in the sketch (its expressions and the curves
   it made, saved in the file) that recompute draws again from the evaluated values, holding its
   curves fixed like projected geometry; the teeth changing the number of curves is the hard part.
-  A pair of meshing gears at a centre distance following from the same parameters is missing, and
-  so is a sprocket for roller chain (ISO 606 pitch and roller diameter, tooth count) in the same
-  tool.
 - [medium · medium] An outline of odd sides with an arc among them has no centre to snap or track
   to: the centre of an odd outline is the centre of its corners, which reads as its middle only
   for straight sides, and nothing yet says where the middle of such an outline is. A drag snaps

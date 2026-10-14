@@ -41,8 +41,10 @@ pub use crate::{
     fillet::{Bevel, ChamferSize, Corner, CrossingPlan, FilletError, Pick, Rounding},
     fit::FittedSpline,
     gear::{
-        DrawnGear, GearCentre, GearCircles, GearError, GearOutline, GearPiece, MAX_PRESSURE_ANGLE,
-        MAX_TEETH, MIN_PRESSURE_ANGLE, MIN_TEETH, SpurGear,
+        ChainSize, DrawnGear, DrawnPair, GearCentre, GearCircles, GearError, GearOutline, GearPair,
+        GearPiece, MAX_PRESSURE_ANGLE, MAX_SPROCKET_TEETH, MAX_TEETH, MIN_PRESSURE_ANGLE,
+        MIN_SPROCKET_TEETH, MIN_TEETH, PairOutline, Sprocket, SprocketCircles, SprocketOutline,
+        SpurGear,
     },
     id::{ConstraintId, EntityId, Reference},
     inference::{ANGLE_DEGREES, InferenceError, Kept, RELATIVE_DISTANCE, RelationKind, Tolerance},

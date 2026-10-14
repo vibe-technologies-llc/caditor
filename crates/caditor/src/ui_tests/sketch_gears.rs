@@ -2,7 +2,9 @@ use caditor_geometry::{Plane, Point2};
 use caditor_sketch::{EntityId, Faceting, Sketch, SpurGear};
 use egui::{Key, Modifiers};
 
-use super::{Harness, constraints_of_kind, edit_free_sketch, entities_of_kind, run_from_palette};
+use super::{
+    Harness, choose, constraints_of_kind, edit_free_sketch, entities_of_kind, run_from_palette,
+};
 use crate::{
     editing::Tool,
     gear_panel,
@@ -12,6 +14,7 @@ use crate::{
 
 const SPUR_GEAR: &str = "draw a spur gear";
 const CENTRE: Point2 = Point2::new(40.0, 25.0);
+const PLACED_WITHIN: f64 = 1.0;
 
 fn construction_circles(sketch: &Sketch) -> usize {
     entities_of_kind(sketch, "Circle")
@@ -125,4 +128,131 @@ fn a_drawn_gear_extrudes_into_a_solid_of_its_outline() {
         entities_of_kind(harness.sketch(feature), "Spline").len(),
         36
     );
+}
+
+fn circle_centres(sketch: &Sketch, construction: bool) -> Vec<(Point2, f64)> {
+    entities_of_kind(sketch, "Circle")
+        .into_iter()
+        .filter(|circle| sketch.is_construction(*circle) == construction)
+        .filter_map(|circle| sketch.circle(circle))
+        .collect()
+}
+
+#[test]
+fn a_gear_pair_is_drawn_at_the_centre_distance_and_a_meshing_gear_that_cannot_be_cut_is_refused() {
+    let mut harness = Harness::new();
+    let feature = edit_free_sketch(&mut harness, Sketch::new(Plane::XY));
+    let before = harness.sketch(feature).clone();
+
+    run_from_palette(&mut harness, SPUR_GEAR);
+    harness.click("Gear pair");
+    assert!(harness.shows(GearField::PairTeeth.label()));
+    harness.type_into_field(gear_panel::field_id(GearField::PairTeeth), "8");
+    assert!(harness.shows_containing("The meshing gear: 8 teeth are undercut"));
+    harness.click_at(CENTRE);
+    harness.settle();
+    assert!(harness.sketch(feature).same_content(&before));
+
+    harness.type_into_field(gear_panel::field_id(GearField::PairTeeth), "15 * 2");
+    harness.type_into_field(gear_panel::field_id(GearField::PairBore), "6 mm");
+    harness.point_at(CENTRE);
+    assert!(harness.shows_containing("Gear pair of 20 and 30 teeth"));
+    assert!(harness.shows_containing("centres 50 mm apart"));
+    harness.click_at(CENTRE);
+    harness.settle();
+
+    let sketch = harness.sketch(feature);
+    let pitch_circles: Vec<(Point2, f64)> = circle_centres(sketch, true)
+        .into_iter()
+        .filter(|(_, radius)| (radius - 20.0).abs() < 1e-9 || (radius - 30.0).abs() < 1e-9)
+        .collect();
+    assert_eq!(entities_of_kind(sketch, "Spline").len(), 2 * (20 + 30));
+    assert_eq!(construction_circles(sketch), 8);
+    assert_eq!(circle_centres(sketch, false).len(), 1);
+    assert!(sketch.open_ends().is_empty());
+    assert_eq!(pitch_circles.len(), 2);
+    let apart = pitch_circles
+        .iter()
+        .map(|(centre, _)| centre.x)
+        .fold((f64::MAX, f64::MIN), |(low, high), x| {
+            (low.min(x), high.max(x))
+        });
+    assert!((apart.1 - apart.0 - 50.0).abs() < 1e-9);
+    assert!(
+        pitch_circles
+            .iter()
+            .all(|(centre, _)| (centre.y - pitch_circles[0].0.y).abs() < 1e-9)
+    );
+    assert!(
+        pitch_circles
+            .iter()
+            .any(|(centre, radius)| centre.distance(CENTRE) < PLACED_WITHIN && *radius == 20.0)
+    );
+    assert_eq!(harness.model.undo_label(), Some(gearing::PAIR_TRANSACTION));
+
+    harness.key(Key::Z, Modifiers::COMMAND);
+    harness.frame();
+    assert!(harness.sketch(feature).same_content(&before));
+}
+
+#[test]
+fn a_sprocket_for_the_chosen_chain_is_drawn_with_its_pitch_circle() {
+    let mut harness = Harness::new();
+    let feature = edit_free_sketch(&mut harness, Sketch::new(Plane::XY));
+    let before = harness.sketch(feature).clone();
+
+    run_from_palette(&mut harness, SPUR_GEAR);
+    harness.click("Sprocket");
+    assert!(!harness.shows(GearField::Module.label()));
+    assert!(harness.shows(gear_panel::CHAIN));
+    harness.type_into_field(gear_panel::field_id(GearField::Teeth), "5");
+    assert!(harness.shows_containing("Use a whole number from 9 to 150"));
+
+    harness.type_into_field(gear_panel::field_id(GearField::Teeth), "18");
+    choose(&mut harness, "08B · 12.7 mm pitch", "10B · 15.875 mm pitch");
+    assert!(harness.shows_containing("91.4"));
+    harness.point_at(CENTRE);
+    assert!(harness.shows_containing("Sprocket of 18 teeth for 10B chain"));
+    harness.click_at(CENTRE);
+    harness.settle();
+
+    let sketch = harness.sketch(feature);
+    let pitch_radius = 15.875 / (2.0 * (std::f64::consts::PI / 18.0).sin());
+    assert_eq!(entities_of_kind(sketch, "Arc").len(), 4 * 18);
+    assert!(entities_of_kind(sketch, "Spline").is_empty());
+    assert_eq!(construction_circles(sketch), 3);
+    assert!(
+        circle_centres(sketch, true)
+            .into_iter()
+            .any(|(centre, radius)| {
+                centre.distance(CENTRE) < PLACED_WITHIN && (radius - pitch_radius).abs() < 1e-9
+            })
+    );
+    assert!(sketch.open_ends().is_empty());
+    assert_eq!(
+        harness.model.undo_label(),
+        Some(gearing::SPROCKET_TRANSACTION)
+    );
+
+    harness.key(Key::Z, Modifiers::COMMAND);
+    harness.frame();
+    assert!(harness.sketch(feature).same_content(&before));
+}
+
+#[test]
+fn the_kind_and_the_values_chosen_stay_when_the_panel_switches_between_them() {
+    let mut harness = Harness::new();
+    let feature = edit_free_sketch(&mut harness, Sketch::new(Plane::XY));
+
+    run_from_palette(&mut harness, SPUR_GEAR);
+    harness.type_into_field(gear_panel::field_id(GearField::Teeth), "24");
+    harness.click("Sprocket");
+    assert!(harness.shows_containing("24"));
+    harness.click("Single gear");
+    harness.click(&gear_panel::draw_label(None, None));
+    harness.settle();
+
+    let sketch = harness.sketch(feature);
+    assert_eq!(entities_of_kind(sketch, "Spline").len(), 48);
+    assert_eq!(harness.model.undo_label(), Some(gearing::TRANSACTION));
 }

@@ -475,7 +475,7 @@ relative to the extent.
   the joint search `Tangent` and `Curvature` use). A curvature blend to a two-point spline is
   refused by `Curvature` itself (`Edit`).
 
-## Spur gears (`gear.rs`)
+## Spur gears, pairs and sprockets (`gear.rs`, `gear/pair.rs`, `gear/sprocket.rs`)
 
 - `SpurGear`: module, tooth count (`MIN_TEETH..=MAX_TEETH`), pressure angle in degrees
   (`MIN_PRESSURE_ANGLE..=MAX_PRESSURE_ANGLE`), profile shift in modules, root fillet radius and bore
@@ -497,7 +497,35 @@ relative to the extent.
   point is shared, the origin gets a point held on it by `Coincident`. Pieces share end points, tip
   and root arcs share the centre, and the pitch, base, root and tip circles are construction
   circles on it, so the outline is one closed profile and the bore a circle inside it. No other
-  constraint: the gear does not follow later changes to its values.
+  constraint: the gear does not follow later changes to its values. The drawing is shared
+  (`Sketch::draw_toothed`: circles, then the closed outline, then the bore), as is the placing of
+  the centre (`wheel_centre_position`, `wheel_centre_point`).
+- `SpurGear::outline_turned` turns the whole outline about its centre; the tooth centred on the +x
+  axis is the unturned one.
+- `GearPair` (`pair.rs`): a driver, the partner's tooth count and bore. The partner shares module,
+  pressure angle and root fillet and takes the opposite profile shift (`GearPair::partner`), so the
+  standard centre distance `m (z1 + z2) / 2` (`centre_distance`) holds with a tip clearance of
+  `DEDENDUM - ADDENDUM` modules and no backlash. It sits that far along +x from the driver
+  (`partner_centre`), turned by `PI + PI / z2` so a gap of its own lies on the line of centres
+  where the driver's tooth points (`partner_turn`, which also takes the driver's turn, the partner
+  counter-turning by the tooth ratio). A partner that cannot be cut is refused as
+  `GearError::Partner` naming the meshing gear. `Sketch::add_gear_pair` works both outlines out
+  before drawing either; the partner gets a new centre point, joined to the driver's by no
+  constraint, and its own construction circles and bore.
+- `Sprocket` (`sprocket.rs`): a `ChainSize` (designation, pitch, roller diameter; `ChainSize::ALL`
+  holds the ISO 606 A and B series from 05B to 48B, `DEFAULT` is 08B), a tooth count
+  (`MIN_SPROCKET_TEETH..=MAX_SPROCKET_TEETH`) and a bore. The pitch circle is `p / sin(180° / z)`
+  across, through the roller centres. Each gap is made of the ISO 606 annex values, in the middle
+  of their limits: a seat arc about the roller centre of radius `0.505 d1` (the least ISO allows)
+  over `130° - 90° / z`, a flank arc tangent to it, curving the same way, of radius the mean of
+  `0.12 d1 (z + 2)` and `0.008 d1 (z² + 180)`, running to the tip circle of diameter
+  `d + p (1.125 - 0.8 / z) - d1` (between the ISO least `d + p (1 - 1.6 / z) - d1` and greatest
+  `d + 1.25 p - d1`), and a tip arc on that circle to the next gap. Lines are not part of this
+  form. Teeth coming to a point (`MIN_TIP_LAND` of the pitch) are refused as
+  `GearError::SprocketPointed`; the bore leaves `MIN_RIM_PITCHES` pitches below the root.
+  `SprocketOutline` pieces are `GearPiece`s in the same order as a gear's (gap: lower flank, seat,
+  upper flank, tip arc); the pitch, tip and root circles are construction circles
+  (`Sketch::add_sprocket`). The first gap lies on the +x axis.
 
 ## Faceting and splines (`curve.rs`, `fit.rs`)
 

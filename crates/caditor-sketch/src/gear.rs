@@ -87,6 +87,17 @@ pub enum GearError {
     OutOfReach,
     #[error("the tooth flanks could not be traced within {} mm", millimetres(*.tolerance))]
     FlankNotTraced { tolerance: f64 },
+    #[error("the meshing gear: {0}")]
+    Partner(Box<GearError>),
+    #[error("a sprocket has {MIN_SPROCKET_TEETH} to {MAX_SPROCKET_TEETH} teeth, not {teeth}")]
+    SprocketTeethOutOfRange { teeth: u32 },
+    #[error("the chain's pitch and roller diameter must be greater than zero, the roller smaller")]
+    ChainNotPositive,
+    #[error(
+        "the teeth of a sprocket of {teeth} teeth for this chain come to a point; use more teeth \
+         or a chain with a smaller roller"
+    )]
+    SprocketPointed { teeth: u32 },
     #[error("{label} is not a point to centre the gear on")]
     NotAPoint { entity: EntityId, label: String },
     #[error(transparent)]
@@ -302,7 +313,7 @@ pub enum GearCentre {
 pub struct DrawnGear {
     pub centre: EntityId,
     pub outline: Vec<EntityId>,
-    pub circles: [EntityId; 4],
+    pub circles: Vec<EntityId>,
     pub bore: Option<EntityId>,
 }
 
@@ -597,6 +608,10 @@ impl SpurGear {
     }
 
     pub fn outline(&self, centre: Point2) -> Result<GearOutline, GearError> {
+        self.outline_turned(centre, 0.0)
+    }
+
+    pub fn outline_turned(&self, centre: Point2, turn: f64) -> Result<GearOutline, GearError> {
         let involute = self.checked()?;
         let circles = self.circles();
         if self.bore > 0.0 && self.bore > self.largest_bore() {
@@ -636,8 +651,8 @@ impl SpurGear {
         };
         let mut pieces = Vec::new();
         for tooth in 0..self.teeth {
-            let here = place(step * f64::from(tooth));
-            let next = place(step * f64::from((tooth + 1) % self.teeth));
+            let here = place(turn + step * f64::from(tooth));
+            let next = place(turn + step * f64::from((tooth + 1) % self.teeth));
             pieces.push(tip_arc.placed(&here));
             pieces.extend(upper.iter().map(|piece| piece.placed(&here)));
             pieces.push(GearPiece::Arc {
@@ -700,39 +715,70 @@ impl Sketch {
         gear: &SpurGear,
         centre: GearCentre,
     ) -> Result<DrawnGear, GearError> {
-        let at = match centre {
-            GearCentre::Free(at) => at,
+        let at = self.wheel_centre_position(centre)?;
+        let outline = gear.outline(at)?;
+        let centre = self.wheel_centre_point(centre, at)?;
+        self.draw_toothed(
+            centre,
+            &outline.pieces,
+            &outline.circles.radii(),
+            outline.bore,
+        )
+    }
+
+    pub(crate) fn wheel_centre_position(&self, centre: GearCentre) -> Result<Point2, GearError> {
+        match centre {
+            GearCentre::Free(at) => Ok(at),
             GearCentre::Point(point) => self.point(point).ok_or_else(|| GearError::NotAPoint {
                 entity: point,
                 label: self.entity_label(point),
-            })?,
-        };
-        let outline = gear.outline(at)?;
-        let centre = match centre {
-            GearCentre::Free(at) => self.add_point(at),
+            }),
+        }
+    }
+
+    pub(crate) fn wheel_centre_point(
+        &mut self,
+        centre: GearCentre,
+        at: Point2,
+    ) -> Result<EntityId, GearError> {
+        match centre {
+            GearCentre::Free(at) => Ok(self.add_point(at)),
             GearCentre::Point(point) if point.is_reference() => {
                 let held = self.add_point(at);
                 self.add_constraint(Constraint::Coincident(held, point))
                     .map_err(GearError::Edit)?;
-                held
+                Ok(held)
             }
-            GearCentre::Point(point) => point,
-        };
-        let circles = outline.circles.radii().map(|radius| {
-            self.insert(Entity::Circle {
-                center: centre,
-                radius,
+            GearCentre::Point(point) => Ok(point),
+        }
+    }
+
+    pub(crate) fn draw_toothed(
+        &mut self,
+        centre: EntityId,
+        pieces: &[GearPiece],
+        circle_radii: &[f64],
+        bore: Option<f64>,
+    ) -> Result<DrawnGear, GearError> {
+        let at = self.point(centre).unwrap_or(Point2::ZERO);
+        let circles: Vec<EntityId> = circle_radii
+            .iter()
+            .map(|radius| {
+                self.insert(Entity::Circle {
+                    center: centre,
+                    radius: *radius,
+                })
             })
-        });
-        for circle in circles {
-            self.set_construction(circle, true)
+            .collect();
+        for circle in &circles {
+            self.set_construction(*circle, true)
                 .map_err(GearError::Edit)?;
         }
-        let first = self.add_point(outline.pieces.first().map_or(at, GearPiece::from));
+        let first = self.add_point(pieces.first().map_or(at, GearPiece::from));
         let mut last = first;
-        let mut drawn = Vec::with_capacity(outline.pieces.len());
-        let count = outline.pieces.len();
-        for (index, piece) in outline.pieces.iter().enumerate() {
+        let mut drawn = Vec::with_capacity(pieces.len());
+        let count = pieces.len();
+        for (index, piece) in pieces.iter().enumerate() {
             let end = if index + 1 == count {
                 first
             } else {
@@ -777,7 +823,7 @@ impl Sketch {
             drawn.push(self.insert(entity));
             last = end;
         }
-        let bore = outline.bore.map(|radius| {
+        let bore = bore.map(|radius| {
             self.insert(Entity::Circle {
                 center: centre,
                 radius,
@@ -791,6 +837,14 @@ impl Sketch {
         })
     }
 }
+
+mod pair;
+mod sprocket;
+
+pub use pair::{DrawnPair, GearPair, PairOutline};
+pub use sprocket::{
+    ChainSize, MAX_SPROCKET_TEETH, MIN_SPROCKET_TEETH, Sprocket, SprocketCircles, SprocketOutline,
+};
 
 #[cfg(test)]
 mod tests;
