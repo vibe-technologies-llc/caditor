@@ -77,7 +77,8 @@ paths:
   wrote builds that file under `canonical(&dir)`, never `dir.path()`; otherwise it fails only on
   Windows CI.
 - `Harness::repaint_after` is the repaint delay egui reported for the last frame (`Duration::MAX`
-  when nothing asked); `ViewportState::set_uploading` is called by the test itself.
+  when nothing asked); `ViewportState::set_uploading` and `set_upload_stopped` are called by the
+  test itself, which reads the renderer's side with `take_upload_request`.
 
 ## Timing tests
 

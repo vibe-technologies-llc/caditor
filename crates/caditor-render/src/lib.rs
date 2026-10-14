@@ -411,6 +411,18 @@ impl Renderer {
         self.viewport.is_uploading()
     }
 
+    pub fn stop_uploading(&mut self) {
+        self.viewport.stop_uploading();
+    }
+
+    pub fn resume_uploading(&mut self) {
+        self.viewport.resume_uploading();
+    }
+
+    pub fn is_upload_stopped(&self) -> bool {
+        self.viewport.is_upload_stopped()
+    }
+
     pub fn size(&self) -> SurfaceSize {
         SurfaceSize {
             width: self.gpu.config.width,

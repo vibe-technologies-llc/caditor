@@ -63,6 +63,8 @@ pub enum Action {
     CancelRecompute,
     StopPreparingBodies,
     PrepareStoppedBodies,
+    StopUploading,
+    ResumeUploading,
     ShowThreadsAsCosmetic(bool),
     KeepPrincipalShown(Vec<PrincipalGeometry>),
     DismissNotice,
@@ -1133,6 +1135,10 @@ impl Model {
             }
             Action::Filter(filter) => {
                 log::warn!("{filter:?} reached the model instead of the viewport");
+                Ok(None)
+            }
+            command @ (Action::StopUploading | Action::ResumeUploading) => {
+                log::warn!("{command:?} reached the model instead of the viewport");
                 Ok(None)
             }
         };

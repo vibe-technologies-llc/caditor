@@ -93,6 +93,7 @@ use crate::{
     toggles::ToggleStates,
     toolbar::{self, ToolbarContext},
     undo_history,
+    upload_badge::UploadRequest,
     version_preview::PICTURE_SIZE,
     viewport::ViewportState,
     visibility::{self, Needs},
@@ -767,6 +768,7 @@ pub fn show(
     );
     let status = StatusContext {
         uploading: viewport.is_uploading(),
+        upload_stopped: viewport.is_upload_stopped(),
         files,
         offers,
         between: between.as_deref(),
@@ -1513,6 +1515,8 @@ pub fn perform(
             Action::Editing(command) => workspace.editing.perform_after(command, model, since),
             Action::Preferences(command) => workspace.preferences_command(command, model, files),
             Action::Filter(filter) => workspace.viewport.set_filter(filter),
+            Action::StopUploading => workspace.viewport.request_upload(UploadRequest::Stop),
+            Action::ResumeUploading => workspace.viewport.request_upload(UploadRequest::Resume),
             Action::Apply(transaction) => {
                 let changes = last_values::changes(model.document(), &transaction);
                 model.perform(Action::Apply(transaction));
@@ -2241,6 +2245,9 @@ impl Session {
         self.workspace
             .viewport
             .set_uploading(self.renderer.is_uploading());
+        self.workspace
+            .viewport
+            .set_upload_stopped(self.renderer.is_upload_stopped());
 
         let mut actions = Vec::new();
         let workspace = &mut self.workspace;
@@ -2259,6 +2266,11 @@ impl Session {
         }
         let acted = !actions.is_empty();
         let changed = perform(actions, model, files, &mut self.workspace) || acted;
+        match self.workspace.viewport.take_upload_request() {
+            Some(UploadRequest::Stop) => self.renderer.stop_uploading(),
+            Some(UploadRequest::Resume) => self.renderer.resume_uploading(),
+            None => {}
+        }
         self.renderer
             .set_graphics(self.workspace.preferences.graphics.render());
         self.renderer
