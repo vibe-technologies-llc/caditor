@@ -51,6 +51,7 @@ mod properties;
 mod recompute;
 mod reference_image;
 mod removal;
+mod repeat_blend;
 mod rib;
 mod rib_tool;
 mod scaling;
@@ -76,7 +77,10 @@ mod worker;
 
 pub use crate::{
     attachment::{AttachmentError, FaceAttachment, SketchAttachment, SketchFeature, face_plane},
-    blend::{Blend, BlendKind, BlendUnresolved, ChamferForm, EdgeGroup, GroupResolution},
+    blend::{
+        Blend, BlendKind, BlendRecipe, BlendUnresolved, BlendedEdge, ChamferForm, EdgeGroup,
+        GroupResolution,
+    },
     body_appearance::{
         BodyAppearance, DEFAULT_BODY_COLOUR, DensityError, FaceColour, FaceSplits, Finish,
         MAX_BODY_NAME_CHARS, MAX_DENSITY, MAX_MATERIAL_NAME_CHARS, MIN_OPACITY_PERCENT,
@@ -315,6 +319,8 @@ mod properties_tests;
 mod reference_image_tests;
 #[cfg(test)]
 mod removal_tests;
+#[cfg(test)]
+mod repeat_blend_tests;
 #[cfg(test)]
 mod rib_tests;
 #[cfg(test)]

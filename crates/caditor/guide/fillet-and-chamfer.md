@@ -35,6 +35,9 @@ split, so you can choose the pieces again rather than lose one without notice.
 - Typing a value previews it before you press Enter; when it cannot be made, the reason shows under
   the field and the body before it stays shown.
 
+A [pattern](patterns) or [mirror](mirror) of features repeats a fillet or chamfer chosen with the
+features it blends, so every copy is rounded too.
+
 {command:select.tangent_edges} adds the edges continuing the selected ones, and a
 [selection set](selection) can hold edges you fillet often. [Delete face](delete-face) takes a
 fillet or chamfer off again, an imported body's too. To round sketch corners instead, see

@@ -903,7 +903,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   (`describe_origin`: "<mirror> image of …").
 - With `mirrored` features (`Mirror::mirroring`, chosen as a pattern's repeated ones by
   `repeatable_on`) it reflects their tools instead: each placed as copy `MIRROR_IMAGE` (kernel
-  `pattern_copies`) and cut from or joined to the body as it stands, originals staying;
+  `pattern_copies`) and cut from or joined to the body as it stands, a fillet or chamfer blended on
+  the image as a pattern repeats it (Repeated blends, Pattern below), originals staying;
   `keep_original` is then ignored. The lookup (`pattern::seed`, `SeedWords`) is shared with the
   pattern, the mirrored features are in `features()`, and the cut images are the mirror's `cuts`.
 - With `faces` (`Mirror::mirroring_faces`, `FaceReference`s resolved on the body at the mirror,
@@ -1073,14 +1074,32 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   Boxed in `FeatureKind`. It changes its body but is not `modifies_body` (the app shows the
   patterned body while open).
 - With `repeated` features (`Pattern::repeating`; `repeatable_on`: an extrusion, revolve,
-  primitive, pipe or coil adding to or removing from a body, or a hole) it repeats their tools instead: for each,
-  in tree order, the tools kept in its result (`SolidResult::cuts` of a removal or hole, `joins` of
-  an addition) are placed at every copy and unioned without the original (kernel `pattern_copies`),
-  then cut from or joined to the body as it stands. The repeated features are in `features()` and a
+  primitive, pipe, coil or loft adding to or removing from a body, a hole, or a fillet or chamfer)
+  it repeats their tools instead: for each, in tree order, the tools kept in its result
+  (`SolidResult::cuts` of a removal or hole, `joins` of an addition) are placed at every copy and
+  unioned without the original (kernel `pattern_copies`), then cut from or joined to the body as it
+  stands. A blend is repeated as Repeated blends below. The repeated features are in `features()` and a
   change to their tools recomputes it (`same_shapes` compares cuts and joins). A repeated feature
   with a missing result, that changes another body, or that neither adds nor removes fails the
   pattern naming it. A copy that misses the body changes nothing. The cut copies are the pattern's
   `cuts`; their faces are `FaceOrigin::Copy` of the pattern.
+- Repeated blends (`repeat_blend.rs`, shared with the mirror): a blend's result keeps a
+  `BlendRecipe` (`SolidResult::blending`): its `BlendShape` and, per edge it blended, the
+  `EdgeReference` and the faces (names and origins) around each end, captured on the body before
+  it. `pattern::seed` returns it as `Repeated::Blend`. `CopiedNames` follows each face name onto a
+  copy: a face made by a feature repeated earlier in the list (origin not itself a copy) is
+  `FaceName::pattern(pattern, copy, name)`, a face of an earlier repeated blend is the name that
+  blend gave on that copy (recorded as `blend(blend, edge)` to `blend(pattern, copied edge)`), any
+  other face of the body keeps its name (a plate the boss stands on). An edge none of whose faces is
+  followed is not repeated; a blend with no such edge fails (`NoRepeatedEdge`, asking to repeat the
+  feature it blends too). For each copy the edges are rebuilt as references (`between` of the
+  followed faces, ends `VertexName::of_faces` of the followed faces around) and resolved by name
+  alone in the body as it stands, then blended on that copy (kernel `blend_copy`, faces `Copy` of
+  the pattern with the blend's feature). A copy where none is found changes nothing (the copy
+  missed the body); some missing or one tied fails the pattern naming the blend and the copy, as
+  does a kernel refusal (`repeat_blend::failure`). Edge references are rebuilt per copy, so a
+  raised count blends its new copies. A corner face of an earlier blend is not followed: an edge
+  on one is missing on the copies.
 - Axes are `AxisReference`s resolved like a datum's at the pattern's place; body and datum counted.
   A circular pattern's axis is optional (`CircularPattern::axis`): none is a pattern not yet given
   one, which waits for it (`MissingInput::Axis`, `document-recompute.md`), as a sweep with

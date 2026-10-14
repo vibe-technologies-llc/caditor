@@ -1070,9 +1070,11 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
 
 ## Patterns
 
-- With rows chosen in the tree that are all extrusions, revolves, holes or primitives adding to or
-  removing from one body (`pattern_tools::repeatable`, from the tree's raw rows, which the offers carry
-  beside its bodies), Linear and Circular pattern repeat those features instead of the body, with a
+- With rows chosen in the tree that are all extrusions, revolves, holes, primitives, fillets or
+  chamfers on one body (`repeatable_on`) and not only fillets and chamfers (`pattern_tools::repeatable`,
+  from the tree's raw rows, which the offers carry beside its bodies; blends alone have nothing to
+  follow, so they repeat the body), Linear and Circular pattern repeat those features instead of the
+  body, with a
   default spacing of twice their tools' extent along the direction. The Repeats rows list them (the
   last Stop repeating leaves the whole body repeated), and Repeat the chosen features takes the rows
   chosen now (Ctrl+click while the pattern is open).

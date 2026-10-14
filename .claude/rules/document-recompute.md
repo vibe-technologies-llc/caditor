@@ -138,7 +138,8 @@ paths:
   swept tool of an extrusion or revolve removing from a body, each drill of a hole, the placed
   copies of a pattern's repeated cuts or a mirror's reflected ones), are meshed only when the app
   asks (`Recomputer::mesh`). An addition keeps its swept tool as `SolidResult::joins`, which only a
-  pattern or mirror of features reads.
+  pattern or mirror of features reads; a blend keeps its `BlendRecipe` (`SolidResult::blended`)
+  likewise, compared by `same_shapes` with the cuts and joins.
 - A panic or failure while meshing leaves the body without a mesh (`mesh_failed`) but keeps its
   shape for later features. A run cancelled before every shown body was meshed is not complete.
 - A mesh is kept with its result, so `set_mesh_quality` clears the cache and the next run rebuilds

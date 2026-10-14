@@ -22,6 +22,7 @@ use caditor_sketch::{Entity, EntityId, Reference, Sketch};
 
 use crate::{
     attachment::{AttachmentError, FaceAttachment, face_plane},
+    blend::BlendRecipe,
     body_pieces,
     datum::{
         AxisReference, PlaneReference, Resolver, capitalized, describe_axis, describe_plane,
@@ -727,6 +728,7 @@ pub struct SolidResult {
     others: Vec<Arc<FeatureResult>>,
     cuts: Vec<Arc<FeatureResult>>,
     joins: Vec<Arc<FeatureResult>>,
+    blended: Option<Arc<BlendRecipe>>,
     mesh: OnceLock<Option<DisplayMesh>>,
     bounds: OnceLock<Option<Aabb>>,
     names: OnceLock<NameIndex>,
@@ -796,6 +798,7 @@ impl SolidResult {
             others: Vec::new(),
             cuts: Vec::new(),
             joins: Vec::new(),
+            blended: None,
             mesh: OnceLock::new(),
             bounds: OnceLock::new(),
             names: OnceLock::new(),
@@ -839,6 +842,16 @@ impl SolidResult {
         &self.joins
     }
 
+    #[must_use]
+    pub fn blending(mut self, recipe: BlendRecipe) -> Self {
+        self.blended = Some(Arc::new(recipe));
+        self
+    }
+
+    pub fn blended(&self) -> Option<&BlendRecipe> {
+        self.blended.as_deref()
+    }
+
     pub fn with_others(mut self, others: impl IntoIterator<Item = SolidResult>) -> Self {
         self.others = others
             .into_iter()
@@ -857,6 +870,7 @@ impl SolidResult {
             && same_parts(&self.others, &other.others)
             && same_parts(&self.cuts, &other.cuts)
             && same_parts(&self.joins, &other.joins)
+            && self.blended == other.blended
     }
 
     pub fn names(&self) -> &NameIndex {
