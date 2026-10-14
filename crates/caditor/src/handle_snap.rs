@@ -68,6 +68,11 @@ impl Snap {
         }
     }
 
+    pub fn holds_on_track(&self, off: f64, snapped: f64, pulled: Option<f64>, step: f64) -> bool {
+        let reach = MAGNET_STEPS * step;
+        off <= reach && pulled.is_some_and(|pulled| (snapped - pulled).abs() <= reach)
+    }
+
     pub fn along(&self, base: Point3, direction: Vector3) -> Option<f64> {
         match self.normal {
             Some(normal) => {

@@ -24,7 +24,7 @@ split, so you can choose the pieces again rather than lose one without notice.
   with the pointer on the arrow to set it exactly. A chamfer of **Two** distances has an arrow on
   each face where its distance ends, and one of **Angle** an arrow for the distance on the face
   it is measured from and a turning arrow where the cut meets the other face, which drags the
-  angle.
+  angle. On a curved face the arrow stands on the face itself and follows its curve as you drag.
 - A chamfer's **Distances** row chooses **Equal** (one distance on both faces), **Two** (a second
   distance on the other face) or **Angle** (a distance and the angle from the first face).
   **Measure from the other face** swaps which face takes the first distance. The same choices are

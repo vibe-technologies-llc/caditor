@@ -256,6 +256,51 @@ fn the_stand_is_the_start_section_and_the_first_corner_with_or_without_a_bend() 
 }
 
 #[test]
+fn a_corner_between_two_lines_has_its_bend_middles_along_the_bisector() {
+    let stand = pipe_stand(&elbow(), 5.0, Vector3::Z).unwrap();
+
+    assert_eq!(
+        stand.corner.map(|corner| corner.middles),
+        Some(BendMiddles::AlongBisector)
+    );
+}
+
+#[test]
+fn a_sharp_corner_touching_an_arc_has_bend_middles_sampled_from_the_corner_outward() {
+    let (bend, arc_radius): (f64, f64) = (4.0, 10.0);
+    let reach = ((arc_radius + bend).powi(2) - bend * bend).sqrt();
+    let bend_centre = Point3::new(30.0 - reach, bend, 0.0);
+
+    let stand = pipe_stand(&line_into_arc(), bend, Vector3::Z).unwrap();
+    let corner = stand.corner.expect("the line meets the arc at a corner");
+    let BendMiddles::Sampled(middles) = &corner.middles else {
+        panic!("a corner touching an arc is sampled: {:?}", corner.middles);
+    };
+    let at_bend = middles
+        .iter()
+        .find(|middle| middle.radius == bend)
+        .expect("the bend radius itself is sampled");
+
+    assert_eq!(corner.point, Point3::new(20.0, 0.0, 0.0));
+    assert_eq!(
+        middles.first(),
+        Some(&BendMiddle {
+            radius: 0.0,
+            point: corner.point
+        })
+    );
+    assert!(middles.len() > 8, "{} middles", middles.len());
+    assert!(
+        middles
+            .windows(2)
+            .all(|pair| matches!(pair, [before, after] if after.radius > before.radius))
+    );
+    assert!((at_bend.point.distance(bend_centre) - bend).abs() < 1e-6);
+    assert!(at_bend.point.y > 0.0 && at_bend.point.y < bend);
+    assert!(at_bend.point.distance(Point3::new(30.0, 0.0, 0.0)) > arc_radius);
+}
+
+#[test]
 fn a_straight_path_has_no_corner_in_its_stand() {
     let path = [line(10, Point3::ZERO, Point3::new(0.0, 0.0, 40.0))];
 

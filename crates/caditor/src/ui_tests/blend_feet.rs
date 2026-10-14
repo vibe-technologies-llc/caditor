@@ -337,3 +337,111 @@ fn a_two_distance_chamfer_on_a_concave_edge_shows_an_arrow_on_each_face_where_it
     );
     assert!(first.distance(second) > 2.0, "{first:?} {second:?}");
 }
+
+fn d_shaped_body(harness: &mut Harness) -> FeatureId {
+    let mut sketch = Sketch::new(Plane::XY);
+    sketch.add_line(Point2::new(0.0, 0.0), Point2::new(40.0, 0.0));
+    sketch.add_arc(
+        Point2::new(20.0, 0.0),
+        Point2::new(40.0, 0.0),
+        Point2::new(0.0, 0.0),
+    );
+    harness.add_sketch(sketch);
+    harness.select([]);
+    harness.click_tool("Extrude");
+    harness.settle();
+    let extrude = open_feature(harness);
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+    extrude
+}
+
+fn off_the_round_face(point: Point3) -> f64 {
+    (Point2::new(point.x, point.y).distance(Point2::new(20.0, 0.0)) - 20.0).abs()
+}
+
+fn on_the_round_face(harness: &Harness) -> Measured {
+    [Measured::BlendSize, Measured::BlendSecond]
+        .into_iter()
+        .find(|measured| foot_of(harness, *measured).y > 1e-3)
+        .expect("one foot stands on the round face")
+}
+
+fn chamfer_on_the_round_edge(harness: &mut Harness) -> FeatureId {
+    let body = d_shaped_body(harness);
+    let edge = vertical_edge_at(harness, body, 40.0, 0.0);
+    blend_with_edge(harness, "Chamfer", body, edge)
+}
+
+#[test]
+fn a_two_distance_chamfer_stands_its_foot_on_a_round_face_where_the_cut_meets_it() {
+    let mut harness = Harness::new();
+    let chamfer = chamfer_on_the_round_edge(&mut harness);
+    harness.click("Two");
+    harness.settle();
+    harness.type_into_field(Id::new(("blend-form", chamfer)), "6 mm");
+    harness.settle();
+    settled_view(&mut harness);
+    let round = on_the_round_face(&harness);
+    let foot = foot_of(&harness, round);
+    let flat = foot_of(
+        &harness,
+        if round == Measured::BlendSize {
+            Measured::BlendSecond
+        } else {
+            Measured::BlendSize
+        },
+    );
+
+    assert!(off_the_round_face(foot) < 1e-6, "{foot:?}");
+    assert!(on_an_edge(result_of(&harness, chamfer), foot), "{foot:?}");
+    assert!(on_an_edge(result_of(&harness, chamfer), flat), "{flat:?}");
+}
+
+#[test]
+fn dragging_a_chamfer_s_arrow_on_a_round_face_follows_the_face() {
+    let mut harness = Harness::new();
+    let chamfer = chamfer_on_the_round_edge(&mut harness);
+    harness.click("Two");
+    harness.settle();
+    settled_view(&mut harness);
+    let round = on_the_round_face(&harness);
+    let value = |harness: &Harness| match round {
+        Measured::BlendSize => length_value(harness, &blend_of(harness, chamfer).size),
+        _ => second_distance(harness, chamfer),
+    };
+    let before = value(&harness);
+
+    let step = drag_value_arrow(&mut harness, round, 4.0);
+    settled_view(&mut harness);
+    let after = value(&harness);
+    let foot = foot_of(&harness, round);
+
+    assert!(
+        (after - before - 4.0).abs() <= step,
+        "{before} to {after} with steps of {step}"
+    );
+    assert!(off_the_round_face(foot) < 1e-6, "{foot:?}");
+    assert!(on_an_edge(result_of(&harness, chamfer), foot), "{foot:?}");
+}
+
+#[test]
+fn an_angled_chamfer_measured_on_a_round_face_turns_its_arrow_about_the_foot_on_it() {
+    let mut harness = Harness::new();
+    let chamfer = chamfer_on_the_round_edge(&mut harness);
+    run_from_palette(&mut harness, "Chamfer by a distance and an angle");
+    harness.settle();
+    settled_view(&mut harness);
+    if foot_of(&harness, Measured::BlendSize).y <= 1e-3 {
+        harness.click("Measure from the other face");
+        harness.settle();
+        settled_view(&mut harness);
+    }
+    let first = foot_of(&harness, Measured::BlendSize);
+    let other = foot_of(&harness, Measured::BlendAngle);
+
+    assert!(off_the_round_face(first) < 1e-6, "{first:?}");
+    assert!(on_an_edge(result_of(&harness, chamfer), first), "{first:?}");
+    assert!(on_an_edge(result_of(&harness, chamfer), other), "{other:?}");
+}

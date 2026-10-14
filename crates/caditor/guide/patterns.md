@@ -57,8 +57,8 @@ chosen.
 - In the view, an arrow at the last copy of each direction drags the spacing; the count is typed
   in the panel. A circular pattern has two arrows along its turn, for its total angle and its
   count; the angle's arrow dragged onto a corner or an edge's middle turns until it reaches it. A curve pattern spaced by distance has an arrow at its last copy for the spacing, and one
-  spread evenly an arrow at its second copy for the count. Type a value with the pointer on an
-  arrow to set it.
+  spread evenly an arrow at its second copy for the count; both slide along the curve as you
+  drag. Type a value with the pointer on an arrow to set it.
 - **Instances**: a grid with one box per copy, laid out like the copies seen from the top or
   front: the original at the bottom left, the first direction running to the right and the second
   upwards (reversing a direction flips it). Uncheck a box, or click a copy in the view, to leave it

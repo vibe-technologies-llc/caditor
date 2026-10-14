@@ -36,7 +36,8 @@ Every size takes units and expressions, so a pipe can follow a parameter such as
 While the pipe is open, arrows in the view drag its sizes: one across the section at the start of
 the path for the diameter, width or side length, one pointing inward from its outer edge for the
 wall thickness (only on a hollow pipe), and one at the middle of the first rounded corner for the
-bend radius (only when the path has a corner between two straight lines). Each drag is one
+bend radius (only when the path has a sharp corner). Where the corner meets an arc or a curve,
+the bend arrow slides along the path its middle takes as the radius grows. Each drag is one
 undoable change and follows the same steps and snapping as other arrows; Ctrl drags freely, and
 typing a number while holding or hovering an arrow sets the value as the panel field would,
 parameters included.

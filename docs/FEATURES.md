@@ -63,17 +63,10 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   are refused (crossing chains work), a web is thickened only along lines and arcs
   (`wall_regions`), free ends run on along their tangent only (no natural continuation of an arc),
   and a rib takes no draft angle.
-- [low · medium] A chamfer's feet on a curved face stand on the face's tangent line rather than on
-  the face, and a curve pattern's arrow (`value_gauges.rs`) slides along the curve's tangent while
-  it is dragged, rejoining the curve when the copies are placed again. Each would be a `Track`
-  that follows a curve.
 - [low · medium] Mirror faces closes an opening only in one plane or on one elementary face beside
   it: an opening on an extrusion, revolution or spline face, one running all the way around a
   round face (a collar or a groove), or one spanning several curved faces is refused, since
   closing it needs a freeform patch, a ring face or a surface fitted across it.
-- [low · medium] A pipe's bend radius arrow stands only at a corner between two straight lines
-  (`PipeStand::corner`, a gauge linear in the radius): a path whose sharp corners all touch an arc,
-  spline or edge curve is bent but has no arrow to drag its bend radius.
 - [low · medium] A body of each separate piece is keyed by the lowest sketch curve that drew it, so
   deleting and redrawing that one curve of a shape makes its piece a new body; a configuration
   file's colour column cannot name a piece (`plan_configuration_import` finds bodies by making

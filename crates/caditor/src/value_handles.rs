@@ -4,6 +4,7 @@ use caditor_geometry::{Point3, Ray, Vector2, Vector3};
 use caditor_render::{Batch, View};
 
 use crate::{
+    curve_track::CurveTrack,
     feature_fields::Rule,
     handle_snap::{Guide, Snap},
     manipulator::{self, Held},
@@ -24,7 +25,7 @@ const CLEARANCE_POINTS: f64 = 2.0 * HEAD_HALF_POINTS;
 #[cfg(test)]
 const GRIP_FRACTION: f64 = 0.6;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 struct Shown {
     gauge: Gauge,
     per_point: f64,
@@ -32,18 +33,15 @@ struct Shown {
 
 impl Shown {
     fn foot(&self) -> Point3 {
-        let position = self.gauge.mapping.position(self.gauge.value);
-        match self.gauge.track {
-            Track::Line { base, direction } => base + direction * position,
-            Track::Turn(swing) => swing.at(position),
-        }
+        self.gauge.track.at(self.position())
+    }
+
+    fn position(&self) -> f64 {
+        self.gauge.mapping.position(self.gauge.value)
     }
 
     fn direction(&self) -> Vector3 {
-        match self.gauge.track {
-            Track::Line { direction, .. } => direction,
-            Track::Turn(swing) => swing.tangent(self.gauge.mapping.position(self.gauge.value)),
-        }
+        self.gauge.track.direction(self.position())
     }
 
     fn segment(&self) -> (Point3, Point3) {
@@ -66,10 +64,10 @@ fn committed_kind(document: &Document, feature: FeatureId) -> Option<&FeatureKin
     Some(&document.feature(feature)?.kind)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ValueHandles {
     pub feature: FeatureId,
-    shown: [Option<Shown>; MOST_GAUGES],
+    shown: Vec<Shown>,
     forward: Vector3,
 }
 
@@ -93,20 +91,21 @@ impl ValueHandles {
             feature,
             per_point: &per_point_at,
         };
-        let mut shown = [None; MOST_GAUGES];
-        let visible = builder.gauges(kind).into_iter().filter_map(|gauge| {
-            let probe = Shown {
-                gauge,
-                per_point: 1.0,
-            };
-            let per_point = per_point_at(probe.foot())?;
-            let seen = probe.direction().dot(forward).abs() < END_ON;
-            seen.then_some(Shown { gauge, per_point })
-        });
-        for (slot, found) in shown.iter_mut().zip(visible) {
-            *slot = Some(found);
-        }
-        shown.iter().any(Option::is_some).then_some(Self {
+        let shown: Vec<Shown> = builder
+            .gauges(kind)
+            .into_iter()
+            .filter_map(|gauge| {
+                let probe = Shown {
+                    gauge,
+                    per_point: 1.0,
+                };
+                let per_point = per_point_at(probe.foot())?;
+                let seen = probe.direction().dot(forward).abs() < END_ON;
+                seen.then_some(Shown { per_point, ..probe })
+            })
+            .take(MOST_GAUGES)
+            .collect();
+        (!shown.is_empty()).then_some(Self {
             feature,
             shown,
             forward,
@@ -123,29 +122,24 @@ impl ValueHandles {
         let on_screen = |(from, to): HandleSegment| Some((view.project(from)?, view.project(to)?));
         let mut drawn: Vec<(Vector2, Vector2)> =
             taken.iter().copied().filter_map(on_screen).collect();
-        let mut shown = [None; MOST_GAUGES];
-        let mut slots = shown.iter_mut();
-        for found in self.all() {
+        let mut shown = Vec::with_capacity(self.shown.len());
+        for found in self.shown {
             let Some(seen) = on_screen(found.segment()) else {
                 continue;
             };
             if drawn
                 .iter()
                 .all(|other| segments_apart(seen, *other) >= clearance)
-                && let Some(slot) = slots.next()
             {
                 drawn.push(seen);
-                *slot = Some(*found);
+                shown.push(found);
             }
         }
-        shown
-            .iter()
-            .any(Option::is_some)
-            .then_some(Self { shown, ..self })
+        (!shown.is_empty()).then_some(Self { shown, ..self })
     }
 
     fn all(&self) -> impl Iterator<Item = &Shown> {
-        self.shown.iter().flatten()
+        self.shown.iter()
     }
 
     fn find(&self, measured: Measured) -> Option<&Shown> {
@@ -191,13 +185,17 @@ impl ValueHandles {
         let shown = self.find(measured)?;
         let (from, tip) = shown.segment();
         let grip = from.lerp(tip, GRIP_FRACTION);
-        match shown.gauge.track {
-            Track::Line { direction, .. } => Some(grip + direction * along),
+        match &shown.gauge.track {
+            Track::Line { direction, .. } => Some(grip + *direction * along),
             Track::Turn(swing) => {
                 let axis = swing.radial.cross(swing.normal);
                 let rotation =
                     caditor_geometry::Rotation3::from_axis_angle(axis, along.to_radians());
                 Some(swing.foot + rotation * (grip - swing.foot))
+            }
+            Track::Curve(track) => {
+                let position = shown.position() + along;
+                Some(track.at(position) + track.tangent(position) * grip.distance(shown.foot()))
             }
         }
     }
@@ -286,6 +284,10 @@ enum Follow {
         last: f64,
         swept: f64,
     },
+    Curve {
+        track: CurveTrack,
+        grabbed: f64,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -309,23 +311,27 @@ impl ValueDrag {
     ) -> Option<Self> {
         let start = committed_kind(model.document(), handles.feature)?.clone();
         let shown = handles.find(measured)?;
-        let gauge = shown.gauge;
+        let gauge = &shown.gauge;
         let mut probe = start.clone();
         let parameters = model.parameters();
         let from = measured
             .slot(&mut probe)?
             .evaluate_as(measured.amount().dimension(), &|id| parameters.value(id))
             .ok()?;
-        let follow = match gauge.track {
+        let follow = match &gauge.track {
             Track::Line { base, direction } => Follow::Line {
-                base,
-                direction,
-                grabbed: ray.closest_along_line(base, direction)?,
+                base: *base,
+                direction: *direction,
+                grabbed: ray.closest_along_line(*base, *direction)?,
             },
             Track::Turn(swing) => Follow::Turn {
-                swing,
+                swing: *swing,
                 last: swing.degrees_of(ray)?,
                 swept: 0.0,
+            },
+            Track::Curve(track) => Follow::Curve {
+                track: track.clone(),
+                grabbed: track.nearest_to_ray(&ray)?,
             },
         };
         Some(Self {
@@ -348,7 +354,7 @@ impl ValueDrag {
                 base: *base,
                 direction: *direction,
             },
-            Follow::Turn { .. } => Guide::Points,
+            Follow::Turn { .. } | Follow::Curve { .. } => Guide::Points,
         }
     }
 
@@ -368,6 +374,9 @@ impl ValueDrag {
                 *swept += turned;
                 from_position + *swept
             }),
+            Follow::Curve { track, grabbed } => track
+                .nearest_to_ray(&ray)
+                .map(|at| from_position + at - *grabbed),
         };
         let pulled = pulled_position.and_then(|position| self.mapping.value(position));
         let snapped = match (&self.follow, snap.filter(|_| !free)) {
@@ -386,6 +395,15 @@ impl ValueDrag {
                 .and_then(|position| self.mapping.value(position))
                 .filter(|value| self.measured.accepts(*value, self.step, &self.start) == *value)
                 .map(|value| (value, snap)),
+            (Follow::Curve { track, .. }, Some(snap)) => snap
+                .pinned_point()
+                .and_then(|point| {
+                    let position = track.nearest_to_point(point)?;
+                    let off = track.at(position).distance(point);
+                    Some((self.mapping.value(position)?, off))
+                })
+                .filter(|(value, off)| snap.holds_on_track(*off, *value, pulled, self.step))
+                .map(|(value, _)| (value, snap)),
             _ => None,
         };
         let (wanted, snap) = match snapped {

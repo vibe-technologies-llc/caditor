@@ -13,13 +13,14 @@ use caditor_document::{
 use caditor_expression::{Dimension, Expression};
 use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
 use caditor_kernel::{
-    CoilPlacement, EdgeId, FaceId, HelixSpec, MAX_TAPER_DEGREES, PipeShape, Solid, WallSide,
-    measured_face,
+    BendMiddles, CoilPlacement, EdgeId, FaceId, HelixSpec, MAX_TAPER_DEGREES, PipeCorner,
+    PipeShape, Solid, Surface, WallSide, measured_face,
 };
 use caditor_sketch::Entity;
 
 use crate::{
     blend_panel, bodies, coil_panel,
+    curve_track::{CurveTrack, TrackPoint},
     feature_fields::Rule,
     handle_snap, hole_panel, hole_tools,
     model::Model,
@@ -36,6 +37,10 @@ const HALF_TURN_DEGREES: f64 = 180.0;
 const SMALLEST_OPENING: f64 = 1e-3;
 const SMALLEST_RADIUS: f64 = 1e-6;
 const OFF_THE_LINE: f64 = 1e-9;
+const CURVE_SAMPLES: u32 = 64;
+const SECTION_SAMPLES: u32 = 64;
+const FOOT_ITERATIONS: usize = 64;
+const FOOT_FIT: f64 = 1e-10;
 const TRIANGLE_WALL_SHARE: f64 = 2.0 / 1.732_050_807_568_877_2;
 pub const HOLE_DEPTH: &str = "Depth";
 pub const HOLE_DIAMETER: &str = "Diameter";
@@ -807,10 +812,29 @@ impl Measured {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Track {
     Line { base: Point3, direction: Vector3 },
     Turn(Swing),
+    Curve(CurveTrack),
+}
+
+impl Track {
+    pub fn at(&self, position: f64) -> Point3 {
+        match self {
+            Self::Line { base, direction } => *base + *direction * position,
+            Self::Turn(swing) => swing.at(position),
+            Self::Curve(track) => track.at(position),
+        }
+    }
+
+    pub fn direction(&self, position: f64) -> Vector3 {
+        match self {
+            Self::Line { direction, .. } => *direction,
+            Self::Turn(swing) => swing.tangent(position),
+            Self::Curve(track) => track.tangent(position),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -846,7 +870,7 @@ impl Mapping {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Gauge {
     pub measured: Measured,
     pub track: Track,
@@ -1310,21 +1334,22 @@ impl Builder<'_> {
                 let (near, far) = measured()?;
                 let second = self.length(second)?;
                 vec![
-                    Gauge::line(Measured::BlendSize, (corner.at, near.inward), 1.0, size),
-                    Gauge::line(Measured::BlendSecond, (corner.at, far.inward), 1.0, second),
+                    corner.on_face(solid, near, Measured::BlendSize, size),
+                    corner.on_face(solid, far, Measured::BlendSecond, second),
                 ]
             }
             (BlendKind::Chamfer, ChamferForm::DistanceAngle { angle }) => {
                 let (near, far) = measured()?;
                 let angle = self.angle(angle)?;
-                let foot = corner.at + near.inward * size;
-                let back = -near.inward;
+                let first = corner.on_face(solid, near, Measured::BlendSize, size);
+                let foot = first.track.at(size);
+                let back = corner.back_from(solid, near, foot)?;
                 let toward_far = far.inward - back * far.inward.dot(back);
                 let turned = toward_far.try_normalize()?;
-                let reach = corner.cut_length(foot, back, turned, angle, far);
+                let reach = corner.cut_length(solid, foot, (back, turned), angle, far);
                 let radius = reach.or_else(|| Some(ARROW_POINTS * (self.per_point)(foot)?))?;
                 vec![
-                    Gauge::line(Measured::BlendSize, (corner.at, near.inward), 1.0, size),
+                    first,
                     Gauge {
                         measured: Measured::BlendAngle,
                         track: Track::Turn(Swing {
@@ -1580,13 +1605,7 @@ impl Builder<'_> {
             let rim = section.origin() + across * (size * outer);
             gauges.push(Gauge::line(Measured::PipeWall, (rim, -across), share, wall));
         }
-        gauges.extend(stand.corner.and_then(|corner| {
-            let bisector = (corner.outgoing - corner.incoming).try_normalize()?;
-            let turn = corner.incoming.angle_between(corner.outgoing);
-            let scale = 1.0 / (turn / 2.0).cos() - 1.0;
-            (scale.is_finite() && scale > SMALLEST_OPENING)
-                .then(|| Gauge::line(Measured::PipeBend, (corner.point, bisector), scale, bend))
-        }));
+        gauges.extend(stand.corner.and_then(|corner| bend_gauge(&corner, bend)));
         gauges
     }
 
@@ -1810,43 +1829,47 @@ impl Builder<'_> {
         (count >= 2.0).then_some(())?;
         let steps = count - 1.0;
         let length = path.length();
-        let stop_at = |reach: f64| {
-            let stop = path.copy_at(reach, curve.reversed, curve.orientation)?;
-            Some((
-                stop.placement.apply_point(centre),
-                stop.tangent.try_normalize()?,
-            ))
-        };
-        match curve.measured {
+        let (measured, mapping, value, now) = match curve.measured {
             CurveSpacing::Distance => {
                 let spacing = self.length(&curve.spacing)?;
                 (spacing > 0.0).then_some(())?;
-                let (foot, tangent) = stop_at(spacing * steps)?;
-                Some(Gauge::line(
+                (
                     Measured::CurveSpacing,
-                    (foot - tangent * spacing * steps, tangent),
-                    steps,
+                    Mapping::Linear {
+                        scale: steps,
+                        offset: 0.0,
+                    },
                     spacing,
-                ))
+                    spacing * steps,
+                )
             }
             CurveSpacing::Spread => {
-                let (step, less) = if path.is_closed() {
-                    (length / count, 0.0)
-                } else {
-                    (length / steps, 1.0)
-                };
-                let (foot, tangent) = stop_at(step)?;
-                Some(Gauge {
-                    measured: Measured::CurveCount,
-                    track: Track::Line {
-                        base: foot - tangent * step,
-                        direction: tangent,
-                    },
-                    mapping: Mapping::Reciprocal { turn: length, less },
-                    value: count,
-                })
+                let less = if path.is_closed() { 0.0 } else { 1.0 };
+                let mapping = Mapping::Reciprocal { turn: length, less };
+                (
+                    Measured::CurveCount,
+                    mapping,
+                    count,
+                    mapping.position(count),
+                )
             }
-        }
+        };
+        let reaches = (0..=CURVE_SAMPLES)
+            .map(|index| length * f64::from(index) / f64::from(CURVE_SAMPLES))
+            .chain(std::iter::once(now));
+        let track = CurveTrack::new(reaches.filter_map(|reach| {
+            let stop = path.copy_at(reach, curve.reversed, curve.orientation)?;
+            Some(TrackPoint {
+                position: reach,
+                point: stop.placement.apply_point(centre),
+            })
+        }))?;
+        Some(Gauge {
+            measured,
+            track: Track::Curve(track),
+            mapping,
+            value,
+        })
     }
 
     fn circular(&self, circular: &CircularPattern, centre: Point3) -> Vec<Gauge> {
@@ -1920,6 +1943,7 @@ struct Side {
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Corner {
     at: Point3,
+    along: Vector3,
     sides: [Side; 2],
     opening: f64,
     convex: bool,
@@ -1946,6 +1970,7 @@ impl Corner {
         (opening >= SMALLEST_OPENING).then_some(())?;
         Some(Self {
             at,
+            along,
             sides: [first, second],
             opening,
             convex: second.inward.dot(first.normal) < 0.0,
@@ -1970,16 +1995,57 @@ impl Corner {
         }
     }
 
+    fn track_on(&self, solid: &Solid, side: Side, now: f64) -> Track {
+        let straight = Track::Line {
+            base: self.at,
+            direction: side.inward,
+        };
+        if face_plane(solid, side.face).is_some() {
+            return straight;
+        }
+        section_track(solid, side, self.at, self.along, now).map_or(straight, Track::Curve)
+    }
+
+    fn on_face(&self, solid: &Solid, side: Side, measured: Measured, value: f64) -> Gauge {
+        Gauge {
+            measured,
+            track: self.track_on(solid, side, value),
+            mapping: Mapping::Linear {
+                scale: 1.0,
+                offset: 0.0,
+            },
+            value,
+        }
+    }
+
+    fn back_from(&self, solid: &Solid, near: Side, foot: Point3) -> Option<Vector3> {
+        if face_plane(solid, near.face).is_some() {
+            return Some(-near.inward);
+        }
+        let back = self
+            .along
+            .cross(outward(solid, near.face, foot)?)
+            .try_normalize()?;
+        Some(if back.dot(self.at - foot) < 0.0 {
+            -back
+        } else {
+            back
+        })
+    }
+
     fn cut_length(
         &self,
+        solid: &Solid,
         foot: Point3,
-        back: Vector3,
-        turned: Vector3,
+        (back, turned): (Vector3, Vector3),
         angle: f64,
         far: Side,
     ) -> Option<f64> {
         let (sin, cos) = angle.to_radians().sin_cos();
         let direction = back * cos + turned * sin;
+        if let Track::Curve(track) = self.track_on(solid, far, 0.0) {
+            return track.first_crossing(foot, direction);
+        }
         let section = back.cross(far.inward);
         let from_edge = foot - self.at;
         let reach =
@@ -2029,6 +2095,90 @@ impl HoleTop {
             ),
         }
     }
+}
+
+fn bend_gauge(corner: &PipeCorner, bend: f64) -> Option<Gauge> {
+    match &corner.middles {
+        BendMiddles::AlongBisector => {
+            let bisector = (corner.outgoing - corner.incoming).try_normalize()?;
+            let turn = corner.incoming.angle_between(corner.outgoing);
+            let scale = 1.0 / (turn / 2.0).cos() - 1.0;
+            (scale.is_finite() && scale > SMALLEST_OPENING)
+                .then(|| Gauge::line(Measured::PipeBend, (corner.point, bisector), scale, bend))
+        }
+        BendMiddles::Sampled(middles) => {
+            let track = CurveTrack::new(middles.iter().map(|middle| TrackPoint {
+                position: middle.radius,
+                point: middle.point,
+            }))?;
+            Some(Gauge {
+                measured: Measured::PipeBend,
+                track: Track::Curve(track),
+                mapping: Mapping::Linear {
+                    scale: 1.0,
+                    offset: 0.0,
+                },
+                value: bend,
+            })
+        }
+    }
+}
+
+fn section_track(
+    solid: &Solid,
+    side: Side,
+    at: Point3,
+    along: Vector3,
+    now: f64,
+) -> Option<CurveTrack> {
+    let surface = solid.face(side.face)?.surface();
+    let reach = solid.bounding_box()?.diagonal();
+    let mut distances: Vec<f64> = (1..=SECTION_SAMPLES)
+        .map(|index| reach * f64::from(index) / f64::from(SECTION_SAMPLES))
+        .chain((now > 0.0).then_some(now))
+        .collect();
+    distances.sort_by(f64::total_cmp);
+    let mut points = vec![TrackPoint {
+        position: 0.0,
+        point: at,
+    }];
+    let mut heading = side.inward;
+    let mut hint = None;
+    for distance in distances {
+        let Some((point, uv)) = chord_foot(surface, (at, along), heading, distance, hint) else {
+            break;
+        };
+        heading = (point - at).try_normalize().unwrap_or(heading);
+        hint = Some(uv);
+        points.push(TrackPoint {
+            position: distance,
+            point,
+        });
+    }
+    CurveTrack::new(points)
+}
+
+fn chord_foot(
+    surface: &Surface,
+    (at, along): (Point3, Vector3),
+    heading: Vector3,
+    distance: f64,
+    hint: Option<Point2>,
+) -> Option<(Point3, Point2)> {
+    let fit = FOOT_FIT * distance.max(1.0);
+    let mut guess = at + heading * distance;
+    let mut uv = hint;
+    for _ in 0..FOOT_ITERATIONS {
+        let found = surface.project(guess, uv);
+        uv = Some(found);
+        let on = surface.point(found.x, found.y);
+        let flat = on - along * (on - at).dot(along);
+        guess = at + (flat - at).try_normalize()? * distance;
+        if on.distance(guess) <= fit {
+            return Some((guess, found));
+        }
+    }
+    None
 }
 
 fn face_stand(solid: &Solid, face: FaceId) -> Option<(Point3, Vector3)> {

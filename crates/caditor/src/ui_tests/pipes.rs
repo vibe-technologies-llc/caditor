@@ -413,3 +413,74 @@ fn a_pipe_along_a_body_edge_has_its_size_arrow_at_the_start_of_the_edge() {
         "{foot:?}"
     );
 }
+
+const ARC_RADIUS: f64 = 20.0;
+const ARC_CENTRE: Point2 = Point2::new(FIRST + ARC_RADIUS, 0.0);
+
+fn open_line_into_arc_pipe(harness: &mut Harness) -> FeatureId {
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::ZERO, Point2::new(FIRST, 0.0));
+    let arc = sketch.add_arc(
+        ARC_CENTRE,
+        ARC_CENTRE + Point2::new(0.0, ARC_RADIUS),
+        Point2::new(FIRST, 0.0),
+    );
+    let path = harness.add_sketch(sketch);
+    harness.select([line, arc].map(|entity| Pickable::SketchEntity {
+        feature: path,
+        entity,
+    }));
+    harness.key(Key::I, Modifiers::ALT | Modifiers::SHIFT);
+    harness.settle();
+    harness.select([]);
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    harness.workspace.editing.solid().expect("the pipe is open")
+}
+
+fn bend_centre(bend: f64) -> Point3 {
+    let reach = ((ARC_RADIUS + bend).powi(2) - bend * bend).sqrt();
+    Point3::new(ARC_CENTRE.x - reach, bend, 0.0)
+}
+
+#[test]
+fn a_pipe_s_bend_arrow_stands_on_the_bend_where_a_line_meets_an_arc_sharply() {
+    let mut harness = Harness::new();
+    let pipe = open_line_into_arc_pipe(&mut harness);
+    let bend = length_value(&harness, &pipe_of(&harness, pipe).bend);
+
+    let foot = foot_of(&harness, Measured::PipeBend);
+
+    assert_eq!(bend, pipe_tools::DEFAULT_BEND);
+    assert!(
+        (foot.distance(bend_centre(bend)) - bend).abs() < 1e-6,
+        "{foot:?}"
+    );
+    assert!(foot.y > 0.0 && foot.y < bend, "{foot:?}");
+}
+
+#[test]
+fn dragging_a_pipe_s_bend_arrow_where_a_line_meets_an_arc_changes_its_bend_radius() {
+    let mut harness = Harness::new();
+    let pipe = open_line_into_arc_pipe(&mut harness);
+    let bend = |harness: &Harness| length_value(harness, &pipe_of(harness, pipe).bend);
+    let before = bend(&harness);
+
+    let step = drag_value_arrow(&mut harness, Measured::PipeBend, 4.0);
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    let after = bend(&harness);
+    let foot = foot_of(&harness, Measured::PipeBend);
+
+    assert_eq!(harness.model.undo_label(), Some("Edit Pipe 1"));
+    assert!(
+        (after - before - 4.0).abs() <= 2.0 * step,
+        "{before} to {after} with steps of {step}"
+    );
+    assert!(
+        (foot.distance(bend_centre(after)) - after).abs() < 1e-6,
+        "{foot:?}"
+    );
+
+    undone_and_redone(&mut harness, "the bend drag", bend);
+}

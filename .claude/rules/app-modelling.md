@@ -73,6 +73,7 @@ paths:
   - "crates/caditor/src/split_panel.rs"
   - "crates/caditor/src/split_tools.rs"
   - "crates/caditor/src/turn_handles.rs"
+  - "crates/caditor/src/curve_track.rs"
   - "crates/caditor/src/value_gauges.rs"
   - "crates/caditor/src/value_handles.rs"
   - "crates/caditor/src/projecting.rs"
@@ -489,8 +490,8 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   uses too). Fields are keyed `("pipe-field", feature, "size" | "wall" | "bend")`. Reverse direction
   refuses it. Its value arrows (Value handles) stand at the pipe's start section and first corner,
   placed from `caditor_document::pipe_stand` (the path as the pipe walks it, through the kernel's
-  `pipe_stand`: the section plane and the first corner between two straight lines, whether or not
-  the bend rounds it), so they also stand when the pipe itself fails.
+  `pipe_stand`: the section plane and the first sharp corner, whether or not the bend rounds it),
+  so they also stand when the pipe itself fails.
 
 ## Loft
 
@@ -807,7 +808,10 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   open feature as a reach arrow does (steps, Ctrl free, readout, one "Edit <feature>" change keeping a
   named value and refusing a driven one through `manipulator::Held`, each `Measured` naming its field's
   caption, shared with its panel through a constant). A `Gauge` holds where it stands: a `Track` (a
-  line from a base along a direction, or a `turn_handles::Swing` about an axis) and a `Mapping` from
+  line from a base along a direction, a `turn_handles::Swing` about an axis, or a
+  `curve_track::CurveTrack`: points sampled along a curve, each at its position, joined by straight
+  pieces and running on along the end pieces past either end, the arrow pointing along the piece
+  under its foot and a drag taking the position nearest the pointer's ray) and a `Mapping` from
   value to distance or angle (`Linear` with scale and offset, so a diameter's rim moves half as fast;
   `Tangent` for a taper; `Reciprocal` for what a turn divides, a prism's sides and a spread curve
   pattern's count; `Cotangent` for a countersink's angle read off how deep its cone ends).
@@ -842,16 +846,25 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
     (`caditor_kernel::measured_face`, so Measure from the other face moves it), the second distance's
     along the other face, and the angle's as a turn arrow about the first foot standing where the cut
     meets the other face (`Corner::cut_length`, the swing's radius being that point's distance from
-    the first foot, or an arm of `ARROW_POINTS` when the cut misses). Distances run along the faces' tangent lines at the
-    edge's middle, which lie on a plane face and only touch a curved one.
+    the first foot, or an arm of `ARROW_POINTS` when the cut misses). On a plane face a distance
+    runs along the face's tangent line at the edge's middle; on a curved face it follows the face
+    (`Corner::track_on`, `section_track`): a `Track::Curve` of the points on the face at
+    `SECTION_SAMPLES` distances out to the body's diagonal (and the current one, so the foot is
+    exact) measured straight from the edge point in the plane across the edge, each found by
+    `chord_foot` projecting a guess onto the surface and back into that plane at that distance
+    until the two agree; the angle's turn arrow
+    then turns about the face's own line there (`Corner::back_from`) and its radius reaches where the
+    cut first crosses a curved other face's track (`CurveTrack::first_crossing`).
   - A pipe's size, Wall thickness and Bend radius (`Measured::PipeSize`, `PipeWall`, `PipeBend`), on
     the start section's axis across the path (`stand.section.x_axis()`): the size from the middle to
     the outer rim (a round or square section's half, a triangle's third, where its right side meets
     that axis), the wall pointing inward from the outer rim (a triangle's wall slanting, so scaled by
     `2/sqrt(3)`), left out for a solid pipe; the bend radius at the middle of the first rounded
-    corner, along the bisector from the corner (`1/cos(turn/2) - 1` of the radius, as a fillet's
-    size), left out for a pipe without a corner between two lines. A bend radius of zero stands at the
-    corner and can be dragged out.
+    corner (`bend_gauge`): between two lines along the bisector from the corner (`1/cos(turn/2) - 1`
+    of the radius, as a fillet's size, `BendMiddles::AlongBisector`), and at a sharp corner touching
+    an arc, spline or edge curve on a `Track::Curve` through the bend middles the kernel samples
+    (`BendMiddles::Sampled`, the position being the radius), left out for a pipe without a sharp
+    corner. A bend radius of zero stands at the corner and can be dragged out.
   - A coil's Diameter, Section, Pitch and Height (`Measured::CoilDiameter`, `CoilSection`,
     `CoilPitch`, `CoilHeight`), standing on the frame `Coil::frame` makes of the displayed axis
     (`displayed_axis`) and the wire's centre line at each angle (`Builder::coil`: radius from
@@ -887,8 +900,9 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
     copies or more (a Count arrow on the same line read as a duplicate, so the count is typed); a
     circular pattern's Total angle and Count (halfway round to the original for a full turn) as turn
     arrows; a curve pattern's Spacing at its last copy when spaced by distance, and its Count at the
-    second copy when spread evenly (the arrow stands at the copy `PatternPath::copy_at` places, with
-    its base set so the foot is exact now and slides along the curve's tangent while dragged). A
+    second copy when spread evenly, on a `Track::Curve` of where `PatternPath::copy_at` places the
+    copy at `CURVE_SAMPLES` reaches along the path and the current one, so the foot is exact and
+    stays on the curve while dragged. A
     point pattern has no count or spacing: its copies are its sketch's points.
   Counts always step by one.
 - `Manipulator` holds them beside the primary handles as `Reach`, `Revolve`, `Place`'s and `Holes`'
@@ -919,7 +933,10 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   and count, a slot's or chamfer's angle, a prism's sides) put their foot's half-plane there, refused
   when the value it gives falls outside the drag's range or `Measured::accepts` would change it (so a
   count snaps only where a whole count lands); a move's ring turns by the angle from the spot grabbed
-  to the point about the ring's axis (`MoveDrag::turned_to`). The value set is measured, never a
+  to the point about the ring's axis (`MoveDrag::turned_to`). A value arrow on a curve
+  (`Guide::Points`) takes the track position nearest the point, kept only when the track passes
+  within `MAGNET_STEPS` steps of it and the value lies that near where the drag would be
+  (`Snap::holds_on_track`). The value set is measured, never a
   reference, and the readout ends with what it snapped to ("to a corner").
 - Typing a digit while a handle is hovered or held (outside a sketch) opens the typed-point field
   (`app-input.md`) labelled with that handle's field (`Manipulator::typing`, `manipulator::Typing`; a

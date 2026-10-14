@@ -37,6 +37,7 @@ mod constraint_trial;
 #[cfg(test)]
 mod conventions_tests;
 pub mod crash;
+mod curve_track;
 mod datum_panel;
 mod datum_tools;
 mod defender;

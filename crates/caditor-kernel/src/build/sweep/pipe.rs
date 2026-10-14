@@ -23,6 +23,7 @@ const OUTER: u64 = 1;
 const SQUARE_SIDES: u64 = 4;
 const TRIANGLE_SIDES: u64 = 3;
 const INRADIUS_PER_SIDE: f64 = 0.288_675_134_594_812_9;
+const BEND_SAMPLES: u32 = 32;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub enum PipeShape {
@@ -349,19 +350,66 @@ fn path_reach(path: &[PathSegment]) -> f64 {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BendMiddle {
+    pub radius: f64,
+    pub point: Point3,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum BendMiddles {
+    AlongBisector,
+    Sampled(Vec<BendMiddle>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct PipeCorner {
     pub point: Point3,
     pub incoming: Vector3,
     pub outgoing: Vector3,
+    pub middles: BendMiddles,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PipeStand {
     pub section: Plane,
     pub corner: Option<PipeCorner>,
 }
 
-fn first_corner(chain: &Chain) -> Option<PipeCorner> {
+fn bend_middle(leg: &Leg, after: &Leg, radius: f64) -> Option<BendMiddle> {
+    let made = bend::rounding(leg, after, radius, path_bend(leg.key, after.key)).ok()?;
+    Some(BendMiddle {
+        radius,
+        point: made.segment.curve().point(made.segment.range().middle()),
+    })
+}
+
+fn sampled_middles(leg: &Leg, after: &Leg, turn: f64, bend: f64) -> Vec<BendMiddle> {
+    let corner = leg.end_point();
+    let room = corner
+        .distance(leg.start_point())
+        .min(corner.distance(after.end_point()));
+    let widest = room / (turn / 2.0).tan();
+    let mut radii: Vec<f64> = (1..=BEND_SAMPLES)
+        .map(|index| widest * f64::from(index) / f64::from(BEND_SAMPLES))
+        .collect();
+    if bend.is_finite() && bend > 0.0 && bend <= MAX_SIZE {
+        radii.push(bend);
+    }
+    radii.sort_by(f64::total_cmp);
+    let mut middles = vec![BendMiddle {
+        radius: 0.0,
+        point: corner,
+    }];
+    middles.extend(
+        radii
+            .into_iter()
+            .filter(|radius| radius.is_finite() && *radius > 0.0)
+            .filter_map(|radius| bend_middle(leg, after, radius)),
+    );
+    middles
+}
+
+fn first_corner(chain: &Chain, bend: f64) -> Option<PipeCorner> {
     let legs = &chain.legs;
     let count = legs.len();
     let joints = if chain.closed && count > 1 {
@@ -372,16 +420,22 @@ fn first_corner(chain: &Chain) -> Option<PipeCorner> {
     (0..joints).find_map(|index| {
         let leg = legs.get(index)?;
         let after = legs.get((index + 1) % count)?;
-        if !is_line(leg) || !is_line(after) {
-            return None;
-        }
         let incoming = leg.end_tangent()?;
         let outgoing = after.start_tangent()?;
         let turn = incoming.angle_between(outgoing);
-        (turn > SMOOTH_TURN && turn <= MOST_MITRE_TURN).then(|| PipeCorner {
+        if turn <= SMOOTH_TURN || turn > MOST_MITRE_TURN {
+            return None;
+        }
+        let middles = if is_line(leg) && is_line(after) {
+            BendMiddles::AlongBisector
+        } else {
+            BendMiddles::Sampled(sampled_middles(leg, after, turn, bend))
+        };
+        Some(PipeCorner {
             point: leg.end_point(),
             incoming,
             outgoing,
+            middles,
         })
     })
 }
@@ -393,7 +447,7 @@ pub fn pipe_stand(path: &[PathSegment], bend: f64, up: Vector3) -> Result<PipeSt
     let start = rounded.segments.first().ok_or(PathSweepError::NoPath)?;
     Ok(PipeStand {
         section: section_plane(start, up)?,
-        corner: first_corner(&chain),
+        corner: first_corner(&chain, bend),
     })
 }
 

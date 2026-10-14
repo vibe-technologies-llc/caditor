@@ -154,9 +154,12 @@ paths:
   an arc or spline are left to the sweep (`Corner`).
 - `pipe_stand(path, bend, up)` walks the same chain and returns the `PipeStand` the app's value
   arrows stand on: the section plane `pipe` places (from the rounded chain, else the unrounded one)
-  and the first `PipeCorner` between two lines turning above `SMOOTH_TURN` and up to
-  `MOST_MITRE_TURN`, found whether or not `bend` rounds it. It needs no section, so it works for
-  sizes `pipe` refuses.
+  and the first `PipeCorner` turning above `SMOOTH_TURN` and up to `MOST_MITRE_TURN`, found whether
+  or not `bend` rounds it. Its `middles` are `BendMiddles::AlongBisector` between two lines;
+  where an arc, spline or edge curve meets the corner they are `Sampled`: the corner at radius zero,
+  then the middle of the bend `bend::rounding` makes at `BEND_SAMPLES` radii up to the widest the
+  shorter leg leaves room for, and at `bend` itself, radii it cannot round left out. It needs no
+  section, so it works for sizes `pipe` refuses.
 - `loft(profiles, apex, LoftSkin, feature)` (`build/loft/`) passes a solid through
   `LoftProfile`s (a plane and one `Region`, refused as `Holes` when it has any), closing to `apex`
   when given: valid or a `LoftError`. `rings.rs` turns each profile's outer loop to run

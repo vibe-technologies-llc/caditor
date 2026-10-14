@@ -30,8 +30,8 @@ pub use self::{
     },
     revolve::revolve,
     sweep::{
-        PathSegment, PathSweepError, PipeCorner, PipeError, PipeSection, PipeShape, PipeStand,
-        SweepOrientation, WindingAxis, pipe, pipe_stand, sweep,
+        BendMiddle, BendMiddles, PathSegment, PathSweepError, PipeCorner, PipeError, PipeSection,
+        PipeShape, PipeStand, SweepOrientation, WindingAxis, pipe, pipe_stand, sweep,
     },
     taper::{MAX_TAPER_DEGREES, extrude_tapered},
     wrap::{WrapError, wrap_regions},
