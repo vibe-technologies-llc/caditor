@@ -66,19 +66,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Modelling
 
-- [medium · medium] Reported by the user: a Remove extrusion typed far past the body (100000 mm, to
-  cut through without measuring) does not cut, so the exact depth must be found. Not reproduced:
-  in `caditor-document`, a box, a cylinder, a thin block and a filleted block cut by rectangles
-  and circles inside, over, at the edge of and below the body, one side both ways, symmetric and
-  two sides, give the same volume and no failure at 100, 1000, 100000 and 999999 mm; through the
-  UI harness (`ui_tests/far_cuts.rs`), a cut sketched on a plate's top face and typed as 20, 1000,
-  100000 and 999999 mm, committed or only previewed, leaves 14000 mm³ with no failed feature, the
-  open cut's tool (the whole 100 m column, not only what it removes) is in the overlay and the
-  scene's bounds stay those of the model. A distance more than ten times the bodies' size now
-  offers Cut through all instead under the field. Still open: a body of another kind (a revolve,
-  a shelled or imported one), a cut that removes from several bodies, the drag arrow, the camera
-  with the 100 m tool shown, or what the report meant by "does not cut" (the preview, the closed
-  result).
 - [medium · hard] A concave fillet running out under a rounded rim whose fill reaches nearly to
   the rim's tangent with the top face (a 3 mm fillet on a notch floor 3.5 mm under a puck's top
   with a 3 mm rim) fails as a face that could not be divided; smaller ones and chamfers work
