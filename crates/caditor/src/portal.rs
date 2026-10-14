@@ -6,9 +6,9 @@ mod windows;
 mod xdg;
 
 #[cfg(windows)]
-pub use self::windows::{choose, own_dialogs};
+pub use self::windows::{animations_enabled, choose, own_dialogs};
 #[cfg(unix)]
-pub use self::xdg::{ParentWindow, choose, own_dialogs};
+pub use self::xdg::{ParentWindow, animations_enabled, choose, own_dialogs};
 
 const TRY_AGAIN: &str = " Try again, or choose a file on this computer.";
 const ANY_EXTENSION: &str = "*";
@@ -42,6 +42,22 @@ pub enum DialogError {
     ZenityKilled(Option<i32>),
     #[error("could not start the file dialog's thread ({0})")]
     Thread(io::Error),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum SettingError {
+    #[cfg(unix)]
+    #[error("there is no desktop session bus to ask for settings ({0})")]
+    NoSessionBus(zbus::Error),
+    #[cfg(unix)]
+    #[error("the desktop portal does not give the desktop's animation setting ({0})")]
+    Unavailable(zbus::Error),
+    #[cfg(unix)]
+    #[error("the desktop portal's animation setting is not a yes or no ({0})")]
+    NotYesOrNo(zbus::zvariant::Error),
+    #[cfg(windows)]
+    #[error("Windows did not say whether it animates windows ({0})")]
+    Windows(io::Error),
 }
 
 impl DialogError {

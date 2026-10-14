@@ -11,7 +11,7 @@ use crate::{
     drag_solver::{BodyJoin, DragCommand, Join},
     feature_tree::count,
     snap::{Hold, Pointer, Screen, Target},
-    tracking::{self, Acquired, Landing},
+    tracking::{self, Acquired, Landing, ShownOutlines},
 };
 
 const SMALLEST_DRAGGED_RADIUS: f64 = 1e-3;
@@ -44,6 +44,7 @@ pub struct Grab {
     joins: Vec<Constraint>,
     guides: Vec<[Point2; 2]>,
     acquired: Acquired,
+    outlines: ShownOutlines,
     bodies: SharedSnaps,
 }
 
@@ -102,6 +103,7 @@ impl Grab {
             joins: Vec::new(),
             guides: Vec::new(),
             acquired: Acquired::default(),
+            outlines: ShownOutlines::default(),
             bodies: SharedSnaps::default(),
         };
         grab.acquire_neighbours(sketch);
@@ -156,13 +158,16 @@ impl Grab {
             return Vec::new();
         };
         let moving = self.moving_with(sketch);
-        let mut shown: Vec<EntityId> = landing
-            .target
-            .into_iter()
-            .chain(landing.tracks.anchors())
-            .flat_map(Target::involved)
-            .filter(|entity| !moving.contains(entity))
-            .collect();
+        let mut shown = Vec::new();
+        for target in landing.target.into_iter().chain(landing.tracks.anchors()) {
+            match target {
+                Target::Centre { .. } | Target::Centroid(_) => {
+                    self.outlines.show(target, &mut shown);
+                }
+                _ => shown.extend(target.involved()),
+            }
+        }
+        shown.retain(|entity| !moving.contains(entity));
         shown.sort_unstable();
         shown.dedup();
         shown
@@ -221,6 +226,13 @@ impl Grab {
             .zip(self.handle)
             .map(|((sketch, landing), (point, _))| landing.joins(sketch, point))
             .unwrap_or_default();
+        match landing {
+            Some((sketch, landing)) => self.outlines.keep(
+                sketch,
+                landing.target.into_iter().chain(landing.tracks.anchors()),
+            ),
+            None => self.outlines.keep_none(),
+        }
         self.landing = landing.map(|(_, landing)| landing);
         let target = match (self.landing, self.handle) {
             (Some(landing), Some((_, original))) => self.from + (landing.position - original),
@@ -238,6 +250,7 @@ impl Grab {
         hold: Option<Hold>,
     ) -> Option<DragCommand> {
         self.guides = Vec::new();
+        self.outlines.keep_none();
         self.landing = snapping.and_then(|(sketch, screen)| {
             let Some(Entity::Circle { center, .. }) = sketch.entity(circle) else {
                 return None;

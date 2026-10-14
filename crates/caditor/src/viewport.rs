@@ -63,7 +63,7 @@ use crate::{
     pick_list::{self, PickList},
     preferences::{
         InputMode, Navigation, OrbitAround, PreferenceChange, PreferencesCommand, Sketching,
-        StartingToggles, ViewDetails, ZoomToward,
+        StartingToggles, Transitions, ViewDetails, ZoomToward,
     },
     primitive_tools, projecting,
     queued::{self, Queued, Rerun},
@@ -86,7 +86,7 @@ use crate::{
     snapshot, solid_tools, split_face_tools,
     start_card::{self, Start, StartCard},
     symmetric_drawing::{self, Mirror, Symmetry},
-    toggles,
+    system_motion, toggles,
     trimming::{self, Trimming},
     typed_point::{self, Typed, TypedPoint},
     view_aids::{DefaultBody, ViewAids},
@@ -1118,8 +1118,15 @@ impl ViewportState {
         self.camera.set_projection(navigation.projection);
         self.camera
             .set_field_of_view(navigation.field_of_view.degrees());
+        if navigation.transitions == Transitions::System {
+            system_motion::watch();
+        }
+        self.follow_system_motion();
+    }
+
+    fn follow_system_motion(&mut self) {
         self.camera
-            .set_transition_scale(navigation.transitions.scale());
+            .set_transition_scale(self.navigation.transitions.scale(system_motion::reduces()));
     }
 
     #[cfg(test)]
@@ -1136,7 +1143,7 @@ impl ViewportState {
         let mut camera = Camera::new(viewpoint);
         camera.set_projection(self.navigation.projection);
         camera.set_field_of_view(self.navigation.field_of_view.degrees());
-        camera.set_transition_scale(self.navigation.transitions.scale());
+        camera.set_transition_scale(self.navigation.transitions.scale(system_motion::reduces()));
         camera
     }
 
@@ -1245,6 +1252,9 @@ impl ViewportState {
     }
 
     pub fn advance(&mut self, elapsed: Duration) {
+        if self.navigation.transitions == Transitions::System {
+            self.follow_system_motion();
+        }
         self.camera.advance(elapsed);
     }
 
@@ -1790,6 +1800,14 @@ impl ViewportState {
     #[cfg(test)]
     pub fn snap_highlight(&self) -> Vec<EntityId> {
         self.drawing.snap_entities()
+    }
+
+    #[cfg(test)]
+    pub fn grab_highlight(&self, sketch: &Sketch) -> Vec<EntityId> {
+        match &self.primary {
+            Some(PrimaryDrag::Grab(grab)) => grab.snap_entities(sketch),
+            _ => Vec::new(),
+        }
     }
 
     #[cfg(test)]

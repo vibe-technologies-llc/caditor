@@ -589,9 +589,10 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   shows every piece of its loop, and for `Centre` the two corners its `Symmetric` holds, since
   `Target` names only the piece the outline search started from: `ShownOutlines` finds the loop
   again from that piece (`snap::outline_through`) when the centre starts being shown and keeps it
-  while it stays shown, so `Target` stays `Copy` and no outline search runs per frame. A grab
-  highlights its landing the same way (`Grab::snap_entities`: the target's and track anchors'
-  entities, never one that moves with it), a body edge it lands on drawn as guides along the edge
+  while it stays shown, so `Target` stays `Copy` and no outline search runs per frame
+  (`tracking::ShownOutlines`, shared with the grab). A grab highlights its landing the same way
+  (`Grab::snap_entities`: the target's and track anchors' entities, an outline's centre showing the
+  whole loop, never one that moves with it), a body edge it lands on drawn as guides along the edge
   (`ViewportState::grab_preview`).
 
 ## Constraint tools

@@ -332,3 +332,52 @@ fn a_loft_ending_at_a_missing_sketch_point_reserves_its_number() {
         })
     });
 }
+
+fn skipping_a_missing_point(scene: &mut Scene) -> Pattern {
+    let mut pattern = Pattern::new(
+        scene.body,
+        PatternKind::Points(PointsPattern {
+            sketch: scene.marks,
+            base: PointReference::Origin,
+        }),
+    );
+    pattern.skipped.insert(point_instance(MISSING).unwrap());
+
+    let mut transaction = scene.document.transaction("Name");
+    transaction.add_feature("Points", FeatureKind::from(pattern.clone()));
+    scene.document.apply(transaction.finish()).unwrap();
+
+    pattern
+}
+
+fn next_number(document: &Document, marks: FeatureId) -> u64 {
+    document
+        .feature(marks)
+        .and_then(|feature| feature.kind.sketch())
+        .map(Sketch::next_id)
+        .unwrap()
+}
+
+#[test]
+fn loading_a_points_pattern_skipping_a_missing_point_leaves_the_sketch_counter_as_it_was() {
+    let mut scene = scene();
+    let counter = next_number(&scene.document, scene.marks);
+
+    let pattern = skipping_a_missing_point(&mut scene);
+
+    assert_eq!(next_number(&scene.document, scene.marks), counter);
+    assert_eq!(pattern.skipped_points(), [(scene.marks, MISSING)]);
+}
+
+#[test]
+fn an_editor_keeps_a_point_drawn_later_off_a_point_a_pattern_skips() {
+    let mut scene = scene();
+    skipping_a_missing_point(&mut scene);
+
+    let mut editor = Editor::new(scene.document.clone());
+    let mut transaction = editor.document().transaction("Draw");
+    let drawn = transaction.add_sketch_entity(scene.marks, Entity::Point(Point2::new(4.5, 11.5)));
+    editor.apply(transaction.finish()).unwrap();
+
+    assert!(drawn.raw() > MISSING.raw(), "{drawn:?}");
+}

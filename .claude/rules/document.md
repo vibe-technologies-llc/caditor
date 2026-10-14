@@ -389,8 +389,10 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   with a reason until the deletion is undone), so its re-adding is not refused; instead inserts and
   kind changes raise the named sketch's ID counter past every such number, so a newly drawn entity
   never takes it and silently becomes the axis, point or source. A points pattern's skipped copies
-  are left out: an instance decodes to any number up to 2^64, and raising the counter on loading would
-  change how shipped files read (the format corpus holds one skipping copy 2^40). `AddSketchEntity` carries the construction flag and
+  are left out of those, since an instance decodes to any number up to 2^64 and raising the counter
+  on loading would change how shipped files read (the format corpus holds one skipping copy 2^40);
+  `Editor::new` reserves them instead (`Document::reserve_skipped_points`), so a document the app
+  opens never draws a point under a number a pattern skips while a loaded file reads as it was. `AddSketchEntity` carries the construction flag and
   the curve a piece was split from (`split_from`), `AddSketchConstraint` the inactive flag and label offset, so undoing
   a removal restores them; `SetSketchConstraintActive` and `SetSketchLabel` change one;
   `reshape_sketch` emits them for kept constraints that differ. Setting an entity changes only its

@@ -141,7 +141,8 @@ impl Prepared {
 pub struct Stale;
 
 impl Editor {
-    pub fn new(document: Document) -> Self {
+    pub fn new(mut document: Document) -> Self {
+        document.reserve_skipped_points();
         Self {
             document,
             ..Self::default()

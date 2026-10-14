@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use caditor_file::{RecentFiles, Settings};
-use caditor_geometry::{Plane, Point2};
+use caditor_geometry::{Plane, Point2, Vector3};
 use caditor_sketch::Sketch;
 use egui::{Event, Id, Key, Modifiers, PointerButton, Pos2, accesskit::Role, vec2};
 use tempfile::TempDir;
@@ -19,6 +19,7 @@ use crate::{
         Preferences, PreferencesCommand, PreferencesTab, RecentListed, Section, Startup,
         TooltipDelay, Transitions, ZoomToward,
     },
+    system_motion,
     view_aids::EdgeWeight,
 };
 
@@ -461,4 +462,37 @@ fn the_new_bodies_preference_makes_a_new_extrusion_a_body_each_and_is_remembered
     assert!(offered);
     assert_eq!(pieces, caditor_document::Pieces::BodyEach);
     assert_eq!(made, 3);
+}
+
+#[test]
+fn following_the_system_glides_between_views_unless_the_system_turns_animations_off() {
+    let mut harness = Harness::new();
+    settle_camera(&mut harness);
+
+    open_tab(&mut harness, PreferencesTab::Navigation);
+    harness.click(Transitions::System.label());
+    close_preferences(&mut harness);
+    assert_eq!(
+        harness.workspace.preferences.navigation.transitions,
+        Transitions::System
+    );
+
+    system_motion::pretend(false);
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.key(Key::Num1, Modifiers::ALT);
+    harness.frame();
+    let glides = harness.workspace.viewport.is_animating();
+    settle_camera(&mut harness);
+
+    system_motion::pretend(true);
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.key(Key::Num2, Modifiers::ALT);
+    harness.frame();
+    let jumps = !harness.workspace.viewport.is_animating();
+    let turned = harness.workspace.viewport.viewpoint().forward();
+    system_motion::pretend(false);
+
+    assert!(glides);
+    assert!(jumps);
+    assert!(turned.distance(Vector3::NEG_Z) < 1e-9, "{turned:?}");
 }

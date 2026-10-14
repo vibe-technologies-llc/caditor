@@ -8,7 +8,8 @@ use std::{
 use tempfile::TempDir;
 
 use crate::{
-    ButtonRect, FileId, HIDDEN_ATTRIBUTE, battery_flag, boot_id, cluster_size, duplicate_extents,
+    ButtonRect, FileId, HIDDEN_ATTRIBUTE, battery_flag, boot_id, client_area_animations,
+    cluster_size, duplicate_extents,
     files::{verbatim_for_tests, without_verbatim_for_tests},
     final_path, machine_guid,
     maximize::client_point,
@@ -187,4 +188,9 @@ fn a_hit_test_position_keeps_the_sign_of_each_half() {
 #[test]
 fn the_battery_flag_is_read() {
     assert!(battery_flag().is_ok());
+}
+
+#[test]
+fn the_client_area_animation_setting_is_read() {
+    assert!(client_area_animations().is_ok());
 }

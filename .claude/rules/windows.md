@@ -49,6 +49,9 @@ so call sites stay platform-free.
     resize and move and the corner close stays an egui widget.
   - `battery_flag`: `GetSystemPowerStatus`'s `BatteryFlag`, read by `caditor-render` to tell a
     desktop (128) from a laptop for the Auto graphics adapter.
+  - `client_area_animations`: `SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION)`, whether Windows
+    animates its windows (Settings › Accessibility › Visual effects › Animation effects); the app
+    reads it for Preferences › Navigation › View changes › Follow the system (`app-files.md`).
   - `attach_parent_console`: a release build is GUI-subsystem, so `--version`, `--help` and
     `--export` print only after attaching to the starting console.
   - `DialogParent`: an HWND as `HasWindowHandle` and `HasDisplayHandle`, for rfd.

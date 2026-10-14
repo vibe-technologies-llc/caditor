@@ -166,9 +166,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   corners and the boundaries of faces, but not the outline of a body seen square to the sketch
   plane: the silhouette lines of a cylinder lying along the plane or the circle of a sphere cannot
   be brought in, so a sketch following a body's outline is drawn by hand.
-- [low · medium] A centre snap's grab highlight while dragging marks the piece the outline search
-  started from and the two corners its constraint holds, not the whole outline the drawing tools
-  highlight (`sketch_drag.rs`).
 
 ## STEP import and export
 
@@ -266,8 +263,10 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   the user's approval of each client, a status pill naming the connected client with a Disconnect,
   its changes landing in the user's undo history interleaved with their own, and its tool calls
   queued like `queued.rs` actions while the model recomputes, never blocking the UI thread.
-- [low · medium] Preferences still lack following the system's reduce-motion setting (winit
-  reports none; View changes › No motion does it by hand).
+- [low · easy] Follow the system's motion setting reads only GNOME's `enable-animations` through the
+  desktop portal on Unix, so KDE Plasma's animation speed and desktops without that key keep the
+  glide (`system_motion.rs`, `portal/xdg.rs`); a portal reduced-motion key or Plasma's setting would
+  extend it, and a settings-changed signal would replace the five-second poll.
 - [low · medium] A copy from another model keeps none of its references outside the copied set. A
   sketch's section projection of a copied body is still left out, its edge being named by the
   sketch's own cut (`section.rs`), and a corner picked on a body outside the copy is not followed
