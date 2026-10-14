@@ -23,7 +23,10 @@ first, so two programs never change one model at once.
 - Read the [parameters](parameters) and set one, or add one, with any
   [expression](expressions).
 - Read each body's volume, surface area, centre of mass and bounding box, worked out exactly as
-  [Measure](measure) does, and the faces of a body with their kind, size and a stable key.
+  [Measure](measure) does, the faces of a body with their kind, size and a stable key, and its
+  edges with their kind, length, radius and the faces they lie between.
+- Measure the distance between two points, faces or edges, and the angle between them when they
+  have one.
 - Read a sketch: its plane, entities, constraints and dimensions, the degrees of freedom left and
   the constraints that conflict or repeat each other, as the [sketch status](sketch-status) names
   them.
@@ -32,14 +35,23 @@ first, so two programs never change one model at once.
 - Add a [sketch](sketches) on a principal plane or a flat face, draw points, lines, polylines,
   rectangles and circles in it, and add [constraints](constraints) and
   [dimensions](dimensions).
-- Add an [extrusion](extrude), which decides whether to add, cut or start a new body as the
-  Extrude tool does unless told, and a [hole](hole) at every free point of a sketch.
+- Add an [extrusion](extrude) or a [revolve](revolve), which decide whether to add, cut or start
+  a new body as their tools do unless told, and a [hole](hole) at every free point of a sketch.
+- Round or bevel edges with a [fillet or chamfer](fillet-and-chamfer), hollow a body with a
+  [shell](shell), move faces with [Offset face](offset-face), and add a box, cylinder, sphere,
+  torus, cone, wedge or prism as the [primitives](primitives) do, on a plane, a flat face or a
+  datum plane.
+- [Mirror](mirror) and [pattern](patterns) a body, or holes, cuts and bosses of one body, in a
+  row, a grid or around an axis; [combine](combine) bodies and [move or copy](move-and-copy) them;
+  add [datum](datums) planes and axes.
+- Rename, suppress, reorder and delete features in the [feature tree](feature-tree). Deleting a
+  feature others use needs the assistant to say whether they go too or stay, failing.
 - [Undo and redo](undo), save and export.
 
 Every change the assistant makes is one step of the model's undo history, named after what it did,
 and answers with every feature that fails after it in the words the tree uses. Features, bodies and
-sketch entities are named by their ids or names and faces by keys made from what made them, so a
-reference still means the same thing after the model recomputes.
+sketch entities are named by their ids or names and faces and edges by keys made from what made
+them, so a reference still means the same thing after the model recomputes.
 
 ## Files
 
