@@ -48,9 +48,8 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   edges as its path, so a profile of one's own (a triangle, a closed-end spring's ground ends) cannot
   run along a helix, and a flat spiral (a clock spring) has no tool at all. A helix needs a curve of
   its own the path can name (a datum curve, or a curve of a 3D sketch, Sketching). Coil covers
-  round and square sections in a plane through the axis; its panel has no value arrows to drag its
-  diameter, pitch or section yet, and its turns cannot touch (a closed coil needs a pitch a hair
-  larger than the wire).
+  round and square sections in a plane through the axis, and its turns cannot touch (a closed coil
+  needs a pitch a hair larger than the wire).
 - [medium · hard] Patterns stop short of what other modellers repeat: a curve pattern follows only
   the curves of one sketch, never a chain of model edges (a 3D path, the copies then turning with
   its tangent and normal), and a pattern repeats features or whole bodies but never chosen faces.
@@ -64,7 +63,7 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [low · medium] Ribs (`rib.rs`) follow only chains that do not branch: two ribs meeting in a T
   are refused (crossing chains work), a web is thickened only along lines and arcs
   (`wall_regions`), free ends run on along their tangent only (no natural continuation of an arc),
-  a rib takes no draft angle, and its thickness has no value arrow in the view.
+  and a rib takes no draft angle.
 - [low · medium] A chamfer's feet on a curved face stand on the face's tangent line rather than on
   the face, and a curve pattern's arrow (`value_gauges.rs`) slides along the curve's tangent while
   it is dragged, rejoining the curve when the copies are placed again. Each would be a `Track`

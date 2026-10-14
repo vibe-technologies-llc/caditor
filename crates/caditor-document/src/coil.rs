@@ -35,6 +35,13 @@ impl CoilTurning {
         }
     }
 
+    pub fn sign(self) -> f64 {
+        match self {
+            Self::CounterClockwise => 1.0,
+            Self::Clockwise => -1.0,
+        }
+    }
+
     fn hand(self) -> Handedness {
         match self {
             Self::CounterClockwise => Handedness::Right,

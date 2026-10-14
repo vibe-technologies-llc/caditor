@@ -8,11 +8,16 @@ use caditor_geometry::{Plane, Point2};
 use caditor_kernel::CoilShape;
 use egui::{Id, Key, Modifiers};
 
-use super::{CAMERA_SETTLE, Harness, choose, run_from_palette};
+use super::{
+    CAMERA_SETTLE, Harness, choose, drag_value_arrow, length_value, pipes::undone_and_redone,
+    run_from_palette,
+};
 use crate::{
     coil_panel, coil_tools,
+    move_manipulator::Handle,
     reference_picking::Slot,
     selection::{Axis, Pickable},
+    value_gauges::Measured,
 };
 
 const RADIUS: f64 = 0.5 * coil_tools::DEFAULT_DIAMETER;
@@ -139,4 +144,119 @@ fn a_coil_s_panel_sizes_it_by_any_two_lengths_and_switches_its_section_and_turni
         harness.body_volume(coil),
         4.0 * WIRE * WIRE * TAU * RADIUS * 4.0
     ));
+}
+
+fn open_vertical_coil(harness: &mut Harness) -> FeatureId {
+    harness.select([Pickable::Axis(Axis::Z)]);
+    run_from_palette(harness, "coil");
+    harness.settle();
+    harness.select([]);
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    harness.workspace.editing.solid().expect("the coil is open")
+}
+
+#[test]
+fn dragging_a_coil_s_diameter_arrow_changes_its_diameter_and_a_typed_value_still_works() {
+    let mut harness = Harness::new();
+    let coil = open_vertical_coil(&mut harness);
+    let diameter = |harness: &Harness| length_value(harness, &coil_of(harness, coil).diameter);
+    let before = diameter(&harness);
+
+    let step = drag_value_arrow(&mut harness, Measured::CoilDiameter, 3.0);
+    let after = diameter(&harness);
+
+    assert_eq!(before, coil_tools::DEFAULT_DIAMETER);
+    assert_eq!(harness.model.undo_label(), Some("Edit Coil 1"));
+    assert!(
+        (after - before - 6.0).abs() <= 2.0 * step,
+        "{before} to {after} with steps of {step}"
+    );
+    undone_and_redone(&mut harness, "the diameter drag", diameter);
+
+    harness.type_into_field(Id::new(("coil-field", coil, "diameter")), "30 mm");
+    harness.settle();
+    assert_eq!(diameter(&harness), 30.0);
+    assert!(near(
+        harness.body_volume(coil),
+        PI * WIRE * WIRE * TAU * 15.0 * 5.0
+    ));
+}
+
+#[test]
+fn dragging_a_coil_s_section_arrow_changes_the_size_of_its_wire() {
+    let mut harness = Harness::new();
+    let coil = open_vertical_coil(&mut harness);
+    let size = |harness: &Harness| length_value(harness, &coil_of(harness, coil).size);
+    let before = size(&harness);
+
+    let step = drag_value_arrow(&mut harness, Measured::CoilSection, 0.5);
+    let after = size(&harness);
+
+    assert_eq!(before, coil_tools::DEFAULT_SECTION);
+    assert_eq!(harness.model.undo_label(), Some("Edit Coil 1"));
+    assert!(
+        (after - before - 1.0).abs() <= 2.0 * step,
+        "{before} to {after} with steps of {step}"
+    );
+    undone_and_redone(&mut harness, "the section drag", size);
+}
+
+#[test]
+fn dragging_a_coil_s_pitch_arrow_spreads_its_turns() {
+    let mut harness = Harness::new();
+    let coil = open_vertical_coil(&mut harness);
+    let pitch = |harness: &Harness| {
+        let length = coil_of(harness, coil).length;
+        length_value(harness, length.pitch().expect("a pitch"))
+    };
+    let before = pitch(&harness);
+
+    let step = drag_value_arrow(&mut harness, Measured::CoilPitch, 2.0);
+    let after = pitch(&harness);
+
+    assert_eq!(before, caditor_document::DEFAULT_PITCH);
+    assert_eq!(harness.model.undo_label(), Some("Edit Coil 1"));
+    assert!(
+        (after - before - 2.0).abs() <= step,
+        "{before} to {after} with steps of {step}"
+    );
+    undone_and_redone(&mut harness, "the pitch drag", pitch);
+}
+
+#[test]
+fn a_coil_sized_by_height_has_a_height_arrow_and_no_pitch_arrow_when_sized_by_height_and_turns() {
+    let mut harness = Harness::new();
+    let coil = open_vertical_coil(&mut harness);
+    let shown = |harness: &Harness, measured: Measured| {
+        harness
+            .workspace
+            .viewport
+            .handle_position(Handle::Value(measured), 0.0)
+            .is_some()
+    };
+    assert!(shown(&harness, Measured::CoilPitch));
+    assert!(!shown(&harness, Measured::CoilHeight));
+
+    choose(&mut harness, "Turns and pitch", "Height and turns");
+    harness.select([]);
+    run_from_palette(&mut harness, "Fit view");
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    assert!(!shown(&harness, Measured::CoilPitch));
+    assert!(shown(&harness, Measured::CoilHeight));
+
+    let height = |harness: &Harness| {
+        let length = coil_of(harness, coil).length;
+        length_value(harness, length.height().expect("a height"))
+    };
+    let before = height(&harness);
+    let step = drag_value_arrow(&mut harness, Measured::CoilHeight, 5.0);
+    let after = height(&harness);
+
+    assert!(
+        (after - before - 5.0).abs() <= step,
+        "{before} to {after} with steps of {step}"
+    );
+    undone_and_redone(&mut harness, "the height drag", height);
 }

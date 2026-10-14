@@ -42,6 +42,10 @@ body starts square to its sketch.
   flips which way it goes; Reverse direction in the Model menu and palette does the same.
 
 The rib is shown as it will be while the panel is open, and every change is one undoable step.
+An arrow in the view drags the thickness: across the sketch for a rib, within the sketch's plane
+beside the first curve for a web. It follows the same steps and snapping as other arrows; Ctrl
+drags freely, and typing a number while holding or hovering it sets the value as the panel field
+would, parameters included.
 
 ## When it fails
 
