@@ -5,11 +5,11 @@ use crate::mcp::{
     tools::{object, reference},
 };
 
-fn flag(description: &str) -> Value {
+pub(super) fn flag(description: &str) -> Value {
     json!({ "type": "boolean", "description": description })
 }
 
-fn choice(values: &[&str], description: &str) -> Value {
+pub(super) fn choice(values: &[&str], description: &str) -> Value {
     json!({ "type": "string", "enum": values, "description": description })
 }
 

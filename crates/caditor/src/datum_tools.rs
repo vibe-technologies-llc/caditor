@@ -707,7 +707,7 @@ fn steepness(along: Vector3, normal: Option<Vector3>) -> f64 {
     })
 }
 
-fn least_steep<T: Copy>(
+pub fn least_steep<T: Copy>(
     choices: impl IntoIterator<Item = (T, Vector3)>,
     other: Option<Vector3>,
 ) -> Option<T> {

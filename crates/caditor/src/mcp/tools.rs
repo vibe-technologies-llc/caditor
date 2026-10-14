@@ -3,11 +3,15 @@ use serde_json::{Map, Value, json};
 
 use crate::{
     mcp::{
+        curves::{self, CurveToolError},
+        datum_schemas,
+        datums::{self, DatumError},
         edges::{self, MeasuringError},
         edits::{self, FeatureEditError},
         feature_schemas,
         features::{self, FeatureError},
         files::{self, FileError},
+        mates::{self, MateError},
         places::PlaceError,
         reading::{self, RenderError},
         references::ReferenceError,
@@ -71,6 +75,14 @@ pub enum Tool {
     AddDeleteFace,
     AddSplit,
     AddScale,
+    AddDatumPoint,
+    AddCoordinateSystem,
+    AddMate,
+    AddHelix,
+    AddCurvePattern,
+    AddPointPattern,
+    Import,
+    SaveAs,
     EditFeature,
     RenameFeature,
     SuppressFeatures,
@@ -124,6 +136,14 @@ all_variants!(
     AddDeleteFace,
     AddSplit,
     AddScale,
+    AddDatumPoint,
+    AddCoordinateSystem,
+    AddMate,
+    AddHelix,
+    AddCurvePattern,
+    AddPointPattern,
+    Import,
+    SaveAs,
     EditFeature,
     RenameFeature,
     SuppressFeatures,
@@ -196,6 +216,12 @@ pub enum ToolError {
     Reshaping(#[from] ReshapeError),
     #[error(transparent)]
     Editing(#[from] FeatureEditError),
+    #[error(transparent)]
+    Datums(#[from] DatumError),
+    #[error(transparent)]
+    Mates(#[from] MateError),
+    #[error(transparent)]
+    Curves(#[from] CurveToolError),
 }
 
 impl Tool {
@@ -250,6 +276,14 @@ impl Tool {
             Self::AddDeleteFace => "add_delete_face",
             Self::AddSplit => "add_split",
             Self::AddScale => "add_scale",
+            Self::AddDatumPoint => "add_datum_point",
+            Self::AddCoordinateSystem => "add_coordinate_system",
+            Self::AddMate => "add_mate",
+            Self::AddHelix => "add_helix",
+            Self::AddCurvePattern => "add_curve_pattern",
+            Self::AddPointPattern => "add_point_pattern",
+            Self::Import => "import",
+            Self::SaveAs => "save_as",
             Self::EditFeature => "edit_feature",
             Self::RenameFeature => "rename_feature",
             Self::SuppressFeatures => "suppress_features",
@@ -305,6 +339,14 @@ impl Tool {
             Self::AddDeleteFace => "Delete face",
             Self::AddSplit => "Split body",
             Self::AddScale => "Scale body",
+            Self::AddDatumPoint => "Datum point",
+            Self::AddCoordinateSystem => "Coordinate system",
+            Self::AddMate => "Mate",
+            Self::AddHelix => "Helix",
+            Self::AddCurvePattern => "Curve pattern",
+            Self::AddPointPattern => "Point pattern",
+            Self::Import => "Import",
+            Self::SaveAs => "Save as",
             Self::EditFeature => "Edit a feature",
             Self::RenameFeature => "Rename a feature",
             Self::SuppressFeatures => "Suppress features",
@@ -461,10 +503,34 @@ impl Tool {
                 "Moves or turns a body, or a copy of it, by offsets along X, Y and Z and turns about its own centre or about an axis. One undo step."
             }
             Self::AddDatumPlane => {
-                "Adds a datum plane offset from a plane or flat face and optionally turned about an axis, for sketches, mirrors and primitives to use. One undo step."
+                "Adds a datum plane for sketches, mirrors and primitives to use: offset from a plane or flat face and optionally turned about an axis, through three points, midway between two planes, through two lines, holding an axis and a point, square to an axis at a point, touching a curved face nearest a point, or square to an edge at a distance along it. One undo step."
             }
             Self::AddDatumAxis => {
-                "Adds a datum axis along an edge, round face, sketch line or principal axis, or where two planes meet. One undo step."
+                "Adds a datum axis along an edge, round face, sketch line or principal axis, where two planes meet, through two points, square to a plane at a point, or square to a curved face nearest a point. One undo step."
+            }
+            Self::AddDatumPoint => {
+                "Adds a datum point at a point (origin, a corner, a round edge's or sphere's centre, a sketch point, another datum point) with an offset, where two lines cross, where an axis meets a plane, where three planes meet, at a distance along an edge, at an edge's middle or at a face's centre. One undo step."
+            }
+            Self::AddCoordinateSystem => {
+                "Adds a coordinate system from an origin point, an axis for its X direction and a plane for its XY plane, either reversed; sketches, mates and other features can use its planes, axes and origin. One undo step."
+            }
+            Self::AddMate => {
+                "Moves a body by its geometry onto another body, a plane, an axis or a point, and keeps it there when that changes: a flat face flush with a plane (at a distance), an axis concentric with another, both at once, a round face resting on a plane, a flat face resting on a round face, a point on a point or plane, or a face or axis turned to an angle. One undo step."
+            }
+            Self::AddHelix => {
+                "Adds a helix about an axis, sized by its diameter and two of turns, pitch and height, optionally tapered, for pipes and sweeps to follow. One undo step."
+            }
+            Self::AddCurvePattern => {
+                "Repeats a body, or holes, cuts and bosses of one body, along the curves of a sketch joined end to end, spread evenly or a spacing apart, keeping or following the curve's turn. One undo step."
+            }
+            Self::AddPointPattern => {
+                "Repeats a body, or holes, cuts and bosses of one body, at each lone point of a sketch, each copy moved from a base point. One undo step."
+            }
+            Self::Import => {
+                "Imports a file from the model's folder or one the user allowed: the bodies of a STEP model or an STL, OBJ or 3MF mesh, or a DXF or SVG drawing into a new sketch on a plane or into an existing sketch. A relative path is taken from the model's folder. One undo step."
+            }
+            Self::SaveAs => {
+                "Saves the model under a new name ending in .caditor, in the model's folder or one the user allowed, and goes on working on that file; it never replaces an existing file."
             }
             Self::AddSweep => {
                 "Sweeps every closed region of a sketch along a path: lines, arcs and curves of another sketch, edges of a body, or a helix. With no operation it adds to the body it reaches or makes a new body. One undo step."
@@ -548,7 +614,14 @@ impl Tool {
             | Self::AddSplitFace
             | Self::AddDeleteFace
             | Self::AddSplit
-            | Self::AddScale => Effect::Adds,
+            | Self::AddScale
+            | Self::AddDatumPoint
+            | Self::AddCoordinateSystem
+            | Self::AddMate
+            | Self::AddHelix
+            | Self::AddCurvePattern
+            | Self::AddPointPattern
+            | Self::Import => Effect::Adds,
             Self::SetParameter
             | Self::RemoveSketchItems
             | Self::EditSketchConstraint
@@ -560,7 +633,7 @@ impl Tool {
             | Self::MoveFeature
             | Self::DeleteFeatures
             | Self::EditFeature => Effect::Changes,
-            Self::Save | Self::Export => Effect::Writes,
+            Self::Save | Self::Export | Self::SaveAs => Effect::Writes,
         }
     }
 
@@ -721,8 +794,8 @@ impl Tool {
             Self::AddCircularPattern => feature_schemas::circular_pattern(),
             Self::AddCombine => feature_schemas::combine(),
             Self::AddMove => feature_schemas::move_body(),
-            Self::AddDatumPlane => feature_schemas::datum_plane(),
-            Self::AddDatumAxis => feature_schemas::datum_axis(),
+            Self::AddDatumPlane => datum_schemas::datum_plane(),
+            Self::AddDatumAxis => datum_schemas::datum_axis(),
             Self::AddSweep => sweep_schemas::sweep(),
             Self::AddPipe => sweep_schemas::pipe(),
             Self::AddLoft => sweep_schemas::loft(),
@@ -733,6 +806,14 @@ impl Tool {
             Self::AddDeleteFace => sweep_schemas::delete_face(),
             Self::AddSplit => sweep_schemas::split(),
             Self::AddScale => sweep_schemas::scale(),
+            Self::AddDatumPoint => datum_schemas::datum_point(),
+            Self::AddCoordinateSystem => datum_schemas::coordinate_system(),
+            Self::AddMate => datum_schemas::mate(),
+            Self::AddHelix => datum_schemas::helix(),
+            Self::AddCurvePattern => datum_schemas::curve_pattern(),
+            Self::AddPointPattern => datum_schemas::point_pattern(),
+            Self::Import => datum_schemas::import(),
+            Self::SaveAs => datum_schemas::save_as(),
             Self::EditFeature => sweep_schemas::edit_feature(),
             Self::RenameFeature => feature_schemas::rename_feature(),
             Self::SuppressFeatures => feature_schemas::suppress_features(),
@@ -809,6 +890,14 @@ impl Tool {
             Self::AddDeleteFace => Call::AddDeleteFace(self.arguments(arguments)?),
             Self::AddSplit => Call::AddSplit(self.arguments(arguments)?),
             Self::AddScale => Call::AddScale(self.arguments(arguments)?),
+            Self::AddDatumPoint => Call::AddDatumPoint(self.arguments(arguments)?),
+            Self::AddCoordinateSystem => Call::AddCoordinateSystem(self.arguments(arguments)?),
+            Self::AddMate => Call::AddMate(self.arguments(arguments)?),
+            Self::AddHelix => Call::AddHelix(self.arguments(arguments)?),
+            Self::AddCurvePattern => Call::AddCurvePattern(self.arguments(arguments)?),
+            Self::AddPointPattern => Call::AddPointPattern(self.arguments(arguments)?),
+            Self::Import => Call::Import(self.arguments(arguments)?),
+            Self::SaveAs => Call::SaveAs(self.arguments(arguments)?),
             Self::EditFeature => Call::EditFeature(self.arguments(arguments)?),
             Self::RenameFeature => Call::RenameFeature(self.arguments(arguments)?),
             Self::SuppressFeatures => Call::SuppressFeatures(self.arguments(arguments)?),
@@ -859,8 +948,8 @@ pub enum Call {
     AddCircularPattern(features::CircularPatterning),
     AddCombine(features::Combining),
     AddMove(features::Moving),
-    AddDatumPlane(features::DatumPlaning),
-    AddDatumAxis(features::DatumAxising),
+    AddDatumPlane(datums::DatumPlaning),
+    AddDatumAxis(datums::DatumAxising),
     AddSweep(sweeps::Sweeping),
     AddPipe(sweeps::Piping),
     AddLoft(sweeps::Lofting),
@@ -871,6 +960,14 @@ pub enum Call {
     AddDeleteFace(reshaping::FaceDeleting),
     AddSplit(reshaping::Splitting),
     AddScale(reshaping::Scaling),
+    AddDatumPoint(datums::DatumPointing),
+    AddCoordinateSystem(datums::Framing),
+    AddMate(mates::Mating),
+    AddHelix(curves::Helixing),
+    AddCurvePattern(curves::CurvePatterning),
+    AddPointPattern(curves::PointPatterning),
+    Import(files::Importing),
+    SaveAs(files::SavingAs),
     EditFeature(edits::Editing),
     RenameFeature(tree_edits::Renaming),
     SuppressFeatures(tree_edits::Suppressing),
@@ -920,8 +1017,8 @@ impl Call {
             }
             Self::AddCombine(combining) => features::combine(session, work, combining),
             Self::AddMove(moving) => features::move_body(session, work, moving),
-            Self::AddDatumPlane(planing) => features::datum_plane(session, work, planing),
-            Self::AddDatumAxis(axising) => features::datum_axis(session, work, axising),
+            Self::AddDatumPlane(planing) => datums::datum_plane(session, work, planing),
+            Self::AddDatumAxis(axising) => datums::datum_axis(session, work, axising),
             Self::AddSweep(sweeping) => sweeps::sweep(session, work, sweeping),
             Self::AddPipe(piping) => sweeps::pipe(session, work, piping),
             Self::AddLoft(lofting) => sweeps::loft(session, work, lofting),
@@ -932,6 +1029,14 @@ impl Call {
             Self::AddDeleteFace(deleting) => reshaping::delete_face(session, work, deleting),
             Self::AddSplit(splitting) => reshaping::split(session, work, splitting),
             Self::AddScale(scaling) => reshaping::scale(session, work, scaling),
+            Self::AddDatumPoint(pointing) => datums::datum_point(session, work, pointing),
+            Self::AddCoordinateSystem(framing) => datums::coordinate_system(session, work, framing),
+            Self::AddMate(mating) => mates::mate(session, work, mating),
+            Self::AddHelix(helixing) => curves::helix(session, work, helixing),
+            Self::AddCurvePattern(patterning) => curves::curve_pattern(session, work, patterning),
+            Self::AddPointPattern(patterning) => curves::point_pattern(session, work, patterning),
+            Self::Import(importing) => files::import_file(session, work, &importing),
+            Self::SaveAs(saving) => files::save_as(session, &saving).map(Answer::of),
             Self::EditFeature(editing) => edits::edit(session, work, editing),
             Self::RenameFeature(renaming) => tree_edits::rename(session, work, renaming),
             Self::SuppressFeatures(suppressing) => tree_edits::suppress(session, work, suppressing),

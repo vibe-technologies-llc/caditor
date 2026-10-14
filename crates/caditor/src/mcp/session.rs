@@ -390,6 +390,10 @@ impl Session {
     }
 
     pub fn save(&mut self) -> Result<Stored, SaveFailure> {
+        self.save_to(self.model.clone())
+    }
+
+    pub fn save_to(&mut self, path: PathBuf) -> Result<Stored, SaveFailure> {
         self.poll_storage();
         if self.journal.storage.is_none() {
             self.start_storage();
@@ -400,8 +404,8 @@ impl Session {
         let request = SaveRequest {
             ticket,
             document: document.clone(),
-            path: self.model.clone(),
-            keep_original: self.keep_original,
+            keep_original: self.keep_original && path == self.model,
+            path,
             label: self.editor.undo_label().map(str::to_owned),
             replace_outside_changes: false,
             retention: self.retention,
@@ -516,14 +520,13 @@ impl Session {
     }
 
     fn handle_report(&mut self, report: Report, waited: u64) -> Option<Settled> {
-        let file = display_name(Some(&self.model));
         match report {
             Report::Saved {
                 ticket,
+                path,
                 backup,
                 dropped_for_size,
                 digest,
-                ..
             } => {
                 let pending = self
                     .journal
@@ -535,6 +538,7 @@ impl Session {
                     .entries
                     .drain(..pending.entries.min(self.journal.entries.len()));
                 self.saved = Some(pending.document);
+                self.model = path;
                 self.on_disk = Some(digest);
                 self.keep_original = false;
                 (ticket == waited).then_some(Settled::Saved(Stored {
@@ -542,22 +546,33 @@ impl Session {
                     dropped_for_size,
                 }))
             }
-            Report::ChangedOnDisk { ticket, .. } => {
+            Report::ChangedOnDisk { ticket, path } => {
                 self.journal
                     .pending
                     .take_if(|pending| pending.ticket == ticket);
-                (ticket == waited).then_some(Settled::Failed(SaveFailure::ChangedOnDisk { file }))
+                (ticket == waited).then(|| {
+                    Settled::Failed(SaveFailure::ChangedOnDisk {
+                        file: display_name(Some(&path)),
+                    })
+                })
             }
-            Report::SaveFailed { ticket, error, .. } => {
+            Report::SaveFailed {
+                ticket,
+                path,
+                error,
+            } => {
                 self.journal
                     .pending
                     .take_if(|pending| pending.ticket == ticket);
-                (ticket == waited).then_some(Settled::Failed(SaveFailure::Writing {
-                    file,
-                    source: error,
-                }))
+                (ticket == waited).then(|| {
+                    Settled::Failed(SaveFailure::Writing {
+                        file: display_name(Some(&path)),
+                        source: error,
+                    })
+                })
             }
             Report::JournalFailed { failure } => {
+                let file = display_name(Some(&self.model));
                 log::warn!(
                     "unsaved changes to {file} are not protected against a crash: {failure}"
                 );

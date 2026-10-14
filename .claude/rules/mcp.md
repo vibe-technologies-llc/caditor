@@ -59,24 +59,29 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   and waits for its report. Closing discards the journal only when the model is saved; otherwise
   it stays for the window to recover.
 
-## Tools (`tools.rs`, `reading.rs`, `writing.rs`, `sketching.rs`, `sketch_edits.rs`, `sketch_moves.rs`, `features.rs`, `solids.rs`, `sweeps.rs`, `reshaping.rs`, `edits.rs`, `tree_edits.rs`, `edges.rs`, `files.rs`)
+## Tools (`tools.rs`, `reading.rs`, `writing.rs`, `sketching.rs`, `sketch_edits.rs`, `sketch_moves.rs`, `features.rs`, `solids.rs`, `sweeps.rs`, `reshaping.rs`, `datums.rs`, `mates.rs`, `curves.rs`, `edits.rs`, `tree_edits.rs`, `edges.rs`, `files.rs`)
 
 - `Tool` lists every tool (`all_variants!`); `Tool::decode` turns arguments into a typed `Call`
   through `serde` (`deny_unknown_fields`), and `Call::run` does it. Errors are `ToolError` and the
   per-area enums (`ReferenceError`, `SketchingError`, `ModellingError`, `FileError`,
   `RenderError`, `ChangeError`, `PlaceError`, `FeatureError`, `MeasuringError`, `TreeError`,
-  `SweepToolError`, `ReshapeError`, `FeatureEditError`, `SketchEditError`),
+  `SweepToolError`, `ReshapeError`, `FeatureEditError`, `SketchEditError`, `DatumError`,
+  `MateError`, `CurveToolError`),
   sent as a tool result with `isError` and the message as a sentence; the app's own refusals
   (field parsing, attachment, constraint conflicts) keep their words.
 - References are by stable identity only (`references.rs`): features and bodies by id or name,
   sketch entities by id or `origin`, `horizontal_axis`, `vertical_axis`, faces by a key of their
   `FaceName` digest and occurrence (`face_key_text`), edges by their `EdgeName` digest
   (`places::edge_key_text`), resolved on the body as it stands now. `places.rs` turns a plane
-  (`XY`/`XZ`/`YZ`, `{body, face}` through `attachment_in`, `{datum}`) or an axis (`X`/`Y`/`Z`,
-  `{body, edge}`, `{body, face}`, `{sketch, line}`, `{datum}`) into a `PlaneReference` or
-  `AxisReference` as the app's pickers capture them: an edge or face captured on the shown body,
-  resolved on the body's state at the bar (`body_state_in`) and captured there; a datum only when it
-  stands above the bar. These are serde untagged enums of `deny_unknown_fields` structs.
+  (`XY`/`XZ`/`YZ`, `{body, face}` through `attachment_in`, `{datum}`, `{frame, plane}`), an axis
+  (`X`/`Y`/`Z`, `{body, edge}`, `{body, face}`, `{sketch, line}`, `{datum}`, `{frame, axis}`) or a
+  point (`"origin"`, a corner `{body, corner: [x, y, z]}` found among the shown body's vertices
+  and named by `vertex_names`, a round edge's centre `{body, edge}`, a sphere's or torus's centre
+  `{body, face}`, `{sketch, point}`, `{datum}` for a datum point or a coordinate system's origin)
+  into a `PlaneReference`, `AxisReference` or `PointReference` as the app's pickers capture them:
+  an edge or face captured on the shown body, resolved on the body's state at the bar
+  (`body_state_in`, `face_at_bar`, `edge_at_bar`) and captured there; a datum or sketch only when
+  it stands above the bar. These are serde untagged enums of `deny_unknown_fields` structs.
 - Every write is one transaction, one undo step, built with the app's own pieces: sketches as New
   sketch makes them (`sketch_placement::attachment_in` on a face), geometry and constraints after
   settling the sketch to its last result as sketch tools do, constraints tried first with
@@ -96,7 +101,7 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   primitives (`primitive_tools::default_shape` with the given sizes, at a face's middle
   `hole_tools::middle_of` and adding to that body by default), mirror and linear or circular
   pattern of a body or of repeatable features (`pattern_tools::repeatable`, `skipped` copies as
-  `Instance`s, the original refused), combine, move and datum planes and axes. Values are
+  `Instance`s, the original refused), combine and move. Values are
   `Amount`s, a number of millimetres or degrees or an expression, parsed by
   `field::parse_expression`; offsets, moves and turns may be negative. The kernel's refusals arrive
   as the new feature failing, in the tree's words.
@@ -114,9 +119,25 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   threads (the face's `Bore` picks the nearest size and default class, named
   `thread_tools::unique_name`); `reshaping.rs` adds split face, delete face, split (along a plane,
   `{sketch}` or `{tool}` body) and scale, each with the app tool's defaults.
+- `datums.rs` places datums one way each, the way chosen by which arguments are given (two ways at
+  once refused, `DatumError::TwoWays`; an edit keeps the way unless another is given): planes
+  offset and turned (`DatumPlane`) or `PlaneThrough` three points, midway, two lines, an axis and
+  a point, square to an axis at a point, tangent to a curved face toward a point, or square to an
+  edge at a distance (`CurveStation`); axes `Along`, `Intersection`, `Points`, `NormalTo` a plane
+  or `SquareToFace`; points at a point with an offset (`DatumPoint`) or `PointBy` crossing lines,
+  an axis and a plane, three planes, a distance along an edge, an edge's middle or a face's
+  centre; coordinate systems (`DatumFrame`) from an origin, an X axis and a plane, the missing one
+  chosen as the tool does (`datum_tools::least_steep`). `mates.rs` builds a `Mate` whose
+  `MatePair` follows from the parts given (flush, concentric, both, an angle, a round face resting
+  on a plane, a flat face on a round one, a point on a point or plane), the moving parts on the
+  moved body and the targets off it; an edit keeps the pair's kind (`MateError::KindKept`).
+  `curves.rs` adds helices (`Helix`, two of turns, pitch and height through `coil_length`, a
+  `start_angle`), curve patterns (`sketch_pattern_tools::kind` for a sketch passing
+  `is_curve_path`, spread or `spacing`, following or keeping the turn) and point patterns
+  (`PointsPattern` from a base point, the sketch needing lone points).
 - `edit_feature` (`edits.rs`) edits a feature with the arguments of the tool adding its kind
-  (`edits::tool_for`; sketches, curve and point patterns, other datums, mates, imports and helices
-  are refused in words). The arguments are decoded with that tool's struct, whose fields are all
+  (`edits::tool_for`; sketches, imports, removed bodies, measurements and reference pictures are
+  refused in words). The arguments are decoded with that tool's struct, whose fields are all
   optional so an edit gives only what changes: the same `*_built` function runs with the feature's
   kind as its base, keeping every part not given (references too, so a fillet's edges need not be
   named again), and a missing required argument is `FeatureError::Missing` only when adding. The
@@ -169,9 +190,15 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   (a spline with its form and a conic's rho, an ellipse or elliptical arc with its major end and
   minor radius), and a picture through `snapshot::looking_from` and `png_bytes`, sized `SMALLEST_SIDE` to
   `LARGEST_SIDE`.
-- Files: `save` writes the model's own file; `export` writes `headless::deliver`'s formats only
-  into the model's folder, the `--folder` folders and folders below them (`files::allowed`:
-  canonical parent, no link as the target). Nothing reaches the network.
+- Files: `save` writes the model's own file; `save_as` sends the same `SaveRequest` for a new
+  `.caditor` path (`Session::save_to`, refusing a file that exists), and the session follows the
+  saved path from the worker's report, as the window's Save as does; `export` writes
+  `headless::deliver`'s formats; `import` reads a STEP model or mesh through `import::read_model`
+  and `bodies_transaction`, or a DXF or SVG drawing through `read_drawing` and
+  `drawing_transaction` into a new sketch on a principal plane or an existing sketch, refused as
+  the app refuses it (`import::outgrows`, `outnumbers`, nothing imported). All of them reach only
+  the model's folder, the `--folder` folders and folders below them (`files::allowed`: canonical
+  parent, no link as the target). Nothing reaches the network.
 
 ## Resources (`resources.rs`)
 
@@ -198,3 +225,8 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   volume, with undo, renaming and refusals, and checks extrusion ends, walls, offsets and tapers
   and hole standards, heads and threads. `mcp/sweep_tests.rs` checks pipes, sweeps, lofts, coils,
   threads, scales, splits, split faces and deleted faces by volumes, body and face counts.
+  `mcp/datum_tests.rs` places datum planes, axes, points and coordinate systems every way and
+  edits them, probing each with a box placed on, mated to or turned about it, and mates bodies by
+  their bounds, with undo and refusals. `mcp/curve_tests.rs` winds and edits helices (read back
+  from the saved file) and pipes one, patterns along curves and at points by volume, imports a
+  STEP file and an SVG drawing, saves under another name and checks the refusals.

@@ -1,4 +1,4 @@
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use crate::mcp::tools::{object, reference};
 
@@ -39,13 +39,71 @@ fn datum(kind: &str) -> Value {
     })
 }
 
+fn frame_part(part: &str, names: &[&str]) -> Value {
+    let mut properties = Map::new();
+    properties.insert(
+        "frame".to_owned(),
+        reference("A coordinate system, by feature id or name"),
+    );
+    properties.insert(part.to_owned(), json!({ "type": "string", "enum": names }));
+    json!({
+        "type": "object",
+        "properties": properties,
+        "required": ["frame", part],
+        "additionalProperties": false
+    })
+}
+
+pub(super) fn on_edge() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "body": reference("The body, by id or name"),
+            "edge": { "type": "string", "description": "An edge key from list_edges" }
+        },
+        "required": ["body", "edge"],
+        "additionalProperties": false
+    })
+}
+
 pub fn plane() -> Value {
     json!({
-        "description": "XY, XZ or YZ; a flat face as {body, face}; or a datum plane as {datum}",
+        "description": "XY, XZ or YZ; a flat face as {body, face}; a datum plane as {datum}; or a coordinate system's plane as {frame, plane}",
         "anyOf": [
             { "type": "string", "enum": ["XY", "XZ", "YZ"] },
             on_face(),
-            datum("plane")
+            datum("plane"),
+            frame_part("plane", &["XY", "XZ", "YZ"])
+        ]
+    })
+}
+
+pub fn point() -> Value {
+    json!({
+        "description": "\"origin\"; a corner as {body, corner: [x, y, z]} (list_edges gives the ends of straight edges); a round edge's centre as {body, edge}; a sphere's or torus's centre as {body, face}; a sketch point as {sketch, point}; or a datum point or a coordinate system's origin as {datum}",
+        "anyOf": [
+            { "type": "string", "enum": ["origin"] },
+            {
+                "type": "object",
+                "properties": {
+                    "body": reference("The body, by id or name"),
+                    "corner": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3 }
+                },
+                "required": ["body", "corner"],
+                "additionalProperties": false
+            },
+            on_edge(),
+            on_face(),
+            {
+                "type": "object",
+                "properties": {
+                    "sketch": reference("The sketch, by feature id or name"),
+                    "point": { "type": ["integer", "string"], "description": "A point's entity id, or origin" }
+                },
+                "required": ["sketch", "point"],
+                "additionalProperties": false
+            },
+            datum("point or coordinate system")
         ]
     })
 }
@@ -53,18 +111,11 @@ pub fn plane() -> Value {
 pub fn axis() -> Value {
     json!({
         "description": "X, Y or Z; a straight or round edge as {body, edge}; a round face's axis as \
-                        {body, face}; a sketch line as {sketch, line}; or a datum axis as {datum}",
+                        {body, face}; a sketch line as {sketch, line}; a datum axis as {datum}; \
+                        or a coordinate system's axis as {frame, axis}",
         "anyOf": [
             { "type": "string", "enum": ["X", "Y", "Z"] },
-            {
-                "type": "object",
-                "properties": {
-                    "body": reference("The body, by id or name"),
-                    "edge": { "type": "string", "description": "An edge key from list_edges" }
-                },
-                "required": ["body", "edge"],
-                "additionalProperties": false
-            },
+            on_edge(),
             on_face(),
             {
                 "type": "object",
@@ -75,7 +126,8 @@ pub fn axis() -> Value {
                 "required": ["sketch", "line"],
                 "additionalProperties": false
             },
-            datum("axis")
+            datum("axis"),
+            frame_part("axis", &["X", "Y", "Z"])
         ]
     })
 }
@@ -358,30 +410,6 @@ pub fn move_body() -> Value {
             "name": name()
         }),
         &["body"],
-    )
-}
-
-pub fn datum_plane() -> Value {
-    object(
-        json!({
-            "base": plane(),
-            "offset": amount("How far along the base plane's normal"),
-            "turn_axis": axis(),
-            "turn_angle": amount("With turn_axis: the plane turned about it"),
-            "name": name()
-        }),
-        &["base"],
-    )
-}
-
-pub fn datum_axis() -> Value {
-    object(
-        json!({
-            "along": axis(),
-            "planes": { "type": "array", "items": plane(), "minItems": 2, "maxItems": 2, "description": "Where two planes meet" },
-            "name": name()
-        }),
-        &[],
     )
 }
 

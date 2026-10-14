@@ -1,9 +1,13 @@
+mod curves;
+mod datum_schemas;
+mod datums;
 mod edges;
 mod edits;
 mod feature_schemas;
 mod features;
 mod files;
 pub mod json_rpc;
+mod mates;
 mod places;
 mod reading;
 mod references;
@@ -22,6 +26,10 @@ pub mod tools;
 mod tree_edits;
 mod writing;
 
+#[cfg(test)]
+mod curve_tests;
+#[cfg(test)]
+mod datum_tests;
 #[cfg(test)]
 mod edit_tests;
 #[cfg(test)]

@@ -15,7 +15,7 @@ use crate::{
     sketch_placement, solid_tools,
 };
 
-const NAME: &str = "Mate";
+pub const NAME: &str = "Mate";
 const DEFAULT_ANGLE_DEGREES: f64 = 90.0;
 const NO_PAIR: &str = "Select a flat face, axis, round face or corner of the body to move, then \
                        the face, plane, axis, round face or point to mate it onto; or a flat face \

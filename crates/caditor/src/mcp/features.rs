@@ -2,10 +2,10 @@ use std::{collections::BTreeSet, fmt};
 
 use caditor_document::{
     AxisTurn, Blend, BlendKind, BodyOperation, ChamferForm, CircularPattern, Combine,
-    CombineOperation, Datum, DatumAxis, DatumPlane, Document, EdgeGroup, Edit, FeatureId,
-    FeatureKind, LinearDirection, LinearSpacing, Mirror, Move, OffsetFace, Pattern, PatternKind,
-    PlaneReference, PlaneRotation, Primitive, PrimitiveAnchor, PrimitiveKind, Revolve, RevolveAxis,
-    RevolveExtent, Shell, ShellSide, SolidFeature, TurnCentre, repeatable_on,
+    CombineOperation, Document, EdgeGroup, Edit, FeatureId, FeatureKind, LinearDirection,
+    LinearSpacing, Mirror, Move, OffsetFace, Pattern, PatternKind, PlaneReference, Primitive,
+    PrimitiveAnchor, PrimitiveKind, Revolve, RevolveAxis, RevolveExtent, Shell, ShellSide,
+    SolidFeature, TurnCentre, repeatable_on,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_geometry::Point2;
@@ -304,24 +304,6 @@ pub struct Moving {
     pub name: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct DatumPlaning {
-    pub base: Option<PlaneChoice>,
-    pub offset: Option<Amount>,
-    pub turn_axis: Option<AxisChoice>,
-    pub turn_angle: Option<Amount>,
-    pub name: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct DatumAxising {
-    pub along: Option<AxisChoice>,
-    pub planes: Option<[PlaneChoice; 2]>,
-    pub name: Option<String>,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum FeatureError {
     #[error("give {field}")]
@@ -360,10 +342,6 @@ pub enum FeatureError {
     HalfAnAxisTurn,
     #[error("turn about the body's own axes or about one axis, not both")]
     TwoTurns,
-    #[error("a datum axis goes along an axis or where two planes meet: give along or planes")]
-    NoDatumAxis,
-    #[error("give along or planes for a datum axis, not both")]
-    TwoDatumAxes,
     #[error("{second} goes with {first}, which sets the first side")]
     SecondWithoutFirst {
         second: &'static str,
@@ -1230,7 +1208,7 @@ fn subject(
     }
 }
 
-fn kept_subject(
+pub(super) fn kept_subject(
     session: &Session,
     (body, features): (Option<&Named>, Option<&[Named]>),
     kept: Option<(FeatureId, &[FeatureId])>,
@@ -1349,7 +1327,7 @@ fn direction(
     })
 }
 
-fn skipped_copies(
+pub(super) fn skipped_copies(
     asked: Option<&[CopyName]>,
     base: Option<&Pattern>,
 ) -> Result<BTreeSet<[u32; 2]>, ToolError> {
@@ -1368,7 +1346,7 @@ fn skipped_copies(
         .collect()
 }
 
-fn pattern_built(
+pub(super) fn pattern_built(
     session: &Session,
     (body, repeated): (FeatureId, Vec<FeatureId>),
     (kind, skipped): (PatternKind, BTreeSet<[u32; 2]>),
@@ -1571,7 +1549,7 @@ pub fn combine(
     added(session, work, built)
 }
 
-fn triple(
+pub(super) fn triple(
     session: &Session,
     field_name: &'static str,
     given: Option<&[Amount; 3]>,
@@ -1660,96 +1638,5 @@ pub fn move_body(
     asked: Moving,
 ) -> Result<Answer, ToolError> {
     let built = move_built(session, work, asked, None)?;
-    added(session, work, built)
-}
-
-fn datum_built(datum: Datum, name: Option<String>) -> Built {
-    let title = datum.title();
-    Built::new(FeatureKind::Datum(datum), title, name)
-}
-
-pub fn datum_plane_built(
-    session: &mut Session,
-    work: &Work<'_>,
-    asked: DatumPlaning,
-    base: Option<&DatumPlane>,
-) -> Result<Built, ToolError> {
-    let offset = parsed(session, asked.offset.as_ref(), |session, offset| {
-        signed_length(session, "offset", offset)
-    })?;
-    let angle = parsed(session, asked.turn_angle.as_ref(), |session, angle| {
-        turn(session, "turn_angle", angle)
-    })?;
-    session.evaluate(work)?;
-    let document = session.document();
-    let evaluation = session.evaluation();
-    let plane = match &asked.base {
-        Some(choice) => places::plane(document, evaluation, choice)?,
-        None => needed(base.map(|base| base.base.clone()), "base")?,
-    };
-    let kept = base.and_then(|base| base.rotation.as_ref());
-    let rotation = if asked.turn_axis.is_some() || angle.is_some() {
-        let axis = match &asked.turn_axis {
-            Some(choice) => Some(places::axis(document, evaluation, choice)?),
-            None => kept.map(|kept| kept.axis.clone()),
-        };
-        let angle = angle.or_else(|| kept.map(|kept| kept.angle.clone()));
-        let (Some(axis), Some(angle)) = (axis, angle) else {
-            return Err(FeatureError::HalfAnAxisTurn.into());
-        };
-        Some(PlaneRotation { axis, angle })
-    } else {
-        kept.cloned()
-    };
-    let offset = offset
-        .or_else(|| base.map(|base| base.offset.clone()))
-        .unwrap_or_else(|| LengthUnit::Millimetre.default_length(0.0));
-    Ok(datum_built(
-        Datum::Plane(DatumPlane {
-            base: plane,
-            rotation,
-            offset,
-        }),
-        asked.name,
-    ))
-}
-
-pub fn datum_plane(
-    session: &mut Session,
-    work: &Work<'_>,
-    asked: DatumPlaning,
-) -> Result<Answer, ToolError> {
-    let built = datum_plane_built(session, work, asked, None)?;
-    added(session, work, built)
-}
-
-pub fn datum_axis_built(
-    session: &mut Session,
-    work: &Work<'_>,
-    asked: DatumAxising,
-    base: Option<&DatumAxis>,
-) -> Result<Built, ToolError> {
-    session.evaluate(work)?;
-    let document = session.document();
-    let evaluation = session.evaluation();
-    let axis = match (&asked.along, &asked.planes, base) {
-        (Some(_), Some(_), _) => return Err(FeatureError::TwoDatumAxes.into()),
-        (None, None, Some(base)) => base.clone(),
-        (None, None, None) => return Err(FeatureError::NoDatumAxis.into()),
-        (Some(along), None, _) => DatumAxis::Along(places::axis(document, evaluation, along)?),
-        (None, Some([first, second]), _) => DatumAxis::Intersection(
-            places::plane(document, evaluation, first)?,
-            places::plane(document, evaluation, second)?,
-        ),
-    };
-    Ok(datum_built(Datum::Axis(axis), asked.name))
-}
-
-pub fn datum_axis(
-    session: &mut Session,
-    work: &Work<'_>,
-    asked: DatumAxising,
-) -> Result<Answer, ToolError> {
-    let built = datum_axis_built(session, work, asked, None)?;
     added(session, work, built)
 }

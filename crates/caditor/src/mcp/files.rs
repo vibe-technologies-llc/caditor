@@ -3,16 +3,26 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use caditor_file::MeshResolution;
+use caditor_document::MAX_RECORDS;
+use caditor_file::{
+    DrawingOptions, ImportError, MAX_MODEL_RECORDS, MeshResolution, ReadingProgress, SketchTarget,
+    TextOutlines, bodies_transaction, drawing_transaction, read_drawing,
+};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use crate::{
+    files::is_drawing_file,
+    fonts,
     headless::{self, Settings, Target},
+    import,
     mcp::{
+        places::principal_plane,
         reading::{RenderError, picture_size},
-        session::{Cancelled, SaveFailure, Session, Work},
-        tools::ToolError,
+        references::{self, Named},
+        session::{Cancelled, SaveFailure, Session, Stored, Work, has_model_extension},
+        tools::{Answer, ToolError},
+        writing::{PlaneName, apply, with_feature},
     },
     model::display_name,
 };
@@ -34,6 +44,20 @@ pub struct Exporting {
     pub height: Option<u32>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Importing {
+    pub file: String,
+    pub sketch: Option<Named>,
+    pub plane: Option<PlaneName>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SavingAs {
+    pub file: String,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum FileError {
     #[error("“{file}” names no file")]
@@ -45,8 +69,44 @@ pub enum FileError {
          another with --folder when starting it"
     )]
     OutsideFolders { file: String, folders: String },
-    #[error("“{file}” is a link; export to a plain file")]
+    #[error("“{file}” is a link; give a plain file")]
     Link { file: String },
+    #[error("“{file}” does not exist")]
+    Missing { file: String },
+    #[error(
+        "“{file}” is not a file caditor imports: a STEP model (.step, .stp), an STL, OBJ or 3MF \
+         mesh, or a DXF or SVG drawing"
+    )]
+    NotImportable { file: String },
+    #[error("could not import “{file}”: {source}")]
+    Import {
+        file: String,
+        #[source]
+        source: ImportError,
+    },
+    #[error("nothing in “{file}” could be imported: {reason}")]
+    NothingImported { file: String, reason: &'static str },
+    #[error(
+        "“{file}” was not imported: with it the model would hold more than a model file can, so \
+         it could be neither saved nor protected against a crash; import fewer parts at a time"
+    )]
+    OutgrowsTheFile { file: String },
+    #[error(
+        "“{file}” was not imported: with it the model would hold more than the {MAX_RECORDS} \
+         features and parameters caditor opens; import fewer parts at a time"
+    )]
+    TooManyRecords { file: String },
+    #[error("sketch and plane place a DXF or SVG drawing; a model's bodies come in where they are")]
+    PlacedModel,
+    #[error("a drawing goes into an existing sketch or onto a plane in a new one, not both")]
+    SketchAndPlane,
+    #[error("“{file}” must end in .caditor to save the model to it")]
+    NotAModelFile { file: String },
+    #[error(
+        "“{file}” already exists; save_as writes only a new file, so choose a name not taken, or \
+         use save for the model's own file"
+    )]
+    Exists { file: String },
     #[error(
         "“{file}” must end in .step, .stp, .stl, .3mf, .obj, .glb or .png, the formats caditor \
          exports"
@@ -105,8 +165,7 @@ pub fn allowed(model: &Path, folders: &[PathBuf], file: &str) -> Result<PathBuf,
     Ok(target)
 }
 
-pub fn save(session: &mut Session) -> Result<Map<String, Value>, ToolError> {
-    let stored = session.save()?;
+fn answer_saved(session: &Session, stored: Stored) -> Map<String, Value> {
     let mut answer = Map::new();
     answer.insert(
         "saved".to_owned(),
@@ -124,7 +183,25 @@ pub fn save(session: &mut Session) -> Result<Map<String, Value>, ToolError> {
             json!(stored.dropped_for_size),
         );
     }
-    Ok(answer)
+    answer
+}
+
+pub fn save(session: &mut Session) -> Result<Map<String, Value>, ToolError> {
+    let stored = session.save()?;
+    Ok(answer_saved(session, stored))
+}
+
+pub fn save_as(session: &mut Session, asked: &SavingAs) -> Result<Map<String, Value>, ToolError> {
+    let target = allowed(session.model(), session.folders(), &asked.file)?;
+    let shown = display_name(Some(&target));
+    if !has_model_extension(&target) {
+        return Err(FileError::NotAModelFile { file: shown }.into());
+    }
+    if target != session.model() && target.exists() {
+        return Err(FileError::Exists { file: shown }.into());
+    }
+    let stored = session.save_to(target)?;
+    Ok(answer_saved(session, stored))
 }
 
 pub fn export(
@@ -189,4 +266,121 @@ pub fn export(
         answer.insert("warnings".to_owned(), json!(delivered.warnings));
     }
     Ok(answer)
+}
+
+fn notes_into(details: &mut Map<String, Value>, notes: Vec<String>) {
+    if !notes.is_empty() {
+        details.insert("notes".to_owned(), json!(notes));
+    }
+}
+
+fn import_failure(file: &str, source: ImportError) -> ToolError {
+    match source {
+        ImportError::Cancelled => Cancelled.into(),
+        source => FileError::Import {
+            file: file.to_owned(),
+            source,
+        }
+        .into(),
+    }
+}
+
+fn import_model(
+    session: &mut Session,
+    work: &Work<'_>,
+    path: &Path,
+    shown: String,
+) -> Result<Answer, ToolError> {
+    work.progress(&format!("Reading {shown}"));
+    let imported = import::read_model(path, &work.cancel_token(), &ReadingProgress::default())
+        .map_err(|source| import_failure(&shown, source))?;
+    if work.is_cancelled() {
+        return Err(Cancelled.into());
+    }
+    if imported.bodies.is_empty() {
+        return Err(FileError::NothingImported {
+            file: shown,
+            reason: import::NO_BODIES,
+        }
+        .into());
+    }
+    let document = session.document();
+    let transaction = bodies_transaction(document, &imported.bodies, format!("Import {shown}"));
+    if import::outgrows(document, &transaction, MAX_MODEL_RECORDS) {
+        return Err(FileError::OutgrowsTheFile { file: shown }.into());
+    }
+    if import::outnumbers(document, &transaction, MAX_RECORDS) {
+        return Err(FileError::TooManyRecords { file: shown }.into());
+    }
+    let mut details = Map::new();
+    details.insert("bodies".to_owned(), json!(imported.bodies.len()));
+    notes_into(&mut details, imported.notes);
+    apply(session, work, transaction, details)
+}
+
+fn import_drawing(
+    session: &mut Session,
+    work: &Work<'_>,
+    (path, shown): (&Path, String),
+    asked: &Importing,
+) -> Result<Answer, ToolError> {
+    let target = match (&asked.sketch, asked.plane) {
+        (Some(_), Some(_)) => return Err(FileError::SketchAndPlane.into()),
+        (Some(named), None) => {
+            let (feature, _) = references::sketch(session.document(), named)?;
+            SketchTarget::Existing(feature.id())
+        }
+        (None, plane) => SketchTarget::New {
+            name: import::new_sketch_name(session.document(), path),
+            plane: principal_plane(plane.unwrap_or(PlaneName::Xy)).plane(),
+        },
+    };
+    work.progress(&format!("Reading {shown}"));
+    let text_outlines = TextOutlines::InFont {
+        upright: fonts::INTER,
+        italic: Some(fonts::INTER_ITALIC),
+    };
+    let drawing = read_drawing(path, text_outlines, &work.cancel_token())
+        .map_err(|source| import_failure(&shown, source))?;
+    let arranged = drawing.arranged(&DrawingOptions::default());
+    let imported = drawing_transaction(
+        session.document(),
+        &arranged,
+        target,
+        format!("Import {shown}"),
+    );
+    if imported.curves == 0 {
+        return Err(FileError::NothingImported {
+            file: shown,
+            reason: import::TOO_SHORT,
+        }
+        .into());
+    }
+    let mut details = Map::new();
+    details.insert("curves".to_owned(), json!(imported.curves));
+    notes_into(&mut details, arranged.notes);
+    let answer = apply(session, work, imported.transaction, details)?;
+    Ok(with_feature(session, answer, imported.sketch))
+}
+
+pub fn import_file(
+    session: &mut Session,
+    work: &Work<'_>,
+    asked: &Importing,
+) -> Result<Answer, ToolError> {
+    let path = allowed(session.model(), session.folders(), &asked.file)?;
+    let shown = display_name(Some(&path));
+    if !path.is_file() {
+        return Err(FileError::Missing { file: shown }.into());
+    }
+    if is_drawing_file(&path) {
+        return import_drawing(session, work, (&path, shown), asked);
+    }
+    if has_model_extension(&path) || !import::is_model(&path) {
+        return Err(FileError::NotImportable { file: shown }.into());
+    }
+    if asked.sketch.is_some() || asked.plane.is_some() {
+        return Err(FileError::PlacedModel.into());
+    }
+    import_model(session, work, &path, shown)
 }

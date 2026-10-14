@@ -224,24 +224,24 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   principal plane, datum plane, coordinate system or flat face, trim, extend, offset, mirror,
   pattern, fillet, chamfer, move, rotate and scale sketch geometry, project body edges and faces
   into a sketch, extrude, revolve, drill holes, fillet, chamfer, shell, offset faces, add
-  primitives, mirror, pattern in a row, grid or circle, combine and move bodies, add datum planes
-  and axes, sweep, pipe, loft, coil, rib, thread, split and delete faces, split and scale bodies,
-  edit any of those features, rename, suppress, reorder and delete features, undo, redo, save and
-  export.
+  primitives, mirror, pattern in a row, grid, circle, along curves or at points, combine, move
+  and mate bodies, add datum planes, axes and points every way, coordinate systems and helices,
+  sweep, pipe, loft, coil, rib, thread, split and delete faces, split and scale bodies, edit any
+  of those features, rename, suppress, reorder and delete features, import models, meshes and
+  drawings, undo, redo, save, save under another name and export.
   What remains, through the same `Session` layer:
-  - A write and edit tool per remaining feature kind (mate, curve and point patterns, datum
-    points, the other datum plane and axis constructions, coordinate systems, helices).
-    Extrusions lack regions, an end up to a curved surface, a second side other than a distance,
-    a direction other than square, and taking a thin wall off again; revolves lack up-to ends,
-    regions and thin walls; holes lack stepped styles, slots, drill points and sizing by circles;
-    shells lack per-face thickness, mirrors take no faces, lofts take no single regions or end
-    point, and split faces neither carry nor wrap curves. Faces and edges named in an edit are
-    found on the body as it stands now, so an edge a fillet rounded away cannot be named again.
+  - Feature options the tools lack. Extrusions lack regions, an end up to a curved surface, a second
+    side other than a distance, a direction other than square, and taking a thin wall off again;
+    revolves lack up-to ends, regions and thin walls; holes lack stepped styles, slots, drill points
+    and sizing by circles; shells lack per-face thickness, mirrors take no faces, lofts take no
+    single regions or end point, split faces neither carry nor wrap curves, and drawing imports take
+    neither a unit, a scale, recentring nor left-out layers (`DrawingOptions`). Faces and edges
+    named in an edit are found on the body as it stands now, so an edge a fillet rounded away cannot
+    be named again.
   - Sketching: projecting corners, other sketches' curves, axes, datums and the origin, and
     Intersect; split, break, construction toggling, copy and paste, blend curves, tangent circles,
     gears and spline respacing; a tangent arc continuing a curve drawn in the same call; a
     conic's rho held by a parameter.
-  - Import, and saving under another name, within the allowed folders.
 - [medium · hard · blocked by: the in-app assistant connection decision (`DECISIONS.md`)] An
   assistant cannot work on the model open in the window: the headless server owns its own
   document. Connecting to the running app needs a transport the app listens on (off by default),

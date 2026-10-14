@@ -61,13 +61,19 @@ first, so two programs never change one model at once.
   torus, cone, wedge or prism as the [primitives](primitives) do, on a plane, a flat face or a
   datum plane.
 - [Mirror](mirror) and [pattern](patterns) a body, or holes, cuts and bosses of one body, in a
-  row, a grid or around an axis, leaving chosen copies out; [combine](combine) bodies and
-  [move or copy](move-and-copy) them; add [datum](datums) planes and axes.
+  row, a grid, around an axis, along the curves of a sketch or at its points, leaving chosen
+  copies out; [combine](combine) bodies and [move or copy](move-and-copy) them, or
+  [mate](mate) a body onto another, a plane, an axis or a point.
+- Add [datum](datums) planes, axes and points in each of the ways their tools offer (through
+  points, midway, touching a curved face, where lines cross and so on), a
+  [coordinate system](coordinate-systems) and a [helix](helix).
 - Change any of those features afterwards, as its card in the app does: the assistant gives only
   what changes, such as a fillet's radius or a pattern's count, and the rest stays as it was.
 - Rename, suppress, reorder and delete features in the [feature tree](feature-tree). Deleting a
   feature others use needs the assistant to say whether they go too or stay, failing.
-- [Undo and redo](undo), save and export.
+- [Import](importing) a STEP model, an STL, OBJ or 3MF mesh, or a DXF or SVG drawing into a new
+  sketch on a plane or into an existing one.
+- [Undo and redo](undo), save, save under another name and export.
 
 Every change the assistant makes is one step of the model's undo history, named after what it did,
 and answers with every feature that fails after it in the words the tree uses. Features, bodies and
@@ -81,8 +87,12 @@ the way [Save](saving) does: atomically, keeping the version it replaces in the
 [version history](version-history). Changes not yet saved are kept in the recovery journal as the
 window keeps them, so a crash loses at most seconds; open the model in caditor to recover them.
 
-Exports go only into the model's folder and the folders below it, unless the server was started
-with `--folder DIR`, once for each further folder it may write to. The server reaches no network.
+Saving under another name writes a new `.caditor` file, never one that already exists, and the
+assistant goes on working on that file from then on; the original stays as it was last saved.
+
+Imports, exports and saving under another name reach only the model's folder and the folders
+below it, unless the server was started with `--folder DIR`, once for each further folder it may
+read and write. The server reaches no network.
 
 Long work such as recomputing or measuring reports its progress to the assistant, and the
 assistant can cancel it.

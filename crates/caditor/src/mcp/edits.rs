@@ -6,9 +6,12 @@ use serde::{Deserialize, de::DeserializeOwned};
 use serde_json::{Map, Value};
 
 use crate::{
-    blend_tools, coil_tools, combine_tools, datum_tools, delete_face_tools, hole_tools, loft_tools,
+    blend_tools, coil_tools, combine_tools, datum_tools, delete_face_tools, helix_tools,
+    hole_tools, loft_tools, mate_tools,
     mcp::{
+        curves, datums,
         features::{self, Built},
+        mates,
         references::{self, Named},
         reshaping,
         session::{Session, Work},
@@ -31,7 +34,7 @@ pub struct Editing {
 pub enum FeatureEditError {
     #[error(
         "{name} is a sketch: change it with add_sketch_geometry, add_sketch_constraints, \
-         edit_sketch_constraint and remove_sketch_items"
+         modify_sketch, edit_sketch_constraint and remove_sketch_items"
     )]
     Sketch { name: String },
     #[error("{name} is a kind of feature this server cannot edit yet; edit it in the app")]
@@ -57,12 +60,17 @@ pub fn tool_for(kind: &FeatureKind) -> Option<Tool> {
         FeatureKind::Pattern(pattern) => match pattern.kind {
             PatternKind::Linear { .. } => Tool::AddLinearPattern,
             PatternKind::Circular(_) => Tool::AddCircularPattern,
-            PatternKind::Curve(_) | PatternKind::Points(_) => return None,
+            PatternKind::Curve(_) => Tool::AddCurvePattern,
+            PatternKind::Points(_) => Tool::AddPointPattern,
         },
         FeatureKind::Combine(_) => Tool::AddCombine,
         FeatureKind::Move(_) => Tool::AddMove,
-        FeatureKind::Datum(Datum::Plane(_)) => Tool::AddDatumPlane,
+        FeatureKind::Datum(Datum::Plane(_) | Datum::PlaneThrough(_)) => Tool::AddDatumPlane,
         FeatureKind::Datum(Datum::Axis(_)) => Tool::AddDatumAxis,
+        FeatureKind::Datum(Datum::Point(_) | Datum::PointBy(_)) => Tool::AddDatumPoint,
+        FeatureKind::Datum(Datum::Frame(_)) => Tool::AddCoordinateSystem,
+        FeatureKind::Mate(_) => Tool::AddMate,
+        FeatureKind::Helix(_) => Tool::AddHelix,
         FeatureKind::Pipe(_) => Tool::AddPipe,
         FeatureKind::Loft(_) => Tool::AddLoft,
         FeatureKind::Coil(_) => Tool::AddCoil,
@@ -73,11 +81,8 @@ pub fn tool_for(kind: &FeatureKind) -> Option<Tool> {
         FeatureKind::Split(_) => Tool::AddSplit,
         FeatureKind::Scale(_) => Tool::AddScale,
         FeatureKind::Sketch(_)
-        | FeatureKind::Datum(_)
-        | FeatureKind::Mate(_)
         | FeatureKind::Import(_)
         | FeatureKind::Remove(_)
-        | FeatureKind::Helix(_)
         | FeatureKind::Measurement(_)
         | FeatureKind::ReferenceImage(_) => return None,
     })
@@ -136,14 +141,18 @@ fn rebuilt(
                 decoded(tool, values)?,
                 Some(&**base),
             )?,
-            PatternKind::Linear { .. } | PatternKind::Curve(_) | PatternKind::Points(_) => {
-                features::linear_pattern_built(
-                    session,
-                    work,
-                    decoded(tool, values)?,
-                    Some(&**base),
-                )?
+            PatternKind::Curve(_) => {
+                curves::curve_pattern_built(session, work, decoded(tool, values)?, Some(&**base))?
             }
+            PatternKind::Points(_) => {
+                curves::point_pattern_built(session, work, decoded(tool, values)?, Some(&**base))?
+            }
+            PatternKind::Linear { .. } => features::linear_pattern_built(
+                session,
+                work,
+                decoded(tool, values)?,
+                Some(&**base),
+            )?,
         },
         FeatureKind::Combine(base) => {
             features::combine_built(session, work, decoded(tool, values)?, Some(base))?
@@ -151,11 +160,23 @@ fn rebuilt(
         FeatureKind::Move(base) => {
             features::move_built(session, work, decoded(tool, values)?, Some(base))?
         }
-        FeatureKind::Datum(Datum::Plane(base)) => {
-            features::datum_plane_built(session, work, decoded(tool, values)?, Some(base))?
+        FeatureKind::Datum(base @ (Datum::Plane(_) | Datum::PlaneThrough(_))) => {
+            datums::datum_plane_built(session, work, decoded(tool, values)?, Some(base))?
         }
         FeatureKind::Datum(Datum::Axis(base)) => {
-            features::datum_axis_built(session, work, decoded(tool, values)?, Some(base))?
+            datums::datum_axis_built(session, work, decoded(tool, values)?, Some(base))?
+        }
+        FeatureKind::Datum(base @ (Datum::Point(_) | Datum::PointBy(_))) => {
+            datums::datum_point_built(session, work, decoded(tool, values)?, Some(base))?
+        }
+        FeatureKind::Datum(Datum::Frame(base)) => {
+            datums::coordinate_system_built(session, work, decoded(tool, values)?, Some(base))?
+        }
+        FeatureKind::Mate(base) => {
+            mates::mate_built(session, work, decoded(tool, values)?, Some(base))?
+        }
+        FeatureKind::Helix(base) => {
+            curves::helix_built(session, work, decoded(tool, values)?, Some(base))?
         }
         FeatureKind::Pipe(base) => {
             sweeps::pipe_built(session, work, decoded(tool, values)?, Some(base))?
@@ -185,11 +206,8 @@ fn rebuilt(
             reshaping::scale_built(session, work, decoded(tool, values)?, Some(base))?
         }
         FeatureKind::Sketch(_)
-        | FeatureKind::Datum(_)
-        | FeatureKind::Mate(_)
         | FeatureKind::Import(_)
         | FeatureKind::Remove(_)
-        | FeatureKind::Helix(_)
         | FeatureKind::Measurement(_)
         | FeatureKind::ReferenceImage(_) => return Ok(None),
     }))
@@ -221,6 +239,8 @@ fn edit_transaction(
         FeatureKind::DeleteFace(deletion) => delete_face_tools::edit(document, feature, deletion),
         FeatureKind::Split(split) => split_tools::edit(document, feature, split),
         FeatureKind::Scale(scale) => scale_tools::edit(document, feature, scale),
+        FeatureKind::Mate(mate) => mate_tools::edit(document, feature, mate),
+        FeatureKind::Helix(helix) => helix_tools::edit(document, feature, helix),
         other => {
             let name = &document.feature(feature)?.name;
             Some(Transaction::single(

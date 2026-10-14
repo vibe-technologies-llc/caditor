@@ -520,7 +520,7 @@ pub fn loft(session: &mut Session, work: &Work<'_>, asked: Lofting) -> Result<An
     added(session, work, built)
 }
 
-fn coil_length(
+pub(super) fn coil_length(
     kept: &CoilLength,
     (turns, pitch, height): (Option<Expression>, Option<Expression>, Option<Expression>),
 ) -> Result<CoilLength, ToolError> {

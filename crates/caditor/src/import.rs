@@ -26,8 +26,8 @@ pub const IMPORT_HINT: &str = "Add a DXF or SVG drawing to the sketch you are ed
 const STEP_SIGNATURE: &[u8] = b"ISO-10303-21";
 const SNIFFED_BYTES: usize = 256;
 const MAX_NAME_CHARACTERS: usize = 60;
-const TOO_SHORT: &str = "every curve in it is too short to draw";
-const NO_BODIES: &str = "it holds no solid bodies";
+pub const TOO_SHORT: &str = "every curve in it is too short to draw";
+pub const NO_BODIES: &str = "it holds no solid bodies";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportReport {
@@ -407,7 +407,7 @@ fn replacement<'a>(bodies: &'a [ImportedBody], name: &str) -> Result<&'a Importe
     }
 }
 
-fn outgrows(document: &Document, transaction: &Transaction, limit: usize) -> bool {
+pub fn outgrows(document: &Document, transaction: &Transaction, limit: usize) -> bool {
     let added = transaction.edits().iter().filter_map(|edit| match edit {
         Edit::InsertFeature { feature, .. } => Some(&feature.kind),
         _ => None,
@@ -420,7 +420,7 @@ fn outgrows(document: &Document, transaction: &Transaction, limit: usize) -> boo
     ) > limit
 }
 
-fn outnumbers(document: &Document, transaction: &Transaction, limit: usize) -> bool {
+pub fn outnumbers(document: &Document, transaction: &Transaction, limit: usize) -> bool {
     let added = transaction
         .edits()
         .iter()
@@ -456,7 +456,7 @@ fn nothing_imported(
     })
 }
 
-fn new_sketch_name(document: &Document, path: &Path) -> String {
+pub fn new_sketch_name(document: &Document, path: &Path) -> String {
     let stem: String = path
         .file_stem()
         .map(|stem| stem.to_string_lossy().trim().to_owned())
