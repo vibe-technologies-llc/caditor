@@ -129,13 +129,20 @@ paths:
   the inner, so the region is the depth-0 ring), placed square to the path's first tangent with
   `up` (rejected from the tangent, falling back to Z, X, Y) as its y axis so flat sides lie along
   the path's plane. It chains the path (`path::ordered`, the walk without orienting to a profile)
-  and, for `bend` above zero, replaces each corner between two lines turning more than
-  `SMOOTH_TURN` by an arc of that radius tangent to both, the lines cut back by
-  `bend · tan(turn / 2)` (a line used up exactly is dropped, more than its length is `BendTooLong`,
-  a turn past `MOST_MITRE_TURN` `CornerTooSharp`); arcs are keyed `naming::path_bend` of the two
-  lines' keys. Sweep errors come back naming input segments (`Rounded::remapped`), a fold on an
-  inserted arc as `BendTooTight`; a wall leaving no inside is `WallTooThick`. Corners touching an
-  arc or spline are left to the sweep.
+  and, for `bend` above zero, replaces each corner between two path curves of any kind turning
+  more than `SMOOTH_TURN` (`bend.rs`). When both curves lie within `LINEAR_RESOLUTION` of the plane
+  of the corner's two tangents (sketch curves, flat edge chains), the bend is the arc of that
+  radius tangent to both, so a round section sweeps it as a torus: its centre lies the radius
+  inside both curves (the side the corner turns to), found by Newton on the two curves' parameters
+  from where the chord `bend · tan(turn / 2)` from the corner meets each (exact for two lines),
+  held within their ranges. Otherwise the bend is a cubic Bézier from the points at that chord,
+  tangent to both curves, its handles a circular arc's for the turn between them, swept fitted.
+  The curves are cut back to the bend's ends (a curve used up exactly is dropped, more than its
+  length, or no tangent arc within the curves, is `BendTooLong`; a turn past `MOST_MITRE_TURN`
+  `CornerTooSharp`); bends are keyed `naming::path_bend` of the two curves' keys. Sweep errors
+  come back naming input segments (`Rounded::remapped`), a fold on an inserted bend as
+  `BendTooTight`; a wall leaving no inside is `WallTooThick`. With `bend` zero, corners touching
+  an arc or spline are left to the sweep (`Corner`).
 - `pipe_stand(path, bend, up)` walks the same chain and returns the `PipeStand` the app's value
   arrows stand on: the section plane `pipe` places (from the rounded chain, else the unrounded one)
   and the first `PipeCorner` between two lines turning above `SMOOTH_TURN` and up to

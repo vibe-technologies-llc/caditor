@@ -46,10 +46,27 @@ struct Model {
     pipe: FeatureId,
 }
 
+fn line_into_arc() -> (Sketch, Vec<EntityId>) {
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::ZERO, Point2::new(20.0, 0.0));
+    let arc = sketch.add_arc(
+        Point2::new(30.0, 0.0),
+        Point2::new(30.0, 10.0),
+        Point2::new(20.0, 0.0),
+    );
+    (sketch, vec![line, arc])
+}
+
 fn piped(pipe: impl FnOnce(SweepPath) -> Pipe) -> Model {
+    piped_along(elbow(), pipe)
+}
+
+fn piped_along(
+    (path, curves): (Sketch, Vec<EntityId>),
+    pipe: impl FnOnce(SweepPath) -> Pipe,
+) -> Model {
     let mut document = Document::default();
     let mut transaction = document.transaction("Build");
-    let (path, curves) = elbow();
     let path_sketch = transaction.add_feature("Path", FeatureKind::from(path));
     let made = pipe(SweepPath::Curves {
         sketch: path_sketch,
@@ -90,6 +107,42 @@ fn a_pipe_follows_its_path_rounding_the_corner_to_the_bend_radius() {
 }
 
 #[test]
+fn a_bend_radius_rounds_the_sharp_corner_where_a_line_meets_an_arc() {
+    let bent = piped_along(line_into_arc(), |path| {
+        Pipe::new(path, length("2 mm"), length("4 mm"))
+    });
+    let sharp = piped_along(line_into_arc(), |path| {
+        Pipe::new(path, length("2 mm"), length("0 mm"))
+    });
+    let reach = 180f64.sqrt();
+    let touch = 4f64.atan2(reach);
+    let centreline = 30.0 - reach + (4.0 + 10.0) * (FRAC_PI_2 - touch);
+
+    let evaluation = evaluate(&bent.document);
+    let sharp_error = failure(&evaluate(&sharp.document), sharp.pipe);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    let found = volume(&evaluation, bent.pipe);
+    assert!(
+        (found - PI * centreline).abs() < 1e-3 * found,
+        "{found} {}",
+        PI * centreline
+    );
+    assert!(
+        sharp_error.reason.contains("sharp corner between")
+            && sharp_error.reason.contains("without a bend"),
+        "{}",
+        sharp_error.reason
+    );
+    assert!(
+        sharp_error.remedy.contains("Give the pipe a bend radius"),
+        "{}",
+        sharp_error.remedy
+    );
+    assert_eq!(sharp_error.fix, Some(FixTarget::Feature(sharp.pipe)));
+}
+
+#[test]
 fn a_hollow_square_pipe_with_sharp_corners_is_its_wall_times_the_path() {
     let model = piped(|path| Pipe {
         shape: PipeShape::Square,
@@ -122,7 +175,7 @@ fn a_wall_too_thick_fails_saying_how_thin_it_must_be() {
 }
 
 #[test]
-fn a_bend_too_tight_or_too_long_fails_naming_the_lines() {
+fn a_bend_too_tight_or_too_long_fails_naming_the_curves() {
     let tight = piped(|path| Pipe {
         bend: length("1 mm"),
         ..round(path)

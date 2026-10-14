@@ -42,8 +42,8 @@ paths:
 - A swept side face is `FaceName::swept` of the feature, the profile piece, the path segment's key
   (the caller's: a sketch entity or an edge name) and its part (1 for the stretch before a closed
   path's opening point, else 0), so a face is named by what made it, never by its place on the path.
-  A pipe's bend between two lines is a path segment keyed `path_bend` of their keys (tag
-  `PATH_BEND`), so its faces keep their names when the bend radius or the lines change.
+  A pipe's bend between two path curves is a path segment keyed `path_bend` of their keys (tag
+  `PATH_BEND`), so its faces keep their names when the bend radius or the curves change.
 - A lofted side face is `FaceName::lofted` (tag `LOFTED_FACE`, after the edge tags) of the
   feature, the first profile's piece, which part of that piece it is after splitting for matching
   counts (by parameter order) and the leg (the pair of neighbouring profiles a ruled loft joins, 0

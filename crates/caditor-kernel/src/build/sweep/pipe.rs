@@ -3,12 +3,14 @@ use thiserror::Error;
 
 use super::{
     MOST_MITRE_TURN, PathSegment, PathSweepError, RELATIVE_TOLERANCE, SMOOTH_TURN,
-    SweepOrientation, degenerate,
+    SweepOrientation,
+    bend::{self, Rounding},
+    degenerate,
     path::{self, Chain, Leg},
     sweep,
 };
 use crate::{
-    curve::{Circle, Curve},
+    curve::Curve,
     error::GeometryError,
     interval::Interval,
     naming::path_bend,
@@ -153,35 +155,8 @@ enum Source {
 
 #[derive(Debug, Clone, PartialEq)]
 struct Bend {
-    corner: Point3,
-    incoming: Vector3,
-    outgoing: Vector3,
-    turn: f64,
-    cut: f64,
-    key: u128,
+    segment: PathSegment,
     segments: [usize; 2],
-}
-
-impl Bend {
-    fn arc(&self, radius: f64) -> Result<PathSegment, PipeError> {
-        let inward = (self.outgoing - self.incoming)
-            .try_normalize()
-            .ok_or_else(degenerate)?;
-        let centre = self.corner + inward * (radius / (self.turn / 2.0).cos());
-        let normal = self
-            .incoming
-            .cross(self.outgoing)
-            .try_normalize()
-            .ok_or_else(degenerate)?;
-        let frame = Plane::from_frame(centre, normal, self.incoming.cross(normal))
-            .ok_or_else(degenerate)?;
-        let range = Interval::new(0.0, self.turn).ok_or_else(degenerate)?;
-        Ok(PathSegment::new(
-            Curve::Circle(Circle::new(frame, radius)?),
-            range,
-            self.key,
-        ))
-    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -253,16 +228,23 @@ fn is_line(leg: &Leg) -> bool {
 
 struct Corners {
     bends: Vec<Option<Bend>>,
-    trims: Vec<[f64; 2]>,
+    kept: Vec<[f64; 2]>,
+}
+
+fn overrun(leg: &Leg, [start, end]: [f64; 2]) -> f64 {
+    Interval::new(end, start).map_or(0.0, |overlap| leg.curve.length(overlap))
 }
 
 fn corners(chain: &Chain, radius: f64) -> Result<Corners, PipeError> {
     let legs = &chain.legs;
     let count = legs.len();
     let mut bends = vec![None; count];
-    let mut trims = vec![[0.0; 2]; count];
+    let mut kept: Vec<[f64; 2]> = legs
+        .iter()
+        .map(|leg| [leg.range.start(), leg.range.end()])
+        .collect();
     if radius <= 0.0 {
-        return Ok(Corners { bends, trims });
+        return Ok(Corners { bends, kept });
     }
     let joints = if chain.closed && count > 1 {
         count
@@ -274,9 +256,6 @@ fn corners(chain: &Chain, radius: f64) -> Result<Corners, PipeError> {
         let (Some(leg), Some(after)) = (legs.get(index), legs.get(next)) else {
             continue;
         };
-        if !is_line(leg) || !is_line(after) {
-            continue;
-        }
         let incoming = leg.end_tangent().ok_or_else(degenerate)?;
         let outgoing = after.start_tangent().ok_or_else(degenerate)?;
         let turn = incoming.angle_between(outgoing);
@@ -287,52 +266,51 @@ fn corners(chain: &Chain, radius: f64) -> Result<Corners, PipeError> {
         if turn > MOST_MITRE_TURN {
             return Err(PathSweepError::CornerTooSharp { segments }.into());
         }
-        let cut = radius * (turn / 2.0).tan();
-        if let Some([_, end]) = trims.get_mut(index) {
-            *end = cut;
+        let Rounding {
+            incoming_end,
+            outgoing_start,
+            segment,
+        } = bend::rounding(leg, after, radius, path_bend(leg.key, after.key))?;
+        if let Some([_, end]) = kept.get_mut(index) {
+            *end = incoming_end;
         }
-        if let Some([start, _]) = trims.get_mut(next) {
-            *start = cut;
+        if let Some([start, _]) = kept.get_mut(next) {
+            *start = outgoing_start;
         }
         for (trimmed, held) in [(index, leg), (next, after)] {
-            let used = trims.get(trimmed).map_or(0.0, |[start, end]| start + end);
-            if used > held.range.length() + LINEAR_RESOLUTION {
+            let overran = kept
+                .get(trimmed)
+                .is_some_and(|ends| overrun(held, *ends) > LINEAR_RESOLUTION);
+            if overran {
                 return Err(PipeError::BendTooLong { segments });
             }
         }
         if let Some(slot) = bends.get_mut(index) {
-            *slot = Some(Bend {
-                corner: leg.end_point(),
-                incoming,
-                outgoing,
-                turn,
-                cut,
-                key: path_bend(leg.key, after.key),
-                segments,
-            });
+            *slot = Some(Bend { segment, segments });
         }
     }
-    Ok(Corners { bends, trims })
+    Ok(Corners { bends, kept })
 }
 
 fn rounded(chain: &Chain, radius: f64) -> Result<Rounded, PipeError> {
-    let Corners { bends, trims } = corners(chain, radius)?;
+    let Corners { bends, kept } = corners(chain, radius)?;
     let mut segments = Vec::with_capacity(chain.legs.len() * 2);
     let mut sources = Vec::with_capacity(chain.legs.len() * 2);
-    for ((leg, [before, after]), bend) in chain.legs.iter().zip(trims).zip(&bends) {
-        let range = leg.range;
-        if before == 0.0 && after == 0.0 {
-            segments.push(PathSegment::new(leg.curve.clone(), range, leg.key));
-            sources.push(Source::Segment(leg.segment));
-        } else if range.length() - before - after > LINEAR_RESOLUTION {
-            let kept = Interval::new(range.start() + before, range.end() - after)
-                .ok_or_else(degenerate)?;
-            segments.push(PathSegment::new(leg.curve.clone(), kept, leg.key));
+    for ((leg, [start, end]), bend) in chain.legs.iter().zip(kept).zip(bends) {
+        let left = Interval::new(start, end).filter(|left| {
+            *left == leg.range || leg.curve.is_longer_than(*left, LINEAR_RESOLUTION)
+        });
+        if let Some(left) = left {
+            segments.push(PathSegment::new(leg.curve.clone(), left, leg.key));
             sources.push(Source::Segment(leg.segment));
         }
-        if let Some(bend) = bend {
-            segments.push(bend.arc(radius)?);
-            sources.push(Source::Bend(bend.segments));
+        if let Some(Bend {
+            segment,
+            segments: joined,
+        }) = bend
+        {
+            segments.push(segment);
+            sources.push(Source::Bend(joined));
         }
     }
     Ok(Rounded { segments, sources })
