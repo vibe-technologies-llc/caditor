@@ -24,7 +24,7 @@ use crate::{
         tools::{Answer, ToolError},
         writing::{OperationName, operation_words},
     },
-    pipe_tools, rib_tools,
+    pipe_tools, rib_tools, solid_panel,
     solid_tools::{self, Reach},
     sweep_tools, thread_tools,
     units::LengthUnit,
@@ -71,6 +71,8 @@ pub struct Sweeping {
     pub sketch: Option<Named>,
     pub path: Option<PathChoice>,
     pub orientation: Option<OrientationName>,
+    pub twist: Option<Amount>,
+    pub scale: Option<Amount>,
     pub operation: Option<OperationName>,
     pub body: Option<Named>,
     pub name: Option<String>,
@@ -105,11 +107,14 @@ pub enum SkinName {
     Ruled,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Lofting {
     pub profiles: Option<Vec<Named>>,
     pub skin: Option<SkinName>,
+    pub closed: Option<bool>,
+    pub start_weight: Option<Amount>,
+    pub end_weight: Option<Amount>,
     pub operation: Option<OperationName>,
     pub body: Option<Named>,
     pub name: Option<String>,
@@ -330,6 +335,12 @@ pub fn sweep_built(
     asked: Sweeping,
     base: Option<&Sweep>,
 ) -> Result<Built, ToolError> {
+    let twist = parsed(session, asked.twist.as_ref(), |session, twist| {
+        turn(session, "twist", twist)
+    })?;
+    let scale = parsed(session, asked.scale.as_ref(), |session, scale| {
+        amount(session, "scale", scale, Dimension::NONE, true)
+    })?;
     session.evaluate(work)?;
     let values = session.parameters();
     let document = session.document();
@@ -358,6 +369,12 @@ pub fn sweep_built(
             OrientationName::Square => SweepOrientation::Square,
             OrientationName::Parallel => SweepOrientation::Parallel,
         };
+    }
+    if let Some(twist) = twist {
+        sweep.twist = twist;
+    }
+    if let Some(scale) = scale {
+        sweep.scale = scale;
     }
     let asked_operation = operation_asked(
         session,
@@ -467,6 +484,13 @@ pub fn loft_built(
     asked: Lofting,
     base: Option<&Loft>,
 ) -> Result<Built, ToolError> {
+    let weight = |session: &Session, field: &'static str, given: Option<&Amount>| {
+        parsed(session, given, |session, weight| {
+            amount(session, field, weight, Dimension::NONE, true)
+        })
+    };
+    let start_weight = weight(session, "start_weight", asked.start_weight.as_ref())?;
+    let end_weight = weight(session, "end_weight", asked.end_weight.as_ref())?;
     session.evaluate(work)?;
     let document = session.document();
     let profiles = match (&asked.profiles, base) {
@@ -502,6 +526,16 @@ pub fn loft_built(
             SkinName::Smooth => LoftSkin::Smooth,
             SkinName::Ruled => LoftSkin::Ruled,
         };
+    }
+    if let Some(closed) = asked.closed {
+        loft.closed = closed;
+    }
+    let squared = |weight: Expression| (!solid_panel::is_zero(&weight)).then_some(weight);
+    if let Some(weight) = start_weight {
+        loft.square_start = squared(weight);
+    }
+    if let Some(weight) = end_weight {
+        loft.square_end = squared(weight);
     }
     loft.operation = operation_asked(
         session,

@@ -4461,6 +4461,64 @@ fn sweeps_are_saved_and_loaded_as_a_record_of_their_own() {
 }
 
 #[test]
+fn a_twisted_or_scaled_sweep_wraps_its_record_so_an_older_reader_leaves_it_out() {
+    let (mut document, along_curves, along_edges) = sweep_model();
+    let mut transaction = document.transaction("Spin");
+    let spin = transaction.add_parameter("spin", Expression::parse_stored("90 deg").unwrap());
+    for (sweep, twist, scale) in [
+        (along_curves, Expression::Parameter(spin), "0.5"),
+        (along_edges, Expression::parse_stored("0 deg").unwrap(), "2"),
+    ] {
+        let mut kind = document.feature(sweep).unwrap().kind.clone();
+        if let FeatureKind::Solid(caditor_document::SolidFeature::Sweep(shaped)) = &mut kind {
+            shaped.twist = twist;
+            shaped.scale = Expression::parse_stored(scale).unwrap();
+        }
+        transaction.edit(Edit::SetFeatureKind { id: sweep, kind });
+    }
+    document.apply(transaction.finish()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let older = decode_text(&text.replace("sweep_shape", "sweep_shope"));
+    let damaged = decode_text(&text.replacen("\"scale\":\"0.5\"", "\"scale\":\"0.5 (\"", 1));
+    let restored = damaged
+        .document
+        .feature(along_curves)
+        .and_then(|feature| feature.kind.solid())
+        .and_then(|solid| match solid {
+            caditor_document::SolidFeature::Sweep(sweep) => Some(sweep.scale.clone()),
+            _ => None,
+        })
+        .unwrap();
+
+    assert!(
+        text.contains("\"sweep_shape\":{\"feature\":{\"cut_several\":{"),
+        "{text}"
+    );
+    assert!(
+        text.contains("\"scale\":\"0.5\",\"twist\":\"$1\""),
+        "{text}"
+    );
+    assert!(
+        text.contains("\"scale\":\"2\",\"twist\":\"0 deg\""),
+        "{text}"
+    );
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert!(older.document.feature(along_curves).is_none());
+    assert!(older.document.feature(along_edges).is_none());
+    assert!(!older.issues.is_empty());
+    assert_eq!(damaged.issues.len(), 1, "{:?}", damaged.issues);
+    assert!(
+        damaged.issues[0].contains("end scale"),
+        "{:?}",
+        damaged.issues
+    );
+    assert_eq!(restored, Expression::number(1.0));
+}
+
+#[test]
 fn an_unreadable_edge_of_a_sweep_path_is_left_out_and_reported() {
     let (document, _, along_edges) = sweep_model();
     let text =
@@ -4743,6 +4801,7 @@ fn loft_model() -> (Document, FeatureId) {
             end: Some(PointReference::Origin),
             skin: LoftSkin::Ruled,
             operation: BodyOperation::Remove(base),
+            ..Loft::new(Vec::new())
         }),
     );
     document.apply(transaction.finish()).unwrap();
@@ -4761,6 +4820,57 @@ fn lofts_are_saved_and_loaded_as_a_record_of_their_own() {
     assert!(text.contains("\"end\":"), "{text}");
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(loaded.document, document);
+}
+
+#[test]
+fn a_closed_or_square_ended_loft_wraps_its_record_so_an_older_reader_leaves_it_out() {
+    let (mut document, loft) = loft_model();
+    let mut kind = document.feature(loft).unwrap().kind.clone();
+    if let FeatureKind::Loft(shaped) = &mut kind {
+        shaped.end = None;
+        shaped.skin = caditor_kernel::LoftSkin::Smooth;
+        shaped.square_start = Some(Expression::parse_stored("1.5").unwrap());
+        shaped.square_end = Some(Expression::parse_stored("2").unwrap());
+    }
+    let mut closed = kind.clone();
+    if let FeatureKind::Loft(shaped) = &mut closed {
+        shaped.closed = true;
+        shaped.square_start = None;
+        shaped.square_end = None;
+    }
+    let mut transaction = document.transaction("Ends");
+    transaction.edit(Edit::SetFeatureKind { id: loft, kind });
+    let ring = transaction.add_feature("Ring", closed);
+    document.apply(transaction.finish()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let older = decode_text(&text.replace("loft_ends", "loft_endz"));
+    let damaged = decode_text(&text.replacen("\"start\":\"1.5\"", "\"start\":\"1.5 (\"", 1));
+    let restored = damaged.document.feature(loft).unwrap().kind.loft().unwrap();
+
+    assert!(
+        text.contains("\"loft_ends\":{\"end\":\"2\",\"feature\":{\"loft\":{"),
+        "{text}"
+    );
+    assert!(
+        text.contains("\"loft_ends\":{\"closed\":true,\"feature\":{\"loft\":{"),
+        "{text}"
+    );
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert!(older.document.feature(loft).is_none());
+    assert!(older.document.feature(ring).is_none());
+    assert_eq!(damaged.issues.len(), 1, "{:?}", damaged.issues);
+    assert!(
+        damaged.issues[0].contains("start weight"),
+        "{:?}",
+        damaged.issues
+    );
+    assert_eq!(
+        restored.square_start,
+        Some(Expression::parse_stored("1").unwrap())
+    );
 }
 
 #[test]

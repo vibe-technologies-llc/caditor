@@ -163,14 +163,14 @@ pub(crate) fn expressions_mut(kind: &mut FeatureKind) -> Vec<&mut Expression> {
             expressions.extend(revolve.wall.as_deref_mut().map(|wall| &mut wall.thickness));
             expressions
         }
-        FeatureKind::Solid(SolidFeature::Sweep(_)) => Vec::new(),
+        FeatureKind::Solid(SolidFeature::Sweep(sweep)) => sweep.expressions_mut(),
         FeatureKind::Blend(blend) => blend.expressions_mut(),
         FeatureKind::Shell(shell) => shell.expressions_mut(),
         FeatureKind::OffsetFace(offset) => vec![&mut offset.distance],
         FeatureKind::DeleteFace(_) => Vec::new(),
         FeatureKind::Primitive(primitive) => primitive.expressions_mut(),
         FeatureKind::Pipe(pipe) => pipe.expressions_mut(),
-        FeatureKind::Loft(_) => Vec::new(),
+        FeatureKind::Loft(loft) => loft.expressions_mut(),
         FeatureKind::Coil(coil) => coil.expressions_mut(),
         FeatureKind::Helix(helix) => helix.expressions_mut(),
         FeatureKind::Rib(rib) => rib.expressions_mut(),

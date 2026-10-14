@@ -719,6 +719,16 @@ pub struct TransactionBuilder<'a> {
 }
 
 impl TransactionBuilder<'_> {
+    #[must_use]
+    pub fn inserting_at(self, index: usize) -> Self {
+        let index = index.min(self.document.features.len());
+        Self {
+            next_feature_index: index,
+            inserted_group: self.document.group_around(index),
+            ..self
+        }
+    }
+
     pub fn parse(&self, text: &str) -> Result<Expression, ParseError> {
         Expression::parse(text, &|name| {
             self.added_parameters

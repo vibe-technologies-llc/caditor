@@ -130,8 +130,27 @@ paths:
   `FOLD_MARGIN` (`ProfileTooLarge`: the profile reaches the bend's centre); a parallel sweep must
   keep rising by `LEAST_RISE` along every leg (`TurnsAlongProfile`), which also makes it never cross
   itself. A square sweep of more than one leg or with a fitted leg runs `find_crossing` after
-  validating (`CrossesItself`; inconclusive passes). Taper, twist, guide rails and round corners
-  are roadmap entries.
+  validating (`CrossesItself`; inconclusive passes) when the path has several legs or its leg bends
+  freely (`bends_freely_along`: not a line or a meridian arc, whatever the shape). Guide rails and
+  round corners are roadmap entries.
+- `sweep_shaped(plane, regions, path, (SweepOrientation, SweepShape), feature)` twists and scales
+  the profile along the way (`sweep` is it with `SweepShape::NONE`). `SweepShape { twist, scale }`
+  (radians in all, end scale; a non-finite twist or a scale outside `Similarity::scaling`'s range
+  is `UnusableShape`) becomes a `Shaping`: at each station a `Similarity` scaling by
+  `1 + (scale − 1)·f` and turning by `twist·f` about the line through where the path's start meets
+  the profile plane along the plane's normal toward the travel (positive is counter-clockwise
+  looking back along the path), `f` the fraction of the path's length travelled (`Curve::length`),
+  applied before the rigid frame (`stations::shaped`). Every leg is then fitted (`shaped_motion`:
+  lines by `sliding` translation, arcs by `rotating`, windings, splines rotation-minimising; at least
+  `Shaping::stations_for` stations, one per `STATION_TURN` of twist), the placement chained by each
+  leg's rigid `Stations::finish`, sections `Section::Placed(Similarity)` (scaled ones mapped by
+  `Curve::mapped` with its parameter stretch) and the end cap `Plane::mapped`. A sharp corner
+  between lines is `ShapedCorner` (no mitre). A closed path cannot scale (`ClosedPathScales`); one
+  bringing the profile back turned within its plane is `ClosedPathTwists { turned }` with the angle
+  about the travel (`turned_by`, none when tilted), and a turn within `CLOSING_SLACK` is planned
+  once more with the twist less it (`Closing::Corrected`, accepting `FIT_TOLERANCE` plus twice the
+  slack times the profile's reach), so a closed path out of one plane closes once the twist brings
+  the profile back, the error giving the angle to type.
 - `pipe(path, PipeSection, bend, up, feature)` (`sweep/pipe.rs`) is `sweep` of a section it
   builds: `PipeShape` round, square or equilateral triangle, centred on the path, with an inner
   outline `wall` inside for a hollow pipe (entities 1 up for the outer outline, `curves()` more for
@@ -182,7 +201,22 @@ paths:
   start and end caps of the first and last region keys. Sides running into each other are refused
   by `find_crossing` after validation (`CrossesItself`). At most `MAX_LOFT_PROFILES` profiles,
   `MAX_SPANS` pieces a profile and `MAX_SEGMENTS` segments a column (`TooIntricate`). Rails, a
-  centreline and end conditions are roadmap entries.
+  centreline and curvature-continuous or face-tangent ends are roadmap entries.
+- `loft_through(profiles, apex, (LoftSkin, LoftEnds), feature)` closes and squares ends (`loft` is
+  it with `LoftEnds::OPEN`). `closed` (at least three profiles, `TooFewToClose`; no apex,
+  `ClosedWithApex`) orients every ring by the central difference of its neighbours' centres
+  (`closed_travel`), repeats the first ring's curves as a last row with the closing chord among the
+  stations, wraps ruled legs back to row 0 and runs one smooth leg through all with equal end
+  slopes (the quadratic through the last, first and second rows, so the closing profile is passed
+  smoothly), shares row 0's edges between the last and first legs (`Loft::wrapped`) and has no
+  caps. `start` and `end` weights (finite, above zero, else `UnusableWeight`; smooth only,
+  `SquareOnRuled`; never on a closed loft or toward an apex, `SquareOnClosed`, `SquareAtApex`) leave
+  that end square: columns are interpolated cubically with end derivatives (`skin::hermite`: the
+  stations as interior knots, the second and last-but-one control points from the slopes, a
+  tridiagonal solve), a square end's slope the ring's oriented normal times the weight times the
+  centres' total chord length, a free end beside it the quadratic through its three nearest rows
+  (the chord for two). A two-profile loft with a square end is one cubic leg (`Leg::ruled` false, its
+  edges along the vertices the surfaces' sides).
 - `heights(plane, regions, target)` gives the least and most signed height of a target plane over
   the profile, to tell a plane ahead from one behind or across.
 - `next_face(solid, plane, regions, reversed)` casts rays from the regions' triangle centroids

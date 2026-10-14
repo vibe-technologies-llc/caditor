@@ -280,8 +280,8 @@ pub fn prompt(model: &Model, picking: Picking) -> String {
                 .to_owned()
         }
         Slot::LoftProfiles => {
-            "Click a region or a curve of each sketch to loft through, in order, again to leave \
-             one out; press Escape when every profile is chosen"
+            "Click a region or a curve of each sketch, or a flat face of a body, to loft through, \
+             in order, again to leave a sketch out; press Escape when every profile is chosen"
                 .to_owned()
         }
         Slot::LoftEnd => {

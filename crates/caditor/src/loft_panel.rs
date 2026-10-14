@@ -1,9 +1,10 @@
 use caditor_document::{Feature, FeatureId, Loft, Transaction, describe_point, loft_skin_name};
+use caditor_expression::{Dimension, Expression};
 use caditor_kernel::LoftSkin;
-use egui::Ui;
+use egui::{Id, Ui};
 
 use crate::{
-    feature_fields::{self, OperationRows, Picker, Segment, Shown},
+    feature_fields::{self, OperationRows, Picker, Quantity, Rule, Segment, Shown},
     icons, loft_tools,
     model::{Action, Model},
     reference_picking::Slot,
@@ -25,6 +26,56 @@ const LEAVE_OUT: &str = "Leave this profile out";
 const SMOOTH_HOVER: &str = "One smooth skin passing through every profile";
 const RULED_HOVER: &str = "Straight-lined sides from each profile to the next";
 const MISSING_PROFILE: &str = "Missing sketch";
+pub const CLOSING: &str = "Closing";
+pub const OPEN: &str = "Open";
+pub const CLOSED: &str = "Closed";
+const OPEN_HOVER: &str = "Stop at the last profile or end point";
+const CLOSED_HOVER: &str =
+    "Run on from the last profile back into the first, making a ring with no ends";
+pub const START: &str = "Start";
+pub const END: &str = "End";
+pub const FREE: &str = "Free";
+pub const SQUARE: &str = "Square";
+const FREE_HOVER: &str = "Leave the profile however the profiles around it lead";
+const SQUARE_HOVER: &str = "Leave the profile square to its plane, as a straight wall would";
+pub const START_WEIGHT: &str = "Start weight";
+pub const END_WEIGHT: &str = "End weight";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Side {
+    Start,
+    End,
+}
+
+impl Side {
+    fn caption(self) -> &'static str {
+        match self {
+            Self::Start => START,
+            Self::End => END,
+        }
+    }
+
+    fn weight_caption(self) -> &'static str {
+        match self {
+            Self::Start => START_WEIGHT,
+            Self::End => END_WEIGHT,
+        }
+    }
+
+    fn key(self) -> &'static str {
+        match self {
+            Self::Start => "start",
+            Self::End => "end",
+        }
+    }
+
+    fn weight(self, loft: &Loft) -> Option<&Expression> {
+        match self {
+            Self::Start => loft.square_start.as_ref(),
+            Self::End => loft.square_end.as_ref(),
+        }
+    }
+}
 
 fn skin_hover(skin: LoftSkin) -> &'static str {
     match skin {
@@ -169,6 +220,60 @@ impl Panel<'_> {
         self.actions.extend(chosen);
     }
 
+    fn closing_row(&mut self, ui: &mut Ui) {
+        let closed = self.loft.closed;
+        let segments = [(false, OPEN, OPEN_HOVER), (true, CLOSED, CLOSED_HOVER)]
+            .into_iter()
+            .map(|(wanted, label, hover)| Segment {
+                label,
+                hover,
+                change: (wanted != closed)
+                    .then(|| self.change(loft_tools::with_closing(self.loft, wanted))),
+            })
+            .collect();
+        let chosen = feature_fields::segmented_row(ui, CLOSING, &self.feature.name, segments);
+        self.actions.extend(chosen);
+    }
+
+    fn end_condition_rows(&mut self, ui: &mut Ui, side: Side) {
+        let weight = side.weight(self.loft).cloned();
+        let segments = [(false, FREE, FREE_HOVER), (true, SQUARE, SQUARE_HOVER)]
+            .into_iter()
+            .map(|(square, label, hover)| Segment {
+                label,
+                hover,
+                change: (square != weight.is_some()).then(|| {
+                    let wanted = square.then(|| Expression::number(1.0));
+                    self.change(with_weight(self.loft, side, wanted))
+                }),
+            })
+            .collect();
+        let chosen =
+            feature_fields::segmented_row(ui, side.caption(), &self.feature.name, segments);
+        self.actions.extend(chosen);
+        let Some(expression) = weight else {
+            return;
+        };
+        let id = self.id();
+        let quantity = Quantity {
+            feature: id,
+            id: Id::new(("loft-field", id, side.key())),
+            expression: &expression,
+            dimension: Dimension::NONE,
+            rule: Rule::AboveZero,
+        };
+        let loft = self.loft.clone();
+        let model = self.model;
+        let drafting = feature_fields::expression_row_drafting(
+            ui,
+            model,
+            side.weight_caption(),
+            quantity,
+            |value| loft_tools::change(model, id, with_weight(&loft, side, Some(value))),
+        );
+        self.actions.extend(drafting.into_actions(id));
+    }
+
     fn operation_rows(&mut self, ui: &mut Ui) {
         let rows = OperationRows {
             feature: self.id(),
@@ -199,8 +304,30 @@ pub fn show(
     };
     widgets::properties(ui, ("loft-properties", feature.id()), |ui| {
         panel.profiles_row(ui);
-        panel.end_row(ui);
+        panel.closing_row(ui);
+        if !loft.closed {
+            panel.end_row(ui);
+        }
         panel.skin_row(ui);
+        if !loft.closed && loft.skin == LoftSkin::Smooth {
+            panel.end_condition_rows(ui, Side::Start);
+            if loft.end.is_none() {
+                panel.end_condition_rows(ui, Side::End);
+            }
+        }
         panel.operation_rows(ui);
     });
+}
+
+fn with_weight(loft: &Loft, side: Side, weight: Option<Expression>) -> Loft {
+    match side {
+        Side::Start => Loft {
+            square_start: weight,
+            ..loft.clone()
+        },
+        Side::End => Loft {
+            square_end: weight,
+            ..loft.clone()
+        },
+    }
 }

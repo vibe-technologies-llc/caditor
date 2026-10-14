@@ -137,7 +137,9 @@ pub fn sweep() -> Value {
     let properties = with_target(properties(json!({
         "sketch": reference("The sketch whose closed regions are swept"),
         "path": path(),
-        "orientation": choice(&["square", "parallel"], "Keep the section square to the path (the default) or parallel to itself")
+        "orientation": choice(&["square", "parallel"], "Keep the section square to the path (the default) or parallel to itself"),
+        "twist": amount("The angle the section turns about the path by its end, counter-clockwise looking back along the path, 0 deg by default"),
+        "scale": amount("The section's size at the end of the path against its start, such as 0.5; 1 by default")
     })));
     object(Value::Object(properties), &["sketch", "path"])
 }
@@ -157,7 +159,10 @@ pub fn pipe() -> Value {
 pub fn loft() -> Value {
     let properties = with_target(properties(json!({
         "profiles": features("The sketches it passes through, in order, two at least"),
-        "skin": choice(&["smooth", "ruled"], "Smooth through every profile (the default) or straight between each pair")
+        "skin": choice(&["smooth", "ruled"], "Smooth through every profile (the default) or straight between each pair"),
+        "closed": flag("Run on from the last profile back into the first, making a ring of three profiles or more"),
+        "start_weight": amount("Leave the first profile square to its plane with this weight, such as 1; 0 leaves it free. Smooth, open lofts only"),
+        "end_weight": amount("Reach the last profile square to its plane with this weight; 0 leaves it free")
     })));
     object(Value::Object(properties), &["profiles"])
 }

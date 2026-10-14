@@ -186,7 +186,12 @@ Extrusions and revolves:
   `curves` with the path's `sketch` and its `curves` ids, or `edges` with `body` and edge records),
   `orientation` (`square`, `parallel`) and `operation`; other bodies cut wrap it in `cut_several`.
   An unreadable path loads as unchosen (the sweep fails asking for one) and an unreadable edge is
-  left out, each reported. The corpus holds it in `path-sweeps.caditor`.
+  left out, each reported. The corpus holds it in `path-sweeps.caditor`. `sweep_shape`: a wrapper
+  around a sweep record (`feature`, itself possibly a `cut_several` or `along_helix`) with `twist`
+  and `scale`, the twist's and end scale's texts (unreadable 0 deg and 1, reported), written only
+  when either is not its literal default (`Sweep::is_shaped`); an older reader reports the sweep
+  as from a newer version rather than sweeping it straight; a wrapped kind that is not a sweep
+  loads without it, reported. The corpus holds it in `sweep-shapes.caditor`.
 - `pipe`: `path` as a sweep's (unreadable loads as unchosen), `shape` (`round`, `square`,
   `triangle`), `size` (unreadable 10 mm), `wall` only when hollow (unreadable 1 mm), `bend`
   (unreadable 0 mm) and `operation`. The corpus holds it in `pipes.caditor`.
@@ -194,6 +199,11 @@ Extrusions and revolves:
   `region_references` entry when a region is chosen), `end` (point reference, only when set),
   `skin` (`smooth`, `ruled`) and `operation`. An unreadable profile is left out and an unreadable end
   loads ending at the last profile, each reported. The corpus holds it in `lofts.caditor`.
+  `loft_ends`: a wrapper around a loft record (`feature`) with `closed` when set and `start` and
+  `end`, the square ends' weight texts, only when set (unreadable 1, reported), written when the
+  loft closes or has a square end (`Loft::has_ends_shaped`); an older reader reports the loft as
+  from a newer version rather than leaving it open or free; a wrapped kind that is not a loft loads
+  without it, reported. The corpus holds it in `loft-ends.caditor`.
 - `coil`: `axis` (an axis reference; unreadable loads as the Z axis), `reversed` when set,
   `diameter` (unreadable 20 mm), `length` (`turns_and_pitch`, `height_and_turns` or
   `height_and_pitch` with its two texts; unreadable turns 5, pitch 5 mm, height 25 mm), `shape`

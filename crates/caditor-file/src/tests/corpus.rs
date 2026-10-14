@@ -52,7 +52,7 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 40] = [
+const KEPT: [(&str, &str); 42] = [
     (
         "journal-1/by-reference.journal",
         "fe98725da8d9df46b19d7cede1474bcfb92bbda00d4de9c890e5bca5d0f2899f",
@@ -124,6 +124,10 @@ const KEPT: [(&str, &str); 40] = [
     (
         "model-1/imports.caditor",
         "f172dff8d721a9e2b87cec9c788a954cebb79dd198f0335636da641731addfbb",
+    ),
+    (
+        "model-1/loft-ends.caditor",
+        "6b7356cdd0983574e28a1a6ba92e83a1e24f31bdee719e25a43526f2a4effb13",
     ),
     (
         "model-1/lofts.caditor",
@@ -204,6 +208,10 @@ const KEPT: [(&str, &str); 40] = [
     (
         "model-1/starts.caditor",
         "638005d3194997ab315150f533e17db8422551613a547f3e41a3c40e73770f26",
+    ),
+    (
+        "model-1/sweep-shapes.caditor",
+        "aaa34b1bf8c902ad163fa3c4e1677b3563305022cb10c2c6ca008726cf8d0e30",
     ),
     (
         "model-1/sweeps.caditor",
@@ -745,6 +753,10 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
         (model("starts"), saved(&starts_model().0, "Starts")),
         (model("sweeps"), saved(&sweeps(), "Sweeps")),
         (model("path-sweeps"), saved(&path_sweeps(), "Path sweeps")),
+        (
+            model("sweep-shapes"),
+            saved(&sweep_shapes(), "Sweep shapes"),
+        ),
         (model("pipes"), saved(&pipes(), "Pipes")),
         (model("ribs"), saved(&ribs(), "Ribs")),
         (model("shaped-ribs"), saved(&shaped_ribs(), "Shaped ribs")),
@@ -755,6 +767,7 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
             saved(&helix_starts(), "Helix starts"),
         ),
         (model("lofts"), saved(&lofts(), "Lofts")),
+        (model("loft-ends"), saved(&loft_ends(), "Loft ends")),
         (
             model("separate-pieces"),
             saved(&separate_pieces(), "Separate pieces"),
@@ -1347,6 +1360,37 @@ fn path_sweeps() -> Document {
     document
 }
 
+fn sweep_shapes() -> Document {
+    let (mut document, base, _) = solid_model();
+    let sketch = named(&document, "Outline");
+    let parse = |text: &str| Expression::parse_stored(text).unwrap();
+    let mut transaction = document.transaction("Sweep shapes");
+    let mut path = Sketch::new(Plane::YZ);
+    let line = path.add_line(Point2::ZERO, Point2::new(0.0, 20.0));
+    let path = transaction.add_feature("Path", FeatureKind::from(path));
+    let along = SweepPath::Curves {
+        sketch: path,
+        curves: vec![line],
+    };
+    transaction.add_feature(
+        "Twisted",
+        FeatureKind::Solid(SolidFeature::Sweep(Sweep {
+            twist: parse("90 deg"),
+            ..Sweep::new(sketch, along.clone())
+        })),
+    );
+    transaction.add_feature(
+        "Tapered cut",
+        FeatureKind::Solid(SolidFeature::Sweep(Sweep {
+            scale: parse("0.5"),
+            operation: BodyOperation::Remove(base),
+            ..Sweep::new(sketch, along)
+        })),
+    );
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
 fn point_targets() -> Document {
     let mut document = Document::default();
     let mut transaction = document.transaction("Point targets");
@@ -1530,6 +1574,46 @@ fn helix_starts() -> Document {
             parse("2 mm"),
             parse("0 mm"),
         )),
+    );
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
+fn loft_ends() -> Document {
+    let (mut document, _, _) = solid_model();
+    let parse = |text: &str| Expression::parse_stored(text).unwrap();
+    let mut transaction = document.transaction("Loft ends");
+    let mut profiles = Vec::new();
+    for (index, angle) in [0.0_f64, 120.0, 240.0].into_iter().enumerate() {
+        let radial = Vector3::new(angle.to_radians().cos(), angle.to_radians().sin(), 0.0);
+        let plane = Plane::from_frame(
+            Point3::ZERO + radial * 20.0,
+            Vector3::Z.cross(radial),
+            radial,
+        )
+        .unwrap();
+        let mut sketch = Sketch::new(plane);
+        sketch.add_circle(Point2::ZERO, 2.0);
+        profiles.push(LoftSection::whole(transaction.add_feature(
+            format!("Ring section {}", index + 1),
+            FeatureKind::from(sketch),
+        )));
+    }
+    let open = profiles.get(..2).unwrap().to_vec();
+    transaction.add_feature(
+        "Ring",
+        FeatureKind::Loft(Loft {
+            closed: true,
+            ..Loft::new(profiles)
+        }),
+    );
+    transaction.add_feature(
+        "Square ends",
+        FeatureKind::Loft(Loft {
+            square_start: Some(parse("1")),
+            square_end: Some(parse("1.5")),
+            ..Loft::new(open)
+        }),
     );
     document.apply(transaction.finish()).unwrap();
     document

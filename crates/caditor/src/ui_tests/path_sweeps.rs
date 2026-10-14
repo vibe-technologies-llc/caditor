@@ -245,3 +245,67 @@ fn a_profile_too_large_for_the_bend_fails_in_words_naming_the_curve() {
     assert!(reason.contains("too large for the bend of"), "{reason}");
     assert!(harness.shows(&reason));
 }
+
+#[test]
+fn typing_a_twist_and_an_end_scale_shapes_the_sweep_in_one_undoable_change_each() {
+    let mut harness = Harness::new();
+    let mut square = Sketch::new(upright());
+    let corners = [
+        Point2::new(-RADIUS, -RADIUS),
+        Point2::new(RADIUS, -RADIUS),
+        Point2::new(RADIUS, RADIUS),
+        Point2::new(-RADIUS, RADIUS),
+    ];
+    let sides: Vec<EntityId> = (0..corners.len())
+        .map(|index| square.add_line(corners[index], corners[(index + 1) % corners.len()]))
+        .collect();
+    let profile = harness.add_sketch(square);
+    let mut straight = Sketch::new(Plane::XY);
+    let line = straight.add_line(Point2::ZERO, Point2::new(0.0, STRAIGHT));
+    let path = harness.add_sketch(straight);
+    harness.select([
+        Pickable::SketchEntity {
+            feature: profile,
+            entity: sides[0],
+        },
+        Pickable::SketchEntity {
+            feature: path,
+            entity: line,
+        },
+    ]);
+    harness.key(Key::W, Modifiers::ALT | Modifiers::SHIFT);
+    harness.settle();
+    let sweep = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the sweep is open");
+    let prism = 4.0 * RADIUS * RADIUS * STRAIGHT;
+    let value = |harness: &Harness, expression: &caditor_expression::Expression| {
+        harness
+            .model
+            .parameters()
+            .evaluate_expression(expression)
+            .unwrap()
+            .value
+    };
+
+    harness.type_into_field(egui::Id::new(("solid-field", "twist", sweep)), "90");
+    harness.settle();
+
+    assert!(harness.shows(solid_panel::TWIST));
+    assert!(harness.shows(solid_panel::END_SCALE));
+    assert_eq!(harness.model.undo_label(), Some("Edit Sweep 1"));
+    assert_eq!(value(&harness, &sweep_of(&harness, sweep).twist), 90.0);
+    assert!(near(&harness, sweep, prism));
+
+    harness.type_into_field(egui::Id::new(("solid-field", "scale", sweep)), "0.5");
+    harness.settle();
+
+    assert_eq!(value(&harness, &sweep_of(&harness, sweep).scale), 0.5);
+    assert!(near(&harness, sweep, prism * 7.0 / 12.0));
+    super::pipes::undone_and_redone(&mut harness, "the end scale", |harness| {
+        value(harness, &sweep_of(harness, sweep).scale)
+    });
+    assert!(near(&harness, sweep, prism * 7.0 / 12.0));
+}

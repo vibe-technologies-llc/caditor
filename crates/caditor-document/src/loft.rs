@@ -1,8 +1,9 @@
 use std::{collections::BTreeSet, slice};
 
+use caditor_expression::{Dimension, Expression, ParameterId};
 use caditor_kernel::{
-    LoftError, LoftProfile, LoftSkin, MAX_LOFT_PROFILES, ProfileError, RegionReference, Selection,
-    loft, resolve_regions,
+    LoftEnds, LoftError, LoftProfile, LoftSkin, MAX_LOFT_PROFILES, ProfileError, RegionReference,
+    Selection, loft_through, resolve_regions,
 };
 
 use crate::{
@@ -42,6 +43,9 @@ pub struct Loft {
     pub profiles: Vec<LoftSection>,
     pub end: Option<PointReference>,
     pub skin: LoftSkin,
+    pub closed: bool,
+    pub square_start: Option<Expression>,
+    pub square_end: Option<Expression>,
     pub operation: BodyOperation,
 }
 
@@ -51,8 +55,42 @@ impl Loft {
             profiles,
             end: None,
             skin: LoftSkin::Smooth,
+            closed: false,
+            square_start: None,
+            square_end: None,
             operation: BodyOperation::NewBody,
         }
+    }
+
+    pub fn expressions(&self) -> Vec<&Expression> {
+        self.square_start
+            .iter()
+            .chain(self.square_end.iter())
+            .collect()
+    }
+
+    pub fn expressions_mut(&mut self) -> Vec<&mut Expression> {
+        self.square_start
+            .iter_mut()
+            .chain(self.square_end.iter_mut())
+            .collect()
+    }
+
+    pub fn parameters(&self) -> BTreeSet<ParameterId> {
+        self.expressions()
+            .into_iter()
+            .flat_map(Expression::parameters)
+            .collect()
+    }
+
+    pub fn uses_parameter(&self, parameter: ParameterId) -> bool {
+        self.expressions()
+            .into_iter()
+            .any(|expression| expression.uses(parameter))
+    }
+
+    pub fn has_ends_shaped(&self) -> bool {
+        self.closed || self.square_start.is_some() || self.square_end.is_some()
     }
 
     pub fn sketches(&self) -> impl Iterator<Item = FeatureId> + '_ {
@@ -92,6 +130,11 @@ impl Loft {
                 .map(LoftSection::heap_size)
                 .sum::<usize>()
             + self.end.as_ref().map_or(0, PointReference::heap_size)
+            + self
+                .expressions()
+                .into_iter()
+                .map(Expression::heap_size)
+                .sum::<usize>()
     }
 
     pub fn rows(&self) -> usize {
@@ -275,6 +318,37 @@ fn failure(
                 .to_owned(),
             own,
         ),
+        LoftError::ClosedWithApex => failed(
+            format!("{name} closes back to its first profile, so it cannot also end at a point."),
+            "Leave out the end point, or stop closing the loft.".to_owned(),
+            own,
+        ),
+        LoftError::TooFewToClose => failed(
+            format!(
+                "{name} closes back to its first profile, which takes at least three profiles."
+            ),
+            "Add another profile, or stop closing the loft.".to_owned(),
+            own,
+        ),
+        LoftError::SquareAtApex => failed(
+            format!("{name} ends at a point, which it cannot reach square to a profile."),
+            "Set End to Free, or end at the last profile.".to_owned(),
+            own,
+        ),
+        LoftError::SquareOnRuled => failed(
+            format!(
+                "A ruled loft runs straight between its profiles, so {name} cannot leave its ends \
+                 square."
+            ),
+            "Switch Sides to Smooth, or set Start and End to Free.".to_owned(),
+            own,
+        ),
+        LoftError::SquareOnClosed => failed(
+            format!("{name} closes back to its first profile, so it has no ends to leave square."),
+            "Set Start and End to Free.".to_owned(),
+            own,
+        ),
+        LoftError::UnusableWeight => weightless(feature),
         LoftError::Geometry(_) | LoftError::Build(_) => {
             log::warn!("{name} could not be built: {error}");
             failed(
@@ -284,6 +358,34 @@ fn failure(
             )
         }
     }
+}
+
+fn weightless(feature: &Feature) -> Failure {
+    failed(
+        format!(
+            "The weight of a square end of {} must be more than zero.",
+            feature.name
+        ),
+        "Enter a weight above zero, such as 1 for a gentle turn or 2 to keep square longer."
+            .to_owned(),
+        FixTarget::Feature(feature.id()),
+    )
+}
+
+fn weight(
+    context: &Context<'_>,
+    feature: &Feature,
+    expression: Option<&Expression>,
+    what: &str,
+) -> Result<Option<f64>, Failure> {
+    let Some(expression) = expression else {
+        return Ok(None);
+    };
+    let value = context.value_as(expression, what, Dimension::NONE)?;
+    if value <= 0.0 || !value.is_finite() {
+        return Err(weightless(feature));
+    }
+    Ok(Some(value))
 }
 
 pub(crate) fn evaluate(
@@ -315,11 +417,26 @@ pub(crate) fn evaluate(
         .as_ref()
         .map(|end| Resolver { feature, inputs }.point(end))
         .transpose()?;
-    let made = loft(&profiles, apex, definition.skin, feature.id().raw())
+    let context = Context::new(feature, inputs, LOFT_SHAPE);
+    let ends = LoftEnds {
+        closed: definition.closed,
+        start: weight(
+            &context,
+            feature,
+            definition.square_start.as_ref(),
+            "start weight",
+        )?,
+        end: weight(
+            &context,
+            feature,
+            definition.square_end.as_ref(),
+            "end weight",
+        )?,
+    };
+    let made = loft_through(&profiles, apex, (definition.skin, ends), feature.id().raw())
         .map_err(|error| failure(feature, inputs, definition, &error))?;
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }
-    let context = Context::new(feature, inputs, LOFT_SHAPE);
     combined(&context, made, definition.operation)
 }

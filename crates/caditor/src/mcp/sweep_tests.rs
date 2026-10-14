@@ -77,6 +77,17 @@ fn pipes_sweeps_and_lofts_follow_paths_and_profiles() {
     );
     assert_eq!(sweep["failing"], json!([]), "{sweep}");
     assert!(near(total_volume(&mut client), tube + rod));
+    let shaped = client.tool(
+        "edit_feature",
+        json!({ "feature": sweep["feature"]["id"], "twist": "90 deg", "scale": 0.5 }),
+    );
+    assert_eq!(shaped["failing"], json!([]), "{shaped}");
+    assert!(near(total_volume(&mut client), tube + rod * 7.0 / 12.0));
+    added(
+        &mut client,
+        "edit_feature",
+        json!({ "feature": sweep["feature"]["id"], "twist": 0, "scale": 1 }),
+    );
 
     let (bottom, _) = sketch_on(
         &mut client,
@@ -93,12 +104,25 @@ fn pipes_sweeps_and_lofts_follow_paths_and_profiles() {
         json!({ "datum": datum }),
         json!([{ "kind": "rectangle", "corner": [100, 0], "opposite": [110, 10] }]),
     );
-    added(
+    let loft = added(
         &mut client,
         "add_loft",
         json!({ "profiles": [bottom, top], "skin": "ruled" }),
     );
     assert!(near(total_volume(&mut client), tube + rod + 2000.0));
+    added(
+        &mut client,
+        "edit_feature",
+        json!({ "feature": loft, "skin": "smooth", "start_weight": 1, "end_weight": 2 }),
+    );
+    assert!(near(total_volume(&mut client), tube + rod + 2000.0));
+    let ruled_square = client.tool("edit_feature", json!({ "feature": loft, "skin": "ruled" }));
+    assert_ne!(ruled_square["failing"], json!([]), "{ruled_square}");
+    added(
+        &mut client,
+        "edit_feature",
+        json!({ "feature": loft, "start_weight": 0, "end_weight": 0 }),
+    );
 
     let not_a_curve = client.tool_error(
         "add_pipe",

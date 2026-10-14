@@ -1,6 +1,6 @@
 use std::f64::consts::{FRAC_PI_2, PI};
 
-use caditor_expression::Expression;
+use caditor_expression::{Expression, ParameterId};
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
 use caditor_kernel::{Curve, EdgeReference, SamplingTolerance, Solid, SweepOrientation};
 use caditor_sketch::{EntityId, Sketch};
@@ -387,4 +387,148 @@ fn inserting_a_sweep_is_one_undoable_change() {
 
     assert_eq!(swept_count, 1);
     assert!(!editor.document().features().any(is_sweep));
+}
+
+fn square_profile() -> Sketch {
+    let mut sketch = Sketch::new(upright());
+    let corners = [
+        Point2::new(-1.0, -1.0),
+        Point2::new(1.0, -1.0),
+        Point2::new(1.0, 1.0),
+        Point2::new(-1.0, 1.0),
+    ];
+    for (index, corner) in corners.iter().enumerate() {
+        sketch.add_line(*corner, corners[(index + 1) % corners.len()]);
+    }
+    sketch
+}
+
+fn straight_path() -> (Sketch, Vec<EntityId>) {
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::ZERO, Point2::new(0.0, 10.0));
+    (sketch, vec![line])
+}
+
+fn circle_path() -> (Sketch, Vec<EntityId>) {
+    let mut sketch = Sketch::new(Plane::XY);
+    let circle = sketch.add_circle(Point2::new(-5.0, 0.0), 5.0);
+    (sketch, vec![circle])
+}
+
+fn stored(text: &str) -> Expression {
+    Expression::parse_stored(text).unwrap()
+}
+
+struct Shaped {
+    document: Document,
+    sweep: FeatureId,
+    twist: ParameterId,
+}
+
+fn shaped(path: (Sketch, Vec<EntityId>), twist: &str, scale: &str) -> Shaped {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    let twist = transaction.add_parameter("spin", stored(twist));
+    let profile = transaction.add_feature("Profile", FeatureKind::from(square_profile()));
+    let (path, curves) = path;
+    let path_sketch = transaction.add_feature("Path", FeatureKind::from(path));
+    let sweep = transaction.add_feature(
+        "Sweep 1",
+        FeatureKind::Solid(SolidFeature::Sweep(Sweep {
+            twist: Expression::Parameter(twist),
+            scale: stored(scale),
+            ..Sweep::new(
+                profile,
+                SweepPath::Curves {
+                    sketch: path_sketch,
+                    curves,
+                },
+            )
+        })),
+    );
+    document.apply(transaction.finish()).unwrap();
+    Shaped {
+        document,
+        sweep,
+        twist,
+    }
+}
+
+#[test]
+fn a_twisted_sweep_keeps_the_area_times_the_length_as_its_twist_parameter_changes() {
+    let mut model = shaped(straight_path(), "90 deg", "1");
+
+    let quarter = evaluate(&model.document);
+    let mut transaction = model.document.transaction("Spin");
+    transaction.edit(Edit::SetParameterExpression {
+        id: model.twist,
+        expression: stored("2 * 360 deg"),
+    });
+    model.document.apply(transaction.finish()).unwrap();
+    let doubled = evaluate(&model.document);
+
+    assert_eq!(quarter.failed_count(), 0);
+    assert_eq!(doubled.failed_count(), 0);
+    assert!((volume(&quarter, model.sweep) - 40.0).abs() < 0.01);
+    assert!((volume(&doubled, model.sweep) - 40.0).abs() < 0.01);
+    assert!(
+        model
+            .document
+            .feature(model.sweep)
+            .unwrap()
+            .kind
+            .uses_parameter(model.twist)
+    );
+}
+
+#[test]
+fn a_scaled_sweep_along_a_line_is_a_frustum() {
+    let model = shaped(straight_path(), "0 deg", "0.5");
+
+    let evaluation = evaluate(&model.document);
+
+    let frustum = 10.0 / 3.0 * (4.0 + 1.0 + 2.0);
+    assert_eq!(evaluation.failed_count(), 0);
+    assert!((volume(&evaluation, model.sweep) - frustum).abs() < 0.01);
+}
+
+#[test]
+fn a_closed_path_brought_back_turned_names_the_twist_that_closes_it() {
+    let model = shaped(circle_path(), "90 deg", "1");
+    let scaled = shaped(circle_path(), "0 deg", "2");
+
+    let error = failure(&evaluate(&model.document), model.sweep);
+    let refused = failure(&evaluate(&scaled.document), scaled.sweep);
+
+    assert!(error.reason.contains("turned by 90°"), "{}", error.reason);
+    assert!(
+        error.remedy.contains("Set the twist to 0°"),
+        "{}",
+        error.remedy
+    );
+    assert!(
+        refused.remedy.contains("end scale to 1"),
+        "{}",
+        refused.remedy
+    );
+}
+
+#[test]
+fn an_end_scale_of_zero_or_a_twist_given_as_a_length_fails_in_words() {
+    let flat = shaped(straight_path(), "0 deg", "0");
+    let long = shaped(straight_path(), "5 mm", "1");
+
+    let flattened = failure(&evaluate(&flat.document), flat.sweep);
+    let lengthened = failure(&evaluate(&long.document), long.sweep);
+
+    assert!(
+        flattened.reason.contains("must be more than zero"),
+        "{}",
+        flattened.reason
+    );
+    assert!(
+        lengthened.remedy.contains("gives an angle"),
+        "{}",
+        lengthened.remedy
+    );
 }

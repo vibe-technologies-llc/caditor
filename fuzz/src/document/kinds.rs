@@ -456,6 +456,17 @@ fn loft(input: &mut Unstructured, scene: &Scene) -> Result<Loft> {
             None
         },
         skin: *input.choose(&[LoftSkin::Smooth, LoftSkin::Ruled])?,
+        closed: input.ratio(1u8, 4)?,
+        square_start: if input.ratio(1u8, 3)? {
+            Some(scene.factor(input)?)
+        } else {
+            None
+        },
+        square_end: if input.ratio(1u8, 3)? {
+            Some(scene.factor(input)?)
+        } else {
+            None
+        },
         operation: operation(input, scene)?,
     })
 }
@@ -549,6 +560,8 @@ fn solid(input: &mut Unstructured, scene: &Scene) -> Result<Option<FeatureKind>>
             regions,
             path: sweep_path(input, scene)?,
             orientation: *input.choose(&[SweepOrientation::Square, SweepOrientation::Parallel])?,
+            twist: scene.turn(input)?,
+            scale: scene.factor(input)?,
             operation,
             other_bodies,
         }))));

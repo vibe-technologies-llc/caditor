@@ -218,6 +218,9 @@ impl Rounded {
             PathSweepError::CornerTooSharp { segments } => PathSweepError::CornerTooSharp {
                 segments: pair(segments),
             },
+            PathSweepError::ShapedCorner { segments } => PathSweepError::ShapedCorner {
+                segments: pair(segments),
+            },
             other => other,
         })
     }

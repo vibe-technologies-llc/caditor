@@ -1,3 +1,5 @@
+#[cfg(test)]
+mod ends_tests;
 mod rings;
 mod skin;
 #[cfg(test)]
@@ -8,7 +10,7 @@ use thiserror::Error;
 
 use self::{
     rings::{Ring, rings},
-    skin::{Beziers, compatible, ruled, skinned},
+    skin::{Beziers, SkinEnd, SkinEnds, compatible, ruled, skinned, skinned_through},
 };
 use super::{
     SweepError,
@@ -45,6 +47,25 @@ pub enum LoftSkin {
     Smooth,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct LoftEnds {
+    pub closed: bool,
+    pub start: Option<f64>,
+    pub end: Option<f64>,
+}
+
+impl LoftEnds {
+    pub const OPEN: Self = Self {
+        closed: false,
+        start: None,
+        end: None,
+    };
+
+    fn squared(&self) -> bool {
+        self.start.is_some() || self.end.is_some()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Error)]
 pub enum LoftError {
     #[error("a loft needs at least two profiles, or a profile and a point")]
@@ -63,6 +84,18 @@ pub enum LoftError {
     TooIntricate,
     #[error("the lofted solid runs into itself")]
     CrossesItself,
+    #[error("a loft closing back to its first profile cannot also end at a point")]
+    ClosedWithApex,
+    #[error("a loft closing back to its first profile needs at least three profiles")]
+    TooFewToClose,
+    #[error("a loft ending at a point cannot leave that point square to a profile")]
+    SquareAtApex,
+    #[error("a ruled loft cannot leave its end profiles square")]
+    SquareOnRuled,
+    #[error("a loft closing back to its first profile has no ends to leave square")]
+    SquareOnClosed,
+    #[error("the weight of a square end must be a finite number above zero")]
+    UnusableWeight,
     #[error("the lofted geometry cannot be built: {0}")]
     Geometry(GeometryError),
     #[error(transparent)]
@@ -96,12 +129,14 @@ impl From<SweepError> for LoftError {
 struct Leg {
     first: usize,
     last: usize,
+    ruled: bool,
     surfaces: Vec<BSplineSurface>,
 }
 
 struct Loft<'a> {
     rings: Vec<Ring<'a>>,
     apex: Option<Point3>,
+    ends: LoftEnds,
     count: usize,
     feature: u64,
     start_cap: FaceName,
@@ -114,6 +149,45 @@ pub fn loft(
     skin: LoftSkin,
     feature: u64,
 ) -> Result<Solid, LoftError> {
+    loft_through(profiles, apex, (skin, LoftEnds::OPEN), feature)
+}
+
+fn check_ends(
+    profiles: &[LoftProfile],
+    apex: Option<Point3>,
+    (skin, ends): (LoftSkin, LoftEnds),
+) -> Result<(), LoftError> {
+    let usable =
+        |weight: Option<f64>| weight.is_none_or(|weight| weight.is_finite() && weight > 0.0);
+    if !usable(ends.start) || !usable(ends.end) {
+        return Err(LoftError::UnusableWeight);
+    }
+    if ends.closed {
+        if apex.is_some() {
+            return Err(LoftError::ClosedWithApex);
+        }
+        if profiles.len() < 3 {
+            return Err(LoftError::TooFewToClose);
+        }
+        if ends.squared() {
+            return Err(LoftError::SquareOnClosed);
+        }
+    }
+    if ends.squared() && skin == LoftSkin::Ruled {
+        return Err(LoftError::SquareOnRuled);
+    }
+    if ends.end.is_some() && apex.is_some() {
+        return Err(LoftError::SquareAtApex);
+    }
+    Ok(())
+}
+
+pub fn loft_through(
+    profiles: &[LoftProfile],
+    apex: Option<Point3>,
+    (skin, ends): (LoftSkin, LoftEnds),
+    feature: u64,
+) -> Result<Solid, LoftError> {
     let rows = profiles.len() + usize::from(apex.is_some());
     if profiles.is_empty() || rows < 2 {
         return Err(LoftError::TooFewProfiles);
@@ -121,9 +195,10 @@ pub fn loft(
     if profiles.len() > MAX_LOFT_PROFILES {
         return Err(LoftError::TooManyProfiles);
     }
+    check_ends(profiles, apex, (skin, ends))?;
     let size = reach(profiles, apex)?;
     let tolerance = (size * RELATIVE_TOLERANCE).max(LINEAR_RESOLUTION);
-    let rings = rings(profiles, apex, tolerance)?;
+    let rings = rings(profiles, apex, ends.closed, tolerance)?;
     let count = rings.first().map_or(0, |ring| ring.spans.len());
     let (Some(first), Some(last)) = (profiles.first(), profiles.last()) else {
         return Err(LoftError::TooFewProfiles);
@@ -131,6 +206,7 @@ pub fn loft(
     let loft = Loft {
         rings,
         apex,
+        ends,
         count,
         feature,
         start_cap: FaceName::start_cap(feature, first.region.key()),
@@ -166,7 +242,33 @@ fn degenerate() -> LoftError {
 
 impl Loft<'_> {
     fn rows(&self) -> usize {
-        self.rings.len() + usize::from(self.apex.is_some())
+        self.rings.len() + usize::from(self.apex.is_some()) + usize::from(self.ends.closed)
+    }
+
+    fn wrapped(&self, row: usize) -> usize {
+        if self.ends.closed {
+            row % self.rings.len().max(1)
+        } else {
+            row
+        }
+    }
+
+    fn square_end(&self, ring: Option<&Ring<'_>>, weight: Option<f64>, travel: f64) -> SkinEnd {
+        match (ring, weight) {
+            (Some(ring), Some(weight)) => {
+                SkinEnd::Along(ring.oriented_normal() * (weight * travel))
+            }
+            _ => SkinEnd::Natural,
+        }
+    }
+
+    fn skin_ends(&self) -> Result<SkinEnds, LoftError> {
+        let travel = self.travel()?;
+        Ok(SkinEnds {
+            start: self.square_end(self.rings.first(), self.ends.start, travel),
+            end: self.square_end(self.rings.last(), self.ends.end, travel),
+            closed: self.ends.closed,
+        })
     }
 
     fn columns(&self) -> Result<Vec<Vec<Beziers>>, LoftError> {
@@ -184,6 +286,11 @@ impl Loft<'_> {
             if let Some(apex) = self.apex {
                 curves.push(Beziers::point(apex, 1));
             }
+            if self.ends.closed
+                && let Some(first) = curves.first().cloned()
+            {
+                curves.push(first);
+            }
             let matched = compatible(&curves);
             if matched
                 .first()
@@ -196,12 +303,18 @@ impl Loft<'_> {
         Ok(columns)
     }
 
-    fn stations(&self) -> Result<Vec<f64>, LoftError> {
+    fn travelled(&self) -> Result<Vec<f64>, LoftError> {
+        let closing = self
+            .ends
+            .closed
+            .then(|| self.rings.first().map(|ring| ring.centre))
+            .flatten();
         let centres: Vec<Point3> = self
             .rings
             .iter()
             .map(|ring| ring.centre)
             .chain(self.apex)
+            .chain(closing)
             .collect();
         let mut travelled = 0.0;
         let mut stations = vec![0.0];
@@ -214,25 +327,42 @@ impl Loft<'_> {
         if !(travelled.is_finite() && travelled > 0.0) {
             return Err(degenerate());
         }
-        Ok(stations.into_iter().map(|at| at / travelled).collect())
+        Ok(stations)
+    }
+
+    fn travel(&self) -> Result<f64, LoftError> {
+        self.travelled()?.last().copied().ok_or_else(degenerate)
+    }
+
+    fn stations(&self) -> Result<Vec<f64>, LoftError> {
+        let travelled = self.travelled()?;
+        let travel = travelled.last().copied().ok_or_else(degenerate)?;
+        Ok(travelled.into_iter().map(|at| at / travel).collect())
     }
 
     fn legs(&self, skin: LoftSkin) -> Result<Vec<Leg>, LoftError> {
         let columns = self.columns()?;
         let rows = self.rows();
         match skin {
-            LoftSkin::Smooth if rows > 2 => {
+            LoftSkin::Smooth if rows > 2 || self.ends.squared() => {
                 let stations = self.stations()?;
+                let ends = (self.ends.closed || self.ends.squared())
+                    .then(|| self.skin_ends())
+                    .transpose()?;
                 let surfaces = columns
                     .iter()
                     .map(|curves| {
                         interrupt::check()?;
-                        Ok(skinned(curves, &stations)?)
+                        Ok(match ends {
+                            Some(ends) => skinned_through(curves, &stations, ends)?,
+                            None => skinned(curves, &stations)?,
+                        })
                     })
                     .collect::<Result<Vec<_>, LoftError>>()?;
                 Ok(vec![Leg {
                     first: 0,
                     last: rows - 1,
+                    ruled: false,
                     surfaces,
                 }])
             }
@@ -252,6 +382,7 @@ impl Loft<'_> {
                     Ok(Leg {
                         first: row,
                         last: row + 1,
+                        ruled: true,
                         surfaces,
                     })
                 })
@@ -299,13 +430,14 @@ impl Loft<'_> {
         }
         let vertex = |row: usize, index: usize| -> Result<usize, LoftError> {
             vertices
-                .get(row)
+                .get(self.wrapped(row))
                 .and_then(|line| line.get(index % count.max(1)))
                 .copied()
                 .ok_or_else(degenerate)
         };
         let leg_of_row_above = |row: usize| legs.iter().position(|leg| leg.first == row);
-        let leg_of_row_below = |row: usize| legs.iter().position(|leg| leg.last == row);
+        let leg_of_row_below =
+            |row: usize| legs.iter().position(|leg| self.wrapped(leg.last) == row);
         let mut sections: Vec<Option<Vec<usize>>> = Vec::with_capacity(rows);
         for (row, ring) in self.rings.iter().enumerate() {
             let above = leg_of_row_above(row);
@@ -333,6 +465,7 @@ impl Loft<'_> {
             sections.push(Some(line));
         }
         let section_edge = |row: usize, index: usize| -> Result<(usize, Sense), LoftError> {
+            let row = self.wrapped(row);
             let edge = sections
                 .get(row)
                 .and_then(Option::as_ref)
@@ -366,7 +499,7 @@ impl Loft<'_> {
                     )
                 };
                 let ends = (vertex(leg.first, index)?, vertex(leg.last, index)?);
-                let edge = if leg.last == leg.first + 1 {
+                let edge = if leg.ruled {
                     plan.line(ends.0, ends.1, name)?
                 } else {
                     let surface = leg.surfaces.get(index).ok_or_else(degenerate)?;
@@ -394,7 +527,7 @@ impl Loft<'_> {
                     PlanCoedge::new(bottom, travel),
                     PlanCoedge::new(along(index + 1)?, Sense::Same),
                 ];
-                if leg.last < self.rings.len() {
+                if self.ends.closed || leg.last < self.rings.len() {
                     let (top, top_travel) = section_edge(leg.last, index)?;
                     coedges.push(PlanCoedge::new(top, top_travel.reversed()));
                 }
@@ -408,7 +541,9 @@ impl Loft<'_> {
                 });
             }
         }
-        self.caps(&mut plan, &section_edge)?;
+        if !self.ends.closed {
+            self.caps(&mut plan, &section_edge)?;
+        }
         Ok(plan.build().map_err(SweepError::from)?)
     }
 

@@ -111,9 +111,10 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   with `wall_side` (`Wall`, centred by default). A hole takes the same ends, a `style` with head
   sizes, a `standard` metric size and `fit` through `hole_tools::with_standard` (a diameter clears
   the standard), and a tapped standard's `thread_form`, `thread_hand` and `thread_depth`.
-- `sweeps.rs` adds sweeps, pipes (path as `{sketch, curves}` checked by
+- `sweeps.rs` adds sweeps (with a `twist` angle and an end `scale`), pipes (path as `{sketch, curves}` checked by
   `sweep_tools::is_path_curve`, `{body, edges}` or `{helix}`, a `SweepPath`), lofts through whole
-  sketches (hidden as the tool hides them), coils (two of turns, pitch and height as a
+  sketches (hidden as the tool hides them; `closed`, and a `start_weight` or `end_weight` above 0
+  leaving that end square, 0 freeing it), coils (two of turns, pitch and height as a
   `CoilLength`), ribs (square to a face's sketch, facing the body by `rib_tools::facing_body`; a web's `draft` and
   `ends`) and
   threads (the face's `Bore` picks the nearest size and default class, named

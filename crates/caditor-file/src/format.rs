@@ -27,7 +27,7 @@ use caditor_document::{
     SketchAttachment, SketchFeature, SolidFeature, SolidStart, Split, SplitAlong, SplitCarry,
     SplitFace, StepText, Sweep, SweepPath, TappedThread, Thread, ThreadFamily, ThreadForm,
     ThreadHand, ThreadLength, ThreadSide, ThreadSize, Transaction, TurnCentre, Wall, group_name,
-    material_name, view_name,
+    material_name, unscaled, untwisted, view_name,
 };
 use caditor_expression::{BinaryOperator, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Rotation3, Vector2, Vector3};
@@ -325,6 +325,8 @@ pub(crate) enum FeatureKindRecord {
     AlongHelix(Box<AlongHelixRecord>),
     HelixStart(Box<HelixStartRecord>),
     ShapedRib(Box<ShapedRibRecord>),
+    SweepShape(Box<SweepShapeRecord>),
+    LoftEnds(Box<LoftEndsRecord>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -358,6 +360,24 @@ pub(crate) enum RibEndsRecord {
 pub(crate) struct HelixStartRecord {
     pub feature: FeatureKindRecord,
     pub start: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct LoftEndsRecord {
+    pub feature: FeatureKindRecord,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub closed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct SweepShapeRecord {
+    pub feature: FeatureKindRecord,
+    pub twist: String,
+    pub scale: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1014,7 +1034,7 @@ pub(crate) const FEATURE_FIELDS: [&str; 5] = [
     "piece_stand_ins",
 ];
 
-pub(crate) const FEATURE_KINDS: [&str; 84] = [
+pub(crate) const FEATURE_KINDS: [&str; 86] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -1099,6 +1119,8 @@ pub(crate) const FEATURE_KINDS: [&str; 84] = [
     "along_helix",
     "helix_start",
     "shaped_rib",
+    "sweep_shape",
+    "loft_ends",
 ];
 
 #[derive(Debug, Clone)]
@@ -2965,6 +2987,20 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
             }),
         }));
     }
+    if let FeatureKind::Solid(SolidFeature::Sweep(sweep)) = kind
+        && sweep.is_shaped()
+    {
+        let plain = Sweep {
+            twist: untwisted(),
+            scale: unscaled(),
+            ..sweep.clone()
+        };
+        return FeatureKindRecord::SweepShape(Box::new(SweepShapeRecord {
+            feature: feature_kind_record(&FeatureKind::Solid(SolidFeature::Sweep(plain))),
+            twist: sweep.twist.to_stored_text(),
+            scale: sweep.scale.to_stored_text(),
+        }));
+    }
     if let FeatureKind::Solid(solid) = kind
         && !solid.other_bodies().is_empty()
     {
@@ -3855,6 +3891,20 @@ fn restore_coil(record: &CoilRecord, feature: &str, issues: &mut Vec<String>) ->
 }
 
 fn loft_record(loft: &Loft) -> FeatureKindRecord {
+    if loft.has_ends_shaped() {
+        let open = Loft {
+            closed: false,
+            square_start: None,
+            square_end: None,
+            ..loft.clone()
+        };
+        return FeatureKindRecord::LoftEnds(Box::new(LoftEndsRecord {
+            feature: loft_record(&open),
+            closed: loft.closed,
+            start: loft.square_start.as_ref().map(Expression::to_stored_text),
+            end: loft.square_end.as_ref().map(Expression::to_stored_text),
+        }));
+    }
     FeatureKindRecord::Loft(Box::new(LoftRecord {
         profiles: loft
             .profiles
@@ -3937,6 +3987,9 @@ fn restore_loft(record: &LoftRecord, feature: &str, issues: &mut Vec<String>) ->
             LoftSkinRecord::Smooth => LoftSkin::Smooth,
             LoftSkinRecord::Ruled => LoftSkin::Ruled,
         },
+        closed: false,
+        square_start: None,
+        square_end: None,
         operation: restore_operation(record.operation),
     }
 }
@@ -4007,6 +4060,8 @@ fn restore_sweep(record: &SweepRecord, feature: &str, issues: &mut Vec<String>) 
             SweepOrientationRecord::Square => SweepOrientation::Square,
             SweepOrientationRecord::Parallel => SweepOrientation::Parallel,
         },
+        twist: untwisted(),
+        scale: unscaled(),
         operation: restore_operation(record.operation),
         other_bodies: Vec::new(),
     }
@@ -6122,6 +6177,41 @@ fn restore_kind(
                 }
                 _ => issues.push(format!(
                     "“{name}” was to start at an angle round its axis, but it is not a helix, so \
+                     that was left out."
+                )),
+            }
+            kind
+        }
+        FeatureKindRecord::LoftEnds(ends) => {
+            let mut kind = restore_kind(&ends.feature, name, texts, issues);
+            match &mut kind {
+                FeatureKind::Loft(loft) => {
+                    loft.closed = ends.closed;
+                    loft.square_start = ends
+                        .start
+                        .as_ref()
+                        .map(|text| restore_value(text, "start weight", "1", name, issues));
+                    loft.square_end = ends
+                        .end
+                        .as_ref()
+                        .map(|text| restore_value(text, "end weight", "1", name, issues));
+                }
+                _ => issues.push(format!(
+                    "“{name}” was to close or leave its ends square, but it is not a loft, so \
+                     that was left out."
+                )),
+            }
+            kind
+        }
+        FeatureKindRecord::SweepShape(shaped) => {
+            let mut kind = restore_kind(&shaped.feature, name, texts, issues);
+            match &mut kind {
+                FeatureKind::Solid(SolidFeature::Sweep(sweep)) => {
+                    sweep.twist = restore_value(&shaped.twist, "twist", "0 deg", name, issues);
+                    sweep.scale = restore_value(&shaped.scale, "end scale", "1", name, issues);
+                }
+                _ => issues.push(format!(
+                    "“{name}” was to twist or scale along its path, but it is not a sweep, so \
                      that was left out."
                 )),
             }

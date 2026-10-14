@@ -23,7 +23,7 @@ use thiserror::Error;
 
 pub use self::{
     extrude::{extrude, extrude_along},
-    loft::{LoftError, LoftProfile, LoftSkin, MAX_LOFT_PROFILES, loft},
+    loft::{LoftEnds, LoftError, LoftProfile, LoftSkin, MAX_LOFT_PROFILES, loft, loft_through},
     reach::{
         Heights, NextFace, ReachError, StopError, Stopped, heights, heights_along, next_face,
         stop_at_body,
@@ -31,7 +31,8 @@ pub use self::{
     revolve::revolve,
     sweep::{
         BendMiddle, BendMiddles, PathSegment, PathSweepError, PipeCorner, PipeError, PipeSection,
-        PipeShape, PipeStand, SweepOrientation, WindingAxis, pipe, pipe_stand, sweep,
+        PipeShape, PipeStand, SweepOrientation, SweepShape, WindingAxis, pipe, pipe_stand, sweep,
+        sweep_shaped,
     },
     taper::{MAX_TAPER_DEGREES, extrude_tapered},
     wrap::{WrapError, wrap_regions},

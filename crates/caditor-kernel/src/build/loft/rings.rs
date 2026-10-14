@@ -332,9 +332,47 @@ impl<'a> Ring<'a> {
     }
 }
 
+fn closed_travel(centres: &[Point3], index: usize, tolerance: f64) -> Result<Vector3, LoftError> {
+    let count = centres.len();
+    let at = |offset: usize| {
+        centres
+            .get((index + offset) % count.max(1))
+            .copied()
+            .ok_or(LoftError::TooFewProfiles)
+    };
+    let (before, here, after) = (at(count - 1)?, at(0)?, at(1)?);
+    let gap = after.distance(here);
+    if !gap.is_finite() || gap <= tolerance {
+        return Err(LoftError::Coincident {
+            profiles: [index, (index + 1) % count],
+        });
+    }
+    Ok(after - before)
+}
+
+fn open_travel(centres: &[Point3], index: usize, tolerance: f64) -> Result<Vector3, LoftError> {
+    let last = centres.len().saturating_sub(1);
+    let pair = if index < last {
+        [index, index + 1]
+    } else {
+        [index.saturating_sub(1), index]
+    };
+    let [from, to] = pair.map(|at| centres.get(at).copied());
+    let (Some(from), Some(to)) = (from, to) else {
+        return Err(LoftError::TooFewProfiles);
+    };
+    let travel = to - from;
+    let reach = travel.length();
+    if !reach.is_finite() || reach <= tolerance {
+        return Err(LoftError::Coincident { profiles: pair });
+    }
+    Ok(travel)
+}
+
 pub(super) fn rings<'a>(
     profiles: &'a [LoftProfile],
     apex: Option<Point3>,
+    closed: bool,
     tolerance: f64,
 ) -> Result<Vec<Ring<'a>>, LoftError> {
     let mut rings = profiles
@@ -343,25 +381,15 @@ pub(super) fn rings<'a>(
         .map(|(index, profile)| Ring::of(profile, index))
         .collect::<Result<Vec<_>, _>>()?;
     let centres: Vec<Point3> = rings.iter().map(|ring| ring.centre).chain(apex).collect();
-    let last = centres.len().saturating_sub(1);
     for (index, ring) in rings.iter_mut().enumerate() {
-        let (from, to) = if index < last {
-            (centres.get(index), centres.get(index + 1))
+        let travel = if closed {
+            closed_travel(&centres, index, tolerance)?
         } else {
-            (centres.get(index.saturating_sub(1)), centres.get(index))
+            open_travel(&centres, index, tolerance)?
         };
-        let (Some(from), Some(to)) = (from, to) else {
-            return Err(LoftError::TooFewProfiles);
-        };
-        let travel = *to - *from;
         let reach = travel.length();
         if !reach.is_finite() || reach <= tolerance {
-            let pair = if index < last {
-                [index, index + 1]
-            } else {
-                [index.saturating_sub(1), index]
-            };
-            return Err(LoftError::Coincident { profiles: pair });
+            return Err(LoftError::AlongProfile { profile: index });
         }
         let rise = ring.sketch.normal().dot(travel) / reach;
         if rise.abs() < LEAST_RISE {

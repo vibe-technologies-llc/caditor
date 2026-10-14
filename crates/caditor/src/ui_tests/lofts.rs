@@ -151,3 +151,77 @@ fn loft_with_one_profile_waits_and_takes_the_next_from_a_click_in_the_view() {
         Some(Slot::LoftProfiles)
     );
 }
+
+#[test]
+fn a_loft_starts_from_a_flat_face_and_takes_a_square_end_and_closing_from_the_panel() {
+    let mut harness = Harness::new();
+    let (plate, top) = super::extruded_plate(&mut harness);
+    let plate_volume = harness.body_volume(plate);
+    let height = harness
+        .model
+        .evaluation()
+        .body(plate)
+        .and_then(|solid| solid.bounding_box())
+        .map(|bounds| bounds.max().z)
+        .expect("the plate is built");
+    let mut sketch = Sketch::new(level(height + 20.0));
+    let corners = [
+        Point2::new(10.0, 10.0),
+        Point2::new(30.0, 10.0),
+        Point2::new(30.0, 30.0),
+        Point2::new(10.0, 30.0),
+    ];
+    let first = sketch.add_line(corners[0], corners[1]);
+    for index in 1..4 {
+        sketch.add_line(corners[index], corners[(index + 1) % 4]);
+    }
+    let high = harness.add_sketch(sketch);
+    harness.select([top, curve(high, first)]);
+
+    run_from_palette(&mut harness, "loft");
+    harness.settle();
+
+    let loft = harness.workspace.editing.solid().expect("the loft is open");
+    let made = loft_of(&harness, loft);
+    let face_sketch = made.profiles.first().expect("a face profile").sketch;
+    let lofted = plate_volume + 20.0 / 3.0 * (1600.0 + 400.0 + 800.0);
+    assert_eq!(made.profiles.get(1), Some(&LoftSection::whole(high)));
+    assert_eq!(
+        harness
+            .document()
+            .feature(face_sketch)
+            .map(|sketch| sketch.name.clone()),
+        Some("Loft 1 profile 1".to_owned())
+    );
+    assert!(near(harness.body_volume(plate), lofted));
+
+    choose(&mut harness, loft_panel::FREE, loft_panel::SQUARE);
+    assert_eq!(
+        loft_of(&harness, loft).square_end,
+        Some(caditor_expression::Expression::number(1.0))
+    );
+    harness.type_into_field(egui::Id::new(("loft-field", loft, "end")), "2");
+    harness.settle();
+    assert_eq!(
+        loft_of(&harness, loft).square_end,
+        Some(caditor_expression::Expression::number(2.0))
+    );
+    assert!(harness.shows(loft_panel::END_WEIGHT));
+    let squared = harness.body_volume(plate);
+    assert!(!near(squared, lofted), "{squared} against {lofted}");
+
+    choose(&mut harness, loft_panel::OPEN, loft_panel::CLOSED);
+    let closed = loft_of(&harness, loft);
+    assert!(closed.closed);
+    assert_eq!(closed.square_end, None);
+    let reason = match &harness.model.evaluation().feature(loft).unwrap().state {
+        FeatureState::Failed(error) => error.reason.clone(),
+        other => panic!("a ring of two profiles fails, found {other:?}"),
+    };
+    assert!(reason.contains("at least three"), "{reason}");
+
+    harness.key(Key::Z, Modifiers::COMMAND);
+    harness.settle();
+    assert!(!loft_of(&harness, loft).closed);
+    assert!(near(harness.body_volume(plate), squared));
+}

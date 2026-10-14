@@ -51,8 +51,9 @@ first, so two programs never change one model at once.
 - Drill a [hole](hole) at every free point of a sketch, plain, counterbored or countersunk, sized
   by a diameter or a metric screw size with a clearance, tapped or insert fit, its tapped thread
   modelled or cosmetic.
-- [Sweep](sweep) a sketch along a path and run a [pipe](pipe) along one (sketch curves, body edges
-  or a [helix](helix)), [loft](loft) through sketches, wind a [coil](coil), add a [rib](rib) and
+- [Sweep](sweep) a sketch along a path, twisted or scaled along it, and run a [pipe](pipe) along
+  one (sketch curves, body edges or a [helix](helix)), [loft](loft) through sketches, closed back to
+  the first or with square ends, wind a [coil](coil), add a [rib](rib) and
   [thread](thread) a round face.
 - [Split faces](split-face), [delete faces](delete-face), [split](split) a body along a plane, a
   sketch or another body, and [scale](scale) a body.

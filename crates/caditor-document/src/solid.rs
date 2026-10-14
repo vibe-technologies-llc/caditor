@@ -612,7 +612,7 @@ impl SolidFeature {
                 expressions.extend(self.wall().map(|wall| &wall.thickness));
                 expressions
             }
-            Self::Sweep(_) => Vec::new(),
+            Self::Sweep(sweep) => sweep.expressions(),
         }
     }
 
@@ -1103,6 +1103,16 @@ impl<'a> Context<'a> {
 
     pub(crate) fn own(&self) -> FixTarget {
         FixTarget::Feature(self.feature.id())
+    }
+
+    pub(crate) fn value(
+        &self,
+        expression: &Expression,
+        dimension: Dimension,
+        what: &str,
+        parameters: &ParameterValues,
+    ) -> Result<f64, Failure> {
+        evaluate_value(self, expression, dimension, what, parameters)
     }
 
     pub(crate) fn in_sketch(&self) -> FixTarget {
@@ -1955,6 +1965,10 @@ fn evaluate_value(
                 ),
                 EvalError::WrongKind { .. } if dimension == Dimension::ANGLE => (
                     format!("Edit the {what} so it gives an angle, such as 90 deg."),
+                    context.own(),
+                ),
+                EvalError::WrongKind { .. } if dimension == Dimension::NONE => (
+                    format!("Edit the {what} so it gives a plain number, such as 0.5."),
                     context.own(),
                 ),
                 EvalError::WrongKind { .. } => (

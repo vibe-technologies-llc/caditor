@@ -463,12 +463,15 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
 - Panel: Sketch, Regions, Path (`path_words`, "2 curves of Path", a helix by its name; Use
   selected replaces it,
   `selected_change`; Choose in the view; the cross clears it), Orientation (`SQUARE_TO_PATH`,
-  `PARALLEL`, a segmented choice that becomes a list when narrow) and Body. While choosing the
+  `PARALLEL`, a segmented choice that becomes a list when narrow), Twist (`solid_panel::TWIST`, any
+  angle, keyed `("solid-field", "twist", feature)`), End scale (`END_SCALE`, a plain number above
+  zero, keyed `"scale"`; both captioned for parameter owners by `solid_panel::captioned`) and
+  Body. While choosing the
   path each click toggles a curve or edge (`toggled_path`: the same sketch or body toggles, another
   starts a new path; a click on a helix makes it the path) and choosing goes on until Escape (`reference_picking::click` keeps every
   `Slot::keeps_choosing` slot). With no path it waits (`MissingInput::Path`). Edges are captured in the body as the sweep sees it
   (`Evaluation::body_result_seen_by`, else as shown).
-- It has no arrows or values; Reverse direction refuses it (it follows its path from the profile)
+- It has no arrows; Reverse direction refuses it (it follows its path from the profile)
   and `body_reach` decides nothing for it.
 
 ## Pipe
@@ -499,22 +502,35 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   `view_menu::SKETCH_TOOLS`, no default key) makes a `Loft`, Smooth, and opens it.
   `loft_tools::source` reads the selection in pick order: each selected region
   (`Pickable::SketchRegion`) or curve of a sketch with regions names that sketch's profile (a
-  region chooses it, a curve takes the whole sketch), the first per sketch counting; the first
+  region chooses it, a curve takes the whole sketch), the first per sketch counting, and each flat
+  face (`sketch_placement::is_flat`) is a profile too (`loft_tools::Pick`); the first
   other pick giving a point (`datum_tools::point_reference` at the bar) is the end; the one body
-  of selected faces is added to, else it is a new body. With two rows or more the profile sketches
-  are hidden in the same transaction; with fewer it opens choosing profiles
-  (`Slot::LoftProfiles`) and waits (`MissingInput::Profiles`).
+  of selected faces is added to, else it is a new body. A face profile becomes, in the same
+  transaction, a hidden sketch on the face holding its boundary edges projected
+  (`loft_tools::face_sketch`, as `solid_tools::create_on_faces` makes an extrusion's), named
+  "<loft> profile N" by the first number free (`face_sketch_name`), so the profile follows the
+  face. With two rows or more the profile sketches are hidden in the same transaction; with fewer
+  it opens choosing profiles (`Slot::LoftProfiles`) and waits (`MissingInput::Profiles`).
 - `Slot::LoftProfiles` keeps choosing: a click on a curve of a sketch adds it at the end or, when
   the sketch is a profile, leaves it out; a click on a region adds it, takes that region instead of
-  the profile's, or leaves out the same region (`loft_tools::profile_change`). While it is chosen
+  the profile's, or leaves out the same region (`loft_tools::profile_change`); a click on a flat
+  face adds a face sketch inserted just before the loft (`TransactionBuilder::inserting_at` its
+  index, the face attached as seen there) and the profile, one "Edit <loft>" step
+  (`loft_tools::with_picks`, which Use selected also takes when faces are among the picks, in pick
+  order); a face profile is left out with its panel button. While it is chosen
   `editing::Context::choosing_profiles` makes shown sketches' regions pickable
   (`Context::picks_shown_regions`). `Slot::LoftEnd` takes one point as a point pattern's base does
   (`loft_tools::end_change`).
 - Panel (`loft_panel.rs`): Profiles (a numbered line per profile, `loft_tools::profile_words`, with
   move earlier, later and leave out buttons; Use selected replaces them in pick order, Choose in the
-  view), Ends at (Its last profile, or the point, `describe_point`, with Use selected, Choose in the
-  view and the cross), Sides (`segmented` Smooth, Ruled) and the shared Result and Body rows
-  (`feature_fields::body_operation_rows`). Reverse direction refuses it. It has no arrows or values.
+  view), Closing (`loft_panel::CLOSING`, segmented Open, Closed; `loft_tools::with_closing`
+  closing drops the end point and square ends), Ends at (open only: Its last profile, or the
+  point, `describe_point`, with Use selected, Choose in the view and the cross; taking a point drops
+  a square end), Sides (`segmented` Smooth, Ruled; Ruled drops square ends, `with_skin`), Start and
+  End (Smooth open lofts, End only without an end point: segmented Free, Square; Square sets weight
+  1 and shows Start weight or End weight, a plain number above zero keyed
+  `("loft-field", feature, "start" | "end")`) and the shared Result and Body rows
+  (`feature_fields::body_operation_rows`). Reverse direction refuses it. It has no arrows.
 ## Coil
 
 - `Command::Coil` (no default key, `coil_tools.rs`, `Offers::coil`; Solid group menu, Model menu,

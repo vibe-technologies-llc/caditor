@@ -1,3 +1,4 @@
+use caditor_expression::Expression;
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
 use caditor_kernel::{FaceOrigin, LoftSkin, SamplingTolerance};
 use caditor_sketch::Sketch;
@@ -306,4 +307,92 @@ fn inserting_a_loft_is_one_undoable_change() {
     assert_eq!(lofts, 1);
     assert_eq!(uses.len(), 1);
     assert!(!editor.document().features().any(is_loft));
+}
+
+fn ring_sections(count: usize) -> Vec<Sketch> {
+    (0..count)
+        .map(|index| {
+            let angle = std::f64::consts::TAU * index as f64 / count as f64;
+            let radial = Vector3::new(angle.cos(), angle.sin(), 0.0);
+            let plane = Plane::from_frame(
+                Point3::ZERO + radial * 10.0,
+                Vector3::Z.cross(radial),
+                radial,
+            )
+            .unwrap();
+            square(plane, (0.0, 0.0), 1.0)
+        })
+        .collect()
+}
+
+#[test]
+fn a_loft_closing_back_to_its_first_profile_makes_a_ring() {
+    let ring = lofted(ring_sections(12), |loft| loft.closed = true);
+    let two = lofted(ring_sections(12).into_iter().take(2).collect(), |loft| {
+        loft.closed = true;
+    });
+
+    let evaluation = evaluate(&ring.document);
+    let refused = failure(&evaluate(&two.document), two.loft);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    let expected = 4.0 * std::f64::consts::TAU * 10.0;
+    assert!((volume(&evaluation, ring.loft) - expected).abs() < 5e-3 * expected);
+    assert!(
+        refused.reason.contains("at least three"),
+        "{}",
+        refused.reason
+    );
+}
+
+#[test]
+fn square_ends_follow_their_weight_parameter_and_refuse_a_weight_of_zero() {
+    let shifted = || {
+        vec![
+            square(level(0.0), (0.0, 0.0), 1.0),
+            square(level(10.0), (5.0, 0.0), 1.0),
+        ]
+    };
+    let mut model = lofted(shifted(), |_| {});
+    let mut transaction = model.document.transaction("Square");
+    let weight = transaction.add_parameter("bulge", Expression::parse_stored("1.5").unwrap());
+    let mut squared = model.document.feature(model.loft).unwrap().kind.clone();
+    if let FeatureKind::Loft(loft) = &mut squared {
+        loft.square_start = Some(Expression::Parameter(weight));
+        loft.square_end = Some(Expression::number(1.0));
+    }
+    transaction.edit(Edit::SetFeatureKind {
+        id: model.loft,
+        kind: squared,
+    });
+    model.document.apply(transaction.finish()).unwrap();
+    let flat = lofted(shifted(), |loft| {
+        loft.square_end = Some(Expression::number(0.0));
+    });
+    let ruled = lofted(shifted(), |loft| {
+        loft.skin = LoftSkin::Ruled;
+        loft.square_start = Some(Expression::number(1.0));
+    });
+
+    let evaluation = evaluate(&model.document);
+    let weightless = failure(&evaluate(&flat.document), flat.loft);
+    let straight = failure(&evaluate(&ruled.document), ruled.loft);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert!((volume(&evaluation, model.loft) - 40.0).abs() < 1e-2);
+    assert!(
+        model
+            .document
+            .feature(model.loft)
+            .unwrap()
+            .kind
+            .uses_parameter(weight)
+    );
+    assert!(
+        weightless.reason.contains("weight"),
+        "{}",
+        weightless.reason
+    );
+    assert!(straight.remedy.contains("Smooth"), "{}", straight.remedy);
+    assert!(!model.sketches.is_empty());
 }

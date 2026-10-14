@@ -503,15 +503,21 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 
 ### Sweep (`sweep.rs`)
 
-- `SolidFeature::Sweep` (`Sweep { sketch, regions, path, orientation, operation, other_bodies }`)
+- `SolidFeature::Sweep` (`Sweep { sketch, regions, path, orientation, twist, scale, operation,
+  other_bodies }`)
   carries the chosen regions along a `SweepPath`: `Curves { sketch, curves }` of another sketch
   (lifted to its solved plane through `profile_curve`, each keyed by its entity id), `Edges { body,
   edges }` (`EdgeReference`s resolved with `EdgeNaming` in the body as it stands at the sweep, each
   keyed by its edge name's digest), `Helix { helix }` (the turns of a `Helix` feature's result, each
   a kernel `HelixTurn::path_segment` keyed by its turn from 1 and winding about the helix's axis,
   labelled "turn N" of the helix), or `Unchosen`. It shares `solid::evaluate` with extrusion and
-  revolve (regions, body operation, other bodies cut, boolean wording) and calls kernel `sweep`
-  with the kernel's `SweepOrientation`; it has no expressions, start, taper or wall.
+  revolve (regions, body operation, other bodies cut, boolean wording) and calls kernel
+  `sweep_shaped` with the kernel's `SweepOrientation` and a `SweepShape` (`sweep::shape_of`):
+  `twist`, an angle (`untwisted()`, 0 deg, by default) in radians, and `scale`, the end scale, a
+  plain number above zero (`unscaled()`, 1, by default; zero or less fails in words, a value of the
+  wrong kind asks for a plain number such as 0.5). Both are its expressions (`Sweep::expressions`,
+  counted, inlined and pasted with the rest), never scaled with the model; `Sweep::is_shaped` tells
+  either from its literal default. It has no start, taper or wall.
 - The path's sketch is in `reference_sketches` and `features()`, its body in `bodies_used`, its
   helix in `features()` (`SweepPath::features`), its edges' origins among `origin_features`, and
   healing visits its edges. A curve of the path cannot be removed (`EntityInUse`, as a revolve's
@@ -521,7 +527,11 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   `MissingInput::Path`): a branching or separate path; a sharp corner (remedy: a fillet in the path's sketch, Parallel, or straight lines so it is mitred); a
   mitre too sharp; a profile too large for a bend (fix on the profile's sketch); a path leaving
   along the profile's plane or, kept parallel, turning along it; a closed path missing the
-  profile's plane or bringing it back turned; a sweep running into itself. The kernel's profile
+  profile's plane; a closed path bringing the profile back turned, in degrees with the twist that
+  closes it (the current twist less the angle, to three decimals; fixed on the sweep), or back
+  tilted (a path in one plane, or the profile square to the path); a closed path with an end
+  scale; a twisted or scaled sweep at a sharp corner between lines; a twist or scale out of range;
+  a sweep running into itself. The kernel's profile
   errors go through `sweep_failure` as "sweep". A path curve no longer in its sketch, or an edge
   lost or tied, asks to choose the path again.
 
@@ -555,13 +565,18 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 
 ### Loft (`loft.rs`)
 
-- `Loft { profiles, end, skin, operation }` passes through `LoftSection`s in order (a sketch and an
+- `Loft { profiles, end, skin, closed, square_start, square_end, operation }` passes through
+  `LoftSection`s in order (a sketch and an
   optional `RegionReference`; none takes the sketch's even-depth shapes, which must be one), ending
   at an optional `PointReference` resolved like a datum point's, with the kernel's `LoftSkin`. Each
   section's region resolves on the sketch's result as an extrusion's does (`resolve_regions`), the
   plane is the solved sketch plane, and kernel `loft` builds the tool, joined, cut or intersected
   like a primitive's (`primitive::combined`, so patterns and mirrors repeat it, `repeatable_on`).
-  It has no expressions.
+  Kernel `loft_through` takes `LoftEnds`: `closed` runs back into the first profile, and
+  `square_start` and `square_end`, weights (plain numbers above zero, "start weight" and "end
+  weight"; zero or less fails in words) present only when that end leaves its profile square.
+  The weights are its expressions (parameters, inlining, pasting; never scaled);
+  `Loft::has_ends_shaped` tells any of the three apart from a plain loft.
 - The sketches and the end point's sketch are `reference_sketches` and `features()`, the end's
   body, datum and frame `bodies_used`, `points_used` and `frames_used`, its origins
   `origin_features`; healing visits the end point, pasting renames all of them and model scale
@@ -569,7 +584,9 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 - Fewer than two rows (profiles plus the end point) waits (`MissingInput::Profiles`). Failures name
   the sketch: one not available, one with no closed shape or several (asking to choose a region),
   a shape with a hole, a profile lying along the way the loft runs, two profiles in one place, sides
-  running into each other, too many curves; profile problems go through `solid::profile_failure`.
+  running into each other, too many curves; a closed loft with an end point or under three
+  profiles, a square end at an end point, on a ruled or closed loft, or of a weight not above zero;
+  profile problems go through `solid::profile_failure`.
 - Side faces are worded "<loft> side from <curve>" of the first profile's sketch
   (`describe_origin`), caps as a sweep's.
 ### Coil (`coil.rs`)

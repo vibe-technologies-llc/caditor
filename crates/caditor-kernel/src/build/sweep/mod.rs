@@ -3,13 +3,17 @@ mod path;
 mod pipe;
 #[cfg(test)]
 mod pipe_tests;
+#[cfg(test)]
+mod shape_tests;
 mod stations;
 #[cfg(test)]
 mod tests;
 
 use std::f64::consts::PI;
 
-use caditor_geometry::{Aabb2, Plane, Point2, Point3, RigidTransform, Vector2, Vector3};
+use caditor_geometry::{
+    Aabb2, Plane, Point2, Point3, RigidTransform, Similarity, Vector2, Vector3,
+};
 use thiserror::Error;
 
 pub use self::pipe::{
@@ -18,7 +22,10 @@ pub use self::pipe::{
 };
 use self::{
     path::{Chain, Leg},
-    stations::{FIT_TOLERANCE, Stations, rotating, rotation_minimising, sliding_surface, winding},
+    stations::{
+        FIT_TOLERANCE, FramesAt, ShapeAt, Stations, rotating, rotation_minimising, sliding,
+        sliding_surface, winding,
+    },
 };
 use super::{
     Axis2, LinearBound, SweepError,
@@ -53,6 +60,8 @@ const STATIONS_PER_SPAN: usize = 4;
 const LEAST_STATIONS: usize = 8;
 const STATION_TURN: f64 = PI / 8.0;
 const RISE_SAMPLES_PER_SPAN: usize = 16;
+const CLOSING_SLACK: f64 = 1e-4;
+const TILT_SLACK: f64 = 1e-9;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct WindingAxis {
@@ -110,6 +119,33 @@ pub enum SweepOrientation {
     Parallel,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SweepShape {
+    pub twist: f64,
+    pub scale: f64,
+}
+
+impl SweepShape {
+    pub const NONE: Self = Self {
+        twist: 0.0,
+        scale: 1.0,
+    };
+
+    pub fn is_none(&self) -> bool {
+        self.twist == 0.0 && self.scale == 1.0
+    }
+
+    fn usable(&self) -> bool {
+        self.twist.is_finite() && Similarity::scaling(Point3::ZERO, self.scale).is_some()
+    }
+}
+
+impl Default for SweepShape {
+    fn default() -> Self {
+        Self::NONE
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Error)]
 pub enum PathSweepError {
     #[error("no path is chosen to sweep along")]
@@ -137,7 +173,16 @@ pub enum PathSweepError {
     #[error("the closed path never crosses the profile's plane")]
     ClosedPathMissesProfile,
     #[error("the closed path brings the profile back turned")]
-    ClosedPathTwists,
+    ClosedPathTwists { turned: Option<f64> },
+    #[error("a sweep along a closed path cannot change the profile's size")]
+    ClosedPathScales,
+    #[error("the twist or end scale is out of range")]
+    UnusableShape,
+    #[error(
+        "the path turns a sharp corner between path curves {segments:?}, which a twisted or \
+         scaled sweep cannot mitre"
+    )]
+    ShapedCorner { segments: [usize; 2] },
     #[error("path curve {segment} bends too intricately to sweep along")]
     TooIntricate { segment: usize },
     #[error("the swept solid runs into itself")]
@@ -178,7 +223,9 @@ impl PathSweepError {
             | Self::ProfileTooLarge { segment }
             | Self::TooIntricate { segment } => vec![*segment],
             Self::Branches { segments } | Self::Apart { segments } => segments.clone(),
-            Self::Corner { segments } | Self::CornerTooSharp { segments } => {
+            Self::Corner { segments }
+            | Self::CornerTooSharp { segments }
+            | Self::ShapedCorner { segments } => {
                 let mut named = segments.to_vec();
                 named.dedup();
                 named
@@ -187,7 +234,9 @@ impl PathSweepError {
             | Self::TooLong
             | Self::StartsAlongProfile
             | Self::ClosedPathMissesProfile
-            | Self::ClosedPathTwists
+            | Self::ClosedPathTwists { .. }
+            | Self::ClosedPathScales
+            | Self::UnusableShape
             | Self::CrossesItself
             | Self::Sweep(_)
             | Self::Cancelled(_) => Vec::new(),
@@ -235,7 +284,7 @@ impl Outline {
         })
     }
 
-    fn placed(&self, plane: &Plane, placement: &RigidTransform) -> impl Iterator<Item = Point3> {
+    fn placed(&self, plane: &Plane, placement: &Similarity) -> impl Iterator<Item = Point3> {
         self.samples
             .iter()
             .map(move |sample| placement.apply_point(plane.to_world(*sample)))
@@ -285,7 +334,21 @@ struct Stage {
 }
 
 impl Stage {
-    fn placement_at(&self, fraction: f64) -> Result<RigidTransform, PathSweepError> {
+    fn placement_at(&self, fraction: f64) -> Result<Similarity, PathSweepError> {
+        if let Motion::Fitted(stations) = &self.motion {
+            let frame = if fraction <= 0.0 {
+                stations.first()
+            } else if fraction >= 1.0 {
+                stations.last()
+            } else {
+                stations.middle()
+            };
+            return frame.ok_or_else(degenerate);
+        }
+        self.rigid_at(fraction).map(Similarity::from)
+    }
+
+    fn rigid_at(&self, fraction: f64) -> Result<RigidTransform, PathSweepError> {
         let moved = match &self.motion {
             Motion::Straight { direction, length } => {
                 RigidTransform::translation(*direction * (length * fraction))
@@ -298,23 +361,18 @@ impl Stage {
             Motion::Slide { path, from } => {
                 RigidTransform::translation(path.point(path.domain().at(fraction)) - *from)
             }
-            Motion::Fitted(stations) => {
-                let frame = if fraction <= 0.0 {
-                    stations.first()
-                } else if fraction >= 1.0 {
-                    stations.last()
-                } else {
-                    stations.middle()
-                };
-                return frame.ok_or_else(degenerate);
-            }
+            Motion::Fitted(stations) => return Ok(stations.finish()),
         }
         .ok_or_else(degenerate)?;
         Ok(self.start.then(&moved))
     }
 
-    fn end(&self) -> Result<RigidTransform, PathSweepError> {
+    fn end(&self) -> Result<Similarity, PathSweepError> {
         self.placement_at(1.0)
+    }
+
+    fn finish(&self) -> Result<RigidTransform, PathSweepError> {
+        self.rigid_at(1.0)
     }
 
     fn segment(&self) -> usize {
@@ -324,7 +382,7 @@ impl Stage {
 
 #[derive(Debug, Clone, PartialEq)]
 enum Section {
-    Placed(RigidTransform),
+    Placed(Similarity),
     Mitre {
         incoming: Plane,
         direction: Vector3,
@@ -351,10 +409,17 @@ impl Section {
 
     fn edge(&self, plane: &Plane, piece: &Piece) -> Result<(Curve, Interval), PathSweepError> {
         Ok(match self {
-            Self::Placed(placement) => (
-                piece.curve().on_plane(&plane.transformed(placement))?,
-                piece.range(),
-            ),
+            Self::Placed(placement) => match placement.as_rigid() {
+                Some(rigid) => (
+                    piece.curve().on_plane(&plane.transformed(&rigid))?,
+                    piece.range(),
+                ),
+                None => {
+                    let (curve, stretch) = piece.curve().on_plane(plane)?.mapped(placement)?;
+                    let range = stretch.interval(piece.range()).ok_or_else(degenerate)?;
+                    (curve, range)
+                }
+            },
             Self::Mitre {
                 incoming,
                 direction,
@@ -380,6 +445,53 @@ struct Course {
     facing: f64,
     orientation: SweepOrientation,
     tolerance: f64,
+    bends_freely: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Shaping {
+    centre: Point3,
+    axis: Vector3,
+    shape: SweepShape,
+    total: f64,
+}
+
+impl Shaping {
+    fn at(&self, travelled: f64) -> Result<Similarity, PathSweepError> {
+        let fraction = (travelled / self.total).clamp(0.0, 1.0);
+        let grown = Similarity::scaling(self.centre, 1.0 + (self.shape.scale - 1.0) * fraction)
+            .ok_or(PathSweepError::UnusableShape)?;
+        let turned =
+            RigidTransform::rotation_about(self.centre, self.axis, self.shape.twist * fraction)
+                .ok_or(PathSweepError::UnusableShape)?;
+        Ok(grown.then(&Similarity::from(turned)))
+    }
+
+    fn stations_for(&self, length: f64) -> usize {
+        let share = self.shape.twist.abs() * length / self.total;
+        (share / STATION_TURN).ceil() as usize
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Closing {
+    Exact,
+    Corrected,
+}
+
+fn travelled(leg: &Leg, parameter: f64) -> f64 {
+    Interval::new(leg.range.start(), parameter.min(leg.range.end()))
+        .map_or(0.0, |part| leg.curve.length(part))
+}
+
+fn turned_by(plane: &Plane, axis: Vector3, end: &Similarity) -> Option<f64> {
+    let normal = end.apply_direction(plane.normal());
+    if normal.dot(plane.normal()) < 1.0 - TILT_SLACK {
+        return None;
+    }
+    let x_axis = end.apply_direction(plane.x_axis());
+    let angle = x_axis.dot(plane.y_axis()).atan2(x_axis.dot(plane.x_axis()));
+    Some(angle * axis.dot(plane.normal()).signum())
 }
 
 pub fn sweep(
@@ -389,8 +501,27 @@ pub fn sweep(
     orientation: SweepOrientation,
     feature: u64,
 ) -> Result<Solid, PathSweepError> {
+    sweep_shaped(
+        plane,
+        regions,
+        path,
+        (orientation, SweepShape::NONE),
+        feature,
+    )
+}
+
+pub fn sweep_shaped(
+    plane: &Plane,
+    regions: &[Region],
+    path: &[PathSegment],
+    (orientation, shape): (SweepOrientation, SweepShape),
+    feature: u64,
+) -> Result<Solid, PathSweepError> {
     if regions.is_empty() {
         return Err(SweepError::NoRegions.into());
+    }
+    if !shape.usable() {
+        return Err(PathSweepError::UnusableShape);
     }
     let outline = Outline::of(plane, regions)?;
     let reach = path
@@ -399,7 +530,32 @@ pub fn sweep(
         .fold(0.0, f64::max);
     let tolerance = outline.tolerance.max(reach * RELATIVE_TOLERANCE);
     let chain = path::chain(path, plane, outline.centre, tolerance)?;
-    let course = Course::plan(plane, regions, &outline, &chain, orientation)?;
+    if chain.closed && shape.scale != 1.0 {
+        return Err(PathSweepError::ClosedPathScales);
+    }
+    let planned = Course::plan(
+        (plane, regions, &outline),
+        &chain,
+        (orientation, shape),
+        Closing::Exact,
+    );
+    let course = match planned {
+        Err(PathSweepError::ClosedPathTwists {
+            turned: Some(turned),
+        }) if turned.abs() <= CLOSING_SLACK => {
+            let corrected = SweepShape {
+                twist: shape.twist - turned,
+                ..shape
+            };
+            Course::plan(
+                (plane, regions, &outline),
+                &chain,
+                (orientation, corrected),
+                Closing::Corrected,
+            )?
+        }
+        other => other?,
+    };
     let solid = course.build(plane, regions, feature)?;
     if course.may_cross_itself()
         && let CrossingCheck::Crossing(_) = solid.find_crossing()?
@@ -413,14 +569,14 @@ fn bend_check(
     plane: &Plane,
     outline: &Outline,
     curve: &Curve,
-    (parameter, placement): (f64, &RigidTransform),
+    (parameter, placement): (f64, &Similarity),
     facing: f64,
     segment: usize,
 ) -> Result<(), PathSweepError> {
     let derivatives = curve.evaluate(parameter);
     let tangent = derivatives.first.try_normalize().ok_or_else(degenerate)?;
     let bend = derivatives.curvature().unwrap_or(Vector3::ZERO);
-    let normal = placement.apply_vector(plane.normal());
+    let normal = placement.apply_direction(plane.normal());
     for point in outline.placed(plane, placement) {
         let reach = point - derivatives.point;
         let stretch =
@@ -457,7 +613,7 @@ fn fold_check(
             continue;
         };
         let travel = path.point(*to).distance(path.point(*from));
-        let normal = here.apply_vector(plane.normal());
+        let normal = here.apply_direction(plane.normal());
         for (start, end) in outline
             .placed(plane, here)
             .zip(outline.placed(plane, there))
@@ -498,7 +654,7 @@ fn rise_check(
 
 fn meridian(placed: &Plane, outline: &Outline, origin: Point3, axis: Vector3) -> bool {
     let reach = outline
-        .placed(placed, &RigidTransform::IDENTITY)
+        .placed(placed, &Similarity::IDENTITY)
         .map(|point| point.distance(origin))
         .fold(0.0, f64::max);
     placed.normal().dot(axis).abs() * reach + placed.signed_distance(origin).abs() <= MERIDIAN_SLACK
@@ -506,11 +662,10 @@ fn meridian(placed: &Plane, outline: &Outline, origin: Point3, axis: Vector3) ->
 
 impl Course {
     fn plan(
-        plane: &Plane,
-        regions: &[Region],
-        outline: &Outline,
+        (plane, regions, outline): (&Plane, &[Region], &Outline),
         chain: &Chain,
-        orientation: SweepOrientation,
+        (orientation, shape): (SweepOrientation, SweepShape),
+        closing: Closing,
     ) -> Result<Self, PathSweepError> {
         let first = chain.legs.first().ok_or(PathSweepError::NoPath)?;
         let rise = first
@@ -523,19 +678,40 @@ impl Course {
             return Err(PathSweepError::StartsAlongProfile);
         }
         let facing = rise.signum();
+        let axis = plane.normal() * facing;
+        let total: f64 = chain
+            .legs
+            .iter()
+            .map(|leg| leg.curve.length(leg.range))
+            .sum();
+        let shaping = (!shape.is_none()).then(|| Shaping {
+            centre: plane.to_world(plane.to_local(first.start_point())),
+            axis,
+            shape,
+            total,
+        });
         let mut placement = RigidTransform::IDENTITY;
-        let mut sections = vec![Section::Placed(placement)];
+        let mut before = 0.0;
+        let mut bends_freely = false;
+        let mut sections = vec![Section::Placed(Similarity::IDENTITY)];
         let mut stages: Vec<Stage> = Vec::with_capacity(chain.legs.len());
         let count = chain.legs.len();
         for (index, leg) in chain.legs.iter().enumerate() {
             interrupt::check()?;
-            let motion = motion_of(plane, outline, leg, &placement, orientation, facing)?;
+            let carried = (plane, outline, leg, &placement);
+            bends_freely |= bends_freely_along(carried);
+            let motion = match &shaping {
+                Some(shaping) => shaped_motion(carried, (orientation, facing), (shaping, before))?,
+                None => motion_of(carried, orientation, facing)?,
+            };
+            before += leg.curve.length(leg.range);
             let stage = Stage {
                 leg: leg.clone(),
                 start: placement,
                 motion,
             };
             let end = stage.end()?;
+            let finish = stage.finish()?;
             let next = if index + 1 < count {
                 chain.legs.get(index + 1)
             } else if chain.closed {
@@ -551,10 +727,12 @@ impl Course {
                     let turn = incoming.angle_between(outgoing);
                     let segments = [leg.segment, next.segment];
                     let winds_on = leg.winding.is_some() && leg.winding == next.winding;
+                    let between_lines =
+                        matches!((&leg.curve, &next.curve), (Curve::Line(_), Curve::Line(_)));
                     if turn <= SMOOTH_TURN || orientation == SweepOrientation::Parallel || winds_on
                     {
                         sections.push(Section::Placed(end));
-                        placement = end;
+                        placement = finish;
                     } else if let (Motion::Straight { direction, .. }, Curve::Line(_)) =
                         (&stage.motion, &next.curve)
                     {
@@ -572,7 +750,9 @@ impl Course {
                         let swing =
                             RigidTransform::rotation_about(corner, direction.cross(outgoing), turn)
                                 .ok_or(PathSweepError::CornerTooSharp { segments })?;
-                        placement = end.then(&swing);
+                        placement = finish.then(&swing);
+                    } else if shaping.is_some() && between_lines {
+                        return Err(PathSweepError::ShapedCorner { segments });
                     } else {
                         return Err(PathSweepError::Corner { segments });
                     }
@@ -583,19 +763,33 @@ impl Course {
         if chain.closed {
             match sections.pop() {
                 Some(Section::Placed(end)) => {
+                    let slack = match closing {
+                        Closing::Exact => FIT_TOLERANCE,
+                        Closing::Corrected => {
+                            let reach = outline
+                                .placed(plane, &Similarity::IDENTITY)
+                                .map(|point| point.distance(outline.centre))
+                                .fold(0.0, f64::max);
+                            FIT_TOLERANCE + 2.0 * CLOSING_SLACK * reach
+                        }
+                    };
                     let twisted = outline
                         .placed(plane, &end)
-                        .zip(outline.placed(plane, &RigidTransform::IDENTITY))
-                        .any(|(back, start)| back.distance(start) > FIT_TOLERANCE);
+                        .zip(outline.placed(plane, &Similarity::IDENTITY))
+                        .any(|(back, start)| back.distance(start) > slack);
                     if twisted {
-                        return Err(PathSweepError::ClosedPathTwists);
+                        let turned = match closing {
+                            Closing::Exact => turned_by(plane, axis, &end),
+                            Closing::Corrected => None,
+                        };
+                        return Err(PathSweepError::ClosedPathTwists { turned });
                     }
                     if let Some(Stage {
                         motion: Motion::Fitted(stations),
                         ..
                     }) = stages.last_mut()
                     {
-                        stations.closing_on(RigidTransform::IDENTITY);
+                        stations.closing_on(Similarity::IDENTITY);
                     }
                 }
                 Some(Section::Mitre { .. }) | None => {
@@ -613,6 +807,7 @@ impl Course {
             facing,
             orientation,
             tolerance: outline.tolerance,
+            bends_freely,
         };
         course.check_mitres(plane, regions)?;
         Ok(course)
@@ -656,12 +851,7 @@ impl Course {
     }
 
     fn may_cross_itself(&self) -> bool {
-        self.orientation == SweepOrientation::Square
-            && (self.stages.len() > 1
-                || self
-                    .stages
-                    .iter()
-                    .any(|stage| matches!(stage.motion, Motion::Fitted(_))))
+        self.orientation == SweepOrientation::Square && (self.stages.len() > 1 || self.bends_freely)
     }
 
     fn whole_turn(&self) -> bool {
@@ -687,7 +877,7 @@ impl Course {
             .last()
             .map(Stage::end)
             .transpose()?
-            .unwrap_or(RigidTransform::IDENTITY);
+            .unwrap_or(Similarity::IDENTITY);
         for region in regions {
             interrupt::check()?;
             plan.label(region.entities());
@@ -712,7 +902,7 @@ impl Course {
                 plane.x_axis(),
             )
             .ok_or_else(degenerate)?;
-            let placed_end = plane.transformed(&end);
+            let placed_end = plane.mapped(&end);
             let end_plane = Plane::from_frame(
                 placed_end.origin(),
                 placed_end.normal() * self.facing,
@@ -839,7 +1029,7 @@ impl Course {
                 let middle = piece.range().middle();
                 let halfway = stage.placement_at(0.5)?;
                 let probe = halfway.apply_point(plane.to_world(piece.curve().point(middle)));
-                let outward = halfway.apply_vector(
+                let outward = halfway.apply_direction(
                     lift(plane, traversal_tangent(piece, middle)).cross(plane.normal()),
                 );
                 let sense = outward_sense(&surface, probe, outward, None);
@@ -981,7 +1171,11 @@ impl Course {
                 plan.edge(Curve::BSpline(moved), interval, (from, to), name)
             }
             Motion::Fitted(stations) => {
-                let unplaced = stage.start.inverse().apply_point(start);
+                let unplaced = stations
+                    .first()
+                    .ok_or_else(degenerate)?
+                    .inverse()
+                    .apply_point(start);
                 let trajectory = stations.trajectory(unplaced)?;
                 let interval = trajectory.domain();
                 plan.edge(Curve::BSpline(trajectory), interval, (from, to), name)
@@ -1066,16 +1260,29 @@ fn turn_frame(
     }
 }
 
+type Carried<'a> = (&'a Plane, &'a Outline, &'a Leg, &'a RigidTransform);
+
+fn bends_freely_along((plane, outline, leg, placement): Carried<'_>) -> bool {
+    match &leg.curve {
+        Curve::Line(_) => false,
+        Curve::Circle(circle) => !meridian(
+            &plane.transformed(placement),
+            outline,
+            circle.center(),
+            circle.frame().normal(),
+        ),
+        Curve::Ellipse(_) | Curve::BSpline(_) | Curve::Intersection(_) => true,
+    }
+}
+
 fn motion_of(
-    plane: &Plane,
-    outline: &Outline,
-    leg: &Leg,
-    placement: &RigidTransform,
+    (plane, outline, leg, placement): Carried<'_>,
     orientation: SweepOrientation,
     facing: f64,
 ) -> Result<Motion, PathSweepError> {
     let segment = leg.segment;
-    let start = (leg.range.start(), placement);
+    let starting = Similarity::from(*placement);
+    let start = (leg.range.start(), &starting);
     match (&leg.curve, orientation) {
         (Curve::Line(_), _) => {
             let (from, to) = (leg.start_point(), leg.end_point());
@@ -1117,7 +1324,7 @@ fn motion_of(
             let stations = Stations::fit(
                 leg.range,
                 initial,
-                &frames,
+                (&frames, None),
                 &outline.control_points,
                 segment,
             )?;
@@ -1130,7 +1337,7 @@ fn motion_of(
             let stations = Stations::fit(
                 leg.range,
                 initial,
-                &frames,
+                (&frames, None),
                 &outline.control_points,
                 segment,
             )?;
@@ -1144,7 +1351,7 @@ fn motion_of(
             let stations = Stations::fit(
                 leg.range,
                 initial,
-                &frames,
+                (&frames, None),
                 &outline.control_points,
                 segment,
             )?;
@@ -1154,4 +1361,79 @@ fn motion_of(
             Ok(Motion::Fitted(stations))
         }
     }
+}
+
+fn shaped_motion(
+    (plane, outline, leg, placement): Carried<'_>,
+    (orientation, facing): (SweepOrientation, f64),
+    (shaping, before): (&Shaping, f64),
+) -> Result<Motion, PathSweepError> {
+    let segment = leg.segment;
+    let shape = |parameter: f64| shaping.at(before + travelled(leg, parameter));
+    let path = Curve::BSpline(leg.spline()?);
+    let turning = match &leg.curve {
+        Curve::Circle(_) => (leg.range.length() / STATION_TURN).ceil() as usize,
+        Curve::Line(_) | Curve::Ellipse(_) | Curve::BSpline(_) | Curve::Intersection(_) => 0,
+    };
+    let initial = (spans_of(&path) * STATIONS_PER_SPAN)
+        .max(LEAST_STATIONS)
+        .max(turning)
+        .max(shaping.stations_for(leg.curve.length(leg.range)));
+    let fit = |frames: &FramesAt<'_>| {
+        let shape: &ShapeAt<'_> = &shape;
+        Stations::fit(
+            leg.range,
+            initial,
+            (frames, Some(shape)),
+            &outline.control_points,
+            segment,
+        )
+    };
+    let bent = |curve: &Curve, stations: &Stations| {
+        stations
+            .parameters()
+            .iter()
+            .zip(stations.frames())
+            .try_for_each(|(parameter, frame)| {
+                bend_check(plane, outline, curve, (*parameter, frame), facing, segment)
+            })
+    };
+    let stations = match (&leg.curve, orientation) {
+        (_, SweepOrientation::Parallel) => {
+            rise_check(&leg.curve, leg.range, plane.normal(), facing, segment)?;
+            fit(&|parameters: &[f64]| sliding(&path, parameters, *placement))?
+        }
+        (Curve::Line(_), SweepOrientation::Square) => {
+            let starting = Similarity::from(*placement);
+            bend_check(
+                plane,
+                outline,
+                &leg.curve,
+                (leg.range.start(), &starting),
+                facing,
+                segment,
+            )?;
+            fit(&|parameters: &[f64]| sliding(&path, parameters, *placement))?
+        }
+        (Curve::Circle(circle), SweepOrientation::Square) => {
+            let turning = (circle.center(), circle.frame().normal());
+            let from = leg.range.start();
+            let stations =
+                fit(&|parameters: &[f64]| rotating(turning, from, parameters, *placement))?;
+            bent(&leg.curve, &stations)?;
+            stations
+        }
+        (_, SweepOrientation::Square) if let Some(axis) = leg.winding => {
+            let stations = fit(&|parameters: &[f64]| winding(&path, axis, parameters, *placement))?;
+            fold_check(plane, outline, &path, &stations, facing, segment)?;
+            stations
+        }
+        (_, SweepOrientation::Square) => {
+            let stations =
+                fit(&|parameters: &[f64]| rotation_minimising(&path, parameters, *placement))?;
+            bent(&path, &stations)?;
+            stations
+        }
+    };
+    Ok(Motion::Fitted(stations))
 }

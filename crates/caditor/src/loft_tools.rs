@@ -1,27 +1,31 @@
 use caditor_document::{
     BodyOperation, Document, Edit, Evaluation, FeatureId, FeatureKind, Loft, LoftSection,
-    PointReference, Transaction,
+    PointReference, SketchFeature, Transaction, TransactionBuilder,
 };
 use caditor_kernel::{LoftSkin, RegionKey};
+use caditor_sketch::Sketch;
 
 use crate::{
-    body_selection,
+    bodies, body_selection,
     commands::Command,
     datum_tools,
     editing::{self, EditingCommand},
     field,
     model::{Action, Model},
-    queued,
+    projecting, queued,
     reference_picking::{Picking, Slot},
     selection::{self, Pickable, Selection},
+    sketch_placement::{self, FaceChoice},
     sweep_tools, visibility,
 };
 
 pub const TITLE: &str = "Loft";
 const GONE: &str = "The feature no longer exists";
-const NOT_A_PROFILE: &str = "Click a region or a curve of a sketch with a closed shape";
-const NO_PROFILE_SELECTED: &str =
-    "Select a region or a curve of each sketch to loft through, in order";
+const NOT_A_PROFILE: &str =
+    "Click a region or a curve of a sketch with a closed shape, or a flat face of a body";
+const NO_PROFILE_SELECTED: &str = "Select a region or a curve of each sketch, or a flat face of a body, to loft through, in order";
+const FACE_GONE: &str = "The selected face is no longer part of its body";
+const NO_FACE_OUTLINE: &str = "The selected face has no edges to outline";
 const NO_POINT_SELECTED: &str =
     "Select one corner, round edge, sphere, sketch point or datum point to end at";
 const REGION_GONE: &str = "The selected region is no longer part of its sketch";
@@ -34,9 +38,15 @@ pub struct ProfilePick {
     pub region: Option<RegionKey>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Pick {
+    Sketch(ProfilePick),
+    Face(FaceChoice),
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct LoftStart {
-    pub profiles: Vec<ProfilePick>,
+    pub profiles: Vec<Pick>,
     pub end: Option<PointReference>,
     pub body: Option<FeatureId>,
 }
@@ -49,6 +59,69 @@ impl LoftStart {
 
 fn has_regions(evaluation: &Evaluation, sketch: FeatureId) -> bool {
     selection::sketch_regions(evaluation, sketch).is_some_and(|regions| !regions.is_empty())
+}
+
+fn pick_of(model: &Model, pickable: Pickable) -> Option<Pick> {
+    match FaceChoice::of(pickable) {
+        Some(face) if sketch_placement::is_flat(model, face) => Some(Pick::Face(face)),
+        Some(_) => None,
+        None => profile_of(model, pickable).map(Pick::Sketch),
+    }
+}
+
+fn picks(model: &Model, selection: &Selection) -> Vec<Pick> {
+    let mut picks: Vec<Pick> = Vec::new();
+    for pickable in selection.in_pick_order() {
+        let Some(pick) = pick_of(model, pickable) else {
+            continue;
+        };
+        let known = picks.iter().any(|known| match (known, pick) {
+            (Pick::Sketch(known), Pick::Sketch(pick)) => known.sketch == pick.sketch,
+            (Pick::Face(known), Pick::Face(pick)) => *known == pick,
+            (Pick::Sketch(_), Pick::Face(_)) | (Pick::Face(_), Pick::Sketch(_)) => false,
+        });
+        if !known {
+            picks.push(pick);
+        }
+    }
+    picks
+}
+
+fn face_sketch(
+    model: &Model,
+    transaction: &mut TransactionBuilder<'_>,
+    (face, index): (FaceChoice, usize),
+    name: String,
+) -> Result<FeatureId, &'static str> {
+    let (attachment, plane) = sketch_placement::attachment_at(model, face, index)?;
+    let shown = bodies::shown(model.evaluation(), face.body).ok_or(FACE_GONE)?;
+    let found = bodies::find_face(shown, face.face).ok_or(FACE_GONE)?;
+    let outline = projecting::face_projections(shown, face.body, &[found], &plane);
+    if outline.is_empty() {
+        return Err(NO_FACE_OUTLINE);
+    }
+    let sketch = transaction.add_feature(
+        name,
+        FeatureKind::Sketch(SketchFeature::on_face(Sketch::new(plane), attachment)),
+    );
+    transaction.edit(Edit::SetFeatureHidden {
+        id: sketch,
+        hidden: true,
+    });
+    for (source, edges) in &outline {
+        transaction.add_projection(sketch, source.clone(), edges);
+    }
+    Ok(sketch)
+}
+
+fn face_sketch_name(document: &Document, loft: &str, numbered: &mut usize) -> String {
+    loop {
+        *numbered += 1;
+        let name = format!("{loft} profile {numbered}");
+        if document.features().all(|feature| feature.name != name) {
+            return name;
+        }
+    }
 }
 
 fn profile_of(model: &Model, pickable: Pickable) -> Option<ProfilePick> {
@@ -86,11 +159,11 @@ fn profile_picks(model: &Model, selection: &Selection) -> Vec<ProfilePick> {
 pub fn source(model: &Model, selection: &Selection) -> Result<LoftStart, &'static str> {
     let document = model.document();
     let index = document.bar_index();
-    let profiles = profile_picks(model, selection);
+    let profiles = picks(model, selection);
     let end = selection
         .in_pick_order()
         .into_iter()
-        .filter(|pickable| profile_of(model, *pickable).is_none())
+        .filter(|pickable| pick_of(model, *pickable).is_none())
         .find_map(|pickable| datum_tools::point_reference(model, pickable, index));
     let body = match body_selection::bodies_in(selection).as_slice() {
         [only] => Some(*only),
@@ -116,17 +189,22 @@ fn captured(evaluation: &Evaluation, pick: ProfilePick) -> Result<LoftSection, &
     })
 }
 
-pub fn create(
-    document: &Document,
-    evaluation: &Evaluation,
-    start: &LoftStart,
-) -> Result<(Transaction, FeatureId), &'static str> {
-    let profiles = start
-        .profiles
-        .iter()
-        .map(|pick| captured(evaluation, *pick))
-        .collect::<Result<Vec<_>, _>>()?;
+pub fn create(model: &Model, start: &LoftStart) -> Result<(Transaction, FeatureId), &'static str> {
+    let document = model.document();
+    let index = document.bar_index();
     let name = editing::next_feature_name(document, TITLE);
+    let mut transaction = document.transaction(format!("Create {name}"));
+    let mut profiles = Vec::with_capacity(start.profiles.len());
+    let mut faces = 0;
+    for pick in &start.profiles {
+        profiles.push(match pick {
+            Pick::Sketch(pick) => captured(model.evaluation(), *pick)?,
+            Pick::Face(face) => {
+                let named = face_sketch_name(document, &name, &mut faces);
+                LoftSection::whole(face_sketch(model, &mut transaction, (*face, index), named)?)
+            }
+        });
+    }
     let loft = Loft {
         end: start.end.clone(),
         operation: start
@@ -134,11 +212,12 @@ pub fn create(
             .map_or(BodyOperation::NewBody, BodyOperation::Add),
         ..Loft::new(profiles)
     };
-    let mut transaction = document.transaction(format!("Create {name}"));
     let feature = transaction.add_feature(name, FeatureKind::Loft(loft));
     if start.rows() >= 2 {
         for pick in &start.profiles {
-            if visibility::is_shown(document, pick.sketch) {
+            if let Pick::Sketch(pick) = pick
+                && visibility::is_shown(document, pick.sketch)
+            {
                 transaction.edit(Edit::SetFeatureHidden {
                     id: pick.sketch,
                     hidden: true,
@@ -150,7 +229,7 @@ pub fn create(
 }
 
 pub fn create_actions(model: &Model, start: &LoftStart) -> Vec<Action> {
-    match create(model.document(), model.evaluation(), start) {
+    match create(model, start) {
         Ok((transaction, feature)) => {
             let mut actions = vec![
                 Action::Apply(transaction),
@@ -193,8 +272,33 @@ pub fn with_operation(loft: &Loft, operation: BodyOperation) -> Loft {
 }
 
 pub fn with_skin(loft: &Loft, skin: LoftSkin) -> Loft {
+    let ruled = skin == LoftSkin::Ruled;
     Loft {
         skin,
+        square_start: if ruled {
+            None
+        } else {
+            loft.square_start.clone()
+        },
+        square_end: if ruled { None } else { loft.square_end.clone() },
+        ..loft.clone()
+    }
+}
+
+pub fn with_closing(loft: &Loft, closed: bool) -> Loft {
+    Loft {
+        closed,
+        end: if closed { None } else { loft.end.clone() },
+        square_start: if closed {
+            None
+        } else {
+            loft.square_start.clone()
+        },
+        square_end: if closed {
+            None
+        } else {
+            loft.square_end.clone()
+        },
         ..loft.clone()
     }
 }
@@ -249,9 +353,18 @@ pub fn profile_change(
     feature: FeatureId,
     loft: &Loft,
 ) -> Result<Transaction, String> {
-    let picks = profile_picks(model, selection);
-    let [pick] = picks.as_slice() else {
-        return Err(NOT_A_PROFILE.to_owned());
+    let chosen = picks(model, selection);
+    let pick = match chosen.as_slice() {
+        [Pick::Sketch(pick)] => pick,
+        [Pick::Face(face)] => {
+            return with_picks(
+                model,
+                feature,
+                loft,
+                (loft.profiles.clone(), &[Pick::Face(*face)]),
+            );
+        }
+        _ => return Err(NOT_A_PROFILE.to_owned()),
     };
     let mut profiles = loft.profiles.clone();
     match profiles
@@ -289,10 +402,14 @@ pub fn selected_change(
     feature: FeatureId,
     loft: &Loft,
 ) -> Result<Transaction, String> {
-    let picks = profile_picks(model, selection);
-    if picks.is_empty() {
+    let chosen = picks(model, selection);
+    if chosen.is_empty() {
         return Err(NO_PROFILE_SELECTED.to_owned());
     }
+    if chosen.iter().any(|pick| matches!(pick, Pick::Face(_))) {
+        return with_picks(model, feature, loft, (Vec::new(), &chosen));
+    }
+    let picks = profile_picks(model, selection);
     let profiles = picks
         .iter()
         .map(|pick| captured(model.evaluation(), *pick))
@@ -335,6 +452,8 @@ pub fn end_change(
         feature,
         Loft {
             end: Some(end),
+            closed: false,
+            square_end: None,
             ..loft.clone()
         },
     )
@@ -346,4 +465,36 @@ pub fn profile_words(document: &Document, section: &LoftSection) -> Option<Strin
         Some(_) => format!("A region of {name}"),
         None => name.clone(),
     })
+}
+
+fn with_picks(
+    model: &Model,
+    feature: FeatureId,
+    loft: &Loft,
+    (mut profiles, chosen): (Vec<LoftSection>, &[Pick]),
+) -> Result<Transaction, String> {
+    let document = model.document();
+    let index = document.feature_index(feature).ok_or(GONE)?;
+    let name = document.feature(feature).ok_or(GONE)?.name.clone();
+    let mut transaction = document
+        .transaction(format!("Edit {name}"))
+        .inserting_at(index);
+    let mut faces = 0;
+    for pick in chosen {
+        profiles.push(match pick {
+            Pick::Sketch(pick) => captured(model.evaluation(), *pick)?,
+            Pick::Face(face) => {
+                let named = face_sketch_name(document, &name, &mut faces);
+                LoftSection::whole(face_sketch(model, &mut transaction, (*face, index), named)?)
+            }
+        });
+    }
+    transaction.edit(Edit::SetFeatureKind {
+        id: feature,
+        kind: FeatureKind::Loft(Loft {
+            profiles,
+            ..loft.clone()
+        }),
+    });
+    field::checked(document, transaction.finish())
 }

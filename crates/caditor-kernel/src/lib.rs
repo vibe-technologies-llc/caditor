@@ -47,11 +47,12 @@ pub use crate::{
     bspline::{BSpline, MAX_SPLINE_DEGREE},
     build::{
         AngularExtent, Axis2, BendMiddle, BendMiddles, Heights, LinearBound, LinearExtent,
-        LoftError, LoftProfile, LoftSkin, MAX_LOFT_PROFILES, MAX_TAPER_DEGREES, NextFace,
+        LoftEnds, LoftError, LoftProfile, LoftSkin, MAX_LOFT_PROFILES, MAX_TAPER_DEGREES, NextFace,
         PathSegment, PathSweepError, PipeCorner, PipeError, PipeSection, PipeShape, PipeStand,
-        ReachError, StopError, Stopped, SweepError, SweepOrientation, WindingAxis, WrapError,
-        extrude, extrude_along, extrude_tapered, heights, heights_along, loft, next_face, pipe,
-        pipe_stand, revolve, stop_at_body, sweep, wrap_chain, wrap_regions,
+        ReachError, StopError, Stopped, SweepError, SweepOrientation, SweepShape, WindingAxis,
+        WrapError, extrude, extrude_along, extrude_tapered, heights, heights_along, loft,
+        loft_through, next_face, pipe, pipe_stand, revolve, stop_at_body, sweep, sweep_shaped,
+        wrap_chain, wrap_regions,
     },
     coil::{
         COIL_PARTS, CoilError, CoilFace, CoilParts, CoilPlacement, CoilShape, CoilSpec, HelixError,

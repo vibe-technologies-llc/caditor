@@ -1,9 +1,10 @@
 use std::collections::BTreeSet;
 
+use caditor_expression::{Dimension, Expression, Unit, format_decimals};
 use caditor_geometry::{Plane, Vector3};
 use caditor_kernel::{
     EdgeNaming, EdgeReference, PathSegment, PathSweepError, ReferenceError, Region, Solid,
-    SweepOrientation, sweep,
+    SweepOrientation, SweepShape, sweep_shaped,
 };
 use caditor_sketch::EntityId;
 
@@ -16,6 +17,7 @@ use crate::{
 };
 
 pub const SWEEP_SHAPE: &str = "sweep";
+const TWIST_DECIMALS: usize = 3;
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub enum SweepPath {
@@ -122,6 +124,8 @@ pub struct Sweep {
     pub regions: RegionChoice,
     pub path: SweepPath,
     pub orientation: SweepOrientation,
+    pub twist: Expression,
+    pub scale: Expression,
     pub operation: BodyOperation,
     pub other_bodies: Vec<FeatureId>,
 }
@@ -133,10 +137,39 @@ impl Sweep {
             regions: RegionChoice::All,
             path,
             orientation: SweepOrientation::Square,
+            twist: untwisted(),
+            scale: unscaled(),
             operation: BodyOperation::NewBody,
             other_bodies: Vec::new(),
         }
     }
+
+    pub fn expressions(&self) -> Vec<&Expression> {
+        vec![&self.twist, &self.scale]
+    }
+
+    pub fn expressions_mut(&mut self) -> Vec<&mut Expression> {
+        vec![&mut self.twist, &mut self.scale]
+    }
+
+    pub fn is_shaped(&self) -> bool {
+        !is_literally(&self.twist, 0.0) || !is_literally(&self.scale, 1.0)
+    }
+}
+
+pub fn untwisted() -> Expression {
+    Expression::measure(0.0, Unit::Degree)
+}
+
+pub fn unscaled() -> Expression {
+    Expression::number(1.0)
+}
+
+fn is_literally(expression: &Expression, literal: f64) -> bool {
+    matches!(
+        expression,
+        Expression::Number(value) | Expression::Measure(value, _) if *value == literal
+    )
 }
 
 pub(crate) struct Path {
@@ -321,21 +354,58 @@ pub(crate) fn path_of(
     Ok(built)
 }
 
+fn shape_of(
+    context: &Context<'_>,
+    inputs: &Inputs<'_>,
+    definition: &Sweep,
+) -> Result<SweepShape, Failure> {
+    let twist = context.value(
+        &definition.twist,
+        Dimension::ANGLE,
+        "twist",
+        inputs.parameters,
+    )?;
+    let scale = context.value(
+        &definition.scale,
+        Dimension::NONE,
+        "end scale",
+        inputs.parameters,
+    )?;
+    if scale <= 0.0 {
+        return Err(context.error(
+            format!(
+                "The end scale of {} must be more than zero, and {} is not.",
+                context.feature.name,
+                format_decimals(scale, TWIST_DECIMALS)
+            ),
+            "Enter an end scale above zero, such as 0.5 to end at half the size or 1 to keep \
+             it."
+            .to_owned(),
+            context.own(),
+        ));
+    }
+    Ok(SweepShape {
+        twist: twist.to_radians(),
+        scale,
+    })
+}
+
 pub(crate) fn swept(
     context: &Context<'_>,
     inputs: &Inputs<'_>,
     (plane, regions): (&Plane, &[Region]),
     definition: &Sweep,
 ) -> Result<Solid, Failure> {
+    let shape = shape_of(context, inputs, definition)?;
     let path = path_of(context.feature, inputs, &definition.path)?;
-    sweep(
+    sweep_shaped(
         plane,
         regions,
         &path.segments,
-        definition.orientation,
+        (definition.orientation, shape),
         context.feature.id().raw(),
     )
-    .map_err(|error| failure(context, &path, &error))
+    .map_err(|error| failure(context, &path, &error, shape))
 }
 
 pub(crate) fn path_failure(feature: &Feature, path: &Path, error: &PathSweepError) -> Failure {
@@ -406,7 +476,7 @@ pub(crate) fn path_failure(feature: &Feature, path: &Path, error: &PathSweepErro
             ),
             "Make it smaller or the bend gentler.",
         ),
-        PathSweepError::ClosedPathTwists => in_path(
+        PathSweepError::ClosedPathTwists { .. } => in_path(
             "Following the closed path brings the section back turned, so it would not close."
                 .to_owned(),
             "Use a closed path lying in one plane, or an open path.",
@@ -419,7 +489,10 @@ pub(crate) fn path_failure(feature: &Feature, path: &Path, error: &PathSweepErro
         PathSweepError::Sweep(_)
         | PathSweepError::StartsAlongProfile
         | PathSweepError::TurnsAlongProfile { .. }
-        | PathSweepError::ClosedPathMissesProfile => {
+        | PathSweepError::ClosedPathMissesProfile
+        | PathSweepError::ClosedPathScales
+        | PathSweepError::UnusableShape
+        | PathSweepError::ShapedCorner { .. } => {
             log::warn!("{name} could not follow its path: {error}");
             failed(
                 format!("{name} cannot be built along this path."),
@@ -430,7 +503,12 @@ pub(crate) fn path_failure(feature: &Feature, path: &Path, error: &PathSweepErro
     }
 }
 
-fn failure(context: &Context<'_>, path: &Path, error: &PathSweepError) -> Failure {
+fn failure(
+    context: &Context<'_>,
+    path: &Path,
+    error: &PathSweepError,
+    shape: SweepShape,
+) -> Failure {
     let name = &context.feature.name;
     let owner = &path.owner;
     let in_path = |reason: String, remedy: &str| context.error(reason, remedy.to_owned(), path.fix);
@@ -499,11 +577,49 @@ fn failure(context: &Context<'_>, path: &Path, error: &PathSweepError) -> Failur
             ),
             "Move the profile onto the path, or the path through the profile.",
         ),
-        PathSweepError::ClosedPathTwists => in_path(
-            "Following the closed path brings the profile back turned, so the sweep would not \
+        PathSweepError::ClosedPathTwists {
+            turned: Some(turned),
+        } => {
+            let needed = (shape.twist - turned).to_degrees();
+            context.error(
+                format!(
+                    "Following the closed path brings the profile back turned by {}°, so {name} \
+                     would not close.",
+                    format_decimals(turned.to_degrees(), TWIST_DECIMALS)
+                ),
+                format!(
+                    "Set the twist to {}°, or that plus or minus whole turns, so the profile comes \
+                     back where it started.",
+                    format_decimals(needed, TWIST_DECIMALS)
+                ),
+                context.own(),
+            )
+        }
+        PathSweepError::ClosedPathTwists { turned: None } => in_path(
+            "Following the closed path brings the profile back tilted, so the sweep would not \
              close."
                 .to_owned(),
-            "Use a closed path lying in one plane, or an open path.",
+            "Draw the profile square to the path where they meet, use a closed path lying in one \
+             plane, or an open path.",
+        ),
+        PathSweepError::ClosedPathScales => context.error(
+            format!("{name} follows a closed path, so its end is its start and cannot be scaled."),
+            "Set the end scale to 1, or choose an open path.".to_owned(),
+            context.own(),
+        ),
+        PathSweepError::UnusableShape => context.error(
+            format!("The twist or end scale of {name} is out of range."),
+            "Enter an end scale nearer 1.".to_owned(),
+            context.own(),
+        ),
+        PathSweepError::ShapedCorner { segments } => in_path(
+            format!(
+                "The path turns a sharp corner between {}{owner}, which a twisted or scaled sweep \
+                 cannot mitre.",
+                path.labels(segments)
+            ),
+            "Round the corner with a fillet in the path, or set the twist to 0° and the end \
+             scale to 1.",
         ),
         PathSweepError::TooIntricate { segment } => in_path(
             format!(

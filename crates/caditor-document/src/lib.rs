@@ -221,7 +221,7 @@ pub use crate::{
     split_edges::{TracedEdge, trace_edge},
     split_face::{SplitCarry, SplitFace, on_one_unrolled_surface},
     step_text::{StepText, StepTextError},
-    sweep::{SWEEP_SHAPE, Sweep, SweepPath},
+    sweep::{SWEEP_SHAPE, Sweep, SweepPath, unscaled, untwisted},
     thread::{
         Bore, BoreError, PlacedThread, Thread, ThreadForm, ThreadLength, ThreadPlacement,
         ThreadResult, hole_thread, placed_threads,

@@ -1,4 +1,4 @@
-use caditor_geometry::{Plane, Point3, RigidTransform, Rotation3, Vector3};
+use caditor_geometry::{Plane, Point3, RigidTransform, Rotation3, Similarity, Vector3};
 
 use super::{PathSweepError, WindingAxis};
 use crate::{
@@ -15,11 +15,13 @@ const MAX_STATIONS: usize = 2048;
 const STATION_DEGREE: usize = 3;
 
 pub(super) type FramesAt<'a> = dyn Fn(&[f64]) -> Result<Vec<RigidTransform>, PathSweepError> + 'a;
+pub(super) type ShapeAt<'a> = dyn Fn(f64) -> Result<Similarity, PathSweepError> + 'a;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct Stations {
     parameters: Vec<f64>,
-    frames: Vec<RigidTransform>,
+    frames: Vec<Similarity>,
+    finish: RigidTransform,
 }
 
 fn uniform(range: Interval, intervals: usize) -> Vec<f64> {
@@ -32,11 +34,26 @@ fn interpolated(parameters: &[f64], points: &[Point3]) -> Result<BSplineCurve, G
     BSpline::interpolating_at(STATION_DEGREE, parameters, points)
 }
 
+fn shaped(
+    rigid: &[RigidTransform],
+    parameters: &[f64],
+    shape: Option<&ShapeAt<'_>>,
+) -> Result<Vec<Similarity>, PathSweepError> {
+    match shape {
+        None => Ok(rigid.iter().copied().map(Similarity::from).collect()),
+        Some(shape) => rigid
+            .iter()
+            .zip(parameters)
+            .map(|(frame, parameter)| Ok(shape(*parameter)?.then(&Similarity::from(*frame))))
+            .collect(),
+    }
+}
+
 impl Stations {
     pub(super) fn fit(
         range: Interval,
         initial: usize,
-        frames_at: &FramesAt<'_>,
+        (frames_at, shape): (&FramesAt<'_>, Option<&ShapeAt<'_>>),
         points: &[Point3],
         segment: usize,
     ) -> Result<Self, PathSweepError> {
@@ -47,10 +64,19 @@ impl Stations {
                 return Err(PathSweepError::TooIntricate { segment });
             }
             let parameters = uniform(range, intervals);
-            let frames = frames_at(&parameters)?;
+            let rigid = frames_at(&parameters)?;
+            let finish = rigid
+                .last()
+                .copied()
+                .ok_or(PathSweepError::from(GeometryError::ZeroDirection))?;
+            let frames = shaped(&rigid, &parameters, shape)?;
             let finer = uniform(range, 2 * intervals);
-            let finer_frames = frames_at(&finer)?;
-            let stations = Self { parameters, frames };
+            let finer_frames = shaped(&frames_at(&finer)?, &finer, shape)?;
+            let stations = Self {
+                parameters,
+                frames,
+                finish,
+            };
             if stations.deviation(points, &finer, &finer_frames)? <= FIT_TOLERANCE {
                 return Ok(stations);
             }
@@ -62,7 +88,7 @@ impl Stations {
         &self,
         points: &[Point3],
         finer: &[f64],
-        finer_frames: &[RigidTransform],
+        finer_frames: &[Similarity],
     ) -> Result<f64, PathSweepError> {
         let mut worst: f64 = 0.0;
         for point in points {
@@ -81,27 +107,31 @@ impl Stations {
         Ok(worst)
     }
 
-    pub(super) fn first(&self) -> Option<RigidTransform> {
+    pub(super) fn first(&self) -> Option<Similarity> {
         self.frames.first().copied()
     }
 
-    pub(super) fn last(&self) -> Option<RigidTransform> {
+    pub(super) fn last(&self) -> Option<Similarity> {
         self.frames.last().copied()
     }
 
-    pub(super) fn middle(&self) -> Option<RigidTransform> {
+    pub(super) fn middle(&self) -> Option<Similarity> {
         self.frames.get(self.frames.len() / 2).copied()
+    }
+
+    pub(super) fn finish(&self) -> RigidTransform {
+        self.finish
     }
 
     pub(super) fn parameters(&self) -> &[f64] {
         &self.parameters
     }
 
-    pub(super) fn frames(&self) -> &[RigidTransform] {
+    pub(super) fn frames(&self) -> &[Similarity] {
         &self.frames
     }
 
-    pub(super) fn closing_on(&mut self, frame: RigidTransform) {
+    pub(super) fn closing_on(&mut self, frame: Similarity) {
         if let Some(last) = self.frames.last_mut() {
             *last = frame;
         }
@@ -253,6 +283,25 @@ pub(super) fn rotation_minimising(
         frames.push(start.then(&motion));
     }
     Ok(frames)
+}
+
+pub(super) fn sliding(
+    path: &Curve,
+    parameters: &[f64],
+    start: RigidTransform,
+) -> Result<Vec<RigidTransform>, PathSweepError> {
+    let Some(first) = parameters.first() else {
+        return Ok(Vec::new());
+    };
+    let origin = path.point(*first);
+    parameters
+        .iter()
+        .map(|parameter| {
+            RigidTransform::translation(path.point(*parameter) - origin)
+                .map(|shift| start.then(&shift))
+                .ok_or_else(|| GeometryError::ZeroDirection.into())
+        })
+        .collect()
 }
 
 pub(super) fn rotating(

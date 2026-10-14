@@ -1,10 +1,11 @@
-use caditor_geometry::{Point2, Point3};
+use caditor_geometry::{Point2, Point3, Vector3};
 
 use crate::{bspline::BSpline, curve::BSplineCurve, error::GeometryError, surface::BSplineSurface};
 
 pub(super) type Homogeneous = [f64; 4];
 
 const SAME_BREAK: f64 = 1e-9;
+const HERMITE_DEGREE: usize = 3;
 
 fn mix(from: Homogeneous, to: Homogeneous, along: f64) -> Homogeneous {
     let mut mixed = from;
@@ -351,4 +352,238 @@ fn net(
         points,
         Some(weights),
     )
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) enum SkinEnd {
+    Natural,
+    Along(Vector3),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct SkinEnds {
+    pub(super) start: SkinEnd,
+    pub(super) end: SkinEnd,
+    pub(super) closed: bool,
+}
+
+fn plus(from: Homogeneous, to: Homogeneous) -> Homogeneous {
+    let mut sum = from;
+    for (slot, added) in sum.iter_mut().zip(to) {
+        *slot += added;
+    }
+    sum
+}
+
+fn minus(from: Homogeneous, to: Homogeneous) -> Homogeneous {
+    plus(from, scaled(to, -1.0))
+}
+
+fn slope(from: (f64, Homogeneous), to: (f64, Homogeneous)) -> Homogeneous {
+    scaled(minus(to.1, from.1), 1.0 / (to.0 - from.0))
+}
+
+fn quadratic_slopes(
+    first: (f64, Homogeneous),
+    second: (f64, Homogeneous),
+    third: (f64, Homogeneous),
+) -> [Homogeneous; 3] {
+    let low = slope(first, second);
+    let high = slope(second, third);
+    let bend = scaled(minus(high, low), 1.0 / (third.0 - first.0));
+    [
+        minus(low, scaled(bend, second.0 - first.0)),
+        plus(low, scaled(bend, second.0 - first.0)),
+        plus(
+            low,
+            scaled(bend, (third.0 - first.0) + (third.0 - second.0)),
+        ),
+    ]
+}
+
+fn along(direction: Vector3, at: Homogeneous) -> Homogeneous {
+    let [.., weight] = at;
+    [
+        direction.x * weight,
+        direction.y * weight,
+        direction.z * weight,
+        0.0,
+    ]
+}
+
+fn end_slopes(
+    data: &[Homogeneous],
+    stations: &[f64],
+    ends: SkinEnds,
+) -> Result<[Homogeneous; 2], GeometryError> {
+    let at = |index: usize| -> Result<(f64, Homogeneous), GeometryError> {
+        Ok((
+            *stations
+                .get(index)
+                .ok_or(GeometryError::DegenerateSurface)?,
+            *data.get(index).ok_or(GeometryError::DegenerateSurface)?,
+        ))
+    };
+    let last = data.len().saturating_sub(1);
+    if ends.closed {
+        let (before, point) = at(last.saturating_sub(1))?;
+        let seam = at(0)?;
+        let [_, slope, _] = quadratic_slopes((before - 1.0, point), seam, at(1)?);
+        return Ok([slope, slope]);
+    }
+    let start = match ends.start {
+        SkinEnd::Along(direction) => along(direction, at(0)?.1),
+        SkinEnd::Natural if last >= 2 => quadratic_slopes(at(0)?, at(1)?, at(2)?)[0],
+        SkinEnd::Natural => slope(at(0)?, at(1)?),
+    };
+    let end = match ends.end {
+        SkinEnd::Along(direction) => along(direction, at(last)?.1),
+        SkinEnd::Natural if last >= 2 => {
+            quadratic_slopes(at(last - 2)?, at(last - 1)?, at(last)?)[2]
+        }
+        SkinEnd::Natural => slope(at(last.saturating_sub(1))?, at(last)?),
+    };
+    Ok([start, end])
+}
+
+fn basis(knots: &[f64], index: usize, degree: usize, at: f64) -> f64 {
+    let knot = |position: usize| knots.get(position).copied().unwrap_or(f64::NAN);
+    if degree == 0 {
+        return if knot(index) <= at && at < knot(index + 1) {
+            1.0
+        } else {
+            0.0
+        };
+    }
+    let rising = knot(index + degree) - knot(index);
+    let falling = knot(index + degree + 1) - knot(index + 1);
+    let left = if rising > 0.0 {
+        (at - knot(index)) / rising * basis(knots, index, degree - 1, at)
+    } else {
+        0.0
+    };
+    let right = if falling > 0.0 {
+        (knot(index + degree + 1) - at) / falling * basis(knots, index + 1, degree - 1, at)
+    } else {
+        0.0
+    };
+    left + right
+}
+
+fn hermite(
+    data: &[Homogeneous],
+    stations: &[f64],
+    [start, end]: [Homogeneous; 2],
+) -> Result<(Vec<Homogeneous>, Vec<f64>), GeometryError> {
+    let (Some(first), Some(last)) = (data.first(), data.last()) else {
+        return Err(GeometryError::DegenerateSurface);
+    };
+    let (Some(low), Some(high)) = (stations.first(), stations.last()) else {
+        return Err(GeometryError::DegenerateSurface);
+    };
+    let count = data.len();
+    if count < 2 || stations.len() != count {
+        return Err(GeometryError::DegenerateSurface);
+    }
+    let interior = stations.get(1..count - 1).unwrap_or_default();
+    let knots: Vec<f64> = std::iter::repeat_n(*low, HERMITE_DEGREE + 1)
+        .chain(interior.iter().copied())
+        .chain(std::iter::repeat_n(*high, HERMITE_DEGREE + 1))
+        .collect();
+    let second_station = stations.get(1).copied().unwrap_or(*high);
+    let before_last = stations.get(count - 2).copied().unwrap_or(*low);
+    let lead = plus(*first, scaled(start, (second_station - low) / 3.0));
+    let trail = minus(*last, scaled(end, (high - before_last) / 3.0));
+    let mut lower = Vec::with_capacity(count);
+    let mut diagonal = Vec::with_capacity(count);
+    let mut upper = Vec::with_capacity(count);
+    let mut sides = Vec::with_capacity(count);
+    for (row, (station, point)) in interior.iter().zip(data.iter().skip(1)).enumerate() {
+        let index = row + 1;
+        let below = basis(&knots, index, HERMITE_DEGREE, *station);
+        let at = basis(&knots, index + 1, HERMITE_DEGREE, *station);
+        let above = basis(&knots, index + 2, HERMITE_DEGREE, *station);
+        let mut side = *point;
+        if row == 0 {
+            side = minus(side, scaled(lead, below));
+        }
+        if row + 1 == interior.len() {
+            side = minus(side, scaled(trail, above));
+        }
+        lower.push(below);
+        diagonal.push(at);
+        upper.push(above);
+        sides.push(side);
+    }
+    let mut factors: Vec<f64> = Vec::with_capacity(sides.len());
+    let mut carried: Vec<Homogeneous> = Vec::with_capacity(sides.len());
+    for (row, ((below, at), (above, side))) in lower
+        .iter()
+        .zip(&diagonal)
+        .zip(upper.iter().zip(&sides))
+        .enumerate()
+    {
+        let (previous_factor, previous_side) = match (factors.last(), carried.last()) {
+            (Some(factor), Some(side)) if row > 0 => (*factor, *side),
+            _ => (0.0, [0.0; 4]),
+        };
+        let pivot = at - below * previous_factor;
+        if !(pivot.is_finite() && pivot.abs() > f64::EPSILON) {
+            return Err(GeometryError::NonFinite);
+        }
+        factors.push(above / pivot);
+        carried.push(scaled(
+            minus(*side, scaled(previous_side, *below)),
+            1.0 / pivot,
+        ));
+    }
+    let mut solved: Vec<Homogeneous> = Vec::with_capacity(carried.len());
+    for (factor, side) in factors.iter().zip(&carried).rev() {
+        let next = solved.last().copied().unwrap_or([0.0; 4]);
+        solved.push(minus(*side, scaled(next, *factor)));
+    }
+    solved.reverse();
+    let mut points = Vec::with_capacity(count + 2);
+    points.push(*first);
+    points.push(lead);
+    points.extend(solved);
+    points.push(trail);
+    points.push(*last);
+    Ok((points, knots))
+}
+
+pub(super) fn skinned_through(
+    rows: &[Beziers],
+    stations: &[f64],
+    ends: SkinEnds,
+) -> Result<BSplineSurface, GeometryError> {
+    let first = rows.first().ok_or(GeometryError::DegenerateSurface)?;
+    let width = first.points().len();
+    let mut columns: Vec<Vec<Homogeneous>> = Vec::with_capacity(width);
+    let mut knots = Vec::new();
+    for column in 0..width {
+        let data: Vec<Homogeneous> = rows
+            .iter()
+            .map(|row| {
+                row.points()
+                    .get(column)
+                    .copied()
+                    .ok_or(GeometryError::DegenerateSurface)
+            })
+            .collect::<Result<_, _>>()?;
+        let slopes = end_slopes(&data, stations, ends)?;
+        let (points, column_knots) = hermite(&data, stations, slopes)?;
+        knots = column_knots;
+        columns.push(points);
+    }
+    let height = columns.first().map_or(0, Vec::len);
+    let lines: Vec<Vec<Homogeneous>> = (0..height)
+        .map(|row| {
+            columns
+                .iter()
+                .filter_map(|column| column.get(row).copied())
+                .collect()
+        })
+        .collect();
+    net(first, &lines, HERMITE_DEGREE, knots)
 }

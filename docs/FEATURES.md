@@ -37,13 +37,14 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   body's outside where sharp edges part it from the closed faces, since a smooth or void opening
   needs the opening prism only flat faces give.
 - [medium · hard] Sweep and loft: a sweep carries a sketch's regions along a chain of sketch
-  curves or model edges, square to the path or parallel to the profile, but takes no guide rail,
-  taper or twist (so a closed path out of one plane, which brings the profile back turned, is
-  refused), mitres only sharp corners between two lines (other sharp corners are refused: no
-  round corners), and sweeps no thin wall of open curves. A loft passes through closed sketch
-  profiles without holes in order, smooth or ruled, and may end at a point, but takes no faces of
-  bodies as profiles, no guide rails or centreline, no tangent or curvature-continuous conditions
-  at its ends, and cannot close back to its first profile.
+  curves or model edges, twisted and scaled evenly along it, but takes no guide rail, no twist or
+  scale law other than even, mitres only sharp corners between two lines and only when neither
+  twisted nor scaled (other sharp corners are refused: no round corners), and sweeps no thin wall
+  of open curves. A loft passes through closed profiles without holes (sketches, or flat faces of
+  bodies through a projected sketch) in order, smooth or ruled, open or closed back to its first,
+  ending at a point or leaving its end profiles square, but takes no guide rails or centreline, no
+  end tangent to a neighbouring face of a body or curvature-continuous ends, and no square end at a
+  middle profile.
 - [medium · hard] No flat spiral or varying helix: Helix gives a sweep or pipe a helix of one
   pitch (tapered or not, started at any angle round its axis) to follow, but a flat spiral (a clock
   spring) has no tool at all, and a helix cannot change its pitch along the way, so a closed-end

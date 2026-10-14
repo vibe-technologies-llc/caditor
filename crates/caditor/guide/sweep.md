@@ -28,6 +28,15 @@ starts where the path crosses the profile's plane and closes on itself.
   so. The cross clears the path.
 - **Orientation**: **Square to path** turns the profile with the path, keeping its angle to it as a
   bent pipe does; **Parallel** only moves it along the path, keeping it parallel to its sketch.
+- **Twist** turns the profile about the path by this angle in all by the path's end, evenly by the
+  distance travelled: a twisted bar, a drill flute, a rope strand. A positive twist turns
+  counter-clockwise looking back along the path from its end. Its centre is where the path meets
+  the profile's plane. Whole turns (360°, 720°) are fine; 0° leaves it untwisted.
+- **End scale** is the profile's size at the end of the path against its start, growing or shrinking
+  evenly along it: 0.5 ends at half the size, 2 at twice, 1 keeps it. Along a straight line a
+  square profile scaled this way makes a frustum. Like Twist, it scales about where the path meets
+  the profile's plane.
+- Both take numbers, units and expressions referring to [parameters](parameters).
 - **New body**, **Add**, **Remove from body** or **Intersect with body**, and for a new body
   **Separate pieces** (one body, or a body each), as for an extrusion.
 - **Select all** in the regions row, or {command:model.select_all_regions}, takes every closed
@@ -42,8 +51,12 @@ starts where the path crosses the profile's plane and closes on itself.
   naming the curve; so does a sweep that runs into itself.
 - Parallel needs the path to keep rising out of the profile's plane; a path turning back along it
   fails, so a closed path is swept square to it.
-- A closed path out of one plane may bring the profile back turned; such a sweep fails, asking for
-  a path in one plane.
+- A closed path out of one plane may bring the profile back turned. Such a sweep fails saying by
+  how much and naming the Twist that brings it back (that angle, or it plus or minus whole turns);
+  typed to three decimal places it closes exactly. A closed path cannot change the profile's size,
+  so End scale must be 1 along one.
+- A twisted or scaled sweep cannot mitre a sharp corner between two lines; round the corner with a
+  fillet in the path's sketch.
 
 A curve of the path cannot be deleted while a sweep follows it; deleting the whole path sketch
 leaves the sweep failing until a path is chosen again; clearing the path leaves it waiting for one.

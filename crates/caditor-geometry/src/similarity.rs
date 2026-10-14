@@ -93,6 +93,14 @@ impl Similarity {
         self.translation
     }
 
+    pub fn as_rigid(&self) -> Option<RigidTransform> {
+        if self.is_rigid() {
+            RigidTransform::new(self.rotation, self.translation)
+        } else {
+            None
+        }
+    }
+
     pub fn apply_point(&self, point: Point3) -> Point3 {
         self.rotation * (self.mirror(point) * self.scale) + self.translation
     }
@@ -196,6 +204,7 @@ mod tests {
         let point = center + Vector3::new(1.0, -2.0, 4.0);
 
         assert!(!scaling.is_mirrored());
+        assert_eq!(scaling.as_rigid(), None);
         assert!(scaling.apply_point(center).distance(center) < EPSILON);
         assert!(
             (scaling.apply_point(point).distance(center) - 2.5 * point.distance(center)).abs()
@@ -214,6 +223,14 @@ mod tests {
         let point = Point3::new(0.3, -2.0, 5.0);
 
         assert!(similarity.is_rigid());
+        assert!(
+            similarity
+                .as_rigid()
+                .unwrap()
+                .apply_point(point)
+                .distance(rigid.apply_point(point))
+                < EPSILON
+        );
         assert_eq!(similarity.apply_point(point), rigid.apply_point(point));
         assert_eq!(similarity.apply_direction(point), rigid.apply_vector(point));
     }

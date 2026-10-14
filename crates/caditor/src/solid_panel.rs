@@ -56,6 +56,8 @@ const SQUARE_TO_PATH_HOVER: &str =
     "Turn the profile with the path so it keeps its angle to the path, as a pipe bends";
 const PARALLEL_HOVER: &str =
     "Keep the profile parallel to its sketch, only moving it along the path";
+pub const TWIST: &str = "Twist";
+pub const END_SCALE: &str = "End scale";
 const FOLLOW_SELECTED_PATH: &str = "Follow the selected curves or edges instead";
 const CLEAR_PATH: &str = "Clear the path";
 pub const END_OFFSET: &str = "Past the face";
@@ -169,7 +171,7 @@ pub fn captioned(solid: &SolidFeature) -> Vec<(&'static str, &Expression)> {
                 vec![(FORWARD_ANGLE, forward), (BACKWARD_ANGLE, backward)]
             }
         },
-        SolidFeature::Sweep(_) => Vec::new(),
+        SolidFeature::Sweep(sweep) => vec![(TWIST, &sweep.twist), (END_SCALE, &sweep.scale)],
     }
 }
 
@@ -1513,6 +1515,35 @@ impl Panel<'_> {
         self.actions.extend(chosen);
     }
 
+    fn shape_rows(&mut self, ui: &mut Ui, sweep: &Sweep) {
+        self.expression(
+            ui,
+            TWIST,
+            "twist",
+            &sweep.twist,
+            (Dimension::ANGLE, Rule::Any),
+            |twist| {
+                SolidFeature::Sweep(Sweep {
+                    twist,
+                    ..sweep.clone()
+                })
+            },
+        );
+        self.expression(
+            ui,
+            END_SCALE,
+            "scale",
+            &sweep.scale,
+            (Dimension::NONE, Rule::AboveZero),
+            |scale| {
+                SolidFeature::Sweep(Sweep {
+                    scale,
+                    ..sweep.clone()
+                })
+            },
+        );
+    }
+
     fn apply(&mut self, solid: SolidFeature) {
         let change = self.change(solid);
         self.actions
@@ -2018,6 +2049,7 @@ pub fn show(
             SolidFeature::Sweep(sweep) => {
                 panel.path_row(ui, sweep);
                 panel.orientation_row(ui, sweep);
+                panel.shape_rows(ui, sweep);
             }
         }
         panel.operation_rows(ui);
