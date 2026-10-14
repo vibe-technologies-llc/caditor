@@ -17,7 +17,8 @@ A disabled button says on hover what to select.
   ellipse's axis ([snapping](snapping)).
 - **Parallel through** and **Perpendicular through** hold a point on the line through such a
   place running along another line or square to it; the perpendicular bisector of a line is one.
-  **Centre** holds a point at the middle of an outline's corners. These come from drawing with
+  **Centre** holds a point at the middle of an outline's corners, or of its sides' middles when
+  an arc is among them. These come from drawing with
   the guides, not from a button.
 - **Parallel** and **Perpendicular** relate lines; a line perpendicular to a circle runs through
   its centre.

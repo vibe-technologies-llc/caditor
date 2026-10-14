@@ -204,12 +204,12 @@ paths:
 ## Point targets (`solve/target.rs`)
 
 - A target is a `TargetHandle`: a weighted sum of point handles (a point, a line's middle, the
-  centre of corners), a circle's centre plus its radius along a fixed direction (`Rim`, a
+  centre of corners and sides, with a hidden point per arc), a circle's centre plus its radius along a fixed direction (`Rim`, a
   quadrant, the radius through `push_radius`) or an ellipse turned to a fixed cosine and sine
   (`Turned`, an axis end, through `EllipseHandle::turned` and `push_point`).
 - A crossing and the middle of an arc or elliptical arc have no closed form, so the constraint gets
   a hidden point of its own (`System::targets`: two variables allocated after the curve
-  parameters, `Variable::Target` in the memo, perturbed like geometry, owned by no entity) held by
+  parameters, `Variable::Target` in the memo numbered on per hidden point, perturbed like geometry, owned by no entity) held by
   the forms defining it, owned by the constraint: on each curve (`Form::OnLine`, the circle form,
   `OnEllipse`, or `OnSpline` along x and y at a curve parameter of the constraint started at the
   closest point, `target_parameter_start`), or the forms `Midpoint` uses (`middle_forms`, shared).
@@ -219,7 +219,11 @@ paths:
   other target they are `Form::Level` (`along · (point − target)`). `OnDirection` is
   `Form::OnDirection`: the offset from the target dotted with the line's unit direction (square)
   or its normal, the line's turn reaching its ends through `Direction::back_from_unit`. `Centroid`
-  is `Form::Through` along x and y over the corners at equal weights. Their rows belong to their
+  is `Form::Through` along x and y over its members at equal weights (`centroid_terms`): a point
+  itself, a line as half of each end, an arc as a hidden point held at its middle by
+  `middle_forms`; a tracked `PointTarget::Centroid` sums the same terms. Hidden points are per
+  constraint (`System::targets`, one per arc member or one for a crossing or arc middle,
+  `hidden_target_starts`), each two variables and two equations. Their rows belong to their
   constraint, so degrees of freedom, redundancy and conflict diagnosis need nothing of their own.
 
 ## Constraint state

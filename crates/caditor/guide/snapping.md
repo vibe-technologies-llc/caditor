@@ -8,8 +8,9 @@ snapped point keeps the relation as a constraint, so a line ending on a circle s
 - Points, the sketch origin and the middle of lines, arcs and elliptical arcs.
 - The centre of a closed outline such as a rectangle, slot, triangle or regular polygon. The whole
   outline lights up, and on an outline of an even number of sides so do the two corners that will
-  hold the point there. On an outline of an odd number of straight sides the centre is the middle
-  of its corners, and the point stays there as the corners move.
+  hold the point there. On an outline of an odd number of sides the centre is the middle of
+  its sides' middles: for straight sides that is the middle of its corners, and an arc among them
+  pulls it toward its bulge. The point stays there as the outline changes.
 - Where two curves cross, and the right, top, left and bottom of circles and arcs.
 - The far end of an ellipse's major axis and the ends of its minor axis; the point stays at the
   end however the ellipse is turned.
@@ -37,7 +38,7 @@ A lined-up point keeps that as a constraint, whatever it was lined up with: leve
 line's middle, straight above a crossing, on the perpendicular bisector, along or square to a line
 through the top of a circle. When the line, crossing, outline, circle or ellipse moves, the point
 moves with it. Its mark beside the point is H or V for level or upright, a slanted stroke through a
-ring for along or square to a line, and a triangle round a dot for the centre of corners.
+ring for along or square to a line, and a triangle round a dot for the centre of an outline.
 
 ## Controlling it
 
@@ -60,4 +61,6 @@ ring for along or square to a line, and a triangle round a dot for the centre of
   everything.
 
 Dragging geometry with Select snaps the same way, bodies included, with Alt too: a point dragged
-onto a body's corner or edge projects it and stays on it, in the same undoable change.
+onto a body's corner or edge projects it and stays on it, in the same undoable change. Dragging a
+curve or a selection, whichever of its points comes nearest a sketch point, middle, centre,
+quadrant or axis end lands there and is joined to it, not only the point nearest where you pressed.

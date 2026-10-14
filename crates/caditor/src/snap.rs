@@ -1,4 +1,8 @@
-use std::{cell::LazyCell, f64::consts::TAU};
+use std::{
+    cell::LazyCell,
+    collections::{BTreeMap, BTreeSet},
+    f64::consts::TAU,
+};
 
 use caditor_geometry::{Point2, Vector2};
 use caditor_sketch::{
@@ -197,7 +201,7 @@ impl Target {
                 corners: (first, second),
                 ..
             } => Some(PointTarget::Centroid(vec![first, second])),
-            Self::Centroid(outline) => outline_corners(sketch, outline).map(PointTarget::Centroid),
+            Self::Centroid(outline) => centroid_members(sketch, outline).map(PointTarget::Centroid),
             Self::Pending(_)
             | Self::Curve(_)
             | Self::Extension(_)
@@ -209,7 +213,7 @@ impl Target {
     pub fn joins(self, sketch: &Sketch, point: EntityId) -> Vec<Constraint> {
         match self {
             Self::Pending(_) | Self::Body(_) => Vec::new(),
-            Self::Centroid(outline) => outline_corners(sketch, outline)
+            Self::Centroid(outline) => centroid_members(sketch, outline)
                 .map(|corners| Constraint::Centroid { point, corners })
                 .into_iter()
                 .collect(),
@@ -439,7 +443,12 @@ pub fn resolve_inferring(
         .or_else(|| nearest(accepted_points(sketch, accept), POINT_TOLERANCE))
         .or_else(|| match accept {
             Accept::Anything => nearest(midpoints(sketch), POINT_TOLERANCE)
-                .or_else(|| nearest(centres(sketch, ignored), POINT_TOLERANCE))
+                .or_else(|| {
+                    nearest(
+                        centres(sketch, &|id| ignored.contains(&id)),
+                        POINT_TOLERANCE,
+                    )
+                })
                 .or_else(|| {
                     nearest(
                         intersections(sketch, near_curves.as_slice(), screen, pointer),
@@ -510,7 +519,7 @@ pub fn held(
     let curve_like = match lookup.accept {
         Accept::Anything => {
             point_like.extend(midpoints(sketch));
-            point_like.extend(centres(sketch, lookup.ignored));
+            point_like.extend(centres(sketch, &|id| lookup.ignored.contains(&id)));
             let mut curve_like = curves(sketch, pointer.sketch);
             point_like.extend(intersections(sketch, &curve_like, screen, pointer));
             point_like.extend(quadrants(sketch));
@@ -980,7 +989,7 @@ pub fn position_of(
         } => Some(sketch.point(first)?.midpoint(sketch.point(second)?)),
         Target::Centroid(outline) => {
             let (lines, steps) = loop_through(sketch, outline)?;
-            if moves(&lines, &steps, ignored) {
+            if moves(&lines, &steps, &|id| ignored.contains(&id)) {
                 return None;
             }
             centroid(&lines, &steps)
@@ -1089,6 +1098,7 @@ struct OutlineLine {
     id: EntityId,
     start: (EntityId, Point2),
     end: (EntityId, Point2),
+    middle: Point2,
     round: Option<(Point2, f64)>,
 }
 
@@ -1102,6 +1112,7 @@ fn outline_pieces(sketch: &Sketch) -> Vec<OutlineLine> {
                     id,
                     start: (start, from),
                     end: (end, to),
+                    middle: from.midpoint(to),
                     round: None,
                 })
             }
@@ -1111,6 +1122,7 @@ fn outline_pieces(sketch: &Sketch) -> Vec<OutlineLine> {
                     id,
                     start: (start, sketch.point(start)?),
                     end: (end, sketch.point(end)?),
+                    middle: sketch.middle_of(id)?,
                     round: Some((arc.center, arc.radius)),
                 })
             }
@@ -1147,9 +1159,14 @@ fn minor_end_offset(sketch: &Sketch, ellipse: EntityId, end: EllipseEnd, at: Poi
         .map_or(f64::INFINITY, |place| place.distance(at))
 }
 
-pub fn outline_corners(sketch: &Sketch, piece: EntityId) -> Option<Vec<EntityId>> {
-    let (_, steps) = loop_through(sketch, piece)?;
-    Some(steps.iter().map(|step| step.corner.0).collect())
+pub fn centroid_members(sketch: &Sketch, piece: EntityId) -> Option<Vec<EntityId>> {
+    let (lines, steps) = loop_through(sketch, piece)?;
+    let pieces = pieces_of(&lines, &steps)?;
+    Some(if is_straight(&pieces) {
+        steps.iter().map(|step| step.corner.0).collect()
+    } else {
+        pieces.iter().map(|piece| piece.id).collect()
+    })
 }
 
 pub fn outline_through(sketch: &Sketch, piece: EntityId) -> Option<Vec<EntityId>> {
@@ -1162,7 +1179,7 @@ pub fn outline_through(sketch: &Sketch, piece: EntityId) -> Option<Vec<EntityId>
     )
 }
 
-fn centres(sketch: &Sketch, ignored: &[EntityId]) -> Vec<Snapped> {
+fn centres(sketch: &Sketch, moving: &impl Fn(EntityId) -> bool) -> Vec<Snapped> {
     let lines = outline_pieces(sketch);
     let tolerance = joined_tolerance(&lines);
     let partners = corner_partners(&lines, tolerance);
@@ -1178,7 +1195,7 @@ fn centres(sketch: &Sketch, ignored: &[EntityId]) -> Vec<Snapped> {
         let Some(id) = lines.get(first).map(|line| line.id) else {
             continue;
         };
-        if moves(&lines, &outline, ignored) {
+        if moves(&lines, &outline, moving) {
             continue;
         }
         if outline.len().is_multiple_of(2) {
@@ -1201,44 +1218,101 @@ fn centres(sketch: &Sketch, ignored: &[EntityId]) -> Vec<Snapped> {
     found
 }
 
-fn moves(lines: &[OutlineLine], steps: &[OutlineStep], ignored: &[EntityId]) -> bool {
+fn moves(lines: &[OutlineLine], steps: &[OutlineStep], moving: &impl Fn(EntityId) -> bool) -> bool {
     steps
         .iter()
         .filter_map(|step| lines.get(step.piece))
         .any(|piece| {
             [piece.id, piece.start.0, piece.end.0]
-                .iter()
-                .any(|id| ignored.contains(id))
+                .into_iter()
+                .any(moving)
         })
 }
 
-fn centroid(lines: &[OutlineLine], steps: &[OutlineStep]) -> Option<Point2> {
-    let straight = steps.iter().all(|step| {
-        lines
-            .get(step.piece)
-            .is_some_and(|piece| piece.round.is_none())
-    });
-    if steps.len() < 3 || !straight {
+pub fn nearest_moved(
+    sketch: &Sketch,
+    screen: &impl Screen,
+    moved: &[(EntityId, Vector2)],
+    moving: &BTreeSet<EntityId>,
+    reach: f64,
+) -> Option<EntityId> {
+    if moved.is_empty() || reach <= 0.0 {
         return None;
     }
-    let corners: Vec<Point2> = steps.iter().map(|step| step.corner.1).collect();
-    let anchor = *corners.first()?;
-    let twice_area: f64 = corners
+    let cell = |at: Vector2| {
+        let index = (at / reach).floor().as_i64vec2();
+        (index.x, index.y)
+    };
+    let mut cells: BTreeMap<(i64, i64), Vec<(EntityId, Vector2)>> = BTreeMap::new();
+    for (point, at) in moved {
+        cells.entry(cell(*at)).or_default().push((*point, *at));
+    }
+    let is_moving = |id: EntityId| moving.contains(&id);
+    let targets = points(sketch)
+        .into_iter()
+        .chain(midpoints(sketch))
+        .chain(centres(sketch, &is_moving))
+        .chain(quadrants(sketch))
+        .chain(axis_ends(sketch));
+    let mut nearest: Option<(f64, EntityId)> = None;
+    for target in targets {
+        let Some(at) = screen.to_screen(target.position) else {
+            continue;
+        };
+        let (column, row) = cell(at);
+        let near = (-1..=1)
+            .flat_map(|across| (-1..=1).map(move |down| (column + across, row + down)))
+            .filter_map(|key| cells.get(&key))
+            .flatten();
+        for (point, moved_at) in near {
+            let offset = moved_at.distance(at);
+            let nearer = nearest.is_none_or(|(least, _)| offset < least);
+            if offset <= reach && nearer && !target.target.involved().any(is_moving) {
+                nearest = Some((offset, *point));
+            }
+        }
+    }
+    nearest.map(|(_, point)| point)
+}
+
+fn pieces_of<'a>(lines: &'a [OutlineLine], steps: &[OutlineStep]) -> Option<Vec<&'a OutlineLine>> {
+    steps.iter().map(|step| lines.get(step.piece)).collect()
+}
+
+fn is_straight(pieces: &[&OutlineLine]) -> bool {
+    pieces.iter().all(|piece| piece.round.is_none())
+}
+
+fn centroid(lines: &[OutlineLine], steps: &[OutlineStep]) -> Option<Point2> {
+    if steps.len() < 3 {
+        return None;
+    }
+    let pieces = pieces_of(lines, steps)?;
+    let boundary: Vec<Point2> = pieces
         .iter()
-        .zip(corners.iter().cycle().skip(1))
+        .zip(steps)
+        .flat_map(|(piece, step)| [piece.middle, step.corner.1])
+        .collect();
+    let anchor = *boundary.first()?;
+    let twice_area: f64 = boundary
+        .iter()
+        .zip(boundary.iter().cycle().skip(1))
         .map(|(from, to)| (*from - anchor).perp_dot(*to - anchor))
         .sum();
-    let span = corners
+    let span = boundary
         .iter()
-        .map(|corner| corner.distance(anchor))
+        .map(|place| place.distance(anchor))
         .fold(0.0, f64::max);
     if twice_area.abs() <= DEGENERATE_AREA * span * span {
         return None;
     }
-    let sum = corners
-        .iter()
-        .fold(Vector2::ZERO, |sum, corner| sum + *corner);
-    Some(sum / corners.len() as f64)
+    let places: Vec<Point2> = if is_straight(&pieces) {
+        steps.iter().map(|step| step.corner.1).collect()
+    } else {
+        pieces.iter().map(|piece| piece.middle).collect()
+    };
+    let sum = places.iter().fold(Vector2::ZERO, |sum, place| sum + *place);
+    Some(sum / places.len() as f64)
 }
 
 const DEGENERATE_AREA: f64 = 1e-9;
@@ -2034,7 +2108,7 @@ pub mod tests {
             &[corner],
         );
 
-        let corners = outline_corners(&sketch, triangle[0]).unwrap();
+        let corners = centroid_members(&sketch, triangle[0]).unwrap();
         let mut sorted = corners.clone();
         sorted.sort_unstable();
         let mut expected: Vec<EntityId> = triangle
@@ -2057,6 +2131,96 @@ pub mod tests {
         assert!(matches!(pentagon_centre.target, Target::Centroid(_)));
         assert!(pentagon_centre.position.distance(Point2::new(80.0, 20.0)) < 1e-9);
         assert_eq!(moving, None);
+    }
+
+    #[test]
+    fn an_outline_of_odd_sides_with_an_arc_snaps_to_the_middle_of_its_sides() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let pieces = [
+            sketch.add_line(Point2::new(0.0, 0.0), Point2::new(30.0, 0.0)),
+            sketch.add_arc(
+                Point2::new(-10.0, -10.0),
+                Point2::new(30.0, 0.0),
+                Point2::new(0.0, 30.0),
+            ),
+            sketch.add_line(Point2::new(0.0, 30.0), Point2::new(0.0, 0.0)),
+        ];
+        let middle = Point2::new(-10.0, -10.0)
+            + Vector2::from_angle(std::f64::consts::FRAC_PI_4) * 1700f64.sqrt();
+        let expected = (Point2::new(15.0, 0.0) + middle + Point2::new(0.0, 15.0)) / 3.0;
+        let corner = sketch.entity(pieces[1]).unwrap().points()[1];
+
+        let centre = resolve_at(&sketch, expected + Vector2::new(0.03, -0.02)).unwrap();
+        let members = centroid_members(&sketch, pieces[0]).unwrap();
+        let mut sorted = members.clone();
+        sorted.sort_unstable();
+
+        assert_eq!(centre.target, Target::Centroid(pieces[0]));
+        assert!(centre.position.distance(expected) < 1e-9);
+        assert_eq!(sorted, pieces.to_vec());
+        assert_eq!(
+            centre.target.joins(&sketch, EntityId::from_raw(99)),
+            vec![Constraint::Centroid {
+                point: EntityId::from_raw(99),
+                corners: members.clone(),
+            }]
+        );
+        assert!(
+            sketch
+                .target_places(&PointTarget::Centroid(members))
+                .first()
+                .is_some_and(|place| place.distance(expected) < 1e-9)
+        );
+        assert!(
+            position_of(&sketch, centre.target, Point2::ZERO, &[])
+                .is_some_and(|place| place.distance(expected) < 1e-9)
+        );
+        assert_eq!(
+            position_of(&sketch, centre.target, Point2::ZERO, &[corner]),
+            None
+        );
+    }
+
+    #[test]
+    fn the_moving_point_nearest_a_point_target_is_found_without_the_moving_ones() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let line = sketch.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
+        let [start, end] = sketch.entity(line).unwrap().points()[..] else {
+            panic!("a line has two ends");
+        };
+        let lone = sketch.add_point(Point2::new(30.0, 20.0));
+        let screen = Scaled(10.0);
+        let moved = |at: Point2| screen.to_screen(at).unwrap();
+        let moving = BTreeSet::from([start, end, line]);
+
+        let found = nearest_moved(
+            &sketch,
+            &screen,
+            &[
+                (start, moved(Point2::new(0.3, 0.0))),
+                (end, moved(Point2::new(30.05, 20.0))),
+            ],
+            &moving,
+            POINT_TOLERANCE,
+        );
+        let far = nearest_moved(
+            &sketch,
+            &screen,
+            &[(end, moved(Point2::new(31.0, 20.0)))],
+            &moving,
+            POINT_TOLERANCE,
+        );
+        let only_itself = nearest_moved(
+            &sketch,
+            &screen,
+            &[(lone, moved(Point2::new(30.05, 20.0)))],
+            &BTreeSet::from([lone]),
+            POINT_TOLERANCE,
+        );
+
+        assert_eq!(found, Some(end));
+        assert_eq!(far, None);
+        assert_eq!(only_itself, None);
     }
 
     #[test]

@@ -287,6 +287,128 @@ fn a_point_placed_at_the_centre_of_a_triangle_is_held_at_the_centre_of_its_corne
     assert!(shown.point(placed).unwrap().distance(centre) < HELD);
 }
 
+fn bulging_triangle(sketch: &mut Sketch) -> ([EntityId; 3], [EntityId; 3]) {
+    let corners = [
+        Point2::new(0.0, 0.0),
+        Point2::new(30.0, 0.0),
+        Point2::new(0.0, 30.0),
+    ]
+    .map(|corner| sketch.add_point(corner));
+    let [first, second, third] = corners;
+    let bulge_centre = sketch.add_point(Point2::new(-10.0, -10.0));
+    let pieces = [
+        Entity::Line {
+            start: first,
+            end: second,
+        },
+        Entity::Arc {
+            center: bulge_centre,
+            start: second,
+            end: third,
+        },
+        Entity::Line {
+            start: third,
+            end: first,
+        },
+    ]
+    .map(|piece| {
+        let id = EntityId::from_raw(sketch.next_id());
+        sketch.insert_entity(id, piece).unwrap();
+        id
+    });
+    (corners, pieces)
+}
+
+fn middle_of_sides(sketch: &Sketch, pieces: &[EntityId]) -> Point2 {
+    pieces
+        .iter()
+        .map(|piece| sketch.middle_of(*piece).unwrap())
+        .fold(Vector2::ZERO, |sum, middle| sum + middle)
+        / pieces.len() as f64
+}
+
+#[test]
+fn a_point_placed_at_the_centre_of_an_outline_with_an_arc_side_is_held_at_the_middle_of_its_sides()
+{
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let (corners, pieces) = bulging_triangle(&mut sketch);
+    let centre = middle_of_sides(&sketch, &pieces);
+    let feature = edit_free_sketch(&mut harness, sketch);
+    let before = entities_of_kind(harness.sketch(feature), "Point");
+
+    assert!(centre.distance(Point2::new(10.0, 10.0)) > 1.0, "{centre}");
+
+    harness.use_tool(Key::P);
+    harness.point_at(centre + Vector2::new(0.08, -0.05));
+    assert!(harness.shows_containing("Centre of the outline of"));
+    assert!(!harness.shows_containing("not kept there"));
+    harness.click_at(centre + Vector2::new(0.08, -0.05));
+    harness.settle();
+
+    let sketch = harness.sketch(feature);
+    let placed = placed_alone(sketch, &before);
+    assert!(sketch.point(placed).unwrap().distance(centre) < HELD);
+    let [
+        Constraint::Centroid {
+            point,
+            corners: ref held,
+        },
+    ] = constraints_on(sketch, placed)[..]
+    else {
+        panic!("one centre constraint is expected");
+    };
+    let mut held = held.clone();
+    held.sort_unstable();
+    assert_eq!(point, placed);
+    assert_eq!(held, pieces.to_vec());
+
+    drag_point(&mut harness, feature, corners[1], Point2::new(45.0, 0.0));
+
+    let shown = harness.shown(feature);
+    let moved = middle_of_sides(&shown, &pieces);
+    assert!(moved.distance(centre) > 1.0, "{moved}");
+    assert!(shown.point(placed).unwrap().distance(moved) < HELD);
+}
+
+#[test]
+fn a_point_level_with_the_centre_of_an_outline_with_an_arc_side_follows_it() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let (corners, pieces) = bulging_triangle(&mut sketch);
+    let centre = middle_of_sides(&sketch, &pieces);
+    let feature = edit_free_sketch(&mut harness, sketch);
+    let before = entities_of_kind(harness.sketch(feature), "Point");
+
+    harness.use_tool(Key::P);
+    harness.point_at(centre + Vector2::new(0.05, 0.05));
+    assert!(harness.shows_containing("Centre of the outline of"));
+    let level = Point2::new(42.0, centre.y + 0.04);
+    harness.point_at(level);
+    assert!(harness.shows_containing("Horizontal from the centre of"));
+    harness.click_at(level);
+    harness.settle();
+
+    let sketch = harness.sketch(feature);
+    let placed = placed_alone(sketch, &before);
+    let [Constraint::HorizontalPoints(point, PointTarget::Centroid(ref held))] =
+        constraints_on(sketch, placed)[..]
+    else {
+        panic!("one track constraint is expected");
+    };
+    let mut held = held.clone();
+    held.sort_unstable();
+    assert_eq!(point, placed);
+    assert_eq!(held, pieces.to_vec());
+
+    drag_point(&mut harness, feature, corners[2], Point2::new(0.0, 50.0));
+
+    let shown = harness.shown(feature);
+    let moved = middle_of_sides(&shown, &pieces);
+    assert!(moved.y > centre.y + 1.0, "{moved}");
+    assert!((shown.point(placed).unwrap().y - moved.y).abs() < HELD);
+}
+
 #[test]
 fn a_point_level_with_the_top_of_a_circle_follows_the_circle() {
     let mut harness = Harness::new();

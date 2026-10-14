@@ -10,7 +10,7 @@ use crate::{
     body_snap::BodySnaps,
     drag_solver::{BodyJoin, DragCommand, Join},
     feature_tree::count,
-    snap::{Hold, Pointer, Screen, Target},
+    snap::{self, HELD_POINT_PULL, Hold, POINT_TOLERANCE, Pointer, Screen, Target},
     tracking::{self, Acquired, Landing, ShownOutlines},
 };
 
@@ -39,6 +39,7 @@ pub struct Grab {
     from: Point2,
     handles: Handles,
     handle: Option<(EntityId, Point2)>,
+    landed: Option<(EntityId, Point2)>,
     sent: Option<Vec<Drag>>,
     landing: Option<Landing>,
     joins: Vec<Constraint>,
@@ -98,6 +99,7 @@ impl Grab {
             from,
             handles,
             handle,
+            landed: None,
             sent: None,
             landing: None,
             joins: Vec::new(),
@@ -195,50 +197,87 @@ impl Grab {
             return self.follow_rim(*circle, *centre, cursor, snapping, hold);
         }
         let offset = cursor - self.from;
-        let landing = snapping
-            .zip(self.handle)
-            .and_then(|((sketch, screen), (_, original))| {
-                let moved = original + offset;
-                let pointer = Pointer {
-                    screen: screen.to_screen(moved)?,
-                    sketch: moved,
-                };
-                let ignored = self.moving_with(sketch);
-                let landing = tracking::land(
-                    sketch,
-                    screen,
-                    pointer,
-                    (&self.acquired, &ignored),
-                    hold,
-                    Some(&self.bodies.0),
-                )?;
-                Some((sketch, landing))
-            });
-        if let Some((sketch, landing)) = landing
+        let landed = snapping.and_then(|(sketch, screen)| {
+            Some((sketch, self.snapper_landing(sketch, screen, offset, hold)?))
+        });
+        if let Some((sketch, (_, _, landing))) = landed
             && let Some(target) = landing.target
         {
             self.acquired.note(sketch, target, landing.position);
         }
-        self.guides = landing
-            .map(|(sketch, landing)| landing.guides(sketch))
+        self.guides = landed
+            .map(|(sketch, (_, _, landing))| landing.guides(sketch))
             .unwrap_or_default();
-        self.joins = landing
-            .zip(self.handle)
-            .map(|((sketch, landing), (point, _))| landing.joins(sketch, point))
+        self.joins = landed
+            .map(|(sketch, (point, _, landing))| landing.joins(sketch, point))
             .unwrap_or_default();
-        match landing {
-            Some((sketch, landing)) => self.outlines.keep(
+        match landed {
+            Some((sketch, (_, _, landing))) => self.outlines.keep(
                 sketch,
                 landing.target.into_iter().chain(landing.tracks.anchors()),
             ),
             None => self.outlines.keep_none(),
         }
-        self.landing = landing.map(|(_, landing)| landing);
-        let target = match (self.landing, self.handle) {
+        self.landing = landed.map(|(_, (_, _, landing))| landing);
+        self.landed = landed.map(|(_, (point, original, _))| (point, original));
+        let target = match (self.landing, self.landed) {
             (Some(landing), Some((_, original))) => self.from + (landing.position - original),
             _ => cursor,
         };
         self.to(target)
+    }
+
+    fn snapper_landing(
+        &self,
+        sketch: &Sketch,
+        screen: &impl Screen,
+        offset: Vector2,
+        hold: Option<Hold>,
+    ) -> Option<(EntityId, Point2, Landing)> {
+        let (handle, from) = self.handle?;
+        let ignored = self.moving_with(sketch);
+        let land_from = |original: Point2, acquired: &Acquired, bodies: Option<&BodySnaps>| {
+            let moved = original + offset;
+            let pointer = Pointer {
+                screen: screen.to_screen(moved)?,
+                sketch: moved,
+            };
+            let landing =
+                tracking::land(sketch, screen, pointer, (acquired, &ignored), hold, bodies)?;
+            Some((pointer, landing))
+        };
+        let by_handle = land_from(from, &self.acquired, Some(&self.bodies.0));
+        let handle_reach = by_handle
+            .filter(|(_, landing)| {
+                landing.on_grid || landing.target.is_some_and(Target::is_point_like)
+            })
+            .and_then(|(pointer, landing)| {
+                Some(screen.to_screen(landing.position)?.distance(pointer.screen))
+            });
+        let reach = handle_reach.unwrap_or(if hold.is_some() {
+            HELD_POINT_PULL
+        } else {
+            POINT_TOLERANCE
+        });
+        let Handles::Points(points) = &self.handles else {
+            return None;
+        };
+        let moved: Vec<(EntityId, Vector2)> = points
+            .iter()
+            .filter(|(point, _)| *point != handle)
+            .filter_map(|(point, original)| Some((*point, screen.to_screen(*original + offset)?)))
+            .collect();
+        let moving: BTreeSet<EntityId> = ignored.iter().copied().collect();
+        let by_other =
+            snap::nearest_moved(sketch, screen, &moved, &moving, reach).and_then(|point| {
+                let (_, original) = points.iter().find(|(each, _)| *each == point)?;
+                let (_, landing) = land_from(*original, &Acquired::default(), None)?;
+                landing
+                    .target
+                    .is_some_and(Target::is_point_like)
+                    .then_some((point, *original, landing))
+            });
+        by_other.or_else(|| by_handle.map(|(_, landing)| (handle, from, landing)))
     }
 
     fn follow_rim(
@@ -291,7 +330,7 @@ impl Grab {
                 })
             }
             Handles::Points(_) => self
-                .handle
+                .landed
                 .zip(self.landing)
                 .map(|((point, _), landing)| Join {
                     point,
@@ -1367,6 +1406,74 @@ mod tests {
                 }),
             }
         );
+    }
+
+    #[test]
+    fn a_grabbed_line_lands_whichever_end_comes_near_a_point_not_only_its_handle() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let line = sketch.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
+        let (start, end) = ends(&sketch, line);
+        let lone = sketch.add_point(Point2::new(30.0, 20.0));
+        let mut grab = Grab::of(&sketch, feature(), line, &[], Point2::new(1.0, 0.0)).unwrap();
+
+        let Some(DragCommand::Move { drags, .. }) = grab.follow(
+            Point2::new(21.05, 20.02),
+            Some((&sketch, &Scaled(10.0))),
+            None,
+        ) else {
+            panic!("the line is dragged");
+        };
+
+        assert_eq!(
+            drags,
+            vec![
+                Drag::Point {
+                    point: start,
+                    to: Point2::new(20.0, 20.0)
+                },
+                Drag::Point {
+                    point: end,
+                    to: Point2::new(30.0, 20.0)
+                },
+            ]
+        );
+        assert_eq!(
+            grab.finish(),
+            DragCommand::Finish {
+                join: Some(Join {
+                    point: end,
+                    at: Point2::new(30.0, 20.0),
+                    constraints: vec![Constraint::Coincident(end, lone)],
+                    body: None,
+                    rim_of: None,
+                }),
+            }
+        );
+    }
+
+    #[test]
+    fn the_moving_point_nearest_its_snap_wins_over_a_handle_further_from_its_own() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let line = sketch.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
+        let (_, end) = ends(&sketch, line);
+        let near_handle = sketch.add_point(Point2::new(20.3, 20.0));
+        let near_end = sketch.add_point(Point2::new(30.05, 20.0));
+        let mut grab = Grab::of(&sketch, feature(), line, &[], Point2::new(1.0, 0.0)).unwrap();
+        let screen = Scaled(10.0);
+
+        grab.follow(Point2::new(21.0, 20.0), Some((&sketch, &screen)), None);
+        let DragCommand::Finish { join: Some(join) } = grab.finish() else {
+            panic!("the drag lands on a point");
+        };
+
+        assert_eq!(join.point, end);
+        assert_eq!(join.at, Point2::new(30.05, 20.0));
+        assert_eq!(
+            join.constraints,
+            vec![Constraint::Coincident(end, near_end)]
+        );
+        assert!(grab.snap_entities(&sketch).contains(&near_end));
+        assert!(!grab.snap_entities(&sketch).contains(&near_handle));
     }
 
     #[test]

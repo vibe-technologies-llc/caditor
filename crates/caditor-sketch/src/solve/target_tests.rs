@@ -184,6 +184,58 @@ fn a_point_at_the_centre_of_corners_and_a_point_level_with_it_follow_the_corners
 }
 
 #[test]
+fn a_centre_over_lines_and_arcs_takes_their_middles_and_follows_them() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let arc = sketch.add_arc(Point2::ZERO, Point2::new(10.0, 0.0), Point2::new(0.0, 10.0));
+    let line = sketch.add_line(Point2::new(20.0, 0.0), Point2::new(30.0, 0.0));
+    let lone = sketch.add_point(Point2::new(0.0, -6.0));
+    let centre = sketch.add_point(Point2::new(10.0, 1.0));
+    let level = sketch.add_point(Point2::new(40.0, 1.0));
+    let members = vec![arc, line, lone];
+    let Some(&Entity::Arc { center, start, end }) = sketch.entity(arc) else {
+        panic!("an arc was added");
+    };
+    let shift = Vector2::new(1.0, 2.0);
+
+    add(
+        &mut sketch,
+        Constraint::Centroid {
+            point: centre,
+            corners: members.clone(),
+        },
+    );
+    add(
+        &mut sketch,
+        Constraint::HorizontalPoints(level, PointTarget::Centroid(members)),
+    );
+    pin(&mut sketch, center, Point2::ZERO + shift);
+    pin(&mut sketch, start, Point2::new(10.0, 0.0) + shift);
+    pin(&mut sketch, end, Point2::new(0.0, 10.0) + shift);
+    pin_line(
+        &mut sketch,
+        line,
+        Point2::new(20.0, 0.0),
+        Point2::new(30.0, 0.0),
+    );
+    pin(&mut sketch, lone, Point2::new(0.0, -6.0));
+
+    let solved = solve(&sketch).unwrap();
+    let middle = Point2::ZERO + shift + Vector2::from_angle(std::f64::consts::FRAC_PI_4) * 10.0;
+    let expected = (middle + Point2::new(25.0, 0.0) + Point2::new(0.0, -6.0)) / 3.0;
+
+    assert!(at(&solved, centre).distance(expected) < EXACT);
+    assert_close(at(&solved, level).y, expected.y);
+    assert!(
+        solved
+            .geometry
+            .target_places(&PointTarget::Centroid(vec![arc, line, lone]))
+            .first()
+            .is_some_and(|place| place.distance(expected) < EXACT)
+    );
+    assert_eq!(solved.solution.degrees_of_freedom(), 1);
+}
+
+#[test]
 fn a_point_level_with_a_quadrant_follows_the_circle_as_it_moves_and_grows() {
     let mut sketch = Sketch::new(Plane::XY);
     let circle = sketch.add_circle(Point2::ZERO, 5.0);
@@ -434,6 +486,13 @@ fn targets_that_do_not_fit_are_refused_in_words() {
         }),
         Err(SketchError::TooFewCorners)
     );
+    assert!(matches!(
+        sketch.add_constraint(Constraint::Centroid {
+            point,
+            corners: vec![start, circle],
+        }),
+        Err(SketchError::WrongKind { .. })
+    ));
     assert!(matches!(
         sketch.add_constraint(Constraint::OnDirection {
             point,

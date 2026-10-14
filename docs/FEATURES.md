@@ -132,11 +132,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   dragged. Keeping it parametric needs a gear stored in the sketch (its expressions and the curves
   it made, saved in the file) that recompute draws again from the evaluated values, holding its
   curves fixed like projected geometry; the teeth changing the number of curves is the hard part.
-- [medium · medium] An outline of odd sides with an arc among them has no centre to snap or track
-  to: the centre of an odd outline is the centre of its corners, which reads as its middle only
-  for straight sides, and nothing yet says where the middle of such an outline is. A drag snaps
-  only its handle (the moving point nearest the press), not whichever moving point comes near a
-  target.
 - [medium · hard] Offset takes one chain at a time, leaves the free ends of an open chain sliding
   along their curves and cannot offset splines; a sketch fillet cannot round a spline and drops
   equal lengths and midpoints of the lines it shortens, as trim does. A trimmed fit-point spline is
