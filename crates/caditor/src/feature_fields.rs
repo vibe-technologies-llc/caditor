@@ -1,7 +1,7 @@
 use caditor_document::{
     AxisReference, BodyOperation, Document, FeatureId, MAX_CONE_ANGLE, MAX_MATE_ANGLE_DEGREES,
-    MAX_PATTERN_INSTANCES, MAX_PRISM_SIDES, MIN_PRISM_SIDES, ParameterOwner, Transaction,
-    capitalized, describe_axis,
+    MAX_PATTERN_INSTANCES, MAX_PRISM_SIDES, MAX_RIB_DRAFT_DEGREES, MIN_PRISM_SIDES, ParameterOwner,
+    Transaction, capitalized, describe_axis,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_kernel::{LEAST_COIL_TURNS, MAX_COIL_TAPER_DEGREES, MAX_COIL_TURNS, MAX_TAPER_DEGREES};
@@ -63,6 +63,7 @@ pub enum Rule {
     MateAngle,
     CoilTurns,
     CoilTaper,
+    RibDraft,
 }
 
 impl Rule {
@@ -132,6 +133,13 @@ impl Rule {
                 ));
             }
             Self::CoilTaper => None,
+            Self::RibDraft if !(0.0..MAX_RIB_DRAFT_DEGREES).contains(&value) => {
+                return Err(format!(
+                    "Enter an angle from 0° up to below {MAX_RIB_DRAFT_DEGREES}°; the web widens \
+                     by it toward the body"
+                ));
+            }
+            Self::RibDraft => None,
         };
         refusal.map_or(Ok(()), |refusal| Err(refusal.to_owned()))
     }

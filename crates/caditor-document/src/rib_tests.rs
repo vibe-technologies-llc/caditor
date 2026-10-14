@@ -398,3 +398,225 @@ fn an_arched_web_runs_its_arc_on_along_its_end_tangents_and_reads_by_its_curve()
         "{words:?}"
     );
 }
+
+fn assert_volume(evaluation: &Evaluation, body: FeatureId, expected: f64) {
+    let found = volume(evaluation, body);
+    assert!(
+        (found - expected).abs() < 1e-6 * expected,
+        "{found} {expected}"
+    );
+}
+
+#[test]
+fn a_web_meeting_another_in_a_t_runs_on_only_until_it_meets_that_web() {
+    let mut split = top_sketch((50.0, 15.0), (50.0, 30.0));
+    split.add_line(Point2::new(50.0, 30.0), Point2::new(50.0, 45.0));
+    split.add_line(Point2::new(50.0, 30.0), Point2::new(70.0, 30.0));
+    let mut whole = top_sketch((50.0, 15.0), (50.0, 45.0));
+    whole.add_line(Point2::new(50.0, 30.0), Point2::new(70.0, 30.0));
+
+    for sketch in [split, whole] {
+        let model = ribbed(sketch, web);
+
+        let evaluation = evaluate(&model.document);
+
+        assert_eq!(evaluation.failed_count(), 0);
+        assert_volume(
+            &evaluation,
+            model.body,
+            BOX_VOLUME + 4.0 * 35.0 * (50.0 + 43.0),
+        );
+        let solid = evaluation.body(model.body).unwrap();
+        assert_eq!(
+            solid.classify_point(Point3::new(30.0, 30.0, 20.0)),
+            PointClass::Outside
+        );
+    }
+}
+
+#[test]
+fn a_web_thickened_to_one_side_meets_a_t_from_either_side() {
+    let toward = |end: f64| {
+        let mut sketch = top_sketch((50.0, 15.0), (50.0, 45.0));
+        sketch.add_line(Point2::new(50.0, 30.0), Point2::new(end, 30.0));
+        ribbed(sketch, |rib| {
+            web(rib);
+            rib.side = RibSide::OneSide;
+        })
+    };
+    let beside = toward(70.0);
+    let behind = toward(20.0);
+
+    let beside_evaluation = evaluate(&beside.document);
+    let behind_evaluation = evaluate(&behind.document);
+
+    assert_eq!(beside_evaluation.failed_count(), 0);
+    assert_eq!(behind_evaluation.failed_count(), 0);
+    assert_volume(
+        &beside_evaluation,
+        beside.body,
+        BOX_VOLUME + 4.0 * 35.0 * (50.0 + 45.0),
+    );
+    assert_volume(
+        &behind_evaluation,
+        behind.body,
+        BOX_VOLUME + 4.0 * 35.0 * (50.0 + 41.0),
+    );
+}
+
+#[test]
+fn four_webs_meeting_at_one_point_run_on_as_two_crossing_webs() {
+    let mut sketch = top_sketch((50.0, 15.0), (50.0, 30.0));
+    sketch.add_line(Point2::new(50.0, 30.0), Point2::new(50.0, 45.0));
+    sketch.add_line(Point2::new(50.0, 30.0), Point2::new(30.0, 30.0));
+    sketch.add_line(Point2::new(50.0, 30.0), Point2::new(70.0, 30.0));
+    let model = ribbed(sketch, web);
+
+    let evaluation = evaluate(&model.document);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert_volume(
+        &evaluation,
+        model.body,
+        BOX_VOLUME + 4.0 * 35.0 * (50.0 + 90.0 - 4.0),
+    );
+}
+
+#[test]
+fn curves_coming_back_to_a_point_they_pass_through_fail_with_the_fix_on_the_sketch() {
+    let mut sketch = top_sketch((20.0, 30.0), (40.0, 30.0));
+    sketch.add_line(Point2::new(40.0, 30.0), Point2::new(60.0, 20.0));
+    sketch.add_line(Point2::new(60.0, 20.0), Point2::new(60.0, 40.0));
+    sketch.add_line(Point2::new(60.0, 40.0), Point2::new(40.0, 30.0));
+    let model = ribbed(sketch, web);
+
+    let error = failure(&evaluate(&model.document), model.rib);
+
+    assert!(
+        error.reason.contains("come back to a point"),
+        "{}",
+        error.reason
+    );
+    assert!(matches!(error.fix, Some(FixTarget::Feature(sketch)) if sketch != model.rib));
+}
+
+#[test]
+fn a_drafted_web_widens_toward_the_floor_it_meets() {
+    let model = ribbed(top_sketch((50.0, 15.0), (50.0, 45.0)), |rib| {
+        web(rib);
+        rib.draft = length("2 deg");
+    });
+
+    let evaluation = evaluate(&model.document);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    let widening = 35.0 * 35.0 * 2.0_f64.to_radians().tan();
+    let found = volume(&evaluation, model.body);
+    let expected = BOX_VOLUME + 50.0 * (4.0 * 35.0 + widening);
+    assert!(
+        (found - expected).abs() < 1e-4 * expected,
+        "{found} {expected}"
+    );
+    let solid = evaluation.body(model.body).unwrap();
+    assert_eq!(
+        solid.classify_point(Point3::new(52.3, 30.0, 6.0)),
+        PointClass::Inside
+    );
+    assert_eq!(
+        solid.classify_point(Point3::new(52.3, 30.0, 39.0)),
+        PointClass::Outside
+    );
+}
+
+#[test]
+fn a_draft_below_zero_or_too_steep_fails_in_words() {
+    for (draft, words) in [("-1 deg", "cannot be negative"), ("30 deg", "or steeper")] {
+        let model = ribbed(top_sketch((50.0, 15.0), (50.0, 45.0)), |rib| {
+            web(rib);
+            rib.draft = length(draft);
+        });
+
+        let error = failure(&evaluate(&model.document), model.rib);
+
+        assert!(error.reason.contains(words), "{}", error.reason);
+        assert_eq!(error.fix, Some(FixTarget::Feature(model.rib)));
+    }
+}
+
+fn arc_at(radius: f64, from_degrees: f64, to_degrees: f64) -> Sketch {
+    let plane = Plane::new(Point3::new(0.0, 0.0, 30.0), Vector3::Z).unwrap();
+    let mut sketch = Sketch::new(plane);
+    let centre = Point2::new(50.0, 30.0);
+    let on = |degrees: f64| {
+        let angle = f64::to_radians(degrees);
+        Point2::new(
+            centre.x + radius * angle.cos(),
+            centre.y + radius * angle.sin(),
+        )
+    };
+    sketch.add_arc(centre, on(from_degrees), on(to_degrees));
+    sketch
+}
+
+fn round_ends(rib: &mut Rib) {
+    web(rib);
+    rib.ends = RibEnds::RoundArcs;
+}
+
+#[test]
+fn a_web_s_arc_carried_on_round_its_circle_stops_at_the_walls_it_meets() {
+    let model = ribbed(arc_at(28.0, -30.0, 30.0), round_ends);
+
+    let evaluation = evaluate(&model.document);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    let band = |radius: f64| {
+        25.0 * (radius * radius - 625.0).sqrt() + radius * radius * (25.0 / radius).asin()
+    };
+    let expected = BOX_VOLUME + 25.0 * (band(30.0) - band(26.0));
+    let found = volume(&evaluation, model.body);
+    assert!(
+        (found - expected).abs() < 1e-3 * expected,
+        "{found} {expected}"
+    );
+    let solid = evaluation.body(model.body).unwrap();
+    assert_eq!(
+        solid.classify_point(Point3::new(50.0 + 28.0 * 0.6, 30.0 + 28.0 * 0.8, 20.0)),
+        PointClass::Inside
+    );
+    assert_eq!(
+        solid.classify_point(Point3::new(22.0, 30.0, 20.0)),
+        PointClass::Outside
+    );
+}
+
+#[test]
+fn a_web_s_arc_whose_circle_never_meets_the_body_fails_naming_it() {
+    let model = ribbed(arc_at(10.0, 0.0, 180.0), round_ends);
+
+    let error = failure(&evaluate(&model.document), model.rib);
+
+    assert!(
+        error.reason.contains("The end of Rib 1 at Arc") && error.reason.contains("runs on past"),
+        "{}",
+        error.reason
+    );
+    assert!(error.remedy.contains("straight"), "{}", error.remedy);
+}
+
+#[test]
+fn a_rib_parallel_to_its_sketch_leaves_its_draft_aside() {
+    let model = ribbed(middle_sketch(), |rib| {
+        rib.reversed = true;
+        rib.draft = length("5 deg");
+    });
+
+    let evaluation = evaluate(&model.document);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert_volume(
+        &evaluation,
+        model.body,
+        BOX_VOLUME + 0.5 * 35.0 * 25.0 * 4.0,
+    );
+}

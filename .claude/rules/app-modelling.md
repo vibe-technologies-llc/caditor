@@ -557,8 +557,8 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
 - `Command::Rib` (no default key; `rib_tools.rs`, `Offers::rib`; Solid group menu, Model menu,
   palette, `view_menu::SKETCH_TOOLS`) makes a `Rib` of `DEFAULT_THICKNESS`, symmetric, and opens
   it. `rib_tools::source` takes the sketch of the selected curves or regions, or a sketch row chosen
-  in the tree (refusing several sketches, one made at or below the bar, or one whose curves are not
-  open chains, `is_rib_path`); with none it takes the newest sketch above the bar nothing later uses
+  in the tree (refusing several sketches, one made at or below the bar, or one whose curves close
+  on themselves, `is_rib_path`); with none it takes the newest sketch above the bar nothing later uses
   that qualifies. The body is the one chosen in the tree or selected, else the body the sketch is
   attached to, else the newest standing body; no body refuses it (`NO_BODY`).
 - A sketch attached to a face starts square to it (a web), any other parallel (a rib).
@@ -568,7 +568,10 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
 - Panel (`rib_panel.rs`): Sketch (combo of the sketches above, those not `is_rib_path` refused in
   words), Body (bodies before it), Direction (Parallel to sketch, Square to sketch, segmented),
   Thickness (keyed `("rib-field", feature, "thickness")`), Side (One side, Other side, Symmetric,
-  each hover saying which side for the direction) and a reverse checkbox worded for the direction
+  each hover saying which side for the direction), for a web only Draft (`DRAFT`, keyed
+  `("rib-field", feature, "draft")`, `Rule::RibDraft`: 0° up to below `MAX_RIB_DRAFT_DEGREES`) and
+  Free ends (`ENDS`: Straight on, Round the arc, segmented, `rib_tools::with_ends`), and a reverse
+  checkbox worded for the direction
   (`REVERSE_FILL`, `REVERSE_DIRECTION`). It is not `modifies_body`, so the view shows the ribbed
   body while it is open. Reverse direction flips `reversed`. Its value arrow is
   `Measured::RibThickness` (`value_gauges.rs`, listed there).

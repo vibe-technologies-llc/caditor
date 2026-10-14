@@ -7,8 +7,10 @@ air or pokes out past a wall. It is in the Solid group's menu of the ribbon, the
 command palette and the right-click menu of selected sketch curves.
 
 Draw the rib's line in a sketch, as lines and arcs joined end to end. A sketch may hold several
-such chains, crossing or apart, and each becomes a rib of its own; chains that branch, or curves
-that close into an outline, are refused. Select a curve of the sketch, or the sketch in the tree,
+such chains, apart, crossing or meeting in a T, and each becomes a rib of its own: where several
+curves meet at one point, the two running straightest through it make one rib, and a rib ending on
+another (a T, at a shared point or on the middle of a line) runs on only until it meets that rib.
+Curves that close into an outline are refused. Select a curve of the sketch, or the sketch in the tree,
 then choose Rib. With nothing selected it takes the newest sketch nothing else uses yet, and joins
 the body the sketch was drawn on (else the newest body).
 
@@ -23,7 +25,9 @@ the body the sketch was drawn on (else the newest body).
 
 Either way the free ends of the curves run on straight along their last direction until they meet
 a face of the body, so a line drawn short of the walls still reaches them. A line ending on an arc
-continues from the arc's end, along its tangent.
+continues from the arc's end, along its tangent. A web can instead carry the free ends of its arcs
+on round their circles (**Free ends**), so a curved web drawn short of a round wall follows its
+curve to it.
 
 A new rib starts on the side, or in the direction, where the body is. A rib drawn on a face of the
 body starts square to its sketch.
@@ -31,13 +35,19 @@ body starts square to its sketch.
 ## Panel
 
 - **Sketch** is the sketch the rib follows; the list offers the sketches above it, those whose
-  curves do not form open chains greyed out with the reason.
+  curves close on themselves greyed out with the reason.
 - **Body** is the body the rib joins.
 - **Direction**: **Parallel to sketch** (a rib) or **Square to sketch** (a web).
 - **Thickness** takes units and expressions, so a rib can follow a parameter such as `rib_t`.
 - **Side**: **One side**, **Other side** or **Symmetric**. A rib parallel to its sketch is thick
   in front of the sketch (the way its normal points), behind it, or half each way. A web is thick
   to the left of its curves walked from their first end, to the right, or half each way.
+- **Draft** (a web only) tilts the web's sides so that it widens by that angle toward the body, as
+  a moulded part needs to leave its mould. It takes units and expressions from 0° up to below 30°;
+  the thickness is the web's width at the sketch.
+- **Free ends** (a web only): **Straight on** runs the free ends on along their last direction;
+  **Round the arc** carries the free end of an arc on round its circle until it meets the body,
+  while a line's end still runs on straight.
 - **Fill the other side of the curves** (a rib) or **Run the other way from the sketch** (a web)
   flips which way it goes; Reverse direction in the Model menu and palette does the same.
 
@@ -57,8 +67,12 @@ The rib fails alone, with the body before it kept, and says why:
   off by the body on the side it fills: draw the curve so that, carried on, it runs into a wall,
   or reverse it;
 - its curves lie inside the body's material, so it adds nothing;
-- the curves of the sketch close on themselves or branch, fixed in the sketch;
-- a web thicker than the bend of an arc allows, or one running into itself.
+- the curves of the sketch close on themselves, or come back to a point they already pass
+  through, fixed in the sketch;
+- a web thicker than the bend of an arc allows, or one running into itself (carried round its
+  arcs, carry its ends on straight instead);
+- a draft below 0° or of 30° or more, or a draft so steep that the bend of an arc closes up before
+  the web reaches the body: make the draft smaller.
 
 The rib's faces are named after it and the curves that made it ("Rib 1 side from Line 2", "Rib 1
 top face", "Rib 1 side carried on from Arc 3"), so later fillets and references keep hold of them

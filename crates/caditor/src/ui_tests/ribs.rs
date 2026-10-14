@@ -1,6 +1,6 @@
 use caditor_document::{
     BodyOperation, Extrude, ExtrudeExtent, FeatureId, FeatureKind, FeatureState, RegionChoice, Rib,
-    RibDirection, RibSide, Shell, ShellSide, SolidFeature,
+    RibDirection, RibEnds, RibSide, Shell, ShellSide, SolidFeature,
 };
 use caditor_expression::Expression;
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
@@ -211,4 +211,64 @@ fn a_rib_parallel_to_its_sketch_has_a_thickness_arrow_across_the_sketch() {
             .handle_position(Handle::Value(Measured::RibThickness), 0.0)
             .is_some()
     );
+}
+
+#[test]
+fn a_web_s_draft_typed_in_its_panel_widens_it_toward_the_floor_and_undoes_in_one_step() {
+    let mut harness = Harness::new();
+    let (rib, body) = open_web(&mut harness);
+    let draft = Id::new(("rib-field", rib, "draft"));
+    let widening = 35.0 * 35.0 * 2.0_f64.to_radians().tan();
+
+    let offered = harness.shows(rib_panel::DRAFT) && harness.shows(rib_panel::ENDS);
+    harness.type_into_field(draft, "2 deg");
+    harness.settle();
+    let drafted = rib_of(&harness, rib);
+    let drafted_volume = harness.body_volume(body);
+    harness.type_into_field(draft, "30 deg");
+    let refused = harness
+        .shows("Enter an angle from 0° up to below 30°; the web widens by it toward the body");
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.settle();
+    harness.key(Key::Z, Modifiers::COMMAND);
+    harness.settle();
+
+    assert!(offered);
+    assert_eq!(drafted.draft, length("2 deg"));
+    assert!(near(
+        drafted_volume,
+        BOX_VOLUME + 50.0 * (2.0 * 35.0 + widening)
+    ));
+    assert!(refused);
+    assert_eq!(rib_of(&harness, rib).draft, length("0 deg"));
+    assert!(near(harness.body_volume(body), BOX_VOLUME + 2.0 * WEB_AREA));
+}
+
+#[test]
+fn a_web_s_free_ends_chosen_in_its_panel_carry_on_round_its_arcs_and_the_choice_undoes() {
+    let mut harness = Harness::new();
+    let (rib, body) = open_web(&mut harness);
+
+    choose(&mut harness, "Straight on", "Round the arc");
+    let round = rib_of(&harness, rib);
+    let label = harness.model.undo_label().map(str::to_owned);
+    let volume = harness.body_volume(body);
+    harness.key(Key::Z, Modifiers::COMMAND);
+    harness.settle();
+
+    assert_eq!(round.ends, RibEnds::RoundArcs);
+    assert_eq!(label.as_deref(), Some("Edit Rib 1"));
+    assert!(near(volume, BOX_VOLUME + 2.0 * WEB_AREA));
+    assert_eq!(rib_of(&harness, rib).ends, RibEnds::Straight);
+}
+
+#[test]
+fn a_rib_parallel_to_its_sketch_offers_no_draft_or_free_ends() {
+    let mut harness = Harness::new();
+    let (_, _) = open_web(&mut harness);
+
+    choose(&mut harness, "Square to sketch", "Parallel to sketch");
+
+    assert!(!harness.shows(rib_panel::DRAFT));
+    assert!(!harness.shows(rib_panel::ENDS));
 }

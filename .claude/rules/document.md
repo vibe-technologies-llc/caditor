@@ -612,7 +612,7 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   built with. A sweep or pipe follows it (`SweepPath::Helix`).
 ### Rib (`rib.rs`, `rib_tool.rs`)
 
-- `Rib { sketch, body, thickness, side, direction, reversed }` joins thin walls along the
+- `Rib { sketch, body, thickness, draft, side, direction, ends, reversed }` joins thin walls along the
   non-construction curves of a whole sketch to a body (`Feature::body` is the body; not
   `makes_body`, not `modifies_body`). `RibDirection::Parallel` (a rib) puts the material in the
   sketch plane on the left of each chain walked from its first end (the end on the curve of lowest
@@ -621,14 +621,29 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   `Square` (a web) thickens each chain in the plane (`OneSide` left of the walk, `OtherSide` right,
   `Symmetric` centred; `wall_regions`, `Inside` or `Outside` picked by a probe point, since an open
   chain's inside is its bend) and runs it along the sketch normal (against it when `reversed`).
-  The thickness is its one expression (parameters, inlining, model scale). The sketch is in
+  The thickness and the draft (an angle, 0 when made, below `MAX_RIB_DRAFT_DEGREES`; negative or
+  steeper fails on the rib) are its expressions (parameters, inlining; model scale reaches the
+  thickness, a length). A web's draft
+  tapers its wall outward away from the sketch (`extrude_tapered` by minus the draft), so it widens
+  toward the body; `RibEnds` says whether a web's free arc ends run on straight (`Straight`) or
+  round their circles (`RoundArcs`). A rib parallel to its sketch keeps both but ignores them
+  (`Rib::is_drafted` says whether the draft is a literal zero). The sketch is in
   `reference_sketches` and `features()`.
 - `rib_tool::rib_tools` builds a generous tool per chain and keeps only what lies between the drawn
-  curves and the body: chains are grouped by shared ends (`split::curve_links`), each must be one
-  open chain (`split::chain`: a closed outline or a circle fails, a branch fails naming its
-  curves). Free ends are carried on along their end tangents past the body's box: an end line is
-  lengthened in place (one face, keeping its name), an arc end gets a line keyed `START_RUN` or
-  `END_RUN` with the arc's entity. A rib's region is closed round the box like a split's half
+  curves and the body. Chains (`rib_tool::chains`) come from the curve ends shared at each point
+  (`split::curve_links`): at a point where several ends meet, the two running straightest through
+  it (`straightest`, most opposite outward tangents) are paired again and again, so two crossing
+  pairs make two chains and the odd end of a T starts a chain of its own; walks from unpaired ends
+  give the chains (`split::chain` each). A closed outline, a circle or curves left in a loop fail
+  `Closed`, a walk coming back to a point it passed `Branches`, both fixed on the sketch. A chain
+  whose end lies on another chain (`RibChain::passes_by`: a T, at a shared point or mid-curve) is
+  built after it (`attachments`, `build_order`, a cycle broken in index order), and the tools
+  already built for the chains it meets are taken out of its tool with the body, so it runs on
+  only up to that rib. Free ends are carried on along their end tangents past the body's box: an
+  end line is lengthened in place (one face, keeping its name), an arc end gets a line keyed
+  `START_RUN` or `END_RUN` with the arc's entity. With `RibEnds::RoundArcs` a web's free arc end
+  is instead carried round its circle (`bent_round`, the arc's own end moved, sharing what is left
+  of the circle with its other end less `ARC_GAP_DEGREES`), a line end still straight. A rib's region is closed round the box like a split's half
   space (perimeter lines `PERIMETER_ENTITIES`) and extruded by the thickness; a web's wall is
   extruded from the sketch plane past the box. The tool less the body (`boolean` difference) is
   taken apart (`Solid::lumps`) and the lumps holding seed points (just off the curves on the
@@ -638,8 +653,9 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   behind the sketch is `Behind`, seeds all inside the body `Inside`. The kept lumps of every chain
   are joined to the body one by one (crossing webs overlap there) and kept as the result's `joins`.
 - Failures are worded per `RibError` (`rib::Words`): sketch problems fixed on the sketch, the rest
-  on the rib with what to do (reverse it, draw the curve so it runs into a wall); a join failure
-  goes through `trouble.rs`.
+  on the rib with what to do (reverse it, draw the curve so it runs into a wall, carry its ends on
+  straight when carried round its arcs, make the draft smaller when the drafted bend closes,
+  `SweepError::TaperCloses`); a join failure goes through `trouble.rs`.
 - Faces are named by extrusion naming from the rib's feature id: worded (`rib::face_words`)
   "<rib> side from <curve>" (a web's side), "edge face along <curve>" (a rib's drawn edge), "side
   carried on from <curve>", "top face" (a web's cap at the sketch) and "face in front of" or

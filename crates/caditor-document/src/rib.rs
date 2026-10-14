@@ -1,7 +1,9 @@
 use std::collections::BTreeSet;
 
-use caditor_expression::{Expression, ParameterId};
-use caditor_kernel::{BooleanError, BooleanOperation, FaceOrigin, Solid, WallError, boolean};
+use caditor_expression::{Dimension, Expression, ParameterId, Unit};
+use caditor_kernel::{
+    BooleanError, BooleanOperation, FaceOrigin, Solid, SweepError, WallError, boolean,
+};
 use caditor_sketch::{EntityId, Sketch};
 
 use crate::{
@@ -10,8 +12,8 @@ use crate::{
     primitive::Context,
     recompute::{CancelToken, Evaluation, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
     rib_tool::{
-        RibDirection, RibError, RibInput, RibSide, ThicknessStand, chains, facing_body, is_run,
-        rib_tools, run_curve, thickness_stand,
+        RibDirection, RibEnds, RibError, RibInput, RibSide, ThicknessStand, chains, facing_body,
+        is_run, rib_tools, run_curve, thickness_stand,
     },
     solid::{SolidResult, profile_curves},
     sweep::capital,
@@ -19,14 +21,17 @@ use crate::{
 };
 
 pub const RIB_SHAPE: &str = "rib";
+pub const MAX_RIB_DRAFT_DEGREES: f64 = 30.0;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Rib {
     pub sketch: FeatureId,
     pub body: FeatureId,
     pub thickness: Expression,
+    pub draft: Expression,
     pub side: RibSide,
     pub direction: RibDirection,
+    pub ends: RibEnds,
     pub reversed: bool,
 }
 
@@ -36,26 +41,37 @@ impl Rib {
             sketch,
             body,
             thickness,
+            draft: Expression::measure(0.0, Unit::Degree),
             side: RibSide::Symmetric,
             direction: RibDirection::Parallel,
+            ends: RibEnds::Straight,
             reversed: false,
         }
     }
 
     pub fn expressions(&self) -> Vec<&Expression> {
-        vec![&self.thickness]
+        vec![&self.thickness, &self.draft]
     }
 
     pub fn expressions_mut(&mut self) -> Vec<&mut Expression> {
-        vec![&mut self.thickness]
+        vec![&mut self.thickness, &mut self.draft]
     }
 
     pub fn parameters(&self) -> BTreeSet<ParameterId> {
-        self.thickness.parameters()
+        let mut parameters = self.thickness.parameters();
+        parameters.extend(self.draft.parameters());
+        parameters
     }
 
     pub fn uses_parameter(&self, parameter: ParameterId) -> bool {
-        self.thickness.uses(parameter)
+        self.thickness.uses(parameter) || self.draft.uses(parameter)
+    }
+
+    pub fn is_drafted(&self) -> bool {
+        !matches!(
+            self.draft,
+            Expression::Number(value) | Expression::Measure(value, _) if value == 0.0
+        )
     }
 
     pub fn features(&self) -> BTreeSet<FeatureId> {
@@ -63,7 +79,7 @@ impl Rib {
     }
 
     pub fn heap_size(&self) -> usize {
-        self.thickness.heap_size()
+        self.thickness.heap_size() + self.draft.heap_size()
     }
 }
 
@@ -71,6 +87,13 @@ pub fn direction_name(direction: RibDirection) -> &'static str {
     match direction {
         RibDirection::Parallel => "Parallel to sketch",
         RibDirection::Square => "Square to sketch",
+    }
+}
+
+pub fn ends_name(ends: RibEnds) -> &'static str {
+    match ends {
+        RibEnds::Straight => "Straight on",
+        RibEnds::RoundArcs => "Round the arc",
     }
 }
 
@@ -184,12 +207,11 @@ impl Words<'_> {
             ),
             RibError::Branches { entities } => self.in_sketch(
                 format!(
-                    "{} of {sketch} branch where three or more of them meet, so {name} cannot \
-                     tell which way to run.",
+                    "{} of {sketch} come back to a point they already pass through, so {name} \
+                     cannot tell which way to run.",
                     capital(&self.curves(&entities))
                 ),
-                "Draw each rib as its own chain of curves joined end to end, with chains \
-                 crossing rather than meeting at their ends.",
+                "Draw the curves so that a chain passes each point where curves meet only once.",
             ),
             RibError::Degenerate { entities } | RibError::CrossesItself { entities } => self
                 .in_sketch(
@@ -233,8 +255,16 @@ impl Words<'_> {
                     "The end of {name} at {} runs on past {body} without meeting a face of it.",
                     self.sketch.entity_label(EntityId::from_raw(entity))
                 ),
-                "Draw the curve so that, carried on straight past its end, it runs into a wall \
-                 of the body.",
+                match self.definition.ends {
+                    RibEnds::Straight => {
+                        "Draw the curve so that, carried on straight past its end, it runs into a \
+                         wall of the body."
+                    }
+                    RibEnds::RoundArcs => {
+                        "Draw the curve so that, carried on past its end (an arc round its \
+                         circle), it runs into a wall of the body, or carry its ends on straight."
+                    }
+                },
             ),
             RibError::RunsPastDepth { entities } => self.own(
                 format!(
@@ -266,10 +296,33 @@ impl Words<'_> {
                 ),
                 "Make the rib thinner or the bend gentler.",
             ),
+            RibError::Wall(WallError::CrossesItself)
+                if self.definition.ends == RibEnds::RoundArcs =>
+            {
+                self.own(
+                    format!("Carried on round its arcs, {name} runs into itself."),
+                    "Carry its ends on straight instead, or draw the arcs so that, carried on \
+                     round their circles, they run into walls of the body.",
+                )
+            }
             RibError::Wall(WallError::CrossesItself) => self.own(
                 format!("Thickened, {name} runs into itself."),
                 "Make the rib thinner, or move its curves farther apart.",
             ),
+            RibError::Sweep(SweepError::TaperCloses { entities }) if !entities.is_empty() => {
+                let mut drawn: Vec<u64> =
+                    entities.iter().map(|entity| run_curve(*entity)).collect();
+                drawn.sort_unstable();
+                drawn.dedup();
+                self.own(
+                    format!(
+                        "With its draft, {name} widens until the bend of {} closes up before the \
+                         web has run past {body}.",
+                        self.curves(&drawn)
+                    ),
+                    "Make the draft smaller, or the bend of the curves gentler.",
+                )
+            }
             RibError::Wall(WallError::Cancelled(_)) => Failure::Cancelled,
             RibError::Boolean(BooleanError::Cancelled(_)) => Failure::Cancelled,
             other => {
@@ -282,6 +335,27 @@ impl Words<'_> {
             }
         }
     }
+}
+
+fn draft(context: &Context<'_>, expression: &Expression) -> Result<f64, Failure> {
+    let degrees = context.value_as(expression, "draft angle", Dimension::ANGLE)?;
+    let shape = context.shape();
+    if degrees < 0.0 {
+        return Err(context.error(
+            format!("The draft of the {shape} cannot be negative."),
+            format!(
+                "Enter a draft angle from 0° up to below {MAX_RIB_DRAFT_DEGREES}°; the web \
+                 widens by it toward the body."
+            ),
+        ));
+    }
+    if degrees >= MAX_RIB_DRAFT_DEGREES {
+        return Err(context.error(
+            format!("The draft of the {shape} is {MAX_RIB_DRAFT_DEGREES}° or steeper."),
+            format!("Enter a draft angle from 0° up to below {MAX_RIB_DRAFT_DEGREES}°."),
+        ));
+    }
+    Ok(degrees.to_radians())
 }
 
 fn sketch_of<'a>(
@@ -314,6 +388,10 @@ pub(crate) fn evaluate(
 ) -> Result<FeatureResult, Failure> {
     let context = Context::new(feature, inputs, RIB_SHAPE);
     let thickness = context.size(&definition.thickness, "thickness")?;
+    let draft = match definition.direction {
+        RibDirection::Square => draft(&context, &definition.draft)?,
+        RibDirection::Parallel => 0.0,
+    };
     let sketch = sketch_of(inputs, feature, definition.sketch)?;
     let body = inputs
         .body(definition.body)
@@ -336,8 +414,13 @@ pub(crate) fn evaluate(
         curves: profile_curves(sketch),
         body,
         thickness,
+        draft,
         side: definition.side,
         direction: definition.direction,
+        ends: match definition.direction {
+            RibDirection::Square => definition.ends,
+            RibDirection::Parallel => RibEnds::Straight,
+        },
         reversed: definition.reversed,
         feature: feature.id().raw(),
     };

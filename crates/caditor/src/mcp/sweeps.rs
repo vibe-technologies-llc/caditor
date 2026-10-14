@@ -1,7 +1,7 @@
 use caditor_document::{
     BodyOperation, Bore, Coil, CoilLength, CoilTurning, DEFAULT_PITCH, DEFAULT_TURNS, FeatureKind,
-    Loft, LoftSection, Pipe, Rib, RibDirection, RibSide, SolidFeature, Sweep, SweepPath, Thread,
-    ThreadFamily, ThreadForm, ThreadHand, ThreadLength, ThreadSide, ThreadSize,
+    Loft, LoftSection, Pipe, Rib, RibDirection, RibEnds, RibSide, SolidFeature, Sweep, SweepPath,
+    Thread, ThreadFamily, ThreadForm, ThreadHand, ThreadLength, ThreadSide, ThreadSize,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_kernel::{
@@ -164,6 +164,13 @@ pub enum RibDirectionName {
     Square,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RibEndsName {
+    Straight,
+    RoundArcs,
+}
+
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Ribbing {
@@ -172,6 +179,8 @@ pub struct Ribbing {
     pub thickness: Option<Amount>,
     pub side: Option<RibSideName>,
     pub direction: Option<RibDirectionName>,
+    pub draft: Option<Amount>,
+    pub ends: Option<RibEndsName>,
     pub reversed: Option<bool>,
     pub name: Option<String>,
 }
@@ -656,6 +665,9 @@ pub fn rib_built(
     let thickness = parsed(session, asked.thickness.as_ref(), |session, thickness| {
         length(session, "thickness", thickness)
     })?;
+    let draft = parsed(session, asked.draft.as_ref(), |session, draft| {
+        turn(session, "draft", draft)
+    })?;
     session.evaluate(work)?;
     let document = session.document();
     let evaluation = session.evaluation();
@@ -712,6 +724,15 @@ pub fn rib_built(
         rib.direction = match direction {
             RibDirectionName::Parallel => RibDirection::Parallel,
             RibDirectionName::Square => RibDirection::Square,
+        };
+    }
+    if let Some(draft) = draft {
+        rib.draft = draft;
+    }
+    if let Some(ends) = asked.ends {
+        rib.ends = match ends {
+            RibEndsName::Straight => RibEnds::Straight,
+            RibEndsName::RoundArcs => RibEnds::RoundArcs,
         };
     }
     let rib = match (asked.reversed, base) {

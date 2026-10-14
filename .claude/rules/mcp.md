@@ -109,7 +109,8 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
 - `sweeps.rs` adds sweeps, pipes (path as `{sketch, curves}` checked by
   `sweep_tools::is_path_curve`, `{body, edges}` or `{helix}`, a `SweepPath`), lofts through whole
   sketches (hidden as the tool hides them), coils (two of turns, pitch and height as a
-  `CoilLength`), ribs (square to a face's sketch, facing the body by `rib_tools::facing_body`) and
+  `CoilLength`), ribs (square to a face's sketch, facing the body by `rib_tools::facing_body`; a web's `draft` and
+  `ends`) and
   threads (the face's `Bore` picks the nearest size and default class, named
   `thread_tools::unique_name`); `reshaping.rs` adds split face, delete face, split (along a plane,
   `{sketch}` or `{tool}` body) and scale, each with the app tool's defaults.

@@ -199,10 +199,11 @@ pub use crate::{
     },
     removal::Remove,
     rib::{
-        RIB_SHAPE, Rib, direction_name as rib_direction_name, facing as rib_facing, is_rib_path,
-        rib_stand, side_name as rib_side_name,
+        MAX_RIB_DRAFT_DEGREES, RIB_SHAPE, Rib, direction_name as rib_direction_name,
+        ends_name as rib_ends_name, facing as rib_facing, is_rib_path, rib_stand,
+        side_name as rib_side_name,
     },
-    rib_tool::{RibDirection, RibSide, ThicknessStand},
+    rib_tool::{RibDirection, RibEnds, RibSide, ThicknessStand},
     scaling::{MAX_SCALE_FACTOR, MIN_SCALE_FACTOR, Scale},
     section::{SectionCurve, SectionError, datum_outline, section_curves},
     selection_sets::{

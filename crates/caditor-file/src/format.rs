@@ -23,7 +23,7 @@ use caditor_document::{
     PlaneThrough, PointBy, PointMate, PointReference, PointTarget, PointsPattern, Primitive,
     PrimitiveAnchor, PrimitiveShape, PrincipalAxis, PrincipalGeometry, PrincipalPlane,
     ProjectionSource, Reading, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rgb, Rib,
-    RibDirection, RibSide, RollbackBar, SavedView, SavedViews, Scale, Shell, ShellSide,
+    RibDirection, RibEnds, RibSide, RollbackBar, SavedView, SavedViews, Scale, Shell, ShellSide,
     SketchAttachment, SketchFeature, SolidFeature, SolidStart, Split, SplitAlong, SplitCarry,
     SplitFace, StepText, Sweep, SweepPath, TappedThread, Thread, ThreadFamily, ThreadForm,
     ThreadHand, ThreadLength, ThreadSide, ThreadSize, Transaction, TurnCentre, Wall, group_name,
@@ -316,6 +316,7 @@ pub(crate) enum FeatureKindRecord {
     Helix(Box<HelixRecord>),
     AlongHelix(Box<AlongHelixRecord>),
     HelixStart(Box<HelixStartRecord>),
+    ShapedRib(Box<ShapedRibRecord>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -327,6 +328,22 @@ pub(crate) struct HelixRecord {
     pub length: CoilLengthRecord,
     pub taper: String,
     pub turning: CoilTurningRecord,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct ShapedRibRecord {
+    pub feature: FeatureKindRecord,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub draft: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ends: Option<RibEndsRecord>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum RibEndsRecord {
+    Straight,
+    RoundArcs,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -983,7 +1000,7 @@ pub(crate) struct RevolveOneSideRecord {
 
 pub(crate) const FEATURE_FIELDS: [&str; 4] = ["hidden", "appearance", "group", "piece_looks"];
 
-pub(crate) const FEATURE_KINDS: [&str; 83] = [
+pub(crate) const FEATURE_KINDS: [&str; 84] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -1067,6 +1084,7 @@ pub(crate) const FEATURE_KINDS: [&str; 83] = [
     "helix",
     "along_helix",
     "helix_start",
+    "shaped_rib",
 ];
 
 #[derive(Debug, Clone)]
@@ -3529,6 +3547,19 @@ fn pipe_record(pipe: &Pipe) -> FeatureKindRecord {
 }
 
 fn rib_record(rib: &Rib) -> FeatureKindRecord {
+    let round = rib.ends == RibEnds::RoundArcs;
+    if rib.is_drafted() || round {
+        let plain = Rib {
+            draft: Expression::measure(0.0, Unit::Degree),
+            ends: RibEnds::Straight,
+            ..rib.clone()
+        };
+        return FeatureKindRecord::ShapedRib(Box::new(ShapedRibRecord {
+            feature: rib_record(&plain),
+            draft: rib.is_drafted().then(|| rib.draft.to_stored_text()),
+            ends: round.then_some(RibEndsRecord::RoundArcs),
+        }));
+    }
     FeatureKindRecord::Rib(Box::new(RibRecord {
         sketch: rib.sketch.raw(),
         body: rib.body.raw(),
@@ -3560,6 +3591,8 @@ fn restore_rib(record: &RibRecord, feature: &str, issues: &mut Vec<String>) -> R
             RibDirectionRecord::Parallel => RibDirection::Parallel,
             RibDirectionRecord::Square => RibDirection::Square,
         },
+        draft: Expression::measure(0.0, Unit::Degree),
+        ends: RibEnds::Straight,
         reversed: record.reversed,
     }
 }
@@ -5981,6 +6014,25 @@ fn restore_kind(
                 _ => issues.push(format!(
                     "“{name}” was to be drilled up to a face, but it is not a hole, so that was \
                      left out."
+                )),
+            }
+            kind
+        }
+        FeatureKindRecord::ShapedRib(shaped) => {
+            let mut kind = restore_kind(&shaped.feature, name, texts, issues);
+            match &mut kind {
+                FeatureKind::Rib(rib) => {
+                    if let Some(draft) = &shaped.draft {
+                        rib.draft = restore_value(draft, "draft angle", "0 deg", name, issues);
+                    }
+                    rib.ends = match shaped.ends {
+                        Some(RibEndsRecord::RoundArcs) => RibEnds::RoundArcs,
+                        Some(RibEndsRecord::Straight) | None => RibEnds::Straight,
+                    };
+                }
+                _ => issues.push(format!(
+                    "“{name}” was to have a draft or carry its arcs on round their circles, but \
+                     it is not a rib, so that was left out."
                 )),
             }
             kind

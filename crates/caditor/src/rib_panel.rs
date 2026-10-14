@@ -1,5 +1,6 @@
 use caditor_document::{
-    Feature, FeatureId, Rib, RibDirection, RibSide, Transaction, rib_direction_name, rib_side_name,
+    Feature, FeatureId, Rib, RibDirection, RibEnds, RibSide, Transaction, rib_direction_name,
+    rib_ends_name, rib_side_name,
 };
 use caditor_expression::{Dimension, Expression};
 use egui::{Id, Ui};
@@ -14,10 +15,12 @@ pub const SKETCH: &str = "Sketch";
 pub const BODY: &str = "Body";
 pub const DIRECTION: &str = "Direction";
 pub const THICKNESS: &str = "Thickness";
+pub const DRAFT: &str = "Draft";
+pub const ENDS: &str = "Free ends";
 pub const SIDE: &str = "Side";
 pub const REVERSE_FILL: &str = "Fill the other side of the curves";
 pub const REVERSE_DIRECTION: &str = "Run the other way from the sketch";
-const NOT_A_RIB_PATH: &str = "Its curves do not form open chains joined end to end";
+const NOT_A_RIB_PATH: &str = "Its curves close on themselves";
 const PARALLEL_HOVER: &str = "A rib: the material lies in the sketch's plane, on one side of the \
                               curves, and runs on until it meets the body; the thickness is \
                               across the sketch";
@@ -47,6 +50,19 @@ fn side_hover(direction: RibDirection, side: RibSide) -> &'static str {
     }
 }
 
+fn ends_hover(ends: RibEnds) -> &'static str {
+    match ends {
+        RibEnds::Straight => {
+            "Free ends run on straight along their last direction until they meet the body"
+        }
+        RibEnds::RoundArcs => {
+            "A free end of an arc runs on round the arc's circle until it meets the body; a line \
+             still runs on straight"
+        }
+    }
+}
+
+const END_KINDS: [RibEnds; 2] = [RibEnds::Straight, RibEnds::RoundArcs];
 const DIRECTIONS: [RibDirection; 2] = [RibDirection::Parallel, RibDirection::Square];
 const SIDES: [RibSide; 3] = [RibSide::OneSide, RibSide::OtherSide, RibSide::Symmetric];
 
@@ -177,6 +193,41 @@ impl Panel<'_> {
         self.actions.extend(drafting.into_actions(self.id()));
     }
 
+    fn draft_row(&mut self, ui: &mut Ui) {
+        let rib = self.rib.clone();
+        let quantity = Quantity {
+            feature: self.id(),
+            id: Id::new(("rib-field", self.id(), "draft")),
+            expression: &self.rib.draft,
+            dimension: Dimension::ANGLE,
+            rule: Rule::RibDraft,
+        };
+        let changed = move |draft: Expression| Rib {
+            draft,
+            ..rib.clone()
+        };
+        let drafting =
+            feature_fields::expression_row_drafting(ui, self.model, DRAFT, quantity, |value| {
+                rib_tools::change(self.model, self.id(), changed(value))
+            });
+        self.actions.extend(drafting.into_actions(self.id()));
+    }
+
+    fn ends_row(&mut self, ui: &mut Ui) {
+        let current = self.rib.ends;
+        let segments = END_KINDS
+            .into_iter()
+            .map(|ends| Segment {
+                label: rib_ends_name(ends),
+                hover: ends_hover(ends),
+                change: (ends != current)
+                    .then(|| self.change(rib_tools::with_ends(self.rib, ends))),
+            })
+            .collect();
+        let chosen = feature_fields::segmented_row(ui, ENDS, &self.feature.name, segments);
+        self.actions.extend(chosen);
+    }
+
     fn side_row(&mut self, ui: &mut Ui) {
         let current = self.rib.side;
         let direction = self.rib.direction;
@@ -219,6 +270,10 @@ pub fn show(ui: &mut Ui, model: &Model, actions: &mut Vec<Action>, feature: &Fea
         panel.direction_row(ui);
         panel.thickness_row(ui);
         panel.side_row(ui);
+        if rib.direction == RibDirection::Square {
+            panel.draft_row(ui);
+            panel.ends_row(ui);
+        }
         panel.reverse_row(ui);
     });
 }

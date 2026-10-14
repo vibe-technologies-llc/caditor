@@ -4549,6 +4549,63 @@ fn ribs_are_saved_and_loaded_as_a_record_of_their_own() {
             .thickness,
         Expression::parse_stored("2 mm").unwrap()
     );
+    assert!(!text.contains("shaped_rib"), "{text}");
+}
+
+#[test]
+fn a_drafted_web_carried_round_its_arcs_wraps_its_record_so_an_older_reader_leaves_it_out() {
+    use caditor_document::{Rib, RibDirection, RibEnds};
+    let (mut document, base, _) = solid_model();
+    let mut transaction = document.transaction("Ribs");
+    let mut line = Sketch::new(Plane::XY);
+    line.add_line(Point2::new(1.0, 1.0), Point2::new(6.0, 4.0));
+    let line = transaction.add_feature("Rib line", FeatureKind::from(line));
+    let parse = |text: &str| Expression::parse_stored(text).unwrap();
+    let drafted = transaction.add_feature(
+        "Web 1",
+        FeatureKind::Rib(Rib {
+            direction: RibDirection::Square,
+            draft: parse("1.5 deg"),
+            ..Rib::new(line, base, parse("2 mm"))
+        }),
+    );
+    let round = transaction.add_feature(
+        "Web 2",
+        FeatureKind::Rib(Rib {
+            direction: RibDirection::Square,
+            ends: RibEnds::RoundArcs,
+            ..Rib::new(line, base, parse("2 mm"))
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let older = decode_text(&text.replace("shaped_rib", "shaped_rid"));
+    let damaged = decode_text(&text.replacen("\"draft\":\"1.5 deg\"", "\"draft\":\"1.5 (\"", 1));
+    let restored = damaged
+        .document
+        .feature(drafted)
+        .and_then(|feature| feature.kind.rib())
+        .unwrap();
+
+    assert!(
+        text.contains("\"shaped_rib\":{\"draft\":\"1.5 deg\",\"feature\":{\"rib\":{"),
+        "{text}"
+    );
+    assert!(text.contains("\"ends\":\"round_arcs\""), "{text}");
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert!(older.document.feature(drafted).is_none());
+    assert!(older.document.feature(round).is_none());
+    assert!(!older.issues.is_empty());
+    assert_eq!(damaged.issues.len(), 1, "{:?}", damaged.issues);
+    assert!(
+        damaged.issues[0].contains("draft angle"),
+        "{:?}",
+        damaged.issues
+    );
+    assert!(!restored.is_drafted());
 }
 
 fn coil_model() -> (Document, FeatureId) {

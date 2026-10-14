@@ -1,14 +1,17 @@
-use std::collections::BTreeMap;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    f64::consts::TAU,
+};
 
 use caditor_geometry::{Aabb2, Plane, Point2, Point3, Vector2, Vector3};
 use caditor_kernel::{
     BooleanError, BooleanOperation, FaceName, FaceOrigin, Interval, LINEAR_RESOLUTION,
     LinearExtent, PieceBound, PieceId, PointClass, Profile, ProfileCurve, ProfileError,
     ProfileShape, RayCrossing, Region, Solid, SweepError, TessellationError, WallError, WallSide,
-    boolean, extrude, wall_regions,
+    boolean, extrude, extrude_tapered, wall_regions,
 };
 
-use crate::split::{End, Perimeter, SweptError, chain, component_of, curve_links, heights};
+use crate::split::{End, Perimeter, SweptError, chain, curve_links, heights};
 
 pub const START_RUN: u64 = 1 << 62;
 pub const END_RUN: u64 = 1 << 61;
@@ -23,6 +26,7 @@ const PERIMETER_ENTITIES: [u64; 5] = [
 const SEED_FRACTIONS: [f64; 3] = [0.25, 0.5, 0.75];
 const SEED_REACH: f64 = 0.05;
 const SEED_SHARE: f64 = 0.25;
+const ARC_GAP_DEGREES: f64 = 2.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub enum RibSide {
@@ -37,6 +41,13 @@ pub enum RibDirection {
     #[default]
     Parallel,
     Square,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub enum RibEnds {
+    #[default]
+    Straight,
+    RoundArcs,
 }
 
 pub fn run_curve(entity: u64) -> u64 {
@@ -90,8 +101,10 @@ pub(crate) struct RibInput<'a> {
     pub curves: Vec<ProfileCurve>,
     pub body: &'a Solid,
     pub thickness: f64,
+    pub draft: f64,
     pub side: RibSide,
     pub direction: RibDirection,
+    pub ends: RibEnds,
     pub reversed: bool,
     pub feature: u64,
 }
@@ -118,11 +131,26 @@ pub(crate) fn rib_tools(input: &RibInput<'_>) -> Result<Vec<Solid>, RibError> {
         high: heights.high,
         margin: heights.margin,
     };
-    let mut tools = Vec::new();
-    for chain in &chains {
-        tools.extend(chain_tools(input, &frame, chain)?);
+    let attached = attachments(&chains);
+    let mut built: Vec<Option<Vec<Solid>>> = vec![None; chains.len()];
+    for index in build_order(&attached) {
+        let Some(chain) = chains.get(index) else {
+            continue;
+        };
+        let obstacles: Vec<&Solid> = attached
+            .get(index)
+            .into_iter()
+            .flatten()
+            .filter_map(|other| built.get(*other))
+            .flatten()
+            .flatten()
+            .collect();
+        let tools = chain_tools(input, &frame, chain, &obstacles)?;
+        if let Some(slot) = built.get_mut(index) {
+            *slot = Some(tools);
+        }
     }
-    Ok(tools)
+    Ok(built.into_iter().flatten().flatten().collect())
 }
 
 pub(crate) struct RibChain {
@@ -137,6 +165,15 @@ impl RibChain {
         let mut entities: Vec<u64> = self.curves.iter().map(|curve| curve.entity).collect();
         entities.sort_unstable();
         entities
+    }
+
+    fn passes_by(&self, point: Point2) -> bool {
+        self.curves.iter().any(|curve| {
+            curve.curve().is_ok_and(|(path, range)| {
+                let along = path.closest_parameter(point, range);
+                path.point(along).distance(point) <= LINEAR_RESOLUTION
+            })
+        })
     }
 }
 
@@ -154,45 +191,165 @@ pub(crate) fn chains(curves: &[ProfileCurve]) -> Result<Vec<RibChain>, RibError>
     if !closed.is_empty() {
         return Err(RibError::Closed { entities: closed });
     }
-    let mut parents: Vec<usize> = (0..2 * curves.len()).collect();
-    for [first, second] in links.iter().flatten() {
-        let root = component_of(&mut parents, *first);
-        let other = component_of(&mut parents, *second);
-        if let Some(parent) = parents.get_mut(other) {
-            *parent = root;
+    let outward = end_directions(curves)?;
+    let partners = paired(&links, &outward);
+    let mut taken = vec![false; curves.len()];
+    let mut walks = Vec::new();
+    for (slot, partner) in partners.iter().enumerate() {
+        if partner.is_none() && taken.get(slot / 2) == Some(&false) {
+            walks.push(walked(&partners, slot, &mut taken));
         }
     }
-    let mut groups: BTreeMap<usize, Vec<ProfileCurve>> = BTreeMap::new();
-    for (curve, link) in curves.iter().zip(&links) {
-        if let Some([first, _]) = link {
-            let root = component_of(&mut parents, *first);
-            groups.entry(root).or_default().push(curve.clone());
-        }
+    let looped: Vec<u64> = curves
+        .iter()
+        .zip(&taken)
+        .filter(|(_, taken)| !**taken)
+        .map(|(curve, _)| curve.entity)
+        .collect();
+    if !looped.is_empty() {
+        return Err(RibError::Closed { entities: looped });
     }
-    groups
-        .into_values()
-        .map(|group| {
-            let entities: Vec<u64> = group.iter().map(|curve| curve.entity).collect();
-            let found = chain(&group).map_err(|error| match error {
-                SweptError::Closed => RibError::Closed {
-                    entities: entities.clone(),
-                },
-                SweptError::NotOneChain => RibError::Branches {
-                    entities: entities.clone(),
-                },
-                SweptError::Profile(error) => RibError::Profile(error),
-                _ => RibError::Degenerate {
-                    entities: entities.clone(),
-                },
-            })?;
-            Ok(RibChain {
-                curves: group,
-                start: found.start,
-                finish: found.finish,
-                bounds: found.bounds,
-            })
+    walks
+        .into_iter()
+        .map(|walk| {
+            let group: Vec<ProfileCurve> = walk
+                .iter()
+                .filter_map(|index| curves.get(*index).cloned())
+                .collect();
+            rib_chain(group)
         })
         .collect()
+}
+
+fn end_directions(curves: &[ProfileCurve]) -> Result<Vec<Vector2>, RibError> {
+    let mut directions = Vec::with_capacity(2 * curves.len());
+    for curve in curves {
+        let degenerate = || RibError::Degenerate {
+            entities: vec![curve.entity],
+        };
+        let (path, range) = curve.curve().map_err(RibError::Profile)?;
+        let first = path.evaluate(range.start()).first.try_normalize();
+        let last = path.evaluate(range.end()).first.try_normalize();
+        directions.push(-first.ok_or_else(degenerate)?);
+        directions.push(last.ok_or_else(degenerate)?);
+    }
+    Ok(directions)
+}
+
+fn paired(links: &[Option<[usize; 2]>], outward: &[Vector2]) -> Vec<Option<usize>> {
+    let mut at_nodes: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+    for (index, link) in links.iter().enumerate() {
+        if let Some([first, last]) = link {
+            at_nodes.entry(*first).or_default().push(2 * index);
+            at_nodes.entry(*last).or_default().push(2 * index + 1);
+        }
+    }
+    let mut partners = vec![None; 2 * links.len()];
+    for mut open in at_nodes.into_values() {
+        while let Some((one, other)) = straightest(&open, outward) {
+            for (slot, partner) in [(one, other), (other, one)] {
+                if let Some(entry) = partners.get_mut(slot) {
+                    *entry = Some(partner);
+                }
+            }
+            open.retain(|slot| *slot != one && *slot != other);
+        }
+    }
+    partners
+}
+
+fn straightest(open: &[usize], outward: &[Vector2]) -> Option<(usize, usize)> {
+    let turn = |slot: usize, other: usize| {
+        outward
+            .get(slot)
+            .zip(outward.get(other))
+            .map_or(f64::INFINITY, |(one, other)| one.dot(*other))
+    };
+    open.iter()
+        .enumerate()
+        .flat_map(|(at, one)| open.iter().skip(at + 1).map(move |other| (*one, *other)))
+        .min_by(|(one, other), (third, fourth)| {
+            turn(*one, *other).total_cmp(&turn(*third, *fourth))
+        })
+}
+
+fn walked(partners: &[Option<usize>], from: usize, taken: &mut [bool]) -> Vec<usize> {
+    let mut order = Vec::new();
+    let mut at = from;
+    while let Some(slot) = taken.get_mut(at / 2).filter(|taken| !**taken) {
+        *slot = true;
+        order.push(at / 2);
+        match partners.get(at ^ 1).copied().flatten() {
+            Some(next) => at = next,
+            None => break,
+        }
+    }
+    order
+}
+
+fn rib_chain(group: Vec<ProfileCurve>) -> Result<RibChain, RibError> {
+    let entities: Vec<u64> = group.iter().map(|curve| curve.entity).collect();
+    let found = chain(&group).map_err(|error| match error {
+        SweptError::Closed => RibError::Closed {
+            entities: entities.clone(),
+        },
+        SweptError::NotOneChain => RibError::Branches {
+            entities: entities.clone(),
+        },
+        SweptError::Profile(error) => RibError::Profile(error),
+        _ => RibError::Degenerate {
+            entities: entities.clone(),
+        },
+    })?;
+    Ok(RibChain {
+        curves: group,
+        start: found.start,
+        finish: found.finish,
+        bounds: found.bounds,
+    })
+}
+
+fn attachments(chains: &[RibChain]) -> Vec<BTreeSet<usize>> {
+    chains
+        .iter()
+        .enumerate()
+        .map(|(index, chain)| {
+            chains
+                .iter()
+                .enumerate()
+                .filter(|(other, _)| *other != index)
+                .filter(|(_, other)| {
+                    [chain.start.point, chain.finish.point]
+                        .into_iter()
+                        .any(|end| other.passes_by(end))
+                })
+                .map(|(other, _)| other)
+                .collect()
+        })
+        .collect()
+}
+
+fn build_order(attached: &[BTreeSet<usize>]) -> Vec<usize> {
+    let mut done = vec![false; attached.len()];
+    let mut order = Vec::with_capacity(attached.len());
+    let waiting = |done: &[bool], index: usize| done.get(index) == Some(&false);
+    while order.len() < attached.len() {
+        let ready = (0..attached.len()).find(|index| {
+            waiting(&done, *index)
+                && attached
+                    .get(*index)
+                    .is_none_or(|others| others.iter().all(|other| !waiting(&done, *other)))
+        });
+        let Some(next) = ready.or_else(|| (0..attached.len()).find(|index| waiting(&done, *index)))
+        else {
+            break;
+        };
+        if let Some(slot) = done.get_mut(next) {
+            *slot = true;
+        }
+        order.push(next);
+    }
+    order
 }
 
 fn walk_left(end: &End) -> Vector2 {
@@ -292,25 +449,36 @@ fn chain_tools(
     input: &RibInput<'_>,
     frame: &Frame,
     chain: &RibChain,
+    obstacles: &[&Solid],
 ) -> Result<Vec<Solid>, RibError> {
     let (slab, seeds, escapes) = match input.direction {
         RibDirection::Square => web_slab(input, frame, chain)?,
         RibDirection::Parallel => rib_slab(input, frame, chain)?,
     };
     let entities = chain.entities();
-    let classifier = input.body.classifier();
+    let blocking: Vec<&Solid> = std::iter::once(input.body)
+        .chain(obstacles.iter().copied())
+        .collect();
+    let classifiers: Vec<_> = blocking.iter().map(|solid| solid.classifier()).collect();
     let seeds: Vec<Point3> = seeds
         .into_iter()
-        .filter(|seed| classifier.classify(*seed) == PointClass::Outside)
+        .filter(|seed| {
+            classifiers
+                .iter()
+                .all(|classifier| classifier.classify(*seed) == PointClass::Outside)
+        })
         .collect();
     if seeds.is_empty() {
         return Err(RibError::Inside { entities });
     }
-    let pieces = match boolean(&slab, input.body, BooleanOperation::Difference) {
-        Ok(pieces) => pieces,
-        Err(BooleanError::Empty) => return Err(RibError::Inside { entities }),
-        Err(error) => return Err(RibError::Boolean(error)),
-    };
+    let mut pieces = slab;
+    for solid in blocking {
+        pieces = match boolean(&pieces, solid, BooleanOperation::Difference) {
+            Ok(pieces) => pieces,
+            Err(BooleanError::Empty) => return Err(RibError::Inside { entities }),
+            Err(error) => return Err(RibError::Boolean(error)),
+        };
+    }
     let kept: Vec<Solid> = pieces
         .lumps()
         .map_err(RibError::Lumps)?
@@ -413,13 +581,54 @@ fn carried_on(chain: &RibChain, start: Point2, finish: Point2) -> (Vec<ProfileCu
     (curves, [first, last])
 }
 
+fn bent_round(curves: &mut [ProfileCurve], drawn: &[ProfileCurve], end: &End) -> Option<u64> {
+    let (entity, at_end) = end.order;
+    let ProfileShape::Arc {
+        center,
+        start,
+        end: finish,
+    } = drawn.iter().find(|curve| curve.entity == entity)?.shape
+    else {
+        return None;
+    };
+    let angle = |point: Point2| (point.y - center.y).atan2(point.x - center.x);
+    let sweep = (angle(finish) - angle(start)).rem_euclid(TAU);
+    let reach = (0.5 * (TAU - sweep - ARC_GAP_DEGREES.to_radians())).max(0.0);
+    let turned = if at_end {
+        angle(finish) + reach
+    } else {
+        angle(start) - reach
+    };
+    let point = center + Vector2::new(turned.cos(), turned.sin()) * start.distance(center);
+    let moved = curves.iter_mut().find_map(|curve| match &mut curve.shape {
+        ProfileShape::Arc { start, end, .. } if curve.entity == entity => {
+            Some(if at_end { end } else { start })
+        }
+        _ => None,
+    })?;
+    *moved = point;
+    Some(entity)
+}
+
+fn carried_by(chain: &RibChain, frame: &Frame, ends: RibEnds) -> (Vec<ProfileCurve>, [u64; 2]) {
+    let mut curves = chain.curves.clone();
+    let mut carry = |end: &End, run: u64| {
+        let round = match ends {
+            RibEnds::RoundArcs => bent_round(&mut curves, &chain.curves, end),
+            RibEnds::Straight => None,
+        };
+        round.unwrap_or_else(|| {
+            carried_to(&mut curves, end, run, end.point + end.outward * frame.reach)
+        })
+    };
+    let first = carry(&chain.start, START_RUN);
+    let last = carry(&chain.finish, END_RUN);
+    (curves, [first, last])
+}
+
 fn web_slab(input: &RibInput<'_>, frame: &Frame, chain: &RibChain) -> Result<Slab, RibError> {
     let thickness = input.thickness;
-    let (extended, far_ends) = carried_on(
-        chain,
-        chain.start.point + chain.start.outward * frame.reach,
-        chain.finish.point + chain.finish.outward * frame.reach,
-    );
+    let (extended, far_ends) = carried_by(chain, frame, input.ends);
     let regions = match input.side {
         RibSide::Symmetric => {
             wall_regions(&extended, thickness, WallSide::Centred).map_err(RibError::Wall)?
@@ -461,10 +670,11 @@ fn web_slab(input: &RibInput<'_>, frame: &Frame, chain: &RibChain) -> Result<Sla
             input.plane.normal(),
         )
     };
-    let slab = extrude(
+    let slab = extrude_tapered(
         &input.plane,
         &regions,
         extent.map_err(RibError::Sweep)?,
+        -input.draft,
         feature,
     )
     .map_err(RibError::Sweep)?;

@@ -1,6 +1,6 @@
 use caditor_document::{
-    Document, Edit, Evaluation, FeatureId, FeatureKind, FeatureResult, Rib, RibDirection, RibSide,
-    Transaction, is_rib_path, rib_facing,
+    Document, Edit, Evaluation, FeatureId, FeatureKind, FeatureResult, Rib, RibDirection, RibEnds,
+    RibSide, Transaction, is_rib_path, rib_facing,
 };
 use caditor_sketch::Sketch;
 
@@ -25,7 +25,7 @@ const SEVERAL_SKETCHES: &str =
 const SEVERAL_BODIES: &str = "Several bodies are selected; select only the one the rib joins";
 const MADE_LATER: &str = "The selected sketch is made after where the rib would go";
 const NOT_OPEN: &str =
-    "The curves of the selected sketch do not form open chains joined end to end for a rib";
+    "The curves of the selected sketch close on themselves, so no rib can follow them to an end";
 const GONE: &str = "The feature no longer exists";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -253,6 +253,13 @@ pub fn with_direction(
 pub fn with_side(rib: &Rib, side: RibSide) -> Rib {
     Rib {
         side,
+        ..rib.clone()
+    }
+}
+
+pub fn with_ends(rib: &Rib, ends: RibEnds) -> Rib {
+    Rib {
+        ends,
         ..rib.clone()
     }
 }

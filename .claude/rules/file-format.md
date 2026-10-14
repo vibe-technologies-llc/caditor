@@ -213,6 +213,12 @@ Extrusions and revolves:
 - `rib`: `sketch`, `body`, `thickness` (unreadable 2 mm, reported), `side` (`one_side`,
   `other_side`, `symmetric`), `direction` (`parallel`, `square`) and `reversed` only when set. The
   corpus holds it in `ribs.caditor`.
+- `shaped_rib`: a wrapper around a `rib` record (`feature`) of a rib with a draft that is not a
+  literal zero (`draft`, stored text; unreadable leaves 0°, reported) or free arc ends carried
+  round their circles (`ends`: `round_arcs`), written only then, so an older reader reports the rib
+  as from a newer version rather than building it without its draft; a plain rib reads as 0° and
+  straight ends. A wrapped kind that is not a rib loads without them, reported. The corpus holds
+  it in `shaped-ribs.caditor`.
 - `separate_pieces`: a wrapper around the whole feature kind record (`feature`) of a feature whose
   `pieces` is a body each, written only then; an older reader reports the feature as from a newer
   version instead of making one body that later features' piece bodies would not find. Restoring

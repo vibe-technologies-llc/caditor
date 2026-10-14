@@ -238,3 +238,87 @@ fn bodies_and_faces_are_split_and_faces_deleted() {
     assert!(refused.contains("faces to delete"), "{refused}");
     client.finish();
 }
+
+fn rim_sketch(client: &mut Client, body: &Value) -> ([f64; 3], [f64; 3], [f64; 3], Value) {
+    let faces = faces_of(client, body);
+    let rim = faces
+        .iter()
+        .find(|face| {
+            face["surface"] == "plane"
+                && face["normal"] == json!([0.0, 0.0, 1.0])
+                && (number(&face["point"][2]) - 40.0).abs() < 1e-9
+        })
+        .unwrap_or_else(|| panic!("no rim: {faces:?}"))["face"]
+        .clone();
+    let added = client.tool("add_sketch", json!({ "body": body, "face": rim }));
+    assert_eq!(added["failing"], json!([]), "{added}");
+    let plane = &added["sketch"]["plane"];
+    let vector = |value: &Value| [number(&value[0]), number(&value[1]), number(&value[2])];
+    (
+        vector(&plane["origin"]),
+        vector(&plane["x_axis"]),
+        vector(&plane["y_axis"]),
+        added["sketch"]["id"].clone(),
+    )
+}
+
+#[test]
+fn a_web_takes_a_draft_and_free_ends_and_edits_them() {
+    let folder = TempDir::new().unwrap();
+    let mut client = started(&folder);
+    let block = box_of(&mut client, [100.0, 60.0, 40.0], [0.0, 0.0], "Box");
+    let top = faces_of(&mut client, &block)
+        .into_iter()
+        .find(|face| face["surface"] == "plane" && face["normal"] == json!([0.0, 0.0, 1.0]))
+        .unwrap()["face"]
+        .clone();
+    added(
+        &mut client,
+        "add_shell",
+        json!({ "body": block, "open_faces": [top], "thickness": "5 mm" }),
+    );
+    let hollow = 100.0 * 60.0 * 40.0 - 90.0 * 50.0 * 35.0;
+    let (origin, x_axis, y_axis, sketch) = rim_sketch(&mut client, &block);
+    let local = |x: f64, y: f64| {
+        let offset = [x - origin[0], y - origin[1], 40.0 - origin[2]];
+        let along = |axis: [f64; 3]| offset.iter().zip(axis).map(|(a, b)| a * b).sum::<f64>();
+        [along(x_axis), along(y_axis)]
+    };
+    let drawn = client.tool(
+        "add_sketch_geometry",
+        json!({
+            "sketch": sketch,
+            "items": [{ "kind": "line", "from": local(50.0, 15.0), "to": local(50.0, 45.0) }]
+        }),
+    );
+    assert_eq!(drawn["failing"], json!([]), "{drawn}");
+    let widening = 35.0 * 35.0 * 2.0_f64.to_radians().tan();
+
+    let rib = added(
+        &mut client,
+        "add_rib",
+        json!({
+            "sketch": sketch,
+            "body": block,
+            "direction": "square",
+            "draft": "2 deg",
+            "ends": "round_arcs"
+        }),
+    );
+    let drafted = total_volume(&mut client);
+    added(
+        &mut client,
+        "edit_feature",
+        json!({ "feature": rib, "draft": "0 deg", "ends": "straight" }),
+    );
+    let plain = total_volume(&mut client);
+    let steep = client.tool("edit_feature", json!({ "feature": rib, "draft": "30 deg" }));
+    client.finish();
+
+    assert!(
+        near(drafted, hollow + 50.0 * (2.0 * 35.0 + widening)),
+        "{drafted}"
+    );
+    assert!(near(plain, hollow + 2.0 * 35.0 * 50.0), "{plain}");
+    assert_ne!(steep["failing"], json!([]), "{steep}");
+}
