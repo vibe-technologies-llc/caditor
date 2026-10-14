@@ -39,7 +39,7 @@ pub(crate) struct System {
     pub spans_at_variable: BTreeMap<usize, Vec<usize>>,
     pub splines: BTreeMap<EntityId, Arc<SplineHandle>>,
     pub hidden: BTreeMap<EntityId, Vec<usize>>,
-    pub targets: BTreeMap<ConstraintId, usize>,
+    pub targets: BTreeMap<ConstraintId, Vec<usize>>,
     pub rhos: BTreeMap<EntityId, f64>,
 }
 
@@ -195,9 +195,17 @@ impl System {
             }
         }
         for (id, constraint) in sketch.active_constraints() {
-            if let Some(start) = system.hidden_target_start(sketch, constraint) {
-                system.targets.insert(id, system.values.len());
-                system.values.extend([start.x, start.y]);
+            let starts = system.hidden_target_starts(sketch, constraint);
+            if !starts.is_empty() {
+                let indices = starts
+                    .into_iter()
+                    .map(|start| {
+                        let index = system.values.len();
+                        system.values.extend([start.x, start.y]);
+                        index
+                    })
+                    .collect();
+                system.targets.insert(id, indices);
             }
         }
         for (id, constraint) in sketch.active_constraints() {

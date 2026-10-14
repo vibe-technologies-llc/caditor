@@ -169,6 +169,56 @@ fn a_line_dragged_by_its_middle_lands_its_nearer_end_on_a_point_and_joins_it() {
 }
 
 #[test]
+fn a_selection_dragged_by_one_point_lands_another_on_a_point_it_comes_near_and_joins_it() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let first = sketch.add_line(Point2::ZERO, Point2::new(20.0, 0.0));
+    let second = sketch.add_line(Point2::new(0.0, 10.0), Point2::new(20.0, 10.0));
+    let (grabbed_end, _) = line_ends(&sketch, first);
+    let (_, far_end) = line_ends(&sketch, second);
+    let lone = sketch.add_point(Point2::new(50.0, 40.0));
+    let feature = edit_free_sketch(&mut harness, sketch);
+    let before = harness.sketch(feature).clone();
+    harness.select([first, second].map(|entity| Pickable::SketchEntity { feature, entity }));
+    harness.frame();
+
+    let grabbed = harness.hover_pickable(
+        Plane::XY,
+        Point2::new(1.0, 0.0),
+        Pickable::SketchEntity {
+            feature,
+            entity: first,
+        },
+    );
+    drag_in_sketch(&mut harness, grabbed, Point2::new(31.03, 29.98));
+    harness.wait_until("the drag is committed", |harness| {
+        harness.sketch(feature).point(far_end) != before.point(far_end)
+    });
+    harness.settle();
+
+    let sketch = harness.sketch(feature);
+    assert!(
+        sketch
+            .constraints()
+            .any(|(_, constraint)| *constraint == Constraint::Coincident(far_end, lone))
+    );
+    assert!(
+        sketch
+            .point(far_end)
+            .unwrap()
+            .distance(Point2::new(50.0, 40.0))
+            < 1e-6
+    );
+    assert!(
+        sketch
+            .point(grabbed_end)
+            .unwrap()
+            .distance(Point2::new(30.0, 30.0))
+            < 1e-3
+    );
+}
+
+#[test]
 fn a_dragged_point_tracks_the_other_end_of_its_line_and_is_kept_level_with_it() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);

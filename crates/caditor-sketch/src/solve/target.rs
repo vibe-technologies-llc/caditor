@@ -55,6 +55,11 @@ fn is_hidden(sketch: &Sketch, target: &PointTarget) -> bool {
     }
 }
 
+struct CentroidTerms {
+    terms: Vec<(PointHandle, f64)>,
+    forms: Vec<Form>,
+}
+
 fn weighed(points: Vec<PointHandle>) -> TargetHandle {
     let weight = 1.0 / points.len().max(1) as f64;
     TargetHandle::Sum(points.into_iter().map(|point| (point, weight)).collect())
@@ -76,6 +81,28 @@ impl System {
                 .target_position(target, held, across(sketch, constraint))
                 .unwrap_or(held),
         )
+    }
+
+    pub(super) fn hidden_target_starts(
+        &self,
+        sketch: &Sketch,
+        constraint: &Constraint,
+    ) -> Vec<Point2> {
+        let members = match (constraint, tracked(constraint)) {
+            (Constraint::Centroid { corners, .. }, _)
+            | (_, Some((_, PointTarget::Centroid(corners)))) => corners,
+            _ => {
+                return self
+                    .hidden_target_start(sketch, constraint)
+                    .into_iter()
+                    .collect();
+            }
+        };
+        members
+            .iter()
+            .filter(|member| matches!(sketch.entity(**member), Some(Entity::Arc { .. })))
+            .filter_map(|arc| sketch.middle_of(*arc))
+            .collect()
     }
 
     pub(super) fn target_parameter_start(
@@ -136,22 +163,49 @@ impl System {
             }
             Constraint::Centroid { point, corners } => {
                 let point = self.point(*point)?;
-                let weight = 1.0 / corners.len().max(1) as f64;
-                let terms: Arc<[(PointHandle, f64)]> = corners
-                    .iter()
-                    .map(|corner| Ok((self.point(*corner)?, weight)))
-                    .collect::<Result<_, SketchError>>()?;
-                Ok([Vector2::X, Vector2::Y]
-                    .into_iter()
-                    .map(|along| Form::Through {
-                        point,
-                        terms: Arc::clone(&terms),
-                        along,
-                    })
-                    .collect())
+                let CentroidTerms { terms, mut forms } =
+                    self.centroid_terms(sketch, id, corners)?;
+                let terms: Arc<[(PointHandle, f64)]> = terms.into();
+                forms.extend([Vector2::X, Vector2::Y].map(|along| Form::Through {
+                    point,
+                    terms: Arc::clone(&terms),
+                    along,
+                }));
+                Ok(forms)
             }
             _ => Ok(Vec::new()),
         }
+    }
+
+    fn centroid_terms(
+        &self,
+        sketch: &Sketch,
+        id: ConstraintId,
+        members: &[EntityId],
+    ) -> Result<CentroidTerms, SketchError> {
+        let weight = 1.0 / members.len().max(1) as f64;
+        let mut hidden = self.targets.get(&id).into_iter().flatten().copied();
+        let mut terms = Vec::new();
+        let mut forms = Vec::new();
+        for member in members {
+            match sketch.entity(*member) {
+                Some(Entity::Line { .. }) => {
+                    let line = self.line(sketch, *member)?;
+                    let half = weight / 2.0;
+                    terms.extend([(line.start, half), (line.end, half)]);
+                }
+                Some(Entity::Arc { .. }) => {
+                    let middle = hidden
+                        .next()
+                        .map(PointHandle::Variable)
+                        .ok_or(SketchError::MissingConstraint(id))?;
+                    forms.extend(self.middle_forms(sketch, middle, *member)?);
+                    terms.push((middle, weight));
+                }
+                _ => terms.push((self.point(*member)?, weight)),
+            }
+        }
+        Ok(CentroidTerms { terms, forms })
     }
 
     fn target_handle(
@@ -163,6 +217,7 @@ impl System {
         let hidden = || {
             self.targets
                 .get(&id)
+                .and_then(|hidden| hidden.first())
                 .map(|x| PointHandle::Variable(*x))
                 .ok_or(SketchError::MissingConstraint(id))
         };
@@ -193,15 +248,10 @@ impl System {
                 }
                 Ok((weighed(vec![point]), forms))
             }
-            PointTarget::Centroid(corners) => Ok((
-                weighed(
-                    corners
-                        .iter()
-                        .map(|corner| self.point(*corner))
-                        .collect::<Result<_, _>>()?,
-                ),
-                Vec::new(),
-            )),
+            PointTarget::Centroid(corners) => {
+                let CentroidTerms { terms, forms } = self.centroid_terms(sketch, id, corners)?;
+                Ok((TargetHandle::Sum(terms.into()), forms))
+            }
             PointTarget::Quadrant { curve, side } => Ok((
                 TargetHandle::Rim {
                     circle: self.circle(sketch, *curve)?,

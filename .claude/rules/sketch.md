@@ -168,14 +168,16 @@ paths:
   refuse it (`OnlyReference`).
 - Point targets (`target.rs`, `PointTarget`): a sketch point, the middle of a line, arc or
   elliptical arc, the crossing of two curves (lines, axes, circles, arcs, ellipses, splines), the
-  centre of corners (`Centroid`, their mean), a quadrant of a circle or of an arc's whole circle
+  centre of corners or sides (`Centroid`, the mean of its members, a point at itself and a line or
+  arc at its middle), a quadrant of a circle or of an arc's whole circle
   (`Quadrant`) and an end of an ellipse's axes (`EllipseEnd`). `HorizontalPoints` and
   `VerticalPoints` hold a point level or upright with one (a sketch point is the two-point form
   every older use writes); `OnDirection { point, through, line, square }` holds it on the line
   through one along a line or square to it (the perpendicular bisector when `through` is that
-  line's middle); `Centroid { point, corners }` holds it at the centre of corners. `check_target`
-  refuses a wrong kind, a repeated entity or the held point itself (`SameEntity`) and fewer than
-  two corners (`TooFewCorners`); `Constraint::entities` lists each entity once. `target_places`
+  line's middle); `Centroid { point, corners }` holds it at that centre (`corners` lists points, lines and
+  arcs; an odd outline with an arc lists its pieces). `check_target` refuses a wrong kind, a
+  repeated entity or the held point itself (`SameEntity`) and fewer than two members
+  (`TooFewCorners`); `Constraint::entities` lists each entity once. `target_places`
   gives where a target lies (both crossings of a line and a circle), `target_position` the one a
   constraint means: the place it misses least, the nearest the held point among ties.
   `describe_target` names it in words ("the crossing of Line 1 and Circle 2"), so `describe`

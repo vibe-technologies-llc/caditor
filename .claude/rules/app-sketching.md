@@ -104,7 +104,14 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
 - A grab snaps while snapping is on or Alt is held, and Ctrl is not (`ViewportState::grab_snapping`,
   `Grab::follow`). Its handle (the grabbed point or, for a curve or selection, the moving point
   nearest the press) goes through `tracking::land` on the displayed sketch, ignoring every moving
-  point and curve using one; Alt lands as a held snap does (`Hold`). A circle dragged alone changes
+  point and curve using one; Alt lands as a held snap does (`Hold`). Any other moving point may
+  land instead (`Grab::snapper_landing`): `snap::nearest_moved` buckets the moved points by screen
+  cells of the snap radius and walks the sketch's point, middle, centre, quadrant and axis end
+  targets once (not crossings, tracks or body items), so a frame stays linear in the sketch and
+  the selection; the moving point nearest one, when nearer than the handle's own point-like or grid
+  landing (else within `POINT_TOLERANCE`, `HELD_POINT_PULL` with Alt), lands through
+  `tracking::land` with no acquired anchors and takes the drag and the joins when it finds a
+  point-like target (`Grab::landed`). A circle dragged alone changes
   its radius and lands its rim on the sketch point near the pointer only (`Grab::follow_rim`, its centre
   and itself ignored, never a point nearer the centre than `SMALLEST_SNAPPED_RADIUS`, no body items,
   tracks or guides); release adds `Coincident` of that point with the circle (`Join::rim_of`, which
@@ -437,7 +444,7 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   (`Target::AxisEnd`); then lines, circles, arcs, splines and axes within `CURVE_TOLERANCE`,
   projecting onto the curve. A snapped point gets a `Coincident` with its target (both curves at a
   crossing), a `Midpoint` for a middle, a `Symmetric` of two opposite corners about it for a centre
-  (a `Centroid` of the corners for an odd outline's), and for a quadrant a `Coincident` plus a horizontal or vertical points constraint with the centre.
+  (a `Centroid` of the corners, or of the sides with an arc among them, for an odd outline's), and for a quadrant a `Coincident` plus a horizontal or vertical points constraint with the centre.
   A major axis end is held by a `Symmetric` of the axis point and the new point about the centre; a
   minor axis end by a `Coincident` with the ellipse plus a vertical or horizontal points constraint
   with the centre when the major axis is level or upright (`AxisEnd::MinorUpright`, `MinorLevel`), else
@@ -452,10 +459,15 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   most `MAX_OUTLINE_LINES` pieces) of an even count whose opposite corners share one midpoint and
   whose opposite pieces are both lines or both arcs of one radius with centres mirrored about it
   (rectangle, parallelogram, even regular polygon, slot, rounded rectangle); a third piece at a corner
-  breaks the loop. An odd loop of lines has the centre of its corners (their mean; none for a loop
-  of no area) as centre (`Target::Centroid`), held by a `Centroid` of the corner points the outline
-  search finds again from the target's piece (`snap::outline_corners`, one point per corner, so
-  `Target` stays `Copy`). A loop with a piece or corner moving in a drag offers no centre.
+  breaks the loop. An odd loop has the mean of its sides' middles as centre (`Target::Centroid`;
+  none for a loop of no area, measured through its corners and side middles): for lines alone that
+  is the centre of the corners, held by a `Centroid` of the corner points; with an arc among them
+  the arc's middle pulls it toward the bulge, held by a `Centroid` of the pieces themselves (each
+  taken at its middle). The members are found again from the target's piece
+  (`snap::centroid_members`), so `Target` stays `Copy`. The middle of the sides was chosen over the
+  centroid of the enclosed area because the solver holds it with the arcs' middles and no new
+  equation kind, and it is the corners' centre for straight sides. A loop with a piece or corner
+  moving in a drag offers no centre.
 - `Accept` keeps every shown snap a constraint that already holds: a circle's rim takes points only;
   an arc's end takes points on its circle and where it crosses other curves
   (`Sketch::circle_crossings`) and the axes.
@@ -492,7 +504,7 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   point snaps never take one.
 - Every track holds the placed point at its anchor (`Track::constraint`): the anchor's
   `Target::point_target` (`sketch.md`, point targets: a point, a middle, a crossing, the two
-  opposite corners of a `Centre` or the corners of a `Centroid`, a quadrant, an ellipse's far
+  opposite corners of a `Centre` or the members of a `Centroid`, a quadrant, an ellipse's far
   major or nearer minor end) in `HorizontalPoints` or `VerticalPoints`, so the point follows the
   middle, crossing or centre when its geometry moves, with no construction point left in the
   sketch. The label names held tracks first and ends `NOT_KEPT_THERE` when a track's anchor has no

@@ -264,9 +264,11 @@ impl Names {
                 name(x + 1, Variable::Control(*spline, 2 * ordinal + 1));
             }
         }
-        for (constraint, x) in &system.targets {
-            name(*x, Variable::Target(*constraint, 0));
-            name(x + 1, Variable::Target(*constraint, 1));
+        for (constraint, hidden) in &system.targets {
+            for (ordinal, x) in hidden.iter().enumerate() {
+                name(*x, Variable::Target(*constraint, 2 * ordinal));
+                name(x + 1, Variable::Target(*constraint, 2 * ordinal + 1));
+            }
         }
         for (constraint, parameters) in &system.parameters {
             for (ordinal, parameter) in parameters.iter().enumerate() {

@@ -42,7 +42,8 @@ takes it back and returns to the sketch.
   cancel the shape first.
 - With Select, drag a point or curve to move it; drag across empty space to box-select.
   Double-click a curve to select the chain it belongs to. A dragged point snaps as a drawn one
-  does, and the geometry it would land on is highlighted.
+  does, and the geometry it would land on is highlighted; a dragged curve or selection snaps
+  whichever of its points comes nearest something to land on.
 - The prompt at the top of the view says what to click next, with the three or four keys that
   matter most; **More keys** beside them (a button Tab reaches) shows the rest, and **Fewer keys**
   folds them again.

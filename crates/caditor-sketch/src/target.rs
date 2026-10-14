@@ -206,6 +206,13 @@ impl Sketch {
         }
     }
 
+    pub fn place_in_centroid(&self, member: EntityId) -> Option<Point2> {
+        match self.entity(member) {
+            Some(Entity::Line { .. } | Entity::Arc { .. }) => self.middle_of(member),
+            _ => self.point(member),
+        }
+    }
+
     pub fn describe_target(&self, target: &PointTarget) -> String {
         let label = |entity: EntityId| self.entity_label(entity);
         match target {
@@ -269,9 +276,13 @@ impl Sketch {
                 if corners.len() < FEWEST_CORNERS {
                     return Err(SketchError::TooFewCorners);
                 }
-                corners
-                    .iter()
-                    .try_for_each(|corner| self.expect_role(*corner, &[Role::Point], "a point"))
+                corners.iter().try_for_each(|corner| {
+                    match (self.role(*corner), self.entity(*corner)) {
+                        (Some(Role::Point), _)
+                        | (_, Some(Entity::Line { .. } | Entity::Arc { .. })) => Ok(()),
+                        _ => Err(wrong(*corner, "a point, a line or an arc")),
+                    }
+                })
             }
             PointTarget::Quadrant { curve, .. } => {
                 self.expect_role(*curve, &[Role::Circular], "a circle or an arc")
@@ -322,7 +333,7 @@ fn end_of(sketch: &Sketch, ellipse: EntityId, end: EllipseEnd) -> Option<Point2>
 fn centroid_of(sketch: &Sketch, corners: &[EntityId]) -> Option<Point2> {
     let mut sum = Vector2::ZERO;
     for corner in corners {
-        sum += sketch.point(*corner)?;
+        sum += sketch.place_in_centroid(*corner)?;
     }
     (!corners.is_empty()).then(|| sum / corners.len() as f64)
 }
