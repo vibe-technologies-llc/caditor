@@ -698,7 +698,11 @@ paths:
   follow: one `HelixTurn` per coil piece (at most one turn each), the coil's rational quadratic
   net (`faces::Motion::helix`, shared through `Winding`) over its `SPANS_PER_TURN` spans, the taper
   carried as the coil's; `HelixTurn::path_segment` keys it and winds it about the spec's axis.
-  Refusals as a coil's for the values it shares, a taper drawing it into the axis `ReachesAxis`.
+  `start_angle` turns the frame counter-clockwise about its normal before winding
+  (`HelixSpec::start_frame`), whatever the hand, so it moves the start without mirroring it;
+  `HelixSpec::point_at` is the analytic point an angle round from the start (the app's arrows stand
+  on it). Refusals as a coil's for the values it shares (a non-finite start angle `NonFinite`), a
+  taper drawing it into the axis `ReachesAxis`.
 - `CoilSpec::volume` is the analytic volume (section area times the centroid's travel round the
   axis, the mean radius with a taper); `coil/tests.rs` holds tessellated volumes to it within 1e-3,
   a groove cut into a shaft to the half disc's, and names, hands and refusals.

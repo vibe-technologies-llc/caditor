@@ -220,6 +220,7 @@ fn helix_spec(turns: f64, taper: f64) -> HelixSpec {
         turns,
         taper,
         hand: Handedness::Right,
+        start_angle: 0.0,
     }
 }
 
@@ -266,5 +267,63 @@ fn a_helix_drawn_in_to_its_axis_or_out_of_range_is_refused() {
     assert_eq!(
         helix(&helix_spec(2.0, 85.0_f64.to_radians())),
         Err(HelixError::TaperTooSteep)
+    );
+}
+
+#[test]
+fn a_start_angle_turns_where_the_helix_starts_about_its_axis_whichever_way_it_turns() {
+    let quarter = PI / 2.0;
+    let right = HelixSpec {
+        start_angle: quarter,
+        ..helix_spec(1.25, 0.0)
+    };
+    let left = HelixSpec {
+        hand: Handedness::Left,
+        ..right
+    };
+
+    let first = |spec: &HelixSpec| {
+        let turns = helix(spec).unwrap();
+        let start = turns
+            .first()
+            .map(|turn| turn.curve().point(turn.range().start()))
+            .unwrap();
+        let end = turns
+            .last()
+            .map(|turn| turn.curve().point(turn.range().end()))
+            .unwrap();
+        (start, end)
+    };
+    let (right_start, right_end) = first(&right);
+    let (left_start, left_end) = first(&left);
+
+    assert!(
+        right_start.distance(Point3::new(0.0, 10.0, 0.0)) < 1e-9,
+        "{right_start}"
+    );
+    assert!(
+        left_start.distance(Point3::new(0.0, 10.0, 0.0)) < 1e-9,
+        "{left_start}"
+    );
+    assert!(
+        right_end.distance(Point3::new(-10.0, 0.0, 5.0)) < 1e-9,
+        "{right_end}"
+    );
+    assert!(
+        left_end.distance(Point3::new(10.0, 0.0, 5.0)) < 1e-9,
+        "{left_end}"
+    );
+    assert_eq!(right.start(), Some(right_start));
+    assert!(
+        right
+            .point_at(2.5 * PI)
+            .is_some_and(|point| point.distance(right_end) < 1e-9)
+    );
+    assert_eq!(
+        helix(&HelixSpec {
+            start_angle: f64::NAN,
+            ..right
+        }),
+        Err(HelixError::NonFinite)
     );
 }

@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use caditor_expression::{Expression, ParameterId, Unit};
+use caditor_expression::{Dimension, Expression, ParameterId, Unit};
 use caditor_geometry::{Plane, Point3, Ray};
 use caditor_kernel::{HelixError, HelixSpec, HelixTurn, MAX_COIL_TAPER_DEGREES, helix};
 
@@ -22,6 +22,7 @@ pub struct Helix {
     pub length: CoilLength,
     pub taper: Expression,
     pub turning: CoilTurning,
+    pub start: Expression,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -54,17 +55,18 @@ impl Helix {
             },
             taper: Expression::measure(0.0, Unit::Degree),
             turning: CoilTurning::CounterClockwise,
+            start: Expression::measure(0.0, Unit::Degree),
         }
     }
 
     pub fn expressions(&self) -> Vec<&Expression> {
-        let mut expressions = vec![&self.diameter, &self.taper];
+        let mut expressions = vec![&self.diameter, &self.taper, &self.start];
         expressions.extend(self.length.expressions());
         expressions
     }
 
     pub fn expressions_mut(&mut self) -> Vec<&mut Expression> {
-        let mut expressions = vec![&mut self.diameter, &mut self.taper];
+        let mut expressions = vec![&mut self.diameter, &mut self.taper, &mut self.start];
         expressions.extend(self.length.expressions_mut());
         expressions
     }
@@ -170,6 +172,7 @@ pub(crate) fn evaluate(
     let diameter = context.size(&definition.diameter, "diameter")?;
     let span = coil::span(&context, &definition.length)?;
     let taper = coil::taper(&context, &definition.taper)?;
+    let start = context.value_as(&definition.start, "start angle", Dimension::ANGLE)?;
     let axis = context.resolver().axis(&definition.axis)?;
     let frame = definition.frame(axis).ok_or_else(|| {
         context.error(
@@ -187,6 +190,7 @@ pub(crate) fn evaluate(
         turns: span.turns,
         taper,
         hand: definition.turning.hand(),
+        start_angle: start.to_radians(),
     };
     let turns = helix(&spec).map_err(|error| failure(&context, feature, &error))?;
     Ok(FeatureResult::Helix(HelixResult { frame, turns }))

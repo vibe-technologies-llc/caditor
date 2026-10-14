@@ -3,17 +3,18 @@ use std::f64::consts::{PI, TAU};
 use caditor_document::{
     Blend, BlendKind, ChamferForm, CircularPattern, Coil, CoilLength, CurvePattern, CurveSpacing,
     Datum, DatumPlane, Evaluation, Extrude, ExtrudeEnd, ExtrudeExtent, FeatureId, FeatureKind,
-    Hole, HoleDepth, HoleShape, HoleSizing, HoleStep, HoleStyle, LinearDirection, LinearSpacing,
-    MAX_CONE_ANGLE, MAX_PATTERN_INSTANCES, MAX_PRISM_SIDES, MIN_PRISM_SIDES, OffsetFace, Pattern,
-    PatternKind, PatternPath, Pipe, Primitive, PrimitiveAnchor, PrimitiveShape, ReachedEnd,
-    ReachedSide, Resolution, Rib, Shell, ShellSide, SizeRule, SolidFeature, SolidStart, Wall,
-    capitalized, circle_sizes, coil_size_name, displayed_axis, displayed_plane, face_plane,
-    hole_centres, hole_thread, pipe_size_name, pipe_stand, rib_stand,
+    Helix, Hole, HoleDepth, HoleShape, HoleSizing, HoleStep, HoleStyle, LinearDirection,
+    LinearSpacing, MAX_CONE_ANGLE, MAX_PATTERN_INSTANCES, MAX_PRISM_SIDES, MIN_PRISM_SIDES,
+    OffsetFace, Pattern, PatternKind, PatternPath, Pipe, Primitive, PrimitiveAnchor,
+    PrimitiveShape, ReachedEnd, ReachedSide, Resolution, Rib, Shell, ShellSide, SizeRule,
+    SolidFeature, SolidStart, Wall, capitalized, circle_sizes, coil_size_name, displayed_axis,
+    displayed_plane, face_plane, hole_centres, hole_thread, pipe_size_name, pipe_stand, rib_stand,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
 use caditor_kernel::{
-    CoilPlacement, EdgeId, FaceId, MAX_TAPER_DEGREES, PipeShape, Solid, WallSide, measured_face,
+    CoilPlacement, EdgeId, FaceId, HelixSpec, MAX_TAPER_DEGREES, PipeShape, Solid, WallSide,
+    measured_face,
 };
 use caditor_sketch::Entity;
 
@@ -208,6 +209,21 @@ fn coil_mut(kind: &mut FeatureKind) -> Option<&mut Coil> {
     match kind {
         FeatureKind::Coil(coil) => Some(coil),
         _ => None,
+    }
+}
+
+fn winding_mut(kind: &mut FeatureKind) -> Option<(&mut Expression, &mut CoilLength)> {
+    match kind {
+        FeatureKind::Coil(coil) => Some((&mut coil.diameter, &mut coil.length)),
+        FeatureKind::Helix(helix) => Some((&mut helix.diameter, &mut helix.length)),
+        _ => None,
+    }
+}
+
+fn winding_noun(kind: &FeatureKind) -> &'static str {
+    match kind {
+        FeatureKind::Helix(_) => "helix",
+        _ => "coil",
     }
 }
 
@@ -411,15 +427,21 @@ impl Measured {
                 }
                 None => "Drag to change the pattern's spacing",
             },
-            Self::CoilDiameter => "Drag to change the coil's diameter",
+            Self::CoilDiameter => {
+                return format!("Drag to change the {}'s diameter", winding_noun(kind));
+            }
             Self::CoilSection => match kind.coil() {
                 Some(coil) => {
                     return format!("Drag to change the coil's {}", coil_size_name(coil.shape));
                 }
                 None => "Drag to change the coil's section",
             },
-            Self::CoilPitch => "Drag to change the coil's pitch",
-            Self::CoilHeight => "Drag to change the coil's height",
+            Self::CoilPitch => {
+                return format!("Drag to change the {}'s pitch", winding_noun(kind));
+            }
+            Self::CoilHeight => {
+                return format!("Drag to change the {}'s height", winding_noun(kind));
+            }
             Self::RibThickness => "Drag to change the rib's thickness",
             Self::BlendSecond => "Drag to change the chamfer's second distance",
             Self::BlendAngle => "Drag to change the chamfer's angle",
@@ -599,14 +621,14 @@ impl Measured {
             Self::CircularCount => Some(&mut circular_mut(kind)?.count),
             Self::CurveSpacing => Some(&mut curve_mut(kind)?.spacing),
             Self::CurveCount => Some(&mut curve_mut(kind)?.count),
-            Self::CoilDiameter => Some(&mut coil_mut(kind)?.diameter),
+            Self::CoilDiameter => Some(winding_mut(kind)?.0),
             Self::CoilSection => Some(&mut coil_mut(kind)?.size),
-            Self::CoilPitch => match &mut coil_mut(kind)?.length {
+            Self::CoilPitch => match winding_mut(kind)?.1 {
                 CoilLength::TurnsAndPitch { pitch, .. }
                 | CoilLength::HeightAndPitch { pitch, .. } => Some(pitch),
                 CoilLength::HeightAndTurns { .. } => None,
             },
-            Self::CoilHeight => match &mut coil_mut(kind)?.length {
+            Self::CoilHeight => match winding_mut(kind)?.1 {
                 CoilLength::HeightAndTurns { height, .. }
                 | CoilLength::HeightAndPitch { height, .. } => Some(height),
                 CoilLength::TurnsAndPitch { .. } => None,
@@ -891,6 +913,7 @@ impl Builder<'_> {
             FeatureKind::Primitive(primitive) => self.primitive(primitive),
             FeatureKind::Pattern(pattern) => self.pattern(pattern),
             FeatureKind::Coil(coil) => self.coil(coil),
+            FeatureKind::Helix(helix) => self.helix(helix),
             FeatureKind::Rib(rib) => self.rib(rib).into_iter().collect(),
             _ => Vec::new(),
         }
@@ -1466,6 +1489,63 @@ impl Builder<'_> {
             gauges.push(Gauge::line(
                 Measured::CoilHeight,
                 (wire_at(sweep), frame.normal()),
+                1.0,
+                pitch * turns,
+            ));
+        }
+        gauges
+    }
+
+    fn helix(&self, helix: &Helix) -> Vec<Gauge> {
+        let (Some(diameter), Some(taper), Some(start)) = (
+            self.length(&helix.diameter),
+            self.angle(&helix.taper),
+            self.angle(&helix.start),
+        ) else {
+            return Vec::new();
+        };
+        let Some((pitch, turns)) = self.coil_span(&helix.length) else {
+            return Vec::new();
+        };
+        let Some(frame) = displayed_axis(self.model.evaluation(), self.feature, &helix.axis)
+            .and_then(|axis| helix.frame(axis))
+        else {
+            return Vec::new();
+        };
+        let spec = HelixSpec {
+            frame,
+            radius: diameter / 2.0,
+            pitch,
+            turns,
+            taper: taper.to_radians(),
+            hand: helix.turning.hand(),
+            start_angle: start.to_radians(),
+        };
+        let Some(started) = spec.start_frame() else {
+            return Vec::new();
+        };
+        let mut gauges = vec![Gauge::line(
+            Measured::CoilDiameter,
+            (started.origin(), started.x_axis()),
+            0.5,
+            diameter,
+        )];
+        if helix.length.pitch().is_some()
+            && let Some(turned) = spec.point_at(TAU)
+        {
+            gauges.push(Gauge::line(
+                Measured::CoilPitch,
+                (turned, frame.normal()),
+                1.0,
+                pitch,
+            ));
+        }
+        if helix.length.height().is_some()
+            && let Some(end) = spec.point_at(TAU * turns)
+        {
+            gauges.push(Gauge::line(
+                Measured::CoilHeight,
+                (end, frame.normal()),
                 1.0,
                 pitch * turns,
             ));

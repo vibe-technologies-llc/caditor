@@ -52,7 +52,7 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 36] = [
+const KEPT: [(&str, &str); 37] = [
     (
         "journal-1/by-reference.journal",
         "fe98725da8d9df46b19d7cede1474bcfb92bbda00d4de9c890e5bca5d0f2899f",
@@ -108,6 +108,10 @@ const KEPT: [(&str, &str); 36] = [
     (
         "model-1/helices.caditor",
         "2d1bcb33f8ca6c8bf457cffddf2a4d0d434917beb2645bc3c7e0bedc04181ced",
+    ),
+    (
+        "model-1/helix-starts.caditor",
+        "dbafced7b7f2936d0eee9b58afe16a80ba1e9e7097126d8541328040232c08ac",
     ),
     (
         "model-1/holes.caditor",
@@ -733,6 +737,10 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
         (model("ribs"), saved(&ribs(), "Ribs")),
         (model("coils"), saved(&coils(), "Coils")),
         (model("helices"), saved(&helices(), "Helices")),
+        (
+            model("helix-starts"),
+            saved(&helix_starts(), "Helix starts"),
+        ),
         (model("lofts"), saved(&lofts(), "Lofts")),
         (
             model("separate-pieces"),
@@ -1427,6 +1435,30 @@ fn helices() -> Document {
             other_bodies: vec![base],
             ..Sweep::new(outline, SweepPath::Helix { helix })
         })),
+    );
+    transaction.add_feature(
+        "Wire",
+        FeatureKind::Pipe(Pipe::new(
+            SweepPath::Helix { helix },
+            parse("2 mm"),
+            parse("0 mm"),
+        )),
+    );
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
+fn helix_starts() -> Document {
+    let (mut document, _, _) = solid_model();
+    let parse = |text: &str| Expression::parse_stored(text).unwrap();
+    let mut transaction = document.transaction("Helix starts");
+    let helix = transaction.add_feature(
+        "Started helix",
+        FeatureKind::Helix(Helix {
+            start: parse("45 deg"),
+            turning: CoilTurning::Clockwise,
+            ..Helix::new(AxisReference::Principal(PrincipalAxis::Z), parse("20 mm"))
+        }),
     );
     transaction.add_feature(
         "Wire",

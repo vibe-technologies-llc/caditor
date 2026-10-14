@@ -315,6 +315,7 @@ pub(crate) enum FeatureKindRecord {
     DeleteFace(Box<DeleteFaceRecord>),
     Helix(Box<HelixRecord>),
     AlongHelix(Box<AlongHelixRecord>),
+    HelixStart(Box<HelixStartRecord>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -326,6 +327,12 @@ pub(crate) struct HelixRecord {
     pub length: CoilLengthRecord,
     pub taper: String,
     pub turning: CoilTurningRecord,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct HelixStartRecord {
+    pub feature: FeatureKindRecord,
+    pub start: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -976,7 +983,7 @@ pub(crate) struct RevolveOneSideRecord {
 
 pub(crate) const FEATURE_FIELDS: [&str; 4] = ["hidden", "appearance", "group", "piece_looks"];
 
-pub(crate) const FEATURE_KINDS: [&str; 82] = [
+pub(crate) const FEATURE_KINDS: [&str; 83] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -1059,6 +1066,7 @@ pub(crate) const FEATURE_KINDS: [&str; 82] = [
     "delete_face",
     "helix",
     "along_helix",
+    "helix_start",
 ];
 
 #[derive(Debug, Clone)]
@@ -3610,8 +3618,25 @@ fn restore_turning(record: CoilTurningRecord) -> CoilTurning {
     }
 }
 
+fn starts_where_its_frame_points(start: &Expression) -> bool {
+    matches!(
+        start,
+        Expression::Number(value) | Expression::Measure(value, _) if *value == 0.0
+    )
+}
+
 fn helix_record(helix: &Helix) -> FeatureKindRecord {
     let text = Expression::to_stored_text;
+    if !starts_where_its_frame_points(&helix.start) {
+        let plain = Helix {
+            start: Expression::measure(0.0, Unit::Degree),
+            ..helix.clone()
+        };
+        return FeatureKindRecord::HelixStart(Box::new(HelixStartRecord {
+            feature: helix_record(&plain),
+            start: text(&helix.start),
+        }));
+    }
     FeatureKindRecord::Helix(Box::new(HelixRecord {
         axis: Lenient::Read(axis_record(&helix.axis)),
         reversed: helix.reversed,
@@ -3674,6 +3699,7 @@ fn restore_helix(record: &HelixRecord, feature: &str, issues: &mut Vec<String>) 
         length,
         taper,
         turning: restore_turning(record.turning),
+        start: Expression::measure(0.0, Unit::Degree),
     }
 }
 
@@ -5955,6 +5981,20 @@ fn restore_kind(
                 _ => issues.push(format!(
                     "“{name}” was to be drilled up to a face, but it is not a hole, so that was \
                      left out."
+                )),
+            }
+            kind
+        }
+        FeatureKindRecord::HelixStart(started) => {
+            let mut kind = restore_kind(&started.feature, name, texts, issues);
+            match &mut kind {
+                FeatureKind::Helix(helix) => {
+                    helix.start =
+                        restore_value(&started.start, "start angle", "0 deg", name, issues);
+                }
+                _ => issues.push(format!(
+                    "“{name}” was to start at an angle round its axis, but it is not a helix, so \
+                     that was left out."
                 )),
             }
             kind
