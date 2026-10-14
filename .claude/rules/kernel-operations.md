@@ -424,6 +424,10 @@ paths:
   `PatternError::Union` naming the copies of both sides, the original as `[0, 0]`.
 - Copies are renamed and given `FaceOrigin::Copy` (`kernel-naming.md`); the original keeps every
   name and origin.
+- `blend_copy(solid, edges, shape, copy, feature)` blends edges of one copy for a repeated fillet
+  or chamfer: `blend` under the pattern's id (so the faces it makes are the only ones of that
+  origin without a copy), then each such face's origin becomes a `Copy` of `copy` with the blend's
+  `feature`. Its names stay the blend's own (`FaceName::blend(pattern, edge)` of the copy's edge).
 
 # Closing faces (`enclose/`)
 

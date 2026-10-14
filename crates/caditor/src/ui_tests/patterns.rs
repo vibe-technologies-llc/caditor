@@ -116,6 +116,82 @@ fn a_hole_chosen_in_the_tree_is_repeated_by_a_pattern_instead_of_its_body() {
 }
 
 #[test]
+fn a_chamfer_chosen_with_its_hole_is_repeated_on_every_copy_but_alone_repeats_the_body() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    let top = Plane::from_frame(
+        caditor_geometry::Point3::new(0.0, 0.0, 10.0),
+        caditor_geometry::Vector3::Z,
+        caditor_geometry::Vector3::X,
+    )
+    .unwrap();
+    let mut sketch = Sketch::new(top);
+    sketch.add_point(Point2::new(8.0, 20.0));
+    harness.add_sketch(sketch);
+    harness.select([]);
+    harness.click("Hole");
+    harness.settle();
+    let hole = harness.workspace.editing.solid().expect("the hole is open");
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.settle();
+    let wall = {
+        let solid = harness.model.evaluation().body(plate).expect("the plate");
+        let face = solid
+            .faces()
+            .find(|(_, face)| {
+                face.origin()
+                    .is_some_and(|origin| origin.feature() == hole.raw())
+            })
+            .map(|(id, _)| id)
+            .expect("the hole's wall");
+        caditor_kernel::FaceReference::capture(solid, face).expect("the wall's reference")
+    };
+    let mut transaction = harness.document().transaction("Chamfer");
+    let chamfer = transaction.add_feature(
+        "Rim",
+        caditor_document::FeatureKind::Blend(caditor_document::Blend {
+            kind: caditor_document::BlendKind::Chamfer,
+            body: plate,
+            edges: Vec::new(),
+            groups: vec![caditor_document::EdgeGroup::Face(wall)],
+            size: caditor_expression::Expression::parse_stored("1 mm").unwrap(),
+            form: caditor_document::ChamferForm::Equal,
+            flipped: false,
+        }),
+    );
+    harness.perform(Action::Apply(transaction.finish()));
+    harness.settle();
+    let one = 16000.0 - harness.body_volume(plate);
+
+    harness.workspace.panels.choose_all(&[hole, chamfer]);
+    harness.frame();
+    harness.frame();
+    harness.hover("Linear pattern");
+    let described = harness.shows_containing("Repeat Hole 1 and Rim along the X axis");
+    harness.click("Linear pattern");
+    harness.settle();
+    let pattern = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the pattern is open");
+
+    assert!(one > std::f64::consts::PI * 9.0 * 10.0 + 10.0);
+    assert!(described);
+    assert_eq!(pattern_of(&harness, pattern).repeated, vec![hole, chamfer]);
+    assert!(harness.shows("Rim"));
+    assert!(volume_about(&harness, plate, 16000.0 - 3.0 * one));
+
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.settle();
+    harness.workspace.panels.choose_only(chamfer);
+    harness.frame();
+    harness.frame();
+    harness.hover("Linear pattern");
+    assert!(harness.shows_containing("Repeat the body of Extrude 1 along the X axis"));
+}
+
+#[test]
 fn a_pattern_takes_its_directions_from_lists_in_its_panel() {
     let mut harness = Harness::new();
     extruded_plate(&mut harness);

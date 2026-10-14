@@ -247,3 +247,55 @@ fn copies_alone_leave_the_original_out_and_cut_a_row_of_pockets() {
     assert!(names(&copies).is_disjoint(&names(&pocket)));
     assert_eq!(pattern_copies(&pocket, &[], FEATURE), Ok(None));
 }
+
+#[test]
+fn a_blend_on_a_copy_names_its_faces_as_a_copy_of_the_blend() {
+    let original = block((0.0, 0.0), (10.0, 10.0), 5.0);
+    let patterned = pattern(&original, &along_x(20.0, 2), FEATURE).unwrap();
+    let copy = FaceCopy {
+        pattern: FEATURE,
+        index: [1, 0],
+    };
+    let copied_top = |face: Option<&crate::topology::Face>| {
+        face.and_then(|face| face.origin())
+            .is_some_and(|origin| origin == FaceOrigin::EndCap { feature: 1 }.copied(copy))
+    };
+    let top = patterned
+        .faces()
+        .find(|(_, face)| copied_top(Some(face)))
+        .map(|(_, face)| face.name())
+        .unwrap();
+    let edge = patterned
+        .edges()
+        .map(|(id, _)| id)
+        .find(|edge| {
+            crate::naming::EdgeReference::capture(&patterned, *edge)
+                .is_some_and(|reference| reference.faces().contains(&top))
+        })
+        .unwrap();
+
+    let blended = blend_copy(
+        &patterned,
+        &[edge],
+        BlendShape::Fillet { radius: 1.0 },
+        copy,
+        5,
+    )
+    .unwrap();
+
+    check(
+        "blended copy",
+        &blended,
+        1000.0 - (1.0 - std::f64::consts::FRAC_PI_4) * 10.0,
+    );
+    let origins: Vec<FaceOrigin> = blended
+        .faces()
+        .filter_map(|(_, face)| face.origin())
+        .collect();
+    assert!(origins.contains(&FaceOrigin::Fillet { feature: 5 }.copied(copy)));
+    assert!(
+        origins
+            .iter()
+            .all(|origin| origin.copy().is_some() || origin.feature() != FEATURE)
+    );
+}

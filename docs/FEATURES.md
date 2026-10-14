@@ -54,10 +54,10 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [medium · hard] Patterns stop short of what other modellers repeat: a curve pattern follows only
   the curves of one sketch, never a chain of model edges (a 3D path, the copies then turning with
   its tangent and normal), and a pattern repeats features or whole bodies but never chosen faces.
-  A feature pattern or mirror never repeats a fillet, chamfer or shell (`repeatable_on` takes only
-  extrusions, revolves and primitives adding or removing, and holes), so a filleted boss repeated
-  by its features comes out with bare copies, and filleting every copy afterwards leaves the copies
-  a raised count adds unfilleted.
+  A feature pattern or mirror never repeats a shell (`repeatable_on` takes extrusions, revolves,
+  primitives, pipes, coils and lofts adding or removing, holes, fillets and chamfers), and a
+  repeated fillet or chamfer on an edge of a corner face an earlier repeated blend made fails,
+  finding no match on the copies (`repeat_blend.rs` follows its edge faces, not its corners).
   Every copy is the original's tool placed again, never recomputed where it lands (a copy of an
   extrusion up to next stops where the original did, not on the face it meets), and one pattern
   cannot chain a shift, a turn and a mirror.

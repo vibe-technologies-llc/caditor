@@ -10,9 +10,10 @@ use crate::{
     datum::{PlaneReference, Resolver},
     document::{Feature, FeatureId},
     origins,
-    pattern::{Seed, SeedWords, seed},
+    pattern::{Instance, Repeated, Seed, SeedWords, seed},
     pieces::{Resolution, Unresolved, pieces_of_one_face, tally},
     recompute::{CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
+    repeat_blend::{self, CopiedNames, CopyWords},
     solid::SolidResult,
     trouble,
 };
@@ -201,8 +202,25 @@ impl Context<'_> {
         let copies = [image];
         let mut body = solid.clone();
         let mut cuts = Vec::new();
+        let mut names = CopiedNames::new(self.resolver.feature.id());
         for &feature in &definition.mirrored {
-            let seed = seed(inputs, feature, definition.body, &MIRROR_WORDS)?;
+            let seed = match seed(inputs, feature, definition.body, &MIRROR_WORDS)? {
+                Repeated::Tools(seed) => seed,
+                Repeated::Blend { name, recipe } => {
+                    let image_words = |_: Instance| "the mirror image".to_owned();
+                    let words = CopyWords {
+                        feature: self.resolver.feature.id(),
+                        blend: &name,
+                        seed: &MIRROR_WORDS,
+                        copy: &image_words,
+                        clear: "Move the plane so",
+                    };
+                    body = names
+                        .blend(body, recipe, &[MIRROR_IMAGE], cancel)
+                        .map_err(|error| repeat_blend::failure(&error, recipe, &words))?;
+                    continue;
+                }
+            };
             for tool in &seed.tools {
                 if cancel.is_cancelled() {
                     return Err(Failure::Cancelled);
@@ -219,6 +237,7 @@ impl Context<'_> {
                     cuts.push(placed);
                 }
             }
+            names.copying_tools_of(feature);
         }
         Ok(SolidResult::new(definition.body, body).cutting(cuts))
     }
