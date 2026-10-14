@@ -759,15 +759,23 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   runs on the edge's direction with no least value, and release commits one "Move <hole>"
   `SetSketchEntity` of the point (`hole_placement::slid`), the distance constraint untouched, so the
   solver keeps the distance. It is never driven (a point with edges has no origin dimensions) and
-  takes no typed value. A drag is a `place_handles::Slide` (shared with
+  takes a typed length, signed and with units or expressions, as the displacement from where the
+  point stands along the arrow (the drag's readout "Along the edge", `hole_handles::sliding`), the
+  same `slid` change. A drag is a `place_handles::Slide` (shared with
   `PlaceDrag`: a plane or a line, steps, Ctrl free, snapping to corners, edge middles and round
   centres, the arrow also kept at least one step from the edge) committed on release as one "Move
   <hole>" change: the square through `hole_placement::positioned` with the moved axes as measured
   values, the arrow as a `SetDimension` of that constraint's value or, for a named one, an
   `Edit::SetParameterExpression` (`manipulator::Held`, read from the panel's `EDGE_DISTANCE`
-  caption). A point whose position is held by a dimension from the origin, and a distance using
-  other parameters, are driven: the handle does not drag, its hover names what drives it and typing
-  opens no field. Typing over a square takes "x, y" and over an arrow a length at least zero, as the
+  caption). A free point whose origin dimensions each hold exactly one parameter (the expression
+  negated or not, through parameters that are themselves just another parameter, down to one whose
+  expression uses none: `hole_placement::driver`, the dimension holding the magnitude), with no
+  parameter on both axes, drags by editing those parameters: `hole_placement::dragged` writes
+  `Edit::SetParameterExpression` of the root parameter to the measured magnitude (negative when the
+  chain is negated) for each moved axis and the point beside it, the dimension untouched, and the
+  hover says "by changing <parameters>" (`Stand::driving`). A point whose dimensions hold anything
+  else (a number, an expression, one parameter twice), and a distance using parameters, are driven:
+  the handle does not drag, its hover names what drives it and typing opens no field. Typing over a square takes "x, y" and over an arrow a length at least zero, as the
   panel's fields do (`hole_handles::typed`). The hover names the hole ("hole 2") once there are
   several.
 
