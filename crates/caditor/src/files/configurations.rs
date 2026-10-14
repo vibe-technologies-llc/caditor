@@ -217,7 +217,12 @@ fn plan(
     let name = display_name(Some(path));
     model
         .document()
-        .plan_configuration_import(format!("Import configurations from {name}"), file, replace)
+        .plan_configuration_import_in(
+            format!("Import configurations from {name}"),
+            file,
+            replace,
+            model.evaluation(),
+        )
         .map_err(|error| format!("Could not import configurations from “{name}”: {error}."))
 }
 

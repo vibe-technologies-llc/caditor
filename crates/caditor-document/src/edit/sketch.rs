@@ -10,6 +10,7 @@ use crate::{
     edit::{Edit, EditError, Transaction, TransactionBuilder},
     measurement::Measured,
     projection::ProjectionSource,
+    solid::SolidFeature,
 };
 
 impl TransactionBuilder<'_> {
@@ -95,6 +96,8 @@ impl TransactionBuilder<'_> {
                     .collect();
                 entities.extend(projected_points);
                 let removal = Removal::plan(&definition.sketch, entities, constraints);
+                let removed: BTreeSet<EntityId> = removal.entities.iter().copied().collect();
+                let kept_keys = self.keeping_piece_keys(feature, &definition.sketch, &removed);
                 let unprojected = removal
                     .entities
                     .iter()
@@ -107,6 +110,7 @@ impl TransactionBuilder<'_> {
                     .collect::<Vec<_>>();
                 unprojected
                     .into_iter()
+                    .chain(kept_keys)
                     .chain(removal.edits(feature))
                     .collect()
             }
@@ -166,6 +170,13 @@ impl TransactionBuilder<'_> {
         before: &Sketch,
         after: &Sketch,
     ) -> &mut Self {
+        let removed: BTreeSet<EntityId> = before
+            .entities()
+            .map(|(id, _)| id)
+            .filter(|id| after.entity(*id).is_none())
+            .collect();
+        let kept_keys = self.keeping_piece_keys(feature, before, &removed);
+        self.edits.extend(kept_keys);
         let edits = Reshape::between(before, after).edits(feature);
         self.edits.extend(edits);
         let next = self
@@ -177,6 +188,44 @@ impl TransactionBuilder<'_> {
             .max(after.next_id());
         self.next_sketch_ids.insert(feature, next);
         self
+    }
+
+    fn keeping_piece_keys(
+        &self,
+        sketch: FeatureId,
+        before: &Sketch,
+        removed: &BTreeSet<EntityId>,
+    ) -> Vec<Edit> {
+        if removed.is_empty() {
+            return Vec::new();
+        }
+        self.document
+            .features()
+            .filter(|separating| {
+                separating.separates_pieces()
+                    && separating.kind.solid().map(SolidFeature::sketch) == Some(sketch)
+            })
+            .filter_map(|separating| {
+                let id = separating.id();
+                let current = self
+                    .edits
+                    .iter()
+                    .rev()
+                    .find_map(|edit| match edit {
+                        Edit::SetPieceStandIns {
+                            id: owner,
+                            stand_ins,
+                        } if *owner == id => Some(stand_ins),
+                        _ => None,
+                    })
+                    .unwrap_or(&separating.piece_stand_ins);
+                let kept = current.after_removing(before, removed);
+                (kept != *current).then_some(Edit::SetPieceStandIns {
+                    id,
+                    stand_ins: kept,
+                })
+            })
+            .collect()
     }
 
     fn sketch(&self, feature: FeatureId) -> Option<&Sketch> {

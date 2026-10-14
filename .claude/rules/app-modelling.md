@@ -1189,7 +1189,10 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   for the body it changes), and Hide or show feature toggles every chosen row, else the open feature
   (`toggle_rows`: hides all while any is shown). Hide everything but the selection
   (`visibility::hide_others`) hides in one transaction every other shown hideable feature and principal
-  item, except the edited sketch.
+  item, except the edited sketch; a kept piece (`document.md`, Separate pieces) keeps its feature shown
+  and hides the feature's other shown pieces (`Evaluation::pieces_made_by`) unless the feature itself
+  is kept, and names the transaction by the piece's body name. `visibility::is_shown` reads any body
+  ID through `Document::body_hidden`, so a shown piece's faces, edges and vertices stay selectable.
 - Hide or show every sketch, datum or body (`Command::ToggleSketches`, `ToggleDatums`, `ToggleBodies`,
   View menu; `visibility::toggle_kind`) is one transaction per kind: while any of that kind is shown it
   hides every one shown, otherwise shows them all; the edited sketch is never touched, and a model with

@@ -13,7 +13,7 @@ use crate::{
     attachment::{FaceAttachment, SketchAttachment, SketchFeature},
     blend::Blend,
     body_appearance::BodyAppearance,
-    body_pieces::{PieceKey, PieceLooks, Pieces},
+    body_pieces::{PieceKey, PieceLooks, PieceStandIns, Pieces},
     coil::Coil,
     combine::Combine,
     configurations::{ConfigurationId, Configurations},
@@ -1481,6 +1481,7 @@ pub struct Feature {
     pub group: Option<String>,
     pub pieces: Pieces,
     pub piece_looks: PieceLooks,
+    pub piece_stand_ins: PieceStandIns,
 }
 
 impl Feature {
@@ -1499,6 +1500,7 @@ impl Feature {
             group: None,
             pieces: Pieces::OneBody,
             piece_looks: PieceLooks::default(),
+            piece_stand_ins: PieceStandIns::default(),
         }
     }
 
@@ -1515,6 +1517,7 @@ impl Feature {
             && self.group == other.group
             && self.pieces == other.pieces
             && self.piece_looks == other.piece_looks
+            && self.piece_stand_ins == other.piece_stand_ins
             && self.kind.same_content(&other.kind)
     }
 
@@ -1537,6 +1540,7 @@ impl Feature {
             + self.appearance.heap_size()
             + self.group.as_ref().map_or(0, String::len)
             + self.piece_looks.heap_size()
+            + self.piece_stand_ins.heap_size()
     }
 
     pub fn separates_pieces(&self) -> bool {

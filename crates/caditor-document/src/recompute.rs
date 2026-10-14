@@ -765,6 +765,7 @@ impl CacheEntry {
         let same_definition = Arc::ptr_eq(&self.definition, definition)
             || (self.definition.id() == definition.id()
                 && self.definition.pieces == definition.pieces
+                && self.definition.piece_stand_ins == definition.piece_stand_ins
                 && self.definition.kind.same_content(&definition.kind));
         let same_message = match self.state {
             FeatureState::Failed(_) => {

@@ -164,6 +164,18 @@ impl Entity {
         }
     }
 
+    pub fn ends(&self) -> Vec<EntityId> {
+        match self {
+            Self::Line { start, end }
+            | Self::Arc { start, end, .. }
+            | Self::EllipticalArc { start, end, .. } => vec![*start, *end],
+            Self::Spline { .. } => self
+                .spline_ends()
+                .map_or_else(Vec::new, |(first, last)| vec![first, last]),
+            Self::Point(_) | Self::Circle { .. } | Self::Ellipse { .. } => Vec::new(),
+        }
+    }
+
     pub fn spline(points: Vec<EntityId>) -> Self {
         Self::Spline {
             points,

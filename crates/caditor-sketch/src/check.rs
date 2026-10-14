@@ -8,7 +8,7 @@ use crate::{
     entity::Entity,
     id::EntityId,
     inference::{Grid, Tolerance, within_sweep},
-    open_ends::{Classes, curve_ends},
+    open_ends::Classes,
     sketch::Sketch,
 };
 
@@ -63,7 +63,7 @@ impl Sketch {
             })
             .collect();
         for curve in &short {
-            if let [start, end] = self.entity(*curve).map(curve_ends).unwrap_or_default()[..] {
+            if let [start, end] = self.entity(*curve).map(Entity::ends).unwrap_or_default()[..] {
                 classes.join(start, end);
             }
         }
@@ -83,7 +83,7 @@ impl Sketch {
                 let mut fix = self.removal(curve);
                 let ends: Vec<EntityId> = self
                     .entity(curve)
-                    .map(curve_ends)
+                    .map(Entity::ends)
                     .unwrap_or_default()
                     .into_iter()
                     .filter(|end| !fix.remove.contains(end))
@@ -99,14 +99,14 @@ impl Sketch {
                 let mut fix = self.removal(curve);
                 let on_ends: Vec<EntityId> = self
                     .entity(on)
-                    .map(curve_ends)
+                    .map(Entity::ends)
                     .unwrap_or_default()
                     .into_iter()
                     .map(|end| classes.root(end))
                     .collect();
                 let kept_ends: Vec<EntityId> = self
                     .entity(curve)
-                    .map(curve_ends)
+                    .map(Entity::ends)
                     .unwrap_or_default()
                     .into_iter()
                     .filter(|end| !fix.remove.contains(end))
@@ -203,7 +203,7 @@ impl Sketch {
             if short.contains(&curve) {
                 continue;
             }
-            for end in self.entity(curve).map(curve_ends).unwrap_or_default() {
+            for end in self.entity(curve).map(Entity::ends).unwrap_or_default() {
                 ends.push((end, curve));
             }
         }

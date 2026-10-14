@@ -1,4 +1,7 @@
-use std::{borrow::Cow, collections::BTreeMap};
+use std::{
+    borrow::Cow,
+    collections::{BTreeMap, BTreeSet},
+};
 
 use caditor_expression::{Expression, ParseError};
 
@@ -9,8 +12,9 @@ use crate::{
         MAX_CONFIGURATIONS, MAX_CONFIGURED_VALUES, Setting, configuration_name,
     },
     dependencies::DependencyGraph,
-    document::{Document, Parameter},
+    document::{Document, Feature, FeatureId, Parameter},
     edit::{Edit, EditError, Transaction},
+    recompute::Evaluation,
     values::{ParameterError, ParameterValues},
 };
 
@@ -313,6 +317,7 @@ impl Document {
     fn resolve_import_columns(
         &self,
         columns: &[ImportedColumn],
+        evaluation: Option<&Evaluation>,
     ) -> Vec<Result<ConfiguredValue, ColumnRefusal>> {
         let table = self.configurations();
         let mut resolved: Vec<ConfiguredValue> = Vec::new();
@@ -320,7 +325,7 @@ impl Document {
         columns
             .iter()
             .map(|column| {
-                let value = self.resolve_import_column(column)?;
+                let value = self.resolve_import_column(column, evaluation)?;
                 if resolved.contains(&value) {
                     return Err(ColumnRefusal::Repeated);
                 }
@@ -339,6 +344,7 @@ impl Document {
     fn resolve_import_column(
         &self,
         column: &ImportedColumn,
+        evaluation: Option<&Evaluation>,
     ) -> Result<ConfiguredValue, ColumnRefusal> {
         let name = column.name.as_str();
         let owned = || name.to_owned();
@@ -353,13 +359,13 @@ impl Document {
                 .map(|feature| ConfiguredValue::Suppressed(feature.id()))
                 .ok_or_else(|| ColumnRefusal::MissingFeature { name: owned() }),
             ColumnKind::Colour => {
-                let bodies: Vec<_> = self
-                    .features()
-                    .filter(|feature| feature.makes_body())
-                    .filter(|feature| self.body_name(feature.id()).as_deref() == Some(name))
+                let bodies: Vec<FeatureId> = self
+                    .colourable_bodies(evaluation)
+                    .into_iter()
+                    .filter(|body| self.body_name(*body).as_deref() == Some(name))
                     .collect();
                 match bodies.as_slice() {
-                    [body] => Ok(ConfiguredValue::Colour(body.id())),
+                    [body] => Ok(ConfiguredValue::Colour(*body)),
                     [] if self.features().any(|feature| feature.name == name) => {
                         Err(ColumnRefusal::NotABody { name: owned() })
                     }
@@ -368,6 +374,33 @@ impl Document {
                 }
             }
         }
+    }
+
+    fn colourable_bodies(&self, evaluation: Option<&Evaluation>) -> BTreeSet<FeatureId> {
+        let configured = self
+            .configurations()
+            .values
+            .iter()
+            .filter_map(|value| match value {
+                ConfiguredValue::Colour(body) if body.is_piece() => Some(*body),
+                ConfiguredValue::Colour(_)
+                | ConfiguredValue::Parameter(_)
+                | ConfiguredValue::Suppressed(_) => None,
+            });
+        let pieces = self
+            .features()
+            .filter(|feature| feature.separates_pieces())
+            .flat_map(|feature| {
+                evaluation
+                    .map(|evaluation| evaluation.pieces_made_by(feature.id()))
+                    .unwrap_or_default()
+            });
+        self.features()
+            .filter(|feature| feature.makes_body())
+            .map(Feature::id)
+            .chain(configured)
+            .chain(pieces)
+            .collect()
     }
 
     fn prepare_import_row(
@@ -581,9 +614,28 @@ impl Document {
         file: &ImportedConfigurations,
         replace_existing: bool,
     ) -> Result<ConfigurationImport, EditError> {
-        let label = label.into();
+        self.plan_configuration_import_with(label.into(), file, replace_existing, None)
+    }
+
+    pub fn plan_configuration_import_in(
+        &self,
+        label: impl Into<String>,
+        file: &ImportedConfigurations,
+        replace_existing: bool,
+        evaluation: &Evaluation,
+    ) -> Result<ConfigurationImport, EditError> {
+        self.plan_configuration_import_with(label.into(), file, replace_existing, Some(evaluation))
+    }
+
+    fn plan_configuration_import_with(
+        &self,
+        label: String,
+        file: &ImportedConfigurations,
+        replace_existing: bool,
+        evaluation: Option<&Evaluation>,
+    ) -> Result<ConfigurationImport, EditError> {
         let table = self.configurations();
-        let resolved = self.resolve_import_columns(&file.columns);
+        let resolved = self.resolve_import_columns(&file.columns, evaluation);
         let mut outcomes: Vec<Option<RowOutcome>> = vec![None; file.rows.len()];
         let mut prepared: Vec<Prepared> = Vec::new();
         let mut seen: Vec<String> = Vec::new();

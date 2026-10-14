@@ -1,6 +1,7 @@
 use caditor_expression::ParameterId;
 
 use crate::{
+    body_pieces_tests::{evaluate, piece_of, three_rectangles},
     combine_tests::{Pair, pair},
     *,
 };
@@ -384,4 +385,37 @@ fn headers_read_in_either_spelling_of_colour_and_any_case() {
         ImportedColumn::header_of(ColumnKind::Suppressed, "Fillet 2"),
         "Suppressed: Fillet 2"
     );
+}
+
+#[test]
+fn a_colour_column_names_a_separate_piece_by_the_body_name_the_app_shows() {
+    let mut model = three_rectangles();
+    let evaluation = evaluate(&model.document, &mut model.engine);
+    let second = piece_of(model.extrusion, &model.rectangles[1]);
+    let name = model.document.body_name(second).unwrap().into_owned();
+    let header = format!("Colour: {name}");
+    let rows = file(&[header.as_str()], &[("Red", &["#ff0000"])]);
+
+    let blind = model
+        .document
+        .plan_configuration_import("Import", &rows, true)
+        .unwrap();
+    let plan = model
+        .document
+        .plan_configuration_import_in("Import", &rows, true, &evaluation)
+        .unwrap();
+    let mut editor = Editor::new(model.document);
+    editor.apply(plan.transaction.unwrap()).unwrap();
+    let document = editor.document();
+
+    assert_eq!(
+        blind.columns[0].outcome,
+        ColumnOutcome::Refused(ColumnRefusal::MissingBody { name: name.clone() })
+    );
+    assert_eq!(plan.columns[0].outcome, ColumnOutcome::Added);
+    assert_eq!(
+        document.configurations().values,
+        [ConfiguredValue::Colour(second)]
+    );
+    assert_eq!(cell(document, "Red", &header), "#ff0000");
 }

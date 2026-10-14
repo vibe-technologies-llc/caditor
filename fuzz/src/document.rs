@@ -60,6 +60,7 @@ impl Generator {
             | Edit::SetFeatureGroup { .. }
             | Edit::SetBodyAppearance { .. }
             | Edit::SetFeaturePieces { .. }
+            | Edit::SetPieceStandIns { .. }
             | Edit::SetRollbackBar { .. }
             | Edit::SetPrincipalHidden { .. }
             | Edit::SetFeatureKind { .. } => Self::Tree,

@@ -774,7 +774,7 @@ paths:
   also shows the feature when it was hidden) and whose card edits only its look; choosing a piece row
   chooses that body for the body commands (`body_selection::tree_bodies` keeps piece ids). Hide
   selection hides a picked piece alone and Show everything shows hidden pieces too; Hide others
-  keeps a piece's whole feature shown.
+  on a piece hides the feature's other pieces (`visibility::hide_others`).
   Right-clicking a row offers Rename body… (the card below with its Body name field focused), Select
   the whole body (its faces in the view, through `PanelState::selected_in_tree`) and Remove body,
   which adds a `Remove` feature at the bar with a notice saying how to bring the body back; the same

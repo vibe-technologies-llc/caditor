@@ -27,7 +27,8 @@ configured value has a column headed by its kind and its name in the model:
 
 - `Parameter: width` holds an expression such as `40 mm`, which may use other parameters.
 - `Suppressed: Fillet 2` holds `yes` or `no`.
-- `Colour: Body 1` holds `#rrggbb`, or `default` for the body's own colour.
+- `Colour: Body 1` holds `#rrggbb`, or `default` for the body's own colour. A body made of one
+  separate piece is named as the Bodies list names it, such as `Colour: Extrude 1 (Line 5)`.
 
 **Import from CSV** (or {command:file.import_configurations}) reads such a file back and shows what
 would happen before anything changes: which columns are known, which become configured values and

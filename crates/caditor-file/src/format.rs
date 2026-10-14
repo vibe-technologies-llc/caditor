@@ -19,9 +19,9 @@ use caditor_document::{
     MAX_PATTERN_INSTANCES, MAX_SAVED_VIEWS, MAX_VIEW_NAME_CHARS, MIN_OPACITY_PERCENT, Mate,
     MatePair, MeasuredItem, Measurement, MetricSize, Mirror, ModelProperties, ModelProperty, Move,
     NamedView, OPAQUE_PERCENT, ORIGINAL_INSTANCE, Of, OffsetFace, Parameter, ParameterOwner,
-    Pattern, PatternKind, PieceKey, PieceLooks, Pieces, Pipe, PlaneReference, PlaneRotation,
-    PlaneThrough, PointBy, PointMate, PointReference, PointTarget, PointsPattern, Primitive,
-    PrimitiveAnchor, PrimitiveShape, PrincipalAxis, PrincipalGeometry, PrincipalPlane,
+    Pattern, PatternKind, PieceKey, PieceLooks, PieceStandIns, Pieces, Pipe, PlaneReference,
+    PlaneRotation, PlaneThrough, PointBy, PointMate, PointReference, PointTarget, PointsPattern,
+    Primitive, PrimitiveAnchor, PrimitiveShape, PrincipalAxis, PrincipalGeometry, PrincipalPlane,
     ProjectionSource, Reading, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rgb, Rib,
     RibDirection, RibEnds, RibSide, RollbackBar, SavedView, SavedViews, Scale, Shell, ShellSide,
     SketchAttachment, SketchFeature, SolidFeature, SolidStart, Split, SplitAlong, SplitCarry,
@@ -172,6 +172,8 @@ pub(crate) struct FeatureRecord {
     pub group: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub piece_looks: Vec<Lenient<PieceLookRecord>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub piece_stand_ins: Vec<Lenient<StandInRecord>>,
     #[serde(flatten)]
     pub kind: FeatureKindRecord,
 }
@@ -183,6 +185,12 @@ pub(crate) struct PieceLookRecord {
     pub appearance: Option<Lenient<AppearanceRecord>>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub hidden: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct StandInRecord {
+    pub curve: u64,
+    pub carrier: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -998,7 +1006,13 @@ pub(crate) struct RevolveOneSideRecord {
     pub side: AxisSideRecord,
 }
 
-pub(crate) const FEATURE_FIELDS: [&str; 4] = ["hidden", "appearance", "group", "piece_looks"];
+pub(crate) const FEATURE_FIELDS: [&str; 5] = [
+    "hidden",
+    "appearance",
+    "group",
+    "piece_looks",
+    "piece_stand_ins",
+];
 
 pub(crate) const FEATURE_KINDS: [&str; 84] = [
     "sketch",
@@ -2277,6 +2291,11 @@ pub(crate) enum EditRecord {
         id: u64,
         pieces: PiecesRecord,
     },
+    SetPieceStandIns {
+        id: u64,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        stand_ins: Vec<StandInRecord>,
+    },
     SetRollbackBar {
         before: Option<u64>,
     },
@@ -2525,6 +2544,10 @@ fn feature_record_sharing(feature: &Feature, shares: Option<String>) -> FeatureR
             .then(|| Lenient::Read(appearance_record(&feature.appearance.clone().settled()))),
         group: feature.group.clone(),
         piece_looks: piece_look_records(&feature.piece_looks),
+        piece_stand_ins: stand_in_records(&feature.piece_stand_ins)
+            .into_iter()
+            .map(Lenient::Read)
+            .collect(),
         kind: match feature.pieces {
             Pieces::OneBody => kind,
             Pieces::BodyEach => {
@@ -2585,6 +2608,48 @@ fn restore_piece_looks(
         }
     }
     looks
+}
+
+fn stand_in_records(stand_ins: &PieceStandIns) -> Vec<StandInRecord> {
+    stand_ins
+        .iter()
+        .map(|(curve, carrier)| StandInRecord {
+            curve: curve.raw(),
+            carrier: carrier.raw(),
+        })
+        .collect()
+}
+
+fn restore_stand_ins(records: &[StandInRecord]) -> PieceStandIns {
+    records
+        .iter()
+        .fold(PieceStandIns::default(), |stand_ins, record| {
+            stand_ins.with(
+                EntityId::from_raw(record.curve),
+                EntityId::from_raw(record.carrier),
+            )
+        })
+}
+
+fn restore_feature_stand_ins(
+    records: &[Lenient<StandInRecord>],
+    name: &str,
+    issues: &mut Vec<String>,
+) -> PieceStandIns {
+    let read: Vec<StandInRecord> = records
+        .iter()
+        .filter_map(|record| match record {
+            Lenient::Read(record) => Some(*record),
+            Lenient::Unreadable(_) => None,
+        })
+        .collect();
+    if read.len() < records.len() {
+        issues.push(format!(
+            "Which curve stands in for a deleted one in “{name}” could not all be read, so a \
+             piece drawn again may become a new body."
+        ));
+    }
+    restore_stand_ins(&read)
 }
 
 fn pieces_record(pieces: Pieces) -> PiecesRecord {
@@ -5293,6 +5358,10 @@ fn edit_record(edit: &Edit) -> EditRecord {
             id: id.raw(),
             pieces: pieces_record(*pieces),
         },
+        Edit::SetPieceStandIns { id, stand_ins } => EditRecord::SetPieceStandIns {
+            id: id.raw(),
+            stand_ins: stand_in_records(stand_ins),
+        },
         Edit::SetRollbackBar { bar } => EditRecord::SetRollbackBar {
             before: match bar {
                 RollbackBar::AtEnd => None,
@@ -5326,6 +5395,7 @@ fn edit_record(edit: &Edit) -> EditRecord {
                 appearance: None,
                 group: None,
                 piece_looks: Vec::new(),
+                piece_stand_ins: Vec::new(),
                 kind: feature_kind_record(kind),
             },
         },
@@ -5547,6 +5617,10 @@ fn restore_edit(record: EditRecord, texts: &mut ImportTexts) -> Option<Edit> {
             id: FeatureId::from_raw(id),
             pieces: restore_pieces(pieces),
         },
+        EditRecord::SetPieceStandIns { id, stand_ins } => Edit::SetPieceStandIns {
+            id: FeatureId::from_raw(id),
+            stand_ins: restore_stand_ins(&stand_ins),
+        },
         EditRecord::SetRollbackBar { before } => Edit::SetRollbackBar {
             bar: restore_rollback(before),
         },
@@ -5719,6 +5793,8 @@ pub(crate) fn restore_feature_sharing(
         feature.appearance = restore_appearance(appearance, &feature.name, issues);
     }
     feature.piece_looks = restore_piece_looks(&record.piece_looks, &feature.name, issues);
+    feature.piece_stand_ins =
+        restore_feature_stand_ins(&record.piece_stand_ins, &feature.name, issues);
     feature.group = record
         .group
         .as_deref()

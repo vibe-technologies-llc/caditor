@@ -11,7 +11,7 @@ use crate::{
     curve::ArcGeometry,
     entity::{Entity, Role},
     id::{ConstraintId, EntityId},
-    open_ends::{Classes, curve_ends},
+    open_ends::Classes,
     relation::Relations,
     sketch::{Sketch, SketchError},
     solve::Solved,
@@ -444,7 +444,7 @@ impl<'a> Finder<'a> {
         let mut owners: BTreeMap<EntityId, Vec<EntityId>> = BTreeMap::new();
         for (curve, entity) in self.sketch.entities() {
             if !curve.is_reference() {
-                for end in curve_ends(entity) {
+                for end in entity.ends() {
                     owners.entry(end).or_default().push(curve);
                 }
             }
@@ -621,7 +621,7 @@ impl<'a> Finder<'a> {
         let circular = self.curves(Role::Circular);
         for &curve in lines.iter().chain(&circular) {
             if let Some(entity) = self.sketch.entity(curve) {
-                for end in curve_ends(entity) {
+                for end in entity.ends() {
                     joints
                         .entry(self.classes.root(end))
                         .or_default()
@@ -786,7 +786,7 @@ impl<'a> Finder<'a> {
         let ends = |line: EntityId| -> Vec<EntityId> {
             self.sketch
                 .entity(line)
-                .map(curve_ends)
+                .map(Entity::ends)
                 .unwrap_or_default()
                 .into_iter()
                 .map(|end| self.classes.root(end))

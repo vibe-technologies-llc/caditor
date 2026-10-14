@@ -7,7 +7,10 @@ Ctrl-click and Shift-click choose several, as in the feature tree. The eye hides
 An extrusion, revolve or sweep set to make **A body each** (its **Separate pieces** row) lists one
 body per separate piece, named after the feature and the sketch curve that drew the piece, such as
 "Extrude 1 (Line 5)". Each has its own eye, colour, material and name, and is selected, measured,
-exported and used by later features on its own; hiding the feature itself hides all of them.
+exported and used by later features on its own; hiding the feature itself hides all of them, and
+hiding everything but one piece hides the feature's other pieces too. Deleting a curve of a piece and
+drawing it again keeps the piece the same body, with its look and the features using it: the curve
+the piece is named after may then be another of its curves.
 
 ## Colour, material and name
 

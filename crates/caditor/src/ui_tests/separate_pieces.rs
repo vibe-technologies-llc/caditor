@@ -4,7 +4,7 @@ use caditor_sketch::Sketch;
 use egui::{Key, Modifiers};
 
 use super::{Harness, choose, open_solid, rectangle, run_from_palette};
-use crate::model::Action;
+use crate::{model::Action, selection::Pickable};
 
 fn three_rectangles(harness: &mut Harness) -> FeatureId {
     let mut sketch = Sketch::new(Plane::XY);
@@ -128,4 +128,44 @@ fn select_all_takes_every_region_again_after_clear_from_the_panel_and_the_palett
     assert_eq!(from_palette, (RegionChoice::All, 3));
     assert_eq!(from_button, (RegionChoice::All, 3));
     assert_eq!(undone, RegionChoice::Chosen(Vec::new()));
+}
+
+#[test]
+fn hide_others_on_one_piece_hides_the_other_pieces_of_its_feature_and_undoes() {
+    let mut harness = Harness::new();
+    let extrude = extruded_rectangles(&mut harness);
+    choose(&mut harness, "One body", "A body each");
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+    let pieces = harness.model.evaluation().pieces_made_by(extrude);
+    let kept = pieces[1];
+    let name = harness.document().body_name(kept).unwrap().into_owned();
+    let face = harness
+        .built()
+        .picks
+        .pickables()
+        .find(|pickable| matches!(pickable, Pickable::Face { body, .. } if *body == kept))
+        .expect("a face of the middle piece is pickable");
+
+    harness.workspace.panels.choose_nothing();
+    harness.select([face]);
+    harness.key(Key::H, Modifiers::ALT | Modifiers::SHIFT);
+    harness.settle();
+    let hidden: Vec<bool> = pieces
+        .iter()
+        .map(|piece| harness.document().body_hidden(*piece))
+        .collect();
+    let label = harness.model.undo_label().map(str::to_owned);
+    harness.perform(Action::Undo);
+    harness.settle();
+
+    assert_eq!(pieces.len(), 3);
+    assert_eq!(label, Some(format!("Hide everything but {name}")));
+    assert_eq!(hidden, [true, false, true]);
+    assert!(
+        pieces
+            .iter()
+            .all(|piece| !harness.document().body_hidden(*piece))
+    );
 }

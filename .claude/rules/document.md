@@ -1020,7 +1020,16 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   no other lump has, and lumps drawn wholly by shared curves fail the feature saying they cannot be
   told apart. Moving shapes, drawing new ones (new bodies) and holes inside a shape keep every key;
   pieces that grow together into one keep the key of the one whose curve was drawn first (the lowest
-  entity ID), and the other's body is gone. Pieces sort by key: the first is the result's own
+  entity ID), and the other's body is gone. Each curve counts as the lowest deleted curve it stands
+  in for (`PieceStandIns::standing_for`, the feature's `piece_stand_ins`), so deleting and redrawing
+  one curve of a shape keeps its key: `Transaction::remove_sketch_items` and `reshape_sketch`
+  (`keeping_piece_keys`, for each separating feature on the sketch) hand a deleted curve's key, or
+  the deleted key it carried, to the lowest-standing curve meeting one of its ends
+  (`Entity::ends` within `LINEAR_RESOLUTION`, construction left out) when that stands lower than
+  the curve, in one `Edit::SetPieceStandIns` (whole set, inverse the previous) per feature, keeping
+  one entry per carrier; a curve with no curve at its ends (a circle, a whole shape deleted) hands
+  nothing on, so a shape drawn again is a new body. The recompute cache compares the stand-ins with
+  `pieces`, pasting carries them. Pieces sort by key: the first is the result's own
   `SolidResult`, the rest its `others`, all under the making feature's state, so `body_part`,
   `Evaluation::body_result`, `bodies` and the stale last good bodies (`last_good_bodies`, by maker)
   read them like any body; `Evaluation::pieces_made_by` lists a feature's pieces. Settling at a
@@ -1038,7 +1047,7 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   piece and pasting carries them. Looks of pieces gone are kept, so a piece drawn again gets its
   look back.
 - `Document::body_name` (a `Cow`) gives a piece's own name, else "<feature> (<curve label>)"
-  (`piece_curve`, the entity's label in the sketch while it exists); `body_label` gives a piece that
+  (`piece_curve`, the key entity's label in the sketch while it exists, else its carrier's); `body_label` gives a piece that
   name and any other body its feature's name, which every failure naming a body uses. `body_maker`
   is the making feature. `features_on_body` of a piece includes the features on its maker, so the
   scene's health and `face_splits` see them. `bodies_before_in` and `bodies_standing_in` list the

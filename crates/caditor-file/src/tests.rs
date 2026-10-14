@@ -4112,6 +4112,43 @@ fn a_body_of_each_separate_piece_round_trips_with_its_piece_looks_and_older_read
 }
 
 #[test]
+fn curves_standing_in_for_deleted_ones_round_trip_and_older_readers_ignore_them() {
+    let document = corpus::piece_stand_ins();
+    let blocks = document
+        .features()
+        .find(|feature| feature.name == "Blocks")
+        .unwrap();
+    let transaction = Transaction::single(
+        "Stand-ins",
+        Edit::SetPieceStandIns {
+            id: blocks.id(),
+            stand_ins: blocks.piece_stand_ins.clone(),
+        },
+    );
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let older = decode_text(&text.replace("piece_stand_ins", "piece_stand_inx"));
+    let journaled =
+        through_binary(&serde_json::to_string(&format::transaction_record(&transaction)).unwrap());
+
+    assert!(!blocks.piece_stand_ins.is_empty());
+    assert!(text.contains("\"piece_stand_ins\":["));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert_eq!(older.issues, Vec::<String>::new());
+    assert!(
+        older
+            .document
+            .feature(blocks.id())
+            .unwrap()
+            .piece_stand_ins
+            .is_empty()
+    );
+    assert_eq!(format::restore_transaction(journaled), Some(transaction));
+}
+
+#[test]
 fn choosing_separate_pieces_round_trips_through_the_journal() {
     use caditor_document::Pieces;
     let transaction = Transaction::single(

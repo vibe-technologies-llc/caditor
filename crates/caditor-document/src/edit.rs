@@ -15,7 +15,7 @@ use crate::{
     body_appearance::{
         BodyAppearance, MAX_BODY_NAME_CHARS, MAX_MATERIAL_NAME_CHARS, MIN_OPACITY_PERCENT,
     },
-    body_pieces::Pieces,
+    body_pieces::{PieceStandIns, Pieces},
     configurations::{
         ConfigurationId, Configurations, ConfiguredValue, MAX_CONFIGURATION_NAME_CHARS,
         MAX_CONFIGURATIONS, MAX_CONFIGURED_VALUES,
@@ -103,6 +103,10 @@ pub enum Edit {
     SetFeaturePieces {
         id: FeatureId,
         pieces: Pieces,
+    },
+    SetPieceStandIns {
+        id: FeatureId,
+        stand_ins: PieceStandIns,
     },
     SetRollbackBar {
         bar: RollbackBar,
@@ -255,6 +259,7 @@ impl Transaction {
                 | Edit::SetFeatureGroup { id, .. }
                 | Edit::SetBodyAppearance { id, .. }
                 | Edit::SetFeaturePieces { id, .. }
+                | Edit::SetPieceStandIns { id, .. }
                 | Edit::SetFeatureKind { id, .. } => {
                     touched.features.insert(id.maker());
                 }
@@ -317,6 +322,7 @@ impl Transaction {
                 Edit::RenameParameter { name, .. } | Edit::RenameFeature { name, .. } => name.len(),
                 Edit::SetParameterNote { note, .. } => note.len(),
                 Edit::SetFeatureGroup { group, .. } => group.as_ref().map_or(0, String::len),
+                Edit::SetPieceStandIns { stand_ins, .. } => stand_ins.heap_size(),
                 Edit::SetModelProperties { properties } => {
                     size_of::<ModelProperties>() + properties.heap_size()
                 }
@@ -888,6 +894,7 @@ impl Document {
             Edit::SetFeatureGroup { id, group } => self.set_feature_group(id, group),
             Edit::SetBodyAppearance { id, appearance } => self.set_body_appearance(id, appearance),
             Edit::SetFeaturePieces { id, pieces } => self.set_feature_pieces(id, pieces),
+            Edit::SetPieceStandIns { id, stand_ins } => self.set_piece_stand_ins(id, stand_ins),
             Edit::SetRollbackBar { bar } => self.set_rollback_bar(bar),
             Edit::SetPrincipalHidden { geometry, hidden } => {
                 Ok(self.set_principal_hidden(geometry, hidden))
@@ -1175,6 +1182,19 @@ impl Document {
         Ok(Edit::SetFeaturePieces {
             id,
             pieces: previous,
+        })
+    }
+
+    fn set_piece_stand_ins(
+        &mut self,
+        id: FeatureId,
+        stand_ins: PieceStandIns,
+    ) -> Result<Edit, EditError> {
+        let feature = self.feature_mut(id)?;
+        let previous = std::mem::replace(&mut feature.piece_stand_ins, stand_ins);
+        Ok(Edit::SetPieceStandIns {
+            id,
+            stand_ins: previous,
         })
     }
 

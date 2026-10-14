@@ -27,7 +27,7 @@ impl Sketch {
         let ends: Vec<EntityId> = self
             .entities()
             .filter(|(id, _)| self.is_profile_curve(*id))
-            .flat_map(|(_, entity)| curve_ends(entity))
+            .flat_map(|(_, entity)| entity.ends())
             .collect();
         let mut incidences: BTreeMap<EntityId, usize> = BTreeMap::new();
         let mut supported = BTreeSet::new();
@@ -63,18 +63,6 @@ impl Sketch {
                         | Entity::EllipticalArc { .. }
                 )
             )
-    }
-}
-
-pub(crate) fn curve_ends(entity: &Entity) -> Vec<EntityId> {
-    match entity {
-        Entity::Line { start, end }
-        | Entity::Arc { start, end, .. }
-        | Entity::EllipticalArc { start, end, .. } => vec![*start, *end],
-        spline @ Entity::Spline { .. } => spline
-            .spline_ends()
-            .map_or_else(Vec::new, |(first, last)| vec![first, last]),
-        Entity::Point(_) | Entity::Circle { .. } | Entity::Ellipse { .. } => Vec::new(),
     }
 }
 

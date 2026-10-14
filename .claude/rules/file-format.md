@@ -227,7 +227,11 @@ Extrusions and revolves:
   the selection set and configuration readers accept them by their making feature's ID. The
   feature's `piece_looks` is an optional feature field (in `FEATURE_FIELDS`): each `piece` key with
   an `appearance` record (as `appearance`, settled) and `hidden` when set; an unreadable entry is
-  left out, reported. Journal: `set_feature_pieces` (`one_body`, `body_each`); a piece's look and
+  left out, reported. `piece_stand_ins`, also an optional feature field: `curve` (a deleted key
+  curve) and `carrier` (the curve standing in for it) per entry, an unreadable entry left out with
+  one report and an entry carrying itself skipped; an older reader ignores it and keys such a piece
+  by its lowest curve (corpus: `piece-stand-ins.caditor`, `journal-1/piece-stand-ins.journal`). Journal: `set_feature_pieces` (`one_body`, `body_each`), `set_piece_stand_ins`
+  (`id`, `stand_ins` as above, whole set); a piece's look and
   hidden flag travel in `set_body_appearance` and `set_feature_hidden` under the piece's body ID. The
   corpus holds them in `separate-pieces.caditor` and `journal-1/separate-pieces.journal`.
 

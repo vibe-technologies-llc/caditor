@@ -4,14 +4,17 @@ use std::{
 };
 
 use caditor_expression::ParameterId;
-use caditor_kernel::{FaceOrigin, Solid, TessellationError};
-use caditor_sketch::EntityId;
+use caditor_geometry::Point2;
+use caditor_kernel::{FaceOrigin, LINEAR_RESOLUTION, Solid, TessellationError};
+use caditor_sketch::{Entity, EntityId, Sketch};
 
 use crate::{
     body_appearance::BodyAppearance,
     document::{Document, Feature, FeatureId},
     recompute::{Failure, FeatureError, FixTarget},
 };
+
+const JOINED_END_TOLERANCE: f64 = LINEAR_RESOLUTION;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum Pieces {
@@ -153,6 +156,99 @@ impl PieceLooks {
     }
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PieceStandIns {
+    carriers: BTreeMap<EntityId, EntityId>,
+}
+
+impl PieceStandIns {
+    #[must_use]
+    pub fn with(mut self, deleted: EntityId, carrier: EntityId) -> Self {
+        if deleted != carrier {
+            self.carry(deleted, carrier);
+        }
+        self
+    }
+
+    pub fn carrier_of(&self, deleted: EntityId) -> Option<EntityId> {
+        self.carriers.get(&deleted).copied()
+    }
+
+    pub fn standing_for(&self, curve: EntityId) -> EntityId {
+        self.carriers
+            .iter()
+            .filter(|(_, carrier)| **carrier == curve)
+            .map(|(deleted, _)| *deleted)
+            .fold(curve, EntityId::min)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (EntityId, EntityId)> + '_ {
+        self.carriers
+            .iter()
+            .map(|(deleted, carrier)| (*deleted, *carrier))
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.carriers.is_empty()
+    }
+
+    pub fn heap_size(&self) -> usize {
+        self.carriers.len() * 2 * size_of::<EntityId>()
+    }
+
+    #[must_use]
+    pub fn after_removing(&self, sketch: &Sketch, removed: &BTreeSet<EntityId>) -> Self {
+        let mut kept = self.clone();
+        for curve in removed {
+            let stood_for = kept.standing_for(*curve);
+            kept.carriers
+                .retain(|deleted, carrier| carrier != curve && deleted != curve);
+            let carrier = joined_curves(sketch, *curve)
+                .into_iter()
+                .filter(|joined| !removed.contains(joined))
+                .min_by_key(|joined| kept.standing_for(*joined));
+            if let Some(carrier) = carrier
+                && stood_for < kept.standing_for(carrier)
+            {
+                kept.carry(stood_for, carrier);
+            }
+        }
+        kept
+    }
+
+    fn carry(&mut self, deleted: EntityId, carrier: EntityId) {
+        self.carriers.retain(|_, held| *held != carrier);
+        self.carriers.insert(deleted, carrier);
+    }
+}
+
+fn joined_curves(sketch: &Sketch, curve: EntityId) -> BTreeSet<EntityId> {
+    let ends_of = |id: EntityId| -> Vec<Point2> {
+        sketch
+            .entity(id)
+            .map(Entity::ends)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|end| sketch.point(end))
+            .collect()
+    };
+    let own = ends_of(curve);
+    if own.is_empty() || sketch.is_construction(curve) {
+        return BTreeSet::new();
+    }
+    sketch
+        .entities()
+        .map(|(id, _)| id)
+        .filter(|id| *id != curve && !id.is_reference() && !sketch.is_construction(*id))
+        .filter(|id| {
+            ends_of(*id).iter().any(|end| {
+                own.iter()
+                    .any(|own| own.distance(*end) <= JOINED_END_TOLERANCE)
+            })
+        })
+        .collect()
+}
+
 impl Document {
     pub fn body_maker(&self, body: FeatureId) -> Option<&Feature> {
         self.feature(body.maker())
@@ -178,12 +274,14 @@ impl Document {
 
     pub fn piece_curve(&self, body: FeatureId) -> Option<String> {
         let key = body.piece_key()?;
-        let sketch = self.body_maker(body)?.kind.solid()?.sketch();
+        let maker = self.body_maker(body)?;
+        let sketch = maker.kind.solid()?.sketch();
         let drawing = self.feature(sketch)?.kind.sketch()?;
-        drawing
-            .entity(key.entity())
-            .is_some()
-            .then(|| drawing.entity_label(key.entity()))
+        [key.entity()]
+            .into_iter()
+            .chain(maker.piece_stand_ins.carrier_of(key.entity()))
+            .find(|curve| drawing.entity(*curve).is_some())
+            .map(|curve| drawing.entity_label(curve))
     }
 }
 
@@ -196,7 +294,17 @@ pub(crate) fn separated(
         .map_err(|error| apart_failure(feature, &error))?;
     let drawn: Vec<BTreeSet<u64>> = lumps
         .iter()
-        .map(|lump| drawing_entities(lump, feature.id()))
+        .map(|lump| {
+            drawing_entities(lump, feature.id())
+                .into_iter()
+                .map(|entity| {
+                    feature
+                        .piece_stand_ins
+                        .standing_for(EntityId::from_raw(entity))
+                        .raw()
+                })
+                .collect()
+        })
         .collect();
     let mut pieces = Vec::with_capacity(lumps.len());
     for (index, lump) in lumps.into_iter().enumerate() {

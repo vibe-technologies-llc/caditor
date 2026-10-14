@@ -375,6 +375,7 @@ impl Document {
             copy.appearance = appearance;
             copy.pieces = feature.pieces;
             copy.piece_looks = piece_looks;
+            copy.piece_stand_ins = feature.piece_stand_ins.clone();
             copy.group.clone_from(&feature.group);
             let id = builder.add_copied_feature(copy);
             renamed.insert(feature.id(), id);

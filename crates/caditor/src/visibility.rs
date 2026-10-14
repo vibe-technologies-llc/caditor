@@ -1,7 +1,7 @@
-use std::collections::BTreeSet;
+use std::{borrow::Cow, collections::BTreeSet};
 
 use caditor_document::{
-    Document, Edit, Feature, FeatureId, FeatureKind, PrincipalGeometry, Transaction,
+    Document, Edit, Evaluation, Feature, FeatureId, FeatureKind, PrincipalGeometry, Transaction,
 };
 use egui::Id;
 
@@ -89,9 +89,7 @@ pub fn can_hide(feature: &Feature) -> bool {
 }
 
 pub fn is_shown(document: &Document, feature: FeatureId) -> bool {
-    document
-        .feature(feature)
-        .is_some_and(|feature| !feature.hidden)
+    document.body_maker(feature).is_some() && !document.body_hidden(feature)
 }
 
 pub fn is_principal_shown(document: &Document, geometry: PrincipalGeometry) -> bool {
@@ -490,16 +488,28 @@ pub fn hide_selection(
 
 pub fn hide_others(
     document: &Document,
+    evaluation: &Evaluation,
     view: PrincipalView,
     selection: &Selection,
     rows: &[FeatureId],
     edited: Option<FeatureId>,
 ) -> Result<Transaction, String> {
-    let kept_features: BTreeSet<FeatureId> = selection
+    let owners: BTreeSet<FeatureId> = selection.iter().filter_map(owner).collect();
+    let kept_pieces: BTreeSet<FeatureId> = owners
         .iter()
-        .filter_map(owner)
-        .map(FeatureId::maker)
+        .copied()
+        .filter(|owner| owner.is_piece())
+        .collect();
+    let kept_whole: BTreeSet<FeatureId> = owners
+        .iter()
+        .copied()
+        .filter(|owner| !owner.is_piece())
         .chain(hideable_rows(document, rows))
+        .collect();
+    let kept_features: BTreeSet<FeatureId> = kept_pieces
+        .iter()
+        .map(|piece| piece.maker())
+        .chain(kept_whole.iter().copied())
         .collect();
     let kept_principal: BTreeSet<PrincipalGeometry> =
         selection.iter().filter_map(principal).collect();
@@ -512,6 +522,15 @@ pub fn hide_others(
     if kept == 0 {
         return Err(NOTHING_TO_ISOLATE.to_owned());
     }
+    let other_pieces: Vec<FeatureId> = kept_pieces
+        .iter()
+        .map(|piece| piece.maker())
+        .collect::<BTreeSet<FeatureId>>()
+        .into_iter()
+        .filter(|maker| !kept_whole.contains(maker))
+        .flat_map(|maker| evaluation.pieces_made_by(maker))
+        .filter(|piece| !kept_pieces.contains(piece) && !document.body_hidden(*piece))
+        .collect();
     let edits: Vec<Edit> = document
         .features()
         .filter(|feature| {
@@ -521,6 +540,11 @@ pub fn hide_others(
                 && Some(feature.id()) != edited
         })
         .map(|feature| set_hidden(feature.id(), true))
+        .chain(
+            other_pieces
+                .into_iter()
+                .map(|piece| set_hidden(piece, true)),
+        )
         .chain(
             PrincipalGeometry::ALL
                 .into_iter()
@@ -534,17 +558,22 @@ pub fn hide_others(
         return Err(ALREADY_ISOLATED.to_owned());
     }
     let label = if kept == 1 {
-        let name = kept_features
-            .iter()
-            .filter_map(|id| document.feature(*id))
-            .find(|feature| can_hide(feature))
-            .map(|feature| feature.name.clone())
-            .or_else(|| {
-                kept_principal
-                    .first()
-                    .map(|geometry| geometry.name().to_owned())
-            })
-            .unwrap_or_default();
+        let name = match (kept_pieces.first(), kept_pieces.len()) {
+            (Some(piece), 1) if !kept_whole.contains(&piece.maker()) => {
+                document.body_name(*piece).map(Cow::into_owned)
+            }
+            _ => kept_features
+                .iter()
+                .filter_map(|id| document.feature(*id))
+                .find(|feature| can_hide(feature))
+                .map(|feature| feature.name.clone()),
+        }
+        .or_else(|| {
+            kept_principal
+                .first()
+                .map(|geometry| geometry.name().to_owned())
+        })
+        .unwrap_or_default();
         format!("Hide everything but {name}")
     } else {
         format!("Hide everything but {kept} items")
@@ -643,17 +672,33 @@ mod tests {
             entity: caditor_sketch::EntityId::ORIGIN,
         });
 
+        let evaluation = Evaluation::default();
         let nothing = hide_others(
             &document,
+            &evaluation,
             PrincipalView::default(),
             &Selection::default(),
             &[],
             None,
         );
-        let isolate =
-            hide_others(&document, PrincipalView::default(), &selection, &[], None).unwrap();
+        let isolate = hide_others(
+            &document,
+            &evaluation,
+            PrincipalView::default(),
+            &selection,
+            &[],
+            None,
+        )
+        .unwrap();
         document.apply(isolate.clone()).unwrap();
-        let again = hide_others(&document, PrincipalView::default(), &selection, &[], None);
+        let again = hide_others(
+            &document,
+            &evaluation,
+            PrincipalView::default(),
+            &selection,
+            &[],
+            None,
+        );
 
         assert_eq!(nothing, Err(NOTHING_TO_ISOLATE.to_owned()));
         assert_eq!(isolate.label(), "Hide everything but First");

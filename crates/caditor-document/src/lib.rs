@@ -88,7 +88,7 @@ pub use crate::{
         MAX_BODY_NAME_CHARS, MAX_DENSITY, MAX_MATERIAL_NAME_CHARS, MIN_OPACITY_PERCENT,
         OPACITY_STEPS, OPAQUE_PERCENT, Rgb, density_of, material_name, nearest_opacity_step,
     },
-    body_pieces::{PieceKey, PieceLooks, Pieces},
+    body_pieces::{PieceKey, PieceLooks, PieceStandIns, Pieces},
     coil::{
         COIL_SHAPE, Coil, CoilLength, CoilSizing, CoilSpan, CoilTurning, DEFAULT_PITCH,
         DEFAULT_TURNS, part_name as coil_part_name, placement_name as coil_placement_name,

@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use caditor_document::{
     BodyAppearance, Configuration, ConfigurationId, Configurations, ConfiguredValue, Edit,
     FaceColour, FeatureId, Finish, ModelProperties, ModelProperty, NamedView, Outline,
-    ParameterOwner, Pieces, PrincipalAxis, PrincipalGeometry, PrincipalPlane, ProjectionSource,
+    ParameterOwner, PieceStandIns, Pieces, PrincipalAxis, PrincipalGeometry, PrincipalPlane, ProjectionSource,
     Rgb, RollbackBar, SavedView, SavedViews, SelectionSet, SelectionSets, SetMember, Setting,
     SketchAttachment, Transaction,
 };
@@ -204,7 +204,7 @@ fn features(input: &mut Unstructured, scene: &Scene) -> Result<Vec<FeatureId>> {
 pub fn tree_edit(input: &mut Unstructured, scene: &Scene) -> Result<Option<Transaction>> {
     let document = scene.document;
     let count = document.features().len();
-    Ok(match input.int_in_range(0u8..=12)? {
+    Ok(match input.int_in_range(0u8..=13)? {
         0 => single(Edit::RemoveFeature {
             id: scene.feature(input)?,
         }),
@@ -263,6 +263,17 @@ pub fn tree_edit(input: &mut Unstructured, scene: &Scene) -> Result<Option<Trans
             id: scene.feature(input)?,
             pieces: *input.choose(&Pieces::ALL)?,
         }),
+        11 => {
+            let id = scene.feature(input)?;
+            let mut stand_ins = PieceStandIns::default();
+            for _ in 0..input.int_in_range(0u8..=2)? {
+                stand_ins = stand_ins.with(
+                    EntityId::from_raw(input.int_in_range(0u64..=16)?),
+                    EntityId::from_raw(input.int_in_range(0u64..=16)?),
+                );
+            }
+            single(Edit::SetPieceStandIns { id, stand_ins })
+        }
         _ => {
             let Some(feature) = chosen(input, &scene.feature_ids())? else {
                 return Ok(None);

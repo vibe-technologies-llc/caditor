@@ -417,7 +417,10 @@ paths:
   (`ImportedColumn::header_of`): `Parameter: width` (the parameter's name; the cell is its
   expression written with parameter names, units included), `Suppressed: Fillet 2` (the feature's
   name; `yes` or `no`) and `Colour: Body 1` (the body's name, `Document::body_name`; `#rrggbb`, or
-  `default` for the body's own colour). One row per configuration in table order. A column whose
+  `default` for the body's own colour). A colour column is resolved among the features making a body,
+  the pieces already configured and, through `plan_configuration_import_in` (which the app uses), the
+  pieces the evaluation shows, so a piece is named as the app names it ("Blocks (Line 5)" or its own
+  name). One row per configuration in table order. A column whose
   parameter or feature is gone is not written; a cell the row has no setting for is empty. The
   grammar of the cells lives with the document (`Document::configuration_cell_text`,
   `parse_cell`): the kind is read case-blind (`Color` too), `yes`/`no` also as `y`/`n`, `true`/`false`,

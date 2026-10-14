@@ -5,9 +5,9 @@ use caditor_sketch::{Entity, EntityId, Sketch};
 
 use crate::*;
 
-struct Drawn {
-    points: Vec<EntityId>,
-    lines: Vec<EntityId>,
+pub(crate) struct Drawn {
+    pub(crate) points: Vec<EntityId>,
+    pub(crate) lines: Vec<EntityId>,
 }
 
 fn corners(min: (f64, f64), max: (f64, f64)) -> [Point2; 4] {
@@ -35,7 +35,7 @@ fn draw(sketch: &mut Sketch, min: (f64, f64), max: (f64, f64)) -> Drawn {
     drawn
 }
 
-fn evaluate(document: &Document, engine: &mut Recompute) -> Evaluation {
+pub(crate) fn evaluate(document: &Document, engine: &mut Recompute) -> Evaluation {
     engine.run(document, &ModelEvaluator, &CancelToken::never(), &|_, _| {})
 }
 
@@ -50,7 +50,7 @@ fn edge_at(solid: &Solid, point: Point3) -> EdgeReference {
     EdgeReference::capture(solid, id).unwrap()
 }
 
-fn piece_of(extrusion: FeatureId, drawn: &Drawn) -> FeatureId {
+pub(crate) fn piece_of(extrusion: FeatureId, drawn: &Drawn) -> FeatureId {
     extrusion
         .piece(PieceKey::of_entity(drawn.lines[0]).unwrap())
         .unwrap()
@@ -70,15 +70,15 @@ fn extrusion(sketch: FeatureId) -> FeatureKind {
     }))
 }
 
-struct Model {
-    document: Document,
-    engine: Recompute,
-    sketch: FeatureId,
-    extrusion: FeatureId,
-    rectangles: [Drawn; 3],
+pub(crate) struct Model {
+    pub(crate) document: Document,
+    pub(crate) engine: Recompute,
+    pub(crate) sketch: FeatureId,
+    pub(crate) extrusion: FeatureId,
+    pub(crate) rectangles: [Drawn; 3],
 }
 
-fn three_rectangles() -> Model {
+pub(crate) fn three_rectangles() -> Model {
     let mut drawing = Sketch::new(Plane::XY);
     let rectangles = [
         draw(&mut drawing, (0.0, 0.0), (4.0, 4.0)),
@@ -369,4 +369,100 @@ fn each_piece_is_hidden_and_coloured_on_its_own_and_undo_restores_it() {
     assert_eq!(second_look, BodyAppearance::default());
     assert_eq!(first_name, "Left block");
     assert!(model.document.same_content(&before));
+}
+
+fn redraw_line(model: &mut Model, start: (f64, f64), end: (f64, f64)) -> EntityId {
+    let mut transaction = model.document.transaction("Redraw");
+    let start =
+        transaction.add_sketch_entity(model.sketch, Entity::Point(Point2::new(start.0, start.1)));
+    let end = transaction.add_sketch_entity(model.sketch, Entity::Point(Point2::new(end.0, end.1)));
+    let line = transaction.add_sketch_entity(model.sketch, Entity::Line { start, end });
+    model.document.apply(transaction.finish()).unwrap();
+    line
+}
+
+#[test]
+fn deleting_and_redrawing_the_curve_keying_a_piece_keeps_its_body_and_its_fillet() {
+    let mut model = three_rectangles();
+    let second = piece_of(model.extrusion, &model.rectangles[1]);
+    let keying = model.rectangles[1].lines[0];
+    let carrier = model.rectangles[1].lines[1];
+    let fillet = fillet_on(&mut model, second, Point3::new(14.0, 2.0, 2.0));
+
+    let mut transaction = model.document.transaction("Delete");
+    transaction.remove_sketch_items(model.sketch, [keying], []);
+    model.document.apply(transaction.finish()).unwrap();
+    let stand_ins = model
+        .document
+        .feature(model.extrusion)
+        .unwrap()
+        .piece_stand_ins
+        .clone();
+    let opened = evaluate(&model.document, &mut model.engine);
+    let redrawn = redraw_line(&mut model, (10.0, 0.0), (14.0, 0.0));
+    let closed = evaluate(&model.document, &mut model.engine);
+    let bodies: Vec<FeatureId> = closed.bodies().map(|(body, _)| body).collect();
+    let name = model.document.body_name(second).unwrap().into_owned();
+
+    assert_eq!(stand_ins, PieceStandIns::default().with(keying, carrier));
+    assert!(opened.body(second).is_none());
+    assert!(redrawn > carrier);
+    assert_eq!(state(&closed, model.extrusion), FeatureState::UpToDate);
+    assert_eq!(state(&closed, fillet), FeatureState::UpToDate);
+    assert_eq!(
+        bodies,
+        model
+            .rectangles
+            .iter()
+            .map(|drawn| piece_of(model.extrusion, drawn))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(name, format!("Blocks (Line {carrier})"));
+}
+
+#[test]
+fn undoing_the_deletion_of_a_keying_curve_restores_the_stand_ins_exactly() {
+    let mut model = three_rectangles();
+    let keying = model.rectangles[1].lines[0];
+    let before = model.document.clone();
+
+    let mut transaction = model.document.transaction("Delete");
+    transaction.remove_sketch_items(model.sketch, [keying], []);
+    let undo = model.document.apply(transaction.finish()).unwrap();
+    let recorded = !model
+        .document
+        .feature(model.extrusion)
+        .unwrap()
+        .piece_stand_ins
+        .is_empty();
+    model.document.apply(undo).unwrap();
+
+    assert!(recorded);
+    assert!(model.document.same_content(&before));
+}
+
+#[test]
+fn a_carrier_deleted_in_turn_hands_the_key_on_to_the_next_curve() {
+    let mut model = three_rectangles();
+    let second = piece_of(model.extrusion, &model.rectangles[1]);
+    let lines = model.rectangles[1].lines.clone();
+
+    for line in [lines[0], lines[1]] {
+        let mut transaction = model.document.transaction("Delete");
+        transaction.remove_sketch_items(model.sketch, [line], []);
+        model.document.apply(transaction.finish()).unwrap();
+    }
+    let stand_ins = model
+        .document
+        .feature(model.extrusion)
+        .unwrap()
+        .piece_stand_ins
+        .clone();
+    redraw_line(&mut model, (10.0, 0.0), (14.0, 0.0));
+    redraw_line(&mut model, (14.0, 0.0), (14.0, 4.0));
+    let evaluation = evaluate(&model.document, &mut model.engine);
+
+    assert_eq!(stand_ins, PieceStandIns::default().with(lines[0], lines[2]));
+    assert!(evaluation.body(second).is_some());
+    assert_eq!(evaluation.bodies().count(), 3);
 }

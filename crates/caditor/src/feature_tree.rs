@@ -2593,6 +2593,7 @@ fn feature_commands(
     if let Some(transaction) = offer_change(offers, commands, Command::HideOthers, None, || {
         visibility::hide_others(
             document,
+            model.evaluation(),
             model.principal_view(),
             selection,
             chosen.rows,

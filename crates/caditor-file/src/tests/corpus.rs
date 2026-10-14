@@ -52,7 +52,7 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 38] = [
+const KEPT: [(&str, &str); 40] = [
     (
         "journal-1/by-reference.journal",
         "fe98725da8d9df46b19d7cede1474bcfb92bbda00d4de9c890e5bca5d0f2899f",
@@ -60,6 +60,10 @@ const KEPT: [(&str, &str); 38] = [
     (
         "journal-1/every-edit.journal",
         "d5f3ffe41fdaf1a24552095ee7a8335337340fd0f9da665a39f0930f793cba29",
+    ),
+    (
+        "journal-1/piece-stand-ins.journal",
+        "77955267d53c73adf6e6a462bf5410f21baa36bdd36e8bf762b2c2dedf423b23",
     ),
     (
         "journal-1/rebased.journal",
@@ -140,6 +144,10 @@ const KEPT: [(&str, &str); 38] = [
     (
         "model-1/patterns.caditor",
         "ec1a7a437ffe10cba80a68813ae78ff8513ee236945d2ded0811d26847b7f147",
+    ),
+    (
+        "model-1/piece-stand-ins.caditor",
+        "fedf5a994b37008d31dfd38f044bcd9e154003555217b18ee5135f539f96627e",
     ),
     (
         "model-1/pieces.caditor",
@@ -752,6 +760,10 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
             saved(&separate_pieces(), "Separate pieces"),
         ),
         (
+            model("piece-stand-ins"),
+            saved(&piece_stand_ins(), "Piece stand-ins"),
+        ),
+        (
             model("point-targets"),
             saved(&point_targets(), "Point targets"),
         ),
@@ -787,6 +799,7 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
         (journal("every-edit"), every_edit_journal()),
         (journal("by-reference"), seed_journal_by_reference(0)),
         (journal("separate-pieces"), separate_pieces_journal()),
+        (journal("piece-stand-ins"), piece_stand_ins_journal()),
         (journal("rebased"), seed_journal_by_reference(12)),
         (journal("sliced"), with_slices_of(SLICE, every_edit_journal)),
         (journal("reference-images"), reference_image_journal()),
@@ -936,6 +949,51 @@ pub(super) fn separate_pieces() -> Document {
     );
     document.apply(transaction.finish()).unwrap();
     document
+}
+
+fn separated_blocks() -> (Document, FeatureId, [EntityId; 3]) {
+    let (drawn, lines) = blocks_sketch();
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Blocks");
+    let sketch = transaction.add_feature("Blocks sketch", FeatureKind::from(drawn));
+    let mut extruded = Feature::new(FeatureId::from_raw(0), "Blocks".to_owned(), blocks(sketch));
+    extruded.pieces = Pieces::BodyEach;
+    transaction.add_copied_feature(extruded);
+    document.apply(transaction.finish()).unwrap();
+    (document, sketch, lines)
+}
+
+pub(super) fn piece_stand_ins() -> Document {
+    let (mut document, sketch, lines) = separated_blocks();
+    let mut removal = document.transaction("Delete a side");
+    removal.remove_sketch_items(sketch, [lines[1]], []);
+    document.apply(removal.finish()).unwrap();
+    let mut redraw = document.transaction("Draw the side again");
+    let start = redraw.add_sketch_entity(sketch, Entity::Point(Point2::new(20.0, 0.0)));
+    let end = redraw.add_sketch_entity(sketch, Entity::Point(Point2::new(30.0, 0.0)));
+    redraw.add_sketch_entity(sketch, Entity::Line { start, end });
+    document.apply(redraw.finish()).unwrap();
+    document
+}
+
+fn piece_stand_ins_journal() -> Vec<u8> {
+    let (base, sketch, lines) = separated_blocks();
+    let mut session = Session {
+        editor: Editor::new(base.clone()),
+        entries: Vec::new(),
+    };
+    let mut removal = base.transaction("Delete a side");
+    removal.remove_sketch_items(sketch, [lines[1]], []);
+    session.apply(removal.finish());
+    let model = save_bytes(&base, None, at(1_700_000_000), Some("Blocks")).unwrap();
+    let on_disk = decode(&model).unwrap().digest.unwrap();
+    let head = JournalHead {
+        file: Some(Path::new("/models/blocks.caditor")),
+        on_disk: Some(&on_disk),
+        loaded_with_problems: false,
+        folded: 0,
+    };
+    encode_journal(&head, &base, &session.entries).unwrap()
 }
 
 fn separate_pieces_journal() -> Vec<u8> {
