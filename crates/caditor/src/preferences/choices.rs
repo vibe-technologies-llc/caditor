@@ -98,6 +98,7 @@ impl Choice for OrbitAround {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Transitions {
+    System,
     Off,
     Quick,
     #[default]
@@ -106,8 +107,10 @@ pub enum Transitions {
 }
 
 impl Transitions {
-    pub fn scale(self) -> f64 {
+    pub fn scale(self, system_reduces_motion: bool) -> f64 {
         match self {
+            Self::System if system_reduces_motion => 0.0,
+            Self::System => 1.0,
             Self::Off => 0.0,
             Self::Quick => 0.5,
             Self::Standard => 1.0,
@@ -117,10 +120,17 @@ impl Transitions {
 }
 
 impl Choice for Transitions {
-    const ALL: &'static [Self] = &[Self::Off, Self::Quick, Self::Standard, Self::Slow];
+    const ALL: &'static [Self] = &[
+        Self::System,
+        Self::Off,
+        Self::Quick,
+        Self::Standard,
+        Self::Slow,
+    ];
 
     fn key(self) -> &'static str {
         match self {
+            Self::System => "system",
             Self::Off => "off",
             Self::Quick => "quick",
             Self::Standard => "standard",
@@ -130,6 +140,7 @@ impl Choice for Transitions {
 
     fn label(self) -> &'static str {
         match self {
+            Self::System => "Follow the system",
             Self::Off => "No motion",
             Self::Quick => "Quick",
             Self::Standard => "Standard",
@@ -139,6 +150,10 @@ impl Choice for Transitions {
 
     fn description(self) -> &'static str {
         match self {
+            Self::System => {
+                "View changes glide at the usual speed, or jump straight to the new view when the \
+                 desktop's settings turn animations off, changing when it changes"
+            }
             Self::Off => {
                 "Standard views, fitting and looking at a sketch jump straight to the new view, \
                  with no movement on screen"
@@ -697,8 +712,16 @@ mod tests {
     }
 
     #[test]
+    fn following_the_system_glides_at_the_usual_speed_unless_the_system_reduces_motion() {
+        assert_eq!(Transitions::System.scale(false), 1.0);
+        assert_eq!(Transitions::System.scale(true), 0.0);
+        assert_eq!(Transitions::Off.scale(false), 0.0);
+        assert_eq!(Transitions::Slow.scale(true), 2.0);
+    }
+
+    #[test]
     fn the_defaults_are_today_s_behaviour() {
-        assert_eq!(Transitions::default().scale(), 1.0);
+        assert_eq!(Transitions::default().scale(true), 1.0);
         assert_eq!(
             FieldOfView::default().degrees(),
             DEFAULT_FIELD_OF_VIEW_DEGREES

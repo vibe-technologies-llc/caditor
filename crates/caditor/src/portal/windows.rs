@@ -3,7 +3,7 @@ use std::{num::NonZeroIsize, path::PathBuf, sync::OnceLock};
 use caditor_windows::DialogParent;
 use rfd::FileDialog;
 
-use super::{DialogError, FileRequest, Mode};
+use super::{DialogError, FileRequest, Mode, SettingError};
 
 static OWNER: OnceLock<DialogParent> = OnceLock::new();
 
@@ -11,6 +11,10 @@ pub fn own_dialogs(window: NonZeroIsize) {
     if OWNER.set(DialogParent::new(window)).is_err() {
         log::debug!("file dialogs already belong to the first window");
     }
+}
+
+pub fn animations_enabled() -> Result<bool, SettingError> {
+    caditor_windows::client_area_animations().map_err(SettingError::Windows)
 }
 
 pub fn choose(request: &FileRequest) -> Result<Option<PathBuf>, DialogError> {

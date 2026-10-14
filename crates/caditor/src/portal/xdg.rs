@@ -20,12 +20,16 @@ use zbus::{
     zvariant::{OwnedObjectPath, OwnedValue, Value},
 };
 
-use super::{ANY_EXTENSION, DialogError, FileRequest, Filter, Mode};
+use super::{ANY_EXTENSION, DialogError, FileRequest, Filter, Mode, SettingError};
 
 const DESKTOP: &str = "org.freedesktop.portal.Desktop";
 const DESKTOP_PATH: &str = "/org/freedesktop/portal/desktop";
 const FILE_CHOOSER: &str = "org.freedesktop.portal.FileChooser";
 const REQUEST: &str = "org.freedesktop.portal.Request";
+const SETTINGS: &str = "org.freedesktop.portal.Settings";
+const READ_ONE: &str = "ReadOne";
+const ANIMATION_NAMESPACE: &str = "org.gnome.desktop.interface";
+const ANIMATION_KEY: &str = "enable-animations";
 const REQUEST_PATH: &str = "/org/freedesktop/portal/desktop/request";
 const RESPONSE: &str = "Response";
 const SUCCESS: u32 = 0;
@@ -97,6 +101,16 @@ fn either_case(extension: &str) -> String {
             }
         })
         .collect()
+}
+
+pub fn animations_enabled() -> Result<bool, SettingError> {
+    let connection = Connection::session().map_err(SettingError::NoSessionBus)?;
+    let settings = Proxy::new(&connection, DESKTOP, DESKTOP_PATH, SETTINGS)
+        .map_err(SettingError::Unavailable)?;
+    let value: OwnedValue = settings
+        .call(READ_ONE, &(ANIMATION_NAMESPACE, ANIMATION_KEY))
+        .map_err(SettingError::Unavailable)?;
+    bool::try_from(value).map_err(SettingError::NotYesOrNo)
 }
 
 pub fn choose(request: &FileRequest) -> Result<Option<PathBuf>, DialogError> {

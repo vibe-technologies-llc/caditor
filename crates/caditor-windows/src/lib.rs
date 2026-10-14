@@ -3,6 +3,7 @@
 #[cfg(test)]
 mod tests;
 
+mod animation;
 mod cloning;
 mod console;
 mod files;
@@ -12,6 +13,7 @@ mod process;
 mod registry;
 mod window;
 
+pub use animation::client_area_animations;
 pub use cloning::{cluster_size, duplicate_extents};
 pub use console::{attach_parent_console, on_console_close};
 pub use files::{

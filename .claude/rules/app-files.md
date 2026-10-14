@@ -4,6 +4,7 @@ paths:
   - "crates/caditor/src/files/**"
   - "crates/caditor/src/portal.rs"
   - "crates/caditor/src/portal/**"
+  - "crates/caditor/src/system_motion.rs"
   - "crates/caditor/src/onboarding.rs"
   - "crates/caditor/src/export.rs"
   - "crates/caditor/src/configuration_export.rs"
@@ -453,8 +454,9 @@ paths:
 - Keys added with the settings a broad user base expects, each read leniently (a missing, unknown
   or mistyped value is today's behaviour) and each wired end to end: `navigation.zoom_toward`
   (`pointer`, `centre`), `navigation.orbit_around` (`pointer`, `centre`),
-  `navigation.invert_orbit_x` and `_y`, `navigation.transitions` (`off`, `quick`, `standard`,
-  `slow`: `Transitions::scale` of the camera's transitions), `navigation.field_of_view`
+  `navigation.invert_orbit_x` and `_y`, `navigation.transitions` (`system`, `off`, `quick`,
+  `standard`, `slow`: `Transitions::scale` of the camera's transitions; `system` is Follow the
+  system, see Reduced motion below), `navigation.field_of_view`
   (`narrow`, `standard`, `wide`: 20°, 30°, 45°), `appearance.tooltip_delay` (`at_once`,
   `standard`, `later`, applied over the installed styles by `app::apply_appearance`),
   `view.edges` (`thin`, `standard`, `thick`), `view.outlines`, `view.view_cube`,
@@ -481,6 +483,16 @@ paths:
   `shadows`; numbers
   read clamped, `lighting::Lighting`, Appearance › Rendered view, `app.md`).
   Recovery's journal and atomic saving have no setting (`reliability.md`).
+- Reduced motion: Follow the system (`Transitions::System`, not the default) takes the standard
+  speed, or none while the desktop turns animations off. `system_motion.rs` keeps the answer in an
+  atomic that `ViewportState::advance` hands the camera each frame, so the UI thread only reads a
+  flag; a thread of its own (`system_motion::watch`, started when the preference is first applied
+  as Follow the system, never in tests) asks `portal::animations_enabled` every `POLL` and treats
+  a failure as animations on, logging it once. On Unix that is the XDG desktop portal's Settings
+  `ReadOne` of `org.gnome.desktop.interface` `enable-animations` over `zbus` (desktops without the
+  key answer an error, so motion stays on), on Windows `caditor_windows::client_area_animations`
+  (`windows.md`). No Wayland or X11 protocol carries the setting, and winit reports none. View
+  changes › No motion stays available for a fixed choice.
 - `Files` reads `files.startup` and `files.recent_listed` from every `Settings` it is handed, as it
   does the default template. `Files::recent` lists only the newest `RecentListed::count` (the menu,
   the welcome and the palette's recent slots); the stored list keeps `RECENT_LIMIT`. With The last

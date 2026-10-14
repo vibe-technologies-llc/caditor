@@ -203,6 +203,7 @@ mod status_bar;
 mod stepping;
 mod sweep_tools;
 mod symmetric_drawing;
+mod system_motion;
 mod tangent_circling;
 mod themes;
 mod thread_panel;
