@@ -49,13 +49,14 @@ pub use crate::{
         AngularExtent, Axis2, Heights, LinearBound, LinearExtent, LoftError, LoftProfile, LoftSkin,
         MAX_LOFT_PROFILES, MAX_TAPER_DEGREES, NextFace, PathSegment, PathSweepError, PipeCorner,
         PipeError, PipeSection, PipeShape, PipeStand, ReachError, StopError, Stopped, SweepError,
-        SweepOrientation, WrapError, extrude, extrude_along, extrude_tapered, heights,
+        SweepOrientation, WindingAxis, WrapError, extrude, extrude_along, extrude_tapered, heights,
         heights_along, loft, next_face, pipe, pipe_stand, revolve, stop_at_body, sweep, wrap_chain,
         wrap_regions,
     },
     coil::{
-        COIL_PARTS, CoilError, CoilFace, CoilParts, CoilPlacement, CoilShape, CoilSpec,
-        LEAST_COIL_TURNS, MAX_COIL_TAPER_DEGREES, MAX_COIL_TURNS, coil,
+        COIL_PARTS, CoilError, CoilFace, CoilParts, CoilPlacement, CoilShape, CoilSpec, HelixError,
+        HelixSpec, HelixTurn, LEAST_COIL_TURNS, MAX_COIL_TAPER_DEGREES, MAX_COIL_TURNS, coil,
+        helix,
     },
     coordinates::Coordinates,
     curve::{

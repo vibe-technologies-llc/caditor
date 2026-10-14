@@ -1,4 +1,5 @@
 mod faces;
+mod helix;
 #[cfg(test)]
 mod tests;
 
@@ -7,6 +8,7 @@ use std::f64::consts::{FRAC_1_SQRT_2, TAU};
 use caditor_geometry::{Plane, Point2};
 use thiserror::Error;
 
+pub use self::helix::{HelixError, HelixSpec, HelixTurn, helix};
 use crate::{
     error::GeometryError,
     interrupt::Interrupted,
@@ -232,12 +234,17 @@ impl SectionPiece {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-struct Layout {
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Winding {
     frame: Plane,
     hand: Handedness,
     pitch: f64,
     slope: f64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct Layout {
+    winding: Winding,
     turns: f64,
     centre: Point2,
     section: [SectionPiece; SECTION_PIECES],
@@ -339,10 +346,12 @@ fn layout(spec: &CoilSpec) -> Result<Layout, CoilError> {
     };
     let centre = Point2::new(centre, half);
     Ok(Layout {
-        frame: spec.frame,
-        hand: spec.hand,
-        pitch: spec.pitch,
-        slope: spec.pitch * taper.tan() / TAU,
+        winding: Winding {
+            frame: spec.frame,
+            hand: spec.hand,
+            pitch: spec.pitch,
+            slope: spec.pitch * taper.tan() / TAU,
+        },
         turns: spec.turns,
         centre,
         section: section(spec.shape, centre, half),

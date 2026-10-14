@@ -7,8 +7,8 @@ Model menu, the command palette and the right-click menu of selected sketch curv
 helical groove winds around an axis instead: that is a [Coil](coil).
 
 The path is a chain of curves of a sketch (lines, arcs, splines, ellipses, construction lines too)
-or of edges of a body, joined end to end without forks, open or closed. Select its curves or edges,
-then choose Pipe. With nothing selected Pipe opens with no path and starts choosing it in the view;
+or of edges of a body, joined end to end without forks, open or closed, or a [helix](helix). Select
+its curves, edges or helix, then choose Pipe. With nothing selected Pipe opens with no path and starts choosing it in the view;
 until it has one, its row in the tree says "Waiting for a path" rather than failing.
 
 ## Panel

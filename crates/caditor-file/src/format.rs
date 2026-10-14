@@ -13,7 +13,7 @@ use caditor_document::{
     CurveSpacing, CurveStation, Datum, DatumAxis, DatumFrame, DatumPlane, DatumPoint, DeleteFace,
     Document, EdgeGroup, Edit, Extrude, ExtrudeEnd, ExtrudeExtent, FaceAttachment, FaceAxisMate,
     FaceColour, FaceMate, FaceOnRound, FacePair, FaceTangent, FaceThickness, Feature, FeatureId,
-    FeatureKind, Finish, HOME_VIEW_NAME, Hole, HoleBottom, HoleDepth, HoleFit, HoleShape,
+    FeatureKind, Finish, HOME_VIEW_NAME, Helix, Hole, HoleBottom, HoleDepth, HoleFit, HoleShape,
     HoleSizing, HoleStandard, HoleStep, HoleStyle, Import, LinearDirection, LinearSpacing, Loft,
     LoftSection, MAX_BODY_NAME_CHARS, MAX_GROUP_NAME_CHARS, MAX_MATERIAL_NAME_CHARS,
     MAX_PATTERN_INSTANCES, MAX_SAVED_VIEWS, MAX_VIEW_NAME_CHARS, MIN_OPACITY_PERCENT, Mate,
@@ -313,6 +313,25 @@ pub(crate) enum FeatureKindRecord {
     Rib(Box<RibRecord>),
     Loft(Box<LoftRecord>),
     DeleteFace(Box<DeleteFaceRecord>),
+    Helix(Box<HelixRecord>),
+    AlongHelix(Box<AlongHelixRecord>),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct HelixRecord {
+    pub axis: Lenient<AxisReferenceRecord>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub reversed: bool,
+    pub diameter: String,
+    pub length: CoilLengthRecord,
+    pub taper: String,
+    pub turning: CoilTurningRecord,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct AlongHelixRecord {
+    pub feature: FeatureKindRecord,
+    pub helix: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -957,7 +976,7 @@ pub(crate) struct RevolveOneSideRecord {
 
 pub(crate) const FEATURE_FIELDS: [&str; 4] = ["hidden", "appearance", "group", "piece_looks"];
 
-pub(crate) const FEATURE_KINDS: [&str; 80] = [
+pub(crate) const FEATURE_KINDS: [&str; 82] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -1038,6 +1057,8 @@ pub(crate) const FEATURE_KINDS: [&str; 80] = [
     "separate_pieces",
     "reference_image",
     "delete_face",
+    "helix",
+    "along_helix",
 ];
 
 #[derive(Debug, Clone)]
@@ -2863,6 +2884,12 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
             bodies: solid.other_bodies().iter().map(|body| body.raw()).collect(),
         }));
     }
+    if let Some((unchosen, helix)) = without_helix_path(kind) {
+        return FeatureKindRecord::AlongHelix(Box::new(AlongHelixRecord {
+            feature: feature_kind_record(&unchosen),
+            helix: helix.raw(),
+        }));
+    }
     if let FeatureKind::Solid(SolidFeature::Revolve(revolve)) = kind
         && let Some(side) = revolve.side
     {
@@ -3168,6 +3195,7 @@ fn kind_record(kind: &FeatureKind) -> FeatureKindRecord {
         FeatureKind::Mirror(mirror) => mirror_record(mirror),
         FeatureKind::Pipe(pipe) => pipe_record(pipe),
         FeatureKind::Coil(coil) => coil_record(coil),
+        FeatureKind::Helix(helix) => helix_record(helix),
         FeatureKind::Rib(rib) => rib_record(rib),
         FeatureKind::Loft(loft) => loft_record(loft),
         FeatureKind::Primitive(primitive) => {
@@ -3447,7 +3475,7 @@ fn revolve_from_record(revolve: &Revolve, start: &SolidStart) -> FeatureKindReco
 
 fn sweep_path_record(path: &SweepPath) -> SweepPathRecord {
     match path {
-        SweepPath::Unchosen => SweepPathRecord::Unchosen,
+        SweepPath::Unchosen | SweepPath::Helix { .. } => SweepPathRecord::Unchosen,
         SweepPath::Curves { sketch, curves } => SweepPathRecord::Curves {
             sketch: sketch.raw(),
             curves: curves.iter().map(|curve| curve.raw()).collect(),
@@ -3528,50 +3556,81 @@ fn restore_rib(record: &RibRecord, feature: &str, issues: &mut Vec<String>) -> R
     }
 }
 
-fn coil_record(coil: &Coil) -> FeatureKindRecord {
+fn without_helix_path(kind: &FeatureKind) -> Option<(FeatureKind, FeatureId)> {
+    match kind {
+        FeatureKind::Solid(SolidFeature::Sweep(sweep)) => {
+            let helix = sweep.path.helix()?;
+            let unchosen = Sweep {
+                path: SweepPath::Unchosen,
+                ..sweep.clone()
+            };
+            Some((FeatureKind::Solid(SolidFeature::Sweep(unchosen)), helix))
+        }
+        FeatureKind::Pipe(pipe) => {
+            let helix = pipe.path.helix()?;
+            let unchosen = Pipe {
+                path: SweepPath::Unchosen,
+                ..pipe.clone()
+            };
+            Some((FeatureKind::Pipe(unchosen), helix))
+        }
+        _ => None,
+    }
+}
+
+fn coil_length_record(length: &CoilLength) -> CoilLengthRecord {
     let text = Expression::to_stored_text;
-    FeatureKindRecord::Coil(Box::new(CoilRecord {
-        axis: Lenient::Read(axis_record(&coil.axis)),
-        reversed: coil.reversed,
-        diameter: text(&coil.diameter),
-        length: match &coil.length {
-            CoilLength::TurnsAndPitch { turns, pitch } => CoilLengthRecord::TurnsAndPitch {
-                turns: text(turns),
-                pitch: text(pitch),
-            },
-            CoilLength::HeightAndTurns { height, turns } => CoilLengthRecord::HeightAndTurns {
-                height: text(height),
-                turns: text(turns),
-            },
-            CoilLength::HeightAndPitch { height, pitch } => CoilLengthRecord::HeightAndPitch {
-                height: text(height),
-                pitch: text(pitch),
-            },
+    match length {
+        CoilLength::TurnsAndPitch { turns, pitch } => CoilLengthRecord::TurnsAndPitch {
+            turns: text(turns),
+            pitch: text(pitch),
         },
-        shape: match coil.shape {
-            CoilShape::Round => CoilShapeRecord::Round,
-            CoilShape::Square => CoilShapeRecord::Square,
+        CoilLength::HeightAndTurns { height, turns } => CoilLengthRecord::HeightAndTurns {
+            height: text(height),
+            turns: text(turns),
         },
-        size: text(&coil.size),
-        placement: match coil.placement {
-            CoilPlacement::Inside => CoilPlacementRecord::Inside,
-            CoilPlacement::Centred => CoilPlacementRecord::Centred,
-            CoilPlacement::Outside => CoilPlacementRecord::Outside,
+        CoilLength::HeightAndPitch { height, pitch } => CoilLengthRecord::HeightAndPitch {
+            height: text(height),
+            pitch: text(pitch),
         },
-        taper: text(&coil.taper),
-        turning: match coil.turning {
-            CoilTurning::CounterClockwise => CoilTurningRecord::CounterClockwise,
-            CoilTurning::Clockwise => CoilTurningRecord::Clockwise,
-        },
-        operation: operation_record(coil.operation),
+    }
+}
+
+fn turning_record(turning: CoilTurning) -> CoilTurningRecord {
+    match turning {
+        CoilTurning::CounterClockwise => CoilTurningRecord::CounterClockwise,
+        CoilTurning::Clockwise => CoilTurningRecord::Clockwise,
+    }
+}
+
+fn restore_turning(record: CoilTurningRecord) -> CoilTurning {
+    match record {
+        CoilTurningRecord::CounterClockwise => CoilTurning::CounterClockwise,
+        CoilTurningRecord::Clockwise => CoilTurning::Clockwise,
+    }
+}
+
+fn helix_record(helix: &Helix) -> FeatureKindRecord {
+    let text = Expression::to_stored_text;
+    FeatureKindRecord::Helix(Box::new(HelixRecord {
+        axis: Lenient::Read(axis_record(&helix.axis)),
+        reversed: helix.reversed,
+        diameter: text(&helix.diameter),
+        length: coil_length_record(&helix.length),
+        taper: text(&helix.taper),
+        turning: turning_record(helix.turning),
     }))
 }
 
-fn restore_coil(record: &CoilRecord, feature: &str, issues: &mut Vec<String>) -> Coil {
+fn restore_coil_length(
+    record: &CoilLengthRecord,
+    feature: &str,
+    issues: &mut Vec<String>,
+) -> CoilLength {
     let mut value = |text: &str, what: &str, fallback: &str| {
         restore_value(text, what, fallback, feature, issues)
     };
-    let length = match &record.length {
+    match record {
         CoilLengthRecord::TurnsAndPitch { turns, pitch } => CoilLength::TurnsAndPitch {
             turns: value(turns, "turns", "5"),
             pitch: value(pitch, "pitch", "5 mm"),
@@ -3584,11 +3643,15 @@ fn restore_coil(record: &CoilRecord, feature: &str, issues: &mut Vec<String>) ->
             height: value(height, "height", "25 mm"),
             pitch: value(pitch, "pitch", "5 mm"),
         },
-    };
-    let diameter = value(&record.diameter, "diameter", "20 mm");
-    let size = value(&record.size, "section size", "2 mm");
-    let taper = value(&record.taper, "taper angle", "0 deg");
-    let axis = match &record.axis {
+    }
+}
+
+fn restore_winding_axis(
+    record: &Lenient<AxisReferenceRecord>,
+    feature: &str,
+    issues: &mut Vec<String>,
+) -> AxisReference {
+    match record {
         Lenient::Read(axis) => restore_axis(axis),
         Lenient::Unreadable(_) => None,
     }
@@ -3597,7 +3660,55 @@ fn restore_coil(record: &CoilRecord, feature: &str, issues: &mut Vec<String>) ->
             "The axis “{feature}” winds around could not be read, so it is the Z axis."
         ));
         AxisReference::Principal(PrincipalAxis::Z)
-    });
+    })
+}
+
+fn restore_helix(record: &HelixRecord, feature: &str, issues: &mut Vec<String>) -> Helix {
+    let length = restore_coil_length(&record.length, feature, issues);
+    let diameter = restore_value(&record.diameter, "diameter", "20 mm", feature, issues);
+    let taper = restore_value(&record.taper, "taper angle", "0 deg", feature, issues);
+    Helix {
+        axis: restore_winding_axis(&record.axis, feature, issues),
+        reversed: record.reversed,
+        diameter,
+        length,
+        taper,
+        turning: restore_turning(record.turning),
+    }
+}
+
+fn coil_record(coil: &Coil) -> FeatureKindRecord {
+    let text = Expression::to_stored_text;
+    FeatureKindRecord::Coil(Box::new(CoilRecord {
+        axis: Lenient::Read(axis_record(&coil.axis)),
+        reversed: coil.reversed,
+        diameter: text(&coil.diameter),
+        length: coil_length_record(&coil.length),
+        shape: match coil.shape {
+            CoilShape::Round => CoilShapeRecord::Round,
+            CoilShape::Square => CoilShapeRecord::Square,
+        },
+        size: text(&coil.size),
+        placement: match coil.placement {
+            CoilPlacement::Inside => CoilPlacementRecord::Inside,
+            CoilPlacement::Centred => CoilPlacementRecord::Centred,
+            CoilPlacement::Outside => CoilPlacementRecord::Outside,
+        },
+        taper: text(&coil.taper),
+        turning: turning_record(coil.turning),
+        operation: operation_record(coil.operation),
+    }))
+}
+
+fn restore_coil(record: &CoilRecord, feature: &str, issues: &mut Vec<String>) -> Coil {
+    let length = restore_coil_length(&record.length, feature, issues);
+    let mut value = |text: &str, what: &str, fallback: &str| {
+        restore_value(text, what, fallback, feature, issues)
+    };
+    let diameter = value(&record.diameter, "diameter", "20 mm");
+    let size = value(&record.size, "section size", "2 mm");
+    let taper = value(&record.taper, "taper angle", "0 deg");
+    let axis = restore_winding_axis(&record.axis, feature, issues);
     Coil {
         axis,
         reversed: record.reversed,
@@ -3614,10 +3725,7 @@ fn restore_coil(record: &CoilRecord, feature: &str, issues: &mut Vec<String>) ->
             CoilPlacementRecord::Outside => CoilPlacement::Outside,
         },
         taper,
-        turning: match record.turning {
-            CoilTurningRecord::CounterClockwise => CoilTurning::CounterClockwise,
-            CoilTurningRecord::Clockwise => CoilTurning::Clockwise,
-        },
+        turning: restore_turning(record.turning),
         operation: restore_operation(record.operation),
     }
 }
@@ -5851,6 +5959,21 @@ fn restore_kind(
             }
             kind
         }
+        FeatureKindRecord::AlongHelix(along) => {
+            let mut kind = restore_kind(&along.feature, name, texts, issues);
+            let path = SweepPath::Helix {
+                helix: FeatureId::from_raw(along.helix),
+            };
+            match &mut kind {
+                FeatureKind::Solid(SolidFeature::Sweep(sweep)) => sweep.path = path,
+                FeatureKind::Pipe(pipe) => pipe.path = path,
+                _ => issues.push(format!(
+                    "“{name}” was to follow a helix, but it is not a sweep or pipe, so that was \
+                     left out."
+                )),
+            }
+            kind
+        }
         FeatureKindRecord::ExtrudeAlong(along) => {
             let mut kind = restore_kind(&along.feature, name, texts, issues);
             let direction = match &along.direction {
@@ -6353,6 +6476,7 @@ fn restore_kind(
         }
         FeatureKindRecord::Pipe(record) => FeatureKind::Pipe(restore_pipe(record, name, issues)),
         FeatureKindRecord::Coil(record) => FeatureKind::Coil(restore_coil(record, name, issues)),
+        FeatureKindRecord::Helix(record) => FeatureKind::Helix(restore_helix(record, name, issues)),
         FeatureKindRecord::Rib(record) => FeatureKind::Rib(restore_rib(record, name, issues)),
         FeatureKindRecord::Loft(record) => FeatureKind::Loft(restore_loft(record, name, issues)),
         FeatureKindRecord::Primitive(record) => {

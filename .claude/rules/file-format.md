@@ -200,6 +200,12 @@ Extrusions and revolves:
   (`round`, `square`), `size` (unreadable 2 mm), `placement` (`inside`, `centred`, `outside`),
   `taper` (unreadable 0 deg), `turning` (`counter_clockwise`, `clockwise`) and `operation`. The
   corpus holds it in `coils.caditor`.
+- `helix`: `axis`, `reversed`, `diameter`, `length`, `taper` and `turning` as a coil's (same
+  fallbacks). `along_helix`: a wrapper around a sweep or pipe record whose path is unchosen
+  (`feature`) and `helix`, the helix feature's id, written for a sweep or pipe following a helix
+  (inside `cut_several` for a sweep cutting other bodies); an older reader reports the feature as
+  from a newer version rather than leaving it with no path. A wrapped kind that follows no path is
+  loaded without it, reported. The corpus holds both in `helices.caditor`.
 - `rib`: `sketch`, `body`, `thickness` (unreadable 2 mm, reported), `side` (`one_side`,
   `other_side`, `symmetric`), `direction` (`parallel`, `square`) and `reversed` only when set. The
   corpus holds it in `ribs.caditor`.

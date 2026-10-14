@@ -322,12 +322,12 @@ fn rounded(chain: &Chain, radius: f64) -> Result<Rounded, PipeError> {
     for ((leg, [before, after]), bend) in chain.legs.iter().zip(trims).zip(&bends) {
         let range = leg.range;
         if before == 0.0 && after == 0.0 {
-            segments.push(PathSegment::new(leg.curve.clone(), range, leg.key));
+            segments.push(leg.segment_over(range));
             sources.push(Source::Segment(leg.segment));
         } else if range.length() - before - after > LINEAR_RESOLUTION {
             let kept = Interval::new(range.start() + before, range.end() - after)
                 .ok_or_else(degenerate)?;
-            segments.push(PathSegment::new(leg.curve.clone(), kept, leg.key));
+            segments.push(leg.segment_over(kept));
             sources.push(Source::Segment(leg.segment));
         }
         if let Some(bend) = bend {

@@ -35,7 +35,7 @@ impl CoilTurning {
         }
     }
 
-    fn hand(self) -> Handedness {
+    pub(crate) fn hand(self) -> Handedness {
         match self {
             Self::CounterClockwise => Handedness::Right,
             Self::Clockwise => Handedness::Left,
@@ -300,8 +300,9 @@ impl Coil {
 fn number(context: &Context<'_>, expression: &Expression, what: &str) -> Result<f64, Failure> {
     let value = context.value_as(expression, what, Dimension::NONE)?;
     if !(LEAST_COIL_TURNS..=MAX_COIL_TURNS).contains(&value) {
+        let shape = context.shape();
         return Err(context.error(
-            format!("The coil must make from {LEAST_COIL_TURNS} to {MAX_COIL_TURNS} turns."),
+            format!("The {shape} must make from {LEAST_COIL_TURNS} to {MAX_COIL_TURNS} turns."),
             format!("Enter a number of {what} from {LEAST_COIL_TURNS} to {MAX_COIL_TURNS}."),
         ));
     }
@@ -333,10 +334,11 @@ pub(crate) fn span(context: &Context<'_>, length: &CoilLength) -> Result<CoilSpa
             let pitch = context.size(pitch, "pitch")?;
             let turns = height / pitch;
             if !(LEAST_COIL_TURNS..=MAX_COIL_TURNS).contains(&turns) {
+                let shape = context.shape();
                 return Err(context.error(
                     format!(
                         "A height of {height} mm at a pitch of {pitch} mm makes {turns:.2} turns; \
-                         a coil makes from {LEAST_COIL_TURNS} to {MAX_COIL_TURNS}."
+                         a {shape} makes from {LEAST_COIL_TURNS} to {MAX_COIL_TURNS}."
                     ),
                     "Change the height or the pitch.".to_owned(),
                 ));
@@ -350,11 +352,12 @@ pub(crate) fn span(context: &Context<'_>, length: &CoilLength) -> Result<CoilSpa
     }
 }
 
-fn taper(context: &Context<'_>, expression: &Expression) -> Result<f64, Failure> {
+pub(crate) fn taper(context: &Context<'_>, expression: &Expression) -> Result<f64, Failure> {
     let degrees = context.value_as(expression, "taper angle", Dimension::ANGLE)?;
     if degrees.abs() >= MAX_COIL_TAPER_DEGREES {
+        let shape = context.shape();
         return Err(context.error(
-            format!("The taper of the coil is {MAX_COIL_TAPER_DEGREES}° or steeper."),
+            format!("The taper of the {shape} is {MAX_COIL_TAPER_DEGREES}° or steeper."),
             format!(
                 "Enter a taper angle between -{MAX_COIL_TAPER_DEGREES}° and \
                  {MAX_COIL_TAPER_DEGREES}°."

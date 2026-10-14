@@ -32,7 +32,9 @@ impl Kind {
     fn holds(self, feature: &Feature) -> bool {
         match &feature.kind {
             FeatureKind::Sketch(_) => self == Self::Sketches,
-            FeatureKind::Datum(_) | FeatureKind::ReferenceImage(_) => self == Self::Datums,
+            FeatureKind::Datum(_) | FeatureKind::Helix(_) | FeatureKind::ReferenceImage(_) => {
+                self == Self::Datums
+            }
             _ => self == Self::Bodies && can_hide(feature),
         }
     }
@@ -72,6 +74,7 @@ pub fn can_hide(feature: &Feature) -> bool {
         | FeatureKind::Pipe(_)
         | FeatureKind::Loft(_)
         | FeatureKind::Coil(_)
+        | FeatureKind::Helix(_)
         | FeatureKind::Rib(_)
         | FeatureKind::Combine(_)
         | FeatureKind::Move(_)

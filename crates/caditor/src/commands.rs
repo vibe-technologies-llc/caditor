@@ -163,6 +163,7 @@ pub enum Command {
     DatumAxis,
     DatumPoint,
     CoordinateSystem,
+    Helix,
     InsertImage,
     ScaleModel,
     Configurations,
@@ -363,6 +364,7 @@ impl Command {
                 | Self::DatumAxis
                 | Self::DatumPoint
                 | Self::CoordinateSystem
+                | Self::Helix
                 | Self::Construction
                 | Self::SplitCurve
                 | Self::BreakCurves
@@ -779,6 +781,7 @@ plain_commands! {
     DatumAxis,
     DatumPoint,
     CoordinateSystem,
+    Helix,
     InsertImage,
     ScaleModel,
     Configurations,
@@ -1064,6 +1067,7 @@ impl Command {
             Self::DatumAxis => "model.axis",
             Self::DatumPoint => "model.point",
             Self::CoordinateSystem => "model.coordinate_system",
+            Self::Helix => "model.helix",
             Self::InsertImage => "model.insert_reference_image",
             Self::ScaleModel => "model.scale_model",
             Self::Configurations => "model.configurations",
@@ -1347,6 +1351,7 @@ impl Command {
             Self::DatumAxis => "Datum axis",
             Self::DatumPoint => "Datum point",
             Self::CoordinateSystem => "Coordinate system",
+            Self::Helix => "Helix",
             Self::InsertImage => "Insert reference image…",
             Self::ScaleModel => "Scale model…",
             Self::Configurations => "Configurations…",
@@ -1553,6 +1558,9 @@ impl Command {
             Self::Pipe => &["tube", "tubing", "handrail", "cable", "wire", "rod", "bend"],
             Self::Loft => &["blend", "skin", "transition", "through sections", "morph"],
             Self::Coil => &["spring", "helix", "spiral", "screw", "winding", "wire"],
+            Self::Helix => &[
+                "spiral", "thread", "screw", "spring", "curve", "path", "coil",
+            ],
             Self::Rib => &["web", "stiffener", "gusset", "brace", "strengthen", "wall"],
             Self::Fillet => &["round", "blend"],
             Self::Chamfer => &["bevel"],
@@ -1788,6 +1796,7 @@ impl Command {
             | Self::DatumAxis
             | Self::DatumPoint
             | Self::CoordinateSystem
+            | Self::Helix
             | Self::InsertImage
             | Self::ScaleModel
             | Self::Configurations
@@ -2194,7 +2203,8 @@ impl Command {
             | Self::NewPrism
             | Self::CurvePattern
             | Self::PointPattern
-            | Self::Coil => Vec::new(),
+            | Self::Coil
+            | Self::Helix => Vec::new(),
         }
     }
 

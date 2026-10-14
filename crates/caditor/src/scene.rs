@@ -32,6 +32,7 @@ use crate::{
     display_style::DisplayStyle,
     drawing::Preview,
     editing::Context,
+    helix_tools,
     image_textures::ImageTextures,
     image_tools,
     interference_panel::{Mark, MarkKind},
@@ -404,7 +405,10 @@ impl BuiltScene {
                     .filter(|_| !owner.hidden);
                 let datum =
                     Aabb::from_points(datum_points(evaluation, *feature, self.reference_size))
-                        .filter(|_| owner.kind.datum().is_some() && !owner.hidden);
+                        .filter(|_| {
+                            (owner.kind.datum().is_some() || owner.kind.helix().is_some())
+                                && !owner.hidden
+                        });
                 [drawn, sketched, datum]
                     .into_iter()
                     .flatten()
@@ -1057,12 +1061,17 @@ pub fn build_keeping(
             }
             for feature in document.active_features() {
                 let opened = context.solid == Some(feature.id());
-                if feature.kind.datum().is_some() && (opened || !feature.hidden) {
+                let curve = feature.kind.helix().is_some();
+                if (curve || feature.kind.datum().is_some()) && (opened || !feature.hidden) {
                     let shown = match drafted(draft, feature.id()) {
                         Some(drafted) if opened => drafted,
                         Some(_) | None => evaluation,
                     };
-                    builder.datum(shown, feature.id(), opened, reference_size);
+                    if curve {
+                        builder.helix(shown, feature.id(), opened);
+                    } else {
+                        builder.datum(shown, feature.id(), opened, reference_size);
+                    }
                 }
             }
         }
@@ -1814,6 +1823,41 @@ impl<'a> Builder<'a> {
             }
             None => {}
         }
+    }
+
+    fn helix(&mut self, evaluation: &Evaluation, feature: FeatureId, opened: bool) {
+        let pickable = Pickable::Datum(feature);
+        let failed = matches!(
+            evaluation.feature(feature).map(|status| &status.state),
+            Some(FeatureState::Failed(_) | FeatureState::Outdated)
+        );
+        let edge = if failed {
+            self.palette.failed_datum_edge
+        } else {
+            self.palette.datum_edge
+        };
+        let extra = if opened {
+            OPENED_DATUM_EXTRA_WIDTH
+        } else {
+            0.0
+        };
+        let width = AXIS_WIDTH + extra + self.emphasis(pickable) * HIGHLIGHT_EXTRA_WIDTH;
+        let color = self.highlight.color(&self.palette.lines, pickable, edge);
+        let pick = self.picks.register(pickable, PickPriority::Curve);
+        let points = helix_tools::points(evaluation, feature);
+        let lines = points.windows(2).filter_map(|pair| match pair {
+            [start, end] => Some(Line {
+                start: *start,
+                end: *end,
+                color,
+                width,
+                layer: Layer::Reference,
+                pick,
+                stroke: Stroke::Solid,
+            }),
+            _ => None,
+        });
+        self.scene.lines.extend(lines);
     }
 
     fn frame(
@@ -3616,9 +3660,10 @@ fn datum_points(evaluation: &Evaluation, feature: FeatureId, size: f64) -> Vec<P
                 )
                 .collect()
         }
-        None => image_tools::placed(evaluation, feature)
-            .map(|placed| placed.corners().to_vec())
-            .unwrap_or_default(),
+        None => image_tools::placed(evaluation, feature).map_or_else(
+            || helix_tools::points(evaluation, feature),
+            |placed| placed.corners().to_vec(),
+        ),
     }
 }
 

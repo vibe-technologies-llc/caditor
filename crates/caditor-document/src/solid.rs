@@ -695,6 +695,7 @@ impl SolidFeature {
             .chain(self.target_bodies())
             .chain(self.reference_sketches())
             .chain(self.path_body())
+            .chain(self.path().and_then(SweepPath::helix))
             .collect()
     }
 }

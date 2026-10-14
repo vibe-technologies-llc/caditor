@@ -9,7 +9,8 @@ carrying one.
 
 The profile is a sketch with closed regions; the path is a chain of curves of another sketch
 (lines, arcs, splines, ellipses, construction lines too) or of edges of a body, joined end to end
-without forks. Select the profile's regions or curves and the path's curves or edges together,
+without forks, or a [helix](helix), around which the profile winds keeping its place against the
+axis, as a thread's profile does. Select the profile's regions or curves and the path's curves or edges together,
 then choose Sweep. With only a profile selected, or nothing (the last sketch with regions not yet
 swept), Sweep opens with no path and starts choosing it in the view. Until it has one, its row in
 the tree says "Waiting for a path" rather than failing.

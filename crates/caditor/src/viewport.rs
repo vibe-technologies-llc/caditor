@@ -6090,6 +6090,9 @@ fn feature_prompt(kind: Option<&FeatureKind>) -> (&'static str, Clicks) {
         Some(FeatureKind::Coil(_)) => {
             in_panel("Choose the axis, the turns and the section in the panel")
         }
+        Some(FeatureKind::Helix(_)) => {
+            in_panel("Choose the axis, the diameter and the turns in the panel")
+        }
         Some(FeatureKind::Rib(_)) => in_panel(
             "Choose the sketch, the body, which way it runs and its thickness in the panel",
         ),

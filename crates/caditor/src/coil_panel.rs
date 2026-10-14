@@ -54,7 +54,7 @@ fn placement_hover(placement: CoilPlacement) -> &'static str {
     }
 }
 
-fn turning_hover(turning: CoilTurning) -> &'static str {
+pub fn turning_hover(turning: CoilTurning) -> &'static str {
     match turning {
         CoilTurning::CounterClockwise => {
             "Turns counter-clockwise as it rises, seen from its end looking back along the axis \
@@ -81,7 +81,7 @@ pub fn length_fields(length: &CoilLength) -> [(&'static str, &'static str, &Expr
     }
 }
 
-fn with_length_value(length: &CoilLength, index: usize, value: Expression) -> CoilLength {
+pub fn with_length_value(length: &CoilLength, index: usize, value: Expression) -> CoilLength {
     let mut changed = length.clone();
     if let Some(slot) = changed.expressions_mut().into_iter().nth(index) {
         *slot = value;

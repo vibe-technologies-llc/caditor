@@ -11,6 +11,8 @@ paths:
   - "crates/caditor/src/loft_panel.rs"
   - "crates/caditor/src/coil_tools.rs"
   - "crates/caditor/src/coil_panel.rs"
+  - "crates/caditor/src/helix_tools.rs"
+  - "crates/caditor/src/helix_panel.rs"
   - "crates/caditor/src/rib_tools.rs"
   - "crates/caditor/src/rib_panel.rs"
   - "crates/caditor/src/blend_tools.rs"
@@ -85,7 +87,7 @@ paths:
 
 Tools without a ribbon button (it stays one row) live in the Model menu and the palette: Offset face,
 Delete face, Split face, the primitives, Pipe, Loft, Coil, Rib, Thread, Copy body, Split body, Mate body, Mirror faces, Curve and Point
-pattern, Coordinate system, Scale model and Configurations. Sweep has a button in the Solid group
+pattern, Coordinate system, Helix, Scale model and Configurations. Sweep has a button in the Solid group
 and a Model menu row, and is in the right-click menu of selected sketch curves
 (`view_menu::SKETCH_TOOLS`), as Pipe, Loft and Rib are. Panel rows, keys and wordings are in the
 `*_panel.rs` files; this file holds the behaviour behind them.
@@ -450,16 +452,19 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   has regions, else the last shown sketch with regions no feature sweeps (`guessed_profile`); its
   selected regions or closing curves choose regions as an extrusion's do
   (`solid_tools::with_selected_outline`). The path is the selected curves of one other sketch
-  (`is_path_curve`: any curve but a reference, construction ones too) or the selected edges of one
-  body; mixing them, curves of two other sketches or edges of two bodies is refused in words.
+  (`is_path_curve`: any curve but a reference, construction ones too), the selected edges of one
+  body, or one selected helix (`Pickable::Datum` of a `Helix`, `sweep_tools::helix_path`); mixing
+  them, curves of two other sketches, edges of two bodies or a helix with anything else
+  (`HELIX_AND_OTHERS`) is refused in words.
 - A new sweep adds to the path edges' body, else the body of selected faces, else is a new body;
   it hides the profile's sketch but not the path's, whose curves stay clickable. With no path it
   opens choosing one (`Slot::SweepPath`).
-- Panel: Sketch, Regions, Path (`path_words`, "2 curves of Path"; Use selected replaces it,
+- Panel: Sketch, Regions, Path (`path_words`, "2 curves of Path", a helix by its name; Use
+  selected replaces it,
   `selected_change`; Choose in the view; the cross clears it), Orientation (`SQUARE_TO_PATH`,
   `PARALLEL`, a segmented choice that becomes a list when narrow) and Body. While choosing the
   path each click toggles a curve or edge (`toggled_path`: the same sketch or body toggles, another
-  starts a new path) and choosing goes on until Escape (`reference_picking::click` keeps every
+  starts a new path; a click on a helix makes it the path) and choosing goes on until Escape (`reference_picking::click` keeps every
   `Slot::keeps_choosing` slot). With no path it waits (`MissingInput::Path`). Edges are captured in the body as the sweep sees it
   (`Evaluation::body_result_seen_by`, else as shown).
 - It has no arrows or values; Reverse direction refuses it (it follows its path from the profile)
@@ -470,7 +475,7 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
 - `Command::Pipe` (Alt+Shift+I, `pipe_tools.rs`, `Offers::pipe`; Solid group menu, Model menu,
   palette, `view_menu::SKETCH_TOOLS`) makes a `Pipe` of `DEFAULT_SIZE` round, solid, with a
   `DEFAULT_BEND` radius, and opens it. `pipe_tools::source` takes the selected path curves of one
-  sketch (`sweep_tools::is_path_curve`) or edges of one body in pick order, refusing a mix, two
+  sketch (`sweep_tools::is_path_curve`), edges of one body or one helix in pick order, refusing a mix, two
   sketches or two bodies in words (`sweep_tools::SEVERAL_SKETCHES`, `CURVES_AND_EDGES`,
   `PATH_EDGES_OF_SEVERAL_BODIES`); along edges it adds to their body, else it is a new body. With
   nothing selected it opens choosing its path (`Slot::SweepPath`) and waits (`MissingInput::Path`).
@@ -528,6 +533,22 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   `("coil-field", feature, "diameter" | "size" | "taper" | "turns" | "pitch" | "height")`, turns
   under `Rule::CoilTurns`. Reverse direction (`reversing.rs`) flips `reversed`. It has no value
   arrows yet (`docs/FEATURES.md`).
+## Helix
+
+- `Command::Helix` (no default key, `helix_tools.rs`, `Offers::helix` from `coil_tools::source`;
+  Reference group menu, Model menu, palette) makes a `Helix` of `coil_tools::DEFAULT_DIAMETER`, five
+  turns at a pitch of 5 mm, counter-clockwise, and opens it; with no axis selected it winds round Z
+  and starts choosing one (`Slot::HelixAxis`), as a coil does. It makes no body.
+- Panel (`helix_panel.rs`): a description, Axis with Reverse direction, Sized by and its two fields,
+  Diameter, Taper and Turning, built like the coil's (`coil_panel::length_fields`,
+  `with_length_value`, `turning_hover`; `helix_tools::sized_by` through
+  `coil_tools::sized_length`). Fields are keyed `("helix-field", feature, "diameter" | "taper" |
+  "turns" | "pitch" | "height")`. Reverse direction flips `reversed`.
+- The scene draws a built helix like a datum (`Builder::helix`: `helix_tools::points`, 64 per turn,
+  as reference-layer lines in the datum colour, widened when open, tinted when failed), picked as
+  `Pickable::Datum` of the helix (`Pickable::is_available` asks `helix_tools::is_built`, never
+  while a sketch is edited); it hides with the datums (`visibility::Kind::Datums`) and counts in
+  fitting. A sweep or pipe takes it as its path (Sweep, Pipe above).
 ## Rib
 
 - `Command::Rib` (no default key; `rib_tools.rs`, `Offers::rib`; Solid group menu, Model menu,

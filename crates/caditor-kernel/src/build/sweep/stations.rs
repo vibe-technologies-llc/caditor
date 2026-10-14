@@ -1,6 +1,6 @@
 use caditor_geometry::{Plane, Point3, RigidTransform, Rotation3, Vector3};
 
-use super::PathSweepError;
+use super::{PathSweepError, WindingAxis};
 use crate::{
     bspline::BSpline,
     curve::{BSplineCurve, Curve},
@@ -269,4 +269,37 @@ pub(super) fn rotating(
                 .ok_or_else(|| GeometryError::ZeroDirection.into())
         })
         .collect()
+}
+
+pub(super) fn winding(
+    path: &Curve,
+    axis: WindingAxis,
+    parameters: &[f64],
+    start: RigidTransform,
+) -> Result<Vec<RigidTransform>, PathSweepError> {
+    let degenerate = || PathSweepError::from(GeometryError::ZeroDirection);
+    let direction = axis.direction.try_normalize().ok_or_else(degenerate)?;
+    let radial = |point: Point3| (point - axis.origin).reject_from(direction);
+    let Some(first) = parameters.first() else {
+        return Ok(Vec::new());
+    };
+    let origin = path.point(*first);
+    let mut previous = radial(origin);
+    let mut angle = 0.0;
+    let mut frames = Vec::with_capacity(parameters.len());
+    for parameter in parameters {
+        interrupt::check()?;
+        let point = path.point(*parameter);
+        let across = radial(point);
+        angle += direction
+            .dot(previous.cross(across))
+            .atan2(previous.dot(across));
+        previous = across;
+        let turn =
+            RigidTransform::rotation_about(axis.origin, direction, angle).ok_or_else(degenerate)?;
+        let shift =
+            RigidTransform::translation(point - turn.apply_point(origin)).ok_or_else(degenerate)?;
+        frames.push(start.then(&turn.then(&shift)));
+    }
+    Ok(frames)
 }

@@ -18,6 +18,7 @@ mod editor;
 mod feature_list;
 mod grouping;
 mod healing;
+mod helix;
 mod history;
 mod hole;
 mod hole_standard;
@@ -120,6 +121,7 @@ pub use crate::{
     editor::{Base, Editor, Prepared, Stale, UndoMark},
     grouping::{MAX_GROUP_NAME_CHARS, group_name},
     healing::Healing,
+    helix::{HELIX_SHAPE, Helix, HelixResult},
     hole::{
         CircleSize, Hole, HoleBottom, HoleDepth, HoleShape, HoleSizing, HoleStep, HoleStyle,
         MAX_CONE_ANGLE, MAX_HOLE_STEPS, MAX_HOLES, TappedThread, centres as hole_centres,
@@ -263,6 +265,8 @@ mod extent_tests;
 mod frame_tests;
 #[cfg(test)]
 mod grouping_tests;
+#[cfg(test)]
+mod helix_tests;
 #[cfg(test)]
 mod history_tests;
 #[cfg(test)]

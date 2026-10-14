@@ -56,6 +56,7 @@ pub enum Page {
     Pipe,
     Loft,
     Coil,
+    Helix,
     Rib,
     Hole,
     Thread,
@@ -140,6 +141,7 @@ all_variants!(
     Pipe,
     Loft,
     Coil,
+    Helix,
     Rib,
     Hole,
     Thread,
@@ -270,6 +272,7 @@ impl Page {
             Self::Pipe => "pipe",
             Self::Loft => "loft",
             Self::Coil => "coil",
+            Self::Helix => "helix",
             Self::Rib => "rib",
             Self::Hole => "hole",
             Self::Thread => "thread",
@@ -360,6 +363,7 @@ impl Page {
             Self::Pipe => include_str!("../guide/pipe.md"),
             Self::Loft => include_str!("../guide/loft.md"),
             Self::Coil => include_str!("../guide/coil.md"),
+            Self::Helix => include_str!("../guide/helix.md"),
             Self::Rib => include_str!("../guide/rib.md"),
             Self::Hole => include_str!("../guide/hole.md"),
             Self::Thread => include_str!("../guide/thread.md"),
@@ -444,6 +448,7 @@ impl Page {
             | Self::Pipe
             | Self::Loft
             | Self::Coil
+            | Self::Helix
             | Self::Rib
             | Self::Hole
             | Self::Thread
@@ -518,6 +523,7 @@ impl Page {
             FeatureKind::Pipe(_) => Self::Pipe,
             FeatureKind::Loft(_) => Self::Loft,
             FeatureKind::Coil(_) => Self::Coil,
+            FeatureKind::Helix(_) => Self::Helix,
             FeatureKind::Rib(_) => Self::Rib,
             FeatureKind::Blend(_) => Self::FilletAndChamfer,
             FeatureKind::Shell(_) => Self::Shell,

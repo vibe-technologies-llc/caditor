@@ -1095,6 +1095,7 @@ impl Document {
             | (FeatureKind::Pipe(_), FeatureKind::Pipe(_))
             | (FeatureKind::Loft(_), FeatureKind::Loft(_))
             | (FeatureKind::Coil(_), FeatureKind::Coil(_))
+            | (FeatureKind::Helix(_), FeatureKind::Helix(_))
             | (FeatureKind::Rib(_), FeatureKind::Rib(_))
             | (FeatureKind::Thread(_), FeatureKind::Thread(_))
             | (FeatureKind::Combine(_), FeatureKind::Combine(_))

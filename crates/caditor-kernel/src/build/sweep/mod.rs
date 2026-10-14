@@ -14,7 +14,7 @@ use thiserror::Error;
 pub use self::pipe::{PipeCorner, PipeError, PipeSection, PipeShape, PipeStand, pipe, pipe_stand};
 use self::{
     path::{Chain, Leg},
-    stations::{FIT_TOLERANCE, Stations, rotating, rotation_minimising, sliding_surface},
+    stations::{FIT_TOLERANCE, Stations, rotating, rotation_minimising, sliding_surface, winding},
 };
 use super::{
     Axis2, LinearBound, SweepError,
@@ -50,16 +50,40 @@ const LEAST_STATIONS: usize = 8;
 const STATION_TURN: f64 = PI / 8.0;
 const RISE_SAMPLES_PER_SPAN: usize = 16;
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WindingAxis {
+    pub origin: Point3,
+    pub direction: Vector3,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct PathSegment {
     curve: Curve,
     range: Interval,
     key: u128,
+    winding: Option<WindingAxis>,
 }
 
 impl PathSegment {
     pub fn new(curve: Curve, range: Interval, key: u128) -> Self {
-        Self { curve, range, key }
+        Self {
+            curve,
+            range,
+            key,
+            winding: None,
+        }
+    }
+
+    #[must_use]
+    pub fn winding_about(self, origin: Point3, direction: Vector3) -> Self {
+        Self {
+            winding: Some(WindingAxis { origin, direction }),
+            ..self
+        }
+    }
+
+    pub fn winding(&self) -> Option<WindingAxis> {
+        self.winding
     }
 
     pub fn curve(&self) -> &Curve {
@@ -404,6 +428,45 @@ fn bend_check(
     Ok(())
 }
 
+fn spans_of(path: &Curve) -> usize {
+    match path {
+        Curve::BSpline(spline) => spline.breakpoints().len().max(2) - 1,
+        Curve::Line(_) | Curve::Circle(_) | Curve::Ellipse(_) | Curve::Intersection(_) => 1,
+    }
+}
+
+fn fold_check(
+    plane: &Plane,
+    outline: &Outline,
+    path: &Curve,
+    stations: &Stations,
+    facing: f64,
+    segment: usize,
+) -> Result<(), PathSweepError> {
+    let steps = stations
+        .parameters()
+        .windows(2)
+        .zip(stations.frames().windows(2));
+    for (parameters, frames) in steps {
+        interrupt::check()?;
+        let ([from, to], [here, there]) = (parameters, frames) else {
+            continue;
+        };
+        let travel = path.point(*to).distance(path.point(*from));
+        let normal = here.apply_vector(plane.normal());
+        for (start, end) in outline
+            .placed(plane, here)
+            .zip(outline.placed(plane, there))
+        {
+            let advance = facing * (end - start).dot(normal);
+            if !advance.is_finite() || advance <= FOLD_MARGIN * travel {
+                return Err(PathSweepError::ProfileTooLarge { segment });
+            }
+        }
+    }
+    Ok(())
+}
+
 fn rise_check(
     curve: &Curve,
     range: Interval,
@@ -483,7 +546,9 @@ impl Course {
                     let outgoing = next.start_tangent().ok_or_else(degenerate)?;
                     let turn = incoming.angle_between(outgoing);
                     let segments = [leg.segment, next.segment];
-                    if turn <= SMOOTH_TURN || orientation == SweepOrientation::Parallel {
+                    let winds_on = leg.winding.is_some() && leg.winding == next.winding;
+                    if turn <= SMOOTH_TURN || orientation == SweepOrientation::Parallel || winds_on
+                    {
                         sections.push(Section::Placed(end));
                         placement = end;
                     } else if let (Motion::Straight { direction, .. }, Curve::Line(_)) =
@@ -1054,14 +1119,24 @@ fn motion_of(
             )?;
             Ok(Motion::Fitted(stations))
         }
+        (_, SweepOrientation::Square) if let Some(axis) = leg.winding => {
+            let path = Curve::BSpline(leg.spline()?);
+            let frames = |parameters: &[f64]| winding(&path, axis, parameters, *placement);
+            let initial = (spans_of(&path) * STATIONS_PER_SPAN).max(LEAST_STATIONS);
+            let stations = Stations::fit(
+                leg.range,
+                initial,
+                &frames,
+                &outline.control_points,
+                segment,
+            )?;
+            fold_check(plane, outline, &path, &stations, facing, segment)?;
+            Ok(Motion::Fitted(stations))
+        }
         (_, SweepOrientation::Square) => {
             let path = Curve::BSpline(leg.spline()?);
             let frames = |parameters: &[f64]| rotation_minimising(&path, parameters, *placement);
-            let spans = match &path {
-                Curve::BSpline(spline) => spline.breakpoints().len().max(2) - 1,
-                Curve::Line(_) | Curve::Circle(_) | Curve::Ellipse(_) | Curve::Intersection(_) => 1,
-            };
-            let initial = (spans * STATIONS_PER_SPAN).max(LEAST_STATIONS);
+            let initial = (spans_of(&path) * STATIONS_PER_SPAN).max(LEAST_STATIONS);
             let stations = Stations::fit(
                 leg.range,
                 initial,

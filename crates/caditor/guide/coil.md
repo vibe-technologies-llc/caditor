@@ -54,3 +54,6 @@ Every size takes units and expressions, so a spring can follow parameters such a
 The coil's faces are named after it and the turn they belong to ("Coil 1 surface", for a square
 section "Coil 1 inside", "outside", "top" and "underside", and its "start" and "end"), so a later
 feature keeps hold of them when the turns, pitch or diameter change.
+
+For a section of your own (a thread's triangle, a flat-wound strip), sweep it along a
+[helix](helix) instead.

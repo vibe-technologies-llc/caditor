@@ -2,7 +2,7 @@ use std::f64::consts::TAU;
 
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
 
-use super::{COIL_PARTS, CoilError, Layout, SECTION_PIECES, SectionPiece};
+use super::{COIL_PARTS, CoilError, Layout, SECTION_PIECES, SectionPiece, Winding};
 use crate::{
     bspline::BSpline,
     build::plan::{Plan, PlanCoedge, PlanError, PlanFace, outward_sense},
@@ -24,7 +24,7 @@ const LINE_KNOTS: [f64; 4] = [0.0, 0.0, 1.0, 1.0];
 const ARC_KNOTS: [f64; 6] = [0.0, 0.0, 0.0, 1.0, 1.0, 1.0];
 
 #[derive(Debug, Clone, Copy)]
-struct Piece {
+pub(super) struct Piece {
     start: f64,
     spans: usize,
     step: f64,
@@ -35,34 +35,39 @@ impl Piece {
         self.start + self.step * span
     }
 
-    fn end(&self) -> f64 {
+    pub(super) fn end(&self) -> f64 {
         self.angle(self.spans as f64)
+    }
+
+    pub(super) fn spans(&self) -> usize {
+        self.spans
     }
 }
 
-struct Motion<'a> {
-    layout: &'a Layout,
+pub(super) struct Motion {
+    pub(super) winding: Winding,
+    pub(super) centre: Point2,
 }
 
-impl Motion<'_> {
+impl Motion {
     fn radial(&self, angle: f64) -> Vector3 {
-        let frame = &self.layout.frame;
-        frame.x_axis() * angle.cos() + frame.y_axis() * (self.layout.hand.sign() * angle.sin())
+        let frame = &self.winding.frame;
+        frame.x_axis() * angle.cos() + frame.y_axis() * (self.winding.hand.sign() * angle.sin())
     }
 
     fn tangential(&self, angle: f64) -> Vector3 {
-        let frame = &self.layout.frame;
-        frame.x_axis() * -angle.sin() + frame.y_axis() * (self.layout.hand.sign() * angle.cos())
+        let frame = &self.winding.frame;
+        frame.x_axis() * -angle.sin() + frame.y_axis() * (self.winding.hand.sign() * angle.cos())
     }
 
     fn rise(&self, angle: f64) -> f64 {
-        self.layout.pitch * angle / TAU
+        self.winding.pitch * angle / TAU
     }
 
     fn control(&self, angle: f64, at: Point2, stretch: f64) -> Point3 {
-        let frame = &self.layout.frame;
+        let frame = &self.winding.frame;
         frame.origin()
-            + self.radial(angle) * (stretch * (at.x + self.layout.slope * angle))
+            + self.radial(angle) * (stretch * (at.x + self.winding.slope * angle))
             + frame.normal() * (self.rise(angle) + at.y)
     }
 
@@ -88,7 +93,7 @@ impl Motion<'_> {
         (points, weights)
     }
 
-    fn helix(&self, at: Point2, piece: Piece) -> Result<Curve, CoilError> {
+    pub(super) fn helix(&self, at: Point2, piece: Piece) -> Result<Curve, GeometryError> {
         let (points, weights) = self.net(at, 1.0, piece);
         Ok(Curve::BSpline(BSpline::rational(
             2,
@@ -113,12 +118,12 @@ impl Motion<'_> {
     }
 
     fn is_round(&self, section: &SectionPiece) -> bool {
-        section.is_upright() && self.layout.slope == 0.0
+        section.is_upright() && self.winding.slope == 0.0
     }
 
     fn side_surface(&self, section: &SectionPiece, piece: Piece) -> Result<Surface, CoilError> {
         if self.is_round(section) {
-            let frame = &self.layout.frame;
+            let frame = &self.winding.frame;
             let axis = Plane::from_frame(frame.origin(), frame.normal(), frame.x_axis())
                 .ok_or(GeometryError::DegenerateSurface)?;
             return Ok(Surface::Cylinder(Cylinder::new(axis, section.start().x)?));
@@ -149,7 +154,7 @@ impl Motion<'_> {
     }
 
     fn meridian(&self, angle: f64) -> Result<Surface, CoilError> {
-        let frame = &self.layout.frame;
+        let frame = &self.winding.frame;
         let plane = Plane::from_frame(
             frame.origin() + frame.normal() * self.rise(angle),
             self.tangential(angle),
@@ -160,7 +165,7 @@ impl Motion<'_> {
     }
 }
 
-fn pieces(turns: f64) -> Vec<Piece> {
+pub(super) fn pieces(turns: f64) -> Vec<Piece> {
     let count = (turns - ROUNDING_SLACK).ceil().max(1.0);
     let length = turns / count;
     let spans = ((length * SPANS_PER_TURN as f64 - ROUNDING_SLACK).ceil() as usize).max(1);
@@ -193,7 +198,10 @@ fn section_of(layout: &Layout, index: usize) -> Result<&SectionPiece, CoilError>
 }
 
 pub(super) fn build(layout: &Layout, feature: u64) -> Result<Solid, CoilError> {
-    let motion = Motion { layout };
+    let motion = Motion {
+        winding: layout.winding,
+        centre: layout.centre,
+    };
     let pieces = pieces(layout.turns);
     let parts = COIL_PARTS;
     let name = |part: u64| FaceName::coil(feature, part);
@@ -300,7 +308,7 @@ struct Side<'a> {
 }
 
 fn side_face(
-    motion: &Motion<'_>,
+    motion: &Motion,
     piece: Piece,
     side: &Side<'_>,
     part: u64,
@@ -311,7 +319,7 @@ fn side_face(
     let local = PROBE_FRACTION * piece.spans as f64;
     let probe_angle = piece.angle(local);
     let on_face = motion.point(probe_angle, side.section.middle());
-    let inside = motion.point(probe_angle, motion.layout.centre);
+    let inside = motion.point(probe_angle, motion.centre);
     let hint = (!round).then(|| Point2::new(local, 0.5));
     let sense = outward_sense(&surface, on_face, on_face - inside, hint);
     let uv = surface.project(on_face, hint);
@@ -356,7 +364,7 @@ fn side_face(
 }
 
 fn cap_face(
-    motion: &Motion<'_>,
+    motion: &Motion,
     corners: &[Point2; SECTION_PIECES],
     angle: f64,
     joints: [usize; SECTION_PIECES],
@@ -366,7 +374,7 @@ fn cap_face(
 ) -> Result<PlanFace, CoilError> {
     let surface = motion.meridian(angle)?;
     let points = corners.map(|corner| motion.point(angle, corner));
-    let centre = motion.point(angle, motion.layout.centre);
+    let centre = motion.point(angle, motion.centre);
     let sense = outward_sense(
         &surface,
         centre,
