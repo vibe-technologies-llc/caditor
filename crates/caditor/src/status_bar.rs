@@ -36,6 +36,8 @@ const NO_NOTICE: &str = "There is no notice to dismiss";
 const NOT_RECOMPUTING: &str = "Nothing is being recomputed";
 const NOT_PREPARING: &str = "No bodies are being prepared for display";
 const NOT_STOPPED_PREPARING: &str = "Preparing bodies for display was not stopped";
+const NOT_UPLOADING: &str = "Nothing is being loaded to the graphics card";
+const NOT_STOPPED_UPLOADING: &str = "Loading to the graphics card was not stopped";
 const NOTHING_FAILED: &str = "No feature has failed";
 const NOTHING_WAITING: &str = "No feature is waiting for input";
 const WAITING_HOVER: &str = "Show the next feature waiting for you to choose something";
@@ -88,6 +90,7 @@ struct TrailingRoom {
 
 pub struct StatusContext<'a> {
     pub uploading: bool,
+    pub upload_stopped: bool,
     pub files: &'a Files,
     pub offers: &'a Offers,
     pub between: Option<&'a str>,
@@ -104,6 +107,7 @@ pub fn show(
     actions: &mut Vec<Action>,
 ) {
     recompute_commands(model, commands, actions);
+    upload_commands(context, commands, actions);
     for (command, way) in [
         (Command::ShowNextFailed, Step::Next),
         (Command::ShowPreviousFailed, Step::Previous),
@@ -143,9 +147,7 @@ pub fn show(
                 files::activity(ui, model, context.files, commands, actions);
                 feature_clipboard::activity(ui, model, commands, actions);
                 queued::note(ui, model, actions);
-                if context.uploading {
-                    widgets::progress(upload_badge::TEXT).show(ui);
-                }
+                upload_note(ui, context, actions);
             });
             let fixed = widgets::remembered_width(ui, trailing_id) + selection_icon_room(ui);
             let available = ui.available_width();
@@ -272,6 +274,44 @@ fn recompute_commands(model: &Model, commands: &mut CommandFrame<'_>, actions: &
         actions.push(Action::CancelRecompute);
     }
     body_commands(model, commands, actions);
+}
+
+fn upload_commands(
+    context: &StatusContext<'_>,
+    commands: &mut CommandFrame<'_>,
+    actions: &mut Vec<Action>,
+) {
+    let loading = context.uploading.then_some(()).ok_or(NOT_UPLOADING);
+    if commands.invoke(Command::CancelUploading, &loading) {
+        actions.push(Action::StopUploading);
+    }
+    let stopped = (context.upload_stopped && !context.uploading)
+        .then_some(())
+        .ok_or(NOT_STOPPED_UPLOADING);
+    if commands.invoke(Command::ContinueUploading, &stopped) {
+        actions.push(Action::ResumeUploading);
+    }
+}
+
+fn upload_note(ui: &mut Ui, context: &StatusContext<'_>, actions: &mut Vec<Action>) {
+    if context.uploading {
+        if widgets::progress(upload_badge::TEXT)
+            .cancel(upload_badge::CANCEL_HOVER)
+            .show(ui)
+        {
+            actions.push(Action::StopUploading);
+        }
+    } else if context.upload_stopped {
+        widgets::announced_status_pill(ui, Tone::Info, upload_badge::STOPPED)
+            .on_hover_text(upload_badge::STOPPED_HOVER);
+        if ui
+            .add(widgets::button(upload_badge::CONTINUE))
+            .on_hover_text(upload_badge::CONTINUE_HOVER)
+            .clicked()
+        {
+            actions.push(Action::ResumeUploading);
+        }
+    }
 }
 
 fn body_commands(model: &Model, commands: &mut CommandFrame<'_>, actions: &mut Vec<Action>) {

@@ -124,6 +124,16 @@ paths:
   pick ids withdrawn, so they hide what is behind them in the pick pass but pick nothing.
   `Renderer::is_uploading` says whether frames must follow (`app.md`); image export uploads whatever
   is left at once.
+- The spread-over-frames upload can be stopped and resumed (`Renderer::stop_uploading`,
+  `resume_uploading`; `UploadBudget::STOPPED`, which grants nothing and starts nothing). While
+  stopped, a mesh, silhouette or new batch not on the graphics card is left out of the scene and
+  is not started (a partial upload is kept for the resume), meshes already uploaded keep drawing,
+  replaced meshes stay drawn as during an upload, `is_uploading` is false and
+  `Renderer::is_upload_stopped` is true while anything is left out (`MeshPool::left_out`,
+  `SilhouetteCache::left_out`, `batches_left_out`). The stop clears itself in the first frame that
+  leaves nothing out, so a Cancel pressed as the last body goes up stops nothing, and a stopped
+  scene that does not change draws no new view pass. Image export's unlimited budget uploads what
+  was left out regardless, and an anchor move uploads every batch at once even when stopped.
 - The ignored `frame_costs_of_drawing_a_large_scene` test times the UI thread's share of a frame
   (separately from GPU wait) for large and many-small-mesh scenes under idle, camera, restyle,
   batch-replace, new-mesh and zebra/see-through cases; `CADITOR_BENCH_CASE` runs only cases whose

@@ -320,6 +320,7 @@ pub fn command(command: Command) -> &'static str {
         | Command::CancelAnalysis
         | Command::CancelMassProperties
         | Command::CancelPreparingBodies
+        | Command::CancelUploading
         | Command::CancelIsocurves
         | Command::CancelInterference
         | Command::CancelPaste => phosphor::STOP_CIRCLE,
@@ -327,6 +328,7 @@ pub fn command(command: Command) -> &'static str {
         | Command::AnalyseAgain
         | Command::WorkOutMassProperties
         | Command::ShowRestOfBodies
+        | Command::ContinueUploading
         | Command::CheckInterferenceAgain => phosphor::ARROW_CLOCKWISE,
         Command::RenameFeature | Command::RenameGroup => RENAME,
         Command::GroupFeatures => FEATURE_GROUP,
