@@ -52,6 +52,7 @@ mod recompute;
 mod reference_image;
 mod removal;
 mod repeat_blend;
+mod repeat_shell;
 mod rib;
 mod rib_tool;
 mod scaling;
@@ -321,6 +322,8 @@ mod reference_image_tests;
 mod removal_tests;
 #[cfg(test)]
 mod repeat_blend_tests;
+#[cfg(test)]
+mod repeat_shell_tests;
 #[cfg(test)]
 mod rib_tests;
 #[cfg(test)]

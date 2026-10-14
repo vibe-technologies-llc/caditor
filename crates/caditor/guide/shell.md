@@ -3,6 +3,9 @@
 {command:model.shell} hollows a body, leaving walls of a thickness and opening the faces you
 choose. Select the faces to open, then choose Shell.
 
+A [pattern](patterns) or [mirror](mirror) placed right after the shell and repeating the shell
+with the features whose faces it opens opens and hollows every copy too.
+
 While it is open, click faces in the view to open or close them; the opened faces show in the
 selected colour. **Choose in the view** in the panel first opens the faces of the body selected
 then. The panel lists them, each with a button to close it again (hovering one lights it in the

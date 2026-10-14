@@ -1,6 +1,8 @@
 #[cfg(test)]
 mod tests;
 
+use std::collections::BTreeMap;
+
 use caditor_geometry::Similarity;
 use thiserror::Error;
 
@@ -8,8 +10,9 @@ use crate::{
     blend::{BlendError, BlendShape, blend},
     boolean::{BooleanError, BooleanOperation, boolean},
     interrupt::{self, Interrupted},
-    naming::{FaceCopy, FaceName},
-    topology::{EdgeId, Solid, TransformError},
+    naming::{FaceCopy, FaceName, FaceOrigin},
+    shell::{ShellError, Walls, shell_walls},
+    topology::{EdgeId, FaceId, Solid, TransformError},
 };
 
 const ORIGINAL: [u32; 2] = [0, 0];
@@ -94,6 +97,30 @@ pub fn blend_copy(
             origin
         }
     }))
+}
+
+pub fn shell_copies(
+    solid: &Solid,
+    open: &[FaceId],
+    walls: &Walls,
+    pattern: u64,
+    feature: u64,
+) -> Result<Solid, ShellError> {
+    let copies: BTreeMap<FaceName, FaceCopy> = solid
+        .faces()
+        .filter_map(|(_, face)| {
+            let copy = face.origin()?.copy()?;
+            (copy.pattern == pattern).then(|| (FaceName::shell(feature, face.name()), copy))
+        })
+        .collect();
+    let shelled = shell_walls(solid, open, walls, feature)?;
+    let own = FaceOrigin::Shell { feature };
+    Ok(
+        shelled.with_face_origins_named(|name, origin| match copies.get(&name) {
+            Some(copy) if origin == own => origin.copied(*copy),
+            _ => origin,
+        }),
+    )
 }
 
 fn placed(solid: &Solid, copy: &PatternCopy, feature: u64) -> Result<Solid, PatternError> {

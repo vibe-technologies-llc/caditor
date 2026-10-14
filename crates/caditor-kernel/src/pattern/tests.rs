@@ -299,3 +299,44 @@ fn a_blend_on_a_copy_names_its_faces_as_a_copy_of_the_blend() {
             .all(|origin| origin.copy().is_some() || origin.feature() != FEATURE)
     );
 }
+
+#[test]
+fn a_shell_over_copies_names_their_walls_as_copies_of_the_shell() {
+    let plate = block((0.0, 0.0), (40.0, 10.0), 2.0);
+    let deck = Plane::from_frame(Point3::new(0.0, 0.0, 2.0), Vector3::Z, Vector3::X).unwrap();
+    let outline = Profile::new(&rectangle(1, (2.0, 2.0), (8.0, 8.0)))
+        .unwrap()
+        .select(&Selection::EvenDepth)
+        .unwrap();
+    let boss = extrude(&deck, &outline, LinearExtent::one_side(4.0).unwrap(), 2).unwrap();
+    let bossed = boolean(&plate, &boss, BooleanOperation::Union).unwrap();
+    let copies = pattern_copies(&boss, &along_x(20.0, 2), FEATURE)
+        .unwrap()
+        .unwrap();
+    let body = boolean(&bossed, &copies, BooleanOperation::Union).unwrap();
+    let bottom = body
+        .faces()
+        .find(|(_, face)| face.origin() == Some(FaceOrigin::StartCap { feature: 1 }))
+        .map(|(id, _)| id)
+        .unwrap();
+
+    let shelled = shell_copies(&body, &[bottom], &Walls::inside(1.0), FEATURE, 7).unwrap();
+
+    check(
+        "shelled",
+        &shelled,
+        800.0 + 2.0 * 144.0 - 304.0 - 2.0 * 64.0,
+    );
+    let copy = FaceCopy {
+        pattern: FEATURE,
+        index: [1, 0],
+    };
+    let count = |origin: FaceOrigin| {
+        shelled
+            .faces()
+            .filter(|(_, face)| face.origin() == Some(origin))
+            .count()
+    };
+    assert_eq!(count(FaceOrigin::Shell { feature: 7 }.copied(copy)), 5);
+    assert!(count(FaceOrigin::Shell { feature: 7 }) > 5);
+}

@@ -269,6 +269,7 @@ fn result_buffers(result: &Arc<FeatureResult>, found: &mut dyn FnMut(SharedBuffe
             .iter()
             .chain(solid.cuts())
             .chain(solid.joins())
+            .chain(solid.shelled().map(|recipe| &recipe.before))
         {
             result_buffers(part, found);
         }

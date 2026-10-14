@@ -730,6 +730,16 @@ impl Solid {
         self
     }
 
+    pub(crate) fn with_face_origins_named(
+        mut self,
+        change: impl Fn(FaceName, FaceOrigin) -> FaceOrigin,
+    ) -> Self {
+        for face in &mut self.faces {
+            face.origin = face.origin.map(|origin| change(face.name, origin));
+        }
+        self
+    }
+
     pub(crate) fn with_sides_renumbered(mut self, renumber: impl Fn(u64) -> u64) -> Self {
         for face in &mut self.faces {
             if let Some(FaceOrigin::Side { feature, entity }) = face.origin {

@@ -34,6 +34,7 @@ use crate::{
         CancelToken, Evaluation, Failure, FeatureError, FeatureResult, FixTarget, Inputs,
         MissingInput, SketchResult,
     },
+    shell::ShellRecipe,
     sweep::{SWEEP_SHAPE, Sweep, SweepPath, swept},
     tolerance,
     trouble::{self, boolean_trouble},
@@ -729,6 +730,7 @@ pub struct SolidResult {
     cuts: Vec<Arc<FeatureResult>>,
     joins: Vec<Arc<FeatureResult>>,
     blended: Option<Arc<BlendRecipe>>,
+    shelled: Option<Arc<ShellRecipe>>,
     mesh: OnceLock<Option<DisplayMesh>>,
     bounds: OnceLock<Option<Aabb>>,
     names: OnceLock<NameIndex>,
@@ -799,6 +801,7 @@ impl SolidResult {
             cuts: Vec::new(),
             joins: Vec::new(),
             blended: None,
+            shelled: None,
             mesh: OnceLock::new(),
             bounds: OnceLock::new(),
             names: OnceLock::new(),
@@ -852,6 +855,16 @@ impl SolidResult {
         self.blended.as_deref()
     }
 
+    #[must_use]
+    pub fn shelling(mut self, recipe: ShellRecipe) -> Self {
+        self.shelled = Some(Arc::new(recipe));
+        self
+    }
+
+    pub fn shelled(&self) -> Option<&ShellRecipe> {
+        self.shelled.as_deref()
+    }
+
     pub fn with_others(mut self, others: impl IntoIterator<Item = SolidResult>) -> Self {
         self.others = others
             .into_iter()
@@ -871,6 +884,7 @@ impl SolidResult {
             && same_parts(&self.cuts, &other.cuts)
             && same_parts(&self.joins, &other.joins)
             && self.blended == other.blended
+            && self.shelled == other.shelled
     }
 
     pub fn names(&self) -> &NameIndex {

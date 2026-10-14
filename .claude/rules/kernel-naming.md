@@ -54,7 +54,8 @@ paths:
   names of its edges.
 - A blend repeated on a pattern's copy (`blend_copy`) names its faces as a blend of the pattern's
   id and the copy's edge, with origin `Copy` of the pattern and the blend's feature
-  (`kernel-operations.md`).
+  (`kernel-operations.md`). A shell over copies (`shell_copies`) keeps the shell's names and makes
+  the inner faces of a copy's faces `Copy` origins of that copy.
 - Boolean fragments of a split face keep its name and origin; pieces keep their edge's name and new
   edges are `between` their two faces, before the plan disambiguates duplicates. A pattern renames
   a copy's faces, then its edges from those faces.

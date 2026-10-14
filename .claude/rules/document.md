@@ -1079,11 +1079,11 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   Boxed in `FeatureKind`. It changes its body but is not `modifies_body` (the app shows the
   patterned body while open).
 - With `repeated` features (`Pattern::repeating`; `repeatable_on`: an extrusion, revolve,
-  primitive, pipe, coil or loft adding to or removing from a body, a hole, or a fillet or chamfer)
-  it repeats their tools instead: for each, in tree order, the tools kept in its result
+  primitive, pipe, coil or loft adding to or removing from a body, a hole, a fillet or chamfer, or
+  a shell) it repeats their tools instead: for each, in tree order, the tools kept in its result
   (`SolidResult::cuts` of a removal or hole, `joins` of an addition) are placed at every copy and
   unioned without the original (kernel `pattern_copies`), then cut from or joined to the body as it
-  stands. A blend is repeated as Repeated blends below. The repeated features are in `features()` and a
+  stands. A blend is repeated as Repeated blends below, a shell as Repeated shells. The repeated features are in `features()` and a
   change to their tools recomputes it (`same_shapes` compares cuts and joins). A repeated feature
   with a missing result, that changes another body, or that neither adds nor removes fails the
   pattern naming it. A copy that misses the body changes nothing. The cut copies are the pattern's
@@ -1095,16 +1095,31 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   copy: a face made by a feature repeated earlier in the list (origin not itself a copy) is
   `FaceName::pattern(pattern, copy, name)`, a face of an earlier repeated blend is the name that
   blend gave on that copy (recorded as `blend(blend, edge)` to `blend(pattern, copied edge)`), any
-  other face of the body keeps its name (a plate the boss stands on). An edge none of whose faces is
-  followed is not repeated; a blend with no such edge fails (`NoRepeatedEdge`, asking to repeat the
+  other face of the body keeps its name (a plate the boss stands on). A corner face of an earlier
+  repeated blend (`FaceName::corner` of the blend and the vertex) is followed too: for each end of
+  each edge that blend repeated on a copy, the corner of the original's faces around the end is
+  recorded as `corner(pattern, ...)` of the followed faces, which is what `blend_copy` names it. An
+  edge none of whose faces is followed is not repeated; a blend with no such edge fails (`NoRepeatedEdge`, asking to repeat the
   feature it blends too). For each copy the edges are rebuilt as references (`between` of the
   followed faces, ends `VertexName::of_faces` of the followed faces around) and resolved by name
   alone in the body as it stands, then blended on that copy (kernel `blend_copy`, faces `Copy` of
   the pattern with the blend's feature). A copy where none is found changes nothing (the copy
   missed the body); some missing or one tied fails the pattern naming the blend and the copy, as
   does a kernel refusal (`repeat_blend::failure`). Edge references are rebuilt per copy, so a
-  raised count blends its new copies. A corner face of an earlier blend is not followed: an edge
-  on one is missing on the copies.
+  raised count blends its new copies.
+- Repeated shells (`repeat_shell.rs`, shared with the mirror): a shell's result keeps a
+  `ShellRecipe` (`SolidResult::shelled`, compared by `same_shapes`): the body state it hollowed
+  (the `Arc` of the state before it, counted in the history's measure with cuts and joins), the
+  thickness, side, and the names and origins of the opened faces and of the faces given their own
+  thickness. `pattern::seed` returns it as `Repeated::Shell` only when the shell is the body's
+  state at the pattern; otherwise it fails naming the feature changing the body after the shell
+  and asking to move the pattern right below it. `Seeds::of` takes the shell out of the list: the
+  pattern starts from the body before the shell, repeats every other feature as above, then
+  hollows the result once (kernel `shell_copies`) with the original's openings and each copy's,
+  followed by `CopiedNames` like a blend's faces; a face kept by name (the plate's bottom) stays
+  one opening. A copy none of whose followed openings is found changes nothing (it missed the
+  body); some missing, an original opening no longer found, or a kernel refusal fail the pattern
+  in words (`repeat_shell::failure`).
 - Axes are `AxisReference`s resolved like a datum's at the pattern's place; body and datum counted.
   A circular pattern's axis is optional (`CircularPattern::axis`): none is a pattern not yet given
   one, which waits for it (`MissingInput::Axis`, `document-recompute.md`), as a sweep with

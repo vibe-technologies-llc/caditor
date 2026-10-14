@@ -13,13 +13,13 @@ use crate::{
 };
 
 pub(crate) struct CopiedNames {
-    pattern: u64,
+    pub(crate) pattern: u64,
     tools: BTreeSet<u64>,
     blends: BTreeSet<u64>,
     renamed: BTreeMap<(Instance, FaceName), FaceName>,
 }
 
-enum Followed {
+pub(crate) enum Followed {
     Copied(FaceName),
     Kept,
     Lost,
@@ -53,7 +53,12 @@ impl CopiedNames {
         (self.tools.contains(&feature) || self.blends.contains(&feature)).then_some(feature)
     }
 
-    fn follow(&self, copy: Instance, name: FaceName, origin: Option<FaceOrigin>) -> Followed {
+    pub(crate) fn follow(
+        &self,
+        copy: Instance,
+        name: FaceName,
+        origin: Option<FaceOrigin>,
+    ) -> Followed {
         if let Some(renamed) = self.renamed.get(&(copy, name)) {
             return Followed::Copied(*renamed);
         }
@@ -84,20 +89,48 @@ impl CopiedNames {
                 Followed::Lost => return None,
             };
         }
-        let end = |around: &BTreeMap<FaceName, Option<FaceOrigin>>| {
-            VertexName::of_faces(around.iter().map(|(name, origin)| {
-                match self.follow(copy, *name, *origin) {
-                    Followed::Copied(renamed) => renamed,
-                    Followed::Kept | Followed::Lost => *name,
-                }
-            }))
-        };
         let [first, second] = copied;
+        let [start, end] = &edge.ends;
         Some(EdgeReference::new(
             EdgeName::between(first, second),
             copied,
-            [end(&edge.ends[0]), end(&edge.ends[1])],
+            [
+                self.copied_vertex(copy, start),
+                self.copied_vertex(copy, end),
+            ],
         ))
+    }
+
+    fn copied_vertex(
+        &self,
+        copy: Instance,
+        around: &BTreeMap<FaceName, Option<FaceOrigin>>,
+    ) -> VertexName {
+        VertexName::of_faces(around.iter().map(|(name, origin)| {
+            match self.follow(copy, *name, *origin) {
+                Followed::Copied(renamed) => renamed,
+                Followed::Kept | Followed::Lost => *name,
+            }
+        }))
+    }
+
+    fn corner_names(
+        &self,
+        copy: Instance,
+        blend: FeatureId,
+        edges: &[&BlendedEdge],
+    ) -> Vec<((Instance, FaceName), FaceName)> {
+        edges
+            .iter()
+            .flat_map(|edge| &edge.ends)
+            .map(|around| {
+                let original = VertexName::of_faces(around.keys().copied());
+                (
+                    (copy, FaceName::corner(blend.raw(), original)),
+                    FaceName::corner(self.pattern, self.copied_vertex(copy, around)),
+                )
+            })
+            .collect()
     }
 
     pub(crate) fn blend(
@@ -157,6 +190,7 @@ impl CopiedNames {
                     BlendError::Cancelled(_) => CopyBlendError::Cancelled,
                     error => CopyBlendError::Blend { copy, error },
                 })?;
+            renamed.extend(self.corner_names(copy, recipe.feature, &repeated));
             for (original, id) in found {
                 if let Some(edge) = body.edge(id) {
                     renamed.push((
@@ -173,12 +207,23 @@ impl CopiedNames {
     }
 }
 
+#[derive(Clone, Copy)]
 pub(crate) struct CopyWords<'a> {
     pub feature: FeatureId,
-    pub blend: &'a str,
+    pub repeated: &'a str,
     pub seed: &'a SeedWords,
     pub copy: &'a dyn Fn(Instance) -> String,
+    pub copies: &'a str,
     pub clear: &'a str,
+}
+
+impl<'a> CopyWords<'a> {
+    pub(crate) fn naming<'b>(&self, repeated: &'b str) -> CopyWords<'b>
+    where
+        'a: 'b,
+    {
+        CopyWords { repeated, ..*self }
+    }
 }
 
 fn noun(shape: BlendShape) -> &'static str {
@@ -206,10 +251,11 @@ pub(crate) fn failure(
 ) -> Failure {
     let CopyWords {
         feature,
-        blend,
+        repeated: blend,
         seed,
         copy,
         clear,
+        ..
     } = words;
     let SeedWords {
         feature: kind,

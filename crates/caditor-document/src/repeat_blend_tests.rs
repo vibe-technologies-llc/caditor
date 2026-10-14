@@ -10,7 +10,7 @@ use crate::{
     *,
 };
 
-const PLATE: f64 = 40.0 * 40.0 * 4.0;
+pub(crate) const PLATE: f64 = 40.0 * 40.0 * 4.0;
 const PEG_X: f64 = -12.0;
 
 struct Peg {
@@ -36,11 +36,11 @@ fn square() -> Sketch {
     sketch
 }
 
-fn evaluate(document: &Document) -> Evaluation {
+pub(crate) fn evaluate(document: &Document) -> Evaluation {
     Recompute::default().run(document, &ModelEvaluator, &CancelToken::never(), &|_, _| {})
 }
 
-fn exact_volume(evaluation: &Evaluation, body: FeatureId) -> f64 {
+pub(crate) fn exact_volume(evaluation: &Evaluation, body: FeatureId) -> f64 {
     evaluation
         .body_result(body)
         .unwrap()
@@ -52,7 +52,7 @@ fn exact_volume(evaluation: &Evaluation, body: FeatureId) -> f64 {
         .volume
 }
 
-fn face_made_by(solid: &Solid, origin: FaceOrigin) -> FaceReference {
+pub(crate) fn face_made_by(solid: &Solid, origin: FaceOrigin) -> FaceReference {
     let face = solid
         .faces()
         .find(|(_, face)| face.origin() == Some(origin))
@@ -72,16 +72,26 @@ fn edge_between(solid: &Solid, first: FaceOrigin, second: FaceOrigin) -> EdgeRef
         .unwrap()
 }
 
-fn fillet(body: FeatureId, edges: Vec<EdgeReference>, groups: Vec<EdgeGroup>) -> FeatureKind {
+fn blend(
+    kind: BlendKind,
+    size: f64,
+    body: FeatureId,
+    edges: Vec<EdgeReference>,
+    groups: Vec<EdgeGroup>,
+) -> FeatureKind {
     FeatureKind::Blend(Blend {
-        kind: BlendKind::Fillet,
+        kind,
         body,
         edges,
         groups,
-        size: Expression::measure(0.5, Unit::Millimetre),
+        size: Expression::measure(size, Unit::Millimetre),
         form: ChamferForm::Equal,
         flipped: false,
     })
+}
+
+fn fillet(body: FeatureId, edges: Vec<EdgeReference>, groups: Vec<EdgeGroup>) -> FeatureKind {
+    blend(BlendKind::Fillet, 0.5, body, edges, groups)
 }
 
 fn filleted_peg() -> Peg {
@@ -146,7 +156,7 @@ fn add_pattern(peg: &mut Peg, kind: impl FnOnce(ParameterId) -> PatternKind) -> 
     pattern
 }
 
-fn linear(count: ParameterId) -> PatternKind {
+pub(crate) fn linear(count: ParameterId) -> PatternKind {
     PatternKind::Linear {
         first: LinearDirection {
             axis: AxisReference::Principal(PrincipalAxis::X),
@@ -189,14 +199,14 @@ fn blended_copies(solid: &Solid, repeating: FeatureId, blend: FeatureId) -> BTre
             FaceOrigin::Copy {
                 copy,
                 feature,
-                made: Made::Fillet,
+                made: Made::Fillet | Made::Chamfer,
             } if copy.pattern == repeating.raw() && feature == blend.raw() => Some(copy.index),
             _ => None,
         })
         .collect()
 }
 
-fn assert_close(found: f64, expected: f64) {
+pub(crate) fn assert_close(found: f64, expected: f64) {
     assert!(
         (found - expected).abs() < 1e-3,
         "volume {found} instead of {expected}"
@@ -330,8 +340,14 @@ fn a_fillet_repeated_without_the_feature_it_rounds_is_refused_in_words() {
     );
 }
 
-#[test]
-fn a_fillet_on_the_faces_of_an_earlier_repeated_fillet_follows_them_onto_the_copies() {
+pub(crate) struct Boss {
+    pub document: Document,
+    pub count: ParameterId,
+    pub plate: FeatureId,
+    pub boss: FeatureId,
+}
+
+pub(crate) fn square_boss() -> Boss {
     let mut document = Document::default();
     let mut transaction = document.transaction("Build");
     let count = transaction.add_parameter("count", transaction.parse("3").unwrap());
@@ -354,10 +370,16 @@ fn a_fillet_on_the_faces_of_an_earlier_repeated_fillet_follows_them_onto_the_cop
         extrusion(boss_outline, "2 mm", BodyOperation::Add(plate)),
     );
     document.apply(transaction.finish()).unwrap();
+    Boss {
+        document,
+        count,
+        plate,
+        boss,
+    }
+}
 
-    let evaluation = evaluate(&document);
-    let solid = evaluation.body(plate).unwrap();
-    let upright: Vec<EdgeReference> = solid
+fn uprights(solid: &Solid, boss: FeatureId) -> Vec<EdgeReference> {
+    solid
         .edges()
         .filter_map(|(id, _)| EdgeReference::capture(solid, id))
         .filter(|reference| {
@@ -365,7 +387,32 @@ fn a_fillet_on_the_faces_of_an_earlier_repeated_fillet_follows_them_onto_the_cop
                 matches!(origin, Some(FaceOrigin::Side { feature, .. }) if *feature == boss.raw())
             })
         })
-        .collect();
+        .collect()
+}
+
+pub(crate) fn volume_after(evaluation: &Evaluation, feature: FeatureId) -> f64 {
+    evaluation
+        .feature(feature)
+        .and_then(|status| status.result.as_deref())
+        .and_then(FeatureResult::solid)
+        .unwrap()
+        .exact_mass()
+        .unwrap()
+        .properties
+        .volume
+}
+
+#[test]
+fn a_fillet_on_the_faces_of_an_earlier_repeated_fillet_follows_them_onto_the_copies() {
+    let Boss {
+        mut document,
+        count,
+        plate,
+        boss,
+    } = square_boss();
+
+    let evaluation = evaluate(&document);
+    let upright = uprights(evaluation.body(plate).unwrap(), boss);
     let mut transaction = document.transaction("Corners");
     let corners = transaction.add_feature("Corners", fillet(plate, upright.clone(), Vec::new()));
     document.apply(transaction.finish()).unwrap();
@@ -386,23 +433,97 @@ fn a_fillet_on_the_faces_of_an_earlier_repeated_fillet_follows_them_onto_the_cop
 
     assert_eq!(upright.len(), 4);
     assert_eq!(evaluation.failed_count(), 0);
-    let filleted = evaluation
-        .feature(rim)
-        .and_then(|status| status.result.as_deref())
-        .and_then(FeatureResult::solid)
-        .unwrap()
-        .exact_mass()
-        .unwrap()
-        .properties
-        .volume;
     assert_close(
         exact_volume(&evaluation, plate),
-        PLATE + 3.0 * (filleted - PLATE),
+        PLATE + 3.0 * (volume_after(&evaluation, rim) - PLATE),
     );
     let solid = evaluation.body(plate).unwrap();
     for blend in [corners, rim] {
         assert_eq!(
             blended_copies(solid, pattern, blend),
+            BTreeSet::from([[1, 0], [2, 0]])
+        );
+    }
+}
+
+fn corner_triangle_edge(solid: &Solid, chamfer: FeatureId) -> EdgeReference {
+    let references: Vec<EdgeReference> = solid
+        .edges()
+        .filter_map(|(id, _)| EdgeReference::capture(solid, id))
+        .collect();
+    let bevelled = Some(FaceOrigin::Chamfer {
+        feature: chamfer.raw(),
+    });
+    let triangle = solid
+        .faces()
+        .map(|(_, face)| face)
+        .filter(|face| face.origin() == bevelled)
+        .map(|face| face.name())
+        .find(|name| {
+            references
+                .iter()
+                .filter(|reference| reference.faces().contains(name))
+                .count()
+                == 3
+        })
+        .unwrap();
+    references
+        .into_iter()
+        .find(|reference| reference.faces().contains(&triangle))
+        .unwrap()
+}
+
+#[test]
+fn a_blend_on_a_corner_face_of_an_earlier_repeated_chamfer_follows_it_onto_the_copies() {
+    let Boss {
+        mut document,
+        count,
+        plate,
+        boss,
+    } = square_boss();
+
+    let evaluation = evaluate(&document);
+    let solid = evaluation.body(plate).unwrap();
+    let upright = uprights(solid, boss);
+    let cap = face_made_by(
+        solid,
+        FaceOrigin::EndCap {
+            feature: boss.raw(),
+        },
+    );
+    let mut transaction = document.transaction("Bevel");
+    let bevel = transaction.add_feature(
+        "Bevel",
+        blend(
+            BlendKind::Chamfer,
+            0.5,
+            plate,
+            upright,
+            vec![EdgeGroup::Face(cap)],
+        ),
+    );
+    document.apply(transaction.finish()).unwrap();
+    let evaluation = evaluate(&document);
+    let edge = corner_triangle_edge(evaluation.body(plate).unwrap(), bevel);
+    let mut transaction = document.transaction("Round");
+    let round = transaction.add_feature(
+        "Round",
+        blend(BlendKind::Fillet, 0.1, plate, vec![edge], Vec::new()),
+    );
+    let pattern = Pattern::new(plate, linear(count)).repeating(vec![boss, bevel, round]);
+    let pattern = transaction.add_feature("Pattern 1", FeatureKind::from(pattern));
+    document.apply(transaction.finish()).unwrap();
+    let evaluation = evaluate(&document);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert_close(
+        exact_volume(&evaluation, plate),
+        PLATE + 3.0 * (volume_after(&evaluation, round) - PLATE),
+    );
+    let solid = evaluation.body(plate).unwrap();
+    for repeated in [bevel, round] {
+        assert_eq!(
+            blended_copies(solid, pattern, repeated),
             BTreeSet::from([[1, 0], [2, 0]])
         );
     }

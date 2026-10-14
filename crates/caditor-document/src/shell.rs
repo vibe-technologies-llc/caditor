@@ -1,8 +1,12 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 use caditor_expression::{Dimension, EvalError, Expression, ParameterId};
 use caditor_kernel::{
-    FaceId, FaceReference, ShellError, Solid, Surface, VertexId, Walls, shell_walls,
+    FaceId, FaceName, FaceOrigin, FaceReference, ShellError, Solid, Surface, VertexId, Walls,
+    shell_walls,
 };
 
 use crate::{
@@ -128,6 +132,66 @@ impl Shell {
 
     pub fn resolve(&self, solid: &Solid) -> Result<Vec<FaceId>, Unresolved> {
         tally(self.resolutions(solid))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NamedFace {
+    pub name: FaceName,
+    pub origin: Option<FaceOrigin>,
+}
+
+impl NamedFace {
+    fn of(solid: &Solid, face: FaceId) -> Option<Self> {
+        let face = solid.face(face)?;
+        Some(Self {
+            name: face.name(),
+            origin: face.origin(),
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ShellRecipe {
+    pub feature: FeatureId,
+    pub before: Arc<FeatureResult>,
+    pub thickness: f64,
+    pub side: caditor_kernel::ShellSide,
+    pub open: Vec<NamedFace>,
+    pub faces: Vec<(NamedFace, f64)>,
+}
+
+impl ShellRecipe {
+    fn of(feature: FeatureId, before: Arc<FeatureResult>, open: &[FaceId], walls: &Walls) -> Self {
+        let solid = before.solid().map(|result| &result.solid);
+        let named = |face: FaceId| solid.and_then(|solid| NamedFace::of(solid, face));
+        Self {
+            feature,
+            open: open.iter().filter_map(|face| named(*face)).collect(),
+            faces: walls
+                .faces
+                .iter()
+                .filter_map(|(face, thickness)| Some((named(*face)?, *thickness)))
+                .collect(),
+            thickness: walls.thickness,
+            side: walls.side,
+            before,
+        }
+    }
+
+    pub fn before(&self) -> Option<&Solid> {
+        self.before.solid().map(|result| &result.solid)
+    }
+}
+
+impl PartialEq for ShellRecipe {
+    fn eq(&self, other: &Self) -> bool {
+        self.feature == other.feature
+            && self.thickness == other.thickness
+            && self.side == other.side
+            && self.open == other.open
+            && self.faces == other.faces
+            && (Arc::ptr_eq(&self.before, &other.before) || self.before == other.before)
     }
 }
 
@@ -467,6 +531,9 @@ pub(crate) fn evaluate(
         body_name,
     };
     let thickness = context.length(&definition.thickness, None)?;
+    let Some((_, before)) = inputs.bodies.get(&definition.body) else {
+        return Err(inputs.missing_body(definition.body));
+    };
     let Some(solid) = inputs.body(definition.body) else {
         return Err(inputs.missing_body(definition.body));
     };
@@ -498,8 +565,8 @@ pub(crate) fn evaluate(
     }
     let result = shell_walls(solid, &open, &walls, feature.id().raw())
         .map_err(|error| context.failure(solid, &open, &error))?;
-    Ok(FeatureResult::Solid(SolidResult::new(
-        definition.body,
-        result,
-    )))
+    let recipe = ShellRecipe::of(feature.id(), Arc::clone(before), &open, &walls);
+    Ok(FeatureResult::Solid(
+        SolidResult::new(definition.body, result).shelling(recipe),
+    ))
 }

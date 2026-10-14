@@ -10,10 +10,11 @@ use crate::{
     datum::{PlaneReference, Resolver},
     document::{Feature, FeatureId},
     origins,
-    pattern::{Instance, Repeated, Seed, SeedWords, seed},
+    pattern::{Instance, Repeated, Seed, SeedWords, Seeds},
     pieces::{Resolution, Unresolved, pieces_of_one_face, tally},
     recompute::{CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
     repeat_blend::{self, CopiedNames, CopyWords},
+    repeat_shell,
     solid::SolidResult,
     trouble,
 };
@@ -200,27 +201,31 @@ impl Context<'_> {
         let inputs = self.resolver.inputs;
         let raw = self.resolver.feature.id().raw();
         let copies = [image];
-        let mut body = solid.clone();
+        let seeds = Seeds::of(inputs, &definition.mirrored, definition.body, &MIRROR_WORDS)?;
+        let mut body = seeds.start(solid).clone();
         let mut cuts = Vec::new();
         let mut names = CopiedNames::new(self.resolver.feature.id());
-        for &feature in &definition.mirrored {
-            let seed = match seed(inputs, feature, definition.body, &MIRROR_WORDS)? {
-                Repeated::Tools(seed) => seed,
-                Repeated::Blend { name, recipe } => {
-                    let image_words = |_: Instance| "the mirror image".to_owned();
-                    let words = CopyWords {
-                        feature: self.resolver.feature.id(),
-                        blend: &name,
-                        seed: &MIRROR_WORDS,
-                        copy: &image_words,
-                        clear: "Move the plane so",
-                    };
-                    body = names
-                        .blend(body, recipe, &[MIRROR_IMAGE], cancel)
-                        .map_err(|error| repeat_blend::failure(&error, recipe, &words))?;
-                    continue;
-                }
-            };
+        let image_words = |_: Instance| "the mirror image".to_owned();
+        let base = CopyWords {
+            feature: self.resolver.feature.id(),
+            repeated: "",
+            seed: &MIRROR_WORDS,
+            copy: &image_words,
+            copies: "the mirror image",
+            clear: "Move the plane so",
+        };
+        for (feature, repeated) in seeds.repeated {
+            let seed =
+                match repeated {
+                    Repeated::Tools(seed) => seed,
+                    Repeated::Blend { name, recipe } => {
+                        body = names.blend(body, recipe, &[MIRROR_IMAGE], cancel).map_err(
+                            |error| repeat_blend::failure(&error, recipe, &base.naming(&name)),
+                        )?;
+                        continue;
+                    }
+                    Repeated::Shell(_) => continue,
+                };
             for tool in &seed.tools {
                 if cancel.is_cancelled() {
                     return Err(Failure::Cancelled);
@@ -238,6 +243,11 @@ impl Context<'_> {
                 }
             }
             names.copying_tools_of(feature);
+        }
+        if let Some(shell) = &seeds.shell {
+            body = names
+                .shell(&body, shell.recipe, &[MIRROR_IMAGE], cancel)
+                .map_err(|error| repeat_shell::failure(&error, &base.naming(&shell.name)))?;
         }
         Ok(SolidResult::new(definition.body, body).cutting(cuts))
     }

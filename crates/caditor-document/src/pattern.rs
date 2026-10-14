@@ -17,6 +17,8 @@ use crate::{
         CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs, MissingInput,
     },
     repeat_blend::{self, CopiedNames, CopyWords},
+    repeat_shell,
+    shell::ShellRecipe,
     solid::{BodyOperation, SolidResult},
     tolerance, trouble,
     values::ParameterValues,
@@ -110,6 +112,9 @@ pub fn repeatable_on(kind: &FeatureKind) -> Option<FeatureId> {
     }
     if let Some(blend) = kind.blend() {
         return Some(blend.body);
+    }
+    if let Some(shell) = kind.shell() {
+        return Some(shell.body);
     }
     let operation = if let Some(primitive) = kind.primitive() {
         primitive.operation
@@ -849,6 +854,46 @@ pub(crate) enum Repeated<'a> {
         name: String,
         recipe: &'a BlendRecipe,
     },
+    Shell(RepeatedShell<'a>),
+}
+
+pub(crate) struct RepeatedShell<'a> {
+    pub name: String,
+    pub recipe: &'a ShellRecipe,
+    pub before: &'a Solid,
+}
+
+pub(crate) struct Seeds<'a> {
+    pub repeated: Vec<(FeatureId, Repeated<'a>)>,
+    pub shell: Option<RepeatedShell<'a>>,
+}
+
+impl<'a> Seeds<'a> {
+    pub(crate) fn of(
+        inputs: &'a Inputs<'_>,
+        features: &[FeatureId],
+        body: FeatureId,
+        words: &SeedWords,
+    ) -> Result<Self, Failure> {
+        let mut seeds = Self {
+            repeated: Vec::with_capacity(features.len()),
+            shell: None,
+        };
+        for &feature in features {
+            match seed(inputs, feature, body, words)? {
+                Repeated::Shell(shell) => seeds.shell = Some(shell),
+                repeated => seeds.repeated.push((feature, repeated)),
+            }
+        }
+        Ok(seeds)
+    }
+
+    pub(crate) fn start<'b>(&self, solid: &'b Solid) -> &'b Solid
+    where
+        'a: 'b,
+    {
+        self.shell.as_ref().map_or(solid, |shell| shell.before)
+    }
 }
 
 pub(crate) struct SeedWords {
@@ -911,6 +956,28 @@ pub(crate) fn seed<'a>(
     if let Some(recipe) = result.blended() {
         return Ok(Repeated::Blend { name, recipe });
     }
+    if let Some(recipe) = result.shelled() {
+        let last = inputs.bodies.get(&body).map(|(state, _)| *state);
+        let before = recipe.before().filter(|_| last == Some(seed));
+        let Some(before) = before else {
+            let after = last
+                .and_then(|state| inputs.document.feature(state))
+                .map_or_else(|| "another feature".to_owned(), |found| found.name.clone());
+            return Err(seed_error(
+                seed,
+                format!(
+                    "{after} changes the body after {name}, so this {feature} cannot hollow its \
+                     copies with {name}."
+                ),
+                &format!("Move this {feature} right below {name}, or leave {name} out of it."),
+            ));
+        };
+        return Ok(Repeated::Shell(RepeatedShell {
+            name,
+            recipe,
+            before,
+        }));
+    }
     let (operation, parts) = match (result.cuts(), result.joins()) {
         ([], []) => {
             return Err(seed_error(
@@ -946,27 +1013,37 @@ impl Context<'_> {
     ) -> Result<SolidResult, Failure> {
         let inputs = self.resolver.inputs;
         let raw = self.resolver.feature.id().raw();
-        let mut body = solid.clone();
+        let seeds = Seeds::of(
+            inputs,
+            &definition.repeated,
+            definition.body,
+            &PATTERN_WORDS,
+        )?;
+        let mut body = seeds.start(solid).clone();
         let mut cuts = Vec::new();
         let mut names = CopiedNames::new(self.resolver.feature.id());
         let instances: Vec<Instance> = copies.iter().map(|copy| copy.index).collect();
-        for &feature in &definition.repeated {
-            let seed = match seed(inputs, feature, definition.body, &PATTERN_WORDS)? {
+        let copy_words = |instance: Instance| definition.instance_words(instance);
+        let base = CopyWords {
+            feature: self.resolver.feature.id(),
+            repeated: "",
+            seed: &PATTERN_WORDS,
+            copy: &copy_words,
+            copies: "the copies",
+            clear: "Change the spacing or the angle so",
+        };
+        for (feature, repeated) in seeds.repeated {
+            let seed = match repeated {
                 Repeated::Tools(seed) => seed,
                 Repeated::Blend { name, recipe } => {
-                    let copy_words = |instance: Instance| definition.instance_words(instance);
-                    let words = CopyWords {
-                        feature: self.resolver.feature.id(),
-                        blend: &name,
-                        seed: &PATTERN_WORDS,
-                        copy: &copy_words,
-                        clear: "Change the spacing or the angle so",
-                    };
                     body = names
                         .blend(body, recipe, &instances, cancel)
-                        .map_err(|error| repeat_blend::failure(&error, recipe, &words))?;
+                        .map_err(|error| {
+                            repeat_blend::failure(&error, recipe, &base.naming(&name))
+                        })?;
                     continue;
                 }
+                Repeated::Shell(_) => continue,
             };
             let subject = Context {
                 resolver: Resolver {
@@ -994,6 +1071,11 @@ impl Context<'_> {
                 }
             }
             names.copying_tools_of(feature);
+        }
+        if let Some(shell) = &seeds.shell {
+            body = names
+                .shell(&body, shell.recipe, &instances, cancel)
+                .map_err(|error| repeat_shell::failure(&error, &base.naming(&shell.name)))?;
         }
         Ok(SolidResult::new(definition.body, body).cutting(cuts))
     }

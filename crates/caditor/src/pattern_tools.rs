@@ -153,12 +153,12 @@ pub fn repeatable(document: &Document, rows: &[FeatureId]) -> Option<(FeatureId,
             repeated.push((document.feature_index(*row)?, *row));
         }
     }
-    let only_blends = repeated.iter().all(|(_, row)| {
+    let nothing_of_their_own = repeated.iter().all(|(_, row)| {
         document
             .feature(*row)
-            .is_some_and(|feature| feature.kind.blend().is_some())
+            .is_some_and(|feature| feature.kind.blend().is_some() || feature.kind.shell().is_some())
     });
-    if only_blends {
+    if nothing_of_their_own {
         return None;
     }
     repeated.sort_unstable();

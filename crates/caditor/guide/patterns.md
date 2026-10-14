@@ -17,7 +17,13 @@ A new linear or circular pattern starts from the count last used on one, kept be
   edges of the features repeated with it (edges of the body around them, such as where a boss
   stands on a plate, included); a fillet or chamfer chosen without the feature whose edges it
   blends fails and says so, and so does a copy whose edges meet the body differently from the
-  original's.
+  original's. A fillet or chamfer on an edge of a corner an earlier repeated fillet or chamfer
+  rounded or bevelled follows it onto every copy too.
+- Choose a shell with them to hollow each copy as the original is: a boss opened at its top and
+  repeated with its shell is opened and hollowed on every copy, the walls running into one
+  cavity with the rest of the body. The pattern hollows the body again from where it stood before
+  the shell, so it must come right after the shell: a feature changing the body in between makes
+  the pattern fail saying to move it right below the shell.
 
 Select an axis, straight edge, round face or sketch line with it to set the direction or axis. A
 linear pattern otherwise runs along the X axis. A circular pattern never picks an axis for you: with

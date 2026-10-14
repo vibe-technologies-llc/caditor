@@ -435,6 +435,10 @@ paths:
   or chamfer: `blend` under the pattern's id (so the faces it makes are the only ones of that
   origin without a copy), then each such face's origin becomes a `Copy` of `copy` with the blend's
   `feature`. Its names stay the blend's own (`FaceName::blend(pattern, edge)` of the copy's edge).
+- `shell_copies(solid, open, walls, pattern, feature)` hollows a body holding a pattern's copies
+  for a repeated shell: `shell_walls` under the shell's `feature`, then each inner face named
+  `FaceName::shell(feature, n)` of a face `n` whose origin is a copy of `pattern` becomes a `Copy`
+  of that copy with origin `Shell` of the feature (`Solid::with_face_origins_named`, names kept).
 
 # Closing faces (`enclose/`)
 
