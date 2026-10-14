@@ -1,6 +1,6 @@
 use std::f64::consts::TAU;
 
-use caditor_geometry::{Plane, Point2, Point3, Vector3};
+use caditor_geometry::{Plane, Point2, Point3, RigidTransform, Vector3};
 use thiserror::Error;
 
 use super::{
@@ -25,11 +25,36 @@ pub struct HelixSpec {
     pub turns: f64,
     pub taper: f64,
     pub hand: Handedness,
+    pub start_angle: f64,
 }
 
 impl HelixSpec {
-    fn values(&self) -> [f64; 4] {
-        [self.radius, self.pitch, self.turns, self.taper]
+    fn values(&self) -> [f64; 5] {
+        [
+            self.radius,
+            self.pitch,
+            self.turns,
+            self.taper,
+            self.start_angle,
+        ]
+    }
+
+    pub fn start_frame(&self) -> Option<Plane> {
+        let (origin, direction) = self.axis();
+        let turn = RigidTransform::rotation_about(origin, direction, self.start_angle)?;
+        Some(self.frame.transformed(&turn))
+    }
+
+    fn slope(&self, taper: f64) -> f64 {
+        self.pitch * taper.tan() / TAU
+    }
+
+    pub fn point_at(&self, angle: f64) -> Option<Point3> {
+        let frame = self.start_frame()?;
+        let around =
+            frame.x_axis() * angle.cos() + frame.y_axis() * (self.hand.sign() * angle.sin());
+        let radius = self.radius + self.slope(self.taper) * angle;
+        Some(frame.origin() + around * radius + frame.normal() * (self.pitch * angle / TAU))
     }
 
     pub fn height(&self) -> f64 {
@@ -44,8 +69,8 @@ impl HelixSpec {
         (self.frame.origin(), self.frame.normal())
     }
 
-    pub fn start(&self) -> Point3 {
-        self.frame.origin() + self.frame.x_axis() * self.radius
+    pub fn start(&self) -> Option<Point3> {
+        self.point_at(0.0)
     }
 }
 
@@ -130,12 +155,13 @@ fn checked(spec: &HelixSpec) -> Result<f64, HelixError> {
 
 pub fn helix(spec: &HelixSpec) -> Result<Vec<HelixTurn>, HelixError> {
     let taper = checked(spec)?;
+    let frame = spec.start_frame().ok_or(GeometryError::ZeroDirection)?;
     let motion = Motion {
         winding: Winding {
-            frame: spec.frame,
+            frame,
             hand: spec.hand,
             pitch: spec.pitch,
-            slope: spec.pitch * taper.tan() / TAU,
+            slope: spec.slope(taper),
         },
         centre: Point2::ZERO,
     };

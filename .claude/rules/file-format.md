@@ -205,7 +205,11 @@ Extrusions and revolves:
   (`feature`) and `helix`, the helix feature's id, written for a sweep or pipe following a helix
   (inside `cut_several` for a sweep cutting other bodies); an older reader reports the feature as
   from a newer version rather than leaving it with no path. A wrapped kind that follows no path is
-  loaded without it, reported. The corpus holds both in `helices.caditor`.
+  loaded without it, reported. The corpus holds both in `helices.caditor`. `helix_start`: a wrapper
+  around a `helix` record (`feature`) with `start`, the start angle's text (unreadable 0 deg,
+  reported), written only when the start is not a literal zero; an older reader reports the helix
+  as from a newer version rather than starting it elsewhere; a wrapped kind that is not a helix
+  loads without it, reported. The corpus holds it in `helix-starts.caditor`.
 - `rib`: `sketch`, `body`, `thickness` (unreadable 2 mm, reported), `side` (`one_side`,
   `other_side`, `symmetric`), `direction` (`parallel`, `square`) and `reversed` only when set. The
   corpus holds it in `ribs.caditor`.

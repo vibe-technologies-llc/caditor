@@ -541,10 +541,11 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   turns at a pitch of 5 mm, counter-clockwise, and opens it; with no axis selected it winds round Z
   and starts choosing one (`Slot::HelixAxis`), as a coil does. It makes no body.
 - Panel (`helix_panel.rs`): a description, Axis with Reverse direction, Sized by and its two fields,
-  Diameter, Taper and Turning, built like the coil's (`coil_panel::length_fields`,
-  `with_length_value`, `turning_hover`; `helix_tools::sized_by` through
-  `coil_tools::sized_length`). Fields are keyed `("helix-field", feature, "diameter" | "taper" |
-  "turns" | "pitch" | "height")`. Reverse direction flips `reversed`.
+  Diameter, Taper, Start angle (`helix_panel::START_ANGLE`, any angle) and Turning, built like the
+  coil's (`coil_panel::length_fields`, `with_length_value`, `turning_hover`; `helix_tools::sized_by`
+  through `coil_tools::sized_length`). Fields are keyed `("helix-field", feature, "diameter" |
+  "taper" | "start" | "turns" | "pitch" | "height")`. Reverse direction flips `reversed`. Its value
+  arrows are the coil's `Measured::CoilDiameter`, `CoilPitch` and `CoilHeight` (Value handles).
 - The scene draws a built helix like a datum (`Builder::helix`: `helix_tools::points`, 64 per turn,
   as reference-layer lines in the datum colour, widened when open, tinted when failed), picked as
   `Pickable::Datum` of the helix (`Pickable::is_available` asks `helix_tools::is_built`, never
@@ -860,6 +861,11 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
     wire at the coil's end. The pitch is left out when the coil is sized by height and turns, the
     height unless it is sized by it; like any arrow one pointing along the view is not shown, and
     the section's caption follows its shape (`coil_size_name`).
+  - A helix's Diameter, Pitch and Height take the same `Measured` variants (`winding_mut` writes
+    the helix's fields, the hover names a helix, `winding_noun`), standing on the kernel's
+    `HelixSpec` made of the displayed axis (`Builder::helix`): the diameter from the axis along
+    `HelixSpec::start_frame`'s x axis, so it follows the start angle, at half speed; the pitch
+    upward from `HelixSpec::point_at` a turn round, the height from its end, left out as a coil's.
   - A rib's Thickness (`Measured::RibThickness`), standing on the first chain of the rib's sketch
     (`caditor_document::rib_stand`): for a rib parallel to its sketch on the first curve (a quarter
     of the way along) across the sketch, along or against its normal for One side and Other side,

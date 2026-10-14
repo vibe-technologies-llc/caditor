@@ -16,6 +16,7 @@ use crate::{
 
 pub const DESCRIPTION: &str = "A helix curve winding around an axis from the axis's start along \
                                it, for a sweep or pipe to follow";
+pub const START_ANGLE: &str = "Start angle";
 const PICK_HOVER: &str = "Wind around the selected axis, straight edge, round face or sketch line";
 
 fn sizing_hover(sizing: CoilSizing) -> &'static str {
@@ -171,6 +172,15 @@ impl Panel<'_> {
         });
     }
 
+    fn start_row(&mut self, ui: &mut Ui) {
+        let helix = self.helix.clone();
+        let field = ("start", &self.helix.start, Dimension::ANGLE, Rule::Any);
+        self.value_row(ui, START_ANGLE, field, move |start| Helix {
+            start,
+            ..helix.clone()
+        });
+    }
+
     fn turning_row(&mut self, ui: &mut Ui) {
         let current = self.helix.turning;
         let segments = CoilTurning::ALL
@@ -208,6 +218,7 @@ pub fn show(
         panel.sizing_rows(ui);
         panel.diameter_row(ui);
         panel.taper_row(ui);
+        panel.start_row(ui);
         panel.turning_row(ui);
     });
 }

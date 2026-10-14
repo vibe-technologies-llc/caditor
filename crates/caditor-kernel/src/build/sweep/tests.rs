@@ -559,6 +559,7 @@ fn helix_path(pitch: f64, turns: f64, taper: f64, hand: Handedness) -> Vec<PathS
         turns,
         taper,
         hand,
+        start_angle: 0.0,
     };
     helix(&spec)
         .unwrap()

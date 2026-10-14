@@ -14,7 +14,9 @@ an axis, edge, round face or sketch line, or press Escape to keep the Z axis.
 The helix starts at the axis's own start (the origin of a principal axis, the start of an edge or
 sketch line, the base of a round face) on the side the X axis points to (the Y axis for a helix
 around X), at its radius, and rises along the axis. Around the Z axis it starts on the X axis, so a
-profile drawn on the XZ plane across the point where it starts is carried along it.
+profile drawn on the XZ plane across the point where it starts is carried along it. A **Start
+angle** turns where it starts round the axis: 90° around Z starts it on the Y axis, so a profile
+drawn on the YZ plane is carried along it instead.
 
 ## Panel
 
@@ -25,11 +27,19 @@ profile drawn on the XZ plane across the point where it starts is carried along 
 - **Diameter** is the helix's diameter at its start.
 - **Taper** narrows or widens it as it rises: a positive angle widens it, a negative one draws it
   in, within 80° either way.
+- **Start angle** turns where the helix starts round its axis, counter-clockwise seen from the
+  axis's end, whichever way the helix turns; 0° starts it where the axis's X direction points.
 - **Turning**: **Counter-clockwise** (right-handed) or **Clockwise** (left-handed), seen from its
   end looking back along the axis.
 
 Every size takes units and expressions. The helix is drawn in the view like a datum and hides with
 the datums.
+
+While the helix is open, arrows in the view drag its sizes: one from the axis toward where the
+helix starts for the diameter, one at the helix a turn up for the pitch (when it is sized by a
+pitch) and one at its end for the height (when it is sized by a height). Each drag is one undoable
+change and follows the same steps and snapping as other arrows; Ctrl drags freely, and typing a
+number while holding or hovering an arrow sets the value as the panel field would.
 
 ## Sweeping along it
 

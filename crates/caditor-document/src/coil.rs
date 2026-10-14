@@ -42,7 +42,7 @@ impl CoilTurning {
         }
     }
 
-    pub(crate) fn hand(self) -> Handedness {
+    pub fn hand(self) -> Handedness {
         match self {
             Self::CounterClockwise => Handedness::Right,
             Self::Clockwise => Handedness::Left,

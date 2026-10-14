@@ -43,7 +43,11 @@ fn helix_of(turns: f64, pitch: f64) -> Helix {
 }
 
 fn triangle() -> Sketch {
-    let plane = Plane::from_frame(Point3::ZERO, Vector3::Y, Vector3::X).unwrap();
+    triangle_facing(Vector3::Y, Vector3::X)
+}
+
+fn triangle_facing(normal: Vector3, outward: Vector3) -> Sketch {
+    let plane = Plane::from_frame(Point3::ZERO, normal, outward).unwrap();
     let mut sketch = Sketch::new(plane);
     let corners = [
         Point2::new(11.0, -1.0),
@@ -63,10 +67,14 @@ struct Model {
 }
 
 fn thread_along(helix: Helix) -> Model {
+    thread_of(helix, triangle())
+}
+
+fn thread_of(helix: Helix, profile: Sketch) -> Model {
     let mut document = Document::default();
     let mut transaction = document.transaction("Build");
     let helix = transaction.add_feature("Helix 1", FeatureKind::Helix(helix));
-    let profile = transaction.add_feature("Profile", FeatureKind::from(triangle()));
+    let profile = transaction.add_feature("Profile", FeatureKind::from(profile));
     let sweep = transaction.add_feature(
         "Sweep 1",
         FeatureKind::Solid(SolidFeature::Sweep(Sweep::new(
@@ -197,11 +205,54 @@ fn deleting_the_helix_fails_the_sweep_until_undone() {
 fn the_helix_s_values_are_expressions_it_scales_and_inlines() {
     let mut helix = helix_of(4.0, 3.0);
 
-    assert_eq!(helix.expressions().len(), 4);
+    assert_eq!(helix.expressions().len(), 5);
     assert_eq!(helix.lengths_mut().len(), 2);
     helix.length = CoilLength::HeightAndPitch {
         height: mm(12.0),
         pitch: mm(3.0),
     };
     assert_eq!(helix.lengths_mut().len(), 3);
+}
+
+#[test]
+fn a_start_angle_starts_the_helix_and_the_sweep_along_it_further_round_its_axis() {
+    let helix = Helix {
+        start: Expression::measure(90.0, Unit::Degree),
+        ..helix_of(2.0, 3.0)
+    };
+    let model = thread_of(helix, triangle_facing(Vector3::NEG_X, Vector3::Y));
+
+    let evaluation = evaluate(&model.document);
+    let curve = evaluation
+        .feature(model.helix)
+        .unwrap()
+        .result
+        .as_deref()
+        .and_then(FeatureResult::helix)
+        .unwrap();
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert!(curve.start().unwrap().distance(Point3::new(0.0, 10.0, 0.0)) < 1e-9);
+    assert!(curve.end().unwrap().distance(Point3::new(0.0, 10.0, 6.0)) < 1e-9);
+    let solid = evaluation.body(model.sweep).unwrap();
+    assert_eq!(solid.validate(), Ok(()));
+    let expected = 2.0 * TAU * 2.0 * (31.0 / 3.0);
+    let found = volume(&evaluation, model.sweep);
+    assert!(
+        (found - expected).abs() < 1e-3 * expected,
+        "{found} against {expected}"
+    );
+}
+
+#[test]
+fn a_start_angle_that_is_not_an_angle_fails_the_helix_in_words() {
+    let model = thread_along(Helix {
+        start: mm(5.0),
+        ..helix_of(2.0, 3.0)
+    });
+
+    let evaluation = evaluate(&model.document);
+    let error = failure(&evaluation, model.helix);
+
+    assert!(error.reason.contains("start angle"), "{}", error.reason);
 }

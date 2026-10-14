@@ -10368,8 +10368,51 @@ fn helices_and_sweeps_along_them_are_saved_and_loaded_as_records_of_their_own() 
         "{text}"
     );
     assert!(text.contains("\"height_and_pitch\":{"), "{text}");
+    assert!(!text.contains("helix_start"), "{text}");
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(loaded.document, document);
+}
+
+#[test]
+fn a_helix_started_at_an_angle_wraps_its_record_so_an_older_reader_leaves_it_out() {
+    let (mut document, helix, _) = helix_model();
+    let mut kind = document.feature(helix).unwrap().kind.clone();
+    if let FeatureKind::Helix(started) = &mut kind {
+        started.start = Expression::parse_stored("30 deg").unwrap();
+    }
+    document
+        .apply(Transaction::single(
+            "Start",
+            Edit::SetFeatureKind { id: helix, kind },
+        ))
+        .unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let older = decode_text(&text.replace("helix_start", "helix_stark"));
+    let damaged = decode_text(&text.replacen("\"start\":\"30 deg\"", "\"start\":\"30 (\"", 1));
+    let restored = damaged
+        .document
+        .feature(helix)
+        .and_then(|feature| feature.kind.helix())
+        .unwrap();
+
+    assert!(
+        text.contains("\"helix_start\":{\"feature\":{\"helix\":{"),
+        "{text}"
+    );
+    assert!(text.contains("\"start\":\"30 deg\""), "{text}");
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert!(older.document.feature(helix).is_none());
+    assert!(!older.issues.is_empty());
+    assert_eq!(damaged.issues.len(), 1, "{:?}", damaged.issues);
+    assert!(
+        damaged.issues[0].contains("start angle"),
+        "{:?}",
+        damaged.issues
+    );
+    assert_eq!(restored.start, Expression::parse_stored("0 deg").unwrap());
 }
 
 #[test]

@@ -597,11 +597,14 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   square's "inside", "outside", "top" and "underside" (`coil::part_name`).
 ### Helix (`helix.rs`)
 
-- `Helix { axis, reversed, diameter, length, taper, turning }` is a curve feature: the axis, sizing
-  (`CoilLength`, `coil::span`), taper (`coil::taper`) and turning are a coil's, resolved, counted,
-  healed ("axis it winds around"), pasted, inlined and anchored for model scale the same way
-  (`Helix::lengths_mut` scales the diameter and lengths), with the frame from `Helix::frame` (x axis
-  from `Plane::new`, so it starts toward X, toward Y about the X axis). It calls kernel `helix` and
+- `Helix { axis, reversed, diameter, length, taper, turning, start }` is a curve feature: the axis,
+  sizing (`CoilLength`, `coil::span`), taper (`coil::taper`) and turning are a coil's, resolved,
+  counted, healed ("axis it winds around"), pasted, inlined and anchored for model scale the same
+  way (`Helix::lengths_mut` scales the diameter and lengths), with the frame from `Helix::frame` (x
+  axis from `Plane::new`, so it starts toward X, toward Y about the X axis). `start` is an angle
+  expression of any value (0 deg by default, an expression like the others, never scaled) turning
+  the start counter-clockwise about the axis whichever way it turns (kernel
+  `HelixSpec::start_angle`); one that is not an angle fails in words. It calls kernel `helix` and
   gives `FeatureResult::Helix` (`HelixResult`: the frame and one `HelixTurn` per piece of at most a
   turn; dependents compare it whole). It makes no body (`Feature::body` none, not `makes_body`) and
   can be hidden. Refusals are sentences: a taper drawing it into its axis, too few or many turns, a
