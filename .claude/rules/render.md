@@ -205,10 +205,11 @@ paths:
   with F0 mixed from 4% to the colour by metalness, Lambert diffuse weighted by one less Fresnel
   and metalness, times the sun and its shadow; the procedural `sky` (blue above, a sunlit ground's
   neutral below) as split-sum ambient (`sky_irradiance(normal)`, `sky_reflection(reflected,
-  roughness)` with Karis' analytic environment BRDF) times `environment`; one bounce of sunlight; then exposure, Khronos PBR Neutral tone
-  mapping and `to_srgb`. Faces without a finish (the app's hovered and selected faces in high
-  contrast) keep `lit`. Section caps of a
-  finished face are rendered without shadow or bounce, so the reflective pipelines need no group 2.
+  roughness)` with Karis' analytic environment BRDF) times `environment`, or the environment
+  picture's in its place (`ambient_irradiance`, `ambient_reflection`, below); one bounce of
+  sunlight; then exposure, Khronos PBR Neutral tone mapping and `to_srgb`. Faces without a finish
+  (the app's hovered and selected faces in high contrast) keep `lit`. Section caps of a finished
+  face are rendered without shadow or bounce.
 - `LightDirection::View` turns with the camera's heading about Z (`behind_the_viewer`: the eye's
   side levelled, else the far side of the view's up when looking straight down), its height taken
   from the world horizon, never the camera's, so a view from above keeps the faces toward the
@@ -224,6 +225,31 @@ paths:
   none with the sun under `LOWEST_SUN_FOR_GROUND_SHADOWS`). Per-pixel sky rays use `sky_view`
   (tangents of the half field of view) and the camera vectors, which the occlusion uniform carries
   whenever lighting is on.
+- `Scene::backdrop` (`Backdrop`: an `Arc<Environment>`, a turn about Z in radians and a brightness
+  in stops) replaces the procedural sky with a picture, only while `Scene::lighting` is set.
+  `Environment::new` (`environment.rs`, off the render thread, CPU only) takes linear RGB of an
+  equirectangular picture (width twice the height within 2%, at least
+  `LEAST_ENVIRONMENT_WIDTH` across, else an `EnvironmentError`), makes every value finite and at
+  most half-float range, shrinks it by area averaging to at most `MAX_ENVIRONMENT_WIDTH` and an
+  even width, halves it down to one row for the mip chain and convolves a 64x32 copy with the
+  cosine lobe into a 32x16 irradiance map (divided by the lobe's own total so a uniform picture
+  lights every normal exactly with its radiance, and read as E/pi like `sky_irradiance`), both
+  packed as `Rgba16Float` bytes with `half`. Identity is a counter, so scene comparison never
+  walks the texels. The orientation is `direction_of`: the picture's middle lies along +X, u grows
+  toward -Y (as seen from inside), v runs from +Z at the top to -Z; the turn adds to the heading.
+  `LightPass::bind_environment` uploads it inside `gpu::scoped` into group 2 (bindings 5 and 6, a
+  filtering sampler at 7 that repeats in u; 1x1 stand-ins until bound, `environment_textures.rs`),
+  rebuilding the group, and a refusal or a picture wider than `max_texture_dimension_2d` reports
+  `RenderFault::EnvironmentRefused` once and draws the procedural sky. The uniform's `environment`
+  carries turn, gain (`2^stops`) and the last mip; a zero gain means no picture. The sky pass
+  then draws the picture along each pixel's ray (the nominal field of view's perspective ray in an
+  orthographic view too), at the mip the pixel's angular size picks, times the exposure and tone
+  mapped, with the ground's shadow over it as before. `rendered` takes its diffuse from the
+  irradiance map and its specular from the mip a surface's roughness picks (`sqrt(roughness)`
+  across the chain, easing to the irradiance map from 0.5 to 1), times `environment`. Group 2
+  therefore belongs to every pipeline that can reach `rendered`, section caps of flat and
+  reflective meshes included (`lit_mesh_pipeline_layout`). A new picture, like any change the
+  uniform bytes do not show, redraws the kept view (`EnvironmentBound::rebound`).
 - The light pass (`LightPass`, `LightFrame`): when lighting has shadows or bounce, one depth pass
   from the sun (`vs_shadow`, `fs_shadow`, `shadow_pipeline`, layout `[view, mesh]`) draws every mesh
   of `Scene::meshes` (translucent ones receive but do not cast; faces of no alpha and geometry cut

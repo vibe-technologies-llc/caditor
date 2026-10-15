@@ -213,6 +213,8 @@ pub enum Command {
     ShowPrincipalWhenNeeded,
     Lighting,
     ResetLighting,
+    ChooseBackdrop,
+    ClearBackdrop,
     ToggleSketches,
     ToggleDatums,
     ToggleBodies,
@@ -741,6 +743,8 @@ plain_commands! {
     ShowPrincipalWhenNeeded,
     Lighting,
     ResetLighting,
+    ChooseBackdrop,
+    ClearBackdrop,
     ToggleSketches,
     ToggleDatums,
     ToggleBodies,
@@ -1139,6 +1143,8 @@ impl Command {
             Self::ShowPrincipalWhenNeeded => "view.principal_when_needed",
             Self::Lighting => "view.lighting",
             Self::ResetLighting => "view.reset_lighting",
+            Self::ChooseBackdrop => "view.choose_backdrop",
+            Self::ClearBackdrop => "view.clear_backdrop",
             Self::ToggleSketches => "view.toggle_sketches",
             Self::ToggleDatums => "view.toggle_datums",
             Self::ToggleBodies => "view.toggle_bodies",
@@ -1428,6 +1434,8 @@ impl Command {
             Self::ShowPrincipalWhenNeeded => "Show principal planes only when needed",
             Self::Lighting => "Light the rendered view",
             Self::ResetLighting => "Reset the rendered view's lighting",
+            Self::ChooseBackdrop => "Choose a sky picture for the rendered view…",
+            Self::ClearBackdrop => "Use the plain sky in the rendered view",
             Self::ToggleSketches => "Hide or show every sketch",
             Self::ToggleDatums => "Hide or show every datum",
             Self::ToggleBodies => "Hide or show every body",
@@ -1656,6 +1664,15 @@ impl Command {
                 "exposure",
                 "render",
             ],
+            Self::ChooseBackdrop | Self::ClearBackdrop => &[
+                "hdr",
+                "hdri",
+                "environment",
+                "background",
+                "sky",
+                "image based lighting",
+                "render",
+            ],
             Self::Style(DisplayStyle::Rendered) => &[
                 "render",
                 "preview",
@@ -1772,6 +1789,8 @@ impl Command {
             | Self::ShowPrincipalWhenNeeded
             | Self::Lighting
             | Self::ResetLighting
+            | Self::ChooseBackdrop
+            | Self::ClearBackdrop
             | Self::ToggleSketches
             | Self::ToggleDatums
             | Self::ToggleBodies
@@ -2199,6 +2218,8 @@ impl Command {
             | Self::ShowPrincipalWhenNeeded
             | Self::Lighting
             | Self::ResetLighting
+            | Self::ChooseBackdrop
+            | Self::ClearBackdrop
             | Self::MinimizeWindow
             | Self::MaximizeWindow
             | Self::SaveView

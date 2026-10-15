@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use caditor_document::Rgb;
 use caditor_file::{Retention, Settings, SettingsError};
 use caditor_render::{AdapterPreference, Msaa, ProjectionMode, Shading};
@@ -20,6 +22,7 @@ pub use self::{
 pub use crate::themes::{Accent, Appearance, BodyColour, GridColour, Theme, ViewChoice};
 use crate::{
     appearance::{self},
+    backdrop,
     body_appearance::SWATCHES,
     commands::{Command, Keymap},
     files::{
@@ -497,6 +500,7 @@ pub struct Preferences {
     pub new_bodies: NewBodies,
     pub graphics: Graphics,
     pub lighting: Lighting,
+    pub backdrop: Option<PathBuf>,
     pub onboarding: Onboarding,
     pub keymap: Keymap,
     pub window: WindowPlacement,
@@ -565,6 +569,7 @@ pub enum PreferenceChange {
     CurveQuality(CurveQuality),
     Adapter(AdapterPreference),
     Lighting(Lighting),
+    Backdrop(Option<PathBuf>),
     Bind(Command, KeyboardShortcut),
     Unbind(Command, KeyboardShortcut),
     ResetShortcut(Command),
@@ -768,6 +773,7 @@ impl Preferences {
             new_bodies: NewBodies::read(&raw, NEW_BODIES_KEY),
             graphics: Graphics::from_settings(&raw),
             lighting: Lighting::from_settings(&raw),
+            backdrop: backdrop::read(&raw),
             onboarding: Onboarding::from_settings(&raw),
             keymap: Keymap::from_settings(&raw),
             window: WindowPlacement::from_settings(&raw),
@@ -819,6 +825,7 @@ impl Preferences {
         settings.set_text(NEW_BODIES_KEY, self.new_bodies.key());
         self.graphics.write(&mut settings);
         self.lighting.write(&mut settings);
+        backdrop::write(self.backdrop.as_deref(), &mut settings);
         self.keymap.write(&self.loaded_keymap, &mut settings);
         self.onboarding.write(&mut settings);
         self.window.write(&mut settings);
@@ -921,6 +928,7 @@ impl Preferences {
             PreferenceChange::Adapter(adapter) => self.graphics.adapter = adapter,
             PreferenceChange::CurveQuality(curves) => self.graphics.curves = curves,
             PreferenceChange::Lighting(lighting) => self.lighting = lighting,
+            PreferenceChange::Backdrop(path) => self.backdrop = path,
             PreferenceChange::Bind(command, shortcut) => self.keymap.bind(command, shortcut),
             PreferenceChange::Unbind(command, shortcut) => self.keymap.unbind(command, shortcut),
             PreferenceChange::ResetShortcut(command) => self.keymap.reset(command),

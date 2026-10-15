@@ -4,8 +4,8 @@ use caditor_geometry::{Plane, Point3, Vector3};
 use glam::DVec2;
 
 use crate::{
-    lighting::Lighting, mesh::MeshInstance, pictures::ScenePicture, runs::PolylineRun,
-    silhouette::Silhouette,
+    environment::Environment, lighting::Lighting, mesh::MeshInstance, pictures::ScenePicture,
+    runs::PolylineRun, silhouette::Silhouette,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -314,6 +314,13 @@ impl Batch {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct Backdrop {
+    pub environment: Arc<Environment>,
+    pub turn: f32,
+    pub stops: f32,
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Scene {
     pub meshes: Vec<MeshInstance>,
@@ -324,6 +331,7 @@ pub struct Scene {
     pub silhouettes: Vec<Silhouette>,
     pub reflection: Reflection,
     pub lighting: Option<Lighting>,
+    pub backdrop: Option<Backdrop>,
     pub section: Vec<SectionPlane>,
     pub batches: Vec<Arc<Batch>>,
     pub grid: Option<Grid>,

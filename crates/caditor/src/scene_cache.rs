@@ -2,7 +2,7 @@ use std::{collections::BTreeSet, sync::Arc};
 
 use caditor_document::FeatureId;
 use caditor_geometry::{Plane, Point3};
-use caditor_render::{Batch, Color, Lighting, SectionPlane, View};
+use caditor_render::{Backdrop, Batch, Color, Lighting, SectionPlane, View};
 use caditor_sketch::Faceting;
 
 use crate::{
@@ -133,6 +133,7 @@ pub struct SceneCache {
     highlightable: Option<Highlightable>,
     section: Vec<SectionPlane>,
     lighting: Option<Lighting>,
+    backdrop: Option<Backdrop>,
     grid: Option<Color>,
     palette_grid: Option<Color>,
     generation: u64,
@@ -153,6 +154,7 @@ impl Default for SceneCache {
             highlightable: None,
             section: Vec::new(),
             lighting: None,
+            backdrop: None,
             grid: None,
             palette_grid: None,
             generation: 0,
@@ -201,6 +203,7 @@ impl SceneCache {
         built.scene.batches.extend(self.overlay_batch.clone());
         built.scene.section.clone_from(&self.section);
         built.scene.lighting = self.lighting.filter(|_| built.rendered);
+        built.scene.backdrop = self.backdrop.clone().filter(|_| built.rendered);
         self.palette_grid = built.scene.grid.as_ref().map(|grid| grid.color);
         self.built = Some(built);
         self.colour_grid();
@@ -248,6 +251,20 @@ impl SceneCache {
 
     pub fn lighting(&self) -> Option<Lighting> {
         self.lighting
+    }
+
+    pub fn set_backdrop(&mut self, backdrop: Option<Backdrop>) {
+        if backdrop == self.backdrop {
+            return;
+        }
+        self.backdrop = backdrop;
+        if let Some(built) = &mut self.built {
+            built.scene.backdrop = self.backdrop.clone().filter(|_| built.rendered);
+        }
+    }
+
+    pub fn backdrop(&self) -> Option<Backdrop> {
+        self.backdrop.clone()
     }
 
     pub fn set_grid(&mut self, grid: Option<Color>) {

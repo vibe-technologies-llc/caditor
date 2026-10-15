@@ -8,9 +8,9 @@ use caditor_file::PastedGeometry;
 use caditor_geometry::{Aabb, Plane, Point2, Point3, Ray, Rotation3, Vector2, Vector3};
 use caditor_kernel::EdgeName;
 use caditor_render::{
-    Camera, Lighting, MAX_SECTION_PLANES, PickHit, PickResult, PlaneProjection, ProjectionMode,
-    Reflection, Scene, SectionPlane, SurfaceSize, View, Viewpoint, ViewportRect, grid_snap_spacing,
-    is_cut_away, section_slack,
+    Backdrop, Camera, Lighting, MAX_SECTION_PLANES, PickHit, PickResult, PlaneProjection,
+    ProjectionMode, Reflection, Scene, SectionPlane, SurfaceSize, View, Viewpoint, ViewportRect,
+    grid_snap_spacing, is_cut_away, section_slack,
 };
 use caditor_sketch::{ConstraintId, Entity, EntityId, Faceting, MAX_LENGTH, Sketch};
 use egui::{
@@ -829,6 +829,10 @@ impl ViewportState {
 
     pub fn set_lighting(&mut self, lighting: Lighting) {
         self.scenes.set_lighting(Some(lighting));
+    }
+
+    pub fn set_backdrop(&mut self, backdrop: Option<Backdrop>) {
+        self.scenes.set_backdrop(backdrop);
     }
 
     pub fn model_centre(&self) -> Option<Point3> {
@@ -1735,6 +1739,7 @@ impl ViewportState {
         built.scene.grid = None;
         built.scene.section = self.scenes.section().to_vec();
         built.scene.lighting = self.scenes.lighting().filter(|_| built.rendered);
+        built.scene.backdrop = self.scenes.backdrop().filter(|_| built.rendered);
         let view = view.reaching(built.everything);
         let shown_height = self.view_pixels().map_or(size.height, |shown| shown.height);
         ImageView {

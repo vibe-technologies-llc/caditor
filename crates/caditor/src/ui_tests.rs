@@ -339,6 +339,10 @@ impl Dialogs for ScriptedDialogs {
     fn pick_picture(&self, directory: Option<PathBuf>, respond: Respond) {
         self.respond(directory, respond);
     }
+
+    fn pick_backdrop(&self, directory: Option<PathBuf>, respond: Respond) {
+        self.respond(directory, respond);
+    }
 }
 
 fn no_wake() -> WakerFactory {

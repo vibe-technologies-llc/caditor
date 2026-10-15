@@ -37,6 +37,7 @@ paths:
   - "crates/caditor/src/section_panel.rs"
   - "crates/caditor/src/lighting.rs"
   - "crates/caditor/src/lighting_panel.rs"
+  - "crates/caditor/src/backdrop.rs"
   - "crates/caditor/src/analysis.rs"
   - "crates/caditor/src/analysis_panel.rs"
   - "crates/caditor/src/reach.rs"
@@ -559,7 +560,23 @@ paths:
   `Workspace`; while open, `lighting_panel.rs` draws a right-hand panel of `lighting_panel::rows`
   (the same rows Preferences › Appearance › Rendered view draws), sliders previewing while dragged
   and changing on release, an info callout with Show the Rendered style when another style is
-  shown, and Reset lighting (`Command::ResetLighting`).
+  shown, the sky picture below them and Reset lighting (`Command::ResetLighting`, which also
+  puts the plain sky back).
+- The sky picture is a Radiance `.hdr` of the surroundings, the optional environment of the
+  rendered view (`render.md`). Choose a sky picture (`Command::ChooseBackdrop`, the panel's
+  Choose picture…, `FileCommand::ChooseBackdrop`, `Purpose::Backdrop`) hands the picked path to
+  `Files::take_backdrop_chosen`, which `tip_commands` turns into `PreferenceChange::Backdrop`;
+  Use the plain sky (`Command::ClearBackdrop`) sets none. `backdrop::Backdrop`, in the
+  `Workspace`, follows `Preferences::backdrop` every frame: a changed path starts a thread
+  (`environment`) that reads it (`caditor_file::read_environment_file`) and prepares an
+  `Environment`, so neither file I/O nor the prefiltering touch the UI thread, and a result for a
+  path no longer wanted is dropped. `Status` is plain, loading, ready or failed; a failure keeps
+  the stored path, draws the plain sky, shows an error callout in the panel naming the file and
+  why (`BackdropFailure`: the file's `EnvironmentReadError`, the `EnvironmentError` of a picture
+  not twice as wide as high, a crashed thread) and raises one notice. Turn (about Z, degrees)
+  and brightness (stops) are `Lighting::backdrop_turn` and `backdrop_exposure`, shown only with a
+  picture ready. The picture rides `Scene::backdrop` like the lighting: `SceneCache::set_backdrop`
+  sets it in place, so it is not part of the scene key, and image export carries it the same way.
 
 ## Samples
 
