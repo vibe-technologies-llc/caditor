@@ -412,6 +412,7 @@ pub fn with_material(appearance: &BodyAppearance, material: Option<&Material>) -
             material: Some(material.name.to_owned()),
             density: Some(Expression::number(material.density)),
             name: appearance.name.clone(),
+            folder: appearance.folder.clone(),
             opacity: appearance.opacity,
             finish: Some(material.finish),
             faces: appearance.faces.clone(),

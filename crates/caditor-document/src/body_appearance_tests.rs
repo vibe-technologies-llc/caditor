@@ -13,6 +13,7 @@ fn steel(pair: &Pair, density: &str) -> BodyAppearance {
         material: Some("Steel".to_owned()),
         density: Some(pair.document.parse(density).unwrap()),
         name: None,
+        folder: Vec::new(),
         opacity: None,
         finish: Some(Finish::BrushedMetal),
         faces: Vec::new(),

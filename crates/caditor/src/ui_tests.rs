@@ -49,6 +49,7 @@ mod blends;
 mod bodies;
 mod body_appearance;
 mod body_finishes;
+mod body_groups;
 mod body_tools;
 mod box_selection;
 mod cancel_and_parameters;

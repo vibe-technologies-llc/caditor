@@ -15,19 +15,20 @@ use caditor_document::{
     FaceColour, FaceMate, FaceOnRound, FacePair, FaceTangent, FaceThickness, Feature, FeatureId,
     FeatureKind, Finish, HOME_VIEW_NAME, Helix, Hole, HoleBottom, HoleDepth, HoleFit, HoleShape,
     HoleSizing, HoleStandard, HoleStep, HoleStyle, Import, LinearDirection, LinearSpacing, Loft,
-    LoftSection, MAX_BODY_NAME_CHARS, MAX_GROUP_NAME_CHARS, MAX_MATERIAL_NAME_CHARS,
-    MAX_PATTERN_INSTANCES, MAX_SAVED_VIEWS, MAX_VIEW_NAME_CHARS, MIN_OPACITY_PERCENT, Mate,
-    MatePair, MeasuredItem, Measurement, MetricSize, Mirror, ModelProperties, ModelProperty, Move,
-    NamedView, OPAQUE_PERCENT, ORIGINAL_INSTANCE, Of, OffsetFace, Parameter, ParameterOwner,
-    Pattern, PatternKind, PieceKey, PieceLooks, PieceStandIns, Pieces, Pipe, PlaneReference,
-    PlaneRotation, PlaneThrough, PointBy, PointMate, PointReference, PointTarget, PointsPattern,
-    Primitive, PrimitiveAnchor, PrimitiveShape, PrincipalAxis, PrincipalGeometry, PrincipalPlane,
-    ProjectionSource, Reading, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rgb, Rib,
-    RibDirection, RibEnds, RibSide, RollbackBar, SavedView, SavedViews, Scale, Shell, ShellSide,
-    SketchAttachment, SketchFeature, SolidFeature, SolidStart, Split, SplitAlong, SplitCarry,
-    SplitFace, StepText, Sweep, SweepPath, TappedThread, Thread, ThreadFamily, ThreadForm,
-    ThreadHand, ThreadLength, ThreadSide, ThreadSize, Transaction, TurnCentre, Wall, group_name,
-    material_name, unscaled, untwisted, view_name,
+    LoftSection, MAX_BODY_FOLDER_DEPTH, MAX_BODY_NAME_CHARS, MAX_GROUP_NAME_CHARS,
+    MAX_MATERIAL_NAME_CHARS, MAX_PATTERN_INSTANCES, MAX_SAVED_VIEWS, MAX_VIEW_NAME_CHARS,
+    MIN_OPACITY_PERCENT, Mate, MatePair, MeasuredItem, Measurement, MetricSize, Mirror,
+    ModelProperties, ModelProperty, Move, NamedView, OPAQUE_PERCENT, ORIGINAL_INSTANCE, Of,
+    OffsetFace, Parameter, ParameterOwner, Pattern, PatternKind, PieceKey, PieceLooks,
+    PieceStandIns, Pieces, Pipe, PlaneReference, PlaneRotation, PlaneThrough, PointBy, PointMate,
+    PointReference, PointTarget, PointsPattern, Primitive, PrimitiveAnchor, PrimitiveShape,
+    PrincipalAxis, PrincipalGeometry, PrincipalPlane, ProjectionSource, Reading, RegionChoice,
+    Remove, Revolve, RevolveAxis, RevolveExtent, Rgb, Rib, RibDirection, RibEnds, RibSide,
+    RollbackBar, SavedView, SavedViews, Scale, Shell, ShellSide, SketchAttachment, SketchFeature,
+    SolidFeature, SolidStart, Split, SplitAlong, SplitCarry, SplitFace, StepText, Sweep, SweepPath,
+    TappedThread, Thread, ThreadFamily, ThreadForm, ThreadHand, ThreadLength, ThreadSide,
+    ThreadSize, Transaction, TurnCentre, Wall, folder_label, group_name, material_name, unscaled,
+    untwisted, view_name,
 };
 use caditor_expression::{BinaryOperator, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Rotation3, Vector2, Vector3};
@@ -215,6 +216,8 @@ pub(crate) struct AppearanceRecord {
     pub density: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub folder: Vec<Lenient<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub opacity: Option<u8>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2694,6 +2697,11 @@ fn appearance_record(appearance: &BodyAppearance) -> AppearanceRecord {
         material: appearance.material.clone(),
         density: appearance.density.as_ref().map(Expression::to_stored_text),
         name: appearance.name.clone(),
+        folder: appearance
+            .folder
+            .iter()
+            .map(|group| Lenient::Read(group.clone()))
+            .collect(),
         opacity: appearance.opacity,
         finish: appearance.finish.map(|finish| finish.key().to_owned()),
         faces: appearance
@@ -2762,6 +2770,7 @@ fn restore_appearance(
         }
         body_name
     });
+    let folder = restore_folder(&record.folder, name, issues);
     let opacity = record.opacity.and_then(|opacity| {
         let usable = (MIN_OPACITY_PERCENT..OPAQUE_PERCENT).contains(&opacity);
         if !usable {
@@ -2849,10 +2858,37 @@ fn restore_appearance(
         material,
         density,
         name: body_name,
+        folder,
         opacity,
         finish,
         faces,
     }
+}
+
+fn restore_folder(record: &[Lenient<String>], name: &str, issues: &mut Vec<String>) -> Vec<String> {
+    let usable = |group: &Lenient<String>| match group {
+        Lenient::Read(text) => {
+            group_name(text).filter(|group| group.chars().count() <= MAX_GROUP_NAME_CHARS)
+        }
+        Lenient::Unreadable(_) => None,
+    };
+    let folder: Vec<String> = record
+        .iter()
+        .map(usable)
+        .take(MAX_BODY_FOLDER_DEPTH)
+        .map_while(|group| group)
+        .collect();
+    if folder.len() < record.len() {
+        let place = if folder.is_empty() {
+            "outside any group".to_owned()
+        } else {
+            format!("in “{}”", folder_label(&folder))
+        };
+        issues.push(format!(
+            "The group of “{name}” could not be used in full, so the body is listed {place}."
+        ));
+    }
+    folder
 }
 
 fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {

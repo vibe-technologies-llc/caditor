@@ -157,6 +157,10 @@ pub enum Command {
     BodyAppearance,
     RenameBody,
     RemoveBody,
+    GroupBodies,
+    UngroupBodies,
+    RenameBodyGroup,
+    MoveOutOfBodyGroup,
     LinearPattern,
     CircularPattern,
     CurvePattern,
@@ -779,6 +783,10 @@ plain_commands! {
     BodyAppearance,
     RenameBody,
     RemoveBody,
+    GroupBodies,
+    UngroupBodies,
+    RenameBodyGroup,
+    MoveOutOfBodyGroup,
     LinearPattern,
     CircularPattern,
     CurvePattern,
@@ -1070,6 +1078,10 @@ impl Command {
             Self::Scale => "model.scale",
             Self::BodyAppearance => "model.body_appearance",
             Self::RenameBody => "model.rename_body",
+            Self::GroupBodies => "model.group_bodies",
+            Self::UngroupBodies => "model.ungroup_bodies",
+            Self::RenameBodyGroup => "model.rename_body_group",
+            Self::MoveOutOfBodyGroup => "model.move_out_of_body_group",
             Self::RemoveBody => "model.remove_body",
             Self::LinearPattern => "model.linear_pattern",
             Self::CircularPattern => "model.circular_pattern",
@@ -1358,6 +1370,10 @@ impl Command {
             Self::Scale => "Scale body",
             Self::BodyAppearance => "Body colour and material",
             Self::RenameBody => "Rename body",
+            Self::GroupBodies => "Group bodies",
+            Self::UngroupBodies => "Ungroup bodies",
+            Self::RenameBodyGroup => "Rename body group",
+            Self::MoveOutOfBodyGroup => "Move out of the group",
             Self::RemoveBody => "Remove body",
             Self::LinearPattern => "Linear pattern",
             Self::CircularPattern => "Circular pattern",
@@ -1558,6 +1574,10 @@ impl Command {
                 &["visibility", "show", "hide"]
             }
             Self::ShowAll => &["visibility", "unhide", "reveal"],
+            Self::GroupBodies
+            | Self::UngroupBodies
+            | Self::RenameBodyGroup
+            | Self::MoveOutOfBodyGroup => &["folder", "organise", "nest", "assembly"],
             Self::CancelAnalysis
             | Self::CancelMassProperties
             | Self::CancelPreparingBodies
@@ -1810,6 +1830,10 @@ impl Command {
             | Self::BodyAppearance
             | Self::RenameBody
             | Self::RemoveBody
+            | Self::GroupBodies
+            | Self::UngroupBodies
+            | Self::RenameBodyGroup
+            | Self::MoveOutOfBodyGroup
             | Self::LinearPattern
             | Self::CircularPattern
             | Self::CurvePattern
@@ -2092,6 +2116,10 @@ impl Command {
             | Self::BodyAppearance
             | Self::RenameBody
             | Self::RemoveBody
+            | Self::GroupBodies
+            | Self::UngroupBodies
+            | Self::RenameBodyGroup
+            | Self::MoveOutOfBodyGroup
             | Self::SelectBody
             | Self::SelectHole
             | Self::SaveSelectionSet

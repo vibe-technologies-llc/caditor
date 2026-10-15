@@ -31,6 +31,7 @@ paths:
   - "crates/caditor/src/parameter_table.rs"
   - "crates/caditor/src/principal_tree.rs"
   - "crates/caditor/src/bodies_tree.rs"
+  - "crates/caditor/src/body_groups.rs"
   - "crates/caditor/src/body_appearance.rs"
   - "crates/caditor/src/colour_selector.rs"
   - "crates/caditor/src/tree_row.rs"
@@ -781,6 +782,25 @@ paths:
   which adds a `Remove` feature at the bar with a notice saying how to bring the body back; the same
   act from the palette and Model menu on the tree's body, else the selection's (`RenameBody`,
   `RemoveBody`; `app-modelling.md`, "What a command acts on").
+- Bodies sit in nested groups (`body_groups.rs`, the document's `body_folders.rs`):
+  `body_groups::arrange` turns the listed bodies' folders into `Entry`s, each group at the place of
+  its first body in tree order, every row indented `GROUP_INDENT` per level: body rows from
+  `CHILD_INDENT`, group rows from `CHILD_CHEVRON_INDENT`, so a group's icon lines up with the bodies
+  beside it. A group row (`body_groups::header`) has a chevron (open at first, folding kept in
+  egui memory by folder), the folder icon, name, the count of bodies at any depth, a "⋯" menu and an
+  eye hiding every member while any shows, else showing them all (`visibility::toggle_bodies`, one
+  "Hide <group>" change); the eye sits in the body rows' eye column. A click or tab chooses every
+  member and makes it the chosen group (`PanelState::body_group`, cleared by a body row's click),
+  Enter folds it, a double-click renames in place (blank refused, `PanelState::renaming_body_group`).
+  It opens by itself when a member's card or a group inside it is waiting for focus.
+  Group bodies (`Command::GroupBodies`, no default key: Ctrl+G stays the feature tree's) takes the
+  tree's bodies, else the selection's, makes "Group N" as the document places it and starts renaming
+  it. The chosen group (`body_groups::current_group`: the chosen group row while every chosen body
+  sits in it, else the first chosen body's group) is what Ungroup bodies and Rename body group act
+  on; Move out of the group takes that group up a level, else the chosen bodies. A group's menu has
+  Rename group, Ungroup and Move to group, a body row's menu Group bodies, Move to group (on the
+  chosen bodies when the row is among them) and Move out of the group; Move to group is a submenu of
+  every listed group (as "Outer › Inner", none it would go inside) and Out of every group.
 - A body row's paint bucket (or the Body colour and material command, for the body chosen in the
   tree, else of the selection, else of the open feature) opens its colour and material card under
   the row (`PanelState::painting`, one at a time, focus on the first swatch until it lands):

@@ -15,6 +15,7 @@ use crate::{
     body_appearance::{
         BodyAppearance, MAX_BODY_NAME_CHARS, MAX_MATERIAL_NAME_CHARS, MIN_OPACITY_PERCENT,
     },
+    body_folders::MAX_BODY_FOLDER_DEPTH,
     body_pieces::{PieceStandIns, Pieces},
     configurations::{
         ConfigurationId, Configurations, ConfiguredValue, MAX_CONFIGURATION_NAME_CHARS,
@@ -527,6 +528,12 @@ pub enum EditError {
         "A group's name may be at most {MAX_GROUP_NAME_CHARS} characters long, and this one has {0}"
     )]
     GroupNameTooLong(usize),
+    #[error(
+        "Groups of bodies may sit at most {MAX_BODY_FOLDER_DEPTH} deep, and this one would sit {0} deep"
+    )]
+    BodyFolderTooDeep(usize),
+    #[error("A group of bodies cannot go inside itself or a group within it")]
+    BodyFolderIntoItself,
     #[error("A body may be see-through down to {MIN_OPACITY_PERCENT}% opacity, and {0}% is less")]
     OpacityTooLow(u8),
     #[error("{0} is not a plane")]
@@ -604,6 +611,15 @@ fn check_appearance(appearance: &BodyAppearance) -> Result<(), EditError> {
         let length = name.chars().count();
         if length > MAX_BODY_NAME_CHARS {
             return Err(EditError::BodyNameTooLong(length));
+        }
+    }
+    if appearance.folder.len() > MAX_BODY_FOLDER_DEPTH {
+        return Err(EditError::BodyFolderTooDeep(appearance.folder.len()));
+    }
+    for name in &appearance.folder {
+        let length = name.chars().count();
+        if length > MAX_GROUP_NAME_CHARS {
+            return Err(EditError::GroupNameTooLong(length));
         }
     }
     let opacities = appearance

@@ -430,6 +430,11 @@ fn screenshots() {
         drop(tracing);
 
         let dir = TempDir::new().expect("a temporary directory");
+        let mut grouped = Harness::styled(look, dir.path(), false);
+        body_groups_scene(&mut grouped, &gpu, &out, look);
+        drop(grouped);
+
+        let dir = TempDir::new().expect("a temporary directory");
         let mut configured = Harness::styled(look, dir.path(), false);
         configured.open_sample(Sample::Bracket);
         configurations_scene(&mut configured, &gpu, &out, look);
@@ -1582,6 +1587,34 @@ fn crashed_session(dir: &Path) {
     .expect("the storage starts");
     assert!(crashed.flusher().flush(super::FILE_TIMEOUT));
     assert!(crashed.close(false).wait(super::FILE_TIMEOUT));
+}
+
+fn body_groups_scene(harness: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
+    let (plate, _) = extruded_plate(harness);
+    let peg = add_peg(harness);
+    add_block(
+        harness,
+        "Cover",
+        [Point2::new(60.0, 0.0), Point2::new(80.0, 20.0)],
+        "3 mm",
+    );
+    harness.settle();
+    let fixtures = harness.document().bodies_moving(
+        &[plate, peg],
+        &["Fixtures".to_owned(), "Pins".to_owned()],
+        "Group",
+    );
+    harness.perform(Action::Apply(fixtures.expect("the bodies group")));
+    let frame = harness
+        .document()
+        .bodies_moving(&[plate], &["Fixtures".to_owned()], "Group");
+    harness.perform(Action::Apply(frame.expect("the plate moves up")));
+    harness.settle();
+    harness.click(&format!("{} ({})", crate::bodies_tree::GROUP_TITLE, 3));
+    harness.settle();
+    harness.click("Pins");
+    harness.frame();
+    shoot(harness, gpu, out, "body-groups", look);
 }
 
 fn configurations_scene(harness: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {

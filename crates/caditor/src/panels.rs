@@ -108,6 +108,8 @@ pub struct PanelState {
     pub double_click: DoubleClick,
     pub renaming: Option<Renaming>,
     pub renaming_group: Option<Renaming>,
+    pub renaming_body_group: Option<GroupRenaming>,
+    pub body_group: Option<Vec<String>>,
     pub opened_for_editing: Option<FeatureId>,
     pub finished_editing: Option<FeatureId>,
     pub selected: Option<FeatureId>,
@@ -156,6 +158,12 @@ pub struct Painting {
     pub body: FeatureId,
     pub focus_pending: bool,
     pub naming: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GroupRenaming {
+    pub folder: Vec<String>,
+    pub focus_pending: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

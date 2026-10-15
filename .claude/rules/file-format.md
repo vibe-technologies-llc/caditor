@@ -132,7 +132,10 @@ The journal snapshot carries the same record under the same name, held by the se
   `AxisDiameter` holding the radius (a literal halved, other expressions divided by 2, undone on
   load).
 - `appearance`, only when a body has one: `colour` as `#rrggbb`, `material`, `density` stored text,
-  `name`, `opacity` (percent), `finish` (`Finish::key`: `matte`, `satin`, `glossy`, `rubber`,
+  `name`, `folder` (the body's group path, an array of names, only when grouped; names past
+  `MAX_GROUP_NAME_CHARS`, blank or unreadable cut the path there and levels past
+  `MAX_BODY_FOLDER_DEPTH` are left out, reported with where the body is listed now; an older
+  reader ignores it and lists the body ungrouped), `opacity` (percent), `finish` (`Finish::key`: `matte`, `satin`, `glossy`, `rubber`,
   `powder_coat`, `anodized`, `brushed_metal`, `polished_metal`) and `faces` (face record with
   `colour`, optional `opacity` and `finish`), each optional. Unreadable part, unknown finish, or a
   face opacity outside `MIN_OPACITY_PERCENT` to 100 is dropped, reported. Journal:

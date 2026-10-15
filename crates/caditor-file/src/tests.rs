@@ -3431,6 +3431,7 @@ fn steel_appearance(document: &Document) -> caditor_document::BodyAppearance {
         material: Some("Steel".to_owned()),
         density: Some(document.parse("depth / 1 mm * 2.5").unwrap()),
         name: Some("Base plate".to_owned()),
+        folder: vec!["Fixtures".to_owned(), "Plates".to_owned()],
         opacity: Some(40),
         finish: Some(caditor_document::Finish::BrushedMetal),
         faces: Vec::new(),
@@ -3460,6 +3461,10 @@ fn a_body_appearance_survives_saving_and_the_journal() {
     assert!(text.contains("\"colour\":\"#4682b4\""), "{text}");
     assert!(text.contains("\"material\":\"Steel\""), "{text}");
     assert!(text.contains("\"finish\":\"brushed_metal\""), "{text}");
+    assert!(
+        text.contains("\"folder\":[\"Fixtures\",\"Plates\"]"),
+        "{text}"
+    );
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(
         loaded.document.feature(base).unwrap().appearance,
@@ -3468,6 +3473,46 @@ fn a_body_appearance_survives_saving_and_the_journal() {
     assert_eq!(loaded.document, document);
     assert_eq!(format::restore_transaction(journaled), Some(paint));
     assert_eq!(format::restore_transaction(undone), Some(unpainted));
+}
+
+#[test]
+fn a_body_group_past_the_limits_keeps_the_groups_above_the_unusable_one_in_words() {
+    let (mut document, base, _) = solid_model();
+    document
+        .apply(Transaction::single(
+            "Group Base",
+            Edit::SetBodyAppearance {
+                id: base,
+                appearance: caditor_document::BodyAppearance {
+                    folder: vec!["Frame".to_owned(), "Fixtures".to_owned()],
+                    ..Default::default()
+                },
+            },
+        ))
+        .unwrap();
+    let long = "x".repeat(caditor_document::MAX_GROUP_NAME_CHARS + 1);
+    let deep = ["\"Deep\""; caditor_document::MAX_BODY_FOLDER_DEPTH + 1].join(",");
+
+    let text = encode(&document).unwrap();
+    let cut = decode_text(&text.replace("Fixtures", &long));
+    let lost = decode_text(&text.replace("\"Frame\"", "7"));
+    let too_deep = decode_text(&text.replace("\"Frame\",\"Fixtures\"", &deep));
+
+    assert_eq!(
+        cut.issues,
+        ["The group of “Base” could not be used in full, so the body is listed in “Frame”."]
+    );
+    assert_eq!(cut.document.body_folder(base), ["Frame"]);
+    assert_eq!(
+        lost.issues,
+        ["The group of “Base” could not be used in full, so the body is listed outside any group."]
+    );
+    assert!(lost.document.body_folder(base).is_empty());
+    assert_eq!(
+        too_deep.document.body_folder(base).len(),
+        caditor_document::MAX_BODY_FOLDER_DEPTH
+    );
+    assert_eq!(too_deep.issues.len(), 1);
 }
 
 #[test]

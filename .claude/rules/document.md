@@ -256,6 +256,28 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   (`membership_edits`), in the same transaction. Inserts too: `add_feature` and
   `add_copied_feature` at a bar between two members of a group join it (`group_around`).
 
+### Body groups (`body_folders.rs`)
+
+- A body's group is `BodyAppearance::folder`, a path of group names from the outermost in, so
+  groups nest and a group exists only while some body sits in it or below it; there is no group
+  table. Each name is one trimmed line as `group_name` gives it (blank names dropped by `settled`),
+  at most `MAX_GROUP_NAME_CHARS` (`GroupNameTooLong`), at most `MAX_BODY_FOLDER_DEPTH` deep
+  (`BodyFolderTooDeep`). It travels in `SetBodyAppearance`, so undo, the journal, copying and the
+  file need nothing else, and a piece without its own look sits in its feature's group.
+- Body groups, unlike feature folders, are not runs: membership is a body's own path, order in the
+  list stays the tree's. `body_folder_members(folder)` gives every body ID (a feature's own, and
+  pieces with their own look) at or under a folder; `body_folder_names` every name in use, for
+  `unused_body_folder_name` ("Group N", unique across all body groups).
+- Every change is a set of `SetBodyAppearance` edits built by one `refoldering`, checked first:
+  `body_grouping(chosen, listed)` makes "Group N" inside the deepest group the chosen bodies share,
+  climbing out of every group whose listed bodies are all chosen (so grouping a whole group wraps
+  it), each body keeping its path below that point (`BodyGrouping` gives the transaction and the
+  new folder); `body_group_renaming` and `body_ungrouping` rewrite the folder's segment for every
+  member (ungrouping moves what it held up one level, a rename onto a sibling's name merges them);
+  `body_group_moving` puts a folder inside another (`BodyFolderIntoItself` for itself or one
+  inside it); `bodies_moving` sets bodies' folder outright; `bodies_moving_out` takes each up one
+  level. `folder_label` joins a path with " › " for the app's words.
+
 ### Model properties (`properties.rs`)
 
 - `ModelProperties` (title, part number, revision, author, organisation, description, notes) is
@@ -347,6 +369,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   read it; the scene takes it once per body): every face of the reference's name (so fragments of a
   split face keep their colour) or of a name a split face gives its pieces, else the face the
   reference resolves to; a face found by neither keeps the body's look.
+- `folder` is the body's group as a path, outermost group first, empty for none (Body groups
+  below).
 - Split names come from `Document::face_splits(body)` (`FaceSplits`): for each unsuppressed split
   face of the body in tree order, the names its face references hold; `names_from` adds
   `FaceName::split(feature, name, side)` for both sides (twice for a mixed sketch's two passes) of

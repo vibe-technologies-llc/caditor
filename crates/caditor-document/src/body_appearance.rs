@@ -5,6 +5,7 @@ use caditor_kernel::{FaceId, FaceName, FaceReference, Solid, SplitPiece};
 
 use crate::{
     document::{Document, FeatureId},
+    grouping::group_name,
     values::ParameterValues,
 };
 
@@ -115,6 +116,7 @@ pub struct BodyAppearance {
     pub material: Option<String>,
     pub density: Option<Expression>,
     pub name: Option<String>,
+    pub folder: Vec<String>,
     pub opacity: Option<u8>,
     pub finish: Option<Finish>,
     pub faces: Vec<FaceColour>,
@@ -198,6 +200,11 @@ impl BodyAppearance {
             .map(|name| name.split(['\r', '\n']).collect::<Vec<_>>().join(" "))
             .as_deref()
             .and_then(material_name);
+        self.folder = self
+            .folder
+            .iter()
+            .filter_map(|name| group_name(name))
+            .collect();
         for face in &mut self.faces {
             face.opacity = face.opacity.map(|opacity| opacity.min(OPAQUE_PERCENT));
         }
@@ -225,6 +232,8 @@ impl BodyAppearance {
         self.material.as_ref().map_or(0, String::len)
             + self.density.as_ref().map_or(0, Expression::heap_size)
             + self.name.as_ref().map_or(0, String::len)
+            + size_of_val(self.folder.as_slice())
+            + self.folder.iter().map(String::len).sum::<usize>()
             + size_of_val(self.faces.as_slice())
             + self
                 .faces

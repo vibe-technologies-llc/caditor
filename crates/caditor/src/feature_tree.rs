@@ -44,7 +44,7 @@ use crate::{
     sketch_status::{self, SketchSummary, StatusRequest},
     sketch_tools, solid_panel, solid_tools, split_face_panel, split_face_tools, split_panel,
     split_tools, thread_panel,
-    tree_row::{self, Look},
+    tree_row::{self, GROUP_INDENT, Look},
     units::Units,
     viewport, visibility,
     widgets::{self, DialogWidth, Tone},
@@ -102,7 +102,6 @@ const DEPENDENTS_HEIGHT: widgets::ListHeight = widgets::ListHeight::Medium;
 const AUTOSCROLL_EDGE: f32 = 24.0;
 const AUTOSCROLL_RATE: f32 = 0.5;
 const FILTER_FROM_FEATURES: usize = 6;
-const GROUP_INDENT: f32 = SPACE_L;
 pub const FILTER_HINT: &str = "Filter features by name, kind or state";
 const FAILED_WORD: &str = "failed";
 const OUTDATED_WORD: &str = "outdated";

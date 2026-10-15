@@ -13,6 +13,7 @@ mod blend_tools;
 mod bodies;
 mod bodies_tree;
 mod body_appearance;
+mod body_groups;
 mod body_picks;
 mod body_reach;
 mod body_selection;

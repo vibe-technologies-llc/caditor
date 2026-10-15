@@ -5,7 +5,9 @@ use egui::{Id, Label, RichText, Ui, collapsing_header::CollapsingState, vec2};
 
 use crate::{
     appearance::{self, SPACE_S},
-    body_appearance, body_selection,
+    body_appearance,
+    body_groups::{self, Entry, Listing},
+    body_selection,
     commands::{Command, CommandFrame},
     feature_tree::{self, CommandContext},
     icons,
@@ -15,7 +17,7 @@ use crate::{
     removal,
     selection::Selection,
     split_tools,
-    tree_row::{self, CHILD_INDENT, Look},
+    tree_row::{self, CHILD_INDENT, GROUP_INDENT, Look},
     visibility, widgets,
 };
 
@@ -28,6 +30,16 @@ fn group_title(count: usize) -> String {
     format!("{GROUP_TITLE} ({count})")
 }
 
+pub fn listed(model: &Model) -> Vec<FeatureId> {
+    let document = model.document();
+    model
+        .evaluation()
+        .bodies()
+        .map(|(body, _)| body)
+        .filter(|body| document.body_maker(*body).is_some())
+        .collect()
+}
+
 pub fn show(
     ui: &mut Ui,
     model: &Model,
@@ -36,17 +48,22 @@ pub fn show(
     actions: &mut Vec<Action>,
 ) {
     let document = model.document();
-    let bodies: Vec<FeatureId> = model
-        .evaluation()
-        .bodies()
-        .map(|(body, _)| body)
-        .filter(|body| document.body_maker(*body).is_some())
-        .collect();
+    let bodies = listed(model);
     if state
         .painting
         .is_some_and(|painting| !bodies.contains(&painting.body))
     {
         state.painting = None;
+    }
+    let entries = body_groups::arrange(document, &bodies);
+    let order = body_groups::in_order(&entries);
+    let folders = body_groups::folders(&entries);
+    if state
+        .renaming_body_group
+        .as_ref()
+        .is_some_and(|renaming| !renaming.focus_pending && !folders.contains(&renaming.folder))
+    {
+        state.renaming_body_group = None;
     }
     if bodies.is_empty() {
         return;
@@ -57,9 +74,14 @@ pub fn show(
         ui.make_persistent_id("bodies-group"),
         false,
     );
-    if state
-        .painting
-        .is_some_and(|painting| painting.focus_pending && bodies.contains(&painting.body))
+    let renaming_group = state
+        .renaming_body_group
+        .as_ref()
+        .is_some_and(|renaming| renaming.focus_pending);
+    if renaming_group
+        || state
+            .painting
+            .is_some_and(|painting| painting.focus_pending && bodies.contains(&painting.body))
     {
         collapsing.set_open(true);
     }
@@ -97,19 +119,64 @@ pub fn show(
     if toggled || name.clicked() {
         collapsing.toggle(ui);
     }
+    let listing = Listing {
+        order: &order,
+        folders: &folders,
+    };
     collapsing.show_body_unindented(ui, |ui| {
-        for body in &bodies {
-            if let Some(height) = off_screen_height(ui, state, *body) {
-                ui.allocate_space(vec2(ui.available_width(), height));
-                continue;
-            }
-            let shown = item(ui, model, selection, state, actions, (*body, &bodies));
-            if let Some(height) = shown.filter(|_| is_plain(ui, state, *body)) {
-                state.plain_body_row_height = Some(height);
-            }
-        }
+        rows(
+            ui,
+            model,
+            selection,
+            state,
+            actions,
+            (&entries, 0, &listing),
+        );
     });
     collapsing.store(ui.ctx());
+}
+
+fn rows(
+    ui: &mut Ui,
+    model: &Model,
+    selection: &Selection,
+    state: &mut PanelState,
+    actions: &mut Vec<Action>,
+    (entries, depth, listing): (&[Entry], usize, &Listing<'_>),
+) {
+    for entry in entries {
+        match entry {
+            Entry::Body(body) => {
+                if let Some(height) = off_screen_height(ui, state, *body) {
+                    ui.allocate_space(vec2(ui.available_width(), height));
+                    continue;
+                }
+                let shown = item(
+                    ui,
+                    model,
+                    selection,
+                    state,
+                    actions,
+                    (*body, depth, listing),
+                );
+                if let Some(height) = shown.filter(|_| is_plain(ui, state, *body)) {
+                    state.plain_body_row_height = Some(height);
+                }
+            }
+            Entry::Group(group) => {
+                if body_groups::header(ui, model, state, actions, (group, depth, listing)) {
+                    rows(
+                        ui,
+                        model,
+                        selection,
+                        state,
+                        actions,
+                        (&group.entries, depth + 1, listing),
+                    );
+                }
+            }
+        }
+    }
 }
 
 fn off_screen_height(ui: &Ui, state: &PanelState, body: FeatureId) -> Option<f32> {
@@ -132,7 +199,7 @@ fn item(
     selection: &Selection,
     state: &mut PanelState,
     actions: &mut Vec<Action>,
-    (body, listed): (FeatureId, &[FeatureId]),
+    (body, depth, listing): (FeatureId, usize, &Listing<'_>),
 ) -> Option<f32> {
     let document = model.document();
     let feature = document.body_maker(body)?;
@@ -150,7 +217,7 @@ fn item(
         ui,
         look,
         |ui| {
-            ui.add_space(CHILD_INDENT);
+            ui.add_space(CHILD_INDENT + depth as f32 * GROUP_INDENT);
             widgets::icon_label(ui, icons::feature(&feature.kind), muted);
             ui.add(
                 Label::new(label(ui, name, shown))
@@ -178,13 +245,15 @@ fn item(
     }
     if row_name.clicked() {
         let modifiers = ui.input(|input| input.modifiers);
-        feature_tree::choose_among(state, listed, body, modifiers);
+        feature_tree::choose_among(state, listing.order, body, modifiers);
+        state.body_group = None;
     } else if row_name.gained_focus() {
         state.choose_only(body);
+        state.body_group = None;
     }
     row_name.context_menu(|ui| {
         widgets::fitted_menu(ui, |ui| {
-            row_menu(ui, model, selection, state, actions, body)
+            row_menu(ui, model, selection, state, actions, (body, listing));
         });
     });
     if eye && let Ok(transaction) = toggle {
@@ -232,7 +301,7 @@ fn row_menu(
     selection: &Selection,
     state: &mut PanelState,
     actions: &mut Vec<Action>,
-    body: FeatureId,
+    (body, listing): (FeatureId, &Listing<'_>),
 ) {
     if widgets::menu_item(
         ui,
@@ -283,6 +352,7 @@ fn row_menu(
         actions.extend(removal::create_actions(model.document(), body));
         ui.close();
     }
+    body_groups::body_menu(ui, model.document(), state, actions, (body, listing));
 }
 
 fn paint_button(ui: &mut Ui, name: &str, open: bool) -> bool {
@@ -355,6 +425,7 @@ pub fn commands(
     {
         actions.extend(removal::create_actions(context.model.document(), body));
     }
+    body_groups::commands(context, state, commands, actions);
 }
 
 fn label(ui: &Ui, text: &str, shown: bool) -> RichText {
@@ -366,7 +437,7 @@ fn label(ui: &Ui, text: &str, shown: bool) -> RichText {
     }
 }
 
-fn eye(ui: &mut Ui, shown: bool, name: &str) -> bool {
+pub fn eye(ui: &mut Ui, shown: bool, name: &str) -> bool {
     let (glyph, hover) = if shown {
         (icons::SHOW, "Hide")
     } else {

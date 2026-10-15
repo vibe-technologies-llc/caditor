@@ -13,6 +13,8 @@ use crate::{
 pub const ROW_GAP: f32 = SPACE_XS;
 pub const CHILD_INDENT: f32 = CHEVRON_SIDE + SPACE_XS + SPACE_L;
 pub const BODY_INDENT: f32 = SPACE_M;
+pub const GROUP_INDENT: f32 = SPACE_L;
+pub const CHILD_CHEVRON_INDENT: f32 = CHILD_INDENT - CHEVRON_SIDE - SPACE_XS;
 const ROW_MARGIN: Margin = Margin::symmetric(SPACE_S as i8, SPACE_XS as i8);
 const OPEN_BAR_WIDTH: f32 = 3.0;
 const CHEVRON_SIDE: f32 = CONTROL_HEIGHT - SPACE_S;

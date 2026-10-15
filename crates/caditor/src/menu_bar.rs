@@ -71,7 +71,7 @@ const MODEL_DATUMS: [&[Command]; 2] = [
     ],
     &[Command::InsertImage],
 ];
-const MODEL_BODIES: [&[Command]; 2] = [
+const MODEL_BODIES: [&[Command]; 3] = [
     &[
         Command::Move,
         Command::CopyBody,
@@ -88,6 +88,12 @@ const MODEL_BODIES: [&[Command]; 2] = [
         Command::BodyAppearance,
         Command::RenameBody,
         Command::RemoveBody,
+    ],
+    &[
+        Command::GroupBodies,
+        Command::RenameBodyGroup,
+        Command::UngroupBodies,
+        Command::MoveOutOfBodyGroup,
     ],
 ];
 const MODEL_FEATURES: [&[Command]; 4] = [

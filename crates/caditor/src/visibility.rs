@@ -283,6 +283,30 @@ pub fn toggle_body(document: &Document, body: FeatureId) -> Result<Transaction, 
     Ok(Transaction::new(format!("{verb} {name}"), edits))
 }
 
+pub fn toggle_bodies(
+    document: &Document,
+    bodies: &[FeatureId],
+    name: &str,
+) -> Result<Transaction, String> {
+    let hiding = bodies.iter().any(|body| !document.body_hidden(*body));
+    let mut edits = Vec::new();
+    let mut makers_shown = BTreeSet::new();
+    for body in bodies {
+        let maker = document
+            .body_maker(*body)
+            .ok_or_else(|| NOT_HIDEABLE.to_owned())?;
+        if document.body_hidden(*body) == hiding {
+            continue;
+        }
+        edits.push(set_hidden(*body, hiding));
+        if !hiding && body.is_piece() && maker.hidden && makers_shown.insert(maker.id()) {
+            edits.push(set_hidden(maker.id(), false));
+        }
+    }
+    let verb = if hiding { "Hide" } else { "Show" };
+    Ok(Transaction::new(format!("{verb} {name}"), edits))
+}
+
 pub fn hideable_rows(document: &Document, rows: &[FeatureId]) -> Vec<FeatureId> {
     let wanted: BTreeSet<FeatureId> = rows
         .iter()

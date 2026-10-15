@@ -12,6 +12,27 @@ hiding everything but one piece hides the feature's other pieces too. Deleting a
 drawing it again keeps the piece the same body, with its look and the features using it: the curve
 the piece is named after may then be another of its curves.
 
+## Groups
+
+Groups keep a long list of bodies in order, and they can sit inside each other. Choose bodies in
+the list or select them in the view, then use {command:model.group_bodies}: they go into a new group
+named "Group 1", "Group 2" and so on, ready for you to type its name. Grouping some of the bodies of
+a group makes a group inside it; grouping every body of a group, as clicking its row does, puts the
+group itself inside the new one.
+
+A group's row shows how many bodies it holds. Click it to choose all of them, the eye hides or shows
+them together, double-click the name to rename it, and the arrow folds it away. Its **⋯** menu, also
+on a right-click, has:
+
+- **Rename group** ({command:model.rename_body_group}).
+- **Ungroup** ({command:model.ungroup_bodies}), which moves what the group held up one level.
+- **Move to group**, which puts the whole group inside another one, or **Out of every group**.
+
+A body's right-click menu has {command:model.group_bodies}, **Move to group** (for every chosen body
+when the body is among them) and {command:model.move_out_of_body_group}, which takes it up one level.
+That command also moves a chosen group up a level. Groups only organise the list: they never change
+the model, and every change to them can be undone.
+
 ## Colour, material and name
 
 {command:model.body_appearance}, or the paint bucket on a body's row, opens its card:
