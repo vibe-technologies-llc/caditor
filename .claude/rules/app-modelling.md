@@ -1393,8 +1393,12 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   chosen without the pointer.
 - The attachment is captured from the body's state where the sketch sits in the tree: a face made
   further down is refused with the reason, and one whose body is not recomputed that far says so
-  (`body_state_before` tells the two apart). A sketch's row says what it lies on and offers Detach and
-  Place on the selection.
+  (`body_state_before` tells the two apart). That state is the body's own part
+  (`caditor_document::body_part`) of the last computed feature before that point making or changing
+  it: any of `Feature::bodies` (so the half a split makes off and a body an extrusion also cuts),
+  or for a separate piece its making feature, so every face of a piece or a split half can take a
+  sketch or a hole. A sketch's row says what it lies on and offers Detach and Place on the
+  selection.
 - Every refused New sketch (including a click on a curved face while choosing) and every Fillet,
   Chamfer, Shell or datum that cannot be created leaves a notice with the reason.
 - What draws or maps onto a sketch takes its plane from the solved result (`scene::sketch_plane`,

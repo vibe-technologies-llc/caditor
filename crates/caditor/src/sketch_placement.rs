@@ -1,7 +1,7 @@
 use caditor_document::{
-    Document, Edit, Evaluation, FaceAttachment, FeatureId, FeatureKind, FeatureState,
-    PrincipalPlane, SketchAttachment, SketchFeature, Transaction, describe_plane, displayed_frame,
-    face_plane,
+    Document, Edit, Evaluation, FaceAttachment, Feature, FeatureId, FeatureKind, FeatureState,
+    PrincipalPlane, SketchAttachment, SketchFeature, Transaction, body_part, describe_plane,
+    displayed_frame, face_plane,
 };
 use caditor_geometry::{Plane, Vector3};
 use caditor_kernel::{FaceReference, Solid};
@@ -139,6 +139,10 @@ pub fn body_state_before(
     body_state_in(model.document(), model.evaluation(), body, index)
 }
 
+fn shapes_body(feature: &Feature, body: FeatureId) -> bool {
+    feature.bodies().contains(&body) || (body.is_piece() && feature.id() == body.maker())
+}
+
 pub fn body_state_in<'a>(
     document: &Document,
     evaluation: &'a Evaluation,
@@ -149,7 +153,7 @@ pub fn body_state_in<'a>(
         .features()
         .take(index)
         .rev()
-        .filter(|feature| feature.body() == Some(body))
+        .filter(|feature| shapes_body(feature, body))
     {
         let Some(status) = evaluation.feature(feature.id()) else {
             return Err(StateError::NotRecomputed);
@@ -158,9 +162,10 @@ pub fn body_state_in<'a>(
             FeatureState::UpToDate => {
                 return status
                     .result
-                    .as_deref()
-                    .and_then(|result| result.solid())
-                    .map(|result| &result.solid)
+                    .as_ref()
+                    .and_then(|result| body_part(result, body))
+                    .and_then(|part| part.solid())
+                    .map(|part| &part.solid)
                     .ok_or(StateError::NotRecomputed);
             }
             FeatureState::Outdated => return Err(StateError::NotRecomputed),

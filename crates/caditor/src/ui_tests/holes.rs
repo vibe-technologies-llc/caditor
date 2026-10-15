@@ -1203,3 +1203,152 @@ fn the_hole_of_a_selected_wall_joins_the_selection_and_a_flat_face_is_no_hole() 
     assert_eq!(selected_of(&harness, is_face), 1);
     assert!(harness.shows_containing(crate::body_selection::NO_HOLE));
 }
+
+fn extruded(harness: &mut Harness, rectangles: &[(Point2, Point2)]) -> caditor_document::FeatureId {
+    let mut sketch = Sketch::new(Plane::XY);
+    for (min, max) in rectangles {
+        super::rectangle(&mut sketch, *min, *max);
+    }
+    harness.add_sketch(sketch);
+    harness.select([]);
+    harness.click_tool("Extrude");
+    harness.settle();
+    let extrusion = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the extrusion is open");
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.settle();
+    extrusion
+}
+
+fn refusals_on_flat_faces(harness: &mut Harness) -> Vec<String> {
+    let bodies: Vec<_> = harness
+        .model
+        .evaluation()
+        .bodies()
+        .map(|(body, _)| body)
+        .collect();
+    let mut refusals = Vec::new();
+    for body in bodies {
+        let faces: Vec<Pickable> = crate::bodies::shown(harness.model.evaluation(), body)
+            .map(|shown| crate::bodies::face_keys(&shown.solid))
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(_, face)| Pickable::Face { body, face })
+            .collect();
+        for face in faces {
+            harness.select([face]);
+            let Ok(start) = crate::hole_tools::start(
+                &harness.model,
+                harness.workspace.viewport.selection(),
+                &harness.workspace.editing,
+            ) else {
+                continue;
+            };
+            if !matches!(start, crate::hole_tools::HoleStart::Face(_)) {
+                continue;
+            }
+            refusals.extend(
+                crate::hole_tools::create_actions(&harness.model, start)
+                    .into_iter()
+                    .filter_map(|action| match action {
+                        Action::Inform(notice) => Some(format!("{body:?}: {notice:?}")),
+                        _ => None,
+                    })
+                    .filter(|notice| notice.contains("Warning")),
+            );
+        }
+    }
+    refusals
+}
+
+fn drill_end_face(harness: &mut Harness, body: caditor_document::FeatureId) -> bool {
+    let end = harness.built().picks.pickables().find(|pickable| {
+        matches!(pickable, Pickable::Face { body: owner, .. } if *owner == body)
+            && pickable
+                .describe(harness.document(), harness.model.evaluation())
+                .ends_with("end face")
+    });
+    let Some(end) = end else {
+        return false;
+    };
+    harness.select([end]);
+    let Ok(start) = crate::hole_tools::start(
+        &harness.model,
+        harness.workspace.viewport.selection(),
+        &harness.workspace.editing,
+    ) else {
+        return false;
+    };
+    let volume = harness.body_volume(body);
+    for action in crate::hole_tools::create_actions(&harness.model, start) {
+        harness.perform(action);
+    }
+    harness.settle();
+    harness.model.evaluation().failed_count() == 0 && harness.body_volume(body) < volume
+}
+
+#[test]
+fn a_hole_starts_on_any_flat_face_of_a_separate_piece() {
+    let mut harness = Harness::new();
+    let extrusion = extruded(
+        &mut harness,
+        &[
+            (Point2::new(0.0, 0.0), Point2::new(20.0, 20.0)),
+            (Point2::new(40.0, 0.0), Point2::new(60.0, 20.0)),
+        ],
+    );
+    harness.perform(Action::Apply(Transaction::single(
+        "A body each",
+        Edit::SetFeaturePieces {
+            id: extrusion,
+            pieces: caditor_document::Pieces::BodyEach,
+        },
+    )));
+    harness.settle();
+
+    let pieces = harness.model.evaluation().pieces_made_by(extrusion);
+
+    assert_eq!(pieces.len(), 2);
+    assert_eq!(refusals_on_flat_faces(&mut harness), Vec::<String>::new());
+    assert!(drill_end_face(&mut harness, pieces[1]));
+}
+
+#[test]
+fn a_hole_starts_on_any_flat_face_of_both_halves_of_a_split_body() {
+    let mut harness = Harness::new();
+    let extrusion = extruded(
+        &mut harness,
+        &[(Point2::new(-20.0, -10.0), Point2::new(20.0, 10.0))],
+    );
+    let mut transaction = harness.document().transaction("Split");
+    transaction.add_feature(
+        "Split 1",
+        FeatureKind::Split(caditor_document::Split {
+            body: extrusion,
+            along: caditor_document::SplitAlong::Plane(PlaneReference::Principal(
+                PrincipalPlane::Yz,
+            )),
+            flipped: false,
+        }),
+    );
+    harness.perform(Action::Apply(transaction.finish()));
+    harness.settle();
+
+    let bodies: Vec<_> = harness
+        .model
+        .evaluation()
+        .bodies()
+        .map(|(body, _)| body)
+        .collect();
+    let half = *bodies
+        .iter()
+        .find(|body| **body != extrusion)
+        .expect("the split makes a second body");
+
+    assert_eq!(bodies.len(), 2);
+    assert_eq!(refusals_on_flat_faces(&mut harness), Vec::<String>::new());
+    assert!(drill_end_face(&mut harness, half));
+}
