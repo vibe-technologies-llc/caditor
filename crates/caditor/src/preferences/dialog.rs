@@ -1128,7 +1128,8 @@ fn appearance(
 
 fn rendered_view(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesCommand>) {
     let note = "These light the Rendered display style, which View › Display style chooses; \
-                Light the rendered view opens them beside the 3D view.";
+                Light the rendered view opens them beside the 3D view, where the sky picture is \
+                chosen too; restoring the defaults here brings back the plain sky.";
     section(
         ui,
         shown,

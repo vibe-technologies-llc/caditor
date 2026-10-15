@@ -32,8 +32,8 @@ shading.
 - **Sun strength** and **Colour temperature**: warm light is around 2700 K, daylight around
   5600 K, an overcast sky 7500 K and above.
 - **Sky light** is the light reaching the bodies from the blue sky above and the sunlit ground
-  below, which fills shadows and gives metals something to reflect. At 0 only the sun lights the
-  model.
+  below (or from the sky picture, below, when there is one), which fills shadows and gives
+  metals something to reflect. At 0 only the sun lights the model.
 - **Bounced light** is sunlight thrown back by nearby lit surfaces, so a red part next to a white
   one tints it. A wall the sun lights stops the light bounced through it, but it reaches only a
   short way and comes only from surfaces the sun sees, so treat it as a hint of colour, not an
@@ -44,7 +44,8 @@ shading.
 - **Exposure** brightens or darkens the whole picture in stops.
 - **Cast shadows**: bodies shade what lies behind them from the sun.
 
-{command:view.reset_lighting} puts every setting back as it was at first.
+{command:view.reset_lighting} puts every setting back as it was at first, the sky picture
+included.
 
 ## Sky and ground
 
@@ -57,3 +58,27 @@ shadow the sun casts on it, fading away from the model.
 Bright light rolls off smoothly rather than clipping to white, keeping a material's colour
 recognisable. [Exporting](exporting) an image while the Rendered style is shown draws it with the
 same lighting.
+
+## Sky picture
+
+A picture of real or imagined surroundings can replace the blue sky. {command:view.choose_backdrop}
+(also Choose picture… in the Lighting panel) opens a Radiance HDR picture, a `.hdr` file whose
+width is twice its height, the form most free environment pictures come in. caditor reads it in the
+background, so the window stays responsive, then draws it behind the model and lights the bodies
+with it: the Sky light setting scales how much, bodies pick up its colours and a glossy or
+metallic finish reflects it, sharply for a polished surface and blurred for a rough one. The sun
+still lights the model as well, so turn Sun strength down to 0 to let the picture do all of it.
+
+- Z is up, and the middle of the picture lies along the X axis. **Picture turned** turns it
+  about Z, in degrees, to bring a window or a lamp to the side you want.
+- **Picture brightness** makes it brighter or darker in stops, and the Exposure setting still
+  applies to the whole picture.
+- The picture is kept in your preferences, so it is there the next time caditor starts. A very
+  large picture is shrunk to at most 4096 pixels across for drawing, and one bigger than 8192 by
+  4096 pixels is refused: shrink it first.
+- If the file cannot be read, is not a Radiance picture or is not twice as wide as it is high,
+  the Lighting panel says which file and why, a notice says so too, and the blue sky is drawn
+  instead. Other kinds of picture, OpenEXR included, are not read yet.
+
+{command:view.clear_backdrop} (Use the plain sky) goes back to the blue sky, and
+{command:view.reset_lighting} does that as well as putting every other setting back.

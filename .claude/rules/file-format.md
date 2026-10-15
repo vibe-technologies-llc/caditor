@@ -388,6 +388,12 @@ Bodies and solids:
   carried, loads as `Picture::placeholder` (a grey square), reported, keeping the feature and its
   placement. The clipboard always writes `data`. An older reader not knowing the kind reports the
   feature as from a newer version. The corpus holds it in `reference-images.caditor`.
+- The rendered view's environment picture (`environment.rs`, `read_environment_file`,
+  `decode_environment`) is a Radiance HDR file only, found by content (`image::guess_format`),
+  whose size is read from the header and refused past `MAX_ENVIRONMENT_PIXELS` before any pixel is
+  decoded, then decoded under `Limits` to linear `f32` RGB (`EnvironmentPixels`). Failures are
+  `EnvironmentReadError`s in words. `caditor-render` shapes and prefilters the pixels
+  (`render.md`). OpenEXR is not read: `image`'s `exr` feature needs `pulp` and `paste`.
 - Pictures are decoded only to be shown (`picture.rs`, `decode_picture`, never while loading):
   the format by `sniff_picture` (content, never the file name), the size read from the header
   first (`ImageReader::into_dimensions` without limits, JPEG XL's header) and refused past

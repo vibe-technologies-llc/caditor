@@ -480,8 +480,10 @@ paths:
   to the model by `apply_preferences` and sent with every `SaveRequest`, `file-format.md`), and
   the rendered view's light (`rendering.light_follows` `view` or `model`, `rendering.azimuth`,
   `elevation`, `strength`, `temperature`, `environment`, `bounce`, `occlusion`, `exposure`,
-  `shadows`; numbers
-  read clamped, `lighting::Lighting`, Appearance › Rendered view, `app.md`).
+  `shadows`, `backdrop_turn`, `backdrop_exposure`; numbers
+  read clamped, `lighting::Lighting`, Appearance › Rendered view, `app.md`) and the sky picture's
+  file (`rendering.backdrop_image`, `Preferences::backdrop`, read and written by
+  `backdrop::read` and `backdrop::write`, restored with the Rendered view section).
   Recovery's journal and atomic saving have no setting (`reliability.md`).
 - Reduced motion: Follow the system (`Transitions::System`, not the default) takes the standard
   speed, or none while the desktop turns animations off. `system_motion.rs` keeps the answer in an

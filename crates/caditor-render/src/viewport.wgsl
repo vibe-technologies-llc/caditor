@@ -17,6 +17,7 @@ struct View {
     bounce: vec4<f32>,
     ground: vec4<f32>,
     sky_view: vec4<f32>,
+    environment: vec4<f32>,
     shadow_matrix: mat4x4<f32>,
     relative_from_light: mat4x4<f32>,
     occlusion: vec4<f32>,
@@ -65,6 +66,9 @@ struct MeshPlacement {
 @group(2) @binding(2) var lit_albedo: texture_2d<f32>;
 @group(2) @binding(3) var lit_normals: texture_2d<f32>;
 @group(2) @binding(4) var lit_depth: texture_2d<u32>;
+@group(2) @binding(5) var environment_map: texture_2d<f32>;
+@group(2) @binding(6) var environment_irradiance: texture_2d<f32>;
+@group(2) @binding(7) var environment_sampler: sampler;
 @group(3) @binding(0) var occlusion_map: texture_2d<f32>;
 @group(3) @binding(1) var occlusion_surfaces: texture_2d<u32>;
 @group(1) @binding(8) var surface_texels: texture_2d<u32>;
@@ -1350,6 +1354,40 @@ fn sky_reflection(reflected: vec3<f32>, roughness: f32) -> vec3<f32> {
     return mix(sky(reflected), sky_irradiance(reflected), roughness);
 }
 
+fn has_environment() -> bool {
+    return view.environment.y > 0.0;
+}
+
+fn environment_coordinates(direction: vec3<f32>) -> vec2<f32> {
+    let heading = atan2(direction.y, direction.x) - view.environment.x;
+    return vec2<f32>(0.5 - heading / TAU, acos(clamp(direction.z, -1.0, 1.0)) / PI);
+}
+
+fn environment_radiance(direction: vec3<f32>, level: f32) -> vec3<f32> {
+    let coordinates = environment_coordinates(direction);
+    return textureSampleLevel(environment_map, environment_sampler, coordinates, level).rgb * view.environment.y;
+}
+
+fn environment_diffuse(normal: vec3<f32>) -> vec3<f32> {
+    let coordinates = environment_coordinates(normal);
+    return textureSampleLevel(environment_irradiance, environment_sampler, coordinates, 0.0).rgb * view.environment.y;
+}
+
+fn ambient_irradiance(normal: vec3<f32>) -> vec3<f32> {
+    if has_environment() {
+        return environment_diffuse(normal);
+    }
+    return sky_irradiance(normal);
+}
+
+fn ambient_reflection(reflected: vec3<f32>, roughness: f32) -> vec3<f32> {
+    if has_environment() {
+        let sharp = environment_radiance(reflected, sqrt(roughness) * view.environment.z);
+        return mix(sharp, environment_diffuse(reflected), smoothstep(0.5, 1.0, roughness));
+    }
+    return sky_reflection(reflected, roughness);
+}
+
 fn finished_colour(light: vec3<f32>) -> vec3<f32> {
     return to_srgb(pbr_neutral(light * view.exposure_shadow.x));
 }
@@ -1365,6 +1403,7 @@ fn vs_sky(@builtin(vertex_index) index: u32) -> Varyings {
 
 @fragment
 fn fs_sky(in: Varyings) -> @location(0) vec4<f32> {
+    let pixel_tangent = max(abs(dpdx(in.local.x)) * view.sky_view.x, abs(dpdy(in.local.y)) * view.sky_view.y);
     var ray = view.forward_near.xyz;
     if !is_orthographic() {
         ray = normalize(
@@ -1374,7 +1413,16 @@ fn fs_sky(in: Varyings) -> @location(0) vec4<f32> {
         );
     }
     let height = smoothstep(-1.0, 1.0, in.local.y);
-    let backdrop = mix(BACKDROP_BOTTOM, BACKDROP_TOP, height * height);
+    var backdrop = mix(BACKDROP_BOTTOM, BACKDROP_TOP, height * height);
+    if has_environment() {
+        let seen = normalize(
+            view.forward_near.xyz
+                + view.camera_right.xyz * in.local.x * view.sky_view.x
+                + view.camera_up.xyz * in.local.y * view.sky_view.y,
+        );
+        let texel_angle = TAU / f32(textureDimensions(environment_map, 0).x);
+        backdrop = environment_radiance(seen, max(log2(pixel_tangent / texel_angle), 0.0)) * view.exposure_shadow.x;
+    }
     var shade = 1.0;
     let below = view.ground.x;
     if view.ground.y > 0.0 && view.sun.z > 0.0 && ray.z < -1e-4 && below < 0.0 {
@@ -1409,8 +1457,8 @@ fn rendered(color: vec4<f32>, normal: vec3<f32>, eye: vec3<f32>, finish: u32, re
     let reflected = environment_brdf(reflectance, roughness, n_dot_v);
     let diffuse_share = (vec3<f32>(1.0) - reflected) * (1.0 - metalness) * base;
     let occlusion = received.occlusion;
-    let ambient_diffuse = diffuse_share * sky_irradiance(normal) * occlusion;
-    let ambient_specular = reflected * sky_reflection(reflect(-eye, normal), roughness)
+    let ambient_diffuse = diffuse_share * ambient_irradiance(normal) * occlusion;
+    let ambient_specular = reflected * ambient_reflection(reflect(-eye, normal), roughness)
         * specular_occlusion(occlusion, n_dot_v, roughness);
     let ambient = (ambient_diffuse + ambient_specular) * view.sun_colour.w;
     let indirect = diffuse_share * received.bounce * occlusion / PI;

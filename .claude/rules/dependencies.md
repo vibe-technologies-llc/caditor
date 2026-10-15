@@ -31,7 +31,10 @@ paths:
   is compiled. Its version follows epaint's rather than the latest release (`cargo deny` refuses the
   second copy a newer one would add). `ttf-parser` is left only through winit's `sctk-adwaita`, which is why `deny.toml`
   ignores its unmaintained advisory; nothing of ours uses it.
-- Reference pictures are decoded by `image` (no default features; `bmp`, `gif`, `jpeg` through the
+- `half` (no default features) packs the environment picture's texels as `f16`; it is the copy
+  `naga` and `tiff` already build.
+- Reference pictures are decoded by `image` (no default features; `bmp`, `gif`, `hdr` (the rendered
+  view's environment pictures), `jpeg` through the
   pure-Rust `zune-jpeg`, `png`, `qoi`, `tga`, `tiff`, `webp` through `image-webp`) and `jxl-oxide`
   (no default features, so no rayon; its `lcms2` and `moxcms` stay off), both pure Rust and the
   copies `arboard` already builds. AVIF and HEIC have no mature pure-Rust decoder and no C one is

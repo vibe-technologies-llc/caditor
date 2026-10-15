@@ -116,6 +116,8 @@ const DRAWING_KIND: &str = "DXF and SVG drawings";
 const MODEL_EXCHANGE_KIND: &str = "STEP model";
 const MESH_KIND: &str = "STL, OBJ or 3MF mesh";
 const IMPORTABLE_KIND: &str = "Drawings and models";
+const BACKDROP_KIND: &str = "Radiance HDR picture";
+const BACKDROP_EXTENSION: &str = "hdr";
 const IMAGE_KIND: &str = "PNG image";
 const PARAMETERS_KIND: &str = "CSV parameter table";
 const CONFIGURATIONS_KIND: &str = "CSV configuration table";
@@ -199,6 +201,7 @@ pub enum FileCommand {
     CancelPick,
     KeepDrawingConstruction(bool),
     InsertImage(ImageTarget),
+    ChooseBackdrop,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -248,6 +251,7 @@ pub trait Dialogs {
     );
     fn pick_configurations(&self, directory: Option<PathBuf>, respond: Respond);
     fn pick_picture(&self, directory: Option<PathBuf>, respond: Respond);
+    fn pick_backdrop(&self, directory: Option<PathBuf>, respond: Respond);
 }
 
 pub struct NativeDialogs;
@@ -450,6 +454,15 @@ impl Dialogs for NativeDialogs {
         Self::spawn(respond, request);
     }
 
+    fn pick_backdrop(&self, directory: Option<PathBuf>, respond: Respond) {
+        let filters = vec![
+            Filter::new(BACKDROP_KIND, &[BACKDROP_EXTENSION]),
+            Filter::any(),
+        ];
+        let request = Self::request(Mode::Open, "Choose a sky picture", directory, None, filters);
+        Self::spawn(respond, request);
+    }
+
     fn pick_image_path(&self, directory: Option<PathBuf>, file_name: String, respond: Respond) {
         let filters = vec![Filter::new(IMAGE_KIND, &[PNG_EXTENSION])];
         let request = Self::request(
@@ -517,13 +530,14 @@ enum Purpose {
     ExportConfigurations,
     ImportConfigurations,
     Picture,
+    Backdrop,
 }
 
 impl Purpose {
     fn folder(self) -> Option<Folder> {
         match self {
             Self::Open => Some(Folder::Open),
-            Self::Import | Self::Picture => Some(Folder::Import),
+            Self::Import | Self::Picture | Self::Backdrop => Some(Folder::Import),
             Self::Export(_) => Some(Folder::Export),
             Self::Drawing => Some(Folder::Drawing),
             Self::ExportParameters
@@ -1075,6 +1089,7 @@ pub struct Files {
     open_last: bool,
     parameter_import: Option<ParameterImportDraft>,
     image_target: Option<ImageTarget>,
+    backdrop_to_remember: Option<PathBuf>,
     configuration_import: Option<ConfigurationImportDraft>,
     quit: bool,
     saved_folder: Option<PathBuf>,
@@ -1136,6 +1151,7 @@ impl Files {
             open_last: false,
             parameter_import: None,
             image_target: None,
+            backdrop_to_remember: None,
             configuration_import: None,
             quit: false,
             saved_folder: None,
@@ -1439,6 +1455,9 @@ impl Files {
                 self.pick(Purpose::ImportParameters, model);
             }
             FileCommand::InsertImage(target) => self.insert_image(target, model),
+            FileCommand::ChooseBackdrop => {
+                self.pick(Purpose::Backdrop, model);
+            }
             FileCommand::Parameters(command) => self.parameter_import_command(command, model),
             FileCommand::ExportConfigurations => {
                 if self.picking.is_none() {
@@ -2893,6 +2912,7 @@ impl Files {
             }
             (Purpose::ImportParameters, Some(path)) => self.read_parameter_file(path, model),
             (Purpose::Picture, Some(path)) => self.read_picture(path, model),
+            (Purpose::Backdrop, Some(path)) => self.backdrop_to_remember = Some(path),
             (Purpose::Picture, None) => self.image_target = None,
             (Purpose::ExportConfigurations, Some(path)) => {
                 self.check_output(Output::Configurations { path }, since.session);
@@ -2916,6 +2936,7 @@ impl Files {
             (Purpose::Image, None) => self.image.pick_cancelled(),
             (
                 Purpose::Drawing
+                | Purpose::Backdrop
                 | Purpose::ExportParameters
                 | Purpose::ImportParameters
                 | Purpose::ExportConfigurations
@@ -3023,6 +3044,7 @@ impl Files {
             }
             Purpose::ImportParameters => self.dialogs.pick_parameters(directory, respond),
             Purpose::Picture => self.dialogs.pick_picture(directory, respond),
+            Purpose::Backdrop => self.dialogs.pick_backdrop(directory, respond),
             Purpose::ExportConfigurations => {
                 self.dialogs.pick_configurations_path(
                     directory,
@@ -3317,6 +3339,10 @@ impl Files {
                 image: self.image.folder(),
             },
         }
+    }
+
+    pub fn take_backdrop_chosen(&mut self) -> Option<PathBuf> {
+        self.backdrop_to_remember.take()
     }
 
     pub fn take_exports_to_remember(&mut self) -> Option<RememberedExports> {

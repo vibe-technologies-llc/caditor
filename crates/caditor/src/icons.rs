@@ -28,6 +28,7 @@ pub const DONE: &str = phosphor::CHECK;
 pub const RELOAD: &str = phosphor::ARROW_CLOCKWISE;
 pub const RESET_SECTION: &str = phosphor::ARROW_COUNTER_CLOCKWISE;
 pub const LIGHTING: &str = phosphor::SUN;
+pub const SKY_PICTURE: &str = phosphor::MOUNTAINS;
 pub const MENU_CARET: &str = phosphor::CARET_DOWN;
 pub const MORE: &str = phosphor::DOTS_THREE;
 pub const DELETE: &str = phosphor::TRASH;
@@ -287,7 +288,8 @@ pub fn command(command: Command) -> &'static str {
         Command::View(_) => phosphor::CUBE_FOCUS,
         Command::Filter(_) => phosphor::FUNNEL,
         Command::Style(DisplayStyle::Rendered) | Command::Lighting => LIGHTING,
-        Command::ResetLighting => RESET_SECTION,
+        Command::ResetLighting | Command::ClearBackdrop => RESET_SECTION,
+        Command::ChooseBackdrop => SKY_PICTURE,
         Command::Style(_) => phosphor::CUBE_TRANSPARENT,
         Command::Camera(camera) => camera_move(camera),
         Command::HighlightNext => phosphor::ARROW_RIGHT,

@@ -120,6 +120,7 @@ fn scene() -> Scene {
         silhouettes: Vec::new(),
         reflection: Reflection::default(),
         lighting: None,
+        backdrop: None,
         section: Vec::new(),
         grid: None,
         pictures: Vec::new(),
@@ -1121,6 +1122,7 @@ fn the_front_layer_draws_and_picks_over_faces_in_front_of_it() {
         silhouettes: Vec::new(),
         reflection: Reflection::default(),
         lighting: None,
+        backdrop: None,
         section: Vec::new(),
         grid: None,
         pictures: Vec::new(),
@@ -5600,6 +5602,134 @@ fn the_rendered_view_draws_a_blue_sky_and_the_ground_catches_a_body_s_shadow() {
         pixel(&lit, shadow),
         pixel(&unshadowed, shadow)
     );
+}
+
+fn painted_environment(
+    width: u32,
+    paint: impl Fn(f32, f32) -> [f32; 3],
+) -> Arc<crate::Environment> {
+    let height = width / 2;
+    let rgb = (0..height)
+        .flat_map(|y| {
+            let paint = &paint;
+            (0..width).flat_map(move |x| {
+                paint(
+                    (x as f32 + 0.5) / width as f32,
+                    (y as f32 + 0.5) / height as f32,
+                )
+            })
+        })
+        .collect();
+    Arc::new(crate::Environment::new(width, height, rgb).unwrap())
+}
+
+fn backdrop_of(environment: &Arc<crate::Environment>, turn: f32, stops: f32) -> crate::Backdrop {
+    crate::Backdrop {
+        environment: Arc::clone(environment),
+        turn,
+        stops,
+    }
+}
+
+#[test]
+fn an_environment_picture_is_the_backdrop_turned_by_the_angle_given() {
+    let picture = painted_environment(128, |u, v| {
+        let green = if v < 0.5 { 1.0 } else { 0.05 };
+        if u < 0.5 {
+            [2.0, green, 0.05]
+        } else {
+            [0.05, green, 2.0]
+        }
+    });
+    let looking_along_x = View::new(
+        Viewpoint::looking_from(Vector3::new(-1.0, 0.0, 0.0), Point3::ZERO, 100.0).unwrap(),
+        f64::from(SIZE),
+        f64::from(SIZE),
+    );
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let shot = |turn: f32| {
+        let scene = Scene {
+            lighting: Some(lit_by(0.0, std::f64::consts::FRAC_PI_4)),
+            backdrop: Some(backdrop_of(&picture, turn, 0.0)),
+            ..Scene::default()
+        };
+        let mut renderer = viewport_renderer(&device, 4);
+        render_with(
+            &mut renderer,
+            &device,
+            &queue,
+            &full_frame(&looking_along_x, &scene, DVec2::new(100.0, 100.0)),
+        )
+    };
+    let side = f64::from(SIZE) - 6.0;
+    let high = 6.0;
+    let low = side;
+
+    let straight = shot(0.0);
+    let left = pixel(&straight, DVec2::new(high, 100.0));
+    let right = pixel(&straight, DVec2::new(side, 100.0));
+    let above = pixel(&straight, DVec2::new(100.0, high));
+    let below = pixel(&straight, DVec2::new(100.0, low));
+    let quarter = shot(std::f32::consts::FRAC_PI_2);
+    let turned_right = pixel(&quarter, DVec2::new(high, 100.0));
+    let turned_left = pixel(&shot(-std::f32::consts::FRAC_PI_2), DVec2::new(side, 100.0));
+
+    assert!(left[0] > left[2] + 80, "{left:?}");
+    assert!(right[2] > right[0] + 80, "{right:?}");
+    assert!(above[1] > below[1] + 60, "{above:?} {below:?}");
+    assert!(turned_right[2] > turned_right[0] + 80, "{turned_right:?}");
+    assert!(turned_left[0] > turned_left[2] + 80, "{turned_left:?}");
+}
+
+#[test]
+fn an_environment_picture_lights_bodies_with_its_own_colour_and_brightness() {
+    let cube = Arc::new(box_mesh(20.0));
+    let grey = Color::from_rgb8(180, 180, 180);
+    let view = oblique_view(150.0);
+    let faces = [
+        Point3::new(0.0, 0.0, 20.0),
+        Point3::new(0.0, -20.0, 0.0),
+        Point3::new(20.0, 0.0, 0.0),
+    ];
+    let red_sky = painted_environment(64, |_, _| [0.6, 0.05, 0.05]);
+    let scene_with = |backdrop: Option<crate::Backdrop>| Scene {
+        meshes: vec![finished_mesh(&cube, grey, MATTE, None)],
+        lighting: Some(crate::Lighting {
+            strength: 0.0,
+            environment: 1.0,
+            ..lit_by(0.0, std::f64::consts::FRAC_PI_4)
+        }),
+        backdrop,
+        ..Scene::default()
+    };
+
+    let Some(plain) = rendered_pixels(&scene_with(None), &view, &faces) else {
+        return;
+    };
+    let lit = rendered_pixels(
+        &scene_with(Some(backdrop_of(&red_sky, 0.0, 0.0))),
+        &view,
+        &faces,
+    )
+    .unwrap();
+    let brighter = rendered_pixels(
+        &scene_with(Some(backdrop_of(&red_sky, 0.0, 1.0))),
+        &view,
+        &faces,
+    )
+    .unwrap();
+
+    for (face, colour) in lit.iter().enumerate() {
+        assert!(colour[0] > colour[2] + 40, "{face}: {colour:?}");
+        assert!(
+            brightness(brighter[face]) > brightness(*colour) + 20,
+            "{face}: {:?} {colour:?}",
+            brighter[face]
+        );
+    }
+    assert!(plain[0][2] + 10 >= plain[0][0], "{:?}", plain[0]);
 }
 
 fn upright_disc(radius: f64, height: f64, segments: u32) -> ShadedMesh {

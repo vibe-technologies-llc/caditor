@@ -11,7 +11,10 @@ use crate::{
     gpu::{self, Bytes, GrowableBuffer, Pack, QuadIndices, Records, Wake},
     image::{self, Background, ChannelOrder, ImageRequest, Tile},
     kept::{KeptView, Shown, ViewCopy},
-    lighting::{Ground, LightFrame, LightPass, LightPassReady, LightUniform, shadow_pipeline},
+    lighting::{
+        EnvironmentBound, Ground, LightFrame, LightPass, LightPassReady, LightUniform,
+        shadow_pipeline,
+    },
     lines::{LINE_POINT_SLOTS, LINE_POINT_STRIDE, LineStrips, line_instances},
     mesh::{MESH_VERTEX_STRIDE, MeshCache, MeshPool, StyleLayout, UploadBudget, pack_color},
     occlusion::{
@@ -51,7 +54,7 @@ const MARKER_BYTES: usize = 28;
 const MARKER_STRIDE: u64 = MARKER_BYTES as u64;
 const FILL_VERTEX_BYTES: usize = 16;
 const FILL_VERTEX_STRIDE: u64 = FILL_VERTEX_BYTES as u64;
-const VIEW_UNIFORM_SIZE: u64 = 688;
+const VIEW_UNIFORM_SIZE: u64 = 704;
 const HATCH_SPACING_POINTS: f64 = 8.0;
 const REANCHOR_DISTANCES: f64 = 4.0;
 const ANCHOR_ERROR_PIXELS: f64 = 0.02;
@@ -491,6 +494,7 @@ pub struct Faults {
     pub picking: bool,
     pub light: bool,
     pub occlusion: bool,
+    pub environment: bool,
 }
 
 impl Faults {
@@ -501,6 +505,7 @@ impl Faults {
             || self.picking
             || self.light
             || self.occlusion
+            || self.environment
     }
 }
 
@@ -2018,6 +2023,9 @@ impl ViewportRenderer {
         .into_iter()
         .any(MeshCache::changed)
             || self.silhouettes.changed();
+        let environment = self.bind_environment((device, queue), scene);
+        faults.environment = environment.newly_refused;
+        changed |= environment.rebound;
         faults.light = self.light_scene(device, scene, view);
         faults.occlusion = self.occlude_scene(device, scene, view, occlusion_size);
         view_uniform(
@@ -2076,6 +2084,19 @@ impl ViewportRenderer {
         }
     }
 
+    fn bind_environment(
+        &mut self,
+        gpu: (&wgpu::Device, &wgpu::Queue),
+        scene: &Scene,
+    ) -> EnvironmentBound {
+        let wanted = scene
+            .backdrop
+            .as_ref()
+            .filter(|_| scene.lighting.is_some())
+            .map(|backdrop| &backdrop.environment);
+        self.light_pass.bind_environment(gpu, wanted)
+    }
+
     fn light_scene(&mut self, device: &wgpu::Device, scene: &Scene, view: &View) -> bool {
         let Some(lighting) = &scene.lighting else {
             self.light = LightUniform::NONE;
@@ -2101,7 +2122,12 @@ impl ViewportRenderer {
             }
             LightPassReady::Refused | LightPassReady::NewlyRefused => None,
         };
-        self.light = LightUniform::of((lighting, view), toward_light, (frame, ground));
+        let environment = scene.backdrop.as_ref().map_or([0.0; 4], |backdrop| {
+            self.light_pass
+                .environment_uniform(backdrop.turn, backdrop.stops)
+        });
+        self.light = LightUniform::of((lighting, view), toward_light, (frame, ground))
+            .with_environment(environment);
         matches!(ready, LightPassReady::NewlyRefused)
     }
 
@@ -2621,7 +2647,7 @@ impl Pipelines {
             ),
             sectioned_flat_meshes: color(
                 "sectioned flat meshes",
-                &mesh_pipeline_layout,
+                &lit_mesh_pipeline_layout,
                 "vs_mesh",
                 &meshes,
                 "fs_color_sectioned",
@@ -2629,7 +2655,7 @@ impl Pipelines {
             ),
             sectioned_reflective_meshes: color(
                 "sectioned reflective meshes",
-                &mesh_pipeline_layout,
+                &lit_mesh_pipeline_layout,
                 "vs_mesh",
                 &meshes,
                 "fs_reflective_sectioned",

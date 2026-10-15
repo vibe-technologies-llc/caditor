@@ -4,6 +4,7 @@ mod clipboard;
 mod configuration_table;
 mod configurations;
 mod csv;
+mod environment;
 mod export;
 mod format;
 #[cfg(feature = "fuzzing")]
@@ -42,6 +43,10 @@ pub use crate::{
         ConfigurationFileError, MAX_CONFIGURATION_COLUMNS, MAX_CONFIGURATION_ROWS,
         MAX_CONFIGURATIONS_FILE, configurations_csv, parse_configurations, read_configurations,
         write_configurations,
+    },
+    environment::{
+        EnvironmentPixels, EnvironmentReadError, MAX_ENVIRONMENT_PIXELS, decode_environment,
+        read_environment_file,
     },
     export::{
         Annotations, Construction, DrawingExported, DrawingSheet, ExportBody, ExportError,
