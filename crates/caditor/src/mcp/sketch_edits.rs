@@ -3,9 +3,10 @@ use std::collections::BTreeSet;
 use caditor_document::{Document, Evaluation, FeatureId, Transaction};
 use caditor_expression::{Dimension, Expression, Unit};
 use caditor_sketch::{
-    Caps, ChamferSize, CircularPattern, Corner, Dimensioned, EntityId, ExtendError, FilletError,
-    MAX_LENGTH, MirrorError, OffsetError, PatternError, PatternRow, RectangularPattern, Sketch,
-    SketchError, Spread, TrimError,
+    BlendError, BreakError, Caps, ChamferSize, CircularPattern, ClipError, Corner, Dimensioned,
+    EntityId, ExtendError, FilletError, GearError, MAX_LENGTH, MirrorError, OffsetError,
+    PatternError, PatternRow, RectangularPattern, Sketch, SketchError, SplitError, Spread,
+    TangentError, TrimError,
 };
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
@@ -17,11 +18,15 @@ use crate::{
     mcp::{
         references::{self, EntityName, Named},
         session::{Session, Work},
+        sketch_additions::{self, Blending, Copying, Gearing, TangentCircling},
+        sketch_cuts::{self, Breaking, Constructing, Respacing, Splitting},
         sketch_moves,
+        sketch_projections::{self, Intersecting, Projecting},
         tools::{Answer, ToolError},
         writing::{self, MOST_ITEMS, SketchingError, point},
     },
     mirroring, offsetting, patterning,
+    projecting::ProjectionError,
     sketch_status::{SketchSummary, up_to_date_result},
     trimming,
     units::{Units, attach_unit},
@@ -77,6 +82,36 @@ pub enum SketchEditError {
     AboutMoves { sketch: String, entity: EntityName },
     #[error("a scale factor is a finite number above zero, not {0}")]
     Factor(f64),
+    #[error("that curve cannot be split: {0}")]
+    Split(SplitError),
+    #[error("the curves cannot be broken: {0}")]
+    Break(BreakError),
+    #[error("the splines cannot be respaced: {0}")]
+    Respace(SketchError),
+    #[error(
+        "nothing to change in {sketch}: construction applies to curves, not points, and every curve given already is what was asked"
+    )]
+    NothingToToggle { sketch: String },
+    #[error(
+        "none of the splines given in {sketch} is an evenly spaced fit-point spline; only those from files saved before centripetal spacing need respacing"
+    )]
+    NothingToRespace { sketch: String },
+    #[error("the tangent circle cannot be drawn: {0}")]
+    TangentCircle(TangentError),
+    #[error("the blend cannot be drawn: {0}")]
+    Blend(BlendError),
+    #[error("the gear cannot be drawn: {0}")]
+    Gear(GearError),
+    #[error("give the gear's centre as center (a point) or at (a position), not both")]
+    GearCentre,
+    #[error(
+        "{given} is not an ISO 606 roller chain size the app offers; use a designation such as 08B or 10A"
+    )]
+    UnknownChain { given: String },
+    #[error("the geometry cannot be copied: {0}")]
+    Clip(ClipError),
+    #[error("give copy either by (an offset) or to (where the middle of the copy goes), not both")]
+    CopyTarget,
     #[error("{body} is made after {sketch} in the tree, so it cannot be projected into it")]
     LaterBody { body: String, sketch: String },
     #[error(
@@ -94,8 +129,20 @@ pub enum SketchEditError {
         key: String,
         sketch: String,
     },
-    #[error("give edges or faces of the body to project")]
+    #[error(
+        "give something to project: edges, faces or corners of a body, a source_sketch, axes, datums or the origin"
+    )]
     NothingToProject,
+    #[error("edges, faces and corners are named with their body: give body")]
+    BodyNeeded,
+    #[error("source_curves are curves of a sketch: give source_sketch with them")]
+    CurvesWithoutSketch,
+    #[error(
+        "intersect with one of: a body (optionally with one of its faces), a datum plane, or a principal plane (XY, XZ, YZ)"
+    )]
+    IntersectWays,
+    #[error(transparent)]
+    Projection(ProjectionError),
     #[error(
         "everything named is already projected into {sketch}, or every edge of the faces is seen end-on from it"
     )]
@@ -116,7 +163,16 @@ pub enum Modification {
     Move(sketch_moves::Moving),
     Rotate(sketch_moves::Turning),
     Scale(sketch_moves::Scaling),
-    Project(sketch_moves::Projecting),
+    Project(Projecting),
+    Intersect(Intersecting),
+    Construction(Constructing),
+    Split(Splitting),
+    Break(Breaking),
+    Respace(Respacing),
+    TangentCircle(TangentCircling),
+    Blend(Blending),
+    Gear(Gearing),
+    Copy(Copying),
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -290,7 +346,7 @@ impl<'s> Target<'s> {
         }
     }
 
-    fn working(&self) -> Sketch {
+    pub(super) fn working(&self) -> Sketch {
         let mut working = self.definition.clone();
         for (id, entity) in self.shown.entities() {
             let same = self
@@ -304,7 +360,7 @@ impl<'s> Target<'s> {
         working
     }
 
-    fn reshaped(
+    pub(super) fn reshaped(
         &self,
         label: String,
         change: impl FnOnce(&mut Sketch) -> Result<(), ToolError>,
@@ -415,6 +471,15 @@ fn sketch_of(asked: &Modification) -> &Named {
         Modification::Rotate(asked) => &asked.sketch,
         Modification::Scale(asked) => &asked.sketch,
         Modification::Project(asked) => &asked.sketch,
+        Modification::Intersect(asked) => &asked.sketch,
+        Modification::Construction(asked) => &asked.sketch,
+        Modification::Split(asked) => &asked.sketch,
+        Modification::Break(asked) => &asked.sketch,
+        Modification::Respace(asked) => &asked.sketch,
+        Modification::TangentCircle(asked) => &asked.sketch,
+        Modification::Blend(asked) => &asked.sketch,
+        Modification::Gear(asked) => &asked.sketch,
+        Modification::Copy(asked) => &asked.sketch,
     }
 }
 
@@ -436,7 +501,18 @@ fn plan(
         Modification::Move(asked) => sketch_moves::move_geometry(session, work, target, asked),
         Modification::Rotate(asked) => sketch_moves::rotate(session, work, target, asked),
         Modification::Scale(asked) => sketch_moves::scale(session, work, target, asked),
-        Modification::Project(asked) => sketch_moves::project(target, asked),
+        Modification::Project(asked) => sketch_projections::project(target, asked),
+        Modification::Intersect(asked) => sketch_projections::intersect(target, asked),
+        Modification::Construction(asked) => sketch_cuts::construction(target, asked),
+        Modification::Split(asked) => sketch_cuts::split(target, asked),
+        Modification::Break(asked) => sketch_cuts::break_curves(target, asked),
+        Modification::Respace(asked) => sketch_cuts::respace(target, asked),
+        Modification::TangentCircle(asked) => {
+            sketch_additions::tangent_circle(session, target, asked)
+        }
+        Modification::Blend(asked) => sketch_additions::blend(target, asked),
+        Modification::Gear(asked) => sketch_additions::gear(session, target, asked),
+        Modification::Copy(asked) => sketch_additions::copy(target, asked),
     }
 }
 

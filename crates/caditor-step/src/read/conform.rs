@@ -7,6 +7,7 @@ use caditor_kernel::{
 };
 
 use crate::read::{
+    fault::Fault,
     graph::{Problem, Read},
     topology::settle_on,
 };
@@ -151,7 +152,7 @@ pub(crate) fn conform(body: &LooseBody<'_>) -> Read<Conformed> {
         };
         let curve = slave
             .side(placed.side)
-            .ok_or_else(|| Problem::new(placed.slave, "lost its side while it was bent"))?;
+            .ok_or_else(|| Problem::new(placed.slave, Fault::LostSideWhileBent))?;
         edges.insert(edge.id, oriented(curve, placed.stations, edge.id)?);
     }
     let Bender {
@@ -174,7 +175,7 @@ pub(crate) fn conform(body: &LooseBody<'_>) -> Read<Conformed> {
 }
 
 fn oriented(curve: BSpline<Point3>, [start, end]: [f64; 2], id: u64) -> Read<(Curve, Interval)> {
-    let backwards = || Problem::new(id, "runs backwards along its bent face");
+    let backwards = || Problem::new(id, Fault::BackwardsAlongBentFace);
     if start < end {
         let interval = Interval::new(start, end).ok_or_else(backwards)?;
         return Ok((Curve::BSpline(curve), interval));
@@ -377,10 +378,7 @@ fn ordered(body: &LooseBody<'_>, studies: &[Option<Study>]) -> Read<Vec<u64>> {
             .find(|face| !order.contains(face))
             .copied()
             .unwrap_or_default();
-        return Err(Problem::new(
-            stuck,
-            "touches other curved faces in a ring where each would have to give way to the next",
-        ));
+        return Err(Problem::new(stuck, Fault::GiveWayRing));
     }
     Ok(order)
 }
@@ -490,16 +488,10 @@ fn placed_vertices(
             .map(|surface| surface.distance(point))
             .fold(0.0, f64::max);
         if off > CLEAN {
-            return Err(Problem::new(
-                *vertex,
-                format!("lies {off} mm from faces that cannot be bent to meet it"),
-            ));
+            return Err(Problem::new(*vertex, Fault::VertexOffBentFaces { off }));
         }
         if point.distance(*start) > body.allowance {
-            return Err(Problem::new(
-                *vertex,
-                "would have to move farther than the file's precision",
-            ));
+            return Err(Problem::new(*vertex, Fault::MovesBeyondPrecision));
         }
         placed.insert(*vertex, point);
     }
@@ -872,10 +864,7 @@ impl Bender<'_, '_> {
         match (above > 0, below > 0) {
             (true, false) => Ok(Bound::Lower),
             (false, true) => Ok(Bound::Upper),
-            _ => Err(Problem::new(
-                face,
-                "has an edge along a line of its surface that does not bound it",
-            )),
+            _ => Err(Problem::new(face, Fault::EdgeAlongUnboundingLine)),
         }
     }
 
@@ -891,7 +880,7 @@ impl Bender<'_, '_> {
         let side = fitting.side;
         let curve = surface
             .side(side)
-            .ok_or_else(|| Problem::new(face, "has a side that cannot be followed"))?;
+            .ok_or_else(|| Problem::new(face, Fault::SideUnfollowable))?;
         let domain = curve.domain();
         let stations = self.stations(&curve, lines, line, side, sides);
         let mut ranges: Vec<(Interval, usize)> = Vec::new();
@@ -903,7 +892,7 @@ impl Bender<'_, '_> {
                 continue;
             };
             let range = Interval::new(a.min(*b), a.max(*b))
-                .ok_or_else(|| Problem::new(face, "has an edge of no length along its side"))?;
+                .ok_or_else(|| Problem::new(face, Fault::EdgeOfNoLengthAlongSide))?;
             ranges.push((range, *index));
             if self.is_slave(face, *index) {
                 self.placed.insert(
@@ -921,7 +910,7 @@ impl Bender<'_, '_> {
             .windows(2)
             .any(|pair| matches!(pair, [a, b] if b.0.start() < a.0.end()))
         {
-            return Err(Problem::new(face, "has edges that overlap along its side"));
+            return Err(Problem::new(face, Fault::EdgesOverlapAlongSide));
         }
         let pins: Vec<(f64, Point3)> = stations
             .iter()
@@ -998,10 +987,7 @@ impl Bender<'_, '_> {
             moved = moved.max(point.distance(curve.point(*along)));
         }
         if moved > self.body.allowance {
-            return Err(Problem::new(
-                face,
-                "would have to bend farther than the file's precision to meet its neighbours",
-            ));
+            return Err(Problem::new(face, Fault::BendsBeyondPrecision));
         }
         self.farthest = self.farthest.max(moved);
         let closures: Vec<Box<dyn Fn(f64) -> Option<Point3> + '_>> = goals
@@ -1084,7 +1070,7 @@ impl Bender<'_, '_> {
         range: Interval,
         pins: &[(f64, Point3)],
     ) -> Read<Strict> {
-        let missing = || Problem::new(face, "could not be matched to the face it meets");
+        let missing = || Problem::new(face, Fault::FaceUnmatched);
         let surface = self.surfaces.get(&master).cloned().ok_or_else(missing)?;
         let pinned = |along: f64| {
             pins.iter()
@@ -1196,10 +1182,7 @@ impl Bender<'_, '_> {
         ];
         let settled = [ends[0] - reached[0], ends[1] - reached[1]];
         if settled.iter().any(|offset| offset.length() > CLEAN) {
-            return Err(Problem::new(
-                face,
-                "meets a corner that lies off the face it is bent onto",
-            ));
+            return Err(Problem::new(face, Fault::CornerOffBentFace));
         }
         strict.settled = settled;
         Ok(strict)
@@ -1304,12 +1287,7 @@ fn restricted(
             Bound::Lower => Interval::new(value, domain.end()),
             Bound::Upper => Interval::new(domain.start(), value),
         };
-        *domain = narrowed.ok_or_else(|| {
-            Problem::new(
-                face,
-                "has edges along lines of its surface that leave no room between",
-            )
-        })?;
+        *domain = narrowed.ok_or_else(|| Problem::new(face, Fault::NoRoomBetweenLines))?;
         let side = match (line.line.fixed_u, bound) {
             (true, Bound::Lower) => SurfaceSide::UStart,
             (true, Bound::Upper) => SurfaceSide::UEnd,
@@ -1317,10 +1295,7 @@ fn restricted(
             (false, Bound::Upper) => SurfaceSide::VEnd,
         };
         if sides.iter().any(|known| known.side == side) {
-            return Err(Problem::new(
-                face,
-                "has two separate edges along lines that would both have to bound it on one side",
-            ));
+            return Err(Problem::new(face, Fault::TwoLinesBoundOneSide));
         }
         sides.push(Fitting { line: *index, side });
     }
@@ -1329,19 +1304,14 @@ fn restricted(
     } else {
         spline
             .restricted(u, v)
-            .ok_or_else(|| Problem::new(face, "could not be cut down to its edges"))?
+            .ok_or_else(|| Problem::new(face, Fault::NotCutDownToEdges))?
     };
     Ok((piece, sides))
 }
 
 fn bend_problem(face: u64, error: &BendError) -> Problem {
     match error {
-        BendError::Cancelled => {
-            Problem::new(face, "was not bent, because the import was cancelled")
-        }
-        other => Problem::new(
-            face,
-            format!("could not be bent to meet its neighbours ({other})"),
-        ),
+        BendError::Cancelled => Problem::new(face, Fault::BendCancelled),
+        other => Problem::new(face, Fault::NotBent(other.clone())),
     }
 }

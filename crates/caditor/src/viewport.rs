@@ -12,7 +12,7 @@ use caditor_render::{
     Reflection, Scene, SectionPlane, SurfaceSize, View, Viewpoint, ViewportRect, grid_snap_spacing,
     is_cut_away, section_slack,
 };
-use caditor_sketch::{ConstraintId, Entity, EntityId, Faceting, MAX_LENGTH, Sketch, SketchClip};
+use caditor_sketch::{ConstraintId, Entity, EntityId, Faceting, MAX_LENGTH, Sketch};
 use egui::{
     Align, Align2, Id, Key, Modifiers, PointerButton, Pos2, Rect, Response, Sense, Shape, Stroke,
     Ui, UiBuilder, Vec2, WidgetInfo, WidgetType, accesskit::Live, pos2, vec2,
@@ -119,8 +119,6 @@ const READOUT_GAP: f32 = 4.0;
 const READOUT_LIFTS: u8 = 3;
 const NOTHING_TO_COPY: &str = "Select sketch geometry to copy";
 const NOTHING_TO_PASTE: &str = "Nothing was pasted: copy or cut sketch geometry first.";
-const PASTE_SHIFT_FRACTION: f64 = 0.25;
-const PASTE_SHIFT_FLOOR: f64 = 1.0;
 pub const CHOOSE_PLANE_PROMPT: &str = "Click a plane or a flat face to sketch on";
 const CHOOSE_PLANE_HINT: &str = "Esc: cancel";
 const DONE_HINT: &str = "Esc: done";
@@ -521,7 +519,7 @@ fn copied_text(
     let text =
         caditor_file::sketch_clipboard_text(&clip, &parameters, &clipboard::source(model), feature)
             .map_err(|error| format!("Nothing was copied: {error}."))?;
-    Ok((text, clipped(&clip)))
+    Ok((text, clipboard::described(&clip)))
 }
 
 fn paste_note(pasted: &PastedGeometry) -> Option<String> {
@@ -540,23 +538,6 @@ fn paste_note(pasted: &PastedGeometry) -> Option<String> {
     }
     parts.extend(pasted.notes.iter().cloned());
     (!parts.is_empty()).then(|| parts.join(" "))
-}
-
-fn clipped(clip: &SketchClip) -> String {
-    let parts: Vec<String> = [
-        (clip.curve_count(), "curve", "curves"),
-        (clip.lone_point_count(), "point", "points"),
-        (clip.constraint_count(), "constraint", "constraints"),
-    ]
-    .into_iter()
-    .filter(|(amount, _, _)| *amount > 0)
-    .map(|(amount, singular, plural)| feature_tree::count(amount, singular, plural))
-    .collect();
-    match parts.as_slice() {
-        [] => "nothing".to_owned(),
-        [only] => only.clone(),
-        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
-    }
 }
 
 fn clear_of(label: Rect, keep_out: Rect, view: Rect) -> Rect {
@@ -4236,7 +4217,7 @@ impl ViewportState {
             }
         };
         let offset = self.paste_offset(&pasted, feature);
-        let what = clipped(&pasted.clip);
+        let what = clipboard::described(&pasted.clip);
         let mut placed = Vec::new();
         let transaction = trimming::reshaped(model, feature, format!("Paste {what}"), |working| {
             placed = working
@@ -4266,7 +4247,7 @@ impl ViewportState {
         if !same_sketch {
             return Vector2::ZERO;
         }
-        Vector2::splat(pasted.clip.size().max(PASTE_SHIFT_FLOOR) * PASTE_SHIFT_FRACTION)
+        clipboard::same_sketch_shift(&pasted.clip)
     }
 
     fn step_highlight(&mut self, step: isize, model: &Model, editing: &SketchEditing) {
@@ -6404,7 +6385,9 @@ fn edge_feature(model: &Model, body: FeatureId, edge: EdgeName) -> Option<Featur
         .max_by_key(|feature| document.feature_index(*feature))
 }
 
-fn projected(projection: Result<projecting::Projection, String>) -> Vec<Action> {
+fn projected(
+    projection: Result<projecting::Projection, projecting::ProjectionError>,
+) -> Vec<Action> {
     match projection {
         Ok(projection) => std::iter::once(Action::Apply(projection.transaction))
             .chain(

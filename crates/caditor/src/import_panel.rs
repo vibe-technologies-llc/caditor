@@ -29,11 +29,28 @@ pub fn placed(document: &Document, feature: FeatureId, import: Import) -> Option
     ))
 }
 
-fn change(model: &Model, feature: FeatureId, import: Import) -> Result<Transaction, String> {
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+enum PlacementError {
+    #[error("The feature no longer exists")]
+    FeatureGone,
+    #[error("{0}")]
+    Checked(String),
+}
+
+impl From<PlacementError> for String {
+    fn from(error: PlacementError) -> Self {
+        error.to_string()
+    }
+}
+
+fn change(
+    model: &Model,
+    feature: FeatureId,
+    import: Import,
+) -> Result<Transaction, PlacementError> {
     let document = model.document();
-    let transaction = placed(document, feature, import)
-        .ok_or_else(|| "The feature no longer exists".to_owned())?;
-    field::checked(document, transaction)
+    let transaction = placed(document, feature, import).ok_or(PlacementError::FeatureGone)?;
+    field::checked(document, transaction).map_err(PlacementError::Checked)
 }
 
 struct Panel<'a> {
@@ -66,7 +83,7 @@ impl Panel<'_> {
             feature_fields::expression_row_drafting(ui, model, caption, quantity, |value| {
                 let mut changed = import.clone();
                 rebuild(&mut changed.placement, value);
-                change(model, id, changed)
+                change(model, id, changed).map_err(String::from)
             });
         self.actions.extend(drafting.into_actions(id));
     }
@@ -100,7 +117,7 @@ pub fn placement(
         let chosen = feature_fields::frame_row(ui, model.document(), &row, |frame| {
             let mut changed = import.clone();
             changed.placement.frame = frame;
-            change(model, feature.id(), changed)
+            change(model, feature.id(), changed).map_err(String::from)
         });
         panel.actions.extend(chosen);
         for axis in MoveAxis::ALL {

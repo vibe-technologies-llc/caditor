@@ -1492,7 +1492,7 @@ impl Files {
                         ReplacementSource::Kept { name: kept.name },
                         model,
                     ),
-                    Err(reason) => model.set_notice(Notice::warning(reason)),
+                    Err(error) => model.set_notice(Notice::warning(error.to_string())),
                 }
             }
             FileCommand::Drop { paths, into } => self.dropped(paths, into, model),

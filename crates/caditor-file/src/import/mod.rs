@@ -177,7 +177,7 @@ impl Drawing {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum ImportError {
     #[error("{0}")]
     Reading(ReadFailure),

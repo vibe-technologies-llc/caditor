@@ -282,13 +282,20 @@ impl Words<'_> {
                 ),
                 self.flip_remedy(),
             ),
-            RibError::Wall(WallError::UnsupportedCurve { entities }) => self.in_sketch(
-                format!(
-                    "{} of {sketch} cannot be thickened into a web; only lines and arcs can.",
-                    capital(&self.curves(&entities))
-                ),
-                "Draw the web with lines and arcs, or make it run parallel to the sketch.",
-            ),
+            RibError::Sweep(SweepError::TaperedUnsupportedCurve { entities }) => {
+                let mut drawn: Vec<u64> =
+                    entities.iter().map(|entity| run_curve(*entity)).collect();
+                drawn.sort_unstable();
+                drawn.dedup();
+                self.in_sketch(
+                    format!(
+                        "With a draft, {sketch} cannot give {name} a web along {}; a draft \
+                         follows only lines and arcs.",
+                        self.curves(&drawn)
+                    ),
+                    "Draw the web with lines and arcs, or set the draft to 0°.",
+                )
+            }
             RibError::Wall(WallError::TooThick { entities }) => self.own(
                 format!(
                     "{name} is too thick for the bend of {}.",

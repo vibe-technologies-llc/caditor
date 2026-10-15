@@ -250,7 +250,7 @@ impl Part {
         }
     }
 
-    fn drawn_into(&self, sketch: &mut Sketch, centre: GearCentre) -> Result<(), GearError> {
+    pub fn drawn_into(&self, sketch: &mut Sketch, centre: GearCentre) -> Result<(), GearError> {
         match self {
             Self::Gear(gear) => sketch.add_gear(gear, centre).map(|_| ()),
             Self::Pair(pair) => sketch.add_gear_pair(pair, centre).map(|_| ()),

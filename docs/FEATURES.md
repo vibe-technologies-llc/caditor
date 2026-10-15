@@ -60,9 +60,10 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   Every copy is the original's tool placed again, never recomputed where it lands (a copy of an
   extrusion up to next stops where the original did, not on the face it meets), and one pattern
   cannot chain a shift, a turn and a mirror.
-- [low · medium] A web (`rib.rs`) is thickened only along lines and arcs (`wall_regions` refuses
-  splines and ellipses), and a rib parallel to its sketch takes no draft and runs its free arc ends
-  on only along their tangent (both are a web's alone).
+- [low · medium] A web (`rib.rs`) along a spline or ellipse takes no draft (`extrude_tapered`
+  refuses them) and two such curves meeting at a sharp corner are `Apart`, and a rib parallel to
+  its sketch takes no draft and runs its free arc ends on only along their tangent (both are a
+  web's alone).
 - [low · medium] Mirror faces closes an opening only in one plane or on one elementary face beside
   it: an opening on an extrusion, revolution or spline face, one running all the way around a
   round face (a collar or a groove), or one spanning several curved faces is refused, since
@@ -239,10 +240,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
     neither a unit, a scale, recentring nor left-out layers (`DrawingOptions`). Faces and edges
     named in an edit are found on the body as it stands now, so an edge a fillet rounded away cannot
     be named again.
-  - Sketching: projecting corners, other sketches' curves, axes, datums and the origin, and
-    Intersect; split, break, construction toggling, copy and paste, blend curves, tangent circles,
-    gears and spline respacing; a tangent arc continuing a curve drawn in the same call; a
-    conic's rho held by a parameter.
 - [medium · hard · blocked by: the in-app assistant connection decision (`DECISIONS.md`)] An
   assistant cannot work on the model open in the window: the headless server owns its own
   document. Connecting to the running app needs a transport the app listens on (off by default),

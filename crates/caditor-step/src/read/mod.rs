@@ -1,4 +1,5 @@
 mod conform;
+mod fault;
 mod finish;
 mod geometry;
 mod graph;
@@ -29,7 +30,9 @@ use std::{
 use caditor_geometry::Similarity;
 use caditor_kernel::{Solid, check_interrupt, current_interrupt, interruptible};
 
-pub use crate::read::{finish::Finish, presentation::FaceLook};
+pub use crate::read::{
+    fault::Fault, finish::Finish, offset::OffsetRefusal, presentation::FaceLook,
+};
 use crate::{
     part21::{Exchange, SyntaxError, parse},
     read::{
@@ -163,7 +166,7 @@ fn count_of(graph: &Graph<'_>, kinds: &[&str]) -> usize {
         .count()
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum ReadError {
     #[error("it is not a STEP file")]
     NotStep,
@@ -175,11 +178,11 @@ pub enum ReadError {
     Cancelled,
     #[error("it holds no solid bodies{0}; caditor imports closed solids only")]
     NoSolids(Held),
-    #[error("“{name}” could not be rebuilt, because its entity #{entity} {reason}")]
+    #[error("“{name}” could not be rebuilt, because its entity #{entity} {fault}")]
     NotRebuilt {
         name: String,
         entity: u64,
-        reason: String,
+        fault: Fault,
     },
     #[error("{}", .misplacement.note(.name).trim_end_matches('.'))]
     NotPlaced {
@@ -583,7 +586,7 @@ fn read_placed<T>(
                 (Some((name, problem)), _) => ReadError::NotRebuilt {
                     name,
                     entity: problem.entity,
-                    reason: problem.reason,
+                    fault: problem.fault,
                 },
                 (None, Some((name, misplacement))) => ReadError::NotPlaced { name, misplacement },
                 (None, None) => ReadError::NoSolids(Held {
@@ -810,10 +813,10 @@ impl Builds {
                         firsts_built.get(&first).cloned()
                     };
                     built
-                        .unwrap_or_else(|| Err(Problem::new(id, "could not be read")))
+                        .unwrap_or_else(|| Err(Problem::new(id, Fault::Unreadable)))
                         .map_err(|problem| {
                             if problem.entity == first {
-                                Problem::new(id, problem.reason)
+                                Problem::new(id, problem.fault)
                             } else {
                                 problem
                             }
@@ -828,7 +831,7 @@ impl Builds {
     fn take(&mut self, id: u64) -> Result<Built, Problem> {
         self.0
             .remove(&id)
-            .unwrap_or_else(|| Err(Problem::new(id, "could not be read")))
+            .unwrap_or_else(|| Err(Problem::new(id, Fault::Unreadable)))
     }
 }
 
@@ -929,7 +932,7 @@ fn built_together(
     built
         .into_iter()
         .zip(jobs)
-        .map(|(built, job)| built.unwrap_or_else(|| Err(Problem::new(job.id, "could not be read"))))
+        .map(|(built, job)| built.unwrap_or_else(|| Err(Problem::new(job.id, Fault::Unreadable))))
         .collect()
 }
 
@@ -953,7 +956,7 @@ fn build_one<'a>(
     };
     let geometry = geometries
         .get(position)
-        .ok_or_else(|| Problem::new(job.id, "could not be read"))?;
+        .ok_or_else(|| Problem::new(job.id, Fault::Unreadable))?;
     healed(geometry, job.id, &job.shells).or_else(|problem| match check_interrupt() {
         Ok(()) => without_unreadable(geometry, job.id, &job.shells, problem),
         Err(_) => Err(problem),

@@ -16,7 +16,8 @@ use caditor_kernel::{
 };
 
 use crate::read::{
-    graph::{Entity, Graph, Problem, Read, friendly},
+    fault::Fault,
+    graph::{Entity, Graph, Problem, Read},
     offset::{Fit, OffsetRefusal, offset},
     spline::{Homogeneous, bezier_knots, clamp, expand_knots, knot_count, uniform_knots},
     structure::operator,
@@ -111,17 +112,18 @@ fn polyline(id: u64, points: Vec<Point3>) -> Read<Curve> {
     knots.push(travelled);
     BSpline::new(1, knots, points)
         .map(Curve::BSpline)
-        .map_err(|error| Problem::new(id, format!("is not a usable curve ({error})")))
+        .map_err(|error| Problem::new(id, Fault::UnusableCurve(error)))
 }
 
 fn spline_degree(value: i64, id: u64) -> Read<usize> {
-    let degree = usize::try_from(value).map_err(|_| Problem::new(id, "has a negative degree"))?;
+    let degree = usize::try_from(value).map_err(|_| Problem::new(id, Fault::NegativeDegree))?;
     if degree > MAX_SPLINE_DEGREE {
         return Err(Problem::new(
             id,
-            format!(
-                "has degree {degree}, and caditor reads splines up to degree {MAX_SPLINE_DEGREE}"
-            ),
+            Fault::DegreeTooHigh {
+                degree,
+                max: MAX_SPLINE_DEGREE,
+            },
         ));
     }
     Ok(degree)
@@ -149,10 +151,7 @@ impl Work {
         if charged {
             Ok(())
         } else {
-            Err(Problem::new(
-                id,
-                "is part of a model too intricate to import in one go",
-            ))
+            Err(Problem::new(id, Fault::TooIntricate))
         }
     }
 }
@@ -208,7 +207,7 @@ impl<'a> Geometry<'a> {
             return self.cartesian_point(id);
         }
         if depth > MAX_CURVE_DEPTH {
-            return Err(Problem::new(id, "refers to itself"));
+            return Err(Problem::new(id, Fault::SelfReference));
         }
         let fields = entity.record("POINT_REPLICA")?;
         let parent = self.point_at(fields.reference(1)?, depth + 1)?;
@@ -222,7 +221,7 @@ impl<'a> Geometry<'a> {
         let coordinates = fields.reals(1)?;
         let coordinate = |index: usize| coordinates.get(index).copied().unwrap_or(0.0);
         if coordinates.len() < 2 {
-            return Err(Problem::new(id, "is not a point in space"));
+            return Err(Problem::new(id, Fault::NotAPoint));
         }
         Ok(Point3::new(coordinate(0), coordinate(1), coordinate(2)) * self.units.length)
     }
@@ -233,7 +232,7 @@ impl<'a> Geometry<'a> {
         let ratio = |index: usize| ratios.get(index).copied().unwrap_or(0.0);
         Vector3::new(ratio(0), ratio(1), ratio(2))
             .try_normalize()
-            .ok_or_else(|| Problem::new(id, "is a direction of no length"))
+            .ok_or_else(|| Problem::new(id, Fault::ZeroDirection))
     }
 
     fn vector_direction(&self, id: u64) -> Read<Vector3> {
@@ -241,7 +240,7 @@ impl<'a> Geometry<'a> {
         let direction = self.direction(fields.reference(1)?)?;
         let magnitude = fields.real(2)?;
         if magnitude == 0.0 {
-            return Err(Problem::new(id, "is a vector of no length"));
+            return Err(Problem::new(id, Fault::ZeroVector));
         }
         Ok(direction * magnitude.signum())
     }
@@ -264,17 +263,11 @@ impl<'a> Geometry<'a> {
             }
         };
         Plane::with_x_axis(origin, axis, reference)
-            .ok_or_else(|| Problem::new(id, "has its reference direction along its axis"))
+            .ok_or_else(|| Problem::new(id, Fault::ReferenceAlongAxis))
     }
 
     fn transformation(&self, replica: u64, operator_id: u64) -> Read<Similarity> {
-        operator(self, operator_id).ok_or_else(|| {
-            Problem::new(
-                replica,
-                "is a copy whose transformation cannot be read or scales it beyond what caditor \
-                 can model",
-            )
-        })
+        operator(self, operator_id).ok_or_else(|| Problem::new(replica, Fault::ReplicaUnplaceable))
     }
 
     fn length(&self, fields: &crate::read::graph::Fields<'_>, index: usize) -> Read<f64> {
@@ -290,7 +283,7 @@ impl<'a> Geometry<'a> {
             return known.clone();
         }
         if depth > MAX_CURVE_DEPTH {
-            return Err(Problem::new(id, "refers to itself"));
+            return Err(Problem::new(id, Fault::SelfReference));
         }
         self.charge(id)?;
         let built = self.build_curve(id, depth);
@@ -302,8 +295,7 @@ impl<'a> Geometry<'a> {
 
     fn build_curve(&self, id: u64, depth: usize) -> Read<Curve> {
         let entity = self.graph.entity(id)?;
-        let kernel =
-            |error: GeometryError| Problem::new(id, format!("is not a usable curve ({error})"));
+        let kernel = |error: GeometryError| Problem::new(id, Fault::UnusableCurve(error));
         match entity.kind() {
             "LINE" => {
                 let fields = entity.record("LINE")?;
@@ -385,13 +377,7 @@ impl<'a> Geometry<'a> {
             _ if entity.is("B_SPLINE_CURVE") || entity.is("B_SPLINE_CURVE_WITH_KNOTS") => {
                 Ok(Curve::BSpline(self.spline_curve(entity)?))
             }
-            other => Err(Problem::new(
-                id,
-                format!(
-                    "is a {} edge, which caditor cannot import yet",
-                    friendly(other)
-                ),
-            )),
+            other => Err(Problem::new(id, Fault::UnsupportedEdge(other.to_owned()))),
         }
     }
 
@@ -420,7 +406,7 @@ impl<'a> Geometry<'a> {
 
     fn piece(&self, id: u64, depth: usize) -> Read<Vec<Point3>> {
         if depth > MAX_CURVE_DEPTH {
-            return Err(Problem::new(id, "refers to itself"));
+            return Err(Problem::new(id, Fault::SelfReference));
         }
         self.charge(id)?;
         let entity = self.graph.entity(id)?;
@@ -429,7 +415,7 @@ impl<'a> Geometry<'a> {
             let range = curve
                 .domain()
                 .bounded()
-                .ok_or_else(|| Problem::new(id, "is a piece of a curve with no end"))?;
+                .ok_or_else(|| Problem::new(id, Fault::PieceOfEndlessCurve))?;
             return Ok(sampled(&curve, range));
         }
         let fields = entity.record("TRIMMED_CURVE")?;
@@ -454,7 +440,7 @@ impl<'a> Geometry<'a> {
                     Some(point) => Ok(curve.closest_parameter(point, search)),
                     None => Ok(value * scale),
                 },
-                (None, None) => Err(Problem::new(id, "is trimmed by nothing it can read")),
+                (None, None) => Err(Problem::new(id, Fault::TrimmedByNothing)),
             }
         };
         let (first, second) = (trim(2)?, trim(3)?);
@@ -471,7 +457,7 @@ impl<'a> Geometry<'a> {
             }
         }
         let range =
-            Interval::new(low, high).ok_or_else(|| Problem::new(id, "is trimmed to nothing"))?;
+            Interval::new(low, high).ok_or_else(|| Problem::new(id, Fault::TrimmedToNothing))?;
         let mut points = sampled(&curve, range);
         if !forward {
             points.reverse();
@@ -531,21 +517,21 @@ impl<'a> Geometry<'a> {
         };
         if let Curve::Line(line) = &basis {
             let shifted =
-                offset(0.0).ok_or_else(|| Problem::new(id, "is offset along its own direction"))?;
+                offset(0.0).ok_or_else(|| Problem::new(id, Fault::OffsetAlongOwnDirection))?;
             return Ok(Line::new(shifted, line.direction())
-                .map_err(|error| Problem::new(id, format!("is not a usable curve ({error})")))?
+                .map_err(|error| Problem::new(id, Fault::UnusableCurve(error)))?
                 .into());
         }
         let range = basis
             .domain()
             .bounded()
             .or_else(|| basis.period().and_then(|period| Interval::new(0.0, period)))
-            .ok_or_else(|| Problem::new(id, "offsets a curve with no end"))?;
+            .ok_or_else(|| Problem::new(id, Fault::OffsetOfEndlessCurve))?;
         let points = range
             .split(OFFSET_SAMPLES)
             .map(|parameter| {
                 offset(parameter)
-                    .ok_or_else(|| Problem::new(id, "is offset along its own direction somewhere"))
+                    .ok_or_else(|| Problem::new(id, Fault::OffsetAlongOwnDirectionSomewhere))
             })
             .collect::<Read<Vec<Point3>>>()?;
         polyline(id, points)
@@ -553,7 +539,7 @@ impl<'a> Geometry<'a> {
 
     fn spline_curve(&self, entity: Entity<'_>) -> Read<BSpline<Point3>> {
         let id = entity.id;
-        let mismatched = || Problem::new(id, "has knots that do not match");
+        let mismatched = || Problem::new(id, Fault::KnotsMismatch);
         let (degree, points, knots) = match entity.fields() {
             Ok(fields) => {
                 let degree = spline_degree(fields.integer(1)?, id)?;
@@ -605,17 +591,17 @@ impl<'a> Geometry<'a> {
             .map(|point| self.point(point))
             .collect::<Read<Vec<Point3>>>()?;
         let homogeneous = homogeneous(&points, weights.as_deref())
-            .ok_or_else(|| Problem::new(id, "has weights that do not match its points"))?;
+            .ok_or_else(|| Problem::new(id, Fault::WeightsMismatchPoints))?;
         let (knots, homogeneous) = clamp(degree, &knots, &homogeneous)
-            .ok_or_else(|| Problem::new(id, "has knots that do not fit its points"))?;
-        let (points, weights) = cartesian(&homogeneous)
-            .ok_or_else(|| Problem::new(id, "has weights that are not positive"))?;
+            .ok_or_else(|| Problem::new(id, Fault::KnotsMisfitPoints))?;
+        let (points, weights) =
+            cartesian(&homogeneous).ok_or_else(|| Problem::new(id, Fault::WeightsNotPositive))?;
         let built = if weights.iter().all(|weight| *weight == 1.0) {
             BSpline::new(degree, knots, points)
         } else {
             BSpline::rational(degree, knots, points, weights)
         };
-        built.map_err(|error| Problem::new(id, format!("is not a usable curve ({error})")))
+        built.map_err(|error| Problem::new(id, Fault::UnusableCurve(error)))
     }
 
     pub fn surface(&self, id: u64) -> Read<Surface> {
@@ -627,7 +613,7 @@ impl<'a> Geometry<'a> {
             return known.clone();
         }
         if depth > MAX_CURVE_DEPTH {
-            return Err(Problem::new(id, "refers to itself"));
+            return Err(Problem::new(id, Fault::SelfReference));
         }
         self.charge(id)?;
         let built = self.build_surface(id, depth);
@@ -639,8 +625,7 @@ impl<'a> Geometry<'a> {
 
     fn build_surface(&self, id: u64, depth: usize) -> Read<Surface> {
         let entity = self.graph.entity(id)?;
-        let kernel =
-            |error: GeometryError| Problem::new(id, format!("is not a usable surface ({error})"));
+        let kernel = |error: GeometryError| Problem::new(id, Fault::UnusableSurface(error));
         match entity.kind() {
             "PLANE" => {
                 let fields = entity.record("PLANE")?;
@@ -686,11 +671,7 @@ impl<'a> Geometry<'a> {
                 let pole_height = (minor * minor - major * major).max(0.0).sqrt();
                 let horn = pole_height <= uncertainty;
                 if horn && !outer {
-                    return Err(Problem::new(
-                        id,
-                        "is the inside of a torus whose tube just touches its axis, which holds \
-                         no volume",
-                    ));
+                    return Err(Problem::new(id, Fault::HornInside));
                 }
                 let minor = if horn { major } else { minor };
                 Ok(spindle(&frame, major, minor, outer).map_err(kernel)?.into())
@@ -739,7 +720,7 @@ impl<'a> Geometry<'a> {
                     charge: &charge,
                 };
                 let surface = offset(&basis, distance, &fit)
-                    .map_err(|refusal| Problem::new(id, refusal.to_string()))?;
+                    .map_err(|refusal| Problem::new(id, Fault::Offset(refusal)))?;
                 self.follow_sense(id, reversed);
                 Ok(surface)
             }
@@ -759,10 +740,7 @@ impl<'a> Geometry<'a> {
                 self.follow_sense(id, self.reversed(basis_id));
                 Ok(surface)
             }
-            other => Err(Problem::new(
-                id,
-                format!("is a {}, which caditor cannot import yet", friendly(other)),
-            )),
+            other => Err(Problem::new(id, Fault::Unsupported(other.to_owned()))),
         }
     }
 }
@@ -846,14 +824,14 @@ impl Geometry<'_> {
             .iter()
             .map(|row| {
                 row.list()
-                    .ok_or_else(|| Problem::new(id, "has a row of points that is not a list"))
+                    .ok_or_else(|| Problem::new(id, Fault::PointRowNotList))
                     .and_then(|items| crate::read::graph::references(items, id))
             })
             .collect::<Read<_>>()?;
         let columns = grid.len();
         let count = grid.first().map_or(0, Vec::len);
         if count == 0 || grid.iter().any(|row| row.len() != count) {
-            return Err(Problem::new(id, "has rows of points of different lengths"));
+            return Err(Problem::new(id, Fault::RowsDiffer));
         }
         let kind = entity.kind();
         let explicit_knots =
@@ -867,7 +845,7 @@ impl Geometry<'_> {
                         .filter_map(crate::part21::Parameter::integer)
                         .collect())
                 };
-                let mismatched = || Problem::new(id, "has knots that do not match");
+                let mismatched = || Problem::new(id, Fault::KnotsMismatch);
                 let u_expected = knot_count(columns, u_degree).ok_or_else(mismatched)?;
                 let v_expected = knot_count(count, v_degree).ok_or_else(mismatched)?;
                 let u = expand_knots(
@@ -882,7 +860,7 @@ impl Geometry<'_> {
                 );
                 match (u, v) {
                     (Some(u), Some(v)) => (u, v),
-                    _ => return Err(Problem::new(id, "has knots that do not match")),
+                    _ => return Err(Problem::new(id, Fault::KnotsMismatch)),
                 }
             }
             _ if entity.is("BEZIER_SURFACE") => (
@@ -904,12 +882,12 @@ impl Geometry<'_> {
                     .iter()
                     .map(|row| {
                         row.list()
-                            .ok_or_else(|| Problem::new(id, "has weights that are not a list"))?
+                            .ok_or_else(|| Problem::new(id, Fault::WeightsNotList))?
                             .iter()
                             .map(|weight| {
-                                weight.real().ok_or_else(|| {
-                                    Problem::new(id, "has a weight that cannot be read")
-                                })
+                                weight
+                                    .real()
+                                    .ok_or_else(|| Problem::new(id, Fault::UnreadableWeight))
                             })
                             .collect::<Read<Vec<f64>>>()
                     })
@@ -925,20 +903,18 @@ impl Geometry<'_> {
                     Some(weights) => *weights
                         .get(u_index)
                         .and_then(|row| row.get(v_index))
-                        .ok_or_else(|| {
-                            Problem::new(id, "has weights that do not match its points")
-                        })?,
+                        .ok_or_else(|| Problem::new(id, Fault::WeightsMismatchPoints))?,
                     None => 1.0,
                 };
                 if weight.is_nan() || weight <= 0.0 {
-                    return Err(Problem::new(id, "has weights that are not positive"));
+                    return Err(Problem::new(id, Fault::WeightsNotPositive));
                 }
                 if let Some(target) = rows_by_v.get_mut(v_index) {
                     target.push([point.x * weight, point.y * weight, point.z * weight, weight]);
                 }
             }
         }
-        let unusable = || Problem::new(id, "has knots that do not fit its points");
+        let unusable = || Problem::new(id, Fault::KnotsMisfitPoints);
         let mut u_clamped_knots = None;
         let mut clamped_rows = Vec::with_capacity(rows_by_v.len());
         for row in &rows_by_v {
@@ -968,7 +944,7 @@ impl Geometry<'_> {
             }
         }
         let (points, weights) = cartesian(&homogeneous_points)
-            .ok_or_else(|| Problem::new(id, "has weights that are not positive"))?;
+            .ok_or_else(|| Problem::new(id, Fault::WeightsNotPositive))?;
         let weights = weights
             .iter()
             .any(|weight| *weight != 1.0)
@@ -976,7 +952,7 @@ impl Geometry<'_> {
         BSplineSurface::new(
             u_degree, v_degree, u_knots, v_knots, columns, points, weights,
         )
-        .map_err(|error| Problem::new(id, format!("is not a usable surface ({error})")))
+        .map_err(|error| Problem::new(id, Fault::UnusableSurface(error)))
     }
 }
 

@@ -1,4 +1,7 @@
-use std::{collections::BTreeSet, time::Instant};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    time::Instant,
+};
 
 use caditor_document::{
     BodyOperation, Document, Edit, Evaluation, FeatureId, FeatureKind, PrincipalPlane,
@@ -517,20 +520,47 @@ pub(super) struct Pen<'t, 'd> {
     pub(super) sketch_name: &'t str,
     pub(super) shown: &'t Sketch,
     pub(super) construction: bool,
+    pub(super) session: &'t Session,
+    pub(super) placed: BTreeMap<EntityId, Entity>,
+    pub(super) results: Vec<Value>,
 }
 
 impl Pen<'_, '_> {
     pub(super) fn point(&mut self, at: Point2) -> EntityId {
-        self.transaction
-            .add_sketch_entity(self.sketch, Entity::Point(at))
+        let entity = Entity::Point(at);
+        let id = self
+            .transaction
+            .add_sketch_entity(self.sketch, entity.clone());
+        self.placed.insert(id, entity);
+        id
+    }
+
+    pub(super) fn place(&mut self, entity: Entity, construction: bool) -> EntityId {
+        let id = self
+            .transaction
+            .add_sketch_entity_as(self.sketch, entity.clone(), construction);
+        self.placed.insert(id, entity);
+        id
+    }
+
+    pub(super) fn drawn_so_far(&self) -> Sketch {
+        let mut sketch = self.shown.clone();
+        let points = self
+            .placed
+            .iter()
+            .filter(|(_, entity)| matches!(entity, Entity::Point(_)));
+        let curves = self
+            .placed
+            .iter()
+            .filter(|(_, entity)| !matches!(entity, Entity::Point(_)));
+        for (id, entity) in points.chain(curves) {
+            let _ = sketch.insert_entity(*id, entity.clone());
+        }
+        sketch
     }
 
     pub(super) fn line(&mut self, start: EntityId, end: EntityId) -> EntityId {
-        self.transaction.add_sketch_entity_as(
-            self.sketch,
-            Entity::Line { start, end },
-            self.construction,
-        )
+        self.place(Entity::Line { start, end }, self.construction)
     }
 
     pub(super) fn constrain(&mut self, constraint: Constraint) -> ConstraintId {
@@ -625,8 +655,7 @@ impl Pen<'_, '_> {
                     return Err(SketchingError::Radius(*radius).into());
                 }
                 let centre = self.point(point(*center)?);
-                let circle = self.transaction.add_sketch_entity_as(
-                    self.sketch,
+                let circle = self.place(
                     Entity::Circle {
                         center: centre,
                         radius: *radius,
@@ -660,12 +689,15 @@ pub fn draw(session: &mut Session, work: &Work<'_>, asked: Drawing) -> Result<An
         sketch_name: &feature.name,
         shown,
         construction: asked.construction,
+        session,
+        placed: BTreeMap::new(),
+        results: Vec::new(),
     };
-    let drawn: Vec<Value> = asked
-        .items
-        .iter()
-        .map(|item| pen.draw(item))
-        .collect::<Result<_, _>>()?;
+    for item in &asked.items {
+        let drawn = pen.draw(item)?;
+        pen.results.push(drawn);
+    }
+    let drawn = pen.results;
     let transaction = transaction.finish();
     let mut details = Map::new();
     details.insert("drawn".to_owned(), Value::Array(drawn));

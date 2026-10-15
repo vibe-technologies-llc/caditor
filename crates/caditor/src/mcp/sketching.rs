@@ -1,6 +1,7 @@
 use std::collections::BTreeSet;
 
 use caditor_document::{Datum, FeatureId, FeatureKind, PrincipalPlane, SketchFeature};
+use caditor_expression::Dimension;
 use caditor_geometry::Point2;
 use caditor_kernel::MAX_SIZE;
 use caditor_sketch::{
@@ -17,6 +18,7 @@ use crate::{
     mcp::{
         references::{self, EntityName, Named},
         session::{Session, Work},
+        sketch_edits::amount,
         tools::{Answer, ToolError},
         writing::{self, MOST_ITEMS, NewSketch, Pen, PlaneName, SketchingError, point},
     },
@@ -88,6 +90,14 @@ pub enum SketchToolError {
         "a tangent arc needs its end away from its start and off the line it continues; draw a line there instead"
     )]
     TangentArcEnd,
+    #[error(
+        "give a tangent arc either from_point (a point ending a curve) or after_item (the index of an earlier item of this call), not both and not neither"
+    )]
+    TangentArcStart,
+    #[error("after_item {index} is not an earlier item of this call")]
+    NoEarlierItem { index: usize },
+    #[error("item {index} of this call has no end for a tangent arc to continue from")]
+    NoEarlierEnd { index: usize },
     #[error(
         "a frame is a coordinate system; give plane (XY, XZ or YZ) to choose which of its planes the sketch lies on"
     )]
@@ -193,14 +203,22 @@ pub struct ConicShape {
     pub start: [f64; 2],
     pub end: [f64; 2],
     pub apex: [f64; 2],
-    pub rho: Option<f64>,
+    pub rho: Option<RhoValue>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TangentArcShape {
-    pub from_point: EntityName,
+    pub from_point: Option<EntityName>,
+    pub after_item: Option<usize>,
     pub to: [f64; 2],
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(untagged)]
+pub enum RhoValue {
+    Number(f64),
+    Expression(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -237,13 +255,11 @@ fn sized(value: f64) -> bool {
 
 impl Pen<'_, '_> {
     fn curve(&mut self, entity: Entity) -> EntityId {
-        self.transaction
-            .add_sketch_entity_as(self.sketch, entity, self.construction)
+        self.place(entity, self.construction)
     }
 
     fn guide(&mut self, entity: Entity) -> EntityId {
-        self.transaction
-            .add_sketch_entity_as(self.sketch, entity, true)
+        self.place(entity, true)
     }
 
     fn arc_through(&mut self, center: EntityId, start: Point2, end: Point2) -> Drawn {
@@ -631,7 +647,16 @@ impl ConicShape {
         let start = point(self.start)?;
         let end = point(self.end)?;
         let apex = point(self.apex)?;
-        let rho = self.rho.unwrap_or(DEFAULT_RHO);
+        let (rho, held_by) = match &self.rho {
+            None => (DEFAULT_RHO, None),
+            Some(RhoValue::Number(rho)) => (*rho, None),
+            Some(RhoValue::Expression(text)) => {
+                let parsed = amount(pen.session, "rho", text, Dimension::NONE)?;
+                let held =
+                    (!parsed.expression.parameters().is_empty()).then_some(parsed.expression);
+                (parsed.value, held)
+            }
+        };
         let chord = end - start;
         if !(MIN_RHO..=MAX_RHO).contains(&rho) {
             return Err(SketchToolError::Rho(rho).into());
@@ -648,6 +673,9 @@ impl ConicShape {
             points: points.clone(),
             kind: SplineKind::Conic { rho },
         });
+        if let Some(value) = held_by {
+            pen.constrain(Constraint::Rho { conic, value });
+        }
         Ok(json!({
             "kind": "conic",
             "id": conic.raw(),
@@ -658,14 +686,40 @@ impl ConicShape {
 }
 
 impl TangentArcShape {
+    fn start(&self, pen: &Pen<'_, '_>) -> Result<(EntityId, Sketch), ToolError> {
+        match (&self.from_point, self.after_item) {
+            (Some(named), None) => Ok((
+                references::entity(pen.sketch_name, pen.shown, named)?,
+                pen.shown.clone(),
+            )),
+            (None, Some(index)) => {
+                let earlier = pen
+                    .results
+                    .get(index)
+                    .ok_or(SketchToolError::NoEarlierItem { index })?;
+                let end = earlier
+                    .get("end")
+                    .or_else(|| {
+                        earlier
+                            .get("points")
+                            .and_then(|points| points.as_array()?.last())
+                    })
+                    .and_then(Value::as_u64)
+                    .ok_or(SketchToolError::NoEarlierEnd { index })?;
+                Ok((EntityId::from_raw(end), pen.drawn_so_far()))
+            }
+            _ => Err(SketchToolError::TangentArcStart.into()),
+        }
+    }
+
     pub(super) fn draw(&self, pen: &mut Pen<'_, '_>) -> Result<Value, ToolError> {
-        let from = references::entity(pen.sketch_name, pen.shown, &self.from_point)?;
+        let (from, known) = self.start(pen)?;
         let no_start = || SketchToolError::NoTangentStart {
             sketch: pen.sketch_name.to_owned(),
-            point: self.from_point.clone(),
+            point: EntityName::Id(from.raw()),
         };
-        let tangent = continuing(pen.shown, from).ok_or_else(no_start)?;
-        let start = pen.shown.point(from).ok_or_else(no_start)?;
+        let tangent = continuing(&known, from).ok_or_else(no_start)?;
+        let start = known.point(from).ok_or_else(no_start)?;
         let end = point(self.to)?;
         if start.distance(end) < DEGENERATE_LENGTH {
             return Err(SketchToolError::TangentArcEnd.into());

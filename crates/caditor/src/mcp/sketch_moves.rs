@@ -1,6 +1,5 @@
 use std::collections::BTreeSet;
 
-use caditor_document::{FeatureKind, Outline, ProjectionSource};
 use caditor_expression::Dimension;
 use caditor_geometry::Vector2;
 use caditor_sketch::{Drag, Entity, EntityId, MAX_LENGTH, Sketch};
@@ -8,18 +7,14 @@ use serde::Deserialize;
 use serde_json::json;
 
 use crate::{
-    bodies,
     drag_solver::DragCommand,
-    feature_tree::count,
     mcp::{
-        places,
-        references::{self, EntityName, Named, body_label},
+        references::{EntityName, Named},
         session::{Cancelled, Session, Work},
         sketch_edits::{Planned, SketchEditError, Target, amount},
         tools::ToolError,
-        writing::{self, MOST_ITEMS, SketchingError, coordinate, point},
+        writing::{coordinate, point},
     },
-    projecting,
     sketch_drag::{self, Transform, Transforming},
     sketch_status::up_to_date_result,
 };
@@ -51,17 +46,6 @@ pub struct Scaling {
     pub items: Vec<EntityName>,
     pub factor: f64,
     pub about: Option<EntityName>,
-}
-
-#[derive(Debug, Clone, PartialEq, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Projecting {
-    pub sketch: Named,
-    pub body: Named,
-    #[serde(default)]
-    pub edges: Vec<String>,
-    #[serde(default)]
-    pub faces: Vec<String>,
 }
 
 fn solved_shape<'s>(target: &Target<'s>) -> Result<&'s Sketch, ToolError> {
@@ -253,86 +237,5 @@ fn dragged(
             ),
         );
     }
-    Ok(planned)
-}
-
-pub(super) fn project(target: &Target<'_>, asked: &Projecting) -> Result<Planned, ToolError> {
-    if asked.edges.is_empty() && asked.faces.is_empty() {
-        return Err(SketchEditError::NothingToProject.into());
-    }
-    if asked.edges.len() + asked.faces.len() > MOST_ITEMS {
-        return Err(SketchingError::TooMany.into());
-    }
-    let document = target.document;
-    let body = references::body(document, target.evaluation, &asked.body)?;
-    let body_name = body_label(document, body);
-    let seen = target
-        .evaluation
-        .body_result_seen_by(target.feature, body)
-        .ok_or_else(|| SketchEditError::LaterBody {
-            body: body_name.clone(),
-            sketch: target.name.to_owned(),
-        })?;
-    let not_seen = |what: &'static str, key: &str| SketchEditError::NotSeen {
-        body: body_name.clone(),
-        what,
-        key: key.to_owned(),
-        sketch: target.name.to_owned(),
-    };
-    let plane = target.shown.plane();
-    let mut wanted: Vec<(ProjectionSource, Outline)> = Vec::new();
-    for key in &asked.edges {
-        let name = places::edge_key(key)?;
-        let edge = bodies::find_edge(seen, name).ok_or_else(|| not_seen("edge", key))?;
-        let projection =
-            projecting::edge_projection(seen, body, edge, &plane).ok_or_else(|| {
-                SketchEditError::NotProjectable {
-                    body: body_name.clone(),
-                    key: key.clone(),
-                    sketch: target.name.to_owned(),
-                }
-            })?;
-        wanted.push(projection);
-    }
-    for key in &asked.faces {
-        let face_key = references::face_key(key)?;
-        let face = bodies::find_face(seen, face_key).ok_or_else(|| not_seen("face", key))?;
-        wanted.extend(projecting::face_projections(seen, body, &[face], &plane));
-    }
-    let definition = match document.feature(target.feature).map(|found| &found.kind) {
-        Some(FeatureKind::Sketch(definition)) => Some(definition),
-        _ => None,
-    };
-    let mut fresh: Vec<(ProjectionSource, Outline)> = Vec::new();
-    for (source, outline) in wanted {
-        let projected = definition.is_some_and(|definition| {
-            projecting::existing_projection(definition, &source).is_some()
-        });
-        let repeated = fresh.iter().any(|(taken, _)| taken.is_same_source(&source));
-        if !projected && !repeated {
-            fresh.push((source, outline));
-        }
-    }
-    if fresh.is_empty() {
-        return Err(SketchEditError::AlreadyProjected {
-            sketch: target.name.to_owned(),
-        }
-        .into());
-    }
-    let label = format!(
-        "Project {} of {body_name}",
-        count(fresh.len(), "edge", "edges")
-    );
-    let mut transaction = document.transaction(label);
-    let projected: Vec<EntityId> = fresh
-        .iter()
-        .map(|(source, outline)| {
-            transaction.add_projection(target.feature, source.clone(), outline)
-        })
-        .collect();
-    let mut planned = Planned::of(transaction.finish());
-    planned
-        .details
-        .insert("projected".to_owned(), writing::ids(&projected));
     Ok(planned)
 }
