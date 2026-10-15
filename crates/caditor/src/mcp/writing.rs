@@ -288,7 +288,7 @@ fn value(
     .map_err(|reason| ToolError::Value {
         field: field_name,
         text: text.to_owned(),
-        reason,
+        reason: reason.into(),
     })
 }
 
@@ -378,7 +378,7 @@ pub fn set_parameter(
     .map_err(|reason| ToolError::Value {
         field: "expression",
         text: asked.expression.clone(),
-        reason,
+        reason: reason.into(),
     })?;
     let transaction = match existing {
         Some(parameter) => Transaction::single(

@@ -10,7 +10,7 @@ use caditor_kernel::{Face, Solid};
 
 use crate::{
     feature_fields::Rule,
-    field,
+    field::{self, CheckError},
     model::Model,
     move_manipulator::Reach,
     reversing, solid_panel,
@@ -677,27 +677,42 @@ fn rebuilt(kind: &FeatureKind, slot: ValueSlot, value: Expression) -> Option<Fea
 
 pub const GONE: &str = "The value is no longer there";
 
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum ChangeError {
+    #[error("{}", GONE)]
+    Gone { feature: FeatureId, slot: ValueSlot },
+    #[error(transparent)]
+    Rejected(#[from] CheckError),
+}
+
+impl From<ChangeError> for String {
+    fn from(error: ChangeError) -> Self {
+        error.to_string()
+    }
+}
+
 pub fn change(
     model: &Model,
     feature: FeatureId,
     slot: ValueSlot,
     value: Expression,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, ChangeError> {
     let document = model.document();
-    let owner = document.feature(feature).ok_or_else(|| GONE.to_owned())?;
+    let gone = ChangeError::Gone { feature, slot };
+    let owner = document.feature(feature).ok_or_else(|| gone.clone())?;
     let (value, negative) = match slot {
         ValueSlot::Extrude(Reach::Only) => reversing::unsigned(model.parameters(), value),
         _ => (value, false),
     };
-    let kind = rebuilt(&owner.kind, slot, value).ok_or_else(|| GONE.to_owned())?;
+    let kind = rebuilt(&owner.kind, slot, value).ok_or(gone)?;
     let kind = reversing::flipping(kind, negative);
-    field::checked(
+    Ok(field::checked::<CheckError>(
         document,
         Transaction::single(
             format!("Edit {}", owner.name),
             Edit::SetFeatureKind { id: feature, kind },
         ),
-    )
+    )?)
 }
 
 #[cfg(test)]

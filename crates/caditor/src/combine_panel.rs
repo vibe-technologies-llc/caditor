@@ -131,8 +131,9 @@ fn body_row(
                 Some(Choice {
                     label: document.body_label(body)?,
                     selected: body == current,
-                    change: change(model, id, role.with(combine, body))
-                        .map(|transaction| feature_fields::applied(&feature.name, Ok(transaction))),
+                    change: change(model, id, role.with(combine, body)).map(|transaction| {
+                        feature_fields::applied(&feature.name, Ok::<_, String>(transaction))
+                    }),
                 })
             })
             .collect()
@@ -223,7 +224,7 @@ fn more_tool_rows(
                         label: document.body_label(*body)?,
                         selected: false,
                         change: change(model, id, extended).map(|transaction| {
-                            feature_fields::applied(&feature.name, Ok(transaction))
+                            feature_fields::applied(&feature.name, Ok::<_, String>(transaction))
                         }),
                     })
                 })

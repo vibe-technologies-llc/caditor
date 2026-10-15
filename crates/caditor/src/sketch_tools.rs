@@ -1322,7 +1322,7 @@ fn scaled_to_first_dimension(
     for edit in plain.edits() {
         transaction.edit(edit.clone());
     }
-    field::checked(document, transaction.finish()).ok()
+    field::checked::<field::CheckError>(document, transaction.finish()).ok()
 }
 
 pub fn settled_transaction(

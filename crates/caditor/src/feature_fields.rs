@@ -1,16 +1,18 @@
+use std::fmt::Display;
+
 use caditor_document::{
     AxisReference, BodyOperation, Document, FeatureId, MAX_CONE_ANGLE, MAX_MATE_ANGLE_DEGREES,
     MAX_PATTERN_INSTANCES, MAX_PRISM_SIDES, MAX_RIB_DRAFT_DEGREES, MIN_PRISM_SIDES, ParameterOwner,
     Transaction, capitalized, describe_axis,
 };
-use caditor_expression::{Dimension, Expression};
+use caditor_expression::{Dimension, EvalError, Expression};
 use caditor_kernel::{LEAST_COIL_TURNS, MAX_COIL_TAPER_DEGREES, MAX_COIL_TURNS, MAX_TAPER_DEGREES};
 use egui::{Id, Label, RichText, TextWrapMode, Ui, WidgetText};
 
 use crate::{
     appearance, completion, datum_tools,
     editing::EditingCommand,
-    field::{self, Expected},
+    field::{self, Expected, ExpressionError},
     icons,
     model::{Action, Model, Notice},
     pattern_tools,
@@ -66,83 +68,170 @@ pub enum Rule {
     RibDraft,
 }
 
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum RuleError {
+    #[error("{}", ABOVE_ZERO)]
+    AboveZero,
+    #[error("{}", ZERO_OR_MORE)]
+    ZeroOrMore,
+    #[error("{}", ABOVE_ZERO_OR_REVERSE)]
+    AboveZeroOrReverse,
+    #[error("{}", NOT_ZERO_OR_REVERSE)]
+    NotZeroOrReverse,
+    #[error("{}", TURN)]
+    Turn,
+    #[error("{}", TURNS_TOGETHER)]
+    TurnsTogether,
+    #[error("{}", WHOLE_COUNT)]
+    WholeCount,
+    #[error("Enter a count of at most {most}")]
+    CountAbove { most: u32 },
+    #[error("Enter a whole number from {least} to {most}")]
+    SidesOutside { least: u32, most: u32 },
+    #[error("Enter an angle above 0° and up to {most}°")]
+    ConeAngleOutside { most: f64 },
+    #[error("Enter an angle above 0° and below {below}°")]
+    ChamferAngleOutside { below: f64 },
+    #[error("Enter an angle between -{limit}° and {limit}°; a positive taper draws the sides in")]
+    TaperOutside { limit: f64 },
+    #[error("Enter an angle from 0° to {most}°")]
+    MateAngleOutside { most: f64 },
+    #[error("Enter a number of turns from {least} to {most}")]
+    CoilTurnsOutside { least: f64, most: f64 },
+    #[error(
+        "Enter an angle between -{limit}° and {limit}°; a positive taper widens the coil as it \
+         rises"
+    )]
+    CoilTaperOutside { limit: f64 },
+    #[error("Enter an angle from 0° up to below {below}°; the web widens by it toward the body")]
+    RibDraftOutside { below: f64 },
+}
+
+impl From<RuleError> for String {
+    fn from(error: RuleError) -> Self {
+        error.to_string()
+    }
+}
+
 impl Rule {
-    pub fn check(self, value: f64) -> Result<(), String> {
-        let refusal = match self {
-            Self::Any => None,
-            Self::AboveZero => (value <= 0.0).then_some(ABOVE_ZERO),
-            Self::ZeroOrMore => (value < 0.0).then_some(ZERO_OR_MORE),
-            Self::AboveZeroOrReverse => (value <= 0.0).then_some(ABOVE_ZERO_OR_REVERSE),
-            Self::FlipWhenNegative => (value == 0.0).then_some(NOT_ZERO_OR_REVERSE),
-            Self::Turn => (value <= 0.0 || value > FULL_TURN_DEGREES).then_some(TURN),
-            Self::TurnBeside(other) => {
-                (value <= 0.0 || value + other > FULL_TURN_DEGREES).then_some(TURNS_TOGETHER)
+    pub fn check(self, value: f64) -> Result<(), RuleError> {
+        let fractional = (value - value.round()).abs() > WHOLE_TOLERANCE;
+        match self {
+            Self::Any => Ok(()),
+            Self::AboveZero if value <= 0.0 => Err(RuleError::AboveZero),
+            Self::ZeroOrMore if value < 0.0 => Err(RuleError::ZeroOrMore),
+            Self::AboveZeroOrReverse if value <= 0.0 => Err(RuleError::AboveZeroOrReverse),
+            Self::FlipWhenNegative if value == 0.0 => Err(RuleError::NotZeroOrReverse),
+            Self::Turn if value <= 0.0 || value > FULL_TURN_DEGREES => Err(RuleError::Turn),
+            Self::TurnBeside(other) if value <= 0.0 || value + other > FULL_TURN_DEGREES => {
+                Err(RuleError::TurnsTogether)
             }
-            Self::Count if (value - value.round()).abs() > WHOLE_TOLERANCE || value < 1.0 => {
-                Some(WHOLE_COUNT)
-            }
-            Self::Count if value > f64::from(MAX_PATTERN_INSTANCES) => {
-                return Err(format!("Enter a count of at most {MAX_PATTERN_INSTANCES}"));
-            }
-            Self::Count => None,
+            Self::Count if fractional || value < 1.0 => Err(RuleError::WholeCount),
+            Self::Count if value > f64::from(MAX_PATTERN_INSTANCES) => Err(RuleError::CountAbove {
+                most: MAX_PATTERN_INSTANCES,
+            }),
             Self::Sides
-                if (value - value.round()).abs() > WHOLE_TOLERANCE
+                if fractional
                     || value < f64::from(MIN_PRISM_SIDES)
                     || value > f64::from(MAX_PRISM_SIDES) =>
             {
-                return Err(format!(
-                    "Enter a whole number from {MIN_PRISM_SIDES} to {MAX_PRISM_SIDES}"
-                ));
+                Err(RuleError::SidesOutside {
+                    least: MIN_PRISM_SIDES,
+                    most: MAX_PRISM_SIDES,
+                })
             }
-            Self::Sides => None,
             Self::ConeAngle if value <= 0.0 || value > MAX_CONE_ANGLE => {
-                return Err(format!(
-                    "Enter an angle above 0° and up to {MAX_CONE_ANGLE}°"
-                ));
+                Err(RuleError::ConeAngleOutside {
+                    most: MAX_CONE_ANGLE,
+                })
             }
-            Self::ConeAngle => None,
             Self::ChamferAngle if value <= 0.0 || value >= HALF_TURN_DEGREES => {
-                return Err(format!(
-                    "Enter an angle above 0° and below {HALF_TURN_DEGREES}°"
-                ));
+                Err(RuleError::ChamferAngleOutside {
+                    below: HALF_TURN_DEGREES,
+                })
             }
-            Self::ChamferAngle => None,
-            Self::Taper if value.abs() >= MAX_TAPER_DEGREES => {
-                return Err(format!(
-                    "Enter an angle between -{MAX_TAPER_DEGREES}° and {MAX_TAPER_DEGREES}°; a \
-                     positive taper draws the sides in"
-                ));
-            }
-            Self::Taper => None,
+            Self::Taper if value.abs() >= MAX_TAPER_DEGREES => Err(RuleError::TaperOutside {
+                limit: MAX_TAPER_DEGREES,
+            }),
             Self::MateAngle if !(0.0..=MAX_MATE_ANGLE_DEGREES).contains(&value) => {
-                return Err(format!(
-                    "Enter an angle from 0° to {MAX_MATE_ANGLE_DEGREES}°"
-                ));
+                Err(RuleError::MateAngleOutside {
+                    most: MAX_MATE_ANGLE_DEGREES,
+                })
             }
-            Self::MateAngle => None,
             Self::CoilTurns if !(LEAST_COIL_TURNS..=MAX_COIL_TURNS).contains(&value) => {
-                return Err(format!(
-                    "Enter a number of turns from {LEAST_COIL_TURNS} to {MAX_COIL_TURNS}"
-                ));
+                Err(RuleError::CoilTurnsOutside {
+                    least: LEAST_COIL_TURNS,
+                    most: MAX_COIL_TURNS,
+                })
             }
-            Self::CoilTurns => None,
             Self::CoilTaper if value.abs() >= MAX_COIL_TAPER_DEGREES => {
-                return Err(format!(
-                    "Enter an angle between -{MAX_COIL_TAPER_DEGREES}° and \
-                     {MAX_COIL_TAPER_DEGREES}°; a positive taper widens the coil as it rises"
-                ));
+                Err(RuleError::CoilTaperOutside {
+                    limit: MAX_COIL_TAPER_DEGREES,
+                })
             }
-            Self::CoilTaper => None,
             Self::RibDraft if !(0.0..MAX_RIB_DRAFT_DEGREES).contains(&value) => {
-                return Err(format!(
-                    "Enter an angle from 0° up to below {MAX_RIB_DRAFT_DEGREES}°; the web widens \
-                     by it toward the body"
-                ));
+                Err(RuleError::RibDraftOutside {
+                    below: MAX_RIB_DRAFT_DEGREES,
+                })
             }
-            Self::RibDraft => None,
-        };
-        refusal.map_or(Ok(()), |refusal| Err(refusal.to_owned()))
+            Self::AboveZero
+            | Self::ZeroOrMore
+            | Self::AboveZeroOrReverse
+            | Self::FlipWhenNegative
+            | Self::Turn
+            | Self::TurnBeside(_)
+            | Self::Count
+            | Self::Sides
+            | Self::ConeAngle
+            | Self::ChamferAngle
+            | Self::Taper
+            | Self::MateAngle
+            | Self::CoilTurns
+            | Self::CoilTaper
+            | Self::RibDraft => Ok(()),
+        }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum QuantityError {
+    #[error(transparent)]
+    Expression(#[from] ExpressionError),
+    #[error("{}", field::sentence(&.0.to_string()))]
+    Unevaluable(EvalError),
+    #[error(transparent)]
+    Rule(#[from] RuleError),
+}
+
+impl From<QuantityError> for String {
+    fn from(error: QuantityError) -> Self {
+        error.to_string()
+    }
+}
+
+pub fn parse_quantity(
+    model: &Model,
+    dimension: Dimension,
+    rule: Rule,
+    text: &str,
+) -> Result<Expression, QuantityError> {
+    let parameters = model.parameters();
+    let parsed = field::parse_expression(
+        model.document(),
+        parameters,
+        text,
+        Expected {
+            dimension: Some(dimension),
+            non_negative: false,
+        },
+        model.units(),
+    )?;
+    let value = parameters
+        .evaluate_expression(&parsed)
+        .map_err(QuantityError::Unevaluable)?
+        .value;
+    rule.check(value)?;
+    Ok(parsed)
 }
 
 pub struct Quantity<'a> {
@@ -165,12 +254,12 @@ impl Drafting {
     }
 }
 
-pub fn expression_row_drafting(
+pub fn expression_row_drafting<E: Display>(
     ui: &mut Ui,
     model: &Model,
     caption: &str,
     quantity: Quantity<'_>,
-    change: impl Fn(Expression) -> Result<Transaction, String>,
+    change: impl Fn(Expression) -> Result<Transaction, E>,
 ) -> Drafting {
     let row = expression_row_with(ui, model, (caption, caption), quantity, change, |_| false);
     row.drafting
@@ -182,12 +271,12 @@ pub struct RemovableValue {
     pub hovered: bool,
 }
 
-pub fn expression_row_removable(
+pub fn expression_row_removable<E: Display>(
     ui: &mut Ui,
     model: &Model,
     (caption, owned_as): (&str, &str),
     quantity: Quantity<'_>,
-    change: impl Fn(Expression) -> Result<Transaction, String>,
+    change: impl Fn(Expression) -> Result<Transaction, E>,
     remove_hover: &str,
 ) -> RemovableValue {
     expression_row_with(ui, model, (caption, owned_as), quantity, change, |ui| {
@@ -195,12 +284,12 @@ pub fn expression_row_removable(
     })
 }
 
-fn expression_row_with(
+fn expression_row_with<E: Display>(
     ui: &mut Ui,
     model: &Model,
     (caption, owned_as): (&str, &str),
     quantity: Quantity<'_>,
-    change: impl Fn(Expression) -> Result<Transaction, String>,
+    change: impl Fn(Expression) -> Result<Transaction, E>,
     trailing: impl FnOnce(&mut Ui) -> bool,
 ) -> RemovableValue {
     widgets::caption(ui, caption);
@@ -211,24 +300,7 @@ fn expression_row_with(
         feature: quantity.feature,
         value: owned_as.to_owned(),
     };
-    let parse = |text: &str| {
-        let parsed = field::parse_expression(
-            document,
-            parameters,
-            text,
-            Expected {
-                dimension: Some(quantity.dimension),
-                non_negative: false,
-            },
-            unit,
-        )?;
-        let value = parameters
-            .evaluate_expression(&parsed)
-            .map_err(|error| field::sentence(&error.to_string()))?
-            .value;
-        quantity.rule.check(value)?;
-        Ok(parsed)
-    };
+    let parse = |text: &str| parse_quantity(model, quantity.dimension, quantity.rule, text);
     let named = field::NamedField {
         document,
         parameters,
@@ -286,10 +358,10 @@ pub fn refusal(feature: &str, reason: &str) -> Action {
     )))
 }
 
-pub fn applied(feature: &str, change: Result<Transaction, String>) -> Action {
+pub fn applied<E: Display>(feature: &str, change: Result<Transaction, E>) -> Action {
     match change {
         Ok(transaction) => Action::Apply(transaction),
-        Err(reason) => refusal(feature, &reason),
+        Err(reason) => refusal(feature, &reason.to_string()),
     }
 }
 
@@ -339,11 +411,11 @@ pub struct FrameRow<'a> {
     pub current: Option<FeatureId>,
 }
 
-pub fn frame_row(
+pub fn frame_row<E: Display>(
     ui: &mut Ui,
     document: &Document,
     row: &FrameRow<'_>,
-    change: impl Fn(Option<FeatureId>) -> Result<Transaction, String>,
+    change: impl Fn(Option<FeatureId>) -> Result<Transaction, E>,
 ) -> Option<Action> {
     let before = document.feature_index(row.feature).unwrap_or(usize::MAX);
     let frames = datum_tools::frames_before(document, before);
@@ -383,26 +455,26 @@ pub fn combo_text(ui: &mut Ui, name: Option<&str>, missing: &str) -> WidgetText 
     }
 }
 
-pub struct Choice<T = Action> {
+pub struct Choice<T = Action, E = String> {
     pub label: String,
     pub selected: bool,
-    pub change: Result<T, String>,
+    pub change: Result<T, E>,
 }
 
-pub fn combo<T>(
+pub fn combo<T, E: Display>(
     ui: &mut Ui,
     id: Id,
     selected: impl Into<WidgetText>,
-    choices: impl FnOnce() -> Vec<Choice<T>>,
+    choices: impl FnOnce() -> Vec<Choice<T, E>>,
 ) -> Option<T> {
     listing(ui, id, selected, choices).0
 }
 
-pub fn principal_combo<T>(
+pub fn principal_combo<T, E: Display>(
     ui: &mut Ui,
     id: Id,
     selected: impl Into<WidgetText>,
-    choices: impl FnOnce() -> Vec<Choice<T>>,
+    choices: impl FnOnce() -> Vec<Choice<T, E>>,
 ) -> Option<T> {
     let (chosen, open) = listing(ui, id, selected, choices);
     if open {
@@ -411,11 +483,11 @@ pub fn principal_combo<T>(
     chosen
 }
 
-fn listing<T>(
+fn listing<T, E: Display>(
     ui: &mut Ui,
     id: Id,
     selected: impl Into<WidgetText>,
-    choices: impl FnOnce() -> Vec<Choice<T>>,
+    choices: impl FnOnce() -> Vec<Choice<T, E>>,
 ) -> (Option<T>, bool) {
     let mut chosen = None;
     let shown = widgets::combo(id, selected).show(ui, |ui| {
@@ -427,7 +499,9 @@ fn listing<T>(
                 Named::new(button, choice.label.as_str()).selected(choice.selected),
             );
             let response = match &choice.change {
-                Err(reason) if !choice.selected => response.on_disabled_hover_text(reason),
+                Err(reason) if !choice.selected => {
+                    response.on_disabled_hover_text(reason.to_string())
+                }
                 Err(_) | Ok(_) => response,
             };
             if response.clicked()
@@ -456,11 +530,11 @@ pub struct OperationRows {
     pub ids: (&'static str, &'static str),
 }
 
-pub fn body_operation_rows(
+pub fn body_operation_rows<E: Display>(
     ui: &mut Ui,
     model: &Model,
     rows: &OperationRows,
-    change: impl Fn(BodyOperation) -> Result<Transaction, String>,
+    change: impl Fn(BodyOperation) -> Result<Transaction, E>,
 ) -> Vec<Action> {
     let OperationRows {
         feature,
@@ -523,17 +597,17 @@ pub fn body_operation_rows(
     actions
 }
 
-pub struct Segment<'a> {
+pub struct Segment<'a, E = String> {
     pub label: &'a str,
     pub hover: &'a str,
-    pub change: Option<Result<Transaction, String>>,
+    pub change: Option<Result<Transaction, E>>,
 }
 
-pub fn segmented_row(
+pub fn segmented_row<E: Display>(
     ui: &mut Ui,
     caption: &str,
     feature: &str,
-    segments: Vec<Segment<'_>>,
+    segments: Vec<Segment<'_, E>>,
 ) -> Option<Action> {
     widgets::caption(ui, caption);
     let labels: Vec<(&str, &str)> = segments
@@ -563,26 +637,26 @@ pub enum Shown {
     NoneChosen,
 }
 
-pub struct Picker<'a> {
+pub struct Picker<'a, E = String> {
     pub feature: FeatureId,
     pub slot: Slot,
-    pub selected: Result<Transaction, String>,
+    pub selected: Result<Transaction, E>,
     pub hover: &'a str,
 }
 
 #[derive(Clone)]
-struct OfferedChange {
+struct OfferedChange<E> {
     basis: (u64, u64, u64),
-    change: Result<Transaction, String>,
+    change: Result<Transaction, E>,
 }
 
-pub fn offered_change(
+pub fn offered_change<E: Clone + Send + Sync + 'static>(
     ctx: &egui::Context,
     model: &Model,
     selection: &Selection,
     reference: (FeatureId, Slot),
-    compute: impl FnOnce() -> Result<Transaction, String>,
-) -> Result<Transaction, String> {
+    compute: impl FnOnce() -> Result<Transaction, E>,
+) -> Result<Transaction, E> {
     let id = Id::new(("offered-change", reference.0, reference.1));
     let basis = (
         selection.generation(),
@@ -590,7 +664,7 @@ pub fn offered_change(
         model.evaluation_generation(),
     );
     let known = ctx
-        .data(|data| data.get_temp::<OfferedChange>(id))
+        .data(|data| data.get_temp::<OfferedChange<E>>(id))
         .filter(|known| known.basis == basis);
     if let Some(known) = known {
         return known.change;
@@ -649,7 +723,12 @@ fn choosing_row(
     .inner
 }
 
-pub fn reference_picker(ui: &mut Ui, model: &Model, picker: Picker<'_>, actions: &mut Vec<Action>) {
+pub fn reference_picker<E>(
+    ui: &mut Ui,
+    model: &Model,
+    picker: Picker<'_, E>,
+    actions: &mut Vec<Action>,
+) {
     let reference = (picker.feature, picker.slot);
     if choosing_prompt(ui, model, reference, STOP_CHOOSING, actions) {
         return;
@@ -687,17 +766,17 @@ pub fn list_in_view(ui: &mut Ui, opened: bool, prompt: &str, hover: &str) -> Opt
 
 pub const ALREADY_CHOSEN: &str = "It is already the one chosen";
 
-pub struct AxisRow<'a> {
+pub struct AxisRow<'a, E = String> {
     pub caption: &'a str,
     pub shown: Option<String>,
-    pub picker: Picker<'a>,
+    pub picker: Picker<'a, E>,
 }
 
-pub fn axis_row(
+pub fn axis_row<E, L: Display>(
     ui: &mut Ui,
     model: &Model,
-    row: AxisRow<'_>,
-    listed: Option<&dyn Fn() -> Vec<Choice>>,
+    row: AxisRow<'_, E>,
+    listed: Option<&dyn Fn() -> Vec<Choice<Action, L>>>,
     actions: &mut Vec<Action>,
 ) {
     widgets::caption(ui, row.caption);
@@ -721,12 +800,24 @@ pub fn axis_row(
     ui.end_row();
 }
 
-pub fn model_axis_choices(
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum ChoiceRefusal {
+    #[error("{}", ALREADY_CHOSEN)]
+    AlreadyChosen,
+}
+
+impl From<ChoiceRefusal> for String {
+    fn from(refusal: ChoiceRefusal) -> Self {
+        refusal.to_string()
+    }
+}
+
+pub fn model_axis_choices<E: From<ChoiceRefusal>>(
     model: &Model,
     feature: FeatureId,
     current: Option<&AxisReference>,
-    change: &dyn Fn(AxisReference) -> Result<Transaction, String>,
-) -> Vec<Choice> {
+    change: &dyn Fn(AxisReference) -> Result<Transaction, E>,
+) -> Vec<Choice<Action, E>> {
     let document = model.document();
     let listed = pattern_tools::listed_axes(model, feature);
     let shown_too = current.filter(|current| !listed.contains(current)).cloned();
@@ -739,7 +830,7 @@ pub fn model_axis_choices(
                 label: capitalized(&describe_axis(document, &axis)),
                 selected,
                 change: if selected {
-                    Err(ALREADY_CHOSEN.to_owned())
+                    Err(ChoiceRefusal::AlreadyChosen.into())
                 } else {
                     change(axis).map(Action::Apply)
                 },
@@ -748,12 +839,12 @@ pub fn model_axis_choices(
         .collect()
 }
 
-pub fn reference_row(
+pub fn reference_row<E>(
     ui: &mut Ui,
     model: &Model,
     caption: &str,
     shown: Shown,
-    picker: Picker<'_>,
+    picker: Picker<'_, E>,
     remove: Option<&str>,
     actions: &mut Vec<Action>,
 ) -> bool {

@@ -900,7 +900,7 @@ pub fn edit_constraint(
         .map_err(|reason| ToolError::Value {
             field: "value",
             text: text.clone(),
-            reason,
+            reason: reason.into(),
         })?;
         for edit in changed.edits() {
             transaction.edit(edit.clone());
