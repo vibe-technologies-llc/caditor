@@ -283,7 +283,8 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   (`Presence::Projectable`) and `Pickable::is_available` lets their faces, edges, corners and curves
   be hovered; it also draws the shown principal axes and origin and the shown datum axes and points
   above the sketch (`Builder::projectable_references`). A click or Activate runs
-  `projecting::project` over `projections_of` (shared with a hole's Place by): an edge, a corner,
+  `projecting::project` over `projections_of` (shared with a hole's Place by and the MCP server, which
+  is why they take a `Surroundings`, not a `Model`, and fail with a typed `ProjectionError`): an edge, a corner,
   every boundary edge of a face not seen end-on, a curve or point of a sketch above it, a datum or
   principal axis (a line spanning the shown bodies, `axis_reach`, or a point where it stands square
   to the sketch), a datum point or the origin, each one undoable transaction from the body's state at

@@ -1,34 +1,129 @@
 use std::collections::BTreeSet;
 
 use caditor_document::{
-    Document, Edit, FeatureId, FeatureKind, Outline, ProjectionSource, SectionError, SketchFeature,
-    SolidResult, Transaction, axis_outline, datum_outline, edge_outline, point_outline,
-    section_curves, sketch_outline, vertex_outline,
+    Document, Edit, Evaluation, Feature, FeatureId, FeatureKind, Outline, ProjectionSource,
+    SectionError, SketchFeature, SolidResult, Transaction, axis_outline, datum_outline,
+    edge_outline, point_outline, section_curves, sketch_outline, vertex_outline,
 };
 use caditor_geometry::{Aabb, Plane, Point3, Ray};
 use caditor_kernel::{EdgeId, EdgeReference, FaceId};
 use caditor_sketch::{Entity, EntityId};
 
 use crate::{
-    bodies, body_selection::face_boundary, datum_tools, editing::ActiveSketch, model::Model,
-    selection::Pickable, visibility,
+    bodies, body_selection::face_boundary, datum_tools, display::Displayed, editing::ActiveSketch,
+    model::Model, selection::Pickable, visibility,
 };
+
+pub type Projected = (ProjectionSource, Outline);
+
+pub trait Surroundings {
+    fn document(&self) -> &Document;
+
+    fn evaluation(&self) -> &Evaluation;
+
+    fn shown_sketch<'a>(&'a self, feature: &'a Feature) -> Option<Displayed<'a>>;
+}
+
+impl Surroundings for Model {
+    fn document(&self) -> &Document {
+        Model::document(self)
+    }
+
+    fn evaluation(&self) -> &Evaluation {
+        Model::evaluation(self)
+    }
+
+    fn shown_sketch<'a>(&'a self, feature: &'a Feature) -> Option<Displayed<'a>> {
+        self.displayed_sketch(feature)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ProjectionError {
+    #[error("The sketch being edited no longer exists")]
+    SketchGone,
+    #[error("Only a sketch can take projected or intersected geometry")]
+    NotASketch,
+    #[error("That sketch no longer exists")]
+    SourceGone,
+    #[error("{name} has not been computed yet")]
+    NotComputed { name: String },
+    #[error(
+        "{feature} comes after {sketch} in the tree, so its geometry cannot be projected into it"
+    )]
+    FeatureAfter { feature: String, sketch: String },
+    #[error("{body} is made after {sketch} in the tree, so it cannot be projected into it")]
+    BodyAfter { body: String, sketch: String },
+    #[error(
+        "That geometry is made by a feature after {sketch} in the tree, so it cannot be projected into it"
+    )]
+    MadeAfter { sketch: String },
+    #[error("{sketch} has no curves or points to project")]
+    NothingIn { sketch: String },
+    #[error("Every curve and point of {sketch} is already projected into this sketch")]
+    EverythingProjected { sketch: String },
+    #[error("{ALREADY_PROJECTED}")]
+    AlreadyProjected,
+    #[error("Every edge of that face is seen end-on from this sketch or already projected into it")]
+    NothingOfFace,
+    #[error("That edge cannot be projected into this sketch")]
+    EdgeNotProjectable,
+    #[error(
+        "That corner cannot be told apart from another between the same faces, so the sketch could not follow it"
+    )]
+    CornerAmbiguous,
+    #[error("That corner cannot be projected into this sketch")]
+    CornerNotProjectable,
+    #[error("That geometry cannot be projected into this sketch")]
+    GeometryNotProjectable,
+    #[error(
+        "A sketch's own origin and axes cannot be projected; project the model's origin or axes instead"
+    )]
+    ReferenceNotProjected,
+    #[error("Only datum axes and points can be projected; intersect a datum plane instead")]
+    DatumNotProjected,
+    #[error("The {axis} has no direction")]
+    AxisWithoutDirection { axis: &'static str },
+    #[error("That axis cannot be projected into this sketch")]
+    AxisNotProjectable,
+    #[error(
+        "Only edges, corners and faces of bodies, curves and points of other sketches, axes, datum points and the origin can be projected"
+    )]
+    NotProjectable,
+    #[error("{feature} comes after {sketch} in the tree, so it cannot be intersected with it")]
+    DatumAfter { feature: String, sketch: String },
+    #[error("{name} is not a plane")]
+    NotAPlane { name: String },
+    #[error("{name} is parallel to the sketch, so it does not cross it")]
+    ParallelToSketch { name: String },
+    #[error("The sketch plane does not cut that face")]
+    FaceNotCut,
+    #[error("{ALREADY_INTERSECTED}")]
+    AlreadyIntersected,
+    #[error("The sketch plane does not cut through {name}")]
+    SectionMisses { name: String },
+    #[error(
+        "{name} could not be cut along the sketch plane; move the sketch slightly so it does not run exactly along a face or edge"
+    )]
+    SectionFailed { name: String },
+    #[error(
+        "Only faces and bodies, and datum and principal planes, can be intersected with the sketch"
+    )]
+    NotIntersectable,
+}
+
+impl From<ProjectionError> for String {
+    fn from(error: ProjectionError) -> Self {
+        error.to_string()
+    }
+}
 
 pub const ALREADY_PROJECTED: &str = "That is already projected into this sketch";
 pub const NO_SKETCH_TO_PROJECT: &str = "Highlight a curve of another sketch with the Project tool, \
                                         or choose one other sketch in the feature tree";
-const NOTHING_TO_PROJECT: &str =
-    "Every edge of that face is seen end-on from this sketch or already projected into it";
 pub const ALREADY_INTERSECTED: &str = "That cut is already drawn in this sketch";
-pub const FACE_NOT_CUT: &str = "The sketch plane does not cut that face";
 pub const NO_FACE_HIGHLIGHTED: &str =
     "Choose the Intersect tool and highlight a face of a body first";
-const NOT_PROJECTABLE: &str = "Only edges, corners and faces of bodies, curves and points of other \
-                               sketches, axes, datum points and the origin can be projected";
-const REFERENCE_NOT_PROJECTED: &str = "A sketch's own origin and axes cannot be projected; project \
-                                       the model's origin or axes instead";
-const DATUM_NOT_PROJECTED: &str =
-    "Only datum axes and points can be projected; intersect a datum plane instead";
 const DEFAULT_DATUM_REACH: f64 = 50.0;
 const DATUM_REACH_MARGIN: f64 = 1.1;
 
@@ -131,7 +226,7 @@ pub fn project(
     active: ActiveSketch,
     pickable: Pickable,
     whole: bool,
-) -> Result<Projection, String> {
+) -> Result<Projection, ProjectionError> {
     if active.tool.intersects() {
         return intersect(model, active.feature, pickable, whole).map(Projection::from);
     }
@@ -171,48 +266,23 @@ pub fn sketch_to_project(
 }
 
 pub fn project_sketch(
-    model: &Model,
+    model: &dyn Surroundings,
     sketch: FeatureId,
     source: FeatureId,
-) -> Result<Projection, String> {
+) -> Result<Projection, ProjectionError> {
     let document = model.document();
-    refuse_later(document, source, sketch)?;
-    let (definition, plane) = sketch_plane(model, sketch)?;
-    let owner = document
-        .feature(source)
-        .ok_or_else(|| "That sketch no longer exists".to_owned())?;
-    let shown = model
-        .displayed_sketch(owner)
-        .ok_or_else(|| format!("{} has not been computed yet", owner.name))?;
-    let lone_points: BTreeSet<EntityId> = shown.free_points().into_iter().collect();
-    let candidates: Vec<(ProjectionSource, Outline)> = shown
-        .entities()
-        .filter(|(id, entity)| !id.is_reference() && is_projected_whole(*id, entity, &lone_points))
-        .filter_map(|(id, _)| {
-            let outline = sketch_outline(&shown, id, &plane)?;
-            Some((
-                ProjectionSource::SketchEntity {
-                    sketch: source,
-                    entity: id,
-                },
-                outline,
-            ))
-        })
-        .collect();
+    let (definition, _) = sketch_plane(model, sketch)?;
+    let (owner, candidates) = sketch_candidates(model, sketch, source)?;
     let total = Counted::of(candidates.iter().map(|(_, outline)| outline));
     let fresh: Vec<(ProjectionSource, Outline)> = candidates
         .into_iter()
         .filter(|(source, _)| !already_projected(definition, source))
         .collect();
-    if total.is_empty() {
-        return Err(format!("{} has no curves or points to project", owner.name));
-    }
     let projected = Counted::of(fresh.iter().map(|(_, outline)| outline));
     if projected.is_empty() {
-        return Err(format!(
-            "Every curve and point of {} is already projected into this sketch",
-            owner.name
-        ));
+        return Err(ProjectionError::EverythingProjected {
+            sketch: owner.name.clone(),
+        });
     }
     let mut transaction =
         document.transaction(format!("Project {} of {}", projected.words(), owner.name));
@@ -233,6 +303,45 @@ pub fn project_sketch(
         transaction: transaction.finish(),
         left_out,
     })
+}
+
+pub fn sketch_candidates(
+    model: &dyn Surroundings,
+    sketch: FeatureId,
+    source: FeatureId,
+) -> Result<(&Feature, Vec<Projected>), ProjectionError> {
+    let document = model.document();
+    refuse_later(document, source, sketch)?;
+    let (_, plane) = sketch_plane(model, sketch)?;
+    let owner = document
+        .feature(source)
+        .ok_or(ProjectionError::SourceGone)?;
+    let shown = model
+        .shown_sketch(owner)
+        .ok_or_else(|| ProjectionError::NotComputed {
+            name: owner.name.clone(),
+        })?;
+    let lone_points: BTreeSet<EntityId> = shown.free_points().into_iter().collect();
+    let candidates: Vec<(ProjectionSource, Outline)> = shown
+        .entities()
+        .filter(|(id, entity)| !id.is_reference() && is_projected_whole(*id, entity, &lone_points))
+        .filter_map(|(id, _)| {
+            let outline = sketch_outline(&shown, id, &plane)?;
+            Some((
+                ProjectionSource::SketchEntity {
+                    sketch: source,
+                    entity: id,
+                },
+                outline,
+            ))
+        })
+        .collect();
+    if candidates.is_empty() {
+        return Err(ProjectionError::NothingIn {
+            sketch: owner.name.clone(),
+        });
+    }
+    Ok((owner, candidates))
 }
 
 fn is_projected_whole(id: EntityId, entity: &Entity, lone_points: &BTreeSet<EntityId>) -> bool {
@@ -299,7 +408,7 @@ fn project_one(
     model: &Model,
     active: ActiveSketch,
     pickable: Pickable,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, ProjectionError> {
     let sketch = active.feature;
     let document = model.document();
     let (definition, plane) = sketch_plane(model, sketch)?;
@@ -310,8 +419,8 @@ fn project_one(
         .collect();
     if fresh.is_empty() {
         return Err(match pickable {
-            Pickable::Face { .. } => NOTHING_TO_PROJECT.to_owned(),
-            _ => ALREADY_PROJECTED.to_owned(),
+            Pickable::Face { .. } => ProjectionError::NothingOfFace,
+            _ => ProjectionError::AlreadyProjected,
         });
     }
     let label = projected_words(model, sketch, pickable).map_or_else(
@@ -326,11 +435,11 @@ fn project_one(
 }
 
 pub fn projections_of(
-    model: &Model,
+    model: &dyn Surroundings,
     sketch: FeatureId,
     plane: &Plane,
     pickable: Pickable,
-) -> Result<Vec<(ProjectionSource, Outline)>, String> {
+) -> Result<Vec<(ProjectionSource, Outline)>, ProjectionError> {
     let document = model.document();
     Ok(match pickable {
         Pickable::Edge { body, edge } => {
@@ -339,7 +448,7 @@ pub fn projections_of(
                 bodies::find_edge(result, edge).ok_or_else(|| later_geometry(document, sketch))?;
             vec![
                 edge_projection(result, body, id, plane)
-                    .ok_or_else(|| "That edge cannot be projected into this sketch".to_owned())?,
+                    .ok_or(ProjectionError::EdgeNotProjectable)?,
             ]
         }
         Pickable::Vertex { body, vertex } => {
@@ -347,14 +456,10 @@ pub fn projections_of(
             let id = bodies::find_vertex(result, vertex)
                 .ok_or_else(|| later_geometry(document, sketch))?;
             if result.names().vertices_named(vertex.name).len() > 1 {
-                return Err(
-                    "That corner cannot be told apart from another between the same faces, so \
-                     the sketch could not follow it"
-                        .to_owned(),
-                );
+                return Err(ProjectionError::CornerAmbiguous);
             }
             let outline = vertex_outline(&result.solid, id, plane)
-                .ok_or_else(|| "That corner cannot be projected into this sketch".to_owned())?;
+                .ok_or(ProjectionError::CornerNotProjectable)?;
             vec![(
                 ProjectionSource::Vertex {
                     body,
@@ -372,16 +477,18 @@ pub fn projections_of(
         Pickable::SketchEntity { feature, entity } => {
             refuse_later(document, feature, sketch)?;
             if entity.is_reference() {
-                return Err(REFERENCE_NOT_PROJECTED.to_owned());
+                return Err(ProjectionError::ReferenceNotProjected);
             }
             let owner = document
                 .feature(feature)
-                .ok_or_else(|| "That sketch no longer exists".to_owned())?;
+                .ok_or(ProjectionError::SourceGone)?;
             let source = model
-                .displayed_sketch(owner)
-                .ok_or_else(|| format!("{} has not been computed yet", owner.name))?;
+                .shown_sketch(owner)
+                .ok_or_else(|| ProjectionError::NotComputed {
+                    name: owner.name.clone(),
+                })?;
             let outline = sketch_outline(&source, entity, plane)
-                .ok_or_else(|| "That geometry cannot be projected into this sketch".to_owned())?;
+                .ok_or(ProjectionError::GeometryNotProjectable)?;
             vec![(
                 ProjectionSource::SketchEntity {
                     sketch: feature,
@@ -393,10 +500,9 @@ pub fn projections_of(
         Pickable::Datum(datum) => {
             refuse_later(document, datum, sketch)?;
             let result = datum_tools::result(model.evaluation(), datum).ok_or_else(|| {
-                format!(
-                    "{} has not been computed yet",
-                    feature_name(document, datum)
-                )
+                ProjectionError::NotComputed {
+                    name: feature_name(document, datum),
+                }
             })?;
             match (result.axis(), result.point()) {
                 (Some(axis), _) => {
@@ -410,14 +516,14 @@ pub fn projections_of(
                     ProjectionSource::DatumPoint { datum },
                     point_outline(point, plane),
                 )],
-                (None, None) => return Err(DATUM_NOT_PROJECTED.to_owned()),
+                (None, None) => return Err(ProjectionError::DatumNotProjected),
             }
         }
         Pickable::Axis(axis) => {
             let principal = axis.principal();
             let ray = principal
                 .ray()
-                .ok_or_else(|| format!("The {} has no direction", axis.name()))?;
+                .ok_or(ProjectionError::AxisWithoutDirection { axis: axis.name() })?;
             let reach = axis_reach(model, &ray, plane);
             vec![(
                 ProjectionSource::PrincipalAxis {
@@ -428,23 +534,25 @@ pub fn projections_of(
             )]
         }
         Pickable::Origin => vec![(ProjectionSource::Origin, point_outline(Point3::ZERO, plane))],
-        _ => return Err(NOT_PROJECTABLE.to_owned()),
+        _ => return Err(ProjectionError::NotProjectable),
     })
 }
 
-fn axis_projection(axis: &Ray, plane: &Plane, reach: f64) -> Result<Outline, String> {
-    axis_outline(axis, plane, reach)
-        .ok_or_else(|| "That axis cannot be projected into this sketch".to_owned())
+fn axis_projection(axis: &Ray, plane: &Plane, reach: f64) -> Result<Outline, ProjectionError> {
+    axis_outline(axis, plane, reach).ok_or(ProjectionError::AxisNotProjectable)
 }
 
-fn refuse_later(document: &Document, feature: FeatureId, sketch: FeatureId) -> Result<(), String> {
+fn refuse_later(
+    document: &Document,
+    feature: FeatureId,
+    sketch: FeatureId,
+) -> Result<(), ProjectionError> {
     let position = |id: FeatureId| document.features().position(|other| other.id() == id);
     if position(feature) >= position(sketch) {
-        return Err(format!(
-            "{} comes after {} in the tree, so its geometry cannot be projected into it",
-            feature_name(document, feature),
-            feature_name(document, sketch)
-        ));
+        return Err(ProjectionError::FeatureAfter {
+            feature: feature_name(document, feature),
+            sketch: feature_name(document, sketch),
+        });
     }
     Ok(())
 }
@@ -501,26 +609,29 @@ pub fn existing_projection(
         .map(|(id, _)| *id)
 }
 
-fn sketch_plane(model: &Model, sketch: FeatureId) -> Result<(&SketchFeature, Plane), String> {
+fn sketch_plane(
+    model: &dyn Surroundings,
+    sketch: FeatureId,
+) -> Result<(&SketchFeature, Plane), ProjectionError> {
     let edited = model
         .document()
         .feature(sketch)
-        .ok_or_else(|| "The sketch being edited no longer exists".to_owned())?;
+        .ok_or(ProjectionError::SketchGone)?;
     let FeatureKind::Sketch(definition) = &edited.kind else {
-        return Err("Only a sketch can take projected or intersected geometry".to_owned());
+        return Err(ProjectionError::NotASketch);
     };
     let plane = model
-        .displayed_sketch(edited)
+        .shown_sketch(edited)
         .map_or_else(|| definition.sketch.plane(), |displayed| displayed.plane());
     Ok((definition, plane))
 }
 
-fn intersect(
-    model: &Model,
+pub fn intersect(
+    model: &dyn Surroundings,
     sketch: FeatureId,
     pickable: Pickable,
     whole: bool,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, ProjectionError> {
     let document = model.document();
     let (definition, plane) = sketch_plane(model, sketch)?;
     let (cuts, construction, label) = match pickable {
@@ -541,7 +652,7 @@ fn intersect(
                 .map(|curve| (curve.source, curve.outline))
                 .collect();
             if cuts.is_empty() {
-                return Err(FACE_NOT_CUT.to_owned());
+                return Err(ProjectionError::FaceNotCut);
             }
             let label = if whole {
                 format!("Intersect {}", feature_name(document, body))
@@ -556,21 +667,21 @@ fn intersect(
         Pickable::Datum(datum) => {
             let position = |id: FeatureId| document.features().position(|other| other.id() == id);
             if position(datum) >= position(sketch) {
-                return Err(format!(
-                    "{} comes after {} in the tree, so it cannot be intersected with it",
-                    feature_name(document, datum),
-                    feature_name(document, sketch)
-                ));
+                return Err(ProjectionError::DatumAfter {
+                    feature: feature_name(document, datum),
+                    sketch: feature_name(document, sketch),
+                });
             }
             let datum_plane = datum_tools::result(model.evaluation(), datum)
                 .and_then(|result| result.plane())
-                .ok_or_else(|| format!("{} is not a plane", feature_name(document, datum)))?;
+                .ok_or_else(|| ProjectionError::NotAPlane {
+                    name: feature_name(document, datum),
+                })?;
             let reach = datum_reach(model, &datum_plane, &plane);
             let outline = datum_outline(&datum_plane, &plane, reach).ok_or_else(|| {
-                format!(
-                    "{} is parallel to the sketch, so it does not cross it",
-                    feature_name(document, datum)
-                )
+                ProjectionError::ParallelToSketch {
+                    name: feature_name(document, datum),
+                }
             })?;
             let label = format!("Intersect {}", feature_name(document, datum));
             (
@@ -582,10 +693,9 @@ fn intersect(
         Pickable::Plane(principal) => {
             let reach = datum_reach(model, &principal.plane(), &plane);
             let outline = datum_outline(&principal.plane(), &plane, reach).ok_or_else(|| {
-                format!(
-                    "The {} is parallel to the sketch, so it does not cross it",
-                    principal.name()
-                )
+                ProjectionError::ParallelToSketch {
+                    name: format!("The {}", principal.name()),
+                }
             })?;
             (
                 vec![(
@@ -599,20 +709,14 @@ fn intersect(
                 format!("Intersect the {}", principal.name()),
             )
         }
-        _ => {
-            return Err(
-                "Only faces and bodies, and datum and principal planes, can be intersected with \
-                 the sketch"
-                    .to_owned(),
-            );
-        }
+        _ => return Err(ProjectionError::NotIntersectable),
     };
     let fresh: Vec<(ProjectionSource, Outline)> = cuts
         .into_iter()
         .filter(|(source, _)| !already_projected(definition, source))
         .collect();
     if fresh.is_empty() {
-        return Err(ALREADY_INTERSECTED.to_owned());
+        return Err(ProjectionError::AlreadyIntersected);
     }
     let mut transaction = document.transaction(label);
     for (source, outline) in &fresh {
@@ -628,26 +732,23 @@ fn intersect(
     Ok(transaction.finish())
 }
 
-fn section_refusal(document: &Document, body: FeatureId, error: &SectionError) -> String {
+fn section_refusal(document: &Document, body: FeatureId, error: &SectionError) -> ProjectionError {
     let name = feature_name(document, body);
     match error {
-        SectionError::Misses => format!("The sketch plane does not cut through {name}"),
+        SectionError::Misses => ProjectionError::SectionMisses { name },
         SectionError::HalfSpace(_) | SectionError::Boolean(_) => {
             log::warn!("{name} could not be cut along the sketch plane: {error}");
-            format!(
-                "{name} could not be cut along the sketch plane; move the sketch slightly so it \
-                 does not run exactly along a face or edge"
-            )
+            ProjectionError::SectionFailed { name }
         }
     }
 }
 
-fn datum_reach(model: &Model, datum: &Plane, plane: &Plane) -> f64 {
+fn datum_reach(model: &dyn Surroundings, datum: &Plane, plane: &Plane) -> f64 {
     let foot = datum_outline(datum, plane, 1.0).and_then(|outline| middle(&outline, plane));
     reach_about(model, foot)
 }
 
-fn axis_reach(model: &Model, axis: &Ray, plane: &Plane) -> f64 {
+fn axis_reach(model: &dyn Surroundings, axis: &Ray, plane: &Plane) -> f64 {
     let foot = axis_outline(axis, plane, 1.0).and_then(|outline| middle(&outline, plane));
     reach_about(model, foot)
 }
@@ -659,7 +760,7 @@ fn middle(outline: &Outline, plane: &Plane) -> Option<Point3> {
     }
 }
 
-fn reach_about(model: &Model, foot: Option<Point3>) -> f64 {
+fn reach_about(model: &dyn Surroundings, foot: Option<Point3>) -> f64 {
     let document = model.document();
     let evaluation = model.evaluation();
     let bounds = evaluation
@@ -677,30 +778,28 @@ fn reach_about(model: &Model, foot: Option<Point3>) -> f64 {
     .max(DEFAULT_DATUM_REACH / 10.0)
 }
 
-fn seen(model: &Model, sketch: FeatureId, body: FeatureId) -> Option<&SolidResult> {
+fn seen(model: &dyn Surroundings, sketch: FeatureId, body: FeatureId) -> Option<&SolidResult> {
     model.evaluation().body_result_seen_by(sketch, body)
 }
 
 fn seen_or_refuse(
-    model: &Model,
+    model: &dyn Surroundings,
     sketch: FeatureId,
     body: FeatureId,
-) -> Result<&SolidResult, String> {
+) -> Result<&SolidResult, ProjectionError> {
     seen(model, sketch, body).ok_or_else(|| {
         let document = model.document();
-        format!(
-            "{} is made after {} in the tree, so it cannot be projected into it",
-            feature_name(document, body),
-            feature_name(document, sketch)
-        )
+        ProjectionError::BodyAfter {
+            body: feature_name(document, body),
+            sketch: feature_name(document, sketch),
+        }
     })
 }
 
-fn later_geometry(document: &Document, sketch: FeatureId) -> String {
-    format!(
-        "That geometry is made by a feature after {} in the tree, so it cannot be projected into it",
-        feature_name(document, sketch)
-    )
+fn later_geometry(document: &Document, sketch: FeatureId) -> ProjectionError {
+    ProjectionError::MadeAfter {
+        sketch: feature_name(document, sketch),
+    }
 }
 
 fn feature_name(document: &Document, feature: FeatureId) -> String {

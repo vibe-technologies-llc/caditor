@@ -239,10 +239,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
     neither a unit, a scale, recentring nor left-out layers (`DrawingOptions`). Faces and edges
     named in an edit are found on the body as it stands now, so an edge a fillet rounded away cannot
     be named again.
-  - Sketching: projecting corners, other sketches' curves, axes, datums and the origin, and
-    Intersect; split, break, construction toggling, copy and paste, blend curves, tangent circles,
-    gears and spline respacing; a tangent arc continuing a curve drawn in the same call; a
-    conic's rho held by a parameter.
 - [medium · hard · blocked by: the in-app assistant connection decision (`DECISIONS.md`)] An
   assistant cannot work on the model open in the window: the headless server owns its own
   document. Connecting to the running app needs a transport the app listens on (off by default),

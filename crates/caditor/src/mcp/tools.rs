@@ -431,9 +431,15 @@ impl Tool {
                  trim pieces back to the curves crossing them, extend an end to the next curve, \
                  offset a chain, mirror about a line, repeat in rows or around a point, round or \
                  cut corners, move, rotate or scale entities (solved like a drag, so \
-                 constraints hold), or project edges and faces of a body into the sketch, \
-                 following the body. Lengths and angles are expressions with units and \
-                 parameters. Returns the entities added and removed. One undo step."
+                 constraints hold), project edges, faces, corners, other sketches' curves, \
+                 axes, datums and the origin into the sketch (following their source), \
+                 intersect a body, face or plane with the sketch plane, switch curves to \
+                 construction geometry and back, split a curve at a point, break curves at \
+                 their crossings, respace old fit-point splines, draw a circle tangent to two \
+                 or three curves, blend two curve ends with a spline, draw a spur gear, gear \
+                 pair or sprocket, or copy geometry (with its constraints) within a sketch or \
+                 from another. Lengths and angles are expressions with units and parameters. \
+                 Returns the entities added and removed. One undo step."
             }
             Self::EditSketchConstraint => {
                 "Changes a dimension's value (an expression with units and parameters, such as \
@@ -701,6 +707,7 @@ impl Tool {
                                 "from": point("line: its start; slot: the first end's centre; arc_slot: where the centre line starts; polygon: one end of a side, instead of center"),
                                 "to": point("line: its end; slot: the second end's centre; arc_slot: where the centre line ends, counter-clockwise from from; polygon: the side's other end, the polygon lying to the left of from to to; tangent_arc: where it ends"),
                                 "from_point": entity(),
+                                "after_item": { "type": "integer", "minimum": 0, "description": "tangent_arc: instead of from_point, the index in items of an earlier line, arc, polyline, spline or tangent arc of this call, whose end the arc leaves along its tangent" },
                                 "points": { "type": "array", "items": point("A corner"), "description": "polyline: its corners in order; spline: its points in order" },
                                 "closed": { "type": "boolean", "description": "polyline: join the last corner to the first; spline: close it into a loop (three points at least)" },
                                 "corner": point("rectangle: one corner; polygon: a vertex, which fixes its size and turn"),
@@ -710,7 +717,7 @@ impl Tool {
                                 "start": point("arc: where it starts; elliptical_arc: its direction from the centre sets the start; conic: where it starts"),
                                 "end": point("arc: where it ends; with center only its direction from the centre counts, as for elliptical_arc; conic: where it ends"),
                                 "apex": point("conic: where the tangents at its ends meet"),
-                                "rho": { "type": "number", "minimum": 0.01, "maximum": 0.99, "description": "conic: its fullness, 0.5 (a parabola) by default; lower is flatter (an ellipse), higher sharper (a hyperbola)" },
+                                "rho": { "type": ["number", "string"], "description": "conic: its fullness from 0.01 to 0.99, 0.5 (a parabola) by default; lower is flatter (an ellipse), higher sharper (a hyperbola); an expression using parameters, such as \"fullness\", holds it by a Rho dimension" },
                                 "through": point("arc: a point it passes through, instead of center"),
                                 "clockwise": { "type": "boolean", "description": "arc with center, elliptical_arc: run clockwise from start to end instead of counter-clockwise" },
                                 "width": { "type": "number", "exclusiveMinimum": 0, "description": "slot, arc_slot: the full width across" },
