@@ -95,30 +95,42 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   `Built`: kind, default title, asked name, sketches to hide, answer details) and `features::added`
   adds it as one `Create …` transaction, named as the tool names it
   (`editing::next_feature_name`): a revolve (`RevolveAxis::Sketch` or `Model`, full turn without an
-  angle, `TwoSides` with `second_angle`, `solid_tools::default_operation` without an operation),
+  angle, `up_to` a plane (`RevolveExtent::UpTo`, `reversed` kept on an edit), `TwoSides` with `second_angle`, `solid_tools::default_operation` without an operation),
   fillets and chamfers (`EdgeReference::capture_in` per edge key,
-  `EdgeGroup::Face` per face key, `EdgeGroup::Body` for `all_edges`), shell, offset face,
+  `EdgeGroup::Face` per face key, `EdgeGroup::Body` for `all_edges`), shell (`face_thicknesses`, replaced as a list), offset face,
   primitives (`primitive_tools::default_shape` with the given sizes, at a face's middle
-  `hole_tools::middle_of` and adding to that body by default), mirror and linear or circular
+  `hole_tools::middle_of` and adding to that body by default), mirror (of a body, of features or of `faces`) and linear or circular
   pattern of a body or of repeatable features (`pattern_tools::repeatable`, `skipped` copies as
   `Instance`s, the original refused), combine and move. Values are
   `Amount`s, a number of millimetres or degrees or an expression, parsed by
   `field::parse_expression`; offsets, moves and turns may be negative. The kernel's refusals arrive
   as the new feature failing, in the tree's words.
-- `solids.rs` holds extrusions and holes. An extrusion's end is one of a distance, `through_all` or
-  `up_to` (`"next"` or a plane, `ExtrudeEnd::UpToNext`/`UpToFace`, with `end_offset`), and it takes
-  `second_distance` (`TwoSides`), `start_offset` (`SolidStart::Distance`), `taper` and `thin_wall`
-  with `wall_side` (`Wall`, centred by default). A hole takes the same ends, a `style` with head
-  sizes, a `standard` metric size and `fit` through `hole_tools::with_standard` (a diameter clears
+- `solids.rs` holds extrusions and holes. An extrusion's end is one of a distance, `through_all`,
+  `up_to` (`"next"` or a plane, `ExtrudeEnd::UpToNext`/`UpToFace`, with `end_offset`) or
+  `up_to_surface` (`{body, face}` of any shape through `places::face_at_bar`,
+  `ExtrudeEnd::UpToSurface`, no offset), and it takes `second_distance` or the object
+  `second_end` (`TwoSides`, the same ends and its own `end_offset`, the two refused together),
+  `start_offset` (`SolidStart::Distance`), `taper`, `direction` (an axis as
+  `places::axis` takes it, `"square"` clears it) and `thin_wall` with `wall_side` (`Wall`,
+  centred by default; `"off"` clears it, shared with the revolve through `solids::wall_of`).
+  `regions` (extrusion and revolve, `features::regions_chosen`) are points `[x, y]` in the
+  sketch's millimetres, each choosing the region containing it (`RegionChoice::Chosen`, the
+  point first found in `selection::sketch_regions`), or `"all"`; `get_sketch` lists each region
+  with an `inside` point, its area and holes. A hole takes the same ends but the curved face, a `style` (plain,
+  counterbore, countersink or stepped with `steps`, clearing the standard as the panel does), `shape`
+  slot with `slot_length` and `slot_angle` (either implies it), a `bottom` drill point with
+  `point_angle` (implied by it), `sizing` by circles, head sizes, a `standard` metric size and `fit` through `hole_tools::with_standard` (a diameter clears
   the standard), and a tapped standard's `thread_form`, `thread_hand` and `thread_depth`.
 - `sweeps.rs` adds sweeps (with a `twist` angle and an end `scale`), pipes (path as `{sketch, curves}` checked by
   `sweep_tools::is_path_curve`, `{body, edges}` or `{helix}`, a `SweepPath`), lofts through whole
-  sketches (hidden as the tool hides them; `closed`, and a `start_weight` or `end_weight` above 0
+  sketches or `{sketch, inside}` single regions (hidden as the tool hides them; an `end` point
+  as `places::point` takes it, `"off"` clearing it, refused with `closed`; `closed`, and a `start_weight` or `end_weight` above 0
   leaving that end square, 0 freeing it), coils (two of turns, pitch and height as a
   `CoilLength`), ribs (square to a face's sketch, facing the body by `rib_tools::facing_body`; a web's `draft` and
   `ends`) and
   threads (the face's `Bore` picks the nearest size and default class, named
-  `thread_tools::unique_name`); `reshaping.rs` adds split face, delete face, split (along a plane,
+  `thread_tools::unique_name`); `reshaping.rs` adds split face (its `carry` square, wrapped or along an axis, the last two
+  needing curves of a sketch), delete face, split (along a plane,
   `{sketch}` or `{tool}` body) and scale, each with the app tool's defaults.
 - `datums.rs` places datums one way each, the way chosen by which arguments are given (two ways at
   once refused, `DatumError::TwoWays`; an edit keeps the way unless another is given): planes
@@ -217,8 +229,9 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   saved path from the worker's report, as the window's Save as does; `export` writes
   `headless::deliver`'s formats; `import` reads a STEP model or mesh through `import::read_model`
   and `bodies_transaction`, or a DXF or SVG drawing through `read_drawing` and
-  `drawing_transaction` into a new sketch on a principal plane or an existing sketch, refused as
-  the app refuses it (`import::outgrows`, `outnumbers`, nothing imported). All of them reach only
+  `drawing_transaction` into a new sketch on a principal plane or an existing sketch, with the import
+  dialog's `DrawingOptions` (`unit`, `scale`, `recentre`, `left_out_layers` by name, the answer
+  listing the drawing's `layers`), refused as the app refuses it (`import::outgrows`, `outnumbers`, nothing imported). All of them reach only
   the model's folder, the `--folder` folders and folders below them (`files::allowed`: canonical
   parent, no link as the target). Nothing reaches the network.
 
@@ -249,8 +262,8 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   sketches; `mcp/sketch_shape_tests.rs` tangent circles, blends, gears, pairs and sprockets, a
   tangent arc continuing an item of the same call and a conic's rho held by a parameter.
   `mcp/edit_tests.rs` edits primitives, extrusions, patterns, revolves, fillets and holes by
-  volume, with undo, renaming and refusals, and checks extrusion ends, walls, offsets and tapers
-  and hole standards, heads and threads. `mcp/sweep_tests.rs` checks pipes, sweeps, lofts, coils,
+  volume, with undo, renaming and refusals, and checks extrusion ends (curved faces, second sides), regions, walls, directions, offsets and tapers,
+  revolves up to a plane, and hole standards, heads, threads, steps, slots, drill points and circle sizing. `mcp/sweep_tests.rs` checks pipes, sweeps, lofts, coils,
   threads, scales, splits, split faces and deleted faces by volumes, body and face counts.
   `mcp/datum_tests.rs` places datum planes, axes, points and coordinate systems every way and
   edits them, probing each with a box placed on, mated to or turned about it, and mates bodies by

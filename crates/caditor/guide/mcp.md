@@ -52,23 +52,27 @@ first, so two programs never change one model at once.
   gear pair or sprocket, and copies geometry with its constraints within a sketch or from
   another, as [copy and paste](move-and-copy) do.
 - Add an [extrusion](extrude) or a [revolve](revolve), which decide whether to add, cut or start
-  a new body as their tools do unless told. An extrusion can run up to the next face or a plane,
-  go both ways from the sketch, start off its plane, taper and make a thin wall; a revolve can turn
-  both ways.
-- Drill a [hole](hole) at every free point of a sketch, plain, counterbored or countersunk, sized
-  by a diameter or a metric screw size with a clearance, tapped or insert fit, its tapped thread
-  modelled or cosmetic.
+  a new body as their tools do unless told. An extrusion can run up to the next face, a plane or a
+  curved face, go both ways from the sketch with each side ending in a distance, through all or
+  up to a face, start off its plane, run along an axis instead of square, taper, use only the
+  regions around chosen points and make a thin wall (or take it off again); a revolve can turn
+  both ways or up to a plane, use chosen regions and make a thin wall.
+- Drill a [hole](hole) at every free point of a sketch, plain, counterbored, countersunk or stepped,
+  round or a slot, flat or with a drill point, sized by a diameter, by the circles drawn or by a
+  metric screw size with a clearance, tapped or insert fit, its tapped thread modelled or
+  cosmetic.
 - [Sweep](sweep) a sketch along a path, twisted or scaled along it, and run a [pipe](pipe) along
   one (sketch curves, body edges or a [helix](helix)), [loft](loft) through sketches, closed back to
-  the first or with square ends, wind a [coil](coil), add a [rib](rib) and
+  the first, with square ends or ending in a point, through whole sketches or single regions, wind a [coil](coil), add a [rib](rib) and
   [thread](thread) a round face.
-- [Split faces](split-face), [delete faces](delete-face), [split](split) a body along a plane, a
+- [Split faces](split-face) (carrying the curves square, along an axis or wrapped), [delete faces](delete-face), [split](split) a body along a plane, a
   sketch or another body, and [scale](scale) a body.
 - Round or bevel edges with a [fillet or chamfer](fillet-and-chamfer), hollow a body with a
-  [shell](shell), move faces with [Offset face](offset-face), and add a box, cylinder, sphere,
+  [shell](shell) (some walls thicker), move faces with [Offset face](offset-face), and add a box, cylinder, sphere,
   torus, cone, wedge or prism as the [primitives](primitives) do, on a plane, a flat face or a
   datum plane.
-- [Mirror](mirror) and [pattern](patterns) a body, or holes, cuts and bosses of one body, in a
+- [Mirror](mirror) a body, holes, cuts and bosses of one body or chosen faces, and
+  [pattern](patterns) a body or those features in a
   row, a grid, around an axis, along the curves of a sketch or at its points, leaving chosen
   copies out; [combine](combine) bodies and [move or copy](move-and-copy) them, or
   [mate](mate) a body onto another, a plane, an axis or a point.
@@ -80,7 +84,8 @@ first, so two programs never change one model at once.
 - Rename, suppress, reorder and delete features in the [feature tree](feature-tree). Deleting a
   feature others use needs the assistant to say whether they go too or stay, failing.
 - [Import](importing) a STEP model, an STL, OBJ or 3MF mesh, or a DXF or SVG drawing into a new
-  sketch on a plane or into an existing one.
+  sketch on a plane or into an existing one, in a unit and scale, recentred and without chosen
+  layers.
 - [Undo and redo](undo), save, save under another name and export.
 
 Every change the assistant makes is one step of the model's undo history, named after what it did,

@@ -233,14 +233,8 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   of those features, rename, suppress, reorder and delete features, import models, meshes and
   drawings, undo, redo, save, save under another name and export.
   What remains, through the same `Session` layer:
-  - Feature options the tools lack. Extrusions lack regions, an end up to a curved surface, a second
-    side other than a distance, a direction other than square, and taking a thin wall off again;
-    revolves lack up-to ends, regions and thin walls; holes lack stepped styles, slots, drill points
-    and sizing by circles; shells lack per-face thickness, mirrors take no faces, lofts take no
-    single regions or end point, split faces neither carry nor wrap curves, and drawing imports take
-    neither a unit, a scale, recentring nor left-out layers (`DrawingOptions`). Faces and edges
-    named in an edit are found on the body as it stands now, so an edge a fillet rounded away cannot
-    be named again.
+  - Faces and edges named in an edit are found on the body as it stands now, so an edge a fillet
+    rounded away cannot be named again.
 - [medium · hard · blocked by: the in-app assistant connection decision (`DECISIONS.md`)] An
   assistant cannot work on the model open in the window: the headless server owns its own
   document. Connecting to the running app needs a transport the app listens on (off by default),
