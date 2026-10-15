@@ -206,8 +206,9 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   Undo that returns to it (`app-sketching.md`, Editing context). Escape on an open feature still
   keeps its changes and closes it.
 - A tool whose body has no shape yet while a recompute runs (Move, Mirror, Combine, Fillet, Chamfer,
-  Shell, Offset faces, Delete face, Split face, Thread, Sweep) is queued, not refused (`app-input.md`, Queued
-  actions), and runs when the shape arrives.
+  Shell, Offset faces, Delete face, Split face, Thread, Sweep, and Hole on a face, whose
+  `hole_tools::create_actions` needs the body's state at the bar) is queued, not refused
+  (`app-input.md`, Queued actions), and runs when the shape arrives.
 
 ## Feature panels
 

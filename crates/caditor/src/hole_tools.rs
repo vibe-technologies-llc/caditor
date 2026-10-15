@@ -11,10 +11,12 @@ use caditor_sketch::{Entity, EntityId, Sketch};
 use crate::{
     bodies,
     body_selection::face_boundary,
+    commands::Command,
     editing::{self, EditingCommand, SketchEditing},
     hole_on_curve,
     last_values::{Remembered, Starts},
     model::{Action, Model, Notice},
+    queued,
     reference_picking::{Picking, Slot},
     scene,
     selection::{Pickable, Selection},
@@ -450,9 +452,7 @@ pub fn create_actions(model: &Model, start: HoleStart) -> Vec<Action> {
                 Action::Editing(EditingCommand::OpenSolid(feature)),
                 Action::Inform(Notice::info(told)),
             ],
-            Err(reason) => vec![Action::Inform(Notice::warning(format!(
-                "{TITLE}: {reason}."
-            )))],
+            Err(reason) => vec![queued::refused(Command::Hole, TITLE, reason)],
         },
         HoleStart::CurvedFace(face) => match hole_on_curve::create(model, face) {
             Ok((transaction, feature, told)) => vec![
@@ -461,9 +461,7 @@ pub fn create_actions(model: &Model, start: HoleStart) -> Vec<Action> {
                 Action::Editing(EditingCommand::Pick(Picking::new(feature, Slot::HolePlace))),
                 Action::Inform(Notice::info(told)),
             ],
-            Err(reason) => vec![Action::Inform(Notice::warning(format!(
-                "{TITLE}: {reason}."
-            )))],
+            Err(reason) => vec![queued::refused(Command::Hole, TITLE, reason)],
         },
     }
 }
