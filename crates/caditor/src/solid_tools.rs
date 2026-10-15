@@ -21,9 +21,7 @@ use crate::{
     projecting, scene,
     selection::{self, Pickable, Selection},
     sketch_placement::{self, FaceChoice},
-    solid_panel,
-    units::LengthUnit,
-    visibility,
+    solid_panel, visibility,
 };
 
 pub const DEFAULT_DISTANCE: f64 = 10.0;
@@ -386,12 +384,13 @@ pub fn create_on_faces(
         transaction.add_projection(sketch, source.clone(), edges);
     }
     let operation = BodyOperation::Add(profile.body);
+    let starts = Starts::of(model);
     let solid = match (sweep, &profile.axis) {
         (Sweep::Extrude, _) => SolidFeature::Extrude(Extrude {
             sketch,
             regions: RegionChoice::All,
             extent: ExtrudeExtent::one_side(
-                Starts::of(model).length(Remembered::ExtrudeDistance, DEFAULT_DISTANCE),
+                starts.length(Remembered::ExtrudeDistance, DEFAULT_DISTANCE),
                 false,
             ),
             operation,
@@ -405,7 +404,7 @@ pub fn create_on_faces(
             sketch,
             regions: RegionChoice::All,
             axis: RevolveAxis::Model(axis.clone()),
-            extent: RevolveExtent::Full,
+            extent: starting_turn(&starts),
             operation,
             start: None,
             other_bodies: Vec::new(),
@@ -605,11 +604,20 @@ pub fn degrees(value: f64) -> Expression {
     Expression::measure(value, Unit::Degree)
 }
 
-pub fn default_wall(unit: LengthUnit) -> Wall {
+pub fn default_wall(starts: &Starts) -> Wall {
     Wall {
-        thickness: unit.default_length(DEFAULT_WALL_THICKNESS),
+        thickness: starts.length(Remembered::WallThickness, DEFAULT_WALL_THICKNESS),
         side: WallSide::Centred,
     }
+}
+
+pub fn starting_turn(starts: &Starts) -> RevolveExtent {
+    starts
+        .remembered(Remembered::RevolveAngle)
+        .map_or(RevolveExtent::Full, |angle| RevolveExtent::OneSide {
+            angle,
+            reversed: false,
+        })
 }
 
 fn is_open_profile(document: &Document, sketch: FeatureId) -> bool {
@@ -622,12 +630,8 @@ fn is_open_profile(document: &Document, sketch: FeatureId) -> bool {
     has_curves && sketch_regions(sketch).is_ok_and(|regions| regions.is_empty())
 }
 
-fn open_profile_wall(
-    document: &Document,
-    sketch: FeatureId,
-    unit: LengthUnit,
-) -> Option<Box<Wall>> {
-    is_open_profile(document, sketch).then(|| Box::new(default_wall(unit)))
+fn open_profile_wall(document: &Document, sketch: FeatureId, starts: &Starts) -> Option<Box<Wall>> {
+    is_open_profile(document, sketch).then(|| Box::new(default_wall(starts)))
 }
 
 pub fn create(
@@ -637,10 +641,9 @@ pub fn create(
     source: SweepSource,
     starts: &Starts,
 ) -> (Transaction, FeatureId, Option<String>) {
-    let unit = starts.unit();
     let name = editing::next_feature_name(document, sweep.label());
     let wall = match source.regions {
-        RegionChoice::All => open_profile_wall(document, source.sketch, unit),
+        RegionChoice::All => open_profile_wall(document, source.sketch, starts),
         RegionChoice::Chosen(_) => None,
     };
     let standing_on = match sweep {
@@ -685,7 +688,7 @@ pub fn create(
                 axis: source
                     .axis
                     .unwrap_or(RevolveAxis::Sketch(EntityId::VERTICAL_AXIS)),
-                extent: RevolveExtent::Full,
+                extent: starting_turn(starts),
                 operation: BodyOperation::NewBody,
                 start: None,
                 other_bodies: Vec::new(),
@@ -954,6 +957,7 @@ mod tests {
     use caditor_sketch::Sketch;
 
     use super::*;
+    use crate::units::LengthUnit;
 
     fn document_with_sketches() -> (Document, FeatureId, FeatureId, EntityId) {
         let mut document = Document::default();

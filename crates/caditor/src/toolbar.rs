@@ -890,7 +890,7 @@ fn offset_face_offer(
             model.document(),
             model.evaluation(),
             source,
-            model.length_unit(),
+            &Starts::of(model),
         ));
     }
 }

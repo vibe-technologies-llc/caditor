@@ -8,6 +8,7 @@ use crate::{
     commands::Command,
     editing::{self, EditingCommand},
     field,
+    last_values::{Remembered, Starts},
     model::{Action, Model},
     queued,
     reference_picking::{Picking, Slot},
@@ -73,7 +74,7 @@ pub fn create(
     document: &Document,
     evaluation: &Evaluation,
     start: &PipeStart,
-    unit: LengthUnit,
+    starts: &Starts,
 ) -> Result<(Transaction, FeatureId), &'static str> {
     let path = sweep_tools::captured(evaluation, &start.path)?;
     let operation = path
@@ -84,8 +85,8 @@ pub fn create(
         operation,
         ..Pipe::new(
             path,
-            unit.default_length(DEFAULT_SIZE),
-            unit.default_length(DEFAULT_BEND),
+            starts.length(Remembered::PipeSize, DEFAULT_SIZE),
+            starts.length(Remembered::PipeBend, DEFAULT_BEND),
         )
     };
     let mut transaction = document.transaction(format!("Create {name}"));
@@ -98,7 +99,7 @@ pub fn create_actions(model: &Model, start: &PipeStart) -> Vec<Action> {
         model.document(),
         model.evaluation(),
         start,
-        model.length_unit(),
+        &Starts::of(model),
     ) {
         Ok((transaction, feature)) => {
             let mut actions = vec![

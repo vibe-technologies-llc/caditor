@@ -20,6 +20,7 @@ use crate::{
     },
     feature_tree::count,
     field, hole_panel, icons,
+    last_values::Starts,
     model::{Action, Model},
     move_manipulator::Reach,
     plane_selector,
@@ -841,7 +842,7 @@ impl Panel<'_> {
     fn fill_rows(&mut self, ui: &mut Ui) {
         let solid = self.solid;
         let wall = solid.wall();
-        let thin = solid_tools::default_wall(self.model.length_unit());
+        let thin = solid_tools::default_wall(&Starts::of(self.model));
         let segments = vec![
             Segment {
                 label: "Solid",

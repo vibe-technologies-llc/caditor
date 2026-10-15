@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use caditor_document::{
     BlendKind, ChamferForm, Document, Edit, ExtrudeEnd, ExtrudeExtent, FeatureKind, HoleDepth,
-    ParameterValues, PatternKind, Pieces, SolidFeature, Transaction,
+    LinearSpacing, ParameterValues, PatternKind, Pieces, RevolveExtent, SolidFeature, Transaction,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_file::Settings;
@@ -28,10 +28,34 @@ pub enum Remembered {
     ExtrudeDistance,
     LinearCount,
     CircularCount,
+    RevolveAngle,
+    WallThickness,
+    PipeSize,
+    PipeBend,
+    RibThickness,
+    OffsetDistance,
+    LinearSpacing,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Sign {
+    AboveZero,
+    ZeroOrMore,
+    NotZero,
+}
+
+impl Sign {
+    fn accepts(self, value: f64) -> bool {
+        match self {
+            Self::AboveZero => value > 0.0,
+            Self::ZeroOrMore => value >= 0.0,
+            Self::NotZero => value != 0.0,
+        }
+    }
 }
 
 impl Remembered {
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 18] = [
         Self::FilletSize,
         Self::ChamferSize,
         Self::ChamferForm,
@@ -43,6 +67,13 @@ impl Remembered {
         Self::ExtrudeDistance,
         Self::LinearCount,
         Self::CircularCount,
+        Self::RevolveAngle,
+        Self::WallThickness,
+        Self::PipeSize,
+        Self::PipeBend,
+        Self::RibThickness,
+        Self::OffsetDistance,
+        Self::LinearSpacing,
     ];
 
     fn name(self) -> &'static str {
@@ -58,6 +89,13 @@ impl Remembered {
             Self::ExtrudeDistance => "extrude_distance",
             Self::LinearCount => "linear_count",
             Self::CircularCount => "circular_count",
+            Self::RevolveAngle => "revolve_angle",
+            Self::WallThickness => "wall_thickness",
+            Self::PipeSize => "pipe_size",
+            Self::PipeBend => "pipe_bend",
+            Self::RibThickness => "rib_thickness",
+            Self::OffsetDistance => "offset_distance",
+            Self::LinearSpacing => "linear_spacing",
         }
     }
 
@@ -68,7 +106,7 @@ impl Remembered {
     fn dimension(self) -> Option<Dimension> {
         match self {
             Self::ChamferForm => None,
-            Self::ChamferAngle => Some(Dimension::ANGLE),
+            Self::ChamferAngle | Self::RevolveAngle => Some(Dimension::ANGLE),
             Self::LinearCount | Self::CircularCount => Some(Dimension::NONE),
             Self::FilletSize
             | Self::ChamferSize
@@ -76,7 +114,21 @@ impl Remembered {
             | Self::ShellThickness
             | Self::HoleDiameter
             | Self::HoleDepth
-            | Self::ExtrudeDistance => Some(Dimension::LENGTH),
+            | Self::ExtrudeDistance
+            | Self::WallThickness
+            | Self::PipeSize
+            | Self::PipeBend
+            | Self::RibThickness
+            | Self::OffsetDistance
+            | Self::LinearSpacing => Some(Dimension::LENGTH),
+        }
+    }
+
+    fn sign(self) -> Sign {
+        match self {
+            Self::PipeBend => Sign::ZeroOrMore,
+            Self::OffsetDistance => Sign::NotZero,
+            _ => Sign::AboveZero,
         }
     }
 }
@@ -158,19 +210,20 @@ impl Starts {
                 starts.forms.insert(*slot, text.clone());
                 continue;
             };
+            let sign = slot.sign();
             let expected = Expected {
                 dimension: Some(dimension),
-                non_negative: true,
+                non_negative: sign != Sign::NotZero,
             };
             let Ok(expression) =
                 field::parse_expression(document, parameters, text, expected, units)
             else {
                 continue;
             };
-            let positive = parameters
+            let accepted = parameters
                 .evaluate_expression(&expression)
-                .is_ok_and(|quantity| quantity.value > 0.0);
-            if positive {
+                .is_ok_and(|quantity| sign.accepts(quantity.value));
+            if accepted {
                 starts.expressions.insert(*slot, expression);
             }
         }
@@ -210,6 +263,7 @@ enum Held {
 pub const FORM_EQUAL: &str = "equal";
 pub const FORM_TWO_DISTANCES: &str = "two_distances";
 pub const FORM_DISTANCE_ANGLE: &str = "distance_angle";
+pub const FULL_TURN: &str = "full";
 
 fn held(kind: &FeatureKind) -> Vec<(Remembered, Held)> {
     let mut held = Vec::new();
@@ -244,17 +298,49 @@ fn held(kind: &FeatureKind) -> Vec<(Remembered, Held)> {
         if let HoleDepth::Blind(depth) = &hole.depth {
             value(Remembered::HoleDepth, depth);
         }
-    } else if let Some(SolidFeature::Extrude(extrude)) = kind.solid() {
-        if let ExtrudeExtent::OneSide {
-            end: ExtrudeEnd::Distance(distance),
-            ..
-        } = &extrude.extent
-        {
-            value(Remembered::ExtrudeDistance, distance);
+    } else if let Some(solid) = kind.solid() {
+        match solid {
+            SolidFeature::Extrude(extrude) => {
+                if let ExtrudeExtent::OneSide {
+                    end: ExtrudeEnd::Distance(distance),
+                    ..
+                } = &extrude.extent
+                {
+                    value(Remembered::ExtrudeDistance, distance);
+                }
+            }
+            SolidFeature::Revolve(revolve) => match &revolve.extent {
+                RevolveExtent::OneSide { angle, .. } => value(Remembered::RevolveAngle, angle),
+                RevolveExtent::Full => {
+                    held.push((Remembered::RevolveAngle, Held::Form(FULL_TURN)));
+                }
+                RevolveExtent::Symmetric { .. }
+                | RevolveExtent::TwoSides { .. }
+                | RevolveExtent::UpTo { .. } => {}
+            },
+            SolidFeature::Sweep(_) => {}
         }
+        if let Some(wall) = solid.wall() {
+            held.push((
+                Remembered::WallThickness,
+                Held::Value(wall.thickness.clone()),
+            ));
+        }
+    } else if let Some(pipe) = kind.pipe() {
+        value(Remembered::PipeSize, &pipe.size);
+        value(Remembered::PipeBend, &pipe.bend);
+    } else if let Some(rib) = kind.rib() {
+        value(Remembered::RibThickness, &rib.thickness);
+    } else if let Some(offset) = kind.offset_face() {
+        value(Remembered::OffsetDistance, &offset.distance);
     } else if let Some(pattern) = kind.pattern() {
         match &pattern.kind {
-            PatternKind::Linear { first, .. } => value(Remembered::LinearCount, &first.count),
+            PatternKind::Linear { first, .. } => {
+                value(Remembered::LinearCount, &first.count);
+                if first.measured == LinearSpacing::BetweenCopies {
+                    value(Remembered::LinearSpacing, &first.spacing);
+                }
+            }
             PatternKind::Circular(circular) => value(Remembered::CircularCount, &circular.count),
             PatternKind::Curve(_) | PatternKind::Points(_) => {}
         }
@@ -317,9 +403,134 @@ fn value_text(document: &Document, expression: &Expression) -> String {
 
 #[cfg(test)]
 mod tests {
+    use caditor_document::{
+        AxisReference, BodyOperation, FeatureId, LinearDirection, OffsetFace, Pattern, Pipe,
+        PrincipalAxis, RegionChoice, Revolve, RevolveAxis, Rib, SweepPath, Wall,
+    };
     use caditor_expression::Unit;
+    use caditor_kernel::WallSide;
+    use caditor_sketch::EntityId;
 
     use super::*;
+
+    fn remembered_from(kind: &FeatureKind) -> Starts {
+        let document = Document::default();
+        let parameters = ParameterValues::evaluate(&document);
+        let changes = held(kind)
+            .into_iter()
+            .map(|(slot, held)| Change { slot, held })
+            .collect();
+        let mut last = LastValues::default();
+        for (slot, text) in texts(&document, changes) {
+            last.keep(slot, text);
+        }
+        Starts::resolving(&last, &document, &parameters, Units::default())
+    }
+
+    fn mm(value: f64) -> Expression {
+        Expression::measure(value, Unit::Millimetre)
+    }
+
+    fn revolve(extent: RevolveExtent, wall: Option<Wall>) -> FeatureKind {
+        FeatureKind::Solid(SolidFeature::Revolve(Revolve {
+            sketch: FeatureId::from_raw(1),
+            regions: RegionChoice::All,
+            axis: RevolveAxis::Sketch(EntityId::VERTICAL_AXIS),
+            extent,
+            operation: BodyOperation::NewBody,
+            start: None,
+            other_bodies: Vec::new(),
+            side: None,
+            wall: wall.map(Box::new),
+        }))
+    }
+
+    fn linear(spacing: Expression, measured: LinearSpacing) -> FeatureKind {
+        FeatureKind::from(Pattern {
+            body: FeatureId::from_raw(1),
+            kind: PatternKind::Linear {
+                first: LinearDirection {
+                    axis: AxisReference::Principal(PrincipalAxis::X),
+                    count: Expression::Number(3.0),
+                    spacing,
+                    measured,
+                    reversed: false,
+                },
+                second: None,
+            },
+            skipped: Default::default(),
+            repeated: Vec::new(),
+        })
+    }
+
+    #[test]
+    fn revolve_wall_pipe_rib_offset_and_spacing_values_are_remembered_and_read_back() {
+        let quarter = Expression::measure(90.0, Unit::Degree);
+        let walled = revolve(
+            RevolveExtent::OneSide {
+                angle: quarter.clone(),
+                reversed: false,
+            },
+            Some(Wall {
+                thickness: mm(2.0),
+                side: WallSide::Inside,
+            }),
+        );
+        let pipe = FeatureKind::Pipe(Pipe::new(SweepPath::Unchosen, mm(6.0), mm(0.0)));
+        let rib = FeatureKind::Rib(Rib::new(
+            FeatureId::from_raw(1),
+            FeatureId::from_raw(2),
+            mm(3.0),
+        ));
+        let offset = FeatureKind::OffsetFace(OffsetFace {
+            body: FeatureId::from_raw(1),
+            faces: Vec::new(),
+            distance: mm(-2.0),
+            tangent: false,
+        });
+
+        let turned = remembered_from(&walled);
+        let full = remembered_from(&revolve(RevolveExtent::Full, None));
+        let piped = remembered_from(&pipe);
+        let ribbed = remembered_from(&rib);
+        let offsetting = remembered_from(&offset);
+        let spaced = remembered_from(&linear(mm(15.0), LinearSpacing::BetweenCopies));
+        let overall = remembered_from(&linear(mm(60.0), LinearSpacing::Total));
+
+        assert_eq!(turned.remembered(Remembered::RevolveAngle), Some(quarter));
+        assert_eq!(turned.length(Remembered::WallThickness, 1.0), mm(2.0));
+        assert_eq!(full.remembered(Remembered::RevolveAngle), None);
+        assert_eq!(piped.length(Remembered::PipeSize, 10.0), mm(6.0));
+        assert_eq!(piped.length(Remembered::PipeBend, 10.0), mm(0.0));
+        assert_eq!(ribbed.length(Remembered::RibThickness, 2.0), mm(3.0));
+        assert_eq!(offsetting.length(Remembered::OffsetDistance, 1.0), mm(-2.0));
+        assert_eq!(spaced.remembered(Remembered::LinearSpacing), Some(mm(15.0)));
+        assert_eq!(
+            spaced.count(Remembered::LinearCount, 2.0),
+            Expression::Number(3.0)
+        );
+        assert_eq!(overall.remembered(Remembered::LinearSpacing), None);
+    }
+
+    #[test]
+    fn a_zero_offset_a_negative_bend_and_a_zero_rib_give_way_to_their_defaults() {
+        let document = Document::default();
+        let parameters = ParameterValues::evaluate(&document);
+        let units = Units::default();
+        let mut last = LastValues::default();
+
+        last.keep(Remembered::OffsetDistance, "0 mm".to_owned());
+        last.keep(Remembered::PipeBend, "-1 mm".to_owned());
+        last.keep(Remembered::RibThickness, "0 mm".to_owned());
+        last.keep(Remembered::RevolveAngle, FULL_TURN.to_owned());
+
+        let starts = Starts::resolving(&last, &document, &parameters, units);
+
+        assert_eq!(starts.remembered(Remembered::OffsetDistance), None);
+        assert_eq!(starts.remembered(Remembered::PipeBend), None);
+        assert_eq!(starts.remembered(Remembered::RibThickness), None);
+        assert_eq!(starts.remembered(Remembered::RevolveAngle), None);
+    }
 
     #[test]
     fn remembered_texts_survive_a_round_trip_through_settings() {

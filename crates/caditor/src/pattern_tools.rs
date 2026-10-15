@@ -18,7 +18,6 @@ use crate::{
     reference_picking::{Picking, Slot},
     selection::{Pickable, Selection},
     sketch_pattern_tools, solid_tools,
-    units::LengthUnit,
 };
 
 pub const LINEAR_TITLE: &str = "Linear pattern";
@@ -279,13 +278,19 @@ fn direction(
     (body, repeated): (FeatureId, &[FeatureId]),
     axis: AxisReference,
     count: Expression,
-    unit: LengthUnit,
+    starts: &Starts,
 ) -> LinearDirection {
-    let spacing = default_spacing(model, body, repeated, &axis);
+    let spacing = starts
+        .remembered(Remembered::LinearSpacing)
+        .unwrap_or_else(|| {
+            starts
+                .unit()
+                .default_length(default_spacing(model, body, repeated, &axis))
+        });
     LinearDirection {
         axis,
         count,
-        spacing: unit.default_length(spacing),
+        spacing,
         measured: LinearSpacing::BetweenCopies,
         reversed: false,
     }
@@ -304,7 +309,7 @@ fn kind_for(
                 source,
                 axis.unwrap_or_else(linear_default_axis),
                 Starts::of(model).count(Remembered::LinearCount, DEFAULT_LINEAR_COUNT),
-                model.length_unit(),
+                &Starts::of(model),
             ),
             second: None,
         },
@@ -467,7 +472,7 @@ pub fn reshaped(
                 (pattern.body, &pattern.repeated),
                 circular.axis.clone().unwrap_or_else(linear_default_axis),
                 Expression::Number(DEFAULT_LINEAR_COUNT),
-                model.length_unit(),
+                &Starts::of(model),
             );
             first.count = circular.count.clone();
             first.reversed = circular.reversed;
@@ -524,7 +529,7 @@ pub fn with_axis(
                     (pattern.body, &pattern.repeated),
                     axis,
                     Expression::Number(DEFAULT_SECOND_COUNT),
-                    model.length_unit(),
+                    &Starts::of(model),
                 ),
             };
             PatternKind::Linear {

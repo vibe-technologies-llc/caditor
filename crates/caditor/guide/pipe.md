@@ -56,6 +56,8 @@ parameters included.
 - A pipe running into itself fails; so does a closed path out of one plane that would bring the
   section back turned.
 
+A new pipe starts from the size and bend radius last set on one, kept between sessions.
+
 A curve of the path cannot be deleted while a pipe follows it. The pipe's faces are named after it
 ("Pipe 1 outside", "Pipe 1 inside", "Pipe 1 start face"), so later features keep hold of them when
 its sizes change.

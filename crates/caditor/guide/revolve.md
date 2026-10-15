@@ -19,7 +19,8 @@ through a hidden sketch that follows their edges.
 ## Extent
 
 - **Full turn**, **One side** by an angle, **Symmetric** both ways, or **Two sides** each with its
-  own angle. Two angles together may not pass a full turn. While the revolve is open, an arrow at
+  own angle. A new revolve turns by the one-sided angle last set on a revolve, kept between
+  sessions, or a full turn when the last was set back to one. Two angles together may not pass a full turn. While the revolve is open, an arrow at
   each end of the turn drags its angle in steps of 5°, or onto a corner, an edge's middle or a
   round edge's centre under the pointer, turning that end until it passes through the point
   (hold Ctrl to drag freely), and a thin

@@ -29,7 +29,8 @@ continues from the arc's end, along its tangent. A web can instead carry the fre
 on round their circles (**Free ends**), so a curved web drawn short of a round wall follows its
 curve to it.
 
-A new rib starts on the side, or in the direction, where the body is. A rib drawn on a face of the
+A new rib starts on the side, or in the direction, where the body is, and from the thickness last
+set on one, kept between sessions. A rib drawn on a face of the
 body starts square to its sketch.
 
 ## Panel

@@ -5,7 +5,8 @@ Select the faces, of any shape, then choose Offset face. It has no ribbon button
 menu or {command:palette}.
 
 - **Distance** moves the faces out; a negative distance moves them in. Typing previews it, and
-  the arrow on the first moved face (a flat one) drags it.
+  the arrow on the first moved face (a flat one) drags it. A new offset starts from the distance
+  last set on one, in or out, kept between sessions.
 - **Move the faces tangent to these too** takes the faces that continue smoothly from the chosen
   ones.
 

@@ -9,10 +9,10 @@ use crate::{
     commands::Command,
     editing::{self, EditingCommand},
     field,
+    last_values::{Remembered, Starts},
     model::{Action, Model},
     queued,
     selection::{Pickable, Selection},
-    units::LengthUnit,
 };
 
 pub const TITLE: &str = "Rib";
@@ -168,7 +168,7 @@ pub fn create(
     document: &Document,
     evaluation: &Evaluation,
     start: RibStart,
-    unit: LengthUnit,
+    starts: &Starts,
 ) -> (Transaction, FeatureId) {
     let on_face = document
         .feature(start.sketch)
@@ -187,7 +187,7 @@ pub fn create(
             ..Rib::new(
                 start.sketch,
                 start.body,
-                unit.default_length(DEFAULT_THICKNESS),
+                starts.length(Remembered::RibThickness, DEFAULT_THICKNESS),
             )
         },
         None,
@@ -205,7 +205,7 @@ pub fn create_actions(model: &Model, start: &Result<RibStart, &'static str>) -> 
                 model.document(),
                 model.evaluation(),
                 *start,
-                model.length_unit(),
+                &Starts::of(model),
             );
             vec![
                 Action::Apply(transaction),

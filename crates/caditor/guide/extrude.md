@@ -99,7 +99,9 @@ The **Sketch** row names the sketch swept, with a button beside it to edit that 
 {command:model.edit_sketch} on a face the extrusion made.
 
 A new extrusion starts from the distance last set on one, and every other tool that starts from a
-value (fillet, chamfer, shell, hole, pattern counts) likewise from the last one used, kept between
-sessions; a value naming a parameter the model lacks falls back to the usual starting value.
+value likewise from the last one used, kept between sessions: fillet, chamfer, shell, hole, a
+thin wall's thickness, a revolve's angle, a pipe's size and bend, a rib's thickness, an offset
+face's distance, and a pattern's count and spacing. A value naming a parameter the model lacks
+falls back to the usual starting value.
 
 All distances and angles take [expressions](expressions). See also [Revolve](revolve).
