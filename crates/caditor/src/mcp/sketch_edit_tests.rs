@@ -10,11 +10,11 @@ use super::{
 
 const HEIGHT: f64 = 5.0;
 
-fn new_sketch(client: &mut Client) -> Value {
+pub(super) fn new_sketch(client: &mut Client) -> Value {
     client.tool("add_sketch", json!({ "plane": "XY" }))["sketch"]["id"].clone()
 }
 
-fn draw(client: &mut Client, sketch: &Value, items: Value) -> Vec<Value> {
+pub(super) fn draw(client: &mut Client, sketch: &Value, items: Value) -> Vec<Value> {
     let drawn = client.tool(
         "add_sketch_geometry",
         json!({ "sketch": sketch, "items": items }),
@@ -23,7 +23,7 @@ fn draw(client: &mut Client, sketch: &Value, items: Value) -> Vec<Value> {
     drawn["drawn"].as_array().unwrap().clone()
 }
 
-fn modify(client: &mut Client, sketch: &Value, operation: Value) -> Value {
+pub(super) fn modify(client: &mut Client, sketch: &Value, operation: Value) -> Value {
     let mut arguments = operation;
     arguments["sketch"] = sketch.clone();
     let answer = client.tool("modify_sketch", arguments);
@@ -31,17 +31,17 @@ fn modify(client: &mut Client, sketch: &Value, operation: Value) -> Value {
     answer
 }
 
-fn refused(client: &mut Client, sketch: &Value, operation: Value) -> String {
+pub(super) fn refused(client: &mut Client, sketch: &Value, operation: Value) -> String {
     let mut arguments = operation;
     arguments["sketch"] = sketch.clone();
     client.tool_error("modify_sketch", arguments)
 }
 
-fn described(client: &mut Client, sketch: &Value) -> Value {
+pub(super) fn described(client: &mut Client, sketch: &Value) -> Value {
     client.tool("get_sketch", json!({ "sketch": sketch }))
 }
 
-fn entity<'a>(sketch: &'a Value, id: &Value) -> &'a Value {
+pub(super) fn entity<'a>(sketch: &'a Value, id: &Value) -> &'a Value {
     sketch["entities"]
         .as_array()
         .unwrap()
@@ -50,22 +50,22 @@ fn entity<'a>(sketch: &'a Value, id: &Value) -> &'a Value {
         .unwrap_or_else(|| panic!("no entity {id} in {sketch}"))
 }
 
-fn position(sketch: &Value, id: &Value) -> [f64; 2] {
+pub(super) fn position(sketch: &Value, id: &Value) -> [f64; 2] {
     let at = &entity(sketch, id)["at"];
     [number(&at[0]), number(&at[1])]
 }
 
-fn near(found: [f64; 2], wanted: [f64; 2]) -> bool {
+pub(super) fn near(found: [f64; 2], wanted: [f64; 2]) -> bool {
     close(found[0], wanted[0]) && close(found[1], wanted[1])
 }
 
-fn ends(sketch: &Value, line: &Value) -> ([f64; 2], [f64; 2]) {
+pub(super) fn ends(sketch: &Value, line: &Value) -> ([f64; 2], [f64; 2]) {
     let found = entity(sketch, line);
     let point = |key: &str| [number(&found[key][0]), number(&found[key][1])];
     (point("from"), point("to"))
 }
 
-fn of_kind<'a>(sketch: &'a Value, kind: &str) -> Vec<&'a Value> {
+pub(super) fn of_kind<'a>(sketch: &'a Value, kind: &str) -> Vec<&'a Value> {
     sketch["entities"]
         .as_array()
         .unwrap()
@@ -74,11 +74,11 @@ fn of_kind<'a>(sketch: &'a Value, kind: &str) -> Vec<&'a Value> {
         .collect()
 }
 
-fn count_of(answer: &Value, key: &str) -> usize {
+pub(super) fn count_of(answer: &Value, key: &str) -> usize {
     answer[key].as_array().unwrap().len()
 }
 
-fn extruded_area(client: &mut Client, sketch: &Value) -> f64 {
+pub(super) fn extruded_area(client: &mut Client, sketch: &Value) -> f64 {
     let extruded = client.tool(
         "add_extrusion",
         json!({ "sketch": sketch, "distance": format!("{HEIGHT} mm"), "operation": "new_body" }),
@@ -95,14 +95,14 @@ fn extruded_area(client: &mut Client, sketch: &Value) -> f64 {
     volume / HEIGHT
 }
 
-fn assert_area(found: f64, wanted: f64) {
+pub(super) fn assert_area(found: f64, wanted: f64) {
     assert!(
         (found - wanted).abs() < 1e-3 * wanted,
         "{found} != {wanted}"
     );
 }
 
-fn descriptions(sketch: &Value) -> Vec<String> {
+pub(super) fn descriptions(sketch: &Value) -> Vec<String> {
     sketch["constraints"]
         .as_array()
         .unwrap()

@@ -35,15 +35,22 @@ first, so two programs never change one model at once.
 - Add a [sketch](sketches) on a principal plane, a flat face, a datum plane or a plane of a
   coordinate system, draw points, lines, polylines, rectangles, circles, [arcs](arcs) (tangent
   arcs too), slots, [polygons](polygon) (on a side as well), [splines](spline),
-  [conics](conic), ellipses and elliptical arcs in it, add [constraints](constraints) and
+  [conics](conic) (their rho may be a parameter), ellipses and elliptical arcs in it, a tangent
+  arc leaving a curve drawn in the same call as well, add [constraints](constraints) and
   [dimensions](dimensions), and later remove them, turn them off or on, or change a dimension's
   value.
 - Change a sketch's geometry with the sketch tools: [trim and extend](trim-and-extend),
   [offset](offset), [mirror](sketch-mirror), repeat in rows or around a point as the
   [sketch patterns](sketch-patterns) do, round or cut corners with
   [Sketch fillet](sketch-fillet), and move, rotate or scale entities, which the sketch's
-  constraints hold as a drag does. It can also [project](project-and-intersect) edges and faces
-  of a body into a sketch, following the body as it changes.
+  constraints hold as a drag does. It can also [project](project-and-intersect) edges, faces and
+  corners of a body, curves of other sketches, axes, datums and the origin into a sketch,
+  following their source as it changes, and intersect a body, a face or a plane with the sketch
+  plane. The same tool switches curves to construction geometry and back, splits a curve at a
+  point, breaks curves at their crossings (see [splitting and breaking](sketch-editing)),
+  draws a [tangent circle](tangent-circle), a [blend curve](blend-curve) and a [spur gear](gear),
+  gear pair or sprocket, and copies geometry with its constraints within a sketch or from
+  another, as [copy and paste](move-and-copy) do.
 - Add an [extrusion](extrude) or a [revolve](revolve), which decide whether to add, cut or start
   a new body as their tools do unless told. An extrusion can run up to the next face or a plane,
   go both ways from the sketch, start off its plane, taper and make a thin wall; a revolve can turn

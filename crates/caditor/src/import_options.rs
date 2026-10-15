@@ -16,8 +16,6 @@ use crate::{
 };
 
 const LAYER_LIST_HEIGHT: widgets::ListHeight = widgets::ListHeight::Short;
-const NO_LAYERS: &str = "Choose at least one layer to import";
-const NOT_A_SCALE: &str = "Enter a number from 0.000001 to 1000000";
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum PlaneChoice {
@@ -139,11 +137,25 @@ fn unit_hover(unit: DrawingUnit) -> String {
     }
 }
 
-fn parse_scale(text: &str) -> Result<f64, String> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+enum ImportBlocked {
+    #[error("Enter a number from 0.000001 to 1000000")]
+    NotAScale,
+    #[error("Choose at least one layer to import")]
+    NoLayers,
+}
+
+impl From<ImportBlocked> for String {
+    fn from(error: ImportBlocked) -> Self {
+        error.to_string()
+    }
+}
+
+fn parse_scale(text: &str) -> Result<f64, ImportBlocked> {
     text.parse::<f64>()
         .ok()
         .filter(|scale| scale.is_finite() && (MIN_SCALE..=MAX_SCALE).contains(scale))
-        .ok_or_else(|| NOT_A_SCALE.to_owned())
+        .ok_or(ImportBlocked::NotAScale)
 }
 
 pub fn dialog(
@@ -179,7 +191,7 @@ pub fn dialog(
                 &options.scale.to_string(),
                 widgets::FIELD_WIDTH,
                 false,
-                parse_scale,
+                |text| parse_scale(text).map_err(String::from),
             );
             if let Some(scale) = field.committed {
                 command = Some(ImportOptionsCommand::Scale(scale));
@@ -234,9 +246,9 @@ pub fn dialog(
             }
 
             if !options.is_valid() {
-                Some(NOT_A_SCALE)
+                Some(ImportBlocked::NotAScale)
             } else if arranged.curves.is_empty() {
-                Some(NO_LAYERS)
+                Some(ImportBlocked::NoLayers)
             } else {
                 None
             }
@@ -244,7 +256,7 @@ pub fn dialog(
         widgets::footer(ui, |ui| {
             let import = ui.add_enabled(blocker.is_none(), widgets::primary_button(ui, "Import"));
             let import = match blocker {
-                Some(reason) => import.on_disabled_hover_text(reason),
+                Some(blocked) => import.on_disabled_hover_text(blocked.to_string()),
                 None => import,
             };
             if import.clicked() {

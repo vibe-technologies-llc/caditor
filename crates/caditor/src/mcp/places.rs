@@ -63,7 +63,7 @@ pub enum AxisName {
 }
 
 impl AxisName {
-    fn principal(self) -> PrincipalAxis {
+    pub(super) fn principal(self) -> PrincipalAxis {
         match self {
             Self::X => PrincipalAxis::X,
             Self::Y => PrincipalAxis::Y,

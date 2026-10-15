@@ -1221,6 +1221,11 @@ impl ConstructionChange {
 
     pub fn transaction(&self, model: &Model, feature: FeatureId, sketch: &Sketch) -> Transaction {
         let mut transaction = settled_transaction(model, feature, self.label(sketch));
+        self.apply(&mut transaction, feature);
+        transaction.finish()
+    }
+
+    pub fn apply(&self, transaction: &mut TransactionBuilder<'_>, feature: FeatureId) {
         for curve in &self.curves {
             transaction.edit(Edit::SetSketchConstruction {
                 feature,
@@ -1228,7 +1233,6 @@ impl ConstructionChange {
                 construction: self.construction,
             });
         }
-        transaction.finish()
     }
 }
 

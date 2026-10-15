@@ -834,7 +834,10 @@ fn composite_curves_nested_many_times_are_built_once_each_within_the_budget() {
     let starved = geometry(10).curve(101).unwrap_err();
 
     assert!(curve.domain().bounded().is_some());
-    assert!(starved.reason.contains("too intricate"), "{starved}");
+    assert!(
+        starved.fault.to_string().contains("too intricate"),
+        "{starved}"
+    );
 }
 
 fn spindle(major: f64, minor: f64, outer: bool) -> String {
@@ -1470,17 +1473,17 @@ fn a_file_whose_only_solid_cannot_be_rebuilt_names_it_the_entity_and_the_reason(
     let ReadError::NotRebuilt {
         name,
         entity,
-        reason,
+        fault,
     } = &error
     else {
         panic!("{error:?}");
     };
     assert_eq!(name, "cube");
     assert!(*entity > 0);
-    assert!(reason.contains("meet only within"), "{reason}");
+    assert!(fault.to_string().contains("meet only within"), "{fault}");
     assert_eq!(
         error.to_string(),
-        format!("“cube” could not be rebuilt, because its entity #{entity} {reason}")
+        format!("“cube” could not be rebuilt, because its entity #{entity} {fault}")
     );
 }
 

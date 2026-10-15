@@ -18,7 +18,7 @@ const RADIAL_SLACK: f64 = 1e-9;
 const SAMPLES_PER_CHARGE: usize = 16;
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
-pub(crate) enum OffsetRefusal {
+pub enum OffsetRefusal {
     #[error("is offset by more than the radius of its {0}, which leaves no surface")]
     PastCentre(&'static str),
     #[error("is offset so far that the tube of its torus reaches the axis")]

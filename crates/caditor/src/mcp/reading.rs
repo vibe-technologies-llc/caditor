@@ -11,7 +11,7 @@ use caditor_render::{
     Background, GraphicsSettings, ImageError, ImageRequest, OffscreenRenderer,
     RenderError as AdapterError, SurfaceSize, Viewpoint,
 };
-use caditor_sketch::{Entity, Sketch, SplineKind};
+use caditor_sketch::{Entity, FitSpacing, Sketch, SplineKind};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
@@ -643,6 +643,13 @@ fn entities(sketch: &Sketch) -> Vec<Value> {
                     entry.insert("form".to_owned(), json!(form));
                     if let SplineKind::Conic { rho } = kind {
                         entry.insert("rho".to_owned(), rounded(*rho));
+                    }
+                    if let SplineKind::Fit { spacing, .. } = kind {
+                        let spacing = match spacing {
+                            FitSpacing::Even => "even",
+                            FitSpacing::Centripetal => "centripetal",
+                        };
+                        entry.insert("spacing".to_owned(), json!(spacing));
                     }
                 }
                 Entity::Ellipse {

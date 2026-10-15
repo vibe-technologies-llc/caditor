@@ -661,12 +661,14 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   (`RibSide::OneSide` in front, along the normal, `OtherSide` behind, `Symmetric` half each);
   `Square` (a web) thickens each chain in the plane (`OneSide` left of the walk, `OtherSide` right,
   `Symmetric` centred; `wall_regions`, `Inside` or `Outside` picked by a probe point, since an open
-  chain's inside is its bend) and runs it along the sketch normal (against it when `reversed`).
+  chain's inside is its bend; lines, arcs, splines and elliptical arcs, a spline's or ellipse's
+  wall edges being fitted splines) and runs it along the sketch normal (against it when
+  `reversed`).
   The thickness and the draft (an angle, 0 when made, below `MAX_RIB_DRAFT_DEGREES`; negative or
   steeper fails on the rib) are its expressions (parameters, inlining; model scale reaches the
   thickness, a length). A web's draft
   tapers its wall outward away from the sketch (`extrude_tapered` by minus the draft), so it widens
-  toward the body; `RibEnds` says whether a web's free arc ends run on straight (`Straight`) or
+  toward the body, and fails in words on a spline or ellipse (`SweepError::TaperedUnsupportedCurve`); `RibEnds` says whether a web's free arc ends run on straight (`Straight`) or
   round their circles (`RoundArcs`). A rib parallel to its sketch keeps both but ignores them
   (`Rib::is_drafted` says whether the draft is a literal zero). The sketch is in
   `reference_sketches` and `features()`.

@@ -8,13 +8,14 @@ use caditor_geometry::{Plane, Point2, Point3, Vector3};
 use caditor_kernel::{
     BSpline, BuildError, Circle, CrossingCheck, Curve, EdgeId, FaceId, FaceMesh, FacetedError,
     IntersectionCurve, Interval, LINEAR_RESOLUTION, MeshQuality, PlaneSurface, Sense, ShellId,
-    Solid, SolidBuilder, Surface, TriangleMesh, ValidationError, VertexId, faceted_solids,
+    Solid, SolidBuilder, Surface, TriangleMesh, VertexId, faceted_solids,
 };
 
 use crate::read::{
     conform::{Conformed, LooseBody, LooseEdge, conform},
+    fault::Fault,
     geometry::{Crossings, Geometry},
-    graph::{Entity, Graph, Problem, Read, friendly},
+    graph::{Entity, Graph, Problem, Read},
     loose::{exact_kind, farthest, met_at_ends},
     snap::{seam_through, snap},
 };
@@ -89,14 +90,11 @@ impl SolidShells {
                 let mut closed = closed_shells(graph, entity)?.into_iter();
                 let first = closed
                     .next()
-                    .ok_or_else(|| Problem::new(id, "has no closed shell, so it is not a solid"))?;
+                    .ok_or_else(|| Problem::new(id, Fault::NoClosedShell))?;
                 (first, Vec::new(), closed.collect())
             }
             other => {
-                return Err(Problem::new(
-                    id,
-                    format!("is a {}, which caditor cannot import yet", friendly(other)),
-                ));
+                return Err(Problem::new(id, Fault::Unsupported(other.to_owned())));
             }
         };
         Ok(Self {
@@ -151,7 +149,7 @@ pub(crate) fn unreadable_faces(geometry: &Geometry<'_>, shells: &SolidShells) ->
                 .entity(face)
                 .and_then(|entity| match entity.kind() {
                     "ADVANCED_FACE" | "FACE_SURFACE" => entity.fields()?.reference(2),
-                    _ => Err(Problem::new(face, "has no surface")),
+                    _ => Err(Problem::new(face, Fault::NoSurface)),
                 })
                 .ok();
             if let Some(Err(problem)) = surface.map(|surface| geometry.surface(surface)) {
@@ -195,7 +193,7 @@ pub(crate) struct Built {
     pub lost: Option<Lost>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Lost {
     pub faces: Vec<u64>,
     pub problem: Problem,
@@ -321,15 +319,14 @@ impl<'g, 'a> Topology<'g, 'a> {
             if self.loosest > allowance {
                 return Err(Problem::new(
                     id,
-                    format!(
-                        "has faces {} mm apart, more than the file's precision of {} mm",
-                        short(self.loosest),
-                        short(allowance)
-                    ),
+                    Fault::FacesApart {
+                        loosest: self.loosest,
+                        allowance,
+                    },
                 ));
             }
             let Faceted { solid, faces } = facets(&self.builder, !self.left_out.is_empty())
-                .map_err(|reason| Problem::new(id, reason))?;
+                .map_err(|fault| Problem::new(id, fault))?;
             faceted_faces = faces
                 .into_iter()
                 .map(|face| face.and_then(|face| self.face_entities.get(face.index()).copied()))
@@ -338,14 +335,14 @@ impl<'g, 'a> Topology<'g, 'a> {
         } else {
             self.builder
                 .build()
-                .map_err(|error| Problem::new(id, describe_build(&error, precision)))?
+                .map_err(|error| Problem::new(id, Fault::build(error, precision)))?
         };
         let check = if faceted || self.geometry.crossings == Crossings::Trusted {
             CrossingCheck::Clear
         } else {
-            solid.find_crossing().map_err(|_| {
-                Problem::new(id, "was not checked, because the import was cancelled")
-            })?
+            solid
+                .find_crossing()
+                .map_err(|_| Problem::new(id, Fault::CheckCancelled))?
         };
         let entities =
             |faces: [FaceId; 2]| faces.map(|face| self.face_entities.get(face.index()).copied());
@@ -356,19 +353,14 @@ impl<'g, 'a> Topology<'g, 'a> {
                 _ => Some([id, id]),
             },
             CrossingCheck::Crossing(crossing) => {
-                let reason = match entities(crossing.faces) {
-                    [Some(first), Some(second)] if first == second => format!(
-                        "has face #{first} whose edges cross each other, so it does not enclose one \
-                         volume"
-                    ),
-                    [Some(first), Some(second)] => format!(
-                        "has faces #{first} and #{second} that cross each other, so it does not \
-                         enclose one volume"
-                    ),
-                    _ => "has faces that cross each other, so it does not enclose one volume"
-                        .to_owned(),
+                let fault = match entities(crossing.faces) {
+                    [Some(first), Some(second)] if first == second => {
+                        Fault::FaceCrossesItself { face: first }
+                    }
+                    [Some(first), Some(second)] => Fault::FacesCross { first, second },
+                    _ => Fault::SomeFacesCross,
                 };
-                return Err(Problem::new(id, reason));
+                return Err(Problem::new(id, fault));
             }
         };
         let bent = (self.healing == Healing::Bent).then_some(Bending {
@@ -412,16 +404,14 @@ impl<'g, 'a> Topology<'g, 'a> {
     }
 
     fn snap(&mut self, id: u64) -> Read<()> {
-        let allowance =
-            self.geometry.units.precision.ok_or_else(|| {
-                Problem::new(id, "declares no precision to move its faces within")
-            })?;
+        let allowance = self
+            .geometry
+            .units
+            .precision
+            .ok_or_else(|| Problem::new(id, Fault::NoPrecisionToMove))?;
         let snapped = snap(&self.loose_body(allowance)?);
         if snapped.surfaces.is_empty() && self.healing == Healing::Snapped {
-            return Err(Problem::new(
-                id,
-                "has no face within the file's precision of meeting a neighbour exactly",
-            ));
+            return Err(Problem::new(id, Fault::NoFaceToSnap));
         }
         for (face, surface) in &snapped.surfaces {
             if let Some(plan) = self.faces.get_mut(face) {
@@ -437,10 +427,11 @@ impl<'g, 'a> Topology<'g, 'a> {
     }
 
     fn conform(&mut self, id: u64) -> Read<()> {
-        let allowance =
-            self.geometry.units.precision.ok_or_else(|| {
-                Problem::new(id, "declares no precision to bend its faces within")
-            })?;
+        let allowance = self
+            .geometry
+            .units
+            .precision
+            .ok_or_else(|| Problem::new(id, Fault::NoPrecisionToBend))?;
         let body = self.loose_body(allowance)?;
         let conformed = conform(&body)?;
         for (face, surface) in &conformed.surfaces {
@@ -511,7 +502,7 @@ impl<'g, 'a> Topology<'g, 'a> {
             other => {
                 return Err(Problem::new(
                     id,
-                    format!("is a {} where a closed shell belongs", friendly(other)),
+                    Fault::ClosedShellExpected(other.to_owned()),
                 ));
             }
         };
@@ -543,7 +534,7 @@ impl<'g, 'a> Topology<'g, 'a> {
             other => {
                 return Err(Problem::new(
                     entity.id,
-                    format!("is a {} where a face belongs", friendly(other)),
+                    Fault::FaceExpected(other.to_owned()),
                 ));
             }
         };
@@ -675,7 +666,7 @@ impl<'g, 'a> Topology<'g, 'a> {
     fn build_face(&mut self, shell: ShellId, id: u64, flipped: bool) -> Read<()> {
         let (surface, same_sense, bound_ids) = match self.faces.get(&id) {
             Some(plan) => (plan.surface.clone(), plan.same_sense, plan.bounds.clone()),
-            None => return Err(Problem::new(id, "is missing from its shell")),
+            None => return Err(Problem::new(id, Fault::MissingFromShell)),
         };
         let sense = if same_sense != flipped {
             Sense::Same
@@ -692,12 +683,7 @@ impl<'g, 'a> Topology<'g, 'a> {
             let seam = self
                 .seam_around(&surface)
                 .map_err(|error| Problem::new(id, self.describe(&error)))?
-                .ok_or_else(|| {
-                    Problem::new(
-                        id,
-                        "has no edges around it, which caditor cannot import yet",
-                    )
-                })?;
+                .ok_or_else(|| Problem::new(id, Fault::NoEdgesAround))?;
             bounds.push(Bound {
                 outer: true,
                 coedges: vec![(seam, Sense::Same), (seam, Sense::Reversed)],
@@ -723,8 +709,8 @@ impl<'g, 'a> Topology<'g, 'a> {
         Ok(())
     }
 
-    fn describe(&self, error: &BuildError) -> String {
-        describe_build(error, self.geometry.units.precision)
+    fn describe(&self, error: &BuildError) -> Fault {
+        Fault::build(error.clone(), self.geometry.units.precision)
     }
 
     fn note_repair(&mut self, gap: Option<f64>) {
@@ -807,13 +793,12 @@ impl<'g, 'a> Topology<'g, 'a> {
                 }
             }
         }
-        let (points, orientation) =
-            outline.ok_or_else(|| Problem::new(face, "has no polygon to take its plane from"))?;
+        let (points, orientation) = outline.ok_or_else(|| Problem::new(face, Fault::NoPolygon))?;
         let plane = polygon_plane(&points, orientation, self.geometry.units.uncertainty())
-            .ok_or_else(|| Problem::new(face, "has a polygon that encloses no area"))?;
+            .ok_or_else(|| Problem::new(face, Fault::PolygonWithoutArea))?;
         PlaneSurface::new(plane)
             .map(Surface::from)
-            .map_err(|error| Problem::new(face, format!("is not a usable plane ({error})")))
+            .map_err(|error| Problem::new(face, Fault::UnusablePlane(error)))
     }
 
     fn corner(&mut self, point: u64) -> Read<VertexId> {
@@ -842,14 +827,14 @@ impl<'g, 'a> Topology<'g, 'a> {
             corners.pop();
         }
         if corners.len() < 3 {
-            return Err(Problem::new(id, "has fewer than three corners"));
+            return Err(Problem::new(id, Fault::FewerThanThreeCorners));
         }
         let mut coedges = Vec::with_capacity(corners.len());
         for (index, from) in corners.iter().enumerate() {
             let to = corners
                 .get((index + 1) % corners.len())
                 .copied()
-                .ok_or_else(|| Problem::new(id, "has fewer than three corners"))?;
+                .ok_or_else(|| Problem::new(id, Fault::FewerThanThreeCorners))?;
             if let Some(edge) = self.sides.get(&(to, *from)) {
                 coedges.push((*edge, Sense::Reversed));
                 continue;
@@ -892,7 +877,7 @@ impl<'g, 'a> Topology<'g, 'a> {
             other => {
                 return Err(Problem::new(
                     loop_entity.id,
-                    format!("is a {}, which caditor cannot import yet", friendly(other)),
+                    Fault::Unsupported(other.to_owned()),
                 ));
             }
         };
@@ -1094,11 +1079,11 @@ impl<'g, 'a> Topology<'g, 'a> {
         let point = |vertex: VertexId| {
             self.builder
                 .vertex_point(vertex)
-                .ok_or_else(|| Problem::new(id, "uses a vertex that is missing"))
+                .ok_or_else(|| Problem::new(id, Fault::MissingVertex))
         };
         let (from, to) = (point(start)?, point(end)?);
         parameter_range(curve, from, to, start == end)
-            .ok_or_else(|| Problem::new(id, "runs backwards along its curve"))
+            .ok_or_else(|| Problem::new(id, Fault::BackwardsAlongCurve))
     }
 
     fn order_bounds(&self, bounds: &mut [Bound], surface: &Surface, sense: Sense) {
@@ -1318,8 +1303,8 @@ struct Faceted {
     faces: Vec<Option<FaceId>>,
 }
 
-fn facets(builder: &SolidBuilder, open: bool) -> Result<Faceted, String> {
-    let mut last = String::new();
+fn facets(builder: &SolidBuilder, open: bool) -> Result<Faceted, Fault> {
+    let mut last = None;
     let coarse = MeshQuality::COARSE;
     let coarser = (1..=COARSER_STEPS).filter_map(|step| {
         let scale = COARSER_FACTOR.powi(step);
@@ -1328,14 +1313,11 @@ fn facets(builder: &SolidBuilder, open: bool) -> Result<Faceted, String> {
     for quality in [MeshQuality::SMOOTH, coarse].into_iter().chain(coarser) {
         let FaceMesh { mesh, faces } = builder
             .unvalidated_mesh(&quality)
-            .map_err(|error| format!("could not be meshed ({error})"))?;
+            .map_err(Fault::NotMeshed)?;
         let mesh = if open { closed_over(mesh) } else { mesh };
         match faceted_solids(&mesh) {
             Ok(mut built) if built.solids.len() == 1 => {
-                let solid = built
-                    .solids
-                    .pop()
-                    .ok_or_else(|| "did not close into one solid".to_owned())?;
+                let solid = built.solids.pop().ok_or(Fault::NotOneSolid)?;
                 let sources = built.sources.pop().unwrap_or_default();
                 return Ok(Faceted {
                     faces: sources
@@ -1345,14 +1327,14 @@ fn facets(builder: &SolidBuilder, open: bool) -> Result<Faceted, String> {
                     solid,
                 });
             }
-            Ok(_) => return Err("did not close into one solid".to_owned()),
+            Ok(_) => return Err(Fault::NotOneSolid),
             Err(FacetedError::TooDetailed { faces }) => {
-                last = format!("would need {faces} flat faces, too many to import");
+                last = Some(Fault::TooManyFlatFaces { faces });
             }
-            Err(error) => return Err(format!("did not close into a solid ({error})")),
+            Err(error) => return Err(Fault::NotClosedIntoSolid(error)),
         }
     }
-    Err(last)
+    Err(last.unwrap_or(Fault::NotOneSolid))
 }
 
 fn main_face(made_of: &[usize], mesh: &TriangleMesh, faces: &[FaceId]) -> Option<FaceId> {
@@ -1500,133 +1482,6 @@ fn polygon_plane(points: &[Point3], orientation: bool, uncertainty: f64) -> Opti
     Plane::with_x_axis(first, normal, along)
 }
 
-fn describe_build(error: &BuildError, precision: Option<f64>) -> String {
-    log::debug!("a body could not be rebuilt: {error} ({error:?})");
-    match error {
-        BuildError::UnknownVertex(_)
-        | BuildError::UnknownEdge(_)
-        | BuildError::UnknownFace(_)
-        | BuildError::UnknownShell(_) => {
-            "refers to a part of the body that it does not contain".to_owned()
-        }
-        BuildError::NonFinitePoint => {
-            "has a point whose position is not a finite number".to_owned()
-        }
-        BuildError::VertexOffCurve { distance, .. } => format!(
-            "has a vertex {} mm away from the end of its edge",
-            short(*distance)
-        ),
-        BuildError::ZeroLengthEdge => "has an edge of no length".to_owned(),
-        BuildError::IntervalOutsideDomain => {
-            "has an edge that runs past the end of its curve".to_owned()
-        }
-        BuildError::EmptyLoop => "has a face whose boundary has no edges".to_owned(),
-        BuildError::TooManyEntities => "has more parts than caditor can hold".to_owned(),
-        BuildError::Pcurve { .. } => {
-            "has an edge that could not be followed across its face".to_owned()
-        }
-        BuildError::Geometry(_) => {
-            "has a curve or surface that caditor cannot represent".to_owned()
-        }
-        BuildError::Invalid(validation) => describe_validation(validation, precision),
-        BuildError::Cancelled(_) => "was not rebuilt, because the import was cancelled".to_owned(),
-    }
-}
-
-fn describe_validation(error: &ValidationError, precision: Option<f64>) -> String {
-    match error {
-        ValidationError::EdgeOffSurface { distance, .. } => match precision {
-            Some(precision) if *distance <= precision => format!(
-                "has faces that meet only within {} mm, which the file's precision of {} mm \
-                     allows, but caditor needs them to meet within {} mm, so the model would \
-                     have to be exported again with a finer precision",
-                short(*distance),
-                short(precision),
-                short(LINEAR_RESOLUTION)
-            ),
-            _ => format!(
-                "has faces that meet only within {} mm, and caditor needs them to meet within \
-                     {} mm",
-                short(*distance),
-                short(LINEAR_RESOLUTION)
-            ),
-        },
-        ValidationError::Cancelled(_) => {
-            "was not checked, because the import was cancelled".to_owned()
-        }
-        other => format!(
-            "does not make a closed, valid solid: {}",
-            invalid_reason(other)
-        ),
-    }
-}
-
-fn invalid_reason(error: &ValidationError) -> String {
-    match error {
-        ValidationError::NoShells => "it has no shell of faces".to_owned(),
-        ValidationError::EmptyShell(_) => "one of its shells has no faces".to_owned(),
-        ValidationError::FaceWithoutLoops(_) => "a face has no boundary".to_owned(),
-        ValidationError::EmptyLoop(_) => "the boundary of a face has no edges".to_owned(),
-        ValidationError::MissingEntity => "it refers to a part it does not contain".to_owned(),
-        ValidationError::UnusedVertex(_) => "a vertex belongs to no edge".to_owned(),
-        ValidationError::ZeroLengthEdge(_) => "an edge has no length".to_owned(),
-        ValidationError::VertexOffEdge { distance, .. } => format!(
-            "a vertex lies {} mm from the end of its edge",
-            short(*distance)
-        ),
-        ValidationError::EdgeUseCount { uses, .. } => format!(
-            "an edge is used {uses} times instead of by exactly two faces, so the faces do not close up"
-        ),
-        ValidationError::EdgeSenses(_) => {
-            "two faces run the same way along a shared edge, so one of them faces the wrong way"
-                .to_owned()
-        }
-        ValidationError::EdgeAcrossShells(_) => {
-            "an edge joins faces of two separate shells".to_owned()
-        }
-        ValidationError::LoopBreak { .. } => {
-            "the edges around a face do not join end to end".to_owned()
-        }
-        ValidationError::PcurveEnds(_)
-        | ValidationError::PcurveGap(_)
-        | ValidationError::PcurveOffEdge { .. } => {
-            "an edge cannot be followed across its face".to_owned()
-        }
-        ValidationError::EdgeOffSurface { .. } => "an edge does not lie on its face".to_owned(),
-        ValidationError::LoopOrientation { .. } => {
-            "the boundary of a face winds the wrong way round it".to_owned()
-        }
-        ValidationError::InnerLoopOutside(_) => {
-            "a hole in a face lies outside the face's outer boundary".to_owned()
-        }
-        ValidationError::ShellDisconnected { .. } => {
-            "a face is not connected to the rest of its shell".to_owned()
-        }
-        ValidationError::EulerPoincare { .. } => {
-            "its faces do not close up into one surface without gaps or extra edges".to_owned()
-        }
-        ValidationError::Tessellation(_) => {
-            "its faces could not be turned into a mesh to check them".to_owned()
-        }
-        ValidationError::EmptyVolume(_) => "one of its shells encloses no volume".to_owned(),
-        ValidationError::VoidOutside(_) => {
-            "a shell facing inward lies inside no outer shell".to_owned()
-        }
-        ValidationError::LumpsOverlap { .. } => {
-            "two of its shells overlap or lie inside one another".to_owned()
-        }
-        ValidationError::LumpsCoincide { .. } => {
-            "two of its shells lie on top of each other".to_owned()
-        }
-        ValidationError::DanglingEdge { .. } => {
-            "a face uses an edge twice at the same place".to_owned()
-        }
-        ValidationError::Cancelled(_) => {
-            "it was not checked, because the import was cancelled".to_owned()
-        }
-    }
-}
-
 pub(crate) fn short(value: f64) -> String {
     let digits = (1.0 - value.log10().floor()).clamp(0.0, 12.0) as usize;
     format_decimals(value, digits)
@@ -1636,7 +1491,7 @@ pub(crate) fn short(value: f64) -> String {
 mod tests {
     use caditor_kernel::{
         BSplineSurface, CoedgeId, GeometryError, Interrupted, LoopId, PcurveError,
-        TessellationError,
+        TessellationError, ValidationError,
     };
 
     use super::*;
@@ -1769,7 +1624,7 @@ mod tests {
 
         for precision in [None, Some(0.1), Some(0.001)] {
             for error in &errors {
-                let note = describe_build(error, precision);
+                let note = Fault::build(error.clone(), precision).to_string();
 
                 assert!(!note.is_empty());
                 for word in forbidden {
@@ -1790,7 +1645,7 @@ mod tests {
             characteristic: 1,
         });
 
-        let note = describe_build(&error, None);
+        let note = Fault::build(error, None).to_string();
 
         assert_eq!(
             note,
