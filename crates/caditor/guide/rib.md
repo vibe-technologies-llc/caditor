@@ -54,7 +54,8 @@ body starts square to its sketch.
 
 The rib is shown as it will be while the panel is open, and every change is one undoable step.
 An arrow in the view drags the thickness: across the sketch for a rib, within the sketch's plane
-beside the first curve for a web. It follows the same steps and snapping as other arrows; Ctrl
+beside the first curve for a web. Dragged back through the sketch it switches One side and Other
+side. It follows the same steps and snapping as other arrows; Ctrl
 drags freely, and typing a number while holding or hovering it sets the value as the panel field
 would, parameters included.
 

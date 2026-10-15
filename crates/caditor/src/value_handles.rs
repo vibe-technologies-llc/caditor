@@ -255,9 +255,19 @@ pub fn written(
     measured: Measured,
     value: Expression,
 ) -> Option<Transaction> {
+    let kind = committed_kind(model.document(), feature)?.clone();
+    written_into(model, feature, measured, kind, value)
+}
+
+fn written_into(
+    model: &Model,
+    feature: FeatureId,
+    measured: Measured,
+    mut kind: FeatureKind,
+    value: Expression,
+) -> Option<Transaction> {
     let document = model.document();
     let held = held(document, feature, measured)?;
-    let mut kind = committed_kind(document, feature)?.clone();
     let mut named = Vec::new();
     held.set(measured.slot(&mut kind)?, value, &mut named);
     measured.tidy(&mut kind);
@@ -297,6 +307,7 @@ pub struct ValueDrag {
     mapping: Mapping,
     follow: Follow,
     step: f64,
+    reverses: bool,
     from: f64,
     value: f64,
     snapped: Option<Snap>,
@@ -334,12 +345,14 @@ impl ValueDrag {
                 grabbed: track.nearest_to_ray(&ray)?,
             },
         };
+        let reverses = measured.reversed(&start).is_some();
         Some(Self {
             start,
             measured,
             mapping: gauge.mapping,
             follow,
             step: measured.step(shown.per_point),
+            reverses,
             from,
             value: from,
             snapped: None,
@@ -393,7 +406,7 @@ impl ValueDrag {
             (Follow::Turn { swing, .. }, Some(snap)) => pulled_position
                 .and_then(|near| swing.snapped_near(snap, near))
                 .and_then(|position| self.mapping.value(position))
-                .filter(|value| self.measured.accepts(*value, self.step, &self.start) == *value)
+                .filter(|value| self.limited(*value) == *value)
                 .map(|value| (value, snap)),
             (Follow::Curve { track, .. }, Some(snap)) => snap
                 .pinned_point()
@@ -420,11 +433,31 @@ impl ValueDrag {
                 (rounded, None)
             }
         };
-        let value = self.measured.accepts(wanted, self.step, &self.start);
+        let value = self.limited(wanted);
         let changed = value != self.value || snap != self.snapped;
         self.value = value;
         self.snapped = snap;
         changed
+    }
+
+    fn limited(&self, value: f64) -> f64 {
+        if !self.reverses {
+            return self.measured.accepts(value, self.step, &self.start);
+        }
+        let size = self.measured.accepts(value.abs(), self.step, &self.start);
+        if value < 0.0 { -size } else { size }
+    }
+
+    fn flips(&self) -> bool {
+        self.reverses && self.value < 0.0
+    }
+
+    fn size(&self) -> f64 {
+        if self.flips() {
+            -self.value
+        } else {
+            self.value
+        }
     }
 
     pub fn has_moved(&self) -> bool {
@@ -432,16 +465,30 @@ impl ValueDrag {
     }
 
     pub fn transaction(&self, model: &Model, feature: FeatureId) -> Option<Transaction> {
-        let value = self.measured.amount().expression(model.units(), self.value);
-        written(model, feature, self.measured, value)
+        let value = self
+            .measured
+            .amount()
+            .expression(model.units(), self.size());
+        let committed = committed_kind(model.document(), feature)?;
+        let kind = if self.flips() {
+            self.measured.reversed(committed)?
+        } else {
+            committed.clone()
+        };
+        written_into(model, feature, self.measured, kind, value)
     }
 
     pub fn readout(&self, units: Units) -> String {
         let caption = self.measured.caption(&self.start).unwrap_or_default();
-        let value = self.measured.amount().text(units, self.value);
-        match self.snapped {
+        let value = self.measured.amount().text(units, self.size());
+        let shown = match self.snapped {
             Some(snap) => format!("{caption} {value} {}", snap.kind.words()),
             None => format!("{caption} {value}"),
+        };
+        if self.flips() {
+            format!("{shown}, {}", self.measured.reversal_words())
+        } else {
+            shown
         }
     }
 }

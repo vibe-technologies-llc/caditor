@@ -16,6 +16,7 @@ use crate::{
         ARROW_POINTS, Arrow, GAP_POINTS, HIT_POINTS, Handle, HandleSegment, segment_distance,
     },
     reach_handles::start_offset,
+    reversing::Flip,
     scene,
     scene_palette::ScenePalette,
     solid_panel,
@@ -439,7 +440,6 @@ impl TurnDrag {
         self.last = now;
         self.swept += turned;
         let wanted = self.from + self.sign * self.share * self.swept;
-        let least = STEP_DEGREES.min(self.limit);
         let snapped = snap
             .filter(|_| !free)
             .and_then(|snap| {
@@ -447,12 +447,12 @@ impl TurnDrag {
                 let degrees = self.swing.snapped_near(snap, shown)?;
                 Some((self.sign * self.share * degrees, snap))
             })
-            .filter(|(value, _)| (least..=self.limit).contains(value));
+            .filter(|(value, _)| self.limited(*value) == *value);
         let (value, snapped) = match snapped {
             Some((value, snap)) => (value, Some(snap)),
-            None if free => (wanted.clamp(least, self.limit), None),
+            None if free => (self.limited(wanted), None),
             None => (
-                ((wanted / STEP_DEGREES).round() * STEP_DEGREES).clamp(least, self.limit),
+                self.limited((wanted / STEP_DEGREES).round() * STEP_DEGREES),
                 None,
             ),
         };
@@ -460,6 +460,19 @@ impl TurnDrag {
         self.value = value;
         self.snapped = snapped;
         changed
+    }
+
+    fn limited(&self, value: f64) -> f64 {
+        let least = STEP_DEGREES.min(self.limit);
+        if self.end != TurnEnd::Only {
+            return value.clamp(least, self.limit);
+        }
+        let size = value.abs().clamp(least, self.limit);
+        if value < 0.0 { -size } else { size }
+    }
+
+    fn flips(&self) -> bool {
+        self.value < 0.0
     }
 
     pub fn has_moved(&self) -> bool {
@@ -479,9 +492,14 @@ impl TurnDrag {
         let mut named = Vec::new();
         held.set(
             self.end.slot(&mut revolve.extent)?,
-            model.units().angle.measured(self.value),
+            model.units().angle.measured(self.value.abs()),
             &mut named,
         );
+        if self.flips()
+            && let RevolveExtent::OneSide { reversed, .. } = &mut revolve.extent
+        {
+            *reversed = !*reversed;
+        }
         manipulator::keeping_names(
             document,
             feature,
@@ -491,10 +509,19 @@ impl TurnDrag {
     }
 
     pub fn readout(&self, units: Units) -> String {
-        let shown = format!("{} {}", self.end.caption(), units.angle_readout(self.value));
-        match self.snapped {
+        let shown = format!(
+            "{} {}",
+            self.end.caption(),
+            units.angle_readout(self.value.abs())
+        );
+        let shown = match self.snapped {
             Some(snap) => format!("{shown} {}", snap.kind.words()),
             None => shown,
+        };
+        if self.flips() {
+            format!("{shown}, {}", Flip::Reversed.words())
+        } else {
+            shown
         }
     }
 }

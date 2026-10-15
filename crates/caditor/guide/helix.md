@@ -37,7 +37,8 @@ the datums.
 
 While the helix is open, arrows in the view drag its sizes: one from the axis toward where the
 helix starts for the diameter, one at the helix a turn up for the pitch (when it is sized by a
-pitch) and one at its end for the height (when it is sized by a height). Each drag is one undoable
+pitch) and one at its end for the height (when it is sized by a height); dragging either back
+past where the helix starts reverses it. Each drag is one undoable
 change and follows the same steps and snapping as other arrows; Ctrl drags freely, and typing a
 number while holding or hovering an arrow sets the value as the panel field would.
 

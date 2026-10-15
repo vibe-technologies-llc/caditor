@@ -2,7 +2,7 @@ use caditor_document::{FeatureKind, MoveAxis, SolidFeature};
 use caditor_expression::Expression;
 use caditor_geometry::{Plane, Point2};
 use caditor_sketch::{Entity, Sketch};
-use egui::{Event, Id, Key, Modifiers};
+use egui::{Event, Id, Key, Modifiers, PointerButton, Pos2};
 
 use super::{
     CAMERA_SETTLE, Harness, body_centre, choose, drag_screen, drag_value_arrow, extruded_plate,
@@ -865,4 +865,93 @@ fn length_or_angle(harness: &Harness, expression: &Expression) -> f64 {
         .evaluate_expression(expression)
         .unwrap()
         .value
+}
+
+#[test]
+fn dragging_a_one_sided_revolve_s_arrow_back_past_its_sketch_reverses_it() {
+    let mut harness = Harness::new();
+    let mut section = Sketch::new(Plane::XZ);
+    rectangle(
+        &mut section,
+        Point2::new(10.0, 0.0),
+        Point2::new(20.0, 10.0),
+    );
+    harness.add_sketch(section);
+    harness.select([]);
+    harness.click("Revolve");
+    harness.settle();
+    let revolve = open_solid(&harness);
+    let SolidFeature::Revolve(mut turned) = harness.solid(revolve).clone() else {
+        panic!("expected a revolve");
+    };
+    turned.extent = caditor_document::RevolveExtent::OneSide {
+        angle: Expression::measure(90.0, caditor_expression::Unit::Degree),
+        reversed: false,
+    };
+    let mut transaction = harness.document().transaction("Turn a quarter");
+    transaction.edit(caditor_document::Edit::SetFeatureKind {
+        id: revolve,
+        kind: FeatureKind::Solid(SolidFeature::Revolve(turned)),
+    });
+    harness.perform(Action::Apply(transaction.finish()));
+    harness.settle();
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    let read = |harness: &Harness| match harness.solid(revolve) {
+        SolidFeature::Revolve(revolve) => match &revolve.extent {
+            caditor_document::RevolveExtent::OneSide { angle, reversed } => {
+                (*reversed, length_or_angle(harness, angle))
+            }
+            other => panic!("expected one angle, not {other:?}"),
+        },
+        SolidFeature::Extrude(_) | SolidFeature::Sweep(_) => panic!("expected a revolve"),
+    };
+    let (reversed, angle) = read(&harness);
+    let handle = Handle::Revolve(crate::turn_handles::TurnEnd::Only);
+    let path: Vec<Pos2> = (0..=12)
+        .map(|step| {
+            harness
+                .workspace
+                .viewport
+                .handle_position(handle, -(angle + 30.0) * f64::from(step) / 12.0)
+                .expect("the arrow is shown")
+        })
+        .collect();
+
+    harness.events.push(Event::PointerMoved(path[0]));
+    harness.frame();
+    harness.events.push(Event::PointerButton {
+        pos: path[0],
+        button: PointerButton::Primary,
+        pressed: true,
+        modifiers: Modifiers::NONE,
+    });
+    harness.frame();
+    for position in &path[1..] {
+        harness.events.push(Event::PointerMoved(*position));
+        harness.frame();
+    }
+
+    assert!(harness.shows_containing("reversed"));
+
+    harness.events.push(Event::PointerButton {
+        pos: path[12],
+        button: PointerButton::Primary,
+        pressed: false,
+        modifiers: Modifiers::NONE,
+    });
+    harness.frame();
+    harness.settle();
+    let (flipped, turned) = read(&harness);
+
+    assert!(!reversed);
+    assert!(flipped);
+    assert!((turned - 30.0).abs() <= 5.0, "{angle} to {turned}");
+    assert_eq!(harness.model.undo_label(), Some("Edit Revolve 1"));
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+
+    harness.perform(Action::Undo);
+    harness.settle();
+
+    assert_eq!(read(&harness), (reversed, angle));
 }

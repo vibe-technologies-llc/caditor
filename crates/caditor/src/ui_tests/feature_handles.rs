@@ -1,6 +1,6 @@
 use caditor_document::{
     Datum, Edit, ExtrudeEnd, ExtrudeExtent, FeatureId, FeatureKind, ParameterOwner, PatternKind,
-    PlaneReference, PrimitiveShape, SolidFeature, Transaction,
+    PlaneReference, PrimitiveShape, ShellSide, SolidFeature, Transaction,
 };
 use caditor_expression::Expression;
 use caditor_geometry::{Plane, Point2, Point3};
@@ -805,4 +805,187 @@ fn dragging_the_arrow_past_an_up_to_face_end_sets_its_offset() {
 
     assert_eq!(harness.model.undo_label(), Some("Edit Extrude 1"));
     assert!((found - 3.0).abs() <= step, "{found} with steps of {step}");
+}
+
+fn drag_back_through(harness: &mut Harness, measured: Measured, along: f64, words: &str) -> f64 {
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    let handle = Handle::Value(measured);
+    let from = grip(harness, handle, 0.0);
+    let to = grip(harness, handle, along);
+    let step = harness.workspace.viewport.manipulator_step().unwrap();
+
+    hold_at(harness, from, to);
+
+    assert!(harness.shows_containing(words), "the readout says {words}");
+
+    release_at(harness, to);
+    step
+}
+
+#[test]
+fn dragging_a_linear_pattern_s_arrow_back_past_the_original_reverses_its_direction() {
+    let mut harness = Harness::new();
+    extruded_plate(&mut harness);
+    harness.select([]);
+    harness.click("Linear pattern");
+    harness.settle();
+    let pattern = open_feature(&harness);
+    run_from_palette(&mut harness, "Fit view");
+    let first = |harness: &Harness| {
+        let FeatureKind::Pattern(pattern) = kind_of(harness, pattern) else {
+            panic!("the pattern stays a pattern");
+        };
+        let PatternKind::Linear { first, .. } = &pattern.kind else {
+            panic!("the pattern stays linear");
+        };
+        (
+            first.reversed,
+            harness
+                .model
+                .parameters()
+                .evaluate_expression(&first.count)
+                .unwrap()
+                .value,
+            value_of(harness, &first.spacing),
+        )
+    };
+    let (reversed, count, spacing) = first(&harness);
+
+    let step = drag_back_through(
+        &mut harness,
+        Measured::PatternSpacing(0),
+        -(count - 1.0) * (spacing + 4.0),
+        "reversed",
+    );
+    let (flipped, same, narrower) = first(&harness);
+
+    assert!(!reversed);
+    assert!(flipped);
+    assert_eq!(same, count);
+    assert!(
+        (narrower - 4.0).abs() <= step,
+        "{narrower} with steps of {step}"
+    );
+    assert_eq!(harness.model.undo_label(), Some("Edit Linear pattern 1"));
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+
+    harness.perform(Action::Undo);
+    harness.settle();
+
+    assert_eq!(first(&harness), (reversed, count, spacing));
+}
+
+#[test]
+fn dragging_a_circular_pattern_s_angle_back_past_the_original_turns_it_the_other_way() {
+    let mut harness = Harness::new();
+    extruded_plate(&mut harness);
+    harness.select([]);
+    harness.click("Circular pattern");
+    harness.settle();
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    harness.click_pickable(Plane::XY, Point2::new(0.0, 0.0), Pickable::Axis(Axis::Z));
+    harness.settle();
+    let pattern = open_feature(&harness);
+    let read = |harness: &Harness| {
+        let FeatureKind::Pattern(pattern) = kind_of(harness, pattern) else {
+            panic!("the pattern stays a pattern");
+        };
+        let PatternKind::Circular(circular) = &pattern.kind else {
+            panic!("the pattern stays circular");
+        };
+        (
+            circular.reversed,
+            harness
+                .model
+                .parameters()
+                .evaluate_expression(&circular.angle)
+                .unwrap()
+                .value,
+        )
+    };
+    run_from_palette(&mut harness, "Fit view");
+    for _ in 0..5 {
+        drag_value_arrow(&mut harness, Measured::CircularAngle, -60.0);
+    }
+    let (reversed, angle) = read(&harness);
+
+    drag_back_through(
+        &mut harness,
+        Measured::CircularAngle,
+        -(angle + 20.0),
+        "reversed",
+    );
+    let (flipped, turned) = read(&harness);
+
+    assert!(!reversed);
+    assert!((angle - 60.0).abs() <= 5.0, "{angle}");
+    assert!(flipped);
+    assert!((turned - 20.0).abs() <= 5.0, "{turned}");
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+}
+
+#[test]
+fn dragging_a_box_s_height_arrow_down_through_its_base_reverses_it() {
+    let mut harness = Harness::new();
+    harness.select([]);
+    harness.use_tool_with(Key::B, Modifiers::ALT);
+    harness.settle();
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    let feature = open_feature(&harness);
+    let read = |harness: &Harness| {
+        let primitive = primitive_of(harness, feature);
+        let height = primitive.shape.sizes().into_iter().nth(2).unwrap().1;
+        (primitive.reversed, value_of(harness, height))
+    };
+    let (reversed, height) = read(&harness);
+
+    let step = drag_back_through(
+        &mut harness,
+        Measured::PrimitiveSize(2),
+        -(height + 5.0),
+        "reversed",
+    );
+    let (flipped, lower) = read(&harness);
+
+    assert!(!reversed);
+    assert!(flipped);
+    assert!((lower - 5.0).abs() <= step, "{lower} with steps of {step}");
+    assert_eq!(harness.model.undo_label(), Some("Edit Box 1"));
+}
+
+#[test]
+fn dragging_a_shell_s_arrow_back_through_its_face_moves_the_walls_outside() {
+    let mut harness = Harness::new();
+    let (_, top) = extruded_plate(&mut harness);
+    harness.select([top]);
+    harness.click("Shell");
+    harness.settle();
+    harness.select([]);
+    let shell = open_feature(&harness);
+    let read = |harness: &Harness| {
+        let FeatureKind::Shell(shell) = kind_of(harness, shell) else {
+            panic!("the shell stays a shell");
+        };
+        (shell.side, value_of(harness, &shell.thickness))
+    };
+    let (side, thickness) = read(&harness);
+
+    let step = drag_back_through(
+        &mut harness,
+        Measured::ShellThickness,
+        -(thickness + 2.0),
+        "other side",
+    );
+    let (switched, thinner) = read(&harness);
+
+    assert_eq!(side, ShellSide::Inside);
+    assert_eq!(switched, ShellSide::Outside);
+    assert!(
+        (thinner - 2.0).abs() <= step,
+        "{thinner} with steps of {step}"
+    );
+    assert_eq!(harness.model.undo_label(), Some("Edit Shell 1"));
 }

@@ -41,7 +41,8 @@ sketch from the panel's **Sketch** list does the same.
   [parameters](parameters)). An arrow at the edge of the end drags the **Taper**, one standing on
   an Up to face or Up to next end drags how far it goes past the face (Up to next only when the
   first face it meets is flat and square to the sketch), and a thin wall has an arrow for its
-  **Thickness**.
+  **Thickness**, which dragged back through the curves switches the wall between Inside and
+  Outside.
 - A dragged arrow stops on a corner, an edge's middle or a round edge's centre under the pointer,
   and pulls to a face it passes, flat or curved, stopping where its line meets the face (on a
   cylinder, the side nearer the pointer); the readout says what it stopped at. Hold Ctrl to drag

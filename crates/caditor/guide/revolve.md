@@ -23,8 +23,9 @@ through a hidden sketch that follows their edges.
   sessions, or a full turn when the last was set back to one. Two angles together may not pass a full turn. While the revolve is open, an arrow at
   each end of the turn drags its angle in steps of 5°, or onto a corner, an edge's middle or a
   round edge's centre under the pointer, turning that end until it passes through the point
-  (hold Ctrl to drag freely), and a thin
-  wall's arrow its thickness. Type a value with the pointer on an arrow to set it exactly.
+  (hold Ctrl to drag freely); a one-sided angle's arrow dragged back past the sketch turns the
+  revolve the other way. A thin wall's arrow drags its thickness, and dragged back through the
+  curves switches the wall between Inside and Outside. Type a value with the pointer on an arrow to set it exactly.
 - **Up to face** turns until the profile reaches a face or plane that contains the axis, forward or
   reversed; a plane can be picked from the list as well as selected or clicked.
 - {command:model.reverse_direction} turns a one-sided or Up to face revolve the other way.

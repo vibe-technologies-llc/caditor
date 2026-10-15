@@ -407,7 +407,9 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   turn shows its forward half and drags the total twice as fast, two angles an arrow each. A drag
   follows the pointer's angle about the axis in the plane square to it, unwrapped past half a turn, in
   steps of `STEP_DEGREES` (Ctrl free) or snapping onto a point (Value handles below) between one step
-  and what the full turn leaves beside the other angle. A revolve starting off its sketch plane turns profile and axis shifted along the normal by the
+  and what the full turn leaves beside the other angle. A one-sided turn's arrow dragged back past
+  its sketch turns the other way (`TurnDrag::limited` keeps the sign, the release writes the
+  magnitude and flips `reversed`, the readout adds "reversed"). A revolve starting off its sketch plane turns profile and axis shifted along the normal by the
   start, so its arrows stand and turn there (`start_offset`).
 - A negative one-sided extrusion distance flips the extrusion instead of being refused
   (`Rule::FlipWhenNegative`, which refuses only zero; every other extrusion distance keeps
@@ -426,8 +428,9 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   distance negative does not flip again but fails the feature with the kernel's message to enter a
   distance above zero or flip the direction. The reach arrow dragged back through its start flips the
   same way (`ReachDrag::limited` keeps the sign of a one-sided drag, the readout adds "reversed and
-  switched to Remove"); the other ends stay at least one step. A revolve's angle has no such flip:
-  its rules (`Rule::Turn`) refuse a negative angle and Reverse direction turns it the other way.
+  switched to Remove"); the other ends stay at least one step. A typed revolve angle has no such
+  flip: its rules (`Rule::Turn`) refuse a negative angle and Reverse direction turns it the other
+  way; only its arrow dragged back flips it.
 - A drag never drops a name a field holds (`manipulator::Held`, read from the field's caption as its
   `ParameterOwner`, captions shared with the panels: `solid_panel::DISTANCE` and others,
   `move_panel::distance_caption`, `turn_caption`, `ANGLE`). A plain number is replaced by the measured
@@ -933,6 +936,15 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
     stays on the curve while dragged. A
     point pattern has no count or spacing: its copies are its sketch's points.
   Counts always step by one.
+- A value arrow whose feature has a way to turn round is never held at one step when dragged back
+  past zero: it flips instead (`Measured::reversed`, `ValueDrag::limited` keeping the sign of the
+  drag), and the release writes the magnitude into the reversed kind, the readout adding
+  `Measured::reversal_words`. A hole's blind Depth, a linear pattern's Spacing or Total length
+  (that direction's `reversed`), a circular pattern's Total angle, a coil's or helix's Pitch and
+  Height, and the height of a box, cylinder, cone, wedge or prism not centred on its place reverse;
+  a rib's Thickness switches One side and Other side, a shell's and a thin wall's Inside and
+  Outside. Symmetric, centred and Both sides values, a curve pattern (reversed walks from the other
+  end of its path, so no drag runs through it) and every other value keep their least value.
 - `Manipulator` holds them beside the primary handles as `Reach`, `Revolve`, `Place`'s and `Holes`'
   second part, or alone as `Manipulator::Value`, hit before the primary handles. Since value arrows stand at model
   positions while primary handles keep their size on screen, one coming within `CLEARANCE_POINTS` on

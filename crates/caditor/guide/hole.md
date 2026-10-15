@@ -5,7 +5,7 @@
 - With one flat face selected, it puts a hole on the face, on solid material away from its edges,
   in a hidden sketch. While it is open, drag the square at its centre to move it on the face, or
   an arrow to move it along one direction; the arrow at the bottom of a blind hole drags its
-  depth and the one at its rim, between the two moving arrows, its diameter (making the size
+  depth (dragged up past the top, the hole drills the other way) and the one at its rim, between the two moving arrows, its diameter (making the size
   Custom); a counterbore has arrows for its diameter at the mouth and its depth on the wall, a
   countersink for its diameter and, down the bore wall where the cone ends, its angle (drag it
   deeper for a narrower cone), a stepped hole a diameter arrow at the mouth of each step and a

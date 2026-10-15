@@ -57,8 +57,10 @@ chosen.
   **Turned with the curve**.
 - For points: **Points**, the sketch whose lone points take the copies, and the **Base point**.
 - In the view, an arrow at the last copy of each direction drags the spacing; the count is typed
-  in the panel. A circular pattern has two arrows along its turn, for its total angle and its
-  count; the angle's arrow dragged onto a corner or an edge's middle turns until it reaches it. A curve pattern spaced by distance has an arrow at its last copy for the spacing, and one
+  in the panel. Dragged back past the original, it reverses that direction. A circular pattern has
+  two arrows along its turn, for its total angle and its count; the angle's arrow dragged onto a
+  corner or an edge's middle turns until it reaches it, and dragged back past the original turns
+  the pattern the other way. A curve pattern spaced by distance has an arrow at its last copy for the spacing, and one
   spread evenly an arrow at its second copy for the count; both slide along the curve as you
   drag. Type a value with the pointer on an arrow to set it.
 - **Instances**: a grid with one box per copy, laid out like the copies seen from the top or

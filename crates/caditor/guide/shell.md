@@ -11,7 +11,7 @@ selected colour. **Choose in the view** in the panel first opens the faces of th
 then. The panel lists them, each with a button to close it again (hovering one lights it in the
 view), and sets the **Thickness**. Typing it previews the result before you press Enter. An arrow
 on the rim of the first opened flat face drags the thickness, standing on the side the walls
-grow.
+grow; dragged back through the face it switches the walls between Inside and Outside.
 
 A new shell starts from the thickness last used on one, kept between sessions (a thickness naming
 a parameter the model lacks falls back to 1 mm).

@@ -6,7 +6,7 @@ use caditor_document::{
     Helix, Hole, HoleDepth, HoleShape, HoleSizing, HoleStep, HoleStyle, LinearDirection,
     LinearSpacing, MAX_CONE_ANGLE, MAX_PATTERN_INSTANCES, MAX_PRISM_SIDES, MIN_PRISM_SIDES,
     OffsetFace, Pattern, PatternKind, PatternPath, Pipe, Primitive, PrimitiveAnchor,
-    PrimitiveShape, ReachedEnd, ReachedSide, Resolution, Rib, Shell, ShellSide, SizeRule,
+    PrimitiveShape, ReachedEnd, ReachedSide, Resolution, Rib, RibSide, Shell, ShellSide, SizeRule,
     SolidFeature, SolidStart, Wall, capitalized, circle_sizes, coil_size_name, displayed_axis,
     displayed_plane, face_plane, hole_centres, hole_thread, pipe_size_name, pipe_stand, rib_stand,
 };
@@ -25,8 +25,9 @@ use crate::{
     handle_snap, hole_panel, hole_tools,
     model::Model,
     move_manipulator::{ARROW_POINTS, Reach, step_for},
-    pattern_panel, pattern_tools, pipe_panel, reach_handles, rib_panel, scene, shell_panel,
-    solid_panel,
+    pattern_panel, pattern_tools, pipe_panel, reach_handles,
+    reversing::Flip,
+    rib_panel, scene, shell_panel, solid_panel,
     turn_handles::{STEP_DEGREES, Swing},
     units::Units,
 };
@@ -809,6 +810,117 @@ impl Measured {
                 .round()
                 .clamp(f64::from(MIN_PRISM_SIDES), f64::from(MAX_PRISM_SIDES)),
         }
+    }
+
+    pub fn reversed(self, kind: &FeatureKind) -> Option<FeatureKind> {
+        let mut reversed = kind.clone();
+        match self {
+            Self::HoleDepth => {
+                let FeatureKind::Hole(hole) = &mut reversed else {
+                    return None;
+                };
+                hole.reversed = !hole.reversed;
+            }
+            Self::PatternSpacing(index) => {
+                let direction = direction_mut(&mut reversed, index)?;
+                direction.reversed = !direction.reversed;
+            }
+            Self::CircularAngle => {
+                let circular = circular_mut(&mut reversed)?;
+                circular.reversed = !circular.reversed;
+            }
+            Self::CoilPitch | Self::CoilHeight => match &mut reversed {
+                FeatureKind::Coil(coil) => coil.reversed = !coil.reversed,
+                FeatureKind::Helix(helix) => helix.reversed = !helix.reversed,
+                _ => return None,
+            },
+            Self::PrimitiveSize(index) => {
+                let FeatureKind::Primitive(primitive) = &mut reversed else {
+                    return None;
+                };
+                let grows_one_way = primitive.anchor != PrimitiveAnchor::Centre;
+                (grows_one_way && height_index(&primitive.shape) == Some(index)).then_some(())?;
+                primitive.reversed = !primitive.reversed;
+            }
+            Self::RibThickness => {
+                let FeatureKind::Rib(rib) = &mut reversed else {
+                    return None;
+                };
+                rib.side = match rib.side {
+                    RibSide::OneSide => RibSide::OtherSide,
+                    RibSide::OtherSide => RibSide::OneSide,
+                    RibSide::Symmetric => return None,
+                };
+            }
+            Self::ShellThickness => {
+                let FeatureKind::Shell(shell) = &mut reversed else {
+                    return None;
+                };
+                shell.side = match shell.side {
+                    ShellSide::Inside => ShellSide::Outside,
+                    ShellSide::Outside => ShellSide::Inside,
+                    ShellSide::BothSides => return None,
+                };
+            }
+            Self::WallThickness => {
+                let wall = wall_mut(&mut reversed)?;
+                wall.side = match wall.side {
+                    WallSide::Inside => WallSide::Outside,
+                    WallSide::Outside => WallSide::Inside,
+                    WallSide::Centred => return None,
+                };
+            }
+            Self::HoleDiameter
+            | Self::CounterboreDiameter
+            | Self::CounterboreDepth
+            | Self::CountersinkDiameter
+            | Self::CountersinkAngle
+            | Self::StepDiameter(_)
+            | Self::StepDepth(_)
+            | Self::SlotLength
+            | Self::SlotAngle
+            | Self::ThreadDepth
+            | Self::HoleEndOffset
+            | Self::OffsetDistance
+            | Self::PlaneOffset
+            | Self::PlaneAngle
+            | Self::BlendSize
+            | Self::BlendSecond
+            | Self::BlendAngle
+            | Self::ShellFaceThickness(_)
+            | Self::PipeSize
+            | Self::PipeWall
+            | Self::PipeBend
+            | Self::Taper
+            | Self::EndOffset(_)
+            | Self::PrismSides
+            | Self::CircularCount
+            | Self::CurveSpacing
+            | Self::CurveCount
+            | Self::CoilDiameter
+            | Self::CoilSection => return None,
+        }
+        Some(reversed)
+    }
+
+    pub fn reversal_words(self) -> &'static str {
+        match self {
+            Self::RibThickness | Self::ShellThickness | Self::WallThickness => {
+                "switched to the other side"
+            }
+            _ => Flip::Reversed.words(),
+        }
+    }
+}
+
+fn height_index(shape: &PrimitiveShape) -> Option<usize> {
+    match shape {
+        PrimitiveShape::Box { .. }
+        | PrimitiveShape::Cone { .. }
+        | PrimitiveShape::Wedge { .. }
+        | PrimitiveShape::Prism { .. } => Some(2),
+        PrimitiveShape::Cylinder { .. } => Some(1),
+        PrimitiveShape::Sphere { .. } | PrimitiveShape::Torus { .. } => None,
     }
 }
 
