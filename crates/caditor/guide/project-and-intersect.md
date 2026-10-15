@@ -25,6 +25,14 @@ whole of them, with its points and the [constraints](constraints) and
 says the edge was cut into parts: delete the projection and project the parts you want, rather
 than one of them being taken without notice.
 
+## Keeping a projection as ordinary curves
+
+Select projected or intersected curves and choose {command:sketch.unlink_projection}, from the
+Sketch menu, the right-click menu or the palette. They stay where they are, with their points,
+constraints and dimensions, but no longer follow their source: they can be dragged, trimmed and
+dimensioned like curves you drew, and a later change to the body or sketch they came from leaves
+them alone. Undo links them again.
+
 You rarely need it before drawing: a drawing tool that [snaps](snapping) to a body's corner or
 edge projects it for you.
 

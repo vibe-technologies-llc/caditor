@@ -206,7 +206,7 @@ const SCREEN: Rect = Rect::from_min_max(Pos2::ZERO, Pos2::new(1400.0, 1000.0));
 const RECOMPUTE_TIMEOUT: Duration = Duration::from_secs(10);
 const FRAME_SECONDS: f64 = 0.05;
 const ANIMATION_FRAMES: usize = 5;
-const WHEEL_TRIES: usize = 20;
+const WHEEL_TRIES: usize = 40;
 const WHEEL_STEP: f32 = 60.0;
 
 #[derive(Debug, Clone, Copy)]

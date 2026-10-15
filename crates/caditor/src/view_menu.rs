@@ -508,6 +508,7 @@ fn sketch(ui: &mut Ui, entries: &mut MenuEntries<'_>, on_item: bool) {
             Command::BreakCurves,
             "Break the curves where they cross",
         );
+        entries.offered(ui, Command::UnlinkProjection, "Keep as ordinary curves");
         entries.titled_item(ui, Command::DeleteSelection, DELETE);
         sketch_modifying(ui, entries);
         ui.separator();

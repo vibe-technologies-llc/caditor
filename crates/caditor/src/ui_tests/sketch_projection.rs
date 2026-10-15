@@ -425,3 +425,83 @@ fn shift_click_or_the_palette_projects_a_whole_earlier_sketch_in_one_step() {
         Some("Project 4 curves and 1 point of Plate")
     );
 }
+
+#[test]
+fn an_unlinked_projection_stays_where_it_is_while_the_rest_follow_the_face() {
+    let mut harness = Harness::new();
+    let (_, top) = extruded_plate(&mut harness);
+    let plate = harness
+        .document()
+        .features()
+        .find(|feature| feature.name == "Plate")
+        .map(caditor_document::Feature::id)
+        .expect("the plate's sketch");
+    let sketch = harness.draw_on_new_sketch();
+    harness.use_tool_with(Key::P, Modifiers::ALT);
+    harness.click_pickable(Plane::XY, Point2::new(20.0, 20.0), top);
+    harness.settle();
+    let side_at = |harness: &Harness, level: f64| {
+        let shown = harness.shown(sketch);
+        shown
+            .entities()
+            .map(|(id, _)| id)
+            .find(|id| {
+                shown.line_endpoints(*id).is_some_and(|(start, end)| {
+                    (start.y - level).abs() < 1e-9 && (end.y - level).abs() < 1e-9
+                })
+            })
+            .expect("a side of the plate at that level")
+    };
+    let bottom = side_at(&harness, 0.0);
+    let reach = |harness: &Harness, line: EntityId| {
+        let (start, end) = harness.shown(sketch).line_endpoints(line).unwrap();
+        start.x.max(end.x)
+    };
+
+    harness.use_tool(Key::Escape);
+    harness.select([Pickable::SketchEntity {
+        feature: sketch,
+        entity: bottom,
+    }]);
+    run_from_palette(&mut harness, "keep the selected projections");
+    harness.settle();
+
+    assert_eq!(
+        harness.model.undo_label(),
+        Some(format!("Unlink {}", harness.sketch(sketch).entity_label(bottom)).as_str())
+    );
+    assert!(harness.shows_containing("no longer follows Extrude 1"));
+    assert!(!harness.sketch(sketch).is_projected(bottom));
+    assert_eq!(harness.sketch(sketch).projected().count(), 9);
+
+    let widened: Vec<(EntityId, Entity)> = harness
+        .sketch(plate)
+        .entities()
+        .filter_map(|(id, entity)| match entity {
+            Entity::Point(at) if (at.x - 40.0).abs() < 1e-9 => {
+                Some((id, Entity::Point(Point2::new(60.0, at.y))))
+            }
+            _ => None,
+        })
+        .collect();
+    let mut transaction = harness.document().transaction("Widen the plate");
+    for (id, entity) in widened {
+        transaction.edit(caditor_document::Edit::SetSketchEntity {
+            feature: plate,
+            id,
+            entity,
+        });
+    }
+    harness.perform(Action::Apply(transaction.finish()));
+    harness.settle();
+    let top_side = side_at(&harness, 40.0);
+
+    assert!((reach(&harness, top_side) - 60.0).abs() < 1e-9);
+    assert!((reach(&harness, bottom) - 40.0).abs() < 1e-9);
+
+    harness.perform(Action::Undo);
+    harness.perform(Action::Undo);
+    harness.settle();
+
+    assert!(harness.sketch(sketch).is_projected(bottom));
+}

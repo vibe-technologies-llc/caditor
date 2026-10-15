@@ -1,6 +1,8 @@
 use std::collections::BTreeSet;
 
-use caditor_document::{Edit, FeatureId, Transaction, TransactionBuilder};
+use caditor_document::{
+    Document, Edit, FeatureId, ProjectionSource, SketchFeature, Transaction, TransactionBuilder,
+};
 use caditor_expression::{Dimension, Expression, Unit};
 use caditor_geometry::{Point2, Vector2};
 use caditor_sketch::{
@@ -2202,6 +2204,84 @@ pub const BREAK_TITLE: &str = "Break curves";
 pub const NOTHING_TO_RESPACE: &str = "Select fit-point splines drawn before their curves followed \
                                       the spacing of their points";
 pub const RESPACE_TITLE: &str = "Respace fit-point splines";
+pub const NOTHING_TO_UNLINK: &str =
+    "Select projected or intersected geometry to keep as ordinary curves";
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct UnlinkChange {
+    pub linked: Vec<(EntityId, ProjectionSource)>,
+}
+
+impl UnlinkChange {
+    pub fn of(definition: &SketchFeature, selected: &[EntityId]) -> Result<Self, String> {
+        let linked: Vec<(EntityId, ProjectionSource)> = selected
+            .iter()
+            .filter_map(|id| Some((*id, definition.projections.get(id)?.clone())))
+            .collect();
+        if linked.is_empty() {
+            Err(NOTHING_TO_UNLINK.to_owned())
+        } else {
+            Ok(Self { linked })
+        }
+    }
+
+    pub fn label(&self, sketch: &Sketch) -> String {
+        match self.linked.as_slice() {
+            [(only, _)] => format!("Unlink {}", sketch.entity_label(*only)),
+            linked => format!(
+                "Unlink {}",
+                count(linked.len(), "projection", "projections")
+            ),
+        }
+    }
+
+    pub fn announcement(&self, document: &Document, sketch: &Sketch) -> String {
+        match self.linked.as_slice() {
+            [(only, source)] => format!(
+                "{} no longer follows {}; it stays where it is and can be edited",
+                sketch.entity_label(*only),
+                followed(document, source)
+            ),
+            linked => format!(
+                "{} no longer follow what they were projected from; they stay where they are and \
+                 can be edited",
+                count(linked.len(), "curve or point", "curves and points")
+            ),
+        }
+    }
+
+    pub fn transaction(&self, model: &Model, feature: FeatureId, sketch: &Sketch) -> Transaction {
+        let mut transaction = settled_transaction(model, feature, self.label(sketch));
+        for (id, _) in &self.linked {
+            transaction.edit(Edit::SetSketchProjection {
+                feature,
+                id: *id,
+                source: None,
+            });
+        }
+        transaction.finish()
+    }
+}
+
+fn followed(document: &Document, source: &ProjectionSource) -> String {
+    let named = |feature: FeatureId| {
+        document
+            .body_label(feature)
+            .unwrap_or_else(|| "its source".to_owned())
+    };
+    match source {
+        ProjectionSource::Edge { body, .. }
+        | ProjectionSource::Vertex { body, .. }
+        | ProjectionSource::Section { body, .. } => named(*body),
+        ProjectionSource::SketchEntity { sketch, .. } => named(*sketch),
+        ProjectionSource::DatumPlane { datum, .. }
+        | ProjectionSource::DatumAxis { datum, .. }
+        | ProjectionSource::DatumPoint { datum } => named(*datum),
+        ProjectionSource::PrincipalPlane { plane, .. } => format!("the {}", plane.name()),
+        ProjectionSource::PrincipalAxis { axis, .. } => format!("the {}", axis.name()),
+        ProjectionSource::Origin => "the origin".to_owned(),
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RespaceChange {

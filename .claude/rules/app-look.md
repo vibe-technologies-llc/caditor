@@ -451,9 +451,10 @@ paths:
   what is still free, the open ends, the redundant constraints), Draw (every drawing tool and Spur
   gear; each shape's ways, one paragraph a shape; the drawing aids; typed dimensions, drawing
   symmetrically, slicing the bodies), Modify (Construction and every modify and projecting tool;
-  Offset's and Blend curve's ways; Split, Break, Respace; Move, Rotate, Scale; Copy, Cut, Paste,
-  Delete; Project every curve of another sketch, Intersect the whole body), Constrain (every geometric constraint, Curvature included; Add
-  the relations the drawing shows, Check the sketch for flaws) and Dimension (Smart dimension and
+  Offset's and Blend curve's ways; Split, Break, Respace, Keep as ordinary curves; Move, Rotate,
+  Scale; Copy, Cut, Paste, Delete; Project every curve of another sketch, Intersect the whole
+  body), Constrain (every geometric constraint, Curvature included; Add the relations the drawing
+  shows, Check the sketch for flaws) and Dimension (Smart dimension and
   every dimension; Disable, Dimension fully from a datum point; Scale the whole sketch on its first
   dimension). The active tool, Construction while drawing construction and each shape's current way
   (`ShapeModes::of`) are marked; choosing the active tool again is dropped, so the menu never steps

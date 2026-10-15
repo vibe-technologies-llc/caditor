@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use caditor_document::{Feature, FeatureId};
+use caditor_document::{Feature, FeatureId, FeatureKind};
 use caditor_sketch::{Constraint, ConstraintId, EntityId, Sketch};
 use egui::{
     Align, Align2, CornerRadius, FontId, Id, Label, Layout, Margin, Popup, Rect, Response,
@@ -31,7 +31,7 @@ use crate::{
     sketch_status::{self, SketchSummary, StatusRequest},
     sketch_tools::{
         self, ActivityChange, BreakChange, ConstraintTool, ConstructionChange, RespaceChange,
-        SplitChange,
+        SplitChange, UnlinkChange,
     },
     toggles::ToggleStates,
     units::Units,
@@ -230,6 +230,7 @@ const MODIFY_MENU: &[&[Command]] = &[
         Command::SplitCurve,
         Command::BreakCurves,
         Command::RespaceFitSplines,
+        Command::UnlinkProjection,
     ],
     &[
         Command::MoveGeometry,
@@ -450,6 +451,10 @@ pub fn show(
     let construction = ConstructionChange::of(definition, &selected);
     let split = SplitChange::of(&shown, &selected);
     let breaking = BreakChange::of(&shown, &selected);
+    let unlinking = match &feature.kind {
+        FeatureKind::Sketch(sketch) => UnlinkChange::of(sketch, &selected),
+        _ => Err(sketch_tools::NOTHING_TO_UNLINK.to_owned()),
+    };
     let respacing = RespaceChange::of(&shown, &selected);
     let activity = ActivityChange::of(
         definition,
@@ -484,6 +489,7 @@ pub fn show(
         activity: activity.as_ref(),
         split: split.as_ref().map(|_| ()).map_err(String::clone),
         breaking: breaking.as_ref().map(|_| ()).map_err(String::clone),
+        unlinking: unlinking.as_ref().map(|_| ()).map_err(String::clone),
         respacing: respacing.as_ref().map(|_| ()).map_err(String::clone),
         deletable: if deletable.is_empty() {
             Err(NOTHING_TO_DELETE.to_owned())
@@ -600,6 +606,19 @@ pub fn show(
             Err(reason) => Action::Inform(Notice::warning(reason)),
         });
     }
+    if request.unlinking
+        && let Ok(change) = &unlinking
+    {
+        actions.push(Action::Apply(change.transaction(
+            model,
+            feature.id(),
+            definition,
+        )));
+        actions.push(Action::Inform(Notice::info(format!(
+            "{}.",
+            change.announcement(model.document(), definition)
+        ))));
+    }
     if request.respacing
         && let Ok(change) = &respacing
     {
@@ -666,6 +685,7 @@ struct Request {
     activity: bool,
     split: bool,
     breaking: bool,
+    unlinking: bool,
     respacing: bool,
     delete: bool,
     finish: bool,
@@ -725,6 +745,7 @@ struct Bar<'a, 'b> {
     activity: Option<&'a ActivityChange>,
     split: Result<(), String>,
     breaking: Result<(), String>,
+    unlinking: Result<(), String>,
     respacing: Result<(), String>,
     deletable: Result<(), String>,
     moving: Result<(), String>,
@@ -1326,6 +1347,12 @@ impl Bar<'_, '_> {
         }
         if self.commands.invoke(Command::BreakCurves, &self.breaking) {
             self.request.breaking = true;
+        }
+        if self
+            .commands
+            .invoke(Command::UnlinkProjection, &self.unlinking)
+        {
+            self.request.unlinking = true;
         }
         if self
             .commands

@@ -1021,6 +1021,7 @@ impl Menus<'_> {
                             Command::SplitCurve,
                             Command::BreakCurves,
                             Command::RespaceFitSplines,
+                            Command::UnlinkProjection,
                         ],
                     );
                     ui.separator();

@@ -308,6 +308,15 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   it crosses the sketch as a construction line spanning the shown bodies (`datum_reach`). Each is one
   undoable transaction; a plane missing the face or body, a parallel plane, a later datum and cuts
   already drawn are refused in words.
+- Keep the selected projections as ordinary curves (`Command::UnlinkProjection`, no default key;
+  palette, Sketch › Modify geometry, the Modify group menu, the right-click menu while it applies;
+  `sketch_tools::UnlinkChange`) takes every selected entity that has a `ProjectionSource` and, in
+  one settled transaction ("Unlink Line 3", "Unlink 4 projections"), sends
+  `Edit::SetSketchProjection` with no source for each, so it keeps its solved place, constraints
+  and dimensions and stops following; points shared with a projection still linked stay projected
+  (`document.md`). An info notice names what it no longer follows (`UnlinkChange::announcement`).
+  Nothing projected selected is `NOTHING_TO_UNLINK`. Trim, extend and the sketch fillet go on
+  refusing a linked projection; unlinking is never a side effect.
 - Drawing tools project body corners and edges themselves when a point snaps to one (Snapping).
   Projected geometry is drawn in `ScenePalette::projected`, is never grabbed or dragged and follows
   its source on every recompute (`document.md`).

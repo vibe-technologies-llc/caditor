@@ -106,6 +106,7 @@ pub enum Command {
     SplitCurve,
     BreakCurves,
     RespaceFitSplines,
+    UnlinkProjection,
     RotateGeometry,
     ScaleGeometry,
     MoveGeometry,
@@ -371,6 +372,7 @@ impl Command {
                 | Self::Construction
                 | Self::SplitCurve
                 | Self::BreakCurves
+                | Self::UnlinkProjection
                 | Self::RotateGeometry
                 | Self::ScaleGeometry
                 | Self::MoveGeometry
@@ -803,6 +805,7 @@ plain_commands! {
     SplitCurve,
     BreakCurves,
     RespaceFitSplines,
+    UnlinkProjection,
     RotateGeometry,
     ScaleGeometry,
     MoveGeometry,
@@ -963,6 +966,7 @@ impl Command {
             Self::ToggleConstraintActive => "sketch.toggle_constraint_active",
             Self::SplitCurve => "sketch.split_curve",
             Self::BreakCurves => "sketch.break_curves",
+            Self::UnlinkProjection => "sketch.unlink_projection",
             Self::RespaceFitSplines => "sketch.respace_fit_splines",
             Self::RotateGeometry => "sketch.rotate",
             Self::ScaleGeometry => "sketch.scale",
@@ -1287,6 +1291,7 @@ impl Command {
             Self::ToggleConstraintActive => "Disable or enable the selected constraints",
             Self::SplitCurve => "Split the selected curve at the selected point",
             Self::BreakCurves => "Break the selected curves at every crossing",
+            Self::UnlinkProjection => "Keep the selected projections as ordinary curves",
             Self::RespaceFitSplines => "Respace the selected fit-point splines by their points",
             Self::RotateGeometry => "Rotate selected sketch geometry",
             Self::ScaleGeometry => "Scale selected sketch geometry",
@@ -1886,6 +1891,7 @@ impl Command {
             | Self::ToggleConstraintActive
             | Self::SplitCurve
             | Self::BreakCurves
+            | Self::UnlinkProjection
             | Self::RespaceFitSplines
             | Self::RotateGeometry
             | Self::ScaleGeometry
@@ -1928,6 +1934,7 @@ impl Command {
             | Self::ToggleConstraintActive
             | Self::SplitCurve
             | Self::BreakCurves
+            | Self::UnlinkProjection
             | Self::RespaceFitSplines
             | Self::RotateGeometry
             | Self::ScaleGeometry
@@ -2095,6 +2102,7 @@ impl Command {
             | Self::ToggleConstraintActive
             | Self::SplitCurve
             | Self::BreakCurves
+            | Self::UnlinkProjection
             | Self::RespaceFitSplines
             | Self::ProjectSketch
             | Self::RotateGeometry
