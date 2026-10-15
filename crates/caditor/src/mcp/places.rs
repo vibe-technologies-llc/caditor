@@ -21,7 +21,7 @@ const EDGE_KEY_DIGITS: usize = 32;
 const CORNER_TOLERANCE: f64 = 1e-6;
 const NOT_FOUND_AT_THE_BAR: &str = "is not found where the new feature sits in the tree";
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum PlaceError {
     #[error("“{0}” is not an edge key; use one list_edges gives")]
     UnreadableEdgeKey(String),
@@ -43,8 +43,15 @@ pub enum PlaceError {
          a sketch point, a datum point, a coordinate system or origin"
     )]
     NoCentre { what: String },
-    #[error("{body} has no corner at {at}; list_edges gives the ends of its straight edges")]
-    NoCorner { body: String, at: String },
+    #[error(
+        "{body} has no corner at [{x}, {y}, {z}]; list_edges gives the ends of its straight edges"
+    )]
+    NoCorner {
+        body: String,
+        x: f64,
+        y: f64,
+        z: f64,
+    },
     #[error("{name} is not a point of {sketch}; get_sketch lists its points")]
     NotAPoint { name: String, sketch: String },
     #[error("face {face} of {body} {reason}")]
@@ -431,7 +438,9 @@ fn corner(
     let wanted = Point3::new(x, y, z);
     let missing = || PlaceError::NoCorner {
         body: body_label(document, body),
-        at: format!("[{x}, {y}, {z}]"),
+        x,
+        y,
+        z,
     };
     let shown = bodies::shown(evaluation, body).ok_or_else(missing)?;
     let reach = CORNER_TOLERANCE * wanted.length().max(1.0);

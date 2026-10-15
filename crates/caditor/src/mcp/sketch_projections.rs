@@ -163,7 +163,9 @@ fn body_things(
             .map(|(_, key)| key)
             .ok_or_else(|| PlaceError::NoCorner {
                 body: body_name.clone(),
-                at: format!("[{x}, {y}, {z}]"),
+                x,
+                y,
+                z,
             })?;
         wanted.extend(projections(
             surroundings,

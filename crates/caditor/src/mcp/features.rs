@@ -358,7 +358,7 @@ pub struct Moving {
     pub name: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum FeatureError {
     #[error("give {field}")]
     Missing { field: &'static str },
@@ -411,8 +411,10 @@ pub enum FeatureError {
     FacesAndFeatures,
     #[error("{sketch} has no closed region to choose")]
     NoRegions { sketch: String },
-    #[error("{sketch} has no region around {at}; get_sketch lists a point inside each region")]
-    NoRegionAt { sketch: String, at: String },
+    #[error(
+        "{sketch} has no region around [{x}, {y}]; get_sketch lists a point inside each region"
+    )]
+    NoRegionAt { sketch: String, x: f64, y: f64 },
     #[error("regions takes a point inside each region wanted, such as [[5, 5]], or \"all\"")]
     NoRegionPoints,
     #[error("a revolve ends up_to a plane or turns by an angle, not both")]
@@ -592,7 +594,8 @@ pub(super) fn region_at<'e>(
         .find(|region| region.region.contains(Point2::new(x, y)))
         .ok_or_else(|| FeatureError::NoRegionAt {
             sketch: sketch.to_owned(),
-            at: format!("[{x}, {y}]"),
+            x,
+            y,
         })
 }
 
